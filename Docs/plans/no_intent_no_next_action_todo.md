@@ -51,108 +51,109 @@ sync with the plan document as changes land.
 
 ## Phase 1: Intent Validation + Unknown Verb Detection
 
-- [ ] Add verb validation in `internal/shards/system/perception.go`:
-  - [ ] Build `isVerbMapped` helper (uses DefaultTaxonomyData + action mappings).
-  - [ ] Emit `intent_unmapped(Verb, /unknown_verb)` when verb not mapped.
-  - [ ] Reduce confidence for unmapped verbs to force clarification ladder.
-  - [ ] Emit `intent_unknown` when parse fails or confidence is too low.
-- [ ] Re-check `matchVerbFromCorpus` default `/explain` behavior; ensure it does not mask `intent_unknown`.
-- [ ] Add structured reason atoms: `/llm_failed`, `/heuristic_low`, `/no_verb_match`, `/no_action_mapping` as needed.
+- [x] Add verb validation in `internal/shards/system/perception.go`:
+  - [x] Build `classifyVerbMapping` helper (uses VerbCorpus + action mappings).
+  - [x] Emit `intent_unmapped(Verb, /unknown_verb)` when verb not mapped.
+  - [x] Reduce confidence for unmapped verbs to force clarification ladder.
+  - [x] Emit `intent_unknown` when parse fails or confidence is too low.
+- [x] Re-check `matchVerbFromCorpus` default `/explain` behavior; ensure it does not mask `intent_unknown` (now emits `/no_verb_match` + low confidence).
+- [x] Add structured reason atoms: `/llm_failed`, `/heuristic_low`, `/no_verb_match`, `/no_action_mapping`.
 
 ## Phase 2: Clarification Payload Hydration
 
-- [ ] Update `internal/shards/system/executive.go`:
-  - [ ] Add hydration path for `/interrogative_mode` to include question + options.
-  - [ ] Query `clarification_question/2` by intent id and set `req.Target`.
-  - [ ] Query `clarification_option/3` and set `req.Payload["options"]` as list.
-  - [ ] Ensure fallback question when none found.
-- [ ] Validate `VirtualStore.handleInterrogative` behavior still matches payload format.
+- [x] Update `internal/shards/system/executive.go`:
+  - [x] Add hydration path for `/interrogative_mode` to include question + options.
+  - [x] Query `clarification_question/2` by intent id and set `req.Target`.
+  - [x] Query `clarification_option/3` and set `req.Payload["options"]` as list.
+  - [x] Ensure fallback question when none found.
+- [x] Validate `VirtualStore.handleInterrogative` behavior still matches payload format.
 
 ## Phase 3: OODA Timeout Wiring
 
-- [ ] Add OODA stall tracking to `internal/shards/system/executive.go`:
-  - [ ] Track last user intent timestamp.
-  - [ ] Only assert `ooda_timeout()` after N seconds (e.g., 30s) with no action.
-  - [ ] Respect boot guard: no timeout during session rehydration.
-  - [ ] Reset timeout when new intent arrives or action derived.
-- [ ] Ensure `ooda_timeout` is asserted to kernel facts so policy derives `ooda_stalled`.
-- [ ] Confirm escalation rules actually trigger an action when OODA stalls.
+- [x] Add OODA stall tracking to `internal/shards/system/executive.go`:
+  - [x] Track last user intent timestamp.
+  - [x] Only assert `ooda_timeout()` after N seconds (e.g., 30s) with no action.
+  - [x] Respect boot guard: no timeout during session rehydration.
+  - [x] Reset timeout when new intent arrives or action derived.
+- [x] Ensure `ooda_timeout` is asserted to kernel facts so policy derives `ooda_stalled`.
+- [x] Confirm escalation rules actually trigger an action when OODA stalls.
 
 ## Phase 4: Router Missing-Route Escalation
 
-- [ ] Update `internal/shards/system/router.go`:
-  - [ ] On missing route, emit `routing_result(ActionID, /failure, "no_handler", Timestamp)`.
-  - [ ] Optionally emit `no_action_reason(IntentID, /no_route)` if intent context is available.
-  - [ ] Keep existing `routing_error` only if still needed; ensure policy path covers failure.
-- [ ] Verify policy rules react to `routing_result` failure.
+- [x] Update `internal/shards/system/router.go`:
+  - [x] On missing route, emit `routing_result(ActionID, /failure, "no_handler", Timestamp)`.
+  - [x] Emit `no_action_reason(IntentID, /no_route)` when route is missing.
+  - [x] Keep existing `routing_error` only if still needed; ensure policy path covers failure.
+- [x] Verify policy rules react to `routing_result` failure.
 
 ## Phase 5: Learning Candidate Storage (Safe)
 
-- [ ] Add new store `internal/store/learning_candidates.go`:
-  - [ ] Create SQLite table `learning_candidates` with status + metadata.
-  - [ ] Implement `RecordCandidate`, `ListCandidates`, `ConfirmCandidate`, `RejectCandidate`.
-  - [ ] Store reason, phrase, verb, target, counts, timestamps.
-- [ ] Wire the candidate store into session init (likely in `cmd/nerd/chat/session.go` and/or shard registration).
-- [ ] Connect `PerceptionFirewall` to the candidate store:
-  - [ ] Increment count on repeated failures (`intent_unmapped` or `no_action_derived`).
-  - [ ] Assert `learning_candidate` when threshold met.
-  - [ ] Do not auto-promote; only record.
+- [x] Add new store `internal/store/learning_candidates.go`:
+  - [x] Create SQLite table `learning_candidates` with status + metadata.
+  - [x] Implement `RecordLearningCandidate`, `ListLearningCandidates`, `ConfirmLearningCandidate`, `RejectLearningCandidate`.
+  - [x] Store reason, phrase, verb, target, counts, timestamps.
+- [x] Wire the candidate store into session init (in `cmd/nerd/chat/session.go`).
+- [x] Connect `PerceptionFirewall` to the candidate store:
+  - [x] Increment count on repeated failures (`intent_unmapped`).
+  - [x] Assert `learning_candidate` when threshold met.
+  - [x] Do not auto-promote; only record.
+- [ ] Extend learning candidate capture for `no_action_derived` (needs reliable raw-input capture or a safe phrase surrogate).
 - [ ] Confirm `TaxonomyStore.StoreLearnedExemplar` is called only after explicit user confirmation.
 
 ## Phase 6: Kernel-Driven Clarification in Chat UI
 
-- [ ] Update `cmd/nerd/chat/process.go`:
-  - [ ] Add `shouldClarifyFromKernel` (reads `awaiting_clarification`, `clarification_question`, `clarification_option`).
-  - [ ] Prefer kernel clarification over chat heuristic `shouldClarifyIntent`.
-  - [ ] Display kernel-provided question and options to the user.
-- [ ] Ensure ambiguity signals are not duplicated or conflicting between kernel and chat.
+- [x] Update `cmd/nerd/chat/process.go`:
+  - [x] Add `shouldClarifyFromKernel` (reads `awaiting_clarification`, `clarification_question`, `clarification_option`).
+  - [x] Prefer kernel clarification over chat heuristic `shouldClarifyIntent`.
+  - [x] Display kernel-provided question and options to the user.
+- [x] Ensure ambiguity signals are not duplicated or conflicting between kernel and chat.
 
 ## Phase 7: Docs + Config Alignment
 
-- [ ] Update `cmd/nerd/cmd_query.go` to reflect `/interrogative_mode` (deprecate `/ask_user`).
-- [ ] Add config values in `.nerd/config.json`:
-  - [ ] `learning_candidate_threshold: 3`
-  - [ ] `learning_candidate_auto_promote: false`
-- [ ] Verify any mention of `learned.mg` now points to `learned_taxonomy.mg`.
+- [x] Update `cmd/nerd/cmd_query.go` to reflect `/interrogative_mode` (deprecate `/ask_user`).
+- [x] Add config values in `.nerd/config.json`:
+  - [x] `learning_candidate_threshold: 3`
+  - [x] `learning_candidate_auto_promote: false`
+- [ ] Audit docs to distinguish kernel `learned.mg` vs taxonomy `learned_taxonomy.mg` (avoid blanket renames).
 
 ## JIT Prompt Atom Work (Required for New LLM Flows)
 
-- [ ] Add prompt atoms for clarification flow (e.g., `internal/prompt/atoms/system/clarification.yaml`).
-- [ ] Add prompt atoms for learning candidate confirmation flow (if new LLM prompt is introduced).
-- [ ] Ensure atoms follow internal vs project-specific placement rules.
-- [ ] Ensure compiler consumes these atoms (add references where appropriate).
+- [x] Add prompt atoms for clarification flow (e.g., `internal/prompt/atoms/system/clarification.yaml`).
+- [x] Add prompt atoms for learning candidate confirmation flow (if new LLM prompt is introduced).
+- [x] Ensure atoms follow internal vs project-specific placement rules.
+- [x] Ensure compiler can load these atoms (selection wiring still TBD if new LLM flow is added).
 
 ## Tests
 
-- [ ] Add `internal/shards/system/perception_validation_test.go`:
-  - [ ] Unknown verb emits `intent_unmapped`.
-  - [ ] Confidence reduced to force clarification.
-  - [ ] `clarification_question` derived for unknown verbs.
-- [ ] Add `internal/shards/system/executive_ooda_test.go`:
-  - [ ] Boot guard prevents `ooda_timeout`.
-  - [ ] After timeout, `ooda_timeout` asserted.
-  - [ ] New intent resets timeout.
-- [ ] Add `internal/shards/system/router_escalation_test.go`:
-  - [ ] Missing route emits `routing_result` with `/failure`.
-  - [ ] `no_action_reason(_, /no_route)` emits and triggers clarification.
-- [ ] Add `internal/store/learning_candidates_test.go`:
-  - [ ] Record/increment/retrieve candidates.
-  - [ ] Confirm and reject paths work correctly.
-- [ ] Run full test suite: `go test ./...`.
+- [x] Add `internal/shards/system/perception_validation_test.go`:
+  - [x] Unknown verb emits `intent_unmapped`.
+  - [x] Confidence reduced to force clarification.
+  - [x] `clarification_question` derived for unknown verbs.
+- [x] Add `internal/shards/system/executive_ooda_test.go`:
+  - [x] Boot guard prevents `ooda_timeout`.
+  - [x] After timeout, `ooda_timeout` asserted.
+  - [x] New intent resets timeout.
+- [x] Add `internal/shards/system/router_escalation_test.go`:
+  - [x] Missing route emits `routing_result` with `/failure`.
+  - [x] `no_action_reason(_, /no_route)` emits and triggers clarification.
+- [x] Add `internal/store/learning_candidates_test.go`:
+  - [x] Record/increment/retrieve candidates.
+  - [x] Confirm and reject paths work correctly.
+- [ ] Run full test suite: `go test ./...` (blocked: `internal/store/prompt_reembed.go` undefined `embedding`).
 
 ## Integration + Wiring Verification
 
-- [ ] Confirm new policy file `learning.mg` is loaded by kernel.
-- [ ] Confirm all new predicates are Decl'd and used safely (no unbound vars).
-- [ ] Confirm routing failure escalation derives an actionable `next_action`.
-- [ ] Confirm interrogative payloads arrive at `VirtualStore.handleInterrogative`.
-- [ ] Confirm OODA stall behavior respects boot guard.
-- [ ] Confirm learning candidates are persisted but not auto-applied.
-- [ ] Confirm chat UI uses kernel clarification path before its own heuristics.
-- [ ] Confirm docs and config changes are consistent and mention the correct taxonomy file.
+- [x] Confirm new policy file `learning.mg` is loaded by kernel.
+- [x] Confirm all new predicates are Decl'd and used safely (no unbound vars).
+- [x] Confirm routing failure escalation derives an actionable `next_action`.
+- [x] Confirm interrogative payloads arrive at `VirtualStore.handleInterrogative`.
+- [x] Confirm OODA stall behavior respects boot guard.
+- [x] Confirm learning candidates are persisted but not auto-applied.
+- [x] Confirm chat UI uses kernel clarification path before its own heuristics.
+- [ ] Confirm docs and config changes are consistent and distinguish `learned.mg` vs `learned_taxonomy.mg`.
 
 ## Git Hygiene
 
-- [ ] Review `git status` for unrelated changes and avoid reverting them.
+- [x] Review `git status` for unrelated changes and avoid reverting them.
 - [ ] Use conventional commit message.
 - [ ] Push to GitHub after meaningful milestones.

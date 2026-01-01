@@ -50,8 +50,9 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	// Embed query (prefer RETRIEVAL_QUERY if supported).
 	var queryEmbedding []float32
 	var err error
-	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok {
-		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, "RETRIEVAL_QUERY")
+	taskType := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, taskType)
 	} else {
 		queryEmbedding, err = engine.Embed(ctx, query)
 	}

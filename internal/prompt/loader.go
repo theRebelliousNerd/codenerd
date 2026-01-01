@@ -810,7 +810,25 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 	logging.Get(logging.CategoryStore).Info("Generating embeddings for %d atoms using %s",
 		len(atomsToEmbed), engine.Name())
 
-	embeddings, err := engine.EmbedBatch(ctx, textsToEmbed)
+	taskType := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
+	var embeddings [][]float32
+	if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+		embeddings, err = batchAware.EmbedBatchWithTask(ctx, textsToEmbed, taskType)
+	} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		embeddings = make([][]float32, len(textsToEmbed))
+		for i, text := range textsToEmbed {
+			vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
+			if embedErr != nil {
+				return fmt.Errorf("failed to embed atom %d: %w", i, embedErr)
+			}
+			if len(vec) == 0 {
+				return fmt.Errorf("empty embedding for atom %d", i)
+			}
+			embeddings[i] = vec
+		}
+	} else {
+		embeddings, err = engine.EmbedBatch(ctx, textsToEmbed)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to generate batch embeddings: %w", err)
 	}
@@ -820,7 +838,7 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 	}
 
 	// Store atoms with embeddings in a transaction for atomicity
-	if err := storeAtomsWithEmbeddings(ctx, db, atomsToEmbed, embeddings); err != nil {
+	if err := storeAtomsWithEmbeddings(ctx, db, atomsToEmbed, embeddings, taskType); err != nil {
 		return fmt.Errorf("failed to store atoms: %w", err)
 	}
 
@@ -870,7 +888,7 @@ func getTextForEmbedding(atom *PromptAtom) string {
 }
 
 // storeAtomsWithEmbeddings stores atoms and their embeddings in a single transaction.
-func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAtom, embeddings [][]float32) error {
+func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAtom, embeddings [][]float32, taskType string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -929,7 +947,7 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
 			string(atom.Category), nullableString(atom.Subcategory),
 			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
-			embeddingBlob, "RETRIEVAL_DOCUMENT", "embedded",
+			embeddingBlob, nullableString(taskType), "embedded",
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert atom %s: %w", atom.ID, err)
