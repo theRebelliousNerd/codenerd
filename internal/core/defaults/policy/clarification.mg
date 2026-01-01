@@ -37,7 +37,7 @@ next_action(/interrogative_mode) :-
 
 clarification_question(/current_intent, Question) :-
     intent_unmapped(Verb, /unknown_verb),
-    Question = fn:string_concat("I don't recognize the action '", Verb, "'. What would you like me to do?").
+    Question = fn:concat(fn:concat("I don't recognize the action '", Verb), "'. What would you like me to do?").
 
 clarification_question(/current_intent, "Could you rephrase what you'd like me to do?") :-
     intent_unknown(_, /llm_failed).
@@ -80,7 +80,8 @@ next_action(/interrogative_mode) :-
     !any_awaiting_clarification(/yes).
 
 clarification_question(IntentID, "I'm not sure which action to take for this request. Could you clarify?") :-
-    no_action_reason(IntentID, /no_action_derived).
+    no_action_reason(IntentID, /no_action_derived),
+    !learning_confirmation_active(/yes).
 
 # Section 11: Abductive Reasoning
 

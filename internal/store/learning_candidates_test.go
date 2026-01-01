@@ -54,3 +54,35 @@ func TestLearningCandidateStoreRecordAndConfirm(t *testing.T) {
 		t.Fatalf("confirmed candidate ID = %d, want %d", confirmed[0].ID, pending[0].ID)
 	}
 }
+
+func TestLearningCandidateStoreConfirmMatch(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "knowledge.db")
+	store, err := NewLocalStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewLocalStore() error = %v", err)
+	}
+
+	phrase := "deploy service"
+	verb := "/deploy"
+	target := "service"
+	reason := "/no_action_derived"
+
+	if _, err := store.RecordLearningCandidate(phrase, verb, target, reason); err != nil {
+		t.Fatalf("RecordLearningCandidate error = %v", err)
+	}
+
+	if err := store.ConfirmLearningCandidateMatch(phrase, verb, target, reason); err != nil {
+		t.Fatalf("ConfirmLearningCandidateMatch error = %v", err)
+	}
+
+	confirmed, err := store.ListLearningCandidates("confirmed", 10)
+	if err != nil {
+		t.Fatalf("ListLearningCandidates error = %v", err)
+	}
+	if len(confirmed) != 1 {
+		t.Fatalf("confirmed candidates = %d, want 1", len(confirmed))
+	}
+	if confirmed[0].Phrase != phrase || confirmed[0].Verb != verb || confirmed[0].Target != target || confirmed[0].Reason != reason {
+		t.Fatalf("confirmed candidate mismatch: %#v", confirmed[0])
+	}
+}

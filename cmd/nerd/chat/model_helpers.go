@@ -176,6 +176,61 @@ func isDreamExecutionTrigger(input string) bool {
 	return false
 }
 
+func isAffirmativeResponse(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	triggers := []string{
+		"/learn_yes",
+		"yes", "y", "yeah", "yep", "sure", "ok", "okay",
+		"correct", "learn this", "confirm", "do it",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNegativeResponse(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	triggers := []string{
+		"/learn_no",
+		"no", "n", "nope", "nah", "don't", "do not", "never",
+		"reject", "skip", "not now",
+	}
+	for _, t := range triggers {
+		if strings.Contains(lower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func escapeMangleString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
+func normalizeVerbAtom(verb string) string {
+	v := strings.TrimSpace(verb)
+	if v == "" || v == "none" || v == "_" {
+		return ""
+	}
+	if !strings.HasPrefix(v, "/") {
+		return "/" + v
+	}
+	return v
+}
+
 // extractCorrectionContent extracts the corrective content from user input
 func extractCorrectionContent(input string) string {
 	lower := strings.ToLower(input)

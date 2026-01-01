@@ -109,6 +109,8 @@ var DerivedPredicates = map[string]bool{
 	"route_to_tool":      true,
 	"route_to_shard":     true,
 	"action_type":        true,
+	"learning_confirmation_needed": true,
+	"learning_confirmation_active": true,
 
 	// Test framework detection
 	"test_framework":     true,
