@@ -14,6 +14,26 @@ action_validated(ActionID) :-
     action_verified(ActionID, _, _, Confidence, _),
     Confidence >= 80.
 
+# Paranoid validation (maximum confidence, zero false positives)
+action_paranoid_validated(ActionID) :-
+    action_verified(ActionID, _, /paranoid_validation, Confidence, _),
+    Confidence = 100.
+
+# Enhanced edit validation (surgical verification)
+action_enhanced_validated(ActionID) :-
+    action_verified(ActionID, _, /enhanced_edit_validation, Confidence, _),
+    Confidence = 100.
+
+# Critical actions REQUIRE paranoid validation (file writes, edits)
+requires_paranoid_validation(/write_file).
+requires_paranoid_validation(/fs_write).
+requires_paranoid_validation(/edit_file).
+
+# Critical action is only validated if paranoid validator passed
+critical_action_validated(ActionID) :-
+    action_verified(ActionID, ActionType, /paranoid_validation, 100, _),
+    requires_paranoid_validation(ActionType).
+
 # Weak validation (lower confidence, might need confirmation)
 action_weakly_validated(ActionID) :-
     action_verified(ActionID, _, _, Confidence, _),
@@ -124,6 +144,10 @@ validation_threshold(/output_scan, 75).
 validation_threshold(/codedom_refresh, 90).
 validation_threshold(/skipped, 0).
 
+# Paranoid and enhanced validations require perfect confidence
+validation_threshold(/paranoid_validation, 100).
+validation_threshold(/enhanced_edit_validation, 100).
+
 # Check if validation meets threshold for its method
 validation_meets_threshold(ActionID) :-
     action_verified(ActionID, _, Method, Confidence, _),
@@ -154,6 +178,10 @@ action_resolved(ActionID) :-
 
 action_resolved(ActionID) :-
     action_healed(ActionID).
+
+# Critical actions are only resolved if paranoid validation passed
+critical_action_resolved(ActionID) :-
+    critical_action_validated(ActionID).
 
 # Unresolved failures for monitoring
 unresolved_failure(ActionID) :-

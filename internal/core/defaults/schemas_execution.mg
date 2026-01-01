@@ -74,7 +74,7 @@ Decl action_mapping(IntentVerb, ActionType).
 
 # action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 # Emitted when post-action validation succeeds.
-# Method: /hash, /syntax, /existence, /content_check, /output_scan, /codedom_refresh
+# Method: /hash, /syntax, /existence, /content_check, /output_scan, /codedom_refresh, /paranoid_validation, /enhanced_edit_validation
 # Confidence: 0-100 integer score (Go scales 0.0-1.0 to 0-100)
 Decl action_verified(ActionID, ActionType, Method, Confidence, Timestamp).
 
