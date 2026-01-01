@@ -1175,6 +1175,61 @@ learning_candidate_ready(Phrase, Verb) :-
 
 ---
 
+## Addendum: Critic Learned-Exemplar Extraction Hardening (Post-Plan Finding)
+
+During live verification of the learning-candidate flow, a concrete wiring gap
+emerged that is not captured in the original phases: the Critic LLM frequently
+returns verbose text (JSON payloads, self-reflections, or multi-sentence analysis)
+that surrounds the `learned_exemplar(...)` fact. The original extraction logic
+was naive (substring to first `)`), which collapses when:
+
+- The Critic includes trailing prose after the fact.
+- Constraint strings contain commas (`,`) which break naive `strings.Split`.
+- The Critic emits JSON with embedded commas and quotes, causing the extracted
+  string to include many stray commas before any closing `)`.
+
+**Impact:** The learning-candidate pipeline appears to work, but in practice the
+Critic output can exceed the parser’s tolerance. The result is a failed learning
+candidate staging step (no confirmation prompt), even when the LLM did output a
+valid `learned_exemplar` fact. This blocks the entire “safe learning candidate”
+path and hides a valid teaching opportunity from the user.
+
+### Required Hardening Changes (New Tasks)
+
+1) **Quote-aware extraction of `learned_exemplar`:**
+   - Scan forward from `learned_exemplar(` and find the first closing `)` that
+     is *not* inside a quoted string.
+   - If a trailing `.` exists, include it; otherwise append one.
+   - This keeps extraction resilient even when the LLM wraps the fact in JSON
+     or surrounds it with narrative text.
+
+2) **Comma-safe parsing of fact arguments:**
+   - Replace naive `strings.Split` with a parser that splits on commas only
+     when *not* inside quoted strings.
+   - Allow constraints like `"ensure: wired to the TUI, log a note"` without
+     breaking argument count.
+
+3) **Preserve full learned fact during confirmation:**
+   - When staging a learning candidate, store the raw fact in a kernel fact
+     (`learning_candidate_fact`) so confirmation can persist *exactly what the
+     Critic proposed*, including constraint string and confidence value.
+
+4) **Test the hardened path in both modes:**
+   - **Manual /learn path:** trigger the Critic, confirm yes, verify
+     `.nerd/mangle/learned_taxonomy.mg` is updated only after confirmation.
+   - **Auto-learn path:** trigger dissatisfaction, confirm yes, verify the
+     same persistence rule.
+   - Confirm `learning_candidates` records switch from `pending` → `confirmed`.
+
+### Validation Notes
+
+- The hardening tasks must be considered part of the “learning candidate” phase
+  and should be tracked in the TODO list as a new mini-phase.
+- This work does **not** relax the safety model: candidates are still staged
+  only after explicit confirmation, and no auto-promotion is introduced.
+
+---
+
 **Total Estimated Files to Modify:** 12
 **Total New Files:** 3
 **Risk Level:** Medium (touches perception, executive, router, but with clear boundaries)
