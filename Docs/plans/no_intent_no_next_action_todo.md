@@ -163,5 +163,5 @@ sync with the plan document as changes land.
 ## Git Hygiene
 
 - [x] Review `git status` for unrelated changes and avoid reverting them.
-- [ ] Use conventional commit message.
-- [ ] Push to GitHub after meaningful milestones.
+- [x] Use conventional commit message.
+- [x] Push to GitHub after meaningful milestones.
