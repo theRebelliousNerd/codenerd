@@ -442,6 +442,15 @@ func (s *LocalStore) initialize() error {
 		logging.Get(logging.CategoryStore).Warn("Failed to create prompt atoms indexes: %v", err)
 	}
 
+	if removed, err := s.dedupePredicateVectors(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to dedupe predicate vectors: %v", err)
+	} else if removed > 0 {
+		logging.Store("Deduped %d predicate vectors", removed)
+	}
+	if err := s.ensurePredicateVectorUniqueIndex(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Failed to create predicate vector unique index: %v", err)
+	}
+
 	return nil
 }
 
@@ -522,4 +531,36 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 
 	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
 	return stats, nil
+}
+
+func (s *LocalStore) dedupePredicateVectors() (int64, error) {
+	pattern := `%"kind":"predicate"%`
+	result, err := s.db.Exec(`
+		DELETE FROM vectors
+		WHERE metadata LIKE ?
+		  AND id NOT IN (
+			SELECT MAX(id)
+			FROM vectors
+			WHERE metadata LIKE ?
+			GROUP BY content
+		  );`,
+		pattern,
+		pattern,
+	)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return rows, nil
+}
+
+func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
+	_, err := s.db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_vectors_predicate_content_unique ON vectors(content)
+		 WHERE metadata LIKE '%"kind":"predicate"%';`,
+	)
+	return err
 }

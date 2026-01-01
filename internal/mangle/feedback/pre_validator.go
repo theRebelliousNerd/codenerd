@@ -149,6 +149,33 @@ func (pv *PreValidator) compilePatterns() {
 			Suggestion:     `Replace "string" with /atom for identifiers, enums, and status values`,
 			AutoRepairable: true,
 		},
+		{
+			Category:       CategoryAtomString,
+			Pattern:        `user_intent\(\s*[^,]+,\s*"([^"]+)"`,
+			Message:        "user_intent category must be atom",
+			WrongExample:   `user_intent(Id, "review", /fix, /codebase, _)`,
+			CorrectFix:     `user_intent(Id, /review, /fix, /codebase, _)`,
+			Suggestion:     "Use /atom for category, verb, and target fields in user_intent/5",
+			AutoRepairable: true,
+		},
+		{
+			Category:       CategoryAtomString,
+			Pattern:        `user_intent\(\s*[^,]+,\s*[^,]+,\s*"([^"]+)"`,
+			Message:        "user_intent verb must be atom",
+			WrongExample:   `user_intent(Id, /review, "fix", /codebase, _)`,
+			CorrectFix:     `user_intent(Id, /review, /fix, /codebase, _)`,
+			Suggestion:     "Use /atom for category, verb, and target fields in user_intent/5",
+			AutoRepairable: true,
+		},
+		{
+			Category:       CategoryAtomString,
+			Pattern:        `user_intent\(\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*"([^"]+)"`,
+			Message:        "user_intent target must be atom",
+			WrongExample:   `user_intent(Id, /review, /fix, "codebase", _)`,
+			CorrectFix:     `user_intent(Id, /review, /fix, /codebase, _)`,
+			Suggestion:     "Use /atom for category, verb, and target fields in user_intent/5",
+			AutoRepairable: true,
+		},
 		// Common enum-like strings that should be atoms
 		{
 			Category:       CategoryAtomString,

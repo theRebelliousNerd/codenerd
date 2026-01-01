@@ -44,6 +44,30 @@ func TestPreValidator_AtomStringConfusion(t *testing.T) {
 			wantErr:  false, // Not an enum-like value
 			category: 0,
 		},
+		{
+			name:     "user_intent category should be atom",
+			input:    `user_intent(Id, "review", /fix, /codebase, _)`,
+			wantErr:  true,
+			category: CategoryAtomString,
+		},
+		{
+			name:     "user_intent verb should be atom",
+			input:    `user_intent(Id, /review, "fix", /codebase, _)`,
+			wantErr:  true,
+			category: CategoryAtomString,
+		},
+		{
+			name:     "user_intent target should be atom",
+			input:    `user_intent(Id, /review, /fix, "codebase", _)`,
+			wantErr:  true,
+			category: CategoryAtomString,
+		},
+		{
+			name:     "user_intent atoms are allowed",
+			input:    `user_intent(Id, /review, /fix, /codebase, _)`,
+			wantErr:  false,
+			category: 0,
+		},
 	}
 
 	for _, tt := range tests {
