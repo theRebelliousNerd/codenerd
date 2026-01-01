@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
+	"codenerd/internal/config"
 	coreshards "codenerd/internal/core/shards"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/types"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -126,10 +129,23 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	}
 	defer cortex.Close()
 
+	normalizedType := normalizeShardType(shardType)
+	waitTimeout := spawnWaitTimeout(timeout)
+
 	// Generate shard ID for fact recording
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 
-	result, spawnErr := cortex.SpawnTask(ctx, shardType, task)
+	var result string
+	var spawnErr error
+	if cortex.ShardManager != nil {
+		if cfg, ok := cortex.ShardManager.GetProfile(normalizedType); ok && cfg.Type == types.ShardTypeSystem {
+			result, spawnErr = spawnSystemShardAndWait(ctx, cortex.ShardManager, normalizedType, task, waitTimeout)
+		} else {
+			result, spawnErr = cortex.SpawnTask(ctx, shardType, task)
+		}
+	} else {
+		result, spawnErr = cortex.SpawnTask(ctx, shardType, task)
+	}
 
 	// Record execution facts regardless of success/failure
 	facts := cortex.ShardManager.ResultToFacts(shardID, shardType, task, result, spawnErr)
@@ -147,4 +163,50 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Shard Result: %s\n", result)
 	return nil
+}
+
+func normalizeShardType(input string) string {
+	return strings.TrimLeft(strings.TrimSpace(input), "/")
+}
+
+func spawnWaitTimeout(cmdTimeout time.Duration) time.Duration {
+	waitTimeout := config.GetLLMTimeouts().FollowUpTimeout
+	if waitTimeout <= 0 {
+		waitTimeout = 5 * time.Minute
+	}
+	if cmdTimeout > 0 && cmdTimeout < waitTimeout {
+		return cmdTimeout
+	}
+	return waitTimeout
+}
+
+func spawnSystemShardAndWait(ctx context.Context, manager *coreshards.ShardManager, shardType, task string, waitTimeout time.Duration) (string, error) {
+	if manager == nil {
+		return "", fmt.Errorf("shard manager unavailable for system shard %s", shardType)
+	}
+
+	shardID, err := manager.SpawnAsyncWithContext(ctx, shardType, task, nil)
+	if err != nil {
+		return "", err
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			return "", fmt.Errorf("system shard %s did not complete within %v (id=%s)", shardType, waitTimeout, shardID)
+		case <-ticker.C:
+			if res, ok := manager.GetResult(shardID); ok {
+				if res.Error != nil {
+					return "", res.Error
+				}
+				return res.Result, nil
+			}
+		}
+	}
 }
