@@ -139,7 +139,13 @@ func (l *LegislatorShard) SetParentKernel(k types.Kernel) {
 	l.BaseSystemShard.SetParentKernel(k)
 	if rk, ok := k.(*core.RealKernel); ok {
 		if corpus := rk.GetPredicateCorpus(); corpus != nil {
-			l.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
+			selector := prompt.NewPredicateSelector(corpus)
+			if vs := rk.GetVirtualStore(); vs != nil {
+				if db := vs.GetLocalDB(); db != nil {
+					selector.SetVectorStore(db)
+				}
+			}
+			l.feedbackLoop.SetPredicateSelector(selector)
 		}
 	}
 }

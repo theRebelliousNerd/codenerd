@@ -246,6 +246,35 @@ func (pc *PredicateCorpus) GetByCategory(category string) ([]PredicateInfo, erro
 	return predicates, nil
 }
 
+// GetAllPredicates returns all predicate metadata in the corpus.
+func (pc *PredicateCorpus) GetAllPredicates() ([]PredicateInfo, error) {
+	pc.mu.RLock()
+	defer pc.mu.RUnlock()
+
+	rows, err := pc.db.Query(`
+		SELECT id, name, arity, type, category, description, safety_level, domain, section, source_file
+		FROM predicates
+		ORDER BY name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var predicates []PredicateInfo
+	for rows.Next() {
+		var info PredicateInfo
+		if err := rows.Scan(
+			&info.ID, &info.Name, &info.Arity, &info.Type, &info.Category,
+			&info.Description, &info.SafetyLevel, &info.Domain, &info.Section, &info.SourceFile,
+		); err != nil {
+			return nil, err
+		}
+		predicates = append(predicates, info)
+	}
+	return predicates, nil
+}
+
 // GetAllPredicateNames returns all predicate names in the corpus.
 func (pc *PredicateCorpus) GetAllPredicateNames() ([]string, error) {
 	pc.mu.RLock()

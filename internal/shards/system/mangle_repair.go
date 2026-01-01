@@ -74,6 +74,18 @@ func NewMangleRepairShard() *MangleRepairShard {
 	}
 }
 
+// SetParentKernel wires the kernel and configures context-aware predicate selection.
+func (m *MangleRepairShard) SetParentKernel(k types.Kernel) {
+	m.BaseSystemShard.SetParentKernel(k)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.corpus != nil && m.predicateSelector == nil {
+		m.predicateSelector = prompt.NewPredicateSelector(m.corpus)
+		logging.SystemShards("[MangleRepair] PredicateSelector initialized")
+	}
+	m.attachVectorStoreLocked()
+}
+
 // SetCorpus sets the predicate corpus for schema validation.
 func (m *MangleRepairShard) SetCorpus(corpus *core.PredicateCorpus) {
 	m.mu.Lock()
@@ -84,6 +96,7 @@ func (m *MangleRepairShard) SetCorpus(corpus *core.PredicateCorpus) {
 		// Auto-create PredicateSelector when corpus is set
 		m.predicateSelector = prompt.NewPredicateSelector(corpus)
 		logging.SystemShards("[MangleRepair] PredicateSelector initialized")
+		m.attachVectorStoreLocked()
 	}
 }
 
@@ -94,6 +107,22 @@ func (m *MangleRepairShard) SetPredicateSelector(selector *prompt.PredicateSelec
 	m.predicateSelector = selector
 	if selector != nil {
 		logging.SystemShards("[MangleRepair] PredicateSelector attached")
+		m.attachVectorStoreLocked()
+	}
+}
+
+func (m *MangleRepairShard) attachVectorStoreLocked() {
+	if m.predicateSelector == nil {
+		return
+	}
+	rk := m.Kernel
+	if rk == nil {
+		return
+	}
+	if vs := rk.GetVirtualStore(); vs != nil {
+		if db := vs.GetLocalDB(); db != nil {
+			m.predicateSelector.SetVectorStore(db)
+		}
 	}
 }
 
