@@ -147,21 +147,22 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 	aggregatorDone := make(chan struct{})
 	go func() {
 		defer close(aggregatorDone)
-		for {
+		dirCh := dirResults
+		fileCh := fileResults
+		for dirCh != nil || fileCh != nil {
 			select {
-			case dir, ok := <-dirResults:
+			case dir, ok := <-dirCh:
 				if !ok {
-					// Both channels closed, we're done
-					return
+					dirCh = nil
+					continue
 				}
 				result.DirectoryCount++
 				result.Facts = append(result.Facts, dir.fact)
 
-			case file, ok := <-fileResults:
+			case file, ok := <-fileCh:
 				if !ok {
-					// Both channels are closed together (see end of ScanWorkspaceCtx)
-					// so we can safely return here
-					return
+					fileCh = nil
+					continue
 				}
 				result.FileCount++
 				result.Languages[file.language]++

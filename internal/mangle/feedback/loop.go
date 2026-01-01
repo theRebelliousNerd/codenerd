@@ -47,6 +47,10 @@ type PredicateSelectorInterface interface {
 	SelectForContext(shardType, intentVerb, domain string) ([]string, error)
 }
 
+type PredicateCatalogProvider interface {
+	AllPredicateSignatures() ([]string, error)
+}
+
 // FeedbackLoop orchestrates the validate-retry cycle for LLM-generated Mangle.
 type FeedbackLoop struct {
 	config            RetryConfig
@@ -122,6 +126,7 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 
 	// Get available predicates for feedback - use JIT selector if available
 	var predicates []string
+	var fullCatalog []string
 	if fl.predicateSelector != nil {
 		// JIT-style: select context-relevant predicates (~50-100 instead of 799)
 		if selected, err := fl.predicateSelector.SelectForContext("", "", domain); err == nil {
@@ -130,6 +135,11 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		} else {
 			logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: JIT selector failed, falling back to full list: %v", err)
 			predicates = validator.GetDeclaredPredicates()
+		}
+		if provider, ok := fl.predicateSelector.(PredicateCatalogProvider); ok {
+			if all, err := provider.AllPredicateSignatures(); err == nil {
+				fullCatalog = all
+			}
 		}
 	} else {
 		predicates = validator.GetDeclaredPredicates()
@@ -172,13 +182,22 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 		// Build prompt (with feedback on retry attempts)
 		currentPrompt := enhancedPrompt
 		if attempt > 1 && len(lastErrors) > 0 {
+			predicateList := predicates
+			if len(fullCatalog) > 0 {
+				for _, err := range lastErrors {
+					if err.Category == CategoryUndeclaredPredicate {
+						predicateList = fullCatalog
+						break
+					}
+				}
+			}
 			feedbackCtx := FeedbackContext{
 				OriginalPrompt:      userPrompt,
 				OriginalRule:        lastRule,
 				Errors:              lastErrors,
 				AttemptNumber:       attempt,
 				MaxAttempts:         fl.config.MaxRetries,
-				AvailablePredicates: predicates,
+				AvailablePredicates: predicateList,
 				ValidExamples:       ValidRuleExamples(domain),
 				OutputProtocol:      outputProtocol,
 			}

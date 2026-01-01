@@ -678,21 +678,27 @@ func AutoDetectContext7APIKey() string {
 
 // GetJITConfig returns JIT Prompt Compiler config with defaults applied.
 func (c *UserConfig) GetJITConfig() JITConfig {
+	cfg := DefaultJITConfig()
 	if c.JIT != nil {
-		cfg := *c.JIT
-		// Apply defaults for zero values (except booleans which default to false)
-		if cfg.TokenBudget == 0 {
-			cfg.TokenBudget = 200000 // 200k tokens default
+		if c.JIT.enabledSet {
+			cfg.Enabled = c.JIT.Enabled
 		}
-		if cfg.ReservedTokens == 0 {
-			cfg.ReservedTokens = 8000
+		if c.JIT.fallbackEnabledSet {
+			cfg.FallbackEnabled = c.JIT.FallbackEnabled
 		}
-		if cfg.SemanticTopK == 0 {
-			cfg.SemanticTopK = 20
+		if c.JIT.TokenBudget != 0 {
+			cfg.TokenBudget = c.JIT.TokenBudget
 		}
-		return cfg
+		if c.JIT.ReservedTokens != 0 {
+			cfg.ReservedTokens = c.JIT.ReservedTokens
+		}
+		cfg.DebugMode = c.JIT.DebugMode
+		cfg.TraceLLMIO = c.JIT.TraceLLMIO
+		if c.JIT.SemanticTopK != 0 {
+			cfg.SemanticTopK = c.JIT.SemanticTopK
+		}
 	}
-	return DefaultJITConfig()
+	return cfg
 }
 
 // GetEffectiveJITConfig returns JIT config clamped to the context window.

@@ -62,8 +62,10 @@ func Compile(spec Spec, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("mangle parse failed: %w", err)
 	}
-	if _, err := analysis.AnalyzeOneUnit(unit, nil); err != nil {
-		return Result{}, fmt.Errorf("mangle analysis failed: %w", err)
+	if !options.SkipAnalysis {
+		if _, err := analysis.AnalyzeOneUnit(unit, nil); err != nil {
+			return Result{}, fmt.Errorf("mangle analysis failed: %w", err)
+		}
 	}
 
 	return Result{

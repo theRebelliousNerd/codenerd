@@ -130,6 +130,19 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	if semanticTopK > 0 {
 		cc.SemanticTopK = semanticTopK
 	}
+	switch pc.ShardType {
+	case "legislator", "mangle_repair":
+		// Keep Mangle system prompts focused to avoid massive context dumps.
+		if cc.TokenBudget > 60000 {
+			cc.TokenBudget = 60000
+		}
+		if cc.ReservedTokens > 4000 {
+			cc.ReservedTokens = 4000
+		}
+		if cc.SemanticTopK > 10 {
+			cc.SemanticTopK = 10
+		}
+	}
 
 	normalizeTag := func(v string) string {
 		v = strings.TrimSpace(v)

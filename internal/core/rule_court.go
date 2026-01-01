@@ -51,9 +51,13 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
 	}
 
-	// Liveness check: ensure at least one permitted action remains
+	// Liveness check: only veto if the rule eliminates an existing permitted action set.
+	basePermitted, baseErr := kernel.Query("permitted")
 	permitted, err := sandbox.Query("permitted")
-	if err != nil || len(permitted) == 0 {
+	if err != nil {
+		return fmt.Errorf("rule rejected by sandbox query: %w", err)
+	}
+	if baseErr == nil && len(basePermitted) > 0 && len(permitted) == 0 {
 		return fmt.Errorf("VETO: rule causes total system deadlock (no permitted actions)")
 	}
 
