@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -85,9 +87,249 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 // =============================================================================
 
 // canonFact returns a stable string key for a fact.
-// We use Fact.String() which is already canonical for Mangle serialization.
 func (k *RealKernel) canonFact(f Fact) string {
-	return f.String()
+	var sb strings.Builder
+	sb.WriteString(f.Predicate)
+	sb.WriteString("(")
+	for i, arg := range f.Args {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(arg))
+	}
+	sb.WriteString(")")
+	return sb.String()
+}
+
+func canonValue(v interface{}) string {
+	switch t := v.(type) {
+	case nil:
+		return "null"
+	case MangleAtom:
+		return canonString(string(t))
+	case string:
+		return canonString(t)
+	case bool:
+		if t {
+			return "/true"
+		}
+		return "/false"
+	case int:
+		return strconv.FormatInt(int64(t), 10)
+	case int8:
+		return strconv.FormatInt(int64(t), 10)
+	case int16:
+		return strconv.FormatInt(int64(t), 10)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	case uint:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10)
+	case uint64:
+		return strconv.FormatUint(t, 10)
+	case float32:
+		return strconv.FormatInt(normalizeFloatToInt64(float64(t)), 10)
+	case float64:
+		return strconv.FormatInt(normalizeFloatToInt64(t), 10)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return strconv.FormatInt(i, 10)
+		}
+		if f, err := t.Float64(); err == nil {
+			return strconv.FormatInt(normalizeFloatToInt64(f), 10)
+		}
+		return strconv.Quote(t.String())
+	case []byte:
+		return strconv.Quote(string(t))
+	case []interface{}:
+		return canonSliceInterface(t)
+	case []string:
+		return canonSliceString(t)
+	case []int:
+		return canonSliceInt(t)
+	case []int64:
+		return canonSliceInt64(t)
+	case []float64:
+		return canonSliceFloat64(t)
+	case map[string]interface{}:
+		return canonMapStringInterface(t)
+	case map[string]string:
+		return canonMapStringString(t)
+	default:
+		rv := reflect.ValueOf(v)
+		if rv.IsValid() {
+			switch rv.Kind() {
+			case reflect.Slice, reflect.Array:
+				return canonSliceReflect(rv)
+			case reflect.Map:
+				return canonMapReflect(rv)
+			}
+		}
+		return strconv.Quote(fmt.Sprintf("%v", v))
+	}
+}
+
+func canonString(v string) string {
+	if isValidMangleNameConstant(v) {
+		return v
+	}
+	return strconv.Quote(v)
+}
+
+func normalizeFloatToInt64(v float64) int64 {
+	if v >= 0.0 && v <= 1.0 {
+		return int64(v * 100)
+	}
+	return int64(v)
+}
+
+func canonSliceInterface(values []interface{}) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(v))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceString(values []string) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonString(v))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceInt(values []int) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.FormatInt(int64(v), 10))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceInt64(values []int64) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.FormatInt(v, 10))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceFloat64(values []float64) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i, v := range values {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.FormatInt(normalizeFloatToInt64(v), 10))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonSliceReflect(value reflect.Value) string {
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i := 0; i < value.Len(); i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(canonValue(value.Index(i).Interface()))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func canonMapStringInterface(values map[string]interface{}) string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(k))
+		sb.WriteString(":")
+		sb.WriteString(canonValue(values[k]))
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+func canonMapStringString(values map[string]string) string {
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(k))
+		sb.WriteString(":")
+		sb.WriteString(canonString(values[k]))
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
+func canonMapReflect(value reflect.Value) string {
+	keys := value.MapKeys()
+	keyStrings := make([]string, 0, len(keys))
+	keyMap := make(map[string]reflect.Value, len(keys))
+	for _, k := range keys {
+		ks := fmt.Sprint(k.Interface())
+		keyStrings = append(keyStrings, ks)
+		keyMap[ks] = k
+	}
+	sort.Strings(keyStrings)
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, ks := range keyStrings {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(strconv.Quote(ks))
+		sb.WriteString(":")
+		sb.WriteString(canonValue(value.MapIndex(keyMap[ks]).Interface()))
+	}
+	sb.WriteString("}")
+	return sb.String()
 }
 
 // ensureFactIndexLocked initializes the fact index if needed.
@@ -411,21 +653,16 @@ func (k *RealKernel) RetractExactFactsBatch(facts []Fact) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	canon := func(f Fact) string {
-		argsJSON, _ := json.Marshal(f.Args)
-		return f.Predicate + "|" + string(argsJSON)
-	}
-
 	toRemove := make(map[string]struct{}, len(facts))
 	for _, f := range facts {
-		toRemove[canon(f)] = struct{}{}
+		toRemove[k.canonFact(f)] = struct{}{}
 	}
 
 	prevCount := len(k.facts)
 	filtered := make([]Fact, 0, prevCount)
 	retractedCount := 0
 	for _, f := range k.facts {
-		if _, ok := toRemove[canon(f)]; ok {
+		if _, ok := toRemove[k.canonFact(f)]; ok {
 			retractedCount++
 			continue
 		}
@@ -570,6 +807,48 @@ func argsSliceEqual(a, b []interface{}) bool {
 		}
 	}
 	return true
+}
+
+func isValidMangleNameConstant(v string) bool {
+	if !strings.HasPrefix(v, "/") {
+		return false
+	}
+
+	// Whitespace is never valid in Mangle name constants.
+	if strings.ContainsAny(v, " \t\n\r") {
+		return false
+	}
+
+	// File paths should NOT be treated as name constants.
+	// More than 2 path segments indicates a file path.
+	if strings.Count(v, "/") > 2 {
+		return false
+	}
+
+	// Common file extensions indicate a file path.
+	if hasFileExtension(v) {
+		return false
+	}
+
+	_, err := ast.Name(v)
+	return err == nil
+}
+
+func hasFileExtension(v string) bool {
+	commonExts := []string{
+		".go", ".md", ".py", ".js", ".ts", ".tsx", ".jsx",
+		".yaml", ".yml", ".json", ".txt", ".mg", ".html", ".css",
+		".sh", ".bash", ".ps1", ".bat", ".exe", ".dll", ".so",
+		".c", ".h", ".cpp", ".hpp", ".rs", ".rb", ".java",
+		".xml", ".toml", ".ini", ".cfg", ".conf", ".log",
+	}
+	lowerV := strings.ToLower(v)
+	for _, ext := range commonExts {
+		if strings.HasSuffix(lowerV, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeFactForNumericPredicates coerces common priority atoms to numbers

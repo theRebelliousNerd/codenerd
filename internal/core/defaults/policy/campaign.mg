@@ -17,20 +17,30 @@ active_strategy(/campaign_execution) :-
 # Helper: check if a phase has incomplete hard dependencies
 has_incomplete_hard_dep(PhaseID) :-
     phase_dependency(PhaseID, DepPhaseID, /hard),
-    campaign_phase(DepPhaseID, _, _, _, Status, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    campaign_phase(DepPhaseID, CampaignID, _, _, Status, _),
     /completed != Status.
 
 # A phase is eligible when all hard dependencies are complete
 phase_eligible(PhaseID) :-
+    phase_eligible_in_campaign(PhaseID, _).
+
+# Helper: phase eligibility scoped to campaign
+phase_eligible_in_campaign(PhaseID, CampaignID) :-
     campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
-    current_campaign(CampaignID),
-    !has_incomplete_hard_dep(PhaseID).
+    !has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID),
+    current_campaign(CampaignID).
+
+# Helper: incomplete hard dependency scoped to campaign
+has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID) :-
+    has_incomplete_hard_dep(PhaseID),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 # Helper: check if there's an earlier eligible phase
 has_earlier_phase(PhaseID) :-
     campaign_phase(PhaseID, CampaignID, _, Order, _, _),
-    phase_eligible(OtherPhaseID),
     campaign_phase(OtherPhaseID, CampaignID, _, OtherOrder, _, _),
+    phase_eligible_in_campaign(OtherPhaseID, CampaignID),
     OtherPhaseID != PhaseID,
     OtherOrder < Order.
 
@@ -40,7 +50,7 @@ current_phase(PhaseID) :-
     current_campaign(CampaignID).
 
 current_phase(PhaseID) :-
-    phase_eligible(PhaseID),
+    phase_eligible_in_campaign(PhaseID, _),
     !has_earlier_phase(PhaseID),
     !has_in_progress_phase().
 
@@ -52,8 +62,8 @@ has_in_progress_phase() :-
 # Phase is blocked if it has incomplete hard dependencies
 phase_blocked(PhaseID, "hard_dependency_incomplete") :-
     campaign_phase(PhaseID, CampaignID, _, _, /pending, _),
-    current_campaign(CampaignID),
-    has_incomplete_hard_dep(PhaseID).
+    has_incomplete_hard_dep(PhaseID),
+    current_campaign(CampaignID).
 
 # Task Selection & Execution
 
@@ -80,11 +90,13 @@ task_conflict(TaskID, OtherTaskID) :-
     TaskID != OtherTaskID.
 
 # Helper: check if there's an earlier pending task
-has_earlier_task(TaskID, PhaseID) :-
-    campaign_task(OtherTaskID, PhaseID, _, /pending, _),
+pending_task_priority(TaskID, PhaseID, Priority) :-
     campaign_task(TaskID, PhaseID, _, /pending, _),
-    task_priority(OtherTaskID, OtherPriority),
-    task_priority(TaskID, Priority),
+    task_priority(TaskID, Priority).
+
+has_earlier_task(TaskID, PhaseID) :-
+    pending_task_priority(OtherTaskID, PhaseID, OtherPriority),
+    pending_task_priority(TaskID, PhaseID, Priority),
     OtherTaskID != TaskID,
     priority_higher(OtherPriority, Priority).
 
@@ -98,8 +110,8 @@ priority_higher(/normal, /low).
 
 # Task is in backoff window if retry time is in the future.
 task_in_backoff(TaskID) :-
-    task_retry_at(TaskID, RetryAt),
     current_time(Now),
+    task_retry_at(TaskID, RetryAt),
     Now < RetryAt.
 
 # Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
@@ -234,15 +246,15 @@ failed_campaign_task(CampaignID, TaskID) :-
 
 # Trigger replan on repeated failures (configurable threshold).
 replan_needed(CampaignID, "task_failure_cascade") :-
-    current_campaign(CampaignID),
     campaign_config(CampaignID, _, Threshold, /true, _),
     failed_campaign_task_count_computed(CampaignID, Count),
-    Count >= Threshold.
+    Count >= Threshold,
+    current_campaign(CampaignID).
 
 # Trigger replan if user provides new instruction during campaign
 replan_needed(CampaignID, "user_instruction") :-
-    current_campaign(CampaignID),
-    user_intent(/current_intent, /instruction, _, _, _).
+    user_intent(/current_intent, /instruction, _, _, _),
+    current_campaign(CampaignID).
 
 # Trigger replan if explicit trigger exists
 replan_needed(CampaignID, Reason) :-
@@ -256,7 +268,7 @@ next_action(/pause_and_replan) :-
 
 # Helper: true if any phase is eligible to start
 has_eligible_phase() :-
-    phase_eligible(_).
+    phase_eligible_in_campaign(_, _).
 
 # Helper: true if there's a next campaign task available
 has_next_campaign_task() :-
@@ -288,9 +300,9 @@ campaign_blocked(CampaignID, "no_eligible_phases") :-
 # Campaign blocked if all remaining tasks are blocked
 campaign_blocked(CampaignID, "all_tasks_blocked") :-
     current_campaign(CampaignID),
+    !has_next_campaign_task(),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
     current_phase(PhaseID),
-    !has_next_campaign_task(),
     has_incomplete_phase_task(PhaseID).
 
 # Autopoiesis During Campaign

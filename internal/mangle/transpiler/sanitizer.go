@@ -24,6 +24,14 @@ func NewSanitizer() *Sanitizer {
 	}
 }
 
+// UpdateSchema refreshes the sanitizer's predicate/type map from schema text.
+func (s *Sanitizer) UpdateSchema(schema string) error {
+	if schema == "" {
+		return nil
+	}
+	return s.validator.UpdateFromSchema(schema)
+}
+
 // LoadPolicy parses a policy.mg file and updates the TypeMap.
 func (s *Sanitizer) LoadPolicy(path string) error {
 	data, err := os.ReadFile(path)

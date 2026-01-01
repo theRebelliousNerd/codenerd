@@ -192,7 +192,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				Target:     "system",
 				Confidence: 1.0,
 			},
-			MangleUpdates: []string{"task_status(/complete)", fmt.Sprintf("observation(/result, %q)", output)},
+			MangleUpdates: []string{"task_status(/manual_instruction, /complete)", fmt.Sprintf("observation(/result, %q)", output)},
 		},
 	}
 	emitter.Emit(payload)

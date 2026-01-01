@@ -20,7 +20,6 @@ Decl edit_warning(Ref, Reason).
 Decl safe_to_edit(Ref).
 Decl has_warnings(Ref).
 Decl has_deny_edit(Ref).
-Decl blocked_action(Action, Reason).
 
 # Input predicates unique to this file (not in schemas_*.mg)
 Decl is_serialization_boundary(Ref).
@@ -36,8 +35,8 @@ Decl element_action(Action, Ref).
 # Block edits that remove context cancellation from async code
 deny_edit(Ref, /goroutine_leak_risk) :-
     go_goroutine(Ref),
-    is_async_context(Ref),
-    !go_uses_context(Ref).
+    !go_uses_context(Ref),
+    is_async_context(Ref).
 
 
 # =============================================================================
@@ -48,9 +47,9 @@ deny_edit(Ref, /goroutine_leak_risk) :-
 # Block removal of authentication decorators
 deny_edit(Ref, /auth_removed) :-
     code_element(Ref, _, _, _, _),
+    !has_auth_guard(Ref),
     has_auth_guard(Ref),
-    element_modified(Ref, _, _),
-    !has_auth_guard(Ref).
+    element_modified(Ref, _, _).
 
 # Python: Type annotation removal
 # Warn when removing type hints from previously typed functions
@@ -127,16 +126,16 @@ deny_edit(Ref, /generated_code_readonly) :-
 # Warn when editing public functions without test coverage
 edit_warning(Ref, /no_test_coverage) :-
     code_element(Ref, /function, _, _, _),
+    !has_test_coverage(Ref),
     element_visibility(Ref, /public),
-    element_modified(Ref, _, _),
-    !has_test_coverage(Ref).
+    element_modified(Ref, _, _).
 
 # Warn when editing public methods without test coverage
 edit_warning(Ref, /no_test_coverage) :-
     code_element(Ref, /method, _, _, _),
+    !has_test_coverage(Ref),
     element_visibility(Ref, /public),
-    element_modified(Ref, _, _),
-    !has_test_coverage(Ref).
+    element_modified(Ref, _, _).
 
 
 # =============================================================================

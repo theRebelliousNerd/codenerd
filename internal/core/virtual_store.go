@@ -119,7 +119,7 @@ type VirtualStore struct {
 	learningStore *store.LearningStore
 
 	// Permission cache - O(1) lookup for constitutional permission checks
-	// Populated from kernel's permitted/1 facts when kernel is attached
+	// Populated from kernel's safe_action/1 facts when kernel is attached
 	permittedCache map[string]bool
 
 	// Action log retention (avoid unbounded growth in kernel facts)
@@ -363,7 +363,7 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 
 	logging.VirtualStore("Kernel attached to VirtualStore")
 
-	// Build permission cache from kernel's permitted/1 facts (O(1) lookup optimization)
+	// Build permission cache from kernel's safe_action/1 facts (O(1) lookup optimization)
 	v.rebuildPermissionCache()
 
 	// Wire VirtualStore back to RealKernel for bidirectional communication.
@@ -443,7 +443,7 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 	}
 }
 
-// rebuildPermissionCache queries the kernel for all permitted/1 facts
+// rebuildPermissionCache queries the kernel for all safe_action/1 facts
 // and builds a O(1) lookup cache. Must be called with v.mu held.
 func (v *VirtualStore) rebuildPermissionCache() {
 	if v.kernel == nil {
@@ -451,9 +451,9 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		return
 	}
 
-	results, err := v.kernel.Query("permitted")
+	results, err := v.kernel.Query("safe_action")
 	if err != nil {
-		logging.VirtualStoreDebug("Failed to query permitted facts for cache: %v", err)
+		logging.VirtualStoreDebug("Failed to query safe_action facts for cache: %v", err)
 		v.permittedCache = nil
 		return
 	}
@@ -474,7 +474,7 @@ func (v *VirtualStore) rebuildPermissionCache() {
 	}
 
 	v.permittedCache = cache
-	logging.VirtualStore("Permission cache built: %d actions permitted", len(results))
+	logging.VirtualStore("Permission cache built: %d safe_action entries", len(results))
 }
 
 // SetShardManager sets the shard manager for delegation.
@@ -1503,46 +1503,48 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 }
 
 // CheckKernelPermitted consults the kernel to verify if the specific action is permitted.
-// We query the kernel for permitted(Action, Target, Payload) facts.
+// It checks the safe_action cache first, then consults permitted(Action, Target, Payload).
+// Default deny when the kernel is unavailable or queries fail.
 func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload map[string]interface{}) bool {
 	v.mu.RLock()
 	k := v.kernel
+	cache := v.permittedCache
 	v.mu.RUnlock()
 
-	// No kernel attached - fail open (legacy behavior)
+	// No kernel attached - fail closed
 	if k == nil {
-		logging.VirtualStoreDebug("checkKernelPermitted(%s): no kernel attached, allowing", actionType)
-		return true
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): no kernel attached, denying", actionType)
+		return false
 	}
 
-	// Fast allow: safe_action is an explicit allowlist in the constitution.
-	// This keeps legacy direct RouteAction() callsites working without requiring a pending_action envelope.
-	// (Dangerous actions are NOT marked safe_action; they must be explicitly permitted.)
-	safe, err := k.Query("safe_action")
-	if err == nil {
-		wantType := "/" + actionType
-		altType := actionType
-		for _, f := range safe {
-			if len(f.Args) < 1 {
-				continue
-			}
-			argType := fmt.Sprintf("%v", f.Args[0])
-			if argType == wantType || argType == altType {
-				logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (safe_action)", actionType)
-				return true
-			}
+	wantType := actionType
+	altType := actionType
+	if strings.HasPrefix(actionType, "/") {
+		altType = strings.TrimPrefix(actionType, "/")
+	} else {
+		wantType = "/" + actionType
+	}
+
+	if cache == nil {
+		v.mu.Lock()
+		v.rebuildPermissionCache()
+		cache = v.permittedCache
+		v.mu.Unlock()
+	}
+
+	if cache != nil {
+		if cache[wantType] || cache[altType] {
+			logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (safe_action cache)", actionType)
+			return true
 		}
 	}
 
 	// Query all permitted facts
 	results, err := k.Query("permitted")
 	if err != nil {
-		logging.VirtualStoreDebug("checkKernelPermitted(%s): query error, failing open: %v", actionType, err)
-		return true // fail open to avoid accidental full block
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): query error, denying: %v", actionType, err)
+		return false
 	}
-
-	wantType := "/" + actionType
-	altType := actionType
 
 	for _, f := range results {
 		if len(f.Args) < 1 {

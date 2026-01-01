@@ -713,18 +713,25 @@ func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
 		default:
 		}
 
-		if d.IsDir() {
-			// Skip common non-source directories
-			if d.Name() == "node_modules" || d.Name() == ".git" || d.Name() == "vendor" {
-				return filepath.SkipDir
-			}
+	if d.IsDir() {
+		// Skip common non-source directories and cache-only Mangle dumps.
+		if d.Name() == "node_modules" || d.Name() == ".git" || d.Name() == "vendor" {
+			return filepath.SkipDir
+		}
+		if d.Name() == "cache" && strings.Contains(filepath.ToSlash(path), "/.nerd/cache") {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+
+	if strings.HasSuffix(path, ".mg") || strings.HasSuffix(path, ".mangle") {
+		base := filepath.Base(path)
+		if base == "debug_program_ERROR.mg" || base == "debug_program.mg" {
 			return nil
 		}
-
-		if strings.HasSuffix(path, ".mg") || strings.HasSuffix(path, ".mangle") {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return nil // Skip files we can't read
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil // Skip files we can't read
 			}
 
 			uri := pathToURI(path)

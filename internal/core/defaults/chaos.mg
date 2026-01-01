@@ -232,7 +232,7 @@ merge_allowed(PatchID) :-
 valid_adversarial_transition(Next) :-
     proposed(Next),
     effective_stability(Next, Score),
-    Score > 0.8,
+    Score > 80,
     step_survived_panic_maker(Next),
     !chaos_safety_violation(Next, /critical).
 

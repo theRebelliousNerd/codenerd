@@ -254,11 +254,11 @@ func (k *RealKernel) loadMangleFiles() error {
 
 	// Load all modular schema files (schemas_*.mg)
 	// This allows selective loading and better organization (18 modules, all under 600 lines)
-	schemaFiles := []string{
-		"schemas_intent.mg",    // Intent & Focus Resolution
-		"schemas_world.mg",     // File Topology, Symbol Graph, Diagnostics
-		"schemas_execution.mg", // TDD Loop & Action Execution
-		"schemas_browser.mg",   // Browser Physics & Spatial Reasoning
+		schemaFiles := []string{
+			"schemas_intent.mg",    // Intent & Focus Resolution
+			"schemas_world.mg",     // File Topology, Symbol Graph, Diagnostics
+			"schemas_execution.mg", // TDD Loop & Action Execution
+			"schemas_browser.mg",   // Browser Physics & Spatial Reasoning
 		"schemas_project.mg",   // Project Profile, User Preferences, Session State
 		"schemas_dreamer.mg",   // Speculative Dreamer & Cross-Module Support
 		"schemas_memory.mg",    // Memory Tiers & Knowledge
@@ -269,12 +269,13 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_codedom.mg",          // Code DOM & Interactive Elements
 		"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
 		"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
-		"schemas_campaign.mg",  // Campaign Orchestration
-		"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing
-		"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT
-		"schemas_reviewer.mg",  // Static Analysis & Data Flow
-		"schemas_shards.mg",    // Shard Delegation & Coordination
-	}
+			"schemas_campaign.mg",  // Campaign Orchestration
+			"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing
+			"schemas_mcp.mg",       // MCP integration schema
+			"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT
+			"schemas_reviewer.mg",  // Static Analysis & Data Flow
+			"schemas_shards.mg",    // Shard Delegation & Coordination
+		}
 
 	loadedSchemaBytes := 0
 	for _, schemaFile := range schemaFiles {
@@ -442,16 +443,8 @@ func (k *RealKernel) loadMangleFiles() error {
 	}
 	logging.KernelDebug("Loaded %d user extension files", userExtensionsLoaded)
 
-	// Ensure schema validator is initialized (if not done above)
-	if k.schemas != "" && k.schemaValidator == nil {
-		logging.KernelDebug("Initializing schema validator...")
-		k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned)
-		if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
-		} else {
-			logging.KernelDebug("Schema validator initialized successfully")
-		}
-	}
+	// Ensure schema validator reflects the final schemas + learned rules.
+	k.refreshSchemaValidatorLocked()
 
 	timer.Stop()
 	logging.Kernel("Mangle files loaded: schemas=%d bytes, policy=%d bytes, learned=%d bytes",

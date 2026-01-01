@@ -360,15 +360,24 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 		return nil, err
 	}
 
-	// Process mangle_updates (including missing_tool_for for Ouroboros)
-	e.processMangleUpdatesFromPiggyback(text)
+	processed := articulation.ProcessLLMResponse(text)
+	if processed.Control != nil {
+		envelope := &articulation.PiggybackEnvelope{
+			Surface: processed.Surface,
+			Control: *processed.Control,
+		}
+		// Process mangle_updates (including missing_tool_for for Ouroboros)
+		e.processMangleUpdatesFromEnvelope(envelope)
+		processed.Surface = envelope.Surface
+		processed.Control = &envelope.Control
+	}
 
 	// Parse tool_requests from Piggyback envelope
-	toolCalls := e.parseToolRequestsFromPiggyback(text)
+	toolCalls := e.parseToolRequestsFromControl(processed.Control)
 	logging.Session("Parsed %d tool_requests from Piggyback response", len(toolCalls))
 
 	// Extract surface response (user-facing text)
-	surfaceResponse := e.extractSurfaceFromPiggyback(text)
+	surfaceResponse := processed.Surface
 
 	return &types.LLMToolResponse{
 		Text:       surfaceResponse,
@@ -457,16 +466,14 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string 
 	return catalog.String()
 }
 
-// parseToolRequestsFromPiggyback extracts tool_requests from Piggyback response.
-func (e *Executor) parseToolRequestsFromPiggyback(response string) []types.ToolCall {
-	// Use articulation.ProcessLLMResponse to parse the Piggyback envelope
-	envelope := articulation.ProcessLLMResponse(response)
-	if envelope.Control == nil || len(envelope.Control.ToolRequests) == 0 {
+// parseToolRequestsFromControl extracts tool_requests from a control packet.
+func (e *Executor) parseToolRequestsFromControl(control *articulation.ControlPacket) []types.ToolCall {
+	if control == nil || len(control.ToolRequests) == 0 {
 		return nil
 	}
 
 	var calls []types.ToolCall
-	for _, req := range envelope.Control.ToolRequests {
+	for _, req := range control.ToolRequests {
 		calls = append(calls, types.ToolCall{
 			ID:    req.ID,
 			Name:  req.ToolName,
@@ -476,78 +483,68 @@ func (e *Executor) parseToolRequestsFromPiggyback(response string) []types.ToolC
 	return calls
 }
 
-// extractSurfaceFromPiggyback extracts the user-facing text from Piggyback response.
-func (e *Executor) extractSurfaceFromPiggyback(response string) string {
-	envelope := articulation.ProcessLLMResponse(response)
-	return envelope.Surface
-}
-
-// processMangleUpdatesFromPiggyback extracts and processes mangle_updates from the response.
+// processMangleUpdatesFromEnvelope extracts and processes mangle_updates.
 // This includes:
-// 1. Asserting all Mangle facts to the kernel
+// 1. Asserting allowed Mangle facts to the kernel
 // 2. Detecting missing_tool_for facts and triggering Ouroboros tool generation
-func (e *Executor) processMangleUpdatesFromPiggyback(response string) {
-	envelope := articulation.ProcessLLMResponse(response)
-	if envelope.Control == nil || len(envelope.Control.MangleUpdates) == 0 {
+func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.PiggybackEnvelope) {
+	if envelope == nil || len(envelope.Control.MangleUpdates) == 0 {
 		return
 	}
 
-	logging.Session("Processing %d mangle_updates from Piggyback response", len(envelope.Control.MangleUpdates))
+	if e.kernel == nil {
+		logging.SessionDebug("Skipping mangle_updates: no kernel configured")
+		return
+	}
 
-	for _, update := range envelope.Control.MangleUpdates {
-		// Parse the Mangle fact
-		fact := e.parseMangleFact(update)
-		if fact == nil {
-			logging.SessionDebug("Failed to parse mangle update: %s", update)
-			continue
+	policy := core.MangleUpdatePolicy{
+		AllowedPredicates: map[string]struct{}{
+			"missing_tool_for": {},
+			"observation":      {},
+			"task_status":      {},
+			"task_completed":   {},
+			"diagnostic":       {},
+			"failing_test":     {},
+			"test_state":       {},
+			"review_finding":   {},
+			"modified":         {},
+			"modified_function": {},
+		},
+		MaxUpdates: 100,
+	}
+
+	facts, blocked := core.FilterMangleUpdates(e.kernel, envelope.Control.MangleUpdates, policy)
+	if len(blocked) > 0 {
+		blockedAtoms := make([]string, 0, len(blocked))
+		for _, b := range blocked {
+			logging.SessionDebug("Blocked mangle_update %q: %s", b.Update, b.Reason)
+			blockedAtoms = append(blockedAtoms, b.Update)
 		}
+		articulation.ApplyConstitutionalOverride(envelope, blockedAtoms, "blocked unsafe mangle_updates")
+	}
 
-		// Assert to kernel
-		if e.kernel != nil {
-			if err := e.kernel.Assert(*fact); err != nil {
+	if len(facts) == 0 {
+		return
+	}
+
+	if batcher, ok := e.kernel.(interface{ AssertBatch([]types.Fact) error }); ok {
+		if err := batcher.AssertBatch(facts); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to assert mangle_updates batch: %v", err)
+		}
+	} else {
+		for _, fact := range facts {
+			if err := e.kernel.Assert(fact); err != nil {
 				logging.Get(logging.CategorySession).Warn("Failed to assert mangle update: %v", err)
-			} else {
-				logging.SessionDebug("Asserted mangle fact: %s", fact.Predicate)
 			}
 		}
+	}
 
-		// Check for missing_tool_for - trigger Ouroboros
+	for _, fact := range facts {
 		if fact.Predicate == "missing_tool_for" && len(fact.Args) >= 2 {
-			capability := fmt.Sprintf("%v", fact.Args[0])
-			description := fmt.Sprintf("%v", fact.Args[1])
-			logging.Session("Detected missing_tool_for: capability=%s description=%s", capability, description)
-			// The kernel will pick this up and trigger Ouroboros in the next loop
-			// via the autopoiesis/ouroboros.go DetectToolNeed() mechanism
+			intent := fmt.Sprintf("%v", fact.Args[0])
+			capability := fmt.Sprintf("%v", fact.Args[1])
+			logging.Session("Detected missing_tool_for: intent=%s capability=%s", intent, capability)
 		}
-	}
-}
-
-// parseMangleFact parses a Mangle fact string into a types.Fact.
-// Format: predicate(arg1, arg2, ...) or predicate("string arg", /atom_arg)
-func (e *Executor) parseMangleFact(factStr string) *types.Fact {
-	factStr = strings.TrimSpace(factStr)
-
-	// Extract predicate name
-	parenIdx := strings.Index(factStr, "(")
-	if parenIdx == -1 {
-		return nil
-	}
-
-	predicate := strings.TrimSpace(factStr[:parenIdx])
-	argsStr := strings.TrimSpace(factStr[parenIdx:])
-
-	// Remove surrounding parentheses
-	if !strings.HasPrefix(argsStr, "(") || !strings.HasSuffix(argsStr, ")") {
-		return nil
-	}
-	argsStr = argsStr[1 : len(argsStr)-1]
-
-	// Parse arguments (simple comma splitting, handles quoted strings)
-	args := e.parseMangleArgs(argsStr)
-
-	return &types.Fact{
-		Predicate: predicate,
-		Args:      args,
 	}
 }
 

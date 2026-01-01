@@ -89,6 +89,11 @@ func (fl *FeedbackLoop) SetSynthMode(mode SynthMode, options synth.Options) {
 	fl.synthOptions = options
 }
 
+// UpdateSchema refreshes the sanitizer's schema knowledge for atom interning.
+func (fl *FeedbackLoop) UpdateSchema(schema string) error {
+	return fl.sanitizer.UpdateSchema(schema)
+}
+
 // GenerateResult holds the outcome of a generation attempt.
 type GenerateResult struct {
 	Rule      string            // The validated rule (empty if failed)

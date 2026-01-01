@@ -157,16 +157,13 @@ func (k *RealKernel) GetPolicy() string {
 // FIX for Bug #8 (Suicide Rule): Uses a "Sandbox Compiler" to validate the rule
 // before accepting it, preventing invalid rules from bricking the kernel.
 func (k *RealKernel) HotLoadRule(rule string) error {
-	timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
+        timer := logging.StartTimer(logging.CategoryKernel, "HotLoadRule")
 
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	if rule == "" {
-		err := fmt.Errorf("empty rule")
-		logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
-		return err
-	}
+        if rule == "" {
+                err := fmt.Errorf("empty rule")
+                logging.Get(logging.CategoryKernel).Error("HotLoadRule: %v", err)
+                return err
+        }
 
 	normalizedRule := feedback.NormalizeRuleInput(rule)
 	if normalizedRule != rule {
@@ -190,37 +187,24 @@ func (k *RealKernel) HotLoadRule(rule string) error {
 	}
 	logging.KernelDebug("HotLoadRule: rule preview: %s", rulePreview)
 
-	// 1. Create a Sandbox Kernel (Memory only)
-	logging.KernelDebug("HotLoadRule: creating sandbox kernel for validation")
-	sandbox := &RealKernel{
-		store:             factstore.NewSimpleInMemoryStore(),
-		loadedPolicyFiles: make(map[string]struct{}),
-		policyDirty:       true,
-	}
+        k.mu.RLock()
+        schemas := k.schemas
+        policy := k.policy
+        learned := k.learned
+        k.mu.RUnlock()
 
-	// 2. Load CURRENT schemas and policy into sandbox
-	sandbox.schemas = k.schemas
-	sandbox.policy = k.policy
+        // 1. Validate with a sandbox kernel (memory-only)
+        logging.KernelDebug("HotLoadRule: creating sandbox kernel for validation")
+        logging.KernelDebug("HotLoadRule: validating rule in sandbox...")
+        if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
+                logging.Get(logging.CategoryKernel).Error("HotLoadRule: rule rejected by sandbox compiler: %v", err)
+                return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
+        }
+        logging.KernelDebug("HotLoadRule: sandbox validation passed")
 
-	// 3. Apply the NEW rule to the sandbox
-	sandbox.policy = sandbox.policy + "\n\n# Sandbox Validation\n" + rule
-
-	// 4. Try to compile (rebuildProgram)
-	// This will fail with StratificationError if the rule creates a paradox
-	logging.KernelDebug("HotLoadRule: validating rule in sandbox...")
-	if err := sandbox.rebuildProgram(); err != nil {
-		logging.Get(logging.CategoryKernel).Error("HotLoadRule: rule rejected by sandbox compiler: %v", err)
-		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
-	}
-	logging.KernelDebug("HotLoadRule: sandbox validation passed")
-
-	// 5. If successful, apply to Real Kernel (in-memory)
-	k.learned = k.learned + "\n\n# HotLoaded Rule\n" + rule
-	k.policyDirty = true
-
-	timer.StopWithInfo()
-	logging.Kernel("HotLoadRule: rule loaded successfully, policyDirty=true")
-	return nil
+        timer.StopWithInfo()
+        logging.Kernel("HotLoadRule: rule validated successfully")
+        return nil
 }
 
 // GenerateValidatedRule uses an LLM to generate a Mangle rule and validates it
@@ -275,6 +259,9 @@ func (k *RealKernel) GenerateValidatedRule(
 
 	// Create feedback loop with default config
 	feedbackLoop := feedback.NewFeedbackLoop(feedback.DefaultConfig())
+	if err := feedbackLoop.UpdateSchema(k.GetSchemas()); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("GenerateValidatedRule: failed to update sanitizer schema: %v", err)
+	}
 
 	// Run generation with validation
 	result, err := feedbackLoop.GenerateAndValidate(
@@ -338,7 +325,7 @@ Output ONLY the rule, no explanation. The rule must compile.`
 // This is the primary method for Autopoiesis to add new learned rules.
 // It validates the rule, loads it into memory, and writes it to disk for persistence.
 func (k *RealKernel) HotLoadLearnedRule(rule string) error {
-	logging.Kernel("HotLoadLearnedRule: loading and persisting learned rule")
+        logging.Kernel("HotLoadLearnedRule: loading and persisting learned rule")
 
 	// 0. If repair interceptor is set, use it for validation and repair FIRST
 	// This allows MangleRepairShard to fix rules before we even try to load them
@@ -346,9 +333,9 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	interceptor := k.repairInterceptor
 	k.mu.RUnlock()
 
-	if interceptor != nil {
-		logging.Kernel("HotLoadLearnedRule: invoking repair interceptor")
-		ctx := context.Background()
+        if interceptor != nil {
+                logging.Kernel("HotLoadLearnedRule: invoking repair interceptor")
+                ctx := context.Background()
 		repairedRule, err := interceptor.InterceptLearnedRule(ctx, rule)
 		if err != nil {
 			logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: repair interceptor rejected rule: %v", err)
@@ -357,14 +344,31 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 		if repairedRule != rule {
 			logging.Kernel("HotLoadLearnedRule: rule was repaired by interceptor")
 			rule = repairedRule
-		}
-	}
+                }
+        }
 
-	// 1. Validate using sandbox (same as HotLoadRule)
-	if err := k.HotLoadRule(rule); err != nil {
-		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: validation failed: %v", err)
-		return err
-	}
+        normalizedRule := feedback.NormalizeRuleInput(rule)
+        if normalizedRule != rule {
+                logging.KernelDebug("HotLoadLearnedRule: normalized rule input for parser compatibility")
+        }
+        rule = normalizedRule
+
+        if err := checkUnsafeNegation(rule); err != nil {
+                logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: %v", err)
+                return err
+        }
+
+        k.mu.RLock()
+        schemas := k.schemas
+        policy := k.policy
+        learned := k.learned
+        k.mu.RUnlock()
+
+        // 1. Validate using sandbox (compile-only)
+        if err := validateRuleSandbox(rule, schemas, policy, learned); err != nil {
+                logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: validation failed: %v", err)
+                return err
+        }
 
 	// 1b. Schema validation - ensure all predicates in rule body are declared
 	// This prevents "Schema Drift" where rules use hallucinated predicates
@@ -383,13 +387,49 @@ func (k *RealKernel) HotLoadLearnedRule(rule string) error {
 	logging.KernelDebug("HotLoadLearnedRule: pathological pattern check passed")
 
 	// 2. Persist to learned.mg file
-	if err := k.appendToLearnedFile(rule); err != nil {
-		logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: failed to persist rule: %v", err)
-		return err
-	}
+        if err := k.appendToLearnedFile(rule); err != nil {
+                logging.Get(logging.CategoryKernel).Error("HotLoadLearnedRule: failed to persist rule: %v", err)
+                return err
+        }
 
-	logging.Kernel("HotLoadLearnedRule: rule loaded and persisted successfully")
-	return nil
+        k.mu.Lock()
+        k.applyLearnedRuleLocked(rule)
+        k.refreshSchemaValidatorLocked()
+        k.mu.Unlock()
+
+        logging.Kernel("HotLoadLearnedRule: rule loaded and persisted successfully")
+        return nil
+}
+
+func validateRuleSandbox(rule, schemas, policy, learned string) error {
+        sandbox := &RealKernel{
+                store:             factstore.NewSimpleInMemoryStore(),
+                loadedPolicyFiles: make(map[string]struct{}),
+                policyDirty:       true,
+        }
+        sandbox.schemas = schemas
+        sandbox.policy = policy
+        sandbox.learned = learned
+        if rule != "" {
+                if sandbox.learned != "" {
+                        sandbox.learned = sandbox.learned + "\n\n# Sandbox Validation\n" + rule
+                } else {
+                        sandbox.learned = "# Sandbox Validation\n" + rule
+                }
+        }
+        return sandbox.rebuildProgram()
+}
+
+func (k *RealKernel) applyLearnedRuleLocked(rule string) {
+        if rule == "" {
+                return
+        }
+        if k.learned != "" {
+                k.learned = k.learned + "\n\n# HotLoaded Rule\n" + rule
+        } else {
+                k.learned = "# HotLoaded Rule\n" + rule
+        }
+        k.policyDirty = true
 }
 
 // appendToLearnedFile appends a rule to learned.mg on disk.
@@ -445,4 +485,5 @@ func (k *RealKernel) SetLearned(learned string) {
 	defer k.mu.Unlock()
 	k.learned = learned
 	k.policyDirty = true
+	k.refreshSchemaValidatorLocked()
 }

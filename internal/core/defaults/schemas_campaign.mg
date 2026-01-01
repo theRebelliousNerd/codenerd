@@ -150,6 +150,10 @@ Decl context_window_state(CampaignID, UsedTokens, TotalBudget, Utilization).
 # campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks)
 Decl campaign_progress(CampaignID, CompletedPhases, TotalPhases, CompletedTasks, TotalTasks).
 
+# campaign_completed(CampaignID, Summary)
+# Emitted when a campaign reaches a terminal completed state.
+Decl campaign_completed(CampaignID, Summary).
+
 # campaign_heartbeat(CampaignID, Timestamp) - last heartbeat from orchestrator
 Decl campaign_heartbeat(CampaignID, Timestamp).
 
@@ -266,8 +270,41 @@ Decl current_phase(PhaseID).
 # next_campaign_task(TaskID) - derived: the next task to execute
 Decl next_campaign_task(TaskID).
 
+# pending_task_priority(TaskID, PhaseID, Priority) - derived: pending task priority
+Decl pending_task_priority(TaskID, PhaseID, Priority).
+
 # phase_eligible(PhaseID) - derived: phase ready to start
 Decl phase_eligible(PhaseID).
+
+# phase_eligible_in_campaign(PhaseID, CampaignID) - derived: eligibility scoped to campaign
+Decl phase_eligible_in_campaign(PhaseID, CampaignID).
+
+# has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID) - helper: dependency check scoped to campaign
+Decl has_incomplete_hard_dep_in_campaign(PhaseID, CampaignID).
+
+# goal_topic_count(CampaignID, Count) - derived: topic count for campaign goal
+Decl goal_topic_count(CampaignID, Count).
+
+# campaign_type_count(Type, Count) - derived: completed campaign count per type
+Decl campaign_type_count(Type, Count).
+
+# campaign_phase_count(CampaignID, Count) - derived: phase count per campaign
+Decl campaign_phase_count(CampaignID, Count).
+
+# campaign_task_error(CampaignID, ErrorType) - derived: failed task errors within campaign
+Decl campaign_task_error(CampaignID, ErrorType).
+
+# campaign_task_error_count(CampaignID, ErrorType, Count) - derived: error counts per campaign
+Decl campaign_task_error_count(CampaignID, ErrorType, Count).
+
+# systemic_error_detected(CampaignID, ErrorType) - derived: repeated errors within campaign
+Decl systemic_error_detected(CampaignID, ErrorType).
+
+# phase_failed_task_count(PhaseID, Count) - derived: failed task count per phase
+Decl phase_failed_task_count(PhaseID, Count).
+
+# shard_failure_count(ShardType, Count) - derived: shard failure count
+Decl shard_failure_count(ShardType, Count).
 
 # phase_blocked(PhaseID, Reason) - derived: phase cannot proceed
 Decl phase_blocked(PhaseID, Reason).

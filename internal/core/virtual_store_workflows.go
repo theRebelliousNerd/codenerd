@@ -152,11 +152,22 @@ func (v *VirtualStore) handleComplete(ctx context.Context, req ActionRequest) (A
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Task %s completed: %s", taskID, summary),
-		FactsToAdd: []Fact{
-			{Predicate: "task_completed", Args: []interface{}{taskID, summary}},
-			{Predicate: "completion_signal", Args: []interface{}{taskID}},
-		},
+		FactsToAdd: buildTaskCompletionFacts(taskID, summary),
 	}, nil
+}
+
+func buildTaskCompletionFacts(taskID, summary string) []Fact {
+	facts := []Fact{
+		{Predicate: "task_completed", Args: []interface{}{taskID}},
+		{Predicate: "task_status", Args: []interface{}{taskID, "/completed"}},
+	}
+	if summary != "" {
+		facts = append(facts, Fact{
+			Predicate: "observation",
+			Args:      []interface{}{"/task_summary", summary},
+		})
+	}
+	return facts
 }
 
 // handleInterrogative enters interrogative mode for clarification.
@@ -318,18 +329,20 @@ func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest
 		}, nil
 	}
 
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Tool %s generated at %s", registeredName, binaryPath),
-		Metadata: map[string]interface{}{
-			"tool_name":   registeredName,
-			"binary_path": binaryPath,
-		},
-		FactsToAdd: []Fact{
-			{Predicate: "tool_generated", Args: []interface{}{registeredName, binaryPath}},
-			{Predicate: "tool_available", Args: []interface{}{registeredName}},
-		},
-	}, nil
+		generatedAt := time.Now().Unix()
+		return ActionResult{
+			Success: true,
+			Output:  fmt.Sprintf("Tool %s generated at %s", registeredName, binaryPath),
+			Metadata: map[string]interface{}{
+				"tool_name":   registeredName,
+				"binary_path": binaryPath,
+			},
+			FactsToAdd: []Fact{
+				{Predicate: "tool_generated", Args: []interface{}{registeredName, generatedAt}},
+				{Predicate: "tool_binary_path", Args: []interface{}{registeredName, binaryPath}},
+				{Predicate: "tool_available", Args: []interface{}{registeredName}},
+			},
+		}, nil
 }
 
 // handleOuroborosDetect detects tool needs based on task context.
@@ -423,15 +436,17 @@ func (v *VirtualStore) handleOuroborosRegister(ctx context.Context, req ActionRe
 		}, nil
 	}
 
-	return ActionResult{
-		Success: true,
-		Output:  fmt.Sprintf("Tool %s registered", toolName),
-		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/registered"}},
-			{Predicate: "tool_registered", Args: []interface{}{toolName, binaryPath}},
-			{Predicate: "tool_available", Args: []interface{}{toolName}},
-		},
-	}, nil
+		registeredAt := time.Now().Unix()
+		return ActionResult{
+			Success: true,
+			Output:  fmt.Sprintf("Tool %s registered", toolName),
+			FactsToAdd: []Fact{
+				{Predicate: "ouroboros_phase", Args: []interface{}{"/registered"}},
+				{Predicate: "tool_registered", Args: []interface{}{toolName, registeredAt}},
+				{Predicate: "tool_binary_path", Args: []interface{}{toolName, binaryPath}},
+				{Predicate: "tool_available", Args: []interface{}{toolName}},
+			},
+		}, nil
 }
 
 // handleRefineTool refines an existing tool.
@@ -546,9 +561,9 @@ func (v *VirtualStore) handleCampaignVerify(ctx context.Context, req ActionReque
 		Output:  fmt.Sprintf("Verifying campaign step: %s", stepID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_step_verifying", Args: []interface{}{campaignID, stepID}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/verify"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/verify"}},
+				},
+		}, nil
 }
 
 // handleCampaignDocument creates documentation as part of a campaign.
@@ -573,9 +588,9 @@ func (v *VirtualStore) handleCampaignDocument(ctx context.Context, req ActionReq
 		Output:  fmt.Sprintf("Documentation requested for: %s", docTarget),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_documenting", Args: []interface{}{docTarget}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/document"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/document"}},
+				},
+		}, nil
 }
 
 // handleCampaignRefactor performs refactoring as part of a campaign.
@@ -594,9 +609,9 @@ func (v *VirtualStore) handleCampaignRefactor(ctx context.Context, req ActionReq
 		Output:  fmt.Sprintf("Refactoring initiated for: %s", target),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_refactoring", Args: []interface{}{target, refactorType}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/refactor"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/refactor"}},
+				},
+		}, nil
 }
 
 // handleCampaignIntegrate performs integration as part of a campaign.
@@ -615,9 +630,9 @@ func (v *VirtualStore) handleCampaignIntegrate(ctx context.Context, req ActionRe
 		Output:  fmt.Sprintf("Integration step for: %s", target),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_integrating", Args: []interface{}{campaignID, target}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/integrate"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/integrate"}},
+				},
+		}, nil
 }
 
 // handleCampaignComplete marks a campaign as complete.
@@ -636,9 +651,9 @@ func (v *VirtualStore) handleCampaignComplete(ctx context.Context, req ActionReq
 		Output:  fmt.Sprintf("Campaign %s completed: %s", campaignID, summary),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_completed", Args: []interface{}{campaignID, summary}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/complete"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/complete"}},
+				},
+		}, nil
 }
 
 // handleCampaignFinalVerify performs final verification of a campaign.
@@ -656,9 +671,9 @@ func (v *VirtualStore) handleCampaignFinalVerify(ctx context.Context, req Action
 		Output:  fmt.Sprintf("Final verification for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_final_verifying", Args: []interface{}{campaignID}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/final_verify"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/final_verify"}},
+				},
+		}, nil
 }
 
 // handleCampaignCleanup performs cleanup after a campaign.
@@ -676,9 +691,9 @@ func (v *VirtualStore) handleCampaignCleanup(ctx context.Context, req ActionRequ
 		Output:  fmt.Sprintf("Cleanup completed for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
 			{Predicate: "campaign_cleaned_up", Args: []interface{}{campaignID}},
-			{Predicate: "campaign_phase", Args: []interface{}{"/cleanup"}},
-		},
-	}, nil
+						{Predicate: "current_phase", Args: []interface{}{"/cleanup"}},
+				},
+		}, nil
 }
 
 // handleArchiveCampaign archives a completed campaign.

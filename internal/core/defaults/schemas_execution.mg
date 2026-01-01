@@ -22,6 +22,10 @@ Decl test_type(Type).
 # retry_count(Count)
 Decl retry_count(Count).
 
+# task_status(TaskID, Status)
+# Status: /pending, /in_progress, /completed, /blocked, /failed
+Decl task_status(TaskID, Status).
+
 # =============================================================================
 # SECTION 10: ACTION & EXECUTION (§4.0)
 # =============================================================================
@@ -71,7 +75,7 @@ Decl action_mapping(IntentVerb, ActionType).
 # action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 # Emitted when post-action validation succeeds.
 # Method: /hash, /syntax, /existence, /content_check, /output_scan, /codedom_refresh
-# Confidence: 0.0-1.0 score indicating verification certainty
+# Confidence: 0-100 integer score (Go scales 0.0-1.0 to 0-100)
 Decl action_verified(ActionID, ActionType, Method, Confidence, Timestamp).
 
 # action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp)

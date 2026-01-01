@@ -150,6 +150,12 @@ Decl moonshot_capability(CapID, Desc).
 Decl strategic_warning(Type, CapID, RiskID).
 
 # =============================================================================
+# SECTION 48: OBSERVATIONS
+# =============================================================================
+# observation(Key, Value) - free-form observations to capture learnings.
+Decl observation(Key, Value).
+
+# =============================================================================
 # SECTION 49: CONTINUATION PROTOCOL (Multi-Step Task Execution)
 # =============================================================================
 # Enables natural multi-step task chaining in the TUI. The kernel signals

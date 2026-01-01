@@ -1146,10 +1146,9 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-	// FeedbackLoop validated the rule; extract metadata via parseProposedRule
-	// The rule is already loaded by HotLoadRule during validation
-	proposedRule := e.parseProposedRule(result.Rule, cases)
-	proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
+        // FeedbackLoop validated the rule; extract metadata via parseProposedRule
+        proposedRule := e.parseProposedRule(result.Rule, cases)
+        proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
 
 	// If parseProposedRule couldn't extract confidence, use a high default since it validated
 	if proposedRule.Confidence == 0 {
@@ -1158,12 +1157,15 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 
 	e.Autopoiesis.RecordProposal(proposedRule)
 
-	// Rule is already loaded via FeedbackLoop's HotLoadRule validation
-	if proposedRule.Confidence >= e.Autopoiesis.RuleConfidence {
-		e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
-		logging.SystemShards("[ExecutivePolicy] Autopoiesis rule applied: %s (confidence: %.2f, attempts: %d, auto-fixed: %v)",
-			truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
-	} else {
+        if proposedRule.Confidence >= e.Autopoiesis.RuleConfidence {
+                if err := e.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
+                        e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+                        logging.SystemShards("[ExecutivePolicy] Autopoiesis rule applied: %s (confidence: %.2f, attempts: %d, auto-fixed: %v)",
+                                truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
+                } else {
+                        logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Failed to apply validated rule: %v", err)
+                }
+        } else {
 		// Low confidence rules are recorded but require approval
 		if assertErr := e.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",

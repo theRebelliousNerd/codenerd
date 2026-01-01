@@ -196,11 +196,11 @@ prohibited_atom(AtomID) :- base_prohibited(AtomID).
 # FLESH (Vector candidates filtered by Mangle)
 
 # Candidate atoms must:
-# 1. Have a vector hit with sufficient similarity (> 0.3)
+# 1. Have a vector hit with sufficient similarity (> 30 on 0-100 scale)
 # 2. Not be prohibited by firewall rules
 candidate_atom(AtomID) :-
     vector_hit(AtomID, Score),
-    Score > 0.3,
+    Score > 30,
     !prohibited_atom(AtomID).
 
 # Also consider atoms matching context dimensions even without vector hit
