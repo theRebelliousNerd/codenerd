@@ -1,6 +1,7 @@
 package store
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"database/sql"
@@ -48,6 +49,9 @@ type LocalStore struct {
 	vectorExt       bool                      // sqlite-vec available
 	requireVec      bool                      // require vec extension or fail fast
 	traceStore      *TraceStore               // Dedicated trace store for self-learning
+	reflectionStop  chan struct{}
+	reflectionDone  chan struct{}
+	reflectionCfg   *config.ReflectionConfig
 }
 
 // NewLocalStore initializes the SQLite database at the given path.
@@ -260,33 +264,41 @@ func (s *LocalStore) initialize() error {
 	`
 
 	// Reasoning traces for shard LLM interactions (Task 4)
-	reasoningTracesTable := `
-	CREATE TABLE IF NOT EXISTS reasoning_traces (
-		id TEXT PRIMARY KEY,
-		shard_id TEXT NOT NULL,
-		shard_type TEXT NOT NULL,
-		shard_category TEXT NOT NULL,
-		session_id TEXT NOT NULL,
-		task_context TEXT,
-		system_prompt TEXT NOT NULL,
-		user_prompt TEXT NOT NULL,
-		response TEXT NOT NULL,
-		model TEXT,
-		tokens_used INTEGER,
-		duration_ms INTEGER,
-		success BOOLEAN NOT NULL,
-		error_message TEXT,
-		quality_score REAL,
-		learning_notes TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_traces_shard_type ON reasoning_traces(shard_type);
-	CREATE INDEX IF NOT EXISTS idx_traces_session ON reasoning_traces(session_id);
-	CREATE INDEX IF NOT EXISTS idx_traces_shard_id ON reasoning_traces(shard_id);
-	CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
-	CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
-	CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
-	`
+        reasoningTracesTable := `
+        CREATE TABLE IF NOT EXISTS reasoning_traces (
+                id TEXT PRIMARY KEY,
+                shard_id TEXT NOT NULL,
+                shard_type TEXT NOT NULL,
+                shard_category TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                task_context TEXT,
+                system_prompt TEXT NOT NULL,
+                user_prompt TEXT NOT NULL,
+                response TEXT NOT NULL,
+                model TEXT,
+                tokens_used INTEGER,
+                duration_ms INTEGER,
+                success BOOLEAN NOT NULL,
+                error_message TEXT,
+                quality_score REAL,
+                learning_notes TEXT,
+                summary_descriptor TEXT,
+                descriptor_version INTEGER DEFAULT 0,
+                descriptor_hash TEXT,
+                embedding BLOB,
+                embedding_model_id TEXT,
+                embedding_dim INTEGER,
+                embedding_task TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_traces_shard_type ON reasoning_traces(shard_type);
+        CREATE INDEX IF NOT EXISTS idx_traces_session ON reasoning_traces(session_id);
+        CREATE INDEX IF NOT EXISTS idx_traces_shard_id ON reasoning_traces(shard_id);
+        CREATE INDEX IF NOT EXISTS idx_traces_success ON reasoning_traces(success);
+        CREATE INDEX IF NOT EXISTS idx_traces_created ON reasoning_traces(created_at);
+        CREATE INDEX IF NOT EXISTS idx_traces_category ON reasoning_traces(shard_category);
+        CREATE INDEX IF NOT EXISTS idx_traces_descriptor_hash ON reasoning_traces(descriptor_hash);
+        `
 
 	// Review Findings (for persistent history and analysis)
 	reviewFindingsTable := `

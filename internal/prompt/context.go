@@ -120,6 +120,9 @@ type CompilationContext struct {
 	// IsHighChurn indicates high file modification frequency
 	IsHighChurn bool
 
+	// HasReflectionHits indicates System 2 reflection recall is present
+	HasReflectionHits bool
+
 	// =========================================================================
 	// Tier 10: Language & Framework
 	// Technology stack context.
@@ -239,6 +242,10 @@ func (cc *CompilationContext) WorldStates() []string {
 
 	if cc.IsHighChurn {
 		states = append(states, "high_churn")
+	}
+
+	if cc.HasReflectionHits {
+		states = append(states, "reflection_hits")
 	}
 
 	return states
@@ -460,7 +467,7 @@ func AllContextDimensions() []ContextDimension {
 		{
 			Name:        "world_state",
 			Description: "World model state indicators",
-			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn"},
+			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits"},
 		},
 	}
 }
@@ -494,6 +501,7 @@ func (cc *CompilationContext) Hash() string {
 		fmt.Sprintf("%d", cc.DiagnosticCount),
 		fmt.Sprintf("%t", cc.IsLargeRefactor),
 		fmt.Sprintf("%t", cc.HasSecurityIssues),
+		fmt.Sprintf("%t", cc.HasReflectionHits),
 	}
 
 	// Create deterministic hash

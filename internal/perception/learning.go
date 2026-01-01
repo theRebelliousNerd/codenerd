@@ -198,7 +198,7 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 	}
 
 	// 3. Append to persistent storage (Long-term Memory)
-	// We separate "Schema" (learning.mg) from "Data" (learned.mg)
+	// We separate "Schema" (learning.mg) from taxonomy data (learned_taxonomy.mg)
 	// Write to user's workspace using explicit workspace root if set
 	targetDir := t.nerdPath("mangle")
 	logging.PerceptionDebug("PersistLearnedFact: ensuring mangle directory exists: %s", targetDir)
@@ -206,7 +206,7 @@ func (t *TaxonomyEngine) PersistLearnedFact(fact string) error {
 		logging.Get(logging.CategoryPerception).Error("PersistLearnedFact: failed to create directory %s: %v", targetDir, err)
 		return fmt.Errorf("failed to create learning directory: %w", err)
 	}
-	path := filepath.Join(targetDir, "learned.mg")
+	path := filepath.Join(targetDir, "learned_taxonomy.mg")
 
 	logging.PerceptionDebug("PersistLearnedFact: writing to file: %s", path)
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

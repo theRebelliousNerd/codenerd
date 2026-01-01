@@ -156,7 +156,7 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	}
 
 	// Extract from SessionContext if available
-	if pc.SessionCtx != nil {
+		if pc.SessionCtx != nil {
 		// Determine operational mode
 		if pc.SessionCtx.DreamMode {
 			cc.OperationalMode = "/dream"
@@ -193,11 +193,11 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			cc.HasSecurityIssues = true
 		}
 
-		// Map optional contextual selectors from ExtraContext if present.
-		if pc.SessionCtx.ExtraContext != nil {
-			if v := pc.SessionCtx.ExtraContext["build_layer"]; v != "" {
-				cc.BuildLayer = normalizeTag(v)
-			}
+			// Map optional contextual selectors from ExtraContext if present.
+			if pc.SessionCtx.ExtraContext != nil {
+				if v := pc.SessionCtx.ExtraContext["build_layer"]; v != "" {
+					cc.BuildLayer = normalizeTag(v)
+				}
 			if v := pc.SessionCtx.ExtraContext["init_phase"]; v != "" {
 				cc.InitPhase = normalizeTag(v)
 			}
@@ -218,11 +218,18 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 			} else if v := pc.SessionCtx.ExtraContext["framework"]; v != "" {
 				cc.Frameworks = []string{normalizeTag(v)}
 			}
-			if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
-				cc.Language = normalizeTag(v)
+				if v := pc.SessionCtx.ExtraContext["language"]; v != "" {
+					cc.Language = normalizeTag(v)
+				}
+				if v := pc.SessionCtx.ExtraContext["reflection_hits"]; v != "" {
+					cc.HasReflectionHits = true
+				}
+			}
+
+			if len(pc.SessionCtx.ReflectionHits) > 0 {
+				cc.HasReflectionHits = true
 			}
 		}
-	}
 
 	// Extract from UserIntent if available
 	if pc.UserIntent != nil {
@@ -521,6 +528,14 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		sb.WriteString("\nRECENT FINDINGS:\n")
 		for _, finding := range ctx.RecentFindings {
 			sb.WriteString(fmt.Sprintf("  - %s\n", finding))
+		}
+	}
+
+	// Reflection hits (System 2 memory)
+	if len(ctx.ReflectionHits) > 0 {
+		sb.WriteString("\nREFLECTION HITS:\n")
+		for _, hit := range ctx.ReflectionHits {
+			sb.WriteString(fmt.Sprintf("  - %s\n", hit))
 		}
 	}
 

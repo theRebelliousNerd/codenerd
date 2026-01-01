@@ -44,6 +44,13 @@
     "genai_model": "gemini-embedding-001",
     "task_type": "SEMANTIC_SIMILARITY"
   },
+  "reflection": {
+    "enabled": true,
+    "top_k": 5,
+    "min_score": 0.7,
+    "recency_half_life_days": 14,
+    "backlog_watermark": 300
+  },
   "shard_profiles": {
     "coder": {
       "model": "gemini-3-flash-preview",
