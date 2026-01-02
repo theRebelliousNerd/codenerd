@@ -1,0 +1,7 @@
+campaign(/c1, "Test Campaign", /none, 1, /active).
+campaign_phase(/p1, /c1, "Phase 1", 1, /pending, /profile1).
+campaign_phase(/p2, /c1, "Phase 2", 2, /pending, /profile1).
+campaign_task(/t1, /p1, "Task 1", /pending, /file_create).
+campaign_task(/t2, /p2, "Task 2", /pending, /test_write).
+task_priority(/t1, /high).
+task_priority(/t2, /normal).
