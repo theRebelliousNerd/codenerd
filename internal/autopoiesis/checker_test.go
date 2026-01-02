@@ -3,9 +3,12 @@ package autopoiesis
 import (
 	"strings"
 	"testing"
+
+	"go.uber.org/goleak"
 )
 
 func TestSafetyChecker(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
 	cfg := OuroborosConfig{
 		AllowFileSystem: false,
 		AllowNetworking: false,

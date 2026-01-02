@@ -38,6 +38,13 @@ func TestLogic_Golden(t *testing.T) {
 			edbFile:     "testdata/jit_logic.edb",
 			goldenFile:  "testdata/jit_logic.golden",
 		},
+		{
+			name:        "Campaign Orchestration",
+			policyFiles: []string{"campaign.mg"},
+			schemaFiles: []string{"../schemas_campaign.mg", "../schemas_shards.mg", "../schemas_safety.mg", "../schemas_intent.mg", "../schemas_analysis.mg", "../schemas_execution.mg"},
+			edbFile:     "testdata/campaign.edb",
+			goldenFile:  "testdata/campaign.golden",
+		},
 	}
 
 	for _, sc := range scenarios {
