@@ -4,5 +4,5 @@
 
 # Cortex 1.5.0 §2.2 "The Barrier"
 # Blocks commits if there are any error severity diagnostics.
-block_commit("/error") :-
-    diagnostic("/error", _, _, _, _).
+block_commit(/error) :-
+    diagnostic(/error, _, _, _, _).

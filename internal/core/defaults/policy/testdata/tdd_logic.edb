@@ -1,0 +1,5 @@
+# Facts for TDD Logic Testing
+
+# Diagnostics: Severity, File, Line, Message, Code
+diagnostic(/error, "main.go", 10, "syntax error", "E101").
+diagnostic(/warning, "utils.go", 5, "unused var", "W202").
