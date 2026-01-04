@@ -1,0 +1,11 @@
+deny_edit("fn:async_worker", /goroutine_leak_risk).
+has_deny_edit("fn:async_worker").
+safe_to_edit("fn:safe_worker").
+deny_edit("fn:gen_func", /generated_code_readonly).
+has_deny_edit("fn:gen_func").
+edit_warning("fn:public_api", /no_test_coverage).
+has_warnings("fn:public_api").
+safe_to_edit("fn:public_api").
+edit_warning("rule:recurse", /recursion_risk).
+has_warnings("rule:recurse").
+safe_to_edit("rule:recurse").
