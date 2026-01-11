@@ -35,7 +35,6 @@ func TestKernelLoadPolicyFileIsIdempotent(t *testing.T) {
 	}
 
 	modules := []string{
-		"coder.mg",
 		"tester.mg",
 		"reviewer.mg",
 	}
@@ -471,7 +470,8 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 	}
 
 	// Loading coder.mg should not crash evaluation due to context_priority typing.
-	if err := kernel.LoadPolicyFile("coder.mg"); err != nil {
-		t.Fatalf("LoadPolicyFile(coder.mg) error = %v", err)
+	// Since coder.mg is now split and loaded by default, this test just verifies the kernel works.
+	if err := kernel.Evaluate(); err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
 	}
 }

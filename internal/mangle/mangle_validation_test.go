@@ -285,20 +285,38 @@ func TestDefaults_NoDuplicatePredicateDecls(t *testing.T) {
 	}
 }
 
-// TestCoderGLParsesWithoutError validates coder.mg syntax.
+// TestCoderGLParsesWithoutError validates coder logic syntax.
 func TestCoderGLParsesWithoutError(t *testing.T) {
-	coderPath := findMangleFile(t, "coder.mg")
-	data, err := os.ReadFile(coderPath)
-	if err != nil {
-		t.Skipf("coder.mg not found (optional): %v", err)
+	// coder.mg is now split into multiple files in defaults/policy/
+	files := []string{
+		"policy/coder_classification.mg",
+		"policy/coder_language.mg",
+		"policy/coder_impact.mg",
+		"policy/coder_safety.mg",
+		"policy/coder_diagnostics.mg",
+		"policy/coder_workflow.mg",
+		"policy/coder_context.mg",
+		"policy/coder_tdd.mg",
+		"policy/coder_quality.mg",
+		"policy/coder_learning.mg",
+		"policy/coder_campaign.mg",
+		"policy/coder_observability.mg",
+		"policy/coder_patterns.mg",
 	}
 
-	_, err = parse.Unit(strings.NewReader(string(data)))
-	if err != nil {
-		t.Fatalf("Failed to parse coder.mg: %v", err)
+	for _, f := range files {
+		path := findMangleFile(t, f)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("Failed to read %s: %v", f, err)
+			continue
+		}
+		if _, err := parse.Unit(strings.NewReader(string(data))); err != nil {
+			t.Errorf("Failed to parse %s: %v", f, err)
+		} else {
+			t.Logf("%s parsed successfully", f)
+		}
 	}
-
-	t.Log("coder.mg parsed successfully")
 }
 
 // TestTesterGLParsesWithoutError validates tester.mg syntax.
@@ -358,6 +376,7 @@ func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 		"schemas_world.mg",
 		"schemas_execution.mg",
 		"schemas_safety.mg",
+		"schemas_coder.mg",
 		// Modular policies
 		"policy/constitution.mg",
 		"policy/delegation.mg",
@@ -366,9 +385,22 @@ func TestAllGLFilesCombinedAnalysis(t *testing.T) {
 		"topology_planner.mg",
 		"campaign_rules.mg",
 		"selection_policy.mg",
-		"coder.mg",
 		"tester.mg",
 		"reviewer.mg",
+		// Coder policies
+		"policy/coder_classification.mg",
+		"policy/coder_language.mg",
+		"policy/coder_impact.mg",
+		"policy/coder_safety.mg",
+		"policy/coder_diagnostics.mg",
+		"policy/coder_workflow.mg",
+		"policy/coder_context.mg",
+		"policy/coder_tdd.mg",
+		"policy/coder_quality.mg",
+		"policy/coder_learning.mg",
+		"policy/coder_campaign.mg",
+		"policy/coder_observability.mg",
+		"policy/coder_patterns.mg",
 	}
 
 	var combined strings.Builder
