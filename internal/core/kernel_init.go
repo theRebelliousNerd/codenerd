@@ -275,6 +275,7 @@ func (k *RealKernel) loadMangleFiles() error {
 			"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT
 			"schemas_reviewer.mg",  // Static Analysis & Data Flow
 			"schemas_shards.mg",    // Shard Delegation & Coordination
+			"schemas_coder.mg",     // Coder Shard Declarations
 		}
 
 	loadedSchemaBytes := 0
