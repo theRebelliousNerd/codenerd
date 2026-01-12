@@ -3,8 +3,7 @@
 # to enhance verb selection.
 # Extracted from taxonomy_inference.mg to satisfy Density Rule.
 
-# Import shared declarations from taxonomy_inference.mg (or schema)
-Decl context_token(Token).
+# context_token is declared in inference.mg (kernel) and schema/intent_core.mg (taxonomy engine).
 
 # EDB Declarations for qualifiers (loaded from schema/intent_qualifiers.mg)
 # Decl interrogative_type(Phrase, SemanticType, DefaultVerb, Priority).
