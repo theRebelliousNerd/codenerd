@@ -1,1 +1,4 @@
-next_action(/read_error_log)
+# Expected Derived Facts for TDD Loop
+next_action(/read_error_log).
+next_action(/generate_patch).
+next_action(/run_tests).
