@@ -86,6 +86,17 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 		nodeType := n.Type()
 
 		switch nodeType {
+		case "package_clause":
+			nameNode := n.ChildByFieldName("package_identifier")
+			if nameNode != nil {
+				name := getText(nameNode)
+				id := fmt.Sprintf("package:%s", name)
+				facts = append(facts, Fact{
+					Predicate: "symbol_graph",
+					Args:      []interface{}{id, "package", "public", path, fmt.Sprintf("package %s", name)},
+				})
+			}
+
 		case "function_declaration":
 			nameNode := n.ChildByFieldName("name")
 			if nameNode != nil {
