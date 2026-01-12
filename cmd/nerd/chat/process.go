@@ -789,9 +789,17 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Store LLM's feedback on which context facts were useful vs noise.
 		// This feeds into the ActivationEngine to improve future context selection.
 		if artOutput.ContextFeedback != nil && m.feedbackStore != nil {
+			// GAP-016 FIX: Include JIT manifest hash for context learning correlation
+			manifestHash := ""
+			if m.jitCompiler != nil {
+				if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Manifest != nil {
+					manifestHash = jitResult.Manifest.ContextHash
+				}
+			}
+
 			if err := m.feedbackStore.StoreFeedback(
 				m.turnCount,
-				"", // manifestHash - TODO: add when JIT manifest tracking is implemented
+				manifestHash,
 				artOutput.ContextFeedback.OverallUsefulness,
 				intent.Verb,
 				artOutput.ContextFeedback.HelpfulFacts,
@@ -799,10 +807,11 @@ func (m Model) processInput(input string) tea.Cmd {
 			); err != nil {
 				logging.Get(logging.CategoryContext).Warn("Failed to store context feedback: %v", err)
 			} else {
-				logging.ContextDebug("Stored context feedback: usefulness=%.2f, helpful=%d, noise=%d",
+				logging.ContextDebug("Stored context feedback: usefulness=%.2f, helpful=%d, noise=%d, hash=%s",
 					artOutput.ContextFeedback.OverallUsefulness,
 					len(artOutput.ContextFeedback.HelpfulFacts),
-					len(artOutput.ContextFeedback.NoiseFacts))
+					len(artOutput.ContextFeedback.NoiseFacts),
+					manifestHash)
 			}
 		}
 
