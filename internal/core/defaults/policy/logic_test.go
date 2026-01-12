@@ -46,9 +46,9 @@ func TestLogic_Golden(t *testing.T) {
 			goldenFile:  "testdata/codedom_safety.golden",
 		},
 		{
-			name:        "Git Safety (Chesterton's Fence)",
+			name:        "Git Safety / Chesterton's Fence",
 			policyFiles: []string{"git_safety.mg"},
-			schemaFiles: []string{"../schemas_safety.mg", "../schemas_intent.mg"},
+			schemaFiles: []string{"../schemas_intent.mg", "../schemas_world.mg", "../schemas_safety.mg", "../schemas_analysis.mg"},
 			edbFile:     "testdata/git_safety.edb",
 			goldenFile:  "testdata/git_safety.golden",
 		},
@@ -58,6 +58,13 @@ func TestLogic_Golden(t *testing.T) {
 			schemaFiles: []string{"../schemas_execution.mg", "../schemas_intent.mg"},
 			edbFile:     "testdata/tdd_loop.edb",
 			goldenFile:  "testdata/tdd_loop.golden",
+		},
+		{
+			name:        "TDD Loop Logic",
+			policyFiles: []string{"tdd_logic.mg"},
+			schemaFiles: []string{"../schemas_execution.mg", "../schemas_world.mg", "../schemas_analysis.mg"},
+			edbFile:     "testdata/tdd_logic.edb",
+			goldenFile:  "testdata/tdd_logic.golden",
 		},
 	}
 

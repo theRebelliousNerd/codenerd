@@ -1,0 +1,4 @@
+# Expected derived facts for tdd_logic.mg
+
+# Block commit due to error
+block_commit(/error).
