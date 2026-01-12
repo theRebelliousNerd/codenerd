@@ -155,6 +155,7 @@ func NewSubAgent(
 		config:              cfg,
 		executor:            executor,
 		conversationHistory: make([]perception.ConversationTurn, 0),
+		compressor:          NewSemanticCompressor(llmClient),
 		state:               int32(SubAgentStateIdle),
 	}
 }
@@ -303,7 +304,7 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(s.conversationHistory) < threshold {
+	if len(s.conversationHistory) <= threshold {
 		return nil
 	}
 
@@ -312,12 +313,52 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 		return nil
 	}
 
-	logging.SessionDebug("SubAgent %s compressing memory: %d turns", s.config.Name, len(s.conversationHistory))
+	logging.SessionDebug("SubAgent %s compressing memory: %d turns (threshold: %d)", s.config.Name, len(s.conversationHistory), threshold)
 
-	// Compress conversation history
-	// TODO: Implement compression via SemanticCompressor
-	// For now, just trim to threshold
-	s.conversationHistory = s.conversationHistory[len(s.conversationHistory)-threshold:]
+	// Strategy:
+	// 1. Keep the most recent (threshold/2) turns intact (recency bias).
+	// 2. Compress the older turns into a single summary.
+	// 3. New History = [Summary] + [Recent Turns]
+
+	// Determine split point
+	keepCount := threshold / 2
+	if keepCount < 1 {
+		keepCount = 1
+	}
+
+	// Index of the first item to KEEP
+	splitIndex := len(s.conversationHistory) - keepCount
+	if splitIndex <= 0 {
+		return nil // Should be covered by initial check, but safety first
+	}
+
+	// Slice and dice
+	toCompress := s.conversationHistory[:splitIndex]
+	recentTurns := s.conversationHistory[splitIndex:]
+
+	// Run compression
+	summary, err := s.compressor.Compress(ctx, toCompress)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed: %v", s.config.Name, err)
+		// Fallback: simple trim to threshold
+		s.conversationHistory = s.conversationHistory[len(s.conversationHistory)-threshold:]
+		return nil
+	}
+
+	// Create summary turn
+	// We use "assistant" role with a specific prefix so the model understands this is context
+	summaryTurn := perception.ConversationTurn{
+		Role:    "assistant",
+		Content: fmt.Sprintf("[MEMORY SUMMARY] Previous context: %s", summary),
+	}
+
+	// Reconstruct history
+	newHistory := make([]perception.ConversationTurn, 0, len(recentTurns)+1)
+	newHistory = append(newHistory, summaryTurn)
+	newHistory = append(newHistory, recentTurns...)
+
+	s.conversationHistory = newHistory
+	logging.Session("SubAgent %s memory compressed: %d -> %d turns", s.config.Name, len(toCompress)+len(recentTurns), len(newHistory))
 
 	return nil
 }
