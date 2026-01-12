@@ -1093,8 +1093,7 @@ func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) er
 }
 
 func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
-	// TODO: Route through VirtualStore's executor when wired
-	return "", "", fmt.Errorf("exec not yet wired through VirtualStore")
+	return a.vs.Exec(ctx, cmd, env)
 }
 
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
