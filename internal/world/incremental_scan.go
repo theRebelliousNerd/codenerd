@@ -455,7 +455,30 @@ func detectProjectLanguage(facts []core.Fact) string {
 // detectEntryPoints uses heuristics to identify entry points based on file paths and content facts
 func detectEntryPoints(facts []core.Fact) []core.Fact {
 	entryPoints := make([]core.Fact, 0)
+	hasMainSymbol := make(map[string]bool)
 
+	// Pass 1: Collect AST-based entry point candidates
+	for _, f := range facts {
+		if f.Predicate == "symbol_graph" && len(f.Args) >= 4 {
+			// Args: [id, kind, visibility, path, signature]
+			id, _ := f.Args[0].(string)
+			kind, _ := f.Args[1].(string)
+			path, ok := f.Args[3].(string)
+
+			if ok {
+				// Go: package main
+				if kind == "package" && id == "package:main" {
+					hasMainSymbol[path] = true
+				}
+				// Go: func main
+				if kind == "function" && id == "func:main" {
+					hasMainSymbol[path] = true
+				}
+			}
+		}
+	}
+
+	// Pass 2: Identify files and apply heuristics
 	for _, f := range facts {
 		if f.Predicate == "file_topology" && len(f.Args) > 0 {
 			path, ok := f.Args[0].(string)
@@ -473,7 +496,10 @@ func detectEntryPoints(facts []core.Fact) []core.Fact {
 				isEntry = true
 			}
 
-			// TODO: Inspect facts for 'package main' or 'func main' once we have AST facts indexed here
+			// AST Heuristics
+			if !isEntry && hasMainSymbol[path] {
+				isEntry = true
+			}
 
 			if isEntry {
 				entryPoints = append(entryPoints, core.Fact{
