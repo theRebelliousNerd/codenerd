@@ -7,11 +7,15 @@ import (
 	"time"
 
 	"codenerd/internal/mangle"
+
+	"go.uber.org/goleak"
 )
 
 // TestHoneypotLogic verifies the honeypot detection rules in browser_honeypot.mg
 // using the application's Mangle engine wrapper.
 func TestHoneypotLogic(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
 	// 1. Read Rules from Source of Truth
 	ruleBytes, err := os.ReadFile("browser_honeypot.mg")
 	if err != nil {
