@@ -2,21 +2,14 @@
 # This module takes raw intent candidates (from regex/LLM) and refines them
 # using contextual logic and safety constraints.
 
-Decl candidate_intent(Verb, RawScore).
-# Decl context_token(Token).
-Decl user_input_string(Input).
+# Declarations are provided by inference.mg, taxonomy.mg, schemas_knowledge.mg,
+# schemas_reviewer.mg, and schema/intent_core.mg (taxonomy engine).
 
 # Import learned patterns
 # Decl learned_exemplar imported from schema/learning.mg
 
-Decl boost(Verb, Amount).
-Decl penalty(Verb, Amount).
-
-# EDB Declarations for data loaded from Go
-Decl verb_def(Verb, Category, Shard, Priority).
-Decl verb_synonym(Verb, Synonym).
-Decl verb_pattern(Verb, Regex).
-
+# Decl boost(Verb, Amount).
+# Decl penalty(Verb, Amount).
 # Imports from taxonomy_qualifiers.mg
 # Decl has_negation(Flag).
 # Decl has_polite_modal(Flag).
@@ -27,7 +20,6 @@ Decl verb_pattern(Verb, Regex).
 Decl has_candidate_intent(Flag).
 
 # Intermediate score generation
-Decl potential_score(Verb, Score).
 
 # 1. Base Score
 # Convert float score to int for calculation if needed, but here we just pass it.
@@ -88,12 +80,8 @@ potential_score(Verb, NewScore) :-
 # These rules use semantic_match facts to influence verb selection.
 
 # EDB declarations for semantic matching (facts asserted by SemanticClassifier)
-Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
-Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
 
 # Derived predicates for semantic matching
-Decl semantic_suggested_verb(Verb, Similarity).
-Decl compound_suggestion(Verb1, Verb2).
 
 # Derive suggested verbs from semantic matches (top 3 only, similarity >= 60)
 semantic_suggested_verb(Verb, Similarity) :-

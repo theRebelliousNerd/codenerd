@@ -157,10 +157,6 @@ Decl shard_error(ShardID, ErrorMessage).
 # review_finding(ReviewID, File, Line, Severity, Category, Message)
 Decl review_finding(File, Line, Severity, Category, Message).
 
-# diagnostic(Severity, File, Line, Message, Code)
-# General diagnostics from compiler, linter, or analysis
-Decl diagnostic(Severity, File, Line, Message, Code).
-
 # review_summary(ShardID, Critical, Errors, Warnings, Info)
 # Summary counts from a review execution
 Decl review_summary(ShardID, Critical, Errors, Warnings, Info).
