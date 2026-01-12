@@ -52,6 +52,13 @@ func TestLogic_Golden(t *testing.T) {
 			edbFile:     "testdata/git_safety.edb",
 			goldenFile:  "testdata/git_safety.golden",
 		},
+		{
+			name:        "TDD Repair Loop",
+			policyFiles: []string{"tdd_loop.mg"},
+			schemaFiles: []string{"../schemas_execution.mg", "../schemas_intent.mg"},
+			edbFile:     "testdata/tdd_loop.edb",
+			goldenFile:  "testdata/tdd_loop.golden",
+		},
 	}
 
 	for _, sc := range scenarios {
