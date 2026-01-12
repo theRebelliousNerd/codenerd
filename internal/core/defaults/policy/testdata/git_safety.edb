@@ -1,37 +1,18 @@
-# Test Data for Git Safety Logic (Chesterton's Fence)
+# Facts for Git Safety Testing
 
-# --- Facts (EDB) ---
+# Current User
+current_user("jules_test").
 
-# 1. Current Context
-# User "alice" is operating the system
-current_user("alice").
+# Git History: File, Commit, Author, Age (days), Message
+git_history("main.go", "hash1", "bob", 1, "fix bug").
+git_history("utils.go", "hash2", "alice", 5, "refactor").
+git_history("churn.go", "hash3", "charlie", 1, "updates").
 
-# 2. Git History
-# /safe_file: modified by alice recently (safe to delete)
-git_history("/safe_file", "hash1", "alice", 1, "my change").
+# Churn Rate: File, Frequency
+churn_rate("churn.go", 6).
+churn_rate("main.go", 1).
 
-# /danger_file: modified by "bob" 1 day ago (recent change by other)
-git_history("/danger_file", "hash2", "bob", 1, "bob's fix").
-
-# /old_file: modified by "bob" 10 days ago (old change, safe)
-git_history("/old_file", "hash3", "bob", 10, "bob's old feature").
-
-# 3. File Churn
-# /stable_file: low churn
-churn_rate("/stable_file", 1).
-
-# /hot_file: high churn (unsafe to refactor blindly)
-churn_rate("/hot_file", 10).
-
-# 4. User Intents (The Actions)
-# Attempt to delete the file alice just touched (Safe)
-user_intent(/current_intent, /mutation, /delete, "/safe_file", "none").
-
-# Attempt to delete the file bob just touched (Unsafe - Chesterton's Fence)
-user_intent(/current_intent, /mutation, /delete, "/danger_file", "none").
-
-# Attempt to delete the old file (Safe)
-user_intent(/current_intent, /mutation, /delete, "/old_file", "none").
-
-# Attempt to refactor a high churn file (Unsafe - High Churn)
-user_intent(/current_intent, /mutation, /refactor, "/hot_file", "none").
+# User Intent: ID, Type, Action, Target, Details
+user_intent(/current_intent, /mutation, /delete, "main.go", "").
+user_intent(/current_intent, /mutation, /refactor, "churn.go", "").
+user_intent(/current_intent, /mutation, /delete, "utils.go", "").

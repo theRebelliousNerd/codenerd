@@ -1,17 +1,5 @@
-# Expected Output (IDB) for Git Safety
-
-# 1. recent_change_by_other
-# Should match /danger_file (bob, 1 day ago)
-recent_change_by_other("/danger_file").
-
-# 2. chesterton_fence_warning
-# Warning for deleting /danger_file due to recent change
-chesterton_fence_warning("/danger_file", "recent_change_by_other").
-
-# Warning for refactoring /hot_file due to high churn
-chesterton_fence_warning("/hot_file", "high_churn_file").
-
-# 3. clarification_needed
-# Both unsafe actions trigger clarification
-clarification_needed("/danger_file").
-clarification_needed("/hot_file").
+recent_change_by_other("main.go").
+chesterton_fence_warning("main.go", "recent_change_by_other").
+chesterton_fence_warning("churn.go", "high_churn_file").
+clarification_needed("main.go").
+clarification_needed("churn.go").

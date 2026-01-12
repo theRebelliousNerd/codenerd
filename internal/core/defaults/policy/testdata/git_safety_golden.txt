@@ -1,5 +1,0 @@
-recent_change_by_other("/file1")
-chesterton_fence_warning("/file1", "recent_change_by_other")
-clarification_needed("/file1")
-chesterton_fence_warning("/file2", "high_churn_file")
-clarification_needed("/file2")
