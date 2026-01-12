@@ -1,11 +1,9 @@
-# Coder Policy - Impact Analysis
-# Version: 1.0.0
-# Extracted from coder.mg Section 4
+# Coder Shard Policy - Impact Analysis
+# Description: Analyze impact of changes before making them.
 
 # =============================================================================
 # SECTION 4: IMPACT ANALYSIS
 # =============================================================================
-# Analyze impact of changes before making them.
 
 # -----------------------------------------------------------------------------
 # 4.1 Bounded Impact Propagation

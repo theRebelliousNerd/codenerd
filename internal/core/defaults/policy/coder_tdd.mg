@@ -1,11 +1,9 @@
-# Coder Policy - TDD Integration
-# Version: 1.0.0
-# Extracted from coder.mg Section 9
+# Coder Shard Policy - TDD Integration
+# Description: Rules for Test-Driven Development loop integration.
 
 # =============================================================================
 # SECTION 9: TDD INTEGRATION
 # =============================================================================
-# Rules for Test-Driven Development loop integration.
 
 # -----------------------------------------------------------------------------
 # 9.1 TDD State Awareness
