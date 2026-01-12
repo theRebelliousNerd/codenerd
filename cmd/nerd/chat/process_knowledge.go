@@ -4,7 +4,9 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -118,15 +120,24 @@ If you need to search documentation or the web, do so to provide accurate inform
 // matchSpecialistForQuery attempts to find the best specialist for a given query
 // by checking the agents registry and matching keywords.
 func (m *Model) matchSpecialistForQuery(query string) string {
+	queryLower := strings.ToLower(query)
+
 	// Try to load agents from registry
 	if m.workspace != "" {
 		registryPath := filepath.Join(m.workspace, ".nerd", "agents.json")
-		_ = registryPath // Registry loading is handled in matchSpecialistForQuery
-		// TODO: Load and parse agents.json to match by keywords
-		// For now, use simple keyword matching
+		if data, err := os.ReadFile(registryPath); err == nil {
+			var reg Registry
+			if err := json.Unmarshal(data, &reg); err == nil {
+				for _, agent := range reg.Agents {
+					for _, kw := range agent.Keywords {
+						if strings.Contains(queryLower, strings.ToLower(kw)) {
+							return agent.Name
+						}
+					}
+				}
+			}
+		}
 	}
-
-	queryLower := strings.ToLower(query)
 
 	// Keyword-based specialist matching
 	specialists := map[string][]string{
