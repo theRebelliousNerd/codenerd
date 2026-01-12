@@ -546,6 +546,13 @@ func (v *VirtualStore) SetFileEditor(editor FileEditor) {
 	logging.VirtualStoreDebug("FileEditor attached for line-based file operations")
 }
 
+// GetFileEditor returns the file editor for line-based operations.
+func (v *VirtualStore) GetFileEditor() FileEditor {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.fileEditor
+}
+
 // SetToolExecutor sets the tool executor for generated tool execution.
 func (v *VirtualStore) SetToolExecutor(executor ToolExecutor) {
 	v.mu.Lock()
