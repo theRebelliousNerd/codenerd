@@ -90,6 +90,9 @@ type SpawnRequest struct {
 
 	// Timeout for the subagent's execution
 	Timeout time.Duration
+
+	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
+	SessionContext *types.SessionContext
 }
 
 // Spawn creates and starts a new subagent based on the request.
@@ -116,12 +119,13 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// 2. Build subagent configuration
 	subCfg := SubAgentConfig{
-		ID:          fmt.Sprintf("%s-%d", req.Name, time.Now().UnixNano()),
-		Name:        req.Name,
-		Type:        req.Type,
-		AgentConfig: agentConfig,
-		Timeout:     req.Timeout,
-		MaxTurns:    100,
+		ID:             fmt.Sprintf("%s-%d", req.Name, time.Now().UnixNano()),
+		Name:           req.Name,
+		Type:           req.Type,
+		AgentConfig:    agentConfig,
+		Timeout:        req.Timeout,
+		MaxTurns:       100,
+		SessionContext: req.SessionContext,
 	}
 
 	if subCfg.Timeout == 0 {
@@ -337,6 +341,11 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		IntentVerb:      intentVerb,
 		OperationalMode: "/active",
 		TokenBudget:     8192, // Default token budget for JIT compilation
+	}
+
+	// If dream mode, pass it to compilation context to potentially select different persona/skills
+	if req.SessionContext != nil && req.SessionContext.DreamMode {
+		compilationCtx.OperationalMode = "/dream"
 	}
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)

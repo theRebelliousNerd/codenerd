@@ -54,16 +54,15 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 //
 // Migration helper: replaces m.shardMgr.SpawnWithPriority() calls.
 func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	// Currently falls back to ShardManager.SpawnWithPriority
-	// TODO: Add native support in TaskExecutor for dream mode via intent routing (e.g., "/dream")
-	if m.shardMgr != nil {
-		return m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, priority)
-	}
-
-	// If no ShardManager, use basic TaskExecutor (loses priority/context - acceptable for migration)
+	// Prefer TaskExecutor when available
 	if m.taskExecutor != nil {
 		intent := session.LegacyShardNameToIntent(shardType)
-		return m.taskExecutor.Execute(ctx, intent, task)
+		return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	}
+
+	// Currently falls back to ShardManager.SpawnWithPriority
+	if m.shardMgr != nil {
+		return m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, priority)
 	}
 
 	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
