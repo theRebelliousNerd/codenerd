@@ -1,0 +1,8 @@
+# TDD Logic Test Data
+
+# Diagnostic: Error severity
+# Note: Using Atoms (/error) to match strict schema logic
+diagnostic(/error, "file_a.go", 10, 1, "syntax error").
+
+# Diagnostic: Warning severity (should not block)
+diagnostic(/warning, "file_b.go", 5, 1, "unused variable").
