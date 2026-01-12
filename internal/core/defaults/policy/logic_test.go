@@ -39,6 +39,13 @@ func TestLogic_Golden(t *testing.T) {
 			goldenFile:  "testdata/jit_logic.golden",
 		},
 		{
+			name:        "Campaign Orchestration",
+			policyFiles: []string{"campaign_core.mg", "campaign_context.mg", "campaign_planning.mg", "campaign_tasks.mg"},
+			schemaFiles: []string{"../schemas_campaign.mg", "../schemas_shards.mg", "../schemas_safety.mg", "../schemas_intent.mg", "../schemas_analysis.mg", "../schemas_execution.mg"},
+			edbFile:     "testdata/campaign.edb",
+			goldenFile:  "testdata/campaign.golden",
+		},
+		{
 			name:        "CodeDOM Safety",
 			policyFiles: []string{"codedom_safety.mg"},
 			schemaFiles: []string{"../schemas_codedom.mg", "../schemas_codedom_polyglot.mg"},
