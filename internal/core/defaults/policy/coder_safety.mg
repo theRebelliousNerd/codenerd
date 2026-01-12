@@ -1,11 +1,9 @@
-# Coder Policy - Edit Safety & Blocking
-# Version: 1.0.0
-# Extracted from coder.mg Section 5
+# Coder Shard Policy - Edit Safety & Blocking
+# Description: Safety rules to prevent dangerous or low-quality edits.
 
 # =============================================================================
 # SECTION 5: EDIT SAFETY & BLOCKING
 # =============================================================================
-# Safety rules to prevent dangerous or low-quality edits.
 
 # -----------------------------------------------------------------------------
 # 5.1 Block Write Conditions
@@ -39,6 +37,7 @@ coder_block_action(/edit, "vendor_file") :-
     is_vendor_file(Path).
 
 # Helper: any pending edit is implementation
+Decl has_implementation_edit().
 has_implementation_edit() :-
     edit_is_implementation(_).
 
@@ -49,12 +48,14 @@ coder_block_action(/edit, "tdd_red_phase") :-
     tdd_state(/red).
 
 # Helpers
+Decl is_generated_file(Path).
 is_generated_file(Path) :-
     path_contains(Path, "generated").
 
 is_generated_file(Path) :-
     path_contains(Path, "_gen.").
 
+Decl is_vendor_file(Path).
 is_vendor_file(Path) :-
     path_contains(Path, "vendor/").
 
@@ -85,15 +86,15 @@ coder_safe_to_write(File) :-
 # Edit should include tests if creating new code
 edit_needs_tests(File) :-
     coder_task(_, /create, File, _),
-    !is_test_file(File),
     detected_language(File, Lang),
-    testable_language(Lang).
+    testable_language(Lang),
+    !is_test_file(File).
 
 # Edit should update docs if modifying public API
 edit_needs_docs(File) :-
     coder_task(_, /modify, File, _),
-    !doc_exists_for(File),
-    is_public_api(File).
+    is_public_api(File),
+    !doc_exists_for(File).
 
 # Testable languages
 testable_language(/go).
