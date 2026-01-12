@@ -409,11 +409,12 @@ type Message struct {
 
 // Agent represents a defined agent in the registry
 type Agent struct {
-	Name          string `json:"name"`
-	Type          string `json:"type"`
-	KnowledgePath string `json:"knowledge_path"`
-	KBSize        int    `json:"kb_size"`
-	Status        string `json:"status"`
+	Name          string   `json:"name"`
+	Type          string   `json:"type"`
+	KnowledgePath string   `json:"knowledge_path"`
+	KBSize        int      `json:"kb_size"`
+	Status        string   `json:"status"`
+	Keywords      []string `json:"keywords,omitempty"`
 }
 
 // Registry holds the list of defined agents
