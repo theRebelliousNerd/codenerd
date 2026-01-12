@@ -746,9 +746,99 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		return true // No kernel, no safety check
 	}
 
-	// Query kernel for permission
-	// TODO: Implement proper Mangle query for permitted(action)
-	return true
+	// 1. Prepare Mangle terms
+	// Action names must be Mangle atoms (start with /)
+	actionName := call.Name
+	if !strings.HasPrefix(actionName, "/") {
+		actionName = "/" + actionName
+	}
+	actionAtom := types.MangleAtom(actionName)
+
+	// Extract target and serialize payload
+	target := e.extractTarget(call.Args)
+	payloadBytes, err := json.Marshal(call.Args)
+	if err != nil {
+		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
+		return false
+	}
+	payload := string(payloadBytes)
+	timestamp := time.Now().Unix()
+
+	// 2. Assert pending_action
+	// Decl pending_action(ActionID, ActionType, Target, Payload, Timestamp)
+	pendingFact := types.Fact{
+		Predicate: "pending_action",
+		Args: []interface{}{
+			call.ID,
+			actionAtom,
+			target,
+			payload,
+			timestamp,
+		},
+	}
+
+	if err := e.kernel.Assert(pendingFact); err != nil {
+		logging.Get(logging.CategorySession).Error("Safety check failed: assertion error: %v", err)
+		return false
+	}
+
+	// Ensure cleanup of pending_action
+	defer func() {
+		if err := e.kernel.RetractFact(pendingFact); err != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to retract pending_action: %v", err)
+		}
+	}()
+
+	// 3. Query permitted
+	// permitted(Action, Target, Payload)
+	// We query for all permitted facts and filter for matching this exact request.
+	facts, err := e.kernel.Query("permitted")
+	if err != nil {
+		logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", err)
+		return false
+	}
+
+	for _, f := range facts {
+		if len(f.Args) != 3 {
+			continue
+		}
+
+		// Check Action (Handle both MangleAtom and string types)
+		factAction := fmt.Sprintf("%v", f.Args[0])
+		if factAction != string(actionAtom) {
+			continue
+		}
+
+		// Check Target
+		factTarget := fmt.Sprintf("%v", f.Args[1])
+		if factTarget != target {
+			continue
+		}
+
+		// Check Payload
+		factPayload := fmt.Sprintf("%v", f.Args[2])
+		if factPayload != payload {
+			continue
+		}
+
+		// Match found!
+		return true
+	}
+
+	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
+	return false
+}
+
+// extractTarget attempts to identify the primary target of a tool call.
+func (e *Executor) extractTarget(args map[string]interface{}) string {
+	// Common keys for targets
+	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query"}
+	for _, key := range candidates {
+		if val, ok := args[key]; ok {
+			return fmt.Sprintf("%v", val)
+		}
+	}
+	return "unknown"
 }
 
 
