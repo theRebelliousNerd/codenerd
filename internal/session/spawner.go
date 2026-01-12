@@ -4,6 +4,8 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,6 +14,8 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Spawner manages JIT-driven subagent creation and lifecycle.
@@ -345,9 +349,24 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 
 // loadSpecialistConfig loads a specialist's config from the filesystem.
 func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*config.AgentConfig, error) {
-	// TODO: Load from .nerd/agents/{name}/config.yaml
-	// For now, return default config
-	logging.SessionDebug("Loading specialist config for: %s (TODO: implement filesystem load)", name)
+	// Try to load from .nerd/agents/{name}/config.yaml
+	configPath := filepath.Join(".nerd", "agents", name, "config.yaml")
+	logging.SessionDebug("Loading specialist config for: %s from %s", name, configPath)
+
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		var cfg config.AgentConfig
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse specialist config at %s: %w", configPath, err)
+		}
+		logging.SessionDebug("Successfully loaded specialist config for %s", name)
+		return &cfg, nil
+	} else if !os.IsNotExist(err) {
+		// Log read errors other than NotExist
+		logging.Session("Error reading specialist config for %s: %v", name, err)
+	} else {
+		logging.SessionDebug("Specialist config not found for %s, falling back to JIT generation", name)
+	}
 
 	if s.configFactory == nil {
 		return &config.AgentConfig{}, nil

@@ -9,26 +9,26 @@ import (
 // This struct maps the output of the JIT compiler to the Universal Executor.
 type AgentConfig struct {
 	// IdentityPrompt is the system prompt that defines the agent's persona and mission.
-	IdentityPrompt string `json:"identity_prompt"`
+	IdentityPrompt string `json:"identity_prompt" yaml:"identity_prompt"`
 
 	// Tools defines the set of tools this agent is permitted to use.
-	Tools ToolSet `json:"tools"`
+	Tools ToolSet `json:"tools" yaml:"tools"`
 
 	// Policies defines the Mangle logic files that govern this agent's behavior.
-	Policies PolicySet `json:"policies"`
+	Policies PolicySet `json:"policies" yaml:"policies"`
 
 	// Mode defines the execution mode (e.g., "SingleTurn", "Campaign").
-	Mode string `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty" yaml:"mode,omitempty"`
 }
 
 // ToolSet represents a collection of allowed tools.
 type ToolSet struct {
-	AllowedTools []string `json:"allowed_tools"`
+	AllowedTools []string `json:"allowed_tools" yaml:"allowed_tools"`
 }
 
 // PolicySet represents a collection of Mangle policy files.
 type PolicySet struct {
-	Files []string `json:"files"`
+	Files []string `json:"files" yaml:"files"`
 }
 
 // Validate ensures the configuration is complete and usable.
