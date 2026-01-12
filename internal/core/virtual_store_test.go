@@ -363,9 +363,4 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// min is declared in validator_paranoid.go, removing redeclaration
