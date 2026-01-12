@@ -1762,7 +1762,12 @@ func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 }
 
 func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
-	// TODO: Route through VirtualStore's FileEditor when wired
+	// Route through VirtualStore's FileEditor if wired
+	if editor := a.vs.GetFileEditor(); editor != nil {
+		_, err := editor.WriteFile(path, content)
+		return err
+	}
+	// Fallback to direct OS write if no editor configured
 	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
 }
 
