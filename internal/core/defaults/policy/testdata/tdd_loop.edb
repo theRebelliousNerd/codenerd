@@ -1,2 +1,15 @@
+# Facts for TDD Loop Scenarios
+
+# Scenario 1: Failing tests, retry count < 3 -> read_error_log
 test_state(/failing).
-retry_count(0).
+retry_count(1).
+
+# Scenario 2: Cause found -> generate_patch
+test_state(/cause_found).
+
+# Scenario 3: User intends to test -> run_tests
+test_state(/unknown).
+user_intent(/current_intent, /mutation, /test, "none", "none").
+
+# Scenario 4: Patch applied -> run_tests
+test_state(/patch_applied).
