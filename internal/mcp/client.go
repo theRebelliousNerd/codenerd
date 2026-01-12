@@ -119,8 +119,7 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 		// TODO: Implement stdio transport
 		return fmt.Errorf("stdio transport not yet implemented")
 	case ProtocolSSE:
-		// TODO: Implement SSE transport
-		return fmt.Errorf("SSE transport not yet implemented")
+		transport = NewSSETransport(cfg.BaseURL, timeout)
 	default:
 		return fmt.Errorf("unsupported protocol: %s", cfg.Protocol)
 	}
