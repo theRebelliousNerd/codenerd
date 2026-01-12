@@ -13,6 +13,66 @@ import (
 	"codenerd/internal/tactile"
 )
 
+// Exec executes a command directly, bypassing the ActionRequest routing but maintaining safety checks.
+// It returns stdout, stderr, and error.
+// This is used by the session package to execute tools directly via VirtualStore.
+func (v *VirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	// 1. Safety Checks
+	if strings.Contains(cmd, "..") {
+		return "", "", fmt.Errorf("path traversal detected in command: %s", cmd)
+	}
+
+	// Default to bash execution for consistency with handleExecCmd
+	binary := "bash"
+	args := []string{"-c", cmd}
+
+	// Enforce binary allowlist
+	if !v.isBinaryAllowed(binary) {
+		return "", "", fmt.Errorf("binary %s not allowed", binary)
+	}
+
+	// Merge allowed env with provided env
+	// Provided env overrides allowed env if duplicates exist (tactile executor usually handles last-win or simple append)
+	finalEnv := append(v.getAllowedEnv(), env...)
+
+	// Construct Command
+	command := tactile.Command{
+		Binary:           binary,
+		Arguments:        args,
+		WorkingDirectory: v.workingDir,
+		Environment:      finalEnv,
+		Limits: &tactile.ResourceLimits{
+			TimeoutMs: 30000, // Default 30s
+		},
+	}
+
+	// Choose executor
+	v.mu.RLock()
+	useModern := v.useModernExecutor && v.modernExecutor != nil
+	executor := v.executor
+	if useModern {
+		executor = v.modernExecutor
+	}
+	v.mu.RUnlock()
+
+	result, err := executor.Execute(ctx, command)
+	if err != nil {
+		// Infrastructure error
+		return "", "", err
+	}
+
+	if result.ExitCode != 0 {
+		// Command failed
+		errMsg := fmt.Sprintf("command failed with exit code %d", result.ExitCode)
+		if result.Error != "" {
+			errMsg += ": " + result.Error
+		}
+		return result.Stdout, result.Stderr, fmt.Errorf("%s", errMsg)
+	}
+
+	return result.Stdout, result.Stderr, nil
+}
+
 // handleExecCmd executes a shell command safely.
 func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleExecCmd")
