@@ -1,6 +1,14 @@
 # Git-Aware Safety / Chesterton's Fence
 # Section 13 of Cortex Executive Policy
 
+Decl git_history(File, Hash, Author, Age, Message).
+Decl current_user(User).
+Decl user_intent(ID, Category, Action, Target, Params).
+Decl churn_rate(File, Rate).
+
+Decl recent_change_by_other(File).
+Decl chesterton_fence_warning(File, Reason).
+Decl clarification_needed(File).
 
 # Recent change by another author (within 2 days)
 recent_change_by_other(File) :-
