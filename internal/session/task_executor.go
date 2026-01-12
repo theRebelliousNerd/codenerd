@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 )
 
 // TaskExecutor is the unified interface for task execution.
@@ -24,6 +25,10 @@ type TaskExecutor interface {
 	// The intent parameter is an intent verb (e.g., "/fix", "/test", "/review")
 	// that determines the persona, tools, and policies via JIT compilation.
 	Execute(ctx context.Context, intent string, task string) (string, error)
+
+	// ExecuteWithContext runs a task with explicit session context and priority.
+	// This enables dream mode, shadow execution, and context injection.
+	ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
 
 	// ExecuteAsync spawns a subagent to handle the task asynchronously.
 	// Returns an ID that can be used to track progress and get results.
@@ -85,6 +90,19 @@ func (j *JITExecutor) Execute(ctx context.Context, intent string, task string) (
 	}
 
 	return result.Response, nil
+}
+
+// ExecuteWithContext runs a task with explicit session context.
+func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	// Inject session context via context.Context
+	// This ensures the executor picks it up in buildCompilationContext
+	ctx = WithSessionContext(ctx, sessionCtx)
+
+	// Priority is currently not used by the core executor loop (it's immediate),
+	// but could be passed to Spawner if we use ExecuteAsync.
+	// TODO: Pass priority to spawner if subagent is used.
+
+	return j.Execute(ctx, intent, task)
 }
 
 // ExecuteAsync spawns a subagent to handle the task.
