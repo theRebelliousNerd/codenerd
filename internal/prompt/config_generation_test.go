@@ -21,8 +21,11 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if len(coderCfg.Tools.AllowedTools) == 0 {
 		t.Errorf("Coder config has no tools")
 	}
-	if !contains(coderCfg.Policies.Files, "coder.mg") {
-		t.Errorf("Coder config missing coder.mg")
+	if !contains(coderCfg.Policies.Files, "base.mg") {
+		t.Errorf("Coder config missing base.mg")
+	}
+	if !contains(coderCfg.Policies.Files, "policy/coder_workflow.mg") {
+		t.Errorf("Coder config missing policy/coder_workflow.mg")
 	}
 
 	// Test Tester
@@ -59,7 +62,10 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 	}
 
 	// Should have both policies
-	if !contains(hybridCfg.Policies.Files, "coder.mg") || !contains(hybridCfg.Policies.Files, "tester.mg") {
+	if !contains(hybridCfg.Policies.Files, "base.mg") {
+		t.Errorf("Hybrid config missing base.mg")
+	}
+	if !contains(hybridCfg.Policies.Files, "policy/coder_workflow.mg") || !contains(hybridCfg.Policies.Files, "tester.mg") {
 		t.Errorf("Hybrid config missing policies: %v", hybridCfg.Policies.Files)
 	}
 

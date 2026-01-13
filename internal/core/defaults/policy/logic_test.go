@@ -69,7 +69,7 @@ func TestLogic_Golden(t *testing.T) {
 		{
 			name:        "TDD Loop Logic",
 			policyFiles: []string{"tdd_logic.mg"},
-			schemaFiles: []string{"../schemas_shards.mg", "../schemas_analysis.mg"},
+			schemaFiles: []string{"../schemas_shards.mg", "../schemas_analysis.mg", "../schemas_world.mg"},
 			edbFile:     "testdata/tdd_logic.edb",
 			goldenFile:  "testdata/tdd_logic.golden",
 		},

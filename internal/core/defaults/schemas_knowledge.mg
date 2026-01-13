@@ -71,7 +71,7 @@ Decl compound_suggestion(Verb1, Verb2).
 
 # learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)
 # Learned user patterns that influence intent classification.
-# Decl learned_exemplar/5 is defined in schema/learning.mg.
+Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
 
 # verb_composition(Verb1, Verb2, ComposedAction, Priority)
 # Defines valid verb compositions for compound suggestions

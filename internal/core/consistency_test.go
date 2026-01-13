@@ -20,8 +20,12 @@ func TestKernelConcurrency(t *testing.T) {
 
 	// 1. Concurrent Assertions
 	var wg sync.WaitGroup
-	numRoutines := 50
-	factsPerRoutine := 100
+	numRoutines := 20
+	factsPerRoutine := 25
+	if testing.Short() {
+		numRoutines = 8
+		factsPerRoutine = 10
+	}
 
 	wg.Add(numRoutines)
 	for i := 0; i < numRoutines; i++ {

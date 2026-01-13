@@ -7,7 +7,7 @@ import (
 
 func TestExtractFactFromResponse_JSONNoise(t *testing.T) {
 	response := `Some analysis {"mangle_updates":["learned_exemplar(\"Add a feature\", /create, \"feature\", \"ensure: wired to the TUI, log a note\", 0.90)."]} trailing text`
-	want := `learned_exemplar(\"Add a feature\", /create, \"feature\", \"ensure: wired to the TUI, log a note\", 0.90).`
+	want := `learned_exemplar("Add a feature", /create, "feature", "ensure: wired to the TUI, log a note", 0.90).`
 
 	got := ExtractFactFromResponse(response)
 	if got != want {

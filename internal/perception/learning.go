@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,6 +55,11 @@ learned_exemplar("Add a feature", /create, "feature", "ensure: wired to TUI", 0.
 func ExtractFactFromResponse(response string) string {
 	logging.PerceptionDebug("ExtractFactFromResponse: searching for learned_exemplar in %d chars", len(response))
 
+	if fact := extractFactFromJSON(response); fact != "" {
+		logging.PerceptionDebug("ExtractFactFromResponse: extracted fact from JSON: %s", fact)
+		return fact
+	}
+
 	// Simple heuristic: look for learned_exemplar(...)
 	start := strings.Index(response, "learned_exemplar(")
 	if start == -1 {
@@ -83,16 +89,61 @@ func ExtractFactFromResponse(response string) string {
 			if end < len(response) && response[end] == '.' {
 				end++
 			}
-			fact := response[start:end]
-			if !strings.HasSuffix(fact, ".") {
-				fact += "."
-			}
+			fact := normalizeLearnedFact(response[start:end])
 			logging.PerceptionDebug("ExtractFactFromResponse: extracted fact: %s", fact)
 			return fact
 		}
 	}
 	logging.PerceptionDebug("ExtractFactFromResponse: malformed fact (no closing paren)")
 	return ""
+}
+
+func extractFactFromJSON(response string) string {
+	if !strings.Contains(response, "mangle_updates") {
+		return ""
+	}
+
+	start := strings.Index(response, "{")
+	if start == -1 {
+		return ""
+	}
+
+	type mangleUpdatesEnvelope struct {
+		MangleUpdates []string `json:"mangle_updates"`
+		ControlPacket struct {
+			MangleUpdates []string `json:"mangle_updates"`
+		} `json:"control_packet"`
+	}
+
+	var envelope mangleUpdatesEnvelope
+	decoder := json.NewDecoder(strings.NewReader(response[start:]))
+	if err := decoder.Decode(&envelope); err != nil {
+		logging.PerceptionDebug("ExtractFactFromResponse: JSON parse failed: %v", err)
+		return ""
+	}
+
+	updates := append([]string{}, envelope.MangleUpdates...)
+	if len(envelope.ControlPacket.MangleUpdates) > 0 {
+		updates = append(updates, envelope.ControlPacket.MangleUpdates...)
+	}
+
+	for _, update := range updates {
+		if strings.Contains(update, "learned_exemplar(") {
+			return normalizeLearnedFact(update)
+		}
+	}
+	return ""
+}
+
+func normalizeLearnedFact(fact string) string {
+	fact = strings.TrimSpace(fact)
+	if fact == "" {
+		return ""
+	}
+	if !strings.HasSuffix(fact, ".") {
+		fact += "."
+	}
+	return fact
 }
 
 // LearnFromInteraction analyzes recent history to learn new patterns.
