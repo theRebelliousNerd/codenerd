@@ -21,27 +21,37 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if len(coderCfg.Tools.AllowedTools) == 0 {
 		t.Errorf("Coder config has no tools")
 	}
-	if !contains(coderCfg.Policies.Files, "coder.mg") {
-		t.Errorf("Coder config missing coder.mg")
+	expectedCoderPolicies := []string{
+		"base.mg",
+		"policy/coder_classification.mg",
+		"policy/coder_language.mg",
+		"policy/coder_impact.mg",
+		"policy/coder_safety.mg",
+		"policy/coder_diagnostics.mg",
+		"policy/coder_workflow.mg",
+		"policy/coder_context.mg",
+		"policy/coder_tdd.mg",
+		"policy/coder_quality.mg",
+		"policy/coder_learning.mg",
+		"policy/coder_campaign.mg",
+		"policy/coder_observability.mg",
+		"policy/coder_patterns.mg",
 	}
+	assertContainsAll(t, coderCfg.Policies.Files, expectedCoderPolicies, "Coder")
 
 	// Test Tester
 	testerCfg, err := factory.Generate(ctx, result, "/tester")
 	if err != nil {
 		t.Fatalf("Failed to generate tester config: %v", err)
 	}
-	if !contains(testerCfg.Policies.Files, "tester.mg") {
-		t.Errorf("Tester config missing tester.mg")
-	}
+	assertContainsAll(t, testerCfg.Policies.Files, []string{"base.mg", "tester.mg"}, "Tester")
 
 	// Test Reviewer
 	reviewerCfg, err := factory.Generate(ctx, result, "/reviewer")
 	if err != nil {
 		t.Fatalf("Failed to generate reviewer config: %v", err)
 	}
-	if !contains(reviewerCfg.Policies.Files, "reviewer.mg") {
-		t.Errorf("Reviewer config missing reviewer.mg")
-	}
+	assertContainsAll(t, reviewerCfg.Policies.Files, []string{"base.mg", "reviewer.mg"}, "Reviewer")
 }
 
 func TestConfigGeneration_HybridIntents(t *testing.T) {
@@ -59,9 +69,11 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 	}
 
 	// Should have both policies
-	if !contains(hybridCfg.Policies.Files, "coder.mg") || !contains(hybridCfg.Policies.Files, "tester.mg") {
-		t.Errorf("Hybrid config missing policies: %v", hybridCfg.Policies.Files)
-	}
+	assertContainsAll(t, hybridCfg.Policies.Files, []string{
+		"base.mg",
+		"policy/coder_workflow.mg",
+		"tester.mg",
+	}, "Hybrid")
 
 	// Should have union of tools
 	if !contains(hybridCfg.Tools.AllowedTools, "write_file") || !contains(hybridCfg.Tools.AllowedTools, "run_shell_command") {
@@ -76,4 +88,13 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func assertContainsAll(t *testing.T, got []string, expected []string, label string) {
+	t.Helper()
+	for _, item := range expected {
+		if !contains(got, item) {
+			t.Errorf("%s config missing %s", label, item)
+		}
+	}
 }

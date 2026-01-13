@@ -252,31 +252,32 @@ func (k *RealKernel) loadMangleFiles() error {
 		logging.Get(logging.CategoryKernel).Error("Failed to load schema index: %v", err)
 	}
 
-	// Load all modular schema files (schemas_*.mg)
-	// This allows selective loading and better organization (18 modules, all under 600 lines)
-		schemaFiles := []string{
-			"schemas_intent.mg",    // Intent & Focus Resolution
-			"schemas_world.mg",     // File Topology, Symbol Graph, Diagnostics
-			"schemas_execution.mg", // TDD Loop & Action Execution
-			"schemas_browser.mg",   // Browser Physics & Spatial Reasoning
-		"schemas_project.mg",   // Project Profile, User Preferences, Session State
-		"schemas_dreamer.mg",   // Speculative Dreamer & Cross-Module Support
-		"schemas_memory.mg",    // Memory Tiers & Knowledge
-		"schemas_knowledge.mg", // Knowledge Atoms, LSP, Semantic Matching
-		"schemas_safety.mg",    // Constitution, Git Safety, Shadow Mode
-		"schemas_analysis.mg",  // Spreading Activation, Strategy, Impact
-		"schemas_misc.mg",      // Northstar, Continuation Protocol, Benchmarks
+	// Load all modular schema files (schemas_*.mg) plus learning schema.
+	// This allows selective loading and better organization (modular schemas under 600 lines).
+	schemaFiles := []string{
+		"schemas_intent.mg",           // Intent & Focus Resolution
+		"schemas_world.mg",            // File Topology, Symbol Graph, Diagnostics
+		"schemas_execution.mg",        // TDD Loop & Action Execution
+		"schemas_browser.mg",          // Browser Physics & Spatial Reasoning
+		"schemas_project.mg",          // Project Profile, User Preferences, Session State
+		"schemas_dreamer.mg",          // Speculative Dreamer & Cross-Module Support
+		"schemas_memory.mg",           // Memory Tiers & Knowledge
+		"schemas_knowledge.mg",        // Knowledge Atoms, LSP, Semantic Matching
+		"schema/learning.mg",          // Learned exemplars + intent overrides
+		"schemas_safety.mg",           // Constitution, Git Safety, Shadow Mode
+		"schemas_analysis.mg",         // Spreading Activation, Strategy, Impact
+		"schemas_misc.mg",             // Northstar, Continuation Protocol, Benchmarks
 		"schemas_codedom.mg",          // Code DOM & Interactive Elements
 		"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
 		"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
-			"schemas_campaign.mg",  // Campaign Orchestration
-			"schemas_tools.mg",     // Ouroboros, Tool Learning, Routing
-			"schemas_mcp.mg",       // MCP integration schema
-			"schemas_prompts.mg",   // Dynamic Prompt Composition & JIT
-			"schemas_reviewer.mg",  // Static Analysis & Data Flow
-			"schemas_shards.mg",    // Shard Delegation & Coordination
-			"schemas_coder.mg",     // Coder Shard Declarations
-		}
+		"schemas_campaign.mg",         // Campaign Orchestration
+		"schemas_tools.mg",            // Ouroboros, Tool Learning, Routing
+		"schemas_mcp.mg",              // MCP integration schema
+		"schemas_prompts.mg",          // Dynamic Prompt Composition & JIT
+		"schemas_reviewer.mg",         // Static Analysis & Data Flow
+		"schemas_shards.mg",           // Shard Delegation & Coordination
+		"schemas_coder.mg",            // Coder Shard Declarations
+	}
 
 	loadedSchemaBytes := 0
 	for _, schemaFile := range schemaFiles {

@@ -156,6 +156,25 @@ func checkFile(engine *mangle.Engine, path string) error {
 				schemasLoaded++
 			}
 		}
+
+		// Load non-modular schema helpers that live under defaults/schema.
+		extraSchemas := []string{
+			filepath.Join(basePath, "schema", "learning.mg"),
+		}
+		for _, schemaFile := range extraSchemas {
+			if _, err := os.Stat(schemaFile); err != nil {
+				continue
+			}
+			data, err := os.ReadFile(schemaFile)
+			if err != nil {
+				continue
+			}
+			if err := tmpEngine.LoadSchemaString(string(data)); err != nil {
+				fmt.Printf("WARNING: Failed to load %s: %v\n", filepath.Base(schemaFile), err)
+			} else {
+				schemasLoaded++
+			}
+		}
 		if schemasLoaded > 0 {
 			break // Found schemas in this directory, stop searching
 		}
