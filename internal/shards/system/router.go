@@ -12,6 +12,7 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -421,10 +422,9 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		actionType := fmt.Sprintf("%v", fact.Args[1])
 		target := fmt.Sprintf("%v", fact.Args[2])
 		payload := map[string]interface{}{}
+		intentID := ""
 		if len(fact.Args) > 3 {
-			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
-				payload = pm
-			}
+			payload, intentID = normalizePayload(fact.Args[3])
 		}
 
 		// Update activity tracking
@@ -451,7 +451,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				Predicate: "routing_result",
 				Args:      []interface{}{actionID, types.MangleAtom("/failure"), "no_handler", time.Now().Unix()},
 			})
-			if intentID, ok := payload["intent_id"].(string); ok && intentID != "" {
+			if intentID != "" {
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "no_action_reason",
 					Args:      []interface{}{intentID, types.MangleAtom("/no_route")},
@@ -901,6 +901,49 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 // Generates a stable ID from the router's start time.
 func (r *TactileRouterShard) getSessionID() string {
 	return fmt.Sprintf("session-%d", r.StartTime.Unix())
+}
+
+func normalizePayload(arg interface{}) (map[string]interface{}, string) {
+	payload := map[string]interface{}{}
+	intentID := ""
+	switch v := arg.(type) {
+	case map[string]interface{}:
+		payload = v
+		if id, ok := v["intent_id"].(string); ok {
+			intentID = id
+		}
+	case string:
+		intentID = extractIntentIDFromPayloadString(v)
+		if intentID != "" {
+			payload["intent_id"] = intentID
+		}
+	}
+	return payload, intentID
+}
+
+func extractIntentIDFromPayloadString(payload string) string {
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "{") {
+		var decoded map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			if id, ok := decoded["intent_id"].(string); ok {
+				return id
+			}
+		}
+	}
+	if strings.HasPrefix(trimmed, "map[") && strings.HasSuffix(trimmed, "]") {
+		trimmed = strings.TrimSuffix(strings.TrimPrefix(trimmed, "map["), "]")
+		for _, field := range strings.Fields(trimmed) {
+			parts := strings.SplitN(field, ":", 2)
+			if len(parts) == 2 && parts[0] == "intent_id" {
+				return parts[1]
+			}
+		}
+	}
+	return ""
 }
 
 // NOTE: Legacy routerAutopoiesisPrompt constant has been DELETED.
