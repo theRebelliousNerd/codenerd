@@ -9,8 +9,14 @@ import (
 )
 
 // TestGeminiStructuredOutput tests that Gemini 3 Flash returns valid structured output.
-// Run with: go test -v -run TestGeminiStructuredOutput ./internal/perception/
+// Run with: GEMINI_LIVE_TESTS=1 go test -v -run TestGeminiStructuredOutput ./internal/perception/
 func TestGeminiStructuredOutput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live Gemini test in -short mode")
+	}
+	if os.Getenv("GEMINI_LIVE_TESTS") != "1" {
+		t.Skip("GEMINI_LIVE_TESTS not set to 1; skipping live test")
+	}
 	// Load API key from config or environment
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {

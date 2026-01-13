@@ -73,8 +73,21 @@ Decl intent_definition(Sentence, Verb, Target).
 Decl intent_category(Sentence, Category).
 
 # =============================================================================
-# SECTION 3: LLM ROUTING SCHEMA (Used by intent_routing.mg facts)
+# SECTION 2.2: INTENT QUALIFIERS (Lexicon)
 # =============================================================================
+# Declarations for qualifier lexicons used by taxonomy_qualifiers.mg.
+# Facts live in schema/intent_qualifiers.mg (taxonomy engine).
+Decl interrogative_type(Word, SemanticType, DefaultVerb, Priority).
+Decl modal_type(Word, ModalMeaning, Transformation, Priority).
+Decl state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
+Decl negation_marker(Word, NegationType, Priority).
+Decl copular_verb(Word, Tense, Number).
+Decl existence_pattern(Pattern, QueryType, DefaultVerb, Priority).
+Decl interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
+
+# ============================================================================= 
+# SECTION 3: LLM ROUTING SCHEMA (Used by intent_routing.mg facts)
+# ============================================================================= 
 
 Decl valid_semantic_type(Type, Description).
 Decl valid_action_type(Action, Description).

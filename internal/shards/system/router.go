@@ -421,8 +421,10 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		actionType := fmt.Sprintf("%v", fact.Args[1])
 		target := fmt.Sprintf("%v", fact.Args[2])
 		payload := map[string]interface{}{}
+		var rawPayload interface{}
 		if len(fact.Args) > 3 {
-			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
+			rawPayload = fact.Args[3]
+			if pm, ok := rawPayload.(map[string]interface{}); ok {
 				payload = pm
 			}
 		}
@@ -451,7 +453,8 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				Predicate: "routing_result",
 				Args:      []interface{}{actionID, types.MangleAtom("/failure"), "no_handler", time.Now().Unix()},
 			})
-			if intentID, ok := payload["intent_id"].(string); ok && intentID != "" {
+			intentID := extractIntentID(payload, rawPayload)
+			if intentID != "" {
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "no_action_reason",
 					Args:      []interface{}{intentID, types.MangleAtom("/no_route")},
@@ -859,6 +862,53 @@ func (r *TactileRouterShard) parseProposedRoute(output string) ToolRoute {
 	}
 
 	return route
+}
+
+func extractIntentID(payload map[string]interface{}, rawPayload interface{}) string {
+	if payload != nil {
+		if intentID, ok := payload["intent_id"].(string); ok && intentID != "" {
+			return intentID
+		}
+		if atom, ok := payload["intent_id"].(types.MangleAtom); ok && atom != "" {
+			return string(atom)
+		}
+	}
+
+	if rawPayload == nil {
+		return ""
+	}
+
+	switch v := rawPayload.(type) {
+	case string:
+		return intentIDFromPayloadString(v)
+	case fmt.Stringer:
+		return intentIDFromPayloadString(v.String())
+	default:
+		return intentIDFromPayloadString(fmt.Sprintf("%v", v))
+	}
+}
+
+func intentIDFromPayloadString(payload string) string {
+	idx := strings.Index(payload, "intent_id")
+	if idx == -1 {
+		return ""
+	}
+
+	rest := payload[idx+len("intent_id"):]
+	sep := strings.IndexAny(rest, ":=")
+	if sep == -1 {
+		return ""
+	}
+	rest = strings.TrimLeft(rest[sep+1:], " \"")
+	if rest == "" {
+		return ""
+	}
+
+	end := len(rest)
+	if cut := strings.IndexAny(rest, `", ]`); cut != -1 {
+		end = cut
+	}
+	return rest[:end]
 }
 
 // generateShutdownSummary creates a summary of the shard's activity.

@@ -116,12 +116,12 @@ func TestKernel_ReplanNeededRespectsCampaignConfig(t *testing.T) {
 	for _, f := range facts {
 		if len(f.Args) >= 2 &&
 			fmt.Sprintf("%v", f.Args[0]) == c.ID &&
-			fmt.Sprintf("%v", f.Args[1]) == "task_failure_cascade" {
+			fmt.Sprintf("%v", f.Args[1]) == "/task_failure_cascade" {
 			hasCascade = true
 		}
 	}
 	if !hasCascade {
-		t.Fatalf("expected task_failure_cascade replan_needed, got %v", facts)
+		t.Fatalf("expected /task_failure_cascade replan_needed, got %v", facts)
 	}
 
 	// AutoReplan disabled should suppress cascade rule
@@ -139,7 +139,7 @@ func TestKernel_ReplanNeededRespectsCampaignConfig(t *testing.T) {
 	for _, f := range facts2 {
 		if len(f.Args) >= 2 &&
 			fmt.Sprintf("%v", f.Args[0]) == c.ID &&
-			fmt.Sprintf("%v", f.Args[1]) == "task_failure_cascade" {
+			fmt.Sprintf("%v", f.Args[1]) == "/task_failure_cascade" {
 			t.Fatalf("did not expect cascade replan when autoReplan disabled, got %v", facts2)
 		}
 	}
