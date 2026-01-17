@@ -19,8 +19,8 @@ func TestNewRequirementsInterrogatorShard(t *testing.T) {
 	if shard == nil {
 		t.Fatal("expected non-nil shard")
 	}
-	if shard.ID != "requirements_interrogator" {
-		t.Errorf("ID mismatch: got %q", shard.ID)
+	if shard.GetID() != "requirements_interrogator" {
+		t.Errorf("ID mismatch: got %q", shard.GetID())
 	}
 }
 
