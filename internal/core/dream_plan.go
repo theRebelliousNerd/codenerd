@@ -1,175 +1,105 @@
-// Package core implements Dream Plan execution for Dream State consultations.
-// This file defines the data structures for actionable execution plans extracted
-// from Dream State multi-agent consultations.
-//
-// Architecture:
-//
-//	Dream Consultation → Extract Subtasks → Store Plan → User Approval → Execute
-//
-// The DreamPlan bridges the gap between hypothetical exploration (Dream State)
-// and actual execution. When a user says "do it" after a dream consultation,
-// the stored plan is converted to Subtasks and executed using the existing
-// multi-step task infrastructure.
 package core
 
 import (
+	"fmt"
 	"time"
 )
 
-// DreamPlanStatus represents the lifecycle state of a dream plan.
+// DreamPlanStatus tracks the state of a dream plan.
 type DreamPlanStatus string
 
 const (
-	// DreamPlanStatusPending indicates the plan is awaiting user decision.
-	DreamPlanStatusPending DreamPlanStatus = "pending"
-	// DreamPlanStatusApproved indicates the user said "do it".
-	DreamPlanStatusApproved DreamPlanStatus = "approved"
-	// DreamPlanStatusExecuting indicates the plan is currently running.
+	DreamPlanStatusPending   DreamPlanStatus = "pending"
+	DreamPlanStatusApproved  DreamPlanStatus = "approved"
 	DreamPlanStatusExecuting DreamPlanStatus = "executing"
-	// DreamPlanStatusCompleted indicates all steps finished successfully.
 	DreamPlanStatusCompleted DreamPlanStatus = "completed"
-	// DreamPlanStatusFailed indicates execution stopped due to an error.
-	DreamPlanStatusFailed DreamPlanStatus = "failed"
-	// DreamPlanStatusCancelled indicates the user cancelled (Ctrl+X).
+	DreamPlanStatusFailed    DreamPlanStatus = "failed"
 	DreamPlanStatusCancelled DreamPlanStatus = "cancelled"
 )
 
-// DreamSubtaskStatus represents the state of an individual subtask.
-type DreamSubtaskStatus string
+// DreamPlan represents a full execution plan extracted from dream consultations.
+// It maps the high-level intent into concrete, executable subtasks.
+type DreamPlan struct {
+	ID               string            `json:"id"`
+	Hypothetical     string            `json:"hypothetical"` // Original user "dream" query
+	RiskLevel        string            `json:"risk_level"`   // low, medium, high, critical
+	Subtasks         []DreamSubtask    `json:"subtasks"`
+	Status           DreamPlanStatus   `json:"status"`
+	CreatedAt        time.Time         `json:"created_at"`
+	ApprovedAt       *time.Time        `json:"approved_at,omitempty"`
+	CompletedAt      *time.Time        `json:"completed_at,omitempty"`
+	CompletedSteps   int               `json:"completed_steps"`
+	FailedSteps      int               `json:"failed_steps"`
+	ConsultedShards  []string          `json:"consulted_shards"`
+	RequiredTools    []string          `json:"required_tools"`
+	PendingQuestions []string          `json:"pending_questions"`
+}
+
+// DreamSubtask is a single step in a dream plan.
+type DreamSubtask struct {
+	ID          string        `json:"id"`
+	Order       int           `json:"order"`
+	ShardName   string        `json:"shard_name"` // e.g. "coder", "my-specialist"
+	ShardType   string        `json:"shard_type"` // e.g. "coder", "tester"
+	Task        string        `json:"task"`       // Actionable task description
+	Action      string        `json:"action"`     // Primary verb (create, fix, test)
+	Target      string        `json:"target"`     // Target file/symbol
+	Description string        `json:"description"`
+	IsMutation  bool          `json:"is_mutation"` // True if it modifies state
+	Status      SubtaskStatus `json:"status"`
+	Result      string        `json:"result,omitempty"`
+	Error       string        `json:"error,omitempty"`
+	DependsOn   []int         `json:"depends_on"` // Indices of dependencies
+}
+
+// SubtaskStatus tracks individual step status.
+type SubtaskStatus string
 
 const (
-	// SubtaskStatusPending indicates the step hasn't started yet.
-	SubtaskStatusPending DreamSubtaskStatus = "pending"
-	// SubtaskStatusRunning indicates the step is currently executing.
-	SubtaskStatusRunning DreamSubtaskStatus = "running"
-	// SubtaskStatusCompleted indicates the step finished successfully.
-	SubtaskStatusCompleted DreamSubtaskStatus = "completed"
-	// SubtaskStatusFailed indicates the step encountered an error.
-	SubtaskStatusFailed DreamSubtaskStatus = "failed"
-	// SubtaskStatusSkipped indicates the step was skipped (e.g., dependency failed).
-	SubtaskStatusSkipped DreamSubtaskStatus = "skipped"
+	SubtaskStatusPending   SubtaskStatus = "pending"
+	SubtaskStatusRunning   SubtaskStatus = "running"
+	SubtaskStatusCompleted SubtaskStatus = "completed"
+	SubtaskStatusFailed    SubtaskStatus = "failed"
+	SubtaskStatusSkipped   SubtaskStatus = "skipped"
 )
 
-// DreamSubtask represents a single executable step extracted from shard consultations.
-// Each subtask maps to a shard invocation when the plan is executed.
-type DreamSubtask struct {
-	// ID is a unique identifier for this subtask (e.g., "dream-0", "dream-1").
-	ID string `json:"id"`
-
-	// Order is the execution order (0-indexed).
-	Order int `json:"order"`
-
-	// ShardName is the name of the shard that proposed this step.
-	ShardName string `json:"shard_name"`
-
-	// ShardType is the type of shard to use for execution (e.g., "coder", "tester").
-	ShardType string `json:"shard_type"`
-
-	// Description is the human-readable step description.
-	Description string `json:"description"`
-
-	// Action is the normalized action verb (e.g., "create", "modify", "test").
-	Action string `json:"action"`
-
-	// Target is the file or symbol target for this step.
-	Target string `json:"target"`
-
-	// IsMutation indicates whether this step modifies files (affects breakpoint mode).
-	IsMutation bool `json:"is_mutation"`
-
-	// DependsOn lists indices of prerequisite steps that must complete first.
-	DependsOn []int `json:"depends_on,omitempty"`
-
-	// Status tracks the current state of this subtask.
-	Status DreamSubtaskStatus `json:"status"`
-
-	// Result holds the execution result (populated after completion).
-	Result string `json:"result,omitempty"`
-
-	// Error holds the error message if the step failed.
-	Error string `json:"error,omitempty"`
-
-	// StartedAt records when execution began.
-	StartedAt *time.Time `json:"started_at,omitempty"`
-
-	// CompletedAt records when execution finished.
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-}
-
-// DreamPlan represents an actionable execution plan extracted from Dream State consultations.
-// This structure persists the full plan for potential execution after user approval.
-type DreamPlan struct {
-	// ID is a unique identifier for this plan.
-	ID string `json:"id"`
-
-	// Hypothetical is the original dream query (e.g., "what if I added caching").
-	Hypothetical string `json:"hypothetical"`
-
-	// Subtasks are the ordered execution steps.
-	Subtasks []DreamSubtask `json:"subtasks"`
-
-	// RiskLevel is the assessed risk (low/medium/high) based on shard concerns.
-	RiskLevel string `json:"risk_level"`
-
-	// Status tracks the overall plan state.
-	Status DreamPlanStatus `json:"status"`
-
-	// ConsultedShards lists which shards were consulted for this plan.
-	ConsultedShards []string `json:"consulted_shards"`
-
-	// RequiredTools lists existing tools needed for execution.
-	RequiredTools []string `json:"required_tools,omitempty"`
-
-	// MissingTools lists tools that would need to be generated (Ouroboros candidates).
-	MissingTools []string `json:"missing_tools,omitempty"`
-
-	// PendingQuestions lists clarifications that may be needed.
-	PendingQuestions []string `json:"pending_questions,omitempty"`
-
-	// CreatedAt records when the plan was extracted.
-	CreatedAt time.Time `json:"created_at"`
-
-	// ApprovedAt records when the user approved execution.
-	ApprovedAt *time.Time `json:"approved_at,omitempty"`
-
-	// CompletedAt records when execution finished.
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-
-	// CurrentStep tracks which step is currently executing (0-indexed).
-	CurrentStep int `json:"current_step"`
-
-	// CompletedSteps counts how many steps have finished.
-	CompletedSteps int `json:"completed_steps"`
-
-	// FailedSteps counts how many steps have failed.
-	FailedSteps int `json:"failed_steps"`
-}
-
-// NewDreamPlan creates a new pending dream plan.
+// NewDreamPlan creates a initialized plan.
 func NewDreamPlan(id, hypothetical string) *DreamPlan {
+	if id == "" {
+		id = fmt.Sprintf("plan-%d", time.Now().UnixNano())
+	}
 	return &DreamPlan{
-		ID:           id,
-		Hypothetical: hypothetical,
-		Subtasks:     make([]DreamSubtask, 0),
-		Status:       DreamPlanStatusPending,
-		CreatedAt:    time.Now(),
+		ID:               id,
+		Hypothetical:     hypothetical,
+		Status:           DreamPlanStatusPending,
+		CreatedAt:        time.Now(),
+		Subtasks:         make([]DreamSubtask, 0),
+		ConsultedShards:  make([]string, 0),
+		RequiredTools:    make([]string, 0),
+		PendingQuestions: make([]string, 0),
 	}
 }
 
-// AddSubtask appends a subtask to the plan.
+// AddSubtask adds a step to the plan.
 func (p *DreamPlan) AddSubtask(subtask DreamSubtask) {
-	subtask.Order = len(p.Subtasks)
-	subtask.Status = SubtaskStatusPending
 	p.Subtasks = append(p.Subtasks, subtask)
 }
 
-// GetNextPendingSubtask returns the next subtask ready for execution.
-// Returns nil if no subtasks are pending or dependencies are unmet.
+// GetNextPendingSubtask returns the next pending subtask, or nil if none.
 func (p *DreamPlan) GetNextPendingSubtask() *DreamSubtask {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].Status == SubtaskStatusPending {
 			// Check dependencies
-			if p.areDependenciesMet(i) {
+			allDepsMet := true
+			for _, depIdx := range p.Subtasks[i].DependsOn {
+				if depIdx >= 0 && depIdx < len(p.Subtasks) {
+					if p.Subtasks[depIdx].Status != SubtaskStatusCompleted && p.Subtasks[depIdx].Status != SubtaskStatusSkipped {
+						allDepsMet = false
+						break
+					}
+				}
+			}
+			if allDepsMet {
 				return &p.Subtasks[i]
 			}
 		}
@@ -177,61 +107,41 @@ func (p *DreamPlan) GetNextPendingSubtask() *DreamSubtask {
 	return nil
 }
 
-// areDependenciesMet checks if all dependencies for a subtask are completed.
-func (p *DreamPlan) areDependenciesMet(index int) bool {
-	subtask := p.Subtasks[index]
-	for _, depIdx := range subtask.DependsOn {
-		if depIdx >= 0 && depIdx < len(p.Subtasks) {
-			if p.Subtasks[depIdx].Status != SubtaskStatusCompleted {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// MarkSubtaskRunning updates a subtask to running status.
+// MarkSubtaskRunning marks a subtask as running.
 func (p *DreamPlan) MarkSubtaskRunning(id string) {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].ID == id {
 			p.Subtasks[i].Status = SubtaskStatusRunning
-			now := time.Now()
-			p.Subtasks[i].StartedAt = &now
-			p.CurrentStep = i
-			break
+			return
 		}
 	}
 }
 
-// MarkSubtaskCompleted updates a subtask to completed status.
+// MarkSubtaskCompleted marks a subtask as completed.
 func (p *DreamPlan) MarkSubtaskCompleted(id, result string) {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].ID == id {
 			p.Subtasks[i].Status = SubtaskStatusCompleted
 			p.Subtasks[i].Result = result
-			now := time.Now()
-			p.Subtasks[i].CompletedAt = &now
 			p.CompletedSteps++
-			break
+			return
 		}
 	}
 }
 
-// MarkSubtaskFailed updates a subtask to failed status.
-func (p *DreamPlan) MarkSubtaskFailed(id, errMsg string) {
+// MarkSubtaskFailed marks a subtask as failed.
+func (p *DreamPlan) MarkSubtaskFailed(id, err string) {
 	for i := range p.Subtasks {
 		if p.Subtasks[i].ID == id {
 			p.Subtasks[i].Status = SubtaskStatusFailed
-			p.Subtasks[i].Error = errMsg
-			now := time.Now()
-			p.Subtasks[i].CompletedAt = &now
+			p.Subtasks[i].Error = err
 			p.FailedSteps++
-			break
+			return
 		}
 	}
 }
 
-// IsComplete returns true if all subtasks are done (completed or failed).
+// IsComplete returns true if all steps are final.
 func (p *DreamPlan) IsComplete() bool {
 	for _, s := range p.Subtasks {
 		if s.Status == SubtaskStatusPending || s.Status == SubtaskStatusRunning {
@@ -241,20 +151,29 @@ func (p *DreamPlan) IsComplete() bool {
 	return true
 }
 
-// AllSucceeded returns true if all subtasks completed successfully.
+// AllSucceeded returns true if all steps completed successfully.
 func (p *DreamPlan) AllSucceeded() bool {
+	if len(p.Subtasks) == 0 {
+		return false
+	}
 	for _, s := range p.Subtasks {
-		if s.Status != SubtaskStatusCompleted {
+		if s.Status != SubtaskStatusCompleted && s.Status != SubtaskStatusSkipped {
 			return false
 		}
 	}
-	return len(p.Subtasks) > 0
+	return true
 }
 
-// Progress returns the completion percentage (0.0 to 1.0).
+// Progress returns progress fraction 0.0-1.0.
 func (p *DreamPlan) Progress() float64 {
 	if len(p.Subtasks) == 0 {
-		return 0.0
+		return 0
 	}
-	return float64(p.CompletedSteps+p.FailedSteps) / float64(len(p.Subtasks))
+	final := 0
+	for _, s := range p.Subtasks {
+		if s.Status != SubtaskStatusPending && s.Status != SubtaskStatusRunning {
+			final++
+		}
+	}
+	return float64(final) / float64(len(p.Subtasks))
 }

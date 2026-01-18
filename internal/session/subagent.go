@@ -78,6 +78,9 @@ type SubAgentConfig struct {
 
 	// MaxTurns limits conversation turns before forcing completion.
 	MaxTurns int
+
+	// SessionContext provides shared state (e.g., DreamMode, Blackboard)
+	SessionContext *types.SessionContext
 }
 
 // DefaultSubAgentConfig returns sensible defaults.
@@ -144,6 +147,11 @@ func NewSubAgent(
 
 	// Create executor for this subagent
 	executor := NewExecutor(kernel, virtualStore, llmClient, jitCompiler, configFactory, transducer)
+
+	// Set session context if provided in config
+	if cfg.SessionContext != nil {
+		executor.SetSessionContext(cfg.SessionContext)
+	}
 
 	// Apply agent config to executor if provided
 	if cfg.AgentConfig != nil {
