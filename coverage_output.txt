@@ -1,0 +1,64 @@
+# github.com/smacker/go-tree-sitter
+In file included from _cgo_export.c:4:
+cgo-gcc-export-header-prolog:55:36: warning: redeclaration of 'callReadFunc' should not add 'dllexport' attribute [-Wdll-attribute-on-redeclaration]
+C:\Users\smoor\go\pkg\mod\github.com\smacker\go-tree-sitter@v0.0.0-20240827094217-dd81d9e9be82/bindings.h:14:14: note: previous declaration is here
+ok  	codenerd/cmd/nerd	(cached)	coverage: 4.1% of statements
+ok  	codenerd/cmd/nerd/chat	(cached)	coverage: 6.4% of statements
+ok  	codenerd/cmd/nerd/ui	(cached)	coverage: 71.4% of statements
+ok  	codenerd/cmd/query-kb	(cached)	coverage: 69.0% of statements
+ok  	codenerd/cmd/tools/action_linter	(cached)	coverage: 62.1% of statements
+ok  	codenerd/cmd/tools/corpus_builder	(cached)	coverage: 7.5% of statements
+ok  	codenerd/cmd/tools/mangle_check	(cached)	coverage: 100.0% of statements
+ok  	codenerd/cmd/tools/predicate_corpus_builder	(cached)	coverage: 27.3% of statements
+ok  	codenerd/cmd/tools/prompt_builder	(cached)	coverage: 13.0% of statements
+ok  	codenerd/cmd/tools/validate_prompt_atoms	(cached)	coverage: 42.7% of statements
+ok  	codenerd/cmd/tools/verify_taxonomy	(cached)	coverage: 100.0% of statements
+ok  	codenerd/internal/articulation	(cached)	coverage: 42.4% of statements
+ok  	codenerd/internal/autopoiesis	(cached)	coverage: 25.1% of statements
+ok  	codenerd/internal/autopoiesis/prompt_evolution	(cached)	coverage: 35.4% of statements
+ok  	codenerd/internal/browser	(cached)	coverage: 1.1% of statements
+ok  	codenerd/internal/build	(cached)	coverage: 56.2% of statements
+ok  	codenerd/internal/campaign	(cached)	coverage: 9.9% of statements
+ok  	codenerd/internal/config	(cached)	coverage: 9.2% of statements
+ok  	codenerd/internal/context	(cached)	coverage: 18.8% of statements
+ok  	codenerd/internal/core	(cached)	coverage: 18.6% of statements
+ok  	codenerd/internal/core/defaults	(cached)	coverage: 71.4% of statements
+ok  	codenerd/internal/core/defaults/policy	(cached)	coverage: [no statements]
+ok  	codenerd/internal/core/shards	(cached)	coverage: 24.2% of statements
+ok  	codenerd/internal/embedding	(cached)	coverage: 13.9% of statements
+ok  	codenerd/internal/init	(cached)	coverage: 2.4% of statements
+ok  	codenerd/internal/jit/config	(cached)	coverage: 100.0% of statements
+ok  	codenerd/internal/logging	(cached)	coverage: 35.3% of statements
+ok  	codenerd/internal/mangle	(cached)	coverage: 27.2% of statements
+ok  	codenerd/internal/mangle/feedback	(cached)	coverage: 72.5% of statements
+ok  	codenerd/internal/mangle/synth	(cached)	coverage: 10.1% of statements
+ok  	codenerd/internal/mangle/transpiler	(cached)	coverage: 84.8% of statements
+ok  	codenerd/internal/mcp	(cached)	coverage: 19.9% of statements
+	codenerd/internal/northstar		coverage: 0.0% of statements
+ok  	codenerd/internal/perception	(cached)	coverage: 25.5% of statements
+ok  	codenerd/internal/prompt	(cached)	coverage: 56.4% of statements
+ok  	codenerd/internal/prompt/sync	(cached)	coverage: 76.6% of statements
+ok  	codenerd/internal/regression	(cached)	coverage: 78.4% of statements
+ok  	codenerd/internal/retrieval	(cached)	coverage: 34.9% of statements
+ok  	codenerd/internal/session	(cached)	coverage: 4.2% of statements
+	codenerd/internal/shards		coverage: 0.0% of statements
+ok  	codenerd/internal/shards/system	(cached)	coverage: 27.1% of statements
+ok  	codenerd/internal/store	(cached)	coverage: 11.5% of statements
+ok  	codenerd/internal/system	(cached)	coverage: 6.7% of statements
+ok  	codenerd/internal/tactile	(cached)	coverage: 21.8% of statements
+ok  	codenerd/internal/tactile/python	(cached)	coverage: 9.0% of statements
+ok  	codenerd/internal/tactile/swebench	(cached)	coverage: 48.9% of statements
+ok  	codenerd/internal/testing/context_harness	(cached)	coverage: 21.2% of statements
+ok  	codenerd/internal/tools	(cached)	coverage: 62.4% of statements
+	codenerd/internal/tools/codedom		coverage: 0.0% of statements
+	codenerd/internal/tools/core		coverage: 0.0% of statements
+	codenerd/internal/tools/research		coverage: 0.0% of statements
+	codenerd/internal/tools/shell		coverage: 0.0% of statements
+ok  	codenerd/internal/transparency	(cached)	coverage: 75.2% of statements
+ok  	codenerd/internal/types	(cached)	coverage: 92.1% of statements
+ok  	codenerd/internal/usage	(cached)	coverage: 71.9% of statements
+ok  	codenerd/internal/ux	(cached)	coverage: 67.4% of statements
+ok  	codenerd/internal/verification	(cached)	coverage: 16.6% of statements
+ok  	codenerd/internal/world	(cached)	coverage: 60.1% of statements
+	codenerd/internal/world/lsp		coverage: 0.0% of statements
+	codenerd/tools		coverage: 0.0% of statements

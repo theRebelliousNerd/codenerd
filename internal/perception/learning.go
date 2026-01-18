@@ -62,18 +62,19 @@ func ExtractFactFromResponse(response string) string {
 	}
 	// Scan forward to find the closing parenthesis outside quotes.
 	inQuotes := false
-	escaped := false
+	isEscaped := func(s string, idx int) bool {
+		if idx <= 0 {
+			return false
+		}
+		count := 0
+		for j := idx - 1; j >= 0 && s[j] == '\\'; j-- {
+			count++
+		}
+		return count%2 == 1
+	}
 	for i := start + len("learned_exemplar("); i < len(response); i++ {
 		ch := response[i]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if ch == '\\' && inQuotes {
-			escaped = true
-			continue
-		}
-		if ch == '"' {
+		if ch == '"' && !isEscaped(response, i) {
 			inQuotes = !inQuotes
 			continue
 		}
@@ -150,8 +151,8 @@ func (t *TaxonomyEngine) LearnFromInteraction(ctx context.Context, history []Rea
 		return "", nil // No pattern found
 	}
 
-        logging.Perception("LearnFromInteraction: pattern detected, awaiting confirmation: %s", fact)
-        return fact, nil
+	logging.Perception("LearnFromInteraction: pattern detected, awaiting confirmation: %s", fact)
+	return fact, nil
 }
 
 // PersistLearnedFact writes the new rule to the learned.mg file and reloads definitions.

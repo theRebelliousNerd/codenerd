@@ -89,7 +89,7 @@ var CoreTechnologyPatterns = []TechnologyPattern{
 	},
 	{
 		ShardName:    "sql",
-		FilePatterns: []string{"database", "store", "repository", "dao"},
+		FilePatterns: []string{"database", "store", "repository", "dao", ".sql"},
 		ImportHints:  []string{"database/sql", "sqlx", "gorm", "pgx", "sqlite"},
 		ContentHints: []string{"SELECT", "INSERT", "UPDATE", "DELETE", "CREATE TABLE"},
 		Description:  "SQL database operations",
@@ -358,12 +358,12 @@ const (
 
 // VerbSpecialistConfig defines which specialists are relevant for each verb
 type VerbSpecialistConfig struct {
-	MinConfidence     float64       // Minimum score to include a specialist
-	PreferPatterns    []string      // Prefer these technology patterns for this verb
-	ExcludePatterns   []string      // Exclude these patterns for this verb
-	MaxSpecialists    int           // Maximum number of specialists to match
-	IncludeGeneric    bool          // Whether to include the generic shard too
-	Mode              ExecutionMode // How specialists participate (parallel, advisory, etc.)
+	MinConfidence   float64       // Minimum score to include a specialist
+	PreferPatterns  []string      // Prefer these technology patterns for this verb
+	ExcludePatterns []string      // Exclude these patterns for this verb
+	MaxSpecialists  int           // Maximum number of specialists to match
+	IncludeGeneric  bool          // Whether to include the generic shard too
+	Mode            ExecutionMode // How specialists participate (parallel, advisory, etc.)
 }
 
 // DefaultVerbConfigs defines specialist matching behavior per verb

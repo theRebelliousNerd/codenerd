@@ -123,16 +123,15 @@ func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, tas
 		}
 	}
 
-	// Currently falls back to ShardManager.SpawnWithPriority
-	// TODO: Add native support in TaskExecutor for dream mode via intent routing (e.g., "/dream")
-	if c.ShardManager != nil {
-		return c.ShardManager.SpawnWithPriority(ctx, normalized, task, sessionCtx, priority)
-	}
-
-	// If no ShardManager, use basic TaskExecutor (loses priority/context - acceptable for migration)
+	// Prefer TaskExecutor with native dream/priority support
 	if c.TaskExecutor != nil {
 		intent := session.LegacyShardNameToIntent(normalized)
-		return c.TaskExecutor.Execute(ctx, intent, task)
+		return c.TaskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	}
+
+	// Fall back to ShardManager
+	if c.ShardManager != nil {
+		return c.ShardManager.SpawnWithPriority(ctx, normalized, task, sessionCtx, priority)
 	}
 
 	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
