@@ -1,7 +1,54 @@
 # Campaign Tasks Logic
-# Task selection, execution, and tool permissions
+# Extracted from campaign.mg
+# Stratification: Depends on campaign_phases.mg (for current_phase)
 
+# =============================================================================
 # Task Selection & Execution
+# =============================================================================
+
+# Helper: check if task has blocking dependencies
+has_blocking_task_dep(TaskID) :-
+    task_dependency(TaskID, BlockerID),
+    campaign_task(BlockerID, _, _, Status, _),
+    /completed != Status,
+    /skipped != Status.
+
+# Helper: check if task conflicts with an in-progress task
+task_conflict_active(TaskID) :-
+    task_conflict(TaskID, OtherTaskID),
+    campaign_task(OtherTaskID, _, _, /in_progress, _).
+
+task_conflict_active(TaskID) :-
+    task_conflict(OtherTaskID, TaskID),
+    campaign_task(OtherTaskID, _, _, /in_progress, _).
+
+# Optional conflict heuristic: same artifact path -> conflict
+task_conflict(TaskID, OtherTaskID) :-
+    TaskID != OtherTaskID,
+    task_artifact(TaskID, _, Path, _),
+    task_artifact(OtherTaskID, _, Path, _).
+
+# Helper: check if there's an earlier pending task
+has_earlier_task(TaskID, PhaseID) :-
+    campaign_task(OtherTaskID, PhaseID, _, /pending, _),
+    OtherTaskID != TaskID,
+    task_priority(OtherTaskID, OtherPriority),
+    task_priority(TaskID, Priority),
+    priority_higher(OtherPriority, Priority).
+
+# Priority ordering helper
+priority_higher(/critical, /high).
+priority_higher(/critical, /normal).
+priority_higher(/critical, /low).
+priority_higher(/high, /normal).
+priority_higher(/high, /low).
+priority_higher(/normal, /low).
+
+# Task is in backoff window if retry time is in the future.
+task_in_backoff(TaskID) :-
+    task_retry_at(TaskID, RetryAt),
+    current_time(Now),
+    Now < RetryAt.
 
 # Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
 eligible_task(TaskID) :-
@@ -15,6 +62,17 @@ eligible_task(TaskID) :-
 # Next task remains available for single-dispatch clients
 next_campaign_task(TaskID) :-
     eligible_task(TaskID).
+
+# Helper: true if there's a next campaign task available
+has_next_campaign_task() :-
+    next_campaign_task(_).
+
+# Campaign blocked if all remaining tasks are blocked
+campaign_blocked(CampaignID, "all_tasks_blocked") :-
+    current_campaign(CampaignID),
+    current_phase(PhaseID),
+    !has_next_campaign_task(),
+    has_incomplete_phase_task(PhaseID).
 
 # Derive next_action based on campaign task type
 next_action(/campaign_create_file) :-
@@ -76,56 +134,29 @@ delegate_task(/tester, Description, /pending) :-
     next_campaign_task(TaskID),
     campaign_task(TaskID, _, Description, _, /test_run).
 
-# --- Helpers ---
+# =============================================================================
+# Context Paging (Phase-Aware Spreading Activation)
+# =============================================================================
 
-# Helper: check if task has blocking dependencies
-has_blocking_task_dep(TaskID) :-
-    task_dependency(TaskID, BlockerID),
-    campaign_task(BlockerID, _, _, Status, _),
-    /completed != Status,
-    /skipped != Status.
+# Boost activation for current phase context
+activation(Fact, 150) :-
+    current_phase(PhaseID),
+    phase_context_atom(PhaseID, Fact, _).
 
-# Helper: check if task conflicts with an in-progress task
-task_conflict_active(TaskID) :-
-    task_conflict(TaskID, OtherTaskID),
-    campaign_task(OtherTaskID, _, _, /in_progress, _).
+# Boost files matching current task's target
+activation(Target, 140) :-
+    next_campaign_task(TaskID),
+    campaign_task(TaskID, _, _, _, _),
+    task_artifact(TaskID, _, Target, _).
 
-task_conflict_active(TaskID) :-
-    task_conflict(OtherTaskID, TaskID),
-    campaign_task(OtherTaskID, _, _, /in_progress, _).
+# Suppress context from completed phases
+activation(Fact, -50) :-
+    context_compression(PhaseID, _, _, _),
+    phase_context_atom(PhaseID, Fact, _).
 
-# Optional conflict heuristic: same artifact path -> conflict
-task_conflict(TaskID, OtherTaskID) :-
-    task_artifact(TaskID, _, Path, _),
-    task_artifact(OtherTaskID, _, Path, _),
-    TaskID != OtherTaskID.
-
-# Helper: check if there's an earlier pending task
-pending_task_priority(TaskID, PhaseID, Priority) :-
-    campaign_task(TaskID, PhaseID, _, /pending, _),
-    task_priority(TaskID, Priority).
-
-has_earlier_task(TaskID, PhaseID) :-
-    pending_task_priority(OtherTaskID, PhaseID, OtherPriority),
-    pending_task_priority(TaskID, PhaseID, Priority),
-    OtherTaskID != TaskID,
-    priority_higher(OtherPriority, Priority).
-
-# Priority ordering helper
-priority_higher(/critical, /high).
-priority_higher(/critical, /normal).
-priority_higher(/critical, /low).
-priority_higher(/high, /normal).
-priority_higher(/high, /low).
-priority_higher(/normal, /low).
-
-# Task is in backoff window if retry time is in the future.
-task_in_backoff(TaskID) :-
-    current_time(Now),
-    task_retry_at(TaskID, RetryAt),
-    Now < RetryAt.
-
-# --- Tool Permissions ---
+# =============================================================================
+# Campaign-Aware Tool Permissions
+# =============================================================================
 
 # During campaigns, only permit tools in the phase's context profile
 phase_tool_permitted(Tool) :-
@@ -135,10 +166,8 @@ phase_tool_permitted(Tool) :-
     tool_in_list(Tool, RequiredTools).
 
 # Block tools not in phase profile during active campaign
-# NOTE: E023 warning is false positive - current_campaign/current_phase are singletons (1×1×N)
-tool_advisory_block(Tool, /not_in_phase_profile) :-
-    current_campaign(CampaignID),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    current_phase(PhaseID),
+tool_advisory_block(Tool, "not_in_phase_profile") :-
+    current_campaign(_),
+    current_phase(_),
     tool_capabilities(Tool, _),
     !phase_tool_permitted(Tool).
