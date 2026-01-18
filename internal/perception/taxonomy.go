@@ -75,28 +75,16 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		}
 	} else {
 		fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
-        // Fallback declaration if file missing, to satisfy taxonomy inference rules.
+		// Fallback declaration if file missing, to satisfy InferenceLogicMG
 		if err := eng.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
 			return nil, fmt.Errorf("failed to define fallback learned_exemplar: %w", err)
 		}
 	}
 
 	// Load declarations and logic (Must be loaded AFTER learning.mg)
-	// Extracted from Go string literal to external Mangle files for stratification.
-
-	// 1. Load Qualifiers (Base Logic)
-	qualifiersContent, err := core.GetDefaultContent("policy/taxonomy_qualifiers.mg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load qualifiers logic file: %w", err)
-	}
-	if err := eng.LoadSchemaString(qualifiersContent); err != nil {
-		return nil, fmt.Errorf("failed to load qualifiers logic: %w", err)
-	}
-
-	// 2. Load Inference Logic (Depends on Qualifiers)
 	inferenceContent, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load inference logic file: %w", err)
+		return nil, fmt.Errorf("failed to get inference logic content: %w", err)
 	}
 	if err := eng.LoadSchemaString(inferenceContent); err != nil {
 		return nil, fmt.Errorf("failed to load inference logic: %w", err)
@@ -337,7 +325,7 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	// 1. Reload Intent Schemas (Modular) - ALWAYS REQUIRED for inference
 	// These contain critical facts like interrogative_type, modal_type, etc.
 	intentFiles := core.DefaultIntentSchemaFiles()
-        intentFiles = append(intentFiles, "schema/learning.mg") // CRITICAL: Required by taxonomy inference rules.
+	intentFiles = append(intentFiles, "schema/learning.mg") // CRITICAL: Required by InferenceLogicMG
 	for _, file := range intentFiles {
 		content, err := core.GetDefaultContent(file)
 		if err == nil {
@@ -350,24 +338,11 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	}
 
 	// 2. Reload Inference Logic - ALWAYS REQUIRED
-	// Load Qualifiers (Base Logic)
-	qualifiersContent, err := core.GetDefaultContent("policy/taxonomy_qualifiers.mg")
-	if err == nil {
-		if err := t.engine.LoadSchemaString(qualifiersContent); err != nil {
-			logging.PerceptionDebug("Failed to reload taxonomy_qualifiers.mg: %v", err)
-		}
-	} else {
-		logging.PerceptionDebug("Failed to load taxonomy_qualifiers.mg: %v", err)
-	}
-
-	// Load Inference Logic (Depends on Qualifiers)
 	inferenceContent, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
-	if err == nil {
-		if err := t.engine.LoadSchemaString(inferenceContent); err != nil {
-			logging.PerceptionDebug("Failed to reload TaxonomyInference.mg: %v", err)
-		}
-	} else {
-		logging.PerceptionDebug("Failed to load taxonomy_inference.mg: %v", err)
+	if err != nil {
+		logging.PerceptionDebug("Failed to get inference logic content: %v", err)
+	} else if err := t.engine.LoadSchemaString(inferenceContent); err != nil {
+		logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
 	}
 
 	// 3. Re-hydrate Verb Taxonomy (EDB facts)
@@ -692,3 +667,4 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)read.*file", "(?i)show.*contents", "(?i)display.*file", "(?i)open.*file"},
 	},
 }
+
