@@ -1,4 +1,3 @@
-// Package session implements the clean execution loop for codeNERD.
 package session
 
 import (
@@ -76,14 +75,31 @@ func NewJITExecutor(executor *Executor, spawner *Spawner, transducer perception.
 // For simple tasks, it uses the executor directly.
 // For complex tasks that need isolation, it spawns a subagent.
 func (j *JITExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
-	logging.Session("JITExecutor.Execute: intent=%s task_len=%d", intent, len(task))
+	return j.ExecuteWithContext(ctx, intent, task, nil, types.PriorityNormal)
+}
+
+// ExecuteWithContext runs a task with explicit session context and priority.
+func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", intent, len(task), priority)
+
+	// Dream mode tasks are speculative and should always use a subagent
+	// to avoid side effects and allow for parallelism.
+	if sessionCtx != nil && sessionCtx.DreamMode {
+		return j.executeWithSubagent(ctx, intent, task, sessionCtx)
+	}
 
 	// Determine if we need a subagent or can use inline execution
 	if j.needsSubagent(intent) {
-		return j.executeWithSubagent(ctx, intent, task)
+		return j.executeWithSubagent(ctx, intent, task, sessionCtx)
 	}
 
 	// Use inline execution for simple tasks
+	// Set the session context on the executor (beware of concurrency if sharing executor)
+	// TODO: Executor state management for concurrent requests
+	if sessionCtx != nil {
+		j.executor.SetSessionContext(sessionCtx)
+	}
+
 	result, err := j.executor.Process(ctx, task)
 	if err != nil {
 		return "", fmt.Errorf("execution failed: %w", err)
@@ -92,30 +108,23 @@ func (j *JITExecutor) Execute(ctx context.Context, intent string, task string) (
 	return result.Response, nil
 }
 
-// ExecuteWithContext runs a task with explicit session context.
-func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	// Inject session context via context.Context
-	// This ensures the executor picks it up in buildCompilationContext
-	ctx = WithSessionContext(ctx, sessionCtx)
-
-	// Priority is currently not used by the core executor loop (it's immediate),
-	// but could be passed to Spawner if we use ExecuteAsync.
-	// TODO: Pass priority to spawner if subagent is used.
-
-	return j.Execute(ctx, intent, task)
-}
-
 // ExecuteAsync spawns a subagent to handle the task.
 func (j *JITExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
+	return j.executeAsyncInternal(ctx, intent, task, nil)
+}
+
+// executeAsyncInternal is an internal helper to spawn subagent with context.
+func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext) (string, error) {
 	logging.Session("JITExecutor.ExecuteAsync: intent=%s", intent)
 
 	// Spawn subagent via Spawner
 	req := SpawnRequest{
-		Name:       j.intentToAgentName(intent),
-		Task:       task,
-		Type:       SubAgentTypeEphemeral,
-		IntentVerb: intent,
-		Timeout:    30 * time.Minute,
+		Name:           j.intentToAgentName(intent),
+		Task:           task,
+		Type:           SubAgentTypeEphemeral,
+		IntentVerb:     intent,
+		Timeout:        30 * time.Minute,
+		SessionContext: sessionCtx,
 	}
 
 	agent, err := j.spawner.Spawn(ctx, req)
@@ -206,8 +215,8 @@ func (j *JITExecutor) needsSubagent(intent string) bool {
 }
 
 // executeWithSubagent spawns a subagent and waits for the result.
-func (j *JITExecutor) executeWithSubagent(ctx context.Context, intent string, task string) (string, error) {
-	taskID, err := j.ExecuteAsync(ctx, intent, task)
+func (j *JITExecutor) executeWithSubagent(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext) (string, error) {
+	taskID, err := j.executeAsyncInternal(ctx, intent, task, sessionCtx)
 	if err != nil {
 		return "", err
 	}
