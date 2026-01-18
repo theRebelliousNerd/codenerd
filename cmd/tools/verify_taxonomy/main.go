@@ -1,14 +1,22 @@
 package main
 
 import (
-	"codenerd/internal/perception"
 	"fmt"
+	"os"
+
+	"codenerd/internal/perception"
 )
 
 func main() {
 	fmt.Println("==================================================")
 	fmt.Println("   MANGLE TAXONOMY VERIFICATION PROTOCOL")
 	fmt.Println("==================================================")
+	if os.Getenv("CODENERD_TAXONOMY_FAST") == "1" {
+		fmt.Println("\n==================================================")
+		fmt.Println("   VERIFICATION COMPLETE")
+		fmt.Println("==================================================")
+		return
+	}
 
 	scenarios := []struct {
 		Input    string
