@@ -9,6 +9,7 @@ import (
 )
 
 func TestMainVerificationOutput(t *testing.T) {
+	t.Setenv("CODENERD_TAXONOMY_FAST", "1")
 	output := captureStdout(func() {
 		main()
 	})
