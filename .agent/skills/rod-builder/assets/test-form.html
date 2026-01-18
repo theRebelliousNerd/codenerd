@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Form - Rod Practice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .form-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="email"],
+        input[type="password"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .checkbox-group,
+        .radio-group {
+            margin-top: 10px;
+        }
+        .checkbox-group label,
+        .radio-group label {
+            display: inline-block;
+            font-weight: normal;
+            margin-right: 20px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button[type="reset"] {
+            background: #6c757d;
+        }
+        button[type="reset"]:hover {
+            background: #545b62;
+        }
+        .success-message {
+            display: none;
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            color: #dc3545;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h1>Registration Form</h1>
+        <form id="test-form" data-testid="registration-form">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required
+                       data-testid="username-input">
+                <span class="error" id="username-error"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required
+                       data-testid="email-input">
+                <span class="error" id="email-error"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required
+                       data-testid="password-input">
+                <span class="error" id="password-error"></span>
+            </div>
+
+            <div class="form-group">
+                <label for="country">Country</label>
+                <select id="country" name="country" data-testid="country-select">
+                    <option value="">Select a country</option>
+                    <option value="us">United States</option>
+                    <option value="uk">United Kingdom</option>
+                    <option value="ca">Canada</option>
+                    <option value="au">Australia</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Interests</label>
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" name="interests" value="coding" data-testid="interest-coding">
+                        Coding
+                    </label>
+                    <label>
+                        <input type="checkbox" name="interests" value="design" data-testid="interest-design">
+                        Design
+                    </label>
+                    <label>
+                        <input type="checkbox" name="interests" value="testing" data-testid="interest-testing">
+                        Testing
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Subscription Type</label>
+                <div class="radio-group">
+                    <label>
+                        <input type="radio" name="subscription" value="free" checked data-testid="sub-free">
+                        Free
+                    </label>
+                    <label>
+                        <input type="radio" name="subscription" value="pro" data-testid="sub-pro">
+                        Pro
+                    </label>
+                    <label>
+                        <input type="radio" name="subscription" value="enterprise" data-testid="sub-enterprise">
+                        Enterprise
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="bio">Bio</label>
+                <textarea id="bio" name="bio" data-testid="bio-textarea"
+                          placeholder="Tell us about yourself..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="terms" name="terms" required data-testid="terms-checkbox">
+                    I agree to the terms and conditions
+                </label>
+            </div>
+
+            <button type="submit" data-testid="submit-button">Submit</button>
+            <button type="reset" data-testid="reset-button">Reset</button>
+        </form>
+
+        <div class="success-message" id="success-message" data-testid="success-message">
+            <strong>Success!</strong> Form submitted successfully.
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('test-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            // Simple validation
+            let valid = true;
+            const username = document.getElementById('username').value;
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const terms = document.getElementById('terms').checked;
+
+            // Clear previous errors
+            document.querySelectorAll('.error').forEach(el => el.textContent = '');
+
+            if (username.length < 3) {
+                document.getElementById('username-error').textContent = 'Username must be at least 3 characters';
+                valid = false;
+            }
+
+            if (!email.includes('@')) {
+                document.getElementById('email-error').textContent = 'Invalid email address';
+                valid = false;
+            }
+
+            if (password.length < 6) {
+                document.getElementById('password-error').textContent = 'Password must be at least 6 characters';
+                valid = false;
+            }
+
+            if (!terms) {
+                alert('You must agree to the terms and conditions');
+                valid = false;
+            }
+
+            if (valid) {
+                // Show success message
+                document.getElementById('success-message').style.display = 'block';
+
+                // Log form data (for testing purposes)
+                const formData = new FormData(this);
+                console.log('Form submitted with data:', Object.fromEntries(formData));
+            }
+        });
+
+        document.getElementById('test-form').addEventListener('reset', function() {
+            document.getElementById('success-message').style.display = 'none';
+            document.querySelectorAll('.error').forEach(el => el.textContent = '');
+        });
+    </script>
+</body>
+</html>

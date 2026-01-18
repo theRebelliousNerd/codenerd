@@ -35,6 +35,18 @@ type MangleAtom string
 
 func (m MangleAtom) String() string { return string(m) }
 
+// sessionContextKey is the context key for passing SessionContext.
+type sessionContextKeyType struct{}
+
+var sessionContextKey = sessionContextKeyType{}
+
+// WithSessionContext returns a context with the SessionContext attached.
+// This enables passing session context through the executor loop without
+// relying on stateful Executor fields (thread-safe).
+func WithSessionContext(ctx context.Context, sessionCtx *types.SessionContext) context.Context {
+	return context.WithValue(ctx, sessionContextKey, sessionCtx)
+}
+
 // Executor implements the clean execution loop.
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
@@ -189,7 +201,7 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	}
 
 	// 2. ORIENT: Build compilation context from intent + world state
-	compilationCtx := e.buildCompilationContext(intent)
+	compilationCtx := e.buildCompilationContext(ctx, intent)
 
 	// 3. JIT: Compile prompt with persona, skills, context
 	compileResult, err := e.jitCompiler.Compile(ctx, compilationCtx)
@@ -263,7 +275,7 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 }
 
 // buildCompilationContext creates a CompilationContext from the current state.
-func (e *Executor) buildCompilationContext(intent perception.Intent) *prompt.CompilationContext {
+func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
 	cc := &prompt.CompilationContext{
 		IntentVerb:      intent.Verb,
 		IntentTarget:    intent.Target,
@@ -285,6 +297,16 @@ func (e *Executor) buildCompilationContext(intent perception.Intent) *prompt.Com
 	}
 
 	// Set session context if available
+	// Priority 1: Check context (thread-safe, request-scoped)
+	if sCtx, ok := ctx.Value(sessionContextKey).(*types.SessionContext); ok {
+		cc.SessionContext = sCtx
+		if sCtx.DreamMode {
+			cc.OperationalMode = "/dream"
+		}
+		return cc
+	}
+
+	// Priority 2: Fallback to stateful context (legacy)
 	e.mu.RLock()
 	if e.sessionContext != nil {
 		cc.SessionContext = e.sessionContext

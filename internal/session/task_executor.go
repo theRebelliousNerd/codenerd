@@ -26,6 +26,7 @@ type TaskExecutor interface {
 	Execute(ctx context.Context, intent string, task string) (string, error)
 
 	// ExecuteWithContext runs a task with explicit session context and priority.
+	// This enables dream mode, shadow execution, and context injection.
 	ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
 
 	// ExecuteAsync spawns a subagent to handle the task asynchronously.

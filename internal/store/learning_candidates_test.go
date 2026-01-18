@@ -11,6 +11,7 @@ func TestLearningCandidateStoreRecordAndConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalStore() error = %v", err)
 	}
+	defer store.Close()
 
 	count, err := store.RecordLearningCandidate("deploy service", "/deploy", "service", "/unknown_verb")
 	if err != nil {
@@ -61,6 +62,7 @@ func TestLearningCandidateStoreConfirmMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalStore() error = %v", err)
 	}
+	defer store.Close()
 
 	phrase := "deploy service"
 	verb := "/deploy"
