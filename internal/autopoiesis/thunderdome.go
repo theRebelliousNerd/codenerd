@@ -248,7 +248,7 @@ go 1.21
 // generateTestHarness creates Go test code that wraps the tool for attack execution.
 // FIX: Now accepts entryPoint parameter to actually call the tool's function with attack input.
 // This fixes the "Phantom Punch" bug where attack inputs were being discarded.
-func (t *Thunderdome) generateTestHarness(tool *GeneratedTool, entryPoint string) string {
+func (t *Thunderdome) generateTestHarness(_ *GeneratedTool, entryPoint string) string {
 	// Generate a test harness that reads attack input from stdin
 	// and ACTUALLY executes the tool's entry point with that input
 	// NOTE: Must match the tool's package (tools) for Go test to work

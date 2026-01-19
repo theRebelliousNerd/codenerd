@@ -274,7 +274,7 @@ func (tr *ToolRefiner) buildRefinementPrompt(req RefinementRequest) string {
 	}
 
 	// Use a simple string concatenation approach
-	prompt := fmt.Sprintf("Improve this tool based on execution feedback:\n\n")
+	prompt := "Improve this tool based on execution feedback:\n\n"
 	prompt += fmt.Sprintf("Tool Name: %s\n\n", req.ToolName)
 	prompt += fmt.Sprintf("Original Code:\n```go\n%s\n```\n\n", req.OriginalCode)
 

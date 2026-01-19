@@ -28,24 +28,24 @@ type ShardLister interface {
 // Decomposer creates campaign plans through LLM + Mangle collaboration.
 // It parses messy specifications and user goals into structured, validated plans.
 type Decomposer struct {
-	kernel         *core.RealKernel
+	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	workspace      string
 	promptProvider PromptProvider // Optional JIT prompt provider
 	shardLister    ShardLister    // Optional shard discovery for shard-aware planning
 
 	// Intelligence integration (Step 0)
-	intelligence     *IntelligenceGatherer  // Pre-planning intelligence from 12 systems
-	advisoryBoard    *ShardAdvisoryBoard    // Domain expert consultation (Step 4b)
-	edgeCaseDetector *EdgeCaseDetector      // File action decisions
-	toolPregenerator *ToolPregenerator      // Tool pre-generation (Step 9)
+	intelligence     *IntelligenceGatherer // Pre-planning intelligence from 12 systems
+	advisoryBoard    *ShardAdvisoryBoard   // Domain expert consultation (Step 4b)
+	edgeCaseDetector *EdgeCaseDetector     // File action decisions
+	toolPregenerator *ToolPregenerator     // Tool pre-generation (Step 9)
 
 	// Cached intelligence report for current decomposition
 	lastIntelligence *IntelligenceReport
 }
 
 // NewDecomposer creates a new decomposer.
-func NewDecomposer(kernel *core.RealKernel, llmClient perception.LLMClient, workspace string) *Decomposer {
+func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace string) *Decomposer {
 	logging.CampaignDebug("Creating new Decomposer for workspace: %s", workspace)
 	return &Decomposer{
 		kernel:         kernel,

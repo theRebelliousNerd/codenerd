@@ -134,6 +134,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create initializer: %w", err)
 	}
+	defer initializer.Close()
+
 	result, err := initializer.Initialize(ctx)
 	if err != nil {
 		return fmt.Errorf("initialization failed: %w", err)

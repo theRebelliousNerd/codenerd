@@ -16,10 +16,11 @@ import (
 // =============================================================================
 
 func TestExecutionFeedback_Struct(t *testing.T) {
+	now := time.Now()
 	feedback := ExecutionFeedback{
 		ToolName:    "test_tool",
 		ExecutionID: "exec-123",
-		Timestamp:   time.Now(),
+		Timestamp:   now,
 		Input:       "test input",
 		Output:      "test output",
 		OutputSize:  11,
@@ -30,19 +31,38 @@ func TestExecutionFeedback_Struct(t *testing.T) {
 	if feedback.ToolName != "test_tool" {
 		t.Errorf("ToolName = %q, want %q", feedback.ToolName, "test_tool")
 	}
+	if feedback.ExecutionID != "exec-123" {
+		t.Errorf("ExecutionID = %q, want %q", feedback.ExecutionID, "exec-123")
+	}
+	if feedback.Timestamp != now {
+		t.Errorf("Timestamp mismatch")
+	}
+	if feedback.Input != "test input" {
+		t.Errorf("Input = %q, want %q", feedback.Input, "test input")
+	}
+	if feedback.Output != "test output" {
+		t.Errorf("Output = %q, want %q", feedback.Output, "test output")
+	}
+	if feedback.OutputSize != 11 {
+		t.Errorf("OutputSize = %d, want 11", feedback.OutputSize)
+	}
 	if feedback.Duration != 100*time.Millisecond {
 		t.Errorf("Duration = %v, want %v", feedback.Duration, 100*time.Millisecond)
+	}
+	if !feedback.Success {
+		t.Error("Expected Success=true")
 	}
 }
 
 func TestUserFeedback_Struct(t *testing.T) {
+	now := time.Now()
 	feedback := UserFeedback{
 		Accepted:    false,
 		Modified:    true,
 		Reran:       false,
 		Complaint:   "Output was incomplete",
 		Improvement: "Should include all pages",
-		Timestamp:   time.Now(),
+		Timestamp:   now,
 	}
 
 	if feedback.Accepted {
@@ -51,8 +71,17 @@ func TestUserFeedback_Struct(t *testing.T) {
 	if !feedback.Modified {
 		t.Error("Expected Modified=true")
 	}
-	if feedback.Complaint == "" {
-		t.Error("Expected Complaint to be set")
+	if feedback.Reran {
+		t.Error("Expected Reran=false")
+	}
+	if feedback.Complaint != "Output was incomplete" {
+		t.Errorf("Complaint = %q, want %q", feedback.Complaint, "Output was incomplete")
+	}
+	if feedback.Improvement != "Should include all pages" {
+		t.Errorf("Improvement = %q, want %q", feedback.Improvement, "Should include all pages")
+	}
+	if feedback.Timestamp != now {
+		t.Errorf("Timestamp mismatch")
 	}
 }
 

@@ -30,6 +30,16 @@ import (
 	"codenerd/internal/types"
 )
 
+// JITCompiler defines the interface for JIT prompt compilation.
+type JITCompiler interface {
+	Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error)
+}
+
+// ConfigFactory defines the interface for configuration generation.
+type ConfigFactory interface {
+	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error)
+}
+
 // MangleAtom wraps a string as a Mangle name constant (avoids core import).
 type MangleAtom string
 
@@ -58,8 +68,8 @@ type Executor struct {
 	llmClient    types.LLMClient
 
 	// JIT components
-	jitCompiler   *prompt.JITPromptCompiler
-	configFactory *prompt.ConfigFactory
+	jitCompiler   JITCompiler
+	configFactory ConfigFactory
 
 	// Perception
 	transducer perception.Transducer
@@ -103,8 +113,8 @@ func NewExecutor(
 	kernel types.Kernel,
 	virtualStore types.VirtualStore,
 	llmClient types.LLMClient,
-	jitCompiler *prompt.JITPromptCompiler,
-	configFactory *prompt.ConfigFactory,
+	jitCompiler JITCompiler,
+	configFactory ConfigFactory,
 	transducer perception.Transducer,
 ) *Executor {
 	logging.Session("Creating new Executor")
@@ -521,15 +531,15 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 
 	policy := core.MangleUpdatePolicy{
 		AllowedPredicates: map[string]struct{}{
-			"missing_tool_for": {},
-			"observation":      {},
-			"task_status":      {},
-			"task_completed":   {},
-			"diagnostic":       {},
-			"failing_test":     {},
-			"test_state":       {},
-			"review_finding":   {},
-			"modified":         {},
+			"missing_tool_for":  {},
+			"observation":       {},
+			"task_status":       {},
+			"task_completed":    {},
+			"diagnostic":        {},
+			"failing_test":      {},
+			"test_state":        {},
+			"review_finding":    {},
+			"modified":          {},
 			"modified_function": {},
 		},
 		MaxUpdates: 100,
@@ -862,7 +872,6 @@ func (e *Executor) extractTarget(args map[string]interface{}) string {
 	}
 	return "unknown"
 }
-
 
 // appendToHistory adds a turn to conversation history.
 func (e *Executor) appendToHistory(role, content string) {

@@ -17,17 +17,17 @@ import (
 // incrementally maintained in the kernel for the current in-scope files.
 //
 // Why this exists:
-// - core.VirtualStore cannot import world (cycle), but policies depend on deep facts like
-//   code_defines/5 and code_calls/2 ("Holographic Retrieval").
-// - world.EnsureDeepFacts already supports caching + retraction, but had no wiring.
+//   - core.VirtualStore cannot import world (cycle), but policies depend on deep facts like
+//     code_defines/5 and code_calls/2 ("Holographic Retrieval").
+//   - world.EnsureDeepFacts already supports caching + retraction, but had no wiring.
 type HolographicCodeScope struct {
 	scope       *world.FileScope
-	kernel      *core.RealKernel
+	kernel      core.Kernel
 	localDB     *store.LocalStore
 	deepWorkers int
 
-	mu        sync.Mutex
-	memCache  map[string]deepCacheEntry
+	mu         sync.Mutex
+	memCache   map[string]deepCacheEntry
 	cartograph *world.Cartographer
 }
 
@@ -38,7 +38,7 @@ type deepCacheEntry struct {
 
 // NewHolographicCodeScope constructs a CodeScope that keeps deep facts in sync.
 // deepWorkers <= 0 uses a small CPU-based default.
-func NewHolographicCodeScope(projectRoot string, kernel *core.RealKernel, localDB *store.LocalStore, deepWorkers int) *HolographicCodeScope {
+func NewHolographicCodeScope(projectRoot string, kernel core.Kernel, localDB *store.LocalStore, deepWorkers int) *HolographicCodeScope {
 	if deepWorkers <= 0 {
 		deepWorkers = runtime.NumCPU()
 		if deepWorkers > 8 {
@@ -97,7 +97,9 @@ func (h *HolographicCodeScope) GetActiveFile() string { return h.scope.GetActive
 
 func (h *HolographicCodeScope) GetInScopeFiles() []string { return h.scope.GetInScopeFiles() }
 
-func (h *HolographicCodeScope) VerifyFileHash(path string) (bool, error) { return h.scope.VerifyFileHash(path) }
+func (h *HolographicCodeScope) VerifyFileHash(path string) (bool, error) {
+	return h.scope.VerifyFileHash(path)
+}
 
 func (h *HolographicCodeScope) RefreshWithRetry(maxRetries int) error {
 	var lastErr error
@@ -128,7 +130,7 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 			_ = h.kernel.RetractExactFactsBatch(res.RetractFacts)
 		}
 		if len(res.NewFacts) > 0 {
-			_ = h.kernel.AssertBatch(res.NewFacts)
+			_ = h.kernel.LoadFacts(res.NewFacts)
 		}
 		return
 	}
@@ -165,7 +167,7 @@ func (h *HolographicCodeScope) ensureDeepFacts(ctx context.Context, paths []stri
 			_ = h.kernel.RetractExactFactsBatch(oldFacts)
 		}
 		if len(newFacts) > 0 {
-			_ = h.kernel.AssertBatch(newFacts)
+			_ = h.kernel.LoadFacts(newFacts)
 		}
 
 		h.memCache[path] = deepCacheEntry{

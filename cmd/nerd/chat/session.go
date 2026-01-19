@@ -1715,6 +1715,10 @@ func (a *sessionKernelAdapter) Assert(fact types.Fact) error {
 	return a.kernel.Assert(fact)
 }
 
+func (a *sessionKernelAdapter) AssertBatch(facts []types.Fact) error {
+	return a.kernel.AssertBatch(facts)
+}
+
 func (a *sessionKernelAdapter) Retract(predicate string) error {
 	return a.kernel.Retract(predicate)
 }

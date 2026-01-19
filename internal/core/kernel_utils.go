@@ -12,11 +12,11 @@ import (
 
 // AutopoiesisBridge wraps RealKernel to implement types.KernelInterface.
 type AutopoiesisBridge struct {
-	kernel *RealKernel
+	kernel Kernel
 }
 
 // NewAutopoiesisBridge creates an adapter that implements types.KernelInterface.
-func NewAutopoiesisBridge(kernel *RealKernel) *AutopoiesisBridge {
+func NewAutopoiesisBridge(kernel Kernel) *AutopoiesisBridge {
 	return &AutopoiesisBridge{kernel: kernel}
 }
 
@@ -43,7 +43,8 @@ func (ab *AutopoiesisBridge) AssertFactBatch(facts []types.KernelFact) error {
 			Args:      f.Args,
 		}
 	}
-	return ab.kernel.AssertBatch(coreFacts)
+	// Use LoadFacts which is the interface equivalent of batch assertion
+	return ab.kernel.LoadFacts(coreFacts)
 }
 
 // QueryPredicate implements types.KernelInterface.
@@ -135,7 +136,7 @@ func (ab *AutopoiesisBridge) Retract(fact string) error {
 	if err != nil {
 		return err
 	}
-	return ab.kernel.RetractExactFact(parsed)
+	return ab.kernel.RetractExactFactsBatch([]Fact{parsed})
 }
 
 // AssertFact adds a fact using the KernelInterface representation.

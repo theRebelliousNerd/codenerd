@@ -7,28 +7,7 @@ import (
 	"testing"
 
 	"codenerd/internal/perception"
-	"codenerd/internal/types"
 )
-
-// MockLLMClient for testing SemanticCompressor
-type MockLLMClient struct {
-	CompleteWithSystemFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
-}
-
-func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-	return "", nil
-}
-
-func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	if m.CompleteWithSystemFunc != nil {
-		return m.CompleteWithSystemFunc(ctx, systemPrompt, userPrompt)
-	}
-	return "", nil
-}
-
-func (m *MockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
-	return nil, nil
-}
 
 func TestSemanticCompressor_Compress(t *testing.T) {
 	mockClient := &MockLLMClient{

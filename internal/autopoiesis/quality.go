@@ -38,10 +38,10 @@ type QualityAssessment struct {
 // QualityIssue describes a specific quality problem
 type QualityIssue struct {
 	Type        IssueType `json:"type"`
-	Severity    float64   `json:"severity"`    // 0.0 - 1.0
+	Severity    float64   `json:"severity"` // 0.0 - 1.0
 	Description string    `json:"description"`
-	Evidence    string    `json:"evidence"`    // What in the output shows this?
-	Fixable     bool      `json:"fixable"`     // Can we auto-fix this?
+	Evidence    string    `json:"evidence"` // What in the output shows this?
+	Fixable     bool      `json:"fixable"`  // Can we auto-fix this?
 }
 
 // IssueType categorizes quality issues
@@ -244,7 +244,7 @@ func (qe *QualityEvaluator) Evaluate(ctx context.Context, feedback *ExecutionFee
 	}
 
 	assessment.Score = clamp(
-		(assessment.Completeness*0.4 + assessment.Efficiency*0.2 + 0.4) - issueImpact,
+		(assessment.Completeness*0.4+assessment.Efficiency*0.2+0.4)-issueImpact,
 		0.0, 1.0,
 	)
 
@@ -616,7 +616,7 @@ func (qe *QualityEvaluator) evaluateEfficiency(feedback *ExecutionFeedback) floa
 }
 
 // generateSuggestions creates improvement suggestions from detected issues
-func (qe *QualityEvaluator) generateSuggestions(issues []QualityIssue, feedback *ExecutionFeedback) []ImprovementSuggestion {
+func (qe *QualityEvaluator) generateSuggestions(issues []QualityIssue, _ *ExecutionFeedback) []ImprovementSuggestion {
 	suggestions := []ImprovementSuggestion{}
 
 	for _, issue := range issues {

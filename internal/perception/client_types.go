@@ -365,6 +365,8 @@ type GeminiRequest struct {
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
 	// Must pass back the signature from the previous response to maintain reasoning context
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
+	// SessionID is required for Antigravity requests to maintain context
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 // GeminiGoogleSearch represents the Google Search grounding tool.

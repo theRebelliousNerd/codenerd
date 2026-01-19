@@ -1,12 +1,14 @@
 package main
 
 import (
+	"codenerd/internal/auth/antigravity"
 	"codenerd/internal/config"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -49,16 +51,55 @@ This command:
 	RunE: runAuthCodex,
 }
 
-// authAntigravityCmd authenticates with Google Antigravity
+// authAntigravityCmd is the parent command for Antigravity account management
 var authAntigravityCmd = &cobra.Command{
 	Use:   "antigravity",
-	Short: "Authenticate with Google Antigravity",
-	Long: `Authenticate with Google Antigravity (Cloud Code) and configure codeNERD.
+	Short: "Manage Google Antigravity accounts",
+	Long: `Manage Google Antigravity (Cloud Code) accounts for codeNERD.
+
+Available subcommands:
+  add    - Add a new Google account via OAuth
+  list   - List all configured accounts with health scores
+  remove - Remove an account by email
+  status - Show detailed account statistics`,
+}
+
+// authAntigravityAddCmd adds a new Google account
+var authAntigravityAddCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a new Google account via OAuth",
+	Long: `Add a new Google account for Antigravity by initiating OAuth2 flow.
 
 This command:
-1. Initiates OAuth2 flow for Google Cloud SDK
-2. Updates .nerd/config.json to use 'antigravity' provider`,
-	RunE: runAuthAntigravity,
+1. Opens browser for Google OAuth consent
+2. Stores the refresh token in ~/.nerd/antigravity_accounts.json
+3. Updates .nerd/config.json to use 'antigravity' provider`,
+	RunE: runAuthAntigravityAdd,
+}
+
+// authAntigravityListCmd lists all configured accounts
+var authAntigravityListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all configured Google accounts",
+	Long:  `List all configured Google accounts with their health scores and status.`,
+	RunE:  runAuthAntigravityList,
+}
+
+// authAntigravityRemoveCmd removes an account by email
+var authAntigravityRemoveCmd = &cobra.Command{
+	Use:   "remove <email>",
+	Short: "Remove a Google account",
+	Long:  `Remove a Google account by email address.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runAuthAntigravityRemove,
+}
+
+// authAntigravityStatusCmd shows detailed account statistics
+var authAntigravityStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show Antigravity account statistics",
+	Long:  `Show detailed statistics about configured Antigravity accounts.`,
+	RunE:  runAuthAntigravityStatus,
 }
 
 // authStatusCmd shows authentication status
@@ -177,18 +218,69 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runAuthAntigravity authenticates with Google Antigravity
-func runAuthAntigravity(cmd *cobra.Command, args []string) error {
-	fmt.Println("Configuring Google Antigravity provider...")
+// runAuthAntigravityAdd adds a new Google account via OAuth
+func runAuthAntigravityAdd(cmd *cobra.Command, args []string) error {
+	fmt.Println("Adding Google Antigravity account...")
 
-	// 1. Update config first (provider=antigravity)
+	// 1. Start OAuth flow
+	authResult, err := antigravity.StartAuth()
+	if err != nil {
+		return fmt.Errorf("failed to start OAuth: %w", err)
+	}
+
+	// 2. Open browser
+	fmt.Println("\nOpening browser for Google OAuth...")
+	fmt.Printf("If the browser doesn't open, visit:\n%s\n\n", authResult.AuthURL)
+
+	// Try to open browser
+	openBrowser(authResult.AuthURL)
+
+	// 3. Wait for callback
+	ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+	defer cancel()
+
+	fmt.Println("Waiting for OAuth callback...")
+	code, err := antigravity.WaitForCallback(ctx, authResult.State)
+	if err != nil {
+		return fmt.Errorf("OAuth callback failed: %w", err)
+	}
+
+	// 4. Exchange code for tokens
+	tm, err := antigravity.NewTokenManager()
+	if err != nil {
+		return fmt.Errorf("failed to create token manager: %w", err)
+	}
+
+	token, err := tm.ExchangeCode(ctx, code, authResult.Verifier)
+	if err != nil {
+		return fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	// 5. Add account to multi-account store
+	store, err := antigravity.NewAccountStore()
+	if err != nil {
+		return fmt.Errorf("failed to open account store: %w", err)
+	}
+
+	account := &antigravity.Account{
+		Email:        token.Email,
+		RefreshToken: token.RefreshToken,
+		AccessToken:  token.AccessToken,
+		AccessExpiry: token.Expiry,
+		ProjectID:    token.ProjectID,
+	}
+
+	if err := store.AddAccount(account); err != nil {
+		return fmt.Errorf("failed to save account: %w", err)
+	}
+
+	// 6. Update config to use antigravity provider
 	cfg, err := loadOrCreateConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	cfg.Provider = "antigravity"
-	// Ensure Antigravity config is initialized
 	if cfg.Antigravity == nil {
 		cfg.Antigravity = &config.AntigravityProviderConfig{
 			EnableThinking: true,
@@ -200,10 +292,166 @@ func runAuthAntigravity(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Println("\n✓ Configuration updated!")
-	fmt.Println("  Provider: antigravity")
-	fmt.Println("\nAuthentication will be handled automatically via browser on next usage.")
-	fmt.Println("You can run 'nerd status' or 'nerd why' to trigger it now.")
+	fmt.Printf("\nAccount added: %s\n", account.Email)
+	if account.ProjectID != "" {
+		fmt.Printf("Project: %s\n", account.ProjectID)
+	}
+	fmt.Println("Provider: antigravity")
+
+	// Show account count
+	accounts := store.ListAccounts()
+	fmt.Printf("\nTotal accounts configured: %d\n", len(accounts))
+
+	return nil
+}
+
+// openBrowser tries to open a URL in the default browser
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch {
+	case strings.Contains(os.Getenv("OS"), "Windows"):
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case os.Getenv("DISPLAY") != "":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		cmd = exec.Command("open", url) // macOS
+	}
+	_ = cmd.Start()
+}
+
+// runAuthAntigravityList lists all configured accounts
+func runAuthAntigravityList(cmd *cobra.Command, args []string) error {
+	store, err := antigravity.NewAccountStore()
+	if err != nil {
+		return fmt.Errorf("failed to open account store: %w", err)
+	}
+
+	accounts := store.ListAccounts()
+	if len(accounts) == 0 {
+		fmt.Println("No Antigravity accounts configured.")
+		fmt.Println("\nRun 'nerd auth antigravity add' to add an account.")
+		return nil
+	}
+
+	fmt.Printf("Antigravity Accounts (%d)\n", len(accounts))
+	fmt.Println(strings.Repeat("-", 60))
+
+	for _, acc := range accounts {
+		effectiveScore := store.GetEffectiveScore(acc)
+		status := "healthy"
+		statusIcon := "Y"
+
+		if !store.IsUsable(acc) {
+			status = "exhausted"
+			statusIcon = "X"
+		} else if effectiveScore < 50 {
+			status = "degraded"
+			statusIcon = "!"
+		}
+
+		fmt.Printf("[%s] %s\n", statusIcon, acc.Email)
+		fmt.Printf("    Health: %d/100 (effective: %d)\n", acc.HealthScore, effectiveScore)
+		fmt.Printf("    Status: %s\n", status)
+
+		if acc.ProjectID != "" {
+			fmt.Printf("    Project: %s\n", acc.ProjectID)
+		}
+
+		if !acc.LastUsed.IsZero() {
+			fmt.Printf("    Last used: %s\n", acc.LastUsed.Format(time.RFC3339))
+		}
+
+		if acc.LastError != "" {
+			fmt.Printf("    Last error: %s\n", acc.LastError)
+		}
+
+		if acc.ConsecutiveFails > 0 {
+			fmt.Printf("    Consecutive failures: %d\n", acc.ConsecutiveFails)
+		}
+
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// runAuthAntigravityRemove removes an account by email
+func runAuthAntigravityRemove(cmd *cobra.Command, args []string) error {
+	email := args[0]
+
+	store, err := antigravity.NewAccountStore()
+	if err != nil {
+		return fmt.Errorf("failed to open account store: %w", err)
+	}
+
+	// Check if account exists
+	if _, exists := store.GetAccount(email); !exists {
+		fmt.Printf("Account not found: %s\n", email)
+		fmt.Println("\nAvailable accounts:")
+		for _, acc := range store.ListAccounts() {
+			fmt.Printf("  - %s\n", acc.Email)
+		}
+		return fmt.Errorf("account not found")
+	}
+
+	if err := store.DeleteAccount(email); err != nil {
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+
+	fmt.Printf("Removed account: %s\n", email)
+
+	remaining := store.ListAccounts()
+	fmt.Printf("Remaining accounts: %d\n", len(remaining))
+
+	if len(remaining) == 0 {
+		fmt.Println("\nWarning: No accounts left. Run 'nerd auth antigravity add' to add one.")
+	}
+
+	return nil
+}
+
+// runAuthAntigravityStatus shows detailed account statistics
+func runAuthAntigravityStatus(cmd *cobra.Command, args []string) error {
+	store, err := antigravity.NewAccountStore()
+	if err != nil {
+		return fmt.Errorf("failed to open account store: %w", err)
+	}
+
+	selector := antigravity.NewAccountSelector(store)
+	stats := selector.GetStats()
+
+	fmt.Println("Antigravity Account Status")
+	fmt.Println(strings.Repeat("=", 40))
+
+	total := stats["total"].(int)
+	healthy := stats["healthy"].(int)
+	exhausted := stats["exhausted"].(int)
+
+	fmt.Printf("Total accounts:    %d\n", total)
+	fmt.Printf("Healthy:           %d\n", healthy)
+	fmt.Printf("Exhausted:         %d\n", exhausted)
+
+	if total == 0 {
+		fmt.Println("\nNo accounts configured.")
+		fmt.Println("Run 'nerd auth antigravity add' to add an account.")
+		return nil
+	}
+
+	fmt.Println()
+
+	// Show which account would be selected
+	if best, err := selector.SelectBest(); err == nil {
+		effectiveScore := store.GetEffectiveScore(best)
+		fmt.Printf("Next account to use: %s (health: %d)\n", best.Email, effectiveScore)
+	}
+
+	// Health score recovery info
+	fmt.Println("\nHealth Score System:")
+	fmt.Println("  - Success: +1 point")
+	fmt.Println("  - Rate limit (429): -15 points")
+	fmt.Println("  - Other failure: -25 points")
+	fmt.Println("  - Recovery: +5 points/hour")
+	fmt.Println("  - Minimum usable: 30 points")
 
 	return nil
 }

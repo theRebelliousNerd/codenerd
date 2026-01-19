@@ -10,6 +10,7 @@ type Kernel interface {
 	Query(predicate string) ([]Fact, error)
 	QueryAll() (map[string][]Fact, error)
 	Assert(fact Fact) error
+	AssertBatch(facts []Fact) error
 	Retract(predicate string) error
 	RetractFact(fact Fact) error
 	// UpdateSystemFacts updates system facts (time, etc.)

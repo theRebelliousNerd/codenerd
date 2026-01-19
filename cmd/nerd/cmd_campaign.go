@@ -155,6 +155,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	knowledgeDBPath := filepath.Join(nerdDir, "knowledge.db")
 	if db, err := store.NewLocalStore(knowledgeDBPath); err == nil {
 		localDB = db
+		defer localDB.Close()
 		virtualStore.SetLocalDB(localDB)
 		virtualStore.SetKernel(kern)
 	} else {
@@ -164,6 +165,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	learningStorePath := filepath.Join(nerdDir, "shards")
 	if ls, err := store.NewLearningStore(learningStorePath); err == nil {
 		learningStore = ls
+		defer learningStore.Close()
 		virtualStore.SetLearningStore(learningStore)
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open learning store: %v\n", err)
@@ -356,14 +358,14 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Create IntelligenceGatherer - orchestrates pre-planning intelligence from 12 systems
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
-		kern,           // kernel
-		worldScanner,   // worldScanner - codebase analysis
-		nil,            // holographic - not yet wired in CLI mode
-		learningStore,  // learningStore - historical patterns
-		localDB,        // localStore - knowledge graph + cold storage
-		nil,            // toolGenerator - not yet wired in CLI mode
-		nil,            // mcpStore - not yet wired in CLI mode
-		nil,            // consultation - interface mismatch, needs adapter
+		kern,          // kernel
+		worldScanner,  // worldScanner - codebase analysis
+		nil,           // holographic - not yet wired in CLI mode
+		learningStore, // learningStore - historical patterns
+		localDB,       // localStore - knowledge graph + cold storage
+		nil,           // toolGenerator - not yet wired in CLI mode
+		nil,           // mcpStore - not yet wired in CLI mode
+		nil,           // consultation - interface mismatch, needs adapter
 	)
 	fmt.Println("   ✓ Intelligence gatherer initialized")
 
@@ -854,6 +856,10 @@ func (a *campaignKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
 
 func (a *campaignKernelAdapter) Assert(fact types.Fact) error {
 	return a.kernel.Assert(fact)
+}
+
+func (a *campaignKernelAdapter) AssertBatch(facts []types.Fact) error {
+	return a.kernel.AssertBatch(facts)
 }
 
 func (a *campaignKernelAdapter) Retract(predicate string) error {

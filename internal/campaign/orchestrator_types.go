@@ -20,22 +20,22 @@ type Orchestrator struct {
 	mu sync.RWMutex
 
 	// Core components
-	kernel       *core.RealKernel
+	kernel       core.Kernel
 	llmClient    perception.LLMClient
-	shardMgr     *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
-	taskExecutor session.TaskExecutor       // New: unified task execution interface
+	shardMgr     *coreshards.ShardManager // DEPRECATED: Use taskExecutor instead
+	taskExecutor session.TaskExecutor     // New: unified task execution interface
 	executor     tactile.Executor
 	virtualStore *core.VirtualStore
-	transducer   *perception.RealTransducer
+	transducer   perception.Transducer
 
 	// Campaign-specific components
-	contextPager               *ContextPager
-	checkpoint                 *CheckpointRunner
-	replanner                  *Replanner
-	decomposer                 *Decomposer
-	promptProvider             PromptProvider
+	contextPager                *ContextPager
+	checkpoint                  *CheckpointRunner
+	replanner                   *Replanner
+	decomposer                  *Decomposer
+	promptProvider              PromptProvider
 	specialistKnowledgeProvider SpecialistKnowledgeProvider
-	northstarObserver          *northstar.CampaignObserver
+	northstarObserver           *northstar.CampaignObserver
 
 	// Intelligence integration (Campaign Intelligence Plan)
 	intelligenceGatherer *IntelligenceGatherer // Pre-planning intelligence from 12 systems
@@ -83,10 +83,11 @@ type OrchestratorEvent struct {
 // OrchestratorConfig holds configuration for the orchestrator.
 type OrchestratorConfig struct {
 	Workspace            string
-	Kernel               *core.RealKernel
+	Kernel               core.Kernel
 	LLMClient            perception.LLMClient
+	Transducer           perception.Transducer    // Optional: Inject transducer for testing
 	ShardManager         *coreshards.ShardManager // DEPRECATED: Use TaskExecutor instead
-	TaskExecutor         session.TaskExecutor      // New: unified task execution interface
+	TaskExecutor         session.TaskExecutor     // New: unified task execution interface
 	Executor             tactile.Executor
 	VirtualStore         *core.VirtualStore
 	ProgressChan         chan Progress
