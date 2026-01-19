@@ -75,7 +75,7 @@ func (o *Orchestrator) ExecuteOuroborosLoop(ctx context.Context, need *ToolNeed)
 // recordGenerationLearning converts a LoopResult to ExecutionFeedback and records it.
 // This captures tool generation outcomes (success, safety failures, Thunderdome results)
 // as learnings for future reference and analysis.
-func (o *Orchestrator) recordGenerationLearning(ctx context.Context, need *ToolNeed, result *LoopResult) {
+func (o *Orchestrator) recordGenerationLearning(_ context.Context, need *ToolNeed, result *LoopResult) {
 	if o.learnings == nil {
 		return
 	}

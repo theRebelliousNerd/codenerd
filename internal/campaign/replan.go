@@ -14,13 +14,13 @@ import (
 // Replanner handles campaign replanning when things go wrong.
 // It uses LLM + Mangle collaboration to adapt the plan.
 type Replanner struct {
-	kernel         *core.RealKernel
+	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	promptProvider PromptProvider // Optional JIT prompt provider
 }
 
 // NewReplanner creates a new replanner.
-func NewReplanner(kernel *core.RealKernel, llmClient perception.LLMClient) *Replanner {
+func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner {
 	return &Replanner{
 		kernel:         kernel,
 		llmClient:      llmClient,

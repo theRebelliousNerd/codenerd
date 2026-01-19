@@ -233,16 +233,16 @@ func (t *TDDLoop) NextAction() TDDAction {
 		return TDDActionEscalate
 
 	case TDDStateAnalyzing:
-		return TDDActionGeneratePatch
+		return TDDActionAnalyzeRoot
 
 	case TDDStateGenerating:
-		return TDDActionApplyPatch
+		return TDDActionGeneratePatch
 
 	case TDDStateApplying:
-		return TDDActionBuild
+		return TDDActionApplyPatch
 
 	case TDDStateCompiling:
-		return TDDActionRunTests
+		return TDDActionBuild
 
 	case TDDStateCompileError:
 		if t.retryCount < t.maxRetries {

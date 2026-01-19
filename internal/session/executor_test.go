@@ -5,67 +5,6 @@ import (
 	"testing"
 )
 
-// MockKernel implements types.Kernel for testing.
-type MockKernel struct {
-	facts   []types.Fact
-	asserts []types.Fact // Track assertions for verification
-}
-
-func (m *MockKernel) LoadFacts(facts []types.Fact) error {
-	m.facts = append(m.facts, facts...)
-	return nil
-}
-
-func (m *MockKernel) Query(predicate string) ([]types.Fact, error) {
-	var results []types.Fact
-	for _, f := range m.facts {
-		if f.Predicate == predicate {
-			results = append(results, f)
-		}
-	}
-	return results, nil
-}
-
-func (m *MockKernel) QueryAll() (map[string][]types.Fact, error) {
-	return nil, nil
-}
-
-func (m *MockKernel) Assert(fact types.Fact) error {
-	m.facts = append(m.facts, fact)
-	m.asserts = append(m.asserts, fact)
-	return nil
-}
-
-func (m *MockKernel) Retract(predicate string) error {
-	var newFacts []types.Fact
-	for _, f := range m.facts {
-		if f.Predicate != predicate {
-			newFacts = append(newFacts, f)
-		}
-	}
-	m.facts = newFacts
-	return nil
-}
-
-func (m *MockKernel) RetractFact(fact types.Fact) error {
-	// Simple retraction mock
-	var newFacts []types.Fact
-	for _, f := range m.facts {
-		// Only retract if predicate matches (simplified for test)
-		if f.Predicate != fact.Predicate {
-			newFacts = append(newFacts, f)
-		}
-	}
-	m.facts = newFacts
-	return nil
-}
-
-func (m *MockKernel) UpdateSystemFacts() error { return nil }
-func (m *MockKernel) Reset() {}
-func (m *MockKernel) AppendPolicy(policy string) {}
-func (m *MockKernel) RetractExactFactsBatch(facts []types.Fact) error { return nil }
-func (m *MockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
-
 func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	// 1. Setup
 	mockKernel := &MockKernel{}

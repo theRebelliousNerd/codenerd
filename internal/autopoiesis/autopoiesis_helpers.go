@@ -165,9 +165,10 @@ func extractJSON(text string) string {
 		}
 
 		if !inString {
-			if ch == startChar || ch == '{' || ch == '[' {
+			switch ch {
+			case startChar, '{', '[':
 				depth++
-			} else if ch == endChar || ch == '}' || ch == ']' {
+			case endChar, '}', ']':
 				depth--
 				if depth == 0 {
 					return text[start : i+1]
@@ -187,7 +188,7 @@ var missingCapabilityPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)create a tool (for|to)`),
 	regexp.MustCompile(`(?i)generate a tool (for|to)`),
 	// Question patterns suggesting capability gaps
-	regexp.MustCompile(`(?i)can'?t (you|we|i)\s+\w+`),   // "Can't you validate..."
-	regexp.MustCompile(`(?i)is there a way (to|for)`),   // "Is there a way to..."
-	regexp.MustCompile(`(?i)how do (i|we|you)\s+\w+`),   // "How do I validate..."
+	regexp.MustCompile(`(?i)can'?t (you|we|i)\s+\w+`), // "Can't you validate..."
+	regexp.MustCompile(`(?i)is there a way (to|for)`), // "Is there a way to..."
+	regexp.MustCompile(`(?i)how do (i|we|you)\s+\w+`), // "How do I validate..."
 }

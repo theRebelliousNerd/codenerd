@@ -10,7 +10,6 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
 
@@ -139,8 +138,8 @@ func NewSubAgent(
 	kernel types.Kernel,
 	virtualStore types.VirtualStore,
 	llmClient types.LLMClient,
-	jitCompiler *prompt.JITPromptCompiler,
-	configFactory *prompt.ConfigFactory,
+	jitCompiler JITCompiler,
+	configFactory ConfigFactory,
 	transducer perception.Transducer,
 ) *SubAgent {
 	logging.Session("Creating SubAgent: %s (type: %s)", cfg.Name, cfg.Type)

@@ -27,20 +27,20 @@ import (
 // ReasoningTrace captures the LLM's thought process during tool generation
 type ReasoningTrace struct {
 	// Identity
-	TraceID      string    `json:"trace_id"`
-	ToolName     string    `json:"tool_name"`
-	GeneratedAt  time.Time `json:"generated_at"`
+	TraceID     string    `json:"trace_id"`
+	ToolName    string    `json:"tool_name"`
+	GeneratedAt time.Time `json:"generated_at"`
 
 	// Input Context
-	UserRequest     string            `json:"user_request"`      // What triggered the need
-	DetectedNeed    *ToolNeed         `json:"detected_need"`     // Structured need
-	ExistingTools   []string          `json:"existing_tools"`    // Tools already available
-	ContextProvided map[string]string `json:"context_provided"`  // Additional context
+	UserRequest     string            `json:"user_request"`     // What triggered the need
+	DetectedNeed    *ToolNeed         `json:"detected_need"`    // Structured need
+	ExistingTools   []string          `json:"existing_tools"`   // Tools already available
+	ContextProvided map[string]string `json:"context_provided"` // Additional context
 
 	// LLM Interaction
-	SystemPrompt  string `json:"system_prompt"`   // System prompt used
-	UserPrompt    string `json:"user_prompt"`     // Full prompt sent to LLM
-	RawResponse   string `json:"raw_response"`    // Complete LLM response
+	SystemPrompt string `json:"system_prompt"` // System prompt used
+	UserPrompt   string `json:"user_prompt"`   // Full prompt sent to LLM
+	RawResponse  string `json:"raw_response"`  // Complete LLM response
 
 	// Extracted Reasoning
 	ChainOfThought []ThoughtStep `json:"chain_of_thought"` // Extracted reasoning steps
@@ -49,13 +49,13 @@ type ReasoningTrace struct {
 	Alternatives   []Alternative `json:"alternatives"`     // Alternatives considered
 
 	// Generation Metadata
-	ModelUsed       string        `json:"model_used"`
-	TokensUsed      int           `json:"tokens_used"`
-	GenerationTime  time.Duration `json:"generation_time"`
-	RetryCount      int           `json:"retry_count"`
+	ModelUsed      string        `json:"model_used"`
+	TokensUsed     int           `json:"tokens_used"`
+	GenerationTime time.Duration `json:"generation_time"`
+	RetryCount     int           `json:"retry_count"`
 
 	// Outcome
-	Success     bool     `json:"success"`
+	Success       bool   `json:"success"`
 	FailureReason string `json:"failure_reason,omitempty"`
 	CodeGenerated string `json:"code_generated"`
 
@@ -75,9 +75,9 @@ type ThoughtStep struct {
 
 // Decision represents a key decision made during generation
 type Decision struct {
-	Topic       string   `json:"topic"`        // e.g., "pagination_strategy"
-	Choice      string   `json:"choice"`       // What was chosen
-	Reasoning   string   `json:"reasoning"`    // Why
+	Topic        string   `json:"topic"`        // e.g., "pagination_strategy"
+	Choice       string   `json:"choice"`       // What was chosen
+	Reasoning    string   `json:"reasoning"`    // Why
 	Alternatives []string `json:"alternatives"` // What else was considered
 }
 
@@ -93,11 +93,11 @@ type Alternative struct {
 
 // TraceCollector manages reasoning trace collection and analysis
 type TraceCollector struct {
-	mu         sync.RWMutex
-	storePath  string
-	traces     map[string]*ReasoningTrace // TraceID -> Trace
-	byTool     map[string][]string        // ToolName -> TraceIDs
-	client     LLMClient
+	mu        sync.RWMutex
+	storePath string
+	traces    map[string]*ReasoningTrace // TraceID -> Trace
+	byTool    map[string][]string        // ToolName -> TraceIDs
+	client    LLMClient
 }
 
 // NewTraceCollector creates a new trace collector
@@ -280,12 +280,12 @@ func (tc *TraceCollector) GetAllTraces() []*ReasoningTrace {
 // GenerationAudit contains aggregated analysis of tool generations
 type GenerationAudit struct {
 	// Summary Statistics
-	TotalGenerations    int     `json:"total_generations"`
-	SuccessfulGenerations int   `json:"successful_generations"`
-	SuccessRate         float64 `json:"success_rate"`
-	AverageQuality      float64 `json:"average_quality"`
-	AverageTokens       int     `json:"average_tokens"`
-	AverageTime         time.Duration `json:"average_time"`
+	TotalGenerations      int           `json:"total_generations"`
+	SuccessfulGenerations int           `json:"successful_generations"`
+	SuccessRate           float64       `json:"success_rate"`
+	AverageQuality        float64       `json:"average_quality"`
+	AverageTokens         int           `json:"average_tokens"`
+	AverageTime           time.Duration `json:"average_time"`
 
 	// Pattern Analysis
 	CommonDecisions   []DecisionPattern   `json:"common_decisions"`
@@ -301,10 +301,10 @@ type GenerationAudit struct {
 
 // DecisionPattern represents a recurring decision pattern
 type DecisionPattern struct {
-	Topic           string  `json:"topic"`
-	MostCommonChoice string `json:"most_common_choice"`
-	Occurrences     int     `json:"occurrences"`
-	SuccessRate     float64 `json:"success_rate_with_choice"`
+	Topic            string  `json:"topic"`
+	MostCommonChoice string  `json:"most_common_choice"`
+	Occurrences      int     `json:"occurrences"`
+	SuccessRate      float64 `json:"success_rate_with_choice"`
 }
 
 // AssumptionPattern represents a recurring assumption
@@ -316,10 +316,10 @@ type AssumptionPattern struct {
 
 // IssuePattern represents a recurring issue
 type IssuePattern struct {
-	Issue            string   `json:"issue"`
-	Occurrences      int      `json:"occurrences"`
-	CommonCauses     []string `json:"common_causes"`
-	EffectiveFixes   []string `json:"effective_fixes"`
+	Issue          string   `json:"issue"`
+	Occurrences    int      `json:"occurrences"`
+	CommonCauses   []string `json:"common_causes"`
+	EffectiveFixes []string `json:"effective_fixes"`
 }
 
 // OptimizationOpportunity represents a potential improvement
@@ -333,12 +333,12 @@ type OptimizationOpportunity struct {
 
 // TypeAnalysis contains analysis for a specific tool type
 type TypeAnalysis struct {
-	ToolType        string  `json:"tool_type"`
-	Count           int     `json:"count"`
-	SuccessRate     float64 `json:"success_rate"`
-	AvgQuality      float64 `json:"avg_quality"`
-	CommonPatterns  []string `json:"common_patterns"`
-	BestPractices   []string `json:"best_practices"`
+	ToolType       string   `json:"tool_type"`
+	Count          int      `json:"count"`
+	SuccessRate    float64  `json:"success_rate"`
+	AvgQuality     float64  `json:"avg_quality"`
+	CommonPatterns []string `json:"common_patterns"`
+	BestPractices  []string `json:"best_practices"`
 }
 
 // AnalyzeGenerations performs broad analysis across all tool generations
@@ -364,9 +364,9 @@ func (tc *TraceCollector) AnalyzeGenerations(ctx context.Context) (*GenerationAu
 	var totalTime time.Duration
 	successCount := 0
 
-	decisionCounts := make(map[string]map[string]int)     // topic -> choice -> count
-	assumptionCounts := make(map[string]int)              // assumption -> count
-	issueCounts := make(map[string]int)                   // issue -> count
+	decisionCounts := make(map[string]map[string]int) // topic -> choice -> count
+	assumptionCounts := make(map[string]int)          // assumption -> count
+	issueCounts := make(map[string]int)               // issue -> count
 
 	for _, trace := range traces {
 		audit.TotalGenerations++
@@ -435,7 +435,7 @@ func (tc *TraceCollector) AnalyzeGenerations(ctx context.Context) (*GenerationAu
 }
 
 // identifyOptimizations uses analysis to suggest improvements
-func (tc *TraceCollector) identifyOptimizations(ctx context.Context, audit *GenerationAudit, traces []*ReasoningTrace) []OptimizationOpportunity {
+func (tc *TraceCollector) identifyOptimizations(_ context.Context, audit *GenerationAudit, _ []*ReasoningTrace) []OptimizationOpportunity {
 	opportunities := []OptimizationOpportunity{}
 
 	// Check for common issues that could be prevented
@@ -484,15 +484,15 @@ func (tc *TraceCollector) identifyOptimizations(ctx context.Context, audit *Gene
 
 // LoggingRequirements defines what logging must be present in generated tools
 type LoggingRequirements struct {
-	RequireEntryLog     bool `json:"require_entry_log"`      // Log on function entry
-	RequireExitLog      bool `json:"require_exit_log"`       // Log on function exit
-	RequireErrorLog     bool `json:"require_error_log"`      // Log all errors
-	RequireInputLog     bool `json:"require_input_log"`      // Log input parameters
-	RequireOutputLog    bool `json:"require_output_log"`     // Log output/return values
-	RequireTimingLog    bool `json:"require_timing_log"`     // Log execution duration
-	RequireDecisionLog  bool `json:"require_decision_log"`   // Log key decisions
-	RequireAPICallLog   bool `json:"require_api_call_log"`   // Log external API calls
-	RequireIterationLog bool `json:"require_iteration_log"`  // Log loop iterations
+	RequireEntryLog     bool `json:"require_entry_log"`     // Log on function entry
+	RequireExitLog      bool `json:"require_exit_log"`      // Log on function exit
+	RequireErrorLog     bool `json:"require_error_log"`     // Log all errors
+	RequireInputLog     bool `json:"require_input_log"`     // Log input parameters
+	RequireOutputLog    bool `json:"require_output_log"`    // Log output/return values
+	RequireTimingLog    bool `json:"require_timing_log"`    // Log execution duration
+	RequireDecisionLog  bool `json:"require_decision_log"`  // Log key decisions
+	RequireAPICallLog   bool `json:"require_api_call_log"`  // Log external API calls
+	RequireIterationLog bool `json:"require_iteration_log"` // Log loop iterations
 }
 
 // DefaultLoggingRequirements returns the mandatory logging requirements
@@ -862,8 +862,8 @@ func findCommonAssumptions(assumptionCounts map[string]int) []AssumptionPattern 
 	for assumption, count := range assumptionCounts {
 		if count >= 2 {
 			patterns = append(patterns, AssumptionPattern{
-				Assumption:  assumption,
-				Occurrences: count,
+				Assumption:   assumption,
+				Occurrences:  count,
 				AccuracyRate: 0.5, // Default, updated when we have feedback
 			})
 		}

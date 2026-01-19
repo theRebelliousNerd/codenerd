@@ -245,10 +245,10 @@ func TestQualityEvaluator_EvaluateEfficiency(t *testing.T) {
 		minScore float64
 		maxScore float64
 	}{
-		{100 * time.Millisecond, 0.9, 1.0},   // Very fast
-		{3 * time.Second, 0.7, 0.9},          // Good
-		{20 * time.Second, 0.5, 0.7},         // Acceptable
-		{60 * time.Second, 0.2, 0.4},         // Poor
+		{100 * time.Millisecond, 0.9, 1.0}, // Very fast
+		{3 * time.Second, 0.7, 0.9},        // Good
+		{20 * time.Second, 0.5, 0.7},       // Acceptable
+		{60 * time.Second, 0.2, 0.4},       // Poor
 	}
 
 	for _, tt := range tests {
@@ -295,9 +295,7 @@ func TestQualityEvaluator_GenerateSuggestions(t *testing.T) {
 	}
 
 	for _, sug := range suggestions {
-		if _, ok := expectedTypes[sug.Type]; ok {
-			delete(expectedTypes, sug.Type)
-		}
+		delete(expectedTypes, sug.Type)
 	}
 
 	// Check that we got at least some expected suggestions
@@ -413,8 +411,8 @@ func TestDefaultHeuristicRules(t *testing.T) {
 
 	// Verify rules match expected patterns
 	testCases := []struct {
-		ruleName string
-		input    string
+		ruleName    string
+		input       string
 		shouldMatch bool
 	}{
 		{"pagination_truncated", "page 1 of 10", true},
@@ -471,7 +469,7 @@ func TestClamp(t *testing.T) {
 		value, min, max float64
 		want            float64
 	}{
-		{0.5, 0.0, 1.0, 0.5}, // Within range
+		{0.5, 0.0, 1.0, 0.5},  // Within range
 		{-0.5, 0.0, 1.0, 0.0}, // Below min
 		{1.5, 0.0, 1.0, 1.0},  // Above max
 		{0.0, 0.0, 1.0, 0.0},  // At min
@@ -491,8 +489,8 @@ func TestExtractMatch(t *testing.T) {
 	pattern := defaultHeuristicRules()[0].Pattern // pagination_truncated
 
 	tests := []struct {
-		input    string
-		wantLen  int
+		input   string
+		wantLen int
 	}{
 		{"page 1 of 10", -1}, // Should match
 		{"no match here", 0}, // Should not match

@@ -78,7 +78,11 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
 	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
 	o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
-	o.transducer = perception.NewRealTransducer(cfg.LLMClient)
+	if cfg.Transducer != nil {
+		o.transducer = cfg.Transducer
+	} else {
+		o.transducer = perception.NewRealTransducer(cfg.LLMClient)
+	}
 
 	// Wire intelligence integration components
 	o.intelligenceGatherer = cfg.IntelligenceGatherer

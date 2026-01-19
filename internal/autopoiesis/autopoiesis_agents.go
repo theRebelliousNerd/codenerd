@@ -196,7 +196,7 @@ var (
 )
 
 // executeAgentCreation creates a new persistent agent
-func (o *Orchestrator) executeAgentCreation(ctx context.Context, action AutopoiesisAction) error {
+func (o *Orchestrator) executeAgentCreation(_ context.Context, action AutopoiesisAction) error {
 	spec, ok := action.Payload.(*AgentSpec)
 	if !ok {
 		return fmt.Errorf("invalid payload for agent creation")

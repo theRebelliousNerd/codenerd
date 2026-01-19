@@ -27,8 +27,8 @@ type Spawner struct {
 	kernel        types.Kernel
 	virtualStore  types.VirtualStore
 	llmClient     types.LLMClient
-	jitCompiler   *prompt.JITPromptCompiler
-	configFactory *prompt.ConfigFactory
+	jitCompiler   JITCompiler
+	configFactory ConfigFactory
 	transducer    perception.Transducer
 
 	// Active subagents
@@ -55,8 +55,8 @@ func NewSpawner(
 	kernel types.Kernel,
 	virtualStore types.VirtualStore,
 	llmClient types.LLMClient,
-	jitCompiler *prompt.JITPromptCompiler,
-	configFactory *prompt.ConfigFactory,
+	jitCompiler JITCompiler,
+	configFactory ConfigFactory,
 	transducer perception.Transducer,
 	cfg SpawnerConfig,
 ) *Spawner {

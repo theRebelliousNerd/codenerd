@@ -203,7 +203,7 @@ type CreatedAgent struct {
 
 // Initializer handles the cold-start initialization process.
 type Initializer struct {
-	config      InitConfig
+	config InitConfig
 	// researcher removed - JIT clean loop handles research
 	scanner     *world.Scanner
 	localDB     *store.LocalStore
@@ -422,6 +422,14 @@ func NewInitializer(initConfig InitConfig) (*Initializer, error) {
 	}
 
 	return init, nil
+}
+
+// Close releases resources held by the initializer.
+func (i *Initializer) Close() error {
+	if i.localDB != nil {
+		return i.localDB.Close()
+	}
+	return nil
 }
 
 // ensureEmbeddingEngine initializes a shared embedding engine for sqlite-vec.

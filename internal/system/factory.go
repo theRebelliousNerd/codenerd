@@ -39,6 +39,26 @@ import (
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
 )
 
+// SystemKernel extends core.Kernel with system-level lifecycle methods.
+type SystemKernel interface {
+	core.Kernel
+	Evaluate() error
+	LoadFactsFromFile(path string) error
+	ConsumeBootPrompts() []core.HybridPrompt
+}
+
+// BootConfig defines configuration and dependency overrides for BootCortex.
+type BootConfig struct {
+	Workspace           string
+	APIKey              string
+	DisableSystemShards []string
+
+	// Overrides for testing
+	UserConfigOverride *config.UserConfig
+	LLMClientOverride  perception.LLMClient
+	KernelOverride     SystemKernel
+}
+
 // Global singleton Cortex instance to prevent repeated initialization (Bug #1 fix)
 var (
 	globalCortex     *Cortex
@@ -146,6 +166,20 @@ func normalizeShardTypeName(typeName string) string {
 // BootCortex initializes the entire system stack for a given workspace.
 // This ensures consistent wiring across CLI, TUI, and Workers.
 func BootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
+	return BootCortexWithConfig(ctx, BootConfig{
+		Workspace:           workspace,
+		APIKey:              apiKey,
+		DisableSystemShards: disableSystemShards,
+	})
+}
+
+// BootCortexWithConfig initializes the system with a configuration object.
+// This allows for dependency injection during testing.
+func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) {
+	workspace := cfg.Workspace
+	apiKey := cfg.APIKey
+	disableSystemShards := cfg.DisableSystemShards
+
 	if workspace == "" {
 		if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
 			workspace = root
@@ -172,7 +206,12 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// 2. Load user config for limits and provider selection
 	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
-	appCfg, _ := config.LoadUserConfig(userCfgPath)
+	var appCfg *config.UserConfig
+	if cfg.UserConfigOverride != nil {
+		appCfg = cfg.UserConfigOverride
+	} else {
+		appCfg, _ = config.LoadUserConfig(userCfgPath)
+	}
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
 	}
@@ -187,9 +226,14 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 	// 3. Initialize LLM client using workspace config/env detection
 	var baseLLMClient perception.LLMClient
-	if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
-		if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
-			baseLLMClient = client
+	if cfg.LLMClientOverride != nil {
+		baseLLMClient = cfg.LLMClientOverride
+	}
+	if baseLLMClient == nil {
+		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
+			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
+				baseLLMClient = client
+			}
 		}
 	}
 	if baseLLMClient == nil {
@@ -244,14 +288,19 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 	}
 
 	transducer := perception.NewRealTransducer(llmClient)
-	kernel, err := core.NewRealKernelWithWorkspace(workspace)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kernel: %w", err)
-	}
-	// Force initial evaluation to boot the Mangle engine (even with 0 facts)
-	// This is CRITICAL to prevent "kernel not initialized" errors when shards query it early.
-	if err := kernel.Evaluate(); err != nil {
-		return nil, fmt.Errorf("failed to boot kernel: %w", err)
+	var kernel SystemKernel
+	if cfg.KernelOverride != nil {
+		kernel = cfg.KernelOverride
+	} else {
+		realKernel, err := core.NewRealKernelWithWorkspace(workspace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create kernel: %w", err)
+		}
+		// Force initial evaluation to boot the Mangle engine (even with 0 facts)
+		if err := realKernel.Evaluate(); err != nil {
+			return nil, fmt.Errorf("failed to boot kernel: %w", err)
+		}
+		kernel = realKernel
 	}
 	// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
 	if err := perception.InitPerceptionLayer(kernel, appCfg); err != nil {
@@ -668,7 +717,7 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 // into the project prompt corpus database (.nerd/prompts/corpus.db).
 // This keeps hybrid files as a readable single source of truth while still
 // routing prompt atoms into the JIT system.
-func ingestHybridPrompts(ctx context.Context, workspace string, kernel *core.RealKernel, atomLoader *prompt.AtomLoader) {
+func ingestHybridPrompts(ctx context.Context, workspace string, kernel SystemKernel, atomLoader *prompt.AtomLoader) {
 	if kernel == nil || atomLoader == nil {
 		return
 	}
@@ -902,11 +951,11 @@ func (a *perceptionLLMAdapter) CompleteWithTools(ctx context.Context, systemProm
 // mcpKernelAdapter adapts core.RealKernel to mcp.KernelInterface.
 // It converts string facts to core.Fact and handles query results.
 type mcpKernelAdapter struct {
-	kernel *core.RealKernel
+	kernel core.Kernel
 }
 
 // newMCPKernelAdapter creates a new MCP kernel adapter.
-func newMCPKernelAdapter(kernel *core.RealKernel) *mcpKernelAdapter {
+func newMCPKernelAdapter(kernel core.Kernel) *mcpKernelAdapter {
 	return &mcpKernelAdapter{kernel: kernel}
 }
 
@@ -1010,7 +1059,7 @@ func (a *mcpKernelAdapter) Retract(fact string) error {
 		return fmt.Errorf("failed to parse fact '%s': %w", fact, err)
 	}
 
-	return a.kernel.RetractExactFact(parsed)
+	return a.kernel.RetractExactFactsBatch([]core.Fact{parsed})
 }
 
 // ============================================================================
@@ -1039,6 +1088,10 @@ func (a *sessionKernelAdapter) QueryAll() (map[string][]types.Fact, error) {
 
 func (a *sessionKernelAdapter) Assert(fact types.Fact) error {
 	return a.kernel.Assert(fact)
+}
+
+func (a *sessionKernelAdapter) AssertBatch(facts []types.Fact) error {
+	return a.kernel.AssertBatch(facts)
 }
 
 func (a *sessionKernelAdapter) Retract(predicate string) error {

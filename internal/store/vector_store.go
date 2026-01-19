@@ -106,7 +106,7 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 
 	metaJSON, _ := json.Marshal(metadata)
 
-	_, err = s.db.Exec(
+	res, err := s.db.Exec(
 		"INSERT OR REPLACE INTO vectors (content, embedding, metadata) VALUES (?, ?, ?)",
 		content, string(embeddingJSON), string(metaJSON),
 	)
@@ -117,10 +117,11 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 
 	// If sqlite-vec is available, store in vec_index for fast ANN.
 	if s.vectorExt {
+		id, _ := res.LastInsertId()
 		vecBlob := encodeFloat32Slice(embeddingVec)
 		_, _ = s.db.Exec(
-			"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
-			vecBlob, content, string(metaJSON),
+			"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
+			id, vecBlob, content, string(metaJSON),
 		)
 		logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
 	}
@@ -215,7 +216,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 
 	var vecStmt *sql.Stmt
 	if vecEnabled {
-		vecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)")
+		vecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
 		if err != nil {
 			_ = tx.Rollback()
 			return 0, err
@@ -243,7 +244,8 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 			continue
 		}
 		metaJSON, _ := json.Marshal(metadata[i])
-		if _, err := stmt.Exec(content, string(embeddingJSON), string(metaJSON)); err != nil {
+		res, err := stmt.Exec(content, string(embeddingJSON), string(metaJSON))
+		if err != nil {
 			failed++
 			if firstErr == nil {
 				firstErr = err
@@ -251,8 +253,9 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 			continue
 		}
 		if vecEnabled {
+			id, _ := res.LastInsertId()
 			vecBlob := encodeFloat32Slice(embeddings[i])
-			_, _ = vecStmt.Exec(vecBlob, content, string(metaJSON))
+			_, _ = vecStmt.Exec(id, vecBlob, content, string(metaJSON))
 		}
 		stored++
 	}
@@ -815,8 +818,12 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 		if metaJSON != "" {
 			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
 		}
+		if entry.Metadata == nil {
+			entry.Metadata = make(map[string]interface{})
+		}
 		entry.Metadata["similarity"] = 1 - dist
 		results = append(results, entry)
+
 	}
 
 	logging.StoreDebug("sqlite-vec ANN search returned %d results", len(results))
@@ -855,13 +862,14 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	logging.StoreDebug("Starting backfill of existing embeddings into sqlite-vec index")
 
 	// Phase 1: Read all rows into memory (quick read, then release rows)
-	rows, err := s.db.Query("SELECT content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
+	rows, err := s.db.Query("SELECT id, content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
 	if err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to query embeddings for backfill: %v", err)
 		return
 	}
 
 	type embeddingRow struct {
+		id       int64
 		content  string
 		vecBlob  []byte
 		metaJSON string
@@ -871,8 +879,9 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	skippedCount := 0
 
 	for rows.Next() {
+		var id int64
 		var content, embeddingJSON, metaJSON string
-		if err := rows.Scan(&content, &embeddingJSON, &metaJSON); err != nil {
+		if err := rows.Scan(&id, &content, &embeddingJSON, &metaJSON); err != nil {
 			skippedCount++
 			continue
 		}
@@ -886,6 +895,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 			continue
 		}
 		toInsert = append(toInsert, embeddingRow{
+			id:       id,
 			content:  content,
 			vecBlob:  encodeFloat32Slice(embeddingVec),
 			metaJSON: metaJSON,
@@ -918,7 +928,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 			continue
 		}
 
-		stmt, err := tx.Prepare("INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)")
+		stmt, err := tx.Prepare("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
 		if err != nil {
 			tx.Rollback()
 			logging.Get(logging.CategoryStore).Warn("Failed to prepare statement for backfill: %v", err)
@@ -927,7 +937,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 
 		batchSuccess := 0
 		for _, row := range batch {
-			_, err := stmt.Exec(row.vecBlob, row.content, row.metaJSON)
+			_, err := stmt.Exec(row.id, row.vecBlob, row.content, row.metaJSON)
 			if err == nil {
 				batchSuccess++
 			}
@@ -1136,8 +1146,8 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 			if s.vectorExt {
 				vecBlob := encodeFloat32Slice(embeddings[j])
 				_, _ = s.db.Exec(
-					"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
-					vecBlob, v.content, v.metadata,
+					"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
+					v.id, vecBlob, v.content, v.metadata,
 				)
 			}
 			totalEmbedded++
