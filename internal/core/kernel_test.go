@@ -10,6 +10,7 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
+		goleak.IgnoreAnyFunction("github.com/fsnotify/fsnotify.*"),
 	)
 }
 
