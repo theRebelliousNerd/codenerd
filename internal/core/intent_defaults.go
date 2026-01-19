@@ -1,7 +1,6 @@
 package core
 
 var defaultIntentSchemaFiles = []string{
-	"schema/intent_core.mg",
 	"schema/intent_qualifiers.mg",
 	"schema/intent_queries.mg",
 	"schema/intent_mutations.mg",

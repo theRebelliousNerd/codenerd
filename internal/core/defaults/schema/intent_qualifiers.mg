@@ -11,7 +11,6 @@
 # Interrogative words signal the TYPE of information the user seeks.
 # Each maps to a semantic type and a default verb for fallback routing.
 
-Decl interrogative_type(Word, SemanticType, DefaultVerb, Priority).
 
 # --- WHAT: Definition/Explanation ---
 interrogative_type("what", /definition, /explain, 80).
@@ -126,7 +125,6 @@ interrogative_type("which would", /recommendation, /explain, 83).
 # Modal verbs modify the intent - they can indicate politeness, hypotheticals,
 # permissions, obligations, or possibilities.
 
-Decl modal_type(Word, ModalMeaning, Transformation, Priority).
 
 # --- Polite Request Modals (Strip and process underlying intent) ---
 modal_type("can", /polite_request, /strip, 90).
@@ -204,7 +202,6 @@ modal_type("does it support", /capability, /assess, 84).
 # Copular verbs (is, are, was, were) followed by adjectives indicate
 # state queries - the user wants to know the current state of something.
 
-Decl state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
 
 # --- Security States ---
 state_adjective("safe", /security, /security_state, 90).
@@ -294,7 +291,6 @@ state_adjective("absent", /search, /existence_state, 80).
 # =========================================================================
 # Negation changes the intent - "don't delete" is NOT a delete intent.
 
-Decl negation_marker(Word, NegationType, Priority).
 
 # --- Direct Negation ---
 negation_marker("don't", /prohibition, 95).
@@ -353,7 +349,6 @@ negation_marker("recover", /reversal, 85).
 # =========================================================================
 # Patterns for copular verbs that introduce state queries.
 
-Decl copular_verb(Word, Tense, Number).
 
 copular_verb("is", /present, /singular).
 copular_verb("are", /present, /plural).
@@ -372,7 +367,6 @@ copular_verb("weren't", /past_neg, /plural).
 # =========================================================================
 # "Is there a...", "Are there any...", "Do we have..."
 
-Decl existence_pattern(Pattern, QueryType, DefaultVerb, Priority).
 
 existence_pattern("is there", /existence, /search, 88).
 existence_pattern("is there a", /existence, /search, 90).
@@ -394,7 +388,6 @@ existence_pattern("already exists", /existence, /search, 85).
 # =========================================================================
 # "Is X better than Y?", "Which is faster?"
 
-Decl comparative_marker(Word, ComparisonType, Priority).
 
 comparative_marker("better", /superiority, 85).
 comparative_marker("worse", /inferiority, 85).
@@ -424,7 +417,6 @@ comparative_marker("or", /alternative, 70).
 # Rules for combining signals to derive stronger intent classification.
 
 # Interrogative + State Adjective combinations
-Decl interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
 
 # "Why is this failing?" → debug (causation + error_state)
 interrogative_state_signal(/causation, /error_state, /debug, 98).
@@ -446,7 +438,6 @@ interrogative_state_signal(/selection, /performance_state, /analyze, 90).
 interrogative_state_signal(/existence, /completion_state, /review, 85).
 
 # Modal + Verb combinations (for stripping)
-Decl modal_verb_signal(ModalMeaning, VerbCategory, ResultingCategory).
 
 # Polite request + mutation → still mutation
 modal_verb_signal(/polite_request, /mutation, /mutation).

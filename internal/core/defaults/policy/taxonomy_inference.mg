@@ -3,23 +3,23 @@
 # This module takes raw intent candidates (from regex/LLM) and refines them
 # using contextual logic and safety constraints.
 
-Decl candidate_intent(Verb, RawScore).
-Decl context_token(Token).
-Decl user_input_string(Input).
+# Decl candidate_intent imported from schema/intent_core.mg
+# Decl context_token imported from schema/intent_core.mg
+# Decl user_input_string imported from schema/intent_core.mg
 
 # Import learned patterns
 # Decl learned_exemplar imported from schema/learning.mg
 
-Decl boost(Verb, Amount).
-Decl penalty(Verb, Amount).
+# Decl boost imported from schema/intent_core.mg
+# Decl penalty imported from schema/intent_core.mg
 
 # EDB Declarations for data loaded from Go
-Decl verb_def(Verb, Category, Shard, Priority).
-Decl verb_synonym(Verb, Synonym).
-Decl verb_pattern(Verb, Regex).
+# Decl verb_def imported from taxonomy.mg
+# Decl verb_synonym imported from taxonomy.mg
+# Decl verb_pattern imported from taxonomy.mg
 
 # Intermediate score generation
-Decl potential_score(Verb, Score).
+# Decl potential_score imported from schema/intent_core.mg
 
 # 1. Base Score
 # Convert float score to int for calculation if needed, but here we just pass it.
@@ -80,12 +80,12 @@ potential_score(Verb, NewScore) :-
 # These rules use semantic_match facts to influence verb selection.
 
 # EDB declarations for semantic matching (facts asserted by SemanticClassifier)
-Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
-Decl verb_composition(Verb1, Verb2, ComposedAction, Priority).
+# Decl semantic_match imported from schemas_knowledge.mg
+# Decl verb_composition imported from taxonomy.mg
 
 # Derived predicates for semantic matching
-Decl semantic_suggested_verb(Verb, Similarity).
-Decl compound_suggestion(Verb1, Verb2).
+# Decl semantic_suggested_verb imported from schemas_knowledge.mg
+# Decl compound_suggestion imported from schemas_knowledge.mg
 
 # Derive suggested verbs from semantic matches (top 3 only, similarity >= 60)
 semantic_suggested_verb(Verb, Similarity) :-
@@ -147,161 +147,16 @@ potential_score(Verb, NewScore) :-
 # negation) to enhance verb selection beyond simple pattern matching.
 
 # --- Derived predicates for qualifier detection ---
-Decl detected_interrogative(Word, SemanticType, DefaultVerb, Priority).
-Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
-Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
-Decl detected_negation(Word, NegationType, Priority).
-Decl detected_existence(Pattern, DefaultVerb, Priority).
-Decl has_negation(Flag).
-Decl has_polite_modal(Flag).
-Decl has_hypothetical_modal(Flag).
+# Decl detected_interrogative imported from policy/taxonomy_qualifiers.mg
+# Decl detected_modal imported from policy/taxonomy_qualifiers.mg
+# Decl detected_state_adj imported from policy/taxonomy_qualifiers.mg
+# Decl detected_negation imported from policy/taxonomy_qualifiers.mg
+# Decl detected_existence imported from policy/taxonomy_qualifiers.mg
+# Decl has_negation imported from policy/taxonomy_qualifiers.mg
+# Decl has_polite_modal imported from policy/taxonomy_qualifiers.mg
+# Decl has_hypothetical_modal imported from policy/taxonomy_qualifiers.mg
 
-# --- Detect interrogatives from context tokens ---
-# Single-word tokens are often atomized if they are identifiers (like 'where', 'is')
-detected_interrogative(Word, SemanticType, DefaultVerb, Priority) :-
-    context_token(Word),
-    interrogative_type(Word, SemanticType, DefaultVerb, Priority).
-
-# Two-word interrogatives (check for both tokens present)
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/what),
-    context_token(/is),
-    interrogative_type("what is", SemanticType, DefaultVerb, Priority),
-    Phrase = "what is".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/what),
-    context_token(/if),
-    interrogative_type("what if", SemanticType, DefaultVerb, Priority),
-    Phrase = "what if".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/why),
-    context_token(/is),
-    interrogative_type("why is", SemanticType, DefaultVerb, Priority),
-    Phrase = "why is".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/why),
-    context_token(/does),
-    interrogative_type("why does", SemanticType, DefaultVerb, Priority),
-    Phrase = "why does".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/how),
-    context_token(/do),
-    context_token(/i),
-    interrogative_type("how do i", SemanticType, DefaultVerb, Priority),
-    Phrase = "how do i".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/how),
-    context_token(/can),
-    context_token(/i),
-    interrogative_type("how can i", SemanticType, DefaultVerb, Priority),
-    Phrase = "how can i".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/where),
-    context_token(/is),
-    interrogative_type("where is", SemanticType, DefaultVerb, Priority),
-    Phrase = "where is".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/who),
-    context_token(/wrote),
-    interrogative_type("who wrote", SemanticType, DefaultVerb, Priority),
-    Phrase = "who wrote".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/which),
-    context_token(/file),
-    interrogative_type("which file", SemanticType, DefaultVerb, Priority),
-    Phrase = "which file".
-
-detected_interrogative(Phrase, SemanticType, DefaultVerb, Priority) :-
-    context_token(/which),
-    context_token(/files),
-    interrogative_type("which files", SemanticType, DefaultVerb, Priority),
-    Phrase = "which files".
-
-# --- Detect modals from context tokens ---
-detected_modal(Word, ModalMeaning, Transformation, Priority) :-
-    context_token(Word),
-    modal_type(Word, ModalMeaning, Transformation, Priority).
-
-# Two-word modals
-detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/can),
-    context_token(/you),
-    modal_type("can you", ModalMeaning, Transformation, Priority),
-    Phrase = "can you".
-
-detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/could),
-    context_token(/you),
-    modal_type("could you", ModalMeaning, Transformation, Priority),
-    Phrase = "could you".
-
-detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/would),
-    context_token(/you),
-    modal_type("would you", ModalMeaning, Transformation, Priority),
-    Phrase = "would you".
-
-detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/help),
-    context_token(/me),
-    modal_type("help me", ModalMeaning, Transformation, Priority),
-    Phrase = "help me".
-
-detected_modal(Phrase, ModalMeaning, Transformation, Priority) :-
-    context_token(/what),
-    context_token(/if),
-    modal_type("what if", ModalMeaning, Transformation, Priority),
-    Phrase = "what if".
-
-# --- Detect state adjectives from context tokens ---
-detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority) :-
-    context_token(Adjective),
-    state_adjective(Adjective, ImpliedVerb, StateCategory, Priority).
-
-# --- Detect negation from context tokens ---
-detected_negation(Word, NegationType, Priority) :-
-    context_token(Word),
-    negation_marker(Word, NegationType, Priority).
-
-# Flag if any negation is present (use /true sentinel for boolean)
-has_negation(/true) :-
-    detected_negation(_, _, _).
-
-# Flag if polite modal is present (use /true sentinel for boolean)
-has_polite_modal(/true) :-
-    detected_modal(_, /polite_request, _, _).
-
-# Flag if hypothetical modal is present (use /true sentinel for boolean)
-has_hypothetical_modal(/true) :-
-    detected_modal(_, /hypothetical, _, _).
-
-# --- Detect existence patterns ---
-detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/is),
-    context_token(/there),
-    existence_pattern("is there", _, DefaultVerb, Priority),
-    Pattern = "is there".
-
-detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/are),
-    context_token(/there),
-    existence_pattern("are there", _, DefaultVerb, Priority),
-    Pattern = "are there".
-
-detected_existence(Pattern, DefaultVerb, Priority) :-
-    context_token(/do),
-    context_token(/we),
-    context_token(/have),
-    existence_pattern("do we have", _, DefaultVerb, Priority),
-    Pattern = "do we have".
+# Logic for qualifier detection is now in policy/taxonomy_qualifiers.mg
 
 # =============================================================================
 # QUALIFIER-ENHANCED VERB SCORING
@@ -404,11 +259,11 @@ potential_score(DefaultVerb, Score) :-
 # Derive additional metadata about the intent for routing decisions.
 # Note: Mangle requires at least one argument per predicate; use /true sentinel for booleans.
 
-Decl intent_is_question(Flag).
-Decl intent_is_hypothetical(Flag).
-Decl intent_is_negated(Flag).
-Decl intent_semantic_type(Type).
-Decl intent_state_category(Category).
+# Decl intent_is_question imported from policy/taxonomy_qualifiers.mg
+# Decl intent_is_hypothetical imported from policy/taxonomy_qualifiers.mg
+# Decl intent_is_negated imported from policy/taxonomy_qualifiers.mg
+# Decl intent_semantic_type imported from policy/taxonomy_qualifiers.mg
+# Decl intent_state_category imported from policy/taxonomy_qualifiers.mg
 
 intent_is_question(/true) :-
     detected_interrogative(_, _, _, _).

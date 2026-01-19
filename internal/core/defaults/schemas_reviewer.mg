@@ -48,7 +48,7 @@ Decl shard_model_config(ShardType, ModelType).
 # NOTE: context_token(Token) is declared in inference.mg
 
 # user_input_string(Input) - raw user input string for NL processing
-Decl user_input_string(Input).
+# Decl user_input_string imported from schema/intent_core.mg
 
 # string_contains(Haystack, Needle) - virtual predicate for dynamic substring checks
 Decl string_contains(Haystack, Needle).
