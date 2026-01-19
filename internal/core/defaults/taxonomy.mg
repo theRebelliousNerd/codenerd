@@ -1,8 +1,5 @@
-Decl verb_def(Verb, Category, Shard, Priority).
 
-Decl verb_synonym(Verb, Synonym).
 
-Decl verb_pattern(Verb, Regex).
 
 # =========================================================================
 # CODE REVIEW & ANALYSIS (Reviewer)
@@ -222,7 +219,7 @@ verb_pattern(/generate_tool, "(?i)need.*tool").
 # =========================================================================
 
 # --- Multi-Step Declarations ---
-Decl verb_composition(Verb1, Verb2, Relation, Priority).
+# Decl verb_composition imported from schemas_intent.mg
 Decl step_connector(Connector, ConnectorType, StepBoundary).
 Decl completion_marker(Marker, MarkerType).
 Decl pronoun_ref(Pronoun, Resolution).
