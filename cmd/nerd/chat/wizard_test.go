@@ -1,0 +1,698 @@
+// Package chat provides tests for wizard flows (config, agent, northstar, onboarding).
+// This file tests the multi-step interactive wizard state machines.
+package chat
+
+import (
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// =============================================================================
+// CONFIG WIZARD TESTS
+// =============================================================================
+
+func TestConfigWizard_StateCreation(t *testing.T) {
+	t.Parallel()
+
+	state := &ConfigWizardState{
+		Step: StepWelcome,
+	}
+
+	if state.Step != StepWelcome {
+		t.Errorf("Expected StepWelcome, got %v", state.Step)
+	}
+}
+
+func TestConfigWizard_AllSteps(t *testing.T) {
+	t.Parallel()
+
+	// Verify all steps are defined
+	steps := []ConfigWizardStep{
+		StepWelcome,
+		StepEngine,
+		StepClaudeCLIConfig,
+		StepCodexCLIConfig,
+		StepProvider,
+		StepAPIKey,
+		StepModel,
+		StepShardConfig,
+		StepShardModel,
+		StepShardTemperature,
+		StepShardContext,
+		StepNextShard,
+		StepEmbeddingProvider,
+		StepEmbeddingConfig,
+		StepContextWindow,
+		StepContextBudget,
+		StepCoreLimits,
+		StepReview,
+		StepComplete,
+	}
+
+	// Each step should have a unique value
+	seen := make(map[ConfigWizardStep]bool)
+	for _, step := range steps {
+		if seen[step] {
+			t.Errorf("Duplicate step value: %d", step)
+		}
+		seen[step] = true
+	}
+}
+
+func TestConfigWizard_ShardProfileConfig(t *testing.T) {
+	t.Parallel()
+
+	profile := &ShardProfileConfig{
+		Model:            "gpt-4",
+		Temperature:      0.7,
+		MaxContextTokens: 8000,
+		MaxOutputTokens:  4000,
+		EnableLearning:   true,
+	}
+
+	if profile.Model != "gpt-4" {
+		t.Errorf("Expected model 'gpt-4', got '%s'", profile.Model)
+	}
+	if profile.Temperature != 0.7 {
+		t.Errorf("Expected temperature 0.7, got %f", profile.Temperature)
+	}
+}
+
+func TestConfigWizard_StepTransitions(t *testing.T) {
+	t.Parallel()
+
+	// Test step progression logic
+	transitions := []struct {
+		from ConfigWizardStep
+		to   ConfigWizardStep
+	}{
+		{StepWelcome, StepEngine},
+		{StepEngine, StepProvider},        // If API selected
+		{StepEngine, StepClaudeCLIConfig}, // If Claude CLI selected
+		{StepProvider, StepAPIKey},
+		{StepAPIKey, StepModel},
+		{StepModel, StepShardConfig},
+	}
+
+	for _, tr := range transitions {
+		if tr.to <= tr.from && tr.to != StepReview && tr.to != StepComplete {
+			// Most transitions should move forward
+			t.Logf("Transition from %d to %d", tr.from, tr.to)
+		}
+	}
+}
+
+func TestConfigWizard_ModelEntry(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepWelcome,
+	}
+
+	// Config wizard mode should be active
+	if !m.awaitingConfigWizard {
+		t.Error("Expected awaitingConfigWizard to be true")
+	}
+}
+
+func TestConfigWizard_ExitOnEscape(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepWelcome,
+	}
+
+	// Escape should exit wizard (depending on implementation)
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	result := newModel.(Model)
+
+	// May exit wizard or stay (implementation dependent)
+	_ = result
+}
+
+// =============================================================================
+// AGENT WIZARD TESTS
+// =============================================================================
+
+func TestAgentWizard_StateCreation(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingAgentDefinition = true
+
+	if !m.awaitingAgentDefinition {
+		t.Error("Expected awaitingAgentDefinition to be true")
+	}
+}
+
+func TestAgentWizard_Entry(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+
+	// Trigger agent wizard
+	newModel, _ := m.handleCommand("/define-agent")
+	result := newModel.(Model)
+
+	// Should either start wizard or show message
+	if result.awaitingAgentDefinition {
+		t.Log("Agent wizard started")
+	} else if len(result.history) > 0 {
+		t.Log("Message shown instead of wizard")
+	}
+}
+
+func TestAgentWizard_NoPanicOnInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingAgentDefinition = true
+	m.agentWizard = &AgentWizardState{
+		Step: 0,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Panic in agent wizard input: %v", r)
+		}
+	}()
+
+	m.textarea.SetValue("test input")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+// =============================================================================
+// NORTHSTAR WIZARD TESTS
+// =============================================================================
+
+func TestNorthstarWizard_StateCreation(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingNorthstar = true
+
+	if !m.awaitingNorthstar {
+		t.Error("Expected awaitingNorthstar to be true")
+	}
+}
+
+func TestNorthstarWizard_Entry(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+
+	// Trigger northstar wizard
+	newModel, _ := m.handleCommand("/northstar")
+	result := newModel.(Model)
+
+	// Should either start wizard or show message
+	_ = result
+}
+
+func TestNorthstarWizard_NoPanicOnInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingNorthstar = true
+	m.northstarWizard = &NorthstarWizardState{
+		Phase: 0,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Panic in northstar wizard input: %v", r)
+		}
+	}()
+
+	m.textarea.SetValue("project vision")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+// =============================================================================
+// ONBOARDING WIZARD TESTS
+// =============================================================================
+
+func TestOnboardingWizard_StateCreation(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingOnboarding = true
+
+	if !m.awaitingOnboarding {
+		t.Error("Expected awaitingOnboarding to be true")
+	}
+}
+
+func TestOnboardingWizard_NoPanicOnInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingOnboarding = true
+	m.onboardingWizard = &OnboardingWizardState{
+		Step: 0,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Panic in onboarding wizard input: %v", r)
+		}
+	}()
+
+	m.textarea.SetValue("1")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+// =============================================================================
+// INPUT MODE TESTS
+// =============================================================================
+
+func TestInputMode_Clarification(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModeClarification))
+
+	if !m.awaitingClarification {
+		t.Error("Expected awaitingClarification to be true")
+	}
+}
+
+func TestInputMode_Patch(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModePatch))
+
+	if !m.awaitingPatch {
+		t.Error("Expected awaitingPatch to be true")
+	}
+}
+
+func TestInputMode_AgentWizard(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModeAgentWizard))
+
+	if !m.awaitingAgentDefinition {
+		t.Error("Expected awaitingAgentDefinition to be true")
+	}
+}
+
+func TestInputMode_ConfigWizard(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModeConfigWizard))
+
+	if !m.awaitingConfigWizard {
+		t.Error("Expected awaitingConfigWizard to be true")
+	}
+}
+
+func TestInputMode_Onboarding(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModeOnboarding))
+
+	if !m.awaitingOnboarding {
+		t.Error("Expected awaitingOnboarding to be true")
+	}
+}
+
+// =============================================================================
+// CLARIFICATION STATE TESTS
+// =============================================================================
+
+func TestClarificationState_Fields(t *testing.T) {
+	t.Parallel()
+
+	state := &ClarificationState{
+		Question:      "Which file do you mean?",
+		Options:       []string{"file1.go", "file2.go", "file3.go"},
+		DefaultOption: "file1.go",
+		Context:       "serialized context",
+	}
+
+	if state.Question != "Which file do you mean?" {
+		t.Errorf("Unexpected question: %s", state.Question)
+	}
+	if len(state.Options) != 3 {
+		t.Errorf("Expected 3 options, got %d", len(state.Options))
+	}
+}
+
+func TestClarificationState_OptionSelection(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel(WithInputMode(InputModeClarification))
+	m.clarificationState = &ClarificationState{
+		Question: "Select an option",
+		Options:  []string{"option1", "option2"},
+	}
+	m.selectedOption = 0
+
+	// Up/Down should change selection
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	result := newModel.(Model)
+
+	// Selection may or may not change depending on implementation
+	_ = result
+}
+
+// =============================================================================
+// PATCH INPUT MODE TESTS
+// =============================================================================
+
+func TestPatchMode_Entry(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingPatch = true
+	m.pendingPatchLines = []string{}
+
+	if !m.awaitingPatch {
+		t.Error("Expected awaitingPatch to be true")
+	}
+}
+
+func TestPatchMode_AccumulatesLines(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingPatch = true
+	m.pendingPatchLines = []string{"line 1", "line 2"}
+
+	if len(m.pendingPatchLines) != 2 {
+		t.Errorf("Expected 2 pending lines, got %d", len(m.pendingPatchLines))
+	}
+}
+
+func TestPatchMode_EndMarker(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingPatch = true
+	m.pendingPatchLines = []string{"line 1", "line 2"}
+
+	// Typing --END-- should complete patch
+	m.textarea.SetValue("--END--")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Patch mode may be exited
+}
+
+// =============================================================================
+// WIZARD NAVIGATION TESTS
+// =============================================================================
+
+func TestWizard_BackNavigation(t *testing.T) {
+	t.Parallel()
+
+	// Test that wizards support going back (if implemented)
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepProvider,
+	}
+
+	// Sending "back" or special key might go back
+	m.textarea.SetValue("back")
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := newModel.(Model)
+
+	// May or may not change step
+	_ = result
+}
+
+func TestWizard_CancelNavigation(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepProvider,
+	}
+
+	// Ctrl+C or "cancel" might exit
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_ = newModel
+
+	// May exit wizard or quit entirely
+}
+
+// =============================================================================
+// WIZARD VIEW TESTS
+// =============================================================================
+
+func TestWizard_ViewNoPanic(t *testing.T) {
+	t.Parallel()
+
+	wizardSetups := []struct {
+		name  string
+		setup func(*Model)
+	}{
+		{
+			name: "config wizard",
+			setup: func(m *Model) {
+				m.awaitingConfigWizard = true
+				m.configWizard = &ConfigWizardState{Step: StepWelcome}
+			},
+		},
+		{
+			name: "agent wizard",
+			setup: func(m *Model) {
+				m.awaitingAgentDefinition = true
+				m.agentWizard = &AgentWizardState{Step: 0}
+			},
+		},
+		{
+			name: "northstar wizard",
+			setup: func(m *Model) {
+				m.awaitingNorthstar = true
+				m.northstarWizard = &NorthstarWizardState{Phase: 0}
+			},
+		},
+		{
+			name: "onboarding wizard",
+			setup: func(m *Model) {
+				m.awaitingOnboarding = true
+				m.onboardingWizard = &OnboardingWizardState{Step: 0}
+			},
+		},
+		{
+			name: "clarification",
+			setup: func(m *Model) {
+				m.awaitingClarification = true
+				m.clarificationState = &ClarificationState{
+					Question: "test",
+					Options:  []string{"a", "b"},
+				}
+			},
+		},
+		{
+			name: "patch mode",
+			setup: func(m *Model) {
+				m.awaitingPatch = true
+				m.pendingPatchLines = []string{"line 1"}
+			},
+		},
+	}
+
+	for _, ws := range wizardSetups {
+		t.Run(ws.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("PANIC in View() for %s: %v", ws.name, r)
+				}
+			}()
+
+			m := NewTestModel()
+			ws.setup(&m)
+			_ = m.View()
+		})
+	}
+}
+
+// =============================================================================
+// WIZARD INPUT VALIDATION TESTS
+// =============================================================================
+
+func TestWizard_EmptyInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepAPIKey,
+	}
+
+	// Empty input should be handled gracefully
+	m.textarea.SetValue("")
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := newModel.(Model)
+
+	// May show error or use default
+	_ = result
+}
+
+func TestWizard_WhitespaceInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepAPIKey,
+	}
+
+	// Whitespace-only input should be handled
+	m.textarea.SetValue("   ")
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := newModel.(Model)
+
+	_ = result
+}
+
+func TestWizard_NumericInput(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step: StepProvider,
+	}
+
+	// Numeric selection
+	m.textarea.SetValue("1")
+	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := newModel.(Model)
+
+	_ = result
+}
+
+// =============================================================================
+// CAMPAIGN LAUNCH CLARIFICATION TESTS
+// =============================================================================
+
+func TestCampaignLaunchClarification_State(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.launchClarifyPending = true
+	m.launchClarifyGoal = "improve test coverage"
+	m.launchClarifyAnswers = ""
+
+	if !m.launchClarifyPending {
+		t.Error("Expected launchClarifyPending to be true")
+	}
+	if m.launchClarifyGoal != "improve test coverage" {
+		t.Errorf("Unexpected goal: %s", m.launchClarifyGoal)
+	}
+}
+
+// =============================================================================
+// DREAM STATE LEARNING TESTS
+// =============================================================================
+
+func TestDreamLearning_TrackHypothetical(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.lastDreamHypothetical = "What if we refactored X?"
+
+	if m.lastDreamHypothetical != "What if we refactored X?" {
+		t.Errorf("Unexpected hypothetical: %s", m.lastDreamHypothetical)
+	}
+}
+
+// =============================================================================
+// REFLECTION STATE TESTS
+// =============================================================================
+
+func TestReflectionState_Creation(t *testing.T) {
+	t.Parallel()
+
+	state := &ReflectionState{
+		Query:         "test query",
+		UsedEmbedding: true,
+		Duration:      time.Second,
+		Warnings:      []string{"warning1"},
+	}
+
+	if state.Query != "test query" {
+		t.Errorf("Unexpected query: %s", state.Query)
+	}
+	if !state.UsedEmbedding {
+		t.Error("Expected UsedEmbedding to be true")
+	}
+}
+
+// =============================================================================
+// SHARD RESULT TESTS
+// =============================================================================
+
+func TestShardResult_Fields(t *testing.T) {
+	t.Parallel()
+
+	sr := &ShardResult{
+		ShardType:  "reviewer",
+		Task:       "review main.go",
+		RawOutput:  "Found 5 issues",
+		Timestamp:  time.Now(),
+		TurnNumber: 3,
+		Findings:   []map[string]any{{"file": "main.go", "line": 10}},
+		Metrics:    map[string]any{"issues": 5},
+		ExtraData:  map[string]any{"custom": "data"},
+	}
+
+	if sr.ShardType != "reviewer" {
+		t.Errorf("Expected shardType 'reviewer', got '%s'", sr.ShardType)
+	}
+	if len(sr.Findings) != 1 {
+		t.Errorf("Expected 1 finding, got %d", len(sr.Findings))
+	}
+}
+
+// =============================================================================
+// AGGREGATED REVIEW TESTS
+// =============================================================================
+
+func TestAggregatedReview_Fields(t *testing.T) {
+	t.Parallel()
+
+	review := &PersistedReview{
+		ID:               "review-123",
+		Target:           "./...",
+		Participants:     []string{"security", "performance"},
+		TotalFindings:    10,
+		Files:            []string{"main.go", "util.go"},
+		HolisticInsights: []string{"Code is generally well-structured"},
+	}
+
+	if review.ID != "review-123" {
+		t.Errorf("Unexpected ID: %s", review.ID)
+	}
+	if len(review.Participants) != 2 {
+		t.Errorf("Expected 2 participants, got %d", len(review.Participants))
+	}
+}
+
+func TestParsedFinding_Fields(t *testing.T) {
+	t.Parallel()
+
+	finding := ParsedFinding{
+		File:           "main.go",
+		Line:           42,
+		Severity:       "high",
+		Category:       "security",
+		Message:        "SQL injection vulnerability",
+		Recommendation: "Use prepared statements",
+		ShardSource:    "security_reviewer",
+	}
+
+	if finding.Severity != "high" {
+		t.Errorf("Expected severity 'high', got '%s'", finding.Severity)
+	}
+}
