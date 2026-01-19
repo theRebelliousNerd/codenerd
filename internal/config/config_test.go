@@ -6,6 +6,119 @@ import (
 	"testing"
 )
 
+// =============================================================================
+// UNIFIED CONFIG TESTS
+// =============================================================================
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Name != "codeNERD" {
+		t.Errorf("expected Name=codeNERD, got %s", cfg.Name)
+	}
+	if cfg.LLM.Provider != "zai" {
+		t.Errorf("expected Provider=zai, got %s", cfg.LLM.Provider)
+	}
+	if cfg.CoreLimits.MaxConcurrentShards != 4 {
+		t.Errorf("expected MaxConcurrentShards=4, got %d", cfg.CoreLimits.MaxConcurrentShards)
+	}
+}
+
+func TestConfig_SaveLoad(t *testing.T) {
+	// Ensure no env vars interfere
+	t.Setenv("ZAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "config.yaml")
+
+	cfg := DefaultConfig()
+	cfg.LLM.Provider = "anthropic"
+	cfg.LLM.APIKey = "sk-test"
+
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if loaded.LLM.Provider != "anthropic" {
+		t.Errorf("expected Provider=anthropic, got %s", loaded.LLM.Provider)
+	}
+	if loaded.LLM.APIKey != "sk-test" {
+		t.Errorf("expected APIKey=sk-test, got %s", loaded.LLM.APIKey)
+	}
+}
+
+func TestConfig_EnvOverrides(t *testing.T) {
+	// Set env vars
+	os.Setenv("ZAI_API_KEY", "env-zai-key")
+	defer os.Unsetenv("ZAI_API_KEY")
+
+	os.Setenv("CODEGRAPH_URL", "http://codegraph:8080")
+	defer os.Unsetenv("CODEGRAPH_URL")
+
+	cfg := DefaultConfig()
+	cfg.applyEnvOverrides()
+
+	if cfg.LLM.APIKey != "env-zai-key" {
+		t.Errorf("expected APIKey=env-zai-key, got %s", cfg.LLM.APIKey)
+	}
+
+	if url := cfg.Integrations.Servers["code_graph"].BaseURL; url != "http://codegraph:8080" {
+		t.Errorf("expected code_graph URL=http://codegraph:8080, got %s", url)
+	}
+}
+
+func TestConfig_Validate(t *testing.T) {
+	cfg := DefaultConfig()
+	// Default has no API key
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for missing API key")
+	}
+
+	cfg.LLM.APIKey = "test-key"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid config, got error: %v", err)
+	}
+
+	cfg.LLM.Provider = "invalid-provider"
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected validation error for invalid provider")
+	}
+}
+
+func TestConfig_Helpers(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.GetLLMTimeout() == 0 {
+		t.Error("GetLLMTimeout should return non-zero duration")
+	}
+	if cfg.GetQueryTimeout() == 0 {
+		t.Error("GetQueryTimeout should return non-zero duration")
+	}
+
+	// Shard profile fallback
+	profile := cfg.GetShardProfile("unknown_shard")
+	if profile.Model != cfg.DefaultShard.Model {
+		t.Error("GetShardProfile should fallback to default")
+	}
+
+	// Add profile
+	newProfile := ShardProfile{Model: "custom"}
+	cfg.SetShardProfile("custom_shard", newProfile)
+	if p := cfg.GetShardProfile("custom_shard"); p.Model != "custom" {
+		t.Error("SetShardProfile failed")
+	}
+}
+
+// =============================================================================
+// USER CONFIG TESTS (Legacy)
+// =============================================================================
+
 func TestFindWorkspaceRoot_PrefersNerdDir(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".nerd"), 0o755); err != nil {

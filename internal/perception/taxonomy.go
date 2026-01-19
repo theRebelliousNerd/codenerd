@@ -333,7 +333,9 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 	// 1. Reload Intent Schemas (Modular) - ALWAYS REQUIRED for inference
 	// These contain critical facts like interrogative_type, modal_type, etc.
-	intentFiles := core.DefaultIntentSchemaFiles()
+	// Must include schemas_intent.mg FIRST as it declares context_token, candidate_intent, etc.
+	intentFiles := []string{"schemas_intent.mg"}
+	intentFiles = append(intentFiles, core.DefaultIntentSchemaFiles()...)
 	intentFiles = append(intentFiles, "schema/learning.mg") // CRITICAL: Required by InferenceLogicMG
 	for _, file := range intentFiles {
 		content, err := core.GetDefaultContent(file)
@@ -480,38 +482,42 @@ func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
 	}
 
 	// Inject usage of Learned Patterns
-	results, _ := t.engine.Query(context.Background(), "learned_exemplar(P, V, T, C, _)")
-	if len(results.Bindings) > 0 {
-		sb.WriteString("### LEARNED USER PATTERNS (High Priority)\n")
-		sb.WriteString("| User Phrase | Mapped Action | Constraint |\n")
-		sb.WriteString("|-------------|---------------|------------|\n")
-		for _, row := range results.Bindings {
-			// Row is map[string]interface{}. Need to extract.
-			p, _ := row["P"].(string)
-			v, _ := row["V"].(string)
-			t, _ := row["T"].(string)
-			c, _ := row["C"].(string) // Constraint
-			sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, t, c))
+	if t.engine != nil {
+		results, err := t.engine.Query(context.Background(), "learned_exemplar(P, V, T, C, _)")
+		if err == nil && results != nil && len(results.Bindings) > 0 {
+			sb.WriteString("### LEARNED USER PATTERNS (High Priority)\n")
+			sb.WriteString("| User Phrase | Mapped Action | Constraint |\n")
+			sb.WriteString("|-------------|---------------|------------|\n")
+			for _, row := range results.Bindings {
+				// Row is map[string]interface{}. Need to extract.
+				p, _ := row["P"].(string)
+				v, _ := row["V"].(string)
+				t, _ := row["T"].(string)
+				c, _ := row["C"].(string) // Constraint
+				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} | %s |\n", p, v, t, c))
+			}
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	// Inject Canonical Examples (Phase 1 from user feedback)
 	// Query intent_definition(Sentence, Verb, Target)
 	// We need to check if intent_definition exists first to avoid query error if schema not loaded
 	// But if we fail, we just ignore.
-	canonResults, _ := t.engine.Query(context.Background(), "intent_definition(S, V, T)")
-	if len(canonResults.Bindings) > 0 {
-		sb.WriteString("### INTENT LIBRARY (Canonical Examples)\n")
-		sb.WriteString("| Canonical Request | Mangle Action |\n")
-		sb.WriteString("|-------------------|---------------|\n")
-		for _, row := range canonResults.Bindings {
-			s, _ := row["S"].(string)
-			v, _ := row["V"].(string)
-			t, _ := row["T"].(string)
-			sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, t))
+	if t.engine != nil {
+		canonResults, err := t.engine.Query(context.Background(), "intent_definition(S, V, T)")
+		if err == nil && canonResults != nil && len(canonResults.Bindings) > 0 {
+			sb.WriteString("### INTENT LIBRARY (Canonical Examples)\n")
+			sb.WriteString("| Canonical Request | Mangle Action |\n")
+			sb.WriteString("|-------------------|---------------|\n")
+			for _, row := range canonResults.Bindings {
+				s, _ := row["S"].(string)
+				v, _ := row["V"].(string)
+				t, _ := row["T"].(string)
+				sb.WriteString(fmt.Sprintf("| %q | {verb: %s, target: %q} |\n", s, v, t))
+			}
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	return sb.String(), nil
@@ -676,4 +682,3 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Patterns: []string{"(?i)read.*file", "(?i)show.*contents", "(?i)display.*file", "(?i)open.*file"},
 	},
 }
-
