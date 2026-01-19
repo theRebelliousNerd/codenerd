@@ -4,7 +4,10 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
+	"testing"
 	"time"
 
 	"codenerd/cmd/nerd/ui"
@@ -12,7 +15,9 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/mangle"
 	"codenerd/internal/perception"
+	"codenerd/internal/tactile"
 	"codenerd/internal/transparency"
+	"codenerd/internal/types"
 	"codenerd/internal/ux"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -133,6 +138,7 @@ func (m *MockKernel) WasResetCalled() bool {
 // =============================================================================
 
 // MockLLMClient simulates the perception.LLMClient for testing.
+// Implements types.LLMClient interface.
 type MockLLMClient struct {
 	mu            sync.Mutex
 	responses     map[string]string
@@ -142,18 +148,37 @@ type MockLLMClient struct {
 	systemPrompts []string
 	shouldError   bool
 	errorMsg      string
+	toolResponses map[string]*types.LLMToolResponse
 }
 
 // NewMockLLMClient creates a new mock LLM client.
 func NewMockLLMClient() *MockLLMClient {
 	return &MockLLMClient{
-		responses:   make(map[string]string),
-		defaultResp: "Mock LLM response",
+		responses:     make(map[string]string),
+		defaultResp:   "Mock LLM response",
+		toolResponses: make(map[string]*types.LLMToolResponse),
 	}
 }
 
-// Complete simulates an LLM completion.
-func (m *MockLLMClient) Complete(_ context.Context, systemPrompt, userPrompt string) (string, error) {
+// Complete implements types.LLMClient - simple completion without system prompt.
+func (m *MockLLMClient) Complete(_ context.Context, prompt string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callCount++
+	m.lastPrompt = prompt
+
+	if m.shouldError {
+		return "", &MockError{msg: m.errorMsg}
+	}
+
+	if resp, ok := m.responses[prompt]; ok {
+		return resp, nil
+	}
+	return m.defaultResp, nil
+}
+
+// CompleteWithSystem implements types.LLMClient - completion with system prompt.
+func (m *MockLLMClient) CompleteWithSystem(_ context.Context, systemPrompt, userPrompt string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callCount++
@@ -170,6 +195,30 @@ func (m *MockLLMClient) Complete(_ context.Context, systemPrompt, userPrompt str
 	return m.defaultResp, nil
 }
 
+// CompleteWithTools implements types.LLMClient - completion with tool definitions.
+func (m *MockLLMClient) CompleteWithTools(_ context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.callCount++
+	m.lastPrompt = userPrompt
+	m.systemPrompts = append(m.systemPrompts, systemPrompt)
+
+	if m.shouldError {
+		return nil, &MockError{msg: m.errorMsg}
+	}
+
+	// Check for specific tool response
+	if resp, ok := m.toolResponses[userPrompt]; ok {
+		return resp, nil
+	}
+
+	// Return default text response
+	return &types.LLMToolResponse{
+		Text:       m.defaultResp,
+		StopReason: "end_turn",
+	}, nil
+}
+
 // SetResponse configures a specific response for a prompt.
 func (m *MockLLMClient) SetResponse(prompt, response string) {
 	m.mu.Lock()
@@ -182,6 +231,13 @@ func (m *MockLLMClient) SetDefaultResponse(response string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.defaultResp = response
+}
+
+// SetToolResponse configures a specific tool response for a prompt.
+func (m *MockLLMClient) SetToolResponse(prompt string, resp *types.LLMToolResponse) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.toolResponses[prompt] = resp
 }
 
 // SetError configures the client to return an error.
@@ -212,6 +268,15 @@ func (m *MockLLMClient) GetLastPrompt() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastPrompt
+}
+
+// GetSystemPrompts returns all system prompts sent.
+func (m *MockLLMClient) GetSystemPrompts() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.systemPrompts))
+	copy(result, m.systemPrompts)
+	return result
 }
 
 // MockError is a simple error type for testing.
@@ -373,6 +438,284 @@ func WithLoading(loading bool) TestModelOption {
 	return func(m *Model) {
 		m.isLoading = loading
 	}
+}
+
+// WithWorkspace sets the workspace path.
+func WithWorkspace(workspace string) TestModelOption {
+	return func(m *Model) {
+		m.workspace = workspace
+	}
+}
+
+// WithLLMClient sets the LLM client.
+func WithLLMClient(client perception.LLMClient) TestModelOption {
+	return func(m *Model) {
+		m.client = client
+	}
+}
+
+// WithRealKernel creates and attaches a real Mangle kernel.
+// This requires a valid workspace path to be set first.
+func WithRealKernel(t *testing.T, workspace string) TestModelOption {
+	return func(m *Model) {
+		kernel, err := core.NewRealKernelWithWorkspace(workspace)
+		if err != nil {
+			t.Fatalf("Failed to create real kernel: %v", err)
+		}
+		m.kernel = kernel
+		m.workspace = workspace
+	}
+}
+
+// WithVirtualStore creates and attaches a VirtualStore.
+func WithVirtualStore(vs *core.VirtualStore) TestModelOption {
+	return func(m *Model) {
+		m.virtualStore = vs
+	}
+}
+
+// WithTransducer sets the transducer.
+func WithTransducer(t perception.Transducer) TestModelOption {
+	return func(m *Model) {
+		m.transducer = t
+	}
+}
+
+// =============================================================================
+// PERFORMANCE TRACKING
+// =============================================================================
+
+// PerformanceTracker tracks timing metrics for tests.
+type PerformanceTracker struct {
+	mu      sync.Mutex
+	metrics map[string][]time.Duration
+}
+
+// NewPerformanceTracker creates a new performance tracker.
+func NewPerformanceTracker() *PerformanceTracker {
+	return &PerformanceTracker{
+		metrics: make(map[string][]time.Duration),
+	}
+}
+
+// Track measures the duration of a function and records it.
+func (p *PerformanceTracker) Track(name string, fn func()) time.Duration {
+	start := time.Now()
+	fn()
+	duration := time.Since(start)
+
+	p.mu.Lock()
+	p.metrics[name] = append(p.metrics[name], duration)
+	p.mu.Unlock()
+
+	return duration
+}
+
+// Report logs all recorded metrics.
+func (p *PerformanceTracker) Report(t *testing.T) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	t.Log("=== Performance Report ===")
+	for name, durations := range p.metrics {
+		var total time.Duration
+		for _, d := range durations {
+			total += d
+		}
+		avg := total / time.Duration(len(durations))
+		t.Logf("  %s: avg=%v, count=%d, total=%v", name, avg, len(durations), total)
+	}
+}
+
+// GetAverage returns the average duration for a metric.
+func (p *PerformanceTracker) GetAverage(name string) time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	durations, ok := p.metrics[name]
+	if !ok || len(durations) == 0 {
+		return 0
+	}
+
+	var total time.Duration
+	for _, d := range durations {
+		total += d
+	}
+	return total / time.Duration(len(durations))
+}
+
+// =============================================================================
+// MOCK EXECUTOR
+// =============================================================================
+
+// MockExecutor implements tactile.Executor for testing.
+type MockExecutor struct {
+	mu         sync.Mutex
+	executions []string
+	results    map[string]*tactile.ExecutionResult
+	shouldFail bool
+	failMsg    string
+}
+
+// NewMockExecutor creates a new mock executor.
+func NewMockExecutor() *MockExecutor {
+	return &MockExecutor{
+		results: make(map[string]*tactile.ExecutionResult),
+	}
+}
+
+// Execute implements tactile.Executor.
+func (e *MockExecutor) Execute(_ context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.executions = append(e.executions, cmd.Binary)
+
+	if e.shouldFail {
+		return nil, &MockError{msg: e.failMsg}
+	}
+
+	if result, ok := e.results[cmd.Binary]; ok {
+		return result, nil
+	}
+	return &tactile.ExecutionResult{
+		ExitCode: 0,
+		Stdout:   "executed: " + cmd.Binary,
+		Stderr:   "",
+		Duration: 100 * time.Millisecond,
+	}, nil
+}
+
+// Capabilities implements tactile.Executor.
+func (e *MockExecutor) Capabilities() tactile.ExecutorCapabilities {
+	return tactile.ExecutorCapabilities{
+		Name:                     "mock",
+		Platform:                 "test",
+		SupportsResourceLimits:   false,
+		SupportsResourceUsage:    false,
+		SupportedSandboxModes:    []tactile.SandboxMode{tactile.SandboxNone},
+		SupportsNetworkIsolation: false,
+		SupportsStdin:            true,
+		MaxTimeout:               time.Hour,
+		DefaultTimeout:           30 * time.Second,
+	}
+}
+
+// Validate implements tactile.Executor.
+func (e *MockExecutor) Validate(_ tactile.Command) error {
+	return nil
+}
+
+// SetResult configures a specific result for a command binary.
+func (e *MockExecutor) SetResult(binary string, result *tactile.ExecutionResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.results[binary] = result
+}
+
+// SetFail configures the executor to fail.
+func (e *MockExecutor) SetFail(msg string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.shouldFail = true
+	e.failMsg = msg
+}
+
+// GetExecutions returns all executed command binaries.
+func (e *MockExecutor) GetExecutions() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	result := make([]string, len(e.executions))
+	copy(result, e.executions)
+	return result
+}
+
+// =============================================================================
+// LIVE TEST HELPERS
+// =============================================================================
+
+// SetupLiveWorkspace creates a temp workspace with required directories.
+func SetupLiveWorkspace(t *testing.T) string {
+	t.Helper()
+	workspace := t.TempDir()
+
+	// Create .nerd directory structure
+	dirs := []string{
+		".nerd/mangle",
+		".nerd/prompts",
+		".nerd/logs",
+		".nerd/shards",
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(workspace, dir), 0755); err != nil {
+			t.Fatalf("Failed to create %s: %v", dir, err)
+		}
+	}
+
+	return workspace
+}
+
+// SetupLiveModel creates a Model with real kernel and mock LLM.
+func SetupLiveModel(t *testing.T) (Model, *PerformanceTracker) {
+	t.Helper()
+	perf := NewPerformanceTracker()
+
+	workspace := SetupLiveWorkspace(t)
+
+	var kernel *core.RealKernel
+	perf.Track("kernel_creation", func() {
+		var err error
+		kernel, err = core.NewRealKernelWithWorkspace(workspace)
+		if err != nil {
+			t.Fatalf("Failed to create kernel: %v", err)
+		}
+	})
+
+	mockClient := NewMockLLMClient()
+	mockClient.SetDefaultResponse("Mock response for testing")
+
+	// Create model with all components
+	m := NewTestModel(WithSize(100, 50))
+
+	// Set real components
+	m.kernel = kernel
+	m.workspace = workspace
+	m.client = mockClient
+	m.virtualStore = core.NewVirtualStore(nil) // No executor for basic tests
+	m.ready = true
+	m.isBooting = false
+
+	return m, perf
+}
+
+// SetupFullIntegrationModel creates a Model with real kernel, mock LLM, and executor.
+func SetupFullIntegrationModel(t *testing.T) (Model, *PerformanceTracker, *MockExecutor) {
+	t.Helper()
+	perf := NewPerformanceTracker()
+
+	workspace := SetupLiveWorkspace(t)
+	mockExecutor := NewMockExecutor()
+	mockClient := NewMockLLMClient()
+	mockClient.SetDefaultResponse("Mock response for full integration testing")
+
+	var kernel *core.RealKernel
+	perf.Track("kernel_creation", func() {
+		var err error
+		kernel, err = core.NewRealKernelWithWorkspace(workspace)
+		if err != nil {
+			t.Fatalf("Failed to create kernel: %v", err)
+		}
+	})
+
+	m := NewTestModel(WithSize(100, 50))
+	m.kernel = kernel
+	m.workspace = workspace
+	m.client = mockClient
+	m.virtualStore = core.NewVirtualStore(mockExecutor)
+	m.ready = true
+	m.isBooting = false
+
+	return m, perf, mockExecutor
 }
 
 // =============================================================================
