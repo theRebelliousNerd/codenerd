@@ -21,14 +21,14 @@ import (
 // GroundingHelper provides utilities for Gemini grounding features.
 // Use NewGroundingHelper to create an instance from an LLM client.
 type GroundingHelper struct {
-	client       types.LLMClient
-	controller   types.GroundingController // nil if client doesn't support grounding control
-	provider     types.GroundingProvider   // nil if client doesn't support grounding
-	isGrounding  bool
-	mu           sync.RWMutex
-	lastSources  []string
+	client        types.LLMClient
+	controller    types.GroundingController // nil if client doesn't support grounding control
+	provider      types.GroundingProvider   // nil if client doesn't support grounding
+	isGrounding   bool
+	mu            sync.RWMutex
+	lastSources   []string
 	totalSearches int
-	totalURLs    int
+	totalURLs     int
 }
 
 // NewGroundingHelper creates a grounding helper from an LLM client.
@@ -303,6 +303,13 @@ var CommonDocURLs = map[string][]string{
 	"bubbletea": {
 		"https://github.com/charmbracelet/bubbletea",
 		"https://pkg.go.dev/github.com/charmbracelet/bubbletea",
+	},
+	"antigravity": {
+		"https://cloud.google.com/code/docs",
+		"https://cloud.google.com/gemini/docs",
+	},
+	"cloudcode": {
+		"https://cloud.google.com/code/docs",
 	},
 }
 

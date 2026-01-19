@@ -460,24 +460,6 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
-func requiresJSONOutput(systemPrompt, userPrompt string) bool {
-	markers := []string{
-		"mangle_synth_v1",
-		"MangleSynth",
-		"Output ONLY a MangleSynth JSON object",
-		"responseJsonSchema",
-		"responseMimeType",
-		"application/json",
-	}
-	combined := systemPrompt + "\n" + userPrompt
-	for _, marker := range markers {
-		if strings.Contains(combined, marker) {
-			return true
-		}
-	}
-	return false
-}
-
 const geminiSchemaDepthLimit = 6
 
 func schemaMaxDepth(value interface{}, depth int) int {

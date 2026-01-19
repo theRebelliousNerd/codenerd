@@ -39,6 +39,9 @@ type EvolverConfig struct {
 
 	// StrategyRefineThreshold is the number of uses before refinement consideration
 	StrategyRefineThreshold int `json:"strategy_refine_threshold"`
+
+	// JudgeModel is the model name used for the judge (default: gemini-3-pro)
+	JudgeModel string `json:"judge_model"`
 }
 
 // DefaultEvolverConfig returns the default configuration.
@@ -50,7 +53,9 @@ func DefaultEvolverConfig() *EvolverConfig {
 		ConfidenceThreshold:     0.7,
 		AutoPromote:             true,
 		EnableStrategies:        true,
+
 		StrategyRefineThreshold: 10,
+		JudgeModel:              "gemini-3-pro",
 	}
 }
 
@@ -122,7 +127,11 @@ func NewPromptEvolver(
 		strategyStore.GenerateDefaultStrategies()
 	}
 
-	judge := NewTaskJudge(llmClient, "gemini-3-pro")
+	judgeModel := config.JudgeModel
+	if judgeModel == "" {
+		judgeModel = "gemini-3-pro"
+	}
+	judge := NewTaskJudge(llmClient, judgeModel)
 	atomGenerator := NewAtomGenerator(llmClient, strategyStore)
 	classifier := NewProblemClassifier()
 
@@ -484,9 +493,9 @@ func (pe *PromptEvolver) GetStats() *EvolutionStats {
 	defer pe.mu.RUnlock()
 
 	stats := &EvolutionStats{
-		TotalCycles:           pe.evolutionCount,
-		TotalAtomsGenerated:   len(pe.evolvedAtoms),
-		LastEvolutionAt:       pe.lastEvolution,
+		TotalCycles:         pe.evolutionCount,
+		TotalAtomsGenerated: len(pe.evolvedAtoms),
+		LastEvolutionAt:     pe.lastEvolution,
 	}
 
 	// Count pending vs promoted

@@ -226,6 +226,11 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 
 // mapSemanticToCategory converts semantic_type to legacy category.
 func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType string) string {
+	// Use semantic type to refine category
+	if semanticType == "instruction" {
+		return "/instruction"
+	}
+
 	// Actions that modify code are mutations
 	switch actionType {
 	case "implement", "modify", "refactor", "verify", "attack", "revert", "configure":

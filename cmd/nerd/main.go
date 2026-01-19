@@ -15,19 +15,19 @@
 //
 // Direct Action Commands (TUI verb mirrors):
 //   - cmd_direct_actions.go - reviewCmd, fixCmd, testCmd, pushCmd, commitCmd,
-//                             explainCmd, createCmd, refactorCmd, perceptionCmd,
-//                             runDirectAction(), runPerceptionTest(), truncateResponse()
+//     explainCmd, createCmd, refactorCmd, perceptionCmd,
+//     runDirectAction(), runPerceptionTest(), truncateResponse()
 //
 // Advanced Commands (Dream state, speculation):
 //   - cmd_advanced.go    - dreamCmd, shadowCmd, whatifCmd, logicCmd, agentsCmd,
-//                          toolCmd, jitCmd, runDreamState(), runShadowSimulation(),
-//                          runWhatIf(), runLogicQuery(), runAgentsList(),
-//                          runToolCommand(), runJITStatus()
+//     toolCmd, jitCmd, runDreamState(), runShadowSimulation(),
+//     runWhatIf(), runLogicQuery(), runAgentsList(),
+//     runToolCommand(), runJITStatus()
 //
 // Browser Automation:
 //   - cmd_browser.go     - browserCmd, browserLaunchCmd, browserSessionCmd,
-//                          browserSnapshotCmd, getBrowserConfig(), browserLaunch(),
-//                          browserSession(), browserSnapshot()
+//     browserSnapshotCmd, getBrowserConfig(), browserLaunch(),
+//     browserSession(), browserSnapshot()
 //
 // Mangle Validation & LSP:
 //   - cmd_mangle_check.go - checkMangleCmd, runCheckMangle(), checkFile()
@@ -35,11 +35,11 @@
 //
 // Query & Status:
 //   - cmd_query.go       - queryCmd, statusCmd, whyCmd, queryFacts(), showStatus(),
-//                          runWhy(), joinArgs(), sanitizeFactForMangle()
+//     runWhy(), joinArgs(), sanitizeFactForMangle()
 //
 // Campaign Management:
 //   - cmd_campaign.go    - campaignCmd, campaignStartCmd, campaignStatusCmd,
-//                          campaignPauseCmd, campaignResumeCmd, campaignListCmd
+//     campaignPauseCmd, campaignResumeCmd, campaignListCmd
 //
 // Authentication:
 //   - cmd_auth.go        - authCmd, authClaudeCmd, authCodexCmd, authStatusCmd
@@ -199,6 +199,7 @@ func init() {
 	authCmd.AddCommand(
 		authClaudeCmd,
 		authCodexCmd,
+		authAntigravityCmd,
 		authStatusCmd,
 	)
 

@@ -104,11 +104,12 @@ var intentTypes = []string{"coder", "tester", "reviewer", "researcher"}
 
 // ProviderModels maps providers to their available models.
 var ProviderModels = map[string][]string{
-	"zai":       {"glm-4.6", "glm-4", "glm-4-air"},
-	"anthropic": {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
-	"openai":    {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
-	"gemini":    {"gemini-3-flash-preview", "gemini-3-pro-preview"},
-	"xai":       {"grok-2-latest", "grok-2", "grok-beta"},
+	"zai":         {"glm-4.6", "glm-4", "glm-4-air"},
+	"anthropic":   {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
+	"openai":      {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
+	"gemini":      {"gemini-3-flash-preview", "gemini-3-pro-preview"},
+	"antigravity": {"gemini-3.0-pro-exp", "claude-3-5-sonnet-v2@20241022"},
+	"xai":         {"grok-2-latest", "grok-2", "grok-beta"},
 	"openrouter": {
 		// Anthropic via OpenRouter
 		"anthropic/claude-3.5-sonnet",
@@ -338,10 +339,11 @@ Which LLM provider would you like to use?
 | 2 | anthropic | Anthropic Claude |
 | 3 | openai | OpenAI GPT/Codex |
 | 4 | gemini | Google Gemini |
-| 5 | xai | xAI Grok |
-| 6 | openrouter | OpenRouter (multi-provider gateway) |
-
-Enter a number (1-6) or provider name:`,
+| 5 | antigravity | Google Cloud Code (Internal) |
+| 6 | xai | xAI Grok |
+| 7 | openrouter | OpenRouter (multi-provider gateway) |
+344: 
+345: Enter a number (1-7) or provider name:`,
 			Time: time.Now(),
 		})
 		m.textarea.Placeholder = "Enter provider (1-6 or name)..."
@@ -453,15 +455,16 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 		"2": "anthropic", "anthropic": "anthropic",
 		"3": "openai", "openai": "openai",
 		"4": "gemini", "gemini": "gemini",
-		"5": "xai", "xai": "xai",
-		"6": "openrouter", "openrouter": "openrouter",
+		"5": "antigravity", "antigravity": "antigravity",
+		"6": "xai", "xai": "xai",
+		"7": "openrouter", "openrouter": "openrouter",
 	}
 
 	provider, ok := providers[strings.ToLower(input)]
 	if !ok {
 		m.history = append(m.history, Message{
 			Role:    "assistant",
-			Content: "Invalid selection. Please enter 1-6 or a provider name (zai, anthropic, openai, gemini, xai, openrouter):",
+			Content: "Invalid selection. Please enter 1-7 or a provider name (zai, anthropic, openai, gemini, antigravity, xai, openrouter):",
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
@@ -473,12 +476,13 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 	m.configWizard.Step = StepAPIKey
 
 	envVar := map[string]string{
-		"zai":        "ZAI_API_KEY",
-		"anthropic":  "ANTHROPIC_API_KEY",
-		"openai":     "OPENAI_API_KEY",
-		"gemini":     "GEMINI_API_KEY",
-		"xai":        "XAI_API_KEY",
-		"openrouter": "OPENROUTER_API_KEY",
+		"zai":         "ZAI_API_KEY",
+		"anthropic":   "ANTHROPIC_API_KEY",
+		"openai":      "OPENAI_API_KEY",
+		"gemini":      "GEMINI_API_KEY",
+		"antigravity": "GOOGLE_APPLICATION_CREDENTIALS", // Technically token, but this skips key entry
+		"xai":         "XAI_API_KEY",
+		"openrouter":  "OPENROUTER_API_KEY",
 	}[provider]
 
 	m.history = append(m.history, Message{
