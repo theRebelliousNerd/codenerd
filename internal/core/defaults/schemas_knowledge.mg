@@ -60,18 +60,15 @@ Decl proof_tree_node(NodeID, ParentID, Fact, RuleName).
 # Target: Associated target from corpus (string)
 # Rank: 1-based position in results (1 = best match)
 # Similarity: Cosine similarity * 100 (0-100 scale, integer)
-Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
 
 # Derived: suggested verb from semantic matching
 # Populated by inference rules when semantic matches exist
-Decl semantic_suggested_verb(Verb, MaxSimilarity).
 
 # Derived: compound suggestions from multiple semantic matches
-Decl compound_suggestion(Verb1, Verb2).
 
 # learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)
 # Learned user patterns that influence intent classification.
-Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence).
+# Decl learned_exemplar imported from schema/learning.mg
 
 # verb_composition(Verb1, Verb2, ComposedAction, Priority)
 # Defines valid verb compositions for compound suggestions
