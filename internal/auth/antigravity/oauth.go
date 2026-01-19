@@ -308,15 +308,48 @@ func fetchUserEmail(accessToken string) (string, error) {
 	return userInfo.Email, nil
 }
 
+// RefreshToken refreshes an access token using a refresh token (standalone function)
+func RefreshToken(ctx context.Context, refreshToken string) (*Token, error) {
+	data := url.Values{}
+	data.Set("client_id", ClientID)
+	data.Set("client_secret", ClientSecret)
+	data.Set("refresh_token", refreshToken)
+	data.Set("grant_type", "refresh_token")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", TokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("refresh failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var token Token
+	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
+		return nil, err
+	}
+
+	token.Expiry = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+	return &token, nil
+}
+
 // WaitForCallback starts a local HTTP server to listen for the OAuth callback.
 // Returns the code and state, or an error.
 func WaitForCallback(ctx context.Context, expectedState string) (string, error) {
 	codeChan := make(chan string)
 	errChan := make(chan error)
 
-	server := &http.Server{Addr: CallbackPort}
-
-	http.HandleFunc("/oauth-callback", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth-callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		state := q.Get("state")
 		code := q.Get("code")
@@ -344,6 +377,8 @@ func WaitForCallback(ctx context.Context, expectedState string) (string, error) 
 		w.Write([]byte("Authentication successful! You can close this window and return to the terminal."))
 		codeChan <- code
 	})
+
+	server := &http.Server{Addr: CallbackPort, Handler: mux}
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
