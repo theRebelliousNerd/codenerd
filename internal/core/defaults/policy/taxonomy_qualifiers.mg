@@ -13,14 +13,14 @@
 # Decl existence_pattern(Pattern, Regex, DefaultVerb, Priority).
 
 # Output Predicates (Used by taxonomy_inference.mg)
-Decl detected_interrogative(Word, SemanticType, DefaultVerb, Priority).
-Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
-Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
-Decl detected_negation(Word, NegationType, Priority).
-Decl detected_existence(Pattern, DefaultVerb, Priority).
-Decl has_negation(Flag).
-Decl has_polite_modal(Flag).
-Decl has_hypothetical_modal(Flag).
+# Decl detected_interrogative imported from schemas_intent.mg
+# Decl detected_modal imported from schemas_intent.mg
+# Decl detected_state_adj imported from schemas_intent.mg
+# Decl detected_negation imported from schemas_intent.mg
+# Decl detected_existence imported from schemas_intent.mg
+# Decl has_negation imported from schemas_intent.mg
+# Decl has_polite_modal imported from schemas_intent.mg
+# Decl has_hypothetical_modal imported from schemas_intent.mg
 
 # --- Detect interrogatives from context tokens ---
 # Single-word tokens are often atomized if they are identifiers (like 'where', 'is')
@@ -175,11 +175,11 @@ detected_existence(Pattern, DefaultVerb, Priority) :-
 # Derive additional metadata about the intent for routing decisions.
 # Note: Mangle requires at least one argument per predicate; use /true sentinel for booleans.
 
-Decl intent_is_question(Flag).
-Decl intent_is_hypothetical(Flag).
-Decl intent_is_negated(Flag).
-Decl intent_semantic_type(Type).
-Decl intent_state_category(Category).
+# Decl intent_is_question imported from schemas_intent.mg
+# Decl intent_is_hypothetical imported from schemas_intent.mg
+# Decl intent_is_negated imported from schemas_intent.mg
+# Decl intent_semantic_type imported from schemas_intent.mg
+# Decl intent_state_category imported from schemas_intent.mg
 
 intent_is_question(/true) :-
     detected_interrogative(_, _, _, _).

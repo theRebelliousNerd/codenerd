@@ -2,14 +2,14 @@
 # This module takes raw intent candidates (from regex/LLM) and refines them
 # using contextual logic and safety constraints.
 
-Decl candidate_intent(Verb, RawScore).
-Decl context_token(Token).
+# Decl candidate_intent imported from schema/intent_core.mg
+# Decl context_token imported from schema/intent_core.mg
 
 # Decl system_state(Key, Value).
 
 # Declare Boost and Penalty predicates
-Decl boost(Verb, Amount).
-Decl penalty(Verb, Amount).
+# Decl boost imported from schema/intent_core.mg
+# Decl penalty imported from schema/intent_core.mg
 
 # Output: Refined Score
 Decl refined_score(Verb, Score).
@@ -75,7 +75,7 @@ boost(Verb, 20) :-
 # -----------------------------------------------------------------------------
 
 # Generate potential scores by applying single boosts.
-Decl potential_score(Verb, Score).
+# Decl potential_score imported from schema/intent_core.mg
 
 # 1. Base Score is a potential score
 potential_score(Verb, Score) :- candidate_intent(Verb, Score).

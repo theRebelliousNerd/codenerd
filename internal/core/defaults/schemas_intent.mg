@@ -75,6 +75,28 @@ Decl intent_category(Sentence, Category).
 # =============================================================================
 # SECTION 2.2: INTENT QUALIFIERS (Grammar & Modality)
 # =============================================================================
+
+# =============================================================================
+# TAXONOMY INFERENCE DECLARATIONS (Moved from intent_core.mg)
+# =============================================================================
+# These predicates support the taxonomy inference engine (inference.mg / taxonomy_inference.mg)
+
+Decl candidate_intent(Verb, RawScore).
+Decl context_token(Token).
+Decl user_input_string(Input).
+Decl boost(Verb, Amount).
+Decl penalty(Verb, Amount).
+Decl potential_score(Verb, Score).
+Decl verb_def(Verb, Category, Shard, Priority).
+Decl verb_synonym(Verb, Synonym).
+Decl verb_pattern(Verb, Regex).
+Decl verb_composition(Verb1, Verb2, Relation, Priority).
+
+# Semantic Matching declarations
+Decl semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity).
+Decl semantic_suggested_verb(Verb, MaxSimilarity).
+Decl compound_suggestion(Verb1, Verb2).
+
 # Qualifier taxonomy facts are loaded from schema/intent_qualifiers.mg.
 Decl interrogative_type(Word, SemanticType, DefaultVerb, Priority).
 Decl modal_type(Word, ModalMeaning, Transformation, Priority).
@@ -85,6 +107,21 @@ Decl existence_pattern(Pattern, QueryType, DefaultVerb, Priority).
 Decl comparative_marker(Word, ComparisonType, Priority).
 Decl interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
 Decl modal_verb_signal(ModalMeaning, VerbCategory, ResultingCategory).
+
+# Derived Qualifier Predicates (Moved from policy/taxonomy_qualifiers.mg)
+Decl detected_interrogative(Word, SemanticType, DefaultVerb, Priority).
+Decl detected_modal(Word, ModalMeaning, Transformation, Priority).
+Decl detected_state_adj(Adjective, ImpliedVerb, StateCategory, Priority).
+Decl detected_negation(Word, NegationType, Priority).
+Decl detected_existence(Pattern, DefaultVerb, Priority).
+Decl has_negation(Flag).
+Decl has_polite_modal(Flag).
+Decl has_hypothetical_modal(Flag).
+Decl intent_is_question(Flag).
+Decl intent_is_hypothetical(Flag).
+Decl intent_is_negated(Flag).
+Decl intent_semantic_type(Type).
+Decl intent_state_category(Category).
 
 # =============================================================================
 # SECTION 3: LLM ROUTING SCHEMA (Used by intent_routing.mg facts)

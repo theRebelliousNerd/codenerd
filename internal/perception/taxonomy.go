@@ -46,7 +46,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 
 	// Load Intent Definition Schemas (Modular) - must be loaded in order
 	intentFiles := []string{
-		"schema/intent_core.mg",         // Core Decl statements
+		"schemas_intent.mg",             // Core intent declarations (moved from schema/intent_core.mg)
 		"schema/intent_qualifiers.mg",   // Interrogatives, modals, copular, negation
 		"schema/intent_queries.mg",      // /query category intents
 		"schema/intent_mutations.mg",    // /mutation category intents
@@ -79,6 +79,15 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		if err := eng.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
 			return nil, fmt.Errorf("failed to define fallback learned_exemplar: %w", err)
 		}
+	}
+
+	// Load Qualifier Logic (Must be loaded BEFORE inference logic)
+	qualifierLogic, err := core.GetDefaultContent("policy/taxonomy_qualifiers.mg")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get qualifier logic content: %w", err)
+	}
+	if err := eng.LoadSchemaString(qualifierLogic); err != nil {
+		return nil, fmt.Errorf("failed to load qualifier logic: %w", err)
 	}
 
 	// Load declarations and logic (Must be loaded AFTER learning.mg)
