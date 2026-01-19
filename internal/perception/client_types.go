@@ -35,12 +35,13 @@ type LLMToolResponse = types.LLMToolResponse
 type Provider string
 
 const (
-	ProviderZAI        Provider = "zai"
-	ProviderAnthropic  Provider = "anthropic"
-	ProviderOpenAI     Provider = "openai"
-	ProviderGemini     Provider = "gemini"
-	ProviderXAI        Provider = "xai"
-	ProviderOpenRouter Provider = "openrouter"
+	ProviderZAI         Provider = "zai"
+	ProviderAnthropic   Provider = "anthropic"
+	ProviderOpenAI      Provider = "openai"
+	ProviderGemini      Provider = "gemini"
+	ProviderAntigravity Provider = "antigravity"
+	ProviderXAI         Provider = "xai"
+	ProviderOpenRouter  Provider = "openrouter"
 )
 
 // ZAIConfig holds configuration for ZAI client.

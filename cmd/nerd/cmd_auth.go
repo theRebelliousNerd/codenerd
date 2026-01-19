@@ -49,6 +49,18 @@ This command:
 	RunE: runAuthCodex,
 }
 
+// authAntigravityCmd authenticates with Google Antigravity
+var authAntigravityCmd = &cobra.Command{
+	Use:   "antigravity",
+	Short: "Authenticate with Google Antigravity",
+	Long: `Authenticate with Google Antigravity (Cloud Code) and configure codeNERD.
+
+This command:
+1. Initiates OAuth2 flow for Google Cloud SDK
+2. Updates .nerd/config.json to use 'antigravity' provider`,
+	RunE: runAuthAntigravity,
+}
+
 // authStatusCmd shows authentication status
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
@@ -165,6 +177,37 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runAuthAntigravity authenticates with Google Antigravity
+func runAuthAntigravity(cmd *cobra.Command, args []string) error {
+	fmt.Println("Configuring Google Antigravity provider...")
+
+	// 1. Update config first (provider=antigravity)
+	cfg, err := loadOrCreateConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	cfg.Provider = "antigravity"
+	// Ensure Antigravity config is initialized
+	if cfg.Antigravity == nil {
+		cfg.Antigravity = &config.AntigravityProviderConfig{
+			EnableThinking: true,
+			ThinkingLevel:  "high",
+		}
+	}
+
+	if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Println("\n✓ Configuration updated!")
+	fmt.Println("  Provider: antigravity")
+	fmt.Println("\nAuthentication will be handled automatically via browser on next usage.")
+	fmt.Println("You can run 'nerd status' or 'nerd why' to trigger it now.")
+
+	return nil
+}
+
 // runAuthStatus shows current authentication status
 func runAuthStatus(cmd *cobra.Command, args []string) error {
 	cfg, err := loadOrCreateConfig()
@@ -209,6 +252,9 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Provider: %s\n", provider)
 		if cfg.Model != "" {
 			fmt.Printf("  Model: %s\n", cfg.Model)
+		}
+		if provider == "antigravity" {
+			fmt.Println("  Status: Managed by Google Cloud SDK (OAuth)")
 		}
 	}
 
