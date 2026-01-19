@@ -36,6 +36,73 @@ Before making ANY change, you MUST understand the architecture. This is NOT a ty
    - `spawner.go` - JIT-driven SubAgent spawning
    - `subagent.go` - Context-isolated SubAgents
 
+### 📖 SKILLS REFERENCE DOCUMENTATION
+
+The `.claude/skills/` directory contains comprehensive reference documentation. **Consult these BEFORE making changes** in their respective domains.
+
+#### Mangle Programming (CRITICAL for mangle_rules focus)
+
+**Location:** `C:\CodeProjects\codeNERD\.claude\skills\mangle-programming\`
+
+| Reference | Purpose | When to Use |
+|-----------|---------|-------------|
+| `SKILL.md` | Overview of Mangle in codeNERD | Start here for Mangle work |
+| `references/150-AI_FAILURE_MODES.md` | **Common AI mistakes with Mangle** | Always read before writing rules |
+| `references/200-SYNTAX_REFERENCE.md` | Complete syntax specification | When unsure about syntax |
+| `references/250-BUILTINS_COMPLETE.md` | All built-in functions (`fn:*`) | Before using any function |
+| `references/300-PATTERN_LIBRARY.md` | Reusable Mangle patterns | Find tested patterns first |
+| `references/400-RECURSION_MASTERY.md` | Safe recursion techniques | When writing recursive rules |
+| `references/500-AGGREGATION_TRANSFORMS.md` | `|>` pipeline syntax | For aggregations, grouping |
+| `references/context7-mangle.md` | Mangle from Context7 LLM docs | Extended reference |
+
+**⚠️ MUST READ:** `150-AI_FAILURE_MODES.md` documents the top 30 Mangle errors AI agents make. Prevents hallucinating non-existent functions like `fn:string_contains`.
+
+#### codeNERD Architecture
+
+**Location:** `C:\CodeProjects\codeNERD\.claude\skills\codenerd-builder\`
+
+| Reference | Purpose | When to Use |
+|-----------|---------|-------------|
+| `SKILL.md` | Master builder guide | Start here for any architecture change |
+| `references/architecture.md` | System component overview | Understanding subsystems |
+| `references/jit-execution-model.md` | JIT prompt/config system | Prompt atoms, config factory |
+| `references/mangle-schemas.md` | Schema declarations | Adding new predicates |
+| `references/piggyback-protocol.md` | Dual-channel output | Agent response format |
+| `references/shard-agents.md` | Shard types and lifecycle | SubAgent work |
+| `references/autopoiesis.md` | Self-learning systems | Ouroboros, Thunderdome |
+| `references/semantic-classification.md` | Intent transduction | Perception layer |
+| `references/implementation-guide.md` | Go coding patterns | Go implementation |
+
+#### Prompt Engineering
+
+**Location:** `C:\CodeProjects\codeNERD\.claude\skills\prompt-architect\`
+
+| Reference | Purpose | When to Use |
+|-----------|---------|-------------|
+| `SKILL.md` | Prompt atom design patterns | prompt_atoms focus area |
+| `references/prompt-anatomy.md` | Atom structure | Understanding atom format |
+| `references/shard-prompts.md` | Persona-specific prompts | Identity atoms |
+| `references/specialist-prompts.md` | Specialist agent prompts | Custom agents |
+
+#### Go Development
+
+**Location:** `C:\CodeProjects\codeNERD\.claude\skills\go-architect\`
+
+| Reference | Purpose | When to Use |
+|-----------|---------|-------------|
+| `SKILL.md` | Go patterns for codeNERD | Any Go code changes |
+| `references/` | Context, concurrency, errors | Specific Go patterns |
+
+#### Other Skills (Use When Relevant)
+
+| Skill | Location | Domain |
+|-------|----------|--------|
+| `charm-tui` | `.claude/skills/charm-tui/` | TUI/terminal UI (Bubbletea) |
+| `rod-builder` | `.claude/skills/rod-builder/` | Browser automation |
+| `log-analyzer` | `.claude/skills/log-analyzer/` | Debugging with logs |
+| `integration-auditor` | `.claude/skills/integration-auditor/` | End-to-end wiring checks |
+| `stress-tester` | `.claude/skills/stress-tester/` | Performance testing |
+
 ### Key Concepts to Internalize
 
 | Concept | What It Means | Why It Matters |
