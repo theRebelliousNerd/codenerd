@@ -1627,3 +1627,134 @@ func TestRenderCampaignStatus(t *testing.T) {
 	// May show "no active campaign" or be empty
 	_ = result
 }
+
+// =============================================================================
+// TIP FORMATTING TESTS
+// =============================================================================
+
+func TestFormatTip(t *testing.T) {
+	t.Run("nil_tip", func(t *testing.T) {
+		result := FormatTip(nil)
+		if result != "" {
+			t.Error("FormatTip(nil) should return empty string")
+		}
+	})
+
+	t.Run("tip_without_command", func(t *testing.T) {
+		tip := &ContextualTip{
+			Text: "This is a helpful tip",
+		}
+		result := FormatTip(tip)
+		if !strings.Contains(result, "Tip") {
+			t.Error("Result should contain 'Tip'")
+		}
+		if !strings.Contains(result, "helpful tip") {
+			t.Error("Result should contain tip text")
+		}
+	})
+
+	t.Run("tip_with_command", func(t *testing.T) {
+		tip := &ContextualTip{
+			Text:    "Try this command",
+			Command: "/help",
+		}
+		result := FormatTip(tip)
+		if !strings.Contains(result, "/help") {
+			t.Error("Result should contain the command")
+		}
+		if !strings.Contains(result, "Try:") {
+			t.Error("Result should have 'Try:' label")
+		}
+	})
+}
+
+func TestGetRandomGenericTip(t *testing.T) {
+	levels := []config.ExperienceLevel{
+		config.ExperienceBeginner,
+		config.ExperienceIntermediate,
+		config.ExperienceAdvanced,
+		config.ExperienceExpert,
+	}
+
+	for _, level := range levels {
+		t.Run(string(level), func(t *testing.T) {
+			tip := GetRandomGenericTip(level)
+			if tip == "" {
+				t.Errorf("GetRandomGenericTip(%s) returned empty", level)
+			}
+			if !strings.Contains(tip, "Tip") {
+				t.Errorf("Tip should contain 'Tip': %s", tip)
+			}
+		})
+	}
+}
+
+func TestTipGenerator_GenerateTip(t *testing.T) {
+	tmpDir := t.TempDir()
+	generator := NewTipGenerator(tmpDir)
+
+	// Test tip generation with empty context
+	ctx := TipContext{}
+	tip := generator.GenerateTip(ctx)
+	// May be nil if no tips apply
+	_ = tip
+}
+
+// =============================================================================
+// RENDER GLASS BOX MESSAGE TESTS
+// =============================================================================
+
+func TestRenderGlassBoxMessage(t *testing.T) {
+	m := NewTestModel(WithSize(100, 50))
+	m.glassBoxEnabled = true
+
+	msg := Message{
+		Role:    "system",
+		Content: "Test system message",
+		Time:    time.Now(),
+	}
+
+	result := m.renderGlassBoxMessage(msg)
+	// May be empty if no glass box events
+	_ = result
+}
+
+// =============================================================================
+// NORTHSTAR WIZARD TESTS
+// =============================================================================
+
+func TestNewNorthstarWizard(t *testing.T) {
+	state := NewNorthstarWizard()
+	if state == nil {
+		t.Fatal("NewNorthstarWizard returned nil")
+	}
+}
+
+// =============================================================================
+// AGENT WIZARD STATE TESTS
+// =============================================================================
+
+func TestAgentWizardState(t *testing.T) {
+	// Test initial state
+	state := &AgentWizardState{}
+	if state.Step != 0 {
+		t.Error("Initial step should be 0 (Name)")
+	}
+	if state.Name != "" {
+		t.Error("Initial Name should be empty")
+	}
+}
+
+// =============================================================================
+// ONBOARDING WIZARD STATE TESTS
+// =============================================================================
+
+func TestOnboardingWizardState(t *testing.T) {
+	// Test initial state
+	state := &OnboardingWizardState{
+		Step: OnboardingStepWelcome,
+	}
+	if state.Step != OnboardingStepWelcome {
+		t.Error("Initial step should be OnboardingStepWelcome")
+	}
+}
