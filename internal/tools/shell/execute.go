@@ -14,6 +14,12 @@ import (
 	"codenerd/internal/tools"
 )
 
+// Variables for mocking in tests
+var (
+	execCommandContext = exec.CommandContext
+	execLookPath       = exec.LookPath
+)
+
 // RunCommandTool returns a tool for executing shell commands.
 func RunCommandTool() *tools.Tool {
 	return &tools.Tool{
@@ -68,21 +74,21 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	// Create command based on OS
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd", "/C", command)
+		cmd = execCommandContext(ctx, "cmd", "/C", command)
 	} else {
-		cmd = exec.CommandContext(ctx, "sh", "-c", command)
+		cmd = execCommandContext(ctx, "sh", "-c", command)
 	}
 
 	if workingDir != "" {
 		cmd.Dir = workingDir
 	}
 
-	// Set environment
-	cmd.Env = os.Environ()
+	// Prepare environment
+	finalEnv := os.Environ()
 	if envMap, ok := args["env"].(map[string]any); ok {
 		for k, v := range envMap {
 			if vs, ok := v.(string); ok {
-				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, vs))
+				finalEnv = append(finalEnv, fmt.Sprintf("%s=%s", k, vs))
 			}
 		}
 	}
@@ -90,9 +96,9 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	// Create timeout context
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
-	cmd = exec.CommandContext(execCtx, cmd.Path, cmd.Args[1:]...)
+	cmd = execCommandContext(execCtx, cmd.Path, cmd.Args[1:]...)
 	cmd.Dir = workingDir
-	cmd.Env = os.Environ()
+	cmd.Env = finalEnv
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -166,7 +172,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		// Try Git Bash first
 		bashPath := findBashWindows()
 		if bashPath != "" {
-			cmd = exec.CommandContext(ctx, bashPath, "-c", script)
+			cmd = execCommandContext(ctx, bashPath, "-c", script)
 		} else {
 			// Fall back to cmd with basic interpretation
 			return executeRunCommand(ctx, map[string]any{
@@ -176,7 +182,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			})
 		}
 	} else {
-		cmd = exec.CommandContext(ctx, "bash", "-c", script)
+		cmd = execCommandContext(ctx, "bash", "-c", script)
 	}
 
 	if wd, ok := args["working_dir"].(string); ok && wd != "" {
@@ -238,7 +244,7 @@ func findBashWindows() string {
 	}
 
 	// Try to find in PATH
-	if path, err := exec.LookPath("bash"); err == nil {
+	if path, err := execLookPath("bash"); err == nil {
 		return path
 	}
 
