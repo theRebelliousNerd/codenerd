@@ -45,6 +45,7 @@ Docs/*
 !Docs/guides/**
 !.claude/skills/**/*.md
 !.codex/skills/**/SKILL.md
+!.agent/**/*.md
 !internal/prompt/atoms/**/*.md
 !conductor/**/*.md
 
