@@ -2,6 +2,7 @@ package research
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -315,6 +316,62 @@ func TestExecuteCacheGet_MissingKey(t *testing.T) {
 	_, err := executeCacheGet(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing key")
+	}
+}
+
+// =============================================================================
+// CACHE INTEGRATION TESTS
+// =============================================================================
+
+func TestCacheTools_Integration(t *testing.T) {
+	// 1. Set
+	setRes, err := executeCacheSet(context.Background(), map[string]any{
+		"key":    "integration_key",
+		"value":  "integration_val",
+		"source": "test",
+	})
+	if err != nil {
+		t.Fatalf("executeCacheSet failed: %v", err)
+	}
+	if !strings.Contains(setRes, "Cached") {
+		t.Errorf("unexpected set result: %s", setRes)
+	}
+
+	// 2. Get
+	getRes, err := executeCacheGet(context.Background(), map[string]any{
+		"key": "integration_key",
+	})
+	if err != nil {
+		t.Fatalf("executeCacheGet failed: %v", err)
+	}
+	if getRes != "integration_val" {
+		t.Errorf("expected 'integration_val', got '%s'", getRes)
+	}
+
+	// 3. Stats
+	statsRes, err := executeCacheStats(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatalf("executeCacheStats failed: %v", err)
+	}
+	if !strings.Contains(statsRes, "Cache Statistics") {
+		t.Errorf("unexpected stats result: %s", statsRes)
+	}
+
+	// 4. Clear
+	clearRes, err := executeCacheClear(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatalf("executeCacheClear failed: %v", err)
+	}
+	if !strings.Contains(clearRes, "Cleared") {
+		t.Errorf("unexpected clear result: %s", clearRes)
+	}
+
+	// 5. Verify Clear
+	_, err = executeCacheGet(context.Background(), map[string]any{
+		"key": "integration_key",
+	})
+	if err == nil {
+		t.Error("expected error after clearing cache")
 	}
 }
 
