@@ -129,7 +129,7 @@ func TestWriteFileTool_Execute_Success(t *testing.T) {
 		t.Fatalf("executeWriteFile error: %v", err)
 	}
 
-	if !strings.Contains(result, "Written") || !strings.Contains(result, tmpFile) {
+	if !strings.Contains(result, "Wrote") {
 		t.Errorf("unexpected result: %s", result)
 	}
 

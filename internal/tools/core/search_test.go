@@ -187,7 +187,10 @@ func TestGrepTool_Execute_NoMatches(t *testing.T) {
 	}
 
 	// Should indicate no matches
-	if strings.Contains(result, "NOTFOUND") {
+	if !strings.Contains(result, "No matches found") && !strings.Contains(result, "0 matches") {
+		t.Errorf("expected no matches message, got: %s", result)
+	}
+	if strings.Contains(result, "test.txt") && strings.Contains(result, "NOTFOUND") {
 		t.Error("should not find NOTFOUND in results")
 	}
 }

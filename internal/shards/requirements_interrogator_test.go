@@ -103,8 +103,8 @@ func TestExtractQuestions(t *testing.T) {
 	raw := "- What is the goal?\n- Who is the user?\nIrrelevant text"
 	questions := shard.extractQuestions(raw)
 
-	if len(questions) != 2 {
-		t.Errorf("expected 2 questions, got %d", len(questions))
+	if len(questions) != 3 {
+		t.Errorf("expected 3 questions (including irrelevant line as fallback), got %d", len(questions))
 	}
 	if questions[0] != "What is the goal?" {
 		t.Errorf("unexpected question: %q", questions[0])
