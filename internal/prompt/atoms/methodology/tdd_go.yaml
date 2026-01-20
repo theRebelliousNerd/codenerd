@@ -1,0 +1,55 @@
+# Go-Specific TDD Workflow
+# Concrete implementation of TDD methodology for Go projects
+
+- id: "methodology/tdd/go_workflow"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/test", "/fix", "/implement"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## GO TDD WORKFLOW
+
+    Translate the abstract TDD cycle into concrete Go commands.
+
+    ### 1. RED (Write Failing Test)
+    Create a new test file `*_test.go` or add a `t.Run()` case to an existing table-driven test.
+
+    ```bash
+    # Run specific test to confirm failure and ensure it fails for the right reason
+    go test -v -run TestName/CaseName
+    ```
+
+    *Goal:* `FAIL` with a clear, diagnostic error message (e.g., "want 5, got 0").
+
+    ### 2. GREEN (Make It Pass)
+    Implement the minimal code required to satisfy the test. Do not worry about elegance yet.
+
+    ```bash
+    # Run the specific test again
+    go test -v -run TestName/CaseName
+    ```
+
+    *Goal:* `PASS`
+
+    ### 3. REFACTOR (Clean Up)
+    Improve code quality, naming, and structure without changing behavior.
+
+    ```bash
+    # Verify no regressions in the package
+    go test -v .
+
+    # Verify no regressions in the project
+    go test ./...
+
+    # Check for static errors
+    go vet ./...
+    ```
+
+    ### Critical Go Testing Flags
+    - `-race`: **ALWAYS** use when concurrency is involved.
+    - `-count=1`: Disable test caching (force fresh run).
+    - `-short`: Skip long-running tests (if `testing.Short()` is checked).
+    - `-shuffle=on`: Randomize test order to catch hidden dependencies.
