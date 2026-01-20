@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
 )
 
@@ -25,7 +24,7 @@ type ToolGenerator struct {
 	existingTools map[string]ToolSchema
 
 	// JIT prompt compilation support
-	promptAssembler *articulation.PromptAssembler
+	promptAssembler PromptAssembler
 	jitEnabled      bool
 
 	// Learnings injection - aggregated patterns from past tool generation
@@ -52,7 +51,7 @@ func (tg *ToolGenerator) SetLearningsContext(ctx string) {
 }
 
 // SetPromptAssembler attaches a JIT-aware prompt assembler to the tool generator
-func (tg *ToolGenerator) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+func (tg *ToolGenerator) SetPromptAssembler(assembler PromptAssembler) {
 	tg.promptAssembler = assembler
 	tg.jitEnabled = assembler != nil && assembler.JITReady()
 	if tg.jitEnabled {

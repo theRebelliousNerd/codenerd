@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
 )
 
@@ -76,7 +75,7 @@ type UserFeedback struct {
 type ToolRefiner struct {
 	client          LLMClient
 	toolGen         *ToolGenerator
-	promptAssembler *articulation.PromptAssembler
+	promptAssembler PromptAssembler
 	jitEnabled      bool
 }
 
@@ -189,9 +188,12 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 	}
 
 	// Build prompt context for refinement stage
-	pc := &articulation.PromptContext{
-		ShardID:   "tool_refiner_" + req.ToolName,
-		ShardType: "tool_generator",
+	pc := map[string]interface{}{
+		"shard_id":        "tool_refiner_" + req.ToolName,
+		"shard_type":      "tool_generator",
+		"stage":           "/refinement",
+		"ouroboros_stage": "/refinement",
+		"tool_name":       req.ToolName,
 	}
 
 	// Assemble system prompt using JIT compiler
@@ -257,7 +259,7 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 }
 
 // SetPromptAssembler attaches a JIT-aware prompt assembler to the tool refiner
-func (tr *ToolRefiner) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+func (tr *ToolRefiner) SetPromptAssembler(assembler PromptAssembler) {
 	tr.promptAssembler = assembler
 	tr.jitEnabled = assembler != nil && assembler.JITReady()
 	if tr.jitEnabled {
