@@ -6,22 +6,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/logging"
 )
 
 // GeneratedTool contains the generated tool code and metadata
 type GeneratedTool struct {
-	Name         string            // Tool name (e.g., "json_validator")
-	Package      string            // Go package name
-	Description  string            // Human-readable description
-	Code         string            // Generated Go code
-	TestCode     string            // Generated test code
-	Schema       ToolSchema        // JSON schema for inputs
-	Dependencies []string          // Required imports
-	FilePath     string            // Where to write the tool
-	Validated    bool              // Whether code has been validated
-	Errors       []string          // Any validation errors
+	Name         string     // Tool name (e.g., "json_validator")
+	Package      string     // Go package name
+	Description  string     // Human-readable description
+	Code         string     // Generated Go code
+	TestCode     string     // Generated test code
+	Schema       ToolSchema // JSON schema for inputs
+	Dependencies []string   // Required imports
+	FilePath     string     // Where to write the tool
+	Validated    bool       // Whether code has been validated
+	Errors       []string   // Any validation errors
 }
 
 // ToolSchema defines the input/output schema for a tool
@@ -256,9 +255,13 @@ func (tg *ToolGenerator) regenerateToolCodeWithJIT(
 	logging.AutopoiesisDebug("Regenerating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros refinement stage
-	pc := &articulation.PromptContext{
-		ShardID:   "tool_generator_" + need.Name + "_refinement",
-		ShardType: "tool_generator",
+	pc := map[string]interface{}{
+		"shard_id":        "tool_generator_" + need.Name + "_refinement",
+		"shard_type":      "tool_generator",
+		"stage":           stage,
+		"ouroboros_stage": stage,
+		"tool_name":       need.Name,
+		"tool_purpose":    need.Purpose,
 	}
 
 	// Assemble system prompt using JIT compiler
@@ -369,9 +372,15 @@ func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *Tool
 	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros stage
-	pc := &articulation.PromptContext{
-		ShardID:   "tool_generator_" + need.Name,
-		ShardType: "tool_generator",
+	pc := map[string]interface{}{
+		"shard_id":        "tool_generator_" + need.Name,
+		"shard_type":      "tool_generator",
+		"stage":           stage,
+		"ouroboros_stage": stage,
+		"tool_name":       need.Name,
+		"tool_purpose":    need.Purpose,
+		"input_type":      need.InputType,
+		"output_type":     need.OutputType,
 	}
 
 	// Assemble system prompt using JIT compiler

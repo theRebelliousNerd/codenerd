@@ -321,12 +321,30 @@ func shouldForceMangleLanguage(shardType string) bool {
 // 2. Shard-specific template (from kernel or fallback)
 // 3. Kernel-derived context atoms
 // 4. Session context
-func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, pc *PromptContext) (string, error) {
+func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input interface{}) (string, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "AssembleSystemPrompt")
 	defer timer.Stop()
 
-	if pc == nil {
+	if input == nil {
 		return "", fmt.Errorf("prompt context is required")
+	}
+
+	var pc *PromptContext
+	switch v := input.(type) {
+	case *PromptContext:
+		pc = v
+	case map[string]interface{}:
+		var err error
+		pc, err = pa.mapToPromptContext(v)
+		if err != nil {
+			return "", fmt.Errorf("failed to map context: %w", err)
+		}
+	default:
+		return "", fmt.Errorf("unsupported prompt context type: %T", input)
+	}
+
+	if pc == nil {
+		return "", fmt.Errorf("prompt context is nil after mapping")
 	}
 
 	logging.Articulation("Assembling system prompt for shard=%s (type=%s)", pc.ShardID, pc.ShardType)
@@ -1024,6 +1042,75 @@ func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shard
 // JITReady returns true if JIT compilation is available and enabled.
 func (a *PromptAssemblerAdapter) JITReady() bool {
 	return a.assembler.JITReady()
+}
+
+// mapToPromptContext converts a generic map to a PromptContext.
+// This supports the interface-based dependency injection used by autopoiesis.
+func (pa *PromptAssembler) mapToPromptContext(m map[string]interface{}) (*PromptContext, error) {
+	pc := &PromptContext{}
+
+	if v, ok := m["shard_id"].(string); ok {
+		pc.ShardID = v
+	}
+	if v, ok := m["shard_type"].(string); ok {
+		pc.ShardType = v
+	}
+	if v, ok := m["campaign_id"].(string); ok {
+		pc.CampaignID = v
+	}
+	if v, ok := m["semantic_query"].(string); ok {
+		pc.SemanticQuery = v
+	}
+	if v, ok := m["semantic_top_k"].(int); ok {
+		pc.SemanticTopK = v
+	}
+
+	// Handle complex types if passed
+	if v, ok := m["session_ctx"].(*types.SessionContext); ok {
+		pc.SessionCtx = v
+	}
+	if v, ok := m["user_intent"].(*types.StructuredIntent); ok {
+		pc.UserIntent = v
+	}
+
+	// For Ouroboros integration, we might receive extra fields that need to go into SessionContext.ExtraContext
+	// Since we can't modify SessionContext if it's nil, we create a partial one if needed.
+	extraContext := make(map[string]string)
+
+	// Map known Ouroboros fields to ExtraContext tags
+	keysToCheck := []string{"ouroboros_stage", "stage", "tool_name", "tool_purpose", "input_type", "output_type"}
+	for _, key := range keysToCheck {
+		if v, ok := m[key].(string); ok && v != "" {
+			extraContext[key] = v
+			// For "stage", map to "ouroboros_stage" as well if missing
+			if key == "stage" {
+				extraContext["ouroboros_stage"] = v
+			}
+		}
+	}
+
+	if len(extraContext) > 0 {
+		if pc.SessionCtx == nil {
+			pc.SessionCtx = &types.SessionContext{
+				ExtraContext: extraContext,
+			}
+		} else {
+			// Merge into existing ExtraContext
+			if pc.SessionCtx.ExtraContext == nil {
+				pc.SessionCtx.ExtraContext = extraContext
+			} else {
+				for k, v := range extraContext {
+					pc.SessionCtx.ExtraContext[k] = v
+				}
+			}
+		}
+	}
+
+	if pc.ShardID == "" || pc.ShardType == "" {
+		return nil, fmt.Errorf("missing required fields shard_id or shard_type")
+	}
+
+	return pc, nil
 }
 
 // =============================================================================

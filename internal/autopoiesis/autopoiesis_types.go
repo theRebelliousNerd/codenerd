@@ -6,6 +6,7 @@
 package autopoiesis
 
 import (
+	"context"
 	"time"
 
 	"codenerd/internal/types"
@@ -25,23 +26,40 @@ type KernelFact = types.KernelFact
 type KernelInterface = types.KernelInterface
 
 // =============================================================================
+// JIT INTERFACES - Avoid Import Cycles
+// =============================================================================
+
+// PromptAssembler is an interface for JIT prompt compilation.
+// Implemented by articulation.PromptAssembler to avoid import cycles.
+type PromptAssembler interface {
+	AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error)
+	JITReady() bool
+}
+
+// JITCompiler is an interface for the JIT prompt compiler.
+// Implemented by prompt.JITPromptCompiler to avoid import cycles.
+type JITCompiler interface {
+	Compile(ctx context.Context, cc interface{}) (interface{}, error)
+}
+
+// =============================================================================
 // CORE TYPES
 // =============================================================================
 
 // Config holds configuration for the autopoiesis system
 type Config struct {
-	ToolsDir         string  // Directory for generated tools
-	AgentsDir        string  // Directory for agent definitions
-	MinConfidence    float64 // Minimum confidence to trigger autopoiesis
-	MinToolConfidence float64 // Minimum confidence to trigger tool generation
-	EnableToolGeneration bool  // Master switch for Ouroboros tool generation
-	MaxToolsPerSession   int   // Hard cap on tools per session (0 = unlimited)
+	ToolsDir               string        // Directory for generated tools
+	AgentsDir              string        // Directory for agent definitions
+	MinConfidence          float64       // Minimum confidence to trigger autopoiesis
+	MinToolConfidence      float64       // Minimum confidence to trigger tool generation
+	EnableToolGeneration   bool          // Master switch for Ouroboros tool generation
+	MaxToolsPerSession     int           // Hard cap on tools per session (0 = unlimited)
 	ToolGenerationCooldown time.Duration // Cooldown between tool generations (0 = none)
-	EnableLLM        bool    // Whether to use LLM for analysis
-	TargetOS         string  // Target GOOS for tool compilation
-	TargetArch       string  // Target GOARCH for tool compilation
-	WorkspaceRoot    string  // Absolute workspace root for module replacement
-	MaxLearningFacts int     // Maximum number of learning event facts to keep
+	EnableLLM              bool          // Whether to use LLM for analysis
+	TargetOS               string        // Target GOOS for tool compilation
+	TargetArch             string        // Target GOARCH for tool compilation
+	WorkspaceRoot          string        // Absolute workspace root for module replacement
+	MaxLearningFacts       int           // Maximum number of learning event facts to keep
 }
 
 // AnalysisResult contains the complete autopoiesis analysis

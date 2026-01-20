@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/articulation"
 	internalconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 )
@@ -43,8 +42,9 @@ type Orchestrator struct {
 	traces      *TraceCollector // Capture reasoning during generation
 	logInjector *LogInjector    // Inject mandatory logging into tools
 
-	// JIT Prompt Compilation (Phase 5) - using concrete types now that cycle is broken
-	promptAssembler *articulation.PromptAssembler // JIT-aware prompt assembler
+	// JIT Prompt Compilation (Phase 5) - using interfaces to avoid import cycles
+	promptAssembler PromptAssembler // JIT-aware prompt assembler
+	jitCompiler     JITCompiler     // JIT prompt compiler
 
 	// Tool generation throttling (session-local)
 	toolsGenerated int
@@ -160,19 +160,19 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 	return orch
 }
 
-// SetPromptAssembler attaches the JIT-aware prompt assembler.
+// SetJITComponents attaches the JIT components using interfaces.
 // This enables context-aware prompt generation for tool generation stages.
-// Uses concrete type now that the import cycle is broken via internal/types.
-func (o *Orchestrator) SetPromptAssembler(assembler *articulation.PromptAssembler) {
+func (o *Orchestrator) SetJITComponents(jitCompiler JITCompiler, assembler PromptAssembler) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	o.jitCompiler = jitCompiler
 	o.promptAssembler = assembler
 
 	// Wire the assembler to ToolGenerator and ToolRefiner
 	if assembler != nil {
 		o.toolGen.SetPromptAssembler(assembler)
 		o.refiner.SetPromptAssembler(assembler)
-		logging.Autopoiesis("JIT prompt assembler attached to autopoiesis orchestrator and sub-components")
+		logging.Autopoiesis("JIT prompt compiler attached to autopoiesis orchestrator")
 	}
 }
 
