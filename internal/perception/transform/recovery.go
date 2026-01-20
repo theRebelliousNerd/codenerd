@@ -1,6 +1,6 @@
-package transform
-
-// Thinking Recovery Module
+// recovery.go - Thinking recovery for Antigravity multi-turn conversations
+//
+// SCOPE: Antigravity models only (Gemini 3 and Claude)
 //
 // Minimal implementation for recovering from corrupted thinking state.
 // When Claude's conversation history gets corrupted (thinking blocks stripped/malformed),
@@ -8,6 +8,14 @@ package transform
 //
 // Philosophy: "Let it crash and start again" - Instead of trying to fix corrupted state,
 // we abandon the corrupted turn and let Claude generate fresh thinking.
+//
+// Use cases:
+//   - Tool loop without thinking (thinking was stripped during context compaction)
+//   - Model switch mid-turn (thinking signatures become invalid)
+//
+// NOT IN SCOPE: Gemini 2.5 (uses Gemini CLI endpoint, not Antigravity)
+
+package transform
 
 // ConversationState holds analyzed conversation state for thinking mode
 type ConversationState struct {

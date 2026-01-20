@@ -1,23 +1,29 @@
+// thinking.go - Antigravity thinking configuration builders
+//
+// SCOPE: Antigravity models only
+//   - Gemini 3: uses camelCase keys with thinkingLevel string ("low", "medium", "high")
+//   - Claude: uses snake_case keys with thinking_budget numeric value
+//
+// NOT IN SCOPE: Gemini 2.5 (uses Gemini CLI, not Antigravity)
+
 package transform
 
 // ThinkingConfig represents the thinking configuration for API requests.
-// Different models use different field names and formats.
+// Different Antigravity models use different field names and formats.
 type ThinkingConfig struct {
 	// Gemini 3 format (camelCase)
 	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
-	ThinkingLevel   string `json:"thinkingLevel,omitempty"`  // Gemini 3: "low", "medium", "high"
-	ThinkingBudget  int    `json:"thinkingBudget,omitempty"` // Gemini 2.5: numeric budget
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"` // Gemini 3: "low", "medium", "high"
 
 	// Claude format (snake_case) - used when sending to Claude models
 	IncludeThoughtsClaude bool `json:"include_thoughts,omitempty"`
 	ThinkingBudgetClaude  int  `json:"thinking_budget,omitempty"`
 }
 
-// GeminiThinkingConfig is the Gemini-specific thinking config format
+// GeminiThinkingConfig is the Gemini 3-specific thinking config format
 type GeminiThinkingConfig struct {
 	IncludeThoughts bool   `json:"includeThoughts"`
-	ThinkingLevel   string `json:"thinkingLevel,omitempty"`  // Gemini 3 only
-	ThinkingBudget  int    `json:"thinkingBudget,omitempty"` // Gemini 2.5 only
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"` // "low", "medium", "high"
 }
 
 // ClaudeThinkingConfig is the Claude-specific thinking config format (snake_case)
@@ -26,7 +32,11 @@ type ClaudeThinkingConfig struct {
 	ThinkingBudget  int  `json:"thinking_budget,omitempty"`
 }
 
-// BuildThinkingConfigForModel builds the appropriate thinking config for a model
+// BuildThinkingConfigForModel builds the appropriate thinking config for an Antigravity model.
+//
+// Returns:
+//   - For Gemini 3: map with camelCase keys (includeThoughts, thinkingLevel)
+//   - For Claude: map with snake_case keys (include_thoughts, thinking_budget)
 func BuildThinkingConfigForModel(model string, includeThoughts bool, tier ThinkingTier, budget int) interface{} {
 	if IsClaudeThinkingModel(model) {
 		return buildClaudeThinkingConfig(includeThoughts, tier, budget)
@@ -34,11 +44,8 @@ func BuildThinkingConfigForModel(model string, includeThoughts bool, tier Thinki
 	if IsGemini3Model(model) {
 		return buildGemini3ThinkingConfig(includeThoughts, tier)
 	}
-	if IsGemini25Model(model) {
-		return buildGemini25ThinkingConfig(includeThoughts, budget)
-	}
-	// Default to Gemini format
-	return buildGemini25ThinkingConfig(includeThoughts, budget)
+	// Default to Gemini 3 format for unknown Antigravity models
+	return buildGemini3ThinkingConfig(includeThoughts, tier)
 }
 
 // buildClaudeThinkingConfig builds Claude-specific thinking config with snake_case keys
@@ -81,19 +88,6 @@ func buildGemini3ThinkingConfig(includeThoughts bool, tier ThinkingTier) map[str
 	return config
 }
 
-// buildGemini25ThinkingConfig builds Gemini 2.5-specific thinking config with numeric budget
-func buildGemini25ThinkingConfig(includeThoughts bool, budget int) map[string]interface{} {
-	config := map[string]interface{}{
-		"includeThoughts": includeThoughts,
-	}
-
-	if budget > 0 {
-		config["thinkingBudget"] = budget
-	}
-
-	return config
-}
-
 // GenerationConfig represents the generation configuration with thinking support
 type GenerationConfig struct {
 	Temperature     float64     `json:"temperature,omitempty"`
@@ -102,6 +96,7 @@ type GenerationConfig struct {
 }
 
 // BuildGenerationConfigForModel builds generation config with appropriate thinking config
+// for Antigravity models (Gemini 3 and Claude).
 func BuildGenerationConfigForModel(model string, temperature float64, maxTokens int, enableThinking bool, tier ThinkingTier, budget int) *GenerationConfig {
 	config := &GenerationConfig{
 		Temperature:     temperature,

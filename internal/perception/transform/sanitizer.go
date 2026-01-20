@@ -1,11 +1,19 @@
-package transform
-
-// Cross-Model Metadata Sanitization
+// sanitizer.go - Cross-model signature sanitization for Antigravity
+//
+// SCOPE: Antigravity models only (Gemini 3 and Claude)
 //
 // Fixes: "Invalid `signature` in `thinking` block" error when switching models mid-session.
 //
 // Root cause: Gemini stores thoughtSignature in metadata.google, Claude stores signature
 // in top-level thinking blocks. Foreign signatures fail validation on the target model.
+//
+// Use cases:
+//   - Switching from Gemini 3 to Claude in the same conversation
+//   - Switching from Claude to Gemini 3 in the same conversation
+//
+// NOT IN SCOPE: Gemini 2.5 (uses Gemini CLI endpoint, not Antigravity)
+
+package transform
 
 // MinSignatureLength is the minimum length for a valid thinking signature
 const MinSignatureLength = 50
