@@ -74,14 +74,16 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 
 	// Initialize sub-components
 	o.contextPager = NewContextPager(cfg.Kernel, cfg.LLMClient, cfg.ContextBudget)
-	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.ShardManager, cfg.Workspace)
+	o.checkpoint = NewCheckpointRunner(cfg.Executor, cfg.TaskExecutor, cfg.Workspace)
 	o.replanner = NewReplanner(cfg.Kernel, cfg.LLMClient)
 	o.decomposer = NewDecomposer(cfg.Kernel, cfg.LLMClient, cfg.Workspace)
-	o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
+	if cfg.ShardManager != nil {
+		o.decomposer.SetShardLister(cfg.ShardManager) // Enable shard-aware planning
+	}
 	if cfg.Transducer != nil {
 		o.transducer = cfg.Transducer
 	} else {
-		o.transducer = perception.NewRealTransducer(cfg.LLMClient)
+		o.transducer = perception.NewUnderstandingTransducer(cfg.LLMClient)
 	}
 
 	// Wire intelligence integration components

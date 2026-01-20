@@ -31,41 +31,23 @@ import (
 // =============================================================================
 
 // spawnTask is the unified entry point for task execution in the chat model.
-// It uses TaskExecutor when available, falling back to ShardManager.
-//
-// Migration helper: replaces direct m.shardMgr.Spawn() calls.
+// It uses TaskExecutor for all task execution.
 func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
-	// Prefer TaskExecutor when available
-	if m.taskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(shardType)
-		return m.taskExecutor.Execute(ctx, intent, task)
+	if m.taskExecutor == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Fall back to ShardManager
-	if m.shardMgr != nil {
-		return m.shardMgr.Spawn(ctx, shardType, task)
-	}
-
-	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
+	intent := session.LegacyShardNameToIntent(shardType)
+	return m.taskExecutor.Execute(ctx, intent, task)
 }
 
 // spawnTaskWithContext spawns a task with additional session context and priority.
 // This is used for dream mode, shadow mode, and other speculative execution scenarios.
-//
-// Migration helper: replaces m.shardMgr.SpawnWithPriority() calls.
 func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	// Prefer TaskExecutor when available
-	if m.taskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(shardType)
-		return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	if m.taskExecutor == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Currently falls back to ShardManager.SpawnWithPriority
-	if m.shardMgr != nil {
-		return m.shardMgr.SpawnWithPriority(ctx, shardType, task, sessionCtx, priority)
-	}
-
-	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
+	intent := session.LegacyShardNameToIntent(shardType)
+	return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
 }
 
 // =============================================================================
@@ -353,13 +335,13 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 
 	// Create execution record
 	exec := &prompt_evolution.ExecutionRecord{
-		TaskID:    fmt.Sprintf("shard-%d", time.Now().UnixNano()),
-		SessionID: m.sessionID,
-		Timestamp: time.Now(),
-		ShardID:   fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano()),
-		ShardType: shardType,
+		TaskID:      fmt.Sprintf("shard-%d", time.Now().UnixNano()),
+		SessionID:   m.sessionID,
+		Timestamp:   time.Now(),
+		ShardID:     fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano()),
+		ShardType:   shardType,
 		TaskRequest: task,
-		Duration:  duration,
+		Duration:    duration,
 		ExecutionResult: prompt_evolution.ExecutionResult{
 			Success: err == nil,
 			Output:  result,

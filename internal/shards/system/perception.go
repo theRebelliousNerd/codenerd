@@ -51,11 +51,11 @@ type PerceptionConfig struct {
 // DefaultPerceptionConfig returns sensible defaults.
 func DefaultPerceptionConfig() PerceptionConfig {
 	return PerceptionConfig{
-		ConfidenceThreshold: 0.85,
-		AmbiguityThreshold:  0.7,
-		TickInterval:        50 * time.Millisecond,
-		MaxQueueSize:        100,
-		UseFallbackParsing:  true,
+		ConfidenceThreshold:          0.85,
+		AmbiguityThreshold:           0.7,
+		TickInterval:                 50 * time.Millisecond,
+		MaxQueueSize:                 100,
+		UseFallbackParsing:           true,
 		LearningCandidateThreshold:   3,
 		LearningCandidateAutoPromote: false,
 	}
@@ -93,7 +93,7 @@ type PerceptionFirewallShard struct {
 	promptAssembler *articulation.PromptAssembler
 
 	// Canonical Perception transducer (NL -> Piggyback -> intent)
-	transducer *perception.RealTransducer
+	transducer perception.Transducer
 
 	// Optional learning candidate store (SQLite-backed)
 	candidateStore LearningCandidateStore
@@ -203,7 +203,7 @@ func (g guardedPerceptionClient) CompleteWithTools(ctx context.Context, systemPr
 	}, nil
 }
 
-func (p *PerceptionFirewallShard) ensureTransducer() *perception.RealTransducer {
+func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -211,7 +211,7 @@ func (p *PerceptionFirewallShard) ensureTransducer() *perception.RealTransducer 
 		return p.transducer
 	}
 
-	t := perception.NewRealTransducer(guardedPerceptionClient{base: p.BaseSystemShard})
+	t := perception.NewUnderstandingTransducer(guardedPerceptionClient{base: p.BaseSystemShard})
 	if p.promptAssembler != nil {
 		t.SetPromptAssembler(p.promptAssembler)
 	}
@@ -840,4 +840,4 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 // NOTE: Legacy perceptionSystemPrompt and perceptionUserPrompt constants have been DELETED.
 // Perception system prompts are now JIT-compiled from:
 //   internal/prompt/atoms/system/perception.yaml
-// The RealTransducer handles prompt assembly via its PromptAssembler.
+// The UnderstandingTransducer handles prompt assembly via its PromptAssembler.

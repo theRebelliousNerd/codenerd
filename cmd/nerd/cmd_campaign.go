@@ -321,7 +321,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
 	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
-	transducer := perception.NewRealTransducer(llmClient)
+	transducer := perception.NewUnderstandingTransducer(llmClient)
 	configFactory := prompt.NewDefaultConfigFactory()
 	campaignKernelAdapter := &campaignKernelAdapter{kernel: kern}
 	campaignVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}
@@ -690,7 +690,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	eventChan := make(chan campaign.OrchestratorEvent, 100)
 
 	// Create JITExecutor for campaign task execution (replaces deleted domain shards)
-	transducer := perception.NewRealTransducer(llmClient)
+	transducer := perception.NewUnderstandingTransducer(llmClient)
 	configFactory := prompt.NewDefaultConfigFactory()
 	resumeKernelAdapter := &campaignKernelAdapter{kernel: kern}
 	resumeVSAdapter := &campaignVirtualStoreAdapter{vs: virtualStore}

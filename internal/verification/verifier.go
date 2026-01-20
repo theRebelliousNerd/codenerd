@@ -82,8 +82,8 @@ type TaskVerifier struct {
 	mu           sync.RWMutex
 	client       perception.LLMClient
 	localDB      *store.LocalStore
-	shardMgr     *coreshards.ShardManager  // DEPRECATED: Use taskExecutor instead
-	taskExecutor session.TaskExecutor       // New: unified task execution interface
+	shardMgr     *coreshards.ShardManager // For ListAvailableShards. Use taskExecutor for task execution.
+	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
 	autopoiesis  *autopoiesis.Orchestrator
 	context7Key  string
 

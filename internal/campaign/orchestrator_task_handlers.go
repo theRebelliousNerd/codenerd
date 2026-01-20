@@ -16,30 +16,17 @@ import (
 )
 
 // spawnTask is the unified entry point for task execution.
-// It uses TaskExecutor when available, falling back to ShardManager.
-//
-// Migration helper: replaces direct shardMgr.Spawn() calls.
-// Once all consumers migrate, ShardManager can be removed.
 func (o *Orchestrator) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
 	o.mu.RLock()
 	te := o.taskExecutor
-	sm := o.shardMgr
 	o.mu.RUnlock()
 
-	// Prefer TaskExecutor when available
-	if te != nil {
-		intent := session.LegacyShardNameToIntent(shardType)
-		logging.CampaignDebug("spawnTask: using TaskExecutor (intent=%s) for %s", intent, shardType)
-		return te.Execute(ctx, intent, task)
+	if te == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Fall back to ShardManager
-	if sm != nil {
-		logging.CampaignDebug("spawnTask: using ShardManager for %s", shardType)
-		return sm.Spawn(ctx, shardType, task)
-	}
-
-	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+	intent := session.LegacyShardNameToIntent(shardType)
+	logging.CampaignDebug("spawnTask: using TaskExecutor (intent=%s) for %s", intent, shardType)
+	return te.Execute(ctx, intent, task)
 }
 
 // executeTask executes a single task.
@@ -578,12 +565,12 @@ func getLangFromPath(path string) string {
 func extractPathFromDescription(desc string) string {
 	// Common path patterns in task descriptions
 	patterns := []string{
-		`(?i)create\s+(\S+\.\w+)`,           // "Create internal/domain/foo.go"
-		`(?i)file[:\s]+(\S+\.\w+)`,          // "file: path/to/file.go"
-		`(?i)(\S+/\S+\.\w+)`,                // Any path with / and extension
-		`(?i)internal/\S+\.\w+`,             // internal/... paths
-		`(?i)cmd/\S+\.\w+`,                  // cmd/... paths
-		`(?i)pkg/\S+\.\w+`,                  // pkg/... paths
+		`(?i)create\s+(\S+\.\w+)`,  // "Create internal/domain/foo.go"
+		`(?i)file[:\s]+(\S+\.\w+)`, // "file: path/to/file.go"
+		`(?i)(\S+/\S+\.\w+)`,       // Any path with / and extension
+		`(?i)internal/\S+\.\w+`,    // internal/... paths
+		`(?i)cmd/\S+\.\w+`,         // cmd/... paths
+		`(?i)pkg/\S+\.\w+`,         // pkg/... paths
 	}
 
 	for _, pattern := range patterns {

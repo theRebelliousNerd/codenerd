@@ -73,9 +73,8 @@ type VirtualStore struct {
 	mcpClients map[string]IntegrationClient
 
 	// Shard delegation
-	shardManager *coreshards.ShardManager // DEPRECATED: Use taskDelegator instead
-	// TODO: Remove deprecated shardManager field once taskDelegator migration is complete
-	taskDelegator TaskDelegator // New: unified task delegation interface
+	shardManager  *coreshards.ShardManager // For bidirectional binding (SetVirtualStore). Use taskDelegator for task execution.
+	taskDelegator TaskDelegator            // For task execution (replaces direct shardManager.Spawn calls)
 
 	// Kernel feedback loop
 	kernel  Kernel
