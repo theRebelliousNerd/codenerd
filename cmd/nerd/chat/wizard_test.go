@@ -36,6 +36,9 @@ func TestConfigWizard_AllSteps(t *testing.T) {
 		StepCodexCLIConfig,
 		StepProvider,
 		StepAPIKey,
+		StepAntigravityAccounts,
+		StepAntigravityAddMore,
+		StepAntigravityWaiting,
 		StepModel,
 		StepShardConfig,
 		StepShardModel,
@@ -134,6 +137,128 @@ func TestConfigWizard_ExitOnEscape(t *testing.T) {
 
 	// May exit wizard or stay (implementation dependent)
 	_ = result
+}
+
+// =============================================================================
+// ANTIGRAVITY WIZARD TESTS
+// =============================================================================
+
+func TestConfigWizard_AntigravityModels(t *testing.T) {
+	t.Parallel()
+
+	// Verify Antigravity has correct models from model-resolver.ts
+	models := ProviderModels["antigravity"]
+	if len(models) == 0 {
+		t.Fatal("No models defined for antigravity provider")
+	}
+
+	expectedModels := []string{
+		"gemini-3-flash",
+		"gemini-3-flash-low",
+		"gemini-3-flash-medium",
+		"gemini-3-flash-high",
+		"gemini-3-pro-low",
+		"gemini-3-pro-high",
+		"claude-sonnet-4-5-thinking",
+		"claude-opus-4-5-thinking",
+	}
+
+	modelSet := make(map[string]bool)
+	for _, m := range models {
+		modelSet[m] = true
+	}
+
+	for _, expected := range expectedModels {
+		if !modelSet[expected] {
+			t.Errorf("Missing expected Antigravity model: %s", expected)
+		}
+	}
+}
+
+func TestConfigWizard_AntigravityStateFields(t *testing.T) {
+	t.Parallel()
+
+	state := NewConfigWizard()
+
+	// Verify Antigravity state fields exist
+	if state.AntigravityAccounts != nil && len(state.AntigravityAccounts) > 0 {
+		t.Log("Has Antigravity accounts")
+	}
+
+	if state.AntigravityAuthState != nil {
+		t.Log("Has Antigravity auth state")
+	}
+}
+
+func TestConfigWizard_AntigravityStepRouting(t *testing.T) {
+	t.Parallel()
+
+	// Verify StepAntigravityAccounts comes after StepAPIKey in enum
+	if StepAntigravityAccounts <= StepAPIKey {
+		t.Error("StepAntigravityAccounts should come after StepAPIKey in enum")
+	}
+
+	// Verify StepAntigravityWaiting exists
+	if StepAntigravityWaiting <= StepAntigravityAccounts {
+		t.Error("StepAntigravityWaiting should come after StepAntigravityAccounts")
+	}
+}
+
+func TestConfigWizard_AntigravityProviderSkipsAPIKey(t *testing.T) {
+	t.Parallel()
+
+	m := NewTestModel()
+	m.awaitingConfigWizard = true
+	m.configWizard = &ConfigWizardState{
+		Step:     StepProvider,
+		Engine:   "api",
+		Provider: "",
+	}
+
+	// Simulate selecting antigravity provider
+	result, _ := m.handleConfigWizardInput("5") // antigravity is option 5
+	resultModel := result.(Model)
+
+	// Should go to StepAntigravityAccounts, NOT StepAPIKey
+	if resultModel.configWizard.Provider != "antigravity" {
+		t.Errorf("Expected provider 'antigravity', got '%s'", resultModel.configWizard.Provider)
+	}
+
+	// The step should be StepAntigravityAccounts (skipping API key)
+	if resultModel.configWizard.Step == StepAPIKey {
+		t.Error("Antigravity should skip StepAPIKey and go to StepAntigravityAccounts")
+	}
+}
+
+func TestConfigWizard_AntigravityOAuthResultMsg(t *testing.T) {
+	t.Parallel()
+
+	// Verify the OAuth result message type exists and has correct fields
+	msg := antigravityOAuthResultMsg{
+		err:     nil,
+		account: nil,
+	}
+
+	if msg.err != nil {
+		t.Log("Has error field")
+	}
+	if msg.account != nil {
+		t.Log("Has account field")
+	}
+}
+
+func TestConfigWizard_DefaultAntigravityModel(t *testing.T) {
+	t.Parallel()
+
+	defaultModel := DefaultProviderModel("antigravity")
+	if defaultModel == "" {
+		t.Error("DefaultProviderModel('antigravity') returned empty string")
+	}
+
+	// Default should be gemini-3-flash (first in list)
+	if defaultModel != "gemini-3-flash" {
+		t.Errorf("Expected default 'gemini-3-flash', got '%s'", defaultModel)
+	}
 }
 
 // =============================================================================
