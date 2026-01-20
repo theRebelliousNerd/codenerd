@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/auth/antigravity"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception/transform"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -238,6 +239,14 @@ type AntigravityClient struct {
 	enableURLContext   bool
 	urlContext         []string
 	lastSources        []string
+
+	// Thinking state (for multi-turn signature caching)
+	lastThoughtSignature string
+	lastThoughtSummary   string
+	lastThinkingTokens   int
+
+	// Cross-model sanitization state
+	previousModel string // Track last used model for cross-model sanitization
 
 	// Adaptive rate limiting
 	rateLimiter *adaptiveRateLimiter
@@ -554,32 +563,57 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 
 	url := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", GeminiCLIEndpointProd)
 
-	// Build inner Gemini-style request
-	innerReq := GeminiRequest{
-		Contents: []GeminiContent{
-			{
-				Role:  "user",
-				Parts: []GeminiPart{{Text: userPrompt}},
-			},
-		},
-		GenerationConfig: GeminiGenerationConfig{
-			Temperature:     1.0,
-			MaxOutputTokens: 32000,
-			ThinkingConfig: &GeminiThinkingConfig{
-				IncludeThoughts: true,
-				ThinkingLevel:   c.thinkingLevel,
-			},
-		},
+	// Build generation config with model-aware thinking config
+	generationConfig := map[string]interface{}{
+		"temperature":     1.0,
+		"maxOutputTokens": 32000,
 	}
 
-	if systemPrompt != "" {
-		innerReq.SystemInstruction = &GeminiContent{
-			Parts: []GeminiPart{{Text: systemPrompt}},
+	// Apply model-aware thinking configuration
+	if c.enableThinking {
+		thinkingConfig := transform.BuildThinkingConfigForModel(
+			c.model,
+			true, // includeThoughts
+			transform.ThinkingTier(c.thinkingLevel),
+			0, // budget (will be derived from tier)
+		)
+		generationConfig["thinkingConfig"] = thinkingConfig
+
+		// Claude thinking models need larger max output tokens
+		if transform.IsClaudeThinkingModel(c.model) {
+			generationConfig["maxOutputTokens"] = transform.ClaudeThinkingMaxOutputTokens
+		}
+	}
+
+	// Build inner request using map for flexibility with different model formats
+	innerReq := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"role": "user",
+				"parts": []map[string]interface{}{
+					{"text": userPrompt},
+				},
+			},
+		},
+		"generationConfig": generationConfig,
+	}
+
+	// Apply system instruction with interleaved thinking hint for Claude thinking models
+	effectiveSystemPrompt := systemPrompt
+	if transform.IsClaudeThinkingModel(c.model) && systemPrompt != "" {
+		effectiveSystemPrompt = transform.ApplyInterleavedThinkingHint(systemPrompt)
+	}
+
+	if effectiveSystemPrompt != "" {
+		innerReq["systemInstruction"] = map[string]interface{}{
+			"parts": []map[string]interface{}{
+				{"text": effectiveSystemPrompt},
+			},
 		}
 	}
 
 	uid := uuid.New().String()
-	innerReq.SessionID = uid
+	innerReq["sessionId"] = uid
 
 	antigravityReq := map[string]interface{}{
 		"project":     projectID,
@@ -623,16 +657,24 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 		return "", fmt.Errorf("request failed (%d): %s", resp.StatusCode, string(body))
 	}
 
-	// Parse SSE Stream
-	scanner := bufio.NewScanner(resp.Body)
+	// Parse SSE Stream with thinking-aware handling
+	return c.parseSSEResponse(resp.Body)
+}
+
+// parseSSEResponse parses the SSE stream and extracts text content
+func (c *AntigravityClient) parseSSEResponse(body io.Reader) (string, error) {
+	scanner := bufio.NewScanner(body)
 	var fullText strings.Builder
+	var lastThoughtSignature string
 
 	type sseChunk struct {
 		Response struct {
 			Candidates []struct {
 				Content struct {
 					Parts []struct {
-						Text string `json:"text"`
+						Text             string `json:"text"`
+						Thought          bool   `json:"thought,omitempty"`
+						ThoughtSignature string `json:"thoughtSignature,omitempty"`
 					} `json:"parts"`
 				} `json:"content"`
 			} `json:"candidates"`
@@ -653,7 +695,16 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 
 		if len(chunk.Response.Candidates) > 0 {
 			for _, part := range chunk.Response.Candidates[0].Content.Parts {
-				fullText.WriteString(part.Text)
+				// Skip thinking parts when extracting response text
+				// (thinking is for internal reasoning, not user-facing output)
+				if !part.Thought {
+					fullText.WriteString(part.Text)
+				}
+
+				// Cache thought signature for multi-turn conversations
+				if part.ThoughtSignature != "" {
+					lastThoughtSignature = part.ThoughtSignature
+				}
 			}
 		}
 	}
@@ -662,12 +713,207 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 		return "", fmt.Errorf("error reading SSE stream: %w", err)
 	}
 
+	// Store last thought signature for potential use in follow-up requests
+	if lastThoughtSignature != "" {
+		c.mu.Lock()
+		c.lastThoughtSignature = lastThoughtSignature
+		c.mu.Unlock()
+	}
+
 	result := fullText.String()
 	if result == "" {
 		return "", fmt.Errorf("empty response from stream")
 	}
 
 	return strings.TrimSpace(result), nil
+}
+
+// CompleteMultiTurn handles multi-turn conversations with full transform support.
+// This includes:
+// - Cross-model signature sanitization (when switching between Gemini/Claude)
+// - Thinking recovery (closing tool loops for fresh thinking)
+// - Model-aware thinking configuration
+func (c *AntigravityClient) CompleteMultiTurn(
+	ctx context.Context,
+	systemPrompt string,
+	contents []map[string]interface{},
+	enableThinkingRecovery bool,
+) (string, []map[string]interface{}, error) {
+	c.mu.Lock()
+	currentModel := c.model
+	previousModel := c.previousModel
+	c.mu.Unlock()
+
+	// Step 1: Cross-model sanitization if model switched
+	if previousModel != "" && transform.GetModelFamily(previousModel) != transform.GetModelFamily(currentModel) {
+		result := transform.SanitizeCrossModelPayload(contents, currentModel)
+		if result.Modified {
+			logging.PerceptionDebug("[Antigravity] Sanitized %d cross-model signatures for %s->%s transition",
+				result.SignaturesStripped, previousModel, currentModel)
+		}
+	}
+
+	// Step 2: Analyze conversation state for thinking recovery
+	if enableThinkingRecovery && c.enableThinking {
+		state := transform.AnalyzeConversationState(contents)
+		if transform.NeedsThinkingRecovery(state) {
+			logging.PerceptionDebug("[Antigravity] Applying thinking recovery (tool loop without thinking detected)")
+			contents = transform.CloseToolLoopForThinking(contents)
+		}
+	}
+
+	// Step 3: Build and send request
+	accessToken, projectID, err := c.EnsureAuthenticated(ctx)
+	if err != nil {
+		return "", contents, err
+	}
+
+	result, err := c.doMultiTurnRequest(ctx, accessToken, projectID, systemPrompt, contents)
+	if err != nil {
+		return "", contents, err
+	}
+
+	// Step 4: Record success
+	if c.currentAccount != nil {
+		c.accountStore.RecordSuccess(c.currentAccount.Email)
+	}
+
+	// Clear previous model tracking after successful request
+	c.mu.Lock()
+	c.previousModel = ""
+	c.mu.Unlock()
+
+	return result, contents, nil
+}
+
+// doMultiTurnRequest performs the multi-turn API request
+func (c *AntigravityClient) doMultiTurnRequest(
+	ctx context.Context,
+	accessToken, projectID, systemPrompt string,
+	contents []map[string]interface{},
+) (string, error) {
+	// Apply preemptive delay if under rate limit pressure
+	if preemptDelay := c.rateLimiter.GetPreemptiveDelay(); preemptDelay > 0 {
+		logging.PerceptionDebug("[Antigravity] Applying preemptive delay of %v", preemptDelay)
+		select {
+		case <-time.After(preemptDelay):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	url := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", GeminiCLIEndpointProd)
+
+	// Build generation config with model-aware thinking config
+	generationConfig := map[string]interface{}{
+		"temperature":     1.0,
+		"maxOutputTokens": 32000,
+	}
+
+	// Apply model-aware thinking configuration
+	if c.enableThinking {
+		thinkingConfig := transform.BuildThinkingConfigForModel(
+			c.model,
+			true, // includeThoughts
+			transform.ThinkingTier(c.thinkingLevel),
+			0, // budget (will be derived from tier)
+		)
+		generationConfig["thinkingConfig"] = thinkingConfig
+
+		// Claude thinking models need larger max output tokens
+		if transform.IsClaudeThinkingModel(c.model) {
+			generationConfig["maxOutputTokens"] = transform.ClaudeThinkingMaxOutputTokens
+		}
+	}
+
+	// Build inner request with multi-turn contents
+	innerReq := map[string]interface{}{
+		"contents":         contents,
+		"generationConfig": generationConfig,
+	}
+
+	// Apply system instruction with interleaved thinking hint for Claude thinking models
+	effectiveSystemPrompt := systemPrompt
+	if transform.IsClaudeThinkingModel(c.model) && systemPrompt != "" {
+		effectiveSystemPrompt = transform.ApplyInterleavedThinkingHint(systemPrompt)
+	}
+
+	if effectiveSystemPrompt != "" {
+		innerReq["systemInstruction"] = map[string]interface{}{
+			"parts": []map[string]interface{}{
+				{"text": effectiveSystemPrompt},
+			},
+		}
+	}
+
+	uid := uuid.New().String()
+	innerReq["sessionId"] = uid
+
+	antigravityReq := map[string]interface{}{
+		"project":     projectID,
+		"model":       c.model,
+		"request":     innerReq,
+		"requestType": "agent",
+		"userAgent":   "antigravity",
+		"requestId":   "agent-" + uid,
+	}
+
+	jsonData, err := json.Marshal(antigravityReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("User-Agent", "antigravity/1.11.5 windows/amd64")
+	req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
+	req.Header.Set("Client-Metadata", `{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}`)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("429 rate limited: %s", string(body))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("request failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	return c.parseSSEResponse(resp.Body)
+}
+
+// GetPreviousModel returns the previous model (for debugging)
+func (c *AntigravityClient) GetPreviousModel() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.previousModel
+}
+
+// NeedsCrossModelSanitization checks if the current model switch requires sanitization
+func (c *AntigravityClient) NeedsCrossModelSanitization() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.previousModel == "" {
+		return false
+	}
+
+	prevFamily := transform.GetModelFamily(c.previousModel)
+	currFamily := transform.GetModelFamily(c.model)
+
+	return prevFamily != currFamily
 }
 
 // AddAccount adds a new account to the store (for CLI use)
@@ -745,6 +991,13 @@ func (c *AntigravityClient) CompleteWithStreaming(ctx context.Context, systemPro
 }
 
 func (c *AntigravityClient) SetModel(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Track previous model for cross-model sanitization
+	if c.model != "" && c.model != model {
+		c.previousModel = c.model
+	}
 	c.model = model
 }
 
@@ -779,11 +1032,23 @@ func (c *AntigravityClient) SetURLContextURLs(urls []string) {
 func (c *AntigravityClient) GetLastGroundingSources() []string {
 	return c.lastSources
 }
-func (c *AntigravityClient) GetLastThoughtSignature() string { return "" }
-func (c *AntigravityClient) GetLastThoughtSummary() string   { return "" }
-func (c *AntigravityClient) GetLastThinkingTokens() int      { return 0 }
-func (c *AntigravityClient) IsThinkingEnabled() bool         { return c.enableThinking }
-func (c *AntigravityClient) GetThinkingLevel() string        { return c.thinkingLevel }
+func (c *AntigravityClient) GetLastThoughtSignature() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastThoughtSignature
+}
+func (c *AntigravityClient) GetLastThoughtSummary() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastThoughtSummary
+}
+func (c *AntigravityClient) GetLastThinkingTokens() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastThinkingTokens
+}
+func (c *AntigravityClient) IsThinkingEnabled() bool  { return c.enableThinking }
+func (c *AntigravityClient) GetThinkingLevel() string { return c.thinkingLevel }
 
 // GetRateLimitStats returns the current adaptive rate limiter statistics.
 func (c *AntigravityClient) GetRateLimitStats() (eventCount int, avgDelay time.Duration) {
