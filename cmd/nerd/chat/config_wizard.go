@@ -108,9 +108,9 @@ type ShardProfileConfig struct {
 	EnableLearning   bool
 }
 
-// intentTypes lists the primary intent types for persona configuration.
-// These map to legacy shard names but are now handled by JIT-compiled prompts.
-// DEPRECATED: Per-intent config is now handled by ConfigFactory and persona atoms.
+// intentTypes lists the primary intent types for the configuration wizard UI.
+// Used for iterating through persona-specific settings in the wizard flow.
+// Runtime config is handled by ConfigFactory; this is purely for wizard UX.
 var intentTypes = []string{"coder", "tester", "reviewer", "researcher"}
 
 // ProviderModels maps providers to their available models.

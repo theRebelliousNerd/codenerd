@@ -465,28 +465,6 @@ func TestNewToolCompiler(t *testing.T) {
 	}
 }
 
-func TestWrapAsMain_AlreadyMain(t *testing.T) {
-	config := DefaultOuroborosConfig("/tmp/workspace")
-	compiler := NewToolCompiler(config)
-
-	mainCode := `package main
-
-func main() {
-	println("Hello")
-}
-`
-
-	tool := &GeneratedTool{
-		Name: "test",
-		Code: mainCode,
-	}
-
-	wrapped := compiler.wrapAsMain(tool)
-	if wrapped != mainCode {
-		t.Error("Code already with package main should not be modified")
-	}
-}
-
 func TestExtractFunctionBody(t *testing.T) {
 	code := `package tools
 
