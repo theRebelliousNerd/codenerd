@@ -93,4 +93,4 @@ require (
 
 // replace codenerd => C:\CodeProjects\codeNERD  // Windows-specific path, disabled for Linux
 
-replace codenerd => C:\Users\smoor\AppData\Local\Temp\TestGenerateToolFromCode_CompilationFailure3806587782\001
+replace codenerd => C:\Users\smoor\AppData\Local\Temp\TestGenerateToolFromCode_CompilationFailure3932357678\001

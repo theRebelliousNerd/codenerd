@@ -1375,12 +1375,6 @@ func main() {
 	return os.WriteFile(filepath.Join(dir, "main.go"), []byte(content), 0644)
 }
 
-// wrapAsMain wraps the tool code as a standalone main package.
-// DEPRECATED: Use writeWrapper instead. Retained for backward compatibility if needed.
-func (tc *ToolCompiler) wrapAsMain(tool *GeneratedTool) string {
-	return tool.Code
-}
-
 // extractFunctionBody extracts the body of the main tool function
 func extractFunctionBody(code, funcName string) string {
 	// Simple regex extraction - production code would use AST

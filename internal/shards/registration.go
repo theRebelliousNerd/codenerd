@@ -9,18 +9,9 @@ import (
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
-	// Domain shards removed - JIT clean loop handles these via prompt atoms
-	// TODO: Remove commented-out legacy shard imports (coder, nemesis, researcher, etc) once JIT migration is fully verified.
-	// "codenerd/internal/shards/coder"
-	// "codenerd/internal/shards/nemesis"
-	// "codenerd/internal/shards/researcher"
-	// "codenerd/internal/shards/reviewer"
-	// "codenerd/internal/shards/tester"
-	// "codenerd/internal/shards/tool_generator"
 	"codenerd/internal/shards/system"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
-	// "codenerd/internal/world" // Only used by reviewer holographic - removed
 )
 
 // RegistryContext holds dependencies for shard dependency injection.
@@ -277,10 +268,9 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 }
 
 // defineShardProfiles registers shard profiles with appropriate configurations.
-// NOTE: Domain shard profiles (coder, reviewer, tester, researcher, tool_generator, nemesis)
-// have been removed. These shards are now handled by the JIT clean loop via session.Executor.
-// Only system shard profiles remain.
-// TODO: Remove or update Legacy Shard Profiles comment block to reflect current JIT architecture.
+// Domain shards (coder, reviewer, tester, researcher) are now handled by the
+// JIT clean loop via session.Executor and prompt atoms. Only system shards
+// and special-purpose shards (like requirements_interrogator) remain here.
 func defineShardProfiles(sm *coreshards.ShardManager) {
 	// Requirements Interrogator profile - Socratic clarification specialist
 	// (Kept because it has unique ask-user interaction pattern not covered by JIT)
