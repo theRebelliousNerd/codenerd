@@ -3,6 +3,7 @@ package main
 import (
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/mangle"
 	coresys "codenerd/internal/system"
 	"codenerd/internal/types"
 	"context"
@@ -155,55 +156,89 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Explaining derivation for: %s\n", predicate)
 	fmt.Println(strings.Repeat("=", 40))
 
-	// Initialize kernel
+	// Initialize kernel to get state
 	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
-	if err := kern.LoadFacts(nil); err != nil {
-		return fmt.Errorf("query failed: %w", err)
-	}
 
-	// Query for facts
-	facts, err := kern.Query(predicate)
+	// Create a temporary Mangle engine for tracing
+	// We use the Hollow Kernel pattern: RealKernel provides the state,
+	// mangle.Engine provides the tracing logic.
+	cfg := mangle.DefaultConfig()
+	cfg.AutoEval = false // We'll run TraceQuery explicitly
+	engine, err := mangle.NewEngine(cfg, nil)
 	if err != nil {
-		return fmt.Errorf("query failed: %w", err)
+		return fmt.Errorf("failed to create tracing engine: %w", err)
 	}
 
-	if len(facts) == 0 {
-		fmt.Printf("No facts found for predicate '%s'\n", predicate)
-		fmt.Println("\nPossible reasons:")
-		fmt.Println("  - No matching rules were triggered")
-		fmt.Println("  - Required preconditions were not met")
-		fmt.Println("  - The workspace has not been scanned recently")
+	// Load program (Schemas + Policy + Learned)
+	program := kern.GetSchemas() + "\n" + kern.GetPolicy() + "\n" + kern.GetLearned()
+	if err := engine.LoadSchemaString(program); err != nil {
+		return fmt.Errorf("failed to load program into tracer: %w", err)
+	}
+
+	// Load base facts (EDB)
+	baseFacts := kern.GetBaseFacts()
+	mangleFacts := make([]mangle.Fact, len(baseFacts))
+	for i, f := range baseFacts {
+		mangleFacts[i] = mangle.Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		}
+	}
+	if err := engine.AddFacts(mangleFacts); err != nil {
+		return fmt.Errorf("failed to load facts into tracer: %w", err)
+	}
+
+	// Initialize tracer
+	tracer := mangle.NewProofTreeTracer(engine)
+	tracer.IndexRules()
+
+	// Construct proper query with variables if needed
+	query := predicate
+	if !strings.Contains(query, "(") {
+		// Attempt to find arity
+		found := false
+		for _, decl := range kern.GetDeclaredPredicates() {
+			// decl format: "name/arity"
+			parts := strings.Split(decl, "/")
+			if len(parts) == 2 && parts[0] == predicate {
+				arity := 0
+				fmt.Sscanf(parts[1], "%d", &arity)
+				if arity > 0 {
+					vars := make([]string, arity)
+					for i := 0; i < arity; i++ {
+						vars[i] = fmt.Sprintf("Var%d", i)
+					}
+					query = fmt.Sprintf("%s(%s)", predicate, strings.Join(vars, ", "))
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Heuristic: check if it's a 1-arity predicate often used
+			if predicate == "next_action" || predicate == "impacted" || predicate == "permitted" {
+				query = predicate + "(X)"
+			}
+		}
+	}
+
+	// Run trace
+	fmt.Printf("Tracing query: %s\n", query)
+	trace, err := tracer.TraceQuery(cmd.Context(), query)
+	if err != nil {
+		return fmt.Errorf("trace failed: %w", err)
+	}
+
+	if len(trace.RootNodes) == 0 {
+		fmt.Printf("No derivations found for '%s'.\n", query)
 		return nil
 	}
 
-	// Display derivation
-	fmt.Printf("\nDerived %d fact(s):\n\n", len(facts))
-	for i, fact := range facts {
-		fmt.Printf("  %d. %s\n", i+1, fact.String())
-	}
-
-	// Show related rules (simplified - full proof tree would require Mangle integration)
-	fmt.Println("\nRelated Policy Rules:")
-	switch predicate {
-	case "next_action":
-		fmt.Println("  - next_action(A) :- user_intent(_, V, T, _), action_mapping(V, A).")
-		fmt.Println("  - next_action(/interrogative_mode) :- clarification_needed(_).")
-	case "block_commit":
-		fmt.Println("  - block_commit(R) :- diagnostic(_, _, _, /error, R).")
-		fmt.Println("  - block_commit(\"Untested\") :- impacted(F), !test_coverage(F).")
-	case "impacted":
-		fmt.Println("  - impacted(X) :- modified(Y), depends_on(X, Y).")
-		fmt.Println("  - impacted(X) :- impacted(Y), depends_on(X, Y). # Transitive")
-	case "permitted":
-		fmt.Println("  - permitted(A) :- safe_action(A).")
-		fmt.Println("  - permitted(A) :- dangerous_action(A), user_override(A).")
-	default:
-		fmt.Println("  (No specific rules documented for this predicate)")
-	}
-
+	// Render ASCII tree
+	fmt.Println(trace.RenderASCII())
 	return nil
 }
 

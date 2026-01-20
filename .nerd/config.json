@@ -1,18 +1,17 @@
 {
   "provider": "antigravity",
-  "_disabled_zai_api_key": "b669cee5811e48389056bd7f68757fe8.YFRqFAvC8icCGePD",
   "gemini_api_key": "AIzaSyCx7DTgeOTCK0sMUk9DcGa5nWZduI4dhWE",
   "model": "gemini-3.0-pro-exp",
   "engine": "api",
-  "antigravity": {
-    "enable_thinking": true,
-    "thinking_level": "high"
-  },
   "gemini": {
     "enable_thinking": true,
     "thinking_level": "high",
     "enable_google_search": true,
     "enable_url_context": true
+  },
+  "antigravity": {
+    "enable_thinking": true,
+    "thinking_level": "high"
   },
   "codex_cli": {
     "model": "gpt-5.1-codex-mini",
@@ -36,12 +35,6 @@
     "target_compression_ratio": 100,
     "activation_threshold": 30
   },
-  "jit": {
-    "debug_mode": true,
-    "trace_llm_io": true
-  },
-  "learning_candidate_threshold": 3,
-  "learning_candidate_auto_promote": false,
   "embedding": {
     "provider": "genai",
     "ollama_endpoint": "http://localhost:11434",
@@ -78,8 +71,7 @@
       "max_execution_time_sec": 600,
       "max_retries": 3,
       "max_facts_in_shard_kernel": 25000,
-      "enable_learning": true,
-      "enable_google_search": true
+      "enable_learning": true
     },
     "reviewer": {
       "model": "gemini-3.0-pro-exp",
@@ -123,23 +115,7 @@
     "max_facts_in_kernel": 250000,
     "max_derived_facts_limit": 100000
   },
-  "integrations": {
-    "code_graph": {
-      "enabled": true,
-      "base_url": "http://localhost:8080",
-      "timeout": "30s"
-    },
-    "browser": {
-      "enabled": true,
-      "base_url": "http://localhost:8081",
-      "timeout": "60s"
-    },
-    "scraper": {
-      "enabled": true,
-      "base_url": "http://localhost:8082",
-      "timeout": "120s"
-    }
-  },
+  "integrations": {},
   "tool_generation": {
     "target_os": "windows",
     "target_arch": "amd64"
@@ -212,5 +188,15 @@
       "virtual_store": true,
       "world": true
     }
-  }
+  },
+  "jit": {
+    "enabled": false,
+    "fallback_enabled": false,
+    "token_budget": 0,
+    "reserved_tokens": 0,
+    "debug_mode": true,
+    "trace_llm_io": true,
+    "semantic_top_k": 0
+  },
+  "learning_candidate_threshold": 3
 }
