@@ -239,25 +239,3 @@ func (j *JITExecutor) intentToAgentName(intent string) string {
 		return "executor"
 	}
 }
-
-// IntentMapping provides mappings from legacy shard names to intent verbs.
-// This helps during migration from the old shard system.
-// NOTE: Keep in sync with core.LegacyShardNameToIntent
-var IntentMapping = map[string]string{
-	"coder":            "/fix",
-	"tester":           "/test",
-	"reviewer":         "/review",
-	"researcher":       "/research",
-	"debugger":         "/debug",
-	"security_auditor": "/audit",
-	"tool_generator":   "/generate-tool",
-	"nemesis":          "/attack",
-}
-
-// LegacyShardNameToIntent converts a legacy shard type name to an intent verb.
-func LegacyShardNameToIntent(shardType string) string {
-	if intent, ok := IntentMapping[shardType]; ok {
-		return intent
-	}
-	return "/" + shardType
-}

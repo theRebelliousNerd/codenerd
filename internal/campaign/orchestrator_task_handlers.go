@@ -11,7 +11,6 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
-	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 )
 
@@ -24,7 +23,7 @@ func (o *Orchestrator) spawnTask(ctx context.Context, shardType string, task str
 	if te == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(shardType)
+	intent := core.LegacyShardNameToIntent(shardType)
 	logging.CampaignDebug("spawnTask: using TaskExecutor (intent=%s) for %s", intent, shardType)
 	return te.Execute(ctx, intent, task)
 }

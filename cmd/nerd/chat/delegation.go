@@ -19,7 +19,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/types"
 
@@ -36,7 +35,7 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(shardType)
+	intent := core.LegacyShardNameToIntent(shardType)
 	return m.taskExecutor.Execute(ctx, intent, task)
 }
 
@@ -46,7 +45,7 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(shardType)
+	intent := core.LegacyShardNameToIntent(shardType)
 	return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
 }
 

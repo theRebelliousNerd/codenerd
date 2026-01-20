@@ -132,6 +132,15 @@ func (m *MockTransducer) ResolveFocus(ctx context.Context, reference string, can
 	return perception.FocusResolution{}, nil
 }
 
+func (m *MockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+	// Use the regular ParseIntentWithContext if available
+	if m.ParseIntentWithContextFunc != nil {
+		intent, err := m.ParseIntentWithContextFunc(ctx, input, history)
+		return intent, nil, err
+	}
+	return perception.Intent{Verb: "/general", Category: "/general"}, nil, nil
+}
+
 func (m *MockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
 func (m *MockTransducer) SetStrategicContext(context string)                  {}
 

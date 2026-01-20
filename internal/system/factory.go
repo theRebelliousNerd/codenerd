@@ -120,7 +120,7 @@ func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(normalized)
+	intent := core.LegacyShardNameToIntent(normalized)
 	return c.TaskExecutor.Execute(ctx, intent, task)
 }
 
@@ -140,7 +140,7 @@ func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, tas
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(normalized)
+	intent := core.LegacyShardNameToIntent(normalized)
 	return c.TaskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
 }
 

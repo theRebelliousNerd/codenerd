@@ -1,6 +1,7 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -34,7 +35,7 @@ func (cr *CheckpointRunner) spawnTask(ctx context.Context, shardType string, tas
 	if cr.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := session.LegacyShardNameToIntent(shardType)
+	intent := core.LegacyShardNameToIntent(shardType)
 	return cr.taskExecutor.Execute(ctx, intent, task)
 }
 
