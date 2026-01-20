@@ -1,5 +1,8 @@
 package transform
 
+// Tests for Antigravity-only transform package
+// Scope: Gemini 3 (gemini-3-flash, gemini-3-pro) and Claude models only
+
 import (
 	"encoding/json"
 	"testing"
@@ -14,7 +17,7 @@ func TestGetModelFamily(t *testing.T) {
 		{"claude-opus-4-5", ModelFamilyClaude},
 		{"gemini-3-flash", ModelFamilyGemini},
 		{"gemini-3-pro-high", ModelFamilyGemini},
-		{"gemini-2.5-pro", ModelFamilyGemini},
+		{"gemini-2.5-pro", ModelFamilyUnknown}, // Not Antigravity (Gemini CLI)
 		{"gpt-4", ModelFamilyUnknown},
 		{"", ModelFamilyUnknown},
 	}
@@ -78,7 +81,7 @@ func TestIsGemini3Model(t *testing.T) {
 	}{
 		{"gemini-3-flash", true},
 		{"gemini-3-pro-high", true},
-		{"gemini-2.5-pro", false},
+		{"gemini-2.5-pro", false}, // Gemini CLI, not Antigravity
 		{"claude-sonnet-4-5", false},
 	}
 
@@ -87,6 +90,31 @@ func TestIsGemini3Model(t *testing.T) {
 			result := IsGemini3Model(tc.model)
 			if result != tc.expected {
 				t.Errorf("IsGemini3Model(%q) = %v, want %v", tc.model, result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestIsAntigravityModel(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected bool
+	}{
+		{"gemini-3-flash", true},
+		{"gemini-3-pro-high", true},
+		{"claude-sonnet-4-5-thinking", true},
+		{"claude-opus-4-5", true},
+		{"gemini-2.5-pro", false},   // Gemini CLI
+		{"gemini-2.5-flash", false}, // Gemini CLI
+		{"gpt-4", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.model, func(t *testing.T) {
+			result := IsAntigravityModel(tc.model)
+			if result != tc.expected {
+				t.Errorf("IsAntigravityModel(%q) = %v, want %v", tc.model, result, tc.expected)
 			}
 		})
 	}

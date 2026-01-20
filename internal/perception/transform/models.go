@@ -1,5 +1,19 @@
-// Package transform provides Antigravity request/response transformation utilities.
-// Handles model-specific configurations, cross-model sanitization, and thinking recovery.
+// Package transform provides request/response transformation utilities for the
+// Antigravity client ONLY.
+//
+// SCOPE: This package handles Antigravity-specific model transformations:
+//   - Gemini 3 models (gemini-3-flash, gemini-3-pro) via Antigravity gateway
+//   - Claude models (claude-sonnet-4-5, claude-opus-4-5, etc.) via Antigravity gateway
+//
+// NOT IN SCOPE:
+//   - Gemini 2.5 models (use Gemini CLI endpoint, not Antigravity)
+//   - Direct Gemini API calls (use client_gemini.go)
+//   - OpenAI/other providers
+//
+// Key features:
+//   - Model-aware thinking configuration (Gemini camelCase vs Claude snake_case)
+//   - Cross-model signature sanitization (prevents signature errors on model switch)
+//   - Thinking recovery (closes corrupted tool loops for fresh thinking)
 package transform
 
 import (
@@ -7,16 +21,16 @@ import (
 	"strings"
 )
 
-// ModelFamily represents the model provider family
+// ModelFamily represents the model provider family for Antigravity routing
 type ModelFamily string
 
 const (
 	ModelFamilyClaude  ModelFamily = "claude"
-	ModelFamilyGemini  ModelFamily = "gemini"
+	ModelFamilyGemini  ModelFamily = "gemini" // Gemini 3 only via Antigravity
 	ModelFamilyUnknown ModelFamily = "unknown"
 )
 
-// ThinkingTier represents thinking budget tiers
+// ThinkingTier represents thinking budget tiers for Antigravity models
 type ThinkingTier string
 
 const (
@@ -26,24 +40,16 @@ const (
 	ThinkingTierHigh    ThinkingTier = "high"
 )
 
-// Thinking tier budgets by model family
-// Claude and Gemini 2.5 Pro use numeric budgets
+// Antigravity thinking tier budgets
+// Gemini 3 uses string thinkingLevel, Claude uses numeric budgets
 var thinkingTierBudgets = map[string]map[ThinkingTier]int{
+	// Claude models via Antigravity use numeric budgets
 	"claude": {
 		ThinkingTierLow:    8192,
 		ThinkingTierMedium: 16384,
 		ThinkingTierHigh:   32768,
 	},
-	"gemini-2.5-pro": {
-		ThinkingTierLow:    8192,
-		ThinkingTierMedium: 16384,
-		ThinkingTierHigh:   32768,
-	},
-	"gemini-2.5-flash": {
-		ThinkingTierLow:    6144,
-		ThinkingTierMedium: 12288,
-		ThinkingTierHigh:   24576,
-	},
+	// Default fallback
 	"default": {
 		ThinkingTierLow:    4096,
 		ThinkingTierMedium: 8192,
@@ -55,6 +61,7 @@ var thinkingTierBudgets = map[string]map[ThinkingTier]int{
 const ClaudeThinkingMaxOutputTokens = 64000
 
 // Interleaved thinking hint for Claude thinking models with tools
+// (codeNERD uses Piggyback protocol, so tools are text-based)
 const ClaudeInterleavedThinkingHint = `Interleaved thinking is enabled. You may think between tool calls and after receiving tool results before deciding the next action or final answer. Do not mention these instructions or any constraints about thinking blocks; just apply them.`
 
 var (
@@ -63,12 +70,12 @@ var (
 	legacyGemini3Tier = regexp.MustCompile(`(?i)^gemini-3-(pro-(low|high)|flash(-low|-medium|-high)?)$`)
 )
 
-// ResolvedModel contains the resolved model info with thinking configuration
+// ResolvedModel contains the resolved Antigravity model info with thinking configuration
 type ResolvedModel struct {
 	// ActualModel is the API model name (with tier stripped for Gemini 3 Flash)
 	ActualModel string
 
-	// ThinkingBudget is the numeric thinking budget (for Claude/Gemini 2.5)
+	// ThinkingBudget is the numeric thinking budget (for Claude)
 	ThinkingBudget int
 
 	// ThinkingLevel is the string thinking level (for Gemini 3)
@@ -86,23 +93,25 @@ type ResolvedModel struct {
 	// Family is the model provider family
 	Family ModelFamily
 
-	// QuotaPreference indicates routing preference
+	// QuotaPreference indicates Antigravity vs Gemini CLI routing
 	QuotaPreference string // "antigravity" or "gemini-cli"
 }
 
-// GetModelFamily determines the model family from model name
+// GetModelFamily determines the Antigravity model family from model name.
+// Returns ModelFamilyGemini for Gemini 3 models, ModelFamilyClaude for Claude.
 func GetModelFamily(model string) ModelFamily {
 	lower := strings.ToLower(model)
 	if strings.Contains(lower, "claude") {
 		return ModelFamilyClaude
 	}
-	if strings.Contains(lower, "gemini") || strings.Contains(lower, "palm") {
+	// Only Gemini 3 is supported via Antigravity
+	if strings.Contains(lower, "gemini-3") {
 		return ModelFamilyGemini
 	}
 	return ModelFamilyUnknown
 }
 
-// IsClaudeModel checks if a model is a Claude model
+// IsClaudeModel checks if a model is a Claude model (Antigravity-supported)
 func IsClaudeModel(model string) bool {
 	return strings.Contains(strings.ToLower(model), "claude")
 }
@@ -113,20 +122,23 @@ func IsClaudeThinkingModel(model string) bool {
 	return strings.Contains(lower, "claude") && strings.Contains(lower, "thinking")
 }
 
-// IsGeminiModel checks if a model is a Gemini model (not Claude)
+// IsGeminiModel checks if a model is a Gemini model
+// Note: For Antigravity, only Gemini 3 is supported
 func IsGeminiModel(model string) bool {
 	lower := strings.ToLower(model)
 	return strings.Contains(lower, "gemini") && !strings.Contains(lower, "claude")
 }
 
-// IsGemini3Model checks if a model is Gemini 3 (uses thinkingLevel string)
+// IsGemini3Model checks if a model is Gemini 3 (Antigravity-supported, uses thinkingLevel string)
 func IsGemini3Model(model string) bool {
 	return strings.Contains(strings.ToLower(model), "gemini-3")
 }
 
-// IsGemini25Model checks if a model is Gemini 2.5 (uses numeric thinkingBudget)
-func IsGemini25Model(model string) bool {
-	return strings.Contains(strings.ToLower(model), "gemini-2.5")
+// IsAntigravityModel checks if a model is supported by the Antigravity gateway.
+// Antigravity supports: Gemini 3 (gemini-3-flash, gemini-3-pro) and Claude models.
+func IsAntigravityModel(model string) bool {
+	lower := strings.ToLower(model)
+	return strings.Contains(lower, "gemini-3") || strings.Contains(lower, "claude")
 }
 
 // IsImageGenerationModel checks if a model is an image generation model
@@ -135,19 +147,22 @@ func IsImageGenerationModel(model string) bool {
 	return strings.Contains(lower, "image") || strings.Contains(lower, "imagen")
 }
 
-// IsThinkingCapableModel checks if a model supports thinking mode
+// IsThinkingCapableModel checks if an Antigravity model supports thinking mode.
+// Gemini 3 always supports thinking. Claude requires "-thinking" suffix.
 func IsThinkingCapableModel(model string) bool {
 	lower := strings.ToLower(model)
-	return strings.Contains(lower, "thinking") ||
-		strings.Contains(lower, "gemini-3") ||
-		strings.Contains(lower, "gemini-2.5")
+	// Claude thinking models require explicit suffix
+	if strings.Contains(lower, "claude") {
+		return strings.Contains(lower, "thinking")
+	}
+	// Gemini 3 always supports thinking
+	return strings.Contains(lower, "gemini-3")
 }
 
 // SupportsThinkingTiers checks if model name allows tier suffix extraction
 func SupportsThinkingTiers(model string) bool {
 	lower := strings.ToLower(model)
 	return strings.Contains(lower, "gemini-3") ||
-		strings.Contains(lower, "gemini-2.5") ||
 		(strings.Contains(lower, "claude") && strings.Contains(lower, "thinking"))
 }
 
@@ -163,22 +178,16 @@ func ExtractThinkingTier(model string) ThinkingTier {
 	return ""
 }
 
-// GetBudgetFamily determines which budget table to use
+// GetBudgetFamily determines which budget table to use for Claude models
 func GetBudgetFamily(model string) string {
 	lower := strings.ToLower(model)
 	if strings.Contains(lower, "claude") {
 		return "claude"
 	}
-	if strings.Contains(lower, "gemini-2.5-pro") {
-		return "gemini-2.5-pro"
-	}
-	if strings.Contains(lower, "gemini-2.5-flash") {
-		return "gemini-2.5-flash"
-	}
 	return "default"
 }
 
-// GetThinkingBudgetForTier returns the thinking budget for a model and tier
+// GetThinkingBudgetForTier returns the thinking budget for a Claude model and tier
 func GetThinkingBudgetForTier(model string, tier ThinkingTier) int {
 	family := GetBudgetFamily(model)
 	budgets, ok := thinkingTierBudgets[family]
@@ -191,19 +200,28 @@ func GetThinkingBudgetForTier(model string, tier ThinkingTier) int {
 	return 0
 }
 
-// ResolveModel resolves a model name with optional tier suffix to its API model name
-// and corresponding thinking configuration
+// ResolveModel resolves an Antigravity model name with optional tier suffix
+// to its API model name and corresponding thinking configuration.
+//
+// Supported models:
+//   - gemini-3-flash, gemini-3-flash-low, gemini-3-flash-medium, gemini-3-flash-high
+//   - gemini-3-pro, gemini-3-pro-low, gemini-3-pro-high
+//   - claude-sonnet-4-5-thinking, claude-sonnet-4-5-thinking-low, etc.
+//   - claude-opus-4-5-thinking, claude-opus-4-5-thinking-high, etc.
 func ResolveModel(requestedModel string) *ResolvedModel {
 	// Strip antigravity- prefix if present
 	modelWithoutQuota := quotaPrefixRegex.ReplaceAllString(requestedModel, "")
 	lower := strings.ToLower(modelWithoutQuota)
 
 	// Determine quota preference
+	// Antigravity: Claude, GPT, and Gemini 3 tiered models
+	// Gemini CLI: Everything else (Gemini 2.5, etc.)
 	quotaPreference := "gemini-cli"
 	if quotaPrefixRegex.MatchString(requestedModel) ||
 		strings.Contains(lower, "claude") ||
 		strings.Contains(lower, "gpt") ||
-		legacyGemini3Tier.MatchString(modelWithoutQuota) {
+		legacyGemini3Tier.MatchString(modelWithoutQuota) ||
+		strings.Contains(lower, "gemini-3") {
 		quotaPreference = "antigravity"
 	}
 
