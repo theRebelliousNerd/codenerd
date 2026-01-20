@@ -1,8 +1,12 @@
 package chat
 
 import (
+	"codenerd/internal/auth/antigravity"
 	internalconfig "codenerd/internal/config"
+	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +30,9 @@ const (
 	StepCodexCLIConfig                   // NEW: Codex CLI model/sandbox/timeout config
 	StepProvider
 	StepAPIKey
+	StepAntigravityAccounts // NEW: Show existing accounts and manage them
+	StepAntigravityAddMore  // NEW: Add more accounts loop
+	StepAntigravityWaiting  // NEW: Waiting for OAuth callback
 	StepModel
 	StepShardConfig
 	StepShardModel
@@ -61,6 +68,10 @@ type ConfigWizardState struct {
 	Provider string // zai, anthropic, openai, gemini, xai
 	APIKey   string
 	Model    string
+
+	// Antigravity multi-account state
+	AntigravityAccounts  []*antigravity.Account      // Cached list of accounts
+	AntigravityAuthState *antigravity.AuthFlowResult // Current OAuth flow state
 
 	// Per-shard configuration
 	CurrentShard    string
@@ -195,6 +206,12 @@ func (m Model) handleConfigWizardInput(input string) (tea.Model, tea.Cmd) {
 		return m.configWizardProvider(input)
 	case StepAPIKey:
 		return m.configWizardAPIKey(input)
+	case StepAntigravityAccounts:
+		return m.configWizardAntigravityAccounts(input)
+	case StepAntigravityAddMore:
+		return m.configWizardAntigravityAddMore(input)
+	case StepAntigravityWaiting:
+		return m.configWizardAntigravityWaiting(input)
 	case StepModel:
 		return m.configWizardModel(input)
 	case StepShardConfig:
@@ -473,16 +490,21 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 	}
 
 	m.configWizard.Provider = provider
+
+	// Route antigravity to special OAuth flow (no API key)
+	if provider == "antigravity" {
+		return m.showAntigravityAccountsPrompt()
+	}
+
 	m.configWizard.Step = StepAPIKey
 
 	envVar := map[string]string{
-		"zai":         "ZAI_API_KEY",
-		"anthropic":   "ANTHROPIC_API_KEY",
-		"openai":      "OPENAI_API_KEY",
-		"gemini":      "GEMINI_API_KEY",
-		"antigravity": "GOOGLE_APPLICATION_CREDENTIALS", // Technically token, but this skips key entry
-		"xai":         "XAI_API_KEY",
-		"openrouter":  "OPENROUTER_API_KEY",
+		"zai":        "ZAI_API_KEY",
+		"anthropic":  "ANTHROPIC_API_KEY",
+		"openai":     "OPENAI_API_KEY",
+		"gemini":     "GEMINI_API_KEY",
+		"xai":        "XAI_API_KEY",
+		"openrouter": "OPENROUTER_API_KEY",
 	}[provider]
 
 	m.history = append(m.history, Message{
@@ -499,6 +521,362 @@ Enter your API key for %s:
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
+}
+
+// =============================================================================
+// ANTIGRAVITY MULTI-ACCOUNT WIZARD
+// =============================================================================
+
+// showAntigravityAccountsPrompt shows existing accounts and options.
+func (m Model) showAntigravityAccountsPrompt() (tea.Model, tea.Cmd) {
+	m.configWizard.Step = StepAntigravityAccounts
+
+	// Load existing accounts
+	store, err := antigravity.NewAccountStore()
+	if err != nil {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("**Error loading accounts:** %v\n\nPress Enter to continue with OAuth flow.", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	accounts := store.ListAccounts()
+	m.configWizard.AntigravityAccounts = accounts
+
+	var sb strings.Builder
+	sb.WriteString(`## Step 2: Google Antigravity Accounts
+
+**Antigravity** uses Google OAuth for authentication (no API key needed).
+You can add **multiple Google accounts** for load balancing and rate limit rotation.
+
+`)
+
+	if len(accounts) > 0 {
+		sb.WriteString("### Existing Accounts\n\n")
+		sb.WriteString("| # | Email | Health | Project | Status |\n")
+		sb.WriteString("|---|-------|--------|---------|--------|\n")
+		for i, acc := range accounts {
+			health := store.GetEffectiveScore(acc)
+			status := "healthy"
+			if health < 30 {
+				status = "exhausted"
+			} else if health < 50 {
+				status = "degraded"
+			}
+			projectID := acc.ProjectID
+			if len(projectID) > 12 {
+				projectID = projectID[:12] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("| %d | %s | %d/100 | %s | %s |\n",
+				i+1, acc.Email, health, projectID, status))
+		}
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString("*No accounts configured yet.*\n\n")
+	}
+
+	sb.WriteString(`### Benefits of Multiple Accounts
+- **Rate limit rotation**: When one account hits 429, automatically switch to another
+- **Higher throughput**: Distribute requests across accounts
+- **Fault tolerance**: Continue working if one account has issues
+
+### Options
+- **a** = Add a new Google account (opens browser for OAuth)
+- **d** = Done, proceed with current accounts
+`)
+
+	if len(accounts) > 0 {
+		sb.WriteString("- **r <#>** = Remove account by number\n")
+	}
+
+	sb.WriteString("\nEnter your choice:")
+
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: sb.String(),
+		Time:    time.Now(),
+	})
+	m.textarea.Placeholder = "Enter choice (a=add, d=done)..."
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// configWizardAntigravityAccounts handles account management choices.
+func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd) {
+	input = strings.ToLower(strings.TrimSpace(input))
+
+	switch {
+	case input == "a" || input == "add":
+		// Start OAuth flow
+		return m.startAntigravityOAuth()
+
+	case input == "d" || input == "done" || input == "":
+		// Check if we have at least one account
+		if len(m.configWizard.AntigravityAccounts) == 0 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "**Warning:** No accounts configured. You need at least one account to use Antigravity.\n\nEnter **a** to add an account, or **q** to go back and choose a different provider.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		// Proceed to model selection
+		return m.showAntigravityModelPrompt()
+
+	case strings.HasPrefix(input, "r ") || strings.HasPrefix(input, "remove "):
+		// Remove account by number
+		parts := strings.Fields(input)
+		if len(parts) < 2 {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: "Please specify account number to remove, e.g., `r 1`",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		num, err := strconv.Atoi(parts[1])
+		if err != nil || num < 1 || num > len(m.configWizard.AntigravityAccounts) {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Invalid account number. Enter 1-%d.", len(m.configWizard.AntigravityAccounts)),
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+		// Remove the account
+		store, _ := antigravity.NewAccountStore()
+		email := m.configWizard.AntigravityAccounts[num-1].Email
+		if err := store.DeleteAccount(email); err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**Error removing account:** %v", err),
+				Time:    time.Now(),
+			})
+		} else {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Removed account: **%s**", email),
+				Time:    time.Now(),
+			})
+		}
+		// Refresh the account list
+		return m.showAntigravityAccountsPrompt()
+
+	case input == "q" || input == "back":
+		// Go back to provider selection
+		m.configWizard.Step = StepProvider
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: `## Step 2: LLM Provider
+
+Which LLM provider would you like to use?
+
+| # | Provider | Description |
+|---|----------|-------------|
+| 1 | zai | Z.AI GLM-4.6 (default) |
+| 2 | anthropic | Anthropic Claude |
+| 3 | openai | OpenAI GPT/Codex |
+| 4 | gemini | Google Gemini |
+| 5 | antigravity | Google Cloud Code (Internal) |
+| 6 | xai | xAI Grok |
+| 7 | openrouter | OpenRouter (multi-provider gateway) |
+
+Enter a number (1-7) or provider name:`,
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "Enter provider (1-7 or name)..."
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	default:
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: "Invalid choice. Enter **a** to add account, **d** when done, or **r <#>** to remove.",
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+}
+
+// startAntigravityOAuth initiates the OAuth flow.
+func (m Model) startAntigravityOAuth() (tea.Model, tea.Cmd) {
+	// Start OAuth flow
+	authResult, err := antigravity.StartAuth()
+	if err != nil {
+		m.history = append(m.history, Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("**Error starting OAuth:** %v\n\nPress Enter to try again.", err),
+			Time:    time.Now(),
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	m.configWizard.AntigravityAuthState = authResult
+	m.configWizard.Step = StepAntigravityWaiting
+
+	// Open browser
+	openBrowserURL(authResult.AuthURL)
+
+	m.history = append(m.history, Message{
+		Role: "assistant",
+		Content: fmt.Sprintf(`## Adding Google Account
+
+Opening browser for Google OAuth...
+
+If the browser doesn't open automatically, visit:
+%s
+
+**Waiting for authentication...**
+
+After signing in, the wizard will continue automatically.
+Press **c** to cancel and go back.`, authResult.AuthURL),
+		Time: time.Now(),
+	})
+	m.textarea.Placeholder = "Waiting for OAuth... (c=cancel)"
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+
+	// Return a command that will wait for the OAuth callback
+	return m, waitForAntigravityOAuth(authResult)
+}
+
+// waitForAntigravityOAuth returns a command that waits for OAuth callback.
+func waitForAntigravityOAuth(authResult *antigravity.AuthFlowResult) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		code, err := antigravity.WaitForCallback(ctx, authResult.State)
+		if err != nil {
+			return antigravityOAuthResultMsg{err: err}
+		}
+
+		// Exchange code for tokens
+		tm, err := antigravity.NewTokenManager()
+		if err != nil {
+			return antigravityOAuthResultMsg{err: err}
+		}
+
+		token, err := tm.ExchangeCode(ctx, code, authResult.Verifier)
+		if err != nil {
+			return antigravityOAuthResultMsg{err: err}
+		}
+
+		// Create account
+		account := &antigravity.Account{
+			Email:        token.Email,
+			RefreshToken: token.RefreshToken,
+			AccessToken:  token.AccessToken,
+			AccessExpiry: token.Expiry,
+			ProjectID:    token.ProjectID,
+		}
+
+		// Resolve project ID if not set
+		if account.ProjectID == "" {
+			resolver := antigravity.NewProjectResolver(token.AccessToken)
+			if pid, err := resolver.ResolveProjectID(); err == nil {
+				account.ProjectID = pid
+			}
+		}
+
+		// Add to store
+		store, err := antigravity.NewAccountStore()
+		if err != nil {
+			return antigravityOAuthResultMsg{err: err}
+		}
+
+		if err := store.AddAccount(account); err != nil {
+			return antigravityOAuthResultMsg{err: err}
+		}
+
+		return antigravityOAuthResultMsg{account: account}
+	}
+}
+
+// antigravityOAuthResultMsg is the message returned when OAuth completes.
+type antigravityOAuthResultMsg struct {
+	account *antigravity.Account
+	err     error
+}
+
+// configWizardAntigravityWaiting handles input while waiting for OAuth.
+func (m Model) configWizardAntigravityWaiting(input string) (tea.Model, tea.Cmd) {
+	if strings.ToLower(strings.TrimSpace(input)) == "c" {
+		// Cancel and go back
+		m.configWizard.AntigravityAuthState = nil
+		return m.showAntigravityAccountsPrompt()
+	}
+	// Ignore other input, still waiting
+	return m, nil
+}
+
+// configWizardAntigravityAddMore handles the "add more accounts" prompt.
+func (m Model) configWizardAntigravityAddMore(input string) (tea.Model, tea.Cmd) {
+	input = strings.ToLower(strings.TrimSpace(input))
+	if input == "y" || input == "yes" {
+		return m.startAntigravityOAuth()
+	}
+	// Proceed to model selection
+	return m.showAntigravityModelPrompt()
+}
+
+// showAntigravityModelPrompt shows model selection for Antigravity.
+func (m Model) showAntigravityModelPrompt() (tea.Model, tea.Cmd) {
+	m.configWizard.Step = StepModel
+
+	models := ProviderModels["antigravity"]
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("## Step 3: Model Selection\n\nAvailable models for **antigravity**:\n\n"))
+	sb.WriteString("| # | Model | Description |\n")
+	sb.WriteString("|---|-------|-------------|\n")
+	for i, model := range models {
+		defaultMark := ""
+		if i == 0 {
+			defaultMark = " (default)"
+		}
+		sb.WriteString(fmt.Sprintf("| %d | %s | %s |\n", i+1, model, defaultMark))
+	}
+	sb.WriteString("\nEnter a number or model name (Enter for default):")
+
+	m.history = append(m.history, Message{
+		Role:    "assistant",
+		Content: sb.String(),
+		Time:    time.Now(),
+	})
+	m.textarea.Placeholder = "Enter model (or Enter for default)..."
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// openBrowserURL opens a URL in the default browser.
+func openBrowserURL(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
 }
 
 // configWizardAPIKey handles API key input.
@@ -945,7 +1323,16 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	default: // "api"
 		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", w.Provider))
 		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.Model))
-		if w.APIKey != "" {
+		if w.Provider == "antigravity" {
+			// Show Antigravity accounts instead of API key
+			sb.WriteString(fmt.Sprintf("- **Auth**: Google OAuth (%d account(s))\n", len(w.AntigravityAccounts)))
+			if len(w.AntigravityAccounts) > 0 {
+				sb.WriteString("- **Accounts**:\n")
+				for _, acc := range w.AntigravityAccounts {
+					sb.WriteString(fmt.Sprintf("  - %s\n", acc.Email))
+				}
+			}
+		} else if w.APIKey != "" {
 			sb.WriteString("- **API Key**: ******* (set)\n")
 		} else {
 			sb.WriteString("- **API Key**: (using environment variable)\n")
@@ -1161,6 +1548,14 @@ func (m Model) saveConfigWizard() error {
 			userCfg.XAIAPIKey = w.APIKey
 		case "openrouter":
 			userCfg.OpenRouterAPIKey = w.APIKey
+		case "antigravity":
+			// Antigravity uses OAuth, not API keys
+			// Accounts are stored separately in ~/.nerd/antigravity_accounts.json
+			// Just set the Antigravity config with thinking enabled
+			userCfg.Antigravity = &internalconfig.AntigravityProviderConfig{
+				EnableThinking: true,
+				ThinkingLevel:  "high",
+			}
 		}
 	}
 

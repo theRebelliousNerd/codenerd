@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/auth/antigravity"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
@@ -1360,6 +1361,56 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		// The knowledge is now available via m.pendingKnowledge which
 		// will be injected into SessionContext by buildSessionContext()
 		return m, m.processInputWithKnowledge(msg.OriginalInput)
+
+	case antigravityOAuthResultMsg:
+		// Handle OAuth result from Antigravity account addition
+		if m.configWizard == nil || m.configWizard.Step != StepAntigravityWaiting {
+			// Ignore if not in the right wizard state
+			return m, nil
+		}
+
+		if msg.err != nil {
+			m.history = append(m.history, Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("**OAuth Failed:** %v\n\nPress Enter to try again or **q** to go back.", msg.err),
+				Time:    time.Now(),
+			})
+			m.configWizard.Step = StepAntigravityAccounts
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			return m, nil
+		}
+
+		// Success! Show confirmation and ask if they want to add more
+		m.configWizard.AntigravityAuthState = nil
+		m.configWizard.Step = StepAntigravityAddMore
+
+		// Refresh the account list
+		store, _ := antigravity.NewAccountStore()
+		if store != nil {
+			m.configWizard.AntigravityAccounts = store.ListAccounts()
+		}
+
+		m.history = append(m.history, Message{
+			Role: "assistant",
+			Content: fmt.Sprintf(`## Account Added Successfully!
+
+**Email:** %s
+**Project:** %s
+
+You now have **%d account(s)** configured.
+
+For better rate limit handling, consider adding more accounts.
+Would you like to add another Google account? (y/n)`,
+				msg.account.Email,
+				msg.account.ProjectID,
+				len(m.configWizard.AntigravityAccounts)),
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "Add another account? (y/n)..."
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
