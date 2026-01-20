@@ -30,7 +30,11 @@ func (m *MockKernel) Query(predicate string) ([]core.Fact, error) {
 }
 
 func (m *MockKernel) QueryAll() (map[string][]core.Fact, error) {
-	return nil, nil
+	results := make(map[string][]core.Fact)
+	for _, f := range m.Facts {
+		results[f.Predicate] = append(results[f.Predicate], f)
+	}
+	return results, nil
 }
 
 func (m *MockKernel) Assert(fact core.Fact) error {
