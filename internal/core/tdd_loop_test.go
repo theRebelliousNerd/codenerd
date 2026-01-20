@@ -54,6 +54,11 @@ func (m *MockKernel) Assert(fact Fact) error {
 	return nil
 }
 
+func (m *MockKernel) AssertBatch(facts []Fact) error {
+	m.Facts = append(m.Facts, facts...)
+	return nil
+}
+
 func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	if m.QueryFunc != nil {
 		return m.QueryFunc(predicate)

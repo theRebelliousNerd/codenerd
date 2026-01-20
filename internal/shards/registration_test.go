@@ -37,6 +37,7 @@ func (m *mockKernel) LoadFacts(facts []types.Fact) error                        
 func (m *mockKernel) Query(predicate string) ([]types.Fact, error)                   { return nil, nil }
 func (m *mockKernel) QueryAll() (map[string][]types.Fact, error)                     { return nil, nil }
 func (m *mockKernel) Assert(fact types.Fact) error                                   { return nil }
+func (m *mockKernel) AssertBatch(facts []types.Fact) error                           { return nil }
 func (m *mockKernel) Retract(predicate string) error                                 { return nil }
 func (m *mockKernel) RetractFact(fact types.Fact) error                              { return nil }
 func (m *mockKernel) UpdateSystemFacts() error                                       { return nil }
