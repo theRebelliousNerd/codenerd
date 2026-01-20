@@ -90,10 +90,10 @@ func ResetGlobalCortex() {
 type Cortex struct {
 	Kernel         core.Kernel
 	LLMClient      perception.LLMClient
-	ShardManager   *coreshards.ShardManager // DEPRECATED: Use TaskExecutor instead
-	TaskExecutor   session.TaskExecutor     // New: unified task execution interface
+	ShardManager   *coreshards.ShardManager // For shard management (profiles, system shards). Use TaskExecutor for task execution.
+	TaskExecutor   session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
 	VirtualStore   *core.VirtualStore
-	Transducer     *perception.RealTransducer
+	Transducer     perception.Transducer
 	Orchestrator   *autopoiesis.Orchestrator
 	BrowserManager *browser.SessionManager
 	Scanner        *world.Scanner
@@ -104,57 +104,44 @@ type Cortex struct {
 }
 
 // SpawnTask is the unified entry point for task execution.
-// It uses TaskExecutor when available, falling back to ShardManager.
-//
-// Migration helper: replaces direct ShardManager.Spawn() calls.
-// Usage: cortex.SpawnTask(ctx, "coder", "fix the bug")
+// System shards (Type S) are routed to ShardManager for lifecycle management.
+// All other tasks go through TaskExecutor.
 func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (string, error) {
 	normalized := normalizeShardTypeName(shardType)
+
+	// System shards (Type S) require ShardManager for lifecycle management
 	if c.ShardManager != nil {
 		if cfg, ok := c.ShardManager.GetProfile(normalized); ok && cfg.Type == types.ShardTypeSystem {
 			return c.ShardManager.Spawn(ctx, normalized, task)
 		}
 	}
 
-	// Prefer TaskExecutor when available
-	if c.TaskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(normalized)
-		return c.TaskExecutor.Execute(ctx, intent, task)
+	// All other tasks go through TaskExecutor
+	if c.TaskExecutor == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Fall back to ShardManager
-	if c.ShardManager != nil {
-		return c.ShardManager.Spawn(ctx, normalized, task)
-	}
-
-	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+	intent := session.LegacyShardNameToIntent(normalized)
+	return c.TaskExecutor.Execute(ctx, intent, task)
 }
 
 // SpawnTaskWithContext spawns a task with additional session context and priority.
 // This is used for dream mode, shadow mode, and other speculative execution scenarios.
-//
-// Migration helper: replaces ShardManager.SpawnWithPriority() calls.
-// Usage: cortex.SpawnTaskWithContext(ctx, "coder", task, sessionCtx, priority)
 func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
 	normalized := normalizeShardTypeName(shardType)
+
+	// System shards (Type S) require ShardManager for lifecycle management
 	if c.ShardManager != nil {
 		if cfg, ok := c.ShardManager.GetProfile(normalized); ok && cfg.Type == types.ShardTypeSystem {
 			return c.ShardManager.SpawnWithPriority(ctx, normalized, task, sessionCtx, priority)
 		}
 	}
 
-	// Prefer TaskExecutor with native dream/priority support
-	if c.TaskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(normalized)
-		return c.TaskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	// All other tasks go through TaskExecutor
+	if c.TaskExecutor == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Fall back to ShardManager
-	if c.ShardManager != nil {
-		return c.ShardManager.SpawnWithPriority(ctx, normalized, task, sessionCtx, priority)
-	}
-
-	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+	intent := session.LegacyShardNameToIntent(normalized)
+	return c.TaskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
 }
 
 func normalizeShardTypeName(typeName string) string {
@@ -287,7 +274,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize learning store: %v\n", err)
 	}
 
-	transducer := perception.NewRealTransducer(llmClient)
+	transducer := perception.NewUnderstandingTransducer(llmClient)
 	var kernel SystemKernel
 	if cfg.KernelOverride != nil {
 		kernel = cfg.KernelOverride

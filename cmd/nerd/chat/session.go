@@ -1028,7 +1028,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Initialize Background Observer Manager (for Northstar alignment guardian, etc.)
 		logStep("Setting up background observers...")
-		observerMgr := shards.NewBackgroundObserverManager(&shardManagerObserverSpawner{shardMgr})
+		observerMgr := shards.NewBackgroundObserverManager(&taskExecutorObserverSpawner{taskExecutor})
 		// Register Northstar as a background observer (if available)
 		if err := observerMgr.RegisterObserver("northstar"); err == nil {
 			// Don't start yet - will be started on demand
@@ -1051,7 +1051,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Initialize Consultation Manager (cross-specialist collaboration protocol)
 		logStep("Setting up consultation protocol...")
-		consultationMgr := shards.NewConsultationManager(&shardManagerConsultationSpawner{shardMgr})
+		consultationMgr := shards.NewConsultationManager(&taskExecutorConsultationSpawner{taskExecutor})
 		logging.Get(logging.CategoryBoot).Info("Consultation manager initialized")
 
 		fmt.Printf("\r\033[K[boot] Complete! (%.1fs)\n", time.Since(bootStart).Seconds())
@@ -1103,28 +1103,30 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 	}
 }
 
-// shardManagerObserverSpawner adapts ShardManager to ObserverSpawner interface.
-type shardManagerObserverSpawner struct {
-	shardMgr *coreshards.ShardManager
+// taskExecutorObserverSpawner adapts TaskExecutor to ObserverSpawner interface.
+type taskExecutorObserverSpawner struct {
+	executor session.TaskExecutor
 }
 
-func (s *shardManagerObserverSpawner) SpawnObserver(ctx context.Context, observerName, task string) (string, error) {
-	if s.shardMgr == nil {
-		return "", fmt.Errorf("shard manager not available")
+func (s *taskExecutorObserverSpawner) SpawnObserver(ctx context.Context, observerName, task string) (string, error) {
+	if s.executor == nil {
+		return "", fmt.Errorf("task executor not available")
 	}
-	return s.shardMgr.Spawn(ctx, observerName, task)
+	intent := session.LegacyShardNameToIntent(observerName)
+	return s.executor.Execute(ctx, intent, task)
 }
 
-// shardManagerConsultationSpawner adapts ShardManager to ConsultationSpawner interface.
-type shardManagerConsultationSpawner struct {
-	shardMgr *coreshards.ShardManager
+// taskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner interface.
+type taskExecutorConsultationSpawner struct {
+	executor session.TaskExecutor
 }
 
-func (s *shardManagerConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
-	if s.shardMgr == nil {
-		return "", fmt.Errorf("shard manager not available")
+func (s *taskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
+	if s.executor == nil {
+		return "", fmt.Errorf("task executor not available")
 	}
-	return s.shardMgr.Spawn(ctx, specialistName, task)
+	intent := session.LegacyShardNameToIntent(specialistName)
+	return s.executor.Execute(ctx, intent, task)
 }
 
 // northstarHandlerAdapter adapts northstar.BackgroundEventHandler to shards.NorthstarHandler interface.

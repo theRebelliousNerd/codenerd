@@ -80,6 +80,11 @@ func (m *MockTransducer) ParseIntentWithContext(ctx context.Context, input strin
 	return m.ParseIntent(ctx, input)
 }
 
+func (m *MockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+	intent, err := m.ParseIntent(ctx, input)
+	return intent, nil, err
+}
+
 func (m *MockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }

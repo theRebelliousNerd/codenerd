@@ -22,8 +22,8 @@ type Orchestrator struct {
 	// Core components
 	kernel       core.Kernel
 	llmClient    perception.LLMClient
-	shardMgr     *coreshards.ShardManager // DEPRECATED: Use taskExecutor instead
-	taskExecutor session.TaskExecutor     // New: unified task execution interface
+	shardMgr     *coreshards.ShardManager // For monitoring (GetActiveShards, GetBackpressureStatus). Use taskExecutor for task execution.
+	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
 	executor     tactile.Executor
 	virtualStore *core.VirtualStore
 	transducer   perception.Transducer
@@ -86,8 +86,8 @@ type OrchestratorConfig struct {
 	Kernel               core.Kernel
 	LLMClient            perception.LLMClient
 	Transducer           perception.Transducer    // Optional: Inject transducer for testing
-	ShardManager         *coreshards.ShardManager // DEPRECATED: Use TaskExecutor instead
-	TaskExecutor         session.TaskExecutor     // New: unified task execution interface
+	ShardManager         *coreshards.ShardManager // For monitoring. Use TaskExecutor for task execution.
+	TaskExecutor         session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
 	Executor             tactile.Executor
 	VirtualStore         *core.VirtualStore
 	ProgressChan         chan Progress

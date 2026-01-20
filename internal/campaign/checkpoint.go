@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -17,40 +16,26 @@ import (
 // CheckpointRunner runs verification checkpoints for phases.
 type CheckpointRunner struct {
 	executor     tactile.Executor
-	shardMgr     *coreshards.ShardManager // DEPRECATED: Use taskExecutor instead
-	taskExecutor session.TaskExecutor      // New: unified task execution
+	taskExecutor session.TaskExecutor
 	workspace    string
 }
 
 // NewCheckpointRunner creates a new checkpoint runner.
-func NewCheckpointRunner(executor tactile.Executor, shardMgr *coreshards.ShardManager, workspace string) *CheckpointRunner {
+func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExecutor, workspace string) *CheckpointRunner {
 	return &CheckpointRunner{
-		executor:  executor,
-		shardMgr:  shardMgr,
-		workspace: workspace,
+		executor:     executor,
+		taskExecutor: taskExecutor,
+		workspace:    workspace,
 	}
-}
-
-// SetTaskExecutor sets the task executor for JIT-driven execution.
-func (cr *CheckpointRunner) SetTaskExecutor(te session.TaskExecutor) {
-	cr.taskExecutor = te
 }
 
 // spawnTask is the unified entry point for task execution.
-// Uses TaskExecutor when available, falling back to ShardManager.
 func (cr *CheckpointRunner) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
-	// Prefer TaskExecutor
-	if cr.taskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(shardType)
-		return cr.taskExecutor.Execute(ctx, intent, task)
+	if cr.taskExecutor == nil {
+		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-
-	// Fall back to ShardManager
-	if cr.shardMgr != nil {
-		return cr.shardMgr.Spawn(ctx, shardType, task)
-	}
-
-	return "", fmt.Errorf("no executor available: both TaskExecutor and ShardManager are nil")
+	intent := session.LegacyShardNameToIntent(shardType)
+	return cr.taskExecutor.Execute(ctx, intent, task)
 }
 
 // Run executes a checkpoint based on the verification method.
@@ -202,9 +187,9 @@ func (cr *CheckpointRunner) runManualReviewCheckpoint(ctx context.Context, phase
 
 // runShardValidationCheckpoint spawns a reviewer shard to validate the phase.
 func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
-	if cr.shardMgr == nil {
-		logging.CampaignDebug("runShardValidationCheckpoint: no shard manager, skipping")
-		return true, "Shard validation skipped (no shard manager)", nil
+	if cr.taskExecutor == nil {
+		logging.CampaignDebug("runShardValidationCheckpoint: no task executor, skipping")
+		return true, "Shard validation skipped (no task executor)", nil
 	}
 
 	logging.Campaign("runShardValidationCheckpoint: spawning reviewer shard for phase=%s", phase.Name)
@@ -254,9 +239,9 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 // runNemesisGauntletCheckpoint spawns the Nemesis shard to perform adversarial review.
 // This is best-effort: if Nemesis isn't available, we skip rather than fail hard.
 func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, phase *Phase) (bool, string, error) {
-	if cr.shardMgr == nil {
-		logging.CampaignDebug("runNemesisGauntletCheckpoint: no shard manager, skipping")
-		return true, "Nemesis shard manager unavailable, skipping adversarial checkpoint", nil
+	if cr.taskExecutor == nil {
+		logging.CampaignDebug("runNemesisGauntletCheckpoint: no task executor, skipping")
+		return true, "Nemesis task executor unavailable, skipping adversarial checkpoint", nil
 	}
 
 	phaseName := ""

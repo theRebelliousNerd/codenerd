@@ -9,11 +9,10 @@ import (
 	"codenerd/internal/core"
 )
 
-// UnderstandingTransducer wraps LLMTransducer to provide the same interface
-// as RealTransducer, enabling gradual migration to LLM-first classification.
+// UnderstandingTransducer implements the Transducer interface using LLM-first classification.
+// It provides deep semantic understanding of user intent through structured LLM output parsing.
 //
-// This adapter converts Understanding → Intent for backward compatibility
-// while the rest of the system is migrated to use Understanding directly.
+// This is the canonical transducer implementation for codeNERD's perception layer.
 type UnderstandingTransducer struct {
 	llmTransducer     *LLMTransducer
 	client            LLMClient
@@ -90,7 +89,7 @@ func getUnderstandingPrompt(ctx context.Context, pa *articulation.PromptAssemble
 }
 
 // ParseIntent parses user input into an Intent using LLM-first classification.
-// This is the main entry point, compatible with RealTransducer.
+// This is the main entry point implementing the Transducer interface.
 func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
 	return t.ParseIntentWithContext(ctx, input, nil)
 }
@@ -288,6 +287,20 @@ func (t *UnderstandingTransducer) ResolveFocus(ctx context.Context, reference st
 		ResolvedPath:      reference,
 		ConfidencePercent: 30,
 	}, nil
+}
+
+// ParseIntentWithGCD implements the Transducer interface for Grammar-Constrained Decoding.
+// For UnderstandingTransducer, this is equivalent to ParseIntentWithContext since
+// the LLM-first approach uses structured JSON output instead of Mangle syntax validation.
+// The returned mangle updates are always empty as LLM-first doesn't generate raw Mangle.
+func (t *UnderstandingTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []ConversationTurn, maxRetries int) (Intent, []string, error) {
+	intent, err := t.ParseIntentWithContext(ctx, input, history)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	// LLM-first transducer doesn't produce raw Mangle updates;
+	// the Understanding struct is already validated JSON
+	return intent, nil, nil
 }
 
 // GetLastUnderstanding returns the last Understanding for debugging.
