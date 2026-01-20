@@ -56,10 +56,10 @@ type ObserverAssessment struct {
 type AssessmentLevel string
 
 const (
-	LevelProceed  AssessmentLevel = "proceed"  // Score >= 80: All good
-	LevelNote     AssessmentLevel = "note"     // Score 60-79: Proceed with note
-	LevelClarify  AssessmentLevel = "clarify"  // Score 40-59: Needs justification
-	LevelBlock    AssessmentLevel = "block"    // Score < 40: Block for review
+	LevelProceed AssessmentLevel = "proceed" // Score >= 80: All good
+	LevelNote    AssessmentLevel = "note"    // Score 60-79: Proceed with note
+	LevelClarify AssessmentLevel = "clarify" // Score 40-59: Needs justification
+	LevelBlock   AssessmentLevel = "block"   // Score < 40: Block for review
 )
 
 // GetAssessmentLevel returns the level based on score.
@@ -178,6 +178,7 @@ func (m *BackgroundObserverManager) Stop() {
 }
 
 // RegisterObserver registers an observer specialist for background monitoring.
+// TODO: Implement Observer pattern wiring for cross-shard notification if not already handled by Mangle/JIT.
 func (m *BackgroundObserverManager) RegisterObserver(name string) error {
 	class, ok := GetSpecialistClassification(name)
 	if !ok {

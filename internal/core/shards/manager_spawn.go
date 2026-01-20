@@ -281,10 +281,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	shardTypeAtom := "/" + typeName
 	if sm.kernel != nil {
+		// TODO: Handle error properly - kernel assertion failure should be logged or handled
 		_ = sm.kernel.Assert(types.Fact{
 			Predicate: "active_shard",
 			Args:      []interface{}{id, shardTypeAtom},
 		})
+		// TODO: Handle error properly - kernel assertion failure should be logged or handled
 		_ = sm.kernel.Assert(types.Fact{
 			Predicate: "shard_status",
 			Args:      []interface{}{id, "/running", task},
@@ -325,10 +327,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 				logging.Audit().ShardComplete(id, task, 0, false, panicErr.Error())
 
 				if sm.kernel != nil {
+					// TODO: Handle error properly - kernel retraction failure should be logged or handled
 					_ = sm.kernel.RetractFact(types.Fact{
 						Predicate: "active_shard",
 						Args:      []interface{}{id, shardTypeAtom},
 					})
+					// TODO: Handle error properly - kernel retraction failure should be logged or handled
 					_ = sm.kernel.RetractFact(types.Fact{
 						Predicate: "shard_status",
 						Args:      []interface{}{id, "/running", task},
@@ -359,10 +363,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		sm.recordResult(id, res, err)
 
 		if sm.kernel != nil {
+			// TODO: Handle error properly - kernel retraction failure should be logged or handled
 			_ = sm.kernel.RetractFact(types.Fact{
 				Predicate: "active_shard",
 				Args:      []interface{}{id, shardTypeAtom},
 			})
+			// TODO: Handle error properly - kernel retraction failure should be logged or handled
 			_ = sm.kernel.RetractFact(types.Fact{
 				Predicate: "shard_status",
 				Args:      []interface{}{id, "/running", task},

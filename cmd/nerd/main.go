@@ -119,6 +119,7 @@ Run without arguments to start the interactive chat interface.`,
 		}
 		if err := logging.Initialize(ws); err != nil {
 			// Don't fail hard on logging init, but warn
+			// TODO: Implement better fallback logging mechanism (e.g. stderr-only) if file logging fails
 			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging: %v\n", err)
 		}
 
@@ -142,6 +143,7 @@ Run without arguments to start the interactive chat interface.`,
 		}
 		if ws != "" {
 			if err := os.Chdir(ws); err != nil {
+				// TODO: Handle workspace permission errors more gracefully or provide suggestions
 				return fmt.Errorf("chdir workspace: %w", err)
 			}
 		}
@@ -159,6 +161,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Z.AI API key (or set ZAI_API_KEY env)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
+	// TODO: Make default timeout configurable via config.json instead of hardcoded 25m
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")
 
 	// Define-agent flags

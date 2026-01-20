@@ -1104,6 +1104,7 @@ The NemesisShard is a **persistent adversarial specialist** that opposes the Cod
 
 ```go
 // internal/shards/nemesis/nemesis.go
+// TODO: Deprecated/Refactored. Verify if this struct still exists as a SystemShard or if it's purely Atom-based now.
 type NemesisShard struct {
     id          string
     config      core.ShardConfig

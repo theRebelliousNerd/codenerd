@@ -429,6 +429,7 @@ func GetExecutionMode(verb string) ExecutionMode {
 
 // MatchSpecialistsForTask matches registered specialists to files for any verb.
 // This is the generalized version that supports all verbs, not just /review.
+// TODO: Implement semantic matching logic for capability discovery if basic pattern matching is insufficient.
 func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, registry *AgentRegistry) []SpecialistMatch {
 	if registry == nil || len(registry.Agents) == 0 {
 		return nil
