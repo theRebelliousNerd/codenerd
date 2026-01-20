@@ -6,6 +6,7 @@ package verification
 
 import (
 	"codenerd/internal/autopoiesis"
+	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -104,7 +105,7 @@ func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
 func (v *TaskVerifier) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
 	// Prefer TaskExecutor when available
 	if v.taskExecutor != nil {
-		intent := session.LegacyShardNameToIntent(shardType)
+		intent := core.LegacyShardNameToIntent(shardType)
 		return v.taskExecutor.Execute(ctx, intent, task)
 	}
 

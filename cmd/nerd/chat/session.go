@@ -1112,7 +1112,7 @@ func (s *taskExecutorObserverSpawner) SpawnObserver(ctx context.Context, observe
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	intent := session.LegacyShardNameToIntent(observerName)
+	intent := core.LegacyShardNameToIntent(observerName)
 	return s.executor.Execute(ctx, intent, task)
 }
 
@@ -1125,7 +1125,7 @@ func (s *taskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context,
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	intent := session.LegacyShardNameToIntent(specialistName)
+	intent := core.LegacyShardNameToIntent(specialistName)
 	return s.executor.Execute(ctx, intent, task)
 }
 
