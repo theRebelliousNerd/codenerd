@@ -32,13 +32,17 @@ func (s *stubKernel) Query(predicate string) ([]Fact, error) {
 }
 func (s *stubKernel) QueryAll() (map[string][]Fact, error) { return nil, nil }
 func (s *stubKernel) Assert(f Fact) error                  { s.asserted = append(s.asserted, f); return nil }
-func (s *stubKernel) Retract(string) error                 { return nil }
-func (s *stubKernel) RetractFact(Fact) error               { return nil }
-func (s *stubKernel) UpdateSystemFacts() error             { return nil }
-func (s *stubKernel) Reset()                                                   {}
-func (s *stubKernel) AppendPolicy(string)                                      {}
-func (s *stubKernel) RemoveFactsByPredicateSet(map[string]struct{}) error      { return nil }
-func (s *stubKernel) RetractExactFactsBatch([]Fact) error                      { return nil }
+func (s *stubKernel) AssertBatch(facts []Fact) error {
+	s.asserted = append(s.asserted, facts...)
+	return nil
+}
+func (s *stubKernel) Retract(string) error                                { return nil }
+func (s *stubKernel) RetractFact(Fact) error                              { return nil }
+func (s *stubKernel) UpdateSystemFacts() error                            { return nil }
+func (s *stubKernel) Reset()                                              {}
+func (s *stubKernel) AppendPolicy(string)                                 {}
+func (s *stubKernel) RemoveFactsByPredicateSet(map[string]struct{}) error { return nil }
+func (s *stubKernel) RetractExactFactsBatch([]Fact) error                 { return nil }
 
 func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
@@ -225,12 +229,12 @@ func (s *stubShard) Execute(ctx context.Context, task string) (string, error) {
 	return "ok", nil
 }
 
-func (s *stubShard) GetID() string                    { return s.id }
-func (s *stubShard) GetState() types.ShardState       { return s.state }
-func (s *stubShard) GetConfig() types.ShardConfig     { return s.config }
-func (s *stubShard) Stop() error                      { return nil }
-func (s *stubShard) SetParentKernel(k types.Kernel)   {}
-func (s *stubShard) SetLLMClient(client types.LLMClient) {}
+func (s *stubShard) GetID() string                               { return s.id }
+func (s *stubShard) GetState() types.ShardState                  { return s.state }
+func (s *stubShard) GetConfig() types.ShardConfig                { return s.config }
+func (s *stubShard) Stop() error                                 { return nil }
+func (s *stubShard) SetParentKernel(k types.Kernel)              {}
+func (s *stubShard) SetLLMClient(client types.LLMClient)         {}
 func (s *stubShard) SetSessionContext(ctx *types.SessionContext) {}
 
 // TestPermissionCacheOptimization verifies O(1) permission lookups via the cache.

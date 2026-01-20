@@ -36,6 +36,11 @@ func (m *mockKernel) Assert(fact core.Fact) error {
 	return nil
 }
 
+func (m *mockKernel) AssertBatch(facts []core.Fact) error {
+	m.assertedFacts = append(m.assertedFacts, facts...)
+	return nil
+}
+
 func (m *mockKernel) Retract(predicate string) error {
 	return nil
 }

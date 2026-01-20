@@ -16,26 +16,8 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
 }
 
-// MockLLMClient implements LLMClient for testing
-type MockLLMClient struct {
-	CompleteFunc           func(ctx context.Context, prompt string) (string, error)
-	CompleteWithSystemFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
-}
-
-func (m *MockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-	if m.CompleteFunc != nil {
-		return m.CompleteFunc(ctx, prompt)
-	}
-	return "", nil
-}
-
-func (m *MockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	if m.CompleteWithSystemFunc != nil {
-		return m.CompleteWithSystemFunc(ctx, systemPrompt, userPrompt)
-	}
-	return "", nil
-}
-
+// =============================================================================
+// TOOL GENERATOR TESTS
 // =============================================================================
 // TOOL GENERATOR TESTS
 // =============================================================================
@@ -421,14 +403,14 @@ func TestGetTestValue(t *testing.T) {
 		{"bool", false, "false"},
 		{"map[string]any", true, `map[string]any{"key": "value"}`},
 		{"[]string", true, `[]string{"item1", "item2"}`},
-		{"*MyType", true, "&MyType{}"},              // Pointer to struct gets address-of
-		{"*MyType", false, "nil"},                   // Invalid pointer is nil
-		{"[]CustomType", true, "[]CustomType{"},     // Slice with element value
-		{"[]CustomType", false, "[]CustomType{}"},   // Empty slice
-		{"map[string]int", true, `"count": 42`}, // Map with key-value pair
-		{"chan string", true, "make(chan string"},   // Channel creation
-		{"*string", true, `s := "test"`},            // Pointer to primitive
-		{"*int", true, `i := 42`},                   // Pointer to int
+		{"*MyType", true, "&MyType{}"},            // Pointer to struct gets address-of
+		{"*MyType", false, "nil"},                 // Invalid pointer is nil
+		{"[]CustomType", true, "[]CustomType{"},   // Slice with element value
+		{"[]CustomType", false, "[]CustomType{}"}, // Empty slice
+		{"map[string]int", true, `"count": 42`},   // Map with key-value pair
+		{"chan string", true, "make(chan string"}, // Channel creation
+		{"*string", true, `s := "test"`},          // Pointer to primitive
+		{"*int", true, `i := 42`},                 // Pointer to int
 	}
 
 	for _, tt := range tests {
@@ -674,9 +656,9 @@ func TestToPascalCase(t *testing.T) {
 
 func TestExtractDescription(t *testing.T) {
 	tests := []struct {
-		name  string
-		code  string
-		want  string
+		name string
+		code string
+		want string
 	}{
 		{
 			name: "description constant",
@@ -691,9 +673,9 @@ package tools`,
 			want: "My awesome tool",
 		},
 		{
-			name:  "no description",
-			code:  `package tools`,
-			want:  "No description available",
+			name: "no description",
+			code: `package tools`,
+			want: "No description available",
 		},
 	}
 

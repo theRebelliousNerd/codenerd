@@ -3,6 +3,7 @@
 package autopoiesis
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,57 @@ func TestGetStats(t *testing.T) {
 	if stats.SafetyViolations != 0 {
 		t.Errorf("SafetyViolations = %d, want 0", stats.SafetyViolations)
 	}
+}
+
+func TestOuroborosLoop_Execute_HappyPath(t *testing.T) {
+	// Setup
+	mockLLM := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			// Return valid Go code for a tool
+			return `package tools
+import "context"
+func SimpleTool(ctx context.Context, input string) (string, error) {
+	return "result", nil
+}
+`, nil
+		},
+	}
+
+	tmpDir := t.TempDir()
+	config := DefaultOuroborosConfig(tmpDir)
+	// Disable Thunderdome to simplify test
+	config.EnableThunderdome = false
+
+	loop := NewOuroborosLoop(mockLLM, config)
+
+	need := &ToolNeed{
+		Name:       "simple_tool",
+		Purpose:    "Do simple thing",
+		InputType:  "string",
+		OutputType: "string",
+		Confidence: 0.9,
+	}
+
+	// Execute
+	result := loop.Execute(context.Background(), need)
+
+	// Verify
+	if result == nil {
+		t.Fatal("Execute returned nil")
+	}
+
+	// It might fail compilation (no go.mod), but it should reach StageCompilation or StageRegistration
+	// If it fails at compilation, Success is false, but Stage is StageCompilation
+
+	t.Logf("Result: Success=%v, Stage=%s, Error=%v", result.Success, result.Stage, result.Error)
+
+	if result.Stage == StageDetection {
+		t.Error("Loop did not progress past detection")
+	}
+
+	// Check that code generation happened (MockLLM called)
+	// We can't check mockLLM call count easily without adding tracking to MockLLM,
+	// but result state implies it.
 }
 
 // =============================================================================
