@@ -67,6 +67,7 @@ func (k *RealKernel) rebuildProgram() error {
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: analysis failed: %v", err)
 		// DEBUG: Dump program when analysis fails
+		// TODO: Handle or log error when writing debug program dump
 		_ = os.WriteFile("debug_program_ERROR.mg", []byte(programStr), 0644)
 		logging.KernelDebug("Dumped failed program to debug_program_ERROR.mg")
 		return fmt.Errorf("failed to analyze program: %w", err)
@@ -134,6 +135,7 @@ func (k *RealKernel) evaluate() error {
 	// Evaluate to fixpoint using cached programInfo
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
 	// Prevent fact explosions from recursive learned rules
+	// TODO: Configurable limit via config.json or environment instead of hardcoded constant
 	const derivedFactLimit = 500000
 	logging.KernelDebug("evaluate: running fixpoint evaluation (derivedFactLimit=%d)", derivedFactLimit)
 

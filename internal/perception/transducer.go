@@ -415,10 +415,10 @@ type TransducerWithKernel interface {
 // It supports JIT prompt compilation when provided an articulation.PromptAssembler, and
 // falls back to the legacy static prompt when JIT is unavailable.
 type RealTransducer struct {
-	client            LLMClient
-	repairLoop        *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
-	promptAssembler   *articulation.PromptAssembler
-	strategicContext  string // Strategic knowledge about the codebase from /init
+	client           LLMClient
+	repairLoop       *mangle.RepairLoop // GCD repair loop for Mangle syntax validation
+	promptAssembler  *articulation.PromptAssembler
+	strategicContext string // Strategic knowledge about the codebase from /init
 }
 
 // NewRealTransducer creates a new transducer with the given LLM client.
@@ -479,6 +479,7 @@ func (t *RealTransducer) intentSystemPrompt(ctx context.Context) string {
 // internal/prompt/atoms/perception/ for better organization and
 // documentation. However, the transducer continues to use this static prompt
 // due to import cycle constraints with the articulation package.
+// TODO: Resolve import cycle constraints to allow full migration to JIT atoms and remove this static prompt.
 const transducerSystemPrompt = `You are codeNERD, a high-assurance Logic-First CLI coding agent. You possess a Dual Consciousness.
 
 Public Self: You converse with the user naturally as their AI coding assistant.

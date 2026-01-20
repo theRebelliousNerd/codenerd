@@ -43,7 +43,8 @@ func DefaultConfig() Config {
 		FactLimit:         100000,
 		DerivedFactsLimit: 100000, // Gas limit for inference
 		QueryTimeout:      30,
-		AutoEval:          true,
+		// TODO: Consider making AutoEval configurable via environment variable or CLI flag for debugging performance issues
+		AutoEval: true,
 	}
 }
 
@@ -63,7 +64,7 @@ type Engine struct {
 	predicateIndex  map[string]ast.PredicateSym
 	schemaFragments []parse.SourceUnit
 	factCount       int
-	derivedCount    int  // Tracks derived facts for gas limit enforcement
+	derivedCount    int // Tracks derived facts for gas limit enforcement
 	factLimitWarned bool
 	autoEval        bool
 	persistence     Persistence
@@ -222,6 +223,7 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 	if derivedThisRound > 0 {
 		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
 			derivedThisRound, e.derivedCount, e.config.DerivedFactsLimit)
+		// TODO: Add telemetry metric for derived facts count to monitor inference complexity
 	}
 
 	return stats, nil
@@ -605,6 +607,7 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	}
 
 	// 2. Fall back to type matching
+	// TODO: Enhance type conversion to handle complex nested structs or map[string]interface{} recursions if needed by new sensors
 	switch v := value.(type) {
 	case ast.BaseTerm:
 		return v, nil
@@ -984,6 +987,7 @@ func (e *Engine) removeFactsLocked(file string) int {
 	}
 
 	// Fallback (should rarely happen if index is maintained)
+	// TODO: Optimize removeFactsLocked fallback path or verify index consistency guarantees to potentially remove this fallback
 	for _, sym := range e.store.ListPredicates() {
 		var doomed []ast.Atom
 		_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {

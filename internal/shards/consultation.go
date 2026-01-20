@@ -19,28 +19,28 @@ import (
 
 // ConsultationRequest represents a request for specialist advice.
 type ConsultationRequest struct {
-	RequestID    string            // Unique request identifier
-	FromSpec     string            // Requesting specialist (or "system" for auto-consult)
-	ToSpec       string            // Target specialist
-	Question     string            // The question or topic to consult on
-	Context      string            // Additional context for the consultation
-	Priority     ConsultPriority   // Urgency of the consultation
-	Metadata     map[string]string // Additional metadata
-	RequestTime  time.Time
+	RequestID   string            // Unique request identifier
+	FromSpec    string            // Requesting specialist (or "system" for auto-consult)
+	ToSpec      string            // Target specialist
+	Question    string            // The question or topic to consult on
+	Context     string            // Additional context for the consultation
+	Priority    ConsultPriority   // Urgency of the consultation
+	Metadata    map[string]string // Additional metadata
+	RequestTime time.Time
 }
 
 // ConsultationResponse represents a specialist's response to consultation.
 type ConsultationResponse struct {
-	RequestID     string
-	FromSpec      string            // Which specialist provided this
-	ToSpec        string            // Who requested this
-	Advice        string            // The advice/guidance provided
-	Confidence    float64           // 0-1 confidence in the advice
-	References    []string          // References or sources
-	Caveats       []string          // Important caveats or limitations
-	Metadata      map[string]string // Additional metadata
-	ResponseTime  time.Time
-	Duration      time.Duration
+	RequestID    string
+	FromSpec     string            // Which specialist provided this
+	ToSpec       string            // Who requested this
+	Advice       string            // The advice/guidance provided
+	Confidence   float64           // 0-1 confidence in the advice
+	References   []string          // References or sources
+	Caveats      []string          // Important caveats or limitations
+	Metadata     map[string]string // Additional metadata
+	ResponseTime time.Time
+	Duration     time.Duration
 }
 
 // ConsultPriority indicates urgency of consultation.
@@ -71,8 +71,8 @@ type ConsultationManager struct {
 	completed map[string]*ConsultationResponse
 
 	// Configuration
-	maxCacheSize    int
-	defaultTimeout  time.Duration
+	maxCacheSize   int
+	defaultTimeout time.Duration
 
 	// Spawner for consultation tasks
 	spawner ConsultationSpawner
@@ -90,6 +90,7 @@ func NewConsultationManager(spawner ConsultationSpawner) *ConsultationManager {
 }
 
 // RequestConsultation initiates a consultation request.
+// TODO: Implement Consult mechanism or remove if superseded by JIT collaboration.
 func (m *ConsultationManager) RequestConsultation(ctx context.Context, req ConsultationRequest) (*ConsultationResponse, error) {
 	if req.RequestID == "" {
 		req.RequestID = fmt.Sprintf("consult-%s-%d", req.ToSpec, time.Now().UnixNano())
