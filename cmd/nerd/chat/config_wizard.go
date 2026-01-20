@@ -115,12 +115,24 @@ var intentTypes = []string{"coder", "tester", "reviewer", "researcher"}
 
 // ProviderModels maps providers to their available models.
 var ProviderModels = map[string][]string{
-	"zai":         {"glm-4.6", "glm-4", "glm-4-air"},
-	"anthropic":   {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
-	"openai":      {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
-	"gemini":      {"gemini-3-flash-preview", "gemini-3-pro-preview"},
-	"antigravity": {"gemini-3.0-pro-exp", "claude-3-5-sonnet-v2@20241022"},
-	"xai":         {"grok-2-latest", "grok-2", "grok-beta"},
+	"zai":       {"glm-4.6", "glm-4", "glm-4-air"},
+	"anthropic": {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
+	"openai":    {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
+	"gemini":    {"gemini-3-flash-preview", "gemini-3-pro-preview"},
+	"antigravity": {
+		// Gemini 3 Flash variants (supports minimal/low/medium/high thinking levels)
+		"gemini-3-flash",
+		"gemini-3-flash-low",
+		"gemini-3-flash-medium",
+		"gemini-3-flash-high",
+		// Gemini 3 Pro variants (supports low/high thinking levels only)
+		"gemini-3-pro-low",
+		"gemini-3-pro-high",
+		// Claude via Antigravity (with thinking support)
+		"claude-sonnet-4-5-thinking",
+		"claude-opus-4-5-thinking",
+	},
+	"xai": {"grok-2-latest", "grok-2", "grok-beta"},
 	"openrouter": {
 		// Anthropic via OpenRouter
 		"anthropic/claude-3.5-sonnet",
