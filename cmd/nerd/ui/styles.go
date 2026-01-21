@@ -95,6 +95,7 @@ func DetectTheme() Theme {
 		// Format is usually "foreground;background"
 		// If background is dark (< 8), use dark theme
 		// This is a simple heuristic
+		// TODO: Implement parsing logic for COLORFGBG to detect background brightness
 	}
 
 	// Check for explicit dark mode preference

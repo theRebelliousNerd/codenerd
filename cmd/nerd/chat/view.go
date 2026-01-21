@@ -23,7 +23,7 @@ func (m Model) renderHistory() string {
 	// Optimization: Only render messages visible in viewport (with some buffer)
 	// For very long sessions, this prevents O(N) rendering on every frame
 	startIdx := 0
-// TODO: Refactor magic number 100 into a configuration constant
+	// TODO: Refactor magic number 100 into a configuration constant
 	if len(m.history) > 100 {
 		// Keep last 100 messages + some buffer for smooth scrolling
 		startIdx = len(m.history) - 100
@@ -76,7 +76,8 @@ func (m Model) renderSingleMessage(msg Message) string {
 
 	case "tool":
 		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
-	// TODO: Move inline styles to the centralized styles package
+		// TODO: Move inline styles to the centralized styles package
+		// TODO: Replace hardcoded color "214" with a theme variable
 		toolStyle := m.styles.Bold.
 			Foreground(lipgloss.Color("214")). // Orange for tool execution
 			MarginTop(1)
@@ -127,7 +128,7 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 func (m Model) safeRenderMarkdown(content string) (result string) {
 	defer func() {
 		if r := recover(); r != nil {
-		// TODO: Consider logging the panic or handling it more gracefully than just swallowing it
+			// TODO: Consider logging the panic or handling it more gracefully than just swallowing it
 			// If glamour panics, return plain text
 			result = content
 		}
@@ -143,7 +144,8 @@ func (m Model) safeRenderMarkdown(content string) (result string) {
 }
 
 func (m Model) View() string {
-// TODO: Refactor large View function by splitting into smaller sub-views or using a router pattern
+	// TODO: Refactor large View function by splitting into smaller sub-views or using a router pattern
+	// TODO: Consider using a map[ViewMode]func() string for better scalability
 	if !m.ready {
 		return "Initializing..."
 	}
