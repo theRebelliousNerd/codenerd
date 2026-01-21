@@ -170,6 +170,7 @@ func (m AutopoiesisPageModel) View() string {
 
 // SetSize updates the size.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
+// TODO: Improve table responsiveness for smaller screens
 	m.width = w
 	m.height = h
 	m.table.SetWidth(w - 4)
