@@ -1,11 +1,3 @@
-# codeNERD
-
-A high-assurance Logic-First CLI coding agent built on the Neuro-Symbolic architecture.
-
-## PUSH TO GITHUB ALL THE TIME
-
-## FOR ALL NEW LLM SYSTEMS, JIT IS THE STANDARD, ALWAYS CREATE NEW PROMPT ATOMS AND USE THE JIT SYSTEM. IT IS THE CENTRAL PARADIGM OF THE SYSTEM. JIT, PIGGYBACKING, CONTROL PACKETS, MANGLE, THAT IS THE NAME OF THE GAME!
-
 > ## ⚠️ MAJOR ARCHITECTURE UPDATE (Dec 2024): JIT Clean Loop
 >
 > **Domain shards have been DELETED** (~35,000 lines removed). The following directories no longer exist:
@@ -912,7 +904,7 @@ For detailed architecture and implementation specs, see:
 - [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
 
 
-## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time... 
+## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time...
 
 
 
@@ -1182,3 +1174,5 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 ---
 
 **Remember: Push to GitHub regularly!**
+
+> *[Archived & Reviewed by The Librarian on 2026-01-21]*
