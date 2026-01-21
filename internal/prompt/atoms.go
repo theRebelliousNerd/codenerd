@@ -551,16 +551,19 @@ func copyStringSlice(s []string) []string {
 // EmbeddedCorpus holds the embedded (baked-in) prompt atoms.
 // These are loaded at compile time and cannot be modified.
 type EmbeddedCorpus struct {
-	atoms map[string]*PromptAtom
+	atoms     map[string]*PromptAtom
+	cachedAll []*PromptAtom
 }
 
 // NewEmbeddedCorpus creates a new embedded corpus from a slice of atoms.
 func NewEmbeddedCorpus(atoms []*PromptAtom) *EmbeddedCorpus {
 	corpus := &EmbeddedCorpus{
-		atoms: make(map[string]*PromptAtom, len(atoms)),
+		atoms:     make(map[string]*PromptAtom, len(atoms)),
+		cachedAll: make([]*PromptAtom, len(atoms)),
 	}
-	for _, atom := range atoms {
+	for i, atom := range atoms {
 		corpus.atoms[atom.ID] = atom
+		corpus.cachedAll[i] = atom
 	}
 	return corpus
 }
@@ -583,11 +586,13 @@ func (c *EmbeddedCorpus) GetByCategory(category AtomCategory) []*PromptAtom {
 }
 
 // All returns all atoms in the corpus.
+// It returns a copy of the slice to prevent mutation of the internal cache.
 func (c *EmbeddedCorpus) All() []*PromptAtom {
-	result := make([]*PromptAtom, 0, len(c.atoms))
-	for _, atom := range c.atoms {
-		result = append(result, atom)
-	}
+	// Return a copy to ensure thread safety and immutability of the cache.
+	// This is O(N) allocation but safer than returning the internal slice reference,
+	// and still significantly faster than map iteration (O(N) random access).
+	result := make([]*PromptAtom, len(c.cachedAll))
+	copy(result, c.cachedAll)
 	return result
 }
 
