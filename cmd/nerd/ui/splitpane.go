@@ -96,6 +96,7 @@ func convertMangleNodeToUI(node *mangle.DerivationNode) *DerivationNode {
 		Expanded:   true, // Expand by default
 		Timestamp:  node.Timestamp,
 		Activation: 0.0, // Backend doesn't provide this yet
+		// TODO: Connect activation score from backend when available
 	}
 
 	for i, child := range node.Children {
@@ -134,6 +135,7 @@ func (p *LogicPane) SetSize(width, height int) {
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
 	if trace != nil {
+		// TODO: Optimize flattenNodes for large traces (maybe lazy loading)
 		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
 	} else {
 		p.Nodes = nil
@@ -205,6 +207,7 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 
 // renderContent renders the logic pane content
 func (p *LogicPane) renderContent() string {
+	// TODO: Add caching for rendered content
 	if p.CurrentTrace == nil {
 		return p.renderEmptyState()
 	}
@@ -294,6 +297,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
 	// Indentation
+	// TODO: Optimize indentation string generation
 	indent := strings.Repeat("  ", node.Depth)
 
 	// Tree connector
