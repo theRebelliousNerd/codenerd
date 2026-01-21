@@ -625,7 +625,7 @@ subagent, _ := spawner.SpawnForIntent(ctx, intent, task)
 - [Intent Routing](../mangle/intent_routing.mg) - Declarative persona selection
 - [ConfigFactory](../prompt/config_factory.go) - Dynamic AgentConfig generation
 - [JIT Compiler](../prompt/compiler.go) - Runtime prompt assembly
-- [Architecture Changes](../../conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
+- [Architecture Changes](../../docs/conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
 
 ---
 

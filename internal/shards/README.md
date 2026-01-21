@@ -313,7 +313,7 @@ Or use natural language:
 - [Intent Routing Rules](../mangle/intent_routing.mg) - Declarative routing logic
 - [Session Executor](../session/executor.go) - Universal execution loop
 - [ConfigFactory](../prompt/config_factory.go) - AgentConfig generation
-- [Architecture Changes](../../conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
+- [Architecture Changes](../../docs/conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md) - Migration metrics
 
 ---
 

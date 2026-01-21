@@ -7,7 +7,6 @@ Mangle schema files defining the intent classification corpus for user input tra
 | File | Description |
 |------|-------------|
 | `agents.md` | Markdown reference documenting agent/shard definitions and their capabilities. Describes the different shard types (coder, tester, reviewer, researcher, nemesis) and their routing patterns for intent-to-shard mapping. |
-| `INTENT_MODULARIZATION.md` | Documentation explaining the modularization strategy for intent definitions. Describes how the original monolithic intent.mg was split into domain-specific files for maintainability and the loading order for the Mangle engine. |
 | `intent.mg` | Legacy monolithic intent definition file (deprecated). Contains the original 400+ canonical sentence mappings before modularization. Retained for reference; prefer the modularized files for active development. |
 | `intent_campaign.mg` | Intent definitions for campaign orchestration (multi-phase, long-running tasks). Defines sentences like "Start a campaign to rewrite auth" that trigger the campaign system for complex multi-step goals. |
 | `intent_code_mutations.mg` | Intent definitions for code mutation operations (Sections 6-10). Covers fix, debug, refactor, create, and delete verbs with canonical sentences mapped to coder shard actions. |

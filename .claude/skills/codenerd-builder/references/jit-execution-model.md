@@ -755,4 +755,4 @@ This refactor embodies codeNERD's vision: a system where creative power (LLM) an
 - [Intent Routing Rules](../../internal/mangle/intent_routing.mg)
 - [ConfigFactory Implementation](../../internal/prompt/config_factory.go)
 - [Session Executor](../../internal/session/executor.go)
-- [Architecture Changes Document](../../conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md)
+- [Architecture Changes Document](../../../../docs/conductor/tracks/jit_refactor_20251226/ARCHITECTURE_CHANGES.md)

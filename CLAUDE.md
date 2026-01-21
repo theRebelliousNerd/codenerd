@@ -641,6 +641,15 @@ Large files have been modularized for maintainability. The parent file serves as
 
 The codebase includes **51 CLAUDE.md files** providing AI-readable documentation with standardized File Index tables.
 
+All other documentation has been organized into the `docs/` directory:
+- `docs/conductor/`: Project management and tracks.
+- `docs/architecture/`: Architectural decision records.
+- `docs/examples/`: Example configurations and prompts.
+- `docs/reference/`: Language references and specs.
+- `docs/scripts/`: Ad-hoc scripts and reproduction cases.
+- `docs/artifacts/`: Binary artifacts.
+- `docs/temp-audits/`: Temporary logs and coverage reports.
+
 ## Dynamic Adaptation
 
 Dynamic Adaptation is a foundational feature implemented through codeNERD's Autopoiesis (self-creation) system. This goes beyond simple learning to enable the agent to self-modify and evolve its capabilities based on experience.
@@ -912,7 +921,7 @@ For detailed architecture and implementation specs, see:
 - [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
 
 
-## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time... 
+## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time...
 
 
 
