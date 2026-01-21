@@ -138,3 +138,25 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 		t.Errorf("Expected Verified=false for stale file")
 	}
 }
+
+// TODO: TEST_GAP: Missing test for null/empty 'Target' path in ActionRequest.
+
+// TODO: TEST_GAP: Missing test for missing "content" key in 'Payload' for ActionWriteFile.
+
+// TODO: TEST_GAP: Missing test for nil 'Payload' in ActionRequest.
+
+// TODO: TEST_GAP: Verify behavior when 'content' in Payload is incorrect type (e.g., int or []byte instead of string).
+
+// TODO: TEST_GAP: Missing test for file size below 'MinFileSizeBytes' (requires configuring MinFileSizeBytes > 0).
+
+// TODO: TEST_GAP: Missing test for file size exceeding 'MaxFileSizeBytes'.
+
+// TODO: TEST_GAP: Verify behavior when the target path points to a directory instead of a regular file.
+
+// TODO: TEST_GAP: Missing test for non-existent file (os.Stat failure).
+
+// TODO: TEST_GAP: Verify behavior when file exists but read permissions are denied (os.ReadFile failure).
+
+// TODO: TEST_GAP: Missing test for double-read inconsistency (race condition where file changes between reads).
+
+// TODO: TEST_GAP: Verify content sampling logic for large files (partial match failure).
