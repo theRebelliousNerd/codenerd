@@ -110,6 +110,11 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
 
 	// 1. Generate JIT config for this subagent
+	// TODO(improvement): This is a critical section (s.mu is held), but generateConfig does IO/LLM calls.
+	// This should be moved out of the lock. Consider:
+	// 1. Check limit & reserve slot (lock)
+	// 2. Generate config (unlock)
+	// 3. Create & register agent (lock)
 	agentConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
@@ -350,6 +355,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
+		// TODO(improvement): Add fallback config strategy or retry mechanism here instead of failing hard.
 		return nil, fmt.Errorf("JIT compilation failed: %w", err)
 	}
 
@@ -362,6 +368,7 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 	configPath := filepath.Join(".nerd", "agents", name, "config.yaml")
 	logging.SessionDebug("Loading specialist config for: %s from %s", name, configPath)
 
+	// TODO(improvement): Consider using s.virtualStore.Read() if consistent with arch, or abstract file IO.
 	data, err := os.ReadFile(configPath)
 	if err == nil {
 		var cfg config.AgentConfig
