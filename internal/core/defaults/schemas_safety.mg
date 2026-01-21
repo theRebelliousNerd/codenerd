@@ -22,6 +22,12 @@ Decl forbidden(ActionType).
 # SerializationOrder: 7
 Decl dangerous_action(ActionType).
 
+# blocked_pattern(Pattern) - dangerous string patterns
+Decl blocked_pattern(Pattern).
+
+# dangerous_content(ActionType, Payload) - derived predicate for content-based blocking
+Decl dangerous_content(ActionType, Payload).
+
 # admin_override(User)
 Decl admin_override(User).
 
@@ -179,4 +185,3 @@ Decl mutation_rejected(MutationID, RejectedBy, Reason).
 # requires_approval(MutationID) - derived predicate
 # True if the mutation requires user approval before execution
 Decl requires_approval(MutationID).
-

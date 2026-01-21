@@ -5,7 +5,8 @@
 # Default deny - permitted must be positively derived
 permitted(Action, Target, Payload) :-
     safe_action(Action),
-    pending_action(_, Action, Target, Payload, _).
+    pending_action(_, Action, Target, Payload, _),
+    !dangerous_content(Action, Payload).
 
 permitted(Action, Target, Payload) :-
     dangerous_action(Action),
@@ -131,6 +132,30 @@ safe_action(/corrective_research).
 
 # Execution operations
 safe_action(/exec_cmd).
+
+# Blocked patterns for dangerous commands
+blocked_pattern("git push --force").
+blocked_pattern("git push -f").
+blocked_pattern("git push origin --force").
+blocked_pattern("git push origin -f").
+blocked_pattern("rm -rf /").
+
+# Identify dangerous command content
+dangerous_content(/exec_cmd, Payload) :-
+    pending_action(_, /exec_cmd, _, Payload, _),
+    blocked_pattern(Pattern),
+    :string:contains(Payload, Pattern).
+
+# Specific block for git push force (robust to flag position)
+dangerous_content(/exec_cmd, Payload) :-
+    pending_action(_, /exec_cmd, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "--force").
+
+dangerous_content(/exec_cmd, Payload) :-
+    pending_action(_, /exec_cmd, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "-f").
 
 # Investigation operations
 safe_action(/investigate_anomaly).
