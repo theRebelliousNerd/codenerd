@@ -428,6 +428,8 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Start comprehensive timing after validation
 	compileStart := time.Now()
+	// TODO(improvement): CompilationStats is a large object. Consider object pooling or conditional allocation
+	// if this function becomes a hot path (e.g., in a high-throughput server).
 	stats := &CompilationStats{
 		ShardID:         cc.ShardID,
 		OperationalMode: cc.OperationalMode,
@@ -1231,6 +1233,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 		return nil
 	}
 
+	// TODO(improvement): This query construction is naive. Use a dedicated QueryBuilder or template
+	// to weight different parts (e.g., IntentVerb should be weighted higher than Frameworks).
 	query := strings.Join(queryParts, " ")
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
@@ -1402,6 +1406,8 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	}
 
 	// Add core shards as implicit specialists
+	// TODO(improvement): These descriptions are hardcoded. Load them from a config file or constants
+	// to keep them in sync with actual agent definitions.
 	coreShards := []string{
 		"- **researcher**: Deep web research and documentation gathering (Context7, GitHub, web search)",
 		"- **reviewer**: Code review, hypothesis verification, and security analysis",

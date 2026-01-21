@@ -423,6 +423,7 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string {
+	// TODO(improvement): Use a struct and json.Marshal instead of manual string building to ensure valid JSON examples.
 	var catalog strings.Builder
 	catalog.WriteString("\n## Available Tools\n\n")
 	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
@@ -858,6 +859,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	}
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
+	// TODO(improvement): Add more granular safety policies here. Currently it's a binary allow/deny.
 	return false
 }
 
