@@ -446,7 +446,7 @@ func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *Fil
 	}
 
 	// Very simple diff algorithm - show all old as removed, all new as added
-	// A real implementation would use LCS or Myers diff
+	// TODO: Use a real diff algorithm like LCS or Myers diff
 	for i, line := range oldLines {
 		hunk.Lines = append(hunk.Lines, DiffLine{
 			LineNum: i + 1,
