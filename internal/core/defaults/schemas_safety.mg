@@ -43,6 +43,9 @@ Decl network_permitted(URL).
 # security_violation_type(ViolationType) - derived: simple violation type flag
 Decl security_violation_type(ViolationType).
 
+# requires_permission(ActionType) - derived: action type requires explicit permission
+Decl requires_permission(ActionType).
+
 # -----------------------------------------------------------------------------
 # SECTION 11A: APPEAL MECHANISM (Constitutional Appeals)
 # -----------------------------------------------------------------------------
