@@ -525,3 +525,9 @@ func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, us
 		StopReason: "end_turn",
 	}, nil
 }
+
+// ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
+// for tool invocation, since the Codex CLI does not natively support tool calling.
+func (c *CodexCLIClient) ShouldUsePiggybackTools() bool {
+	return true
+}

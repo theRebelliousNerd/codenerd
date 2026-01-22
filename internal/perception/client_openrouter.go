@@ -33,7 +33,7 @@ func DefaultOpenRouterConfig(apiKey string) OpenRouterConfig {
 		APIKey:   apiKey,
 		BaseURL:  "https://openrouter.ai/api/v1",
 		Model:    "anthropic/claude-3.5-sonnet", // Good default for coding
-		Timeout:  10 * time.Minute,            // Large context models need extended timeout
+		Timeout:  10 * time.Minute,              // Large context models need extended timeout
 		SiteName: "codeNERD",
 	}
 }
@@ -396,15 +396,44 @@ func (c *OpenRouterClient) GetModel() string {
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// TODO: Implement proper OpenRouter function calling - for now falls back to simple completion.
+// CompleteWithTools sends a prompt with tool definitions.
 func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Fallback: Use simple completion without tools
-	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := OpenAIRequest{
+		Model: c.model,
+		Messages: []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto",
+		Stream:     false,
+	}
+
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
 	if err != nil {
 		return nil, err
 	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+
+	stopReason := choice.FinishReason
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use"
+	}
+
 	return &LLMToolResponse{
-		Text:       text,
-		StopReason: "end_turn",
+		Text:       choice.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
 	}, nil
 }
