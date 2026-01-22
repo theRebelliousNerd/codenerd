@@ -37,7 +37,7 @@ func DefaultOpenAIConfig(apiKey string) OpenAIConfig {
 		APIKey:  apiKey,
 		BaseURL: "https://api.openai.com/v1",
 		Model:   "gpt-5.1-codex-max", // Best Codex model for coding agents
-		Timeout: 10 * time.Minute,   // Large context models need extended timeout
+		Timeout: 10 * time.Minute,    // Large context models need extended timeout
 	}
 }
 
@@ -393,15 +393,111 @@ func (c *OpenAIClient) GetModel() string {
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// TODO: Implement proper OpenAI function calling - for now falls back to simple completion.
+// CompleteWithTools sends a prompt with tool definitions.
 func (c *OpenAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Fallback: Use simple completion without tools
-	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	// Map generic tools to OpenAI tools
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := OpenAIRequest{
+		Model: c.model,
+		Messages: []OpenAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto", // Default to auto when tools are present
+		Stream:     false,  // Use non-streaming for simpler/safer tool parsing
+	}
+
+	resp, err := c.completeNonStreaming(ctx, reqBody)
 	if err != nil {
 		return nil, err
 	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	choice := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+
+	// OpenAI uses "tool_calls" as finish_reason when tool calls are present
+	stopReason := choice.FinishReason
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use" // Standardize on "tool_use"
+	}
+
 	return &LLMToolResponse{
-		Text:       text,
-		StopReason: "end_turn",
+		Text:       choice.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
 	}, nil
+}
+
+// completeNonStreaming performs a non-streaming completion request.
+func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIRequest) (*OpenAIResponse, error) {
+	// Retry loop
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		// No Accept: text/event-stream for non-streaming
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close() // Close immediately after read
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		var openAIResp OpenAIResponse
+		if err := json.Unmarshal(body, &openAIResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		if openAIResp.Error != nil {
+			return nil, fmt.Errorf("API error: %s", openAIResp.Error.Message)
+		}
+
+		return &openAIResp, nil
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }

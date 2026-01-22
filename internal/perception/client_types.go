@@ -152,6 +152,8 @@ type ZAIRequest struct {
 	StreamOptions  *ZAIStreamOptions  `json:"stream_options,omitempty"`
 	ResponseFormat *ZAIResponseFormat `json:"response_format,omitempty"` // Structured output
 	Thinking       *ZAIThinking       `json:"thinking,omitempty"`        // Extended reasoning
+	Tools          []OpenAITool       `json:"tools,omitempty"`
+	ToolChoice     interface{}        `json:"tool_choice,omitempty"`
 }
 
 // ZAIResponse represents the API response structure (Enhanced for v1.2.0).
@@ -163,12 +165,14 @@ type ZAIResponse struct {
 	Choices []struct {
 		Index   int `json:"index"`
 		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		Delta *struct { // For streaming
-			Role    string `json:"role,omitempty"`
-			Content string `json:"content,omitempty"`
+			Role      string           `json:"role,omitempty"`
+			Content   string           `json:"content,omitempty"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 		} `json:"delta,omitempty"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -242,6 +246,32 @@ type AnthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// OpenAITool represents a tool definition for OpenAI-compatible APIs.
+type OpenAITool struct {
+	Type     string         `json:"type"` // "function"
+	Function OpenAIFunction `json:"function"`
+}
+
+// OpenAIFunction represents the function definition.
+type OpenAIFunction struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+// OpenAIToolCall represents a tool call invocation in the response.
+type OpenAIToolCall struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"` // "function"
+	Function OpenAIFunctionCall `json:"function"`
+}
+
+// OpenAIFunctionCall represents the function call details.
+type OpenAIFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // JSON string
+}
+
 // OpenAIStreamOptions configures streaming behavior.
 type OpenAIStreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
@@ -262,6 +292,8 @@ type OpenAIRequest struct {
 	Stream         bool                 `json:"stream,omitempty"`
 	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitempty"`
 	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitempty"`
+	Tools          []OpenAITool         `json:"tools,omitempty"`
+	ToolChoice     interface{}          `json:"tool_choice,omitempty"`
 }
 
 // OpenAIResponse represents the API response.
@@ -273,12 +305,14 @@ type OpenAIResponse struct {
 	Choices []struct {
 		Index   int `json:"index"`
 		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 		} `json:"message"`
 		Delta *struct { // For streaming
-			Role    string `json:"role,omitempty"`
-			Content string `json:"content,omitempty"`
+			Role      string           `json:"role,omitempty"`
+			Content   string           `json:"content,omitempty"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 		} `json:"delta,omitempty"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`

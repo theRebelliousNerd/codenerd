@@ -568,3 +568,9 @@ func truncateString(s string, maxLen int) string {
 	}
 	return s[:maxLen-3] + "..."
 }
+
+// ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
+// for tool invocation, since the Claude CLI does not natively support tool calling.
+func (c *ClaudeCodeCLIClient) ShouldUsePiggybackTools() bool {
+	return true
+}

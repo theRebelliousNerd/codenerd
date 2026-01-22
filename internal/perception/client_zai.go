@@ -56,14 +56,14 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 
 // ZAIClient implements LLMClient for Z.AI API.
 type ZAIClient struct {
-	apiKey      string
-	baseURL     string
-	model       string
-	httpClient  *http.Client
-	mu          sync.Mutex
-	lastRequest time.Time
-	sem         chan struct{} // Concurrency semaphore: Z.AI allows max 5 concurrent requests
-	semDisabled bool          // When true, skip semaphore (external scheduler manages concurrency)
+	apiKey           string
+	baseURL          string
+	model            string
+	httpClient       *http.Client
+	mu               sync.Mutex
+	lastRequest      time.Time
+	sem              chan struct{} // Concurrency semaphore: Z.AI allows max 5 concurrent requests
+	semDisabled      bool          // When true, skip semaphore (external scheduler manages concurrency)
 	rateLimitDelay   time.Duration
 	retryBackoffBase time.Duration
 	retryBackoffMax  time.Duration
@@ -158,7 +158,7 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
-		semDisabled: config.DisableSemaphore,
+		semDisabled:      config.DisableSemaphore,
 		rateLimitDelay:   config.RateLimitDelay,
 		retryBackoffBase: config.RetryBackoffBase,
 		retryBackoffMax:  config.RetryBackoffMax,
@@ -375,9 +375,9 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		case c.sem <- struct{}{}:
 			semWaitDuration := time.Since(semWaitStart)
 			log.StructuredLog("debug", "Semaphore acquired", map[string]interface{}{
-				"request_id":      reqID,
-				"wait_ms":         semWaitDuration.Milliseconds(),
-				"slots_in_use":    len(c.sem),
+				"request_id":                      reqID,
+				"wait_ms":                         semWaitDuration.Milliseconds(),
+				"slots_in_use":                    len(c.sem),
 				"context_remaining_after_wait_ms": time.Until(contextDeadline).Milliseconds(),
 			})
 			defer func() { <-c.sem }()
@@ -450,20 +450,20 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			remainingBeforeBackoff, hasDeadline := contextRemaining(contextDeadline)
 
 			log.StructuredLog("debug", "Retry backoff starting", map[string]interface{}{
-				"request_id":                 reqID,
-				"attempt":                    i + 1,
-				"backoff_ms":                 backoffDuration.Milliseconds(),
-				"cumulative_backoff_ms":      cumulativeBackoffMs,
-				"context_remaining_ms":       remainingBeforeBackoff.Milliseconds(),
-				"would_exceed_deadline":      hasDeadline && backoffDuration > remainingBeforeBackoff,
+				"request_id":            reqID,
+				"attempt":               i + 1,
+				"backoff_ms":            backoffDuration.Milliseconds(),
+				"cumulative_backoff_ms": cumulativeBackoffMs,
+				"context_remaining_ms":  remainingBeforeBackoff.Milliseconds(),
+				"would_exceed_deadline": hasDeadline && backoffDuration > remainingBeforeBackoff,
 			})
 
 			if hasDeadline && backoffDuration > remainingBeforeBackoff {
 				log.StructuredLog("error", "Retry backoff would exceed deadline", map[string]interface{}{
-					"request_id":            reqID,
-					"attempt":               i + 1,
-					"backoff_ms":            backoffDuration.Milliseconds(),
-					"context_remaining_ms":  remainingBeforeBackoff.Milliseconds(),
+					"request_id":           reqID,
+					"attempt":              i + 1,
+					"backoff_ms":           backoffDuration.Milliseconds(),
+					"context_remaining_ms": remainingBeforeBackoff.Milliseconds(),
 				})
 				return "", ctx.Err()
 			}
@@ -505,10 +505,10 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		var dnsStart, dnsDone, connectStart, connectDone, tlsStart, tlsDone, gotFirstByte time.Time
 
 		trace := &httptrace.ClientTrace{
-			DNSStart:     func(info httptrace.DNSStartInfo) { dnsStart = time.Now() },
-			DNSDone:      func(info httptrace.DNSDoneInfo) { dnsDone = time.Now() },
-			ConnectStart: func(network, addr string) { connectStart = time.Now() },
-			ConnectDone:  func(network, addr string, err error) { connectDone = time.Now() },
+			DNSStart:          func(info httptrace.DNSStartInfo) { dnsStart = time.Now() },
+			DNSDone:           func(info httptrace.DNSDoneInfo) { dnsDone = time.Now() },
+			ConnectStart:      func(network, addr string) { connectStart = time.Now() },
+			ConnectDone:       func(network, addr string, err error) { connectDone = time.Now() },
 			TLSHandshakeStart: func() { tlsStart = time.Now() },
 			TLSHandshakeDone:  func(_ tls.ConnectionState, _ error) { tlsDone = time.Now() },
 			GotConn: func(info httptrace.GotConnInfo) {
@@ -521,7 +521,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 					"idle_ms":    info.IdleTime.Milliseconds(),
 				})
 			},
-			GotFirstResponseByte:  func() { gotFirstByte = time.Now() },
+			GotFirstResponseByte: func() { gotFirstByte = time.Now() },
 		}
 		req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
 
@@ -538,15 +538,15 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		if err != nil {
 			log.StructuredLog("error", "HTTP request failed", map[string]interface{}{
-				"request_id":      reqID,
-				"attempt":         i + 1,
+				"request_id":       reqID,
+				"attempt":          i + 1,
 				"http_duration_ms": httpDuration.Milliseconds(),
-				"error":           err.Error(),
-				"conn_reused":     connReused,
-				"conn_idle_ms":    connIdleTime.Milliseconds(),
-				"dns_ms":          dnsDone.Sub(dnsStart).Milliseconds(),
-				"connect_ms":      connectDone.Sub(connectStart).Milliseconds(),
-				"tls_ms":          tlsDone.Sub(tlsStart).Milliseconds(),
+				"error":            err.Error(),
+				"conn_reused":      connReused,
+				"conn_idle_ms":     connIdleTime.Milliseconds(),
+				"dns_ms":           dnsDone.Sub(dnsStart).Milliseconds(),
+				"connect_ms":       connectDone.Sub(connectStart).Milliseconds(),
+				"tls_ms":           tlsDone.Sub(tlsStart).Milliseconds(),
 			})
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
@@ -558,25 +558,25 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		if err != nil {
 			log.StructuredLog("error", "Response body read failed", map[string]interface{}{
-				"request_id":      reqID,
-				"attempt":         i + 1,
+				"request_id":       reqID,
+				"attempt":          i + 1,
 				"read_duration_ms": readDuration.Milliseconds(),
-				"error":           err.Error(),
+				"error":            err.Error(),
 			})
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
 		}
 
 		log.StructuredLog("debug", "HTTP request completed", map[string]interface{}{
-			"request_id":        reqID,
-			"attempt":           i + 1,
-			"status_code":       resp.StatusCode,
-			"http_duration_ms":  httpDuration.Milliseconds(),
-			"body_read_ms":      readDuration.Milliseconds(),
-			"body_bytes":        len(body),
-			"conn_reused":       connReused,
-			"conn_idle_ms":      connIdleTime.Milliseconds(),
-			"ttfb_ms":           gotFirstByte.Sub(httpStart).Milliseconds(),
+			"request_id":       reqID,
+			"attempt":          i + 1,
+			"status_code":      resp.StatusCode,
+			"http_duration_ms": httpDuration.Milliseconds(),
+			"body_read_ms":     readDuration.Milliseconds(),
+			"body_bytes":       len(body),
+			"conn_reused":      connReused,
+			"conn_idle_ms":     connIdleTime.Milliseconds(),
+			"ttfb_ms":          gotFirstByte.Sub(httpStart).Milliseconds(),
 		})
 
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -1355,15 +1355,114 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// TODO: Implement proper ZAI function calling - for now falls back to simple completion.
+// CompleteWithTools sends a prompt with tool definitions.
 func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Fallback: Use simple completion without tools
-	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	if err != nil {
-		return nil, err
+	openAITools := MapToolDefinitionsToOpenAI(tools)
+
+	reqBody := ZAIRequest{
+		Model: c.model,
+		Messages: []ZAIMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Tools:      openAITools,
+		ToolChoice: "auto",
+		Stream:     false,
 	}
-	return &LLMToolResponse{
-		Text:       text,
-		StopReason: "end_turn",
-	}, nil
+
+	// Retry loop
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		// Acquire semaphore if enabled
+		if !c.semDisabled && c.sem != nil {
+			select {
+			case c.sem <- struct{}{}:
+				// Acquired
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		resp, err := c.httpClient.Do(req)
+
+		// Release semaphore
+		if !c.semDisabled && c.sem != nil {
+			<-c.sem
+		}
+
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
+
+		var zaiResp ZAIResponse
+		if err := json.Unmarshal(body, &zaiResp); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+
+		if zaiResp.Error != nil {
+			return nil, fmt.Errorf("API error: %s", zaiResp.Error.Message)
+		}
+
+		if len(zaiResp.Choices) == 0 {
+			return nil, fmt.Errorf("no choices in response")
+		}
+
+		choice := zaiResp.Choices[0]
+		toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+		if err != nil {
+			return nil, err
+		}
+
+		stopReason := choice.FinishReason
+		if stopReason == "tool_calls" {
+			stopReason = "tool_use"
+		}
+
+		return &LLMToolResponse{
+			Text:       choice.Message.Content,
+			ToolCalls:  toolCalls,
+			StopReason: stopReason,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
 }
