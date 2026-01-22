@@ -264,6 +264,16 @@ Decl relevant_tool(ShardType, ToolName).
 Decl tool_priority_rank(ShardType, ToolName, Rank).
 
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# 40.4b Modular Tool Routing (Intent-based)
+# -----------------------------------------------------------------------------
+
+# modular_tool_allowed(ToolName, Intent) - derived: modular tool permitted for intent
+Decl modular_tool_allowed(ToolName, Intent).
+
+# modular_tool_priority(ToolName, Priority) - derived: tool priority
+Decl modular_tool_priority(ToolName, Priority).
+
 # 40.5 Tool Execution Tracking (for learning feedback)
 # -----------------------------------------------------------------------------
 
