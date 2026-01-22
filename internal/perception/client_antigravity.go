@@ -967,16 +967,27 @@ func openBrowser(url string) error {
 	return cmd.Start()
 }
 
-// Placeholder implementations for interface compliance
+// CompleteWithTools delegates to CompleteWithSystem and populates thinking metadata.
+// Note: Antigravity uses Piggyback Protocol for tools (see ShouldUsePiggybackTools),
+// so function calling is not natively supported. This method provides basic compatibility.
 func (c *AntigravityClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
 
-	return &LLMToolResponse{
-		Text: text,
-	}, nil
+	// Populate thinking metadata from last response for SPL learning
+	c.mu.Lock()
+	resp := &LLMToolResponse{
+		Text:             text,
+		ThoughtSummary:   c.lastThoughtSummary,
+		ThoughtSignature: c.lastThoughtSignature,
+		ThinkingTokens:   c.lastThinkingTokens,
+		GroundingSources: c.lastSources,
+	}
+	c.mu.Unlock()
+
+	return resp, nil
 }
 
 func (c *AntigravityClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {

@@ -260,6 +260,106 @@ func (b *BaseShardAgent) GetSessionContext() *types.SessionContext {
 }
 
 // =============================================================================
+// GEMINI ADVANCED FEATURES HELPERS
+// These methods provide easy access to Gemini 3's advanced features.
+// =============================================================================
+
+// GetThinkingProvider returns the ThinkingProvider interface if the LLM client supports it.
+// Returns nil if the client doesn't support thinking mode.
+// Usage:
+//
+//	if tp := b.GetThinkingProvider(); tp != nil {
+//	    summary := tp.GetLastThoughtSummary()
+//	    tokens := tp.GetLastThinkingTokens()
+//	}
+func (b *BaseShardAgent) GetThinkingProvider() types.ThinkingProvider {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.llmClient == nil {
+		return nil
+	}
+	if tp, ok := b.llmClient.(types.ThinkingProvider); ok {
+		return tp
+	}
+	return nil
+}
+
+// GetThoughtSignatureProvider returns the ThoughtSignatureProvider interface if the LLM client supports it.
+// Returns nil if the client doesn't support thought signatures.
+// Usage for multi-turn function calling:
+//
+//	if tsp := b.GetThoughtSignatureProvider(); tsp != nil {
+//	    signature := tsp.GetLastThoughtSignature()
+//	    // Include signature in function response for reasoning continuity
+//	}
+func (b *BaseShardAgent) GetThoughtSignatureProvider() types.ThoughtSignatureProvider {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.llmClient == nil {
+		return nil
+	}
+	if tsp, ok := b.llmClient.(types.ThoughtSignatureProvider); ok {
+		return tsp
+	}
+	return nil
+}
+
+// GetGroundingProvider returns the GroundingProvider interface if the LLM client supports it.
+// Returns nil if the client doesn't support grounding.
+// Usage:
+//
+//	if gp := b.GetGroundingProvider(); gp != nil {
+//	    sources := gp.GetLastGroundingSources()
+//	    if gp.IsGoogleSearchEnabled() { ... }
+//	}
+func (b *BaseShardAgent) GetGroundingProvider() types.GroundingProvider {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.llmClient == nil {
+		return nil
+	}
+	if gp, ok := b.llmClient.(types.GroundingProvider); ok {
+		return gp
+	}
+	return nil
+}
+
+// GetGroundingController returns the GroundingController interface if the LLM client supports it.
+// Returns nil if the client doesn't support grounding control.
+// Usage:
+//
+//	if gc := b.GetGroundingController(); gc != nil {
+//	    gc.SetEnableGoogleSearch(true)
+//	    gc.SetURLContextURLs([]string{"https://docs.example.com"})
+//	}
+func (b *BaseShardAgent) GetGroundingController() types.GroundingController {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.llmClient == nil {
+		return nil
+	}
+	if gc, ok := b.llmClient.(types.GroundingController); ok {
+		return gc
+	}
+	return nil
+}
+
+// ShouldUsePiggybackTools returns true if the LLM client should use Piggyback Protocol
+// for tool invocation instead of native function calling.
+// This is typically true for Gemini clients when grounding is enabled.
+func (b *BaseShardAgent) ShouldUsePiggybackTools() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.llmClient == nil {
+		return false
+	}
+	if ptp, ok := b.llmClient.(types.PiggybackToolProvider); ok {
+		return ptp.ShouldUsePiggybackTools()
+	}
+	return false
+}
+
+// =============================================================================
 // SYSTEM SHARD
 // =============================================================================
 
