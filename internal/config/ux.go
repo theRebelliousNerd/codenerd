@@ -1,5 +1,23 @@
 package config
 
+// UIConfig holds user interface configuration.
+type UIConfig struct {
+	// SplitPaneRatio is the default left:right ratio (0.0-1.0, left pane percentage)
+	// Default is 0.67 (2/3 chat, 1/3 logic)
+	SplitPaneRatio float64 `json:"split_pane_ratio" yaml:"split_pane_ratio"`
+
+	// LogicPaneWidth is an alternative fixed width for the logic pane (0 = use ratio)
+	LogicPaneWidth int `json:"logic_pane_width,omitempty" yaml:"logic_pane_width,omitempty"`
+}
+
+// DefaultUIConfig returns sensible UI defaults.
+func DefaultUIConfig() *UIConfig {
+	return &UIConfig{
+		SplitPaneRatio: 0.67, // 2/3 chat, 1/3 logic pane
+		LogicPaneWidth: 0,    // Use ratio by default
+	}
+}
+
 // ExperienceLevel tracks user familiarity with codeNERD.
 type ExperienceLevel string
 
@@ -76,10 +94,10 @@ type TransparencyConfig struct {
 type GuidanceLevel string
 
 const (
-	GuidanceVerbose  GuidanceLevel = "verbose"  // Maximum guidance (learning users)
-	GuidanceNormal   GuidanceLevel = "normal"   // Standard guidance
-	GuidanceMinimal  GuidanceLevel = "minimal"  // Minimal guidance (productive users)
-	GuidanceNone     GuidanceLevel = "none"     // No guidance (power users)
+	GuidanceVerbose GuidanceLevel = "verbose" // Maximum guidance (learning users)
+	GuidanceNormal  GuidanceLevel = "normal"  // Standard guidance
+	GuidanceMinimal GuidanceLevel = "minimal" // Minimal guidance (productive users)
+	GuidanceNone    GuidanceLevel = "none"    // No guidance (power users)
 )
 
 // GuidanceConfig controls contextual help and tips.

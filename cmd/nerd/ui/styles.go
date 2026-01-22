@@ -288,10 +288,5 @@ func Logo(s Styles) string {
 
 // Divider returns a horizontal divider
 func (s Styles) RenderDivider(width int) string {
-	// TODO: Use strings.Repeat for better performance
-	line := ""
-	for i := 0; i < width; i++ {
-		line += "─"
-	}
-	return s.Divider.Render(line)
+	return s.Divider.Render(strings.Repeat("─", width))
 }

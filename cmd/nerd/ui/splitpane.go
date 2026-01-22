@@ -71,6 +71,12 @@ type LogicPane struct {
 	SelectedNode   int
 	Nodes          []*DerivationNode // Flattened list for navigation
 	ScrollOffset   int
+
+	// Pre-compiled styles for performance (avoid recreation per node)
+	predStyle  lipgloss.Style
+	argsStyle  lipgloss.Style
+	ruleStyle  lipgloss.Style
+	activStyle lipgloss.Style
 }
 
 // SetTraceMangle adapts a backend trace to the UI model
@@ -138,6 +144,11 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		ShowActivation: true,
 		SelectedNode:   0,
 		Nodes:          make([]*DerivationNode, 0),
+		// Pre-compile styles for performance
+		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
+		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
+		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Muted).Italic(true),
+		activStyle: lipgloss.NewStyle().Foreground(Success),
 	}
 }
 
@@ -354,12 +365,9 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 			strings.Repeat("░", 10-barWidth))
 	}
 
-	// Build the line
-	// TODO: Pre-compile styles in LogicPane to avoid recreation per node
-	predStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Primary).Bold(true)
-	argsStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Foreground)
-	ruleStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Muted).Italic(true)
-	activStyle := lipgloss.NewStyle().Foreground(Success)
+	// Use pre-compiled styles, apply selection background if needed
+	predStyle := p.predStyle
+	argsStyle := p.argsStyle
 
 	// Selection highlight
 	if selected {
@@ -384,7 +392,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	sb.WriteString(argsStyle.Render(argsStr))
 
 	if p.ShowActivation && activationBar != "" {
-		sb.WriteString(activStyle.Render(activationBar))
+		sb.WriteString(p.activStyle.Render(activationBar))
 	}
 
 	// Show rule on expanded nodes
@@ -392,7 +400,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 		sb.WriteString("\n")
 		sb.WriteString(indent)
 		sb.WriteString("   ")
-		sb.WriteString(ruleStyle.Render("← " + node.Rule))
+		sb.WriteString(p.ruleStyle.Render("← " + node.Rule))
 	}
 
 	return sb.String()
@@ -432,10 +440,25 @@ type SplitPaneView struct {
 	FocusRight bool
 }
 
-// NewSplitPaneView creates a new split pane view
+// DefaultSplitRatio is the default left pane percentage (2/3 chat, 1/3 logic)
+const DefaultSplitRatio = 0.67
+
+// NewSplitPaneView creates a new split pane view with default ratio
 func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
-	// TODO: Make default split ratio configurable
-	rightWidth := width / 3
+	return NewSplitPaneViewWithRatio(styles, width, height, DefaultSplitRatio)
+}
+
+// NewSplitPaneViewWithRatio creates a new split pane view with a configurable ratio
+func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio float64) SplitPaneView {
+	// Clamp ratio to valid range
+	if splitRatio < 0.2 {
+		splitRatio = 0.2
+	}
+	if splitRatio > 0.9 {
+		splitRatio = 0.9
+	}
+
+	rightWidth := int(float64(width) * (1 - splitRatio))
 	logicPane := NewLogicPane(styles, rightWidth, height-4)
 
 	return SplitPaneView{
@@ -444,7 +467,7 @@ func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 		Mode:       ModeSinglePane,
 		Width:      width,
 		Height:     height,
-		SplitRatio: 0.5,
+		SplitRatio: splitRatio,
 		FocusRight: false,
 	}
 }

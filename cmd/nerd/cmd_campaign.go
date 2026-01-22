@@ -912,6 +912,13 @@ func (a *campaignVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env 
 	return "", "", fmt.Errorf("exec not implemented in campaign adapter")
 }
 
+func (a *campaignVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
+	if a.vs != nil {
+		return a.vs.ReadRaw(path)
+	}
+	return os.ReadFile(path)
+}
+
 // campaignLLMAdapter adapts perception.LLMClient to types.LLMClient.
 type campaignLLMAdapter struct {
 	client perception.LLMClient
