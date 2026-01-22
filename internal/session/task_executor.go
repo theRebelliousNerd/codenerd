@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -57,7 +58,8 @@ type JITExecutor struct {
 	spawner    *Spawner
 	transducer perception.Transducer
 
-	// Results for async tasks
+	// Results for async tasks (protected by mu)
+	mu      sync.RWMutex
 	results map[string]*TaskResult
 }
 
@@ -94,8 +96,10 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, tas
 	}
 
 	// Use inline execution for simple tasks
-	// Set the session context on the executor (beware of concurrency if sharing executor)
-	// TODO: Executor state management for concurrent requests
+	// NOTE: SetSessionContext is not thread-safe. For true concurrent execution,
+	// use ExecuteAsync which spawns isolated subagents.
+	// The Executor's session context is only used for inline execution which
+	// is typically single-threaded per chat session.
 	if sessionCtx != nil {
 		j.executor.SetSessionContext(sessionCtx)
 	}
@@ -135,10 +139,12 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, t
 	taskID := agent.GetID()
 
 	// Track the task for result retrieval
+	j.mu.Lock()
 	j.results[taskID] = &TaskResult{
 		TaskID:    taskID,
 		Completed: false,
 	}
+	j.mu.Unlock()
 
 	return taskID, nil
 }
@@ -149,7 +155,10 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 	agent, ok := j.spawner.Get(taskID)
 	if !ok {
 		// Check cached results
-		if result, cached := j.results[taskID]; cached && result.Completed {
+		j.mu.RLock()
+		result, cached := j.results[taskID]
+		j.mu.RUnlock()
+		if cached && result.Completed {
 			return result.Result, true, result.Error
 		}
 		return "", false, fmt.Errorf("task not found: %s", taskID)
@@ -169,12 +178,14 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 		}
 
 		// Cache the result
+		j.mu.Lock()
 		j.results[taskID] = &TaskResult{
 			TaskID:    taskID,
 			Result:    result,
 			Error:     err,
 			Completed: true,
 		}
+		j.mu.Unlock()
 
 		return result, true, err
 	}

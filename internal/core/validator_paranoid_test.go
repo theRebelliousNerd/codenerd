@@ -160,3 +160,154 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 // TODO: TEST_GAP: Missing test for double-read inconsistency (race condition where file changes between reads).
 
 // TODO: TEST_GAP: Verify content sampling logic for large files (partial match failure).
+
+// TestParanoidValidator_EmptyTargetPath tests validation with empty target path
+func TestParanoidValidator_EmptyTargetPath(t *testing.T) {
+	v := NewParanoidFileValidator()
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: "", // Empty path
+		Payload: map[string]interface{}{
+			"content": "test content",
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should fail validation with empty path
+	if vr.Verified {
+		t.Error("Expected Verified=false for empty target path")
+	}
+}
+
+// TestParanoidValidator_MissingContentKey tests validation with missing content in payload
+func TestParanoidValidator_MissingContentKey(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.RequireDoubleRead = false
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(path, []byte("existing"), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"notContent": "wrong key", // Missing "content" key
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should fail validation without content key
+	if vr.Verified {
+		t.Error("Expected Verified=false for missing content key")
+	}
+}
+
+// TestParanoidValidator_NilPayload tests validation with nil payload
+func TestParanoidValidator_NilPayload(t *testing.T) {
+	v := NewParanoidFileValidator()
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:    ActionWriteFile,
+		Target:  path,
+		Payload: nil, // nil payload
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should not panic with nil payload
+	if vr.Verified {
+		t.Error("Expected Verified=false for nil payload")
+	}
+}
+
+// TestParanoidValidator_ContentWrongType tests validation with non-string content
+func TestParanoidValidator_ContentWrongType(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.RequireDoubleRead = false
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(path, []byte("123"), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": 123, // Integer instead of string
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should handle non-string content gracefully
+	// May verify false or convert to string - either is acceptable
+	_ = vr // Just ensure no panic
+}
+
+// TestParanoidValidator_TargetIsDirectory tests validation when target is a directory
+func TestParanoidValidator_TargetIsDirectory(t *testing.T) {
+	v := NewParanoidFileValidator()
+
+	tmpDir := t.TempDir() // This is a directory
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: tmpDir, // Directory instead of file
+		Payload: map[string]interface{}{
+			"content": "test",
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should fail validation for directory target
+	if vr.Verified {
+		t.Error("Expected Verified=false for directory target")
+	}
+}
+
+// TestParanoidValidator_NonExistentFile tests validation for non-existent file
+func TestParanoidValidator_NonExistentFile(t *testing.T) {
+	v := NewParanoidFileValidator()
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: "/nonexistent/path/to/file.txt",
+		Payload: map[string]interface{}{
+			"content": "test",
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should fail validation for non-existent file
+	if vr.Verified {
+		t.Error("Expected Verified=false for non-existent file")
+	}
+}

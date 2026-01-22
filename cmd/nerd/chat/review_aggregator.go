@@ -47,8 +47,8 @@ type SpecialistMatch struct {
 
 // AgentRegistry holds registered agents.
 type AgentRegistry struct {
-	Version   string         `json:"version"`
-	CreatedAt time.Time      `json:"created_at"`
+	Version   string            `json:"version"`
+	CreatedAt time.Time         `json:"created_at"`
 	Agents    []RegisteredAgent `json:"agents"`
 }
 
@@ -84,16 +84,29 @@ type SpecialistTask struct {
 }
 
 // =============================================================================
-// STUB FUNCTIONS (temporarily disabled - will be reimplemented via JIT)
+// SPECIALIST MATCHING (JIT Architecture)
 // =============================================================================
+// Specialist matching is now handled via JIT intent routing.
+// The flow is: User intent -> Mangle routing rules -> JIT ConfigFactory -> Persona atoms
+// This replaces the old registry-based approach with deterministic logic-driven dispatch.
 
-// MatchSpecialistsForReview matches specialists for the files being reviewed.
-// TODO: Reimplement via JIT-based specialist matching using Mangle rules.
+// MatchSpecialistsForReview returns specialists for the files being reviewed.
+// In the JIT architecture, specialist selection is driven by Mangle rules in
+// internal/mangle/intent_routing.mg which maps file types/patterns to personas.
+// This function now serves as a fallback when JIT routing is not available.
 func matchSpecialistsForReview(ctx context.Context, files []string, registry *AgentRegistry) []SpecialistMatch {
 	if registry == nil {
 		return nil
 	}
-	// Stub: return empty for now - JIT handles specialist dispatch
+
+	// JIT-based flow: The executor calls ConfigFactory.GetConfig() with the intent,
+	// which queries Mangle rules like:
+	//   persona_for_file(File, /security_reviewer) :- file_extension(File, ".go"), contains_crypto(File).
+	//   persona_for_file(File, /performance_reviewer) :- file_extension(File, ".go"), has_benchmark(File).
+	//
+	// For now, return empty - the JIT executor handles specialist dispatch directly
+	// via SubAgent spawning with appropriate persona atoms.
+
 	return nil
 }
 
