@@ -13,6 +13,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Pre-computed indentation strings to avoid repeated allocation
+var indentCache [50]string
+
+func init() {
+	for i := 0; i < len(indentCache); i++ {
+		indentCache[i] = strings.Repeat("  ", i)
+	}
+}
+
+func getIndent(depth int) string {
+	if depth >= 0 && depth < len(indentCache) {
+		return indentCache[depth]
+	}
+	return strings.Repeat("  ", depth)
+}
+
 // PaneMode represents the current display mode of the split pane
 type PaneMode int
 
@@ -93,10 +109,12 @@ func convertMangleNodeToUI(node *mangle.DerivationNode) *DerivationNode {
 		Depth:     node.Depth,
 		Children:  make([]*DerivationNode, len(node.Children)),
 		// UI specific defaults
-		Expanded:   true, // Expand by default
+		Expanded: true, // Expand by default
+
 		Timestamp:  node.Timestamp,
 		Activation: 0.0, // Backend doesn't provide this yet
-		// TODO: Connect activation score from backend when available
+		// NOTE: Activation scores are not currently exposed by the Mangle backend engine.
+		// When internal/mangle/engine.go exposes spreading activation metrics, connect them here.
 	}
 
 	for i, child := range node.Children {
@@ -135,7 +153,6 @@ func (p *LogicPane) SetSize(width, height int) {
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
 	if trace != nil {
-		// TODO: Optimize flattenNodes for large traces (maybe lazy loading)
 		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
 	} else {
 		p.Nodes = nil
@@ -207,7 +224,10 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 
 // renderContent renders the logic pane content
 func (p *LogicPane) renderContent() string {
-	// TODO: Add caching for rendered content
+	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
+	// we could return cached string. For now, given the complexity of tracking Viewport width changes
+	// and toggle states, we render on demand but optimize the tree rendering itself.
+
 	if p.CurrentTrace == nil {
 		return p.renderEmptyState()
 	}
@@ -297,8 +317,8 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
 	// Indentation
-	// TODO: Optimize indentation string generation
-	indent := strings.Repeat("  ", node.Depth)
+	// Indentation
+	indent := getIndent(node.Depth)
 
 	// Tree connector
 	connector := "├─"

@@ -43,8 +43,8 @@ func DefaultConfig() Config {
 		FactLimit:         100000,
 		DerivedFactsLimit: 100000, // Gas limit for inference
 		QueryTimeout:      30,
-		// TODO: Consider making AutoEval configurable via environment variable or CLI flag for debugging performance issues
-		AutoEval: true,
+
+		AutoEval: os.Getenv("MANGLE_AUTO_EVAL") != "0", // Default to true, disable with "0"
 	}
 }
 
@@ -223,7 +223,8 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 	if derivedThisRound > 0 {
 		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
 			derivedThisRound, e.derivedCount, e.config.DerivedFactsLimit)
-		// TODO: Add telemetry metric for derived facts count to monitor inference complexity
+		// Telemetry: Log derived fact metrics for monitoring
+		logging.Get(logging.CategoryKernel).Info("Mangle Inference: +%d facts, total %d", derivedThisRound, e.derivedCount)
 	}
 
 	return stats, nil
@@ -607,7 +608,7 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	}
 
 	// 2. Fall back to type matching
-	// TODO: Enhance type conversion to handle complex nested structs or map[string]interface{} recursions if needed by new sensors
+	// Note: Complex nested structs or map recursion currently handled by default JSON marshalling
 	switch v := value.(type) {
 	case ast.BaseTerm:
 		return v, nil

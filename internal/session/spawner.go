@@ -98,23 +98,18 @@ type SpawnRequest struct {
 // Spawn creates and starts a new subagent based on the request.
 // The subagent's identity, tools, and policies are all JIT-compiled.
 func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
+	// Phase 1: Check capacity (lock held briefly)
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check active limit
 	activeCount := s.countActive()
 	if activeCount >= s.maxActiveSubagents {
+		s.mu.Unlock()
 		return nil, fmt.Errorf("max active subagents reached: %d", s.maxActiveSubagents)
 	}
+	s.mu.Unlock()
 
 	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
 
-	// 1. Generate JIT config for this subagent
-	// TODO(improvement): This is a critical section (s.mu is held), but generateConfig does IO/LLM calls.
-	// This should be moved out of the lock. Consider:
-	// 1. Check limit & reserve slot (lock)
-	// 2. Generate config (unlock)
-	// 3. Create & register agent (lock)
+	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
 	agentConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
@@ -122,7 +117,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		agentConfig = &config.AgentConfig{}
 	}
 
-	// 2. Build subagent configuration
+	// Phase 3: Build subagent configuration
 	subCfg := SubAgentConfig{
 		ID:             fmt.Sprintf("%s-%d", req.Name, time.Now().UnixNano()),
 		Name:           req.Name,
@@ -137,7 +132,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		subCfg.Timeout = 30 * time.Minute
 	}
 
-	// 3. Create subagent
+	// Phase 4: Create subagent
 	agent := NewSubAgent(
 		subCfg,
 		s.kernel,
@@ -148,10 +143,18 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		s.transducer,
 	)
 
-	// 4. Register subagent
+	// Phase 5: Register subagent (lock held briefly)
+	s.mu.Lock()
+	// Re-check capacity after config generation (race condition mitigation)
+	activeCount = s.countActive()
+	if activeCount >= s.maxActiveSubagents {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("max active subagents reached during spawn: %d", s.maxActiveSubagents)
+	}
 	s.subagents[agent.GetID()] = agent
+	s.mu.Unlock()
 
-	// 5. Start execution
+	// Phase 6: Start execution
 	go agent.Run(ctx, req.Task)
 
 	logging.Session("Spawned subagent: %s (id: %s)", req.Name, agent.GetID())
@@ -355,8 +358,21 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
-		// TODO(improvement): Add fallback config strategy or retry mechanism here instead of failing hard.
-		return nil, fmt.Errorf("JIT compilation failed: %w", err)
+		// Fallback strategy: Retry once with baseline context, then return empty config
+		logging.Get(logging.CategorySession).Warn("JIT compilation failed, retrying with baseline: %v", err)
+
+		// Retry with minimal context (baseline fallback)
+		baselineCtx := &prompt.CompilationContext{
+			IntentVerb:      "/general",
+			OperationalMode: "/active",
+			TokenBudget:     4096, // Reduced budget for fallback
+		}
+		compileResult, err = s.jitCompiler.Compile(ctx, baselineCtx)
+		if err != nil {
+			// Final fallback: return empty config, subagent will use defaults
+			logging.Get(logging.CategorySession).Warn("JIT baseline compilation also failed, using empty config: %v", err)
+			return &config.AgentConfig{}, nil
+		}
 	}
 
 	return s.configFactory.Generate(ctx, compileResult, intentVerb)
@@ -368,8 +384,15 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 	configPath := filepath.Join(".nerd", "agents", name, "config.yaml")
 	logging.SessionDebug("Loading specialist config for: %s from %s", name, configPath)
 
-	// TODO(improvement): Consider using s.virtualStore.Read() if consistent with arch, or abstract file IO.
-	data, err := os.ReadFile(configPath)
+	// Use virtualStore.ReadRaw() for consistency with architecture if available
+	var data []byte
+	var err error
+	if s.virtualStore != nil {
+		data, err = s.virtualStore.ReadRaw(configPath)
+	} else {
+		// Fallback to os.ReadFile when virtualStore is not set
+		data, err = os.ReadFile(configPath)
+	}
 	if err == nil {
 		var cfg config.AgentConfig
 		if err := yaml.Unmarshal(data, &cfg); err != nil {

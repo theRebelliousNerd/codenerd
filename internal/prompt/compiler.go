@@ -978,8 +978,8 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 		"dropped_count":  len(manifest.Dropped),
 	}
 
-        // Use info level so manifests persist even when log level is set to info.
-        logging.Get(logging.CategoryJIT).StructuredLog("info", "prompt_manifest", fields)
+	// Use info level so manifests persist even when log level is set to info.
+	logging.Get(logging.CategoryJIT).StructuredLog("info", "prompt_manifest", fields)
 }
 
 // GetLastResult returns the most recent compilation result.
@@ -1233,9 +1233,31 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 		return nil
 	}
 
-	// TODO(improvement): This query construction is naive. Use a dedicated QueryBuilder or template
-	// to weight different parts (e.g., IntentVerb should be weighted higher than Frameworks).
-	query := strings.Join(queryParts, " ")
+	// Build weighted query: IntentVerb and Target have highest priority,
+	// followed by ShardID, then Language, then Frameworks.
+	// We duplicate high-priority terms to increase their semantic weight.
+	var weightedParts []string
+
+	// High priority (weight 3x): Intent verb and target
+	if cc.IntentVerb != "" {
+		weightedParts = append(weightedParts, cc.IntentVerb, cc.IntentVerb, cc.IntentVerb)
+	}
+	if cc.IntentTarget != "" {
+		weightedParts = append(weightedParts, cc.IntentTarget, cc.IntentTarget, cc.IntentTarget)
+	}
+
+	// Medium priority (weight 2x): ShardID and Language
+	if cc.ShardID != "" {
+		weightedParts = append(weightedParts, cc.ShardID, cc.ShardID)
+	}
+	if cc.Language != "" {
+		weightedParts = append(weightedParts, cc.Language, cc.Language)
+	}
+
+	// Low priority (weight 1x): Frameworks
+	weightedParts = append(weightedParts, cc.Frameworks...)
+
+	query := strings.Join(weightedParts, " ")
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.

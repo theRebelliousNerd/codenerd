@@ -4,6 +4,8 @@ package ui
 
 import (
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -93,9 +95,20 @@ func DetectTheme() Theme {
 	colorTerm := os.Getenv("COLORFGBG")
 	if colorTerm != "" {
 		// Format is usually "foreground;background"
-		// If background is dark (< 8), use dark theme
-		// This is a simple heuristic
-		// TODO: Implement parsing logic for COLORFGBG to detect background brightness
+		// If background is dark (0-8), use dark theme.
+		// If background is light (7-15), use light theme.
+		parts := strings.Split(colorTerm, ";")
+		if len(parts) == 2 {
+			bgStr := parts[1]
+			// Try to parse background color index
+			// Standard ANSI colors: 0-7 are widely used for dark backgrounds
+			if bgIdx, err := strconv.Atoi(bgStr); err == nil {
+				// Simple heuristic: 0-6 and 8 (dark grey) are likely dark backgrounds
+				if (bgIdx >= 0 && bgIdx <= 6) || bgIdx == 8 {
+					return DarkTheme()
+				}
+			}
+		}
 	}
 
 	// Check for explicit dark mode preference

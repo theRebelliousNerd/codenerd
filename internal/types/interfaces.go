@@ -135,6 +135,8 @@ type VirtualStore interface {
 	ReadFile(path string) ([]string, error)
 	WriteFile(path string, content []string) error
 	Exec(ctx context.Context, cmd string, env []string) (string, string, error)
+	// ReadRaw reads a file and returns its raw bytes (for YAML/JSON parsing)
+	ReadRaw(path string) ([]byte, error)
 }
 
 // GraphQuery defines the interface for querying the World Model graph.

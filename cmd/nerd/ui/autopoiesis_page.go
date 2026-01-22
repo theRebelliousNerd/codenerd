@@ -39,7 +39,7 @@ type AutopoiesisPageModel struct {
 // NewAutopoiesisPageModel creates a new dashboard.
 func NewAutopoiesisPageModel() AutopoiesisPageModel {
 	vp := viewport.New(0, 0)
-	
+
 	// Default table
 	t := table.New(
 		table.WithColumns([]table.Column{
@@ -67,7 +67,7 @@ func (m AutopoiesisPageModel) Init() tea.Cmd {
 // Update handles messages.
 func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd) {
 	var cmd tea.Cmd
-	
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -110,7 +110,7 @@ func (m *AutopoiesisPageModel) refreshTable() {
 		for _, l := range m.learnings {
 			successCount := int(float64(l.TotalExecutions) * l.SuccessRate)
 			failureCount := l.TotalExecutions - successCount
-			
+
 			rows = append(rows, table.Row{
 				l.ToolName,
 				fmt.Sprintf("%d", l.TotalExecutions),
@@ -132,7 +132,7 @@ func (m AutopoiesisPageModel) View() string {
 	// Header / Tabs
 	patStyle := m.styles.Muted
 	learnStyle := m.styles.Muted
-	
+
 	if m.activeTab == TabPatterns {
 		patStyle = m.styles.Info.Copy().Bold(true)
 	} else {
@@ -149,7 +149,7 @@ func (m AutopoiesisPageModel) View() string {
 
 	sb.WriteString(tabs + "\n\n")
 	sb.WriteString(m.styles.Content.Render(m.table.View()))
-	
+
 	// Detail View (if selected)
 	sb.WriteString("\n\n")
 	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
@@ -170,11 +170,32 @@ func (m AutopoiesisPageModel) View() string {
 
 // SetSize updates the size.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
-// TODO: Improve table responsiveness for smaller screens
 	m.width = w
 	m.height = h
 	m.table.SetWidth(w - 4)
 	m.table.SetHeight(h - 10)
+
+	// Responsive column visibility
+	cols := m.table.Columns()
+	// Simple heuristic for small screens
+	if w < 60 && len(cols) > 2 {
+		if m.activeTab == TabPatterns {
+			// Compact view for small terminals
+			m.table.SetColumns([]table.Column{
+				{Title: "Pattern Rule", Width: w - 10},
+			})
+		} else {
+			// Compact view for tool learning
+			m.table.SetColumns([]table.Column{
+				{Title: "Tool", Width: w - 20},
+				{Title: "Rate", Width: 10},
+			})
+		}
+	} else {
+		// Restore full table via refresh if needed
+		// For now we rely on next update cycle or explicit refresh but this handles the visual constraint
+		m.refreshTable()
+	}
 }
 
 // UpdateContent updates the data.

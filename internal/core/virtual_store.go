@@ -1588,3 +1588,46 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 	logging.VirtualStoreDebug("checkKernelPermitted(%s): DENIED (no matching permitted fact)", actionType)
 	return false
 }
+
+// =============================================================================
+// TYPES.VIRTUALSTORE INTERFACE IMPLEMENTATION
+// =============================================================================
+
+// ReadFile reads a file and returns its lines.
+// Implements types.VirtualStore interface.
+func (v *VirtualStore) ReadFile(path string) ([]string, error) {
+	v.mu.RLock()
+	editor := v.fileEditor
+	v.mu.RUnlock()
+
+	if editor != nil {
+		return editor.ReadFile(path)
+	}
+	// Fallback: direct read
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(string(data), "\n"), nil
+}
+
+// WriteFile writes lines to a file.
+// Implements types.VirtualStore interface.
+func (v *VirtualStore) WriteFile(path string, content []string) error {
+	v.mu.RLock()
+	editor := v.fileEditor
+	v.mu.RUnlock()
+
+	if editor != nil {
+		_, err := editor.WriteFile(path, content)
+		return err
+	}
+	// Fallback: direct write
+	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
+}
+
+// ReadRaw reads a file and returns its raw bytes.
+// Implements types.VirtualStore interface.
+func (v *VirtualStore) ReadRaw(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}

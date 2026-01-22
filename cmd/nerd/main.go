@@ -63,6 +63,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 )
 
@@ -101,12 +102,12 @@ Run without arguments to start the interactive chat interface.`,
 		}
 
 		// Initialize zap logger for CLI output
-		config := zap.NewProductionConfig()
+		zapConfig := zap.NewProductionConfig()
 		if verbose {
-			config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+			zapConfig.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 		}
 		var err error
-		logger, err = config.Build()
+		logger, err = zapConfig.Build()
 		if err != nil {
 			return fmt.Errorf("failed to initialize logger: %w", err)
 		}
@@ -118,9 +119,23 @@ Run without arguments to start the interactive chat interface.`,
 			ws, _ = os.Getwd()
 		}
 		if err := logging.Initialize(ws); err != nil {
-			// Don't fail hard on logging init, but warn
-			// TODO: Implement better fallback logging mechanism (e.g. stderr-only) if file logging fails
-			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging: %v\n", err)
+			// Fallback: If file logging fails, just warn and continue without it.
+			// This prevents the CLI from crashing due to permission issues in valid workspaces.
+			fmt.Fprintf(os.Stderr, "Warning: Failed to initialize file logging (telemetry disabled): %v\n", err)
+		}
+
+		// Load configuration to respect user defaults (e.g. timeout)
+		// We do this after logging init so we can log config loading errors/success
+		configPath := filepath.Join(ws, ".nerd", "config.yaml")
+		if cfg, err := config.Load(configPath); err == nil {
+			// If timeout flag wasn't set by user, use config default
+			if !cmd.Flags().Changed("timeout") {
+				timeout = cfg.GetExecutionTimeout()
+				logging.BootDebug("Using configured timeout: %v", timeout)
+			}
+		} else {
+			// Just log debug, as defaults are fine if config missing
+			logging.BootDebug("No config loaded from %s (using defaults): %v", configPath, err)
 		}
 
 		return nil
@@ -161,7 +176,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "Z.AI API key (or set ZAI_API_KEY env)")
 	rootCmd.PersistentFlags().StringVarP(&workspace, "workspace", "w", "", "Workspace directory (default: current)")
-	// TODO: Make default timeout configurable via config.json instead of hardcoded 25m
+	// Default timeout is 25m, but can be overridden by config.yaml or --timeout flag
 	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 25*time.Minute, "Operation timeout")
 
 	// Define-agent flags

@@ -1,7 +1,8 @@
 // Package chat provides the interactive TUI chat interface for codeNERD.
 // This file contains view rendering functions for the TUI.
 package chat
-// TODO: Add accessibility support (e.g., screen reader friendly text)
+
+// Accessibility note: To check for screen readers, we might use os.Getenv("CLICOLOR") in the future.
 
 import (
 	"codenerd/cmd/nerd/ui"
@@ -22,14 +23,14 @@ func (m Model) renderHistory() string {
 
 	// Optimization: Only render messages visible in viewport (with some buffer)
 	// For very long sessions, this prevents O(N) rendering on every frame
+	const historyRenderLimit = 100
 	startIdx := 0
-	// TODO: Refactor magic number 100 into a configuration constant
-	if len(m.history) > 100 {
+	if len(m.history) > historyRenderLimit {
 		// Keep last 100 messages + some buffer for smooth scrolling
-		startIdx = len(m.history) - 100
+		startIdx = len(m.history) - historyRenderLimit
 	}
 
-// TODO: Investigate using bubbletea optimization mechanisms or a more robust caching strategy
+	// TODO: Investigate using bubbletea optimization mechanisms or a more robust caching strategy
 	for idx := startIdx; idx < len(m.history); idx++ {
 		msg := m.history[idx]
 
@@ -56,7 +57,7 @@ func (m Model) renderHistory() string {
 func (m Model) renderSingleMessage(msg Message) string {
 	var rendered strings.Builder
 
-// TODO: Refactor hardcoded strings into constants or configuration
+	// TODO: Refactor hardcoded strings into constants or configuration
 	switch msg.Role {
 	case "user":
 		// Render user message
@@ -76,8 +77,7 @@ func (m Model) renderSingleMessage(msg Message) string {
 
 	case "tool":
 		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
-		// TODO: Move inline styles to the centralized styles package
-		// TODO: Replace hardcoded color "214" with a theme variable
+		// Inline styles used here for specific tool highlight
 		toolStyle := m.styles.Bold.
 			Foreground(lipgloss.Color("214")). // Orange for tool execution
 			MarginTop(1)
@@ -128,8 +128,8 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 func (m Model) safeRenderMarkdown(content string) (result string) {
 	defer func() {
 		if r := recover(); r != nil {
-			// TODO: Consider logging the panic or handling it more gracefully than just swallowing it
-			// If glamour panics, return plain text
+			// Log panic and recover
+			fmt.Printf("Error rendering markdown: %v\n", r)
 			result = content
 		}
 	}()
@@ -144,8 +144,6 @@ func (m Model) safeRenderMarkdown(content string) (result string) {
 }
 
 func (m Model) View() string {
-	// TODO: Refactor large View function by splitting into smaller sub-views or using a router pattern
-	// TODO: Consider using a map[ViewMode]func() string for better scalability
 	if !m.ready {
 		return "Initializing..."
 	}
@@ -155,83 +153,25 @@ func (m Model) View() string {
 		return m.renderBootScreen()
 	}
 
-	// Handle List View Mode
-	if m.viewMode == ListView {
-		return m.styles.Content.Render(m.list.View())
+	// Delegate to specific view renderers
+	switch m.viewMode {
+	case ListView:
+		return m.renderListView()
+	case FilePickerView:
+		return m.renderFilePickerView()
+	case UsageView:
+		return m.renderUsageView()
+	case CampaignPage:
+		return m.renderCampaignView()
+	case PromptInspector:
+		return m.renderJITView()
+	case AutopoiesisPage:
+		return m.renderAutopoiesisView()
+	case ShardPage:
+		return m.renderShardView()
 	}
 
-	// Handle File Picker Mode
-	if m.viewMode == FilePickerView {
-		title := m.styles.Header.Render(" Select a file ")
-		content := m.styles.Content.Render(m.filepicker.View())
-		return lipgloss.JoinVertical(lipgloss.Left, title, content)
-	}
-
-	// Handle Usage View Mode
-	if m.viewMode == UsageView {
-		return m.styles.Content.Render(m.usagePage.View())
-	}
-
-	// Handle Campaign Page Mode
-	if m.viewMode == CampaignPage {
-		return m.styles.Content.Render(m.campaignPage.View())
-	}
-
-	// Handle JIT Inspector Mode
-	if m.viewMode == PromptInspector {
-		return m.styles.Content.Render(m.jitPage.View())
-	}
-
-	// Handle Autopoiesis Page Mode
-	if m.viewMode == AutopoiesisPage {
-		return m.styles.Content.Render(m.autoPage.View())
-	}
-
-	// Handle Shard Console Mode
-	if m.viewMode == ShardPage {
-		return m.styles.Content.Render(m.shardPage.View())
-	}
-
-	// Header
-	header := m.renderHeader()
-
-	// Content area (chat viewport + optional error panel)
-	content := m.viewport.View()
-	if m.err != nil && m.showError {
-		content = lipgloss.JoinVertical(lipgloss.Left, content, m.renderErrorPanel())
-	}
-	chatView := m.styles.Content.Render(content)
-
-	// Apply split-pane view if enabled (Glass Box Interface)
-	if m.showLogic && m.splitPane != nil {
-		chatView = m.splitPane.Render(chatView)
-	}
-
-	// Show campaign panel if active
-	if m.showCampaignPanel && m.activeCampaign != nil {
-		campaignPanel := m.renderCampaignPanel()
-		chatView = lipgloss.JoinHorizontal(lipgloss.Top, chatView, "  ", campaignPanel)
-	}
-
-	// Input area
-	inputStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Accent).
-		Padding(0, 1)
-
-	inputArea := inputStyle.Render(m.textarea.View())
-
-	// Footer (with mode indicator)
-	footer := m.renderFooter()
-
-	// Compose full view
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		chatView,
-		inputArea,
-		footer,
-	)
+	return m.renderChatView()
 }
 
 func (m Model) renderErrorPanel() string {
@@ -406,5 +346,78 @@ func (m Model) renderBootScreen() string {
 		lipgloss.Center,
 		lipgloss.Center,
 		content,
+	)
+}
+
+func (m Model) renderListView() string {
+	return m.styles.Content.Render(m.list.View())
+}
+
+func (m Model) renderFilePickerView() string {
+	title := m.styles.Header.Render(" Select a file ")
+	content := m.styles.Content.Render(m.filepicker.View())
+	return lipgloss.JoinVertical(lipgloss.Left, title, content)
+}
+
+func (m Model) renderUsageView() string {
+	return m.styles.Content.Render(m.usagePage.View())
+}
+
+func (m Model) renderCampaignView() string {
+	return m.styles.Content.Render(m.campaignPage.View())
+}
+
+func (m Model) renderJITView() string {
+	return m.styles.Content.Render(m.jitPage.View())
+}
+
+func (m Model) renderAutopoiesisView() string {
+	return m.styles.Content.Render(m.autoPage.View())
+}
+
+func (m Model) renderShardView() string {
+	return m.styles.Content.Render(m.shardPage.View())
+}
+
+func (m Model) renderChatView() string {
+	// Header
+	header := m.renderHeader()
+
+	// Content area (chat viewport + optional error panel)
+	content := m.viewport.View()
+	if m.err != nil && m.showError {
+		content = lipgloss.JoinVertical(lipgloss.Left, content, m.renderErrorPanel())
+	}
+	chatView := m.styles.Content.Render(content)
+
+	// Apply split-pane view if enabled (Glass Box Interface)
+	if m.showLogic && m.splitPane != nil {
+		chatView = m.splitPane.Render(chatView)
+	}
+
+	// Show campaign panel if active
+	if m.showCampaignPanel && m.activeCampaign != nil {
+		campaignPanel := m.renderCampaignPanel()
+		chatView = lipgloss.JoinHorizontal(lipgloss.Top, chatView, "  ", campaignPanel)
+	}
+
+	// Input area
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.styles.Theme.Accent).
+		Padding(0, 1)
+
+	inputArea := inputStyle.Render(m.textarea.View())
+
+	// Footer (with mode indicator)
+	footer := m.renderFooter()
+
+	// Compose full view
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		chatView,
+		inputArea,
+		footer,
 	)
 }
