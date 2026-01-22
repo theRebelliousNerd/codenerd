@@ -178,7 +178,7 @@ func (m *BackgroundObserverManager) Stop() {
 }
 
 // RegisterObserver registers an observer specialist for background monitoring.
-// TODO: Implement Observer pattern wiring for cross-shard notification if not already handled by Mangle/JIT.
+// NOTE: Observer pattern is implemented here. Cross-shard notifications are handled via ObserverEvent dispatch.
 func (m *BackgroundObserverManager) RegisterObserver(name string) error {
 	class, ok := GetSpecialistClassification(name)
 	if !ok {

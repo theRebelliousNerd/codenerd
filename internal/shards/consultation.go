@@ -90,7 +90,7 @@ func NewConsultationManager(spawner ConsultationSpawner) *ConsultationManager {
 }
 
 // RequestConsultation initiates a consultation request.
-// TODO: Implement Consult mechanism or remove if superseded by JIT collaboration.
+// NOTE: Consult mechanism is implemented. JIT collaboration uses this via ConsultationSpawner interface.
 func (m *ConsultationManager) RequestConsultation(ctx context.Context, req ConsultationRequest) (*ConsultationResponse, error) {
 	if req.RequestID == "" {
 		req.RequestID = fmt.Sprintf("consult-%s-%d", req.ToSpec, time.Now().UnixNano())

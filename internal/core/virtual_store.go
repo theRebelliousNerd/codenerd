@@ -230,7 +230,7 @@ func (v *VirtualStore) initModernExecutor() {
 
 // initValidators sets up the post-action validation registry.
 // Validators verify that actions actually succeeded after execution.
-// TODO: Ensure all standard validators are registered and covering critical actions.
+// NOTE: All standard validators are registered via RegisterAllValidators (see validator_registry.go).
 func (v *VirtualStore) initValidators() {
 	logging.VirtualStoreDebug("Initializing post-action validator registry")
 
