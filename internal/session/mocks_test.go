@@ -16,8 +16,11 @@ import (
 
 // MockKernel implements types.Kernel for testing.
 type MockKernel struct {
-	facts   []types.Fact
-	asserts []types.Fact // Track assertions for verification
+	facts        []types.Fact
+	asserts      []types.Fact // Track assertions for verification
+	AssertError  error
+	QueryError   error
+	RetractError error
 }
 
 func (m *MockKernel) LoadFacts(facts []types.Fact) error {
@@ -26,6 +29,9 @@ func (m *MockKernel) LoadFacts(facts []types.Fact) error {
 }
 
 func (m *MockKernel) Query(predicate string) ([]types.Fact, error) {
+	if m.QueryError != nil {
+		return nil, m.QueryError
+	}
 	var results []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate == predicate {
@@ -40,17 +46,26 @@ func (m *MockKernel) QueryAll() (map[string][]types.Fact, error) {
 }
 
 func (m *MockKernel) Assert(fact types.Fact) error {
+	if m.AssertError != nil {
+		return m.AssertError
+	}
 	m.facts = append(m.facts, fact)
 	m.asserts = append(m.asserts, fact)
 	return nil
 }
 
 func (m *MockKernel) AssertBatch(facts []types.Fact) error {
+	if m.AssertError != nil {
+		return m.AssertError
+	}
 	m.facts = append(m.facts, facts...)
 	return nil
 }
 
 func (m *MockKernel) Retract(predicate string) error {
+	if m.RetractError != nil {
+		return m.RetractError
+	}
 	var newFacts []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate != predicate {
@@ -62,6 +77,9 @@ func (m *MockKernel) Retract(predicate string) error {
 }
 
 func (m *MockKernel) RetractFact(fact types.Fact) error {
+	if m.RetractError != nil {
+		return m.RetractError
+	}
 	var newFacts []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate != fact.Predicate {

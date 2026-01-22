@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -309,5 +310,141 @@ func TestParanoidValidator_NonExistentFile(t *testing.T) {
 	// Should fail validation for non-existent file
 	if vr.Verified {
 		t.Error("Expected Verified=false for non-existent file")
+	}
+}
+
+func TestParanoidValidator_FileSizeBelowMin(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.MinFileSizeBytes = 100
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "small.txt")
+	content := "too small"
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if vr.Verified {
+		t.Error("Expected Verified=false for file size below min")
+	}
+}
+
+func TestParanoidValidator_FileSizeExceedsMax(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.MaxFileSizeBytes = 10
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "large.txt")
+	content := "this is larger than 10 bytes"
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if vr.Verified {
+		t.Error("Expected Verified=false for file size exceeding max")
+	}
+}
+
+func TestParanoidValidator_ReadPermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping read permission test on Windows")
+	}
+
+	v := NewParanoidFileValidator()
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "unreadable.txt")
+	content := "content"
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	// Remove read permissions
+	if err := os.Chmod(path, 0200); err != nil {
+		t.Fatalf("Failed to chmod: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if vr.Verified {
+		t.Error("Expected Verified=false for unreadable file")
+	}
+}
+
+func TestParanoidValidator_ContentSampling(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.SamplePoints = 5
+	v.RequireDoubleRead = false
+
+	// Create content > 100 bytes (threshold for sampling)
+	content := ""
+	for i := 0; i < 20; i++ {
+		content += "0123456789" // 200 bytes
+	}
+
+	v.MaxFileSizeBytes = 1000 // Ensure valid size
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "sampled.txt")
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if !vr.Verified {
+		t.Errorf("Expected Verified=true for sampled file, got error: %v", vr.Error)
+	}
+
+	// Verify details
+	if samples, ok := vr.Details["sample_points"].(int); !ok || samples != 5 {
+		t.Errorf("Expected sample_points=5 in details, got %v", vr.Details["sample_points"])
 	}
 }
