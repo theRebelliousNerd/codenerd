@@ -14,6 +14,9 @@
 # Status: /pending, /in_progress, /completed, /failed
 Decl delegate_task(ShardType, TaskDescription, Status).
 
+# spawn_subagent(Persona) - derived: subagent should be spawned
+Decl spawn_subagent(Persona).
+
 # shard_profile(AgentName, Type, KnowledgePath)
 Decl shard_profile(AgentName, Type, KnowledgePath).
 
