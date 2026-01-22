@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
+	"codenerd/internal/tools/research"
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
@@ -40,6 +41,10 @@ type Decomposer struct {
 	edgeCaseDetector *EdgeCaseDetector     // File action decisions
 	toolPregenerator *ToolPregenerator     // Tool pre-generation (Step 9)
 
+	// Gemini advanced features (nil if not Gemini or features unavailable)
+	grounding *research.GroundingHelper // Google Search / URL Context grounding
+	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
+
 	// Cached intelligence report for current decomposition
 	lastIntelligence *IntelligenceReport
 }
@@ -47,12 +52,30 @@ type Decomposer struct {
 // NewDecomposer creates a new decomposer.
 func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace string) *Decomposer {
 	logging.CampaignDebug("Creating new Decomposer for workspace: %s", workspace)
-	return &Decomposer{
+
+	d := &Decomposer{
 		kernel:         kernel,
 		llmClient:      llmClient,
 		workspace:      workspace,
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
 	}
+
+	// Initialize Gemini advanced features helpers
+	if llmClient != nil {
+		d.grounding = research.NewGroundingHelper(llmClient)
+		d.thinking = research.NewThinkingHelper(llmClient)
+
+		// Enable Google Search grounding for research-intensive planning
+		if d.grounding.IsGroundingAvailable() {
+			d.grounding.EnableGoogleSearch()
+			logging.CampaignDebug("Gemini grounding enabled for campaign planning (Google Search active)")
+		}
+		if d.thinking.IsThinkingAvailable() {
+			logging.CampaignDebug("Gemini thinking mode active for campaign planning (level=%s)", d.thinking.GetThinkingLevel())
+		}
+	}
+
+	return d
 }
 
 // SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
@@ -113,6 +136,75 @@ func (d *Decomposer) SetToolPregenerator(pregenerator *ToolPregenerator) {
 // GetLastIntelligence returns the intelligence report from the last decomposition.
 func (d *Decomposer) GetLastIntelligence() *IntelligenceReport {
 	return d.lastIntelligence
+}
+
+// =============================================================================
+// GEMINI ADVANCED FEATURES
+// =============================================================================
+
+// IsGroundingAvailable returns true if Gemini grounding features are available.
+func (d *Decomposer) IsGroundingAvailable() bool {
+	return d.grounding != nil && d.grounding.IsGroundingAvailable()
+}
+
+// IsThinkingAvailable returns true if Gemini thinking mode is available.
+func (d *Decomposer) IsThinkingAvailable() bool {
+	return d.thinking != nil && d.thinking.IsThinkingAvailable()
+}
+
+// EnableURLContext enables URL Context grounding with documentation URLs.
+// Useful for campaign planning that references specific documentation.
+func (d *Decomposer) EnableURLContext(urls []string) {
+	if d.grounding != nil && d.grounding.IsGroundingAvailable() {
+		d.grounding.EnableURLContext(urls)
+		logging.CampaignDebug("URL Context enabled for decomposer with %d URLs", len(urls))
+	}
+}
+
+// DisableURLContext disables URL Context grounding.
+func (d *Decomposer) DisableURLContext() {
+	if d.grounding != nil {
+		d.grounding.DisableURLContext()
+	}
+}
+
+// GetGroundingStats returns statistics about grounding usage during decomposition.
+func (d *Decomposer) GetGroundingStats() *research.GroundingStats {
+	if d.grounding == nil {
+		return nil
+	}
+	stats := d.grounding.GetStats()
+	return &stats
+}
+
+// GetThinkingStats returns statistics about thinking mode usage during decomposition.
+func (d *Decomposer) GetThinkingStats() *research.ThinkingStats {
+	if d.thinking == nil {
+		return nil
+	}
+	stats := d.thinking.GetStats()
+	return &stats
+}
+
+// completeWithGrounding performs an LLM completion with grounding if available.
+// Falls back to standard Complete if grounding is not available.
+func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (string, error) {
+	if d.grounding != nil && d.grounding.IsGroundingAvailable() {
+		response, sources, err := d.grounding.CompleteWithGrounding(ctx, prompt)
+		if err != nil {
+			return "", err
+		}
+		if len(sources) > 0 {
+			logging.CampaignDebug("Decomposer LLM call grounded with %d sources", len(sources))
+		}
+		// Capture thinking metadata after grounded call
+		if d.thinking != nil {
+			d.thinking.CaptureThinkingMetadata()
+		}
+		return response, nil
+	}
+	// Fall back to standard completion
+	return d.llmClient.Complete(ctx, prompt)
 }
 
 // DecomposeRequest represents a request to create a campaign.
@@ -873,7 +965,8 @@ Snippets:
 %s
 Return JSON only.`, goal, q, sb.String())
 
-		resp, err := d.llmClient.Complete(ctx, prompt)
+		// Use grounding for research-intensive requirement extraction
+		resp, err := d.completeWithGrounding(ctx, prompt)
 		if err != nil {
 			logging.CampaignDebug("LLM extraction failed: %v", err)
 			continue
@@ -1713,7 +1806,8 @@ Please fix these issues and output the corrected plan as JSON.
 Output ONLY valid JSON with the same structure as the input:`, string(planJSON), issuesSummary.String())
 
 	logging.CampaignDebug("Sending refinement request to LLM")
-	resp, err := d.llmClient.Complete(ctx, prompt)
+	// Use grounding for plan refinement (may benefit from up-to-date best practices)
+	resp, err := d.completeWithGrounding(ctx, prompt)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM refinement failed: %v", err)
 		return nil, err

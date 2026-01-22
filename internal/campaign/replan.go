@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/tools/research"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,15 +18,33 @@ type Replanner struct {
 	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	promptProvider PromptProvider // Optional JIT prompt provider
+
+	// Gemini advanced features (nil if not Gemini or features unavailable)
+	grounding *research.GroundingHelper // Google Search / URL Context grounding
+	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
 }
 
 // NewReplanner creates a new replanner.
 func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner {
-	return &Replanner{
+	r := &Replanner{
 		kernel:         kernel,
 		llmClient:      llmClient,
 		promptProvider: NewStaticPromptProvider(), // Default to static prompts
 	}
+
+	// Initialize Gemini advanced features helpers
+	if llmClient != nil {
+		r.grounding = research.NewGroundingHelper(llmClient)
+		r.thinking = research.NewThinkingHelper(llmClient)
+
+		// Enable Google Search grounding for research-intensive replanning
+		if r.grounding.IsGroundingAvailable() {
+			r.grounding.EnableGoogleSearch()
+			logging.CampaignDebug("Gemini grounding enabled for replanner (Google Search active)")
+		}
+	}
+
+	return r
 }
 
 // SetPromptProvider sets the PromptProvider for JIT-compiled prompts.
@@ -33,6 +52,27 @@ func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner
 // If not set, static prompts will be used.
 func (r *Replanner) SetPromptProvider(provider PromptProvider) {
 	r.promptProvider = provider
+}
+
+// completeWithGrounding performs an LLM completion with grounding if available.
+// Falls back to standard Complete if grounding is not available.
+func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (string, error) {
+	if r.grounding != nil && r.grounding.IsGroundingAvailable() {
+		response, sources, err := r.grounding.CompleteWithGrounding(ctx, prompt)
+		if err != nil {
+			return "", err
+		}
+		if len(sources) > 0 {
+			logging.CampaignDebug("Replanner LLM call grounded with %d sources", len(sources))
+		}
+		// Capture thinking metadata after grounded call
+		if r.thinking != nil {
+			r.thinking.CaptureThinkingMetadata()
+		}
+		return response, nil
+	}
+	// Fall back to standard completion
+	return r.completeWithGrounding(ctx, prompt)
 }
 
 // ReplanReason represents why a replan was triggered.
@@ -134,7 +174,7 @@ Output JSON:
 
 JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks, requirement)
 
-	resp, err := r.llmClient.Complete(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, prompt)
 	if err != nil {
 		return err
 	}
@@ -275,7 +315,7 @@ Return JSON only:
   "summary": "one-line change summary"
 }`, replannerPrompt, campaign.Goal, completedPhase.Name, completedPhase.Order, completedTasksSummary.String(), nextPhase.Name, nextPhase.Order, upcomingTasks.String())
 
-	resp, err := r.llmClient.Complete(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, prompt)
 	if err != nil {
 		return err
 	}
@@ -540,7 +580,7 @@ Output JSON:
 		len(campaign.Phases), campaign.CompletedTasks, campaign.TotalTasks,
 		context)
 
-	resp, err := r.llmClient.Complete(ctx, prompt)
+	resp, err := r.completeWithGrounding(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
