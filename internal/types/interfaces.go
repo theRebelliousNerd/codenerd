@@ -238,3 +238,39 @@ type ThinkingProvider interface {
 	// Returns empty string if thinking mode uses token budget instead of levels.
 	GetThinkingLevel() string
 }
+
+// ThoughtSignatureProvider is an optional interface for LLM clients that support
+// multi-turn function calling with thought signatures (Gemini 3).
+//
+// When using function calling with thinking mode enabled, Gemini returns an encrypted
+// "thought signature" that must be passed back in subsequent turns to maintain
+// reasoning continuity. Without this, the model loses context about WHY it made
+// specific function calls.
+//
+// Usage pattern for multi-turn function calling:
+//
+//	// First turn: LLM returns tool calls + thought signature
+//	resp, _ := client.CompleteWithTools(ctx, system, user, tools)
+//
+//	// Capture signature after tool response
+//	var signature string
+//	if tsp, ok := client.(types.ThoughtSignatureProvider); ok {
+//	    signature = tsp.GetLastThoughtSignature()
+//	}
+//
+//	// Execute tools, then send results back with signature
+//	// (signature should be included in the function response content)
+//
+// This is critical for agentic workflows where:
+// 1. The LLM makes multiple tool calls
+// 2. Each tool's result informs subsequent reasoning
+// 3. The thinking chain must be preserved across turns
+type ThoughtSignatureProvider interface {
+	// GetLastThoughtSignature returns the encrypted thought signature from the last response.
+	// This signature must be passed back in subsequent function calling turns.
+	// Returns empty string if:
+	// - Thinking mode is disabled
+	// - The last response didn't include tool calls
+	// - The client doesn't support thought signatures
+	GetLastThoughtSignature() string
+}

@@ -10,15 +10,18 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // AnthropicClient implements LLMClient for direct Anthropic API.
 type AnthropicClient struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *http.Client
+	apiKey      string
+	baseURL     string
+	model       string
+	httpClient  *http.Client
+	mu          sync.Mutex
+	lastRequest time.Time
 }
 
 // DefaultAnthropicConfig returns sensible defaults.
@@ -71,9 +74,27 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		return "", fmt.Errorf("API key not configured")
 	}
 
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+
 	reqBody := AnthropicRequest{
 		Model:     c.model,
-		MaxTokens: 4096,
+		MaxTokens: 8192, // Higher limit for complex tasks
 		System:    systemPrompt,
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: userPrompt},
@@ -81,66 +102,93 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 		Temperature: 0.1,
 	}
 
-	jsonData, err := json.Marshal(reqBody)
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to marshal request: %v", err)
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
+	// Retry loop for rate limits and transient errors
+	maxRetries := 3
+	var lastErr error
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to create request: %v", err)
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", c.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: request failed after %v: %v", time.Since(startTime), err)
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to read response: %v", err)
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: API returned status %d", resp.StatusCode)
-		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var anthropicResp AnthropicResponse
-	if err := json.Unmarshal(body, &anthropicResp); err != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to parse response: %v", err)
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if anthropicResp.Error != nil {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: API error: %s", anthropicResp.Error.Message)
-		return "", fmt.Errorf("API error: %s", anthropicResp.Error.Message)
-	}
-
-	if len(anthropicResp.Content) == 0 {
-		logging.PerceptionError("[Anthropic] CompleteWithSystem: no completion returned")
-		return "", fmt.Errorf("no completion returned")
-	}
-
-	var result strings.Builder
-	for _, content := range anthropicResp.Content {
-		if content.Type == "text" {
-			result.WriteString(content.Text)
+	for i := 0; i <= maxRetries; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(1<<uint(i-1)) * time.Second)
 		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to marshal request: %v", err)
+			return "", fmt.Errorf("failed to marshal request: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/messages", bytes.NewReader(jsonData))
+		if err != nil {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to create request: %v", err)
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", c.apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if resp.StatusCode == http.StatusBadRequest && isPiggyback {
+			// Some requests may fail with schema issues, retry without Piggyback
+			bodyStr := string(body)
+			if strings.Contains(bodyStr, "schema") || strings.Contains(bodyStr, "json") {
+				lastErr = fmt.Errorf("schema validation error: %s", bodyStr)
+				continue
+			}
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: API returned status %d", resp.StatusCode)
+			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var anthropicResp AnthropicResponse
+		if err := json.Unmarshal(body, &anthropicResp); err != nil {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: failed to parse response: %v", err)
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if anthropicResp.Error != nil {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: API error: %s", anthropicResp.Error.Message)
+			return "", fmt.Errorf("API error: %s", anthropicResp.Error.Message)
+		}
+
+		if len(anthropicResp.Content) == 0 {
+			logging.PerceptionError("[Anthropic] CompleteWithSystem: no completion returned")
+			return "", fmt.Errorf("no completion returned")
+		}
+
+		var result strings.Builder
+		for _, content := range anthropicResp.Content {
+			if content.Type == "text" {
+				result.WriteString(content.Text)
+			}
+		}
+
+		response := strings.TrimSpace(result.String())
+		logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
+		return response, nil
 	}
 
-	response := strings.TrimSpace(result.String())
-	logging.Perception("[Anthropic] CompleteWithSystem: completed in %v response_len=%d", time.Since(startTime), len(response))
-	return response, nil
+	logging.PerceptionError("[Anthropic] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
 // CompleteWithStreaming sends a prompt with streaming enabled.
@@ -393,4 +441,18 @@ func (c *AnthropicClient) SetModel(model string) {
 // GetModel returns the current model.
 func (c *AnthropicClient) GetModel() string {
 	return c.model
+}
+
+// SchemaCapable reports whether this client supports response schema enforcement.
+// Anthropic doesn't support API-level JSON schema enforcement, but does support
+// JSON output via prompt instructions.
+func (c *AnthropicClient) SchemaCapable() bool {
+	return false
+}
+
+// ShouldUsePiggybackTools returns true if this client should use Piggyback Protocol
+// for tool invocation instead of native function calling.
+// For Anthropic, we use native tool calling which is well-supported.
+func (c *AnthropicClient) ShouldUsePiggybackTools() bool {
+	return false
 }
