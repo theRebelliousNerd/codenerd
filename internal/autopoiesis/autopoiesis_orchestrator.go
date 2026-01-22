@@ -10,6 +10,8 @@ import (
 
 	internalconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/tools/research"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -46,9 +48,114 @@ type Orchestrator struct {
 	promptAssembler PromptAssembler // JIT-aware prompt assembler
 	jitCompiler     JITCompiler     // JIT prompt compiler
 
+	// Gemini advanced features (nil if not Gemini or features unavailable)
+	grounding *research.GroundingHelper // Google Search / URL Context grounding
+	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
+
 	// Tool generation throttling (session-local)
 	toolsGenerated int
 	lastToolGen    time.Time
+}
+
+// llmClientWrapper adapts the local LLMClient interface to types.LLMClient
+// for use with research.GroundingHelper and research.ThinkingHelper.
+// It proxies grounding/thinking interfaces to the underlying client when available.
+type llmClientWrapper struct {
+	client LLMClient
+}
+
+func (w *llmClientWrapper) Complete(ctx context.Context, prompt string) (string, error) {
+	return w.client.Complete(ctx, prompt)
+}
+
+func (w *llmClientWrapper) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+}
+
+func (w *llmClientWrapper) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	// Not used by grounding/thinking helpers, but needed for interface compliance
+	// The autopoiesis package doesn't use tool calling directly
+	return nil, fmt.Errorf("CompleteWithTools not supported in autopoiesis wrapper")
+}
+
+// GroundingController implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastGroundingSources() []string {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.GetLastGroundingSources()
+	}
+	return nil
+}
+
+func (w *llmClientWrapper) IsGoogleSearchEnabled() bool {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.IsGoogleSearchEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) IsURLContextEnabled() bool {
+	if gp, ok := w.client.(types.GroundingProvider); ok {
+		return gp.IsURLContextEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) SetEnableGoogleSearch(enable bool) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetEnableGoogleSearch(enable)
+	}
+}
+
+func (w *llmClientWrapper) SetEnableURLContext(enable bool) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetEnableURLContext(enable)
+	}
+}
+
+func (w *llmClientWrapper) SetURLContextURLs(urls []string) {
+	if gc, ok := w.client.(types.GroundingController); ok {
+		gc.SetURLContextURLs(urls)
+	}
+}
+
+// ThinkingProvider implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastThoughtSummary() string {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+func (w *llmClientWrapper) GetLastThinkingTokens() int {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+func (w *llmClientWrapper) IsThinkingEnabled() bool {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.IsThinkingEnabled()
+	}
+	return false
+}
+
+func (w *llmClientWrapper) GetThinkingLevel() string {
+	if tp, ok := w.client.(types.ThinkingProvider); ok {
+		return tp.GetThinkingLevel()
+	}
+	return ""
+}
+
+// ThoughtSignatureProvider implementation - proxies to underlying client if available
+
+func (w *llmClientWrapper) GetLastThoughtSignature() string {
+	if tsp, ok := w.client.(types.ThoughtSignatureProvider); ok {
+		return tsp.GetLastThoughtSignature()
+	}
+	return ""
 }
 
 // DefaultConfig returns default configuration
@@ -148,6 +255,22 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		// Initialize reasoning trace and logging system
 		traces:      NewTraceCollector(tracesDir, client),
 		logInjector: NewLogInjector(DefaultLoggingRequirements()),
+	}
+
+	// Initialize Gemini advanced features helpers
+	// The LLMClient interface in autopoiesis is a subset of types.LLMClient,
+	// so we wrap it to satisfy the full interface for the research helpers.
+	wrapper := &llmClientWrapper{client: client}
+	orch.grounding = research.NewGroundingHelper(wrapper)
+	orch.thinking = research.NewThinkingHelper(wrapper)
+
+	// Enable Google Search grounding for research-intensive tool generation
+	if orch.grounding.IsGroundingAvailable() {
+		orch.grounding.EnableGoogleSearch()
+		logging.Autopoiesis("Gemini grounding enabled for autopoiesis (Google Search active)")
+	}
+	if orch.thinking.IsThinkingAvailable() {
+		logging.AutopoiesisDebug("Gemini thinking mode active for autopoiesis (level=%s)", orch.thinking.GetThinkingLevel())
 	}
 
 	// Wire Ouroboros callback to propagate tool registration facts to parent kernel
