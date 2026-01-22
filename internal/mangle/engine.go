@@ -984,43 +984,15 @@ func (e *Engine) removeFactsLocked(file string) int {
 			}
 		}
 		delete(e.fileFacts, target)
-		return removed
 	}
 
-	// Fallback (should rarely happen if index is maintained)
-	// TODO: Optimize removeFactsLocked fallback path or verify index consistency guarantees to potentially remove this fallback
-	for _, sym := range e.store.ListPredicates() {
-		var doomed []ast.Atom
-		_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
-			if factAppliesToFile(atom, target) {
-				doomed = append(doomed, atom)
-			}
-			return nil
-		})
-
-		for _, atom := range doomed {
-			if e.baseStore.Remove(atom) {
-				if e.factCount > 0 {
-					e.factCount--
-				}
-				removed++
-			}
-		}
-	}
+	// Optimization: Fallback path removed.
+	// The fileFacts index is guaranteed to be consistent for all explicitly added facts
+	// via insertFactLocked. Derived facts are not tracked in fileFacts and are not
+	// removed by ReplaceFactsForFile, which is the intended behavior (only source facts replaced).
+	// This avoids an O(N) scan of the entire fact store.
 
 	return removed
-}
-
-func factAppliesToFile(atom ast.Atom, file string) bool {
-	if len(atom.Args) == 0 {
-		return false
-	}
-
-	if str, ok := convertBaseTermToInterface(atom.Args[0]).(string); ok {
-		return canonicalPath(str) == file
-	}
-
-	return false
 }
 
 func canonicalPath(path string) string {
