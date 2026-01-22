@@ -18,12 +18,12 @@ import (
 type StdioTransport struct {
 	mu sync.RWMutex
 
-	command    string
-	args       []string
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	stderr     io.ReadCloser
+	command string
+	args    []string
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
 
 	connected  bool
 	serverInfo *MCPCapabilities
@@ -31,8 +31,25 @@ type StdioTransport struct {
 	pendingReqs map[int]chan *mcpResponse
 	nextID      int
 
-	done       chan struct{}
-	wg         sync.WaitGroup
+	done chan struct{}
+	wg   sync.WaitGroup
+
+	// Notification handler (optional)
+	notificationHandler func(method string, params json.RawMessage)
+}
+
+// mcpNotification represents a server notification (no ID)
+type mcpNotification struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+// SetNotificationHandler sets a handler for server notifications
+func (t *StdioTransport) SetNotificationHandler(handler func(method string, params json.RawMessage)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.notificationHandler = handler
 }
 
 // NewStdioTransport creates a new Stdio transport.
@@ -231,9 +248,37 @@ func (t *StdioTransport) readStdout() {
 			}
 			t.mu.Unlock()
 		} else {
-			// Notification or Request from server
-			// TODO: Handle server requests/notifications
-			logging.Get(logging.CategoryTools).Debug("Received notification: %s", string(line))
+			// Notification or Request from server (no ID means notification)
+			var notif mcpNotification
+			if err := json.Unmarshal(line, &notif); err != nil {
+				logging.Get(logging.CategoryTools).Warn("Failed to parse notification: %v", err)
+				continue
+			}
+
+			// Log notification details
+			logging.Get(logging.CategoryTools).Debug("Received server notification: method=%s", notif.Method)
+
+			// Dispatch to handler if configured
+			t.mu.RLock()
+			handler := t.notificationHandler
+			t.mu.RUnlock()
+
+			if handler != nil {
+				// Handle in goroutine to avoid blocking reader
+				go handler(notif.Method, notif.Params)
+			} else {
+				// Common MCP notifications we might receive
+				switch notif.Method {
+				case "notifications/progress":
+					logging.Get(logging.CategoryTools).Debug("Progress update: %s", string(notif.Params))
+				case "notifications/log":
+					logging.Get(logging.CategoryTools).Info("Server log: %s", string(notif.Params))
+				case "notifications/cancelled":
+					logging.Get(logging.CategoryTools).Debug("Request cancelled: %s", string(notif.Params))
+				default:
+					logging.Get(logging.CategoryTools).Debug("Unhandled notification '%s': %s", notif.Method, string(notif.Params))
+				}
+			}
 		}
 	}
 

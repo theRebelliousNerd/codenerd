@@ -205,6 +205,24 @@ func (k *RealKernel) GetWorkspace() string {
 	return k.workspaceRoot
 }
 
+// SetDerivedFactLimit sets the maximum number of derived facts during evaluation.
+// Set to 0 or negative to use the default (500,000).
+func (k *RealKernel) SetDerivedFactLimit(limit int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.derivedFactLimit = limit
+}
+
+// GetDerivedFactLimit returns the current derived fact limit.
+func (k *RealKernel) GetDerivedFactLimit() int {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.derivedFactLimit <= 0 {
+		return 500000 // Default
+	}
+	return k.derivedFactLimit
+}
+
 // SetRepairInterceptor sets the repair interceptor for learned rule validation.
 // The interceptor is called before any learned rule is persisted, allowing
 // the MangleRepairShard to validate and repair rules.

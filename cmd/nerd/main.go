@@ -158,8 +158,14 @@ Run without arguments to start the interactive chat interface.`,
 		}
 		if ws != "" {
 			if err := os.Chdir(ws); err != nil {
-				// TODO: Handle workspace permission errors more gracefully or provide suggestions
-				return fmt.Errorf("chdir workspace: %w", err)
+				// Handle workspace permission errors gracefully
+				if os.IsPermission(err) {
+					return fmt.Errorf("cannot access workspace '%s': permission denied\n\nSuggestions:\n  - Check directory permissions with 'ls -la %s'\n  - Try running from a different directory\n  - Use --workspace with a writable path", ws, ws)
+				}
+				if os.IsNotExist(err) {
+					return fmt.Errorf("workspace '%s' does not exist\n\nSuggestions:\n  - Create the directory with 'mkdir -p %s'\n  - Use --workspace with an existing path", ws, ws)
+				}
+				return fmt.Errorf("cannot change to workspace '%s': %w", ws, err)
 			}
 		}
 
