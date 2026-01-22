@@ -423,18 +423,23 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string {
-	// TODO(improvement): Use a struct and json.Marshal instead of manual string building to ensure valid JSON examples.
+	// Use json.MarshalIndent to ensure the example is always valid JSON
+	exampleRequest := []map[string]interface{}{{
+		"id":        "req_1",
+		"tool_name": "<tool_name>",
+		"tool_args": map[string]interface{}{"arg_name": "arg_value"},
+		"purpose":   "why this tool is needed",
+	}}
+
+	exampleJSON, _ := json.MarshalIndent(exampleRequest, "", "  ")
+
 	var catalog strings.Builder
 	catalog.WriteString("\n## Available Tools\n\n")
 	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
 	catalog.WriteString("```json\n")
-	catalog.WriteString("\"tool_requests\": [{\n")
-	catalog.WriteString("  \"id\": \"req_1\",\n")
-	catalog.WriteString("  \"tool_name\": \"<tool_name>\",\n")
-	catalog.WriteString("  \"tool_args\": { ... },\n")
-	catalog.WriteString("  \"purpose\": \"why this tool is needed\"\n")
-	catalog.WriteString("}]\n")
-	catalog.WriteString("```\n\n")
+	catalog.WriteString("\"tool_requests\": ")
+	catalog.Write(exampleJSON)
+	catalog.WriteString("\n```\n\n")
 
 	toolCount := 0
 

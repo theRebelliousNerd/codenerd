@@ -175,6 +175,7 @@ func (m *MockConfigFactory) Generate(ctx context.Context, result *prompt.Compila
 type MockVirtualStore struct {
 	ReadFileFunc func(path string) ([]string, error)
 	ExecFunc     func(ctx context.Context, cmd string, env []string) (string, string, error)
+	ReadRawFunc  func(path string) ([]byte, error)
 }
 
 func (m *MockVirtualStore) ReadFile(path string) ([]string, error) {
@@ -191,6 +192,13 @@ func (m *MockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (
 		return m.ExecFunc(ctx, cmd, env)
 	}
 	return "", "", nil
+}
+
+func (m *MockVirtualStore) ReadRaw(path string) ([]byte, error) {
+	if m.ReadRawFunc != nil {
+		return m.ReadRawFunc(path)
+	}
+	return nil, nil
 }
 
 func (m *MockVirtualStore) ListFiles(dir string) ([]string, error) { return nil, nil }
