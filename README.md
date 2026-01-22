@@ -1,6 +1,6 @@
 <div align="center">
 
-```
+```text
                     _      _   _ _____ ____  ____
    ___ ___   __| | ___| \ | | ____|  _ \|  _ \
   / __/ _ \ / _` |/ _ \  \| |  _| | |_) | | | |
@@ -125,9 +125,11 @@ Every interaction flows through:
    ```bash
    ./nerd init    # Creates .nerd/ directory, scans codebase
    ./nerd         # Launch interactive chat TUI
-## Quickstart
+   ```
 
-### 1. Install & Build
+### Option 2: Build from Source
+
+#### 1. Install & Build
 **Prerequisites:**
 - Go 1.22+
 - Docker (must be running for sandboxed execution)
@@ -142,7 +144,7 @@ cd codenerd
 go build -o nerd ./cmd/nerd
 ```
 
-### 2. Configure
+#### 2. Configure
 The CLI needs API keys for the intelligence layer.
 1. Run `nerd` once to generate the config file at `~/.codenerd/config.json`, OR manually create it.
 2. Set your keys via environment variables or the config file:
@@ -153,7 +155,7 @@ export ZAI_API_KEY="your_key_here"
 export CONTEXT7_API_KEY="your_ctx_key"
 ```
 
-### 3. Initialize Your Project
+#### 3. Initialize Your Project
 Navigate to your project directory (e.g., your Python app) and initialize CodeNERD. This creates a local `.nerd` directory and indexes your codebase.
 
 ```bash
@@ -610,3 +612,5 @@ This separation means:
 [![GitHub](https://img.shields.io/badge/GitHub-theRebelliousNerd%2Fcodenerd-181717?style=flat-square&logo=github)](https://github.com/theRebelliousNerd/codenerd)
 
 </div>
+
+> *[Archived & Reviewed by The Librarian on 2026-01-22]*
