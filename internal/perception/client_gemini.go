@@ -47,6 +47,26 @@ type GeminiClient struct {
 	lastThinkingTokens int
 }
 
+// Compile-time interface assertions for GeminiClient.
+// These ensure GeminiClient properly implements all required interfaces.
+var (
+	_ LLMClient = (*GeminiClient)(nil) // Base LLM client interface
+
+	// Gemini advanced features interfaces (from types package)
+	_ interface{ GetLastThoughtSummary() string }     = (*GeminiClient)(nil) // ThinkingProvider
+	_ interface{ GetLastThinkingTokens() int }        = (*GeminiClient)(nil) // ThinkingProvider
+	_ interface{ IsThinkingEnabled() bool }           = (*GeminiClient)(nil) // ThinkingProvider
+	_ interface{ GetThinkingLevel() string }          = (*GeminiClient)(nil) // ThinkingProvider
+	_ interface{ GetLastThoughtSignature() string }   = (*GeminiClient)(nil) // ThoughtSignatureProvider
+	_ interface{ GetLastGroundingSources() []string } = (*GeminiClient)(nil) // GroundingProvider
+	_ interface{ IsGoogleSearchEnabled() bool }       = (*GeminiClient)(nil) // GroundingProvider
+	_ interface{ IsURLContextEnabled() bool }         = (*GeminiClient)(nil) // GroundingProvider
+	_ interface{ SetEnableGoogleSearch(bool) }        = (*GeminiClient)(nil) // GroundingController
+	_ interface{ SetEnableURLContext(bool) }          = (*GeminiClient)(nil) // GroundingController
+	_ interface{ SetURLContextURLs([]string) }        = (*GeminiClient)(nil) // GroundingController
+	_ interface{ ShouldUsePiggybackTools() bool }     = (*GeminiClient)(nil) // PiggybackToolProvider
+)
+
 type geminiToolCall struct {
 	id        string
 	name      string
