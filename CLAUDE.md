@@ -912,7 +912,7 @@ For detailed architecture and implementation specs, see:
 - [.claude/skills/mangle-programming/references/](.claude/skills/mangle-programming/references/) - Mangle language reference
 
 
-## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time... 
+## Notice on unused wiring... investigate consuming unused methods and parameters and code before removing it... ultrathink on it even... this is a living codebase and we forget to wire things up all the time...
 
 
 
@@ -1182,3 +1182,5 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 ---
 
 **Remember: Push to GitHub regularly!**
+
+> *[Archived & Reviewed by The Librarian on 2026-01-22]*
