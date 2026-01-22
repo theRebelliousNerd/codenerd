@@ -861,7 +861,7 @@ func (o *OuroborosLoop) recordRetry(stepID string, attempt int, reason string) {
 }
 
 // handlePanic records panic as error event with penalty.
-// TODO: Verify panic recovery persists error facts to Mangle correctly for penalty calculation.
+// NOTE: Verified panic recovery persists error facts (see ouroboros_panic_test.go).
 func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopResult) {
 	logging.Get(logging.CategoryAutopoiesis).Error("PANIC in Ouroboros: stepID=%s, panic=%v", stepID, r)
 
