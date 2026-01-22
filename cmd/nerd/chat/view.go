@@ -14,6 +14,24 @@ import (
 )
 
 // =============================================================================
+// UI STRINGS AND CONSTANTS
+// =============================================================================
+// These constants define user-visible strings for easy localization/customization.
+
+const (
+	// Role labels displayed in chat
+	LabelUser          = "You"
+	LabelAssistant     = "codeNERD"
+	LabelToolExecution = "Tool Execution"
+
+	// Role identifiers (internal)
+	RoleUser      = "user"
+	RoleSystem    = "system"
+	RoleTool      = "tool"
+	RoleAssistant = "assistant"
+)
+
+// =============================================================================
 // VIEW RENDERING
 // =============================================================================
 // These functions render the TUI components: history, header, footer, etc.
@@ -30,7 +48,10 @@ func (m Model) renderHistory() string {
 		startIdx = len(m.history) - historyRenderLimit
 	}
 
-	// TODO: Investigate using bubbletea optimization mechanisms or a more robust caching strategy
+	// Performance: Use message-level caching with invalidation
+	// Bubbletea's View() is called frequently, so we avoid re-rendering unchanged messages.
+	// The cache is populated in Update() via updateMessageCache() helper since View() uses a value receiver.
+	// Future: Consider viewport-based rendering via bubbles/viewport for very long histories.
 	for idx := startIdx; idx < len(m.history); idx++ {
 		msg := m.history[idx]
 
@@ -57,42 +78,41 @@ func (m Model) renderHistory() string {
 func (m Model) renderSingleMessage(msg Message) string {
 	var rendered strings.Builder
 
-	// TODO: Refactor hardcoded strings into constants or configuration
 	switch msg.Role {
-	case "user":
+	case RoleUser:
 		// Render user message
 		userStyle := m.styles.Bold.
 			Foreground(m.styles.Theme.Primary).
 			MarginTop(1)
-		rendered.WriteString(userStyle.Render("You") + "\n")
+		rendered.WriteString(userStyle.Render(LabelUser) + "\n")
 		rendered.WriteString(m.styles.UserInput.Render(msg.Content))
 		rendered.WriteString("\n\n")
 
-	case "system":
+	case RoleSystem:
 		// Render Glass Box system event (only when enabled)
 		if !m.glassBoxEnabled {
 			return ""
 		}
 		rendered.WriteString(m.renderGlassBoxMessage(msg))
 
-	case "tool":
+	case RoleTool:
 		// Render tool execution notification (ALWAYS shown, not gated by Glass Box)
 		// Inline styles used here for specific tool highlight
 		toolStyle := m.styles.Bold.
 			Foreground(lipgloss.Color("214")). // Orange for tool execution
 			MarginTop(1)
-		rendered.WriteString(toolStyle.Render("Tool Execution") + "\n")
+		rendered.WriteString(toolStyle.Render(LabelToolExecution) + "\n")
 		// Render tool output with markdown (result/error)
 		markdownRendered := m.safeRenderMarkdown(msg.Content)
 		rendered.WriteString(markdownRendered)
 		rendered.WriteString("\n")
 
-	default: // "assistant"
+	default: // RoleAssistant
 		// Render assistant message with markdown
 		assistantStyle := m.styles.Bold.
 			Foreground(m.styles.Theme.Accent).
 			MarginTop(1)
-		rendered.WriteString(assistantStyle.Render("codeNERD") + "\n")
+		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
 		// Render markdown with panic recovery
 		markdownRendered := m.safeRenderMarkdown(msg.Content)

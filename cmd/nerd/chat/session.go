@@ -1758,8 +1758,11 @@ type sessionVirtualStoreAdapter struct {
 }
 
 func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
-	// TODO: Route through VirtualStore's FileEditor when wired
-	// For now, use os.ReadFile directly as a fallback
+	// Route through VirtualStore's FileEditor if available
+	if editor := a.vs.GetFileEditor(); editor != nil {
+		return editor.ReadFile(path)
+	}
+	// Fallback to direct OS read if no editor configured
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -1778,9 +1781,11 @@ func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) er
 }
 
 func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
-	// TODO: Route through VirtualStore's executor when wired
-	// For now, return an error indicating the method is not yet wired
-	return "", "", fmt.Errorf("exec not yet wired through VirtualStore")
+	// Route through VirtualStore's Exec method
+	if a.vs != nil {
+		return a.vs.Exec(ctx, cmd, env)
+	}
+	return "", "", fmt.Errorf("VirtualStore not available for exec")
 }
 
 func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
