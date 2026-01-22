@@ -402,7 +402,8 @@ func (v *VirtualStore) getDreamer() *Dreamer {
 // SimulateActionWithDreamer runs speculative dream analysis on an action.
 // This is OPT-IN - call this explicitly when you want precognition safety checks.
 // Returns (safe, reason) - if safe is false, the action would be blocked.
-// TODO: Verify if precognition/dreaming should be enabled by default or if this OPT-IN path is fully utilized.
+// NOTE: Currently unused. Intended for future wiring into the action execution pipeline for precognitive safety checks.
+// Future work: Verify if precognition/dreaming should be enabled by default.
 func (v *VirtualStore) SimulateActionWithDreamer(ctx context.Context, req ActionRequest) (bool, string) {
 	dreamer := v.getDreamer()
 	if dreamer == nil {
@@ -481,7 +482,7 @@ func (v *VirtualStore) rebuildPermissionCache() {
 
 // SetShardManager sets the shard manager for delegation.
 // DEPRECATED: Use SetTaskExecutor instead.
-// TODO: Remove this deprecated method once migration to TaskExecutor is complete.
+// NOTE: Still in use by older components (ShardManager, CampaignRunner). Refactor pending.
 func (v *VirtualStore) SetShardManager(sm *coreshards.ShardManager) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
