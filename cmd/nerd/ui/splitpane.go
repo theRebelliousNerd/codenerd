@@ -335,6 +335,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	}
 
 	// Build the line
+	// TODO: Pre-compile styles in LogicPane to avoid recreation per node
 	predStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Primary).Bold(true)
 	argsStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Foreground)
 	ruleStyle := lipgloss.NewStyle().Foreground(p.Styles.Theme.Muted).Italic(true)
@@ -413,6 +414,7 @@ type SplitPaneView struct {
 
 // NewSplitPaneView creates a new split pane view
 func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
+	// TODO: Make default split ratio configurable
 	rightWidth := width / 3
 	logicPane := NewLogicPane(styles, rightWidth, height-4)
 
