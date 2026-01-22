@@ -87,3 +87,19 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 		t.Error("Expected action to be allowed (fail open) when kernel is nil")
 	}
 }
+
+// TODO: TEST_GAP: Missing test for empty 'Name' in ToolCall (should default to "/" atom or be handled).
+
+// TODO: TEST_GAP: Missing test for nil 'Args' in ToolCall (Verify json.Marshal handles it or fails safely).
+
+// TODO: TEST_GAP: Verify behavior when 'Args' contains types that fail json.Marshal (e.g., functions, channels).
+
+// TODO: TEST_GAP: Missing test for 'permitted' fact with incorrect arity (not 3 arguments).
+
+// TODO: TEST_GAP: Verify behavior when kernel.Assert fails for 'pending_action'.
+
+// TODO: TEST_GAP: Verify behavior when kernel.Query fails for 'permitted'.
+
+// TODO: TEST_GAP: Missing test for ambiguity in 'extractTarget' when multiple target keys are present.
+
+// TODO: TEST_GAP: Verify behavior when kernel.RetractFact fails (defer block error handling).
