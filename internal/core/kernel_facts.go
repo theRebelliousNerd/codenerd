@@ -743,6 +743,10 @@ func argsEqual(a, b interface{}) bool {
 		if bv, ok := b.(string); ok {
 			return av == bv
 		}
+		// Check for MangleAtom equality (symmetry)
+		if bv, ok := b.(MangleAtom); ok {
+			return av == string(bv)
+		}
 	case MangleAtom:
 		// MangleAtom is a string type alias, check both MangleAtom and string
 		if bv, ok := b.(MangleAtom); ok {
@@ -767,6 +771,28 @@ func argsEqual(a, b interface{}) bool {
 		// Cross-compare with int
 		if bv, ok := b.(int); ok {
 			return av == int64(bv)
+		}
+	case uint:
+		if bv, ok := b.(uint); ok {
+			return av == bv
+		}
+		if bv, ok := b.(uint64); ok {
+			return uint64(av) == bv
+		}
+	case uint64:
+		if bv, ok := b.(uint64); ok {
+			return av == bv
+		}
+		if bv, ok := b.(uint); ok {
+			return av == uint64(bv)
+		}
+	case int32:
+		if bv, ok := b.(int32); ok {
+			return av == bv
+		}
+	case uint32:
+		if bv, ok := b.(uint32); ok {
+			return av == bv
 		}
 	case float64:
 		if bv, ok := b.(float64); ok {
@@ -879,30 +905,36 @@ func sanitizeFactForNumericPredicates(f Fact) Fact {
 func coercePriorityAtomToNumber(v interface{}) interface{} {
 	switch t := v.(type) {
 	case string:
-		atom := strings.TrimSpace(t)
-		if atom == "" {
-			return v
-		}
-		// Accept both "/high" and "high"
-		trimmed := strings.TrimPrefix(atom, "/")
-		switch trimmed {
-		case "critical":
-			return int64(100)
-		case "high":
-			return int64(80)
-		case "medium", "normal":
-			return int64(50)
-		case "low":
-			return int64(25)
-		case "lowest":
-			return int64(10)
-		default:
-			// Log unknown priority atoms for debugging (audit item 5.1)
-			logging.Kernel("WARN: unknown priority atom '%s', passing through unchanged", atom)
-			return v
-		}
+		return parsePriorityString(t, v)
+	case MangleAtom:
+		return parsePriorityString(string(t), v)
 	default:
 		return v
+	}
+}
+
+func parsePriorityString(atom string, original interface{}) interface{} {
+	atom = strings.TrimSpace(atom)
+	if atom == "" {
+		return original
+	}
+	// Accept both "/high" and "high"
+	trimmed := strings.TrimPrefix(atom, "/")
+	switch trimmed {
+	case "critical":
+		return int64(100)
+	case "high":
+		return int64(80)
+	case "medium", "normal":
+		return int64(50)
+	case "low":
+		return int64(25)
+	case "lowest":
+		return int64(10)
+	default:
+		// Log unknown priority atoms for debugging (audit item 5.1)
+		logging.Kernel("WARN: unknown priority atom '%s', passing through unchanged", atom)
+		return original
 	}
 }
 
