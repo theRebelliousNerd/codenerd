@@ -420,7 +420,85 @@ func (d *DiffApprovalView) View() string {
 	return d.Viewport.View()
 }
 
-// CreateDiffFromStrings creates a FileDiff from old and new content strings
+// computeLCS computes the Longest Common Subsequence table for two slices
+func computeLCS(oldLines, newLines []string) [][]int {
+	m, n := len(oldLines), len(newLines)
+	// Create LCS table with (m+1) x (n+1) dimensions
+	lcs := make([][]int, m+1)
+	for i := range lcs {
+		lcs[i] = make([]int, n+1)
+	}
+
+	// Fill the LCS table
+	for i := 1; i <= m; i++ {
+		for j := 1; j <= n; j++ {
+			if oldLines[i-1] == newLines[j-1] {
+				lcs[i][j] = lcs[i-1][j-1] + 1
+			} else {
+				if lcs[i-1][j] > lcs[i][j-1] {
+					lcs[i][j] = lcs[i-1][j]
+				} else {
+					lcs[i][j] = lcs[i][j-1]
+				}
+			}
+		}
+	}
+	return lcs
+}
+
+// diffOperation represents a single diff operation
+type diffOperation struct {
+	op      DiffLineType // DiffLineContext, DiffLineAdded, DiffLineRemoved
+	oldIdx  int          // index in old lines (-1 if added)
+	newIdx  int          // index in new lines (-1 if removed)
+	content string
+}
+
+// backtrackLCS generates diff operations from the LCS table
+func backtrackLCS(lcs [][]int, oldLines, newLines []string) []diffOperation {
+	ops := make([]diffOperation, 0)
+	i, j := len(oldLines), len(newLines)
+
+	for i > 0 || j > 0 {
+		if i > 0 && j > 0 && oldLines[i-1] == newLines[j-1] {
+			// Lines match - context
+			ops = append(ops, diffOperation{
+				op:      DiffLineContext,
+				oldIdx:  i - 1,
+				newIdx:  j - 1,
+				content: oldLines[i-1],
+			})
+			i--
+			j--
+		} else if j > 0 && (i == 0 || lcs[i][j-1] >= lcs[i-1][j]) {
+			// Line added
+			ops = append(ops, diffOperation{
+				op:      DiffLineAdded,
+				oldIdx:  -1,
+				newIdx:  j - 1,
+				content: newLines[j-1],
+			})
+			j--
+		} else if i > 0 {
+			// Line removed
+			ops = append(ops, diffOperation{
+				op:      DiffLineRemoved,
+				oldIdx:  i - 1,
+				newIdx:  -1,
+				content: oldLines[i-1],
+			})
+			i--
+		}
+	}
+
+	// Reverse to get correct order
+	for left, right := 0, len(ops)-1; left < right; left, right = left+1, right-1 {
+		ops[left], ops[right] = ops[right], ops[left]
+	}
+	return ops
+}
+
+// CreateDiffFromStrings creates a FileDiff from old and new content strings using LCS algorithm
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	diff := &FileDiff{
 		OldPath: oldPath,
@@ -435,37 +513,143 @@ func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *Fil
 		diff.IsDelete = true
 	}
 
-	// Simple line-by-line diff
+	// Split into lines
 	oldLines := strings.Split(oldContent, "\n")
 	newLines := strings.Split(newContent, "\n")
 
-	hunk := DiffHunk{
-		OldStart: 1,
-		NewStart: 1,
-		Lines:    make([]DiffLine, 0),
+	// Handle empty content edge cases
+	if oldContent == "" {
+		oldLines = []string{}
+	}
+	if newContent == "" {
+		newLines = []string{}
 	}
 
-	// Very simple diff algorithm - show all old as removed, all new as added
-	// TODO: Use a real diff algorithm like LCS or Myers diff
-	for i, line := range oldLines {
-		hunk.Lines = append(hunk.Lines, DiffLine{
-			LineNum: i + 1,
-			Content: line,
-			Type:    DiffLineRemoved,
-		})
-	}
-	for i, line := range newLines {
-		hunk.Lines = append(hunk.Lines, DiffLine{
-			LineNum: i + 1,
-			Content: line,
-			Type:    DiffLineAdded,
-		})
-	}
+	// Compute LCS and generate diff operations
+	lcs := computeLCS(oldLines, newLines)
+	ops := backtrackLCS(lcs, oldLines, newLines)
 
-	hunk.OldCount = len(oldLines)
-	hunk.NewCount = len(newLines)
-
-	diff.Hunks = append(diff.Hunks, hunk)
+	// Convert operations to hunks with context grouping
+	const contextLines = 3
+	hunks := groupOpsIntoHunks(ops, contextLines)
+	diff.Hunks = hunks
 
 	return diff
+}
+
+// groupOpsIntoHunks groups diff operations into hunks with context
+func groupOpsIntoHunks(ops []diffOperation, contextLines int) []DiffHunk {
+	if len(ops) == 0 {
+		return nil
+	}
+
+	hunks := make([]DiffHunk, 0)
+	var currentHunk *DiffHunk
+	lastChangeIdx := -1
+
+	for i, op := range ops {
+		isChange := op.op != DiffLineContext
+
+		if isChange {
+			// Start a new hunk if needed
+			if currentHunk == nil {
+				currentHunk = &DiffHunk{
+					OldStart: 1,
+					NewStart: 1,
+					Lines:    make([]DiffLine, 0),
+				}
+				// Add leading context
+				start := i - contextLines
+				if start < 0 {
+					start = 0
+				}
+				for j := start; j < i; j++ {
+					if ops[j].op == DiffLineContext {
+						lineNum := ops[j].oldIdx + 1
+						if lineNum == 0 {
+							lineNum = ops[j].newIdx + 1
+						}
+						currentHunk.Lines = append(currentHunk.Lines, DiffLine{
+							LineNum: lineNum,
+							Content: ops[j].content,
+							Type:    DiffLineContext,
+						})
+					}
+				}
+				// Set start positions
+				if len(currentHunk.Lines) > 0 {
+					currentHunk.OldStart = ops[start].oldIdx + 1
+					currentHunk.NewStart = ops[start].newIdx + 1
+				} else if op.oldIdx >= 0 {
+					currentHunk.OldStart = op.oldIdx + 1
+				} else {
+					currentHunk.NewStart = op.newIdx + 1
+				}
+			}
+			lastChangeIdx = i
+		}
+
+		// Add the current operation to the hunk
+		if currentHunk != nil {
+			lineNum := op.oldIdx + 1
+			if op.op == DiffLineAdded {
+				lineNum = op.newIdx + 1
+			}
+			currentHunk.Lines = append(currentHunk.Lines, DiffLine{
+				LineNum: lineNum,
+				Content: op.content,
+				Type:    op.op,
+			})
+
+			// Check if we should close the hunk (too much context after changes)
+			if op.op == DiffLineContext && i-lastChangeIdx > contextLines {
+				// Trim trailing context to contextLines
+				trimTo := len(currentHunk.Lines) - (i - lastChangeIdx - contextLines)
+				if trimTo > 0 && trimTo < len(currentHunk.Lines) {
+					currentHunk.Lines = currentHunk.Lines[:trimTo]
+				}
+				// Count old and new lines
+				for _, line := range currentHunk.Lines {
+					if line.Type == DiffLineRemoved || line.Type == DiffLineContext {
+						currentHunk.OldCount++
+					}
+					if line.Type == DiffLineAdded || line.Type == DiffLineContext {
+						currentHunk.NewCount++
+					}
+				}
+				hunks = append(hunks, *currentHunk)
+				currentHunk = nil
+			}
+		}
+	}
+
+	// Close final hunk
+	if currentHunk != nil && len(currentHunk.Lines) > 0 {
+		for _, line := range currentHunk.Lines {
+			if line.Type == DiffLineRemoved || line.Type == DiffLineContext {
+				currentHunk.OldCount++
+			}
+			if line.Type == DiffLineAdded || line.Type == DiffLineContext {
+				currentHunk.NewCount++
+			}
+		}
+		hunks = append(hunks, *currentHunk)
+	}
+
+	// If no hunks created but we have ops, create a single hunk (all context case)
+	if len(hunks) == 0 && len(ops) > 0 {
+		// Check if there were any actual changes
+		hasChanges := false
+		for _, op := range ops {
+			if op.op != DiffLineContext {
+				hasChanges = true
+				break
+			}
+		}
+		if !hasChanges {
+			return nil // No changes, no hunks needed
+		}
+	}
+
+	return hunks
 }

@@ -1783,6 +1783,15 @@ func (a *sessionVirtualStoreAdapter) Exec(ctx context.Context, cmd string, env [
 	return "", "", fmt.Errorf("exec not yet wired through VirtualStore")
 }
 
+func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
+	// Route through VirtualStore if available
+	if a.vs != nil {
+		return a.vs.ReadRaw(path)
+	}
+	// Fallback to direct OS read
+	return os.ReadFile(path)
+}
+
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
 type sessionLLMAdapter struct {
 	client perception.LLMClient
