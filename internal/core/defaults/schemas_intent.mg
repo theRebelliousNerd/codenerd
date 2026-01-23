@@ -127,6 +127,9 @@ Decl intent_state_category(Category).
 # SECTION 3: LLM ROUTING SCHEMA (Used by intent_routing.mg facts)
 # =============================================================================
 
+# intent_action_type(ActionType) - Derived action type from intent (e.g. /create, /modify)
+Decl intent_action_type(ActionType).
+
 Decl valid_semantic_type(Type, Description).
 Decl valid_action_type(Action, Description).
 Decl valid_domain(Domain, Description).
