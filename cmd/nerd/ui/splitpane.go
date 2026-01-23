@@ -234,6 +234,7 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 }
 
 // renderContent renders the logic pane content
+// TODO: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
 func (p *LogicPane) renderContent() string {
 	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
 	// we could return cached string. For now, given the complexity of tracking Viewport width changes
@@ -284,6 +285,7 @@ func (p *LogicPane) renderContent() string {
 }
 
 // renderEmptyState renders the empty state message
+// TODO: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted).
@@ -324,6 +326,7 @@ func (p *LogicPane) renderTree() string {
 }
 
 // renderNode renders a single derivation node
+// TODO: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
@@ -517,6 +520,7 @@ func (s *SplitPaneView) Render(leftContent string) string {
 }
 
 // renderSplit renders the split view
+// TODO: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
 func (s *SplitPaneView) renderSplit(leftContent string) string {
 	leftWidth := int(float64(s.Width) * s.SplitRatio)
 	rightWidth := s.Width - leftWidth - 1 // -1 for divider
