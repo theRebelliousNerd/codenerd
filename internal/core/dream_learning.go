@@ -35,6 +35,38 @@ const (
 	LearningTypePreference DreamLearningType = "preference"
 )
 
+var (
+	// Regex patterns for extracting learnings.
+	// Compiled once at package level for performance.
+
+	learningStepPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:steps?|approach|process|workflow|procedure)[\s:]+\n?((?:\s*(?:\d+[\.\)]\s*|\*\s*|-\s*).+\n?)+)`),
+		regexp.MustCompile(`(?i)I would:?\n?((?:\s*(?:\d+[\.\)]\s*|\*\s*|-\s*).+\n?)+)`),
+	}
+
+	learningNeedPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:need|require|want|would use|missing)[^.]*(?:tool|command|utility|script|function|capability)[^.]*\.`),
+		regexp.MustCompile(`(?i)(?:tool|command|utility)[^.]*(?:doesn't exist|not available|would need to create)[^.]*\.`),
+		regexp.MustCompile(`(?i)(?:create|build|implement|write)[^.]*(?:tool|script|utility)[^.]*(?:for|to)[^.]*\.`),
+	}
+
+	learningRiskPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:risk|danger|careful|warning|caution)[^.]*(?:could|might|may|would)[^.]*\.`),
+		regexp.MustCompile(`(?i)(?:could fail|might break|may cause|would corrupt)[^.]*\.`),
+		regexp.MustCompile(`(?i)(?:never|always|must not|should not)[^.]*(?:because|since|as)[^.]*\.`),
+	}
+
+	learningToolNamePatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:tool|script|utility|command)\s+(?:called\s+)?["']?(\w+)["']?`),
+		regexp.MustCompile(`(?i)(?:create|build|implement)\s+(?:a\s+)?["']?(\w+)["']?\s+(?:tool|script|utility)`),
+		regexp.MustCompile(`(?i)["'](\w+)["']\s+(?:tool|script|utility)`),
+	}
+
+	learningNoveltyNumberPattern = regexp.MustCompile(`\d+`)
+	learningDedupPunctuationPattern = regexp.MustCompile(`[^a-z0-9\s]`)
+	learningDedupSpacePattern = regexp.MustCompile(`\s+`)
+)
+
 // DreamLearning represents a single learnable insight extracted from Dream State.
 type DreamLearning struct {
 	ID              string            `json:"id"`
@@ -122,13 +154,7 @@ func (c *DreamLearningCollector) extractProcedural(dreamID, hypothetical string,
 	var learnings []*DreamLearning
 	text := consultation.Perspective
 
-	// Look for numbered steps, approach sections
-	stepPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:steps?|approach|process|workflow|procedure)[\s:]+\n?((?:\s*(?:\d+[\.\)]\s*|\*\s*|-\s*).+\n?)+)`),
-		regexp.MustCompile(`(?i)I would:?\n?((?:\s*(?:\d+[\.\)]\s*|\*\s*|-\s*).+\n?)+)`),
-	}
-
-	for _, pattern := range stepPatterns {
+	for _, pattern := range learningStepPatterns {
 		matches := pattern.FindAllStringSubmatch(text, -1)
 		for _, match := range matches {
 			if len(match) > 1 {
@@ -161,14 +187,7 @@ func (c *DreamLearningCollector) extractToolNeeds(dreamID, hypothetical string, 
 	var learnings []*DreamLearning
 	text := consultation.Perspective
 
-	// Patterns that indicate tool/capability needs
-	needPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:need|require|want|would use|missing)[^.]*(?:tool|command|utility|script|function|capability)[^.]*\.`),
-		regexp.MustCompile(`(?i)(?:tool|command|utility)[^.]*(?:doesn't exist|not available|would need to create)[^.]*\.`),
-		regexp.MustCompile(`(?i)(?:create|build|implement|write)[^.]*(?:tool|script|utility)[^.]*(?:for|to)[^.]*\.`),
-	}
-
-	for _, pattern := range needPatterns {
+	for _, pattern := range learningNeedPatterns {
 		matches := pattern.FindAllString(text, -1)
 		for _, match := range matches {
 			content := strings.TrimSpace(match)
@@ -202,14 +221,7 @@ func (c *DreamLearningCollector) extractRiskPatterns(dreamID, hypothetical strin
 	var learnings []*DreamLearning
 	text := consultation.Perspective
 
-	// Patterns indicating risk awareness
-	riskPatterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:risk|danger|careful|warning|caution)[^.]*(?:could|might|may|would)[^.]*\.`),
-		regexp.MustCompile(`(?i)(?:could fail|might break|may cause|would corrupt)[^.]*\.`),
-		regexp.MustCompile(`(?i)(?:never|always|must not|should not)[^.]*(?:because|since|as)[^.]*\.`),
-	}
-
-	for _, pattern := range riskPatterns {
+	for _, pattern := range learningRiskPatterns {
 		matches := pattern.FindAllString(text, -1)
 		for _, match := range matches {
 			content := strings.TrimSpace(match)
@@ -296,7 +308,7 @@ func (c *DreamLearningCollector) scoreNovelty(content string) float64 {
 	}
 
 	// Concrete numbers/specifics boost novelty
-	if regexp.MustCompile(`\d+`).MatchString(content) {
+	if learningNoveltyNumberPattern.MatchString(content) {
 		score += 0.1
 	}
 
@@ -501,20 +513,14 @@ func truncate(s string, maxLen int) string {
 func normalizeForDedup(content string) string {
 	// Normalize whitespace, lowercase, remove punctuation for dedup comparison
 	content = strings.ToLower(content)
-	content = regexp.MustCompile(`[^a-z0-9\s]`).ReplaceAllString(content, "")
-	content = regexp.MustCompile(`\s+`).ReplaceAllString(content, " ")
+	content = learningDedupPunctuationPattern.ReplaceAllString(content, "")
+	content = learningDedupSpacePattern.ReplaceAllString(content, " ")
 	return strings.TrimSpace(content)
 }
 
 func extractToolName(content string) string {
 	// Try to extract tool name from patterns like "need a X tool" or "create X"
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:tool|script|utility|command)\s+(?:called\s+)?["']?(\w+)["']?`),
-		regexp.MustCompile(`(?i)(?:create|build|implement)\s+(?:a\s+)?["']?(\w+)["']?\s+(?:tool|script|utility)`),
-		regexp.MustCompile(`(?i)["'](\w+)["']\s+(?:tool|script|utility)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range learningToolNamePatterns {
 		if match := pattern.FindStringSubmatch(content); len(match) > 1 {
 			return match[1]
 		}
