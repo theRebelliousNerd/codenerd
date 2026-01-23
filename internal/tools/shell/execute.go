@@ -650,7 +650,7 @@ func executeGitOperation(ctx context.Context, args map[string]any) (string, erro
 	case "commit":
 		cmdArgs = []string{"commit"}
 		if msg, ok := args["message"].(string); ok && msg != "" {
-			cmdArgs = append(cmdArgs, "-m", msg)
+			cmdArgs = append(cmdArgs, "-m", fmt.Sprintf("%q", msg))
 		} else {
 			return "", fmt.Errorf("commit message is required")
 		}
