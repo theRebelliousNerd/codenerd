@@ -120,13 +120,13 @@ Despite the widespread availability of parameterized queries in database/sql, AI
 
 Go lacks a built-in, expressive dynamic query builder. Building a query where the WHERE clause changes based on optional input requires verbose string manipulation or the use of third-party libraries like squirrel. AI agents, struggling with this complexity, often choose the path of least resistance:
 
-Go
-
+```go
 // Common AI Pattern  
 query := "SELECT \* FROM users WHERE 1=1"  
 if name\!= "" {  
    query \+= " AND name \= '" \+ name \+ "'" // Vulnerable  
 }
+```
 
 This introduces classic SQL Injection vulnerabilities. Even when agents use ORMs like GORM, they often misuse the "raw SQL" features (db.Raw()) or fail to sanitize inputs properly before passing them to the ORM, operating under the false assumption that the library handles all safety magically regardless of how the query string is constructed.11
 
@@ -294,3 +294,5 @@ The future of AI in Go is promising, but currently, it requires a "Human-in-the-
 26. The Future of AI Agents: Why Go is the Perfect Language for the Agent Era \- Rafiul Alam, accessed December 6, 2025, [https://alamrafiul.com/blogs/future-of-ai-agents-golang/](https://alamrafiul.com/blogs/future-of-ai-agents-golang/)  
 27. Navigating the dangers and pitfalls of AI agent development \- Kore.ai, accessed December 6, 2025, [https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development](https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development)  
 28. How to Find and Fix Goroutine Leaks in Go | HackerNoon, accessed December 6, 2025, [https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go](https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go)
+
+> *[Archived & Reviewed by The Librarian on 2026-01-23]*

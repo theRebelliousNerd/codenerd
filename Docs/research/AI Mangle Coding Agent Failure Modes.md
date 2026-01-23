@@ -46,20 +46,20 @@ When an AI attempts to write a Mangle aggregation, it often hallucinates a "SQL-
 **Scenario:** Calculate the total sales per region.
 
 * **AI Generated Hallucination (SQL/Soufflé Bias):**  
-  Code snippet  
+```mangle
   // INVALID: Mangle does not support implicit grouping or Soufflé's inline aggregates  
   region\_sales(Region, Total) :-  
     sales(Region, Amount),  
     Total \= sum(Amount). 
-
+```
   *Analysis:* The agent assumes that by mentioning Region in the head, the engine will automatically group by it. This is how SQL GROUP BY works mentally, but it is not how Mangle executes.  
 * **Correct Mangle Implementation:**  
-  Code snippet  
+```mangle
   region\_sales(Region, Total) :-  
     sales(Region, Amount)
 
 |\> do fn:group\_by(Region, Total \= fn:Sum(Amount)).  
-\`\`\`  
+```
 Analysis: The correct syntax requires an explicit transformation step using |\> and the fn:group\_by function.5 The AI fails to predict the do keyword or the specific fn: namespace, often hallucinating generic sum() or count() functions that do not exist in the Mangle runtime.
 
 ### **2.3 Type Declaration (Decl) Confusion**
@@ -74,16 +74,16 @@ AI agents frequently conflate this with:
 
 **Predicted Failure:**
 
-Code snippet
-
+```mangle
 // AI Generated Type Declaration (Invalid)  
 .decl direct\_dep(app: string, lib: string)
+```
 
 **Correct Syntax:**
 
-Code snippet
-
+```mangle
 Decl direct\_dep(App.Type\<string\>, Lib.Type\<string\>).
+```
 
 The implication of this failure is significant. Mangle's type checker is a "gatekeeper." If the Decl is malformed, the program is rejected before evaluation begins. The AI, unaware of the specific grammar, essentially "guesses" the declaration syntax based on higher-probability tokens from Soufflé or C++, leading to immediate compilation errors.9
 
@@ -99,15 +99,15 @@ In Datalog, every variable in the head of a rule must be "grounded" or "bound" b
 
 * **The AI Mental Model:** The AI thinks in terms of constraints, similar to SQL WHERE clauses. "Find users who are not admins."  
 * **The AI Generation:**  
-  Code snippet  
+```mangle
   // UNSAFE RULE  
   non\_admin(User) :- not admin(User).
-
+```
 * **The Mangle Engine Reality:** The engine asks, "Where do I get the values for User to test against admin?" The variable User is unsafe. It represents an infinite domain. The program crashes or is rejected.11  
 * **The Expert Correction:**  
-  Code snippet  
+```mangle
   non\_admin(User) :- user(User), not admin(User).
-
+```
   We must introduce a "generator" predicate user(User) that provides a finite set of candidates. AI agents frequently miss this generator because "not admin" is semantically complete in natural language. The requirement for a positive binding atom is a specific constraint of the evaluation algorithm (bottom-up) that the probabilistic model ignores.12
 
 ### **3.2 Stratified Negation and Dependency Cycles**
@@ -118,10 +118,10 @@ Case Study: Game State Analysis
 An AI is asked to model a game where a position is "winning" if there is a move to a "losing" position.
 
 * **AI Generated Logic:**  
-  Code snippet  
+```mangle
   winning(X) :- move(X, Y), losing(Y).  
   losing(X) :- not winning(X).
-
+```
 * **Structural Analysis:**  
   1. winning depends on losing.  
   2. losing depends on not winning.  
@@ -136,21 +136,21 @@ To an LLM, this looks like a perfect translation of the minimax algorithm descri
 Mangle optimizations often rely on **selectivity**—ordering goals in the rule body so that the most restrictive predicates run first. This minimizes the size of intermediate relations.
 
 * **Inefficient AI Generation:**  
-  Code snippet  
+```mangle
   // "Find interactions between high-value users"  
   risky\_interaction(U1, U2) :-  
     interaction(U1, U2),    // huge table (1M rows)  
     high\_value(U1),         // small table (100 rows)  
     high\_value(U2).         // small table (100 rows)
-
+```
   *Analysis:* The engine might attempt to join the massive interaction table first. While advanced optimizers can reorder this, explicit Datalog typically benefits from manual ordering or specific hints.  
 * **Optimized Mangle:**  
-  Code snippet  
+```mangle
   risky\_interaction(U1, U2) :-  
     high\_value(U1),         // Filter first  
     high\_value(U2),         // Filter second  
     interaction(U1, U2).    // Verify relationship
-
+```
   AI agents generally ignore clause ordering, treating the body as a boolean AND set (commutative) rather than an ordered execution plan. In Mangle, poor ordering can lead to intermediate Cartesian products that exhaust memory, even if the logic is theoretically correct.11
 
 ### **3.4 Infinite Recursion in Fixpoint Evaluation**
@@ -158,11 +158,11 @@ Mangle optimizations often rely on **selectivity**—ordering goals in the rule 
 Semi-naive evaluation continues until no new facts are generated. If an AI writes a rule that generates new values indefinitely, the program never terminates.
 
 * **The Counter Fallacy:**  
-  Code snippet  
+```mangle
   // AI attempting to generate IDs  
   next\_id(ID) :- current\_id(Old), ID \= Old \+ 1\.  
   current\_id(ID) :- next\_id(ID).
-
+```
 * **Result:** Infinite loop. The AI assumes "lazy" evaluation or that the program will stop when it finds "the answer." Mangle computes the *entire* model. It will keep incrementing ID until the heat death of the universe (or a memory overflow). AI agents struggle to understand that Datalog computes *all* true facts, not just the one requested.15
 
 ## ---
@@ -188,8 +188,7 @@ The AI often suggests running Mangle via a CLI interpreter (mg), but for product
 Expert Integration Advice:  
 To correctly embed Mangle, one must use the engine package.
 
-Go
-
+```go
 import (  
     "github.com/google/mangle/engine"  
     "github.com/google/mangle/factstore"  
@@ -207,6 +206,7 @@ func runMangle() {
     // Correct API involves EvalProgramNaive or EvalProgram with options  
     engine.EvalProgramNaive(program, store)  
 }
+```
 
 AI agents typically fail to construct valid ast.Program objects or handle the programInfo struct required by EvalProgram.3 They confuse the parsing library (/parse) with the execution engine (/engine), generating code that imports non-existent packages.
 
@@ -220,8 +220,7 @@ To synthesize these failure modes, let us analyze a realistic use case: A user a
 
 **The AI's Likely Output (Annotated with Failures):**
 
-Code snippet
-
+```mangle
 // Syntax: Uses string literals for atoms.  
 vulnerable("log4j", "2.14.0").
 
@@ -241,6 +240,7 @@ affected(App) :-
     vulnerable(Lib, Ver),  
     Ver \= "2.14.0",          // String equality check  
     not whitelist(App).      // 'App' must be bound by 'depends' first
+```
 
 **The Architect's Analysis of the AI Code:**
 
@@ -252,8 +252,7 @@ affected(App) :-
 
 **The Expert Mangle Solution:**
 
-Code snippet
-
+```mangle
 // 1\. Use Atoms for identifiers  
 vulnerable(/log4j, "2.14.0").
 
@@ -276,6 +275,7 @@ affected\_apps(App) :-
     Lib \= /log4j,  
     // Safe negation: App is bound by depends  
     not exempted(App).
+```
 
 ## ---
 
@@ -287,22 +287,22 @@ Mangle's |\> operator is the definitive feature that separates it from pure Data
 
 **AI Hallucination:**
 
-Code snippet
-
+```mangle
 count\_deps(App, Count) :-  
     depends(App, Lib),  
     Count \= count(Lib). // SQL-style implicit aggregation
+```
 
 *Why this fails:* Mangle does not support inline aggregation in the rule body like this. It requires the relation to be *piped* to a transformation function.
 
 **Correct Mangle:**
 
-Code snippet
-
+```mangle
 count\_deps(App, Count) :-  
     depends(App, Lib)
 
 |\> do fn:group\_by(App, Count \= fn:Count(Lib)).
+```
 
 *Architecture Note:* The |\> operator passes the result of the body (depends(App, Lib)) to the do clause. The fn:group\_by takes the grouping key (App) and the reduction expression. This "post-processing" model is alien to agents trained on standard Prolog where aggregation often requires collecting all solutions into a list first (findall/3).
 
@@ -384,9 +384,9 @@ The AI simulates the *code* that describes the operator, but it cannot simulate 
 
 * **Implication:** The AI cannot "see" if a rule is monotonic. It cannot detect if $T\_P$ will ever converge.  
 * **Example:**  
-  Code snippet  
+```mangle
   p(X) :- q(X), not p(X).
-
+```
   This rule describes an operator that flips values. If p(X) is false, it becomes true. If it is true, the body fails. There is no fixpoint. The AI sees valid syntax; the Mangle engine sees a logical contradiction. The clash is fundamental to the differing models of computation (Probabilistic vs. Logical).
 
 ### **10.2 The Data Structure Disconnect**
@@ -414,8 +414,7 @@ For the professional engineer, the value of Mangle is in its embeddability. This
 
 You cannot run Mangle without a store.
 
-Go
-
+```go
 // Real Go Code for Mangle Integration  
 import (  
     "context"  
@@ -453,6 +452,7 @@ func main() {
     // We must manually inspect the store or use a callback  
     // The AI typically assumes a SQL-like "return result"  
 }
+```
 
 **Insight:** The interaction involves creating engine.Atom explicitly. The AI will likely write store.Add("parent", "alice", "bob"), which is invalid Go (type mismatch). The distinct types engine.Value, engine.Atom, engine.Number must be used.
 
@@ -463,14 +463,14 @@ For large datasets, we don't want to load all facts into factstore.Simple. We us
 * **Concept:** When Mangle needs parent(X, Y), it calls a Go function.  
 * **AI Failure:** The AI cannot generate the complex callback signature required for engine.WithExternalPredicates. It requires understanding how to map Mangle's unification request (which arguments are bound? which are free?) to a backend query (e.g., SQL SELECT).  
 * **Code Reality:**  
-  Go  
+```go
   // Callback signature is complex  
   func myPredicate(query engine.Query, cb func(engine.Fact)) error {  
       // Check if query.Args is a constant or variable  
       // AI fails to handle this "Binding Pattern" logic  
       return nil  
   }
-
+```
   This binding pattern logic is central to Datalog optimization but usually absent in AI-generated code.
 
 ## ---
@@ -504,3 +504,5 @@ To bridge this gap, Datalog Engineers must treat AI output as "pseudo-code" that
 14. How Datalog is used to perform AI tasks for program analysis \- Pavle Subotic, accessed December 6, 2025, [https://psubotic.github.io/papers/LPOP\_Position\_Paper\_2024\_2.pdf](https://psubotic.github.io/papers/LPOP_Position_Paper_2024_2.pdf)  
 15. Recursive Language Models | Alex L. Zhang, accessed December 6, 2025, [https://alexzhang13.github.io/blog/2025/rlm/](https://alexzhang13.github.io/blog/2025/rlm/)  
 16. LLM's for handling recursion and complex loops in code generation : r/developers \- Reddit, accessed December 6, 2025, [https://www.reddit.com/r/developers/comments/1hi2v6u/llms\_for\_handling\_recursion\_and\_complex\_loops\_in/](https://www.reddit.com/r/developers/comments/1hi2v6u/llms_for_handling_recursion_and_complex_loops_in/)
+
+> *[Archived & Reviewed by The Librarian on 2026-01-23]*

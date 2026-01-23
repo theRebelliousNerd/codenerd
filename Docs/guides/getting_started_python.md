@@ -41,7 +41,7 @@ You are now in a chat session with the agent. The agent has context of your enti
 
 #### B. Refactoring
 **You:** "Rename the `connect` method to `establish_connection` and update all callers."
-**Agent:** 
+**Agent:**
 1.  Identifies all references.
 2.  Proposes a plan.
 3.  Generates a diff.
@@ -76,3 +76,5 @@ This means you can let the agent iterate on fixes without worrying about it mess
 **"Docker error"**
 *   Make sure Docker Desktop (or engine) is running.
 *   Run `docker ps` to see if CodeNERD containers are active.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-23]*

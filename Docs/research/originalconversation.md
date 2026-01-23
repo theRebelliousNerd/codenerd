@@ -1,3 +1,5 @@
+# Original Conversation
+
 Sooooooo... I had an idea.... I know mangle can do some nifty things, and that one of the most difficult things you can do is manage context and agent memory for llm's... I'm thinking about building a mangle first LLM agent framework where an advanced mangle system is constantly optimizing agent long term and short term memory, as well as providing context for skills and tools all from one mangle system.... Even adapting system instructions dynamically based around conversational trajectory and environmental context... Whatcha think?
 
 Mangle Consulant
@@ -29,18 +31,18 @@ We treat memory as a graph. Vectors find the entry point; Mangle traverses the a
 
 Schema:
 
-Code snippet
-
+```mangle
 # Facts provided by the Vector Store & Application State
 
 memory_node(ID, Content, Timestamp).
 semantic_match(ID, Score).           # From Vector DB
 related_to(ID_A, ID_B, Strength).    # Knowledge Graph links
 current_time(T).
+```
+
 Mangle Logic (Recursive Relevance): We calculate a relevance_score that combines semantic match, temporal proximity, and graph association.
 
-Code snippet
-
+```mangle
 # 1. Base Relevance: Direct semantic matches from Vector DB
 
 relevance(ID, Score) :-
@@ -66,13 +68,14 @@ active_memory(Content) :-
     let MaxScore = fn:Max(Score) |> # Handle multiple paths to same node
     do fn:filter(fn:gt(MaxScore, 0.5)), # Filter low relevance
     memory_node(ID, Content, _).
+```
+
 Why this works: This allows the agent to "remember" things that aren't semantically similar to the query but are logically connected to the topic.
 
 B. Dynamic Tool Selection
 Instead of letting the LLM hallucinate tool calls, use Mangle to strictly define when a tool is valid based on state constraints.
 
-Code snippet
-
+```mangle
 # Tool Definitions
 
 tool(/sql_db, "Query the database").
@@ -104,11 +107,12 @@ suggest_tool(Tool) :-
     available_tool(Tool),
     intent_requires(Intent, Tool),
     current_intent(Intent).
+```
+
 C. Adaptive System Instructions
 This is the "Meta-Prompting" layer. You construct the system prompt dynamically based on the conversation trajectory.
 
-Code snippet
-
+```mangle
 # Facts about current interaction state
 
 sentiment(/user, /frustrated).
@@ -133,13 +137,14 @@ final_system_prompt(FullText) :-
     instruction(Text) |>
     do fn:group_by(),
     let FullText = fn:string_concat_all(Text). # Hypothetical agg function or handled in Go
+```
+
 3. The "Memory Consolidation" Cycle
 One of the hardest problems in LLMs is "forgetting." Mangle can handle memory consolidation (moving short-term to long-term).
 
 You can run a Mangle pass after every 5 turns:
 
-Code snippet
-
+```mangle
 # Identify important concepts to persist
 
 to_consolidate(Topic) :-
@@ -155,6 +160,8 @@ to_archive(ID) :-
     age = fn:minus(Now, Timestamp),
     age > 3600,       # Older than 1 hour
     not relevance(ID, _). # Not currently relevant
+```
+
 Your Go application would then read ?to_archive(ID) and remove those facts from the hot store, and read ?to_consolidate(Topic) to trigger an LLM summary job.
 
 4. Technical Feasibility Check
@@ -195,8 +202,7 @@ Since you have no database, your "Memory" is just a persistent factstore in RAM.
 
 The Schema:
 
-Code snippet
-
+```mangle
 # 1. The Short-Term "Working Memory"
 
 observation(Timestamp, /user, "I can't get the server to start").
@@ -215,13 +221,14 @@ concept_link(/logs, /error_codes, /strong).
 
 known_fact(/server_type, "nginx").
 tried_tool(/check_status).
+```
+
 2. The "Prefrontal Cortex" (Logic Rules)
 This is where the magic happens. Mangle decides what matters right now. This replaces the Vector Search. Instead of "finding similar things," we "traverse relevant things."
 
 Dynamic Context Selection (Spreading Activation): We use recursion to find what is relevant to the current goal.
 
-Code snippet
-
+```mangle
 # 1. Base Relevance: Concepts directly mentioned in the active goal
 
 relevant_concept(C) :-
@@ -252,13 +259,14 @@ context_to_inject(Fact) :-
     relevant_concept(C),
     known_fact(C, Fact),
     not tried_tool(Fact). # Stratified negation handles this safely
+```
+
 3. The "Meta-Cognitive" Layer (Self-Optimization)
 You mentioned dynamic instructions and memory optimization. Mangle can inspect its own state to "garbage collect" or change its persona.
 
 Dynamic Persona Generation:
 
-Code snippet
-
+```mangle
 # Rules to determine the system prompt instructions
 
 system_instruction("Be concise and technical.") :-
@@ -276,10 +284,11 @@ final_system_prompt(Prompt) :-
     system_instruction(Text) |>
     do fn:group_by(),
     let Prompt = fn:string_concat_all(Text). # Hypothetical aggregation
+```
+
 Memory Consolidation (The "Sleep" Cycle): Since you are in-memory, you must prune. You can run a "cleanup" pass.
 
-Code snippet
-
+```mangle
 # Identify memories to drop (Forget)
 
 garbage_collect(Timestamp) :-
@@ -289,10 +298,12 @@ garbage_collect(Timestamp) :-
     age = fn:minus(Now, Timestamp),
     age > 3600,
     not relevant_observation(Timestamp).
+```
+
 4. The Golang Implementation
 This is how you wire it together without a DB. You marshal the Mangle store to disk (JSON/Gob) only when the agent "shuts down."
 
-Go
+```go
 package main
 
 import (
@@ -317,20 +328,22 @@ func (a *Agent) CognitiveLoop(userInput string) string {
     for _, f := range newFacts {
         a.Store.Add(f)
     }
-    
+
     // Step 3: Mangle "Thinking"
     // This runs the deduction rules to fixpoint
     engine.EvalProgram(a.Program, a.Store)
-    
+
     // Step 4: Retrieve "Action" and "Context"
     // We query specific predicates that define the agent's output
     actions := a.Store.GetFacts("next_action")
     context := a.Store.GetFacts("context_to_inject")
-    
+
     // Step 5: LLM "generation"
     // Feed the deduced context and action instructions to LLM
     return generateResponse(actions, context)
 }
+```
+
 5. Why this is better than RAG
 Zero Hallucinated Context: You only inject context that is logically proven to be relevant to the goal.
 
@@ -387,8 +400,7 @@ If Mangle returns empty, Cortex rejects the action and feeds a "Constraint Viola
 
 The Mangle Logic:
 
-Code snippet
-
+```mangle
 # Defined Policy (Hidden from LLM to save tokens)
 
 sensitive(/database).
@@ -402,6 +414,8 @@ blocked(Action, "Requires Approval") :-
     proposed_action(Action),
     requires_approval(Action),
     not approved(Action). # Stratified Negation
+```
+
 2. The "Context Compressor" (The L1 Cache)
 Since we have one model and limited context, we cannot keep the full history. We use Mangle to synthesize the history into a "Current State Narrative."
 
@@ -409,8 +423,7 @@ Instead of sending [User: A, Agent: B, User: C...], we send a Mangle-derived sum
 
 The Mangle Logic:
 
-Code snippet
-
+```mangle
 # We assign "Salience" to facts based on recency and graph connectivity
 
 #
@@ -437,13 +450,14 @@ system_context_block(Text) :-
     context_include(Fact) |>
     do fn:group_by(),
     let Text = fn:string_concat_all(Fact). # Conceptual aggregation
+```
+
 3. The "Dynamic State Machine" (The Planner)
 Frameworks usually have hardcoded loops. Cortex uses Mangle to define the state machine dynamically. The LLM just sees "Current State: X" and "Available Transitions: Y, Z".
 
 The Mangle Logic:
 
-Code snippet
-
+```mangle
 # State: Waiting for Input
 
 next_state(/process_input) :- current_state(/idle), input_received(_).
@@ -462,10 +476,12 @@ next_state(/recovery_mode) :-
     tool_error(_,_),
     retry_count(N),
     N < 3.
+```
+
 The Abstraction (What the Developer Sees)
 The developer doesn't write Mangle (unless they want to). They use the Cortex Go SDK.
 
-Go
+```go
 // Cortex SDK Example
 func main() {
     agent := cortex.NewAgent(model)
@@ -480,6 +496,8 @@ func main() {
     // - Input -> LLM -> Facts -> Mangle -> Decision -> Tool/Output
     agent.Run("Clean up the users table")
 }
+```
+
 How the "Single Model" Loop Works (Internally)
 To make this work with one model, Cortex manages Prompt Swapping.
 
@@ -554,8 +572,7 @@ Standard agents dump 50 tool descriptions into the context window. This confuses
 
 The Mangle Logic (The Intelligent Filter):
 
-Code snippet
-
+```mangle
 # --- DYNAMIC TOOL REGISTRY ---
 
 # tools are stored as facts, possibly created by the agent itself
@@ -596,6 +613,8 @@ expose_tool(Name, Desc) :-
 expose_tool(Name, Desc) :-
     tool(Name, Desc,_),
     relevant_tool(Name).
+```
+
 The Result: The LLM context window is clean. It only sees the tools Mangle decided it needs.
 
 3. The "Self-Writing" Agent (Autopoiesis)
@@ -607,12 +626,14 @@ LLM: "I need to calculate an MD5 hash, but I don't have a tool. I will create ca
 
 LLM Output (Hidden Channel):
 
-JSON
+```json
 {
   "mangle_updates": [
     "created_tool(/calc_md5, 'Calculates MD5', 'func(s string) string {...}')"
   ]
 }
+```
+
 Go Framework: Compiles/Sandboxes the function.
 
 Mangle Store: Adds tool(/calc_md5, ...) to the registry.
@@ -626,8 +647,7 @@ We use Mangle's aggregation and scoring to keep the "Memory Facts" within the bu
 
 The Mangle Logic:
 
-Code snippet
-
+```mangle
 # 1. Assign Scores to Context Atoms
 
 # Recency Score: High for new items
@@ -649,12 +669,14 @@ context_score(Fact, 80) :-
 kept_context(Fact) :-
     context_score(Fact, Score),
     Score > Threshold. # Threshold is dynamically adjusted by Go based on token count
+```
+
 Optimization Note: Mangle's semi-naive evaluation ensures this re-scoring is extremely fast, even as the conversation grows.
 
 5. Implementation Strategy (Go + Mangle)
 Here is how you structure the loop in Go using the engine and factstore packages.
 
-Go
+```go
 type Ouroboros struct {
     Engine    *engine.Engine
     Store     factstore.FactStore
@@ -671,39 +693,41 @@ func (o *Ouroboros) RunLoop(initialPrompt string) {
         // Run Mangle to decide which tools and facts go into this prompt
         toolsToExpose := o.Engine.Query("?expose_tool(Name, Desc)")
         factsToInject := o.Engine.Query("?kept_context(Fact)")
-        
+
         // Construct the "Piggyback" Context Block
         contextBlock := FormatContext(toolsToExpose, factsToInject)
-        
+
         // 2. CALL LLM (The Single Model)
         response := CallLLM(history, contextBlock, userIn)
-        
+
         // 3. PROCESS HIDDEN CHANNEL
         // Parse the JSON output
         parsed := ParseOutput(response)
-        
+
         // Show user the visible part
         PrintUser(parsed.UserReply)
-        
+
         // Feed the hidden part to Mangle
         for _, update := range parsed.MangleUpdates {
             o.Store.Add(update) // e.g., tool_created(/foo), fact(/bar)
-            
+
             // If it's a new tool definition, compile it
             if isToolDef(update) {
                 o.CompileAndRegisterTool(update)
             }
         }
-        
+
         // 4. RE-EVALUATE MANGLE
         // This updates the "likely_next" and "kept_context" predicates
         o.Engine.Eval(o.Store)
-        
+
         // 5. LOOP
         history = append(history, response)
         // (Logic to truncate history based on ContextBudget goes here)
     }
 }
+```
+
 Why this works
 Single Model: You aren't chaining calls. You are doing one call per turn, extracting the "Logic Update," and using Mangle to prepare the next state.
 
@@ -738,7 +762,7 @@ We do not use a black-box database. We use the filesystem. This makes "re-ingest
 
 Directory Structure:
 
-Plaintext
+```text
 /my-agent-brain
   /facts
     base_knowledge.mg    # "Water is wet"
@@ -747,6 +771,8 @@ Plaintext
   /tools
     base_tools.go
     generated_tools.go   # The code the agent wrote
+```
+
 Re-ingestion Strategy: When the framework starts, it performs a "Cognitive Boot":
 
 Load Code: Go compiles/interprets generated_tools.go.
@@ -760,8 +786,7 @@ This is the core innovation. We use Mangle to curate the context window so the L
 
 The Mangle Code (/facts/tool_logic.mg):
 
-Code snippet
-
+```mangle
 # --- SCHEMA ---
 
 Decl tool(Name.Type<n>, Desc.Type<string>, Category.Type<n>).
@@ -796,14 +821,17 @@ final_tool_context(T, Desc) :-
     do fn:group_by(), # Global grouping
     let Count = fn:Count(),
     Count <= 5.
+```
+
 The "New Tool" Handling: When the agent writes a new tool, we inject a fact that links it to the problem it solved. This creates a "memory scar" that makes the tool easier to find next time.
 
-Code snippet
-
+```mangle
 # "I wrote 'parse_csv' because I failed to read a spreadsheet."
 
 often_follows(/read_failure_csv, /parse_csv).
 category_matches(/data_processing, /parse_csv).
+```
+
 3. The "Piggyback" Protocol (LLM <-> Mangle)
 We force the LLM to act as its own compiler. The hidden system prompt ensures that every time it writes code, it also writes the Mangle metadata required to index that code.
 
@@ -819,19 +847,21 @@ trigger_rule: A Mangle rule defining when this tool should be suggested."
 
 Example LLM Output (Hidden Channel):
 
-JSON
+```json
 {
   "user_reply": "I've created a tool to fetch stock prices.",
   "new_tool_code": "func GetStock(ticker string) float64 { ... }",
   "mangle_fact": "tool(/get_stock, \"Fetches price\", /finance).",
   "trigger_rule": "category_matches(/finance, /get_stock) :- current_intent(/market_analysis)."
 }
+```
+
 The Framework parses this, saves the code to generated_tools.go, and appends the Mangle lines to tool_registry.mg.
 
 4. The Golang Implementation (The Bootloader)
 Here is how you implement the "Re-ingestion" using github.com/google/mangle.
 
-Go
+```go
 package main
 
 import (
@@ -858,7 +888,7 @@ func Boot(seasonDir string) *AgentBrain {
         content, _ := os.ReadFile(seasonDir + "/facts/" + f.Name())
         unit, _ := parse.Unit(string(content))
         programInfo, _ := analysis.AnalyzeOneUnit(unit)
-        
+
         // Populate the store
         engine.EvalProgram(programInfo, store)
     }
@@ -877,10 +907,12 @@ func (b *AgentBrain) PrepareNextContext(userQuery string) string {
     //
     // Note: In real code we'd use GetFacts, this is pseudo-code for brevity
     relevantTools := b.Store.GetFacts("final_tool_context")
-    
+
     // 3. Construct the prompt
     return FormatPrompt(relevantTools)
 }
+```
+
 5. Why this is "Innovation"
 Zero-Shot Adaptation: In Season 2, the user says "Check Apple's price." The LLM doesn't even know it has a stock tool. But Mangle sees intent(/finance), fires the category_matches rule, and retrieves tool(/get_stock). The LLM suddenly sees the tool in its context and uses it.
 
@@ -905,8 +937,7 @@ You define a schema in Mangle that looks like data, but acts like an API Client.
 
 1. The Mangle View (What the Agent/User writes) To the logic engine, stock_price looks like just another fact in the database.
 
-Code snippet
-
+```mangle
 # usage_logic.mg
 
 # We declare the schema for the API result
@@ -918,9 +949,11 @@ Decl stock_price(Ticker.Type<n>, Price.Type<float>).
 buy_signal(Ticker) :-
     stock_price(Ticker, Price),  # <--- This triggers the API call
     Price < 150.0.
+```
+
 2. The Go "Magic" (The Custom Store) In your framework, you implement the factstore.FactStore interface. You treat the GetFacts method as a router.
 
-Go
+```go
 // virtual_store.go
 import (
     "github.com/google/mangle/factstore"
@@ -937,7 +970,7 @@ func (s *AgentStore) GetFacts(pred ast.PredicateSym) []ast.Atom {
 
     // 1. Check if this is a "Virtual Predicate" (API Wrapper)
     if pred.Symbol == "stock_price" {
-        return s.fetchStockAPI() 
+        return s.fetchStockAPI()
     }
 
     // 2. Otherwise, return normal memory
@@ -951,6 +984,8 @@ func (s *AgentStore) fetchStockAPI() []ast.Atom {
     // 3. Convert JSON -> Mangle Atoms
     // 4. Return []ast.Atom{ stock_price(/aapl, 145.50) }
 }
+```
+
 Why this is powerful for your Framework
 Zero Hallucination IO: The LLM doesn't need to write code to call the API. It just needs to know the logic: "If stock_price is low, buy." The plumbing is handled by the schema.
 
@@ -963,22 +998,25 @@ If you don't want to hide it in the store, you can expose it as a Transform Func
 
 Mangle Syntax:
 
-Code snippet
-
+```mangle
 # Explicitly piping data to an external function
 
 weather_report(City, Report) :-
     city(City) |>
     let Report = fn:call_weather_api(City). # <--- Custom Go Function
+```
+
 Go Integration: You register fn:call_weather_api in the Mangle engine configuration.
 
-Go
+```go
 // Register the custom function
 engine.RegisterFunction("call_weather_api", func(args []ast.Constant) ast.Constant {
     city := args[0].String()
     resp := http.Get("<https://weather.api/>" + city)
     return ast.String(resp.Body)
 })
+```
+
 Recommendation: Use the Virtual Predicate (Custom Store) approach. It keeps the Mangle code cleaner and declarative ("What is the price?") rather than imperative ("Go get the price"). It fits your "Framework" vibe better—abstracting away the complexity.
 
 Right, or .. hit an mcp servers API, or an a2a API, etc.
@@ -996,8 +1034,7 @@ In Mangle, you define the "shape" of the API interaction using Decl. To the logi
 
 Mangle Schema (/sys/mcp_schema.mg):
 
-Code snippet
-
+```mangle
 # --- MCP SERVER: GITHUB ---
 
 # We treat the "List Issues" tool as a readable predicate
@@ -1027,13 +1064,14 @@ Decl agent_insight(
     Summary.Type<string>,
     Confidence.Type<float>
 ).
+```
+
 2. The Logic: "Thinking" with APIs
 Because these are just predicates, you can use them in complex recursive rules. Mangle will automatically trigger the necessary API calls when evaluating these rules.
 
 Example: "Autofix Logic" "If there is an open bug in the repo, and the file referenced in the bug exists locally, fetch the file content."
 
-Code snippet
-
+```mangle
 # This rule triggers TWO API calls (Github MCP + Filesystem MCP)
 
 # purely by defining the logical relationship
@@ -1042,10 +1080,12 @@ relevant_context(Title, Code) :-
     github_issue("my-repo", _, Title, /open),      # 1. Calls GitHub MCP
     extract_path_from_title(Title, FilePath),      # (Local string parsing logic)
     file_content(FilePath, Code).                  # 2. Calls FS MCP
+```
+
 3. The Go Implementation: The "Universal Adapter"
 In your Go framework, you implement a FactStore that acts as the router. It recognizes the predicates declared above and routes them to the correct MCP client or A2A endpoint.
 
-Go
+```go
 type UniversalStore struct {
     MCPClient *mcp.Client
     A2AClient*a2a.Client
@@ -1080,6 +1120,8 @@ func (s *UniversalStore) GetFacts(pred ast.PredicateSym) []ast.Atom {
         return s.MemStore.GetFacts(pred)
     }
 }
+```
+
 4. Why this is the "Killer Feature"
 Unified Abstraction: The agent logic doesn't need to know how to call MCP, or HTTP, or gRPC. It just knows github_issue(Repo, ...) exists. You can swap the backend (e.g., from direct API to a cached database) without changing a single line of the agent's logic.
 
@@ -1090,13 +1132,14 @@ Lazy Evaluation: The API is only hit if the logic needs it. If github_issue retu
 5. Alternative: Pipeline Transforms
 For operations that feel more like "functions" (calculate hash, summarize text) rather than "data lookups," you can also inject them as Custom Transforms.
 
-Code snippet
-
+```mangle
 # Using an MCP tool as a transform function
 
 analysis_result(Topic, Summary) :-
     search_results(Topic, Data) |>
     let Summary = fn:call_mcp_tool("summarizer", "summarize_text", Data).
+```
+
 This effectively turns Mangle into a Logical Orchestrator for the entire MCP ecosystem.
 
 Could you chain multiple mcp servers tools in complex ways in one "function" like a combo of playwright mcp to go to front end of Web app, get console logs from Chrome, then come back and use docker mcp to check associated docker container logs, then recurse to find files and lines of code responsible for why that button failed? Maybe 3 or 4 mcp servers, but in like one rule or whatever
@@ -1114,8 +1157,7 @@ Here is how you execute a Playwright -> Docker -> Codebase chain in a single log
 1. The Schema (The Virtual Interfaces)
 We define three virtual predicates that map to your three MCP servers.
 
-Code snippet
-
+```mangle
 # --- MCP 1: PLAYWRIGHT (Browser Automation) ---
 
 # "Action" is input, "Error" and "Time" are outputs
@@ -1145,13 +1187,14 @@ Decl code_location(
     File.Type<string>,
     Line.Type<int>
 ).
+```
+
 2. The Logic (The "One Rule" Chain)
 This is your "combo function." It looks like a single rule, but evaluation triggers a cascade of API calls across servers.
 
 The "Detective" Rule:
 
-Code snippet
-
+```mangle
 # Find the line of code responsible for a UI button failure
 
 diagnose_failure(Button, File, Line, RootCause) :-
@@ -1159,25 +1202,26 @@ diagnose_failure(Button, File, Line, RootCause) :-
     # STEP 1: PLAYWRIGHT MCP
     # Go to frontend, click button, capture console error & timestamp
     browser_action(Button, UIError, Timestamp),
-    
+
     # STEP 2: DOCKER MCP (Chained via Timestamp)
     # Check docker logs specifically at that time (Time +/- 1 sec)
     container_log("backend-api", Timestamp, BackendLog),
-    
+
     # STEP 3: LOGIC EXTRACTOR (Pure Mangle)
     # Extract the actual exception message from the noisy log
     # e.g., "Error: NullPointer in auth.go" -> "NullPointer"
     extract_exception(BackendLog, ExceptionSig),
-    
+
     # STEP 4: CODE SEARCH MCP (Chained via ExceptionSig)
     # Recurse through files to find where this is defined
     find_root_cause(ExceptionSig, File, Line) |>
     let RootCause = ExceptionSig.
+```
+
 3. The Recursive Search (The "Deep Dive")
 You asked to "recurse to find files." We can define a recursive rule that traces the stack trace or follows function calls until it finds the definition.
 
-Code snippet
-
+```mangle
 # Base case: The error string exists directly in the file
 
 find_root_cause(ErrorSig, File, Line) :-
@@ -1191,6 +1235,8 @@ find_root_cause(ErrorSig, File, Line) :-
     code_location(ErrorSig, WrapperFile, WrapperLine),
     get_function_name(WrapperFile, WrapperLine, FuncName), # (Logic/Parsing)
     find_root_cause(FuncName, File, Line). # <--- RECURSION
+```
+
 4. How Execution Works (The "Waterfalls")
 Because Mangle is declarative, the execution order is dictated by Data Dependency.
 
@@ -1217,12 +1263,13 @@ Automatic Joining: If Docker returns 50 logs, Mangle automatically "forks" the e
 
 Filtering: You can add constraints easily.
 
-Code snippet
-
+```mangle
 # Only care if the log is actually an Error
 
 container_log(..., Log),
 fn:string_contains(Log, "ERROR").
+```
+
 Selectivity: Mangle optimizes the order. If checking Docker logs is faster than running Playwright, but impossible without the timestamp, it waits. But if you provided the timestamp manually, it might run Docker first.
 
 So, if you just add the mcp servers to the agent in the framework, creating this logic isn't that difficult
@@ -1242,11 +1289,13 @@ Since MCP is a standard protocol, your Go framework can query the server's list_
 
 User Config:
 
-YAML
+```yaml
 mcp_servers:
 
 - name: "docker"
     command: "docker-mcp"
+```
+
 Framework Action (Startup):
 
 Calls docker.list_tools().
@@ -1255,8 +1304,10 @@ Sees tool get_logs(container_id).
 
 Generates Mangle Schema in RAM:
 
-Code snippet
+```mangle
 Decl docker_get_logs(ContainerID.Type<string>, Logs.Type<string>).
+```
+
 Registers Route: docker_get_logs -> mcp.Call("docker", "get_logs", ...)
 
 2. The "Logic Composition" Phase (User Level)
@@ -1268,7 +1319,7 @@ Task: "Restart any container that has a memory error in the last 5 minutes."
 
 Imperative Code (The Old Way - Python/Go):
 
-Go
+```go
 // ❌ THE OLD WAY
 containers := docker.ListContainers()
 for _, c := range containers {
@@ -1277,10 +1328,11 @@ for _, c := range containers {
         docker.Restart(c.ID) // Hope this doesn't crash
     }
 }
+```
+
 Mangle Logic (The Framework Way):
 
-Code snippet
-
+```mangle
 # ✅ THE MANGLE WAY
 
 # 1. Identify failing containers (Logic + MCP Read)
@@ -1296,6 +1348,8 @@ needs_restart(ID) :-
 
 next_action(/docker_restart, ID) :-
     needs_restart(ID).
+```
+
 3. Why the Logic Creation is Easy
 The complexity falls away because Mangle handles the Control Flow:
 
@@ -1312,10 +1366,12 @@ If you add a "Stripe MCP" server, the Agent instantly "sees": Decl stripe_charge
 
 It can then immediately infer how to write logic for refunds:
 
-Code snippet
+```mangle
 process_refund(Cust, Amt) :-
     stripe_charge(Cust, Amt),
     support_ticket(Cust, /refund_requested).
+```
+
 You are correct: The framework manages the plumbing (Virtual Store + MCP Client), so the logic is just composing facts.
 
 How could this apply to other, non coding agent, agentic applications?
@@ -1343,8 +1399,7 @@ Mangle Kernel: The Regulatory Rulebook.
 
 The Mangle Logic: Instead of asking the LLM "Is this compliant?", you define compliance as a set of logical rules.
 
-Code snippet
-
+```mangle
 # --- SCHEMA (Virtual Predicates) ---
 
 Decl contract_clause(DocID, ClauseType, Text).
@@ -1371,6 +1426,8 @@ has_liability_cap(DocID) :-
 
 next_action(/draft_email, DocID) :-
     compliance_violation(DocID,_).
+```
+
 Why it wins: The agent cannot approve a contract that violates the logic, no matter how "persuasive" the contract language is to the LLM.
 
 2. The Supply Chain Orchestrator ("The Logistics Manager")
@@ -1386,8 +1443,7 @@ Mangle Kernel: The Bill of Materials (BOM) & Inventory Rules.
 
 The Mangle Logic: This uses the recursive Bill of Materials pattern.
 
-Code snippet
-
+```mangle
 # --- SCHEMA ---
 
 Decl bom(Product, Part, Qty).      # Product structure
@@ -1421,6 +1477,8 @@ mitigation_plan(Product, ShipmentID) :-
     bom(Product, Part,_),
     shipment_containing(ShipmentID, Part),
     shipment_status(ShipmentID, /nearby_port, /on_time).
+```
+
 Why it wins: The LLM is used only to summarize the impact: "We need to reroute Shipment X because Product Y is at risk." The calculation of why comes from Mangle.
 
 3. The Medical Triage Agent ("The Safety Protocol")
@@ -1436,8 +1494,7 @@ Mangle Kernel: Clinical Guidelines.
 
 The Mangle Logic:
 
-Code snippet
-
+```mangle
 # --- SCHEMA ---
 
 Decl patient_symptom(Patient, Symptom).
@@ -1465,6 +1522,8 @@ recommend_treatment(Patient, Treatment) :-
     protocol_step(Patient, /treatment_decision),
     standard_care(Treatment),
     not contraindicated(Patient, Treatment). # Safety Check
+```
+
 Why it wins: The framework ensures the "Contraindication" rule is always evaluated before the "Recommendation" rule. The LLM creates the empathetic response, but Mangle prevents the malpractice.
 
 4. The Enterprise "Chief of Staff" (HR & Ops)
@@ -1480,8 +1539,7 @@ MCP 3: Slack.
 
 The Mangle Logic: Use Mangle to handle Transitive Access Control.
 
-Code snippet
-
+```mangle
 # --- GRAPH TRAVERSAL ---
 
 # X reports to Y reports to Z
@@ -1509,6 +1567,8 @@ active_approver(RequestID, Delegate) :-
     approver_required(RequestID, VP),
     status(VP, /vacation),
     reports_to(VP, Delegate).
+```
+
 Summary of Applicability
 In every one of these cases, the Framework works exactly like the Coding Agent:
 
@@ -1523,3 +1583,5 @@ MCP Execution: Calls Workday API, Jira API, Provisioning API.
 Output: "Alice is onboarded. Laptop ordered. Ticket #123."
 
 The "Logic Layer" (Mangle) replaces the messy, error-prone "Business Logic" usually hidden in Python scripts or lost in LLM prompts.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-23]*

@@ -297,18 +297,20 @@ The protocol defines the wire-level standard for the Input and Output streams of
 * **Output Stream (The Dual Payload):**  
   * The Transducer outputs a strict JSON object containing two isomorphic payloads.  
   * **JSON Schema:**  
+```json
     {  
-      "surface\_response": "Text visible to the user (e.g., 'I fixed the bug.').",  
-      "control\_packet": {  
-        "reasoning\_trace": "Transient Chain-of-Thought (discarded after verification).",  
-        "mangle\_updates": \["atom(/task\_status, /complete)", "atom(/file\_state, /modified)"\],  
-        "memory\_operations": \[  
-          {"operation": "promote\_to\_long\_term", "fact": "preference(/user, /concise)"},  
-          {"operation": "forget", "target": "error(/transient\_network\_fail)"}  
-        \],  
-        "self\_correction": {"trigger": "failure", "hypothesis": "missing\_dependency"}  
+      "surface_response": "Text visible to the user (e.g., 'I fixed the bug.').",
+      "control_packet": {
+        "reasoning_trace": "Transient Chain-of-Thought (discarded after verification).",
+        "mangle_updates": ["atom(/task_status, /complete)", "atom(/file_state, /modified)"],
+        "memory_operations": [
+          {"operation": "promote_to_long_term", "fact": "preference(/user, /concise)"},
+          {"operation": "forget", "target": "error(/transient_network_fail)"}
+        ],
+        "self_correction": {"trigger": "failure", "hypothesis": "missing_dependency"}
       }  
     }
+```
 
 ### **8.2 Mechanism: Infinite Context via Semantic Compression**
 
@@ -377,3 +379,5 @@ The research results must be "burned" into the Shard's initial state so it start
   2. **Ingestion:** These atoms are written to a dedicated SQLite file: memory/shards/{AgentName}\_knowledge.db.  
   3. **Spawn:** When nerd spawn RustExpert is called, the Kernel mounts this DB as a read-only "Knowledge Shard" (Shard C) for the new agent, satisfying the **Type B** lifecycle defined in Section 7.0.  
   4. **Verification:** The Kernel runs a "viva voce" (oral exam) — generating synthetic questions from the knowledge base and verifying the Shard can answer them using Mangle queries before marking the Shard as ready.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-23]*
