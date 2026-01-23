@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/core/shards"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
@@ -428,8 +429,6 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Start comprehensive timing after validation
 	compileStart := time.Now()
-	// TODO(improvement): CompilationStats is a large object. Consider object pooling or conditional allocation
-	// if this function becomes a hot path (e.g., in a high-throughput server).
 	stats := &CompilationStats{
 		ShardID:         cc.ShardID,
 		OperationalMode: cc.OperationalMode,
@@ -1427,15 +1426,10 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", agent.Name, desc))
 	}
 
-	// Add core shards as implicit specialists
-	// TODO(improvement): These descriptions are hardcoded. Load them from a config file or constants
-	// to keep them in sync with actual agent definitions.
-	coreShards := []string{
-		"- **researcher**: Deep web research and documentation gathering (Context7, GitHub, web search)",
-		"- **reviewer**: Code review, hypothesis verification, and security analysis",
-		"- **codebase**: Search within project files for patterns and implementations",
+	// Add core shards as implicit specialists (from centralized definitions)
+	for name, desc := range shards.CoreShardDescriptions {
+		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
 	}
-	specialists = append(specialists, coreShards...)
 
 	if len(specialists) == 0 {
 		ctx.AvailableSpecialists = "No specialists available. Use **researcher** for general knowledge gathering."
