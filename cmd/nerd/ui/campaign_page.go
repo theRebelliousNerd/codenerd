@@ -46,6 +46,7 @@ func (m CampaignPageModel) Init() tea.Cmd {
 }
 
 // Update handles messages.
+// TODO: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -71,6 +72,8 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
+// TODO: Improve the empty state with more helpful instructions or a starting guide.
+// TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
 		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
@@ -79,6 +82,7 @@ func (m CampaignPageModel) View() string {
 }
 
 // SetSize updates the size of the viewport.
+// TODO: Improve view resizing logic to avoid fragile calculations (e.g., `w - 4`). Use layout constants or dynamic measurement.
 func (m *CampaignPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -88,6 +92,7 @@ func (m *CampaignPageModel) SetSize(w, h int) {
 }
 
 // UpdateContent updates the viewport content based on campaign data.
+// TODO: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
 func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaign.Campaign) {
 	m.campaignData = camp
 	m.progressData = prog
@@ -170,6 +175,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 
 				// Show active tasks and failed tasks, generally hide pending/completed to save space unless focused
 				// For now, listing all for visibility
+				// TODO: Implement proper task filtering (show active/failed, toggle completed) to reduce visual clutter.
 				taskLine := fmt.Sprintf("   %s %-60s [%s]", taskIcon, t.Description, t.Type)
 				sb.WriteString(taskStyle.Render(taskLine) + "\n")
 			}
