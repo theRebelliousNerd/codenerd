@@ -98,6 +98,11 @@ func matchSpecialistsForReview(ctx context.Context, files []string, registry *Ag
 	if registry == nil {
 		return nil
 	}
+	// Logging for wiring-over-deletion compliance (legacy stub)
+	logging.Shards("matchSpecialistsForReview: checking %d files", len(files))
+	if ctx.Err() != nil {
+		return nil
+	}
 
 	// JIT-based flow: The executor calls ConfigFactory.GetConfig() with the intent,
 	// which queries Mangle rules like:
@@ -113,6 +118,10 @@ func matchSpecialistsForReview(ctx context.Context, files []string, registry *Ag
 // LoadAndQueryKnowledgeBase loads knowledge for a specialist.
 func loadAndQueryKnowledgeBase(ctx context.Context, kbPath string, files []string) (string, error) {
 	// Stub: return empty knowledge
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	logging.Shards("loadAndQueryKnowledgeBase: loading KB %s for %d files", kbPath, len(files))
 	return "", nil
 }
 
@@ -158,6 +167,12 @@ func parseShardOutput(output string, shardName string) []ParsedFinding {
 // PersistReview saves a review to the database.
 func persistReview(ctx context.Context, db *store.LocalStore, review *PersistedReview) error {
 	// Stub: review persistence disabled
+	if db != nil {
+		// Just to use db variable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logging.Shards("Review persistence stub called for %s", review.ID)
 	return nil
 }

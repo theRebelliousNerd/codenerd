@@ -547,6 +547,15 @@ func TestKnowledgeHistory_Format(t *testing.T) {
 	if kr.Query != "test query" {
 		t.Errorf("Expected 'test query', got '%s'", kr.Query)
 	}
+	if kr.Specialist != "researcher" {
+		t.Errorf("Expected 'researcher', got '%s'", kr.Specialist)
+	}
+	if kr.Response != "test response" {
+		t.Errorf("Expected 'test response', got '%s'", kr.Response)
+	}
+	if kr.Timestamp.IsZero() {
+		t.Errorf("Expected non-zero timestamp")
+	}
 }
 
 // =============================================================================
@@ -606,5 +615,11 @@ func TestSubtask_Fields(t *testing.T) {
 	}
 	if !st.IsMutation {
 		t.Error("Expected IsMutation to be true")
+	}
+	if st.Description != "Do something" {
+		t.Errorf("Unexpected description: %s", st.Description)
+	}
+	if st.ShardType != "coder" {
+		t.Errorf("Unexpected shard type: %s", st.ShardType)
 	}
 }

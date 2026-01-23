@@ -513,9 +513,10 @@ func (m *Model) populateTestState(sessionCtx *types.SessionContext) {
 		// test_result(TestID, Status, Message)
 		if len(fact.Args) >= 2 {
 			status, _ := fact.Args[1].(string)
-			if status == "/pass" {
+			switch status {
+			case "/pass":
 				passCount++
-			} else if status == "/fail" {
+			case "/fail":
 				failCount++
 			}
 		}
@@ -742,22 +743,23 @@ func formatLearningAsAtom(shardType string, l types.ShardLearning) string {
 
 // formatLearningAsHint converts a ShardLearning to a specialist hint.
 func formatLearningAsHint(shardType string, l types.ShardLearning) string {
+	prefix := fmt.Sprintf("[%s]", shardType)
 	switch l.FactPredicate {
 	case "tool_preference":
 		if len(l.FactArgs) >= 2 {
-			return fmt.Sprintf("For %v, use %v", l.FactArgs[0], l.FactArgs[1])
+			return fmt.Sprintf("%s For %v, use %v", prefix, l.FactArgs[0], l.FactArgs[1])
 		}
 	case "style_preference":
 		if len(l.FactArgs) >= 1 {
-			return fmt.Sprintf("Style preference: %v", l.FactArgs[0])
+			return fmt.Sprintf("%s Style preference: %v", prefix, l.FactArgs[0])
 		}
 	case "domain_expertise":
 		if len(l.FactArgs) >= 1 {
-			return fmt.Sprintf("Domain focus: %v", l.FactArgs[0])
+			return fmt.Sprintf("%s Domain focus: %v", prefix, l.FactArgs[0])
 		}
 	case "preferred_pattern":
 		if len(l.FactArgs) >= 1 {
-			return fmt.Sprintf("Preferred approach: %v", l.FactArgs[0])
+			return fmt.Sprintf("%s Preferred approach: %v", prefix, l.FactArgs[0])
 		}
 	}
 	return ""

@@ -541,6 +541,9 @@ func searchInFiles(root, pattern string, maxHits int) ([]string, error) {
 
 func (m Model) runInitialization(force bool) tea.Cmd {
 	return func() tea.Msg {
+		if force {
+			m.ReportStatus("Forcing full initialization...")
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().ShardExecutionTimeout)
 		defer cancel()
 
@@ -744,6 +747,9 @@ type docRefreshCompleteMsg struct {
 // Uses Mangle tracking to only process documents that have changed since last run.
 func (m Model) runDocRefresh(force bool) tea.Cmd {
 	return func() tea.Msg {
+		if force {
+			m.ReportStatus("Forcing document refresh...")
+		}
 		startTime := time.Now()
 		m.ReportStatus("Discovering documentation files...")
 
@@ -1318,7 +1324,7 @@ func (m Model) renderWorkspaceSummary(fileCount, dirCount, factCount int, experi
 	}
 
 	// Show stats
-	sb.WriteString(fmt.Sprintf("| Metric | Count |\n|--------|-------|\n"))
+	sb.WriteString("| Metric | Count |\n|--------|-------|\n")
 	sb.WriteString(fmt.Sprintf("| Files | %d |\n", fileCount))
 	sb.WriteString(fmt.Sprintf("| Directories | %d |\n", dirCount))
 	sb.WriteString(fmt.Sprintf("| Facts | %d |\n\n", factCount))
@@ -1663,6 +1669,11 @@ func formatVerifiedResponse(
 	verificationResult *verification.VerificationResult,
 ) string {
 	var sb strings.Builder
+
+	// Include intent/task in header for traceability
+	if task != "" {
+		sb.WriteString(fmt.Sprintf("<!-- Task: %s (%s) -->\n", task, intent.Verb))
+	}
 
 	sb.WriteString(fmt.Sprintf("## %s Result\n\n", strings.Title(shardType)))
 

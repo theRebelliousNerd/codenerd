@@ -17,6 +17,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
 	"codenerd/internal/tools/research"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
 
@@ -24,47 +25,47 @@ import (
 // of a codebase - the "soul" of the project that the main agent uses for reasoning.
 type StrategicKnowledge struct {
 	// Identity - What is this project at its core?
-	ProjectVision     string   `json:"project_vision"`      // The "why" - purpose and goals
-	CorePhilosophy    string   `json:"core_philosophy"`     // Guiding principles
-	DesignPrinciples  []string `json:"design_principles"`   // Key architectural decisions
+	ProjectVision    string   `json:"project_vision"`    // The "why" - purpose and goals
+	CorePhilosophy   string   `json:"core_philosophy"`   // Guiding principles
+	DesignPrinciples []string `json:"design_principles"` // Key architectural decisions
 
 	// Architecture - How is it built?
-	ArchitectureStyle string            `json:"architecture_style"`  // e.g., "neuro-symbolic", "microservices"
-	KeyComponents     []ComponentInfo   `json:"key_components"`      // Major subsystems
-	DataFlowPattern   string            `json:"data_flow_pattern"`   // How data moves through the system
+	ArchitectureStyle string          `json:"architecture_style"` // e.g., "neuro-symbolic", "microservices"
+	KeyComponents     []ComponentInfo `json:"key_components"`     // Major subsystems
+	DataFlowPattern   string          `json:"data_flow_pattern"`  // How data moves through the system
 
 	// Patterns - What patterns does it use?
-	CorePatterns      []PatternInfo     `json:"core_patterns"`       // Key design patterns
-	CommunicationFlow string            `json:"communication_flow"`  // How components communicate
+	CorePatterns      []PatternInfo `json:"core_patterns"`      // Key design patterns
+	CommunicationFlow string        `json:"communication_flow"` // How components communicate
 
 	// Capabilities - What can it do?
-	CoreCapabilities  []string          `json:"core_capabilities"`   // Main features
-	ExtensionPoints   []string          `json:"extension_points"`    // Where it can be extended
+	CoreCapabilities []string `json:"core_capabilities"` // Main features
+	ExtensionPoints  []string `json:"extension_points"`  // Where it can be extended
 
 	// Constraints - What are its boundaries?
-	SafetyConstraints []string          `json:"safety_constraints"`  // Safety invariants
-	Limitations       []string          `json:"limitations"`         // Known limitations
+	SafetyConstraints []string `json:"safety_constraints"` // Safety invariants
+	Limitations       []string `json:"limitations"`        // Known limitations
 
 	// Evolution - How does it grow?
-	LearningMechanisms []string         `json:"learning_mechanisms"` // How it adapts
-	FutureDirections   []string         `json:"future_directions"`   // Planned evolution
+	LearningMechanisms []string `json:"learning_mechanisms"` // How it adapts
+	FutureDirections   []string `json:"future_directions"`   // Planned evolution
 }
 
 // ComponentInfo describes a major subsystem.
 type ComponentInfo struct {
-	Name        string `json:"name"`
-	Purpose     string `json:"purpose"`
-	Location    string `json:"location"`     // Directory or package
-	Interfaces  string `json:"interfaces"`   // How it exposes functionality
-	DependsOn   []string `json:"depends_on"` // What it needs
+	Name       string   `json:"name"`
+	Purpose    string   `json:"purpose"`
+	Location   string   `json:"location"`   // Directory or package
+	Interfaces string   `json:"interfaces"` // How it exposes functionality
+	DependsOn  []string `json:"depends_on"` // What it needs
 }
 
 // PatternInfo describes a design pattern used in the codebase.
 type PatternInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	UsedIn      string `json:"used_in"`      // Where it's applied
-	Why         string `json:"why"`          // Why this pattern was chosen
+	UsedIn      string `json:"used_in"` // Where it's applied
+	Why         string `json:"why"`     // Why this pattern was chosen
 }
 
 // generateStrategicKnowledge uses LLM to analyze the codebase deeply.
@@ -241,13 +242,13 @@ type DocumentInfo struct {
 type DocProcessingStatus string
 
 const (
-	DocStatusDiscovered DocProcessingStatus = "/discovered" // Found during scan
-	DocStatusAnalyzing  DocProcessingStatus = "/analyzing"  // LLM analyzing relevance
-	DocStatusExtracting DocProcessingStatus = "/extracting" // Extracting knowledge atoms
-	DocStatusStored     DocProcessingStatus = "/stored"     // Atoms persisted to DB
+	DocStatusDiscovered  DocProcessingStatus = "/discovered"  // Found during scan
+	DocStatusAnalyzing   DocProcessingStatus = "/analyzing"   // LLM analyzing relevance
+	DocStatusExtracting  DocProcessingStatus = "/extracting"  // Extracting knowledge atoms
+	DocStatusStored      DocProcessingStatus = "/stored"      // Atoms persisted to DB
 	DocStatusSynthesized DocProcessingStatus = "/synthesized" // Included in synthesis
-	DocStatusSkipped    DocProcessingStatus = "/skipped"    // Not relevant
-	DocStatusFailed     DocProcessingStatus = "/failed"     // Processing failed
+	DocStatusSkipped     DocProcessingStatus = "/skipped"     // Not relevant
+	DocStatusFailed      DocProcessingStatus = "/failed"      // Processing failed
 )
 
 // DocIngestionState tracks the entire ingestion campaign state.
@@ -351,7 +352,6 @@ func (i *Initializer) ProcessDocumentsWithTracking(
 	// Phase 1: Discovery - assert all discovered docs
 	for _, doc := range docs {
 		hash := computeDocHash(doc.Content)
-		doc.ContentHash = hash
 
 		// Check if already processed (for resumption)
 		if existing, ok := state.Documents[doc.Path]; ok {
@@ -458,7 +458,22 @@ func (i *Initializer) extractAndStoreDocKnowledge(
 		return 0, fmt.Errorf("LLM client and database required")
 	}
 
-	// For large docs, chunk and process
+	// For large docs or PDFs, use Files API + Context Caching if available
+	ext := strings.ToLower(filepath.Ext(doc.Path))
+	if ext == ".pdf" || doc.Size > 100*1024 { // >100KB
+		if fileProvider, ok := i.config.LLMClient.(types.FileProvider); ok {
+			// Check if we also support caching
+			if cacheProvider, ok := i.config.LLMClient.(types.CacheProvider); ok {
+				return i.extractFromLargeDoc(ctx, doc, db, fileProvider, cacheProvider)
+			}
+		}
+		// Fallback to chunking if provider doesn't support files (though PDF chunking might fail if raw content is binary)
+		if ext == ".pdf" {
+			logging.Get(logging.CategoryBoot).Warn("Skipping PDF %s: Files API not supported by client", doc.Path)
+			return 0, nil
+		}
+	}
+
 	content := doc.Content
 	chunks := chunkDocument(content, 8000) // ~2k tokens per chunk
 
@@ -536,6 +551,87 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 			if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, atom.Content, atom.Confidence); err == nil {
 				atomCount++
 			}
+		}
+	}
+
+	return atomCount, nil
+}
+
+// extractFromLargeDoc handles large files by uploading to Files API and using Context Caching.
+func (i *Initializer) extractFromLargeDoc(
+	ctx context.Context,
+	doc DocumentInfo,
+	db *store.LocalStore,
+	fileProvider types.FileProvider,
+	cacheProvider types.CacheProvider,
+) (int, error) {
+	// 1. Upload File
+	logging.Get(logging.CategoryBoot).Debug("Uploading large doc %s to Files API...", doc.Path)
+	fileURI, err := fileProvider.UploadFile(ctx, doc.AbsPath, "")
+	if err != nil {
+		return 0, fmt.Errorf("upload failed: %w", err)
+	}
+	defer func() {
+		// Cleanup file (best effort)
+		_ = fileProvider.DeleteFile(ctx, fileURI)
+	}()
+
+	// 2. Create Context Cache
+	// Cache just this file. TTL 5 mins is enough for extraction.
+	logging.Get(logging.CategoryBoot).Debug("Creating context cache for %s...", doc.Path)
+	cacheName, err := cacheProvider.CreateCachedContent(ctx, []string{fileURI}, 300)
+	if err != nil {
+		return 0, fmt.Errorf("create cache failed: %w", err)
+	}
+	defer func() {
+		_ = cacheProvider.DeleteCachedContent(ctx, cacheName)
+	}()
+
+	// 3. Set Client to use Cache
+	// CacheProvider now includes SetCachedContent
+	cacheProvider.SetCachedContent(cacheName)
+	defer cacheProvider.SetCachedContent("") // Clear after use
+
+	// 4. Extract Knowledge
+	// With the whole document in context, we can ask for specific categories in one go.
+	// Or maybe two passes: High-level and Details.
+
+	prompt := fmt.Sprintf(`Analyze the document in the context cache.
+Title: %s
+
+Extract key strategic knowledge atoms.
+Return a JSON array of atoms:
+[
+  {"concept": "category/specific_topic", "content": "key insight", "confidence": 0.0-1.0}
+]
+
+Categories: architecture, philosophy, pattern, capability, constraint, integration.
+Focus on high-level architectural decisions, core philosophy, and system boundaries.
+`, doc.Title)
+
+	response, err := i.config.LLMClient.Complete(ctx, prompt)
+	if err != nil {
+		return 0, fmt.Errorf("extraction query failed: %w", err)
+	}
+
+	// Parse and store
+	type ExtractedAtom struct {
+		Concept    string  `json:"concept"`
+		Content    string  `json:"content"`
+		Confidence float64 `json:"confidence"`
+	}
+	var atoms []ExtractedAtom
+
+	jsonStr := extractJSON(response)
+	if err := json.Unmarshal([]byte(jsonStr), &atoms); err != nil {
+		return 0, fmt.Errorf("failed to parse atoms: %w", err)
+	}
+
+	atomCount := 0
+	for _, atom := range atoms {
+		concept := fmt.Sprintf("doc/%s/%s", doc.Path, atom.Concept)
+		if err := db.StoreKnowledgeAtomWithEmbedding(ctx, concept, atom.Content, atom.Confidence); err == nil {
+			atomCount++
 		}
 	}
 
@@ -716,18 +812,18 @@ func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 
 	// Priority files (highest importance)
 	priorityFiles := map[string]int{
-		"CLAUDE.md":             0,
-		"README.md":             1,
-		"ARCHITECTURE.md":       1,
-		"DESIGN.md":             1,
-		"VISION.md":             1,
-		"PHILOSOPHY.md":         1,
-		"CONTRIBUTING.md":       2,
-		"CHANGELOG.md":          2,
-		"ROADMAP.md":            2,
-		"GOALS.md":              2,
-		"STRATEGY.md":           2,
-		"API.md":                2,
+		"CLAUDE.md":       0,
+		"README.md":       1,
+		"ARCHITECTURE.md": 1,
+		"DESIGN.md":       1,
+		"VISION.md":       1,
+		"PHILOSOPHY.md":   1,
+		"CONTRIBUTING.md": 2,
+		"CHANGELOG.md":    2,
+		"ROADMAP.md":      2,
+		"GOALS.md":        2,
+		"STRATEGY.md":     2,
+		"API.md":          2,
 	}
 
 	// Target directories (ResearcherShard pattern)
@@ -783,7 +879,7 @@ func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 
 		// Only process documentation files
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".md" && ext != ".mdx" && ext != ".txt" && ext != ".rst" {
+		if ext != ".md" && ext != ".mdx" && ext != ".txt" && ext != ".rst" && ext != ".pdf" {
 			return nil
 		}
 
@@ -834,8 +930,8 @@ func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 			}
 			for _, signal := range signalKeywords {
 				if strings.Contains(header, "# "+signal) ||
-				   strings.Contains(header, "## "+signal) ||
-				   strings.Contains(header, signal+":") {
+					strings.Contains(header, "## "+signal) ||
+					strings.Contains(header, signal+":") {
 					priority = 2
 					break
 				}
@@ -1050,16 +1146,16 @@ func (i *Initializer) buildRelevantDocContent(docs []DocumentInfo) string {
 // createFallbackStrategicKnowledge creates minimal knowledge when LLM fails.
 func (i *Initializer) createFallbackStrategicKnowledge(profile ProjectProfile) *StrategicKnowledge {
 	return &StrategicKnowledge{
-		ProjectVision:    profile.Description,
-		CorePhilosophy:   fmt.Sprintf("A %s project built with %s.", profile.Language, profile.Framework),
-		DesignPrinciples: profile.Patterns,
+		ProjectVision:     profile.Description,
+		CorePhilosophy:    fmt.Sprintf("A %s project built with %s.", profile.Language, profile.Framework),
+		DesignPrinciples:  profile.Patterns,
 		ArchitectureStyle: profile.Architecture,
-		KeyComponents:    []ComponentInfo{},
-		DataFlowPattern:  "Standard request-response flow",
-		CorePatterns:     []PatternInfo{},
-		CoreCapabilities: []string{},
+		KeyComponents:     []ComponentInfo{},
+		DataFlowPattern:   "Standard request-response flow",
+		CorePatterns:      []PatternInfo{},
+		CoreCapabilities:  []string{},
 		SafetyConstraints: []string{},
-		Limitations:      []string{},
+		Limitations:       []string{},
 	}
 }
 

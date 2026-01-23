@@ -12,8 +12,8 @@ import (
 // It supports both static command-line tools and MCP (Model Context Protocol) tools.
 type ToolDefinition struct {
 	Name          string   `json:"name"`
-	DisplayName   string   `json:"display_name,omitempty"`   // Human-readable name (optional)
-	Category      string   `json:"category"`                 // build, test, lint, format, deps, git, docker, security, code_analysis, etc
+	DisplayName   string   `json:"display_name,omitempty"` // Human-readable name (optional)
+	Category      string   `json:"category"`               // build, test, lint, format, deps, git, docker, security, code_analysis, etc
 	Description   string   `json:"description"`
 	ShardAffinity string   `json:"shard_affinity,omitempty"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard, ResearcherShard)
 	Conditions    []string `json:"conditions,omitempty"`     // Required conditions (e.g., "go.mod exists", "docker available")
@@ -516,13 +516,14 @@ func GetToolsForAgentType(agentName string, language string) ([]string, map[stri
 
 	case "SecurityAuditor":
 		// Security audit tools - language specific
-		if language == "go" || language == "golang" {
+		switch language {
+		case "go", "golang":
 			tools = []string{"go_vet", "go_lint"}
 			prefs = map[string]string{
 				"audit": "go_vet",
 				"lint":  "go_lint",
 			}
-		} else if language == "python" {
+		case "python":
 			tools = []string{"pylint"}
 			prefs = map[string]string{
 				"audit": "pylint",
@@ -531,17 +532,18 @@ func GetToolsForAgentType(agentName string, language string) ([]string, map[stri
 
 	case "TestArchitect":
 		// Testing tools - language specific
-		if language == "go" || language == "golang" {
+		switch language {
+		case "go", "golang":
 			tools = []string{"go_test"}
 			prefs = map[string]string{
 				"test": "go_test",
 			}
-		} else if language == "python" {
+		case "python":
 			tools = []string{"pytest"}
 			prefs = map[string]string{
 				"test": "pytest",
 			}
-		} else if language == "typescript" || language == "javascript" {
+		case "typescript", "javascript":
 			tools = []string{"npm_test"}
 			prefs = map[string]string{
 				"test": "npm_test",

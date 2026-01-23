@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -68,6 +69,10 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 				timeout = time.Duration(profile.MaxExecutionTimeSec) * time.Second
 			}
 		}
+
+		// Log start of subtask execution
+		logging.Get(logging.CategoryRouting).Info("Executing subtask %s (%s) with shard %s", subtaskID, description, shardType)
+
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 

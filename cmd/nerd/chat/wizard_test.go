@@ -81,6 +81,15 @@ func TestConfigWizard_ShardProfileConfig(t *testing.T) {
 	if profile.Temperature != 0.7 {
 		t.Errorf("Expected temperature 0.7, got %f", profile.Temperature)
 	}
+	if profile.MaxContextTokens != 8000 {
+		t.Errorf("Expected MaxContextTokens 8000, got %d", profile.MaxContextTokens)
+	}
+	if profile.MaxOutputTokens != 4000 {
+		t.Errorf("Expected MaxOutputTokens 4000, got %d", profile.MaxOutputTokens)
+	}
+	if !profile.EnableLearning {
+		t.Errorf("Expected EnableLearning true")
+	}
 }
 
 func TestConfigWizard_StepTransitions(t *testing.T) {
@@ -119,6 +128,9 @@ func TestConfigWizard_ModelEntry(t *testing.T) {
 	// Config wizard mode should be active
 	if !m.awaitingConfigWizard {
 		t.Error("Expected awaitingConfigWizard to be true")
+	}
+	if m.configWizard.Step != StepWelcome {
+		t.Errorf("Expected StepWelcome, got %v", m.configWizard.Step)
 	}
 }
 
@@ -181,7 +193,7 @@ func TestConfigWizard_AntigravityStateFields(t *testing.T) {
 	state := NewConfigWizard()
 
 	// Verify Antigravity state fields exist
-	if state.AntigravityAccounts != nil && len(state.AntigravityAccounts) > 0 {
+	if len(state.AntigravityAccounts) > 0 {
 		t.Log("Has Antigravity accounts")
 	}
 
@@ -467,6 +479,12 @@ func TestClarificationState_Fields(t *testing.T) {
 	if len(state.Options) != 3 {
 		t.Errorf("Expected 3 options, got %d", len(state.Options))
 	}
+	if state.DefaultOption != "file1.go" {
+		t.Errorf("Unexpected default option: %s", state.DefaultOption)
+	}
+	if state.Context != "serialized context" {
+		t.Errorf("Unexpected context: %s", state.Context)
+	}
 }
 
 func TestClarificationState_OptionSelection(t *testing.T) {
@@ -501,6 +519,9 @@ func TestPatchMode_Entry(t *testing.T) {
 	if !m.awaitingPatch {
 		t.Error("Expected awaitingPatch to be true")
 	}
+	if len(m.pendingPatchLines) != 0 {
+		t.Errorf("Expected empty pending lines, got %d", len(m.pendingPatchLines))
+	}
 }
 
 func TestPatchMode_AccumulatesLines(t *testing.T) {
@@ -512,6 +533,9 @@ func TestPatchMode_AccumulatesLines(t *testing.T) {
 
 	if len(m.pendingPatchLines) != 2 {
 		t.Errorf("Expected 2 pending lines, got %d", len(m.pendingPatchLines))
+	}
+	if !m.awaitingPatch {
+		t.Error("Expected awaitingPatch to be true")
 	}
 }
 
@@ -715,6 +739,9 @@ func TestCampaignLaunchClarification_State(t *testing.T) {
 	if m.launchClarifyGoal != "improve test coverage" {
 		t.Errorf("Unexpected goal: %s", m.launchClarifyGoal)
 	}
+	if m.launchClarifyAnswers != "" {
+		t.Errorf("Expected empty answers initially")
+	}
 }
 
 // =============================================================================
@@ -752,6 +779,12 @@ func TestReflectionState_Creation(t *testing.T) {
 	if !state.UsedEmbedding {
 		t.Error("Expected UsedEmbedding to be true")
 	}
+	if state.Duration != time.Second {
+		t.Errorf("Expected duration 1s, got %v", state.Duration)
+	}
+	if len(state.Warnings) != 1 {
+		t.Errorf("Expected 1 warning")
+	}
 }
 
 // =============================================================================
@@ -778,6 +811,24 @@ func TestShardResult_Fields(t *testing.T) {
 	if len(sr.Findings) != 1 {
 		t.Errorf("Expected 1 finding, got %d", len(sr.Findings))
 	}
+	if sr.Task != "review main.go" {
+		t.Errorf("Unexpected task: %s", sr.Task)
+	}
+	if sr.RawOutput != "Found 5 issues" {
+		t.Errorf("Unexpected raw output: %s", sr.RawOutput)
+	}
+	if sr.Timestamp.IsZero() {
+		t.Error("Timestamp is zero")
+	}
+	if sr.TurnNumber != 3 {
+		t.Errorf("Unexpected turn number: %d", sr.TurnNumber)
+	}
+	if sr.Metrics["issues"] != 5 {
+		t.Error("Metrics mismatch")
+	}
+	if sr.ExtraData["custom"] != "data" {
+		t.Error("ExtraData mismatch")
+	}
 }
 
 // =============================================================================
@@ -802,6 +853,18 @@ func TestAggregatedReview_Fields(t *testing.T) {
 	if len(review.Participants) != 2 {
 		t.Errorf("Expected 2 participants, got %d", len(review.Participants))
 	}
+	if review.Target != "./..." {
+		t.Errorf("Unexpected target: %s", review.Target)
+	}
+	if review.TotalFindings != 10 {
+		t.Errorf("Unexpected total findings: %d", review.TotalFindings)
+	}
+	if len(review.Files) != 2 {
+		t.Errorf("Unexpected file count: %d", len(review.Files))
+	}
+	if len(review.HolisticInsights) != 1 {
+		t.Errorf("Unexpected insight count: %d", len(review.HolisticInsights))
+	}
 }
 
 func TestParsedFinding_Fields(t *testing.T) {
@@ -817,6 +880,27 @@ func TestParsedFinding_Fields(t *testing.T) {
 		ShardSource:    "security_reviewer",
 	}
 
+	if finding.File != "main.go" {
+		t.Errorf("Unexpected file: %s", finding.File)
+	}
+	if finding.Line != 42 {
+		t.Errorf("Unexpected line: %d", finding.Line)
+	}
+	if finding.Severity != "high" {
+		t.Errorf("Unexpected severity: %s", finding.Severity)
+	}
+	if finding.Category != "security" {
+		t.Errorf("Unexpected category: %s", finding.Category)
+	}
+	if finding.Message != "SQL injection vulnerability" {
+		t.Errorf("Unexpected message: %s", finding.Message)
+	}
+	if finding.Recommendation != "Use prepared statements" {
+		t.Errorf("Unexpected recommendation: %s", finding.Recommendation)
+	}
+	if finding.ShardSource != "security_reviewer" {
+		t.Errorf("Unexpected source: %s", finding.ShardSource)
+	}
 	if finding.Severity != "high" {
 		t.Errorf("Expected severity 'high', got '%s'", finding.Severity)
 	}

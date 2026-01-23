@@ -15,6 +15,38 @@ import (
 )
 
 // =============================================================================
+// SPAWNER ADAPTER TYPES FOR TESTS
+// =============================================================================
+
+// shardManagerObserverSpawner wraps ShardManager for observer spawning.
+type shardManagerObserverSpawner struct {
+	shardMgr interface{} // *coreshards.ShardManager when non-nil
+}
+
+// SpawnObserver spawns an observer shard for the given task.
+func (s *shardManagerObserverSpawner) SpawnObserver(ctx context.Context, observerType, task string) (string, error) {
+	if s.shardMgr == nil {
+		return "", context.DeadlineExceeded // Signals "not available"
+	}
+	// In a real implementation, this would delegate to s.shardMgr
+	return "", context.DeadlineExceeded
+}
+
+// shardManagerConsultationSpawner wraps ShardManager for consultation spawning.
+type shardManagerConsultationSpawner struct {
+	shardMgr interface{} // *coreshards.ShardManager when non-nil
+}
+
+// SpawnConsultation spawns a specialist consultation for the given task.
+func (s *shardManagerConsultationSpawner) SpawnConsultation(ctx context.Context, specialistType, task string) (string, error) {
+	if s.shardMgr == nil {
+		return "", context.DeadlineExceeded // Signals "not available"
+	}
+	// In a real implementation, this would delegate to s.shardMgr
+	return "", context.DeadlineExceeded
+}
+
+// =============================================================================
 // SESSION KERNEL ADAPTER TESTS
 // =============================================================================
 

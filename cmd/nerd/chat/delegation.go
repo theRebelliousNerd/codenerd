@@ -697,7 +697,7 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 		// ═══════════════════════════════════════════════════════════════════════════
 		// PHASE 3: Specialist critique of the result
 		// ═══════════════════════════════════════════════════════════════════════════
-		m.ReportStatus(fmt.Sprintf("Phase 3: Gathering specialist critiques..."))
+		m.ReportStatus("Phase 3: Gathering specialist critiques...")
 		sb.WriteString("---\n\n### Phase 3: Specialist Critique\n\n")
 
 		critiqueResults := m.gatherSpecialistCritique(ctx, verb, files, specialists, result)
@@ -741,7 +741,7 @@ func (m Model) executeSpecialistDirectMode(ctx context.Context, verb string, spe
 	sb.WriteString(fmt.Sprintf("## %s via Specialist Executor\n\n", strings.Title(strings.TrimPrefix(verb, "/"))))
 	sb.WriteString(fmt.Sprintf("**Target**: %s\n", target))
 	sb.WriteString(fmt.Sprintf("**Specialist**: %s (confidence: %.0f%%)\n", specialist.AgentName, specialist.Score*100))
-	sb.WriteString(fmt.Sprintf("**Mode**: Direct Execution\n\n"))
+	sb.WriteString("**Mode**: Direct Execution\n\n")
 
 	if specialist.Classification != nil {
 		sb.WriteString(fmt.Sprintf("**Classification**: %s / %s\n\n",
@@ -811,6 +811,8 @@ func (m Model) gatherSpecialistAdvice(ctx context.Context, verb string, files []
 	resultsChan := make(chan adviceResult, len(specialists))
 	var wg sync.WaitGroup
 
+	logging.Shards("Gathering advice for %s on %d files", verb, len(files))
+
 	for _, spec := range specialists {
 		wg.Add(1)
 		go func(s shards.SpecialistMatch) {
@@ -850,6 +852,8 @@ Keep your advice concise and actionable. Do NOT make changes yourself - just adv
 func (m Model) gatherSpecialistCritique(ctx context.Context, verb string, files []string, specialists []shards.SpecialistMatch, executionResult string) []adviceResult {
 	resultsChan := make(chan adviceResult, len(specialists))
 	var wg sync.WaitGroup
+
+	logging.Shards("Gathering critique for %s on %d files", verb, len(files))
 
 	// Truncate execution result if too long
 	truncatedResult := executionResult
@@ -1069,6 +1073,11 @@ func detectMultiStepTask(input string, intent perception.Intent) bool {
 		"first", "second", "third", "finally",
 		"step 1", "step 2", "1.", "2.", "3.",
 		"also", "additionally", "furthermore",
+	}
+
+	// Intent-based heuristic
+	if intent.Verb == "/campaign" {
+		return true
 	}
 
 	for _, keyword := range multiStepKeywords {

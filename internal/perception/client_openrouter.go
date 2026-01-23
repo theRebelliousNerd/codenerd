@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -435,5 +436,10 @@ func (c *OpenRouterClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 		Text:       choice.Message.Content,
 		ToolCalls:  toolCalls,
 		StopReason: stopReason,
+		Usage: types.UsageMetadata{
+			InputTokens:  resp.Usage.PromptTokens,
+			OutputTokens: resp.Usage.CompletionTokens,
+			TotalTokens:  resp.Usage.TotalTokens,
+		},
 	}, nil
 }

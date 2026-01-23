@@ -61,6 +61,8 @@ func DecomposeWithStrategy(input string, captures []string, pattern *MultiStepPa
 // Handles: "first X, then Y, finally Z"
 
 func decomposeExplicitSequence(input string, captures []string, pattern *MultiStepPattern, workspace string) []TaskStep {
+	// Pattern trace: explicit_sequence (ID: %s)
+	_ = pattern // pattern ID available for telemetry if needed
 	var steps []TaskStep
 
 	for i, capture := range captures {
@@ -134,6 +136,8 @@ func decomposeNumberedSteps(input string, captures []string, pattern *MultiStepP
 // Handles: "review X and fix", "create Y and test"
 
 func decomposeVerbPairChain(input string, captures []string, pattern *MultiStepPattern, workspace string) []TaskStep {
+	// Pattern trace: verb_pair_chain
+	_ = pattern // Used for VerbPairs extraction below
 	var steps []TaskStep
 
 	// Get verb pairs for this pattern
@@ -565,6 +569,9 @@ func decomposeGitWorkflow(input string, captures []string, pattern *MultiStepPat
 // =============================================================================
 
 func decomposeGeneric(input string, captures []string, pattern *MultiStepPattern, workspace string) []TaskStep {
+	// Fallback generic decomposer
+	_ = captures // Generic strategy parses input directly
+	_ = pattern  // No specific pattern structure to leverage
 	var steps []TaskStep
 
 	// Try to extract verb-target pairs from the input

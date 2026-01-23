@@ -70,10 +70,6 @@ var checkMangleCmd = &cobra.Command{
 
 func runCheckMangle(cmd *cobra.Command, args []string) error {
 	hasError := false
-	engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil)
-	if err != nil {
-		return fmt.Errorf("failed to initialize mangle engine: %w", err)
-	}
 
 	for _, pattern := range args {
 		// Handle glob expansion (if shell didn't already)
@@ -95,7 +91,7 @@ func runCheckMangle(cmd *cobra.Command, args []string) error {
 		}
 
 		for _, file := range matches {
-			if err := checkFile(engine, file); err != nil {
+			if err := checkFile(file); err != nil {
 				fmt.Printf("ERROR in %s: %v\n", file, err)
 				hasError = true
 			} else {
@@ -110,7 +106,7 @@ func runCheckMangle(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func checkFile(engine *mangle.Engine, path string) error {
+func checkFile(path string) error {
 	// Create a new engine for isolation
 	tmpEngine, err := mangle.NewEngine(mangle.DefaultConfig(), nil)
 	if err != nil {

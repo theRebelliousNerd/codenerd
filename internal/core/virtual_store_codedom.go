@@ -264,6 +264,7 @@ func (v *VirtualStore) handleRefreshScope(ctx context.Context, req ActionRequest
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
+	logging.VirtualStoreDebug("Refreshing scope (session: %s)", req.SessionID)
 
 	v.mu.RLock()
 	scope := v.codeScope
@@ -297,6 +298,7 @@ func (v *VirtualStore) handleCloseScope(ctx context.Context, req ActionRequest) 
 	if err := ctx.Err(); err != nil {
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
+	logging.VirtualStoreDebug("Closing scope (session: %s)", req.SessionID)
 
 	v.mu.RLock()
 	scope := v.codeScope

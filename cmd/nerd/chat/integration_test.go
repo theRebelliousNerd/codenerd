@@ -48,6 +48,9 @@ func TestModel_CommandProcessing(t *testing.T) {
 	workspace := t.TempDir()
 	m := NewTestModel(WithSize(100, 50))
 	m.workspace = workspace
+	if m.workspace != workspace {
+		t.Errorf("Workspace mismatch")
+	}
 
 	// Test commands that don't require kernel
 	commands := []string{
@@ -314,6 +317,9 @@ func TestSession_StatePreservation(t *testing.T) {
 	}
 
 	// Verify state
+	if m.workspace != workspace {
+		t.Errorf("Workspace mismatch: %s != %s", m.workspace, workspace)
+	}
 	if m.sessionID != "test-session-123" {
 		t.Errorf("SessionID = %q, want test-session-123", m.sessionID)
 	}

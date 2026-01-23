@@ -366,15 +366,6 @@ func (c *AntigravityClient) authenticateMultiAccount(ctx context.Context) (strin
 
 // refreshAccountToken refreshes the access token for an account
 func (c *AntigravityClient) refreshAccountToken(ctx context.Context, account *antigravity.Account) error {
-	// Use the legacy token manager's refresh logic
-	token := &antigravity.Token{
-		RefreshToken: account.RefreshToken,
-	}
-
-	// Create a temporary token manager just for refresh
-	data := fmt.Sprintf(`{"refresh_token":"%s"}`, account.RefreshToken)
-	_ = data // We'll use direct refresh
-
 	// Direct refresh call
 	newToken, err := antigravity.RefreshToken(ctx, account.RefreshToken)
 	if err != nil {
@@ -385,8 +376,6 @@ func (c *AntigravityClient) refreshAccountToken(ctx context.Context, account *an
 	account.AccessToken = newToken.AccessToken
 	account.AccessExpiry = newToken.Expiry
 
-	// Update token reference
-	_ = token
 	return nil
 }
 

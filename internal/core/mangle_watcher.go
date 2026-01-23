@@ -33,15 +33,15 @@ type MangleWatcher struct {
 
 // MangleWatcherStats tracks watcher activity for stress testing and debugging.
 type MangleWatcherStats struct {
-	FilesCreated       int
-	FilesModified      int
-	FilesDeleted       int
+	FilesCreated        int
+	FilesModified       int
+	FilesDeleted        int
 	ValidationTriggered int
-	RepairsTriggered   int
-	Errors             int
-	LastEventTime      time.Time
-	LastEventPath      string
-	LastEventType      string
+	RepairsTriggered    int
+	Errors              int
+	LastEventTime       time.Time
+	LastEventPath       string
+	LastEventType       string
 }
 
 // NewMangleWatcher creates a new MangleWatcher for the given workspace.
@@ -169,6 +169,9 @@ func (mw *MangleWatcher) run(ctx context.Context) {
 
 // handleEvent processes a single filesystem event.
 func (mw *MangleWatcher) handleEvent(ctx context.Context, event fsnotify.Event) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
 	// Only care about .mg files
 	if !strings.HasSuffix(event.Name, ".mg") {
 		return

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,6 +46,9 @@ type GeminiClient struct {
 	// Thinking metadata from last response (for SPL learning)
 	lastThoughtSummary string
 	lastThinkingTokens int
+
+	// Context Caching
+	cachedContentName string // Resource name of active cached context
 }
 
 // Compile-time interface assertions for GeminiClient.
@@ -305,6 +309,14 @@ func (c *GeminiClient) GetThinkingLevel() string {
 	return c.thinkingLevel
 }
 
+// SetCachedContent sets the active cached context for subsequent requests.
+// pass empty string to disable.
+func (c *GeminiClient) SetCachedContent(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cachedContentName = name
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *GeminiClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -327,9 +339,18 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		return "", fmt.Errorf("API key not configured")
 	}
 
+	// Check if using cached content
+	c.mu.Lock()
+	cachedContent := c.cachedContentName
+	c.mu.Unlock()
+
 	if strings.TrimSpace(systemPrompt) == "" {
 		systemPrompt = defaultSystemPrompt
 	}
+
+	// If using cached content, we generally shouldn't send system instructions again
+	// if they were part of the cache. For now, we'll leave it as is,
+	// assuming the API handles overrides or the user knows what they are doing.
 
 	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
 		strings.Contains(systemPrompt, "surface_response") ||
@@ -367,6 +388,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
 	} else if requiresJSONOutput(systemPrompt, userPrompt) {
 		reqBody.GenerationConfig.ResponseMimeType = "application/json"
+	}
+
+	// Apply cached content if set
+	if cachedContent != "" {
+		reqBody.CachedContent = cachedContent
 	}
 
 	// Construct URL with API key
@@ -1081,6 +1107,15 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 	}
 
+	// Map usage metadata
+	result.Usage = types.UsageMetadata{
+		InputTokens:         geminiResp.UsageMetadata.PromptTokenCount,
+		OutputTokens:        geminiResp.UsageMetadata.CandidatesTokenCount,
+		TotalTokens:         geminiResp.UsageMetadata.TotalTokenCount,
+		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
+		CachedContentTokens: 0, // Not exposed in this response struct yet, or needs different mapping
+	}
+
 	if len(geminiResp.Candidates) > 0 {
 		result.StopReason = geminiResp.Candidates[0].FinishReason
 		var textBuilder strings.Builder
@@ -1294,6 +1329,15 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	}
 	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
 		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
+	}
+
+	// Map usage metadata
+	result.Usage = types.UsageMetadata{
+		InputTokens:         geminiResp.UsageMetadata.PromptTokenCount,
+		OutputTokens:        geminiResp.UsageMetadata.CandidatesTokenCount,
+		TotalTokens:         geminiResp.UsageMetadata.TotalTokenCount,
+		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
+		CachedContentTokens: 0,
 	}
 
 	if len(geminiResp.Candidates) > 0 {

@@ -66,23 +66,23 @@ type FileDecision struct {
 	Confidence        float64    `json:"confidence"` // 0.0-1.0
 
 	// Analysis data
-	Exists        bool   `json:"exists"`
-	Language      string `json:"language"`
-	LineCount     int    `json:"line_count"`
-	ChurnRate     int    `json:"churn_rate"`
-	Complexity    float64 `json:"complexity"` // Cyclomatic complexity estimate
-	TODOCount     int    `json:"todo_count"`
-	HasTests      bool   `json:"has_tests"`
+	Exists     bool    `json:"exists"`
+	Language   string  `json:"language"`
+	LineCount  int     `json:"line_count"`
+	ChurnRate  int     `json:"churn_rate"`
+	Complexity float64 `json:"complexity"` // Cyclomatic complexity estimate
+	TODOCount  int     `json:"todo_count"`
+	HasTests   bool    `json:"has_tests"`
 
 	// Dependencies
-	Dependencies    []string `json:"dependencies"`
-	Dependents      []string `json:"dependents"`
-	ImpactScore     int      `json:"impact_score"`
+	Dependencies []string `json:"dependencies"`
+	Dependents   []string `json:"dependents"`
+	ImpactScore  int      `json:"impact_score"`
 
 	// Suggestions
-	SuggestedSplits  []SplitSuggestion `json:"suggested_splits,omitempty"`
-	RefactorReasons  []string          `json:"refactor_reasons,omitempty"`
-	Warnings         []string          `json:"warnings,omitempty"`
+	SuggestedSplits []SplitSuggestion `json:"suggested_splits,omitempty"`
+	RefactorReasons []string          `json:"refactor_reasons,omitempty"`
+	Warnings        []string          `json:"warnings,omitempty"`
 }
 
 // SplitSuggestion suggests how to split a large file.
@@ -104,16 +104,16 @@ type EdgeCaseDetector struct {
 // EdgeCaseConfig configures detection thresholds.
 type EdgeCaseConfig struct {
 	// Size thresholds
-	LargeFileLines       int // Lines to consider file "large" (default: 500)
-	VeryLargeFileLines   int // Lines requiring modularization (default: 1000)
-	MaxFunctionsPerFile  int // Max functions before suggesting split (default: 20)
+	LargeFileLines      int // Lines to consider file "large" (default: 500)
+	VeryLargeFileLines  int // Lines requiring modularization (default: 1000)
+	MaxFunctionsPerFile int // Max functions before suggesting split (default: 20)
 
 	// Complexity thresholds
-	HighComplexity   float64 // Complexity requiring refactor (default: 10.0)
+	HighComplexity     float64 // Complexity requiring refactor (default: 10.0)
 	ModerateComplexity float64 // Complexity worth noting (default: 5.0)
 
 	// Churn thresholds
-	HighChurnRate    int // Commits suggesting caution (default: 10)
+	HighChurnRate     int // Commits suggesting caution (default: 10)
 	VeryHighChurnRate int // Commits requiring discussion (default: 20)
 
 	// Quality thresholds
@@ -126,15 +126,15 @@ type EdgeCaseConfig struct {
 // DefaultEdgeCaseConfig returns sensible defaults.
 func DefaultEdgeCaseConfig() EdgeCaseConfig {
 	return EdgeCaseConfig{
-		LargeFileLines:        500,
-		VeryLargeFileLines:    1000,
-		MaxFunctionsPerFile:   20,
-		HighComplexity:        10.0,
-		ModerateComplexity:    5.0,
-		HighChurnRate:         10,
-		VeryHighChurnRate:     20,
+		LargeFileLines:         500,
+		VeryLargeFileLines:     1000,
+		MaxFunctionsPerFile:    20,
+		HighComplexity:         10.0,
+		ModerateComplexity:     5.0,
+		HighChurnRate:          10,
+		VeryHighChurnRate:      20,
 		MaxTODOsBeforeRefactor: 5,
-		AnalysisTimeout:       30 * time.Second,
+		AnalysisTimeout:        30 * time.Second,
 	}
 }
 
@@ -253,6 +253,10 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 
 // analyzeFile performs analysis on a single file.
 func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport) FileDecision {
+	// Check for context cancellation
+	if err := ctx.Err(); err != nil {
+		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
+	}
 	decision := FileDecision{
 		Path:         path,
 		Language:     d.detectLanguage(path),
@@ -696,10 +700,10 @@ func (d *EdgeCaseDetector) formatFileList(files []string, maxShow int) string {
 
 // EdgeCaseAnalysis contains the full analysis results.
 type EdgeCaseAnalysis struct {
-	Decisions       []FileDecision      `json:"decisions"`
-	ActionCounts    map[FileAction]int  `json:"action_counts"`
-	TotalFiles      int                 `json:"total_files"`
-	RequiresPrework int                 `json:"requires_prework"`
+	Decisions       []FileDecision     `json:"decisions"`
+	ActionCounts    map[FileAction]int `json:"action_counts"`
+	TotalFiles      int                `json:"total_files"`
+	RequiresPrework int                `json:"requires_prework"`
 
 	// Categorized file lists
 	ModularizeFiles []string `json:"modularize_files"`

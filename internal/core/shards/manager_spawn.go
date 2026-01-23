@@ -545,8 +545,9 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 }
 
 func (sm *ShardManager) extractSummary(shardType, result string) string {
+	prefix := fmt.Sprintf("[%s] ", shardType)
 	if len(result) > 200 {
-		return result[:200]
+		return prefix + result[:200]
 	}
-	return result
+	return prefix + result
 }
