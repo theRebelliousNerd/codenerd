@@ -736,6 +736,9 @@ func (v *VirtualStore) getQueryKnowledgeGraphAtoms(query ast.Atom) ([]ast.Atom, 
 }
 
 func (v *VirtualStore) getQueryActivationsAtoms(query ast.Atom) ([]ast.Atom, error) {
+	if len(query.Args) > 0 {
+		logging.VirtualStoreDebug("query_activations: ignoring %d arguments", len(query.Args))
+	}
 	facts, err := v.QueryActivations(defaultActivationLimit, defaultActivationMin)
 	if err != nil {
 		return nil, err

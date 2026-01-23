@@ -107,6 +107,9 @@ func (k *RealKernel) classifyFact(fact mangle.Fact) (mangle.DerivationSource, st
 // Since we don't have a true retro-justification engine, we use heuristic matching
 // based on the known rule structures.
 func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleName string) []mangle.Fact {
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
 	var premises []mangle.Fact
 
 	switch ruleName {

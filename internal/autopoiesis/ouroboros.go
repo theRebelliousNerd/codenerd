@@ -547,9 +547,11 @@ func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, c
 
 					// Check if we can retry
 					panicRetryCount := 0
-					for _, v := range lastViolations {
-						if v.Type == ViolationPanicMakerKill {
-							panicRetryCount++
+					if len(lastViolations) > 0 {
+						for _, v := range lastViolations {
+							if v.Type == ViolationPanicMakerKill {
+								panicRetryCount++
+							}
 						}
 					}
 

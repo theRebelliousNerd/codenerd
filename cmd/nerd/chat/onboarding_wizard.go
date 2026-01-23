@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"codenerd/internal/ux"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -226,7 +227,13 @@ func (m Model) showWowMoment(levelName string) (tea.Model, tea.Cmd) {
 	m.onboardingWizard.Step = OnboardingStepWow
 	m.onboardingWizard.ShowedWow = true
 
-	wowMsg := `
+	// Personalize based on level if provided
+	intro := ""
+	if levelName != "" {
+		intro = fmt.Sprintf("As a **%s** user, you'll appreciate how codeNERD works under the hood:\n\n", levelName)
+	}
+
+	wowMsg := intro + `
 ## What Makes codeNERD Different
 
 **Logic Kernel** - A Mangle (Datalog) engine tracks facts about your code:
@@ -264,6 +271,9 @@ func (m Model) showWowMoment(levelName string) (tea.Model, tea.Cmd) {
 
 // handleWowResponse processes the response after showing the wow moment.
 func (m Model) handleWowResponse(input string) (tea.Model, tea.Cmd) {
+	if input != "" {
+		logging.Boot("User completed wow moment with input: %q", input)
+	}
 	// Any input completes onboarding - if it's a command, we'll process it
 	return m.completeOnboarding()
 }

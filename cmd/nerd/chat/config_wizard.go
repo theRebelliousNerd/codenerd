@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"codenerd/internal/logging"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -253,6 +255,9 @@ func (m Model) handleConfigWizardInput(input string) (tea.Model, tea.Cmd) {
 
 // configWizardWelcome handles the welcome step.
 func (m Model) configWizardWelcome(input string) (tea.Model, tea.Cmd) {
+	if input != "" {
+		logging.SessionDebug("configWizardWelcome: input=%q", input)
+	}
 	// User pressed enter to start, move to engine selection
 	m.configWizard.Step = StepEngine
 	m.history = append(m.history, Message{
@@ -854,7 +859,7 @@ func (m Model) showAntigravityModelPrompt() (tea.Model, tea.Cmd) {
 
 	models := ProviderModels["antigravity"]
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("## Step 3: Model Selection\n\nAvailable models for **antigravity**:\n\n"))
+	sb.WriteString("## Step 3: Model Selection\n\nAvailable models for **antigravity**:\n\n")
 	sb.WriteString("| # | Model | Description |\n")
 	sb.WriteString("|---|-------|-------------|\n")
 	for i, model := range models {
@@ -1150,6 +1155,9 @@ func (m Model) configWizardShardContext(input string) (tea.Model, tea.Cmd) {
 
 // configWizardNextShard moves to the next shard or embedding config.
 func (m Model) configWizardNextShard(input string) (tea.Model, tea.Cmd) {
+	if input != "" {
+		logging.SessionDebug("configWizardNextShard: transition with input=%q", input)
+	}
 	m.configWizard.ShardIndex++
 
 	if m.configWizard.ShardIndex < len(intentTypes) {
@@ -1230,11 +1238,12 @@ Enter your Google GenAI API key for embeddings:
 
 // configWizardEmbeddingConfig handles embedding config details.
 func (m Model) configWizardEmbeddingConfig(input string) (tea.Model, tea.Cmd) {
-	if m.configWizard.EmbeddingProvider == "ollama" {
+	switch m.configWizard.EmbeddingProvider {
+	case "ollama":
 		if input != "" {
 			m.configWizard.OllamaEndpoint = input
 		}
-	} else if m.configWizard.EmbeddingProvider == "genai" {
+	case "genai":
 		if input != "" {
 			m.configWizard.GenAIAPIKey = input
 		}
@@ -1366,10 +1375,11 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	if w.EmbeddingProvider != "" {
 		sb.WriteString("\n### Embedding Engine\n")
 		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", w.EmbeddingProvider))
-		if w.EmbeddingProvider == "ollama" {
+		switch w.EmbeddingProvider {
+		case "ollama":
 			sb.WriteString(fmt.Sprintf("- **Endpoint**: %s\n", w.OllamaEndpoint))
 			sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.OllamaModel))
-		} else if w.EmbeddingProvider == "genai" {
+		case "genai":
 			sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.GenAIModel))
 		}
 	}
@@ -1492,10 +1502,11 @@ func (m Model) renderCurrentConfig() string {
 	if userCfg.Embedding != nil {
 		sb.WriteString("\n### Embedding Engine\n")
 		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", userCfg.Embedding.Provider))
-		if userCfg.Embedding.Provider == "ollama" {
+		switch userCfg.Embedding.Provider {
+		case "ollama":
 			sb.WriteString(fmt.Sprintf("- **Endpoint**: %s\n", userCfg.Embedding.OllamaEndpoint))
 			sb.WriteString(fmt.Sprintf("- **Model**: %s\n", userCfg.Embedding.OllamaModel))
-		} else if userCfg.Embedding.Provider == "genai" {
+		case "genai":
 			sb.WriteString(fmt.Sprintf("- **Model**: %s\n", userCfg.Embedding.GenAIModel))
 		}
 	}

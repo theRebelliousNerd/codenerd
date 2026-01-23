@@ -91,6 +91,7 @@ func (o *Orchestrator) executeAssaultDiscoverTask(ctx context.Context, task *Tas
 	if o.campaign == nil {
 		return nil, fmt.Errorf("no campaign loaded")
 	}
+	logging.CampaignDebug("Executing assault discover task: %s", task.ID)
 	cfg := o.getAssaultConfig()
 	assaultDir, slug := o.assaultDir()
 
@@ -408,6 +409,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	if o.campaign == nil {
 		return nil, fmt.Errorf("no campaign loaded")
 	}
+	logging.CampaignDebug("Executing assault triage task: %s", task.ID)
 	cfg := o.getAssaultConfig()
 	assaultDir, slug := o.assaultDir()
 	resultsDir := filepath.Join(assaultDir, "results")

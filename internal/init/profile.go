@@ -710,7 +710,7 @@ func IsInitialized(workspace string) bool {
 }
 
 // createCodebaseKnowledgeBase creates a knowledge base with project-specific facts.
-func (i *Initializer) createCodebaseKnowledgeBase(ctx context.Context, nerdDir string, profile ProjectProfile, scanResult *world.ScanResult) (string, int, error) {
+func (i *Initializer) createCodebaseKnowledgeBase(_ context.Context, nerdDir string, profile ProjectProfile, scanResult *world.ScanResult) (string, int, error) {
 	kbPath := filepath.Join(nerdDir, "shards", "codebase_knowledge.db")
 
 	// Create the knowledge store
@@ -788,7 +788,7 @@ func (i *Initializer) createCodebaseKnowledgeBase(ctx context.Context, nerdDir s
 }
 
 // createCampaignKnowledgeBase creates a knowledge base for campaign orchestration.
-func (i *Initializer) createCampaignKnowledgeBase(ctx context.Context, nerdDir string, profile ProjectProfile) (string, int, error) {
+func (i *Initializer) createCampaignKnowledgeBase(_ context.Context, nerdDir string, profile ProjectProfile) (string, int, error) {
 	kbPath := filepath.Join(nerdDir, "shards", "campaign_knowledge.db")
 
 	campaignDB, err := store.NewLocalStore(kbPath)

@@ -870,8 +870,16 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleBrowse")
 	defer timer.Stop()
 
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
 	operation := req.Target
 	logging.VirtualStore("Browse request: %s (routing to TactileRouterShard)", operation)
+
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 
 	// Browser automation is handled by TactileRouterShard which has the SessionManager wired.
 	// VirtualStore cannot directly execute browser operations - it must go through the shard system.

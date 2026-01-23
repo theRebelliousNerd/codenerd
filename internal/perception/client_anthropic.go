@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -425,12 +426,16 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 			})
 		}
 	}
-	result.Text = strings.TrimSpace(textBuilder.String())
-
-	logging.Perception("[Anthropic] CompleteWithTools: completed in %v text_len=%d tool_calls=%d stop_reason=%s",
-		time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
-
-	return result, nil
+	return &LLMToolResponse{
+		Text:       strings.TrimSpace(textBuilder.String()),
+		ToolCalls:  result.ToolCalls,
+		StopReason: result.StopReason,
+		Usage: types.UsageMetadata{
+			InputTokens:  anthropicResp.Usage.InputTokens,
+			OutputTokens: anthropicResp.Usage.OutputTokens,
+			TotalTokens:  anthropicResp.Usage.InputTokens + anthropicResp.Usage.OutputTokens,
+		},
+	}, nil
 }
 
 // SetModel changes the model used for completions.

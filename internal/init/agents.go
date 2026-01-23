@@ -1309,7 +1309,7 @@ type ToolGenerationRequest struct {
 // The Ouroboros system now handles tool generation through VirtualStore.
 // This function is stubbed to preserve the interface.
 // =========================================================================
-func (i *Initializer) generateProjectTools(ctx context.Context, nerdDir string, profile ProjectProfile) ([]string, error) {
+func (i *Initializer) generateProjectTools(_ context.Context, _ string, profile ProjectProfile) ([]string, error) {
 	generatedTools := make([]string, 0)
 
 	// Determine which tools to generate based on project profile

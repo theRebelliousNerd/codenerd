@@ -50,11 +50,21 @@ type ToolCall struct {
 	Input map[string]interface{} `json:"input"` // Tool arguments
 }
 
+// UsageMetadata captures token usage metrics from the LLM.
+type UsageMetadata struct {
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	ThinkingTokens      int `json:"thinking_tokens,omitempty"`       // Subset of OutputTokens used for thinking
+	CachedContentTokens int `json:"cached_content_tokens,omitempty"` // Tokens read from context cache
+}
+
 // LLMToolResponse contains both text response and tool calls from the LLM.
 type LLMToolResponse struct {
-	Text       string     `json:"text"`        // Text response (may be empty if only tool calls)
-	ToolCalls  []ToolCall `json:"tool_calls"`  // Tool invocations requested by LLM
-	StopReason string     `json:"stop_reason"` // "end_turn", "tool_use", etc.
+	Text       string        `json:"text"`        // Text response (may be empty if only tool calls)
+	ToolCalls  []ToolCall    `json:"tool_calls"`  // Tool invocations requested by LLM
+	StopReason string        `json:"stop_reason"` // "end_turn", "tool_use", etc.
+	Usage      UsageMetadata `json:"usage"`       // Token usage metrics
 
 	// Gemini Thinking Mode metadata (for learning and improvement)
 	// ThoughtSummary captures the model's reasoning process for post-hoc analysis
@@ -63,6 +73,7 @@ type LLMToolResponse struct {
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thought_signature,omitempty"`
 	// ThinkingTokens tracks tokens used for reasoning (for budget monitoring)
+	// Deprecated: Use Usage.ThinkingTokens instead
 	ThinkingTokens int `json:"thinking_tokens,omitempty"`
 
 	// Grounding metadata (from Google Search / URL Context)
@@ -273,4 +284,46 @@ type ThoughtSignatureProvider interface {
 	// - The last response didn't include tool calls
 	// - The client doesn't support thought signatures
 	GetLastThoughtSignature() string
+}
+
+// FileProvider is an optional interface for LLM clients that support
+// file uploads (Gemini Files API, OpenAI Files, etc.).
+type FileProvider interface {
+	// UploadFile uploads a file to the provider's storage.
+	// mimeType is optional (detected if empty).
+	// returns file ID (URI) and error.
+	UploadFile(ctx context.Context, path string, mimeType string) (string, error)
+
+	// DeleteFile deletes a file from the provider's storage.
+	DeleteFile(ctx context.Context, fileID string) error
+
+	// ListFiles lists uploaded files.
+	// returns list of file IDs and error.
+	ListFiles(ctx context.Context) ([]string, error)
+
+	// GetFile retrieves metadata for an uploaded file.
+	GetFile(ctx context.Context, fileID string) (interface{}, error)
+}
+
+// CacheProvider is an optional interface for LLM clients that support
+// context caching (Gemini Context Caching, Anthropic Message Caching).
+type CacheProvider interface {
+	// CreateCachedContent creates a cache for the given files/content.
+	// files is a list of file IDs/URIs.
+	// ttl is the time-to-live seconds.
+	// returns cache name (ID) and error.
+	CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
+
+	// GetCachedContent retrieves metadata for a cached content.
+	GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+
+	// DeleteCachedContent deletes a context cache.
+	DeleteCachedContent(ctx context.Context, cacheName string) error
+
+	// ListCachedContent lists active context caches.
+	ListCachedContent(ctx context.Context) ([]string, error)
+
+	// SetCachedContent sets the active cached context for subsequent requests.
+	// Pass empty string to disable.
+	SetCachedContent(name string)
 }

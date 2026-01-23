@@ -89,77 +89,77 @@ type IntelligenceGatherer struct {
 // IntelligenceConfig configures the intelligence gathering process.
 type IntelligenceConfig struct {
 	// Timeouts
-	GatherTimeout     time.Duration
-	PerSystemTimeout  time.Duration
-	ConsultTimeout    time.Duration
+	GatherTimeout    time.Duration
+	PerSystemTimeout time.Duration
+	ConsultTimeout   time.Duration
 
 	// Limits
-	MaxChurnHotspots  int
-	MaxLearnings      int
-	MaxMCPTools       int
+	MaxChurnHotspots     int
+	MaxLearnings         int
+	MaxMCPTools          int
 	MaxPreviousCampaigns int
-	GitHistoryDepth   int
+	GitHistoryDepth      int
 
 	// Feature flags
-	EnableWorldModel      bool
-	EnableGitHistory      bool
-	EnableLearningStore   bool
-	EnableKnowledgeGraph  bool
-	EnableColdStorage     bool
-	EnableSafetyCheck     bool
-	EnableAutopoiesis     bool
-	EnableMCPTools        bool
+	EnableWorldModel        bool
+	EnableGitHistory        bool
+	EnableLearningStore     bool
+	EnableKnowledgeGraph    bool
+	EnableColdStorage       bool
+	EnableSafetyCheck       bool
+	EnableAutopoiesis       bool
+	EnableMCPTools          bool
 	EnablePreviousCampaigns bool
-	EnableShardConsult    bool
-	EnableTestCoverage    bool
-	EnableCodePatterns    bool
+	EnableShardConsult      bool
+	EnableTestCoverage      bool
+	EnableCodePatterns      bool
 }
 
 // DefaultIntelligenceConfig returns sensible defaults.
 func DefaultIntelligenceConfig() IntelligenceConfig {
 	return IntelligenceConfig{
-		GatherTimeout:        5 * time.Minute,
-		PerSystemTimeout:     30 * time.Second,
-		ConsultTimeout:       2 * time.Minute,
-		MaxChurnHotspots:     50,
-		MaxLearnings:         100,
-		MaxMCPTools:          30,
-		MaxPreviousCampaigns: 10,
-		GitHistoryDepth:      100,
-		EnableWorldModel:     true,
-		EnableGitHistory:     true,
-		EnableLearningStore:  true,
-		EnableKnowledgeGraph: true,
-		EnableColdStorage:    true,
-		EnableSafetyCheck:    true,
-		EnableAutopoiesis:    true,
-		EnableMCPTools:       true,
+		GatherTimeout:           5 * time.Minute,
+		PerSystemTimeout:        30 * time.Second,
+		ConsultTimeout:          2 * time.Minute,
+		MaxChurnHotspots:        50,
+		MaxLearnings:            100,
+		MaxMCPTools:             30,
+		MaxPreviousCampaigns:    10,
+		GitHistoryDepth:         100,
+		EnableWorldModel:        true,
+		EnableGitHistory:        true,
+		EnableLearningStore:     true,
+		EnableKnowledgeGraph:    true,
+		EnableColdStorage:       true,
+		EnableSafetyCheck:       true,
+		EnableAutopoiesis:       true,
+		EnableMCPTools:          true,
 		EnablePreviousCampaigns: true,
-		EnableShardConsult:   true,
-		EnableTestCoverage:   true,
-		EnableCodePatterns:   true,
+		EnableShardConsult:      true,
+		EnableTestCoverage:      true,
+		EnableCodePatterns:      true,
 	}
 }
 
 // IntelligenceReport contains all gathered intelligence for campaign planning.
 type IntelligenceReport struct {
 	// Timestamp
-	GatheredAt time.Time `json:"gathered_at"`
+	GatheredAt time.Time     `json:"gathered_at"`
 	Duration   time.Duration `json:"duration"`
 
 	// World Model: Codebase structure
-	WorldFacts     []core.Fact       `json:"world_facts"`
-	FileTopology   map[string]FileInfo `json:"file_topology"`
-	SymbolGraph    []SymbolInfo      `json:"symbol_graph"`
-	LanguageBreakdown map[string]int `json:"language_breakdown"`
+	WorldFacts        []core.Fact         `json:"world_facts"`
+	FileTopology      map[string]FileInfo `json:"file_topology"`
+	SymbolGraph       []SymbolInfo        `json:"symbol_graph"`
+	LanguageBreakdown map[string]int      `json:"language_breakdown"`
 
 	// Git History: Churn analysis (Chesterton's Fence)
-	GitChurnHotspots []ChurnHotspot   `json:"git_churn_hotspots"`
-	RecentCommits    []CommitInfo     `json:"recent_commits"`
-	HighChurnFiles   []string         `json:"high_churn_files"`
+	GitChurnHotspots []ChurnHotspot `json:"git_churn_hotspots"`
+	RecentCommits    []CommitInfo   `json:"recent_commits"`
+	HighChurnFiles   []string       `json:"high_churn_files"`
 
 	// Learning Store: Historical patterns
-	HistoricalPatterns []LearningPattern `json:"historical_patterns"`
+	HistoricalPatterns []LearningPattern  `json:"historical_patterns"`
 	PreferenceSignals  []PreferenceSignal `json:"preference_signals"`
 
 	// Knowledge Graph: Entity relationships
@@ -174,11 +174,11 @@ type IntelligenceReport struct {
 	BlockedActions []string        `json:"blocked_actions"`
 
 	// Autopoiesis: Tool gaps
-	ToolGaps         []autopoiesis.ToolNeed `json:"tool_gaps"`
-	MissingCapabilities []string            `json:"missing_capabilities"`
+	ToolGaps            []autopoiesis.ToolNeed `json:"tool_gaps"`
+	MissingCapabilities []string               `json:"missing_capabilities"`
 
 	// MCP: Available external tools
-	MCPToolsAvailable []MCPToolInfo `json:"mcp_tools_available"`
+	MCPToolsAvailable []MCPToolInfo     `json:"mcp_tools_available"`
 	MCPServerStatus   map[string]string `json:"mcp_server_status"`
 
 	// Previous Campaigns: Reusable artifacts
@@ -186,16 +186,16 @@ type IntelligenceReport struct {
 	ReusablePatterns  []string           `json:"reusable_patterns"`
 
 	// Shard Consultation: Expert advice
-	ShardAdvice    []ConsultationResponse `json:"shard_advice"`
-	AdvisorySummary string                       `json:"advisory_summary"`
+	ShardAdvice     []ConsultationResponse `json:"shard_advice"`
+	AdvisorySummary string                 `json:"advisory_summary"`
 
 	// Test Coverage: Current state
-	TestCoverage     map[string]float64 `json:"test_coverage"`
-	UncoveredPaths   []string           `json:"uncovered_paths"`
+	TestCoverage   map[string]float64 `json:"test_coverage"`
+	UncoveredPaths []string           `json:"uncovered_paths"`
 
 	// Code Patterns: Detected patterns
-	CodePatterns     []CodePattern `json:"code_patterns"`
-	ArchitectureHints []string     `json:"architecture_hints"`
+	CodePatterns      []CodePattern `json:"code_patterns"`
+	ArchitectureHints []string      `json:"architecture_hints"`
 
 	// Errors during gathering (non-fatal)
 	GatheringErrors []string `json:"gathering_errors"`
@@ -205,18 +205,18 @@ type IntelligenceReport struct {
 
 // FileInfo represents file topology information.
 type FileInfo struct {
-	Path        string    `json:"path"`
-	Hash        string    `json:"hash"`
-	Language    string    `json:"language"`
-	LineCount   int       `json:"line_count"`
-	IsTestFile  bool      `json:"is_test_file"`
+	Path         string    `json:"path"`
+	Hash         string    `json:"hash"`
+	Language     string    `json:"language"`
+	LineCount    int       `json:"line_count"`
+	IsTestFile   bool      `json:"is_test_file"`
 	LastModified time.Time `json:"last_modified"`
 }
 
 // SymbolInfo represents a code symbol.
 type SymbolInfo struct {
 	Name     string `json:"name"`
-	Kind     string `json:"kind"`     // func, type, const, var
+	Kind     string `json:"kind"` // func, type, const, var
 	File     string `json:"file"`
 	Line     int    `json:"line"`
 	Exported bool   `json:"exported"`
@@ -224,11 +224,11 @@ type SymbolInfo struct {
 
 // ChurnHotspot represents a file with high churn rate.
 type ChurnHotspot struct {
-	Path       string `json:"path"`
-	ChurnRate  int    `json:"churn_rate"`
+	Path       string    `json:"path"`
+	ChurnRate  int       `json:"churn_rate"`
 	LastChange time.Time `json:"last_change"`
-	Reason     string `json:"reason"`
-	Warning    string `json:"warning"` // Chesterton's Fence warning
+	Reason     string    `json:"reason"`
+	Warning    string    `json:"warning"` // Chesterton's Fence warning
 }
 
 // CommitInfo represents a recent git commit.
@@ -242,17 +242,17 @@ type CommitInfo struct {
 
 // LearningPattern represents a learned pattern from previous sessions.
 type LearningPattern struct {
-	ShardType   string  `json:"shard_type"`
-	Predicate   string  `json:"predicate"`
-	Description string  `json:"description"`
-	Confidence  float64 `json:"confidence"`
+	ShardType   string    `json:"shard_type"`
+	Predicate   string    `json:"predicate"`
+	Description string    `json:"description"`
+	Confidence  float64   `json:"confidence"`
 	LastUsed    time.Time `json:"last_used"`
 }
 
 // PreferenceSignal represents a user preference.
 type PreferenceSignal struct {
-	Category string `json:"category"`
-	Signal   string `json:"signal"`
+	Category string  `json:"category"`
+	Signal   string  `json:"signal"`
 	Strength float64 `json:"strength"`
 }
 
@@ -265,12 +265,12 @@ type EntityCluster struct {
 
 // SafetyWarning represents a constitutional safety warning.
 type SafetyWarning struct {
-	CampaignID  string `json:"campaign_id"`
-	Path        string `json:"path"`
-	Action      string `json:"action"`
+	CampaignID   string `json:"campaign_id"`
+	Path         string `json:"path"`
+	Action       string `json:"action"`
 	RuleViolated string `json:"rule_violated"`
-	Severity    string `json:"severity"`
-	Remediation string `json:"remediation"`
+	Severity     string `json:"severity"`
+	Remediation  string `json:"remediation"`
 }
 
 // MCPToolInfo represents an available MCP tool.
@@ -297,7 +297,7 @@ type CampaignArtifact struct {
 // CodePattern represents a detected code pattern.
 type CodePattern struct {
 	Name        string   `json:"name"`
-	Type        string   `json:"type"`     // design, architecture, anti-pattern
+	Type        string   `json:"type"` // design, architecture, anti-pattern
 	Files       []string `json:"files"`
 	Confidence  float64  `json:"confidence"`
 	Description string   `json:"description"`
@@ -610,6 +610,12 @@ func (g *IntelligenceGatherer) gatherLearningPatterns(ctx context.Context, repor
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherLearningPatterns")
 	defer timer.Stop()
 
+	// Check for context cancellation
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Learning patterns cancelled: %v", err))
+		return
+	}
+
 	shardTypes := []string{"coder", "tester", "reviewer", "researcher"}
 
 	for _, shardType := range shardTypes {
@@ -648,6 +654,11 @@ func (g *IntelligenceGatherer) gatherKnowledgeGraph(ctx context.Context, report 
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherKnowledgeGraph")
 	defer timer.Stop()
 
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Knowledge graph gathering cancelled: %v", err))
+		return
+	}
+
 	// Query for entities related to target paths
 	for _, path := range paths {
 		links, err := g.localStore.QueryLinks(path, "both")
@@ -681,6 +692,12 @@ func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *In
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherColdStorage")
 	defer timer.Stop()
 
+	// Check for context cancellation
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Cold storage gathering cancelled: %v", err))
+		return
+	}
+
 	// Load campaign-relevant predicates from cold storage
 	predicates := []string{
 		"preference_signal",
@@ -704,6 +721,11 @@ func (g *IntelligenceGatherer) gatherColdStorage(ctx context.Context, report *In
 func (g *IntelligenceGatherer) gatherSafetyWarnings(ctx context.Context, report *IntelligenceReport, goal string, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherSafetyWarnings")
 	defer timer.Stop()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Safety warning gathering cancelled: %v", err))
+		return
+	}
 
 	// Query kernel for any pre-existing safety constraints
 	facts, err := g.kernel.Query("blocked_action")
@@ -807,6 +829,13 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherPreviousCampaigns")
 	defer timer.Stop()
 
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Previous campaign gathering cancelled: %v", err))
+		return
+	}
+	// Logging usage of goal to silence unused warning
+	logging.CampaignDebug("Gathering previous campaigns for goal: %s", goal)
+
 	// Query kernel for campaign artifacts
 	facts, err := g.kernel.Query("campaign_completed")
 	if err != nil {
@@ -837,6 +866,11 @@ func (g *IntelligenceGatherer) gatherPreviousCampaigns(ctx context.Context, repo
 func (g *IntelligenceGatherer) gatherTestCoverage(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherTestCoverage")
 	defer timer.Stop()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Test coverage gathering cancelled: %v", err))
+		return
+	}
 
 	// Query kernel for test_coverage facts
 	facts, err := g.kernel.Query("test_coverage")
@@ -871,6 +905,12 @@ func (g *IntelligenceGatherer) gatherTestCoverage(ctx context.Context, report *I
 func (g *IntelligenceGatherer) gatherCodePatterns(ctx context.Context, report *IntelligenceReport, paths []string, addError func(string)) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "gatherCodePatterns")
 	defer timer.Stop()
+
+	if err := ctx.Err(); err != nil {
+		addError(fmt.Sprintf("Code pattern gathering cancelled: %v", err))
+		return
+	}
+	logging.CampaignDebug("Gathering code patterns for %d paths", len(paths))
 
 	// Query kernel for detected patterns
 	patternPredicates := []string{"design_pattern", "anti_pattern", "architecture_pattern"}
@@ -1235,4 +1275,3 @@ func (r *IntelligenceReport) FormatForContext() string {
 
 	return sb.String()
 }
-

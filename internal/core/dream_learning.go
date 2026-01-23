@@ -15,6 +15,7 @@ package core
 
 import (
 	"codenerd/internal/logging"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -62,9 +63,9 @@ var (
 		regexp.MustCompile(`(?i)["'](\w+)["']\s+(?:tool|script|utility)`),
 	}
 
-	learningNoveltyNumberPattern = regexp.MustCompile(`\d+`)
+	learningNoveltyNumberPattern    = regexp.MustCompile(`\d+`)
 	learningDedupPunctuationPattern = regexp.MustCompile(`[^a-z0-9\s]`)
-	learningDedupSpacePattern = regexp.MustCompile(`\s+`)
+	learningDedupSpacePattern       = regexp.MustCompile(`\s+`)
 )
 
 // DreamLearning represents a single learnable insight extracted from Dream State.
@@ -78,11 +79,11 @@ type DreamLearning struct {
 	Confidence      float64           `json:"confidence"`        // 0.0-1.0, starts at 0.5 before confirmation
 	Novelty         float64           `json:"novelty"`           // 0.0-1.0, how new/specific is this?
 	ExtractedAt     time.Time         `json:"extracted_at"`
-	Confirmed       bool              `json:"confirmed"`        // User said "correct!" or similar
-	ConfirmedAt     *time.Time        `json:"confirmed_at"`     // When confirmed
-	Persisted       bool              `json:"persisted"`        // Routed to permanent store
-	PersistedTo     string            `json:"persisted_to"`     // Which store received it
-	Metadata        map[string]string `json:"metadata"`         // Extra context (tool_name, risk_type, etc.)
+	Confirmed       bool              `json:"confirmed"`    // User said "correct!" or similar
+	ConfirmedAt     *time.Time        `json:"confirmed_at"` // When confirmed
+	Persisted       bool              `json:"persisted"`    // Routed to permanent store
+	PersistedTo     string            `json:"persisted_to"` // Which store received it
+	Metadata        map[string]string `json:"metadata"`     // Extra context (tool_name, risk_type, etc.)
 }
 
 // DreamLearningCollector manages staged learnings from Dream State consultations.
@@ -500,7 +501,7 @@ func generateDreamID(hypothetical string) string {
 }
 
 func generateLearningID(dreamID string, learningType DreamLearningType, index int) string {
-	return strings.ToLower(string(learningType)[:4]) + "_" + dreamID + "_" + time.Now().Format("150405.000")[7:]
+	return fmt.Sprintf("%s_%s_%s_%d", strings.ToLower(string(learningType)[:4]), dreamID, time.Now().Format("150405.000")[7:], index)
 }
 
 func truncate(s string, maxLen int) string {

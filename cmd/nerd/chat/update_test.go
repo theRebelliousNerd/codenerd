@@ -299,16 +299,11 @@ func TestUpdate_SpinnerTick(t *testing.T) {
 
 	// Spinner tick should update spinner state
 	tickCmd := m.spinner.Tick
-	if tickCmd != nil {
-		tickMsg := tickCmd()
-		newModel, cmd := m.Update(tickMsg)
-		_ = newModel
-
-		// Should return another tick command if still loading
-		if cmd == nil {
-			t.Log("No follow-up tick command")
-		}
-	}
+	// tickCmd is a method value, so it is never nil.
+	tickMsg := tickCmd()
+	newModel, cmd := m.Update(tickMsg)
+	_ = newModel
+	_ = cmd
 }
 
 // =============================================================================
@@ -410,6 +405,9 @@ func TestUpdate_ToggleLogicPane(t *testing.T) {
 	t.Parallel()
 	m := NewTestModel()
 	m.showLogic = false
+	if m.showLogic {
+		t.Error("Expected showLogic to be false")
+	}
 
 	// Alt+L should toggle logic pane (if implemented)
 	// This tests the pane mode cycling

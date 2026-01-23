@@ -139,6 +139,9 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 
 // validateCommandSpecific performs additional validation based on command type.
 func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req ActionRequest, result ActionResult) *ValidationResult {
+	if err := ctx.Err(); err != nil {
+		return nil
+	}
 	command := req.Target
 	output := result.Output
 

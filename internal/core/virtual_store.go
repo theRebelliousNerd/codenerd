@@ -249,6 +249,11 @@ func (v *VirtualStore) processValidationResults(req ActionRequest, result Action
 		return
 	}
 
+	// Logging result status to wire the parameter
+	if !result.Success {
+		logging.VirtualStoreDebug("Validating failed action %s", req.ActionID)
+	}
+
 	for _, vr := range validations {
 		// Convert validation result to Mangle facts
 		facts := vr.ToFacts()

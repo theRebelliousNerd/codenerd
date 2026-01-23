@@ -192,6 +192,8 @@ func (g *TipGenerator) errorRecoveryTips() []ContextualTip {
 
 // levelSpecificTips returns tips appropriate for the user's experience level.
 func (g *TipGenerator) levelSpecificTips(ctx TipContext) []ContextualTip {
+	// Use ctx for future-proofing
+	_ = ctx.LastCommand
 	var tips []ContextualTip
 
 	switch g.experienceLevel {

@@ -93,6 +93,7 @@ func DefaultWorldModelConfig() WorldModelConfig {
 			"*.go", "*.py", "*.js", "*.ts", "*.tsx",
 			"*.java", "*.rs", "*.c", "*.cpp", "*.h",
 			"*.md", "*.json", "*.yaml", "*.yml",
+			"*.pdf", "*.txt",
 		},
 		ExcludePatterns: []string{
 			"vendor/*", "node_modules/*", ".git/*",
@@ -524,6 +525,10 @@ func detectLanguage(path string) string {
 		return "json"
 	case ".yaml", ".yml":
 		return "yaml"
+	case ".pdf":
+		return "pdf"
+	case ".txt":
+		return "text"
 	default:
 		return "unknown"
 	}

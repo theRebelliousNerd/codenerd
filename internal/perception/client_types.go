@@ -397,10 +397,12 @@ type GeminiRequest struct {
 	GenerationConfig  GeminiGenerationConfig `json:"generationConfig,omitempty"`
 	Tools             []GeminiTool           `json:"tools,omitempty"`
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
-	// Must pass back the signature from the previous response to maintain reasoning context
+	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 	// SessionID is required for Antigravity requests to maintain context
 	SessionID string `json:"sessionId,omitempty"`
+	// CachedContent is a resource name of cached context content
+	CachedContent string `json:"cachedContent,omitempty"`
 }
 
 // GeminiGoogleSearch represents the Google Search grounding tool.
@@ -499,6 +501,46 @@ type GeminiResponsePart struct {
 	FileData         *GeminiFileData     `json:"fileData,omitempty"`
 	FunctionCall     *GeminiFunctionCall `json:"functionCall,omitempty"`
 	ThoughtSignature string              `json:"thoughtSignature,omitempty"`
+}
+
+// GeminiFile represents a file in the Gemini Files API.
+type GeminiFile struct {
+	Name        string `json:"name"` // Resource name: files/123...
+	DisplayName string `json:"displayName"`
+	MimeType    string `json:"mimeType"`
+	SizeBytes   int64  `json:"sizeBytes,string,omitempty"`
+	CreateTime  string `json:"createTime"`
+	UpdateTime  string `json:"updateTime"`
+	Expiration  string `json:"expirationTime"`
+	SHA256Hash  string `json:"sha256Hash"`
+	URI         string `json:"uri"`
+	State       string `json:"state"` // STATE_UNSPECIFIED, PROCESSING, ACTIVE, FAILED
+	Error       *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+// GeminiCachedContent represents a context cache resource.
+type GeminiCachedContent struct {
+	Name        string          `json:"name"` // cachedContents/123...
+	DisplayName string          `json:"displayName"`
+	Model       string          `json:"model"`
+	CreateTime  string          `json:"createTime"`
+	UpdateTime  string          `json:"updateTime"`
+	ExpireTime  string          `json:"expireTime"`
+	TTL         string          `json:"ttl,omitempty"` // Input only (e.g. "3600s")
+	Contents    []GeminiContent `json:"contents,omitempty"`
+}
+
+// GeminiListFilesResponse represents the response from ListFiles.
+type GeminiListFilesResponse struct {
+	Files []GeminiFile `json:"files"`
+}
+
+// GeminiListCachedContentsResponse represents the response from ListContextCaches.
+type GeminiListCachedContentsResponse struct {
+	CachedContents []GeminiCachedContent `json:"cachedContents"`
 }
 
 // XAI uses OpenAI-compatible API format

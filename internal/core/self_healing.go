@@ -217,7 +217,10 @@ func (h *SelfHealer) retryAction(ctx context.Context, req ActionRequest, vr Vali
 
 // rollbackAction reverts to the previous state.
 func (h *SelfHealer) rollbackAction(ctx context.Context, req ActionRequest, vr ValidationResult) (*HealingResult, error) {
-	logging.VirtualStoreDebug("Self-healing rollback for action %s", req.ActionID)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	logging.VirtualStoreDebug("Self-healing rollback for action %s (error: %s)", req.ActionID, vr.Error)
 
 	// Rollback is context-dependent - for file operations, we'd restore from backup
 	// For now, we escalate since we don't have automatic backup restoration
@@ -236,6 +239,9 @@ func (h *SelfHealer) rollbackAction(ctx context.Context, req ActionRequest, vr V
 
 // escalateToUser escalates the issue to the user for manual intervention.
 func (h *SelfHealer) escalateToUser(ctx context.Context, req ActionRequest, vr ValidationResult) (*HealingResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	logging.VirtualStoreDebug("Self-healing escalating action %s to user: %s", req.ActionID, vr.Error)
 
 	// Emit escalation fact for the kernel
@@ -252,7 +258,10 @@ func (h *SelfHealer) escalateToUser(ctx context.Context, req ActionRequest, vr V
 
 // tryAlternative attempts an alternative approach.
 func (h *SelfHealer) tryAlternative(ctx context.Context, req ActionRequest, vr ValidationResult) (*HealingResult, error) {
-	logging.VirtualStoreDebug("Self-healing trying alternative for action %s", req.ActionID)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	logging.VirtualStoreDebug("Self-healing trying alternative for action %s (error: %s)", req.ActionID, vr.Error)
 
 	// Alternative approaches are action-type specific and complex
 	// For now, escalate to user

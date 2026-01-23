@@ -37,9 +37,9 @@ type ToolPregenerator struct {
 // PregeneratorConfig configures tool pre-generation behavior.
 type PregeneratorConfig struct {
 	// Timeouts
-	DetectionTimeout   time.Duration
-	GenerationTimeout  time.Duration
-	ValidationTimeout  time.Duration
+	DetectionTimeout  time.Duration
+	GenerationTimeout time.Duration
+	ValidationTimeout time.Duration
 
 	// Limits
 	MaxToolsToGenerate int     // Maximum tools to generate per campaign
@@ -50,8 +50,8 @@ type PregeneratorConfig struct {
 	RequireSimulation  bool // Simulate tools in Dream State before use
 
 	// Enabled features
-	EnableMCPFallback  bool // Try MCP tools before generating new ones
-	EnableToolCaching  bool // Cache generated tools for reuse
+	EnableMCPFallback bool // Try MCP tools before generating new ones
+	EnableToolCaching bool // Cache generated tools for reuse
 }
 
 // DefaultPregeneratorConfig returns sensible defaults.
@@ -73,9 +73,9 @@ func DefaultPregeneratorConfig() PregeneratorConfig {
 type ToolGap struct {
 	ID          string   `json:"id"`
 	Capability  string   `json:"capability"`
-	RequiredBy  []string `json:"required_by"`  // Task IDs that need this
-	Priority    float64  `json:"priority"`     // 0.0-1.0
-	Confidence  float64  `json:"confidence"`   // How confident we are this is needed
+	RequiredBy  []string `json:"required_by"` // Task IDs that need this
+	Priority    float64  `json:"priority"`    // 0.0-1.0
+	Confidence  float64  `json:"confidence"`  // How confident we are this is needed
 	Description string   `json:"description"`
 
 	// Resolution
@@ -93,30 +93,30 @@ type GeneratedTool struct {
 	GeneratedAt time.Time `json:"generated_at"`
 
 	// Validation
-	PassedThunderdome bool   `json:"passed_thunderdome"`
-	PassedSimulation  bool   `json:"passed_simulation"`
+	PassedThunderdome bool     `json:"passed_thunderdome"`
+	PassedSimulation  bool     `json:"passed_simulation"`
 	ValidationErrors  []string `json:"validation_errors,omitempty"`
 
 	// Source
 	SourceGap string `json:"source_gap"` // Which gap this resolves
 
 	// Status
-	Status     string `json:"status"` // "pending", "validated", "ready", "failed"
+	Status     string `json:"status"`                // "pending", "validated", "ready", "failed"
 	RegistryID string `json:"registry_id,omitempty"` // ID in tool registry
 }
 
 // PregenerationResult contains the results of tool pre-generation.
 type PregenerationResult struct {
-	GapsDetected     []ToolGap       `json:"gaps_detected"`
-	ToolsGenerated   []GeneratedTool `json:"tools_generated"`
-	MCPToolsUsed     []MCPToolInfo   `json:"mcp_tools_used"`
-	UnresolvedGaps   []ToolGap       `json:"unresolved_gaps"`
+	GapsDetected   []ToolGap       `json:"gaps_detected"`
+	ToolsGenerated []GeneratedTool `json:"tools_generated"`
+	MCPToolsUsed   []MCPToolInfo   `json:"mcp_tools_used"`
+	UnresolvedGaps []ToolGap       `json:"unresolved_gaps"`
 
 	// Statistics
-	TotalGaps     int           `json:"total_gaps"`
-	ResolvedGaps  int           `json:"resolved_gaps"`
-	FailedTools   int           `json:"failed_tools"`
-	Duration      time.Duration `json:"duration"`
+	TotalGaps    int           `json:"total_gaps"`
+	ResolvedGaps int           `json:"resolved_gaps"`
+	FailedTools  int           `json:"failed_tools"`
+	Duration     time.Duration `json:"duration"`
 
 	// Errors
 	Errors []string `json:"errors,omitempty"`
@@ -215,11 +215,12 @@ func (p *ToolPregenerator) PregenerateTools(ctx context.Context, gaps []ToolGap)
 	}
 
 	// Generate each tool
+GenerationLoop:
 	for _, gap := range toGenerate {
 		select {
 		case <-ctx.Done():
 			result.Errors = append(result.Errors, "Context cancelled during generation")
-			break
+			break GenerationLoop
 		default:
 		}
 
@@ -253,7 +254,22 @@ type TaskInfo struct {
 
 // analyzeTaskForGaps analyzes a single task for capability gaps.
 func (p *ToolPregenerator) analyzeTaskForGaps(ctx context.Context, task TaskInfo, intel *IntelligenceReport) []ToolGap {
+	// Check context for cancellation
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+	}
+
 	gaps := []ToolGap{}
+
+	// Use intelligence report to boost confidence for detected patterns
+	var intelFileTypes []string
+	if intel != nil {
+		for path := range intel.FileTopology {
+			intelFileTypes = append(intelFileTypes, strings.ToLower(path))
+		}
+	}
 
 	// Pattern-based detection
 	descLower := strings.ToLower(task.Description)
@@ -263,11 +279,19 @@ func (p *ToolPregenerator) analyzeTaskForGaps(ctx context.Context, task TaskInfo
 		formats := []string{"yaml", "json", "xml", "csv", "toml", "ini"}
 		for _, format := range formats {
 			if strings.Contains(descLower, format) {
+				// Boost confidence if intel mentions this format
+				confidence := 0.7
+				for _, ft := range intelFileTypes {
+					if strings.Contains(ft, "."+format) {
+						confidence = 0.85
+						break
+					}
+				}
 				gaps = append(gaps, ToolGap{
 					Capability:  fmt.Sprintf("parse_%s", format),
 					Description: fmt.Sprintf("Parse %s files/content", format),
 					Priority:    0.8,
-					Confidence:  0.7,
+					Confidence:  confidence,
 				})
 			}
 		}
@@ -359,6 +383,11 @@ func (p *ToolPregenerator) deduplicateGaps(gaps []ToolGap) []ToolGap {
 
 // checkExistingResolutions checks if gaps can be resolved with existing tools.
 func (p *ToolPregenerator) checkExistingResolutions(ctx context.Context, gaps []ToolGap, intel *IntelligenceReport) []ToolGap {
+	// Early exit on context cancellation
+	if err := ctx.Err(); err != nil {
+		return gaps
+	}
+
 	for i := range gaps {
 		gap := &gaps[i]
 
@@ -501,9 +530,20 @@ func (p *ToolPregenerator) generateTool(ctx context.Context, gap ToolGap) (*Gene
 
 // runThunderdomeForTool runs a runtime tool through adversarial testing.
 func (p *ToolPregenerator) runThunderdomeForTool(ctx context.Context, tool *autopoiesis.RuntimeTool) (bool, []string) {
+	// Check for context cancellation
+	if err := ctx.Err(); err != nil {
+		return false, []string{fmt.Sprintf("Thunderdome cancelled: %v", err)}
+	}
+
 	// Placeholder for Thunderdome integration
 	// In full implementation, this would run attack vectors against the tool
-	logging.CampaignDebug("Thunderdome testing for tool: %s", tool.Name)
+	logging.CampaignDebug("Thunderdome testing for tool: %s (ctx deadline: %v)", tool.Name,
+		func() string {
+			if d, ok := ctx.Deadline(); ok {
+				return d.Format(time.RFC3339)
+			}
+			return "none"
+		}())
 
 	// For now, assume tools pass if they were generated successfully
 	return true, nil

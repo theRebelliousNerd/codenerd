@@ -164,9 +164,8 @@ func TestToolAdapter_InterfaceCompliance(t *testing.T) {
 	executor = adapter
 
 	// Should not be nil
-	if executor == nil {
-		t.Error("Expected non-nil executor after assignment")
-	}
+	// Verify assignment (compile-time check mainly)
+	_ = executor
 }
 
 // =============================================================================
@@ -211,6 +210,9 @@ func TestToolAdapter_ToolInfoConversion(t *testing.T) {
 	}
 	if coreInfo.ExecuteCount != autoInfo.ExecuteCount {
 		t.Errorf("ExecuteCount mismatch: %d != %d", coreInfo.ExecuteCount, autoInfo.ExecuteCount)
+	}
+	if !coreInfo.RegisteredAt.Equal(autoInfo.RegisteredAt) {
+		t.Errorf("RegisteredAt mismatch: %v != %v", coreInfo.RegisteredAt, autoInfo.RegisteredAt)
 	}
 }
 

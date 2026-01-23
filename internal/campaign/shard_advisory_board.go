@@ -34,10 +34,10 @@ type AdvisoryConfig struct {
 	ConsultTimeout time.Duration
 
 	// Approval thresholds
-	MinApprovalRatio   float64 // Minimum ratio of approvals needed (0.0-1.0)
-	MinConfidence      float64 // Minimum confidence to count vote
-	RequireUnanimous   bool    // Require all advisors to approve
-	RequireCriticalApproval bool // Require critical advisors (coder, tester) to approve
+	MinApprovalRatio        float64 // Minimum ratio of approvals needed (0.0-1.0)
+	MinConfidence           float64 // Minimum confidence to count vote
+	RequireUnanimous        bool    // Require all advisors to approve
+	RequireCriticalApproval bool    // Require critical advisors (coder, tester) to approve
 
 	// Enabled advisors
 	EnabledAdvisors []string
@@ -46,10 +46,10 @@ type AdvisoryConfig struct {
 // DefaultAdvisoryConfig returns sensible defaults.
 func DefaultAdvisoryConfig() AdvisoryConfig {
 	return AdvisoryConfig{
-		ConsultTimeout:         2 * time.Minute,
-		MinApprovalRatio:       0.5,
-		MinConfidence:          0.5,
-		RequireUnanimous:       false,
+		ConsultTimeout:          2 * time.Minute,
+		MinApprovalRatio:        0.5,
+		MinConfidence:           0.5,
+		RequireUnanimous:        false,
 		RequireCriticalApproval: true,
 		EnabledAdvisors: []string{
 			"coder",
@@ -85,13 +85,13 @@ type AdvisoryPhase struct {
 
 // AdvisoryResponse contains an individual advisor's response.
 type AdvisoryResponse struct {
-	AdvisorName string    `json:"advisor_name"`
-	Vote        VoteType  `json:"vote"`
-	Confidence  float64   `json:"confidence"`
-	Reasoning   string    `json:"reasoning"`
-	Concerns    []string  `json:"concerns"`
-	Suggestions []string  `json:"suggestions"`
-	Caveats     []string  `json:"caveats"`
+	AdvisorName string        `json:"advisor_name"`
+	Vote        VoteType      `json:"vote"`
+	Confidence  float64       `json:"confidence"`
+	Reasoning   string        `json:"reasoning"`
+	Concerns    []string      `json:"concerns"`
+	Suggestions []string      `json:"suggestions"`
+	Caveats     []string      `json:"caveats"`
 	Duration    time.Duration `json:"duration"`
 }
 
@@ -108,10 +108,10 @@ const (
 
 // AdvisorySynthesis aggregates all advisor responses into a final decision.
 type AdvisorySynthesis struct {
-	Approved       bool              `json:"approved"`
-	Responses      []AdvisoryResponse `json:"responses"`
-	ApprovalRatio  float64           `json:"approval_ratio"`
-	OverallConfidence float64        `json:"overall_confidence"`
+	Approved          bool               `json:"approved"`
+	Responses         []AdvisoryResponse `json:"responses"`
+	ApprovalRatio     float64            `json:"approval_ratio"`
+	OverallConfidence float64            `json:"overall_confidence"`
 
 	// Aggregated feedback
 	AllConcerns    []string `json:"all_concerns"`
@@ -194,10 +194,10 @@ func (b *ShardAdvisoryBoard) SynthesizeVotes(responses []AdvisoryResponse) Advis
 	logging.Campaign("Synthesizing %d advisory votes", len(responses))
 
 	synthesis := AdvisorySynthesis{
-		Responses:      responses,
-		AllConcerns:    []string{},
-		AllSuggestions: []string{},
-		AllCaveats:     []string{},
+		Responses:        responses,
+		AllConcerns:      []string{},
+		AllSuggestions:   []string{},
+		AllCaveats:       []string{},
 		BlockingConcerns: []BlockingConcern{},
 	}
 
@@ -496,6 +496,9 @@ func (b *ShardAdvisoryBoard) isCriticalAdvisor(name string) bool {
 }
 
 func (b *ShardAdvisoryBoard) determineApproval(synthesis AdvisorySynthesis, approvals, rejections, validVotes int) bool {
+	// Log vote details for transparency
+	logging.CampaignDebug("Advisory votes: %d approve, %d reject, %d valid", approvals, rejections, validVotes)
+
 	// Check for blocking concerns first
 	if len(synthesis.BlockingConcerns) > 0 && b.config.RequireCriticalApproval {
 		return false
