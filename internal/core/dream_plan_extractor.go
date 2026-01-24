@@ -47,6 +47,15 @@ var (
 		"breaking", "destructive", "irreversible", "production",
 		"security", "sensitive", "critical", "important",
 	}
+
+	// Quoted target pattern for extractTarget
+	quotedTargetPattern = regexp.MustCompile(`["'\x60]([^"'\x60]+)["'\x60]`)
+
+	// Whitespace pattern for normalizeDescription
+	whitespacePattern = regexp.MustCompile(`\s+`)
+
+	// Question pattern for extractQuestions
+	questionPattern = regexp.MustCompile(`(?m)\?[^\n]*`)
 )
 
 // ExtractDreamPlan parses shard consultations into an actionable execution plan.
@@ -218,8 +227,7 @@ func extractTarget(step string) string {
 	}
 
 	// Look for quoted strings as potential targets
-	quoted := regexp.MustCompile(`["'\x60]([^"'\x60]+)["'\x60]`)
-	qMatches := quoted.FindAllStringSubmatch(step, -1)
+	qMatches := quotedTargetPattern.FindAllStringSubmatch(step, -1)
 	if len(qMatches) > 0 && len(qMatches[0]) > 1 {
 		return qMatches[0][1]
 	}
@@ -287,7 +295,7 @@ func deduplicateSubtasks(subtasks []DreamSubtask) []DreamSubtask {
 func normalizeDescription(desc string) string {
 	// Lowercase and remove extra whitespace
 	normalized := strings.ToLower(strings.TrimSpace(desc))
-	normalized = regexp.MustCompile(`\s+`).ReplaceAllString(normalized, " ")
+	normalized = whitespacePattern.ReplaceAllString(normalized, " ")
 
 	// Remove common prefixes
 	prefixes := []string{"first, ", "then, ", "next, ", "finally, ", "also, "}
@@ -378,7 +386,6 @@ func assessRiskLevel(consultations []DreamConsultation) string {
 // extractQuestions finds clarification questions from consultations.
 func extractQuestions(consultations []DreamConsultation) []string {
 	questions := make([]string, 0)
-	questionPattern := regexp.MustCompile(`(?m)\?[^\n]*`)
 
 	for _, c := range consultations {
 		matches := questionPattern.FindAllString(c.Perspective, -1)
