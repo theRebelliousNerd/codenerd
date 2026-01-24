@@ -162,6 +162,14 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 
 // TODO: TEST_GAP: Verify content sampling logic for large files (partial match failure).
 
+// TODO: TEST_GAP: Verify that 'ActionEditFile' skips validation (returns verified=true, confidence=0.0) when content is missing from payload.
+
+// TODO: TEST_GAP: Verify behavior when 'Target' is a symlink to a directory (should fail check).
+
+// TODO: TEST_GAP: Verify behavior when 'Target' is a symlink to a valid file (should resolve and pass).
+
+// TODO: TEST_GAP: Verify content sampling failure when a specific byte at a sample offset is modified.
+
 // TestParanoidValidator_EmptyTargetPath tests validation with empty target path
 func TestParanoidValidator_EmptyTargetPath(t *testing.T) {
 	v := NewParanoidFileValidator()
