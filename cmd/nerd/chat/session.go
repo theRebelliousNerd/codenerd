@@ -21,6 +21,7 @@ import (
 	"codenerd/internal/retrieval"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
+
 	// Domain shards removed - JIT clean loop handles these via prompt atoms:
 	// "codenerd/internal/shards/coder"
 	// "codenerd/internal/shards/nemesis"
@@ -666,7 +667,9 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		// Wire kernel to transducer for Mangle-based routing derivation.
 		// This enables the harness to validate LLM classifications and derive routing.
-		transducer.SetKernel(kernel)
+		if tk, ok := transducer.(perception.TransducerWithKernel); ok {
+			tk.SetKernel(kernel)
+		}
 		logging.Boot("Wired kernel to LLM-first transducer for routing")
 
 		// Inject strategic knowledge for conceptual queries

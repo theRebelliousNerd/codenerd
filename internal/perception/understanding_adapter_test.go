@@ -97,7 +97,9 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 		{"modify", "", "/fix"},
 		{"refactor", "", "/refactor"},
 		{"verify", "", "/test"},
+
 		{"attack", "", "/assault"},
+		{"chat", "", "/greet"},
 		{"unknown", "", "/explain"},
 	}
 
