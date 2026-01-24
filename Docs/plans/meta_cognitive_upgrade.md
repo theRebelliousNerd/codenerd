@@ -240,3 +240,5 @@ aligned_preference(Pred, Args) :-
 - [ ] `cmd/nerd/`: `/reflection` command and `nerd stats` additions.
 - [ ] `internal/logging/logger.go`: log events in embedding and system_shards.
 - [ ] `.nerd/config.json`: reflection + embedding feature flags.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-24]*

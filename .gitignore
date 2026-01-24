@@ -66,3 +66,5 @@ debug_program*.mg
 *.db-wal
 *.backup_*
 .claude/skills/log-analyzer/scripts/logquery/logquery
+!Docs/archive-candidates/
+!Docs/maintenance/

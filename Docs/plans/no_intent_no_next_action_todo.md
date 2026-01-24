@@ -167,3 +167,5 @@ sync with the plan document as changes land.
 - [x] Review `git status` for unrelated changes and avoid reverting them.
 - [x] Use conventional commit message.
 - [x] Push to GitHub after meaningful milestones.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-24]*
