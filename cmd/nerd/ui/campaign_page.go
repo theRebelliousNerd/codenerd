@@ -47,6 +47,7 @@ func (m CampaignPageModel) Init() tea.Cmd {
 
 // Update handles messages.
 // TODO: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
+// TODO: Add debounce logic for rapid key presses if performance becomes an issue.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
