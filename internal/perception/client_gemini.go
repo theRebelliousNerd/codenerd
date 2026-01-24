@@ -86,6 +86,8 @@ func DefaultGeminiConfig(apiKey string) GeminiConfig {
 		Model:           "gemini-3-flash-preview",
 		Timeout:         10 * time.Minute, // Large context models need extended timeout
 		MaxOutputTokens: 65536,
+		EnableThinking:  true,
+		ThinkingLevel:   "high",
 	}
 }
 
@@ -125,7 +127,7 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 			Timeout: config.Timeout,
 		},
 		// Thinking mode
-		enableThinking: config.EnableThinking,
+		enableThinking: config.EnableThinking || isGemini3Model(model),
 		thinkingLevel:  thinkingLevel,
 		// Built-in tools
 		enableGoogleSearch: config.EnableGoogleSearch,
@@ -353,7 +355,6 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	// assuming the API handles overrides or the user knows what they are doing.
 
 	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-		strings.Contains(systemPrompt, "surface_response") ||
 		strings.Contains(userPrompt, "PiggybackEnvelope") ||
 		strings.Contains(userPrompt, "control_packet")
 

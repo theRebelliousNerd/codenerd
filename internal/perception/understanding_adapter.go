@@ -7,7 +7,14 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 )
+
+// ThinkingProvider is an optional interface for clients that support thinking.
+type ThinkingProvider interface {
+	IsThinkingEnabled() bool
+	GetThinkingLevel() string
+}
 
 // UnderstandingTransducer implements the Transducer interface using LLM-first classification.
 // It provides deep semantic understanding of user intent through structured LLM output parsing.
@@ -23,10 +30,21 @@ type UnderstandingTransducer struct {
 }
 
 // NewUnderstandingTransducer creates a transducer using LLM-first classification.
-func NewUnderstandingTransducer(client LLMClient) *UnderstandingTransducer {
-	return &UnderstandingTransducer{
+func NewUnderstandingTransducer(client LLMClient) Transducer {
+	base := &UnderstandingTransducer{
 		client: client,
 	}
+
+	// Check if this is a Gemini client with thinking enabled
+	if thinkingProvider, ok := client.(ThinkingProvider); ok && thinkingProvider.IsThinkingEnabled() {
+		logging.Perception("[Transducer] Using GeminiThinkingTransducer (thinking mode enabled, level=%s)",
+			thinkingProvider.GetThinkingLevel())
+		// Return the specialized transducer for Gemini Thinking Mode
+		return NewGeminiThinkingTransducer(base)
+	}
+
+	logging.Perception("[Transducer] Using UnderstandingTransducer (thinking mode NOT detected)")
+	return base
 }
 
 // SetPromptAssembler sets the prompt assembler for JIT compilation.
@@ -218,6 +236,8 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/remember"
 	case "forget":
 		return "/forget"
+	case "chat":
+		return "/greet"
 	default:
 		return "/explain" // Safe fallback
 	}
@@ -354,6 +374,7 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | review | Audit, critique, assess quality | No |
 | remember | Store preference for future | No (memory only) |
 | forget | Remove stored preference | No (memory only) |
+| chat | Social interaction, greeting | No |
 
 ### 3. Domain (WHAT AREA is this about?)
 
@@ -416,22 +437,22 @@ You MUST output valid JSON in this exact structure:
     },
     "user_constraints": ["<explicit constraints>"],
     "implicit_assumptions": ["<unstated assumptions>"],
-    "confidence": <0.0 to 1.0>
-  },
-  "signals": {
-    "is_question": <true|false>,
-    "is_hypothetical": <true|false>,
-    "is_multi_step": <true|false>,
-    "is_negated": <true|false>,
-    "requires_confirmation": <true|false>,
-    "urgency": "<low|normal|high|critical>"
-  },
-  "suggested_approach": {
-    "mode": "<normal|tdd|dream|debug|security_audit|campaign|research|assault>",
-    "primary_shard": "<coder|tester|reviewer|researcher|nemesis>",
-    "supporting_shards": ["<additional agents if needed>"],
-    "tools_needed": ["<tools you expect to use>"],
-    "context_needed": ["<what context would help>"]
+    "confidence": <0.0 to 1.0>,
+    "signals": {
+      "is_question": <true|false>,
+      "is_hypothetical": <true|false>,
+      "is_multi_step": <true|false>,
+      "is_negated": <true|false>,
+      "requires_confirmation": <true|false>,
+      "urgency": "<low|normal|high|critical>"
+    },
+    "suggested_approach": {
+      "mode": "<normal|tdd|dream|debug|security_audit|campaign|research|assault>",
+      "primary_shard": "<coder|tester|reviewer|researcher|nemesis>",
+      "supporting_shards": ["<additional agents if needed>"],
+      "tools_needed": ["<tools you expect to use>"],
+      "context_needed": ["<what context would help>"]
+    }
   },
   "surface_response": "<natural language response to user>"
 }
@@ -445,4 +466,43 @@ You MUST output valid JSON in this exact structure:
 5. **Match urgency to context**: "ASAP", "urgent", "blocking" = high/critical.
 6. **Read-only by default**: Questions and investigations don't modify code.
 7. **Multi-step detection**: "First X, then Y" or "X and then Y" = multi-step.
+
+## Examples
+
+### Example: Greeting
+**User**: "Hello world"
+
+{
+  "understanding": {
+    "primary_intent": "greeting",
+    "semantic_type": "state",
+    "action_type": "chat",
+    "domain": "general",
+    "scope": {
+      "level": "codebase",
+      "target": "user",
+      "file": "",
+      "symbol": ""
+    },
+    "user_constraints": [],
+    "implicit_assumptions": [],
+    "confidence": 0.99,
+    "signals": {
+      "is_question": false,
+      "is_hypothetical": false,
+      "is_multi_step": false,
+      "is_negated": false,
+      "requires_confirmation": false,
+      "urgency": "normal"
+    },
+    "suggested_approach": {
+      "mode": "normal",
+      "primary_shard": "coder",
+      "supporting_shards": [],
+      "tools_needed": [],
+      "context_needed": []
+    }
+  },
+  "surface_response": "Hello! How can I help you code today?"
+}
 `

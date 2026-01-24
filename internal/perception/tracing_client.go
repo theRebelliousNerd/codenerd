@@ -676,3 +676,154 @@ func (s *SystemLLMContext) Clear() {
 		tc.ClearShardContext()
 	}
 }
+
+// =============================================================================
+// INTERFACE PASS-THROUGHS
+// =============================================================================
+// The TracingLLMClient must implement all optional interfaces that the underlying
+// client might implement, to avoid "masking" capabilities like Thinking Mode.
+
+// -- ThinkingProvider --
+
+// IsThinkingEnabled uses the shared ThinkingProvider interface defined in understanding_adapter.go
+func (tc *TracingLLMClient) IsThinkingEnabled() bool {
+	if p, ok := tc.underlying.(ThinkingProvider); ok {
+		return p.IsThinkingEnabled()
+	}
+	return false
+}
+
+func (tc *TracingLLMClient) GetThinkingLevel() string {
+	if p, ok := tc.underlying.(interface{ GetThinkingLevel() string }); ok {
+		return p.GetThinkingLevel()
+	}
+	return ""
+}
+
+func (tc *TracingLLMClient) GetLastThoughtSummary() string {
+	if p, ok := tc.underlying.(interface{ GetLastThoughtSummary() string }); ok {
+		return p.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+func (tc *TracingLLMClient) GetLastThinkingTokens() int {
+	if p, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+		return p.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// -- ThoughtSignatureProvider --
+
+func (tc *TracingLLMClient) GetLastThoughtSignature() string {
+	if p, ok := tc.underlying.(interface{ GetLastThoughtSignature() string }); ok {
+		return p.GetLastThoughtSignature()
+	}
+	return ""
+}
+
+// -- GroundingProvider --
+
+func (tc *TracingLLMClient) GetLastGroundingSources() []string {
+	if p, ok := tc.underlying.(interface{ GetLastGroundingSources() []string }); ok {
+		return p.GetLastGroundingSources()
+	}
+	return nil
+}
+
+func (tc *TracingLLMClient) IsGoogleSearchEnabled() bool {
+	if p, ok := tc.underlying.(interface{ IsGoogleSearchEnabled() bool }); ok {
+		return p.IsGoogleSearchEnabled()
+	}
+	return false
+}
+
+func (tc *TracingLLMClient) IsURLContextEnabled() bool {
+	if p, ok := tc.underlying.(interface{ IsURLContextEnabled() bool }); ok {
+		return p.IsURLContextEnabled()
+	}
+	return false
+}
+
+// -- CacheProvider --
+
+func (tc *TracingLLMClient) CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error) {
+	if p, ok := tc.underlying.(interface {
+		CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
+	}); ok {
+		return p.CreateCachedContent(ctx, files, ttl)
+	}
+	return "", fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+	if p, ok := tc.underlying.(interface {
+		GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+	}); ok {
+		return p.GetCachedContent(ctx, cacheName)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) DeleteCachedContent(ctx context.Context, cacheName string) error {
+	if p, ok := tc.underlying.(interface {
+		DeleteCachedContent(ctx context.Context, cacheName string) error
+	}); ok {
+		return p.DeleteCachedContent(ctx, cacheName)
+	}
+	return fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) ListCachedContent(ctx context.Context) ([]string, error) {
+	if p, ok := tc.underlying.(interface {
+		ListCachedContent(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListCachedContent(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+func (tc *TracingLLMClient) SetCachedContent(name string) {
+	if p, ok := tc.underlying.(interface{ SetCachedContent(string) }); ok {
+		p.SetCachedContent(name)
+	}
+}
+
+// -- FileProvider --
+
+func (tc *TracingLLMClient) UploadFile(ctx context.Context, path string, mimeType string) (string, error) {
+	if p, ok := tc.underlying.(interface {
+		UploadFile(ctx context.Context, path string, mimeType string) (string, error)
+	}); ok {
+		return p.UploadFile(ctx, path, mimeType)
+	}
+	return "", fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) DeleteFile(ctx context.Context, fileID string) error {
+	if p, ok := tc.underlying.(interface {
+		DeleteFile(ctx context.Context, fileID string) error
+	}); ok {
+		return p.DeleteFile(ctx, fileID)
+	}
+	return fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) ListFiles(ctx context.Context) ([]string, error) {
+	if p, ok := tc.underlying.(interface {
+		ListFiles(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListFiles(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+func (tc *TracingLLMClient) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+	if p, ok := tc.underlying.(interface {
+		GetFile(ctx context.Context, fileID string) (interface{}, error)
+	}); ok {
+		return p.GetFile(ctx, fileID)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}

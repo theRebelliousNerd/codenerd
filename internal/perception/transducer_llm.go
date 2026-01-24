@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"codenerd/internal/core"
+	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 )
 
@@ -59,6 +60,8 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 	if err != nil {
 		return nil, fmt.Errorf("LLM classification failed: %w", err)
 	}
+	// Log the raw response for debugging
+	logging.PerceptionDebug("Raw LLM Response: %s", response)
 
 	// 3. Parse the response
 	understanding, err := t.parseResponse(response)
@@ -125,24 +128,37 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 	return &envelope.Understanding, nil
 }
 
-// extractJSON finds JSON object in response (handles markdown wrappers).
+// extractJSON finds the last valid JSON object in the response.
+// This handles cases where the model outputs thinking logs or schema examples before the final JSON.
 func extractJSON(response string) string {
-	// Try to find JSON object
-	start := strings.Index(response, "{")
-	if start == -1 {
-		return ""
+	// Find all start indices of '{'
+	var starts []int
+	for i, r := range response {
+		if r == '{' {
+			starts = append(starts, i)
+		}
 	}
 
-	// Find matching closing brace
-	depth := 0
-	for i := start; i < len(response); i++ {
-		switch response[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return response[start : i+1]
+	// Iterate backwards to find the last valid JSON object
+	for i := len(starts) - 1; i >= 0; i-- {
+		start := starts[i]
+
+		// Find matching closing brace
+		depth := 0
+		for j := start; j < len(response); j++ {
+			switch response[j] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					// Found a potential JSON block
+					// Verify it can be unmarshaled (lightweight check)
+					candidate := response[start : j+1]
+					if json.Valid([]byte(candidate)) {
+						return candidate
+					}
+				}
 			}
 		}
 	}

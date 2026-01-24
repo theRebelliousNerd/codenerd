@@ -515,6 +515,179 @@ func (c *ScheduledLLMCall) SchemaCapable() bool {
 	return ok
 }
 
+// =============================================================================
+// ThinkingProvider Interface Pass-Through
+// =============================================================================
+// These methods allow the ScheduledLLMCall to be transparent to thinking mode
+// detection, so that GeminiThinkingTransducer can be properly selected.
+
+// IsThinkingEnabled delegates to the underlying client if it supports thinking.
+func (c *ScheduledLLMCall) IsThinkingEnabled() bool {
+	if p, ok := c.Client.(interface{ IsThinkingEnabled() bool }); ok {
+		return p.IsThinkingEnabled()
+	}
+	return false
+}
+
+// GetThinkingLevel delegates to the underlying client if it supports thinking.
+func (c *ScheduledLLMCall) GetThinkingLevel() string {
+	if p, ok := c.Client.(interface{ GetThinkingLevel() string }); ok {
+		return p.GetThinkingLevel()
+	}
+	return ""
+}
+
+// GetLastThoughtSummary delegates to the underlying client if it supports thinking.
+func (c *ScheduledLLMCall) GetLastThoughtSummary() string {
+	if p, ok := c.Client.(interface{ GetLastThoughtSummary() string }); ok {
+		return p.GetLastThoughtSummary()
+	}
+	return ""
+}
+
+// GetLastThinkingTokens delegates to the underlying client if it supports thinking.
+func (c *ScheduledLLMCall) GetLastThinkingTokens() int {
+	if p, ok := c.Client.(interface{ GetLastThinkingTokens() int }); ok {
+		return p.GetLastThinkingTokens()
+	}
+	return 0
+}
+
+// =============================================================================
+// ThoughtSignatureProvider Interface Pass-Through
+// =============================================================================
+
+// GetLastThoughtSignature delegates to the underlying client for multi-turn function calling.
+func (c *ScheduledLLMCall) GetLastThoughtSignature() string {
+	if p, ok := c.Client.(interface{ GetLastThoughtSignature() string }); ok {
+		return p.GetLastThoughtSignature()
+	}
+	return ""
+}
+
+// =============================================================================
+// GroundingProvider Interface Pass-Through
+// =============================================================================
+
+// GetLastGroundingSources delegates to the underlying client.
+func (c *ScheduledLLMCall) GetLastGroundingSources() []string {
+	if p, ok := c.Client.(interface{ GetLastGroundingSources() []string }); ok {
+		return p.GetLastGroundingSources()
+	}
+	return nil
+}
+
+// IsGoogleSearchEnabled delegates to the underlying client.
+func (c *ScheduledLLMCall) IsGoogleSearchEnabled() bool {
+	if p, ok := c.Client.(interface{ IsGoogleSearchEnabled() bool }); ok {
+		return p.IsGoogleSearchEnabled()
+	}
+	return false
+}
+
+// IsURLContextEnabled delegates to the underlying client.
+func (c *ScheduledLLMCall) IsURLContextEnabled() bool {
+	if p, ok := c.Client.(interface{ IsURLContextEnabled() bool }); ok {
+		return p.IsURLContextEnabled()
+	}
+	return false
+}
+
+// =============================================================================
+// CacheProvider Interface Pass-Through
+// =============================================================================
+
+// CreateCachedContent delegates to the underlying client.
+func (c *ScheduledLLMCall) CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error) {
+	if p, ok := c.Client.(interface {
+		CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
+	}); ok {
+		return p.CreateCachedContent(ctx, files, ttl)
+	}
+	return "", fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+// GetCachedContent delegates to the underlying client.
+func (c *ScheduledLLMCall) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+	if p, ok := c.Client.(interface {
+		GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+	}); ok {
+		return p.GetCachedContent(ctx, cacheName)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+// DeleteCachedContent delegates to the underlying client.
+func (c *ScheduledLLMCall) DeleteCachedContent(ctx context.Context, cacheName string) error {
+	if p, ok := c.Client.(interface {
+		DeleteCachedContent(ctx context.Context, cacheName string) error
+	}); ok {
+		return p.DeleteCachedContent(ctx, cacheName)
+	}
+	return fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+// ListCachedContent delegates to the underlying client.
+func (c *ScheduledLLMCall) ListCachedContent(ctx context.Context) ([]string, error) {
+	if p, ok := c.Client.(interface {
+		ListCachedContent(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListCachedContent(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement CacheProvider")
+}
+
+// SetCachedContent delegates to the underlying client.
+func (c *ScheduledLLMCall) SetCachedContent(name string) {
+	if p, ok := c.Client.(interface{ SetCachedContent(string) }); ok {
+		p.SetCachedContent(name)
+	}
+}
+
+// =============================================================================
+// FileProvider Interface Pass-Through
+// =============================================================================
+
+// UploadFile delegates to the underlying client.
+func (c *ScheduledLLMCall) UploadFile(ctx context.Context, path string, mimeType string) (string, error) {
+	if p, ok := c.Client.(interface {
+		UploadFile(ctx context.Context, path string, mimeType string) (string, error)
+	}); ok {
+		return p.UploadFile(ctx, path, mimeType)
+	}
+	return "", fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+// DeleteFile delegates to the underlying client.
+func (c *ScheduledLLMCall) DeleteFile(ctx context.Context, fileID string) error {
+	if p, ok := c.Client.(interface {
+		DeleteFile(ctx context.Context, fileID string) error
+	}); ok {
+		return p.DeleteFile(ctx, fileID)
+	}
+	return fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+// ListFiles delegates to the underlying client.
+func (c *ScheduledLLMCall) ListFiles(ctx context.Context) ([]string, error) {
+	if p, ok := c.Client.(interface {
+		ListFiles(ctx context.Context) ([]string, error)
+	}); ok {
+		return p.ListFiles(ctx)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}
+
+// GetFile delegates to the underlying client.
+func (c *ScheduledLLMCall) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+	if p, ok := c.Client.(interface {
+		GetFile(ctx context.Context, fileID string) (interface{}, error)
+	}); ok {
+		return p.GetFile(ctx, fileID)
+	}
+	return nil, fmt.Errorf("underlying client does not implement FileProvider")
+}
+
 type llmStreamingChannels interface {
 	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
 }

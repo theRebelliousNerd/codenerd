@@ -51,6 +51,7 @@ content: |
   | `review` | Audit, critique, assess quality | No |
   | `remember` | Store preference for future | No (memory only) |
   | `forget` | Remove stored preference | No (memory only) |
+  | `chat` | Social interaction, greeting | No |
 
   ### 3. Domain (WHAT AREA is this about?)
 
@@ -266,6 +267,46 @@ content: |
   5. **Match urgency to context**: "ASAP", "urgent", "blocking" = high/critical.
   6. **Read-only by default**: Questions and investigations don't modify code.
   7. **Multi-step detection**: "First X, then Y" or "X and then Y" = multi-step.
+
+  ### Example 4: Greeting
+
+  **User**: "Hello world"
+
+  ```json
+  {
+    "understanding": {
+      "primary_intent": "greeting",
+      "semantic_type": "state",
+      "action_type": "chat",
+      "domain": "general",
+      "scope": {
+        "level": "codebase",
+        "target": "user",
+        "file": "",
+        "symbol": ""
+      },
+      "user_constraints": [],
+      "implicit_assumptions": [],
+      "confidence": 0.99
+    },
+    "signals": {
+      "is_question": false,
+      "is_hypothetical": false,
+      "is_multi_step": false,
+      "is_negated": false,
+      "requires_confirmation": false,
+      "urgency": "normal"
+    },
+    "suggested_approach": {
+      "mode": "normal",
+      "primary_shard": "none",
+      "supporting_shards": [],
+      "tools_needed": [],
+      "context_needed": []
+    },
+    "surface_response": "Hello! How can I help you code today?"
+  }
+  ```
 
 selectors:
   - always: true
