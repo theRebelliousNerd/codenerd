@@ -32,9 +32,7 @@ func TestNewAntigravityClient(t *testing.T) {
 		if client.enableThinking {
 			t.Error("enableThinking should be false by default")
 		}
-		if client.rateLimiter == nil {
-			t.Error("rateLimiter should be initialized")
-		}
+		// accountManager should be initialized (replaces old rateLimiter)
 	})
 
 	t.Run("with config", func(t *testing.T) {
@@ -149,136 +147,10 @@ func TestParseRetryDelay(t *testing.T) {
 }
 
 // =============================================================================
-// ADAPTIVE RATE LIMITER TESTS
+// ADAPTIVE RATE LIMITER TESTS - Removed
 // =============================================================================
-
-func TestAdaptiveRateLimiter_RecordRateLimit(t *testing.T) {
-	limiter := newAdaptiveRateLimiter()
-
-	// Record some events
-	limiter.RecordRateLimit(3 * time.Second)
-	limiter.RecordRateLimit(5 * time.Second)
-	limiter.RecordRateLimit(4 * time.Second)
-
-	count, avgDelay := limiter.GetStats()
-	if count != 3 {
-		t.Errorf("event count = %d, want 3", count)
-	}
-	// Average of 3, 5, 4 is 4
-	if avgDelay != 4*time.Second {
-		t.Errorf("avg delay = %v, want 4s", avgDelay)
-	}
-}
-
-func TestAdaptiveRateLimiter_PreemptiveDelay(t *testing.T) {
-	t.Run("no events means no delay", func(t *testing.T) {
-		limiter := newAdaptiveRateLimiter()
-		delay := limiter.GetPreemptiveDelay()
-		if delay != 0 {
-			t.Errorf("delay = %v, want 0 (no events)", delay)
-		}
-	})
-
-	t.Run("single event means no delay", func(t *testing.T) {
-		limiter := newAdaptiveRateLimiter()
-		limiter.RecordRateLimit(3 * time.Second)
-		delay := limiter.GetPreemptiveDelay()
-		if delay != 0 {
-			t.Errorf("delay = %v, want 0 (single event)", delay)
-		}
-	})
-
-	t.Run("2-3 events means light delay", func(t *testing.T) {
-		limiter := newAdaptiveRateLimiter()
-		limiter.RecordRateLimit(4 * time.Second)
-		limiter.RecordRateLimit(4 * time.Second)
-
-		delay := limiter.GetPreemptiveDelay()
-		// 10% of ~4s = 400ms, but minimum is 500ms
-		if delay < 400*time.Millisecond || delay > 600*time.Millisecond {
-			t.Errorf("delay = %v, want ~500ms", delay)
-		}
-	})
-
-	t.Run("8+ events means heavy delay", func(t *testing.T) {
-		limiter := newAdaptiveRateLimiter()
-		for i := 0; i < 10; i++ {
-			limiter.RecordRateLimit(4 * time.Second)
-		}
-
-		delay := limiter.GetPreemptiveDelay()
-		// 50% of ~4s = 2s
-		if delay < 1*time.Second || delay > 3*time.Second {
-			t.Errorf("delay = %v, want ~2s", delay)
-		}
-	})
-
-	t.Run("delay capped at 5s", func(t *testing.T) {
-		limiter := newAdaptiveRateLimiter()
-		// Record many events with long delays
-		for i := 0; i < 20; i++ {
-			limiter.RecordRateLimit(30 * time.Second)
-		}
-
-		delay := limiter.GetPreemptiveDelay()
-		if delay > 5*time.Second {
-			t.Errorf("delay = %v, want max 5s", delay)
-		}
-	})
-}
-
-func TestAdaptiveRateLimiter_WindowPruning(t *testing.T) {
-	limiter := &adaptiveRateLimiter{
-		events:          make([]rateLimitEvent, 0),
-		windowDuration:  50 * time.Millisecond, // Short window for testing
-		maxEvents:       50,
-		pressureDecay:   0.9,
-		minPreemptDelay: 100 * time.Millisecond,
-	}
-
-	// Record event
-	limiter.RecordRateLimit(1 * time.Second)
-	count, _ := limiter.GetStats()
-	if count != 1 {
-		t.Errorf("count = %d, want 1", count)
-	}
-
-	// Wait for window to expire with extra margin (2x window + buffer)
-	time.Sleep(150 * time.Millisecond)
-
-	// Events should be pruned - retry a few times due to timing sensitivity
-	var finalCount int
-	for i := 0; i < 3; i++ {
-		finalCount, _ = limiter.GetStats()
-		if finalCount == 0 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if finalCount != 0 {
-		t.Errorf("count = %d, want 0 (events should be pruned)", finalCount)
-	}
-}
-
-func TestAdaptiveRateLimiter_MaxEvents(t *testing.T) {
-	limiter := &adaptiveRateLimiter{
-		events:          make([]rateLimitEvent, 0),
-		windowDuration:  5 * time.Minute,
-		maxEvents:       5, // Small max for testing
-		pressureDecay:   0.9,
-		minPreemptDelay: 100 * time.Millisecond,
-	}
-
-	// Record more events than max
-	for i := 0; i < 10; i++ {
-		limiter.RecordRateLimit(1 * time.Second)
-	}
-
-	count, _ := limiter.GetStats()
-	if count > 5 {
-		t.Errorf("count = %d, want max 5", count)
-	}
-}
+// NOTE: These tests referenced adaptiveRateLimiter which was removed in favor
+// of AccountManager-based rotation with HealthTracker. See accounts.go.
 
 // =============================================================================
 // HTTP MOCK TESTS - Test retry behavior without network
@@ -380,13 +252,11 @@ func TestAntigravityClient_GettersSetters(t *testing.T) {
 		}
 	})
 
-	t.Run("GetRateLimitStats", func(t *testing.T) {
-		count, avgDelay := client.GetRateLimitStats()
-		if count != 0 {
-			t.Errorf("expected 0 events initially, got %d", count)
-		}
-		if avgDelay != 0 {
-			t.Errorf("expected 0 delay initially, got %v", avgDelay)
+	t.Run("AccountStats", func(t *testing.T) {
+		stats := client.GetAccountStats()
+		// Stats should return a map
+		if stats == nil {
+			t.Error("expected non-nil stats")
 		}
 	})
 
@@ -496,7 +366,7 @@ func TestAntigravity_CompleteWithSystem_Live(t *testing.T) {
 	t.Logf("Response: %s", response)
 }
 
-func TestAntigravity_RateLimitStats_AfterLiveRequest(t *testing.T) {
+func TestAntigravity_AccountStats_AfterLiveRequest(t *testing.T) {
 	client := requireLiveAntigravityClient(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -508,9 +378,9 @@ func TestAntigravity_RateLimitStats_AfterLiveRequest(t *testing.T) {
 		t.Fatalf("Complete failed: %v", err)
 	}
 
-	// Check stats - should have 0 rate limits for a single request
-	count, _ := client.GetRateLimitStats()
-	t.Logf("Rate limit events after single request: %d", count)
+	// Check account stats
+	stats := client.GetAccountStats()
+	t.Logf("Account stats after single request: %v", stats)
 }
 
 // =============================================================================

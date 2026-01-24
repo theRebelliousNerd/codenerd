@@ -240,7 +240,7 @@ func runAuthAntigravityAdd(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	fmt.Println("Waiting for OAuth callback...")
-	code, err := antigravity.WaitForCallback(ctx, authResult.State)
+	code, err := antigravity.StartCallbackServer(ctx, authResult.State)
 	if err != nil {
 		return fmt.Errorf("OAuth callback failed: %w", err)
 	}
@@ -256,10 +256,10 @@ func runAuthAntigravityAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("token exchange failed: %w", err)
 	}
 
-	// 5. Add account to multi-account store
-	store, err := antigravity.NewAccountStore()
+	// 5. Add account to multi-account manager
+	manager, err := antigravity.NewAccountManager()
 	if err != nil {
-		return fmt.Errorf("failed to open account store: %w", err)
+		return fmt.Errorf("failed to open account manager: %w", err)
 	}
 
 	account := &antigravity.Account{
@@ -270,7 +270,7 @@ func runAuthAntigravityAdd(cmd *cobra.Command, args []string) error {
 		ProjectID:    token.ProjectID,
 	}
 
-	if err := store.AddAccount(account); err != nil {
+	if err := manager.AddAccount(account); err != nil {
 		return fmt.Errorf("failed to save account: %w", err)
 	}
 
@@ -299,34 +299,20 @@ func runAuthAntigravityAdd(cmd *cobra.Command, args []string) error {
 	fmt.Println("Provider: antigravity")
 
 	// Show account count
-	accounts := store.ListAccounts()
+	accounts := manager.ListAccounts()
 	fmt.Printf("\nTotal accounts configured: %d\n", len(accounts))
 
 	return nil
 }
 
-// openBrowser tries to open a URL in the default browser
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch {
-	case strings.Contains(os.Getenv("OS"), "Windows"):
-		cmd = exec.Command("cmd", "/c", "start", url)
-	case os.Getenv("DISPLAY") != "":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		cmd = exec.Command("open", url) // macOS
-	}
-	_ = cmd.Start()
-}
-
 // runAuthAntigravityList lists all configured accounts
 func runAuthAntigravityList(cmd *cobra.Command, args []string) error {
-	store, err := antigravity.NewAccountStore()
+	manager, err := antigravity.NewAccountManager()
 	if err != nil {
-		return fmt.Errorf("failed to open account store: %w", err)
+		return fmt.Errorf("failed to open account manager: %w", err)
 	}
 
-	accounts := store.ListAccounts()
+	accounts := manager.ListAccounts()
 	if len(accounts) == 0 {
 		fmt.Println("No Antigravity accounts configured.")
 		fmt.Println("\nRun 'nerd auth antigravity add' to add an account.")
@@ -336,21 +322,24 @@ func runAuthAntigravityList(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Antigravity Accounts (%d)\n", len(accounts))
 	fmt.Println(strings.Repeat("-", 60))
 
+	ht := manager.GetHealthTracker()
+
 	for _, acc := range accounts {
-		effectiveScore := store.GetEffectiveScore(acc)
+		score := ht.GetScore(acc.Index)
 		status := "healthy"
 		statusIcon := "Y"
 
-		if !store.IsUsable(acc) {
-			status = "exhausted"
-			statusIcon = "X"
-		} else if effectiveScore < 50 {
+		if score < 30 {
 			status = "degraded"
 			statusIcon = "!"
 		}
+		if score == 0 {
+			status = "exhausted"
+			statusIcon = "X"
+		}
 
 		fmt.Printf("[%s] %s\n", statusIcon, acc.Email)
-		fmt.Printf("    Health: %d/100 (effective: %d)\n", acc.HealthScore, effectiveScore)
+		fmt.Printf("    Health: %d/100\n", score)
 		fmt.Printf("    Status: %s\n", status)
 
 		if acc.ProjectID != "" {
@@ -361,12 +350,18 @@ func runAuthAntigravityList(cmd *cobra.Command, args []string) error {
 			fmt.Printf("    Last used: %s\n", acc.LastUsed.Format(time.RFC3339))
 		}
 
-		if acc.LastError != "" {
-			fmt.Printf("    Last error: %s\n", acc.LastError)
+		if acc.ConsecutiveFailures > 0 {
+			fmt.Printf("    Failures: %d\n", acc.ConsecutiveFailures)
 		}
 
-		if acc.ConsecutiveFails > 0 {
-			fmt.Printf("    Consecutive failures: %d\n", acc.ConsecutiveFails)
+		// Show rate limits
+		if len(acc.RateLimitResetTimes) > 0 {
+			fmt.Println("    Active Rate Limits:")
+			for k, v := range acc.RateLimitResetTimes {
+				if time.Now().Before(v) {
+					fmt.Printf("      - %s (resets in %v)\n", k, time.Until(v).Round(time.Second))
+				}
+			}
 		}
 
 		fmt.Println()
@@ -379,28 +374,18 @@ func runAuthAntigravityList(cmd *cobra.Command, args []string) error {
 func runAuthAntigravityRemove(cmd *cobra.Command, args []string) error {
 	email := args[0]
 
-	store, err := antigravity.NewAccountStore()
+	manager, err := antigravity.NewAccountManager()
 	if err != nil {
-		return fmt.Errorf("failed to open account store: %w", err)
+		return fmt.Errorf("failed to open account manager: %w", err)
 	}
 
-	// Check if account exists
-	if _, exists := store.GetAccount(email); !exists {
-		fmt.Printf("Account not found: %s\n", email)
-		fmt.Println("\nAvailable accounts:")
-		for _, acc := range store.ListAccounts() {
-			fmt.Printf("  - %s\n", acc.Email)
-		}
-		return fmt.Errorf("account not found")
-	}
-
-	if err := store.DeleteAccount(email); err != nil {
+	if err := manager.DeleteAccount(email); err != nil {
 		return fmt.Errorf("failed to delete account: %w", err)
 	}
 
 	fmt.Printf("Removed account: %s\n", email)
 
-	remaining := store.ListAccounts()
+	remaining := manager.ListAccounts()
 	fmt.Printf("Remaining accounts: %d\n", len(remaining))
 
 	if len(remaining) == 0 {
@@ -412,20 +397,26 @@ func runAuthAntigravityRemove(cmd *cobra.Command, args []string) error {
 
 // runAuthAntigravityStatus shows detailed account statistics
 func runAuthAntigravityStatus(cmd *cobra.Command, args []string) error {
-	store, err := antigravity.NewAccountStore()
+	manager, err := antigravity.NewAccountManager()
 	if err != nil {
-		return fmt.Errorf("failed to open account store: %w", err)
+		return fmt.Errorf("failed to open account manager: %w", err)
 	}
 
-	selector := antigravity.NewAccountSelector(store)
-	stats := selector.GetStats()
+	accounts := manager.ListAccounts()
+	ht := manager.GetHealthTracker()
+
+	var healthy, exhausted, total int
+	for _, acc := range accounts {
+		total++
+		if ht.GetScore(acc.Index) >= 30 {
+			healthy++
+		} else {
+			exhausted++
+		}
+	}
 
 	fmt.Println("Antigravity Account Status")
 	fmt.Println(strings.Repeat("=", 40))
-
-	total := stats["total"].(int)
-	healthy := stats["healthy"].(int)
-	exhausted := stats["exhausted"].(int)
 
 	fmt.Printf("Total accounts:    %d\n", total)
 	fmt.Printf("Healthy:           %d\n", healthy)
@@ -439,19 +430,14 @@ func runAuthAntigravityStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 
-	// Show which account would be selected
-	if best, err := selector.SelectBest(); err == nil {
-		effectiveScore := store.GetEffectiveScore(best)
-		fmt.Printf("Next account to use: %s (health: %d)\n", best.Email, effectiveScore)
+	// Show next likely account
+	next, _ := manager.GetCurrentOrNextForFamily("gemini", "", "hybrid")
+	if next != nil {
+		score := ht.GetScore(next.Index)
+		fmt.Printf("Next account to use: %s (health: %d)\n", next.Email, score)
+	} else {
+		fmt.Println("No accounts currently available for rotation.")
 	}
-
-	// Health score recovery info
-	fmt.Println("\nHealth Score System:")
-	fmt.Println("  - Success: +1 point")
-	fmt.Println("  - Rate limit (429): -15 points")
-	fmt.Println("  - Other failure: -25 points")
-	fmt.Println("  - Recovery: +5 points/hour")
-	fmt.Println("  - Minimum usable: 30 points")
 
 	return nil
 }
@@ -553,4 +539,30 @@ func loadOrCreateConfig() (*config.UserConfig, error) {
 		cfg = config.DefaultUserConfig()
 	}
 	return cfg, nil
+}
+
+// openBrowser opens the specified URL in the default browser
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+
+	switch {
+	case isWindows():
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case isDarwin():
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+
+	return cmd.Start()
+}
+
+// isWindows returns true if running on Windows
+func isWindows() bool {
+	return os.Getenv("GOOS") == "windows" || strings.Contains(os.Getenv("OS"), "Windows")
+}
+
+// isDarwin returns true if running on macOS
+func isDarwin() bool {
+	return os.Getenv("GOOS") == "darwin"
 }

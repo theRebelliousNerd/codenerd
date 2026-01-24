@@ -71,7 +71,7 @@ Tests the Mangle kernel, SpawnQueue, APIScheduler, and core runtime.
 | [mangle-startup-validation.md](references/workflows/01-kernel-core/mangle-startup-validation.md) | Boot-time validation of learned.mg, invalid rule handling, self-healing markers | 10-30 min |
 | [mangle-failure-modes.md](references/workflows/01-kernel-core/mangle-failure-modes.md) | **All 69 AI failure modes from AI_FAILURE_MODES.md - comprehensive validation testing** | 30-60 min |
 
-### 02-perception-articulation (3 workflows)
+### 02-perception-articulation (4 workflows)
 
 Tests NL parsing, intent classification, and response formatting.
 
@@ -80,6 +80,7 @@ Tests NL parsing, intent classification, and response formatting.
 | [intent-fuzzing.md](references/workflows/02-perception-articulation/intent-fuzzing.md) | Malformed NL inputs, adversarial strings, edge case verbs | 15-25 min |
 | [piggyback-corruption.md](references/workflows/02-perception-articulation/piggyback-corruption.md) | Truncated JSON, invalid ControlPackets | 10-20 min |
 | [taxonomy-exhaustion.md](references/workflows/02-perception-articulation/taxonomy-exhaustion.md) | Every verb in corpus + unknown verbs | 15-25 min |
+| [gemini-transducer.md](references/workflows/02-perception-articulation/gemini-transducer.md) | **Gemini 3 thinking mode, structured output, interface chain, confidence parsing** | 10-20 min |
 
 ### 03-shards-campaigns (4 workflows)
 
@@ -399,12 +400,14 @@ The `assets/mangle-adversarial/` directory contains **264+ invalid Mangle code p
 **Total: 23 test files, 264+ adversarial patterns**
 
 Each test file includes:
+
 - Multiple invalid code examples with `# ERROR:` annotations
 - Clear explanations of what's wrong and why
 - Correct syntax examples marked with `# CORRECT:` for comparison
 - Numbered test cases for easy reference
 
 **Documentation:**
+
 - [README.md](assets/mangle-adversarial/README.md) - Complete test suite overview with statistics
 - [INDEX.md](assets/mangle-adversarial/INDEX.md) - Quick reference by error type, severity, and language source
 

@@ -78,150 +78,14 @@ func parseRetryDelay(body []byte) time.Duration {
 	return DefaultRateLimitWait
 }
 
-// rateLimitEvent records a single rate limit occurrence
-type rateLimitEvent struct {
-	timestamp  time.Time
-	retryDelay time.Duration
-}
-
-// adaptiveRateLimiter tracks rate limit patterns and adapts request timing
-type adaptiveRateLimiter struct {
-	mu              sync.Mutex
-	events          []rateLimitEvent
-	windowDuration  time.Duration // How far back to look (default: 5 minutes)
-	maxEvents       int           // Max events to track (default: 50)
-	pressureDecay   float64       // Decay factor for pressure calculation
-	minPreemptDelay time.Duration // Minimum preemptive delay when under pressure
-}
-
-// newAdaptiveRateLimiter creates a new adaptive rate limiter
-func newAdaptiveRateLimiter() *adaptiveRateLimiter {
-	return &adaptiveRateLimiter{
-		events:          make([]rateLimitEvent, 0, 50),
-		windowDuration:  5 * time.Minute,
-		maxEvents:       50,
-		pressureDecay:   0.9,
-		minPreemptDelay: 500 * time.Millisecond,
-	}
-}
-
-// RecordRateLimit records a rate limit event
-func (a *adaptiveRateLimiter) RecordRateLimit(retryDelay time.Duration) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	a.events = append(a.events, rateLimitEvent{
-		timestamp:  time.Now(),
-		retryDelay: retryDelay,
-	})
-
-	a.pruneOldEvents()
-
-	if len(a.events) > a.maxEvents {
-		a.events = a.events[len(a.events)-a.maxEvents:]
-	}
-}
-
-// pruneOldEvents removes events outside the tracking window (must hold lock)
-func (a *adaptiveRateLimiter) pruneOldEvents() {
-	cutoff := time.Now().Add(-a.windowDuration)
-
-	firstValidIdx := -1
-	for i, e := range a.events {
-		if e.timestamp.After(cutoff) {
-			firstValidIdx = i
-			break
-		}
-	}
-
-	if firstValidIdx == -1 {
-		a.events = a.events[:0]
-	} else if firstValidIdx > 0 {
-		a.events = a.events[firstValidIdx:]
-	}
-}
-
-// GetPreemptiveDelay returns a delay to apply before the next request
-func (a *adaptiveRateLimiter) GetPreemptiveDelay() time.Duration {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	a.pruneOldEvents()
-
-	if len(a.events) == 0 {
-		return 0
-	}
-
-	now := time.Now()
-	var avgDelay time.Duration
-	totalWeight := 0.0
-
-	for _, e := range a.events {
-		age := now.Sub(e.timestamp)
-		recencyWeight := 1.0 - (float64(age) / float64(a.windowDuration))
-		if recencyWeight < 0.1 {
-			recencyWeight = 0.1
-		}
-
-		avgDelay += time.Duration(float64(e.retryDelay) * recencyWeight)
-		totalWeight += recencyWeight
-	}
-
-	if totalWeight > 0 {
-		avgDelay = time.Duration(float64(avgDelay) / totalWeight)
-	}
-
-	var delay time.Duration
-	eventCount := len(a.events)
-	switch {
-	case eventCount <= 1:
-		delay = 0
-	case eventCount <= 3:
-		delay = time.Duration(float64(avgDelay) * 0.1)
-	case eventCount <= 7:
-		delay = time.Duration(float64(avgDelay) * 0.25)
-	default:
-		delay = time.Duration(float64(avgDelay) * 0.5)
-	}
-
-	if delay > 0 && delay < a.minPreemptDelay {
-		delay = a.minPreemptDelay
-	}
-
-	if delay > 5*time.Second {
-		delay = 5 * time.Second
-	}
-
-	return delay
-}
-
-// GetStats returns current rate limiter statistics
-func (a *adaptiveRateLimiter) GetStats() (eventCount int, avgDelay time.Duration) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	a.pruneOldEvents()
-	eventCount = len(a.events)
-
-	if eventCount == 0 {
-		return 0, 0
-	}
-
-	var total time.Duration
-	for _, e := range a.events {
-		total += e.retryDelay
-	}
-	avgDelay = total / time.Duration(eventCount)
-	return
-}
+// rateLimitEvent and adaptiveRateLimiter have been removed in favor of AccountManager's logic.
 
 // AntigravityClient implements LLMClient for Google's internal Antigravity service.
 // Supports multi-account rotation with health-based selection.
 type AntigravityClient struct {
 	// Multi-account support
-	accountStore    *antigravity.AccountStore
-	accountSelector *antigravity.AccountSelector
-	currentAccount  *antigravity.Account
+	accountManager *antigravity.AccountManager
+	currentAccount *antigravity.Account
 
 	// Legacy single-account support (for backward compatibility)
 	tokenManager *antigravity.TokenManager
@@ -247,29 +111,24 @@ type AntigravityClient struct {
 
 	// Cross-model sanitization state
 	previousModel string // Track last used model for cross-model sanitization
-
-	// Adaptive rate limiting
-	rateLimiter *adaptiveRateLimiter
 }
 
 // NewAntigravityClient creates a new Antigravity client with multi-account support.
 func NewAntigravityClient(cfg *config.AntigravityProviderConfig, model string) (*AntigravityClient, error) {
-	// Initialize multi-account store
-	accountStore, err := antigravity.NewAccountStore()
+	// Initialize multi-account manager
+	accountManager, err := antigravity.NewAccountManager()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize account store: %w", err)
+		return nil, fmt.Errorf("failed to initialize account manager: %w", err)
 	}
 
 	// Also init legacy token manager for backward compatibility
 	tm, _ := antigravity.NewTokenManager()
 
 	client := &AntigravityClient{
-		accountStore:    accountStore,
-		accountSelector: antigravity.NewAccountSelector(accountStore),
-		tokenManager:    tm,
-		model:           model,
-		httpClient:      &http.Client{Timeout: 120 * time.Second},
-		rateLimiter:     newAdaptiveRateLimiter(),
+		accountManager: accountManager,
+		tokenManager:   tm,
+		model:          model,
+		httpClient:     &http.Client{Timeout: 120 * time.Second},
 	}
 
 	if client.model == "" {
@@ -298,7 +157,7 @@ func (c *AntigravityClient) EnsureAuthenticated(ctx context.Context) (string, st
 	defer c.mu.Unlock()
 
 	// Try multi-account first
-	accounts := c.accountStore.ListAccounts()
+	accounts := c.accountManager.ListAccounts()
 	if len(accounts) > 0 {
 		return c.authenticateMultiAccount(ctx)
 	}
@@ -309,8 +168,14 @@ func (c *AntigravityClient) EnsureAuthenticated(ctx context.Context) (string, st
 
 // authenticateMultiAccount handles authentication with account rotation
 func (c *AntigravityClient) authenticateMultiAccount(ctx context.Context) (string, string, error) {
-	// Select best account
-	account, err := c.accountSelector.SelectBest()
+	// Determine family based on model
+	family := "gemini"
+	if strings.Contains(c.model, "claude") {
+		family = "claude"
+	}
+
+	// Select best account using Hybrid strategy
+	account, err := c.accountManager.GetCurrentOrNextForFamily(family, c.model, "hybrid")
 	if err != nil {
 		// No usable accounts, trigger new auth
 		logging.PerceptionWarn("[Antigravity] No usable accounts, triggering new authentication...")
@@ -324,21 +189,13 @@ func (c *AntigravityClient) authenticateMultiAccount(ctx context.Context) (strin
 		logging.PerceptionDebug("[Antigravity] Refreshing token for %s", account.Email)
 		if err := c.refreshAccountToken(ctx, account); err != nil {
 			logging.PerceptionWarn("[Antigravity] Token refresh failed for %s: %v", account.Email, err)
-			c.accountStore.RecordFailure(account.Email, "refresh_failed")
+			c.accountManager.GetHealthTracker().RecordFailure(account.Index)
 
-			// Try next account
-			nextAccount, err := c.accountSelector.SelectNext(account.Email)
-			if err != nil {
-				return c.triggerNewAuth(ctx)
-			}
-			account = nextAccount
-			c.currentAccount = account
+			// Try next account (force rotation)
+			c.accountManager.MarkRateLimited(account.Index, antigravity.GetQuotaKey(c.model, "antigravity"), 5*time.Second) // Soft penalty to force switch
 
-			if account.IsAccessTokenExpired() {
-				if err := c.refreshAccountToken(ctx, account); err != nil {
-					return "", "", fmt.Errorf("all accounts failed to refresh: %w", err)
-				}
-			}
+			// Recursive call to get next
+			return c.authenticateMultiAccount(ctx)
 		}
 	}
 
@@ -352,14 +209,15 @@ func (c *AntigravityClient) authenticateMultiAccount(ctx context.Context) (strin
 		pid, err := resolver.ResolveProjectID()
 		if err == nil && pid != "" && pid != "resolute-airship-mq6tl" {
 			projectID = pid
-			c.accountStore.UpdateProjectID(account.Email, pid)
+			account.ProjectID = pid
+			c.accountManager.Save()
 		} else {
 			projectID = DefaultProjectID
 		}
 	}
 
 	logging.PerceptionDebug("[Antigravity] Using account %s (health: %d, project: %s)",
-		account.Email, c.accountStore.GetEffectiveScore(account), projectID)
+		account.Email, c.accountManager.GetHealthTracker().GetScore(account.Index), projectID)
 
 	return account.AccessToken, projectID, nil
 }
@@ -372,11 +230,11 @@ func (c *AntigravityClient) refreshAccountToken(ctx context.Context, account *an
 		return err
 	}
 
-	c.accountStore.UpdateToken(account.Email, newToken.AccessToken, newToken.Expiry)
 	account.AccessToken = newToken.AccessToken
 	account.AccessExpiry = newToken.Expiry
+	account.UpdatedAt = time.Now()
 
-	return nil
+	return c.accountManager.Save()
 }
 
 // authenticateLegacy handles legacy single-account authentication
@@ -446,7 +304,7 @@ func (c *AntigravityClient) triggerNewAuth(ctx context.Context) (string, string,
 			account.ProjectID = pid
 		}
 
-		c.accountStore.AddAccount(account)
+		c.accountManager.AddAccount(account)
 		c.currentAccount = account
 
 		logging.PerceptionDebug("[Antigravity] Added account %s to store", token.Email)
@@ -469,10 +327,13 @@ func (c *AntigravityClient) Complete(ctx context.Context, prompt string) (string
 }
 
 // CompleteWithSystem sends a prompt with a system message using the CloudCode PA API.
-// Implements automatic account rotation on 429 errors.
+// Implements automatic account rotation on 429 errors using Hybrid strategy.
 func (c *AntigravityClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	var lastErr error
-	var triedAccounts = make(map[string]bool)
+
+	// Determine quota key
+	headerStyle := antigravity.GetHeaderStyle(c.model)
+	quotaKey := antigravity.GetQuotaKey(c.model, headerStyle)
 
 	for attempt := 1; attempt <= MaxRetryAttempts; attempt++ {
 		accessToken, projectID, err := c.EnsureAuthenticated(ctx)
@@ -480,30 +341,35 @@ func (c *AntigravityClient) CompleteWithSystem(ctx context.Context, systemPrompt
 			return "", err
 		}
 
-		result, err := c.doRequest(ctx, accessToken, projectID, systemPrompt, userPrompt)
+		result, err := c.doRequest(ctx, accessToken, projectID, systemPrompt, userPrompt, headerStyle)
 		if err == nil {
 			// Success! Record it
 			if c.currentAccount != nil {
-				c.accountStore.RecordSuccess(c.currentAccount.Email)
+				c.accountManager.MarkSuccess(c.currentAccount.Index)
 			}
 			return result, nil
 		}
 
 		lastErr = err
 
-		// Check if it's a rate limit error
-		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate") {
+		// Check if it's a rate limit error (429)
+		if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate") || strings.Contains(err.Error(), "quota") {
 			if c.currentAccount != nil {
-				c.accountStore.RecordRateLimit(c.currentAccount.Email)
-				triedAccounts[c.currentAccount.Email] = true
+				retryDelay := parseRetryDelay([]byte(err.Error()))
+				if retryDelay == 0 {
+					retryDelay = DefaultRateLimitWait
+				}
 
-				logging.PerceptionWarn("[Antigravity] Account %s rate limited, attempting rotation...", c.currentAccount.Email)
+				// Mark rate limited specifically for this quota
+				c.accountManager.MarkRateLimited(c.currentAccount.Index, quotaKey, retryDelay)
 
-				// Try to get another account
-				nextAccount, nextErr := c.accountSelector.SelectNext(c.currentAccount.Email)
-				if nextErr == nil && !triedAccounts[nextAccount.Email] {
-					c.currentAccount = nextAccount
-					logging.PerceptionDebug("[Antigravity] Rotated to account %s", nextAccount.Email)
+				logging.PerceptionWarn("[Antigravity] Account %s rate limited for %s, rotating...", c.currentAccount.Email, quotaKey)
+
+				// Force re-authentication to trigger rotation
+				// authenticateMultiAccount calls GetCurrentOrNextForFamily which skips rate-limited accounts
+				_, _, nextErr := c.authenticateMultiAccount(ctx)
+				if nextErr == nil {
+					// Rotation successful
 					continue
 				}
 			}
@@ -514,24 +380,31 @@ func (c *AntigravityClient) CompleteWithSystem(ctx context.Context, systemPrompt
 				retryDelay = MaxRetryDelay
 			}
 
-			c.rateLimiter.RecordRateLimit(retryDelay)
 			logging.PerceptionWarn("[Antigravity] All accounts exhausted, waiting %v before retry %d/%d...",
 				retryDelay, attempt, MaxRetryAttempts)
 
 			select {
 			case <-time.After(retryDelay):
-				// Clear tried accounts for next round
-				triedAccounts = make(map[string]bool)
+				// Wait done, retry
 			case <-ctx.Done():
 				return "", ctx.Err()
 			}
 			continue
 		}
 
-		// Non-rate-limit error
+		// Non-rate-limit error (Network, 500, etc.)
 		if c.currentAccount != nil {
-			c.accountStore.RecordFailure(c.currentAccount.Email, err.Error())
+			c.accountManager.GetHealthTracker().RecordFailure(c.currentAccount.Index)
 		}
+
+		// If it's a server error, maybe try another account/endpoint?
+		// For now, let's treat it as a hard failure for this account and rotate.
+		if attempt < MaxRetryAttempts {
+			logging.PerceptionWarn("[Antigravity] Request failed: %v. Retrying...", err)
+			c.authenticateMultiAccount(ctx) // Try to rotate
+			continue
+		}
+
 		return "", err
 	}
 
@@ -539,18 +412,14 @@ func (c *AntigravityClient) CompleteWithSystem(ctx context.Context, systemPrompt
 }
 
 // doRequest performs the actual API request
-func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectID, systemPrompt, userPrompt string) (string, error) {
-	// Apply preemptive delay if under rate limit pressure
-	if preemptDelay := c.rateLimiter.GetPreemptiveDelay(); preemptDelay > 0 {
-		logging.PerceptionDebug("[Antigravity] Applying preemptive delay of %v", preemptDelay)
-		select {
-		case <-time.After(preemptDelay):
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
+func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectID, systemPrompt, userPrompt string, headerStyle string) (string, error) {
+	// Determine endpoint
+	endpoint := antigravity.EndpointDaily
+	if headerStyle == "gemini-cli" {
+		endpoint = antigravity.GeminiCLIEndpoint
 	}
 
-	url := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", GeminiCLIEndpointProd)
+	url := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", endpoint)
 
 	// Build generation config with model-aware thinking config
 	generationConfig := map[string]interface{}{
@@ -623,12 +492,9 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 		return "", err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	antigravity.PrepareRequest(req, accessToken, headerStyle)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", "antigravity/1.11.5 windows/amd64")
-	req.Header.Set("X-Goog-Api-Client", "google-cloud-sdk vscode_cloudshelleditor/0.1")
-	req.Header.Set("Client-Metadata", `{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}`)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -764,7 +630,7 @@ func (c *AntigravityClient) CompleteMultiTurn(
 
 	// Step 4: Record success
 	if c.currentAccount != nil {
-		c.accountStore.RecordSuccess(c.currentAccount.Email)
+		c.accountManager.MarkSuccess(c.currentAccount.Index)
 	}
 
 	// Clear previous model tracking after successful request
@@ -781,15 +647,7 @@ func (c *AntigravityClient) doMultiTurnRequest(
 	accessToken, projectID, systemPrompt string,
 	contents []map[string]interface{},
 ) (string, error) {
-	// Apply preemptive delay if under rate limit pressure
-	if preemptDelay := c.rateLimiter.GetPreemptiveDelay(); preemptDelay > 0 {
-		logging.PerceptionDebug("[Antigravity] Applying preemptive delay of %v", preemptDelay)
-		select {
-		case <-time.After(preemptDelay):
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}
+	// doMultiTurnRequest performs the multi-turn API request - inline without rate limiter
 
 	url := fmt.Sprintf("%s/v1internal:streamGenerateContent?alt=sse", GeminiCLIEndpointProd)
 
@@ -907,17 +765,17 @@ func (c *AntigravityClient) NeedsCrossModelSanitization() bool {
 
 // AddAccount adds a new account to the store (for CLI use)
 func (c *AntigravityClient) AddAccount(account *antigravity.Account) error {
-	return c.accountStore.AddAccount(account)
+	return c.accountManager.AddAccount(account)
 }
 
 // ListAccounts returns all accounts (for CLI use)
 func (c *AntigravityClient) ListAccounts() []*antigravity.Account {
-	return c.accountStore.ListAccounts()
+	return c.accountManager.ListAccounts()
 }
 
 // GetAccountStats returns statistics about accounts
 func (c *AntigravityClient) GetAccountStats() map[string]interface{} {
-	return c.accountSelector.GetStats()
+	return c.accountManager.GetStats()
 }
 
 // resolveEndpointAndHeaders determines the correct endpoint and headers based on the model.
@@ -1049,11 +907,3 @@ func (c *AntigravityClient) GetLastThinkingTokens() int {
 }
 func (c *AntigravityClient) IsThinkingEnabled() bool  { return c.enableThinking }
 func (c *AntigravityClient) GetThinkingLevel() string { return c.thinkingLevel }
-
-// GetRateLimitStats returns the current adaptive rate limiter statistics.
-func (c *AntigravityClient) GetRateLimitStats() (eventCount int, avgDelay time.Duration) {
-	if c.rateLimiter == nil {
-		return 0, 0
-	}
-	return c.rateLimiter.GetStats()
-}

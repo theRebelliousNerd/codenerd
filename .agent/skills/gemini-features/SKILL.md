@@ -47,6 +47,7 @@ func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
 ```
 
 **Level Semantics:**
+
 - `minimal` - Minimal reasoning (Flash only)
 - `low` - Light reasoning
 - `medium` - Moderate reasoning (Flash only)
@@ -57,6 +58,7 @@ func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
 Thought signatures are **mandatory** for Gemini 3 function calling. Missing signatures produce 400 errors.
 
 **Key Rules:**
+
 1. Signatures appear in **function call parts**, not just response level
 2. For sequential calls, EACH function call needs its own signature
 3. For parallel calls, only the FIRST includes a signature
@@ -95,6 +97,7 @@ tools = append(tools, GeminiTool{
 ```
 
 **Response metadata:**
+
 ```go
 type GeminiGroundingMetadata struct {
     GroundingChunks   []GeminiGroundingChunk   // Web sources
@@ -134,6 +137,7 @@ if c.enableURLContext && len(c.urlContextURLs) > 0 {
 ```
 
 **Limitations:**
+
 - No paywalled content
 - No YouTube videos or Google Workspace files
 - Content counts toward input tokens
@@ -142,12 +146,14 @@ if c.enableURLContext && len(c.urlContextURLs) > 0 {
 ## Decision: Deep Research vs Built-in Tools
 
 **Deep Research Agent** (`/interactions` endpoint):
+
 - Async, up to 60 minutes execution
 - Cannot use codeNERD tools (custom function calling unsupported)
 - Different API model (interactions vs generateContent)
 - Best for: standalone research reports, not interactive use
 
 **Recommendation for codeNERD:** Use Google Search + URL Context instead:
+
 - Synchronous, fits into existing flow
 - Works with codeNERD's tool ecosystem
 - Grounding metadata for citations
@@ -199,6 +205,7 @@ Loaded via `config.GeminiProviderConfig` and wired to client factory.
 ## API Request/Response Formats
 
 See reference files for complete API structures:
+
 - `references/api_reference.md` - Request/response types
 - `references/thinking-mode.md` - Thinking configuration details
 - `references/grounding-tools.md` - Google Search and URL Context
@@ -213,6 +220,74 @@ See reference files for complete API structures:
 4. **Parallel Function Calls** - Only first call gets signature
 5. **Temperature Default** - Gemini 3 defaults to 1.0; remove explicit temperature to avoid looping
 6. **Built-in Tool Exclusivity** - Cannot combine built-in tools with function calling (yet)
+7. **Structured Output + Grounding** - Gemini 3 DOES support combining structured output with Google Search/URL Context
+8. **Thinking Mode + Structured Output** - When `includeThoughts: true`, response parts may have a `thought: true` boolean indicating thinking content. **MUST filter out thought parts** before parsing JSON:
+
+   ```go
+   for _, part := range resp.Candidates[0].Content.Parts {
+       if part.Thought {
+           // This is thinking content, not the actual response
+           continue
+       }
+       result.WriteString(part.Text) // Actual JSON response
+   }
+   ```
+
+## CRITICAL: Go Embedding Pitfall for Transducers
+
+When implementing specialized transducers like `GeminiThinkingTransducer` that embed a base type, Go does **NOT** provide virtual method dispatch.
+
+### The Problem
+
+```go
+// GeminiThinkingTransducer embeds *UnderstandingTransducer
+type GeminiThinkingTransducer struct {
+    *UnderstandingTransducer
+}
+
+// Override ParseIntentWithContext to handle thinking mode
+func (t *GeminiThinkingTransducer) ParseIntentWithContext(...) (Intent, error) {
+    // Custom Gemini thinking handling
+}
+```
+
+If the CLI calls `ParseIntent` (not `ParseIntentWithContext`), Go uses the **embedded type's** `ParseIntent` method:
+
+```go
+// UnderstandingTransducer.ParseIntent (inherited)
+func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
+    return t.ParseIntentWithContext(ctx, input, nil) // 't' is *UnderstandingTransducer!
+}
+```
+
+**Result**: The override is completely bypassed. `UnderstandingTransducer.ParseIntentWithContext` is called instead of `GeminiThinkingTransducer.ParseIntentWithContext`.
+
+### The Fix
+
+The outer type MUST override ALL methods that delegate to overridden methods:
+
+```go
+// ParseIntent overrides the base implementation to ensure our ParseIntentWithContext is called.
+// This is required because Go struct embedding doesn't provide virtual dispatch.
+func (t *GeminiThinkingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
+    return t.ParseIntentWithContext(ctx, input, nil)
+}
+```
+
+### Interface Pass-Through Chain
+
+Wrapper clients must expose all Gemini-specific interfaces:
+
+| Interface | Methods | Purpose |
+|-----------|---------|---------|
+| `ThinkingProvider` | `IsThinkingEnabled()`, `GetThinkingLevel()`, `GetLastThoughtSummary()`, `GetLastThinkingTokens()` | Transducer selection |
+| `GroundingProvider` | `GetLastGroundingSources()`, `IsGoogleSearchEnabled()`, `IsURLContextEnabled()` | Grounding tools |
+| `ThoughtSignatureProvider` | `GetLastThoughtSignature()`, `SetLastThoughtSignature()` | Multi-turn function calling |
+| `CacheProvider` | `CreateCache()`, `GetCache()`, `DeleteCache()`, `ListCaches()` | Context caching |
+| `FileProvider` | `UploadFile()`, `GetFile()`, `DeleteFile()`, `ListFiles()` | Files API |
+| `schemaCapableClient` | `SchemaCapable()`, `CompleteWithSchema()` | Structured output |
+
+**Both** `TracingLLMClient` and `ScheduledLLMCall` must pass through each interface.
 
 ## Ecosystem Integration (Complete)
 
@@ -391,14 +466,64 @@ Enable thinking mode in `.nerd/config.json`:
 
 ## Testing
 
-```bash
-# Build with Gemini support
+### Build
+
+```powershell
+# Windows
+$env:CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers"
+go build ./cmd/nerd
+
+# Linux/WSL
 export CGO_CFLAGS="-I/mnt/c/CodeProjects/codeNERD/sqlite_headers"
 go build -tags=sqlite_vec -o nerd.exe ./cmd/nerd
+```
 
+### Unit Tests
+
+```bash
 # Test Gemini client
 go test ./internal/perception/... -run Gemini
-
-# Verify grounding in logs
-grep "grounding_sources" .nerd/logs/*_perception.log
 ```
+
+### Live Perception Tests
+
+```powershell
+# Clear logs first
+rm .nerd/logs/*
+
+# Test basic perception - should show Confidence > 0
+go run ./cmd/nerd perception "hello world" -v
+
+# Verify GeminiThinkingTransducer is selected
+Select-String -Path ".nerd\logs\*_perception.log" -Pattern "GeminiThinkingTransducer"
+
+# Expected output:
+# 📊 Perception Results:
+#    Category:   /query
+#    Verb:       /greet
+#    Confidence: 1.00  <-- NOT 0.00!
+
+# Test code generation intent
+go run ./cmd/nerd perception "write a function to sort a list" -v
+
+# Expected:
+#    Category:   /mutation
+#    Verb:       /create
+#    Shard: /coder
+#    Confidence: >= 0.80
+```
+
+### Verify Grounding
+
+```powershell
+# Check grounding sources in logs
+Select-String -Path ".nerd\logs\*_perception.log" -Pattern "grounding_sources"
+
+# Check API logs for thinking tokens
+Select-String -Path ".nerd\logs\*_api.log" -Pattern "thinking_tokens"
+```
+
+### Stress Testing
+
+See the [stress-tester skill](..\..\stress-tester\SKILL.md) workflow:
+`references/workflows/02-perception-articulation/gemini-transducer.md`

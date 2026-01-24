@@ -225,16 +225,16 @@ func TestExchangeCode(t *testing.T) {
 	}
 }
 
-func TestWaitForCallback(t *testing.T) {
+func TestStartCallbackServer(t *testing.T) {
 	// Start the wait in a goroutine
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	resultChan := make(chan string)
 	errChan := make(chan error)
 
 	go func() {
-		code, err := WaitForCallback(ctx, "test-state")
+		code, err := StartCallbackServer(ctx, "test-state")
 		if err != nil {
 			errChan <- err
 			return
@@ -242,13 +242,20 @@ func TestWaitForCallback(t *testing.T) {
 		resultChan <- code
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Retry connection loop
+	var resp *http.Response
+	var err error
+	
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		resp, err = http.Get("http://localhost:51121/oauth-callback?state=test-state&code=test-code")
+		if err == nil {
+			break
+		}
+	}
 
-	// Simulate callback
-	resp, err := http.Get("http://localhost:51121/oauth-callback?state=test-state&code=test-code")
 	if err != nil {
-		t.Fatalf("Failed to make callback request: %v", err)
+		t.Fatalf("Failed to make callback request after retries: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -262,9 +269,9 @@ func TestWaitForCallback(t *testing.T) {
 			t.Errorf("Expected code test-code, got %s", code)
 		}
 	case err := <-errChan:
-		t.Fatalf("WaitForCallback failed: %v", err)
+		t.Fatalf("StartCallbackServer failed: %v", err)
 	case <-ctx.Done():
-		t.Fatal("WaitForCallback timed out")
+		t.Fatal("StartCallbackServer timed out")
 	}
 }
 

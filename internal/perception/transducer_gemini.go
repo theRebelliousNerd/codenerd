@@ -62,6 +62,12 @@ func NewGeminiThinkingTransducer(base *UnderstandingTransducer) *GeminiThinkingT
 	}
 }
 
+// ParseIntent overrides the base implementation to ensure our ParseIntentWithContext is called.
+// This is required because Go struct embedding doesn't provide virtual dispatch.
+func (t *GeminiThinkingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
+	return t.ParseIntentWithContext(ctx, input, nil)
+}
+
 // ParseIntentWithContext overrides the generic implementation to handle Gemini Thinking output.
 func (t *GeminiThinkingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
 	// 1. Initialize logic (same as base)
@@ -132,14 +138,21 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 	if ok && schemaClient.SchemaCapable() {
 		rawResponse, err := schemaClient.CompleteWithSchema(ctx, thinkingWrapper, userPrompt, understandingSchema)
 		if err == nil {
-			logging.PerceptionDebug("Raw Gemini Structured Response: %s", rawResponse)
+			logging.Perception("[GeminiTransducer] Raw structured response (len=%d): %s", len(rawResponse), rawResponse)
+
+			// Even structured output might have markdown or extra text due to thinking mode
+			// Try to extract clean JSON first
+			cleanJSON := extractLastJSON(rawResponse)
+			if cleanJSON == "" {
+				cleanJSON = rawResponse // Fallback to raw if no JSON found
+			}
 
 			// Structured output should already be valid JSON
-			if err := json.Unmarshal([]byte(rawResponse), &envelope); err != nil {
+			if err := json.Unmarshal([]byte(cleanJSON), &envelope); err != nil {
 				logging.PerceptionDebug("Structured envelope parse failed: %v, trying understanding", err)
 				// Try just the understanding object
 				var understanding Understanding
-				if err2 := json.Unmarshal([]byte(rawResponse), &understanding); err2 == nil {
+				if err2 := json.Unmarshal([]byte(cleanJSON), &understanding); err2 == nil {
 					envelope.Understanding = understanding
 					envelope.SurfaceResponse = understanding.SurfaceResponse
 				} else {

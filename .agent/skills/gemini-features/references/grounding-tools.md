@@ -3,10 +3,11 @@
 ## Overview
 
 Gemini provides two built-in tools for grounding responses with external information:
+
 1. **Google Search** - Real-time web search
 2. **URL Context** - Ground responses with specific URLs
 
-These tools CANNOT be combined with custom function declarations in the same request (Gemini API limitation).
+These tools CANNOT be combined with custom function declarations in the same request (Gemini API limitation). bit can be combined with structured output.
 
 ## Google Search Grounding
 
@@ -82,6 +83,7 @@ func extractGroundingSources(gm *GeminiGroundingMetadata) []string {
 ## URL Context Tool
 
 Ground responses with specific documentation URLs. Ideal for:
+
 - API documentation
 - GitHub repositories
 - Technical specifications
@@ -163,18 +165,21 @@ func (c *GeminiClient) buildBuiltInTools() []GeminiTool {
 ### Two-Step Retrieval
 
 URL Context uses a two-step process:
+
 1. **Cache check** - Looks for cached version of URL
 2. **Live fetch** - Fetches fresh content if not cached
 
 ## Best Practices
 
 ### When to Use Google Search
+
 - Current events and news
 - Latest version information
 - Real-time data (weather, stocks, etc.)
 - General knowledge queries
 
 ### When to Use URL Context
+
 - Specific documentation
 - Private/internal docs (if accessible)
 - Stable reference material
