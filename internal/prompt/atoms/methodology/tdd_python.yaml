@@ -1,0 +1,54 @@
+# Python-Specific TDD Workflow
+# Concrete implementation of TDD methodology for Python projects
+
+- id: "methodology/tdd/python_workflow"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  languages: ["/python"]
+  intent_verbs: ["/test", "/fix", "/implement"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## PYTHON TDD WORKFLOW
+
+    Translate the abstract TDD cycle into concrete Python commands using pytest.
+
+    ### 1. RED (Write Failing Test)
+    Create a new test file `test_*.py` or add a test function to an existing file.
+
+    ```bash
+    # Run specific test to confirm failure and ensure it fails for the right reason
+    pytest -v -k "test_function_name"
+    ```
+
+    *Goal:* `FAIL` with a clear, diagnostic error message (e.g., "AssertionError: assert 0 == 5").
+
+    ### 2. GREEN (Make It Pass)
+    Implement the minimal code required to satisfy the test. Do not worry about elegance yet.
+
+    ```bash
+    # Run the specific test again
+    pytest -v -k "test_function_name"
+    ```
+
+    *Goal:* `PASS`
+
+    ### 3. REFACTOR (Clean Up)
+    Improve code quality, naming, and structure without changing behavior.
+
+    ```bash
+    # Verify no regressions in the module
+    pytest -v tests/
+
+    # Check for static errors and style
+    pylint your_module/
+    mypy your_module/
+    ```
+
+    ### Critical pytest Flags
+    - `-v`: Verbose output (show specific test names).
+    - `-k "expression"`: Run tests matching the expression.
+    - `--pdb`: Drop into debugger on failure.
+    - `--last-failed` (`--lf`): Run only the tests that failed last time.
+    - `--maxfail=1`: Stop after the first failure.
