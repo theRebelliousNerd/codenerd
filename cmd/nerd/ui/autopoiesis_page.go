@@ -82,6 +82,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 }
 
 // refreshTable updates the table rows based on active tab
+// TODO: Add sorting capabilities to the table columns.
 func (m *AutopoiesisPageModel) refreshTable() {
 	var rows []table.Row
 	var cols []table.Column
@@ -169,6 +170,7 @@ func (m AutopoiesisPageModel) View() string {
 }
 
 // SetSize updates the size.
+// TODO: Replace magic number '60' with a defined breakpoint constant.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
