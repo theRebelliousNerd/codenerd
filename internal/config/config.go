@@ -116,7 +116,7 @@ func DefaultConfig() *Config {
 				"npm", "npx", "node", "python", "python3", "pip",
 				"cargo", "rustc", "make", "cmake",
 			},
-			DefaultTimeout:   "30s",
+			DefaultTimeout:   "10m", // 10 minutes - covers LLM ops which can take 60-300+ seconds
 			WorkingDirectory: ".",
 			AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
 		},
@@ -341,7 +341,7 @@ func (c *Config) GetQueryTimeout() time.Duration {
 func (c *Config) GetExecutionTimeout() time.Duration {
 	d, err := time.ParseDuration(c.Execution.DefaultTimeout)
 	if err != nil {
-		return 30 * time.Second
+		return 10 * time.Minute // Match default timeout for LLM operations
 	}
 	return d
 }

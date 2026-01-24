@@ -354,6 +354,7 @@ type GeminiMediaResolution struct {
 // GeminiPart represents a part of the content.
 type GeminiPart struct {
 	Text             string                  `json:"text,omitempty"`
+	Thought          bool                    `json:"thought,omitempty"` // True if this part contains thinking/reasoning content
 	InlineData       *GeminiInlineData       `json:"inlineData,omitempty"`
 	FileData         *GeminiFileData         `json:"fileData,omitempty"`
 	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitempty"`
@@ -497,6 +498,7 @@ type GeminiResponse struct {
 // GeminiResponsePart represents a part of the response content.
 type GeminiResponsePart struct {
 	Text             string              `json:"text,omitempty"`
+	Thought          bool                `json:"thought,omitempty"` // True if this part contains thinking/reasoning content
 	InlineData       *GeminiInlineData   `json:"inlineData,omitempty"`
 	FileData         *GeminiFileData     `json:"fileData,omitempty"`
 	FunctionCall     *GeminiFunctionCall `json:"functionCall,omitempty"`

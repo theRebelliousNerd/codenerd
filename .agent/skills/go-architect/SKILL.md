@@ -18,6 +18,7 @@ This skill ensures Claude writes safe, idiomatic, production-ready Go code. It a
 ### The Competence-Confidence Gap
 
 AI agents generate syntactically correct Go that often:
+
 - Compiles successfully but deadlocks at runtime
 - Leaks goroutines that accumulate until OOM
 - Ignores errors that cause silent data corruption
@@ -329,6 +330,60 @@ var _ Handler = (*MyType)(nil)
 
 // Catches implementation errors during compilation, not runtime
 ```
+
+### 9. Struct Embedding "Virtual Dispatch" Pitfall
+
+**CRITICAL SEVERITY** - Override methods are silently bypassed.
+
+Go struct embedding does NOT provide virtual method dispatch like inheritance in other languages.
+
+```go
+// WRONG - AI Pattern: Expecting virtual dispatch from embedded type
+type BaseTransducer struct{}
+
+func (t *BaseTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
+    return t.ParseIntentWithContext(ctx, input, nil) // 't' is *BaseTransducer!
+}
+
+func (t *BaseTransducer) ParseIntentWithContext(ctx context.Context, input string, history []Turn) (Intent, error) {
+    // Base implementation
+}
+
+type GeminiTransducer struct {
+    *BaseTransducer // Embeds base
+}
+
+// Override the method we want to customize
+func (t *GeminiTransducer) ParseIntentWithContext(ctx context.Context, input string, history []Turn) (Intent, error) {
+    // Custom Gemini implementation - BUT THIS IS NEVER CALLED!
+}
+
+// When someone calls geminiTransducer.ParseIntent():
+// 1. Go finds ParseIntent on embedded *BaseTransducer
+// 2. BaseTransducer.ParseIntent calls t.ParseIntentWithContext
+// 3. But 't' is *BaseTransducer, NOT *GeminiTransducer!
+// 4. So BaseTransducer.ParseIntentWithContext is called, bypassing the override
+```
+
+```go
+// CORRECT - Override ALL methods that call overridden methods
+type GeminiTransducer struct {
+    *BaseTransducer
+}
+
+// Override ParseIntent to ensure OUR ParseIntentWithContext is called
+func (t *GeminiTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
+    return t.ParseIntentWithContext(ctx, input, nil) // 't' is *GeminiTransducer!
+}
+
+func (t *GeminiTransducer) ParseIntentWithContext(ctx context.Context, input string, history []Turn) (Intent, error) {
+    // Custom Gemini implementation - NOW IT WORKS
+}
+```
+
+**Rule**: When embedding a struct and overriding methods, you MUST also override any parent methods that delegate to the overridden method.
+
+**Validation**: For every overridden method M, check if any inherited method calls M. If so, override that caller too.
 
 ### Functional Options Pattern
 
@@ -1565,6 +1620,7 @@ type RuleValidator interface {
 Before submitting any Go code, verify:
 
 ### Concurrency
+
 - [ ] Every `go func()` has guaranteed termination
 - [ ] Channels are buffered appropriately (no forgotten senders)
 - [ ] `wg.Add(1)` is called BEFORE `go func()`
@@ -1572,23 +1628,27 @@ Before submitting any Go code, verify:
 - [ ] Context is propagated (no `context.Background()` in handlers)
 
 ### Error Handling
+
 - [ ] No ignored errors (no `_, _` except in documented cases)
 - [ ] Errors are wrapped with context (`fmt.Errorf("...: %w", err)`)
 - [ ] No `panic` for recoverable errors
 - [ ] Sentinel errors defined for common cases
 
 ### Memory
+
 - [ ] Large slice sub-slices are copied
 - [ ] Channels are initialized with `make()`
 - [ ] Resources are closed (using `defer`)
 - [ ] Temp files from `go:embed` are cleaned up
 
 ### Security
+
 - [ ] Using `crypto/rand` for security-sensitive randomness
 - [ ] SQL queries are parameterized
 - [ ] Dependencies are verified to exist
 
 ### Mangle Integration
+
 - [ ] Using `engine.Atom()` for constants, `engine.String()` for text
 - [ ] Running `analysis.Analyze()` before engine creation
 - [ ] Proper error handling for parse/analysis failures

@@ -7,7 +7,9 @@ import (
 
 // Mock for LLM usage in Taxonomy (e.g. Critic)
 type mockClient struct {
-	completeFunc func(ctx context.Context, prompt string) (string, error)
+	completeFunc       func(ctx context.Context, prompt string) (string, error)
+	schemaCapable      bool
+	schemaCompleteFunc func(ctx context.Context, sys, user, schema string) (string, error)
 }
 
 func (m *mockClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -31,6 +33,22 @@ func (m *mockClient) CompleteWithTools(ctx context.Context, sys, user string, to
 func (m *mockClient) SetModel(s string) {}
 func (m *mockClient) GetModel() string  { return "mock" }
 func (m *mockClient) DisableSemaphore() {}
+
+// SchemaCapable indicates this mock can produce structured output.
+func (m *mockClient) SchemaCapable() bool {
+	return m.schemaCapable
+}
+
+// CompleteWithSchema returns structured JSON output.
+func (m *mockClient) CompleteWithSchema(ctx context.Context, sys, user, schema string) (string, error) {
+	if m.schemaCompleteFunc != nil {
+		return m.schemaCompleteFunc(ctx, sys, user, schema)
+	}
+	if m.completeFunc != nil {
+		return m.completeFunc(ctx, user)
+	}
+	return "", nil
+}
 
 func TestTaxonomyEngine_Initialization(t *testing.T) {
 	// Simple smoke test for initialization

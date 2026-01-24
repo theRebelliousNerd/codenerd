@@ -5,26 +5,99 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
 	"codenerd/internal/logging"
 )
 
+// QuotaKey represents different quota pools
+type QuotaKey string
+
+const (
+	QuotaClaude            QuotaKey = "claude"
+	QuotaGeminiAntigravity QuotaKey = "gemini-antigravity"
+	QuotaGeminiCLI         QuotaKey = "gemini-cli"
+)
+
 // Account represents a stored Google account for Antigravity
 type Account struct {
+	Index            int       `json:"index"`
 	Email            string    `json:"email"`
-	RefreshToken     string    `json:"refresh_token"`
-	AccessToken      string    `json:"access_token,omitempty"`
-	AccessExpiry     time.Time `json:"access_expiry,omitempty"`
-	ProjectID        string    `json:"project_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	HealthScore      int       `json:"health_score"`
-	LastUsed         time.Time `json:"last_used,omitempty"`
-	LastError        string    `json:"last_error,omitempty"`
-	ConsecutiveFails int       `json:"consecutive_fails,omitempty"`
+	RefreshToken     string    `json:"refreshToken"`
+	AccessToken      string    `json:"accessToken,omitempty"`
+	AccessExpiry     time.Time `json:"-"`
+	ProjectID        string    `json:"projectId,omitempty"`
+	ManagedProjectID string    `json:"managedProjectId,omitempty"`
+
+	CreatedAt time.Time `json:"-"`
+	UpdatedAt time.Time `json:"-"`
+	LastUsed  time.Time `json:"-"`
+
+	// Rate Limiting & Cooldowns
+	RateLimitResetTimes map[string]time.Time `json:"-"`
+	CoolingDownUntil    time.Time            `json:"-"`
+	CooldownReason      string               `json:"cooldownReason,omitempty"`
+	ConsecutiveFailures int                  `json:"consecutiveFailures,omitempty"`
+}
+
+// Custom JSON marshalling to match TypeScript milliseconds timestamps
+type accountJSON struct {
+	Account
+	AccessExpiry        int64              `json:"accessExpiry,omitempty"`
+	AddedAt             int64              `json:"addedAt"`
+	UpdatedAt           int64              `json:"updatedAt"`
+	LastUsed            int64              `json:"lastUsed,omitempty"`
+	RateLimitResetTimes map[string]float64 `json:"rateLimitResetTimes,omitempty"`
+	CoolingDownUntil    int64              `json:"coolingDownUntil,omitempty"`
+}
+
+func (a *Account) MarshalJSON() ([]byte, error) {
+	resetTimes := make(map[string]float64)
+	for k, v := range a.RateLimitResetTimes {
+		resetTimes[k] = float64(v.UnixMilli())
+	}
+
+	return json.Marshal(accountJSON{
+		Account:             *a,
+		AccessExpiry:        a.AccessExpiry.UnixMilli(),
+		AddedAt:             a.CreatedAt.UnixMilli(),
+		UpdatedAt:           a.UpdatedAt.UnixMilli(),
+		LastUsed:            a.LastUsed.UnixMilli(),
+		RateLimitResetTimes: resetTimes,
+		CoolingDownUntil:    a.CoolingDownUntil.UnixMilli(),
+	})
+}
+
+func (a *Account) UnmarshalJSON(data []byte) error {
+	var aux accountJSON
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	*a = aux.Account
+	if aux.AccessExpiry > 0 {
+		a.AccessExpiry = time.UnixMilli(aux.AccessExpiry)
+	}
+	if aux.AddedAt > 0 {
+		a.CreatedAt = time.UnixMilli(aux.AddedAt)
+	}
+	if aux.UpdatedAt > 0 {
+		a.UpdatedAt = time.UnixMilli(aux.UpdatedAt)
+	}
+	if aux.LastUsed > 0 {
+		a.LastUsed = time.UnixMilli(aux.LastUsed)
+	}
+	if aux.CoolingDownUntil > 0 {
+		a.CoolingDownUntil = time.UnixMilli(aux.CoolingDownUntil)
+	}
+
+	a.RateLimitResetTimes = make(map[string]time.Time)
+	for k, v := range aux.RateLimitResetTimes {
+		a.RateLimitResetTimes[k] = time.UnixMilli(int64(v))
+	}
+
+	return nil
 }
 
 // IsAccessTokenExpired checks if access token is expired (with 60s buffer)
@@ -35,485 +108,400 @@ func (a *Account) IsAccessTokenExpired() bool {
 	return time.Now().Add(60 * time.Second).After(a.AccessExpiry)
 }
 
-// HealthScoreConfig configures the health score system
-type HealthScoreConfig struct {
-	Initial             int     `json:"initial"`
-	SuccessReward       int     `json:"success_reward"`
-	RateLimitPenalty    int     `json:"rate_limit_penalty"`
-	FailurePenalty      int     `json:"failure_penalty"`
-	RecoveryRatePerHour float64 `json:"recovery_rate_per_hour"`
-	MinUsable           int     `json:"min_usable"`
-	MaxScore            int     `json:"max_score"`
-}
-
-// DefaultHealthScoreConfig returns sensible defaults
-func DefaultHealthScoreConfig() HealthScoreConfig {
-	return HealthScoreConfig{
-		Initial:             70,
-		SuccessReward:       1,
-		RateLimitPenalty:    15, // Harsher penalty for 429s
-		FailurePenalty:      25,
-		RecoveryRatePerHour: 5, // Recover faster
-		MinUsable:           30,
-		MaxScore:            100,
+// IsRateLimited checks if the account is rate limited for a specific quota
+func (a *Account) IsRateLimited(quotaKey string) bool {
+	if a.RateLimitResetTimes == nil {
+		return false
 	}
+	resetTime, ok := a.RateLimitResetTimes[quotaKey]
+	if !ok {
+		return false
+	}
+	if time.Now().After(resetTime) {
+		delete(a.RateLimitResetTimes, quotaKey)
+		return false
+	}
+	return true
 }
 
-// AccountStore manages multiple Google accounts
-type AccountStore struct {
-	accountsFile string
-	accounts     map[string]*Account
-	config       HealthScoreConfig
-	mu           sync.RWMutex
+// AccountStorageV3 represents the disk format
+type AccountStorageV3 struct {
+	Version             int            `json:"version"`
+	Accounts            []*Account     `json:"accounts"`
+	ActiveIndex         int            `json:"activeIndex"`
+	ActiveIndexByFamily map[string]int `json:"activeIndexByFamily"`
 }
 
-// NewAccountStore creates a new account store
-func NewAccountStore() (*AccountStore, error) {
+// AccountManager manages multiple Google accounts with rotation logic
+type AccountManager struct {
+	filePath            string
+	accounts            []*Account
+	activeIndex         int
+	activeIndexByFamily map[string]int
+
+	healthTracker *HealthTracker
+	tokenTracker  *TokenTracker
+
+	mu sync.RWMutex
+}
+
+// NewAccountManager creates a new account manager
+func NewAccountManager() (*AccountManager, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
-	store := &AccountStore{
-		accountsFile: filepath.Join(home, ".nerd", "antigravity_accounts.json"),
-		accounts:     make(map[string]*Account),
-		config:       DefaultHealthScoreConfig(),
+	am := &AccountManager{
+		filePath:            filepath.Join(home, ".nerd", "antigravity_accounts.json"),
+		accounts:            make([]*Account, 0),
+		activeIndexByFamily: make(map[string]int),
+		// Initialize trackers with defaults
+		healthTracker: NewHealthTracker(DefaultHealthScoreConfig()),
+		tokenTracker:  NewTokenTracker(100, 10.0, 100), // Example: 100 tokens, 10/min regen
 	}
 
 	// Load existing accounts
-	_ = store.Load()
-
-	// Migrate from old single-token file if exists and no accounts
-	if len(store.accounts) == 0 {
-		store.migrateFromLegacy()
-	}
-
-	return store, nil
-}
-
-// migrateFromLegacy migrates from the old single-token file
-func (s *AccountStore) migrateFromLegacy() {
-	home, _ := os.UserHomeDir()
-	legacyFile := filepath.Join(home, ".nerd", "antigravity_tokens.json")
-
-	data, err := os.ReadFile(legacyFile)
-	if err != nil {
-		return // No legacy file
-	}
-
-	var oldToken struct {
-		AccessToken  string    `json:"access_token"`
-		RefreshToken string    `json:"refresh_token"`
-		Expiry       time.Time `json:"expiry"`
-		Email        string    `json:"email"`
-		ProjectID    string    `json:"project_id"`
-	}
-
-	if err := json.Unmarshal(data, &oldToken); err != nil {
-		return
-	}
-
-	if oldToken.Email != "" && oldToken.RefreshToken != "" {
-		now := time.Now()
-		account := &Account{
-			Email:        oldToken.Email,
-			RefreshToken: oldToken.RefreshToken,
-			AccessToken:  oldToken.AccessToken,
-			AccessExpiry: oldToken.Expiry,
-			ProjectID:    oldToken.ProjectID,
-			CreatedAt:    now,
-			UpdatedAt:    now,
-			HealthScore:  s.config.Initial,
+	if err := am.Load(); err != nil {
+		// Ignore load error if file doesn't exist, just start empty
+		if !os.IsNotExist(err) {
+			logging.PerceptionWarn("[Antigravity] Failed to load accounts: %v", err)
 		}
-
-		s.accounts[account.Email] = account
-		s.Save()
-
-		logging.PerceptionDebug("[Antigravity] Migrated legacy token for %s", account.Email)
 	}
+
+	return am, nil
 }
 
 // Load loads accounts from disk
-func (s *AccountStore) Load() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (am *AccountManager) Load() error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-	data, err := os.ReadFile(s.accountsFile)
+	data, err := os.ReadFile(am.filePath)
 	if err != nil {
 		return err
 	}
 
-	var accounts []*Account
-	if err := json.Unmarshal(data, &accounts); err != nil {
-		return err
+	// Try V3 format
+	var storage AccountStorageV3
+	if err := json.Unmarshal(data, &storage); err == nil && storage.Version == 3 {
+		am.accounts = storage.Accounts
+		am.activeIndex = storage.ActiveIndex
+		am.activeIndexByFamily = storage.ActiveIndexByFamily
+		if am.activeIndexByFamily == nil {
+			am.activeIndexByFamily = make(map[string]int)
+		}
+		// Re-index accounts
+		for i, acc := range am.accounts {
+			acc.Index = i
+			if acc.RateLimitResetTimes == nil {
+				acc.RateLimitResetTimes = make(map[string]time.Time)
+			}
+		}
+		return nil
 	}
 
-	s.accounts = make(map[string]*Account)
-	for _, acc := range accounts {
-		s.accounts[acc.Email] = acc
+	// Fallback: Try legacy format (list of accounts)
+	var legacyAccounts []*Account
+	if err := json.Unmarshal(data, &legacyAccounts); err == nil {
+		am.accounts = legacyAccounts
+		am.activeIndex = 0
+		am.activeIndexByFamily = make(map[string]int)
+		for i, acc := range am.accounts {
+			acc.Index = i
+			acc.RateLimitResetTimes = make(map[string]time.Time)
+		}
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("unknown account file format")
 }
 
 // Save saves accounts to disk
-func (s *AccountStore) Save() error {
-	s.mu.RLock()
-	accounts := make([]*Account, 0, len(s.accounts))
-	for _, acc := range s.accounts {
-		accounts = append(accounts, acc)
+func (am *AccountManager) Save() error {
+	am.mu.RLock()
+	storage := AccountStorageV3{
+		Version:             3,
+		Accounts:            am.accounts,
+		ActiveIndex:         am.activeIndex,
+		ActiveIndexByFamily: am.activeIndexByFamily,
 	}
-	s.mu.RUnlock()
+	am.mu.RUnlock()
 
-	data, err := json.MarshalIndent(accounts, "", "  ")
+	data, err := json.MarshalIndent(storage, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	dir := filepath.Dir(s.accountsFile)
+	dir := filepath.Dir(am.filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(s.accountsFile, data, 0600)
+	return os.WriteFile(am.filePath, data, 0600)
 }
 
 // AddAccount adds or updates an account
-func (s *AccountStore) AddAccount(account *Account) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (am *AccountManager) AddAccount(account *Account) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-	if account.Email == "" {
-		return fmt.Errorf("account email is required")
+	// Check if account exists by email
+	for i, existing := range am.accounts {
+		if existing.Email == account.Email {
+			// Update existing
+			existing.RefreshToken = account.RefreshToken
+			existing.AccessToken = account.AccessToken
+			existing.AccessExpiry = account.AccessExpiry
+			existing.UpdatedAt = time.Now()
+			if account.ProjectID != "" {
+				existing.ProjectID = account.ProjectID
+			}
+			am.accounts[i] = existing
+			return am.saveUnlocked()
+		}
 	}
 
-	now := time.Now()
-	if existing, ok := s.accounts[account.Email]; ok {
-		// Update existing
-		existing.RefreshToken = account.RefreshToken
-		existing.AccessToken = account.AccessToken
-		existing.AccessExpiry = account.AccessExpiry
-		existing.UpdatedAt = now
-		if account.ProjectID != "" {
-			existing.ProjectID = account.ProjectID
+	// Add new
+	account.Index = len(am.accounts)
+	account.CreatedAt = time.Now()
+	account.UpdatedAt = time.Now()
+	account.RateLimitResetTimes = make(map[string]time.Time)
+	am.accounts = append(am.accounts, account)
+
+	return am.saveUnlocked()
+}
+
+// DeleteAccount removes an account by email
+func (am *AccountManager) DeleteAccount(email string) error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	idx := -1
+	for i, acc := range am.accounts {
+		if acc.Email == email {
+			idx = i
+			break
 		}
-	} else {
-		// New account
-		account.CreatedAt = now
-		account.UpdatedAt = now
-		if account.HealthScore == 0 {
-			account.HealthScore = s.config.Initial
-		}
-		s.accounts[account.Email] = account
 	}
 
-	return s.saveUnlocked()
+	if idx == -1 {
+		return fmt.Errorf("account not found")
+	}
+
+	// Remove from slice
+	am.accounts = append(am.accounts[:idx], am.accounts[idx+1:]...)
+
+	// Re-index
+	for i, acc := range am.accounts {
+		acc.Index = i
+	}
+
+	// Adjust active indices if needed
+	// Simplification: just reset to 0 if out of bounds
+	if am.activeIndex >= len(am.accounts) {
+		am.activeIndex = 0
+	}
+	for k, v := range am.activeIndexByFamily {
+		if v >= len(am.accounts) {
+			am.activeIndexByFamily[k] = 0
+		}
+	}
+
+	return am.saveUnlocked()
 }
 
 // GetAccount retrieves an account by email
-func (s *AccountStore) GetAccount(email string) (*Account, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	acc, ok := s.accounts[email]
-	return acc, ok
+func (am *AccountManager) GetAccount(email string) *Account {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	for _, acc := range am.accounts {
+		if acc.Email == email {
+			return acc
+		}
+	}
+	return nil
 }
 
 // ListAccounts returns all accounts
-func (s *AccountStore) ListAccounts() []*Account {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (am *AccountManager) ListAccounts() []*Account {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
+	result := make([]*Account, len(am.accounts))
+	copy(result, am.accounts)
+	return result
+}
 
-	accounts := make([]*Account, 0, len(s.accounts))
-	for _, acc := range s.accounts {
-		accounts = append(accounts, acc)
+// GetCurrentOrNextForFamily selects an account for a given model family
+func (am *AccountManager) GetCurrentOrNextForFamily(family string, model string, strategy string) (*Account, error) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if len(am.accounts) == 0 {
+		return nil, fmt.Errorf("no accounts configured")
 	}
 
-	// Sort by email for consistent ordering
-	sort.Slice(accounts, func(i, j int) bool {
-		return accounts[i].Email < accounts[j].Email
-	})
-
-	return accounts
-}
-
-// DeleteAccount removes an account
-func (s *AccountStore) DeleteAccount(email string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.accounts, email)
-	return s.saveUnlocked()
-}
-
-// GetEffectiveScore calculates score with time-based recovery
-func (s *AccountStore) GetEffectiveScore(account *Account) int {
-	hoursSinceUpdate := time.Since(account.UpdatedAt).Hours()
-	recoveredPoints := int(hoursSinceUpdate * s.config.RecoveryRatePerHour)
-
-	score := account.HealthScore + recoveredPoints
-	if score > s.config.MaxScore {
-		score = s.config.MaxScore
+	// Identify quota key
+	// Simple mapping for now
+	var quotaKey string
+	if family == "claude" {
+		quotaKey = "claude"
+	} else {
+		// Default to Antigravity for Gemini models
+		quotaKey = "gemini-antigravity"
 	}
 
-	return score
+	if strategy == "hybrid" {
+		// Hybrid strategy using HealthTracker & TokenTracker
+		candidates := make([]AccountWithMetrics, len(am.accounts))
+		for i, acc := range am.accounts {
+			candidates[i] = AccountWithMetrics{
+				Index:         acc.Index,
+				LastUsed:      acc.LastUsed,
+				HealthScore:   am.healthTracker.GetScore(acc.Index),
+				IsRateLimited: acc.IsRateLimited(quotaKey),
+				IsCoolingDown: time.Now().Before(acc.CoolingDownUntil),
+			}
+		}
+
+		selectedIndex := SelectHybridAccount(candidates, am.tokenTracker)
+		if selectedIndex >= 0 {
+			selected := am.accounts[selectedIndex]
+			selected.LastUsed = time.Now()
+			am.activeIndexByFamily[family] = selectedIndex
+			am.saveUnlocked() // Async save in real impl, sync here for safety
+			return selected, nil
+		}
+	}
+
+	// Fallback: Sticky / Round-Robin
+	// Check current
+	currentIndex := am.activeIndexByFamily[family]
+	if currentIndex >= 0 && currentIndex < len(am.accounts) {
+		current := am.accounts[currentIndex]
+		if !current.IsRateLimited(quotaKey) && !time.Now().Before(current.CoolingDownUntil) {
+			current.LastUsed = time.Now()
+			return current, nil
+		}
+	}
+
+	// Find next available
+	for i := 0; i < len(am.accounts); i++ {
+		idx := (currentIndex + 1 + i) % len(am.accounts)
+		candidate := am.accounts[idx]
+		if !candidate.IsRateLimited(quotaKey) && !time.Now().Before(candidate.CoolingDownUntil) {
+			am.activeIndexByFamily[family] = idx
+			candidate.LastUsed = time.Now()
+			am.saveUnlocked()
+			return candidate, nil
+		}
+	}
+
+	return nil, fmt.Errorf("all accounts rate limited")
 }
 
-// IsUsable checks if an account is healthy enough to use
-func (s *AccountStore) IsUsable(account *Account) bool {
-	return s.GetEffectiveScore(account) >= s.config.MinUsable
-}
+// MarkRateLimited marks an account as rate limited for a quota
+func (am *AccountManager) MarkRateLimited(index int, quotaKey string, retryAfter time.Duration) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-// RecordSuccess records a successful request
-func (s *AccountStore) RecordSuccess(email string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	acc, ok := s.accounts[email]
-	if !ok {
+	if index < 0 || index >= len(am.accounts) {
 		return
 	}
 
-	score := s.GetEffectiveScore(acc) + s.config.SuccessReward
-	if score > s.config.MaxScore {
-		score = s.config.MaxScore
+	acc := am.accounts[index]
+	if acc.RateLimitResetTimes == nil {
+		acc.RateLimitResetTimes = make(map[string]time.Time)
 	}
+	acc.RateLimitResetTimes[quotaKey] = time.Now().Add(retryAfter)
+	acc.ConsecutiveFailures++
 
-	acc.HealthScore = score
-	acc.LastUsed = time.Now()
-	acc.UpdatedAt = time.Now()
-	acc.ConsecutiveFails = 0
-	acc.LastError = ""
+	// Update health
+	am.healthTracker.RecordRateLimit(index)
 
-	s.saveUnlocked()
+	am.saveUnlocked()
 }
 
-// RecordRateLimit records a rate limit (429) hit
-func (s *AccountStore) RecordRateLimit(email string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// MarkSuccess marks a request as successful
+func (am *AccountManager) MarkSuccess(index int) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
 
-	acc, ok := s.accounts[email]
-	if !ok {
+	if index < 0 || index >= len(am.accounts) {
 		return
 	}
 
-	score := s.GetEffectiveScore(acc) - s.config.RateLimitPenalty
-	if score < 0 {
-		score = 0
-	}
+	acc := am.accounts[index]
+	acc.ConsecutiveFailures = 0
 
-	acc.HealthScore = score
-	acc.UpdatedAt = time.Now()
-	acc.ConsecutiveFails++
-	acc.LastError = "rate_limited"
+	// Update health
+	am.healthTracker.RecordSuccess(index)
 
-	s.saveUnlocked()
-
-	logging.PerceptionWarn("[Antigravity] Account %s rate limited, health: %d", email, score)
+	am.saveUnlocked()
 }
 
-// RecordFailure records a general failure
-func (s *AccountStore) RecordFailure(email string, errMsg string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	acc, ok := s.accounts[email]
-	if !ok {
-		return
+func (am *AccountManager) saveUnlocked() error {
+	storage := AccountStorageV3{
+		Version:             3,
+		Accounts:            am.accounts,
+		ActiveIndex:         am.activeIndex,
+		ActiveIndexByFamily: am.activeIndexByFamily,
 	}
 
-	score := s.GetEffectiveScore(acc) - s.config.FailurePenalty
-	if score < 0 {
-		score = 0
-	}
-
-	acc.HealthScore = score
-	acc.UpdatedAt = time.Now()
-	acc.ConsecutiveFails++
-	acc.LastError = errMsg
-
-	s.saveUnlocked()
-
-	logging.PerceptionWarn("[Antigravity] Account %s failed: %s, health: %d", email, errMsg, score)
-}
-
-// UpdateToken updates the access token for an account
-func (s *AccountStore) UpdateToken(email, accessToken string, expiry time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	acc, ok := s.accounts[email]
-	if !ok {
-		return
-	}
-
-	acc.AccessToken = accessToken
-	acc.AccessExpiry = expiry
-	acc.UpdatedAt = time.Now()
-
-	s.saveUnlocked()
-}
-
-// UpdateProjectID updates the project ID for an account
-func (s *AccountStore) UpdateProjectID(email, projectID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	acc, ok := s.accounts[email]
-	if !ok {
-		return
-	}
-
-	acc.ProjectID = projectID
-	acc.UpdatedAt = time.Now()
-
-	s.saveUnlocked()
-}
-
-// saveUnlocked saves without acquiring lock (caller must hold lock)
-func (s *AccountStore) saveUnlocked() error {
-	accounts := make([]*Account, 0, len(s.accounts))
-	for _, acc := range s.accounts {
-		accounts = append(accounts, acc)
-	}
-
-	data, err := json.MarshalIndent(accounts, "", "  ")
+	data, err := json.MarshalIndent(storage, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	dir := filepath.Dir(s.accountsFile)
+	dir := filepath.Dir(am.filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(s.accountsFile, data, 0600)
+	return os.WriteFile(am.filePath, data, 0600)
 }
 
-// AccountSelector selects the best account for a request
-type AccountSelector struct {
-	store *AccountStore
+// GetHealthTracker returns the health tracker
+func (am *AccountManager) GetHealthTracker() *HealthTracker {
+	return am.healthTracker
 }
 
-// NewAccountSelector creates a new account selector
-func NewAccountSelector(store *AccountStore) *AccountSelector {
-	return &AccountSelector{store: store}
+// GetTokenTracker returns the token tracker
+func (am *AccountManager) GetTokenTracker() *TokenTracker {
+	return am.tokenTracker
 }
 
-// SelectBest selects the best account based on health score and LRU
-func (s *AccountSelector) SelectBest() (*Account, error) {
-	accounts := s.store.ListAccounts()
+// GetStats returns account statistics for debugging
+func (am *AccountManager) GetStats() map[string]interface{} {
+	am.mu.RLock()
+	defer am.mu.RUnlock()
 
-	if len(accounts) == 0 {
-		return nil, fmt.Errorf("no accounts configured - run 'codenerd auth antigravity' to add an account")
-	}
+	stats := make(map[string]interface{})
+	stats["total_accounts"] = len(am.accounts)
+	stats["active_index"] = am.activeIndex
 
-	// Filter usable accounts and score them
-	type scored struct {
-		account *Account
-		score   float64
-	}
-
-	var candidates []scored
-	var unusable []*Account
-
-	for _, acc := range accounts {
-		if !s.store.IsUsable(acc) {
-			unusable = append(unusable, acc)
-			continue
-		}
-
-		healthScore := s.store.GetEffectiveScore(acc)
-		secondsSinceUsed := time.Since(acc.LastUsed).Seconds()
-
-		// Priority: health (weight 3) + freshness (weight 0.01, capped at 1hr)
-		// Accounts not used recently get slight preference (LRU)
-		freshnessBonus := min(secondsSinceUsed, 3600) * 0.01
-		priorityScore := float64(healthScore)*3 + freshnessBonus
-
-		// Penalize accounts with consecutive failures
-		if acc.ConsecutiveFails > 0 {
-			priorityScore -= float64(acc.ConsecutiveFails) * 5
-		}
-
-		candidates = append(candidates, scored{
-			account: acc,
-			score:   priorityScore,
-		})
-	}
-
-	if len(candidates) == 0 {
-		// All accounts exhausted - return the one with highest potential recovery
-		if len(unusable) > 0 {
-			sort.Slice(unusable, func(i, j int) bool {
-				return s.store.GetEffectiveScore(unusable[i]) > s.store.GetEffectiveScore(unusable[j])
-			})
-			logging.PerceptionWarn("[Antigravity] All accounts exhausted, using least-damaged: %s", unusable[0].Email)
-			return unusable[0], nil
-		}
-		return nil, fmt.Errorf("no usable accounts")
-	}
-
-	// Sort by priority score descending
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
-	})
-
-	selected := candidates[0].account
-	logging.PerceptionDebug("[Antigravity] Selected account %s (health: %d, score: %.1f)",
-		selected.Email, s.store.GetEffectiveScore(selected), candidates[0].score)
-
-	return selected, nil
-}
-
-// SelectNext selects the next best account, excluding the given email
-func (s *AccountSelector) SelectNext(excludeEmail string) (*Account, error) {
-	accounts := s.store.ListAccounts()
-
-	var candidates []*Account
-	for _, acc := range accounts {
-		if acc.Email != excludeEmail && s.store.IsUsable(acc) {
-			candidates = append(candidates, acc)
+	accountStats := make([]map[string]interface{}, len(am.accounts))
+	for i, acc := range am.accounts {
+		accountStats[i] = map[string]interface{}{
+			"email":        acc.Email,
+			"health_score": am.healthTracker.GetScore(acc.Index),
+			"is_expired":   acc.IsAccessTokenExpired(),
+			"failures":     acc.ConsecutiveFailures,
 		}
 	}
+	stats["accounts"] = accountStats
 
-	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no alternative accounts available")
-	}
-
-	// Sort by health score
-	sort.Slice(candidates, func(i, j int) bool {
-		return s.store.GetEffectiveScore(candidates[i]) > s.store.GetEffectiveScore(candidates[j])
-	})
-
-	return candidates[0], nil
+	return stats
 }
 
-// GetStats returns statistics about accounts
-func (s *AccountSelector) GetStats() map[string]interface{} {
-	accounts := s.store.ListAccounts()
-
-	var healthy, exhausted, total int
-	for _, acc := range accounts {
-		total++
-		if s.store.IsUsable(acc) {
-			healthy++
-		} else {
-			exhausted++
-		}
-	}
-
-	return map[string]interface{}{
-		"total":     total,
-		"healthy":   healthy,
-		"exhausted": exhausted,
-	}
+// GetEffectiveScore returns the health score for an account.
+// This is a convenience method for backward compatibility with config_wizard.
+func (am *AccountManager) GetEffectiveScore(acc *Account) int {
+	return am.healthTracker.GetScore(acc.Index)
 }
 
-func min(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
+// NewAccountStore is an alias for NewAccountManager for backward compatibility.
+// Deprecated: Use NewAccountManager instead.
+func NewAccountStore() (*AccountManager, error) {
+	return NewAccountManager()
 }

@@ -174,6 +174,34 @@ Example:
 	RunE: runDirectAction("coder", "/refactor"),
 }
 
+// securityCmd runs security analysis
+var securityCmd = &cobra.Command{
+	Use:   "security <target>",
+	Short: "Run security analysis on code",
+	Long: `Spawns SecurityShard to analyze code for vulnerabilities.
+Equivalent to typing "security <target>" in the TUI.
+
+Example:
+  nerd security internal/auth/
+  nerd security handlers/user.go`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("security", "/security"),
+}
+
+// analyzeCmd runs general code analysis
+var analyzeCmd = &cobra.Command{
+	Use:   "analyze <target>",
+	Short: "Run general analysis on code",
+	Long: `Spawns ResearcherShard to analyze code structure and patterns.
+Equivalent to typing "analyze <target>" in the TUI.
+
+Example:
+  nerd analyze internal/core/
+  nerd analyze "the authentication flow"`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: runDirectAction("researcher", "/analyze"),
+}
+
 // perceptionCmd tests perception/intent recognition
 var perceptionCmd = &cobra.Command{
 	Use:   "perception <input>",
@@ -191,8 +219,26 @@ Example:
 // runDirectAction creates a handler for direct action commands
 func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
+		target := strings.Join(args, " ")
+
+		// Interactive mode: use multi-turn feedback loop
+		if interactiveMode {
+			return runInteractiveAction(shardType, verb, target)
+		}
+
+		// Initialize verbose tracer if --verbose flag is set
+		PrintVerboseHeader()
+		tracer := NewDebugTracer()
+		defer tracer.Summary()
+
+		tracer.TracePhase("INITIALIZATION")
+		tracer.Trace("CONFIG", "timeout=%v, workspace=%s", timeout, workspace)
+		tracer.Trace("CONFIG", "shard=%s, verb=%s", shardType, verb)
+
+		// One-shot mode (original behavior)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		tracer.TraceContext("created with timeout %v", timeout)
 
 		// Handle graceful shutdown
 		sigCh := make(chan os.Signal, 1)
@@ -200,10 +246,10 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		go func() {
 			<-sigCh
 			fmt.Println("\n⏹️  Interrupted")
+			tracer.Trace("SIGNAL", "received interrupt signal")
 			cancel()
 		}()
 
-		target := strings.Join(args, " ")
 		task := fmt.Sprintf("%s %s", strings.TrimPrefix(verb, "/"), target)
 
 		fmt.Printf("🔧 Action: %s\n", verb)
@@ -216,30 +262,50 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 		if key == "" {
 			key = os.Getenv("ZAI_API_KEY")
 		}
+		tracer.Trace("CONFIG", "API key source: %s", func() string {
+			if apiKey != "" {
+				return "flag"
+			}
+			return "env"
+		}())
 
 		// Boot Cortex
+		tracer.TracePhase("CORTEX BOOT")
+		bootStart := time.Now()
 		cortex, err := coresys.GetOrBootCortex(ctx, workspace, key, nil)
 		if err != nil {
+			tracer.TraceError("cortex boot failed: %v", err)
 			return fmt.Errorf("failed to boot cortex: %w", err)
 		}
 		defer cortex.Close()
+		tracer.Trace("CORTEX", "booted in %v", time.Since(bootStart).Round(time.Millisecond))
 
 		// Add usage tracker
 		if cortex.UsageTracker != nil {
 			ctx = usage.NewContext(ctx, cortex.UsageTracker)
+			tracer.Trace("CORTEX", "usage tracker attached")
 		}
 
 		// Spawn shard directly - use unified SpawnTask
+		tracer.TracePhase("SHARD EXECUTION")
+		tracer.TraceShard("spawning %s with task: %s", shardType, task)
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
+
+		shardStart := time.Now()
 		result, err := cortex.SpawnTask(ctx, shardType, task)
+		shardDuration := time.Since(shardStart)
+
 		if err != nil {
+			tracer.TraceError("shard failed after %v: %v", shardDuration.Round(time.Millisecond), err)
 			return fmt.Errorf("shard execution failed: %w", err)
 		}
+		tracer.TraceShard("completed in %v, result length: %d chars", shardDuration.Round(time.Millisecond), len(result))
 
 		fmt.Println(strings.Repeat("─", 50))
 		fmt.Println("📋 Result:")
 		fmt.Println(result)
 
+		tracer.TracePhase("COMPLETE")
 		return nil
 	}
 }

@@ -191,12 +191,12 @@
   },
   "jit": {
     "enabled": false,
-    "fallback_enabled": false,
-    "token_budget": 0,
-    "reserved_tokens": 0,
+    "fallback_enabled": true,
+    "token_budget": 8000,
+    "reserved_tokens": 1000,
     "debug_mode": true,
     "trace_llm_io": true,
-    "semantic_top_k": 0
+    "semantic_top_k": 5
   },
   "learning_candidate_threshold": 3
 }

@@ -195,6 +195,17 @@ func init() {
 	// System shard controls
 	runCmd.Flags().StringSliceVar(&disableSystemShards, "disable-system-shard", nil, "Disable a Type 1 system shard by name")
 
+	// Interactive mode flag for direct action commands
+	// Enables multi-turn feedback loops with refine/redo/approve meta-commands
+	directActionCmds := []*cobra.Command{reviewCmd, fixCmd, testCmd, explainCmd, createCmd, refactorCmd}
+	for _, cmd := range directActionCmds {
+		cmd.Flags().BoolVarP(&interactiveMode, "interactive", "i", false, "Enable interactive mode with feedback loop")
+	}
+
+	// Debug flags for direct action commands
+	// Enables verbose tracing, dry-run mode, kernel dump, and API tracing
+	registerDebugFlags(directActionCmds...)
+
 	// Init flags
 	initCmd.Flags().BoolVarP(&forceInit, "force", "f", false, "Force reinitialize (preserves learned preferences)")
 	initCmd.Flags().BoolVar(&cleanupBackups, "cleanup-backups", false, "Remove backup files from previous migrations")
@@ -263,6 +274,8 @@ func init() {
 		createCmd,
 		refactorCmd,
 		perceptionCmd,
+		securityCmd, // security analysis
+		analyzeCmd,  // general analysis
 	)
 
 	// Advanced commands (dream state, shadow mode, etc.)
@@ -288,6 +301,23 @@ func init() {
 		mcpCmd,
 		autopoiesisCmd,
 		memoryCmd,
+	)
+
+	// Session management commands
+	rootCmd.AddCommand(
+		sessionsCmd,
+	)
+
+	// Knowledge base commands
+	rootCmd.AddCommand(
+		knowledgeCmd,
+	)
+
+	// Transparency/introspection commands
+	rootCmd.AddCommand(
+		glassboxCmd,
+		transparencyCmd,
+		reflectionCmd,
 	)
 }
 

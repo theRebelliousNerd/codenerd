@@ -470,12 +470,41 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("no completion returned")
 		}
 
-		var result strings.Builder
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			result.WriteString(part.Text)
+		// Separate thought parts from response parts for clear presentation
+		var thoughtContent strings.Builder
+		var responseContent strings.Builder
+		numThoughtParts := 0
+		for i, part := range geminiResp.Candidates[0].Content.Parts {
+			logging.PerceptionDebug("[Gemini] Part %d: thought=%t text_len=%d", i, part.Thought, len(part.Text))
+			if part.Thought {
+				thoughtContent.WriteString(part.Text)
+				numThoughtParts++
+			} else {
+				responseContent.WriteString(part.Text)
+			}
 		}
+		logging.PerceptionDebug("[Gemini] CompleteWithSystem: %d thought parts, thoughtSummary=%d chars",
+			numThoughtParts, len(geminiResp.ThoughtSummary))
 
-		response := strings.TrimSpace(result.String())
+		// Build final response with thinking section if present
+		// Use part-level thoughts if available, otherwise fall back to response-level thoughtSummary
+		var result strings.Builder
+		thinkingText := strings.TrimSpace(thoughtContent.String())
+		if thinkingText == "" && geminiResp.ThoughtSummary != "" {
+			thinkingText = strings.TrimSpace(geminiResp.ThoughtSummary)
+		}
+		if thinkingText != "" {
+			result.WriteString("🧠 **Thinking:**\n")
+			result.WriteString(thinkingText)
+			result.WriteString("\n\n---\n\n")
+		}
+		result.WriteString(strings.TrimSpace(responseContent.String()))
+		response := result.String()
+
+		// Store thought summary for API access
+		if thinkingText != "" && c.lastThoughtSummary == "" {
+			c.lastThoughtSummary = thinkingText
+		}
 
 		// Extract and store grounding sources for transparency
 		c.lastGroundingSources = nil // Reset
@@ -494,8 +523,8 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		// Log thinking tokens if used
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources))
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d thinking_chars=%d grounding_sources=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, thoughtContent.Len(), len(c.lastGroundingSources))
 		} else {
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources))
@@ -507,7 +536,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
-const geminiSchemaDepthLimit = 6
+const geminiSchemaDepthLimit = 10 // Gemini 3 can handle deeper nesting
 
 func schemaMaxDepth(value interface{}, depth int) int {
 	maxDepth := depth
@@ -641,7 +670,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:      1.0,
 			MaxOutputTokens:  c.maxOutputTokens,
-			ThinkingConfig:   c.buildThinkingConfig(),
+			ThinkingConfig:   c.buildThinkingConfig(), // Thinking enabled - thought parts will be filtered
 			ResponseMimeType: "application/json",
 			ResponseSchema:   schema,
 		},
@@ -723,9 +752,21 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			return "", fmt.Errorf("no completion returned")
 		}
 
+		// Filter out thought parts - only include non-thought content for structured output
 		var result strings.Builder
+		var thoughtContent strings.Builder
 		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			result.WriteString(part.Text)
+			if part.Thought {
+				// Capture thought content separately for logging/debugging
+				thoughtContent.WriteString(part.Text)
+			} else {
+				result.WriteString(part.Text)
+			}
+		}
+
+		// Log thought summary if any thinking was done
+		if thoughtContent.Len() > 0 {
+			logging.PerceptionDebug("[Gemini] CompleteWithSchema: thought summary length=%d", thoughtContent.Len())
 		}
 
 		response := strings.TrimSpace(result.String())
@@ -1243,7 +1284,8 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 
 	// Build request with thought signature for reasoning continuity
 	reqBody := GeminiRequest{
-		Contents: allContents,
+		Contents:         allContents,
+		ThoughtSignature: c.lastThoughtSignature, // CRITICAL: Pass signature back for Gemini 3
 		GenerationConfig: GeminiGenerationConfig{
 			Temperature:     1.0,
 			MaxOutputTokens: c.maxOutputTokens,
