@@ -190,6 +190,7 @@ func (p *LogicPane) ToggleActivation() {
 }
 
 // SelectNext selects the next node
+// TODO: Implement circular navigation (wrap around to top).
 func (p *LogicPane) SelectNext() {
 	if len(p.Nodes) == 0 {
 		return
@@ -410,6 +411,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 }
 
 // renderLegend renders the legend explaining the symbols
+// TODO: Make legend responsive or collapsible on smaller screens.
 func (p *LogicPane) renderLegend() string {
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
