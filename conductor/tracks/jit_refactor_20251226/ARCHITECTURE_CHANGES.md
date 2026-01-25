@@ -24,7 +24,7 @@ codeNERD has undergone a fundamental architectural transformation, replacing har
 
 ### Old Architecture (Pre-Dec 2024)
 
-```
+```text
 User Input → Perception → user_intent fact
                               ↓
                         ShardManager
@@ -49,7 +49,7 @@ User Input → Perception → user_intent fact
 
 ### New Architecture (Post-Dec 2024)
 
-```
+```text
 User Input → Perception → user_intent atoms
                               ↓
                     Intent Routing (Mangle)
@@ -221,7 +221,7 @@ Three lifecycle types:
 
 ## Configuration Flow
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                      User Input                             │
 │              "Fix the null pointer in auth.go"              │
@@ -468,3 +468,6 @@ The LLM remains the creative center, but now the Mangle logic kernel has even mo
 **Authored by:** Session Executor (via Claude Sonnet 4.5)
 **Date:** December 27, 2024
 **Branch:** `claude/update-jit-docs-T0d8g`
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

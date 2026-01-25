@@ -27,7 +27,7 @@ In the new architecture, there is no `CoderShard` class or `TesterShard` struct.
 
 ## Architecture Context
 
-```
+```text
 User Input → Intent Routing → ConfigFactory → JIT Compiler
                                     ↓              ↓
                               ConfigAtom    Prompt Atoms
@@ -267,7 +267,7 @@ agentConfig := &config.AgentConfig{
 
 ### Complete Flow
 
-```
+```text
 User: "Fix the bug in auth.go"
   ↓
 Transducer → user_intent(_, _, /fix, "auth.go", _)
@@ -512,3 +512,6 @@ type AgentConfig struct {
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -97,7 +97,7 @@ type SecurityViolation struct {
 
 ## System Shard Lifecycle
 
-```
+```text
 Application Start
     |
     +--[StartupAuto]
@@ -119,7 +119,7 @@ Application Start
 
 ## OODA Loop Integration
 
-```
+```text
 User Input
     |
     v
@@ -169,3 +169,6 @@ go test ./internal/shards/system/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

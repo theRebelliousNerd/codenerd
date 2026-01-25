@@ -92,7 +92,7 @@ All tasks follow a strict lifecycle:
     -   The plan you present to the user **must** follow this format:
 
         **For a Frontend Change:**
-        ```
+```text
         The automated tests have passed. For manual verification, please follow these steps:
 
         **Manual Verification Steps:**
@@ -102,7 +102,7 @@ All tasks follow a strict lifecycle:
         ```
 
         **For a Backend Change:**
-        ```
+```text
         The automated tests have passed. For manual verification, please follow these steps:
 
         **Manual Verification Steps:**
@@ -235,7 +235,7 @@ Before requesting review:
 ## Commit Guidelines
 
 ### Message Format
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
@@ -331,3 +331,6 @@ A task is complete when:
 - Document lessons learned
 - Optimize for user happiness
 - Keep things simple and maintainable
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

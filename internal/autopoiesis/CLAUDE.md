@@ -63,7 +63,7 @@ Autopoiesis provides ten core capabilities:
 Named after the ancient symbol of a serpent eating its own tail, the Ouroboros Loop enables codeNERD to generate new tools at runtime.
 
 ### Loop Stages
-```
+```text
 Detection → Specification → Safety Check → Compile → Register → Execute
     ↑                                                              |
     └────────── Evaluate → Detect Patterns → Refine ───────────────┘
@@ -85,7 +85,7 @@ Detection → Specification → Safety Check → Compile → Register → Execut
 The feedback system closes the autopoiesis loop by learning from tool executions.
 
 ### Learning Loop
-```
+```text
 Execute Tool → Evaluate Quality → Detect Patterns → Refine Tool
       ↑                                                  |
       └────────────────────────────────────────────────→┘
@@ -350,7 +350,7 @@ Scenario: A tool fetches docs but only gets 10% of available data.
 
 ## Directory Structure
 
-```
+```text
 .nerd/
 ├── tools/
 │   ├── context7_docs.go        # Generated source
@@ -514,7 +514,7 @@ audit, _ := orchestrator.AnalyzeGenerations(ctx)
 
 ## Directory Structure
 
-```
+```text
 .nerd/
 ├── tools/
 │   ├── context7_docs.go        # Generated source (with logging)
@@ -535,7 +535,7 @@ The Thunderdome is where tools fight for survival. Attack vectors are run agains
 
 ### Battle Flow
 
-```
+```text
 Tool Generated → Thunderdome.Battle() → Attack Vectors Run → BattleResult
                         |
                         v
@@ -596,3 +596,6 @@ go test ./internal/autopoiesis/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

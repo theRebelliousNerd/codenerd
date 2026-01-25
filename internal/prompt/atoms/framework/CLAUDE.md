@@ -31,3 +31,6 @@ Framework atoms are selected via `frameworks` selector:
 ```yaml
 frameworks: ["/bubbletea", "/lipgloss"]
 ```
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

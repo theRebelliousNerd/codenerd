@@ -277,3 +277,6 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

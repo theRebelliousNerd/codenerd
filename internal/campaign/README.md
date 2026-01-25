@@ -10,7 +10,7 @@ The campaign package implements long-running campaign orchestration for complex,
 
 ## Architecture
 
-```
+```text
 Goal → Decomposer → Campaign Plan → Orchestrator
                                          ↓
               ┌──────────────────────────┴──────────────────────────┐
@@ -22,7 +22,7 @@ Goal → Decomposer → Campaign Plan → Orchestrator
 
 ## Structure
 
-```
+```text
 campaign/
 ├── orchestrator.go            # Package marker (modularized)
 ├── orchestrator_*.go          # Modular orchestrator files (11 files)
@@ -91,7 +91,7 @@ campaign := NewAdversarialAssaultCampaign(config)
 
 ## Directory Structure
 
-```
+```text
 .nerd/campaigns/
 ├── feature-auth.json         # Campaign state
 └── feature-auth/
@@ -107,3 +107,6 @@ CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go test ./internal/campai
 ---
 
 **Last Updated:** December 2024
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -29,3 +29,6 @@ Each methodology defines:
 - Step-by-step process
 - Success criteria
 - Exit conditions
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -26,7 +26,7 @@ go run ./cmd/tools/verify_taxonomy
 
 ## Output Format
 
-```
+```text
 >>> Input: "review this code"
     Goal:  /review (Direct keyword match)
     Result: /review [mutation] (Conf: 0.95) -> Shard: reviewer
@@ -54,3 +54,6 @@ go run ./cmd/tools/verify_taxonomy
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

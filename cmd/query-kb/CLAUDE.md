@@ -42,3 +42,6 @@ go run deep_query.go .nerd/shards/researcher_knowledge.db --atoms
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

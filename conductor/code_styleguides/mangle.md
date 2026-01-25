@@ -54,3 +54,6 @@ Decl file_topology(
 - **Spreading Activation:** Use activation scores to manage LLM context injection.
 - **Piggyback Control:** Rules should support the dual-channel protocol by emitting `control_packet` atoms.
 - **Adversarial Hardening:** Write rules that assume potential failure and derive corrective actions or escalations.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

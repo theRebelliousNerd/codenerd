@@ -4,7 +4,7 @@ Implements System Prompt Learning (SPL) for codeNERD, enabling automatic evoluti
 
 ## Architecture
 
-```
+```text
 Execute → Evaluate (LLM-as-Judge) → Evolve (Meta-Prompt) → Integrate (JIT Compiler)
 ```
 
@@ -68,7 +68,7 @@ Following the optillm SPL pattern:
 
 ## Storage
 
-```
+```text
 .nerd/prompts/
 ├── evolution.db        # Execution records, verdicts
 ├── strategies.db       # Strategy database
@@ -133,3 +133,6 @@ type EvolverConfig struct {
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

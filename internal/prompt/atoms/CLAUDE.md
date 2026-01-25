@@ -41,7 +41,7 @@ Atoms are small, composable prompt fragments selected at runtime based on contex
 
 ## How Atoms Are Selected
 
-```
+```text
 CompilationContext (mode, intent, language, shard type, world states)
     |
     v
@@ -101,3 +101,6 @@ Assembly (category-ordered concatenation)
 - `internal/prompt/atoms.go` - AtomCategory constants
 - `internal/prompt/loader.go` - YAML loading
 - `internal/prompt/selector.go` - Skeleton/flesh selection
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -32,3 +32,6 @@ languages: ["/go", "/golang"]
 ## Encyclopedia Pattern
 
 `*_encyclopedia.yaml` files contain comprehensive references with `content_concise` and `content_min` variants for budget fitting.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -11,7 +11,7 @@ This package provides modular tool definitions for the JIT Clean Loop architectu
 
 Tools replace embedded implementations deleted with domain shards. Each tool is self-contained and selected via:
 
-```
+```text
 Intent → ConfigFactory → AllowedTools[] → Registry.Get() → Tool.Execute()
 ```
 
@@ -152,3 +152,6 @@ go test ./internal/tools/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

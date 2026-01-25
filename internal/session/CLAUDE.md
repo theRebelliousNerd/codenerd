@@ -20,7 +20,7 @@ The session architecture treats the LLM as the creative center, with the executo
 
 ## Architecture
 
-```
+```text
 User Input → Transducer → user_intent atoms
                               ↓
                     Intent Routing (Mangle)
@@ -47,7 +47,7 @@ User Input → Transducer → user_intent atoms
 **Purpose:** Universal execution loop for all agent types (coder, tester, reviewer, researcher, etc.)
 
 **The Clean Loop:**
-```
+```text
 1. OBSERVE  → Transducer converts NL to Intent
 2. ORIENT   → Build compilation context from intent + world state
 3. JIT      → Compile prompt (persona + skills + context)
@@ -181,14 +181,14 @@ A SubAgent is a self-contained execution context with:
 
 **Key Difference from Old Shards:**
 
-```
+```text
 OLD: CoderShard with 600 lines of hardcoded Go logic
 NEW: SubAgent with ~50-line loop, all behavior from JIT
 ```
 
 **State Machine:**
 
-```
+```text
        [Create]
           ↓
      ┌─ IDLE ─┐
@@ -256,7 +256,7 @@ subagent.CompressMemory(ctx, 100)
 
 ### Single-Turn Execution
 
-```
+```text
 User: "Fix the null pointer in auth.go"
   ↓
 Executor.Process(ctx, input)
@@ -283,7 +283,7 @@ ExecutionResult{Response: "Fixed...", ToolCallsExecuted: 3, Duration: 12s}
 
 ### Multi-Agent Spawning
 
-```
+```text
 Main Executor receives: "Implement feature X with tests"
   ↓
 Transducer → Intent{Verb: "/implement", Target: "feature X"}
@@ -636,3 +636,6 @@ subagent, _ := spawner.SpawnForIntent(ctx, intent, task)
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

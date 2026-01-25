@@ -28,3 +28,6 @@ Intent atoms provide:
 - Success criteria for the intent
 - Common pitfalls to avoid
 - Output format expectations
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

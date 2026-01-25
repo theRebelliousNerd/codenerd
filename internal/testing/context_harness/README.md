@@ -13,7 +13,7 @@ The Context Test Harness stress-tests codeNERD's core context management capabil
 
 ## Architecture
 
-```
+```text
 internal/testing/context_harness/
 ├── types.go           # Core data structures (Scenario, Turn, Checkpoint, Metrics)
 ├── simulator.go       # Session simulator (executes scenarios, validates checkpoints)
@@ -163,7 +163,7 @@ Checkpoint{
 
 ## Sample Report
 
-```
+```text
 ═══════════════════════════════════════════════════════════════
   CONTEXT TEST HARNESS REPORT: Debugging Marathon
 ═══════════════════════════════════════════════════════════════
@@ -277,3 +277,6 @@ Add to CI pipeline to catch context system regressions:
 - `internal/context/compressor.go`: Compression implementation
 - `internal/context/activation.go`: Spreading activation implementation
 - `internal/campaign/context_pager.go`: Context paging implementation
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

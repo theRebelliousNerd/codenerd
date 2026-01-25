@@ -28,3 +28,6 @@ The core communication protocol for all shards:
 ## Usage
 
 Protocol atoms are typically **mandatory** and included for all shard types that interact with the kernel.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

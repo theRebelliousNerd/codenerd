@@ -10,7 +10,7 @@ The MCP package provides a JIT Tool Compiler for intelligent MCP tool serving ba
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     JIT TOOL COMPILER                           │
 ├─────────────────────────────────────────────────────────────────┤
@@ -24,7 +24,7 @@ The MCP package provides a JIT Tool Compiler for intelligent MCP tool serving ba
 
 ## Structure
 
-```
+```text
 mcp/
 ├── types.go            # Core type definitions
 ├── client.go           # Server connection management
@@ -111,3 +111,6 @@ go test ./internal/mcp/...
 ---
 
 **Last Updated:** December 2024
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -79,3 +79,6 @@ CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go test ./internal/campai
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

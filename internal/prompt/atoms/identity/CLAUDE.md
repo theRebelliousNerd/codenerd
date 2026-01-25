@@ -32,3 +32,6 @@ Each identity file typically contains:
 - `identity/{agent}/mission` - Core purpose and responsibilities
 - `identity/{agent}/constraints` - Behavioral boundaries
 - `identity/{agent}/output_format` - Expected response structure
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*
