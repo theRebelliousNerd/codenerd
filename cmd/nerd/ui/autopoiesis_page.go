@@ -74,6 +74,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 		case "tab":
 			m.activeTab = (m.activeTab + 1) % 2
 			m.refreshTable()
+			// TODO: Add keyboard navigation for tab switching (Left/Right arrows)
 		}
 	}
 

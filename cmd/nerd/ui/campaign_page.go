@@ -140,6 +140,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	sb.WriteString(m.styles.Info.Render(metrics) + "\n\n")
 
 	// 5. Phases List
+	// TODO: Virtualize the phases list if it grows too large
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending
