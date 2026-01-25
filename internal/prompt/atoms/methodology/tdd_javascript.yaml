@@ -1,0 +1,55 @@
+# JavaScript/TypeScript-Specific TDD Workflow
+# Concrete implementation of TDD methodology for JS/TS projects
+
+- id: "methodology/tdd/javascript_workflow"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  languages: ["/javascript", "/typescript", "/js", "/ts"]
+  intent_verbs: ["/test", "/fix", "/implement"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## JAVASCRIPT/TYPESCRIPT TDD WORKFLOW
+
+    Translate the abstract TDD cycle into concrete commands using Jest/Vitest.
+
+    ### 1. RED (Write Failing Test)
+    Create a new test file `*.test.js` / `*.test.ts` or add a test case.
+
+    ```bash
+    # Run specific test to confirm failure
+    npm test -- -t "test name pattern"
+    # OR for Vitest
+    npx vitest -t "test name pattern"
+    ```
+
+    *Goal:* `FAIL` with a clear message (e.g., "Expected: 5, Received: 0").
+
+    ### 2. GREEN (Make It Pass)
+    Implement the minimal code required to satisfy the test.
+
+    ```bash
+    # Run the specific test again
+    npm test -- -t "test name pattern"
+    ```
+
+    *Goal:* `PASS`
+
+    ### 3. REFACTOR (Clean Up)
+    Improve code quality, naming, and structure without changing behavior.
+
+    ```bash
+    # Verify no regressions
+    npm test
+
+    # Check for linting errors
+    npm run lint
+    ```
+
+    ### Critical Flags (Jest/Vitest)
+    - `-t "pattern"`: Run tests matching name.
+    - `--watch`: Watch mode for rapid feedback.
+    - `--coverage`: Generate coverage report.
+    - `--bail`: Stop after first failure.
+    - `--onlyChanged` (`-o`): Run tests related to changed files (Git).
