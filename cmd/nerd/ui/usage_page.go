@@ -61,6 +61,7 @@ func (m *UsagePageModel) UpdateContent() {
 	sb.WriteString("\n")
 
 	// Helper to render map tables
+	// TODO: Move table rendering to a reusable component or bubble
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
@@ -116,6 +117,7 @@ func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 }
 
 // View renders the page.
+// TODO: Add support for exporting usage stats (CSV/JSON)
 func (m UsagePageModel) View() string {
 	return m.viewport.View()
 }
