@@ -23,10 +23,13 @@ Guidance for knowledge extraction, storage, and retrieval.
 ## Knowledge Atoms
 
 Extracted knowledge is stored as:
-```
+```text
 knowledge_atom(ID, Category, Content, Source, Confidence, Timestamp)
 ```
 
 ## Selection
 
 Knowledge atoms are selected for researcher and librarian shards.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

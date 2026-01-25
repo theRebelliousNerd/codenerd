@@ -31,3 +31,6 @@ World states are detected by:
 ## Purpose
 
 These atoms provide context-specific guidance when the codebase is in a particular state (broken build, security issue, etc.).
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

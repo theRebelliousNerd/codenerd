@@ -13,7 +13,7 @@ Three distinct patterns emerge from the literature for connecting a logic engine
 This architecture, formalized by Kambhampati et al. at Arizona State University (ICML 2024), treats the LLM as a **candidate generator** while the logic engine serves as a **model-based critic**. The harness implements an iterative refinement cycle.
 
 **Data flow architecture:**
-```
+```text
 User Input → LLM (Parse to Candidates) → Mangle Validator → [Pass/Fail]
                     ↑                                           ↓
                     ←←←← Error Messages + Constraints ←←←←←←←←←←
@@ -36,7 +36,7 @@ The LLM generates candidate logical formulations (atoms, facts, or action sequen
 Derived from the University of Pennsylvania's Scallop system (NeurIPS 2021, PLDI 2023), this architecture creates strict **unidirectional flow** with optional gradient feedback for learning.
 
 **Data flow architecture:**
-```
+```text
 Sensor/Input → LLM (Perception) → Probabilistic Facts → Mangle (Cognition) → Facts → LLM (Articulation) → Output
                      ↓                                         ↓
                [confidence scores]                    [provenance semirings]
@@ -59,7 +59,7 @@ The LLM operates purely as a **transducer at system boundaries**: converting uns
 Derived from Palantir's production architecture, this pattern introduces a persistent **semantic ontology layer** between the LLM and logic engine, enabling deterministic tool execution grounded in enterprise data.
 
 **Data flow architecture:**
-```
+```text
                               ┌─────────────────────┐
 User Request → LLM → ────────→│   ONTOLOGY LAYER    │←──── Enterprise Data
                               │  (Object Types,     │
@@ -109,7 +109,7 @@ When Mangle derivation **fails**, the system can apply abductive reasoning to su
 **Implementation mechanism:** ProSynth's "why-not" provenance generates constraints from failures. When a query `Q` fails to derive, the system identifies the **minimal set of missing facts** that would enable derivation. These become hypotheses for the LLM to verify against the original input.
 
 **Example application:**
-```
+```text
 Query: can_execute(user_123, delete_file, doc_456)
 Result: FAILED
 Abductive hypothesis: Missing fact: has_permission(user_123, admin)
@@ -126,7 +126,7 @@ Replace vector similarity with **graph-based relevance scoring** for selecting w
 
 **Implementation mechanism:** When processing a query, the system identifies anchor facts (entities mentioned in the query). Activation propagates through the fact graph according to:
 
-```
+```mangle
 activation(F2, Level) :- 
     activation(F1, L1), 
     related(F1, F2, Weight),
@@ -172,7 +172,7 @@ Enable the agent to learn new Mangle rules from examples using Inductive Logic P
 - **Human approval gate:** High-impact rules require explicit approval
 
 **Self-compilation example:**
-```
+```mangle
 Agent observes: When user says "urgent," priority should be high
 Learned rule: priority(Task, high) :- mentioned(Task, "urgent"), task(Task).
 Verification: Type-safe, non-recursive, affects only priority predicate → auto-approved
@@ -186,7 +186,7 @@ Embed hidden instructions in the prompt loop through **meta-predicates** that co
 
 **Implementation mechanism:** Define a class of meta-predicates that the LLM can derive but which trigger harness-level actions rather than user responses:
 
-```
+```mangle
 % Meta-predicates for control flow
 _require_confirmation(Action) :- sensitive_action(Action), not(user_confirmed(Action)).
 _escalate_to_human(Query) :- confidence_below(Query, 0.7).
@@ -197,7 +197,7 @@ _rate_limit(API) :- call_count(API, N), N > limit(API).
 The harness intercepts these before articulation and executes corresponding control actions. The LLM sees these as ordinary facts to derive but never verbalizes them.
 
 **Constitutional AI integration:** Safety rules become meta-predicates:
-```
+```mangle
 _block_response :- response_contains(harmful_content).
 _require_caveat(medical) :- topic(medical), not(disclaimer_present).
 ```
@@ -234,7 +234,7 @@ Neuro-symbolic systems fail in predictable ways. Understanding these failure mod
 2. **Choice-Bound technique (2025):** Limit predicate evaluation to prevent worst-case blowup while maintaining soundness
 3. **Fallback chains:** When logical formulation fails, degrade to LLM-only reasoning (LOGIC-LM approach)
 4. **Defensive derivation:** Design rules to handle missing information explicitly:
-```
+```mangle
 action_permitted(User, Action) :- explicitly_permitted(User, Action).
 action_permitted(User, Action) :- default_permit(Action), not(explicitly_denied(User, Action)).
 action_status_unknown(User, Action) :- not(action_permitted(User, Action)), not(action_denied(User, Action)).
@@ -252,7 +252,7 @@ action_status_unknown(User, Action) :- not(action_permitted(User, Action)), not(
 1. **Magic sets transformation:** Convert bottom-up to goal-directed evaluation for specific queries
 2. **Stratified evaluation:** Organize rules into strata that can be evaluated incrementally
 3. **Choice-Bound (2025):** Use native Datalog choice construct to limit evaluation:
-```
+```mangle
 % Only compute top-10 results
 relevant_context(Query, Fact, Score) choice(10) :- ...derivation rules...
 ```
@@ -271,7 +271,7 @@ relevant_context(Query, Fact, Score) choice(10) :- ...derivation rules...
 1. **Source-binding:** Every LLM-generated fact must cite its source span in the original input
 2. **Confidence thresholding:** Facts below confidence threshold enter a "provisional" partition requiring confirmation
 3. **Consistency checking:** New facts validated against existing fact base for contradictions:
-```
+```mangle
 contradiction_detected :- fact(P), fact(not(P)).
 contradiction_detected :- fact(exclusive(A, B)), fact(A), fact(B).
 ```
@@ -319,3 +319,6 @@ Based on this research, the optimal architecture combines elements from all thre
 - Human approval gates for learned rules affecting sensitive predicates
 
 This architecture positions Mangle as the "deterministic kernel" while leveraging LLMs solely as transducers—a division of labor increasingly validated by systems like Scallop, LOGIC-LM, and AlphaProof. The research strongly supports the viability of this approach while highlighting the specific failure modes that must be addressed through careful harness design.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

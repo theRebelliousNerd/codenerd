@@ -28,7 +28,7 @@ As of **December 2024**, this directory no longer contains shard implementations
 
 ### Current Directory Structure
 
-```
+```text
 shards/
 ├── registration.go      # Legacy command mapping to intents
 └── system/             # System utilities (not shard implementations)
@@ -124,7 +124,7 @@ ConfigAtom{
 
 ### Intent → Persona → Configuration Flow
 
-```
+```text
 User Input: "Fix the bug in auth.go"
      ↓
 Perception Transducer
@@ -319,3 +319,6 @@ Or use natural language:
 
 **Last Updated:** December 27, 2024
 **Architecture Version:** 2.0.0 (JIT-Driven)
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

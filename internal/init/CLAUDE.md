@@ -74,7 +74,7 @@ When Gemini is configured as the LLM provider, the init system automatically ena
 - **URL Context**: Documentation URLs for the project's tech stack (Go, Python, React, etc.)
 
 ### How It Works
-```
+```text
 NewInitializer()
     │
     ▼
@@ -257,7 +257,7 @@ entry_point("/cmd/nerd/main.go").
 
 ## Directory Structure Created (scanner.go)
 
-```
+```text
 .nerd/
 ├── profile.mg          # Generated Mangle facts
 ├── profile.json        # Project metadata
@@ -349,3 +349,6 @@ go test ./internal/init/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

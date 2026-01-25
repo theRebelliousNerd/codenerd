@@ -11,7 +11,7 @@ Guidance for natural language to intent transduction.
 
 ## Transduction Pipeline
 
-```
+```text
 User Input (NL)
     |
     v
@@ -34,3 +34,6 @@ Perception atoms guide the PerceptionFirewallShard in:
 - Resolving ambiguous references
 - Calculating confidence scores
 - Triggering clarification when needed
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

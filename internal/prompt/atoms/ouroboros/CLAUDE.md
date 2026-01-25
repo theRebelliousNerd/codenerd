@@ -16,7 +16,7 @@ Tool generation and self-improvement guidance.
 
 ## Ouroboros Loop
 
-```
+```text
 Capability Gap Detected
     |
     v
@@ -41,3 +41,6 @@ Registration (make tool available)
 ## Selection
 
 Ouroboros atoms are selected via `ouroboros_stage` in CompilationContext.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

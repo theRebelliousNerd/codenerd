@@ -34,7 +34,7 @@ The JIT system achieves "infinite" effective prompt length and zero-boilerplate 
 4. **Policy loading** - Mangle files loaded into kernel for safety checks
 
 **Integration Flow:**
-```
+```text
 User Input → Intent Routing → persona(/coder)
                                   ↓
                     ┌─────────────┴─────────────┐
@@ -157,7 +157,7 @@ type CompilationStats struct {
 
 ## Compilation Pipeline
 
-```
+```text
 CompilationContext
     |
     v
@@ -197,3 +197,6 @@ go test ./internal/prompt/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

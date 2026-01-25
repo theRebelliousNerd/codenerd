@@ -4,7 +4,7 @@ The Northstar package implements the permanent system guardian that monitors pro
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     NORTHSTAR GUARDIAN                          │
 │                   (Permanent System Agent)                       │
@@ -44,7 +44,7 @@ The Northstar package implements the permanent system guardian that monitors pro
 
 The Northstar store uses a dedicated SQLite database separate from the general knowledge base:
 
-```
+```text
 .nerd/
 ├── northstar.mg              # Mangle facts (vision definition)
 ├── northstar.json            # JSON backup
@@ -239,3 +239,6 @@ These define HOW to be a Northstar guardian. The project-specific WHAT is stored
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

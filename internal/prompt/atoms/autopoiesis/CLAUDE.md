@@ -12,7 +12,7 @@ Atoms for the prompt evolution system.
 
 The autopoiesis system learns from execution:
 
-```
+```text
 Execute -> Evaluate (LLM-as-Judge) -> Evolve (Meta-Prompt) -> Integrate (JIT)
 ```
 
@@ -27,3 +27,6 @@ When patterns of failure are detected:
 ## Selection
 
 Selected during prompt evolution cycles in `internal/autopoiesis/prompt_evolution/`.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

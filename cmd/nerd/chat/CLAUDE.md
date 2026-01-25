@@ -129,7 +129,7 @@ type Message struct {
 
 The `/review` command triggers a sophisticated multi-shard review pipeline:
 
-```
+```text
 /review [target]
     |
     v
@@ -191,7 +191,7 @@ Connects to `campaign.Orchestrator` for:
 
 ## Message Flow
 
-```
+```text
 User Input
     |
     v
@@ -255,3 +255,6 @@ go test ./cmd/nerd/chat/...
 ```
 
 Note: The chat package currently has no test files. Testing is done through integration tests in `cmd/nerd/`.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

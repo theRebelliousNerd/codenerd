@@ -40,3 +40,6 @@ Campaign atoms are selected via `campaign_phase`:
 ```yaml
 campaign_phases: ["/planning", "/execution"]
 ```
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

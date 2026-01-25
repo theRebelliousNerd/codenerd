@@ -40,7 +40,7 @@ Mangle policy files implementing the Intensional Database (IDB) rules that deriv
 
 The policy files implement the **Intensional Database (IDB)** - derived rules that produce actions from facts:
 
-```
+```text
 EDB Facts (World Model) → IDB Rules (Policy) → next_action/1 → VirtualStore
 ```
 
@@ -74,3 +74,6 @@ All `.mg` files should be loaded together. The Mangle engine handles stratificat
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

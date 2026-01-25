@@ -21,7 +21,7 @@ This package provides request/response transformation utilities **exclusively fo
 
 ## Package Structure
 
-```
+```text
 transform/
 ├── models.go       # Model detection, resolution, tier extraction
 ├── thinking.go     # Model-aware thinking configuration builders
@@ -135,3 +135,6 @@ go test ./internal/perception/transform/... -v
 **Cause**: Using Gemini format for Claude or vice versa.
 
 **Fix**: `BuildThinkingConfigForModel()` automatically selects correct format.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

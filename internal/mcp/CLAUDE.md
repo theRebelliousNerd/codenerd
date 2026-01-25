@@ -4,7 +4,7 @@ JIT Tool Compiler for intelligent MCP tool serving based on task context.
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     JIT TOOL COMPILER                           │
 ├─────────────────────────────────────────────────────────────────┤
@@ -167,3 +167,6 @@ mcp_tool_selected(ShardType, ToolID, RenderMode).  # Final selection
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

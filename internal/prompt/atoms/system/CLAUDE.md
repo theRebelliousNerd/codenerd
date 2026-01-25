@@ -18,7 +18,7 @@ Prompts for Type S (System) permanent shards that provide OODA loop infrastructu
 
 System shards run continuously, unlike ephemeral domain shards:
 
-```
+```text
 User Input -> Perception -> Executive -> Constitution -> Router -> Tool
 ```
 
@@ -31,3 +31,6 @@ shard_types: ["/executive", "/system_executive"]
 ```
 
 These atoms are JIT-compiled - no hardcoded fallback constants exist in Go code.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

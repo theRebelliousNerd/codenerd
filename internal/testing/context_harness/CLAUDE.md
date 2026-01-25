@@ -9,7 +9,7 @@ This package validates codeNERD's infinite context system through realistic sess
 
 ## Architecture
 
-```
+```text
 CLI (cmd_test_context.go)
     │
     ▼
@@ -137,7 +137,7 @@ type Checkpoint struct {
 
 ## Output Directory Structure
 
-```
+```text
 .nerd/context-tests/
 └── session-YYYYMMDD-HHMMSS/
     ├── MANIFEST.txt           # Session metadata and file descriptions
@@ -239,3 +239,6 @@ func MyNewScenario() *Scenario {
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

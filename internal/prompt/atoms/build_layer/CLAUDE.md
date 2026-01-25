@@ -15,7 +15,7 @@ Guidance for building code in architectural layers.
 
 ## Build Layer Progression
 
-```
+```text
 Scaffold -> Data -> Domain -> Service -> Transport -> Integration
 ```
 
@@ -31,3 +31,6 @@ Each layer provides:
 - Patterns for that layer
 - Dependencies on lower layers
 - Interface contracts
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

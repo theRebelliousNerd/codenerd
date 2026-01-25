@@ -60,3 +60,6 @@ go test ./internal/build/...
 ---
 
 **Remember: Push to GitHub regularly!**
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*
