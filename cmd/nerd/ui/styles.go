@@ -125,6 +125,7 @@ func DetectTheme() Theme {
 }
 
 // Styles holds all the styled components
+// TODO: Add utility function to adjust color brightness/saturation
 type Styles struct {
 	Theme Theme
 
