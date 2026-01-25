@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+var (
+	// Regex patterns for parsing test output.
+	// Compiled once at package level for performance.
+	goFailRegex    = regexp.MustCompile(`--- FAIL: (\w+)`)
+	goErrorRegex   = regexp.MustCompile(`^(.+\.go):(\d+):(\d+): (.+)$`)
+	pyErrorRegex   = regexp.MustCompile(`File "(.+)", line (\d+), in (.+)`)
+	rustErrorRegex = regexp.MustCompile(`error\[(E\d+)\]: (.+)`)
+	rustLocRegex   = regexp.MustCompile(`\s+--> (.+):(\d+):(\d+)`)
+)
+
 // TDDState represents the current state of the TDD repair loop.
 type TDDState string
 
@@ -600,13 +610,6 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	lines := strings.Split(output, "\n")
-
-	// Regex patterns
-	goFailRegex := regexp.MustCompile(`--- FAIL: (\w+)`)
-	goErrorRegex := regexp.MustCompile(`^(.+\.go):(\d+):(\d+): (.+)$`)
-	pyErrorRegex := regexp.MustCompile(`File "(.+)", line (\d+), in (.+)`)
-	rustErrorRegex := regexp.MustCompile(`error\[(E\d+)\]: (.+)`)
-	rustLocRegex := regexp.MustCompile(`\s+--> (.+):(\d+):(\d+)`)
 
 	var lastRustError *Diagnostic
 
