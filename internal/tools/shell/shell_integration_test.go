@@ -170,6 +170,84 @@ func (s *ShellIntegrationSuite) TestGitOperationTool_Integration() {
 	s.Contains(status, "feature-branch")
 }
 
+func (s *ShellIntegrationSuite) TestRunBuildTool_Integration() {
+	tool := shell.RunBuildTool()
+	projectDir := filepath.Join(s.tmpDir, "goproject")
+	s.Require().NoError(os.Mkdir(projectDir, 0755))
+
+	// Create go.mod
+	// Use a recent enough go version that is likely compatible
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/buildproject\n\ngo 1.21\n"), 0644))
+
+	// 1. Valid Code
+	mainGo := `package main
+import "fmt"
+func main() {
+	fmt.Println("Hello Build")
+}`
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "main.go"), []byte(mainGo), 0644))
+
+	// Execute RunBuildTool (auto-detects go.mod -> go build ./...)
+	_, err := tool.Execute(s.ctx, map[string]any{
+		"working_dir": projectDir,
+	})
+	s.Require().NoError(err, "Build should succeed for valid code")
+
+	// 2. Invalid Code (Syntax Error)
+	brokenGo := `package main
+func main() {
+    undefinedFunc()
+}`
+	// Overwrite main.go with broken code
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "main.go"), []byte(brokenGo), 0644))
+
+	_, err = tool.Execute(s.ctx, map[string]any{
+		"working_dir": projectDir,
+	})
+	s.Require().Error(err, "Build should fail for invalid code")
+	s.Contains(err.Error(), "undefined: undefinedFunc")
+}
+
+func (s *ShellIntegrationSuite) TestRunTestsTool_Integration() {
+	tool := shell.RunTestsTool()
+	projectDir := filepath.Join(s.tmpDir, "gotestproject")
+	s.Require().NoError(os.Mkdir(projectDir, 0755))
+
+	// Create go.mod
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/testproject\n\ngo 1.21\n"), 0644))
+
+	// Create main_test.go with a passing test
+	mainTestGo := `package main
+import "testing"
+func TestHello(t *testing.T) {
+    t.Log("Hello Test")
+}`
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "main_test.go"), []byte(mainTestGo), 0644))
+
+	// 1. Success case
+	result, err := tool.Execute(s.ctx, map[string]any{
+		"working_dir": projectDir,
+	})
+	s.Require().NoError(err, "Tests should pass")
+	// go test output depends on flags, but 'ok' is consistent for passing package
+	s.Contains(result, "ok")
+
+	// 2. Failure case
+	failTestGo := `package main
+import "testing"
+func TestFail(t *testing.T) {
+    t.Fatal("This should fail")
+}`
+	// Add a failing test file
+	s.Require().NoError(os.WriteFile(filepath.Join(projectDir, "fail_test.go"), []byte(failTestGo), 0644))
+
+	_, err = tool.Execute(s.ctx, map[string]any{
+		"working_dir": projectDir,
+	})
+	s.Require().Error(err, "Tests should fail")
+	s.Contains(err.Error(), "FAIL")
+}
+
 func TestShellIntegrationSuite(t *testing.T) {
 	suite.Run(t, new(ShellIntegrationSuite))
 }
