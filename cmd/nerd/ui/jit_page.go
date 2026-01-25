@@ -77,6 +77,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			switch msg.String() {
 			case "tab":
 				// Could toggle focus, but for now just let logic handle it or simple split
+				// TODO: Implement focus switching between list and viewport
 			}
 		}
 	}
@@ -102,6 +103,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 }
 
 // renderAtomContent formats the atom for display
+// TODO: Fix indentation and improve string building performance
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	var sb strings.Builder
 

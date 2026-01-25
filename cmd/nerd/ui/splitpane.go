@@ -60,6 +60,7 @@ type DerivationTrace struct {
 }
 
 // LogicPane represents the logic visualization pane
+// TODO: Implement tea.Model interface for LogicPane to handle its own events
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -434,6 +435,7 @@ func (p *LogicPane) View() string {
 }
 
 // SplitPaneView renders a split-pane view with chat and logic
+// TODO: Add support for resizing split ratio via mouse or keyboard
 type SplitPaneView struct {
 	Styles     Styles
 	LeftPane   string // Chat content
