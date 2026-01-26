@@ -319,3 +319,5 @@ Based on this research, the optimal architecture combines elements from all thre
 - Human approval gates for learned rules affecting sensitive predicates
 
 This architecture positions Mangle as the "deterministic kernel" while leveraging LLMs solely as transducers—a division of labor increasingly validated by systems like Scallop, LOGIC-LM, and AlphaProof. The research strongly supports the viability of this approach while highlighting the specific failure modes that must be addressed through careful harness design.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-26]*

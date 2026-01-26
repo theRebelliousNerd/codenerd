@@ -504,3 +504,5 @@ To bridge this gap, Datalog Engineers must treat AI output as "pseudo-code" that
 14. How Datalog is used to perform AI tasks for program analysis \- Pavle Subotic, accessed December 6, 2025, [https://psubotic.github.io/papers/LPOP\_Position\_Paper\_2024\_2.pdf](https://psubotic.github.io/papers/LPOP_Position_Paper_2024_2.pdf)  
 15. Recursive Language Models | Alex L. Zhang, accessed December 6, 2025, [https://alexzhang13.github.io/blog/2025/rlm/](https://alexzhang13.github.io/blog/2025/rlm/)  
 16. LLM's for handling recursion and complex loops in code generation : r/developers \- Reddit, accessed December 6, 2025, [https://www.reddit.com/r/developers/comments/1hi2v6u/llms\_for\_handling\_recursion\_and\_complex\_loops\_in/](https://www.reddit.com/r/developers/comments/1hi2v6u/llms_for_handling_recursion_and_complex_loops_in/)
+
+> *[Archived & Reviewed by The Librarian on 2026-01-26]*
