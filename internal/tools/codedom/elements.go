@@ -23,6 +23,53 @@ type CodeElement struct {
 	Signature string `json:"signature,omitempty"`
 }
 
+// Pre-compiled regex patterns
+var (
+	goPatterns = map[string]*regexp.Regexp{
+		"function":  regexp.MustCompile(`^func\s+(\w+)\s*\(`),
+		"method":    regexp.MustCompile(`^func\s+\([^)]+\)\s+(\w+)\s*\(`),
+		"struct":    regexp.MustCompile(`^type\s+(\w+)\s+struct`),
+		"interface": regexp.MustCompile(`^type\s+(\w+)\s+interface`),
+	}
+
+	pyPatterns = map[string]*regexp.Regexp{
+		"function": regexp.MustCompile(`^def\s+(\w+)\s*\(`),
+		"class":    regexp.MustCompile(`^class\s+(\w+)`),
+		"method":   regexp.MustCompile(`^\s+def\s+(\w+)\s*\(`),
+	}
+
+	jsPatterns = map[string]*regexp.Regexp{
+		"function": regexp.MustCompile(`^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(`),
+		"class":    regexp.MustCompile(`^(?:export\s+)?class\s+(\w+)`),
+		"method":   regexp.MustCompile(`^\s+(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{`),
+		"arrow":    regexp.MustCompile(`^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(`),
+	}
+
+	javaPatterns = map[string]*regexp.Regexp{
+		"class":     regexp.MustCompile(`^(?:public\s+)?(?:abstract\s+)?class\s+(\w+)`),
+		"interface": regexp.MustCompile(`^(?:public\s+)?interface\s+(\w+)`),
+		"method":    regexp.MustCompile(`^\s+(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)+(\w+)\s*\(`),
+	}
+
+	rsPatterns = map[string]*regexp.Regexp{
+		"function": regexp.MustCompile(`^(?:pub\s+)?fn\s+(\w+)`),
+		"struct":   regexp.MustCompile(`^(?:pub\s+)?struct\s+(\w+)`),
+		"impl":     regexp.MustCompile(`^impl\s+(?:<[^>]+>\s+)?(\w+)`),
+		"trait":    regexp.MustCompile(`^(?:pub\s+)?trait\s+(\w+)`),
+	}
+
+	cppPatterns = map[string]*regexp.Regexp{
+		"function": regexp.MustCompile(`^(?:\w+\s+)+(\w+)\s*\([^)]*\)\s*\{?$`),
+		"class":    regexp.MustCompile(`^class\s+(\w+)`),
+		"struct":   regexp.MustCompile(`^struct\s+(\w+)`),
+	}
+
+	genericPatterns = map[string]*regexp.Regexp{
+		"function": regexp.MustCompile(`(?:function|func|def|fn)\s+(\w+)`),
+		"class":    regexp.MustCompile(`class\s+(\w+)`),
+	}
+)
+
 // GetElementsTool returns a tool for listing code elements in a file.
 func GetElementsTool() *tools.Tool {
 	return &tools.Tool{
@@ -103,50 +150,19 @@ func extractCodeElements(path string) ([]CodeElement, error) {
 
 	switch ext {
 	case "go":
-		patterns = map[string]*regexp.Regexp{
-			"function":  regexp.MustCompile(`^func\s+(\w+)\s*\(`),
-			"method":    regexp.MustCompile(`^func\s+\([^)]+\)\s+(\w+)\s*\(`),
-			"struct":    regexp.MustCompile(`^type\s+(\w+)\s+struct`),
-			"interface": regexp.MustCompile(`^type\s+(\w+)\s+interface`),
-		}
+		patterns = goPatterns
 	case "py":
-		patterns = map[string]*regexp.Regexp{
-			"function": regexp.MustCompile(`^def\s+(\w+)\s*\(`),
-			"class":    regexp.MustCompile(`^class\s+(\w+)`),
-			"method":   regexp.MustCompile(`^\s+def\s+(\w+)\s*\(`),
-		}
+		patterns = pyPatterns
 	case "js", "ts", "jsx", "tsx":
-		patterns = map[string]*regexp.Regexp{
-			"function": regexp.MustCompile(`^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(`),
-			"class":    regexp.MustCompile(`^(?:export\s+)?class\s+(\w+)`),
-			"method":   regexp.MustCompile(`^\s+(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{`),
-			"arrow":    regexp.MustCompile(`^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(`),
-		}
+		patterns = jsPatterns
 	case "java", "kt", "scala":
-		patterns = map[string]*regexp.Regexp{
-			"class":     regexp.MustCompile(`^(?:public\s+)?(?:abstract\s+)?class\s+(\w+)`),
-			"interface": regexp.MustCompile(`^(?:public\s+)?interface\s+(\w+)`),
-			"method":    regexp.MustCompile(`^\s+(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)+(\w+)\s*\(`),
-		}
+		patterns = javaPatterns
 	case "rs":
-		patterns = map[string]*regexp.Regexp{
-			"function": regexp.MustCompile(`^(?:pub\s+)?fn\s+(\w+)`),
-			"struct":   regexp.MustCompile(`^(?:pub\s+)?struct\s+(\w+)`),
-			"impl":     regexp.MustCompile(`^impl\s+(?:<[^>]+>\s+)?(\w+)`),
-			"trait":    regexp.MustCompile(`^(?:pub\s+)?trait\s+(\w+)`),
-		}
+		patterns = rsPatterns
 	case "c", "cpp", "cc", "cxx", "h", "hpp":
-		patterns = map[string]*regexp.Regexp{
-			"function": regexp.MustCompile(`^(?:\w+\s+)+(\w+)\s*\([^)]*\)\s*\{?$`),
-			"class":    regexp.MustCompile(`^class\s+(\w+)`),
-			"struct":   regexp.MustCompile(`^struct\s+(\w+)`),
-		}
+		patterns = cppPatterns
 	default:
-		// Generic patterns
-		patterns = map[string]*regexp.Regexp{
-			"function": regexp.MustCompile(`(?:function|func|def|fn)\s+(\w+)`),
-			"class":    regexp.MustCompile(`class\s+(\w+)`),
-		}
+		patterns = genericPatterns
 	}
 
 	for scanner.Scan() {
