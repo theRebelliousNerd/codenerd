@@ -26,6 +26,7 @@ type ShardPageModel struct {
 
 // NewShardPageModel creates a new shard console.
 // TODO: Allow dynamic column configuration
+// TODO: Add filter input to search/filter shards by ID or status.
 func NewShardPageModel() ShardPageModel {
 	t := table.New(
 		table.WithColumns([]table.Column{
