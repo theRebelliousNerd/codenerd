@@ -281,6 +281,16 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 	})
 }
 
+// TODO: TEST_GAP: Verify behavior when context is canceled (should abort compilation).
+
+// TODO: TEST_GAP: Verify behavior when mandatory atoms exceed the token budget (should probably error or return partial).
+
+// TODO: TEST_GAP: Verify cache hit behavior (subsequent calls with same context should use cache).
+
+// TODO: TEST_GAP: Verify behavior when ConfigFactory fails (should continue with warning).
+
+// TODO: TEST_GAP: Verify concurrency safety when RegisterDB is called during Compile.
+
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
 		{
@@ -873,6 +883,8 @@ func (m *mockFallbackKernel) Query(predicate string) ([]Fact, error) {
 func (m *mockFallbackKernel) AssertBatch(facts []interface{}) error {
 	return m.assertErr
 }
+
+// TODO: TEST_GAP: Verify partial success when Project DB query fails (should return embedded atoms).
 
 func TestCompiler_FallbackOnCorruptCorpus(t *testing.T) {
 	tests := []struct {
