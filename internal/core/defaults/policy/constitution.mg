@@ -211,9 +211,9 @@ learned_proposal(Action) :-
     candidate_action(Action).
 
 # Metrics: Count how many learned rules are being blocked
-blocked_learned_action_count(C) :-
-    action_denied(_, _)
-    |> do fn:group_by(), let C = fn:count().
+# blocked_learned_action_count(C) :-
+#     action_denied(_, _)
+#     |> do fn:group_by(), let C = fn:count().
 
 # Default to 0 when no blocks exist
 blocked_learned_action_count(0) :-
@@ -251,9 +251,9 @@ permitted(ActionType, Target, Payload) :-
     pending_action(_, ActionType, Target, Payload, _).
 
 # Count denied appeals for thresholding
-appeal_denial_count(Count) :-
-    appeal_denied(_, _, _, _)
-    |> do fn:group_by(), let Count = fn:count().
+# appeal_denial_count(Count) :-
+#     appeal_denied(_, _, _, _)
+#     |> do fn:group_by(), let Count = fn:count().
 
 # Alert if too many appeals are being denied
 excessive_appeal_denials() :-
@@ -261,9 +261,9 @@ excessive_appeal_denials() :-
     Count >= 3.
 
 # Count granted appeals by action type for pattern detection
-appeal_grant_count(ActionType, Count) :-
-    appeal_granted(_, ActionType, _, _)
-    |> do fn:group_by(ActionType), let Count = fn:count().
+# appeal_grant_count(ActionType, Count) :-
+#     appeal_granted(_, ActionType, _, _)
+#     |> do fn:group_by(ActionType), let Count = fn:count().
 
 # Signal need for policy review if appeals frequently granted
 appeal_pattern_detected(ActionType) :-

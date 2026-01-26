@@ -120,3 +120,59 @@ Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp).
 # Indicates an action was escalated to user for manual intervention.
 Decl action_escalated(ActionID, Reason, Timestamp).
 
+
+# =============================================================================
+# SECTION 12: EXECUTION OUTCOMES (Integration Gaps)
+# =============================================================================
+
+# cmd_succeeded(Binary, Output)
+Decl cmd_succeeded(Binary, Output).
+
+# cmd_failed(Binary, Error)
+Decl cmd_failed(Binary, Error).
+
+# file_read_error(Path, Error)
+Decl file_read_error(Path, Error).
+
+# file_write_error(Path, Error)
+Decl file_write_error(Path, Error).
+
+# file_truncated(Path, Limit)
+
+# dir_read(Path, Count)
+Decl dir_read(Path, Count).
+
+# dir_read_error(Path, Error)
+Decl dir_read_error(Path, Error).
+
+# edit_failed(Path, Reason)
+Decl edit_failed(Path, Reason).
+
+# file_edited(Path)
+Decl file_edited(Path).
+
+# delete_blocked(Path, Reason)
+Decl delete_blocked(Path, Reason).
+
+# file_deleted(Path)
+Decl file_deleted(Path).
+
+# file_read(Path, SessionID, Timestamp) - matches VirtualStore usage
+# Override/Supplement schemas_codedom.mg usage
+# Decl file_read(Path, SessionID, Timestamp).
+# NOTE: file_read is already declared in schemas_codedom.mg as (Path, SessionID, Timestamp)
+# But virtual_store_actions.go uses (Path, Size). We will fix the Go code.
+
+
+# =============================================================================
+# SECTION 13: AUDIT LOGGING (Tactile Executor)
+# =============================================================================
+
+# Duplicates removed (in schemas_shards.mg):
+# execution_started, execution_command, execution_working_dir, execution_completed,
+# execution_output, execution_success, execution_nonzero, execution_failure,
+# execution_resource_usage, execution_io, execution_sandbox, execution_killed,
+# execution_error, execution_blocked
+
+Decl execution_sandboxed(RequestID, SandboxMode).
+Decl execution_tag(RequestID, Key, Value).

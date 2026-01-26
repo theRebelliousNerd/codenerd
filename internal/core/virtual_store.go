@@ -1348,7 +1348,9 @@ func (v *VirtualStore) injectFact(fact Fact) {
 	v.mu.RUnlock()
 
 	if kernel != nil {
-		_ = kernel.Assert(fact)
+		if err := kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to inject fact %s: %v", fact.Predicate, err)
+		}
 	}
 }
 
@@ -1367,12 +1369,16 @@ func (v *VirtualStore) injectFacts(facts []Fact) {
 
 	// Fast path: RealKernel supports batch assertion (single evaluation pass).
 	if realKernel, ok := kernel.(*RealKernel); ok {
-		_ = realKernel.AssertBatch(facts)
+		if err := realKernel.AssertBatch(facts); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to inject batch facts: %v", err)
+		}
 		return
 	}
 
 	for _, fact := range facts {
-		_ = kernel.Assert(fact)
+		if err := kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategoryVirtualStore).Error("Failed to inject fact %s: %v", fact.Predicate, err)
+		}
 	}
 }
 
