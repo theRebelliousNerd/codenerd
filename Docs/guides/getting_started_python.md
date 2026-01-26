@@ -76,3 +76,6 @@ This means you can let the agent iterate on fixes without worrying about it mess
 **"Docker error"**
 *   Make sure Docker Desktop (or engine) is running.
 *   Run `docker ps` to see if CodeNERD containers are active.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-26]*

@@ -459,3 +459,6 @@ dangerous_action(Action) :-
 ### 10.3 Shard Isolation
 
 Each ShardAgent runs in its own memory space with inherited, immutable Constitutional constraints. A Shard cannot rewrite its own permissions.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-26]*

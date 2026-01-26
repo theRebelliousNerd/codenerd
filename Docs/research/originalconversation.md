@@ -1,3 +1,5 @@
+# Original Conversation
+
 Sooooooo... I had an idea.... I know mangle can do some nifty things, and that one of the most difficult things you can do is manage context and agent memory for llm's... I'm thinking about building a mangle first LLM agent framework where an advanced mangle system is constantly optimizing agent long term and short term memory, as well as providing context for skills and tools all from one mangle system.... Even adapting system instructions dynamically based around conversational trajectory and environmental context... Whatcha think?
 
 Mangle Consulant
@@ -1523,3 +1525,6 @@ MCP Execution: Calls Workday API, Jira API, Provisioning API.
 Output: "Alice is onboarded. Laptop ordered. Ticket #123."
 
 The "Logic Layer" (Mangle) replaces the messy, error-prone "Business Logic" usually hidden in Python scripts or lost in LLM prompts.
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-26]*
