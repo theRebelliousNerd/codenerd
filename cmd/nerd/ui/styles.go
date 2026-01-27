@@ -13,6 +13,7 @@ import (
 // Color palette based on codeNERD brand guidelines
 // TODO: Refactor these global variables into a structured theme definition or configuration to avoid global state.
 // TODO: Add support for high-contrast accessibility mode in the color palette.
+// TODO: IMPROVEMENT: Move global color variables to a Theme struct.
 var (
 	// Light Mode Colors (Default)
 	LightBackground = lipgloss.Color("#f4f5f6") // hsl(200, 7%, 96%)
@@ -94,6 +95,7 @@ func DarkTheme() Theme {
 // DetectTheme auto-detects based on terminal or returns light mode
 // TODO: Add support for a configuration file (e.g., config.yaml) in addition to environment variables.
 // TODO: Consider using a dedicated library like 'termenv' for more robust background color detection.
+// TODO: IMPROVEMENT: Use `muesli/termenv` for robust theme detection.
 func DetectTheme() Theme {
 	// Check for common dark mode indicators
 	colorTerm := os.Getenv("COLORFGBG")
@@ -168,6 +170,7 @@ type Styles struct {
 
 // NewStyles creates a new Styles instance with the given theme
 // TODO: Consider using a builder pattern or functional options for Styles configuration if complexity grows.
+// TODO: IMPROVEMENT: Use functional options for Styles configuration.
 func NewStyles(theme Theme) Styles {
 	return Styles{
 		Theme: theme,
@@ -284,6 +287,7 @@ func DefaultStyles() Styles {
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
 	// TODO: Extract this hardcoded ASCII art to a resource file or constant to declutter the code.
+	// TODO: IMPROVEMENT: Load ASCII art from a separate resource file.
 	logo := `
    ___          _      _  _ ___ ___ ___  
   / __|___  __| |___ | \| | __| _ \   \ 

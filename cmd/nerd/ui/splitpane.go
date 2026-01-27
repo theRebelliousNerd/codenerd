@@ -61,6 +61,7 @@ type DerivationTrace struct {
 
 // LogicPane represents the logic visualization pane
 // TODO: Implement tea.Model interface for LogicPane to handle its own events
+// TODO: IMPROVEMENT: Replace manual string building in LogicPane with `bubbles/layout` or similar library.
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -288,6 +289,7 @@ func (p *LogicPane) renderContent() string {
 
 // renderEmptyState renders the empty state message
 // TODO: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
+// TODO: IMPROVEMENT: Extract magic numbers to layout constants.
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted).
@@ -329,6 +331,7 @@ func (p *LogicPane) renderTree() string {
 
 // renderNode renders a single derivation node
 // TODO: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Enhance accessibility for tree visualization.
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
@@ -525,6 +528,7 @@ func (s *SplitPaneView) Render(leftContent string) string {
 
 // renderSplit renders the split view
 // TODO: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
+// TODO: IMPROVEMENT: Adopt `bubbles/layout` for robust split pane management.
 func (s *SplitPaneView) renderSplit(leftContent string) string {
 	leftWidth := int(float64(s.Width) * s.SplitRatio)
 	rightWidth := s.Width - leftWidth - 1 // -1 for divider
