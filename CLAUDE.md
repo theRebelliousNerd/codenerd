@@ -1183,4 +1183,9 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 
 **Remember: Push to GitHub regularly!**
 
-> *[Archived & Reviewed by The Librarian on 2026-01-22]*
+## Repository Hygiene
+
+- **2026-01-27**: Moved `perception_output.txt` to `Docs/archive-candidates/` to maintain root directory cleanliness.
+- **2026-01-27**: Established `Docs/maintenance/TODO.md` for tracking staleness and broken links.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-27]*
