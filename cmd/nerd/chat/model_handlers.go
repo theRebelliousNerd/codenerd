@@ -93,7 +93,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 			m.pendingPatchLines = nil
 			m.awaitingPatch = false
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: applyPatchResult(m.workspace, patch),
 				Time:    time.Now(),
@@ -123,7 +123,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Add user message to history
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: input,
 		Time:    time.Now(),
@@ -405,7 +405,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	}
 
 	// Add user response to history
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: response,
 		Time:    time.Now(),
@@ -535,7 +535,7 @@ func (m Model) formatClarificationRequest(state ClarificationState) string {
 // handleDreamLearningConfirmation processes user confirmation of dream state learnings
 func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: input,
 		Time:    time.Now(),
@@ -547,7 +547,7 @@ func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd
 	// Confirm staged learnings
 	confirmed := m.dreamCollector.ConfirmLearnings(input)
 	if len(confirmed) == 0 {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "No pending learnings to confirm. Ask me a hypothetical first with phrases like \"what if\" or \"imagine\".",
 			Time:    time.Now(),
@@ -598,7 +598,7 @@ func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd
 		sb.WriteString(fmt.Sprintf("I'll remember these %d insights for future tasks.", successCount))
 	}
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -613,7 +613,7 @@ func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd
 // handleDreamLearningCorrection processes user corrections to dream state learnings
 func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: input,
 		Time:    time.Now(),
@@ -652,7 +652,7 @@ func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) 
 		response = fmt.Sprintf("✅ **Correction noted:**\n\n*%s*\n\nI'll remember this for future tasks.", correction)
 	}
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: response,
 		Time:    time.Now(),
@@ -668,7 +668,7 @@ func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) 
 // This is triggered by phrases like "do it", "execute that", "run the plan".
 func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: input,
 		Time:    time.Now(),
@@ -679,7 +679,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 
 	plan := m.dreamPlanManager.GetCurrentPlan()
 	if plan == nil || len(plan.Subtasks) == 0 {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "No dream plan to execute. Ask a hypothetical question first (e.g., \"what if we added caching?\").",
 			Time:    time.Now(),
@@ -691,7 +691,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 
 	// Approve the plan
 	if err := m.dreamPlanManager.ApprovePlan(); err != nil {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Cannot execute plan: %v", err),
 			Time:    time.Now(),
@@ -731,7 +731,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 	}
 	sb.WriteString("\n_* = mutation (file change)_\n")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -741,7 +741,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 
 	// Start execution using existing multi-step infrastructure
 	if err := m.dreamPlanManager.StartExecution(); err != nil {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Failed to start execution: %v", err),
 			Time:    time.Now(),
@@ -774,7 +774,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 // triggerLearningLoop initiates the Ouroboros self-correction process
 func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 	// Add the user's complaint to history first so the Critic sees it
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "user",
 		Content: userInput,
 		Time:    time.Now(),
@@ -784,7 +784,7 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 	m.textarea.Reset()
 
 	// Notify user we are paying attention
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: "I detect dissatisfaction. Invoking Meta-Cognitive Supervisor to analyze our interaction and learn from this mistake...",
 		Time:    time.Now(),
@@ -828,4 +828,3 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 
 	return m, tea.Batch(m.spinner.Tick, learningCmd)
 }
-
