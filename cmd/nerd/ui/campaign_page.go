@@ -48,6 +48,7 @@ func (m CampaignPageModel) Init() tea.Cmd {
 // Update handles messages.
 // TODO: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
 // TODO: Add debounce logic for rapid key presses if performance becomes an issue.
+// TODO: IMPROVEMENT: Add help bubble to show available key bindings.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -84,6 +85,7 @@ func (m CampaignPageModel) View() string {
 
 // SetSize updates the size of the viewport.
 // TODO: Improve view resizing logic to avoid fragile calculations (e.g., `w - 4`). Use layout constants or dynamic measurement.
+// TODO: IMPROVEMENT: Extract magic numbers (w-4) to layout constants.
 func (m *CampaignPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -94,6 +96,7 @@ func (m *CampaignPageModel) SetSize(w, h int) {
 
 // UpdateContent updates the viewport content based on campaign data.
 // TODO: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
+// TODO: IMPROVEMENT: Optimize content update to avoid full string rebuilds. Consider using Viewport.SetContent with pre-rendered parts.
 func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaign.Campaign) {
 	m.campaignData = camp
 	m.progressData = prog

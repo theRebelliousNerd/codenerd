@@ -30,6 +30,7 @@ func NewUsagePageModel(tracker *usage.Tracker, styles Styles) UsagePageModel {
 }
 
 // SetSize updates the size of the viewport.
+// TODO: IMPROVEMENT: Extract magic numbers (h-4) to layout constants.
 func (m *UsagePageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -39,6 +40,7 @@ func (m *UsagePageModel) SetSize(w, h int) {
 }
 
 // UpdateContent refreshes the viewport content from the tracker data.
+// TODO: IMPROVEMENT: Optimize update by avoiding full string rebuilds.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")
@@ -62,6 +64,7 @@ func (m *UsagePageModel) UpdateContent() {
 
 	// Helper to render map tables
 	// TODO: Move table rendering to a reusable component or bubble
+	// TODO: IMPROVEMENT: Extract table rendering to a standalone bubble component.
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
@@ -118,6 +121,7 @@ func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 
 // View renders the page.
 // TODO: Add support for exporting usage stats (CSV/JSON)
+// TODO: IMPROVEMENT: Implement usage stats export to CSV/JSON.
 func (m UsagePageModel) View() string {
 	return m.viewport.View()
 }

@@ -78,6 +78,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			case "tab":
 				// Could toggle focus, but for now just let logic handle it or simple split
 				// TODO: Implement focus switching between list and viewport
+				// TODO: IMPROVEMENT: Implement Tab navigation to switch focus between list and detail view.
 			}
 		}
 	}
@@ -104,6 +105,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 
 // renderAtomContent formats the atom for display
 // TODO: Fix indentation and improve string building performance
+// TODO: IMPROVEMENT: Fix indentation of the generated content and optimize string building.
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	var sb strings.Builder
 
@@ -127,6 +129,7 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 		return sb.String()}
 
 // View renders the page.
+// TODO: IMPROVEMENT: Improve layout responsiveness for small screens. Avoid hardcoded splits if possible.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
@@ -143,6 +146,7 @@ func (m JITPageModel) View() string {
 }
 
 // SetSize updates the size.
+// TODO: IMPROVEMENT: Extract layout constants (35% split, padding) to named constants.
 func (m *JITPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h

@@ -60,6 +60,7 @@ type PendingMutation struct {
 }
 
 // DiffApprovalView handles interactive diff approval
+// TODO: IMPROVEMENT: Refactor state management to use a state machine or cleaner model transition logic.
 type DiffApprovalView struct {
 	Styles       Styles
 	Viewport     viewport.Model
@@ -102,6 +103,7 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 
 // SetSize updates dimensions
 // TODO: Replace magic numbers (e.g., `width - 4`, `height - 8`) with layout constants.
+// TODO: IMPROVEMENT: Extract magic numbers (w-4, h-8) to layout constants.
 func (d *DiffApprovalView) SetSize(width, height int) {
 	d.Width = width
 	d.Height = height
@@ -336,6 +338,7 @@ func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 
 // renderDiff renders the diff content with syntax highlighting
 // TODO: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
+// TODO: IMPROVEMENT: Implement style caching to improve rendering performance for large diffs.
 func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	var sb strings.Builder
 
@@ -424,6 +427,7 @@ func (d *DiffApprovalView) View() string {
 
 // computeLCS computes the Longest Common Subsequence table for two slices
 // TODO: Consider replacing this manual LCS implementation with a robust diff library (e.g., `sergi/go-diff`) if performance or edge cases become an issue.
+// TODO: IMPROVEMENT: Replace manual LCS with a standard library like `sergi/go-diff` or `pmezard/go-difflib`.
 func computeLCS(oldLines, newLines []string) [][]int {
 	m, n := len(oldLines), len(newLines)
 	// Create LCS table with (m+1) x (n+1) dimensions

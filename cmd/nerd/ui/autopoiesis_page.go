@@ -75,6 +75,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 			m.activeTab = (m.activeTab + 1) % 2
 			m.refreshTable()
 			// TODO: Add keyboard navigation for tab switching (Left/Right arrows)
+			// TODO: IMPROVEMENT: Implement Left/Right arrow key navigation for tabs.
 		}
 	}
 
@@ -84,6 +85,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 
 // refreshTable updates the table rows based on active tab
 // TODO: Add sorting capabilities to the table columns.
+// TODO: IMPROVEMENT: Optimize table refresh to avoid full row rebuilds on every toggle. Consider caching.
 func (m *AutopoiesisPageModel) refreshTable() {
 	var rows []table.Row
 	var cols []table.Column
@@ -128,6 +130,7 @@ func (m *AutopoiesisPageModel) refreshTable() {
 }
 
 // View renders the page.
+// TODO: IMPROVEMENT: Use `lipgloss.JoinVertical` instead of `strings.Builder` for cleaner layout composition.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 
@@ -172,6 +175,7 @@ func (m AutopoiesisPageModel) View() string {
 
 // SetSize updates the size.
 // TODO: Replace magic number '60' with a defined breakpoint constant.
+// TODO: IMPROVEMENT: Extract magic numbers (w-4, h-10) to layout constants.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h

@@ -26,6 +26,7 @@ type ShardPageModel struct {
 
 // NewShardPageModel creates a new shard console.
 // TODO: Allow dynamic column configuration
+// TODO: IMPROVEMENT: Implement dynamic column configuration based on user preference or config.
 func NewShardPageModel() ShardPageModel {
 	t := table.New(
 		table.WithColumns([]table.Column{
@@ -57,6 +58,7 @@ func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
 
 // View renders the page.
 // TODO: Add detailed view for selected shard
+// TODO: IMPROVEMENT: Add a detailed view panel for the selected shard to show more metrics.
 func (m ShardPageModel) View() string {
 	var sb strings.Builder
 
@@ -77,6 +79,7 @@ func (m ShardPageModel) View() string {
 }
 
 // SetSize updates the size.
+// TODO: IMPROVEMENT: Extract magic numbers (w-4, h-6) to layout constants.
 func (m *ShardPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
