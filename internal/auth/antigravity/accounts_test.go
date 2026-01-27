@@ -140,3 +140,14 @@ func TestAccountManager_Delete(t *testing.T) {
 		t.Errorf("Account 2 should be re-indexed to 0, got %d", acc2.Index)
 	}
 }
+
+// TODO: TEST_GAP: Missing test for null/empty 'account' input in AddAccount.
+// TODO: TEST_GAP: Missing test for empty 'email' string in GetAccount.
+// TODO: TEST_GAP: Verify behavior when DeleteAccount is called with an email that does not exist.
+// TODO: TEST_GAP: Verify behavior when loading a corrupted or empty JSON file in Load (e.g., partial write).
+// TODO: TEST_GAP: Verify IsAccessTokenExpired boundary condition (e.g., exactly 60 seconds remaining).
+// TODO: TEST_GAP: Verify IsRateLimited logic when reset time is exactly now vs 1ms in the past.
+// TODO: TEST_GAP: Missing test for 'hybrid' strategy in GetCurrentOrNextForFamily (currently only 'sticky' is tested).
+// TODO: TEST_GAP: Verify behavior when RateLimitResetTimes contains a timestamp far in the past (negative duration).
+// TODO: TEST_GAP: Verify concurrent access safety (race condition) between GetCurrentOrNextForFamily and MarkRateLimited.
+// TODO: TEST_GAP: Verify behavior when multiple threads attempt to Load and Save simultaneously (file lock check).
