@@ -103,7 +103,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 }
 
 // renderAtomContent formats the atom for display
-// TODO: Fix indentation and improve string building performance
+// TODO: IMPROVEMENT: Fix indentation and improve string building performance.
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	var sb strings.Builder
 
@@ -127,7 +127,7 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 		return sb.String()}
 
 // View renders the page.
-// TODO: Abstract split view logic into a shared helper or component to ensure consistency across pages.
+// TODO: IMPROVEMENT: Abstract split view logic into a shared helper or component to ensure consistency across pages.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
