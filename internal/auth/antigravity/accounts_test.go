@@ -140,3 +140,21 @@ func TestAccountManager_Delete(t *testing.T) {
 		t.Errorf("Account 2 should be re-indexed to 0, got %d", acc2.Index)
 	}
 }
+
+// TODO: TEST_GAP: Verify behavior when AddAccount is called with a nil Account.
+
+// TODO: TEST_GAP: Verify behavior when AddAccount is called with an Account having an empty Email.
+
+// TODO: TEST_GAP: Verify DeleteAccount returns error when attempting to delete a non-existent email.
+
+// TODO: TEST_GAP: Verify DeleteAccount correctly updates ActiveIndex when the active account is deleted.
+
+// TODO: TEST_GAP: Verify MarkRateLimited handles out-of-bounds index (negative or too large) gracefully.
+
+// TODO: TEST_GAP: Verify GetCurrentOrNextForFamily returns error when all accounts are rate-limited.
+
+// TODO: TEST_GAP: Verify GetCurrentOrNextForFamily returns error when no accounts are configured.
+
+// TODO: TEST_GAP: Verify Load handles corrupted JSON file gracefully (should return error or start empty).
+
+// TODO: TEST_GAP: Verify behavior when file system is read-only during Save (simulate write failure).
