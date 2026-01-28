@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// TODO: IMPROVEMENT: Add test coverage for edge cases and error states (e.g., empty data, rapid tab switching).
 func TestAutopoiesisPageModelUpdateAndTab(t *testing.T) {
 	model := NewAutopoiesisPageModel()
 	model.SetSize(80, 20)
@@ -89,6 +90,7 @@ func TestCampaignPageModelViewAndUpdate(t *testing.T) {
 	}
 }
 
+// TODO: IMPROVEMENT: Add test coverage for large datasets to verify list performance.
 func TestJITPageModelUpdateAndRender(t *testing.T) {
 	model := NewJITPageModel()
 	atoms := []*prompt.PromptAtom{

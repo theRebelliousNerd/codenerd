@@ -46,8 +46,8 @@ func (m CampaignPageModel) Init() tea.Cmd {
 }
 
 // Update handles messages.
-// TODO: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
-// TODO: Add debounce logic for rapid key presses if performance becomes an issue.
+// TODO: IMPROVEMENT: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
+// TODO: IMPROVEMENT: Add debounce logic for rapid key presses if performance becomes an issue.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
@@ -93,7 +93,7 @@ func (m *CampaignPageModel) SetSize(w, h int) {
 }
 
 // UpdateContent updates the viewport content based on campaign data.
-// TODO: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
+// TODO: IMPROVEMENT: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
 func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaign.Campaign) {
 	m.campaignData = camp
 	m.progressData = prog
@@ -141,8 +141,8 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	sb.WriteString(m.styles.Info.Render(metrics) + "\n\n")
 
 	// 5. Phases List
-	// TODO: Virtualize the phases list if it grows too large
-	// TODO: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
+	// TODO: IMPROVEMENT: Virtualize the phases list if it grows too large.
+	// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending

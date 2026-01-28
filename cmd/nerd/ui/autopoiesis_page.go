@@ -26,7 +26,7 @@ type AutopoiesisPageModel struct {
 	table    table.Model
 
 	// State
-	// TODO: Consider using a state machine for managing tab transitions and view states if complexity increases.
+	// TODO: IMPROVEMENT: Consider using a state machine for managing tab transitions and view states if complexity increases.
 	activeTab AutoTab
 
 	// Data
@@ -84,7 +84,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 }
 
 // refreshTable updates the table rows based on active tab
-// TODO: Add sorting capabilities to the table columns.
+// TODO: IMPROVEMENT: Add sorting capabilities to the table columns.
 func (m *AutopoiesisPageModel) refreshTable() {
 	var rows []table.Row
 	var cols []table.Column
@@ -172,8 +172,8 @@ func (m AutopoiesisPageModel) View() string {
 }
 
 // SetSize updates the size.
-// TODO: Replace magic number '60' with a defined breakpoint constant.
-// TODO: Implement a generic responsive layout manager to handle visibility of components based on available width.
+// TODO: IMPROVEMENT: Replace magic number '60' with a defined breakpoint constant.
+// TODO: IMPROVEMENT: Implement a generic responsive layout manager to handle visibility of components based on available width.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
