@@ -1762,8 +1762,10 @@ type sessionVirtualStoreAdapter struct {
 
 func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 	// Route through VirtualStore's FileEditor if available
-	if editor := a.vs.GetFileEditor(); editor != nil {
-		return editor.ReadFile(path)
+	if a.vs != nil {
+		if editor := a.vs.GetFileEditor(); editor != nil {
+			return editor.ReadFile(path)
+		}
 	}
 	// Fallback to direct OS read if no editor configured
 	data, err := os.ReadFile(path)
@@ -1775,9 +1777,11 @@ func (a *sessionVirtualStoreAdapter) ReadFile(path string) ([]string, error) {
 
 func (a *sessionVirtualStoreAdapter) WriteFile(path string, content []string) error {
 	// Route through VirtualStore's FileEditor if wired
-	if editor := a.vs.GetFileEditor(); editor != nil {
-		_, err := editor.WriteFile(path, content)
-		return err
+	if a.vs != nil {
+		if editor := a.vs.GetFileEditor(); editor != nil {
+			_, err := editor.WriteFile(path, content)
+			return err
+		}
 	}
 	// Fallback to direct OS write if no editor configured
 	return os.WriteFile(path, []byte(strings.Join(content, "\n")), 0644)
