@@ -39,6 +39,7 @@ func (m *UsagePageModel) SetSize(w, h int) {
 }
 
 // UpdateContent refreshes the viewport content from the tracker data.
+// TODO: Add visual charts (bar/pie) using termui or similar for better data visualization.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")

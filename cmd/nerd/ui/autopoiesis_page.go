@@ -26,6 +26,7 @@ type AutopoiesisPageModel struct {
 	table    table.Model
 
 	// State
+	// TODO: Consider using a state machine for managing tab transitions and view states if complexity increases.
 	activeTab AutoTab
 
 	// Data
@@ -172,6 +173,7 @@ func (m AutopoiesisPageModel) View() string {
 
 // SetSize updates the size.
 // TODO: Replace magic number '60' with a defined breakpoint constant.
+// TODO: Implement a generic responsive layout manager to handle visibility of components based on available width.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h

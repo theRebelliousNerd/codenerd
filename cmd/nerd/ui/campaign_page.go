@@ -127,6 +127,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	}
 
 	// 3. Control Hints (The Direct Control Plane)
+	// TODO: Use bubbles/help component for standardized keybinding display.
 	hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back")
 	sb.WriteString(hints + "\n\n")
 
@@ -141,6 +142,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 
 	// 5. Phases List
 	// TODO: Virtualize the phases list if it grows too large
+	// TODO: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending
