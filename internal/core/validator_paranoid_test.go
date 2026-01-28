@@ -448,3 +448,15 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 		t.Errorf("Expected sample_points=5 in details, got %v", vr.Details["sample_points"])
 	}
 }
+
+// TODO: TEST_GAP: Verify behavior when context is cancelled (ctx.Done()) before or during validation.
+
+// TODO: TEST_GAP: Verify behavior when file is modified between first and second read (Race Condition Simulation).
+
+// TODO: TEST_GAP: Verify behavior when target is a symlink (ensure it follows or rejects based on policy).
+
+// TODO: TEST_GAP: Verify behavior when file is deleted between os.Stat and os.ReadFile.
+
+// TODO: TEST_GAP: Verify behavior with extremely large files (OOM protection check).
+
+// TODO: TEST_GAP: Verify behavior when SamplePoints is negative (should default or be ignored).
