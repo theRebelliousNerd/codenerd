@@ -291,6 +291,14 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 
 // TODO: TEST_GAP: Verify concurrency safety when RegisterDB is called during Compile.
 
+// TODO: TEST_GAP: Verify robustness against kernel returning non-string types (e.g. int, nil) in facts (Type Coercion).
+// TODO: TEST_GAP: Verify behavior with extreme token budgets (negative, zero, massive).
+// TODO: TEST_GAP: Verify cache invalidation when underlying corpus/DB changes (Cache Staleness).
+// TODO: TEST_GAP: Verify handling of atoms with massive content strings (10MB+) (DoS/OOM protection).
+// TODO: TEST_GAP: Verify behavior with deeply nested or circular dependency graphs (Stack Overflow protection).
+// TODO: TEST_GAP: Verify robustness against empty/partial context fields (nil pointers, empty strings) in helpers like InjectAvailableSpecialists.
+// TODO: TEST_GAP: Verify behavior under high concurrency (Thundering Herd) for cache misses.
+
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
 		{
