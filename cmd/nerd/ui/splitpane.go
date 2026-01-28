@@ -49,6 +49,7 @@ type DerivationNode struct {
 	Expanded   bool
 	Timestamp  time.Time
 	Activation float64 // Spreading activation score
+	// TODO: Add a threshold control to filter nodes with low activation scores.
 }
 
 // DerivationTrace represents the full derivation trace

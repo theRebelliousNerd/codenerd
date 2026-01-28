@@ -94,6 +94,7 @@ func DarkTheme() Theme {
 // DetectTheme auto-detects based on terminal or returns light mode
 // TODO: Add support for a configuration file (e.g., config.yaml) in addition to environment variables.
 // TODO: Consider using a dedicated library like 'termenv' for more robust background color detection.
+// TODO: Support NO_COLOR standard (https://no-color.org/).
 func DetectTheme() Theme {
 	// Check for common dark mode indicators
 	colorTerm := os.Getenv("COLORFGBG")
@@ -126,6 +127,7 @@ func DetectTheme() Theme {
 
 // Styles holds all the styled components
 // TODO: Add utility function to adjust color brightness/saturation
+// TODO: Group related styles into sub-structs (e.g. TextStyles, LayoutStyles) for better API organization.
 type Styles struct {
 	Theme Theme
 

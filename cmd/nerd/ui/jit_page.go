@@ -127,6 +127,7 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 		return sb.String()}
 
 // View renders the page.
+// TODO: Abstract split view logic into a shared helper or component to ensure consistency across pages.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
