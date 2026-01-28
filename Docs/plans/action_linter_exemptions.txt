@@ -39,3 +39,5 @@ exec_tool
 # Benchmark / harness actions
 python_*
 swebench_*
+
+> *[Archived & Reviewed by The Librarian on 2026-01-28]*

@@ -382,7 +382,7 @@ Old architecture embedded tools inside domain shards. When shards were deleted, 
 
 **Location:** `internal/tools/`
 
-```
+```text
 internal/tools/
 ├── registry.go       # Central tool registry
 ├── types.go          # Tool, ToolSchema, ToolCategory types
@@ -708,7 +708,7 @@ The MCP package provides a JIT Tool Compiler for intelligent MCP tool serving ba
 
 ### Architecture
 
-```
+```text
 MCPClientManager → ToolAnalyzer → MCPToolStore → Mangle Facts
                                       ↓
 TaskContext → Vector Search + Mangle Logic → Tool Selection
@@ -760,7 +760,7 @@ The Prompt Evolution System implements Karpathy's "third paradigm" of LLM learni
 
 ### Architecture
 
-```
+```text
 Execute → Evaluate (LLM-as-Judge) → Evolve (Meta-Prompt) → Integrate (JIT Compiler)
 ```
 
@@ -791,7 +791,7 @@ Execute → Evaluate (LLM-as-Judge) → Evolve (Meta-Prompt) → Integrate (JIT 
 
 ### Storage
 
-```
+```text
 .nerd/prompts/
 ├── evolution.db        # Execution records, verdicts
 ├── strategies.db       # Strategy database
@@ -1183,4 +1183,4 @@ When embedding Mangle, AI agents fail to navigate the boundary between Go and Lo
 
 **Remember: Push to GitHub regularly!**
 
-> *[Archived & Reviewed by The Librarian on 2026-01-22]*
+> *[Archived & Reviewed by The Librarian on 2026-01-28]*
