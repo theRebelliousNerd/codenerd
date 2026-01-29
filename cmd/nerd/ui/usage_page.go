@@ -39,7 +39,7 @@ func (m *UsagePageModel) SetSize(w, h int) {
 }
 
 // UpdateContent refreshes the viewport content from the tracker data.
-// TODO: Add visual charts (bar/pie) using termui or similar for better data visualization.
+// TODO: IMPROVEMENT: Add visual charts (bar/pie) using termui or similar for better data visualization.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")
@@ -62,7 +62,7 @@ func (m *UsagePageModel) UpdateContent() {
 	sb.WriteString("\n")
 
 	// Helper to render map tables
-	// TODO: Move table rendering to a reusable component or bubble
+	// TODO: IMPROVEMENT: Componentize table rendering by moving this to a reusable component or bubble.
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
@@ -118,7 +118,7 @@ func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: Add support for exporting usage stats (CSV/JSON)
+// TODO: IMPROVEMENT: Support exporting usage stats (CSV/JSON).
 func (m UsagePageModel) View() string {
 	return m.viewport.View()
 }
