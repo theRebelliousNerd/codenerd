@@ -143,6 +143,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	// 5. Phases List
 	// TODO: IMPROVEMENT: Virtualize the phases list if it grows too large.
 	// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
+	// TODO: IMPROVEMENT: Use a nested model or delegate to handle interactive task selection within phases.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending

@@ -83,6 +83,7 @@ const (
 )
 
 // NewDiffApprovalView creates a new diff approval view
+// TODO: IMPROVEMENT: Implement a side-by-side diff view mode for better comparison of complex changes.
 func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 	vp := viewport.New(width, height-6)
 	vp.SetContent("")

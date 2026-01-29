@@ -104,6 +104,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 
 // renderAtomContent formats the atom for display
 // TODO: IMPROVEMENT: Fix indentation and improve string building performance.
+// TODO: IMPROVEMENT: Implement syntax highlighting for atom content (e.g., Markdown/YAML highlighting).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	var sb strings.Builder
 
