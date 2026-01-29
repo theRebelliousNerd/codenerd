@@ -101,7 +101,7 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 }
 
 // SetSize updates dimensions
-// TODO: Replace magic numbers (e.g., `width - 4`, `height - 8`) with layout constants.
+// TODO: IMPROVEMENT: Replace magic numbers (e.g., `width - 4`, `height - 8`) with layout constants.
 func (d *DiffApprovalView) SetSize(width, height int) {
 	d.Width = width
 	d.Height = height
@@ -335,7 +335,7 @@ func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 }
 
 // renderDiff renders the diff content with syntax highlighting
-// TODO: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
+// TODO: IMPROVEMENT: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
 func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	var sb strings.Builder
 
@@ -404,6 +404,7 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 }
 
 // renderControls renders the approval controls
+// TODO: IMPROVEMENT: Use `key.Binding` for customizable keyboard controls instead of hardcoded strings.
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
 		Foreground(d.Styles.Theme.Muted).
@@ -423,8 +424,8 @@ func (d *DiffApprovalView) View() string {
 }
 
 // computeLCS computes the Longest Common Subsequence table for two slices
-// TODO: Consider replacing this manual LCS implementation with a robust diff library (e.g., `sergi/go-diff`) if performance or edge cases become an issue.
-// TODO: Add unit tests specifically for the LCS and backtracking logic to ensure correctness of manual implementation.
+// TODO: IMPROVEMENT: Consider replacing this manual LCS implementation with a robust diff library (e.g., `sergi/go-diff`) if performance or edge cases become an issue.
+// TODO: IMPROVEMENT: Add unit tests specifically for the LCS and backtracking logic to ensure correctness of manual implementation.
 func computeLCS(oldLines, newLines []string) [][]int {
 	m, n := len(oldLines), len(newLines)
 	// Create LCS table with (m+1) x (n+1) dimensions
@@ -503,7 +504,7 @@ func backtrackLCS(lcs [][]int, oldLines, newLines []string) []diffOperation {
 }
 
 // CreateDiffFromStrings creates a FileDiff from old and new content strings using LCS algorithm
-// TODO: Add support for ignoring whitespace changes.
+// TODO: IMPROVEMENT: Add support for ignoring whitespace changes.
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	diff := &FileDiff{
 		OldPath: oldPath,

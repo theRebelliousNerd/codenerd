@@ -61,7 +61,7 @@ type DerivationTrace struct {
 }
 
 // LogicPane represents the logic visualization pane
-// TODO: Implement tea.Model interface for LogicPane to handle its own events
+// TODO: IMPROVEMENT: Implement tea.Model interface for LogicPane to handle its own events
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -237,7 +237,7 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 }
 
 // renderContent renders the logic pane content
-// TODO: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
+// TODO: IMPROVEMENT: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
 func (p *LogicPane) renderContent() string {
 	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
 	// we could return cached string. For now, given the complexity of tracking Viewport width changes
@@ -288,7 +288,7 @@ func (p *LogicPane) renderContent() string {
 }
 
 // renderEmptyState renders the empty state message
-// TODO: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
+// TODO: IMPROVEMENT: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted).
@@ -329,7 +329,7 @@ func (p *LogicPane) renderTree() string {
 }
 
 // renderNode renders a single derivation node
-// TODO: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
@@ -413,7 +413,7 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 }
 
 // renderLegend renders the legend explaining the symbols
-// TODO: Make legend responsive or collapsible on smaller screens.
+// TODO: IMPROVEMENT: Make legend responsive or collapsible on smaller screens.
 func (p *LogicPane) renderLegend() string {
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -436,7 +436,7 @@ func (p *LogicPane) View() string {
 }
 
 // SplitPaneView renders a split-pane view with chat and logic
-// TODO: Add support for resizing split ratio via mouse or keyboard
+// TODO: IMPROVEMENT: Add support for resizing split ratio via mouse or keyboard
 type SplitPaneView struct {
 	Styles     Styles
 	LeftPane   string // Chat content
@@ -525,7 +525,7 @@ func (s *SplitPaneView) Render(leftContent string) string {
 }
 
 // renderSplit renders the split view
-// TODO: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
+// TODO: IMPROVEMENT: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
 func (s *SplitPaneView) renderSplit(leftContent string) string {
 	leftWidth := int(float64(s.Width) * s.SplitRatio)
 	rightWidth := s.Width - leftWidth - 1 // -1 for divider
