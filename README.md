@@ -502,6 +502,9 @@ nerd run --shadow "delete all test files"
 
 ```
 codenerd/
+├── Docs/
+│   ├── archive-candidates/ # Archived loose notes
+│   └── maintenance/        # Maintenance logs and TODOs
 ├── cmd/
 │   └── nerd/              # CLI entrypoint (Cobra, 80+ files)
 │       └── chat/          # Interactive TUI (Bubble Tea, modularized)
@@ -613,4 +616,4 @@ This separation means:
 
 </div>
 
-> *[Archived & Reviewed by The Librarian on 2026-01-22]*
+> *[Archived & Reviewed by The Librarian on 2026-01-29]*
