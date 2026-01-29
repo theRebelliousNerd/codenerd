@@ -298,6 +298,9 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 // TODO: TEST_GAP: Verify behavior with deeply nested or circular dependency graphs (Stack Overflow protection).
 // TODO: TEST_GAP: Verify robustness against empty/partial context fields (nil pointers, empty strings) in helpers like InjectAvailableSpecialists.
 // TODO: TEST_GAP: Verify behavior under high concurrency (Thundering Herd) for cache misses.
+// TODO: TEST_GAP: Verify vulnerability to Mangle Injection via Atom ID (e.g., IDs containing single quotes or newlines).
+// TODO: TEST_GAP: Verify handling of Atom Syntax violations in Context Fields (e.g. ShardType with spaces, special chars).
+// TODO: TEST_GAP: Verify behavior with Integer Overflow in Token Budget calculation (Budget Black Hole).
 
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
