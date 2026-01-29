@@ -330,6 +330,7 @@ func (p *LogicPane) renderTree() string {
 
 // renderNode renders a single derivation node
 // TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Visualize activation scores using a gradient heat map or `bubbles/progress` for better intuitive understanding.
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
