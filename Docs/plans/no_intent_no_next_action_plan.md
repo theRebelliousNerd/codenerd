@@ -261,7 +261,7 @@ Decl clarification_option(IntentID.Type<string>, OptionVerb.Type<string>, Option
 
 # Track learning candidate occurrences for threshold
 Decl learning_candidate_count(Phrase.Type<string>, Count.Type<int>).
-```
+```json
 
 **Validation:**
 - Run `go test ./internal/core/...` to ensure schema loads
@@ -307,7 +307,7 @@ func (p *PerceptionFirewallShard) isVerbMapped(verb string) bool {
     }
     return false
 }
-```
+```mangle
 
 **Mangle rules in `clarification.mg`:**
 
@@ -375,7 +375,7 @@ case "/interrogative_mode":
     }
     payload["intent_id"] = intent.ID
     return target, payload
-```
+```go
 
 **Note:** `handleInterrogative` in `virtual_store_workflows.go:162-186` already
 correctly extracts `req.Target` as question and `req.Payload["options"]` - no changes needed there.
@@ -470,7 +470,7 @@ ooda_stalled("no_action_derived") :-
 
 escalation_needed(/ooda_loop, "stalled", Reason) :-
     ooda_stalled(Reason).
-```
+```mangle
 
 **Add escalation action derivation in `system_ooda.mg`:**
 
@@ -521,7 +521,7 @@ if !found {
     }
     continue
 }
-```
+```mangle
 
 **Mangle rules in new `routing_escalation.mg`:**
 
@@ -657,7 +657,7 @@ func (s *LearningCandidateStore) RejectCandidate(id int64) error {
     _, err := s.db.Exec(`DELETE FROM learning_candidates WHERE id = ?`, id)
     return err
 }
-```
+```go
 
 **Wire into perception.go:**
 
@@ -710,7 +710,7 @@ func (t *TaxonomyEngine) ConfirmLearningCandidate(phrase, verb, target, constrai
     }
     return t.store.StoreLearnedExemplar(phrase, verb, target, constraint, confidence)
 }
-```
+```go
 
 ---
 
@@ -852,7 +852,7 @@ func TestLearningCandidate_ConfirmationFlow(t *testing.T) {
     // Confirm candidate
     // Assert learned_exemplar in taxonomy store
 }
-```
+```mangle
 
 ---
 
@@ -908,7 +908,7 @@ Decl clarification_option(IntentID.Type<string>, OptionVerb.Type<string>, Option
 # ooda_timeout() - True when OODA loop has stalled (30s+ without action)
 # Computed by Go based on last_action_time vs current_time
 Decl ooda_timeout().
-```
+```mangle
 
 ---
 
@@ -984,7 +984,7 @@ next_action(/interrogative_mode) :-
 
 clarification_question(/current_intent, "I'm having trouble determining what action to take. Could you rephrase your request?") :-
     ooda_stalled("no_action_derived").
-```
+```mangle
 
 ### New file: `internal/core/defaults/policy/learning.mg`
 
@@ -1247,3 +1247,5 @@ path and hides a valid teaching opportunity from the user.
 ---
 
 *End of Plan*
+
+> *[Archived & Reviewed by The Librarian on 2026-01-30]*
