@@ -298,6 +298,11 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 // TODO: TEST_GAP: Verify behavior with deeply nested or circular dependency graphs (Stack Overflow protection).
 // TODO: TEST_GAP: Verify robustness against empty/partial context fields (nil pointers, empty strings) in helpers like InjectAvailableSpecialists.
 // TODO: TEST_GAP: Verify behavior under high concurrency (Thundering Herd) for cache misses.
+// TODO: TEST_GAP: Verify NewJITPromptCompiler with nil options does not panic.
+// TODO: TEST_GAP: Verify Compile behavior when ShardID is empty string (should skip shard atoms).
+// TODO: TEST_GAP: Verify performance impact of massive atom corpus (e.g., 100k atoms) on Compile latency.
+// TODO: TEST_GAP: Verify RegisterDB behavior with empty or invalid database paths.
+// TODO: TEST_GAP: Verify InjectAvailableSpecialists robustness against malformed agents.json (JSON types mismatch).
 
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
