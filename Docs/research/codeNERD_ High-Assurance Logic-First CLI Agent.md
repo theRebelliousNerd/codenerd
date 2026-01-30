@@ -377,3 +377,5 @@ The research results must be "burned" into the Shard's initial state so it start
   2. **Ingestion:** These atoms are written to a dedicated SQLite file: memory/shards/{AgentName}\_knowledge.db.  
   3. **Spawn:** When nerd spawn RustExpert is called, the Kernel mounts this DB as a read-only "Knowledge Shard" (Shard C) for the new agent, satisfying the **Type B** lifecycle defined in Section 7.0.  
   4. **Verification:** The Kernel runs a "viva voce" (oral exam) — generating synthetic questions from the knowledge base and verifying the Shard can answer them using Mangle queries before marking the Shard as ready.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-30]*

@@ -57,7 +57,7 @@ To the Mangle engine, querying a 10-million-vector database looks identical to q
                            |
                            +--> [ ShardAgent 1: Researcher ] (Own Kernel + Context)
                            +--> [ ShardAgent 2: Coder ] (Own Kernel + Context)
-```
+```mangle
 
 ### 2.2 Lifecycle of an Interaction (The OODA Loop)
 
@@ -108,7 +108,7 @@ Decl focus_resolution(
     SymbolName.Type<string>,    # "AuthHandler"
     Confidence.Type<float>
 ).
-```
+```mangle
 
 **Logic Constraint: The Clarification Threshold**
 
@@ -138,7 +138,7 @@ Decl file_topology(
     LastModified.Type<int>,
     IsTestFile.Type<bool>    # Critical for TDD loops
 ).
-```
+```mangle
 
 **AST Projection (Symbol Graph):**
 To reason about code structure (inheritance, dependency, scope), the Go runtime parses the code and projects the Abstract Syntax Tree (AST) into Mangle atoms.
@@ -166,7 +166,7 @@ Decl dependency_link(
 ```mangle
 impacted(X) :- dependency_link(X, Y,_), modified(Y).
 impacted(X) :- dependency_link(X, Z,_), impacted(Z). # Recursive Closure
-```
+```mangle
 
 ### 4.2 The Coder Shard: Linter-Logic Bridge
 
@@ -191,7 +191,7 @@ Decl diagnostic(
 ```mangle
 block_commit("Build Broken") :-
     diagnostic(/error,_, _,_, _).
-```
+```mangle
 
 ### 4.3 The Coder Shard: TDD Repair Loop
 
@@ -220,7 +220,7 @@ next_action(/run_tests) :-
 next_action(/escalate_to_user) :-
     test_state(/failing),
     retry_count(N), N >= 3.
-```
+```mangle
 
 ## 5. ShardAgents: Recursive Cognition
 
@@ -294,7 +294,7 @@ Standard agents expose their internal reasoning trace to the user, breaking imme
     "abductive_hypothesis": "missing_fact(/sudo_access)"
   }
 }
-```
+```mangle
 
 ### 6.2 Grammar-Constrained Decoding (GCD)
 
@@ -385,7 +385,7 @@ missing_hypothesis(RootCause) :-
 # Trigger
 
 clarification_needed(Symptom) :- missing_hypothesis(Symptom).
-```
+```mangle
 
 ### 8.3 Autopoiesis (Self-Compiling Tools)
 
@@ -424,7 +424,7 @@ target_checkbox(CheckID) :-
     geometry(CheckID, Cx, _,_, _),
     geometry(TextID, Tx,_, _,_),
     Cx < Tx.
-```
+```mangle
 
 ## 10. Security & Deployment
 
@@ -459,3 +459,5 @@ dangerous_action(Action) :-
 ### 10.3 Shard Isolation
 
 Each ShardAgent runs in its own memory space with inherited, immutable Constitutional constraints. A Shard cannot rewrite its own permissions.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-30]*

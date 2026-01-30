@@ -528,7 +528,7 @@ Each item includes: severity, symptom, root cause, fix, and test.
   ```mangle
   next_action(/pause_and_replan) :- routing_failed(_, "rate_limit_exceeded").
   next_action(/escalate_to_user) :- routing_failed(_, "no_handler").
-  ```
+```mangle
 - **Test:** Trigger a rate limit in `router.go` and assert that a recovery action is derived.
 
 ### 11.9 Escalation Signal Disconnect
@@ -663,3 +663,5 @@ The following critical wiring gaps were identified and fixed to ensure logic-rea
 ### 15.12 Audit Fact Type Mismatch (Fixed)
 - **Problem:** `AuditLogger` emitted string status values ("success", "failure") which failed to match Mangle atoms (`/success`, `/failure`) in policy rules.
 - **Fix:** Updated `VirtualStore.injectTactileFact` to normalize known status strings (success, failure, strict, permissive, none, running, completed, failed, pending, blocked) into Mangle atoms before assertion.
+
+> *[Archived & Reviewed by The Librarian on 2026-01-30]*

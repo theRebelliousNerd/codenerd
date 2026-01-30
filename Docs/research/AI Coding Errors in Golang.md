@@ -294,3 +294,5 @@ The future of AI in Go is promising, but currently, it requires a "Human-in-the-
 26. The Future of AI Agents: Why Go is the Perfect Language for the Agent Era \- Rafiul Alam, accessed December 6, 2025, [https://alamrafiul.com/blogs/future-of-ai-agents-golang/](https://alamrafiul.com/blogs/future-of-ai-agents-golang/)  
 27. Navigating the dangers and pitfalls of AI agent development \- Kore.ai, accessed December 6, 2025, [https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development](https://www.kore.ai/blog/navigating-the-pitfalls-of-ai-agent-development)  
 28. How to Find and Fix Goroutine Leaks in Go | HackerNoon, accessed December 6, 2025, [https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go](https://hackernoon.com/how-to-find-and-fix-goroutine-leaks-in-go)
+
+> *[Archived & Reviewed by The Librarian on 2026-01-30]*
