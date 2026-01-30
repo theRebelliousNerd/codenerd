@@ -76,6 +76,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 			m.activeTab = (m.activeTab + 1) % 2
 			m.refreshTable()
 			// TODO: Add keyboard navigation for tab switching (Left/Right arrows)
+			// TODO: IMPROVEMENT: Implement comprehensive keyboard navigation (e.g., arrow keys for table traversal).
 		}
 	}
 
@@ -85,6 +86,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 
 // refreshTable updates the table rows based on active tab
 // TODO: IMPROVEMENT: Add sorting capabilities to the table columns.
+// TODO: IMPROVEMENT: Optimize refreshTable for large datasets (consider virtualization or diffing).
 func (m *AutopoiesisPageModel) refreshTable() {
 	var rows []table.Row
 	var cols []table.Column
@@ -183,6 +185,7 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	// Responsive column visibility
 	cols := m.table.Columns()
 	// Simple heuristic for small screens
+	// TODO: IMPROVEMENT: Replace magic number breakpoints (e.g., 60) with defined constants.
 	if w < 60 && len(cols) > 2 {
 		if m.activeTab == TabPatterns {
 			// Compact view for small terminals
