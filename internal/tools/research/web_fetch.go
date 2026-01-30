@@ -15,6 +15,12 @@ import (
 	"golang.org/x/net/html"
 )
 
+// Pre-compile regex patterns to avoid recompilation overhead
+var (
+	multiNewlinePattern = regexp.MustCompile(`\n{3,}`)
+	multiSpacePattern   = regexp.MustCompile(`[ \t]{2,}`)
+)
+
 // WebFetchTool returns a tool for fetching web pages and converting to markdown.
 func WebFetchTool() *tools.Tool {
 	return &tools.Tool{
@@ -238,12 +244,10 @@ func getAttr(n *html.Node, key string) string {
 // cleanMarkdown removes excessive whitespace and cleans up the markdown.
 func cleanMarkdown(s string) string {
 	// Replace multiple newlines with max 2
-	multiNewline := regexp.MustCompile(`\n{3,}`)
-	s = multiNewline.ReplaceAllString(s, "\n\n")
+	s = multiNewlinePattern.ReplaceAllString(s, "\n\n")
 
 	// Replace multiple spaces with single space
-	multiSpace := regexp.MustCompile(`[ \t]{2,}`)
-	s = multiSpace.ReplaceAllString(s, " ")
+	s = multiSpacePattern.ReplaceAllString(s, " ")
 
 	// Trim each line
 	lines := strings.Split(s, "\n")
