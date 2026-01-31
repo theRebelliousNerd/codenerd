@@ -50,6 +50,7 @@ var (
 
 // Theme holds the current color scheme
 type Theme struct {
+	// TODO: IMPROVEMENT: Expand Theme struct with semantic naming (e.g. Surface, OnSurface, Container, OnContainer) for better consistency.
 	Background lipgloss.Color
 	Foreground lipgloss.Color
 	Primary    lipgloss.Color

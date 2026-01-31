@@ -505,6 +505,7 @@ func backtrackLCS(lcs [][]int, oldLines, newLines []string) []diffOperation {
 
 // CreateDiffFromStrings creates a FileDiff from old and new content strings using LCS algorithm
 // TODO: IMPROVEMENT: Add support for ignoring whitespace changes.
+// TODO: IMPROVEMENT: Optimize CreateDiffFromStrings for large files (e.g., avoid reading entire file into memory if possible, or use streaming diff).
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	diff := &FileDiff{
 		OldPath: oldPath,
