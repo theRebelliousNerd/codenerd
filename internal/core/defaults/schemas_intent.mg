@@ -55,6 +55,9 @@ Decl learning_candidate_fact(PHRASE, VERB, TARGET, REASON, FACT).
 # Derived from learning_candidate when explicit confirmation is required
 Decl learning_confirmation_needed(PHRASE, VERB, TARGET, REASON).
 
+# learning_confirmation_active(Status)
+Decl learning_confirmation_active(Status).
+
 # clarification_question(IntentID, Question)
 Decl clarification_question(INTENTID, QUESTION).
 
@@ -66,6 +69,18 @@ Decl learning_candidate_count(PHRASE, COUNT).
 
 # learning_candidate_ready(Phrase, Verb)
 Decl learning_candidate_ready(PHRASE, VERB).
+
+# multistep_verb_pair(Pattern, Verb1, Verb2)
+Decl multistep_verb_pair(Pattern, Verb1, Verb2).
+
+# multistep_pattern(Pattern, Category, Relation, Priority)
+Decl multistep_pattern(Pattern, Category, Relation, Priority).
+
+# multistep_keyword(Pattern, Keyword)
+Decl multistep_keyword(Pattern, Keyword).
+
+# multistep_example(Pattern, Example)
+Decl multistep_example(Pattern, Example).
 
 # intent_definition(Sentence, Verb, Target)
 # Canonical intent examples for heuristic matching
@@ -160,5 +175,3 @@ Decl tool_priority(Tool, Score).
 Decl constraint_type(Constraint, Effect).
 Decl constraint_forces_mode(Constraint, Mode).
 Decl constraint_blocks_tool(Constraint, Tool).
-
-

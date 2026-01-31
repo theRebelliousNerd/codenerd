@@ -48,14 +48,14 @@ coder_block_action(/edit, "tdd_red_phase") :-
     tdd_state(/red).
 
 # Helpers
-Decl is_generated_file(Path).
+# Decl is_generated_file(Path) - Declared in schemas_coder.mg
 is_generated_file(Path) :-
     path_contains(Path, "generated").
 
 is_generated_file(Path) :-
     path_contains(Path, "_gen.").
 
-Decl is_vendor_file(Path).
+# Decl is_vendor_file(Path) - Declared in schemas_coder.mg
 is_vendor_file(Path) :-
     path_contains(Path, "vendor/").
 

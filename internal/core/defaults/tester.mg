@@ -66,7 +66,7 @@ tester_action(/tdd_loop) :-
 # =============================================================================
 # Uses predicates from schemas.gl: test_state, retry_count
 
-Decl max_retries(Max).
+# Decl max_retries(Max) - Declared in schemas_state.mg
 
 # Test generation needed when file modified without coverage
 needs_test_generation(File) :-
