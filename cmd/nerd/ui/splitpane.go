@@ -243,10 +243,12 @@ func (p *LogicPane) renderContent() string {
 	// we could return cached string. For now, given the complexity of tracking Viewport width changes
 	// and toggle states, we render on demand but optimize the tree rendering itself.
 
+	// TODO: IMPROVEMENT: Implement proper caching of the rendered string based on trace version/hash and viewport dimensions.
 	if p.CurrentTrace == nil {
 		return p.renderEmptyState()
 	}
 
+	// TODO: IMPROVEMENT: Use `lipgloss.Join` for vertical composition instead of manual `strings.Builder` concatenation.
 	var sb strings.Builder
 
 	// Header

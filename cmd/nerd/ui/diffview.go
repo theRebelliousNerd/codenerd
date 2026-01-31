@@ -425,6 +425,7 @@ func (d *DiffApprovalView) View() string {
 
 // computeLCS computes the Longest Common Subsequence table for two slices
 // TODO: IMPROVEMENT: Consider replacing this manual LCS implementation with a robust diff library (e.g., `sergi/go-diff`) if performance or edge cases become an issue.
+// TODO: IMPROVEMENT: Add caching for LCS results if the inputs are identical to avoid recomputing for the same file pair.
 // TODO: IMPROVEMENT: Add unit tests specifically for the LCS and backtracking logic to ensure correctness of manual implementation.
 func computeLCS(oldLines, newLines []string) [][]int {
 	m, n := len(oldLines), len(newLines)

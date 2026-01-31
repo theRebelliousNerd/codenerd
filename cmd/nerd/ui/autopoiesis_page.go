@@ -131,6 +131,7 @@ func (m *AutopoiesisPageModel) refreshTable() {
 }
 
 // View renders the page.
+// TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 

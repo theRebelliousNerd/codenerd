@@ -12,6 +12,7 @@ import (
 
 // Color palette based on codeNERD brand guidelines
 // TODO: Refactor these global variables into a structured theme definition or configuration to avoid global state.
+// TODO: IMPROVEMENT: Refactor global variables to use a Singleton or Dependency Injection pattern for better testability and isolation.
 // TODO: Add support for high-contrast accessibility mode in the color palette.
 var (
 	// Light Mode Colors (Default)
@@ -51,6 +52,7 @@ var (
 // Theme holds the current color scheme
 type Theme struct {
 	// TODO: IMPROVEMENT: Expand Theme struct with semantic naming (e.g. Surface, OnSurface, Container, OnContainer) for better consistency.
+	// TODO: IMPROVEMENT: Add a helper method to return a `lipgloss.Renderer` initialized with this theme's settings to ensure consistent rendering context.
 	Background lipgloss.Color
 	Foreground lipgloss.Color
 	Primary    lipgloss.Color
