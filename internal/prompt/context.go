@@ -2,7 +2,9 @@ package prompt
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -479,33 +481,47 @@ func (cc *CompilationContext) Hash() string {
 		return "nil"
 	}
 
-	// Concatenate all relevant fields that affect compilation
-	// Order matters! Keep stable for consistent hashing.
-	parts := []string{
-		cc.OperationalMode,
-		cc.CampaignPhase,
-		cc.CampaignID,
-		cc.BuildLayer,
-		cc.ShardType,
-		cc.ShardID,
-		cc.Language,
-		strings.Join(cc.Frameworks, ","),
-		cc.IntentVerb,
-		cc.IntentTarget,
-		cc.NorthstarPhase,
-		cc.InitPhase,
-		cc.OuroborosStage,
-		cc.SemanticQuery,
-		fmt.Sprintf("%d", cc.TokenBudget),
-		fmt.Sprintf("%d", cc.FailingTestCount),
-		fmt.Sprintf("%d", cc.DiagnosticCount),
-		fmt.Sprintf("%t", cc.IsLargeRefactor),
-		fmt.Sprintf("%t", cc.HasSecurityIssues),
-		fmt.Sprintf("%t", cc.HasReflectionHits),
+	parts := make([]string, 0, 25)
+
+	parts = append(parts, cc.OperationalMode)
+	parts = append(parts, cc.CampaignPhase)
+	parts = append(parts, cc.CampaignID)
+	parts = append(parts, cc.BuildLayer)
+	parts = append(parts, cc.ShardType)
+	parts = append(parts, cc.ShardID)
+	parts = append(parts, cc.Language)
+	parts = append(parts, strings.Join(cc.Frameworks, ","))
+
+	parts = append(parts, cc.IntentVerb)
+	parts = append(parts, cc.IntentTarget)
+	parts = append(parts, cc.NorthstarPhase)
+	parts = append(parts, cc.InitPhase)
+	parts = append(parts, cc.OuroborosStage)
+	parts = append(parts, cc.SemanticQuery)
+
+	parts = append(parts, strconv.Itoa(cc.TokenBudget))
+	parts = append(parts, strconv.Itoa(cc.FailingTestCount))
+	parts = append(parts, strconv.Itoa(cc.DiagnosticCount))
+
+	if cc.IsLargeRefactor {
+		parts = append(parts, "true")
+	} else {
+		parts = append(parts, "false")
 	}
 
-	// Create deterministic hash
+	if cc.HasSecurityIssues {
+		parts = append(parts, "true")
+	} else {
+		parts = append(parts, "false")
+	}
+
+	if cc.HasReflectionHits {
+		parts = append(parts, "true")
+	} else {
+		parts = append(parts, "false")
+	}
+
 	data := strings.Join(parts, "|")
 	hash := sha256.Sum256([]byte(data))
-	return fmt.Sprintf("%x", hash)
+	return hex.EncodeToString(hash[:])
 }
