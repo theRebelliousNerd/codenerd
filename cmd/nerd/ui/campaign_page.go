@@ -94,6 +94,7 @@ func (m *CampaignPageModel) SetSize(w, h int) {
 
 // UpdateContent updates the viewport content based on campaign data.
 // TODO: IMPROVEMENT: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
+// TODO: IMPROVEMENT: Decouple rendering logic from UpdateContent (move to View or a helper).
 func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaign.Campaign) {
 	m.campaignData = camp
 	m.progressData = prog
@@ -143,6 +144,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	// 5. Phases List
 	// TODO: IMPROVEMENT: Virtualize the phases list if it grows too large.
 	// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
+	// TODO: IMPROVEMENT: Break down phase rendering into smaller helper functions.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending
