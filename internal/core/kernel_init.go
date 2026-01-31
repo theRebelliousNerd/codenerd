@@ -281,7 +281,9 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_dreamer.mg",          // Speculative Dreamer & Cross-Module Support
 		"schemas_memory.mg",           // Memory Tiers & Knowledge
 		"schemas_knowledge.mg",        // Knowledge Atoms, LSP, Semantic Matching
-		"schema/learning.mg",          // Learned exemplars + intent overrides
+		"schemas_learning.mg",         // Learned exemplars + intent overrides
+		"schemas_state.mg",            // Ouroboros State Machine
+		"chaos.mg",                    // Adversarial Testing (PanicMaker, Nemesis)
 		"schemas_safety.mg",           // Constitution, Git Safety, Shadow Mode
 		"schemas_analysis.mg",         // Spreading Activation, Strategy, Impact
 		"schemas_misc.mg",             // Northstar, Continuation Protocol, Benchmarks

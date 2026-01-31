@@ -45,10 +45,15 @@ Decl swebench_teardown_complete(InstanceID, Timestamp).
 swebench_resolved(InstanceID) :-
     swebench_evaluation_result(InstanceID, /true, _, _).
 
+# Helper for safe negation
+Decl has_patch_applied(InstanceID).
+has_patch_applied(InstanceID) :-
+    swebench_patch_applied(InstanceID, _, _).
+
 # Check if instance had patch failure
 swebench_patch_failed(InstanceID) :-
     swebench_environment(InstanceID, _, /error, _),
-    !swebench_patch_applied(InstanceID, _, _).
+    !has_patch_applied(InstanceID).
 
 # Count instances by resolution status (requires aggregation in Go runtime)
 Decl swebench_resolution_count(Resolved, Count).
