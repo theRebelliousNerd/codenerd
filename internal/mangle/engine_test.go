@@ -301,3 +301,39 @@ func TestEngineToggleAutoEval(t *testing.T) {
 	// Toggle on
 	engine.ToggleAutoEval(true)
 }
+
+// -----------------------------------------------------------------------------
+// QA NEGATIVE TESTING GAPS (Identified 2026-01-31)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: TestNilArguments
+// Need to verify how AddFact handles nil interfaces.
+// Expected behavior: Should probably reject or handle safely without creating "null" strings.
+// Vector: Null/Undefined
+
+// TODO: TEST_GAP: TestFloatCoercionBoundaries
+// Need to verify the 0.0-1.0 scaling vs truncation logic.
+// Edge cases: 1.0 vs 1.0000001 (Boundary Discontinuity), -0.5, 0.0.
+// Vector: Type Coercion
+
+// TODO: TEST_GAP: TestStringAtomAmbiguity
+// Need to verify "foo" vs "/foo" handling in convertValueToTypedTerm.
+// Verify if isIdentifier() auto-promotes strings to Atoms when not desired.
+// Vector: Type Coercion / Ambiguity
+
+// TODO: TEST_GAP: TestFactLimitEnforcement
+// Need to verify that AddFacts returns ErrFactLimitExceeded when exceeding capacity.
+// Vector: User Extremes / Capacity
+
+// TODO: TEST_GAP: TestDerivedFactsGasLimit
+// Need to verify that infinite recursion loops are halted by derivedFactsLimit.
+// Warning: If EvalProgram is atomic, this might hang the test runner.
+// Vector: User Extremes / DoS Protection
+
+// TODO: TEST_GAP: TestConcurrentAccess
+// Need explicit stress tests for R/W locking under load (Add vs Query).
+// Vector: State Conflicts
+
+// TODO: TEST_GAP: TestEmptyAndInvalidPredicates
+// Need to verify AddFact("", ...) and AddFact("invalid name", ...).
+// Vector: Null/Empty Inputs
