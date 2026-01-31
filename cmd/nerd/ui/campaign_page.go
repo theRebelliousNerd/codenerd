@@ -104,6 +104,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		return
 	}
 
+	// TODO: IMPROVEMENT: Replace `strings.Builder` with `lipgloss.Join` to compose vertical layouts more idiomatically.
 	var sb strings.Builder
 
 	// 1. Header & Status
@@ -144,6 +145,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	// 5. Phases List
 	// TODO: IMPROVEMENT: Virtualize the phases list if it grows too large.
 	// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
+	// TODO: IMPROVEMENT: Use `bubbles/list` delegates to render tasks, allowing for better key navigation and selection.
 	// TODO: IMPROVEMENT: Break down phase rendering into smaller helper functions.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
