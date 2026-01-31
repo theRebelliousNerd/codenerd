@@ -38,6 +38,14 @@ const (
 	ModeFullLogic                  // Logic visualization only
 )
 
+// Activation threshold constants
+const (
+	MinActivationThreshold     = 0.0 // Show all nodes
+	MaxActivationThreshold     = 1.0 // Hide all nodes with activation < 1.0
+	DefaultActivationThreshold = 0.0 // Default: show all
+	ActivationThresholdStep    = 0.1 // Step size for keyboard adjustment
+)
+
 // DerivationNode represents a node in the derivation tree
 type DerivationNode struct {
 	Predicate  string
@@ -49,7 +57,6 @@ type DerivationNode struct {
 	Expanded   bool
 	Timestamp  time.Time
 	Activation float64 // Spreading activation score
-	// TODO: Add a threshold control to filter nodes with low activation scores.
 }
 
 // DerivationTrace represents the full derivation trace
@@ -73,6 +80,14 @@ type LogicPane struct {
 	SelectedNode   int
 	Nodes          []*DerivationNode // Flattened list for navigation
 	ScrollOffset   int
+
+	// Activation threshold filter - nodes below this threshold are hidden
+	ActivationThreshold float64
+
+	// Render cache for performance optimization
+	cachedContent  string
+	cacheValid     bool
+	lastCacheWidth int // Track width changes that invalidate cache
 
 	// Pre-compiled styles for performance (avoid recreation per node)
 	predStyle  lipgloss.Style
@@ -138,14 +153,15 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 	vp.SetContent("")
 
 	return LogicPane{
-		Viewport:       vp,
-		Styles:         styles,
-		Mode:           ModeSinglePane,
-		Width:          width,
-		Height:         height,
-		ShowActivation: true,
-		SelectedNode:   0,
-		Nodes:          make([]*DerivationNode, 0),
+		Viewport:            vp,
+		Styles:              styles,
+		Mode:                ModeSinglePane,
+		Width:               width,
+		Height:              height,
+		ShowActivation:      true,
+		SelectedNode:        0,
+		Nodes:               make([]*DerivationNode, 0),
+		ActivationThreshold: DefaultActivationThreshold,
 		// Pre-compile styles for performance
 		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
@@ -165,8 +181,14 @@ func (p *LogicPane) SetSize(width, height int) {
 // SetTrace updates the current derivation trace
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
+	p.invalidateCache()
 	if trace != nil {
-		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
+		// Use filtered flattening if threshold is set
+		if p.ActivationThreshold > 0 {
+			p.Nodes = p.flattenNodesFiltered(trace.RootNodes, 0)
+		} else {
+			p.Nodes = p.flattenNodes(trace.RootNodes, 0)
+		}
 	} else {
 		p.Nodes = nil
 	}
@@ -188,6 +210,66 @@ func (p *LogicPane) ToggleMode() {
 // ToggleActivation toggles the activation score display
 func (p *LogicPane) ToggleActivation() {
 	p.ShowActivation = !p.ShowActivation
+	p.invalidateCache()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// IncreaseActivationThreshold increases the threshold (hides more low-activation nodes)
+// Keyboard shortcut: typically bound to + or =
+func (p *LogicPane) IncreaseActivationThreshold() {
+	p.ActivationThreshold += ActivationThresholdStep
+	if p.ActivationThreshold > MaxActivationThreshold {
+		p.ActivationThreshold = MaxActivationThreshold
+	}
+	p.refreshNodes()
+}
+
+// DecreaseActivationThreshold decreases the threshold (shows more nodes)
+// Keyboard shortcut: typically bound to - or _
+func (p *LogicPane) DecreaseActivationThreshold() {
+	p.ActivationThreshold -= ActivationThresholdStep
+	if p.ActivationThreshold < MinActivationThreshold {
+		p.ActivationThreshold = MinActivationThreshold
+	}
+	p.refreshNodes()
+}
+
+// SetActivationThreshold sets the threshold to a specific value
+func (p *LogicPane) SetActivationThreshold(threshold float64) {
+	if threshold < MinActivationThreshold {
+		threshold = MinActivationThreshold
+	}
+	if threshold > MaxActivationThreshold {
+		threshold = MaxActivationThreshold
+	}
+	p.ActivationThreshold = threshold
+	p.refreshNodes()
+}
+
+// ResetActivationThreshold resets the threshold to show all nodes
+func (p *LogicPane) ResetActivationThreshold() {
+	p.ActivationThreshold = DefaultActivationThreshold
+	p.refreshNodes()
+}
+
+// GetActivationThreshold returns the current threshold value
+func (p *LogicPane) GetActivationThreshold() float64 {
+	return p.ActivationThreshold
+}
+
+// refreshNodes re-flattens and re-renders the node list with the current threshold
+func (p *LogicPane) refreshNodes() {
+	p.invalidateCache()
+	if p.CurrentTrace != nil {
+		p.Nodes = p.flattenNodesFiltered(p.CurrentTrace.RootNodes, 0)
+		// Reset selection if it's now out of bounds
+		if p.SelectedNode >= len(p.Nodes) {
+			p.SelectedNode = len(p.Nodes) - 1
+			if p.SelectedNode < 0 {
+				p.SelectedNode = 0
+			}
+		}
+	}
 	p.Viewport.SetContent(p.renderContent())
 }
 
@@ -199,6 +281,7 @@ func (p *LogicPane) SelectNext() {
 	}
 	if p.SelectedNode < len(p.Nodes)-1 {
 		p.SelectedNode++
+		p.invalidateCache()
 		p.Viewport.SetContent(p.renderContent())
 	}
 }
@@ -210,6 +293,7 @@ func (p *LogicPane) SelectPrev() {
 	}
 	if p.SelectedNode > 0 {
 		p.SelectedNode--
+		p.invalidateCache()
 		p.Viewport.SetContent(p.renderContent())
 	}
 }
@@ -220,6 +304,7 @@ func (p *LogicPane) ToggleExpand() {
 		return
 	}
 	p.Nodes[p.SelectedNode].Expanded = !p.Nodes[p.SelectedNode].Expanded
+	p.invalidateCache()
 	p.Viewport.SetContent(p.renderContent())
 }
 
@@ -236,15 +321,41 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 	return result
 }
 
-// renderContent renders the logic pane content
-// TODO: IMPROVEMENT: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
+// flattenNodesFiltered creates a navigable flat list from the tree, filtering by activation threshold
+func (p *LogicPane) flattenNodesFiltered(nodes []*DerivationNode, depth int) []*DerivationNode {
+	result := make([]*DerivationNode, 0)
+	for _, node := range nodes {
+		// Filter out nodes below activation threshold (unless threshold is 0, show all)
+		if p.ActivationThreshold > 0 && node.Activation < p.ActivationThreshold {
+			continue
+		}
+		node.Depth = depth
+		result = append(result, node)
+		if node.Expanded && len(node.Children) > 0 {
+			result = append(result, p.flattenNodesFiltered(node.Children, depth+1)...)
+		}
+	}
+	return result
+}
+
+// invalidateCache marks the render cache as invalid, forcing a re-render on next call
+func (p *LogicPane) invalidateCache() {
+	p.cacheValid = false
+}
+
+// renderContent renders the logic pane content with caching for performance
 func (p *LogicPane) renderContent() string {
-	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
-	// we could return cached string. For now, given the complexity of tracking Viewport width changes
-	// and toggle states, we render on demand but optimize the tree rendering itself.
+	// Return cached content if valid and dimensions haven't changed
+	if p.cacheValid && p.lastCacheWidth == p.Width {
+		return p.cachedContent
+	}
 
 	if p.CurrentTrace == nil {
-		return p.renderEmptyState()
+		content := p.renderEmptyState()
+		p.cachedContent = content
+		p.cacheValid = true
+		p.lastCacheWidth = p.Width
+		return content
 	}
 
 	var sb strings.Builder
@@ -284,7 +395,13 @@ func (p *LogicPane) renderContent() string {
 	sb.WriteString("\n\n")
 	sb.WriteString(p.renderLegend())
 
-	return sb.String()
+	// Cache the rendered content
+	content := sb.String()
+	p.cachedContent = content
+	p.cacheValid = true
+	p.lastCacheWidth = p.Width
+
+	return content
 }
 
 // renderEmptyState renders the empty state message
@@ -427,6 +544,13 @@ func (p *LogicPane) renderLegend() string {
 		legend += "\n█ Activation Score (Spreading Activation)"
 	}
 
+	// Show activation threshold if filtering is active
+	if p.ActivationThreshold > 0 {
+		legend += fmt.Sprintf("\n🔍 Threshold: %.1f (Press +/- to adjust, 0 to reset)", p.ActivationThreshold)
+	} else {
+		legend += "\n🔍 Threshold: OFF (Press + to filter low-activation nodes)"
+	}
+
 	return legendStyle.Render(legend)
 }
 
@@ -435,8 +559,15 @@ func (p *LogicPane) View() string {
 	return p.Viewport.View()
 }
 
+// Split ratio adjustment constants
+const (
+	MinSplitRatio     = 0.2  // Minimum left pane percentage
+	MaxSplitRatio     = 0.9  // Maximum left pane percentage
+	SplitRatioStep    = 0.05 // Step size for keyboard resize
+	DefaultSplitRatio = 0.67 // Default left pane percentage (2/3 chat, 1/3 logic)
+)
+
 // SplitPaneView renders a split-pane view with chat and logic
-// TODO: IMPROVEMENT: Add support for resizing split ratio via mouse or keyboard
 type SplitPaneView struct {
 	Styles     Styles
 	LeftPane   string // Chat content
@@ -448,9 +579,6 @@ type SplitPaneView struct {
 	FocusRight bool
 }
 
-// DefaultSplitRatio is the default left pane percentage (2/3 chat, 1/3 logic)
-const DefaultSplitRatio = 0.67
-
 // NewSplitPaneView creates a new split pane view with default ratio
 func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 	return NewSplitPaneViewWithRatio(styles, width, height, DefaultSplitRatio)
@@ -459,11 +587,11 @@ func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 // NewSplitPaneViewWithRatio creates a new split pane view with a configurable ratio
 func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio float64) SplitPaneView {
 	// Clamp ratio to valid range
-	if splitRatio < 0.2 {
-		splitRatio = 0.2
+	if splitRatio < MinSplitRatio {
+		splitRatio = MinSplitRatio
 	}
-	if splitRatio > 0.9 {
-		splitRatio = 0.9
+	if splitRatio > MaxSplitRatio {
+		splitRatio = MaxSplitRatio
 	}
 
 	rightWidth := int(float64(width) * (1 - splitRatio))
@@ -498,6 +626,50 @@ func (s *SplitPaneView) SetMode(mode PaneMode) {
 // ToggleFocus switches focus between panes
 func (s *SplitPaneView) ToggleFocus() {
 	s.FocusRight = !s.FocusRight
+}
+
+// IncreaseSplitRatio increases the left pane size (moves divider right)
+// Keyboard shortcut: typically bound to Ctrl+Right or ]
+func (s *SplitPaneView) IncreaseSplitRatio() {
+	s.SplitRatio += SplitRatioStep
+	if s.SplitRatio > MaxSplitRatio {
+		s.SplitRatio = MaxSplitRatio
+	}
+	s.updatePaneSizes()
+}
+
+// DecreaseSplitRatio decreases the left pane size (moves divider left)
+// Keyboard shortcut: typically bound to Ctrl+Left or [
+func (s *SplitPaneView) DecreaseSplitRatio() {
+	s.SplitRatio -= SplitRatioStep
+	if s.SplitRatio < MinSplitRatio {
+		s.SplitRatio = MinSplitRatio
+	}
+	s.updatePaneSizes()
+}
+
+// SetSplitRatio sets the split ratio to a specific value (clamped to valid range)
+func (s *SplitPaneView) SetSplitRatio(ratio float64) {
+	if ratio < MinSplitRatio {
+		ratio = MinSplitRatio
+	}
+	if ratio > MaxSplitRatio {
+		ratio = MaxSplitRatio
+	}
+	s.SplitRatio = ratio
+	s.updatePaneSizes()
+}
+
+// ResetSplitRatio resets the split ratio to the default value
+func (s *SplitPaneView) ResetSplitRatio() {
+	s.SplitRatio = DefaultSplitRatio
+	s.updatePaneSizes()
+}
+
+// updatePaneSizes recalculates pane sizes after ratio change
+func (s *SplitPaneView) updatePaneSizes() {
+	rightWidth := int(float64(s.Width) * (1 - s.SplitRatio))
+	s.RightPane.SetSize(rightWidth-4, s.Height-4)
 }
 
 // Render renders the complete split pane view
