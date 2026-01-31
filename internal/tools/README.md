@@ -73,8 +73,8 @@ Tools are routed via intent in `internal/mangle/intent_routing.mg`:
 
 ```mangle
 modular_tool_allowed(/read_file, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/write_file, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/write_file, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/web_search, Intent) :- verb_category(Intent, /research).
 ```
 
 ## Research Tools
