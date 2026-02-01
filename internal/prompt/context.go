@@ -481,47 +481,67 @@ func (cc *CompilationContext) Hash() string {
 		return "nil"
 	}
 
-	parts := make([]string, 0, 25)
+	var sb strings.Builder
+	// Estimate size: ~20 fields * 10-15 chars = 200-300 chars. 256 is usually sufficient.
+	sb.Grow(256)
 
-	parts = append(parts, cc.OperationalMode)
-	parts = append(parts, cc.CampaignPhase)
-	parts = append(parts, cc.CampaignID)
-	parts = append(parts, cc.BuildLayer)
-	parts = append(parts, cc.ShardType)
-	parts = append(parts, cc.ShardID)
-	parts = append(parts, cc.Language)
-	parts = append(parts, strings.Join(cc.Frameworks, ","))
+	// Helper to write string + separator
+	const sep = "|"
+	write := func(s string) {
+		sb.WriteString(s)
+		sb.WriteString(sep)
+	}
 
-	parts = append(parts, cc.IntentVerb)
-	parts = append(parts, cc.IntentTarget)
-	parts = append(parts, cc.NorthstarPhase)
-	parts = append(parts, cc.InitPhase)
-	parts = append(parts, cc.OuroborosStage)
-	parts = append(parts, cc.SemanticQuery)
+	write(cc.OperationalMode)
+	write(cc.CampaignPhase)
+	write(cc.CampaignID)
+	write(cc.BuildLayer)
+	write(cc.ShardType)
+	write(cc.ShardID)
+	write(cc.Language)
 
-	parts = append(parts, strconv.Itoa(cc.TokenBudget))
-	parts = append(parts, strconv.Itoa(cc.FailingTestCount))
-	parts = append(parts, strconv.Itoa(cc.DiagnosticCount))
+	for i, fw := range cc.Frameworks {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fw)
+	}
+	sb.WriteString(sep)
+
+	write(cc.IntentVerb)
+	write(cc.IntentTarget)
+	write(cc.NorthstarPhase)
+	write(cc.InitPhase)
+	write(cc.OuroborosStage)
+	write(cc.SemanticQuery)
+
+	var buf [64]byte
+	sb.Write(strconv.AppendInt(buf[:0], int64(cc.TokenBudget), 10))
+	sb.WriteString(sep)
+	sb.Write(strconv.AppendInt(buf[:0], int64(cc.FailingTestCount), 10))
+	sb.WriteString(sep)
+	sb.Write(strconv.AppendInt(buf[:0], int64(cc.DiagnosticCount), 10))
+	sb.WriteString(sep)
 
 	if cc.IsLargeRefactor {
-		parts = append(parts, "true")
+		write("true")
 	} else {
-		parts = append(parts, "false")
+		write("false")
 	}
 
 	if cc.HasSecurityIssues {
-		parts = append(parts, "true")
+		write("true")
 	} else {
-		parts = append(parts, "false")
+		write("false")
 	}
 
 	if cc.HasReflectionHits {
-		parts = append(parts, "true")
+		write("true")
 	} else {
-		parts = append(parts, "false")
+		write("false")
 	}
 
-	data := strings.Join(parts, "|")
-	hash := sha256.Sum256([]byte(data))
+	// Hash the content
+	hash := sha256.Sum256([]byte(sb.String()))
 	return hex.EncodeToString(hash[:])
 }
