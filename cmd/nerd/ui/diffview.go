@@ -336,6 +336,7 @@ func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 
 // renderDiff renders the diff content with syntax highlighting
 // TODO: IMPROVEMENT: Optimize rendering by caching styles or using a renderer that doesn't recreate styles per line.
+// TODO: IMPROVEMENT: Implement word-level diffing for changed lines to highlight specific changes.
 func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	var sb strings.Builder
 
@@ -405,6 +406,7 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine) string {
 
 // renderControls renders the approval controls
 // TODO: IMPROVEMENT: Use `key.Binding` for customizable keyboard controls instead of hardcoded strings.
+// TODO: IMPROVEMENT: Use `bubbles/help` for the help view to ensure consistency.
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
 		Foreground(d.Styles.Theme.Muted).

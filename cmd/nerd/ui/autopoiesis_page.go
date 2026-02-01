@@ -69,6 +69,7 @@ func (m AutopoiesisPageModel) Init() tea.Cmd {
 func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// TODO: IMPROVEMENT: Add debounce for window resize events to avoid excessive recalculations.
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -132,6 +133,7 @@ func (m *AutopoiesisPageModel) refreshTable() {
 
 // View renders the page.
 // TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
+// TODO: IMPROVEMENT: Add a help/legend component to explain the table columns and status icons.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 

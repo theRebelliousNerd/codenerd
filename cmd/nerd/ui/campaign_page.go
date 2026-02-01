@@ -75,6 +75,7 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 // View renders the page.
 // TODO: Improve the empty state with more helpful instructions or a starting guide.
 // TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
+// TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
 		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
@@ -84,6 +85,7 @@ func (m CampaignPageModel) View() string {
 
 // SetSize updates the size of the viewport.
 // TODO: Improve view resizing logic to avoid fragile calculations (e.g., `w - 4`). Use layout constants or dynamic measurement.
+// TODO: IMPROVEMENT: Add logic to hide less important columns/info on small screens.
 func (m *CampaignPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
