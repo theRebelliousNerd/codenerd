@@ -14,7 +14,7 @@
 # These predicates are from other .mg files - not loaded by default in check-mangle
 # =============================================================================
 # From tester.mg (not in default schemas)
-Decl file_exists(FilePath).
+# Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl file_contains(FilePath, Pattern).
 
 # Internal predicates defined only in this file (or missing from defaults)
@@ -146,7 +146,8 @@ pytest_detected() :- file_exists("pyproject.toml"), file_contains("pyproject.tom
 pytest_detected() :- file_exists("conftest.py").
 
 test_framework(/pytest) :- pytest_detected().
-test_framework(/unittest) :- file_exists("test_*.py"), !pytest_detected().
+# Use file_topology directly to check for python test files (IsTestFile=/true)
+test_framework(/unittest) :- file_topology(_, _, /python, _, /true), !pytest_detected().
 
 # Rust
 test_framework(/cargo_test) :- file_exists("Cargo.toml").
