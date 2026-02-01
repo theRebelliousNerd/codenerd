@@ -6,7 +6,7 @@
 # SECTION 1: TEST FRAMEWORK DETECTION
 # =============================================================================
 
-Decl file_exists(FilePath).
+# Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl package_has_dep(DepName).
 
 # Test file detection - declared in schemas.mg (shared predicate)
@@ -41,7 +41,8 @@ test_framework(/junit) :-
     file_exists("pom.xml").
 
 test_framework(/xunit) :-
-    file_exists("*.csproj").
+    file_topology(Path, _, _, _, _),
+    :string:ends_with(Path, ".csproj").
 
 # =============================================================================
 # SECTION 2: TESTER TASK CLASSIFICATION
