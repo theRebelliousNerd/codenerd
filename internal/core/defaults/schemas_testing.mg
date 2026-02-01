@@ -238,3 +238,11 @@ Decl traceback_frame(TestName, Depth, File, Line, Function, IsTestFile).
 # The first non-test file in the traceback (likely source of bug).
 Decl pytest_root_cause(TestName, FilePath, Line, Function).
 
+# =============================================================================
+# SECTION 52: TEST FRAMEWORK DETECTION
+# =============================================================================
+
+# test_framework(FrameworkAtom)
+# Framework: /gotest, /pytest, /jest, /junit, /xunit, etc.
+Decl test_framework(FrameworkAtom).
+
