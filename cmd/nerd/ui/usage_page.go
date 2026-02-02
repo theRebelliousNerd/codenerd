@@ -30,6 +30,7 @@ func NewUsagePageModel(tracker *usage.Tracker, styles Styles) UsagePageModel {
 }
 
 // SetSize updates the size of the viewport.
+// TODO: IMPROVEMENT: Implement responsive layout for small screens (e.g., stack tables vertically).
 func (m *UsagePageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -105,6 +106,7 @@ func truncate(s string, l int) string {
 }
 
 // Update handles messages.
+// TODO: IMPROVEMENT: Add real-time updates via a subscription model if the tracker supports it.
 func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)

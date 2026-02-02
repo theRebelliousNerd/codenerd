@@ -315,6 +315,7 @@ func (p *LogicPane) renderEmptyState() string {
 }
 
 // renderTree renders the derivation tree
+// TODO: IMPROVEMENT: Add search/filter functionality for derivation nodes.
 func (p *LogicPane) renderTree() string {
 	if len(p.Nodes) == 0 {
 		return ""
@@ -332,6 +333,7 @@ func (p *LogicPane) renderTree() string {
 
 // renderNode renders a single derivation node
 // TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Implement custom rendering for specific predicates (e.g., clickable links).
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
