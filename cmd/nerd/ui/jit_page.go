@@ -28,6 +28,7 @@ type JITPageModel struct {
 }
 
 // atomItem adapts prompt.PromptAtom to list.Item
+// TODO: IMPROVEMENT: Add support for custom icons based on atom category.
 type atomItem struct {
 	atom *prompt.PromptAtom
 }
@@ -67,6 +68,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
+	// TODO: IMPROVEMENT: Add support for copying atom content to the system clipboard.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -114,17 +116,17 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 
 	sb.WriteString(headerStyle.Render(atom.ID) + "\n")
 	sb.WriteString(infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount)) + "\n")
-	
-		
+
+
 		if atom.IsMandatory {
 			sb.WriteString(m.styles.Error.Render("MANDATORY (Skeleton)") + "\n")
 		} else {
 			sb.WriteString(m.styles.Success.Render("OPTIONAL (Flesh)") + "\n")
 		}
-		
+
 	sb.WriteString(mutedStyle.Render("--- Content ---") + "\n")
 		sb.WriteString(atom.Content + "\n")
-	
+
 		return sb.String()}
 
 // View renders the page.
@@ -148,7 +150,7 @@ func (m JITPageModel) View() string {
 func (m *JITPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	
+
 	listWidth := int(float64(w) * 0.35)
 	m.list.SetSize(listWidth, h-2)
 	m.viewport.Width = w - listWidth - 4
@@ -164,7 +166,7 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 
 	// Convert atoms to items
 	items := make([]list.Item, 0, len(result.IncludedAtoms))
-	
+
 	// Sort by priority desc
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority
@@ -175,9 +177,9 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	}
 
 	m.list.SetItems(items)
-	
+
 	// Set stats in title
-	stats := fmt.Sprintf("JIT Inspector (%d atoms, %d tokens, %.0f%% budget)", 
+	stats := fmt.Sprintf("JIT Inspector (%d atoms, %d tokens, %.0f%% budget)",
 		len(result.IncludedAtoms), result.TotalTokens, result.BudgetUsed*100)
 	m.list.Title = stats
 }
