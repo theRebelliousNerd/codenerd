@@ -258,7 +258,7 @@ func (p *LogicPane) renderContent() string {
 		Foreground(p.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(p.Styles.Theme.Border).
-		Width(p.Width-4).
+		Width(ViewportWidth(p.Width)).
 		Padding(0, 1)
 
 	sb.WriteString(headerStyle.Render("🔬 Derivation Trace"))
@@ -291,13 +291,12 @@ func (p *LogicPane) renderContent() string {
 }
 
 // renderEmptyState renders the empty state message
-// TODO: IMPROVEMENT: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted).
 		Italic(true).
 		Padding(2).
-		Width(p.Width - 4).
+		Width(ViewportWidth(p.Width)).
 		Align(lipgloss.Center)
 
 	msg := `┌─────────────────────────────┐
@@ -425,7 +424,7 @@ func (p *LogicPane) renderLegend() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(p.Styles.Theme.Border).
 		Padding(0, 1).
-		Width(p.Width - 4)
+		Width(ViewportWidth(p.Width))
 
 	legend := "📊 Base Fact (EDB)  │  ⚡ Derived (IDB)  │  ▶ Expand  │  ▼ Collapse"
 
@@ -473,7 +472,7 @@ func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio floa
 	}
 
 	rightWidth := int(float64(width) * (1 - splitRatio))
-	logicPane := NewLogicPane(styles, rightWidth, height-4)
+	logicPane := NewLogicPane(styles, rightWidth, ViewportHeight(height))
 
 	return SplitPaneView{
 		Styles:     styles,
@@ -492,7 +491,7 @@ func (s *SplitPaneView) SetSize(width, height int) {
 	s.Height = height
 
 	rightWidth := int(float64(width) * (1 - s.SplitRatio))
-	s.RightPane.SetSize(rightWidth-4, height-4)
+	s.RightPane.SetSize(ViewportWidth(rightWidth), ViewportHeight(height))
 }
 
 // SetMode sets the display mode
@@ -516,7 +515,7 @@ func (s *SplitPaneView) Render(leftContent string) string {
 		if s.RightPane == nil {
 			return leftContent
 		}
-		s.RightPane.SetSize(s.Width-4, s.Height-4)
+		s.RightPane.SetSize(ViewportWidth(s.Width), ViewportHeight(s.Height))
 		return s.RightPane.renderContent()
 
 	case ModeSplitPane:
@@ -530,11 +529,10 @@ func (s *SplitPaneView) Render(leftContent string) string {
 	}
 }
 
-// renderSplit renders the split view
-// TODO: IMPROVEMENT: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
+// renderSplit renders the split view using layout constants
 func (s *SplitPaneView) renderSplit(leftContent string) string {
 	leftWidth := int(float64(s.Width) * s.SplitRatio)
-	rightWidth := s.Width - leftWidth - 1 // -1 for divider
+	rightWidth := s.Width - leftWidth - SplitPaneDivider
 
 	// Style for left pane
 	leftStyle := lipgloss.NewStyle().
@@ -544,7 +542,7 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 
 	// Style for divider
 	dividerStyle := lipgloss.NewStyle().
-		Width(1).
+		Width(SplitPaneDivider).
 		Height(s.Height).
 		Background(s.Styles.Theme.Border).
 		Foreground(s.Styles.Theme.Muted)
@@ -555,9 +553,9 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		rightBorder = lipgloss.ThickBorder()
 	}
 	rightStyle := lipgloss.NewStyle().
-		Width(rightWidth - 2).
-		Height(s.Height - 2).
-		MaxHeight(s.Height - 2).
+		Width(PanelContentWidth(rightWidth)).
+		Height(PanelContentHeight(s.Height)).
+		MaxHeight(PanelContentHeight(s.Height)).
 		Border(rightBorder).
 		BorderForeground(func() lipgloss.Color {
 			if s.FocusRight {
@@ -573,7 +571,7 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 	}
 
 	// Update right pane size and render
-	s.RightPane.SetSize(rightWidth-4, s.Height-4)
+	s.RightPane.SetSize(ViewportWidth(rightWidth), ViewportHeight(s.Height))
 
 	// Join horizontally
 	return lipgloss.JoinHorizontal(
