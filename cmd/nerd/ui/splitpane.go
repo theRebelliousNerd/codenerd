@@ -80,6 +80,10 @@ type LogicPane struct {
 	argsStyle  lipgloss.Style
 	ruleStyle  lipgloss.Style
 	activStyle lipgloss.Style
+
+	// Render cache for performance optimization
+	renderCache *CachedRender
+	traceVersion int // Incremented when trace changes
 }
 
 // SetTraceMangle adapts a backend trace to the UI model
@@ -133,7 +137,7 @@ func convertMangleNodeToUI(node *mangle.DerivationNode) *DerivationNode {
 	return uiNode
 }
 
-// NewLogicPane creates a new logic visualization pane
+// NewLogicPane creates a new logic visualization pane with render caching
 func NewLogicPane(styles Styles, width, height int) LogicPane {
 	vp := viewport.New(width, height)
 	vp.SetContent("")
@@ -152,24 +156,36 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
 		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Muted).Italic(true),
 		activStyle: lipgloss.NewStyle().Foreground(Success),
+		// Initialize render cache
+		renderCache:  NewCachedRender(DefaultRenderCache),
+		traceVersion: 0,
 	}
 }
 
-// SetSize updates the pane dimensions
+// SetSize updates the pane dimensions and invalidates cache
 func (p *LogicPane) SetSize(width, height int) {
 	p.Width = width
 	p.Height = height
 	p.Viewport.Width = width
 	p.Viewport.Height = height
+	// Invalidate cache on resize
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
 }
 
-// SetTrace updates the current derivation trace
+// SetTrace updates the current derivation trace and invalidates cache
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
 	if trace != nil {
 		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
 	} else {
 		p.Nodes = nil
+	}
+	// Invalidate cache and increment version on trace change
+	p.traceVersion++
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
 	}
 	p.Viewport.SetContent(p.renderContent())
 }
@@ -237,17 +253,33 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 	return result
 }
 
-// renderContent renders the logic pane content
-// TODO: IMPROVEMENT: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
+// renderContent renders the logic pane content with hash-based caching
 func (p *LogicPane) renderContent() string {
-	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
-	// we could return cached string. For now, given the complexity of tracking Viewport width changes
-	// and toggle states, we render on demand but optimize the tree rendering itself.
-
-	// TODO: IMPROVEMENT: Implement proper caching of the rendered string based on trace version/hash and viewport dimensions.
 	if p.CurrentTrace == nil {
 		return p.renderEmptyState()
 	}
+
+	// Use cache if available
+	if p.renderCache != nil {
+		cacheKey := []interface{}{
+			p.traceVersion,
+			p.Width,
+			p.Height,
+			p.ShowActivation,
+			p.SelectedNode,
+			p.ScrollOffset,
+		}
+
+		return p.renderCache.Render(cacheKey, func() string {
+			return p.renderContentUncached()
+		})
+	}
+
+	return p.renderContentUncached()
+}
+
+// renderContentUncached performs the actual rendering without caching
+func (p *LogicPane) renderContentUncached() string {
 
 	// TODO: IMPROVEMENT: Use `lipgloss.Join` for vertical composition instead of manual `strings.Builder` concatenation.
 	var sb strings.Builder
