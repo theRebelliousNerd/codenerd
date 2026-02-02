@@ -208,27 +208,32 @@ func (p *LogicPane) ToggleActivation() {
 	p.Viewport.SetContent(p.renderContent())
 }
 
-// SelectNext selects the next node
-// TODO: Implement circular navigation (wrap around to top).
+// SelectNext selects the next node with circular navigation (wraps to top)
 func (p *LogicPane) SelectNext() {
 	if len(p.Nodes) == 0 {
 		return
 	}
-	if p.SelectedNode < len(p.Nodes)-1 {
-		p.SelectedNode++
-		p.Viewport.SetContent(p.renderContent())
+	p.SelectedNode = (p.SelectedNode + 1) % len(p.Nodes)
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
 	}
+	p.Viewport.SetContent(p.renderContent())
 }
 
-// SelectPrev selects the previous node
+// SelectPrev selects the previous node with circular navigation (wraps to bottom)
 func (p *LogicPane) SelectPrev() {
 	if len(p.Nodes) == 0 {
 		return
 	}
-	if p.SelectedNode > 0 {
+	if p.SelectedNode <= 0 {
+		p.SelectedNode = len(p.Nodes) - 1
+	} else {
 		p.SelectedNode--
-		p.Viewport.SetContent(p.renderContent())
 	}
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
+	p.Viewport.SetContent(p.renderContent())
 }
 
 // ToggleExpand toggles expansion of the selected node
@@ -278,12 +283,8 @@ func (p *LogicPane) renderContent() string {
 	return p.renderContentUncached()
 }
 
-// renderContentUncached performs the actual rendering without caching
+// renderContentUncached performs the actual rendering without caching using lipgloss.Join
 func (p *LogicPane) renderContentUncached() string {
-
-	// TODO: IMPROVEMENT: Use `lipgloss.Join` for vertical composition instead of manual `strings.Builder` concatenation.
-	var sb strings.Builder
-
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -293,33 +294,34 @@ func (p *LogicPane) renderContentUncached() string {
 		Width(ViewportWidth(p.Width)).
 		Padding(0, 1)
 
-	sb.WriteString(headerStyle.Render("🔬 Derivation Trace"))
-	sb.WriteString("\n\n")
+	header := headerStyle.Render("🔬 Derivation Trace")
 
 	// Query info
 	queryStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Accent).
 		Italic(true)
 
-	sb.WriteString(queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query)))
-	sb.WriteString("\n")
+	query := queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query))
 
 	infoStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted)
 
-	sb.WriteString(infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
+	info := infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
 		p.CurrentTrace.TotalFacts,
-		p.CurrentTrace.DerivedTime.Round(time.Millisecond))))
-	sb.WriteString("\n\n")
+		p.CurrentTrace.DerivedTime.Round(time.Millisecond)))
 
-	// Derivation tree
-	sb.WriteString(p.renderTree())
-
-	// Legend
-	sb.WriteString("\n\n")
-	sb.WriteString(p.renderLegend())
-
-	return sb.String()
+	// Compose vertically using lipgloss.Join
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		"",
+		query,
+		info,
+		"",
+		p.renderTree(),
+		"",
+		p.renderLegend(),
+	)
 }
 
 // renderEmptyState renders the empty state message
@@ -346,7 +348,7 @@ func (p *LogicPane) renderEmptyState() string {
 	return emptyStyle.Render(msg)
 }
 
-// renderTree renders the derivation tree
+// renderTree renders the derivation tree using lipgloss.JoinVertical
 // TODO: IMPROVEMENT: Add search/filter functionality for derivation nodes.
 // TODO: Add minimap for large derivation trees.
 func (p *LogicPane) renderTree() string {
@@ -354,14 +356,13 @@ func (p *LogicPane) renderTree() string {
 		return ""
 	}
 
-	var sb strings.Builder
-
+	// Render all nodes
+	nodeStrings := make([]string, len(p.Nodes))
 	for i, node := range p.Nodes {
-		sb.WriteString(p.renderNode(node, i == p.SelectedNode))
-		sb.WriteString("\n")
+		nodeStrings[i] = p.renderNode(node, i == p.SelectedNode)
 	}
 
-	return sb.String()
+	return lipgloss.JoinVertical(lipgloss.Left, nodeStrings...)
 }
 
 // renderNode renders a single derivation node
@@ -535,6 +536,45 @@ func (s *SplitPaneView) SetMode(mode PaneMode) {
 // ToggleFocus switches focus between panes
 func (s *SplitPaneView) ToggleFocus() {
 	s.FocusRight = !s.FocusRight
+}
+
+// HandleKey processes keyboard input for split pane navigation
+// Returns true if the key was handled, false otherwise
+func (s *SplitPaneView) HandleKey(key string) bool {
+	if s.Mode != ModeSplitPane || s.RightPane == nil {
+		return false
+	}
+
+	switch key {
+	case "ctrl+l", "ctrl+tab":
+		// Toggle focus between left and right panes
+		s.ToggleFocus()
+		return true
+
+	// Navigation in right pane (when focused)
+	case "up", "k":
+		if s.FocusRight {
+			s.RightPane.SelectPrev()
+			return true
+		}
+	case "down", "j":
+		if s.FocusRight {
+			s.RightPane.SelectNext()
+			return true
+		}
+	case "enter", "space":
+		if s.FocusRight {
+			s.RightPane.ToggleExpand()
+			return true
+		}
+	case "a":
+		if s.FocusRight {
+			s.RightPane.ToggleActivation()
+			return true
+		}
+	}
+
+	return false
 }
 
 // Render renders the complete split pane view
