@@ -421,11 +421,13 @@ func (d *DiffApprovalView) renderControls() string {
 }
 
 // View returns the rendered view
+// TODO: Add horizontal scrolling support for viewing long lines without wrapping.
 func (d *DiffApprovalView) View() string {
 	return d.Viewport.View()
 }
 
 // computeLCS computes the Longest Common Subsequence table for two slices
+// TODO: Extract diff logic (LCS, backtracking) to internal/diff package to improve modularity and testability.
 // TODO: IMPROVEMENT: Consider replacing this manual LCS implementation with a robust diff library (e.g., `sergi/go-diff`) if performance or edge cases become an issue.
 // TODO: IMPROVEMENT: Add caching for LCS results if the inputs are identical to avoid recomputing for the same file pair.
 // TODO: IMPROVEMENT: Add unit tests specifically for the LCS and backtracking logic to ensure correctness of manual implementation.

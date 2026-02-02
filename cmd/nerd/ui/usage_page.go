@@ -41,6 +41,7 @@ func (m *UsagePageModel) SetSize(w, h int) {
 
 // UpdateContent refreshes the viewport content from the tracker data.
 // TODO: IMPROVEMENT: Add visual charts (bar/pie) using termui or similar for better data visualization.
+// TODO: Show cost estimates based on token counts.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")
@@ -107,6 +108,7 @@ func truncate(s string, l int) string {
 
 // Update handles messages.
 // TODO: IMPROVEMENT: Add real-time updates via a subscription model if the tracker supports it.
+// TODO: Add date range filter for usage stats.
 func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
