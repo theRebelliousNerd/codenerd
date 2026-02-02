@@ -361,54 +361,52 @@ func (cc *CompilationContext) String() string {
 // ToContextFacts generates Mangle facts representing this context.
 // These facts are formatted for the compile_context(Dimension, Value) schema
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
-func (cc *CompilationContext) ToContextFacts() []string {
-	var facts []string
+func (cc *CompilationContext) ToContextFacts() []interface{} {
+	worldStates := cc.WorldStates()
+
+	// Pre-calculate capacity to avoid reallocation
+	// 9 core dimensions + frameworks + world states
+	cap := 9 + len(cc.Frameworks) + len(worldStates)
+	facts := make([]interface{}, 0, cap)
 
 	// Helper to add compile_context facts for non-empty values.
 	// Format: compile_context(/dimension, /value). or compile_context(/dimension, "string").
+	// Optimized to use string concatenation and assume correct input where possible.
 	addFact := func(dimension, value string) {
 		if value == "" {
 			return
 		}
-		// Ensure dimension and value start with / for atom constants
-		if !hasPrefix(dimension, "/") {
-			dimension = "/" + dimension
-		}
 		// Values that look like name constants (start with /) stay as-is
 		// Others get quoted as strings
-		if hasPrefix(value, "/") {
-			facts = append(facts, fmt.Sprintf("compile_context(%s, %s).", dimension, value))
+		if len(value) > 0 && value[0] == '/' {
+			facts = append(facts, "compile_context("+dimension+", "+value+").")
 		} else {
-			facts = append(facts, fmt.Sprintf("compile_context(%s, \"%s\").", dimension, value))
+			facts = append(facts, "compile_context("+dimension+", \""+value+"\").")
 		}
 	}
 
 	// Core context dimensions (per schemas.mg Section 45)
-	addFact("operational_mode", cc.OperationalMode)
-	addFact("campaign_phase", cc.CampaignPhase)
-	addFact("build_layer", cc.BuildLayer)
-	addFact("init_phase", cc.InitPhase)
-	addFact("northstar_phase", cc.NorthstarPhase)
-	addFact("ouroboros_stage", cc.OuroborosStage)
-	addFact("intent_verb", cc.IntentVerb)
-	addFact("shard_type", cc.ShardType)
-	addFact("language", cc.Language)
+	// We pass dimensions with '/' prefix directly to avoid helper overhead
+	addFact("/operational_mode", cc.OperationalMode)
+	addFact("/campaign_phase", cc.CampaignPhase)
+	addFact("/build_layer", cc.BuildLayer)
+	addFact("/init_phase", cc.InitPhase)
+	addFact("/northstar_phase", cc.NorthstarPhase)
+	addFact("/ouroboros_stage", cc.OuroborosStage)
+	addFact("/intent_verb", cc.IntentVerb)
+	addFact("/shard_type", cc.ShardType)
+	addFact("/language", cc.Language)
 
 	// Multi-value dimensions
 	for _, fw := range cc.Frameworks {
-		addFact("framework", fw)
+		addFact("/framework", fw)
 	}
 
-	for _, ws := range cc.WorldStates() {
-		addFact("world_state", ws)
+	for _, ws := range worldStates {
+		addFact("/world_state", ws)
 	}
 
 	return facts
-}
-
-// hasPrefix checks if s starts with prefix.
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // ContextDimension represents a single dimension of context.
