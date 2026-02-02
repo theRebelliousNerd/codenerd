@@ -60,7 +60,7 @@ type DerivationTrace struct {
 	DerivedTime time.Duration
 }
 
-// LogicPane represents the logic visualization pane
+// LogicPane represents the logic visualization pane with search/filter support
 // TODO: IMPROVEMENT: Implement tea.Model interface for LogicPane to handle its own events
 // TODO: Allow copying derivation trace to clipboard.
 type LogicPane struct {
@@ -72,7 +72,8 @@ type LogicPane struct {
 	Height         int
 	ShowActivation bool
 	SelectedNode   int
-	Nodes          []*DerivationNode // Flattened list for navigation
+	Nodes          []*DerivationNode // Flattened list for navigation (filtered)
+	AllNodes       []*DerivationNode // Unfiltered node list
 	ScrollOffset   int
 
 	// Pre-compiled styles for performance (avoid recreation per node)
@@ -82,8 +83,12 @@ type LogicPane struct {
 	activStyle lipgloss.Style
 
 	// Render cache for performance optimization
-	renderCache *CachedRender
+	renderCache  *CachedRender
 	traceVersion int // Incremented when trace changes
+
+	// Search/filter functionality
+	SearchQuery  string // Current search query
+	FilterSource string // Filter by source: "" (all), "edb", "idb"
 }
 
 // SetTraceMangle adapts a backend trace to the UI model
@@ -178,8 +183,10 @@ func (p *LogicPane) SetSize(width, height int) {
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
 	if trace != nil {
-		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
+		p.AllNodes = p.flattenNodes(trace.RootNodes, 0)
+		p.applyFilters() // Apply any active filters
 	} else {
+		p.AllNodes = nil
 		p.Nodes = nil
 	}
 	// Invalidate cache and increment version on trace change
@@ -273,6 +280,8 @@ func (p *LogicPane) renderContent() string {
 			p.ShowActivation,
 			p.SelectedNode,
 			p.ScrollOffset,
+			p.SearchQuery,  // Include filter parameters in cache key
+			p.FilterSource,
 		}
 
 		return p.renderCache.Render(cacheKey, func() string {
@@ -310,18 +319,32 @@ func (p *LogicPane) renderContentUncached() string {
 		p.CurrentTrace.TotalFacts,
 		p.CurrentTrace.DerivedTime.Round(time.Millisecond)))
 
-	// Compose vertically using lipgloss.Join
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
+	// Build content sections
+	sections := []string{
 		header,
 		"",
 		query,
 		info,
+	}
+
+	// Add filter status if filters are active
+	if p.HasActiveFilters() {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(Warning).
+			Bold(true)
+		sections = append(sections, "", filterStyle.Render("🔍 "+p.GetFilterStatus()))
+	}
+
+	// Add tree and legend
+	sections = append(sections,
 		"",
 		p.renderTree(),
 		"",
 		p.renderLegend(),
 	)
+
+	// Compose vertically using lipgloss.Join
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 // renderEmptyState renders the empty state message
@@ -348,11 +371,116 @@ func (p *LogicPane) renderEmptyState() string {
 	return emptyStyle.Render(msg)
 }
 
+// applyFilters filters AllNodes based on SearchQuery and FilterSource
+func (p *LogicPane) applyFilters() {
+	if p.AllNodes == nil {
+		p.Nodes = nil
+		return
+	}
+
+	// Start with all nodes
+	filtered := make([]*DerivationNode, 0, len(p.AllNodes))
+
+	for _, node := range p.AllNodes {
+		// Apply source filter
+		if p.FilterSource != "" && node.Source != p.FilterSource {
+			continue
+		}
+
+		// Apply search query (case-insensitive)
+		if p.SearchQuery != "" {
+			query := strings.ToLower(p.SearchQuery)
+			predicateMatch := strings.Contains(strings.ToLower(node.Predicate), query)
+			argsMatch := false
+			for _, arg := range node.Args {
+				if strings.Contains(strings.ToLower(arg), query) {
+					argsMatch = true
+					break
+				}
+			}
+			ruleMatch := strings.Contains(strings.ToLower(node.Rule), query)
+
+			if !predicateMatch && !argsMatch && !ruleMatch {
+				continue
+			}
+		}
+
+		filtered = append(filtered, node)
+	}
+
+	p.Nodes = filtered
+
+	// Reset selection if out of bounds
+	if p.SelectedNode >= len(p.Nodes) {
+		p.SelectedNode = 0
+	}
+
+	// Invalidate cache since nodes changed
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
+}
+
+// SetSearchQuery updates the search query and reapplies filters
+func (p *LogicPane) SetSearchQuery(query string) {
+	p.SearchQuery = query
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// SetFilterSource sets the source filter ("", "edb", or "idb") and reapplies filters
+func (p *LogicPane) SetFilterSource(source string) {
+	// Normalize source to lowercase
+	source = strings.ToLower(source)
+	if source != "" && source != "edb" && source != "idb" {
+		return // Invalid source
+	}
+	p.FilterSource = source
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// ClearFilters removes all active filters
+func (p *LogicPane) ClearFilters() {
+	p.SearchQuery = ""
+	p.FilterSource = ""
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// HasActiveFilters returns true if any filters are active
+func (p *LogicPane) HasActiveFilters() bool {
+	return p.SearchQuery != "" || p.FilterSource != ""
+}
+
+// GetFilterStatus returns a human-readable string describing active filters
+func (p *LogicPane) GetFilterStatus() string {
+	if !p.HasActiveFilters() {
+		return ""
+	}
+
+	var parts []string
+	if p.SearchQuery != "" {
+		parts = append(parts, fmt.Sprintf("Search: %q", p.SearchQuery))
+	}
+	if p.FilterSource != "" {
+		parts = append(parts, fmt.Sprintf("Source: %s", strings.ToUpper(p.FilterSource)))
+	}
+
+	return fmt.Sprintf("Filters: %s (showing %d/%d nodes)",
+		strings.Join(parts, ", "),
+		len(p.Nodes),
+		len(p.AllNodes))
+}
+
 // renderTree renders the derivation tree using lipgloss.JoinVertical
-// TODO: IMPROVEMENT: Add search/filter functionality for derivation nodes.
 // TODO: Add minimap for large derivation trees.
 func (p *LogicPane) renderTree() string {
 	if len(p.Nodes) == 0 {
+		// Show different message if filters are active
+		if p.HasActiveFilters() {
+			return p.Styles.Muted.Render("No nodes match the current filters.")
+		}
 		return ""
 	}
 
