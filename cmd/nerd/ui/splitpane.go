@@ -62,6 +62,7 @@ type DerivationTrace struct {
 
 // LogicPane represents the logic visualization pane
 // TODO: IMPROVEMENT: Implement tea.Model interface for LogicPane to handle its own events
+// TODO: Allow copying derivation trace to clipboard.
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -316,6 +317,7 @@ func (p *LogicPane) renderEmptyState() string {
 
 // renderTree renders the derivation tree
 // TODO: IMPROVEMENT: Add search/filter functionality for derivation nodes.
+// TODO: Add minimap for large derivation trees.
 func (p *LogicPane) renderTree() string {
 	if len(p.Nodes) == 0 {
 		return ""

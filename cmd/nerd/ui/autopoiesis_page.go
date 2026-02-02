@@ -23,6 +23,7 @@ type AutopoiesisPageModel struct {
 	width    int
 	height   int
 	viewport viewport.Model
+	// TODO: Use bubbles/list instead of table for better list management if items grow.
 	table    table.Model
 
 	// State
@@ -159,6 +160,7 @@ func (m AutopoiesisPageModel) View() string {
 	sb.WriteString(m.styles.Content.Render(m.table.View()))
 
 	// Detail View (if selected)
+	// TODO: Enhance detail view with full JSON structure and syntax highlighting.
 	sb.WriteString("\n\n")
 	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
 		sel := m.table.Cursor()
