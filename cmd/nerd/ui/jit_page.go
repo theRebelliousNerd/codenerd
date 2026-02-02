@@ -106,30 +106,34 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// renderAtomContent formats the atom for display
-// TODO: IMPROVEMENT: Fix indentation and improve string building performance.
+// renderAtomContent formats the atom for display using lipgloss.JoinVertical
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	var sb strings.Builder
-
 	headerStyle := m.styles.Header
 	infoStyle := m.styles.Info
 	mutedStyle := m.styles.Muted
 
-	sb.WriteString(headerStyle.Render(atom.ID) + "\n")
-	sb.WriteString(infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount)) + "\n")
+	header := headerStyle.Render(atom.ID)
+	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
 
+	mandatoryStatus := ""
+	if atom.IsMandatory {
+		mandatoryStatus = m.styles.Error.Render("MANDATORY (Skeleton)")
+	} else {
+		mandatoryStatus = m.styles.Success.Render("OPTIONAL (Flesh)")
+	}
 
-		if atom.IsMandatory {
-			sb.WriteString(m.styles.Error.Render("MANDATORY (Skeleton)") + "\n")
-		} else {
-			sb.WriteString(m.styles.Success.Render("OPTIONAL (Flesh)") + "\n")
-		}
+	separator := mutedStyle.Render("--- Content ---")
 
-	sb.WriteString(mutedStyle.Render("--- Content ---") + "\n")
-		sb.WriteString(atom.Content + "\n")
-
-		return sb.String()}
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		info,
+		mandatoryStatus,
+		separator,
+		atom.Content,
+	)
+}
 
 // View renders the page.
 // TODO: IMPROVEMENT: Abstract split view logic into a shared helper or component to ensure consistency across pages.
