@@ -76,6 +76,7 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 // TODO: Improve the empty state with more helpful instructions or a starting guide.
 // TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 // TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
+// TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
 		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
@@ -149,6 +150,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 	// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
 	// TODO: IMPROVEMENT: Use `bubbles/list` delegates to render tasks, allowing for better key navigation and selection.
 	// TODO: IMPROVEMENT: Break down phase rendering into smaller helper functions.
+	// TODO: Implement collapsible sections for phases to manage long lists.
 	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
 	for _, p := range camp.Phases {
 		icon := "○" // Pending

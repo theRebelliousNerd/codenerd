@@ -13,6 +13,7 @@ import (
 )
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
+// TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
 type JITPageModel struct {
 	width    int
 	height   int
@@ -68,6 +69,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
+	// TODO: Add search bar to filter atoms by content, not just ID/Category.
 	// TODO: IMPROVEMENT: Add support for copying atom content to the system clipboard.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
