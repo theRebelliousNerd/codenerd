@@ -14,6 +14,7 @@ import (
 // TODO: Refactor these global variables into a structured theme definition or configuration to avoid global state.
 // TODO: IMPROVEMENT: Refactor global variables to use a Singleton or Dependency Injection pattern for better testability and isolation.
 // TODO: Add support for high-contrast accessibility mode in the color palette.
+// TODO: Extract color palette to configuration file (JSON/YAML) to allow user themes.
 var (
 	// Light Mode Colors (Default)
 	LightBackground = lipgloss.Color("#f4f5f6") // hsl(200, 7%, 96%)
@@ -50,6 +51,7 @@ var (
 )
 
 // Theme holds the current color scheme
+// TODO: Create Theme interface for easier testing and swapping of themes.
 type Theme struct {
 	// TODO: IMPROVEMENT: Expand Theme struct with semantic naming (e.g. Surface, OnSurface, Container, OnContainer) for better consistency.
 	// TODO: IMPROVEMENT: Add a helper method to return a `lipgloss.Renderer` initialized with this theme's settings to ensure consistent rendering context.
