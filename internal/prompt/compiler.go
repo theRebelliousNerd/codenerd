@@ -1211,52 +1211,54 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
-	var queryParts []string
-	if cc.IntentVerb != "" {
-		queryParts = append(queryParts, cc.IntentVerb)
-	}
-	if cc.IntentTarget != "" {
-		queryParts = append(queryParts, cc.IntentTarget)
-	}
-	if cc.ShardID != "" {
-		queryParts = append(queryParts, cc.ShardID)
-	}
-	if cc.Language != "" {
-		queryParts = append(queryParts, cc.Language)
-	}
-	if len(cc.Frameworks) > 0 {
-		queryParts = append(queryParts, cc.Frameworks...)
-	}
-
-	if len(queryParts) == 0 {
-		return nil
-	}
-
-	// Build weighted query: IntentVerb and Target have highest priority,
-	// followed by ShardID, then Language, then Frameworks.
 	// We duplicate high-priority terms to increase their semantic weight.
-	var weightedParts []string
+	var sb strings.Builder
+	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
+	sb.Grow(256)
 
 	// High priority (weight 3x): Intent verb and target
 	if cc.IntentVerb != "" {
-		weightedParts = append(weightedParts, cc.IntentVerb, cc.IntentVerb, cc.IntentVerb)
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
 	}
 	if cc.IntentTarget != "" {
-		weightedParts = append(weightedParts, cc.IntentTarget, cc.IntentTarget, cc.IntentTarget)
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
 	}
 
 	// Medium priority (weight 2x): ShardID and Language
 	if cc.ShardID != "" {
-		weightedParts = append(weightedParts, cc.ShardID, cc.ShardID)
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
 	}
 	if cc.Language != "" {
-		weightedParts = append(weightedParts, cc.Language, cc.Language)
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
 	}
 
 	// Low priority (weight 1x): Frameworks
-	weightedParts = append(weightedParts, cc.Frameworks...)
+	for _, fw := range cc.Frameworks {
+		sb.WriteString(fw)
+		sb.WriteString(" ")
+	}
 
-	query := strings.Join(weightedParts, " ")
+	if sb.Len() == 0 {
+		return nil
+	}
+
+	query := strings.TrimSpace(sb.String())
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
