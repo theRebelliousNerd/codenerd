@@ -462,7 +462,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	if c.kernel != nil {
 		contextFacts := cc.ToContextFacts()
 		if len(contextFacts) > 0 {
-			if err := c.kernel.AssertBatch(toInterfaceSlice(contextFacts)); err != nil {
+			if err := c.kernel.AssertBatch(contextFacts); err != nil {
 				logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
 				// Non-fatal - continue without context-based boosting
 			} else {

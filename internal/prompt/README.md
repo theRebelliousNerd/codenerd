@@ -95,7 +95,7 @@ Vector search reads embeddings from `prompt_atoms.embedding` across all register
 At a high level, `JITPromptCompiler.Compile()` (`internal/prompt/compiler.go`) does:
 
 1. **Collect candidates** from embedded corpus + project DB + shard DB (+ optional kernel-injected ephemeral atoms like `injectable_context`/`specialist_knowledge`).
-2. **Assert context to kernel** as `compile_context/2` facts (see `CompilationContext.ToContextFacts()` in `internal/prompt/context.go`).
+2. **Assert context to kernel** as `compile_context/2` facts (see `CompilationContext.ToContextFacts()` in `internal/prompt/context.go` which returns `[]interface{}` for efficient batch assertion).
 3. **Select atoms** via `AtomSelector` (`internal/prompt/selector.go`) using a System-2 split:
    - **Skeleton (deterministic, required)**: `identity`, `protocol`, `safety`, `methodology` selected via kernel rules.
    - **Flesh (probabilistic, degradable)**: other categories selected via vector search (if available) + kernel filter.

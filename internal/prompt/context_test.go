@@ -408,7 +408,7 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 
 		frameworkCount := 0
 		for _, fact := range facts {
-			if strings.Contains(fact, "/framework") {
+			if strings.Contains(fact.(string), "/framework") {
 				frameworkCount++
 			}
 		}
@@ -425,7 +425,7 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 
 		worldStateCount := 0
 		for _, fact := range facts {
-			if strings.Contains(fact, "/world_state") {
+			if strings.Contains(fact.(string), "/world_state") {
 				worldStateCount++
 			}
 		}
@@ -443,8 +443,9 @@ func TestCompilationContext_ToContextFacts(t *testing.T) {
 
 		// Check format: compile_context(/dimension, /value).
 		for _, fact := range facts {
-			assert.True(t, strings.HasPrefix(fact, "compile_context("))
-			assert.True(t, strings.HasSuffix(fact, ")."))
+			s := fact.(string)
+			assert.True(t, strings.HasPrefix(s, "compile_context("))
+			assert.True(t, strings.HasSuffix(s, ")."))
 		}
 	})
 }
