@@ -325,6 +325,9 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 
 	// Apply options
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		if err := opt(compiler); err != nil {
 			return nil, fmt.Errorf("failed to apply compiler option: %w", err)
 		}
