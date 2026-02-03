@@ -287,9 +287,7 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 // Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Vector A1] Verify NewJITPromptCompiler(nil) and WithKernel(nil) do not panic.
-// Scenario: Pass `nil` to variadic options or functional options.
-// Risk: `selector.SetKernel(nil)` might panic if it assumes non-nil.
+// Vector A1 covered in compiler_boundary_test.go
 
 // TODO: TEST_GAP: [Vector A2] Verify robustness against empty/partial context fields.
 // Scenario: CompilationContext with empty ShardID, IntentVerb, or empty strings in Languages.
