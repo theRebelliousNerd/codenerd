@@ -502,17 +502,21 @@ func (d *DiffApprovalView) View() string {
 
 // ScrollRight scrolls the viewport right for viewing long lines
 func (d *DiffApprovalView) ScrollRight() {
-	d.Viewport.LineRight(3) // Scroll 3 characters at a time
+	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineRight/horizontal scrolling.
+	// This code was causing build errors. Re-enable when bubbles is updated or alternative found.
+	// d.Viewport.LineRight(3)
 }
 
 // ScrollLeft scrolls the viewport left
 func (d *DiffApprovalView) ScrollLeft() {
-	d.Viewport.LineLeft(3) // Scroll 3 characters at a time
+	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineLeft/horizontal scrolling.
+	// d.Viewport.LineLeft(3)
 }
 
 // ScrollToStart scrolls to the beginning of lines
 func (d *DiffApprovalView) ScrollToStart() {
-	d.Viewport.GotoLeft()
+	// TODO: FIX: bubbles/viewport v0.21.0 does not support GotoLeft.
+	// d.Viewport.GotoLeft()
 }
 
 // CreateDiffFromStrings creates a FileDiff using the robust sergi/go-diff library
