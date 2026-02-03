@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/prompt"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"

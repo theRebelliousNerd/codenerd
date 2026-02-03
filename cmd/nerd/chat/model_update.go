@@ -524,6 +524,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
 			m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
 			m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
+			m.autoPage.SetSize(msg.Width, msg.Height-headerHeight)
 
 		}
 		if m.logicPane != nil {

@@ -61,7 +61,7 @@ func TestAutopoiesisPage_ShiftTabNavigation(t *testing.T) {
 
 func TestSplitPane_FocusToggle(t *testing.T) {
 	styles := DefaultStyles()
-	split := NewSplitPaneView(styles, 100, 50, 0.6)
+	split := NewSplitPaneViewWithRatio(styles, 100, 50, 0.6)
 
 	// Initial state
 	if split.FocusRight {
@@ -83,7 +83,7 @@ func TestSplitPane_FocusToggle(t *testing.T) {
 
 func TestSplitPane_KeyboardFocusSwitch(t *testing.T) {
 	styles := DefaultStyles()
-	split := NewSplitPaneView(styles, 100, 50, 0.6)
+	split := NewSplitPaneViewWithRatio(styles, 100, 50, 0.6)
 	split.SetMode(ModeSplitPane)
 
 	// Test Ctrl+L focus switch
@@ -178,7 +178,7 @@ func TestLogicPane_CircularNavigationBackward(t *testing.T) {
 
 func TestSplitPane_RightPaneNavigation(t *testing.T) {
 	styles := DefaultStyles()
-	split := NewSplitPaneView(styles, 100, 50, 0.6)
+	split := NewSplitPaneViewWithRatio(styles, 100, 50, 0.6)
 	split.SetMode(ModeSplitPane)
 	split.FocusRight = true
 
@@ -224,7 +224,7 @@ func TestSplitPane_RightPaneNavigation(t *testing.T) {
 
 func TestSplitPane_NavigationWhenNotFocused(t *testing.T) {
 	styles := DefaultStyles()
-	split := NewSplitPaneView(styles, 100, 50, 0.6)
+	split := NewSplitPaneViewWithRatio(styles, 100, 50, 0.6)
 	split.SetMode(ModeSplitPane)
 	split.FocusRight = false // Left pane focused
 
@@ -242,7 +242,7 @@ func TestSplitPane_NavigationWhenNotFocused(t *testing.T) {
 
 func TestSplitPane_NavigationInWrongMode(t *testing.T) {
 	styles := DefaultStyles()
-	split := NewSplitPaneView(styles, 100, 50, 0.6)
+	split := NewSplitPaneViewWithRatio(styles, 100, 50, 0.6)
 	split.SetMode(ModeSinglePane) // Not split mode
 
 	// Keys should not be handled in non-split mode
