@@ -337,3 +337,29 @@ func TestEngineToggleAutoEval(t *testing.T) {
 // TODO: TEST_GAP: TestEmptyAndInvalidPredicates
 // Need to verify AddFact("", ...) and AddFact("invalid name", ...).
 // Vector: Null/Empty Inputs
+
+// -----------------------------------------------------------------------------
+// QA DEEP GAPS (Identified 2026-02-01)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: TestMapToStructRecursion
+// Deep Gap: The current implementation flattens maps to JSON strings (Opaque Blob),
+// preventing Mangle from reasoning about the structure.
+// Expectation: Maps should be recursively converted to Mangle Structs { /key: val }.
+// Vector: Type Coercion / Architectural Dissonance
+
+// TODO: TEST_GAP: TestBatchAtomicity
+// Deep Gap: AddFacts loop returns on the first error, leaving the fact store in
+// a partial state (some facts added, some not).
+// Expectation: Batch insertion should be atomic (all or nothing) or explicitly documented as eventually consistent.
+// Vector: State Consistency / Transactional Integrity
+
+// TODO: TEST_GAP: TestUnicodeIdentifiers
+// Deep Gap: Verify behavior when non-ASCII strings are passed where Atoms are expected.
+// Current isIdentifier() is strict ASCII.
+// Vector: Internationalization / Type Coercion
+
+// TODO: TEST_GAP: TestFloatDiscontinuity
+// Deep Gap: Explicitly test the cliff between 1.0 (becomes 100) and 1.0000001 (becomes 1).
+// This nonlinear behavior is a significant logic risk.
+// Vector: Boundary Value Analysis
