@@ -390,7 +390,8 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 			return PiggybackEnvelope{}, fmt.Errorf("missing intent_classification fields")
 		}
 		if envelope.Control.MangleUpdates == nil {
-			return PiggybackEnvelope{}, fmt.Errorf("missing mangle_updates field")
+			// Tolerated: treat null/missing as empty list
+			envelope.Control.MangleUpdates = []string{}
 		}
 	}
 
