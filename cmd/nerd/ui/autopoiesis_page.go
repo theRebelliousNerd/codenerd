@@ -211,9 +211,12 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 
 	// Responsive column visibility
 	cols := m.table.Columns()
-	// Simple heuristic for small screens
-	// TODO: IMPROVEMENT: Replace magic number breakpoints (e.g., 60) with defined constants.
-	if w < 60 && len(cols) > 2 {
+	isCompact := len(cols) <= 2
+	shouldBeCompact := w < 60
+
+	if shouldBeCompact {
+		// In compact mode, we always update columns because width is dynamic (w - X)
+		// This handles both the switch to compact AND resizing within compact mode.
 		if m.activeTab == TabPatterns {
 			// Compact view for small terminals
 			m.table.SetColumns([]table.Column{
@@ -227,9 +230,12 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 			})
 		}
 	} else {
-		// Restore full table via refresh if needed
-		// For now we rely on next update cycle or explicit refresh but this handles the visual constraint
-		m.refreshTable()
+		// In full mode, widths are fixed constants (defined in refreshTable).
+		// We only need to refresh (rebuild table) if we are switching from compact to full.
+		// If we are already in full mode, resizing doesn't change column widths, so we skip refresh.
+		if isCompact {
+			m.refreshTable()
+		}
 	}
 }
 
