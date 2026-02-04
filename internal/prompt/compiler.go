@@ -1290,16 +1290,26 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 		content := atom.Content
 		if atom.Concept != "" {
 			// Extract meaningful category from concept (e.g., "doc/path/architecture/patterns" -> "architecture/patterns")
-			parts := strings.Split(atom.Concept, "/")
-			if len(parts) >= 3 {
-				category := strings.Join(parts[2:], "/")
-				content = fmt.Sprintf("[%s] %s", category, atom.Content)
+			// Optimized to avoid strings.Split/Join allocation
+			idx1 := strings.IndexByte(atom.Concept, '/')
+			if idx1 != -1 {
+				idx2 := strings.IndexByte(atom.Concept[idx1+1:], '/')
+				if idx2 != -1 {
+					// The second slash is at idx1 + 1 + idx2
+					realIdx2 := idx1 + 1 + idx2
+					if realIdx2+1 < len(atom.Concept) {
+						category := atom.Concept[realIdx2+1:]
+						// Optimized formatting to avoid fmt.Sprintf reflection
+						content = "[" + category + "] " + atom.Content
+					}
+				}
 			}
 		}
 
 		// Create prompt atom with appropriate priority
 		// Priority 85 = below specialist_knowledge (90) but above regular context
-		atomID := fmt.Sprintf("knowledge/%s", HashContent(content)[:8])
+		// Optimized to avoid fmt.Sprintf
+		atomID := "knowledge/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 		pa.Priority = 85
 		pa.IsMandatory = false // Knowledge is contextual, not mandatory
