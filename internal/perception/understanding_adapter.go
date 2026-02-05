@@ -238,6 +238,8 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/forget"
 	case "chat":
 		return "/greet"
+	case "deploy":
+		return "/deploy"
 	default:
 		return "/explain" // Safe fallback
 	}

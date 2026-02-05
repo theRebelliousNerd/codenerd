@@ -131,6 +131,11 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 // extractJSON finds the last valid JSON object in the response.
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
 func extractJSON(response string) string {
+	var validBlocks []struct {
+		start, end int
+		content    string
+	}
+
 	// Find all start indices of '{'
 	var starts []int
 	for i, r := range response {
@@ -139,28 +144,48 @@ func extractJSON(response string) string {
 		}
 	}
 
-	// Iterate backwards to find the last valid JSON object
-	for i := len(starts) - 1; i >= 0; i-- {
-		start := starts[i]
-
-		// Find matching closing brace
+	for _, start := range starts {
 		depth := 0
 		for j := start; j < len(response); j++ {
-			switch response[j] {
-			case '{':
+			if response[j] == '{' {
 				depth++
-			case '}':
+			} else if response[j] == '}' {
 				depth--
 				if depth == 0 {
-					// Found a potential JSON block
-					// Verify it can be unmarshaled (lightweight check)
 					candidate := response[start : j+1]
 					if json.Valid([]byte(candidate)) {
-						return candidate
+						validBlocks = append(validBlocks, struct {
+							start, end int
+							content    string
+						}{start, j + 1, candidate})
 					}
+					break // Found the matching brace for this start, move to next start
 				}
 			}
 		}
+	}
+
+	// Filter out contained blocks to get top-level objects
+	var topLevel []string
+	for i, b1 := range validBlocks {
+		isContained := false
+		for j, b2 := range validBlocks {
+			if i == j {
+				continue
+			}
+			// If b2 contains b1 (and is larger/different)
+			if b2.start <= b1.start && b2.end >= b1.end {
+				isContained = true
+				break
+			}
+		}
+		if !isContained {
+			topLevel = append(topLevel, b1.content)
+		}
+	}
+
+	if len(topLevel) > 0 {
+		return topLevel[len(topLevel)-1]
 	}
 
 	return ""
