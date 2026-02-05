@@ -40,11 +40,11 @@ func computeHash(inputs ...interface{}) uint64 {
 			h.Write([]byte(v))
 		case int:
 			// Convert int to bytes
-			b := make([]byte, 8)
+			var b [8]byte
 			for i := 0; i < 8; i++ {
 				b[i] = byte(v >> (i * 8))
 			}
-			h.Write(b)
+			h.Write(b[:])
 		case bool:
 			if v {
 				h.Write([]byte{1})

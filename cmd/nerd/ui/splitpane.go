@@ -473,7 +473,7 @@ func (p *LogicPane) GetFilterStatus() string {
 		len(p.AllNodes))
 }
 
-// renderTree renders the derivation tree using lipgloss.JoinVertical
+// renderTree renders the derivation tree using a shared strings.Builder
 // TODO: Add minimap for large derivation trees.
 func (p *LogicPane) renderTree() string {
 	if len(p.Nodes) == 0 {
@@ -484,22 +484,24 @@ func (p *LogicPane) renderTree() string {
 		return ""
 	}
 
-	// Render all nodes
-	nodeStrings := make([]string, len(p.Nodes))
+	var sb strings.Builder
+	// Pre-allocate to avoid reallocations. Estimate 100 chars per node.
+	sb.Grow(len(p.Nodes) * 100)
+
 	for i, node := range p.Nodes {
-		nodeStrings[i] = p.renderNode(node, i == p.SelectedNode)
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		p.writeNode(&sb, node, i == p.SelectedNode)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, nodeStrings...)
+	return sb.String()
 }
 
-// renderNode renders a single derivation node
+// writeNode writes a single derivation node to the provided builder
 // TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
 // TODO: IMPROVEMENT: Implement custom rendering for specific predicates (e.g., clickable links).
-func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
-	var sb strings.Builder
-
-	// Indentation
+func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selected bool) {
 	// Indentation
 	indent := getIndent(node.Depth)
 
@@ -574,8 +576,6 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 		sb.WriteString("   ")
 		sb.WriteString(p.ruleStyle.Render("← " + node.Rule))
 	}
-
-	return sb.String()
 }
 
 // renderLegend renders the legend explaining the symbols
