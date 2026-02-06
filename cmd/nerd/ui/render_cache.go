@@ -3,12 +3,13 @@ package ui
 
 import (
 	"hash/fnv"
+	"math"
 	"sync"
 )
 
 // RenderCache provides hash-based caching for rendered content
 type RenderCache struct {
-	cache sync.Map
+	cache   sync.Map
 	maxSize int
 }
 
@@ -33,6 +34,7 @@ var DefaultRenderCache = NewRenderCache(100)
 // computeHash computes a FNV-1a hash for cache keys
 func computeHash(inputs ...interface{}) uint64 {
 	h := fnv.New64a()
+	var b [8]byte
 
 	for _, input := range inputs {
 		switch v := input.(type) {
@@ -40,11 +42,27 @@ func computeHash(inputs ...interface{}) uint64 {
 			h.Write([]byte(v))
 		case int:
 			// Convert int to bytes
-			b := make([]byte, 8)
-			for i := 0; i < 8; i++ {
-				b[i] = byte(v >> (i * 8))
-			}
-			h.Write(b)
+			u := uint64(v)
+			b[0] = byte(u)
+			b[1] = byte(u >> 8)
+			b[2] = byte(u >> 16)
+			b[3] = byte(u >> 24)
+			b[4] = byte(u >> 32)
+			b[5] = byte(u >> 40)
+			b[6] = byte(u >> 48)
+			b[7] = byte(u >> 56)
+			h.Write(b[:])
+		case float64:
+			u := math.Float64bits(v)
+			b[0] = byte(u)
+			b[1] = byte(u >> 8)
+			b[2] = byte(u >> 16)
+			b[3] = byte(u >> 24)
+			b[4] = byte(u >> 32)
+			b[5] = byte(u >> 40)
+			b[6] = byte(u >> 48)
+			b[7] = byte(u >> 56)
+			h.Write(b[:])
 		case bool:
 			if v {
 				h.Write([]byte{1})
