@@ -42,8 +42,11 @@ type Account struct {
 }
 
 // Custom JSON marshalling to match TypeScript milliseconds timestamps
+// accountNoJSON is used to avoid recursive MarshalJSON/UnmarshalJSON calls.
+type accountNoJSON Account
+
 type accountJSON struct {
-	Account
+	accountNoJSON
 	AccessExpiry        int64              `json:"accessExpiry,omitempty"`
 	AddedAt             int64              `json:"addedAt"`
 	UpdatedAt           int64              `json:"updatedAt"`
@@ -59,7 +62,7 @@ func (a *Account) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(accountJSON{
-		Account:             *a,
+		accountNoJSON:       accountNoJSON(*a),
 		AccessExpiry:        a.AccessExpiry.UnixMilli(),
 		AddedAt:             a.CreatedAt.UnixMilli(),
 		UpdatedAt:           a.UpdatedAt.UnixMilli(),
@@ -75,7 +78,7 @@ func (a *Account) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*a = aux.Account
+	*a = Account(aux.accountNoJSON)
 	if aux.AccessExpiry > 0 {
 		a.AccessExpiry = time.UnixMilli(aux.AccessExpiry)
 	}

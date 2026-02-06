@@ -39,7 +39,7 @@ func TestPerceptionUnknownVerbEmitsIntentUnmapped(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
 
-	intentJSON := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/instruction","verb":"/deploy","target":"","constraint":"","confidence":0.9},"mangle_updates":[],"memory_operations":[]},"surface_response":"ok"}`)
+	intentJSON := fmt.Sprintf(`{"understanding":{"primary_intent":"deploy service","semantic_type":"instruction","action_type":"deploy","domain":"general","scope":{"level":"codebase","target":"","file":"","symbol":""},"user_constraints":[],"implicit_assumptions":[],"confidence":0.9,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"coder","supporting_shards":[],"tools_needed":[],"context_needed":[]}},"surface_response":"ok"}`)
 	shard := NewPerceptionFirewallShard()
 	shard.SetParentKernel(kernel)
 	shard.SetLLMClient(stubLLMClient{response: intentJSON})

@@ -60,6 +60,9 @@ Decl pending_clarification(Question, Options, DefaultValue).
 # awaiting_clarification(Question)
 Decl awaiting_clarification(Question).
 
+# any_awaiting_clarification(Status)
+Decl any_awaiting_clarification(Status).
+
 # awaiting_user_input(RequestID)
 Decl awaiting_user_input(RequestID).
 

@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/prompt"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -13,6 +12,7 @@ import (
 )
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
+// TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
 type JITPageModel struct {
 	width    int
 	height   int
@@ -28,6 +28,7 @@ type JITPageModel struct {
 }
 
 // atomItem adapts prompt.PromptAtom to list.Item
+// TODO: IMPROVEMENT: Add support for custom icons based on atom category.
 type atomItem struct {
 	atom *prompt.PromptAtom
 }
@@ -67,6 +68,8 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
+	// TODO: Add search bar to filter atoms by content, not just ID/Category.
+	// TODO: IMPROVEMENT: Add support for copying atom content to the system clipboard.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -77,6 +80,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			switch msg.String() {
 			case "tab":
 				// Could toggle focus, but for now just let logic handle it or simple split
+				// TODO: Implement focus switching between list and viewport
 			}
 		}
 	}
@@ -101,30 +105,37 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// renderAtomContent formats the atom for display
+// renderAtomContent formats the atom for display using lipgloss.JoinVertical
+// TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	var sb strings.Builder
-
 	headerStyle := m.styles.Header
 	infoStyle := m.styles.Info
 	mutedStyle := m.styles.Muted
 
-	sb.WriteString(headerStyle.Render(atom.ID) + "\n")
-	sb.WriteString(infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount)) + "\n")
-	
-		
-		if atom.IsMandatory {
-			sb.WriteString(m.styles.Error.Render("MANDATORY (Skeleton)") + "\n")
-		} else {
-			sb.WriteString(m.styles.Success.Render("OPTIONAL (Flesh)") + "\n")
-		}
-		
-	sb.WriteString(mutedStyle.Render("--- Content ---") + "\n")
-		sb.WriteString(atom.Content + "\n")
-	
-		return sb.String()}
+	header := headerStyle.Render(atom.ID)
+	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
+
+	mandatoryStatus := ""
+	if atom.IsMandatory {
+		mandatoryStatus = m.styles.Error.Render("MANDATORY (Skeleton)")
+	} else {
+		mandatoryStatus = m.styles.Success.Render("OPTIONAL (Flesh)")
+	}
+
+	separator := mutedStyle.Render("--- Content ---")
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		info,
+		mandatoryStatus,
+		separator,
+		atom.Content,
+	)
+}
 
 // View renders the page.
+// TODO: IMPROVEMENT: Abstract split view logic into a shared helper or component to ensure consistency across pages.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
@@ -144,7 +155,7 @@ func (m JITPageModel) View() string {
 func (m *JITPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	
+
 	listWidth := int(float64(w) * 0.35)
 	m.list.SetSize(listWidth, h-2)
 	m.viewport.Width = w - listWidth - 4
@@ -160,7 +171,7 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 
 	// Convert atoms to items
 	items := make([]list.Item, 0, len(result.IncludedAtoms))
-	
+
 	// Sort by priority desc
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority
@@ -171,9 +182,9 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	}
 
 	m.list.SetItems(items)
-	
+
 	// Set stats in title
-	stats := fmt.Sprintf("JIT Inspector (%d atoms, %d tokens, %.0f%% budget)", 
+	stats := fmt.Sprintf("JIT Inspector (%d atoms, %d tokens, %.0f%% budget)",
 		len(result.IncludedAtoms), result.TotalTokens, result.BudgetUsed*100)
 	m.list.Title = stats
 }

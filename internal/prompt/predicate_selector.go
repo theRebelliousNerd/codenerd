@@ -87,7 +87,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 
 	// Set default max
 	if ctx.MaxPredicates <= 0 {
-		ctx.MaxPredicates = defaultPredicateLimit
+		ctx.MaxPredicates = ps.maxPredicates
 	}
 
 	var selected []SelectedPredicate
@@ -273,6 +273,8 @@ func (ps *PredicateSelector) intentVerbToDomains(verb string) []string {
 // FormatForPrompt formats selected predicates for prompt injection.
 func (ps *PredicateSelector) FormatForPrompt(predicates []SelectedPredicate) string {
 	var sb strings.Builder
+	// Estimate size: ~64 bytes per predicate + header overhead
+	sb.Grow(len(predicates)*64 + 100)
 
 	sb.WriteString("## Available Mangle Predicates\n\n")
 	sb.WriteString("Use ONLY these predicates in your rules:\n\n")
@@ -414,17 +416,26 @@ func (ps *PredicateSelector) SelectForContext(ctx context.Context, shardType, in
 
 	// Convert to signature strings
 	signatures := make([]string, 0, len(merged))
+	var sb strings.Builder
+	// Pre-allocate buffer for typical signature length to avoid small re-allocations
+	sb.Grow(128)
+
 	for _, p := range merged {
-		sig := fmt.Sprintf("%s/%d", p.Name, p.Arity)
+		sb.Reset()
+		sb.WriteString(p.Name)
+		sb.WriteString("/")
+		sb.WriteString(strconv.Itoa(p.Arity))
+
 		if p.Description != "" {
 			// Truncate description for readability
 			desc := p.Description
 			if len(desc) > 50 {
 				desc = desc[:50] + "..."
 			}
-			sig += " - " + desc
+			sb.WriteString(" - ")
+			sb.WriteString(desc)
 		}
-		signatures = append(signatures, sig)
+		signatures = append(signatures, sb.String())
 	}
 
 	if len(signatures) > maxPredicates {
@@ -617,7 +628,7 @@ func predicateVectorContent(p core.PredicateInfo) string {
 	sb.WriteString("predicate ")
 	sb.WriteString(p.Name)
 	sb.WriteString("/")
-	sb.WriteString(fmt.Sprintf("%d", p.Arity))
+	sb.WriteString(strconv.Itoa(p.Arity))
 	if p.Domain != "" {
 		sb.WriteString(" domain:")
 		sb.WriteString(p.Domain)
@@ -694,7 +705,7 @@ func clampSimilarity(v float64) float64 {
 }
 
 func predicateKey(name string, arity int) string {
-	return fmt.Sprintf("%s/%d", name, arity)
+	return name + "/" + strconv.Itoa(arity)
 }
 
 // AllPredicateSignatures returns every predicate in the corpus as name/arity.

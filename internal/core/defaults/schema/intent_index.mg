@@ -14,8 +14,8 @@
 # PREDICATE DECLARATIONS
 # =============================================================================
 
-Decl intent_definition(Sentence, Verb, Target).
-Decl intent_category(Sentence, Category).
+# Decl intent_definition(Sentence, Verb, Target)
+# Decl intent_category(Sentence, Category)
 
 # =============================================================================
 # MODULARIZED INTENT FILES

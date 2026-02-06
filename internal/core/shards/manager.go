@@ -33,6 +33,9 @@ type ShardManager struct {
 	disabled  map[string]struct{}
 	mu        sync.RWMutex
 
+	// spawnCounter ensures shard IDs are unique even when time resolution is coarse.
+	spawnCounter int64
+
 	// Core dependencies to inject into shards
 	kernel       types.Kernel
 	llmClient    types.LLMClient

@@ -48,6 +48,7 @@ Docs/*
 !.agent/**/*.md
 !internal/prompt/atoms/**/*.md
 !conductor/**/*.md
+!.quality_assurance/*.md
 
 # Debug files
 debug_program*.mg

@@ -79,14 +79,6 @@ Decl intelligence_knowledge_link(SourceEntity, Relation, TargetEntity, Weight).
 # EXTERNAL PREDICATE DECLARATIONS (from other .mg files)
 # =============================================================================
 
-# Campaign tasks (from campaign.mg or similar)
-Decl campaign_task(CampaignID, PhaseID, TaskID, Name, Status, Priority, Order).
-
-# Task artifacts (from campaign.mg or similar)
-Decl task_artifact(TaskID, ArtifactType, Path).
-
-# User intent (from schemas or perception)
-Decl user_intent(SessionID, Category, Verb, Target, Constraint).
 
 # =============================================================================
 # DERIVED PREDICATES (IDB - Intensional Database)
@@ -159,11 +151,14 @@ intelligence_chestertons_fence(Path, "CAUTION: Core infrastructure file - unders
 # TEST COVERAGE ANALYSIS
 # -----------------------------------------------------------------------------
 
+Decl intelligence_has_coverage(Path).
+intelligence_has_coverage(Path) :- intelligence_test_coverage(Path, _).
+
 Decl intelligence_missing_tests(Path).
 
 intelligence_missing_tests(Path) :-
     intelligence_file_topology(Path, _, _, _, /false),
-    !intelligence_test_coverage(Path, _).
+    !intelligence_has_coverage(Path).
 
 intelligence_missing_tests(Path) :-
     intelligence_test_coverage(Path, Coverage), Coverage < 0.3.
@@ -180,14 +175,19 @@ intelligence_well_tested(Path) :-
 Decl intelligence_action_blocked(CampaignID, TaskID, Action).
 
 intelligence_action_blocked(CampaignID, TaskID, Action) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_safety_warning(CampaignID, Path, Action, _, /critical).
 
 intelligence_action_blocked(CampaignID, TaskID, /delete) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_high_impact(Path).
+
+Decl intelligence_has_blocked_action(CampaignID).
+intelligence_has_blocked_action(CampaignID) :- intelligence_action_blocked(CampaignID, _, _).
 
 # -----------------------------------------------------------------------------
 # ADVISORY BOARD CONSENSUS
@@ -232,6 +232,9 @@ Decl intelligence_blocking_gap(CampaignID, Capability).
 intelligence_blocking_gap(CampaignID, Capability) :-
     intelligence_gap_unresolved(CampaignID, Capability, Priority), Priority > 80.
 
+Decl intelligence_has_blocking_gap(CampaignID).
+intelligence_has_blocking_gap(CampaignID) :- intelligence_blocking_gap(CampaignID, _).
+
 # -----------------------------------------------------------------------------
 # IMPACT ANALYSIS
 # -----------------------------------------------------------------------------
@@ -265,8 +268,8 @@ Decl intelligence_campaign_ready(CampaignID).
 
 intelligence_campaign_ready(CampaignID) :-
     intelligence_advisory_approved(CampaignID),
-    !intelligence_action_blocked(CampaignID, _, _),
-    !intelligence_blocking_gap(CampaignID, _).
+    !intelligence_has_blocked_action(CampaignID),
+    !intelligence_has_blocking_gap(CampaignID).
 
 Decl intelligence_campaign_blocked(CampaignID, Reason).
 
@@ -275,10 +278,10 @@ intelligence_campaign_blocked(CampaignID, "Advisory board rejected") :-
     !intelligence_advisory_approved(CampaignID).
 
 intelligence_campaign_blocked(CampaignID, "Unresolved high-priority tool gap") :-
-    intelligence_blocking_gap(CampaignID, _).
+    intelligence_has_blocking_gap(CampaignID).
 
 intelligence_campaign_blocked(CampaignID, "Safety-blocked actions pending") :-
-    intelligence_action_blocked(CampaignID, _, _).
+    intelligence_has_blocked_action(CampaignID).
 
 # =============================================================================
 # CONTEXT SELECTION PREDICATES
@@ -339,19 +342,19 @@ intelligence_context_priority(Path, /low) :-
 Decl intelligence_task_prerequisite(PreTask, PostTask).
 
 intelligence_task_prerequisite(PreTask, PostTask) :-
-    task_artifact(PreTask, _, Path),
-    task_artifact(PostTask, _, Path),
+    task_artifact(PreTask, _, Path, _),
+    task_artifact(PostTask, _, Path, _),
     PreTask != PostTask,
     intelligence_file_action(Path, /modularize, _, _).
 
 intelligence_task_prerequisite(ModularizeTask, ExtendTask) :-
-    task_artifact(ModularizeTask, /modularize, Path),
-    task_artifact(ExtendTask, /extend, Path).
+    task_artifact(ModularizeTask, /modularize, Path, _),
+    task_artifact(ExtendTask, /extend, Path, _).
 
 Decl intelligence_needs_tests_first(TaskID).
 
 intelligence_needs_tests_first(TaskID) :-
-    task_artifact(TaskID, _, Path),
+    task_artifact(TaskID, _, Path, _),
     intelligence_missing_tests(Path),
     intelligence_high_impact(Path).
 
@@ -365,12 +368,14 @@ Decl intelligence_relevant_strategy(CampaignID, Concept, Content).
 intelligence_relevant_strategy(CampaignID, Concept, Content) :-
     intelligence_strategic_knowledge(Concept, /pattern, Content, Priority),
     Priority > 50,
-    campaign_task(CampaignID, _, _, _, _, _, _).
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 # Always include vision for active campaigns
 intelligence_relevant_strategy(CampaignID, Concept, Content) :-
     intelligence_strategic_knowledge(Concept, /vision, Content, _),
-    campaign_task(CampaignID, _, _, _, _, _, _).
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 Decl intelligence_knowledge_path(Start, End, Relation).
 
@@ -456,23 +461,26 @@ Decl intelligence_campaign_complexity(CampaignID, Score).
 
 # High complexity if high-priority AND high-impact
 intelligence_campaign_complexity(CampaignID, /high) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_high_priority_file(Path),
     intelligence_high_impact(Path).
 
 # Exclusion: campaign has high-complexity source conditions
 Decl intelligence_has_high_complexity_source(CampaignID).
 intelligence_has_high_complexity_source(CampaignID) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_high_priority_file(Path),
     intelligence_high_impact(Path).
 
 # Medium complexity if churn > 5 (but not high)
 intelligence_campaign_complexity(CampaignID, /medium) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 5,
     !intelligence_has_high_complexity_source(CampaignID).
 
@@ -480,35 +488,40 @@ intelligence_campaign_complexity(CampaignID, /medium) :-
 Decl intelligence_has_medium_complexity_source(CampaignID).
 intelligence_has_medium_complexity_source(CampaignID) :- intelligence_has_high_complexity_source(CampaignID).
 intelligence_has_medium_complexity_source(CampaignID) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 5.
 
 # Low complexity for everything else
 intelligence_campaign_complexity(CampaignID, /low) :-
-    campaign_task(CampaignID, _, _, _, _, _, _),
+    campaign_task(_, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
     !intelligence_has_medium_complexity_source(CampaignID).
 
 # Risk assessment
 Decl intelligence_campaign_risk(CampaignID, RiskLevel, Reason).
 
 intelligence_campaign_risk(CampaignID, /high, "Modifying high-churn core infrastructure") :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 15,
     intelligence_high_impact(Path).
 
 # Exclusion: campaign has high-risk source conditions
 Decl intelligence_has_high_risk_source(CampaignID).
 intelligence_has_high_risk_source(CampaignID) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 15,
     intelligence_high_impact(Path).
 
 intelligence_campaign_risk(CampaignID, /medium, "Low test coverage on modified files") :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_missing_tests(Path),
     !intelligence_has_high_risk_source(CampaignID).
 
@@ -516,10 +529,12 @@ intelligence_campaign_risk(CampaignID, /medium, "Low test coverage on modified f
 Decl intelligence_has_medium_risk_source(CampaignID).
 intelligence_has_medium_risk_source(CampaignID) :- intelligence_has_high_risk_source(CampaignID).
 intelligence_has_medium_risk_source(CampaignID) :-
-    campaign_task(CampaignID, _, TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Path),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    task_artifact(TaskID, _, Path, _),
     intelligence_missing_tests(Path).
 
 intelligence_campaign_risk(CampaignID, /low, "Standard modifications with good coverage") :-
-    campaign_task(CampaignID, _, _, _, _, _, _),
+    campaign_task(_, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _),
     !intelligence_has_medium_risk_source(CampaignID).

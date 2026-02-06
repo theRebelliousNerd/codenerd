@@ -76,7 +76,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			)
 		}
 		// No pending subtasks
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "No pending tasks to continue. Start a new task.",
 			Time:    time.Now(),
@@ -105,13 +105,13 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		// This clears the working memory but preserves learned rules and schemas
 		if m.kernel != nil {
 			m.kernel.Reset()
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Kernel reset. Facts cleared, policy and schemas retained.",
 				Time:    time.Now(),
 			})
 		} else {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "No kernel attached - nothing to reset.",
 				Time:    time.Now(),
@@ -127,7 +127,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		m.history = []Message{}
 		m.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 		m.turnCount = 0
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Started new session: `%s`\n\nPrevious history saved.", m.sessionID),
 			Time:    time.Now(),
@@ -142,7 +142,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		// List available sessions
 		sessions, err := nerdinit.ListSessionHistories(m.workspace)
 		if err != nil || len(sessions) == 0 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "No saved sessions found.",
 				Time:    time.Now(),
@@ -173,7 +173,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/load-session":
 		// Load a specific session by ID: /load-session <session-id>
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/load-session <session-id>`\n\nUse `/sessions` to see available sessions.",
 				Time:    time.Now(),
@@ -187,7 +187,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		return m.loadSelectedSession(sessionID)
 
 	case "/help":
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: helpCommandText, // Defined in commands_help.go
 			Time:    time.Now(),
@@ -200,7 +200,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 	case "/status":
 		// Show system status
 		status := m.buildStatusReport()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: status,
 			Time:    time.Now(),
@@ -212,7 +212,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/reflection":
 		content := m.renderReflectionStatus()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -251,7 +251,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				}
 				sb.WriteString("\nUse `/knowledge <n>` to view the full response.")
 
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: sb.String(),
 					Time:    time.Now(),
@@ -259,7 +259,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			} else if m.localDB != nil {
 				atoms, err := m.localDB.GetKnowledgeAtomsByPrefix("session/")
 				if err != nil || len(atoms) == 0 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No persisted knowledge entries found.",
 						Time:    time.Now(),
@@ -284,14 +284,14 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 						sb.WriteString(fmt.Sprintf("%d. %s — %s\n", i+1, concept, timeLabel))
 					}
 					sb.WriteString("\nUse `/knowledge <n>` to view the full response.")
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: sb.String(),
 						Time:    time.Now(),
 					})
 				}
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "No knowledge history or database available.",
 					Time:    time.Now(),
@@ -306,13 +306,13 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 		if parts[1] == "search" {
 			if len(parts) < 3 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Usage: `/knowledge search <query>`",
 					Time:    time.Now(),
 				})
 			} else if m.localDB == nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "No knowledge database available.",
 					Time:    time.Now(),
@@ -323,7 +323,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				defer cancel()
 				atoms, err := m.localDB.SearchKnowledgeAtomsSemantic(ctx, query, 5)
 				if err != nil || len(atoms) == 0 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No matching knowledge entries found.",
 						Time:    time.Now(),
@@ -340,7 +340,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 						sb.WriteString(atom.Content)
 						sb.WriteString("\n\n")
 					}
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: strings.TrimSpace(sb.String()),
 						Time:    time.Now(),
@@ -356,7 +356,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 		if idx, err := strconv.Atoi(parts[1]); err == nil {
 			if idx < 1 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Usage: `/knowledge <n>` (n starts at 1).",
 					Time:    time.Now(),
@@ -367,14 +367,14 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 					recent = append(recent, m.knowledgeHistory[i])
 				}
 				if idx > len(recent) {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Only %d knowledge entries available.", len(recent)),
 						Time:    time.Now(),
 					})
 				} else {
 					content := formatKnowledgeResults([]KnowledgeResult{recent[idx-1]})
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: content,
 						Time:    time.Now(),
@@ -383,7 +383,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			} else if m.localDB != nil {
 				atoms, err := m.localDB.GetKnowledgeAtomsByPrefix("session/")
 				if err != nil || len(atoms) == 0 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No persisted knowledge entries found.",
 						Time:    time.Now(),
@@ -393,7 +393,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 						return atoms[i].CreatedAt.After(atoms[j].CreatedAt)
 					})
 					if idx > len(atoms) {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Only %d persisted knowledge entries available.", len(atoms)),
 							Time:    time.Now(),
@@ -405,7 +405,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 						sb.WriteString(fmt.Sprintf("**Concept:** %s\n\n", atom.Concept))
 						sb.WriteString(fmt.Sprintf("**Created:** %s\n\n", atom.CreatedAt.Format(time.RFC3339)))
 						sb.WriteString(atom.Content)
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: sb.String(),
 							Time:    time.Now(),
@@ -413,7 +413,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "No knowledge history or database available.",
 					Time:    time.Now(),
@@ -426,7 +426,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Usage: `/knowledge`, `/knowledge <n>`, or `/knowledge search <query>`",
 			Time:    time.Now(),
@@ -438,7 +438,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/legislate":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/legislate <constraint>`\n\nExample: `/legislate Stop using fmt.Printf; use log.Info instead.`",
 				Time:    time.Now(),
@@ -449,7 +449,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		task := strings.TrimSpace(strings.TrimPrefix(input, "/legislate"))
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Legislator engaged. Compiling and ratifying rule...",
 			Time:    time.Now(),
@@ -461,7 +461,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/clarify":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/clarify <goal>`\n\nExample: `/clarify build a campaign to harden auth`",
 				Time:    time.Now(),
@@ -472,7 +472,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		task := strings.TrimSpace(strings.TrimPrefix(input, "/clarify"))
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Requirements Interrogator engaged. Drafting clarifying questions...",
 			Time:    time.Now(),
@@ -484,7 +484,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/launchcampaign":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/launchcampaign <goal>`\n\nThis will run clarifications, then auto-start a campaign hands-free if possible.",
 				Time:    time.Now(),
@@ -495,7 +495,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		goal := strings.TrimSpace(strings.TrimPrefix(input, "/launchcampaign"))
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Launching auto-campaign: running clarifier and then starting the campaign...",
 			Time:    time.Now(),
@@ -517,7 +517,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 		// Check if already initialized and not forcing
 		if nerdinit.IsInitialized(m.workspace) && !forceInit {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Workspace already initialized. Use `/init --force` to reinitialize.",
 				Time:    time.Now(),
@@ -528,7 +528,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Initializing codeNERD... This may take a few minutes for research and agent creation.",
 			Time:    time.Now(),
@@ -546,7 +546,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Scanning workspace...",
 			Time:    time.Now(),
@@ -567,7 +567,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Scanning documentation for updates...\n\nThis will:\n- Discover new/changed docs\n- Use LLM to filter for relevance\n- Extract knowledge atoms incrementally\n- Update the strategic knowledge base",
 			Time:    time.Now(),
@@ -580,7 +580,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/scan-path":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: /scan-path <file1>[,<file2>...]",
 				Time:    time.Now(),
@@ -591,7 +591,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		targets := strings.Split(parts[1], ",")
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Scanning %d path(s)...", len(targets)),
 			Time:    time.Now(),
@@ -604,7 +604,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/scan-dir":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: /scan-dir <directory>",
 				Time:    time.Now(),
@@ -615,7 +615,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		dir := parts[1]
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Scanning directory: %s", dir),
 			Time:    time.Now(),
@@ -628,7 +628,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/config":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: `Configuration commands:
 
@@ -646,7 +646,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			m.awaitingConfigWizard = true
 			m.configWizard = NewConfigWizard()
 			m.textarea.Placeholder = "Press Enter to start..."
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: `## codeNERD Configuration Wizard
 
@@ -665,14 +665,14 @@ Press **Enter** to begin...`,
 		} else if parts[1] == "show" {
 			// Show current configuration
 			content := m.renderCurrentConfig()
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: content,
 				Time:    time.Now(),
 			})
 		} else if parts[1] == "set-key" {
 			// API keys are now provider-specific - guide user to use wizard or edit config directly
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: "API keys are now **provider-specific**. To update your API key:\n\n" +
 					"1. Run `/config wizard` to reconfigure all settings\n" +
@@ -702,13 +702,13 @@ Press **Enter** to begin...`,
 				} else {
 					m.styles = ui.DefaultStyles()
 				}
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Theme set to: %s", theme),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Invalid theme. Use 'light' or 'dark'.",
 					Time:    time.Now(),
@@ -736,7 +736,7 @@ Press **Enter** to begin...`,
 					provider, _ := cfg.GetActiveProvider()
 					engineDesc = fmt.Sprintf("**API** (provider: %s)", provider)
 				}
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Current engine: %s\n\n%s\n\nAvailable engines:\n- `api` - HTTP API (default)\n- `claude-cli` - Claude Code CLI (subscription)\n- `codex-cli` - Codex CLI (ChatGPT subscription)", engine, engineDesc),
 					Time:    time.Now(),
@@ -745,21 +745,21 @@ Press **Enter** to begin...`,
 				// Set engine
 				newEngine := parts[2]
 				if err := cfg.SetEngine(newEngine); err != nil {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Error: %s", err.Error()),
 						Time:    time.Now(),
 					})
 				} else {
 					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Error saving config: %s", err.Error()),
 							Time:    time.Now(),
 						})
 					} else {
 						m.Config = cfg
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Engine set to: **%s**\n\nRestart codeNERD for changes to take effect.", newEngine),
 							Time:    time.Now(),
@@ -775,7 +775,7 @@ Press **Enter** to begin...`,
 
 	case "/embedding":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: `Embedding commands:
   /embedding set <provider> [api-key]  - Set embedding provider (ollama or genai)
@@ -787,7 +787,7 @@ Press **Enter** to begin...`,
 			switch parts[1] {
 			case "set":
 				if len(parts) < 3 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Usage: /embedding set <ollama|genai> [api-key]",
 						Time:    time.Now(),
@@ -810,13 +810,13 @@ Press **Enter** to begin...`,
 						cfg.Embedding.GenAIModel = "gemini-embedding-001"
 					}
 					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Failed to save config: %v", err),
 							Time:    time.Now(),
 						})
 					} else {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("✓ Embedding provider set to: %s\nRestart to apply changes.", provider),
 							Time:    time.Now(),
@@ -827,13 +827,13 @@ Press **Enter** to begin...`,
 				if m.localDB != nil {
 					stats, err := m.localDB.GetVectorStats()
 					if err != nil {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role:    "assistant",
 							Content: fmt.Sprintf("Failed to get stats: %v", err),
 							Time:    time.Now(),
 						})
 					} else {
-						m.history = append(m.history, Message{
+						m = m.addMessage(Message{
 							Role: "assistant",
 							Content: fmt.Sprintf(`Embedding Statistics:
   Total Vectors: %v
@@ -850,7 +850,7 @@ Press **Enter** to begin...`,
 						})
 					}
 				} else {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No knowledge database available.",
 						Time:    time.Now(),
@@ -858,7 +858,7 @@ Press **Enter** to begin...`,
 				}
 			case "reembed":
 				if m.localDB != nil {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Re-embedding all databases (vectors + prompt atoms)... this may take a while.",
 						Time:    time.Now(),
@@ -869,14 +869,14 @@ Press **Enter** to begin...`,
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.runReembedAllDBs())
 				} else {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No knowledge database available.",
 						Time:    time.Now(),
 					})
 				}
 			default:
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Unknown embedding command. Use /embedding for help.",
 					Time:    time.Now(),
@@ -890,7 +890,7 @@ Press **Enter** to begin...`,
 
 	case "/read":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/read <path>`",
 				Time:    time.Now(),
@@ -899,13 +899,13 @@ Press **Enter** to begin...`,
 			path := parts[1]
 			content, err := readFileContent(m.workspace, path, 16000)
 			if err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to read file: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("**Contents of %s:**\n\n```\n%s\n```", path, content),
 					Time:    time.Now(),
@@ -919,7 +919,7 @@ Press **Enter** to begin...`,
 
 	case "/mkdir":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/mkdir <path>`",
 				Time:    time.Now(),
@@ -927,13 +927,13 @@ Press **Enter** to begin...`,
 		} else {
 			path := parts[1]
 			if err := makeDir(m.workspace, path); err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to create directory: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Created directory: %s", path),
 					Time:    time.Now(),
@@ -947,7 +947,7 @@ Press **Enter** to begin...`,
 
 	case "/write":
 		if len(parts) < 3 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/write <path> <content>`",
 				Time:    time.Now(),
@@ -956,13 +956,13 @@ Press **Enter** to begin...`,
 			path := parts[1]
 			content := strings.Join(parts[2:], " ")
 			if err := writeFileContent(m.workspace, path, content); err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to write file: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Wrote to file: %s", path),
 					Time:    time.Now(),
@@ -976,7 +976,7 @@ Press **Enter** to begin...`,
 
 	case "/search":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/search <pattern>`",
 				Time:    time.Now(),
@@ -985,13 +985,13 @@ Press **Enter** to begin...`,
 			pattern := strings.Join(parts[1:], " ")
 			matches, err := searchInFiles(m.workspace, pattern, 20)
 			if err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Search failed: %v", err),
 					Time:    time.Now(),
 				})
 			} else if len(matches) == 0 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("No matches found for: %s", pattern),
 					Time:    time.Now(),
@@ -1002,7 +1002,7 @@ Press **Enter** to begin...`,
 				for _, match := range matches {
 					sb.WriteString(fmt.Sprintf("- %s\n", match))
 				}
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: sb.String(),
 					Time:    time.Now(),
@@ -1018,7 +1018,7 @@ Press **Enter** to begin...`,
 		m.awaitingPatch = true
 		m.pendingPatchLines = nil
 		m.textarea.Placeholder = "Paste patch lines (type --END-- when done)..."
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Patch mode enabled. Paste your patch line by line, then type `--END--` to apply.",
 			Time:    time.Now(),
@@ -1030,7 +1030,7 @@ Press **Enter** to begin...`,
 
 	case "/edit":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/edit <path>` - Opens file for inline editing",
 				Time:    time.Now(),
@@ -1039,13 +1039,13 @@ Press **Enter** to begin...`,
 			path := parts[1]
 			content, err := readFileContent(m.workspace, path, 16000)
 			if err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to read file for editing: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("**Editing %s:**\n\n```\n%s\n```\n\nUse `/write %s <new content>` to save changes.", path, content, path),
 					Time:    time.Now(),
@@ -1059,7 +1059,7 @@ Press **Enter** to begin...`,
 
 	case "/append":
 		if len(parts) < 3 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/append <path> <content>`",
 				Time:    time.Now(),
@@ -1068,13 +1068,13 @@ Press **Enter** to begin...`,
 			path := parts[1]
 			content := strings.Join(parts[2:], " ")
 			if err := appendFileContent(m.workspace, path, content+"\n"); err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to append to file: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Appended to file: %s", path),
 					Time:    time.Now(),
@@ -1096,7 +1096,7 @@ Press **Enter** to begin...`,
 		m.awaitingAgentDefinition = true
 		m.agentWizard = &AgentWizardState{Step: 0} // Start at step 0 (Name)
 		m.textarea.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "**Agent Creation Wizard**\n\nLet's define a new specialist agent.\n\n**Step 1:** What should we name this agent? (Alphanumeric, e.g., `RustExpert`, `SecurityAuditor`)",
 			Time:    time.Now(),
@@ -1117,7 +1117,7 @@ Press **Enter** to begin...`,
 			m.northstarWizard = existingWizard
 			m.northstarWizard.Phase = NorthstarSummary // Jump to summary for review
 			m.textarea.Placeholder = "resume / new / edit..."
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: fmt.Sprintf(`# 🌟 Existing Northstar Found
 
@@ -1135,7 +1135,7 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			m.northstarWizard = NewNorthstarWizard()
 			m.textarea.Placeholder = "yes / no..."
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: getNorthstarWelcomeMessage(),
 				Time:    time.Now(),
@@ -1147,7 +1147,7 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 
 	case "/learn":
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Invoking Meta-Cognitive Supervisor (The Critic)... Analyzing recent turns for learning opportunities.",
 			Time:    time.Now(),
@@ -1200,7 +1200,7 @@ You have an existing Northstar definition. What would you like to do?
 		// List defined agents
 		agents := m.loadType3Agents()
 		if len(agents) == 0 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "No agents defined yet. Use `/define-agent` to create one, or run `/init` to auto-create agents.",
 				Time:    time.Now(),
@@ -1214,7 +1214,7 @@ You have an existing Northstar definition. What would you like to do?
 				sb.WriteString(fmt.Sprintf("| %s | %s | %d | %s |\n", agent.Name, agent.Type, agent.KBSize, agent.Status))
 			}
 			sb.WriteString("\n*Use `/spawn <name> <task>` to spawn an agent*")
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: sb.String(),
 				Time:    time.Now(),
@@ -1231,7 +1231,7 @@ You have an existing Northstar definition. What would you like to do?
 		if len(parts) > 1 {
 			subject = strings.Join(parts[1:], " ")
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Running Northstar alignment check...",
 			Time:    time.Now(),
@@ -1244,7 +1244,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/spawn":
 		if len(parts) < 3 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/spawn <type> <task>`\n\nTypes: coder, researcher, reviewer, tester, or a defined agent name",
 				Time:    time.Now(),
@@ -1252,7 +1252,7 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			shardType := parts[1]
 			task := strings.Join(parts[2:], " ")
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Spawning %s shard for: %s", shardType, task),
 				Time:    time.Now(),
@@ -1270,7 +1270,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/ingest":
 		if len(parts) < 3 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/ingest <agent> <path>`\n\nExample: `/ingest mangleexpert .claude/skills/mangle-programming/references`",
 				Time:    time.Now(),
@@ -1283,7 +1283,7 @@ You have an existing Northstar definition. What would you like to do?
 
 		agentName := parts[1]
 		docPath := strings.Join(parts[2:], " ")
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Ingesting documents into %s: %s", agentName, docPath),
 			Time:    time.Now(),
@@ -1329,7 +1329,7 @@ You have an existing Northstar definition. What would you like to do?
 			if opts.EnableEnhancement {
 				msg += " with creative enhancement"
 			}
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: msg,
 				Time:    time.Now(),
@@ -1354,7 +1354,7 @@ You have an existing Northstar definition. What would you like to do?
 		if opts.EnableEnhancement {
 			msg += " with creative enhancement (Steps 8-12)"
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: msg,
 			Time:    time.Now(),
@@ -1371,7 +1371,7 @@ You have an existing Northstar definition. What would you like to do?
 			target = parts[1]
 		}
 		task := formatShardTask("/security", target, "", m.workspace)
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Running security analysis on: %s", target),
 			Time:    time.Now(),
@@ -1388,7 +1388,7 @@ You have an existing Northstar definition. What would you like to do?
 			target = parts[1]
 		}
 		task := formatShardTask("/analyze", target, "", m.workspace)
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Running complexity analysis on: %s", target),
 			Time:    time.Now(),
@@ -1405,7 +1405,7 @@ You have an existing Northstar definition. What would you like to do?
 			target = strings.Join(parts[1:], " ")
 		}
 		task := formatShardTask("/test", target, "", m.workspace)
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Running test task: %s (with specialist matching)", task),
 			Time:    time.Now(),
@@ -1419,7 +1419,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/fix":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/fix <issue description>`",
 				Time:    time.Now(),
@@ -1427,7 +1427,7 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			target := strings.Join(parts[1:], " ")
 			task := formatShardTask("/fix", target, "", m.workspace)
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Attempting to fix: %s (with specialist matching)", target),
 				Time:    time.Now(),
@@ -1446,7 +1446,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/refactor":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/refactor <target>`",
 				Time:    time.Now(),
@@ -1454,7 +1454,7 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			target := strings.Join(parts[1:], " ")
 			task := formatShardTask("/refactor", target, "", m.workspace)
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Refactoring: %s (with specialist matching)", target),
 				Time:    time.Now(),
@@ -1473,7 +1473,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/query":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/query <predicate>`",
 				Time:    time.Now(),
@@ -1482,13 +1482,13 @@ You have an existing Northstar definition. What would you like to do?
 			predicate := parts[1]
 			facts, err := m.kernel.Query(predicate)
 			if err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Query failed: %v", err),
 					Time:    time.Now(),
 				})
 			} else if len(facts) == 0 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("No facts found for predicate: %s", predicate),
 					Time:    time.Now(),
@@ -1499,7 +1499,7 @@ You have an existing Northstar definition. What would you like to do?
 				for _, fact := range facts {
 					sb.WriteString(fmt.Sprintf("- %s\n", fact.String()))
 				}
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: sb.String(),
 					Time:    time.Now(),
@@ -1513,7 +1513,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/why":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/why <fact>` - Explains why a fact was derived\n\nExamples:\n- `/why next_action` - Explain why an action was chosen\n- `/why permitted` - Explain what's permitted\n- `/why user_intent` - Show how input was interpreted",
 				Time:    time.Now(),
@@ -1546,7 +1546,7 @@ You have an existing Northstar definition. What would you like to do?
 			}
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: sb.String(),
 			Time:    time.Now(),
@@ -1573,7 +1573,7 @@ You have an existing Northstar definition. What would you like to do?
 			// Toggle Glass Box mode
 			response = m.toggleGlassBox()
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: response,
 			Time:    time.Now(),
@@ -1624,7 +1624,7 @@ You have an existing Northstar definition. What would you like to do?
 			status += "\n\n" + m.transparencyMgr.GetStatus()
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: status,
 			Time:    time.Now(),
@@ -1636,14 +1636,14 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/shadow":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/shadow <action>` - Run a shadow mode simulation",
 				Time:    time.Now(),
 			})
 		} else {
 			action := strings.Join(parts[1:], " ")
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Running shadow simulation for: %s", action),
 				Time:    time.Now(),
@@ -1661,14 +1661,14 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/whatif":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/whatif <change>` - Run a counterfactual query",
 				Time:    time.Now(),
 			})
 		} else {
 			change := strings.Join(parts[1:], " ")
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Running counterfactual analysis for: %s", change),
 				Time:    time.Now(),
@@ -1685,7 +1685,7 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 
 	case "/approve":
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Approval noted. Proceeding with pending changes.",
 			Time:    time.Now(),
@@ -1699,7 +1699,7 @@ You have an existing Northstar definition. What would you like to do?
 		// Reviewer feedback: mark a finding as false positive
 		// Usage: /reject-finding <file>:<line> <reason>
 		if len(parts) < 3 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/reject-finding <file>:<line> <reason>`\nExample: `/reject-finding internal/core/kernel.go:42 function exists in sibling file`",
 				Time:    time.Now(),
@@ -1711,7 +1711,7 @@ You have an existing Northstar definition. What would you like to do?
 			// Parse file:line
 			colonIdx := strings.LastIndex(location, ":")
 			if colonIdx == -1 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Invalid format. Use `<file>:<line>` (e.g., `kernel.go:42`)",
 					Time:    time.Now(),
@@ -1731,7 +1731,7 @@ You have an existing Northstar definition. What would you like to do?
 				// Record the rejection
 				m.shardMgr.RejectReviewFinding(reviewID, file, line, reason)
 
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("✓ Rejected finding at `%s:%d`\nReason: %s\n\nThe system will learn from this feedback to avoid similar false positives.", file, line, reason),
 					Time:    time.Now(),
@@ -1747,7 +1747,7 @@ You have an existing Northstar definition. What would you like to do?
 		// Reviewer feedback: confirm a finding is valid
 		// Usage: /accept-finding <file>:<line>
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/accept-finding <file>:<line>`\nExample: `/accept-finding internal/core/kernel.go:42`",
 				Time:    time.Now(),
@@ -1758,7 +1758,7 @@ You have an existing Northstar definition. What would you like to do?
 			// Parse file:line
 			colonIdx := strings.LastIndex(location, ":")
 			if colonIdx == -1 {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Invalid format. Use `<file>:<line>` (e.g., `kernel.go:42`)",
 					Time:    time.Now(),
@@ -1778,7 +1778,7 @@ You have an existing Northstar definition. What would you like to do?
 				// Record the acceptance
 				m.shardMgr.AcceptReviewFinding(reviewID, file, line)
 
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("✓ Accepted finding at `%s:%d`\n\nThis helps validate the reviewer's accuracy.", file, line),
 					Time:    time.Now(),
@@ -1797,7 +1797,7 @@ You have an existing Northstar definition. What would you like to do?
 			reviewID = fmt.Sprintf("review-%d-%d", m.lastShardResult.TurnNumber, m.lastShardResult.Timestamp.Unix())
 		}
 		report := m.shardMgr.GetReviewAccuracyReport(reviewID)
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("## Review Accuracy Report\n\n%s", report),
 			Time:    time.Now(),
@@ -1809,7 +1809,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/campaign":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/campaign <start|assault|status|pause|resume|list> [args]`",
 				Time:    time.Now(),
@@ -1819,14 +1819,14 @@ You have an existing Northstar definition. What would you like to do?
 			switch subCmd {
 			case "start":
 				if len(parts) < 3 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Usage: `/campaign start <goal>`",
 						Time:    time.Now(),
 					})
 				} else {
 					goal := strings.Join(parts[2:], " ")
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Starting campaign for: %s", goal),
 						Time:    time.Now(),
@@ -1838,7 +1838,7 @@ You have an existing Northstar definition. What would you like to do?
 					return m, tea.Batch(m.spinner.Tick, m.startCampaign(goal))
 				}
 			case "assault":
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "Starting adversarial assault campaign...",
 					Time:    time.Now(),
@@ -1850,7 +1850,7 @@ You have an existing Northstar definition. What would you like to do?
 				return m, tea.Batch(m.spinner.Tick, m.startAssaultCampaign(parts[2:]))
 			case "status":
 				content := m.renderCampaignStatus()
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: content,
 					Time:    time.Now(),
@@ -1858,13 +1858,13 @@ You have an existing Northstar definition. What would you like to do?
 			case "pause":
 				if m.activeCampaign != nil {
 					m.activeCampaign.Status = campaign.StatusPaused
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Campaign paused.",
 						Time:    time.Now(),
 					})
 				} else {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No active campaign to pause.",
 						Time:    time.Now(),
@@ -1872,7 +1872,7 @@ You have an existing Northstar definition. What would you like to do?
 				}
 			case "resume":
 				if m.activeCampaign != nil && m.activeCampaign.Status == campaign.StatusPaused {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Resuming campaign...",
 						Time:    time.Now(),
@@ -1883,7 +1883,7 @@ You have an existing Northstar definition. What would you like to do?
 					m.isLoading = true
 					return m, tea.Batch(m.spinner.Tick, m.resumeCampaign())
 				} else {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "No paused campaign to resume.",
 						Time:    time.Now(),
@@ -1891,7 +1891,7 @@ You have an existing Northstar definition. What would you like to do?
 				}
 			case "list":
 				content := m.renderCampaignList()
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: content,
 					Time:    time.Now(),
@@ -1905,7 +1905,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/tool":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/tool <list|run|info|generate> [args]`\n\n- `/tool list` - List all generated tools\n- `/tool run <name> <input>` - Execute a tool\n- `/tool info <name>` - Show tool details\n- `/tool generate <description>` - Generate a new tool",
 				Time:    time.Now(),
@@ -1915,14 +1915,14 @@ You have an existing Northstar definition. What would you like to do?
 			switch subCmd {
 			case "list":
 				content := m.renderToolList()
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: content,
 					Time:    time.Now(),
 				})
 			case "run":
 				if len(parts) < 3 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Usage: `/tool run <name> [input]`",
 						Time:    time.Now(),
@@ -1933,7 +1933,7 @@ You have an existing Northstar definition. What would you like to do?
 					if len(parts) > 3 {
 						toolInput = strings.Join(parts[3:], " ")
 					}
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Executing tool `%s`...", toolName),
 						Time:    time.Now(),
@@ -1946,7 +1946,7 @@ You have an existing Northstar definition. What would you like to do?
 				}
 			case "info":
 				if len(parts) < 3 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Usage: `/tool info <name>`",
 						Time:    time.Now(),
@@ -1954,7 +1954,7 @@ You have an existing Northstar definition. What would you like to do?
 				} else {
 					toolName := parts[2]
 					content := m.renderToolInfo(toolName)
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: content,
 						Time:    time.Now(),
@@ -1962,14 +1962,14 @@ You have an existing Northstar definition. What would you like to do?
 				}
 			case "generate":
 				if len(parts) < 3 {
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: "Usage: `/tool generate <description>`\n\nExample: `/tool generate a tool that validates JSON syntax`",
 						Time:    time.Now(),
 					})
 				} else {
 					description := strings.Join(parts[2:], " ")
-					m.history = append(m.history, Message{
+					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Generating tool from description: %s\n\nThis will use the Ouroboros Loop to create, compile, and register the tool.", description),
 						Time:    time.Now(),
@@ -1981,7 +1981,7 @@ You have an existing Northstar definition. What would you like to do?
 					return m, tea.Batch(m.spinner.Tick, m.generateTool(description))
 				}
 			default:
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Unknown tool subcommand: %s. Use list, run, info, or generate.", subCmd),
 					Time:    time.Now(),
@@ -1996,7 +1996,7 @@ You have an existing Northstar definition. What would you like to do?
 	case "/jit":
 		// JIT Prompt Compiler inspector
 		content := m.renderJITStatus()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -2009,7 +2009,7 @@ You have an existing Northstar definition. What would you like to do?
 	case "/cleanup-tools":
 		// Tool execution cleanup command
 		content := m.handleCleanupToolsCommand(parts[1:])
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -2026,7 +2026,7 @@ You have an existing Northstar definition. What would you like to do?
 	case "/evolve":
 		// Trigger manual evolution cycle
 		if m.promptEvolver == nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Prompt Evolution system not initialized.\n\nEnable it in config.",
 				Time:    time.Now(),
@@ -2036,7 +2036,7 @@ You have an existing Northstar definition. What would you like to do?
 			m.textarea.Reset()
 			return m, nil
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Running evolution cycle...",
 			Time:    time.Now(),
@@ -2049,7 +2049,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/evolution-stats":
 		content := m.renderEvolutionStats()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -2061,7 +2061,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/evolved-atoms":
 		content := m.renderEvolvedAtoms()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -2073,7 +2073,7 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/strategies":
 		content := m.renderStrategies()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -2085,13 +2085,13 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/promote-atom":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/promote-atom <atom-id>`",
 				Time:    time.Now(),
 			})
 		} else if m.promptEvolver == nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Prompt Evolution system not initialized.",
 				Time:    time.Now(),
@@ -2099,13 +2099,13 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			atomID := parts[1]
 			if err := m.promptEvolver.PromoteAtom(atomID); err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to promote atom: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Atom `%s` promoted to corpus.", atomID),
 					Time:    time.Now(),
@@ -2119,13 +2119,13 @@ You have an existing Northstar definition. What would you like to do?
 
 	case "/reject-atom":
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Usage: `/reject-atom <atom-id>`",
 				Time:    time.Now(),
 			})
 		} else if m.promptEvolver == nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Prompt Evolution system not initialized.",
 				Time:    time.Now(),
@@ -2133,13 +2133,13 @@ You have an existing Northstar definition. What would you like to do?
 		} else {
 			atomID := parts[1]
 			if err := m.promptEvolver.RejectAtom(atomID); err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to reject atom: %v", err),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Atom `%s` rejected.", atomID),
 					Time:    time.Now(),
@@ -2152,7 +2152,7 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 
 	default:
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Unknown command: %s. Type `/help` for available commands.", cmd),
 			Time:    time.Now(),
@@ -2163,4 +2163,3 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 	}
 }
-

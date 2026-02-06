@@ -80,7 +80,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.continuationTotal > 0 {
 					stepMsg = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
 				}
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("⏹️ Stopped%s. Type '/continue' to resume or give new instructions.", stepMsg),
 					Time:    time.Now(),
@@ -440,7 +440,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case 'd':
 				// Toggle Glass Box Debug Mode (Alt+D)
 				msg := m.toggleGlassBox()
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: msg,
 					Time:    time.Now(),
@@ -524,6 +524,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.splitPane.SetSize(msg.Width, msg.Height-headerHeight-footerHeight)
 			m.usagePage.SetSize(msg.Width, msg.Height-headerHeight)
 			m.campaignPage.SetSize(msg.Width, msg.Height-headerHeight)
+			m.autoPage.SetSize(msg.Width, msg.Height-headerHeight)
 
 		}
 		if m.logicPane != nil {
@@ -566,7 +567,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			explainer := transparency.NewExplainer()
 			explanation := explainer.ExplainTrace(msg.Trace)
 
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: explanation,
 				Time:    time.Now(),
@@ -594,7 +595,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.storeShardResult(msg.ShardResult.ShardType, msg.ShardResult.Task, msg.ShardResult.Result, msg.ShardResult.Facts)
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: msg.Surface,
 			Time:    time.Now(),
@@ -606,7 +607,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: string(msg),
 			Time:    time.Now(),
@@ -624,7 +625,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			content = m.formatAlignmentCheckResult(msg)
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -637,7 +638,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		m.turnCount++
 		if msg.err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Multi-shard review failed: %v", msg.err),
 				Time:    time.Now(),
@@ -645,7 +646,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.review != nil {
 			// Format and display the aggregated review
 			content := formatMultiShardResponse(msg.review)
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: content,
 				Time:    time.Now(),
@@ -679,7 +680,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Add clarification question to history
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: m.formatClarificationRequest(ClarificationState(msg)),
 			Time:    time.Now(),
@@ -711,7 +712,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case campaignErrorMsg:
 		m.isLoading = false
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("## Campaign Error\n\n%v", msg.err),
 			Time:    time.Now(),
@@ -723,7 +724,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		if m.northstarWizard != nil {
 			if msg.err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err),
 					Time:    time.Now(),
@@ -741,7 +742,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sb.WriteString(fmt.Sprintf("\n_...and %d more insights that will inform the process._\n", len(msg.facts)-5))
 				}
 				sb.WriteString("\n---\n\n## Phase 2: Problem Statement\n\n**What problem does this project solve?**\n\n_Your research insights will help refine this._")
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: sb.String(),
 					Time:    time.Now(),
@@ -757,7 +758,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		if m.northstarWizard != nil {
 			if msg.err != nil {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err),
 					Time:    time.Now(),
@@ -776,13 +777,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sb.WriteString(fmt.Sprintf("\n_...and %d more requirements._\n", len(msg.requirements)-5))
 				}
 				sb.WriteString("\n_Add more requirements manually or type \"done\" to continue._")
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: sb.String(),
 					Time:    time.Now(),
 				})
 			} else {
-				m.history = append(m.history, Message{
+				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: "No requirements could be auto-generated. Please add requirements manually.",
 					Time:    time.Now(),
@@ -801,7 +802,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignProgressChan = msg.progressChan // Store channels for listening
 		m.campaignEventChan = msg.eventChan
 		m.showCampaignPanel = true
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: m.renderCampaignStarted(msg.campaign),
 			Time:    time.Now(),
@@ -852,7 +853,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignProgressChan = nil // Clear channels to stop listeners
 		m.campaignEventChan = nil
 		m.showCampaignPanel = false
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: m.renderCampaignCompleted(msg),
 			Time:    time.Now(),
@@ -877,7 +878,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.continuationStep = 1
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: msg.completedSurface,
 			Time:    time.Now(),
@@ -896,7 +897,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if shouldPause {
 			m.isLoading = false
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("?? Next: %s\n\nPress Enter to continue, or type new instructions.", msg.next.description),
 				Time:    time.Now(),
@@ -932,7 +933,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.continuationStep++
 
 		// Show progress for completed step
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage),
 			Time:    time.Now(),
@@ -951,7 +952,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if shouldPause {
 			m.isLoading = false
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("⏸️ Next: %s\n\nPress Enter to continue, or type new instructions.", msg.description),
 				Time:    time.Now(),
@@ -1002,7 +1003,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.kernel != nil {
 			_ = m.kernel.Retract("interrupt_requested")
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary),
 			Time:    time.Now(),
@@ -1025,7 +1026,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shardMgr.SetLearningStore(adapter)
 		}
 		// Build summary message from result
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: m.renderInitComplete(msg.result),
 			Time:    time.Now(),
@@ -1039,13 +1040,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		startupScan := m.isBooting && m.bootStage == BootStageScanning
 		m.isLoading = false
 		if msg.err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**Scan failed:** %v", msg.err),
 				Time:    time.Now(),
 			})
 		} else {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: fmt.Sprintf(`**Scan complete**
 
@@ -1077,13 +1078,13 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 	case docRefreshCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**Document refresh failed:** %v", msg.err),
 				Time:    time.Now(),
 			})
 		} else {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: fmt.Sprintf(`**Document refresh complete**
 
@@ -1105,7 +1106,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 	case reembedCompleteMsg:
 		m.isLoading = false
 		if msg.err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**Re-embedding failed:** %v", msg.err),
 				Time:    time.Now(),
@@ -1121,7 +1122,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 					sb.WriteString(fmt.Sprintf("- %s\n", s))
 				}
 			}
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: sb.String(),
 				Time:    time.Now(),
@@ -1151,7 +1152,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		} else {
 			content = formatEvolutionResult(msg.result)
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: content,
 			Time:    time.Now(),
@@ -1182,7 +1183,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.focusError = false
 			m.refreshErrorViewport()
 			m.errorVP.GotoTop()
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**System Boot Failed:** %v", msg.err),
 				Time:    time.Now(),
@@ -1278,7 +1279,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 		// Append any initial messages generated during boot
 		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
-			m.history = append(m.history, msg.components.InitialMessages...)
+			m = m.addMessages(msg.components.InitialMessages...)
 		}
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
@@ -1343,7 +1344,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		// Show interim response to the user if provided
 		historyUpdated := false
 		if msg.InterimResponse != "" {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: msg.InterimResponse,
 				Time:    time.Now(),
@@ -1370,7 +1371,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 
 		if msg.err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**OAuth Failed:** %v\n\nPress Enter to try again or **q** to go back.", msg.err),
 				Time:    time.Now(),
@@ -1391,7 +1392,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.configWizard.AntigravityAccounts = store.ListAccounts()
 		}
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## Account Added Successfully!
 

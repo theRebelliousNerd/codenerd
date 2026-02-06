@@ -49,6 +49,7 @@ type DerivationNode struct {
 	Expanded   bool
 	Timestamp  time.Time
 	Activation float64 // Spreading activation score
+	// TODO: Add a threshold control to filter nodes with low activation scores.
 }
 
 // DerivationTrace represents the full derivation trace
@@ -59,7 +60,9 @@ type DerivationTrace struct {
 	DerivedTime time.Duration
 }
 
-// LogicPane represents the logic visualization pane
+// LogicPane represents the logic visualization pane with search/filter support
+// TODO: IMPROVEMENT: Implement tea.Model interface for LogicPane to handle its own events
+// TODO: Allow copying derivation trace to clipboard.
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -69,7 +72,8 @@ type LogicPane struct {
 	Height         int
 	ShowActivation bool
 	SelectedNode   int
-	Nodes          []*DerivationNode // Flattened list for navigation
+	Nodes          []*DerivationNode // Flattened list for navigation (filtered)
+	AllNodes       []*DerivationNode // Unfiltered node list
 	ScrollOffset   int
 
 	// Pre-compiled styles for performance (avoid recreation per node)
@@ -77,6 +81,14 @@ type LogicPane struct {
 	argsStyle  lipgloss.Style
 	ruleStyle  lipgloss.Style
 	activStyle lipgloss.Style
+
+	// Render cache for performance optimization
+	renderCache  *CachedRender
+	traceVersion int // Incremented when trace changes
+
+	// Search/filter functionality
+	SearchQuery  string // Current search query
+	FilterSource string // Filter by source: "" (all), "edb", "idb"
 }
 
 // SetTraceMangle adapts a backend trace to the UI model
@@ -130,7 +142,7 @@ func convertMangleNodeToUI(node *mangle.DerivationNode) *DerivationNode {
 	return uiNode
 }
 
-// NewLogicPane creates a new logic visualization pane
+// NewLogicPane creates a new logic visualization pane with render caching
 func NewLogicPane(styles Styles, width, height int) LogicPane {
 	vp := viewport.New(width, height)
 	vp.SetContent("")
@@ -149,24 +161,38 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
 		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Muted).Italic(true),
 		activStyle: lipgloss.NewStyle().Foreground(Success),
+		// Initialize render cache
+		renderCache:  NewCachedRender(DefaultRenderCache),
+		traceVersion: 0,
 	}
 }
 
-// SetSize updates the pane dimensions
+// SetSize updates the pane dimensions and invalidates cache
 func (p *LogicPane) SetSize(width, height int) {
 	p.Width = width
 	p.Height = height
 	p.Viewport.Width = width
 	p.Viewport.Height = height
+	// Invalidate cache on resize
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
 }
 
-// SetTrace updates the current derivation trace
+// SetTrace updates the current derivation trace and invalidates cache
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
 	if trace != nil {
-		p.Nodes = p.flattenNodes(trace.RootNodes, 0)
+		p.AllNodes = p.flattenNodes(trace.RootNodes, 0)
+		p.applyFilters() // Apply any active filters
 	} else {
+		p.AllNodes = nil
 		p.Nodes = nil
+	}
+	// Invalidate cache and increment version on trace change
+	p.traceVersion++
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
 	}
 	p.Viewport.SetContent(p.renderContent())
 }
@@ -189,27 +215,32 @@ func (p *LogicPane) ToggleActivation() {
 	p.Viewport.SetContent(p.renderContent())
 }
 
-// SelectNext selects the next node
-// TODO: Implement circular navigation (wrap around to top).
+// SelectNext selects the next node with circular navigation (wraps to top)
 func (p *LogicPane) SelectNext() {
 	if len(p.Nodes) == 0 {
 		return
 	}
-	if p.SelectedNode < len(p.Nodes)-1 {
-		p.SelectedNode++
-		p.Viewport.SetContent(p.renderContent())
+	p.SelectedNode = (p.SelectedNode + 1) % len(p.Nodes)
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
 	}
+	p.Viewport.SetContent(p.renderContent())
 }
 
-// SelectPrev selects the previous node
+// SelectPrev selects the previous node with circular navigation (wraps to bottom)
 func (p *LogicPane) SelectPrev() {
 	if len(p.Nodes) == 0 {
 		return
 	}
-	if p.SelectedNode > 0 {
+	if p.SelectedNode <= 0 {
+		p.SelectedNode = len(p.Nodes) - 1
+	} else {
 		p.SelectedNode--
-		p.Viewport.SetContent(p.renderContent())
 	}
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
+	p.Viewport.SetContent(p.renderContent())
 }
 
 // ToggleExpand toggles expansion of the selected node
@@ -234,65 +265,95 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 	return result
 }
 
-// renderContent renders the logic pane content
-// TODO: Optimize rendering to avoid full rebuilds on every state change. Implement more robust caching or partial updates.
+// renderContent renders the logic pane content with hash-based caching
 func (p *LogicPane) renderContent() string {
-	// Simple caching: If trace hasn't changed (checked by pointer/content in actual complex app),
-	// we could return cached string. For now, given the complexity of tracking Viewport width changes
-	// and toggle states, we render on demand but optimize the tree rendering itself.
-
 	if p.CurrentTrace == nil {
 		return p.renderEmptyState()
 	}
 
-	var sb strings.Builder
+	// Use cache if available
+	if p.renderCache != nil {
+		cacheKey := []interface{}{
+			p.traceVersion,
+			p.Width,
+			p.Height,
+			p.ShowActivation,
+			p.SelectedNode,
+			p.ScrollOffset,
+			p.SearchQuery,  // Include filter parameters in cache key
+			p.FilterSource,
+		}
 
+		return p.renderCache.Render(cacheKey, func() string {
+			return p.renderContentUncached()
+		})
+	}
+
+	return p.renderContentUncached()
+}
+
+// renderContentUncached performs the actual rendering without caching using lipgloss.Join
+func (p *LogicPane) renderContentUncached() string {
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(p.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(p.Styles.Theme.Border).
-		Width(p.Width-4).
+		Width(ViewportWidth(p.Width)).
 		Padding(0, 1)
 
-	sb.WriteString(headerStyle.Render("🔬 Derivation Trace"))
-	sb.WriteString("\n\n")
+	header := headerStyle.Render("🔬 Derivation Trace")
 
 	// Query info
 	queryStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Accent).
 		Italic(true)
 
-	sb.WriteString(queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query)))
-	sb.WriteString("\n")
+	query := queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query))
 
 	infoStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted)
 
-	sb.WriteString(infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
+	info := infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
 		p.CurrentTrace.TotalFacts,
-		p.CurrentTrace.DerivedTime.Round(time.Millisecond))))
-	sb.WriteString("\n\n")
+		p.CurrentTrace.DerivedTime.Round(time.Millisecond)))
 
-	// Derivation tree
-	sb.WriteString(p.renderTree())
+	// Build content sections
+	sections := []string{
+		header,
+		"",
+		query,
+		info,
+	}
 
-	// Legend
-	sb.WriteString("\n\n")
-	sb.WriteString(p.renderLegend())
+	// Add filter status if filters are active
+	if p.HasActiveFilters() {
+		filterStyle := lipgloss.NewStyle().
+			Foreground(Warning).
+			Bold(true)
+		sections = append(sections, "", filterStyle.Render("🔍 "+p.GetFilterStatus()))
+	}
 
-	return sb.String()
+	// Add tree and legend
+	sections = append(sections,
+		"",
+		p.renderTree(),
+		"",
+		p.renderLegend(),
+	)
+
+	// Compose vertically using lipgloss.Join
+	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
 
 // renderEmptyState renders the empty state message
-// TODO: Replace magic number `Width - 4` with a named constant or calculated value from style margins.
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
 		Foreground(p.Styles.Theme.Muted).
 		Italic(true).
 		Padding(2).
-		Width(p.Width - 4).
+		Width(ViewportWidth(p.Width)).
 		Align(lipgloss.Center)
 
 	msg := `┌─────────────────────────────┐
@@ -310,24 +371,131 @@ func (p *LogicPane) renderEmptyState() string {
 	return emptyStyle.Render(msg)
 }
 
-// renderTree renders the derivation tree
-func (p *LogicPane) renderTree() string {
-	if len(p.Nodes) == 0 {
+// applyFilters filters AllNodes based on SearchQuery and FilterSource
+func (p *LogicPane) applyFilters() {
+	if p.AllNodes == nil {
+		p.Nodes = nil
+		return
+	}
+
+	// Start with all nodes
+	filtered := make([]*DerivationNode, 0, len(p.AllNodes))
+
+	for _, node := range p.AllNodes {
+		// Apply source filter
+		if p.FilterSource != "" && node.Source != p.FilterSource {
+			continue
+		}
+
+		// Apply search query (case-insensitive)
+		if p.SearchQuery != "" {
+			query := strings.ToLower(p.SearchQuery)
+			predicateMatch := strings.Contains(strings.ToLower(node.Predicate), query)
+			argsMatch := false
+			for _, arg := range node.Args {
+				if strings.Contains(strings.ToLower(arg), query) {
+					argsMatch = true
+					break
+				}
+			}
+			ruleMatch := strings.Contains(strings.ToLower(node.Rule), query)
+
+			if !predicateMatch && !argsMatch && !ruleMatch {
+				continue
+			}
+		}
+
+		filtered = append(filtered, node)
+	}
+
+	p.Nodes = filtered
+
+	// Reset selection if out of bounds
+	if p.SelectedNode >= len(p.Nodes) {
+		p.SelectedNode = 0
+	}
+
+	// Invalidate cache since nodes changed
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
+}
+
+// SetSearchQuery updates the search query and reapplies filters
+func (p *LogicPane) SetSearchQuery(query string) {
+	p.SearchQuery = query
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// SetFilterSource sets the source filter ("", "edb", or "idb") and reapplies filters
+func (p *LogicPane) SetFilterSource(source string) {
+	// Normalize source to lowercase
+	source = strings.ToLower(source)
+	if source != "" && source != "edb" && source != "idb" {
+		return // Invalid source
+	}
+	p.FilterSource = source
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// ClearFilters removes all active filters
+func (p *LogicPane) ClearFilters() {
+	p.SearchQuery = ""
+	p.FilterSource = ""
+	p.applyFilters()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// HasActiveFilters returns true if any filters are active
+func (p *LogicPane) HasActiveFilters() bool {
+	return p.SearchQuery != "" || p.FilterSource != ""
+}
+
+// GetFilterStatus returns a human-readable string describing active filters
+func (p *LogicPane) GetFilterStatus() string {
+	if !p.HasActiveFilters() {
 		return ""
 	}
 
-	var sb strings.Builder
-
-	for i, node := range p.Nodes {
-		sb.WriteString(p.renderNode(node, i == p.SelectedNode))
-		sb.WriteString("\n")
+	var parts []string
+	if p.SearchQuery != "" {
+		parts = append(parts, fmt.Sprintf("Search: %q", p.SearchQuery))
+	}
+	if p.FilterSource != "" {
+		parts = append(parts, fmt.Sprintf("Source: %s", strings.ToUpper(p.FilterSource)))
 	}
 
-	return sb.String()
+	return fmt.Sprintf("Filters: %s (showing %d/%d nodes)",
+		strings.Join(parts, ", "),
+		len(p.Nodes),
+		len(p.AllNodes))
+}
+
+// renderTree renders the derivation tree using lipgloss.JoinVertical
+// TODO: Add minimap for large derivation trees.
+func (p *LogicPane) renderTree() string {
+	if len(p.Nodes) == 0 {
+		// Show different message if filters are active
+		if p.HasActiveFilters() {
+			return p.Styles.Muted.Render("No nodes match the current filters.")
+		}
+		return ""
+	}
+
+	// Render all nodes
+	nodeStrings := make([]string, len(p.Nodes))
+	for i, node := range p.Nodes {
+		nodeStrings[i] = p.renderNode(node, i == p.SelectedNode)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, nodeStrings...)
 }
 
 // renderNode renders a single derivation node
-// TODO: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Improve tree visualization accessibility (e.g., consider screen reader friendly alternatives to ASCII art).
+// TODO: IMPROVEMENT: Implement custom rendering for specific predicates (e.g., clickable links).
 func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 	var sb strings.Builder
 
@@ -411,13 +579,13 @@ func (p *LogicPane) renderNode(node *DerivationNode, selected bool) string {
 }
 
 // renderLegend renders the legend explaining the symbols
-// TODO: Make legend responsive or collapsible on smaller screens.
+// TODO: IMPROVEMENT: Make legend responsive or collapsible on smaller screens.
 func (p *LogicPane) renderLegend() string {
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(p.Styles.Theme.Border).
 		Padding(0, 1).
-		Width(p.Width - 4)
+		Width(ViewportWidth(p.Width))
 
 	legend := "📊 Base Fact (EDB)  │  ⚡ Derived (IDB)  │  ▶ Expand  │  ▼ Collapse"
 
@@ -434,6 +602,7 @@ func (p *LogicPane) View() string {
 }
 
 // SplitPaneView renders a split-pane view with chat and logic
+// TODO: IMPROVEMENT: Add support for resizing split ratio via mouse or keyboard
 type SplitPaneView struct {
 	Styles     Styles
 	LeftPane   string // Chat content
@@ -464,7 +633,7 @@ func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio floa
 	}
 
 	rightWidth := int(float64(width) * (1 - splitRatio))
-	logicPane := NewLogicPane(styles, rightWidth, height-4)
+	logicPane := NewLogicPane(styles, rightWidth, ViewportHeight(height))
 
 	return SplitPaneView{
 		Styles:     styles,
@@ -483,7 +652,7 @@ func (s *SplitPaneView) SetSize(width, height int) {
 	s.Height = height
 
 	rightWidth := int(float64(width) * (1 - s.SplitRatio))
-	s.RightPane.SetSize(rightWidth-4, height-4)
+	s.RightPane.SetSize(ViewportWidth(rightWidth), ViewportHeight(height))
 }
 
 // SetMode sets the display mode
@@ -497,6 +666,45 @@ func (s *SplitPaneView) ToggleFocus() {
 	s.FocusRight = !s.FocusRight
 }
 
+// HandleKey processes keyboard input for split pane navigation
+// Returns true if the key was handled, false otherwise
+func (s *SplitPaneView) HandleKey(key string) bool {
+	if s.Mode != ModeSplitPane || s.RightPane == nil {
+		return false
+	}
+
+	switch key {
+	case "ctrl+l", "ctrl+tab":
+		// Toggle focus between left and right panes
+		s.ToggleFocus()
+		return true
+
+	// Navigation in right pane (when focused)
+	case "up", "k":
+		if s.FocusRight {
+			s.RightPane.SelectPrev()
+			return true
+		}
+	case "down", "j":
+		if s.FocusRight {
+			s.RightPane.SelectNext()
+			return true
+		}
+	case "enter", "space":
+		if s.FocusRight {
+			s.RightPane.ToggleExpand()
+			return true
+		}
+	case "a":
+		if s.FocusRight {
+			s.RightPane.ToggleActivation()
+			return true
+		}
+	}
+
+	return false
+}
+
 // Render renders the complete split pane view
 func (s *SplitPaneView) Render(leftContent string) string {
 	switch s.Mode {
@@ -507,7 +715,7 @@ func (s *SplitPaneView) Render(leftContent string) string {
 		if s.RightPane == nil {
 			return leftContent
 		}
-		s.RightPane.SetSize(s.Width-4, s.Height-4)
+		s.RightPane.SetSize(ViewportWidth(s.Width), ViewportHeight(s.Height))
 		return s.RightPane.renderContent()
 
 	case ModeSplitPane:
@@ -521,11 +729,10 @@ func (s *SplitPaneView) Render(leftContent string) string {
 	}
 }
 
-// renderSplit renders the split view
-// TODO: Use `bubbles/layout` or a similar robust layout library instead of manual width/height calculations.
+// renderSplit renders the split view using layout constants
 func (s *SplitPaneView) renderSplit(leftContent string) string {
 	leftWidth := int(float64(s.Width) * s.SplitRatio)
-	rightWidth := s.Width - leftWidth - 1 // -1 for divider
+	rightWidth := s.Width - leftWidth - SplitPaneDivider
 
 	// Style for left pane
 	leftStyle := lipgloss.NewStyle().
@@ -535,7 +742,7 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 
 	// Style for divider
 	dividerStyle := lipgloss.NewStyle().
-		Width(1).
+		Width(SplitPaneDivider).
 		Height(s.Height).
 		Background(s.Styles.Theme.Border).
 		Foreground(s.Styles.Theme.Muted)
@@ -546,9 +753,9 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		rightBorder = lipgloss.ThickBorder()
 	}
 	rightStyle := lipgloss.NewStyle().
-		Width(rightWidth - 2).
-		Height(s.Height - 2).
-		MaxHeight(s.Height - 2).
+		Width(PanelContentWidth(rightWidth)).
+		Height(PanelContentHeight(s.Height)).
+		MaxHeight(PanelContentHeight(s.Height)).
 		Border(rightBorder).
 		BorderForeground(func() lipgloss.Color {
 			if s.FocusRight {
@@ -564,7 +771,7 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 	}
 
 	// Update right pane size and render
-	s.RightPane.SetSize(rightWidth-4, s.Height-4)
+	s.RightPane.SetSize(ViewportWidth(rightWidth), ViewportHeight(s.Height))
 
 	// Join horizontally
 	return lipgloss.JoinHorizontal(

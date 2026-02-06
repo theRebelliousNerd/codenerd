@@ -30,6 +30,7 @@ func NewUsagePageModel(tracker *usage.Tracker, styles Styles) UsagePageModel {
 }
 
 // SetSize updates the size of the viewport.
+// TODO: IMPROVEMENT: Implement responsive layout for small screens (e.g., stack tables vertically).
 func (m *UsagePageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -39,6 +40,8 @@ func (m *UsagePageModel) SetSize(w, h int) {
 }
 
 // UpdateContent refreshes the viewport content from the tracker data.
+// TODO: IMPROVEMENT: Add visual charts (bar/pie) using termui or similar for better data visualization.
+// TODO: Show cost estimates based on token counts.
 func (m *UsagePageModel) UpdateContent() {
 	if m.tracker == nil {
 		m.viewport.SetContent("Usage tracking not available.")
@@ -61,6 +64,7 @@ func (m *UsagePageModel) UpdateContent() {
 	sb.WriteString("\n")
 
 	// Helper to render map tables
+	// TODO: IMPROVEMENT: Componentize table rendering by moving this to a reusable component or bubble.
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
@@ -103,6 +107,8 @@ func truncate(s string, l int) string {
 }
 
 // Update handles messages.
+// TODO: IMPROVEMENT: Add real-time updates via a subscription model if the tracker supports it.
+// TODO: Add date range filter for usage stats.
 func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -116,6 +122,7 @@ func (m UsagePageModel) Update(msg tea.Msg) (UsagePageModel, tea.Cmd) {
 }
 
 // View renders the page.
+// TODO: IMPROVEMENT: Support exporting usage stats (CSV/JSON).
 func (m UsagePageModel) View() string {
 	return m.viewport.View()
 }

@@ -281,6 +281,78 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 	})
 }
 
+// TODO: TEST_GAP: See .quality_assurance/2026-02-01_jit_compiler_boundary_analysis.md for detailed boundary value analysis and reproduction steps.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
+// -----------------------------------------------------------------------------
+
+// Vector A1 covered in compiler_boundary_test.go
+
+// TODO: TEST_GAP: [Vector A2] Verify robustness against empty/partial context fields.
+// Scenario: CompilationContext with empty ShardID, IntentVerb, or empty strings in Languages.
+// Risk: `collectKernelInjectedAtoms` might match wildcard `/_all` if ShardID is empty.
+
+// TODO: TEST_GAP: [Vector A3] Verify RegisterDB behavior with empty, directory, or non-existent paths.
+// Scenario: `RegisterDB("corpus", "/bad/path")`.
+// Risk: `sql.Open` is lazy; error might only occur on first Query.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector B1] Verify robustness against kernel returning non-string types in facts.
+// Scenario: Mock kernel returns `int`, `float64`, `bool`, or `nil` in `Fact.Args`.
+// Risk: `extractStringArg` helper might panic on type assertion failure.
+
+// TODO: TEST_GAP: [Vector B2] Verify InjectAvailableSpecialists robustness against malformed agents.json.
+// Scenario: JSON contains integers where strings are expected (e.g., "name": 123).
+// Risk: `json.Unmarshal` fails or leaves fields empty, causing potential nil pointer dereference later.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector C1] Verify behavior with extreme token budgets (negative, zero, massive).
+// Scenario: `WithTokenBudget(0)` or `-100`.
+// Risk: Division by zero in `BudgetUtilization`, or infinite loops in knapsack logic.
+
+// TODO: TEST_GAP: [Vector C2] Verify performance impact of massive atom corpus (e.g., 100k atoms).
+// Scenario: Load 100,000 atoms into memory.
+// Risk: `collectAtomsWithStats` O(N) loading causes latency > 2s (Time-out).
+
+// TODO: TEST_GAP: [Vector C3/C4] Verify behavior with deeply nested or circular dependency graphs.
+// Scenario: A->B->A (Cycle) or A->B->C...->Z (Deep Nesting).
+// Risk: Stack overflow in recursive resolution or infinite recursion.
+
+// TODO: TEST_GAP: [Vector C5] Verify handling of atoms with massive content strings (10MB+).
+// Scenario: Atom content is >10MB.
+// Risk: OOM during `HashContent` or concatenation.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector D1] Verify behavior under high concurrency (Thundering Herd) for cache misses.
+// Scenario: 50 concurrent `Compile` requests for the same context.
+// Risk: Redundant DB/Mangle/Vector work; cache mutex contention.
+
+// TODO: TEST_GAP: [Vector D2] Verify concurrency safety when RegisterDB is called during Compile (Hot-Swap).
+// Scenario: `RegisterDB` called while `Compile` is reading from `projectDB`.
+// Risk: `sql: database is closed` error on read.
+
+// TODO: TEST_GAP: [Vector D3] Verify cache invalidation when underlying corpus/DB changes (Cache Staleness).
+// Scenario: `RegisterDB` updates corpus, but subsequent `Compile` returns old cached prompt.
+// Risk: Users receive outdated instructions.
+
+// -----------------------------------------------------------------------------
+// General Reliability Gaps
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: Verify behavior when context is canceled (should abort compilation immediately).
+// TODO: TEST_GAP: Verify behavior when mandatory atoms exceed the token budget (should error or return partial).
+// TODO: TEST_GAP: Verify behavior when ConfigFactory fails (should continue with warning).
+
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
 		{
@@ -873,6 +945,8 @@ func (m *mockFallbackKernel) Query(predicate string) ([]Fact, error) {
 func (m *mockFallbackKernel) AssertBatch(facts []interface{}) error {
 	return m.assertErr
 }
+
+// TODO: TEST_GAP: Verify partial success when Project DB query fails (should return embedded atoms).
 
 func TestCompiler_FallbackOnCorruptCorpus(t *testing.T) {
 	tests := []struct {

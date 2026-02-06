@@ -144,3 +144,10 @@ func FuzzResponseProcessor_Process(f *testing.F) {
 		_, _ = rp.Process(raw)
 	})
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify explicit 'null' in ControlPacket fields (mangle_updates, tool_requests) does not cause panics or silent failures.
+// TODO: TEST_GAP: Type Coercion - Verify that stringified numbers (e.g. "confidence": "0.9") or single strings for arrays (e.g. "mangle_updates": "a().") are handled gracefully or rejected with clear errors.
+// TODO: TEST_GAP: User Request Extremes - Verify behavior with massive 'reasoning_trace' (>50MB) to ensure OOM protection.
+// TODO: TEST_GAP: User Request Extremes - Verify recursion depth limits for nested JSON objects to prevent stack overflow.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when JSON contains duplicate keys (e.g. multiple 'surface_response' fields) - which one wins?
+// TODO: TEST_GAP: Performance - Benchmark 'extractEmbeddedJSON' regex against massive inputs with near-matches to detect catastrophic backtracking.

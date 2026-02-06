@@ -3,6 +3,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,13 +24,15 @@ type shardManagerObserverSpawner struct {
 	shardMgr interface{} // *coreshards.ShardManager when non-nil
 }
 
+var errShardManagerNotAvailable = errors.New("shard manager not available")
+
 // SpawnObserver spawns an observer shard for the given task.
 func (s *shardManagerObserverSpawner) SpawnObserver(ctx context.Context, observerType, task string) (string, error) {
 	if s.shardMgr == nil {
-		return "", context.DeadlineExceeded // Signals "not available"
+		return "", errShardManagerNotAvailable
 	}
 	// In a real implementation, this would delegate to s.shardMgr
-	return "", context.DeadlineExceeded
+	return "", errors.New("observer spawner not implemented")
 }
 
 // shardManagerConsultationSpawner wraps ShardManager for consultation spawning.
@@ -40,10 +43,10 @@ type shardManagerConsultationSpawner struct {
 // SpawnConsultation spawns a specialist consultation for the given task.
 func (s *shardManagerConsultationSpawner) SpawnConsultation(ctx context.Context, specialistType, task string) (string, error) {
 	if s.shardMgr == nil {
-		return "", context.DeadlineExceeded // Signals "not available"
+		return "", errShardManagerNotAvailable
 	}
 	// In a real implementation, this would delegate to s.shardMgr
-	return "", context.DeadlineExceeded
+	return "", errors.New("consultation spawner not implemented")
 }
 
 // =============================================================================

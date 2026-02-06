@@ -260,7 +260,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}
 	}
 
-	id := fmt.Sprintf("%s-%d", config.Name, time.Now().UnixNano())
+	sm.spawnCounter++
+	seq := sm.spawnCounter
+	id := fmt.Sprintf("%s-%d-%d", config.Name, time.Now().UnixNano(), seq)
 	agent := factory(id, config)
 
 	if (config.Type == types.ShardTypePersistent || config.Type == types.ShardTypeUser) && sm.nerdDir != "" && sm.promptLoader != nil {

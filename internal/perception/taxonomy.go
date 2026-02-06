@@ -68,7 +68,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	}
 
 	// Load Learning Schema (Ouroboros)
-	learningContent, err := core.GetDefaultContent("schema/learning.mg")
+	learningContent, err := core.GetDefaultContent("schemas_learning.mg")
 	if err == nil {
 		if err := eng.LoadSchemaString(learningContent); err != nil {
 			return nil, fmt.Errorf("failed to load learning schema: %w", err)
@@ -336,7 +336,7 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	// Must include schemas_intent.mg FIRST as it declares context_token, candidate_intent, etc.
 	intentFiles := []string{"schemas_intent.mg"}
 	intentFiles = append(intentFiles, core.DefaultIntentSchemaFiles()...)
-	intentFiles = append(intentFiles, "schema/learning.mg") // CRITICAL: Required by InferenceLogicMG
+	intentFiles = append(intentFiles, "schemas_learning.mg") // CRITICAL: Required by InferenceLogicMG
 	for _, file := range intentFiles {
 		content, err := core.GetDefaultContent(file)
 		if err == nil {
@@ -373,9 +373,17 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	}
 
 	facts := []mangle.Fact{}
-	tokens := strings.Fields(strings.ToLower(input))
-	for _, token := range tokens {
+	rawTokens := strings.Fields(strings.ToLower(input))
+	for _, token := range rawTokens {
+		// Keep tokenization simple and stable: trim common punctuation and add a naive singular form.
+		token = strings.Trim(token, ".,!?;:\"'()[]{}<>")
+		if token == "" {
+			continue
+		}
 		facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []interface{}{token}})
+		if strings.HasSuffix(token, "s") && len(token) > 3 {
+			facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []interface{}{strings.TrimSuffix(token, "s")}})
+		}
 	}
 	// Inject full input string for exact/fuzzy matching against learned patterns
 	facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []interface{}{input}})

@@ -63,7 +63,10 @@ func NewHealthTracker(config HealthScoreConfig) *HealthTracker {
 func (ht *HealthTracker) GetScore(index int) int {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
+	return ht.getScoreLocked(index)
+}
 
+func (ht *HealthTracker) getScoreLocked(index int) int {
 	score, ok := ht.scores[index]
 	if !ok {
 		score = ht.initial
@@ -93,7 +96,7 @@ func (ht *HealthTracker) RecordSuccess(index int) {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
 
-	score := ht.GetScore(index) // Updates with time recovery first
+	score := ht.getScoreLocked(index) // Updates with time recovery first
 	score += ht.successReward
 	if score > ht.maxScore {
 		score = ht.maxScore
@@ -107,7 +110,7 @@ func (ht *HealthTracker) RecordRateLimit(index int) {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
 
-	score := ht.GetScore(index)
+	score := ht.getScoreLocked(index)
 	score -= ht.rateLimitPenalty
 	if score < 0 {
 		score = 0
@@ -121,7 +124,7 @@ func (ht *HealthTracker) RecordFailure(index int) {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
 
-	score := ht.GetScore(index)
+	score := ht.getScoreLocked(index)
 	score -= ht.failurePenalty
 	if score < 0 {
 		score = 0
@@ -172,7 +175,7 @@ func (tt *TokenTracker) Refund(index int) {
 	defer tt.mu.Unlock()
 
 	tt.regenerate(index)
-	
+
 	if tt.tokens[index] < tt.maxTokens {
 		tt.tokens[index]++
 	}
@@ -181,7 +184,7 @@ func (tt *TokenTracker) Refund(index int) {
 func (tt *TokenTracker) regenerate(index int) {
 	now := time.Now()
 	lastUpdate, ok := tt.lastUpdates[index]
-	
+
 	if !ok {
 		tt.tokens[index] = tt.initialTokens
 		tt.lastUpdates[index] = now
@@ -220,12 +223,12 @@ func SelectHybridAccount(candidates []AccountWithMetrics, tokenTracker *TokenTra
 		// Check token bucket
 		hasTokens := tokenTracker.Consume(cand.Index) // Peek/Consume logic is complex, here we assume selection = consumption intent
 		if !hasTokens {
-			// If we can't consume, we shouldn't select it? 
+			// If we can't consume, we shouldn't select it?
 			// In the plugin, we select then consume.
 			// Let's assume we check availability here.
-			// Actually TokenTracker.Consume is mutating. 
+			// Actually TokenTracker.Consume is mutating.
 			// We should probably have a CanConsume method.
-			// For now, let's just refund if we don't pick it? 
+			// For now, let's just refund if we don't pick it?
 			// No, that's messy.
 			// Let's simplisticly prioritize health.
 			continue
@@ -237,7 +240,7 @@ func SelectHybridAccount(candidates []AccountWithMetrics, tokenTracker *TokenTra
 		// Score calculation
 		// Priority: Health (high weight) + Freshness (low weight)
 		healthFactor := float64(cand.HealthScore) * 3.0
-		
+
 		secondsSinceUsed := time.Since(cand.LastUsed).Seconds()
 		freshnessBonus := math.Min(secondsSinceUsed, 3600) * 0.01
 

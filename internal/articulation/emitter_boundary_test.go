@@ -1,0 +1,204 @@
+package articulation
+
+import (
+	"strings"
+	"testing"
+)
+
+// TestResponseProcessor_Boundary_NullFields verifies that explicit nulls in JSON
+// do not cause panics and are handled gracefully.
+func TestResponseProcessor_Boundary_NullFields(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true // Force JSON parsing to check structure
+
+	// Case 1: Null mangle_updates
+	raw := `{
+		"control_packet": {
+			"intent_classification": {
+				"category": "/query",
+				"verb": "/explain",
+				"target": "x",
+				"constraint": "none",
+				"confidence": 1.0
+			},
+			"mangle_updates": null,
+			"tool_requests": null
+		},
+		"surface_response": "ok"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() failed with null fields: %v", err)
+	}
+	if res.Control.MangleUpdates == nil || len(res.Control.MangleUpdates) != 0 {
+		t.Errorf("Expected empty MangleUpdates, got %v", res.Control.MangleUpdates)
+	}
+	if res.Control.ToolRequests != nil {
+		t.Errorf("Expected nil ToolRequests, got %v", res.Control.ToolRequests)
+	}
+}
+
+// TestResponseProcessor_Boundary_TypeCoercion verifies that type mismatches
+// cause JSON parsing failures (and fallback if allowed), rather than panics.
+func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
+	// Case 1: String confidence instead of float
+	t.Run("StringConfidence", func(t *testing.T) {
+		rp := NewResponseProcessor()
+		rp.RequireValidJSON = true // We expect an error here
+
+		raw := `{
+			"control_packet": {
+				"intent_classification": {
+					"category": "/query",
+					"verb": "/explain",
+					"target": "x",
+					"constraint": "none",
+					"confidence": "0.9"
+				},
+				"mangle_updates": []
+			},
+			"surface_response": "ok"
+		}`
+
+		_, err := rp.Process(raw)
+		if err == nil {
+			t.Fatal("Expected error for string confidence, got nil")
+		}
+	})
+
+	// Case 2: String mangle_updates instead of array
+	t.Run("StringMangleUpdates", func(t *testing.T) {
+		rp := NewResponseProcessor()
+		rp.RequireValidJSON = true
+
+		raw := `{
+			"control_packet": {
+				"intent_classification": {
+					"category": "/query",
+					"verb": "/explain",
+					"target": "x",
+					"constraint": "none",
+					"confidence": 1.0
+				},
+				"mangle_updates": "a()."
+			},
+			"surface_response": "ok"
+		}`
+
+		_, err := rp.Process(raw)
+		if err == nil {
+			t.Fatal("Expected error for string mangle_updates, got nil")
+		}
+	})
+
+	// Case 3: Fallback enabled behavior
+	t.Run("FallbackOnCoercionFailure", func(t *testing.T) {
+		rp := NewResponseProcessor()
+		rp.RequireValidJSON = false
+
+		raw := `{
+			"control_packet": { "mangle_updates": "wrong_type" },
+			"surface_response": "ok"
+		}`
+
+		res, err := rp.Process(raw)
+		if err != nil {
+			t.Fatalf("Process() failed in fallback mode: %v", err)
+		}
+		if res.ParseMethod != "fallback" {
+			t.Errorf("Expected fallback parse method, got %s", res.ParseMethod)
+		}
+		// The entire raw string becomes the surface response in fallback
+		if !strings.Contains(res.Surface, "wrong_type") {
+			t.Errorf("Expected raw content in surface, got %q", res.Surface)
+		}
+	})
+}
+
+// TestResponseProcessor_Boundary_MassiveReasoningTrace checks for OOM/Panics
+// with large input strings.
+func TestResponseProcessor_Boundary_MassiveReasoningTrace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping massive input test in short mode")
+	}
+
+	rp := NewResponseProcessor()
+	// Create a 10MB string
+	massiveTrace := strings.Repeat("a", 10*1024*1024)
+
+	raw := `{
+		"control_packet": {
+			"intent_classification": {
+				"category": "/query",
+				"verb": "/explain",
+				"target": "x",
+				"constraint": "none",
+				"confidence": 1.0
+			},
+			"mangle_updates": [],
+			"reasoning_trace": "` + massiveTrace + `"
+		},
+		"surface_response": "ok"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() failed with massive trace: %v", err)
+	}
+	if len(res.Control.ReasoningTrace) != len(massiveTrace) {
+		t.Errorf("ReasoningTrace length mismatch: got %d, want %d", len(res.Control.ReasoningTrace), len(massiveTrace))
+	}
+}
+
+// TestResponseProcessor_Boundary_DuplicateKeys verifies that the last key wins
+// (standard Go json behavior) and it doesn't break anything.
+func TestResponseProcessor_Boundary_DuplicateKeys(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	raw := `{
+		"control_packet": {
+			"intent_classification": {
+				"category": "/query",
+				"verb": "/explain",
+				"target": "x",
+				"constraint": "none",
+				"confidence": 1.0
+			},
+			"mangle_updates": []
+		},
+		"surface_response": "first",
+		"surface_response": "second"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() failed with duplicate keys: %v", err)
+	}
+	if res.Surface != "second" {
+		t.Errorf("Expected 'second' surface response (last wins), got %q", res.Surface)
+	}
+}
+
+// BenchmarkResponseProcessor_ExtractEmbeddedJSON benchmarks the regex extraction.
+func BenchmarkResponseProcessor_ExtractEmbeddedJSON(b *testing.B) {
+	rp := NewResponseProcessor()
+
+	// Create a large noise string with near-matches
+	noise := strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", 1000)
+	// Add some misleading text
+	noise += "Some misleading text without brackets. "
+	// Valid embedded JSON
+	validJSON := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"ok"}`
+
+	input := noise + validJSON + noise
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := rp.extractEmbeddedJSON(input)
+		if err != nil {
+			b.Fatalf("extractEmbeddedJSON failed: %v", err)
+		}
+	}
+}

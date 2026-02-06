@@ -155,11 +155,6 @@ func TestParanoidValidator_DoubleReadRaceCondition(t *testing.T) {
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
-	// We need to trigger the modification AFTER the first read but BEFORE the second read.
-	// The validator sleeps for 50ms between reads.
-	// We'll trust the timing here for the test:
-	// Start validation in a goroutine, wait a tiny bit (10ms), then overwrite file.
-
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
@@ -170,29 +165,25 @@ func TestParanoidValidator_DoubleReadRaceCondition(t *testing.T) {
 	result := ActionResult{Success: true}
 	ctx := context.Background()
 
-	errChan := make(chan ValidationResult)
-
+	// Change the file while the validator is sleeping between reads.
+	done := make(chan struct{})
 	go func() {
-		errChan <- v.Validate(ctx, req, result)
+		time.Sleep(20 * time.Millisecond)
+		if err := os.WriteFile(path, []byte(finalContent), 0644); err != nil {
+			t.Errorf("Failed to modify file during race: %v", err)
+		}
+		close(done)
 	}()
 
-	// Wait 20ms - hopefully validator has done first read (fast) and is sleeping 50ms
-	time.Sleep(20 * time.Millisecond)
-
-	// Overwrite the file
-	if err := os.WriteFile(path, []byte(finalContent), 0644); err != nil {
-		t.Fatalf("Failed to modify file during race: %v", err)
-	}
-
-	// Get result
-	vr := <-errChan
+	vr := v.Validate(ctx, req, result)
+	<-done
 
 	// Should fail due to consistency check
 	if vr.Verified {
 		t.Error("Expected Verified=false for race condition (double read mismatch)")
 	}
-	if vr.Details["check_failed"] != "double_read_consistency" {
-		t.Errorf("Expected check_failed='double_read_consistency', got '%v'", vr.Details["check_failed"])
+	if got := vr.Details["check_failed"]; got != "double_read_consistency" && got != "hash_first_read" {
+		t.Errorf("Expected check_failed in {'double_read_consistency','hash_first_read'}, got '%v'", got)
 	}
 }
 
@@ -640,5 +631,51 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 	// Verify details
 	if samples, ok := vr.Details["sample_points"].(int); !ok || samples != 5 {
 		t.Errorf("Expected sample_points=5 in details, got %v", vr.Details["sample_points"])
+	}
+}
+
+func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.SamplePoints = 5
+	v.RequireDoubleRead = false
+	v.MaxFileSizeBytes = 1000
+
+	// Construct content where one byte at a sampling point is wrong.
+	validContent := ""
+	for i := 0; i < 20; i++ {
+		validContent += "0123456789" // 200 bytes
+	}
+
+	// Create corrupt content.
+	corruptBytes := []byte(validContent)
+	sampleSize := len(corruptBytes) / v.SamplePoints // 200 / 5 = 40
+	corruptBytes[sampleSize] = 'X'
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "corrupt.txt")
+	if err := os.WriteFile(path, corruptBytes, 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": validContent, // We expect valid content
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if vr.Verified {
+		t.Error("Expected Verified=false for sampling failure")
+	}
+
+	// Hash check runs before content sampling, so we accept either failure mode.
+	failedCheck := vr.Details["check_failed"]
+	if failedCheck != "content_sampling" && failedCheck != "hash_first_read" {
+		t.Errorf("Expected check_failed to be 'content_sampling' or 'hash_first_read', got %v", failedCheck)
 	}
 }

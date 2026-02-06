@@ -390,7 +390,8 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 			return PiggybackEnvelope{}, fmt.Errorf("missing intent_classification fields")
 		}
 		if envelope.Control.MangleUpdates == nil {
-			return PiggybackEnvelope{}, fmt.Errorf("missing mangle_updates field")
+			// Tolerated: treat null/missing as empty list
+			envelope.Control.MangleUpdates = []string{}
 		}
 	}
 
@@ -424,6 +425,13 @@ func (rp *ResponseProcessor) parseMarkdownWrappedJSON(s string) (PiggybackEnvelo
 	return rp.parseJSON(s)
 }
 
+var (
+	// Pattern to find JSON objects containing both keys, regardless of order
+	embeddedJSONPattern = regexp.MustCompile(`\{[\s\S]*("surface_response"[\s\S]*"control_packet"|"control_packet"[\s\S]*"surface_response")[\s\S]*\}`)
+	// Fallback pattern to find any JSON-like object
+	fallbackJSONPattern = regexp.MustCompile(`\{[\s\S]*\}`)
+)
+
 // extractEmbeddedJSON finds JSON within mixed content.
 func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "extractEmbeddedJSON")
@@ -431,15 +439,11 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 
 	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
 
-	// Pattern to find JSON objects containing both keys, regardless of order
-	jsonPattern := regexp.MustCompile(`\{[\s\S]*("surface_response"[\s\S]*"control_packet"|"control_packet"[\s\S]*"surface_response")[\s\S]*\}`)
-
-	match := jsonPattern.FindString(s)
+	match := embeddedJSONPattern.FindString(s)
 	if match == "" {
 		logging.ArticulationDebug("extractEmbeddedJSON: primary pattern (surface_response/control_packet) not found, trying fallback")
 		// Try alternative pattern
-		jsonPattern = regexp.MustCompile(`\{[\s\S]*\}`)
-		matches := jsonPattern.FindAllString(s, -1)
+		matches := fallbackJSONPattern.FindAllString(s, -1)
 		logging.ArticulationDebug("extractEmbeddedJSON: fallback pattern found %d potential JSON objects", len(matches))
 
 		// Try each match, largest first
