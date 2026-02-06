@@ -1,11 +1,11 @@
 package prompt
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // CompilationContext holds all dimensions for prompt atom selection.
@@ -479,15 +479,17 @@ func (cc *CompilationContext) Hash() string {
 		return "nil"
 	}
 
-	var sb strings.Builder
+	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
+	// string->[]byte allocation when passing to sha256.Sum256.
+	var buf bytes.Buffer
 	// Estimate size: ~20 fields * 10-15 chars = 200-300 chars. 256 is usually sufficient.
-	sb.Grow(256)
+	buf.Grow(256)
 
 	// Helper to write string + separator
 	const sep = "|"
 	write := func(s string) {
-		sb.WriteString(s)
-		sb.WriteString(sep)
+		buf.WriteString(s)
+		buf.WriteString(sep)
 	}
 
 	write(cc.OperationalMode)
@@ -500,11 +502,11 @@ func (cc *CompilationContext) Hash() string {
 
 	for i, fw := range cc.Frameworks {
 		if i > 0 {
-			sb.WriteString(",")
+			buf.WriteString(",")
 		}
-		sb.WriteString(fw)
+		buf.WriteString(fw)
 	}
-	sb.WriteString(sep)
+	buf.WriteString(sep)
 
 	write(cc.IntentVerb)
 	write(cc.IntentTarget)
@@ -513,13 +515,13 @@ func (cc *CompilationContext) Hash() string {
 	write(cc.OuroborosStage)
 	write(cc.SemanticQuery)
 
-	var buf [64]byte
-	sb.Write(strconv.AppendInt(buf[:0], int64(cc.TokenBudget), 10))
-	sb.WriteString(sep)
-	sb.Write(strconv.AppendInt(buf[:0], int64(cc.FailingTestCount), 10))
-	sb.WriteString(sep)
-	sb.Write(strconv.AppendInt(buf[:0], int64(cc.DiagnosticCount), 10))
-	sb.WriteString(sep)
+	var scratch [64]byte
+	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.TokenBudget), 10))
+	buf.WriteString(sep)
+	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.FailingTestCount), 10))
+	buf.WriteString(sep)
+	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.DiagnosticCount), 10))
+	buf.WriteString(sep)
 
 	if cc.IsLargeRefactor {
 		write("true")
@@ -540,6 +542,6 @@ func (cc *CompilationContext) Hash() string {
 	}
 
 	// Hash the content
-	hash := sha256.Sum256([]byte(sb.String()))
+	hash := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(hash[:])
 }
