@@ -87,7 +87,7 @@ func (ps *PredicateSelector) Select(ctx SelectionContext) ([]SelectedPredicate, 
 
 	// Set default max
 	if ctx.MaxPredicates <= 0 {
-		ctx.MaxPredicates = defaultPredicateLimit
+		ctx.MaxPredicates = ps.maxPredicates
 	}
 
 	var selected []SelectedPredicate
