@@ -140,35 +140,221 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Missing test for null/empty 'Target' path in ActionRequest.
+// TestParanoidValidator_DoubleReadRaceCondition tests race condition between reads
+func TestParanoidValidator_DoubleReadRaceCondition(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.RequireDoubleRead = true
+	v.MaxStaleSeconds = 5 // Give enough time
 
-// TODO: TEST_GAP: Missing test for missing "content" key in 'Payload' for ActionWriteFile.
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "race.txt")
+	initialContent := "initial"
+	finalContent := "changed"
 
-// TODO: TEST_GAP: Missing test for nil 'Payload' in ActionRequest.
+	if err := os.WriteFile(path, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
 
-// TODO: TEST_GAP: Verify behavior when 'content' in Payload is incorrect type (e.g., int or []byte instead of string).
+	// We need to trigger the modification AFTER the first read but BEFORE the second read.
+	// The validator sleeps for 50ms between reads.
+	// We'll trust the timing here for the test:
+	// Start validation in a goroutine, wait a tiny bit (10ms), then overwrite file.
 
-// TODO: TEST_GAP: Missing test for file size below 'MinFileSizeBytes' (requires configuring MinFileSizeBytes > 0).
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": initialContent, // We expect initial content
+		},
+	}
+	result := ActionResult{Success: true}
+	ctx := context.Background()
 
-// TODO: TEST_GAP: Missing test for file size exceeding 'MaxFileSizeBytes'.
+	errChan := make(chan ValidationResult)
 
-// TODO: TEST_GAP: Verify behavior when the target path points to a directory instead of a regular file.
+	go func() {
+		errChan <- v.Validate(ctx, req, result)
+	}()
 
-// TODO: TEST_GAP: Missing test for non-existent file (os.Stat failure).
+	// Wait 20ms - hopefully validator has done first read (fast) and is sleeping 50ms
+	time.Sleep(20 * time.Millisecond)
 
-// TODO: TEST_GAP: Verify behavior when file exists but read permissions are denied (os.ReadFile failure).
+	// Overwrite the file
+	if err := os.WriteFile(path, []byte(finalContent), 0644); err != nil {
+		t.Fatalf("Failed to modify file during race: %v", err)
+	}
 
-// TODO: TEST_GAP: Missing test for double-read inconsistency (race condition where file changes between reads).
+	// Get result
+	vr := <-errChan
 
-// TODO: TEST_GAP: Verify content sampling logic for large files (partial match failure).
+	// Should fail due to consistency check
+	if vr.Verified {
+		t.Error("Expected Verified=false for race condition (double read mismatch)")
+	}
+	if vr.Details["check_failed"] != "double_read_consistency" {
+		t.Errorf("Expected check_failed='double_read_consistency', got '%v'", vr.Details["check_failed"])
+	}
+}
 
-// TODO: TEST_GAP: Verify that 'ActionEditFile' skips validation (returns verified=true, confidence=0.0) when content is missing from payload.
+// TestParanoidValidator_EditFileSkipped tests that ActionEditFile without content is skipped
+func TestParanoidValidator_EditFileSkipped(t *testing.T) {
+	v := NewParanoidFileValidator()
 
-// TODO: TEST_GAP: Verify behavior when 'Target' is a symlink to a directory (should fail check).
+	req := ActionRequest{
+		Type:   ActionEditFile,
+		Target: "some/file.txt",
+		Payload: map[string]interface{}{
+			// No "content" key
+			"diff": "some diff",
+		},
+	}
+	result := ActionResult{Success: true}
 
-// TODO: TEST_GAP: Verify behavior when 'Target' is a symlink to a valid file (should resolve and pass).
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
 
-// TODO: TEST_GAP: Verify content sampling failure when a specific byte at a sample offset is modified.
+	if !vr.Verified {
+		t.Error("Expected Verified=true (skipped) for EditFile without content")
+	}
+	if vr.Confidence != 0.0 {
+		t.Errorf("Expected Confidence=0.0 (skipped), got %f", vr.Confidence)
+	}
+	if vr.Method != "paranoid_validation_skipped" {
+		t.Errorf("Expected Method='paranoid_validation_skipped', got '%s'", vr.Method)
+	}
+}
+
+// TestParanoidValidator_SymlinkToDirectory tests validation when target is a symlink to a directory
+func TestParanoidValidator_SymlinkToDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping symlink test on Windows due to permission requirements")
+	}
+
+	v := NewParanoidFileValidator()
+	tmpDir := t.TempDir()
+
+	// Create a real directory
+	realDir := filepath.Join(tmpDir, "real_dir")
+	if err := os.Mkdir(realDir, 0755); err != nil {
+		t.Fatalf("Failed to create dir: %v", err)
+	}
+
+	// Create symlink to it
+	linkPath := filepath.Join(tmpDir, "link_to_dir")
+	if err := os.Symlink(realDir, linkPath); err != nil {
+		t.Skipf("Skipping symlink test: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: linkPath, // Target is the symlink
+		Payload: map[string]interface{}{
+			"content": "test",
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should fail because it resolves to a directory
+	if vr.Verified {
+		t.Error("Expected Verified=false for symlink to directory")
+	}
+}
+
+// TestParanoidValidator_SymlinkToFile tests validation when target is a symlink to a valid file
+func TestParanoidValidator_SymlinkToFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping symlink test on Windows due to permission requirements")
+	}
+
+	v := NewParanoidFileValidator()
+	v.RequireDoubleRead = false
+	tmpDir := t.TempDir()
+
+	// Create real file
+	realFile := filepath.Join(tmpDir, "real_file.txt")
+	content := "valid content"
+	if err := os.WriteFile(realFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write real file: %v", err)
+	}
+
+	// Create symlink to it
+	linkPath := filepath.Join(tmpDir, "link_to_file.txt")
+	if err := os.Symlink(realFile, linkPath); err != nil {
+		t.Skipf("Skipping symlink test: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: linkPath,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	// Should pass
+	if !vr.Verified {
+		t.Errorf("Expected Verified=true for valid symlink to file. Error: %s", vr.Error)
+	}
+}
+
+// TestParanoidValidator_ContentSamplingRuns tests that content sampling is recorded in details
+func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
+	v := NewParanoidFileValidator()
+	v.RequireDoubleRead = false
+	v.SamplePoints = 5
+
+	// Create content larger than 100 bytes to trigger sampling
+	content := ""
+	for i := 0; i < 20; i++ {
+		content += "0123456789" // 200 bytes total
+	}
+
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "large_sample.txt")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+
+	req := ActionRequest{
+		Type:   ActionWriteFile,
+		Target: path,
+		Payload: map[string]interface{}{
+			"content": content,
+		},
+	}
+	result := ActionResult{Success: true}
+
+	ctx := context.Background()
+	vr := v.Validate(ctx, req, result)
+
+	if !vr.Verified {
+		t.Fatalf("Expected validation to pass: %v", vr.Error)
+	}
+
+	// Check that content_sampling check passed
+	checks, ok := vr.Details["checks_passed"].([]string)
+	if !ok {
+		t.Fatal("Details['checks_passed'] not found or not []string")
+	}
+
+	found := false
+	for _, c := range checks {
+		if c == "content_sampling" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected 'content_sampling' to be in checks_passed")
+	}
+}
 
 // TestParanoidValidator_EmptyTargetPath tests validation with empty target path
 func TestParanoidValidator_EmptyTargetPath(t *testing.T) {

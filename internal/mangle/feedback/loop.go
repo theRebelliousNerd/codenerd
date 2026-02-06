@@ -424,7 +424,7 @@ func (fl *FeedbackLoop) selectPredicates(ctx context.Context, domain, userPrompt
 
 	if fl.predicateSelector != nil {
 		if selected, err := fl.predicateSelector.SelectForContext(ctx, "", "", domain, query); err == nil && len(selected) > 0 {
-			logging.Get(logging.CategoryKernel).Debug("FeedbackLoop: JIT selected %d predicates for domain %q", len(selected), domain)
+			logging.Get(logging.CategoryKernel).Info("FeedbackLoop: JIT selected %d predicates for domain %q", len(selected), domain)
 			return limitPredicateList(selected, maxPredicateListSize)
 		}
 		logging.Get(logging.CategoryKernel).Warn("FeedbackLoop: JIT selector failed, falling back to declared predicates")

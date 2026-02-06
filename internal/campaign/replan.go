@@ -72,7 +72,10 @@ func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (s
 		return response, nil
 	}
 	// Fall back to standard completion
-	return r.completeWithGrounding(ctx, prompt)
+	if r.llmClient == nil {
+		return "", fmt.Errorf("LLM client not available for fallback completion")
+	}
+	return r.llmClient.Complete(ctx, prompt)
 }
 
 // ReplanReason represents why a replan was triggered.
