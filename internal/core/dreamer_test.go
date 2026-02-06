@@ -108,3 +108,28 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 		t.Error("Expected /critical_path_hit projection for sensitive file")
 	}
 }
+
+// TODO: TEST_GAP: Boundary Value - Massive Inputs
+// The current implementation of codeGraphProjections performs a full table scan
+// of 'code_defines' and 'code_calls'. We need a test that injects 100k+ facts
+// to verify this doesn't OOM or timeout on large repositories.
+
+// TODO: TEST_GAP: State Conflict - Race Condition
+// Dreamer.SetKernel and Dreamer.SimulateAction access the kernel pointer without
+// synchronization. A concurrent test is needed to prove safety during kernel updates.
+
+// TODO: TEST_GAP: Boundary Value - Null/Empty/Whitespace
+// Verify behavior when ActionRequest.Target is empty, whitespace, or invalid.
+// Should ensure critical_path_hit is not falsely triggered or bypassed.
+
+// TODO: TEST_GAP: Negative Testing - Dangerous Command Evasion
+// The isDangerousCommand check is simple string matching. We need to test:
+// 1. Case variations ("RM -rf")
+// 2. Argument reordering ("rm -r -f")
+// 3. Path qualification ("/bin/rm")
+// 4. Shell obfuscation
+// 5. Chained commands ("echo safe; rm -rf /")
+
+// TODO: TEST_GAP: Boundary Value - Nil Kernel Resilience
+// Verify that Dreamer handles a nil kernel gracefully, especially if the kernel
+// becomes nil between checks in the SimulateAction pipeline.
