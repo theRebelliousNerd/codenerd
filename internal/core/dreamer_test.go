@@ -18,6 +18,18 @@ func setupTestDreamer(t *testing.T) (*Dreamer, *RealKernel) {
 	return d, k
 }
 
+// TODO: TEST_GAP: Performance/OOM - Missing test for massive code graph (100k+ facts).
+// The current implementation of codeGraphProjections performs full table scans of
+// code_defines and code_calls for every simulation. In a large repository, this
+// will cause massive heap allocations and potential OOM or timeouts.
+// A test should be added that populates the kernel with 50k dummy definitions and calls,
+// then asserts that SimulateAction completes within a strict budget (e.g., 500ms).
+
+// TODO: TEST_GAP: Concurrency - Missing test for race conditions between SimulateAction and SetKernel.
+// Dreamer struct lacks mutex protection. Parallel execution of SimulateAction (reading d.kernel)
+// and SetKernel (writing d.kernel) causes undefined behavior or panic.
+// A stress test with concurrent goroutines is needed to verify thread safety.
+
 func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	d, _ := setupTestDreamer(t)
 	ctx := context.Background()
@@ -38,6 +50,11 @@ func TestDreamer_SimulateAction_Safe(t *testing.T) {
 		t.Error("Expected projected facts, got none")
 	}
 }
+
+// TODO: TEST_GAP: Type Safety - Missing test for Atom/String dissonance in ActionType.
+// projectEffects asserts projected_action with string(req.Type). If Mangle policy expects
+// an Atom (e.g., /read_file) instead of String ("read_file"), safety checks may silently
+// fail open. A test is needed to verify that the projected type matches the schema expectation.
 
 func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	d, k := setupTestDreamer(t)
@@ -70,6 +87,11 @@ func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 		t.Error("Expected ActionID to be set")
 	}
 }
+
+// TODO: TEST_GAP: Input Extremes - Missing test for empty or massive target paths.
+// 1. Empty Target: verify behavior when req.Target is empty string (potential match for current directory).
+// 2. Massive Target: verify behavior when req.Target is a 1MB string (buffer overflow/DoS check).
+// 3. Path Injection: verify that criticalPrefix handles "internal/../internal" correctly.
 
 func TestDreamer_ProjectEffects(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -108,3 +130,28 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 		t.Error("Expected /critical_path_hit projection for sensitive file")
 	}
 }
+
+// TODO: TEST_GAP: Boundary Value - Massive Inputs
+// The current implementation of codeGraphProjections performs a full table scan
+// of 'code_defines' and 'code_calls'. We need a test that injects 100k+ facts
+// to verify this doesn't OOM or timeout on large repositories.
+
+// TODO: TEST_GAP: State Conflict - Race Condition
+// Dreamer.SetKernel and Dreamer.SimulateAction access the kernel pointer without
+// synchronization. A concurrent test is needed to prove safety during kernel updates.
+
+// TODO: TEST_GAP: Boundary Value - Null/Empty/Whitespace
+// Verify behavior when ActionRequest.Target is empty, whitespace, or invalid.
+// Should ensure critical_path_hit is not falsely triggered or bypassed.
+
+// TODO: TEST_GAP: Negative Testing - Dangerous Command Evasion
+// The isDangerousCommand check is simple string matching. We need to test:
+// 1. Case variations ("RM -rf")
+// 2. Argument reordering ("rm -r -f")
+// 3. Path qualification ("/bin/rm")
+// 4. Shell obfuscation
+// 5. Chained commands ("echo safe; rm -rf /")
+
+// TODO: TEST_GAP: Boundary Value - Nil Kernel Resilience
+// Verify that Dreamer handles a nil kernel gracefully, especially if the kernel
+// becomes nil between checks in the SimulateAction pipeline.

@@ -650,7 +650,7 @@ Dynamic Adaptation is a foundational feature implemented through codeNERD's Auto
 **Self-Learning from Experience:**
 - **LearningStore** (`internal/store/learning.go`): Records successful and failed patterns across sessions per shard type
 - **Feedback & Learning System** (`internal/autopoiesis/feedback.go`): Closes the autopoiesis loop by evaluating tool quality and recording patterns
-- **Rejection/Acceptance Tracking** (`internal/shards/coder/autopoiesis.go`, `internal/shards/tester/autopoiesis.go`): Recurring patterns (e.g., 3 rejections) trigger learning
+- **Rejection/Acceptance Tracking** (`internal/autopoiesis/feedback.go`): Recurring patterns (e.g., 3 rejections) trigger learning
 - **Decay Confidence:** Old learnings reduce in confidence if not reinforced
 
 **Ouroboros Loop** (`internal/autopoiesis/ouroboros.go`): Self-correction and tool-generation engine:

@@ -35,6 +35,14 @@ potential_score(Verb, 100) :-
 
 # 2. Boosted Scores (Rule-based)
 # Use integer arithmetic for scores (0-100 scale).
+#
+# Boost verbs when a context token matches a known synonym for that verb.
+potential_score(Verb, NewScore) :-
+    candidate_intent(Verb, Base),
+    context_token(Token),
+    verb_synonym(Verb, Token),
+    NewScore = fn:plus(Base, 30).
+
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
     Verb = /security,

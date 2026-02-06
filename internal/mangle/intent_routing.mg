@@ -14,7 +14,7 @@
 # These predicates are from other .mg files - not loaded by default in check-mangle
 # =============================================================================
 # From tester.mg (not in default schemas)
-Decl file_exists(FilePath).
+# Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl file_contains(FilePath, Pattern).
 
 # Internal predicates defined only in this file (or missing from defaults)
@@ -31,6 +31,7 @@ Decl verb_has_specialist(Verb).
 Decl imports(Target, Path).
 Decl test_failed(Path, TestName, Reason).
 Decl diagnostic_active(Path, Line, Severity, Message).
+Decl verb_category(Verb, Category).
 
 # =============================================================================
 # SECTION 1: Action Type Derivation
@@ -145,7 +146,8 @@ pytest_detected() :- file_exists("pyproject.toml"), file_contains("pyproject.tom
 pytest_detected() :- file_exists("conftest.py").
 
 test_framework(/pytest) :- pytest_detected().
-test_framework(/unittest) :- file_exists("test_*.py"), !pytest_detected().
+# Use file_topology directly to check for python test files (IsTestFile=/true)
+test_framework(/unittest) :- file_topology(_, _, /python, _, /true), !pytest_detected().
 
 # Rust
 test_framework(/cargo_test) :- file_exists("Cargo.toml").
@@ -223,74 +225,74 @@ modular_tool_allowed(/grep, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/search_code, Intent) :- user_intent(_, _, Intent, _, _).
 
 # Write tools - available for code modification intents
-modular_tool_allowed(/write_file, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/edit_file, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/delete_file, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/write_file, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/edit_file, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/delete_file, Intent) :- verb_category(Intent, /code).
 
 # Shell tools - available for code and test intents
-modular_tool_allowed(/run_command, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/run_command, Intent) :- intent_category(Intent, /test).
-modular_tool_allowed(/bash, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/bash, Intent) :- intent_category(Intent, /test).
-modular_tool_allowed(/run_build, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/run_tests, Intent) :- intent_category(Intent, /test).
+modular_tool_allowed(/run_command, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/run_command, Intent) :- verb_category(Intent, /test).
+modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/bash, Intent) :- verb_category(Intent, /test).
+modular_tool_allowed(/run_build, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/run_tests, Intent) :- verb_category(Intent, /test).
 
 # Code DOM tools - available for code intents
 modular_tool_allowed(/get_elements, Intent) :- user_intent(_, _, Intent, _, _).
 modular_tool_allowed(/get_element, Intent) :- user_intent(_, _, Intent, _, _).
-modular_tool_allowed(/edit_lines, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/insert_lines, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/delete_lines, Intent) :- intent_category(Intent, /code).
+modular_tool_allowed(/edit_lines, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/insert_lines, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/delete_lines, Intent) :- verb_category(Intent, /code).
 
 # Test impact analysis tools - available for code and test intents
-modular_tool_allowed(/get_impacted_tests, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/get_impacted_tests, Intent) :- intent_category(Intent, /test).
-modular_tool_allowed(/run_impacted_tests, Intent) :- intent_category(Intent, /code).
-modular_tool_allowed(/run_impacted_tests, Intent) :- intent_category(Intent, /test).
+modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/get_impacted_tests, Intent) :- verb_category(Intent, /test).
+modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /code).
+modular_tool_allowed(/run_impacted_tests, Intent) :- verb_category(Intent, /test).
 
 # Intent category mappings for code
-intent_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
-intent_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
-intent_category(/refactor, /code) :- user_intent(_, _, /refactor, _, _).
-intent_category(/create, /code) :- user_intent(_, _, /create, _, _).
-intent_category(/modify, /code) :- user_intent(_, _, /modify, _, _).
-intent_category(/add, /code) :- user_intent(_, _, /add, _, _).
-intent_category(/update, /code) :- user_intent(_, _, /update, _, _).
+verb_category(/fix, /code) :- user_intent(_, _, /fix, _, _).
+verb_category(/implement, /code) :- user_intent(_, _, /implement, _, _).
+verb_category(/refactor, /code) :- user_intent(_, _, /refactor, _, _).
+verb_category(/create, /code) :- user_intent(_, _, /create, _, _).
+verb_category(/modify, /code) :- user_intent(_, _, /modify, _, _).
+verb_category(/add, /code) :- user_intent(_, _, /add, _, _).
+verb_category(/update, /code) :- user_intent(_, _, /update, _, _).
 
 # Intent category mappings for test
-intent_category(/test, /test) :- user_intent(_, _, /test, _, _).
-intent_category(/cover, /test) :- user_intent(_, _, /cover, _, _).
+verb_category(/test, /test) :- user_intent(_, _, /test, _, _).
+verb_category(/cover, /test) :- user_intent(_, _, /cover, _, _).
 
 # Research tools - available for /research intent
-modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/web_search, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/web_fetch, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_screenshot, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_click, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_type, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/browser_close, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/research_cache_get, Intent) :- intent_category(Intent, /research).
-modular_tool_allowed(/research_cache_set, Intent) :- intent_category(Intent, /research).
+modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/web_search, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/web_fetch, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_navigate, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_extract, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_screenshot, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_click, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_type, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/browser_close, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/research_cache_get, Intent) :- verb_category(Intent, /research).
+modular_tool_allowed(/research_cache_set, Intent) :- verb_category(Intent, /research).
 
 # Context7 also available for /learn and /document intents
-modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /learn).
-modular_tool_allowed(/context7_fetch, Intent) :- intent_category(Intent, /document).
+modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /learn).
+modular_tool_allowed(/context7_fetch, Intent) :- verb_category(Intent, /document).
 
 # Browser tools also available for verification intents
-modular_tool_allowed(/browser_navigate, Intent) :- intent_category(Intent, /verify).
-modular_tool_allowed(/browser_extract, Intent) :- intent_category(Intent, /verify).
-modular_tool_allowed(/browser_screenshot, Intent) :- intent_category(Intent, /verify).
+modular_tool_allowed(/browser_navigate, Intent) :- verb_category(Intent, /verify).
+modular_tool_allowed(/browser_extract, Intent) :- verb_category(Intent, /verify).
+modular_tool_allowed(/browser_screenshot, Intent) :- verb_category(Intent, /verify).
 
 # Intent category mappings for research/learn/document/verify
-intent_category(/research, /research) :- user_intent(_, _, /research, _, _).
-intent_category(/explore, /research) :- user_intent(_, _, /explore, _, _).
-intent_category(/learn, /learn) :- user_intent(_, _, /learn, _, _).
-intent_category(/understand, /learn) :- user_intent(_, _, /understand, _, _).
-intent_category(/document, /document) :- user_intent(_, _, /document, _, _).
-intent_category(/verify, /verify) :- user_intent(_, _, /verify, _, _).
-intent_category(/validate, /verify) :- user_intent(_, _, /validate, _, _).
+verb_category(/research, /research) :- user_intent(_, _, /research, _, _).
+verb_category(/explore, /research) :- user_intent(_, _, /explore, _, _).
+verb_category(/learn, /learn) :- user_intent(_, _, /learn, _, _).
+verb_category(/understand, /learn) :- user_intent(_, _, /understand, _, _).
+verb_category(/document, /document) :- user_intent(_, _, /document, _, _).
+verb_category(/verify, /verify) :- user_intent(_, _, /verify, _, _).
+verb_category(/validate, /verify) :- user_intent(_, _, /validate, _, _).
 
 # Tool priority (prefer cached results)
 modular_tool_priority(/research_cache_get, 90).

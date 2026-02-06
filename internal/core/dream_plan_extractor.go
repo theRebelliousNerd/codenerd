@@ -56,7 +56,22 @@ var (
 
 	// Question pattern for extractQuestions
 	questionPattern = regexp.MustCompile(`(?m)\?[^\n]*`)
+
+	// Filter out meta-commentary
+	metaPhrases = []string{
+		"i would", "we could", "you might", "in general",
+		"typically", "usually", "remember that", "note that",
+		"keep in mind", "be aware", "don't forget",
+	}
+
+	// Combined verbs for efficient searching
+	allVerbs []string
 )
+
+func init() {
+	allVerbs = append(allVerbs, mutationVerbs...)
+	allVerbs = append(allVerbs, queryVerbs...)
+}
 
 // ExtractDreamPlan parses shard consultations into an actionable execution plan.
 // It extracts numbered steps from each shard's perspective, deduplicates similar steps,
@@ -175,26 +190,25 @@ func isActionableStep(text string) bool {
 
 	// Must contain an action verb
 	hasAction := false
-	for _, verb := range append(mutationVerbs, queryVerbs...) {
+	for _, verb := range allVerbs {
 		if strings.Contains(lower, verb) {
 			hasAction = true
 			break
 		}
 	}
 
-	// Filter out meta-commentary
-	metaPhrases := []string{
-		"i would", "we could", "you might", "in general",
-		"typically", "usually", "remember that", "note that",
-		"keep in mind", "be aware", "don't forget",
+	if !hasAction {
+		return false
 	}
+
+	// Filter out meta-commentary
 	for _, phrase := range metaPhrases {
 		if strings.HasPrefix(lower, phrase) {
 			return false
 		}
 	}
 
-	return hasAction
+	return true
 }
 
 // classifyAction extracts the primary action verb from a step description.

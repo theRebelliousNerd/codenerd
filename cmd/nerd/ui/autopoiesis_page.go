@@ -23,9 +23,11 @@ type AutopoiesisPageModel struct {
 	width    int
 	height   int
 	viewport viewport.Model
+	// TODO: Use bubbles/list instead of table for better list management if items grow.
 	table    table.Model
 
 	// State
+	// TODO: IMPROVEMENT: Consider using a state machine for managing tab transitions and view states if complexity increases.
 	activeTab AutoTab
 
 	// Data
@@ -64,25 +66,51 @@ func (m AutopoiesisPageModel) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles messages.
+// Update handles messages with comprehensive keyboard navigation.
 func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab":
+		// Tab switching (Tab key and Left/Right arrows)
+		case "tab", "right":
 			m.activeTab = (m.activeTab + 1) % 2
 			m.refreshTable()
+			return m, nil
+		case "shift+tab", "left":
+			if m.activeTab == 0 {
+				m.activeTab = 1
+			} else {
+				m.activeTab = 0
+			}
+			m.refreshTable()
+			return m, nil
+
+		// Table navigation (Up/Down arrows handled by table itself)
+		case "up", "k":
+			// Handled by table.Update below
+		case "down", "j":
+			// Handled by table.Update below
+		case "pgup":
+			// Page up in table
+		case "pgdown":
+			// Page down in table
+		case "home":
+			// Go to first row
+		case "end":
+			// Go to last row
 		}
 	}
 
+	// Let table handle its own navigation events
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
 
 // refreshTable updates the table rows based on active tab
-// TODO: Add sorting capabilities to the table columns.
+// TODO: IMPROVEMENT: Add sorting capabilities to the table columns.
+// TODO: IMPROVEMENT: Optimize refreshTable for large datasets (consider virtualization or diffing).
 func (m *AutopoiesisPageModel) refreshTable() {
 	var rows []table.Row
 	var cols []table.Column
@@ -127,6 +155,8 @@ func (m *AutopoiesisPageModel) refreshTable() {
 }
 
 // View renders the page.
+// TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
+// TODO: IMPROVEMENT: Add a help/legend component to explain the table columns and status icons.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 
@@ -152,6 +182,7 @@ func (m AutopoiesisPageModel) View() string {
 	sb.WriteString(m.styles.Content.Render(m.table.View()))
 
 	// Detail View (if selected)
+	// TODO: Enhance detail view with full JSON structure and syntax highlighting.
 	sb.WriteString("\n\n")
 	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
 		sel := m.table.Cursor()
@@ -170,7 +201,8 @@ func (m AutopoiesisPageModel) View() string {
 }
 
 // SetSize updates the size.
-// TODO: Replace magic number '60' with a defined breakpoint constant.
+// TODO: IMPROVEMENT: Replace magic number '60' with a defined breakpoint constant.
+// TODO: IMPROVEMENT: Implement a generic responsive layout manager to handle visibility of components based on available width.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
@@ -179,8 +211,12 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 
 	// Responsive column visibility
 	cols := m.table.Columns()
-	// Simple heuristic for small screens
-	if w < 60 && len(cols) > 2 {
+	isCompact := len(cols) <= 2
+	shouldBeCompact := w < 60
+
+	if shouldBeCompact {
+		// In compact mode, we always update columns because width is dynamic (w - X)
+		// This handles both the switch to compact AND resizing within compact mode.
 		if m.activeTab == TabPatterns {
 			// Compact view for small terminals
 			m.table.SetColumns([]table.Column{
@@ -194,9 +230,12 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 			})
 		}
 	} else {
-		// Restore full table via refresh if needed
-		// For now we rely on next update cycle or explicit refresh but this handles the visual constraint
-		m.refreshTable()
+		// In full mode, widths are fixed constants (defined in refreshTable).
+		// We only need to refresh (rebuild table) if we are switching from compact to full.
+		// If we are already in full mode, resizing doesn't change column widths, so we skip refresh.
+		if isCompact {
+			m.refreshTable()
+		}
 	}
 }
 

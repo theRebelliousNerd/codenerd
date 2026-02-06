@@ -19,6 +19,11 @@ Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
 # directory(Path, Name)
 Decl directory(Path, Name).
 
+# file_exists(Path) - Derived from file_topology
+# Checks if a file exists in the workspace
+Decl file_exists(Path).
+file_exists(Path) :- file_topology(Path, _, _, _, _).
+
 # modified(FilePath) - marks a file as modified
 # Priority: 85
 # SerializationOrder: 8

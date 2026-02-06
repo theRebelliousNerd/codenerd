@@ -137,7 +137,7 @@ Every interaction flows through:
 **Build:**
 ```bash
 # Clone the repo
-git clone https://github.com/google/codenerd
+git clone https://github.com/theRebelliousNerd/codenerd
 cd codenerd
 
 # Build the CLI

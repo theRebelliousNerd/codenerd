@@ -14,6 +14,8 @@ Decl coder_target(File).
 Decl file_extension(FilePath, Extension).
 Decl workspace_root(Root).
 Decl path_in_workspace(Path).
+Decl is_generated_file(File).
+Decl is_vendor_file(File).
 
 # Autopoiesis / Learning
 Decl rejection(TaskID, Category, Pattern).

@@ -119,7 +119,7 @@ func TestDiffApprovalViewWarningsAndHunks(t *testing.T) {
 func TestDiffApprovalViewRenderDiffLine(t *testing.T) {
 	view := NewDiffApprovalView(DefaultStyles(), 80, 20)
 	line := DiffLine{LineNum: 1, Content: "hello", Type: DiffLineAdded}
-	rendered := view.renderDiffLine(line)
+	rendered := view.renderDiffLine(line, nil)
 	if !strings.Contains(rendered, "+ ") || !strings.Contains(rendered, "hello") {
 		t.Fatalf("expected added line to include prefix and content")
 	}

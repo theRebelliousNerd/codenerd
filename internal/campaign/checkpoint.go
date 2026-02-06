@@ -111,10 +111,18 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 		return false, fmt.Sprintf("Error running tests: %v\n%s", err, output), nil
 	}
 
+	// Check for non-zero exit code which definitely indicates failure
+	// DirectExecutor returns Success=true but ExitCode!=0 for command failures
+	hasExitError := res != nil && res.ExitCode != 0
+
 	// Count passed/failed from output
 	if isGoTest {
 		passedCount, failedCount, duration := cr.parseGoTestJSON(output)
-		if failedCount > 0 {
+		if failedCount > 0 || hasExitError {
+			// If we detected exit error but no failed tests counted, likely a build error or catastrophic failure
+			if failedCount == 0 && hasExitError {
+				return false, fmt.Sprintf("Tests failed (exit code %d) - likely build error\n%s", res.ExitCode, output), nil
+			}
 			return false, fmt.Sprintf("Tests: %d passed, %d failed (%.2fs)\n%s", passedCount, failedCount, duration.Seconds(), output), nil
 		}
 		return true, fmt.Sprintf("All %d tests passed (%.2fs)", passedCount, duration.Seconds()), nil
@@ -130,14 +138,14 @@ func (cr *CheckpointRunner) runTestsCheckpoint(ctx context.Context) (bool, strin
 				passedCount, failedCount = p, f
 			}
 		}
-		if failedCount > 0 {
+		if failedCount > 0 || hasExitError {
 			return false, fmt.Sprintf("Tests: %d passed, %d failed\n%s", passedCount, failedCount, output), nil
 		}
 		return true, fmt.Sprintf("All %d tests passed", passedCount), nil
 	}
 
 	passedCount, failedCount := cr.parseTestOutput(output)
-	if failedCount > 0 {
+	if failedCount > 0 || hasExitError {
 		return false, fmt.Sprintf("Tests: %d passed, %d failed\n%s", passedCount, failedCount, output), nil
 	}
 	return true, fmt.Sprintf("All %d tests passed", passedCount), nil
@@ -166,6 +174,11 @@ func (cr *CheckpointRunner) runBuildCheckpoint(ctx context.Context) (bool, strin
 	if err != nil {
 		logging.CampaignWarn("runBuildCheckpoint: build failed: %v (output_len=%d)", err, len(output))
 		return false, fmt.Sprintf("Build failed:\n%s", output), nil
+	}
+
+	if res != nil && res.ExitCode != 0 {
+		logging.CampaignWarn("runBuildCheckpoint: build failed with exit code %d", res.ExitCode)
+		return false, fmt.Sprintf("Build failed (exit code %d):\n%s", res.ExitCode, output), nil
 	}
 
 	logging.CampaignDebug("runBuildCheckpoint: build succeeded")

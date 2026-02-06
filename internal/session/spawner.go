@@ -239,7 +239,11 @@ func (s *Spawner) GetByName(name string) (*SubAgent, bool) {
 	defer s.mu.RUnlock()
 
 	for _, agent := range s.subagents {
-		if agent.GetName() == name && agent.GetState() == SubAgentStateRunning {
+		if agent.GetName() != name {
+			continue
+		}
+		state := agent.GetState()
+		if state != SubAgentStateCompleted && state != SubAgentStateFailed {
 			return agent, true
 		}
 	}
@@ -326,7 +330,8 @@ func (s *Spawner) GetMetrics() []SubAgentMetrics {
 func (s *Spawner) countActive() int {
 	count := 0
 	for _, agent := range s.subagents {
-		if agent.GetState() == SubAgentStateRunning {
+		state := agent.GetState()
+		if state != SubAgentStateCompleted && state != SubAgentStateFailed {
 			count++
 		}
 	}

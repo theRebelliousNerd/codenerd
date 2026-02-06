@@ -325,6 +325,9 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 
 	// Apply options
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		if err := opt(compiler); err != nil {
 			return nil, fmt.Errorf("failed to apply compiler option: %w", err)
 		}
@@ -462,7 +465,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	if c.kernel != nil {
 		contextFacts := cc.ToContextFacts()
 		if len(contextFacts) > 0 {
-			if err := c.kernel.AssertBatch(toInterfaceSlice(contextFacts)); err != nil {
+			if err := c.kernel.AssertBatch(contextFacts); err != nil {
 				logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
 				// Non-fatal - continue without context-based boosting
 			} else {
@@ -1211,52 +1214,54 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
-	var queryParts []string
-	if cc.IntentVerb != "" {
-		queryParts = append(queryParts, cc.IntentVerb)
-	}
-	if cc.IntentTarget != "" {
-		queryParts = append(queryParts, cc.IntentTarget)
-	}
-	if cc.ShardID != "" {
-		queryParts = append(queryParts, cc.ShardID)
-	}
-	if cc.Language != "" {
-		queryParts = append(queryParts, cc.Language)
-	}
-	if len(cc.Frameworks) > 0 {
-		queryParts = append(queryParts, cc.Frameworks...)
-	}
-
-	if len(queryParts) == 0 {
-		return nil
-	}
-
-	// Build weighted query: IntentVerb and Target have highest priority,
-	// followed by ShardID, then Language, then Frameworks.
 	// We duplicate high-priority terms to increase their semantic weight.
-	var weightedParts []string
+	var sb strings.Builder
+	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
+	sb.Grow(256)
 
 	// High priority (weight 3x): Intent verb and target
 	if cc.IntentVerb != "" {
-		weightedParts = append(weightedParts, cc.IntentVerb, cc.IntentVerb, cc.IntentVerb)
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
 	}
 	if cc.IntentTarget != "" {
-		weightedParts = append(weightedParts, cc.IntentTarget, cc.IntentTarget, cc.IntentTarget)
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
 	}
 
 	// Medium priority (weight 2x): ShardID and Language
 	if cc.ShardID != "" {
-		weightedParts = append(weightedParts, cc.ShardID, cc.ShardID)
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
 	}
 	if cc.Language != "" {
-		weightedParts = append(weightedParts, cc.Language, cc.Language)
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
 	}
 
 	// Low priority (weight 1x): Frameworks
-	weightedParts = append(weightedParts, cc.Frameworks...)
+	for _, fw := range cc.Frameworks {
+		sb.WriteString(fw)
+		sb.WriteString(" ")
+	}
 
-	query := strings.Join(weightedParts, " ")
+	if sb.Len() == 0 {
+		return nil
+	}
+
+	query := strings.TrimSpace(sb.String())
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
@@ -1285,16 +1290,26 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 		content := atom.Content
 		if atom.Concept != "" {
 			// Extract meaningful category from concept (e.g., "doc/path/architecture/patterns" -> "architecture/patterns")
-			parts := strings.Split(atom.Concept, "/")
-			if len(parts) >= 3 {
-				category := strings.Join(parts[2:], "/")
-				content = fmt.Sprintf("[%s] %s", category, atom.Content)
+			// Optimized to avoid strings.Split/Join allocation
+			idx1 := strings.IndexByte(atom.Concept, '/')
+			if idx1 != -1 {
+				idx2 := strings.IndexByte(atom.Concept[idx1+1:], '/')
+				if idx2 != -1 {
+					// The second slash is at idx1 + 1 + idx2
+					realIdx2 := idx1 + 1 + idx2
+					if realIdx2+1 < len(atom.Concept) {
+						category := atom.Concept[realIdx2+1:]
+						// Optimized formatting to avoid fmt.Sprintf reflection
+						content = "[" + category + "] " + atom.Content
+					}
+				}
 			}
 		}
 
 		// Create prompt atom with appropriate priority
 		// Priority 85 = below specialist_knowledge (90) but above regular context
-		atomID := fmt.Sprintf("knowledge/%s", HashContent(content)[:8])
+		// Optimized to avoid fmt.Sprintf
+		atomID := "knowledge/" + HashContent(content)[:8]
 		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
 		pa.Priority = 85
 		pa.IsMandatory = false // Knowledge is contextual, not mandatory

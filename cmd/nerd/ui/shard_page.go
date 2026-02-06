@@ -25,6 +25,8 @@ type ShardPageModel struct {
 }
 
 // NewShardPageModel creates a new shard console.
+// TODO: Allow dynamic column configuration
+// TODO: Add filter input to search/filter shards by ID or status.
 func NewShardPageModel() ShardPageModel {
 	t := table.New(
 		table.WithColumns([]table.Column{
@@ -48,6 +50,8 @@ func (m ShardPageModel) Init() tea.Cmd {
 }
 
 // Update handles messages.
+// TODO: IMPROVEMENT: Implement auto-refresh mechanism for shard status.
+// TODO: Add command to manually restart a shard.
 func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
@@ -55,6 +59,8 @@ func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
 }
 
 // View renders the page.
+// TODO: Add detailed view showing last N log lines for the selected shard.
+// TODO: IMPROVEMENT: Add visual indicators (colors/icons) for different shard statuses.
 func (m ShardPageModel) View() string {
 	var sb strings.Builder
 

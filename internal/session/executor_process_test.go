@@ -276,3 +276,23 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 		t.Error("Expected DreamMode to be true in compilation context")
 	}
 }
+
+// TODO: TEST_GAP: Verify Process(ctx, "") handles empty input gracefully (no panic, sensible error/response).
+
+// TODO: TEST_GAP: Verify behavior when JITCompiler returns error (Fallback to baseline prompt?).
+
+// TODO: TEST_GAP: Verify behavior when ConfigFactory returns error (Fallback to empty config?).
+
+// TODO: TEST_GAP: Verify behavior when Transducer returns error.
+
+// TODO: TEST_GAP: Verify MaxToolCalls limit with a mock LLM returning > MaxToolCalls.
+
+// TODO: TEST_GAP: Verify tool timeout enforcement (mock tool sleeping > ToolTimeout).
+
+// TODO: TEST_GAP: Verify panic recovery within executeToolCall (mock tool panicking).
+
+// TODO: TEST_GAP: Verify "Fail Closed" behavior if Kernel is nil but SafetyGate is enabled (Requires code change first).
+
+// TODO: TEST_GAP: Verify handling of ToolCall with nil Args (prevent nil pointer deref).
+
+// TODO: TEST_GAP: Verify Process respects ctx.Done() and halts execution immediately.

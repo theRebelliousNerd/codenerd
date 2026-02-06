@@ -25,12 +25,12 @@
 # These define valid values for LLM output fields.
 # The harness validates LLM classification against these.
 
-Decl valid_semantic_type(Type, Description).
-Decl valid_action_type(Action, Description).
-Decl valid_domain(Domain, Description).
-Decl valid_scope_level(Level, Order).
-Decl valid_mode(Mode, Description).
-Decl valid_urgency(Urgency, Order).
+# Decl valid_semantic_type(Type, Description)
+# Decl valid_action_type(Action, Description)
+# Decl valid_domain(Domain, Description)
+# Decl valid_scope_level(Level, Order)
+# Decl valid_mode(Mode, Description)
+# Decl valid_urgency(Urgency, Order)
 
 # --- Semantic Types (how is the user asking?) ---
 valid_semantic_type(/definition, "What is X? Explain X.").
@@ -106,10 +106,10 @@ valid_urgency(/critical, 4).
 # =============================================================================
 # Given semantic signals from LLM, which mode should the harness enter?
 
-Decl mode_from_semantic(SemanticType, Mode, Priority).
-Decl mode_from_action(ActionType, Mode, Priority).
-Decl mode_from_domain(Domain, Mode, Priority).
-Decl mode_from_signal(Signal, Mode, Priority).
+# Decl mode_from_semantic(SemanticType, Mode, Priority)
+# Decl mode_from_action(ActionType, Mode, Priority)
+# Decl mode_from_domain(Domain, Mode, Priority)
+# Decl mode_from_signal(Signal, Mode, Priority)
 
 # --- Semantic Type → Mode ---
 mode_from_semantic(/causation, /debug, 90).
@@ -138,9 +138,9 @@ mode_from_signal(/is_multi_step, /campaign, 80).
 # What context should be prioritized given the intent?
 # Higher weight = more important to include in LLM context window.
 
-Decl context_affinity_semantic(SemanticType, ContextCategory, Weight).
-Decl context_affinity_action(ActionType, ContextCategory, Weight).
-Decl context_affinity_domain(Domain, ContextCategory, Weight).
+# Decl context_affinity_semantic(SemanticType, ContextCategory, Weight)
+# Decl context_affinity_action(ActionType, ContextCategory, Weight)
+# Decl context_affinity_domain(Domain, ContextCategory, Weight)
 
 # --- Semantic Type → Context ---
 context_affinity_semantic(/causation, /error_logs, 100).
@@ -223,8 +223,8 @@ context_affinity_domain(/concurrency, /channel_usage, 85).
 # Which shards are appropriate for which intents?
 # Higher weight = more suitable for this intent.
 
-Decl shard_affinity_action(ActionType, ShardType, Weight).
-Decl shard_affinity_domain(Domain, ShardType, Weight).
+# Decl shard_affinity_action(ActionType, ShardType, Weight)
+# Decl shard_affinity_domain(Domain, ShardType, Weight)
 
 # --- Action Type → Shard ---
 shard_affinity_action(/investigate, /reviewer, 90).
@@ -271,8 +271,8 @@ shard_affinity_domain(/git, /coder, 85).
 # =============================================================================
 # Which tools are relevant for which intents?
 
-Decl tool_affinity_action(ActionType, Tool, Weight).
-Decl tool_affinity_domain(Domain, Tool, Weight).
+# Decl tool_affinity_action(ActionType, Tool, Weight)
+# Decl tool_affinity_domain(Domain, Tool, Weight)
 
 # --- Action Type → Tools ---
 tool_affinity_action(/investigate, /grep, 90).
@@ -321,10 +321,10 @@ tool_affinity_domain(/performance, /benchmark, 90).
 # =============================================================================
 # Derive final routing decisions from combined signals.
 
-Decl best_mode(Mode, Score).
-Decl best_shard(Shard, Score).
-Decl context_category_priority(ContextCategory, Score).
-Decl tool_priority(Tool, Score).
+# Decl best_mode(Mode, Score)
+# Decl best_shard(Shard, Score)
+# Decl context_category_priority(ContextCategory, Score)
+# Decl tool_priority(Tool, Score)
 
 # Aggregate mode scores from all signals
 # (In practice, this would be computed in Go by querying all mode_from_* facts)
@@ -343,7 +343,7 @@ Decl tool_priority(Tool, Score).
 # =============================================================================
 # User constraints that affect routing.
 
-Decl constraint_type(Constraint, Effect).
+# Decl constraint_type(Constraint, Effect)
 
 constraint_type(/no_changes, /read_only).
 constraint_type(/preserve_tests, /must_pass_tests).
@@ -354,13 +354,13 @@ constraint_type(/quick, /fast_path).
 constraint_type(/thorough, /deep_analysis).
 
 # Constraint → Mode override
-Decl constraint_forces_mode(Constraint, Mode).
+# Decl constraint_forces_mode(Constraint, Mode)
 constraint_forces_mode(/no_changes, /research).
 constraint_forces_mode(/dry_run, /dream).
 constraint_forces_mode(/confirm_first, /normal).
 
 # Constraint → Tool restriction
-Decl constraint_blocks_tool(Constraint, Tool).
+# Decl constraint_blocks_tool(Constraint, Tool)
 constraint_blocks_tool(/no_changes, /write_file).
 constraint_blocks_tool(/no_changes, /edit_file).
 constraint_blocks_tool(/no_changes, /git_commit).
