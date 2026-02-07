@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -185,20 +186,35 @@ func getAPIKey() string {
 			continue
 		}
 
-		// Simple extraction - look for genai_api_key or gemini_api_key
-		content := string(data)
-		for _, key := range []string{"genai_api_key", "gemini_api_key"} {
-			if idx := strings.Index(content, key); idx != -1 {
-				// Find the value after the key
-				rest := content[idx+len(key):]
-				// Skip ":" and whitespace, find the quoted value
-				if start := strings.Index(rest, `"`); start != -1 {
-					rest = rest[start+1:]
-					if end := strings.Index(rest, `"`); end != -1 {
-						return rest[:end]
-					}
-				}
-			}
+		// Parse JSON properly (string scanning is too brittle).
+		type embeddingCfg struct {
+			GenAIAPIKey  string `json:"genai_api_key"`
+			GeminiAPIKey string `json:"gemini_api_key"`
+		}
+		type cfgFile struct {
+			GenAIAPIKey  string       `json:"genai_api_key"`
+			GeminiAPIKey string       `json:"gemini_api_key"`
+			Embedding    embeddingCfg `json:"embedding"`
+		}
+
+		var cfg cfgFile
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+
+		// Prefer embedding-specific key if present.
+		if strings.TrimSpace(cfg.Embedding.GenAIAPIKey) != "" {
+			return strings.TrimSpace(cfg.Embedding.GenAIAPIKey)
+		}
+		if strings.TrimSpace(cfg.Embedding.GeminiAPIKey) != "" {
+			return strings.TrimSpace(cfg.Embedding.GeminiAPIKey)
+		}
+
+		if strings.TrimSpace(cfg.GenAIAPIKey) != "" {
+			return strings.TrimSpace(cfg.GenAIAPIKey)
+		}
+		if strings.TrimSpace(cfg.GeminiAPIKey) != "" {
+			return strings.TrimSpace(cfg.GeminiAPIKey)
 		}
 	}
 
