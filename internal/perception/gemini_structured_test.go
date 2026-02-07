@@ -210,9 +210,20 @@ func TestContextFeedbackSchema(t *testing.T) {
 	}
 
 	// Verify context_feedback is NOT in required fields (it's optional)
-	required, ok := controlPacket["required"].([]string)
-	if !ok {
-		t.Fatal("Missing required array in control_packet")
+	var required []string
+	switch v := controlPacket["required"].(type) {
+	case []string:
+		required = v
+	case []interface{}:
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				t.Fatalf("control_packet.required contains non-string item: %T", item)
+			}
+			required = append(required, s)
+		}
+	default:
+		t.Fatalf("Missing required array in control_packet (type=%T)", controlPacket["required"])
 	}
 
 	for _, req := range required {

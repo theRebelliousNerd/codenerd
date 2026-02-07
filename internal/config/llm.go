@@ -45,7 +45,7 @@ type ClaudeCLIConfig struct {
 // - Single completion per call, no agentic loops
 type CodexCLIConfig struct {
 	// Model: "gpt-5.1-codex-max" (recommended), "gpt-5.1-codex-mini", "gpt-5.1",
-	// "gpt-5-codex", "gpt-5", "o4-mini", "codex-mini-latest"
+	// "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5-codex", "gpt-5", "o4-mini", "codex-mini-latest"
 	Model string `json:"model,omitempty"`
 
 	// Sandbox mode: "read-only" (default), "workspace-write"
@@ -63,6 +63,31 @@ type CodexCLIConfig struct {
 	// Streaming enables real-time streaming output
 	// When true, responses are streamed as they arrive
 	Streaming bool `json:"streaming,omitempty"`
+
+	// ReasoningEffortDefault overrides Codex CLI `model_reasoning_effort` when no
+	// per-capability override applies. Example values seen in the wild: "low",
+	// "medium", "high", "xhigh".
+	ReasoningEffortDefault string `json:"reasoning_effort_default,omitempty"`
+
+	// Per-capability reasoning effort overrides. These are selected based on the
+	// shard's ModelCapability hint in the request context.
+	ReasoningEffortHighReasoning string `json:"reasoning_effort_high_reasoning,omitempty"`
+	ReasoningEffortBalanced      string `json:"reasoning_effort_balanced,omitempty"`
+	ReasoningEffortHighSpeed     string `json:"reasoning_effort_high_speed,omitempty"`
+
+	// DisableShellTool disables Codex CLI's shell tool execution. Default should
+	// be true for codeNERD, since execution is handled by the Tactile layer.
+	DisableShellTool *bool `json:"disable_shell_tool,omitempty"`
+
+	// EnableOutputSchema enables Codex CLI `--output-schema` for Piggyback
+	// structured outputs when we detect a Piggyback prompt.
+	EnableOutputSchema *bool `json:"enable_output_schema,omitempty"`
+
+	// ConfigOverrides allows passing additional `codex exec -c key=value` overrides.
+	// Values are passed as raw TOML fragments (or literals if TOML parsing fails).
+	// Example:
+	//   {"personality": "\"friendly\"", "shell_environment_policy.inherit": "all"}
+	ConfigOverrides map[string]string `json:"config_overrides,omitempty"`
 }
 
 // GeminiProviderConfig holds Gemini-specific configuration.

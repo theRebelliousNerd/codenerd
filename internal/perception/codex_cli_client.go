@@ -1,77 +1,60 @@
 package perception
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/types"
 )
 
 // CodexCLIClient implements LLMClient using the Codex CLI subprocess.
-// It executes `codex exec - --model <model> --sandbox <sandbox> --json --color never`
-// and parses the NDJSON response stream.
 //
-// IMPORTANT: This uses Codex CLI as a SUBPROCESS LLM API, NOT as an agent.
-// - Sandbox is always "read-only" (codeNERD has its own Tactile Layer)
-// - Single completion per call, no agentic loops
-// - System prompt is embedded in user prompt via XML tags
+// IMPORTANT: codeNERD uses Codex CLI as a SUBPROCESS LLM API, NOT as an agent.
+// - Shell tool execution is disabled by default (codeNERD uses its own Tactile Layer)
+// - Single completion per call (no agentic loops)
+// - System prompt is embedded in user prompt via tags (Codex CLI has no --system flag)
 //
-// Enhanced features:
-// - Streaming output for real-time responses
-// - Fallback model for rate limit resilience (handled in Go code)
+// Implementation notes:
+//   - Uses `codex exec -` and relies on `--output-last-message` for the final message
+//     to avoid brittle JSONL event parsing across Codex CLI versions.
+//   - Optionally uses `--output-schema` to enforce Piggyback structured output when detected.
 type CodexCLIClient struct {
 	model         string
 	fallbackModel string
 	sandbox       string
 	timeout       time.Duration
 	streaming     bool
-}
 
-// codexNDJSONEvent represents an event in the Codex NDJSON stream.
-// The stream contains events with types: "message_start", "content_block_delta", "message_stop".
-type codexNDJSONEvent struct {
-	Type    string `json:"type"`
-	Message *struct {
-		ID      string `json:"id,omitempty"`
-		Role    string `json:"role,omitempty"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content,omitempty"`
-	} `json:"message,omitempty"`
-	Index int `json:"index,omitempty"`
-	Delta *struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"delta,omitempty"`
-	Error *struct {
-		Type    string `json:"type"`
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
+	disableShellTool   bool
+	enableOutputSchema bool
 
-// CodexExecutionOptions configures a single Codex CLI execution.
-type CodexExecutionOptions struct {
-	SystemPrompt string
-	Streaming    bool
+	reasoningEffortDefault       string
+	reasoningEffortHighReasoning string
+	reasoningEffortBalanced      string
+	reasoningEffortHighSpeed     string
+
+	configOverrides map[string]string
 }
 
 // NewCodexCLIClient creates a new Codex CLI client.
-// If cfg is nil, defaults are applied (model: "gpt-5.1-codex-max", sandbox: "read-only", timeout: 300s).
+// If cfg is nil, defaults are applied (model: "gpt-5.3-codex", sandbox: "read-only", timeout: 300s).
 func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
-	// Apply defaults - gpt-5.1-codex-max is the recommended model for agentic coding tasks
 	client := &CodexCLIClient{
-		model:   "gpt-5.1-codex-max",
-		sandbox: "read-only",
-		timeout: 300 * time.Second,
+		model:              "gpt-5.3-codex",
+		sandbox:            "read-only",
+		timeout:            300 * time.Second,
+		disableShellTool:   true,
+		enableOutputSchema: true,
 	}
 
 	if cfg != nil {
@@ -86,6 +69,25 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		}
 		client.fallbackModel = cfg.FallbackModel
 		client.streaming = cfg.Streaming
+
+		if cfg.DisableShellTool != nil {
+			client.disableShellTool = *cfg.DisableShellTool
+		}
+		if cfg.EnableOutputSchema != nil {
+			client.enableOutputSchema = *cfg.EnableOutputSchema
+		}
+
+		client.reasoningEffortDefault = strings.TrimSpace(cfg.ReasoningEffortDefault)
+		client.reasoningEffortHighReasoning = strings.TrimSpace(cfg.ReasoningEffortHighReasoning)
+		client.reasoningEffortBalanced = strings.TrimSpace(cfg.ReasoningEffortBalanced)
+		client.reasoningEffortHighSpeed = strings.TrimSpace(cfg.ReasoningEffortHighSpeed)
+
+		if len(cfg.ConfigOverrides) > 0 {
+			client.configOverrides = make(map[string]string, len(cfg.ConfigOverrides))
+			for k, v := range cfg.ConfigOverrides {
+				client.configOverrides[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
 	}
 
 	return client
@@ -97,27 +99,36 @@ func (c *CodexCLIClient) Complete(ctx context.Context, prompt string) (string, e
 }
 
 // CompleteWithSystem sends a prompt with an optional system message to Codex CLI.
-// Since `codex exec` does not have a --system flag, the system prompt is wrapped
-// in <system_instructions> tags and prepended to the user prompt.
 func (c *CodexCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	opts := &CodexExecutionOptions{
-		SystemPrompt: systemPrompt,
+	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
+
+	// Schema enforcement is only applied when we detect Piggyback protocol.
+	var schema map[string]interface{}
+	if c.enableOutputSchema && isPiggybackPrompt(systemPrompt, userPrompt) {
+		schema = piggybackEnvelopeRawSchema()
 	}
-	return c.executeWithOptions(ctx, userPrompt, opts)
+
+	return c.executeWithFallback(ctx, combinedPrompt, schema)
 }
 
-// CompleteStreaming sends a prompt and streams the response in real-time.
-// The callback is called for each chunk of output.
+// CompleteStreaming sends a prompt and streams the response.
+//
+// Best-effort: Codex CLI emits JSONL events, but event schemas can change. We rely on
+// --output-last-message for correctness and emit the final message as a single chunk.
 func (c *CodexCLIClient) CompleteStreaming(ctx context.Context, systemPrompt, userPrompt string, callback StreamCallback) error {
-	opts := &CodexExecutionOptions{
-		SystemPrompt: systemPrompt,
-		Streaming:    true,
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return err
 	}
-	return c.executeStreaming(ctx, userPrompt, opts, callback)
+	if strings.TrimSpace(text) != "" {
+		if err := callback(StreamChunk{Type: "text", Text: text}); err != nil {
+			return err
+		}
+	}
+	return callback(StreamChunk{Done: true})
 }
 
 // CompleteWithStreaming adapts callback-based streaming into channel-based streaming.
-// This is used by system components that need cancellation-aware streaming (e.g. GCD).
 func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
@@ -153,18 +164,12 @@ func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt
 	return contentChan, errorChan
 }
 
-// executeWithOptions runs the CLI with fallback model support.
-func (c *CodexCLIClient) executeWithOptions(ctx context.Context, prompt string, opts *CodexExecutionOptions) (string, error) {
-	// Build combined prompt with system instructions
-	combinedPrompt := c.buildPrompt(opts.SystemPrompt, prompt)
-
-	// Try primary model first
-	response, err := c.executeCLI(ctx, combinedPrompt, c.model)
+func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+	response, err := c.executeCLI(ctx, prompt, c.model, schema)
 	if err != nil {
-		// If rate limited and we have a fallback, try it
 		var rateLimitErr *RateLimitError
 		if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
-			response, err = c.executeCLI(ctx, combinedPrompt, c.fallbackModel)
+			response, err = c.executeCLI(ctx, prompt, c.fallbackModel, schema)
 			if err != nil {
 				return "", fmt.Errorf("fallback model also failed: %w", err)
 			}
@@ -183,54 +188,135 @@ func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
 	return userPrompt
 }
 
-// executeCLI runs the codex CLI command with prompt piped to stdin and parses the NDJSON response.
-func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string) (string, error) {
-	// Apply timeout to context
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
+func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
+	// Keep this heuristic consistent with API clients. If we detect Piggyback, we can safely
+	// enforce the Piggyback JSON schema via Codex CLI --output-schema.
+	return strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+}
 
-	// Build command arguments:
-	// codex exec - --model <model> --sandbox <sandbox> --json --color never
-	// The "-" flag tells codex to read the prompt from stdin
+func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
+	var capHint types.ModelCapability
+	if v := ctx.Value(types.CtxKeyModelCapability); v != nil {
+		switch vv := v.(type) {
+		case types.ModelCapability:
+			capHint = vv
+		case string:
+			capHint = types.ModelCapability(strings.TrimSpace(vv))
+		}
+	}
+
+	switch capHint {
+	case types.CapabilityHighReasoning:
+		if c.reasoningEffortHighReasoning != "" {
+			return c.reasoningEffortHighReasoning
+		}
+	case types.CapabilityHighSpeed:
+		if c.reasoningEffortHighSpeed != "" {
+			return c.reasoningEffortHighSpeed
+		}
+	case types.CapabilityBalanced:
+		if c.reasoningEffortBalanced != "" {
+			return c.reasoningEffortBalanced
+		}
+	}
+
+	if c.reasoningEffortDefault != "" {
+		return c.reasoningEffortDefault
+	}
+	return ""
+}
+
+func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schemaPath string) []string {
 	args := []string{
 		"exec", "-",
 		"--model", model,
 		"--sandbox", c.sandbox,
-		"--json",
 		"--color", "never",
+		"--output-last-message", outPath,
+		"--json",
+	}
+	if schemaPath != "" {
+		args = append(args, "--output-schema", schemaPath)
+	}
+	if c.disableShellTool {
+		// Defense-in-depth: prevent Codex from running shell commands at all.
+		args = append(args, "--disable", "shell_tool")
 	}
 
-	// Create command with context for cancellation support
-	cmd := exec.CommandContext(ctx, "codex", args...)
+	// Build -c overrides (deterministic ordering for testability).
+	overrides := make(map[string]string, len(c.configOverrides)+1)
+	for k, v := range c.configOverrides {
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+			continue
+		}
+		overrides[k] = v
+	}
 
-	// Set up stdin pipe for prompt input
-	stdin, err := cmd.StdinPipe()
+	// Per-shard reasoning multiplexing via context hint. Skip if user explicitly overrides.
+	if _, ok := overrides["model_reasoning_effort"]; !ok {
+		if effort := strings.TrimSpace(c.reasoningEffortForContext(ctx)); effort != "" {
+			overrides["model_reasoning_effort"] = strconv.Quote(effort)
+		}
+	}
+
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "-c", fmt.Sprintf("%s=%s", k, overrides[k]))
+	}
+
+	return args
+}
+
+// executeCLI runs the codex CLI command with prompt piped to stdin and returns the last message.
+func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, schema map[string]interface{}) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	outFile, err := os.CreateTemp("", "codex-last-message-*.txt")
 	if err != nil {
-		return "", fmt.Errorf("failed to create stdin pipe for codex CLI: %w", err)
+		return "", fmt.Errorf("failed to create temp output file: %w", err)
+	}
+	outPath := outFile.Name()
+	_ = outFile.Close()
+	defer os.Remove(outPath)
+
+	schemaPath := ""
+	if schema != nil {
+		f, err := os.CreateTemp("", "codex-output-schema-*.json")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp schema file: %w", err)
+		}
+		schemaPath = f.Name()
+		enc := json.NewEncoder(f)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(schema); err != nil {
+			f.Close()
+			os.Remove(schemaPath)
+			return "", fmt.Errorf("failed to write schema file: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			os.Remove(schemaPath)
+			return "", fmt.Errorf("failed to close schema file: %w", err)
+		}
+		defer os.Remove(schemaPath)
 	}
 
-	// Capture stdout and stderr
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	args := c.buildCLIArgs(ctx, model, outPath, schemaPath)
+	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Stdout = io.Discard
+
+	var stderr strings.Builder
 	cmd.Stderr = &stderr
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start codex CLI: %w", err)
-	}
-
-	// Write prompt to stdin and close
-	if _, err := io.WriteString(stdin, prompt); err != nil {
-		return "", fmt.Errorf("failed to write prompt to codex CLI stdin: %w", err)
-	}
-	if err := stdin.Close(); err != nil {
-		return "", fmt.Errorf("failed to close codex CLI stdin: %w", err)
-	}
-
-	// Wait for command to complete
-	err = cmd.Wait()
-	if err != nil {
-		// Check for context cancellation
+	if err := cmd.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", fmt.Errorf("codex CLI timed out after %v: %w", c.timeout, ctx.Err())
 		}
@@ -238,8 +324,7 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string) (
 			return "", fmt.Errorf("codex CLI execution canceled: %w", ctx.Err())
 		}
 
-		// Check if stderr contains rate limit information
-		stderrStr := stderr.String()
+		stderrStr := strings.TrimSpace(stderr.String())
 		if isRateLimitError(stderrStr) {
 			return "", &RateLimitError{
 				Provider:    "codex-cli",
@@ -247,275 +332,54 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string) (
 			}
 		}
 
-		// Return detailed error with stderr content
-		return "", fmt.Errorf("codex CLI execution failed: %w (stderr: %s)", err, stderrStr)
+		return "", fmt.Errorf("codex CLI execution failed: %w (stderr: %s)", err, truncateString(stderrStr, 2000))
 	}
 
-	// Parse the NDJSON response
-	response, err := c.parseNDJSONResponse(stdout.Bytes())
+	data, err := os.ReadFile(outPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse codex CLI response: %w", err)
+		return "", fmt.Errorf("failed to read codex last-message file: %w", err)
 	}
-
-	return response, nil
-}
-
-// executeStreaming runs the CLI in streaming mode and calls the callback for each chunk.
-func (c *CodexCLIClient) executeStreaming(ctx context.Context, userPrompt string, opts *CodexExecutionOptions, callback StreamCallback) error {
-	// Apply timeout to context
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	// Build combined prompt
-	combinedPrompt := c.buildPrompt(opts.SystemPrompt, userPrompt)
-
-	// Build command arguments
-	args := []string{
-		"exec", "-",
-		"--model", c.model,
-		"--sandbox", c.sandbox,
-		"--json",
-		"--color", "never",
-	}
-
-	// Create command with context for cancellation support
-	cmd := exec.CommandContext(ctx, "codex", args...)
-
-	// Set up stdin pipe for prompt input
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe for codex CLI: %w", err)
-	}
-
-	// Get stdout pipe for streaming
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start codex CLI: %w", err)
-	}
-
-	// Write prompt to stdin and close
-	if _, err := io.WriteString(stdin, combinedPrompt); err != nil {
-		return fmt.Errorf("failed to write prompt to codex CLI stdin: %w", err)
-	}
-	if err := stdin.Close(); err != nil {
-		return fmt.Errorf("failed to close codex CLI stdin: %w", err)
-	}
-
-	// Read streaming output line by line (NDJSON)
-	scanner := bufio.NewScanner(stdout)
-	var fullContent strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var event codexNDJSONEvent
-		if err := json.Unmarshal(line, &event); err != nil {
-			// Skip malformed lines
-			continue
-		}
-
-		// Check for error events
-		if event.Error != nil {
-			errMsg := event.Error.Message
-			if isRateLimitError(errMsg) || strings.Contains(strings.ToLower(event.Error.Type), "rate_limit") {
-				cmd.Process.Kill()
-				return &RateLimitError{
-					Provider:    "codex-cli",
-					RawResponse: errMsg,
-				}
-			}
-			cmd.Process.Kill()
-			return fmt.Errorf("codex CLI error: %s (type: %s)", errMsg, event.Error.Type)
-		}
-
-		// Process delta events
-		if event.Type == "content_block_delta" && event.Delta != nil && event.Delta.Type == "text_delta" {
-			text := event.Delta.Text
-			fullContent.WriteString(text)
-
-			// Create StreamChunk for callback
-			chunk := StreamChunk{
-				Type: "text",
-				Text: text,
-			}
-			if err := callback(chunk); err != nil {
-				cmd.Process.Kill()
-				return err
-			}
-		}
-
-		// Handle message_stop
-		if event.Type == "message_stop" {
-			// Send final done chunk
-			if err := callback(StreamChunk{Done: true}); err != nil {
-				cmd.Process.Kill()
-				return err
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading NDJSON stream: %w", err)
-	}
-
-	// Wait for command to complete
-	if err := cmd.Wait(); err != nil {
-		stderrStr := stderr.String()
-		if isRateLimitError(stderrStr) {
-			return &RateLimitError{
-				Provider:    "codex-cli",
-				RawResponse: stderrStr,
-			}
-		}
-		return fmt.Errorf("codex CLI execution failed: %w (stderr: %s)", err, stderrStr)
-	}
-
-	return nil
-}
-
-// parseNDJSONResponse extracts the assistant message text from the NDJSON event stream.
-// It processes events line-by-line and extracts text from message_stop event's message.content[].text.
-func (c *CodexCLIClient) parseNDJSONResponse(data []byte) (string, error) {
-	if len(data) == 0 {
-		return "", errors.New("empty response from codex CLI")
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-
-	// Track accumulated text from content_block_delta events
-	var deltaText strings.Builder
-
-	// Track final message content from message_stop event
-	var finalText string
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var event codexNDJSONEvent
-		if err := json.Unmarshal(line, &event); err != nil {
-			// Skip malformed lines, continue processing
-			continue
-		}
-
-		// Check for error events
-		if event.Error != nil {
-			// Check if error indicates rate limiting
-			if strings.Contains(strings.ToLower(event.Error.Message), "rate limit") ||
-				strings.Contains(strings.ToLower(event.Error.Type), "rate_limit") {
-				return "", &RateLimitError{
-					Provider:    "codex-cli",
-					RawResponse: event.Error.Message,
-				}
-			}
-			return "", fmt.Errorf("codex CLI error: %s (type: %s)", event.Error.Message, event.Error.Type)
-		}
-
-		switch event.Type {
-		case "content_block_delta":
-			// Accumulate text from delta events
-			if event.Delta != nil && event.Delta.Type == "text_delta" {
-				deltaText.WriteString(event.Delta.Text)
-			}
-
-		case "message_stop":
-			// Extract final message content
-			if event.Message != nil {
-				var result strings.Builder
-				for _, content := range event.Message.Content {
-					if content.Type == "text" {
-						result.WriteString(content.Text)
-					}
-				}
-				finalText = result.String()
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("error reading NDJSON stream: %w", err)
-	}
-
-	// Prefer final message from message_stop, fallback to accumulated deltas
-	result := strings.TrimSpace(finalText)
+	result := strings.TrimSpace(string(data))
 	if result == "" {
-		result = strings.TrimSpace(deltaText.String())
-	}
-
-	if result == "" {
-		return "", errors.New("no text content in codex CLI response")
+		return "", fmt.Errorf("codex CLI produced empty last-message output (model=%s)", model)
 	}
 
 	return result, nil
 }
 
 // SetModel changes the model used for completions.
-func (c *CodexCLIClient) SetModel(model string) {
-	c.model = model
-}
+func (c *CodexCLIClient) SetModel(model string) { c.model = model }
 
 // GetModel returns the current model.
-func (c *CodexCLIClient) GetModel() string {
-	return c.model
-}
+func (c *CodexCLIClient) GetModel() string { return c.model }
 
 // SetFallbackModel sets the fallback model for rate limit resilience.
-func (c *CodexCLIClient) SetFallbackModel(model string) {
-	c.fallbackModel = model
-}
+func (c *CodexCLIClient) SetFallbackModel(model string) { c.fallbackModel = model }
 
 // GetFallbackModel returns the fallback model.
-func (c *CodexCLIClient) GetFallbackModel() string {
-	return c.fallbackModel
-}
+func (c *CodexCLIClient) GetFallbackModel() string { return c.fallbackModel }
 
 // SetSandbox changes the sandbox mode.
-func (c *CodexCLIClient) SetSandbox(sandbox string) {
-	c.sandbox = sandbox
-}
+func (c *CodexCLIClient) SetSandbox(sandbox string) { c.sandbox = sandbox }
 
 // GetSandbox returns the current sandbox mode.
-func (c *CodexCLIClient) GetSandbox() string {
-	return c.sandbox
-}
+func (c *CodexCLIClient) GetSandbox() string { return c.sandbox }
 
 // SetTimeout changes the timeout for CLI execution.
-func (c *CodexCLIClient) SetTimeout(timeout time.Duration) {
-	c.timeout = timeout
-}
+func (c *CodexCLIClient) SetTimeout(timeout time.Duration) { c.timeout = timeout }
 
 // GetTimeout returns the current timeout.
-func (c *CodexCLIClient) GetTimeout() time.Duration {
-	return c.timeout
-}
+func (c *CodexCLIClient) GetTimeout() time.Duration { return c.timeout }
 
-// SetStreaming enables or disables streaming mode.
-func (c *CodexCLIClient) SetStreaming(streaming bool) {
-	c.streaming = streaming
-}
+// SetStreaming enables or disables streaming mode (best-effort).
+func (c *CodexCLIClient) SetStreaming(streaming bool) { c.streaming = streaming }
 
 // GetStreaming returns whether streaming is enabled.
-func (c *CodexCLIClient) GetStreaming() bool {
-	return c.streaming
-}
+func (c *CodexCLIClient) GetStreaming() bool { return c.streaming }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// TODO: Implement proper Codex CLI function calling - for now falls back to simple completion.
+// Codex CLI is used as a backend here; tools are requested via Piggyback control_packet.tool_requests.
 func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Fallback: Use simple completion without tools
 	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
@@ -527,7 +391,5 @@ func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, us
 }
 
 // ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
-// for tool invocation, since the Codex CLI does not natively support tool calling.
-func (c *CodexCLIClient) ShouldUsePiggybackTools() bool {
-	return true
-}
+// for tool invocation. This is required for Codex CLI since codeNERD owns tool execution.
+func (c *CodexCLIClient) ShouldUsePiggybackTools() bool { return true }
