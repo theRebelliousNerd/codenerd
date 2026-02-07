@@ -130,64 +130,35 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 
 // extractJSON finds the last valid JSON object in the response.
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
+// It scans from the end of the string to efficiently find the last valid object without O(N^2) overhead.
 func extractJSON(response string) string {
-	var validBlocks []struct {
-		start, end int
-		content    string
-	}
-
-	// Find all start indices of '{'
-	var starts []int
-	for i, r := range response {
-		if r == '{' {
-			starts = append(starts, i)
-		}
-	}
-
-	for _, start := range starts {
-		depth := 0
-		for j := start; j < len(response); j++ {
-			if response[j] == '{' {
-				depth++
-			} else if response[j] == '}' {
-				depth--
-				if depth == 0 {
-					candidate := response[start : j+1]
-					if json.Valid([]byte(candidate)) {
-						validBlocks = append(validBlocks, struct {
-							start, end int
-							content    string
-						}{start, j + 1, candidate})
+	// Scan from end to find the last valid JSON object.
+	for i := len(response) - 1; i >= 0; i-- {
+		if response[i] == '}' {
+			// Found a potential end of JSON object.
+			// Scan backwards to find the matching '{'.
+			depth := 1
+			for j := i - 1; j >= 0; j-- {
+				if response[j] == '}' {
+					depth++
+				} else if response[j] == '{' {
+					depth--
+					if depth == 0 {
+						// Found a balanced block.
+						candidate := response[j : i+1]
+						if json.Valid([]byte(candidate)) {
+							return candidate
+						}
+						// If not valid, we continue scanning for other '}' in the outer loop.
+						// This allows us to find:
+						// 1. Inner valid blocks if the outer block is invalid (e.g. { invalid { "valid": 1 } })
+						// 2. Preceding valid blocks (e.g. { "valid": 1 } { invalid })
+						break
 					}
-					break // Found the matching brace for this start, move to next start
 				}
 			}
 		}
 	}
-
-	// Filter out contained blocks to get top-level objects
-	var topLevel []string
-	for i, b1 := range validBlocks {
-		isContained := false
-		for j, b2 := range validBlocks {
-			if i == j {
-				continue
-			}
-			// If b2 contains b1 (and is larger/different)
-			if b2.start <= b1.start && b2.end >= b1.end {
-				isContained = true
-				break
-			}
-		}
-		if !isContained {
-			topLevel = append(topLevel, b1.content)
-		}
-	}
-
-	if len(topLevel) > 0 {
-		return topLevel[len(topLevel)-1]
-	}
-
 	return ""
 }
 
