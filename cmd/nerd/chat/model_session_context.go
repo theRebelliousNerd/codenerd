@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"codenerd/internal/types"
 )
 
@@ -30,6 +31,17 @@ import (
 func (m *Model) buildSessionContext(ctx context.Context) *types.SessionContext {
 	sessionCtx := &types.SessionContext{
 		ExtraContext: make(map[string]string),
+	}
+
+	// Engine hinting for JIT prompt selection:
+	// When Codex CLI is the active LLM backend, tag it as a "framework" so we can
+	// select engine-specific atoms (e.g., disable native shell tools, prefer Piggyback).
+	if _, ok := m.client.(*perception.CodexCLIClient); ok {
+		if existing := strings.TrimSpace(sessionCtx.ExtraContext["frameworks"]); existing != "" {
+			sessionCtx.ExtraContext["frameworks"] = existing + ",codex_cli"
+		} else {
+			sessionCtx.ExtraContext["frameworks"] = "codex_cli"
+		}
 	}
 
 	// ==========================================================================
