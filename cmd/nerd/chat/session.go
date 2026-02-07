@@ -278,13 +278,29 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			// Report which provider was detected
 			providerCfg, _ := perception.DetectProvider()
 			if providerCfg != nil {
+				providerLabel := string(providerCfg.Provider)
 				modelInfo := providerCfg.Model
+
+				// CLI engines don't populate Provider/Model; report engine + configured CLI model.
+				switch providerCfg.Engine {
+				case "claude-cli":
+					providerLabel = "claude-cli"
+					if providerCfg.ClaudeCLI != nil && providerCfg.ClaudeCLI.Model != "" {
+						modelInfo = providerCfg.ClaudeCLI.Model
+					}
+				case "codex-cli":
+					providerLabel = "codex-cli"
+					if providerCfg.CodexCLI != nil && providerCfg.CodexCLI.Model != "" {
+						modelInfo = providerCfg.CodexCLI.Model
+					}
+				}
+
 				if modelInfo == "" {
 					modelInfo = "default"
 				}
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
-					Content: fmt.Sprintf("✓ Using %s provider (model: %s)", providerCfg.Provider, modelInfo),
+					Content: fmt.Sprintf("✓ Using %s (model: %s)", providerLabel, modelInfo),
 					Time:    time.Now(),
 				})
 			}
