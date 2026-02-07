@@ -199,10 +199,14 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 
 	// Ensure codex_cli config exists
 	if cfg.CodexCLI == nil {
+		disableShell := true
+		enableSchema := true
 		cfg.CodexCLI = &config.CodexCLIConfig{
-			Model:   "gpt-5",
-			Sandbox: "read-only",
-			Timeout: 300,
+			Model:              "gpt-5.3-codex",
+			Sandbox:            "read-only",
+			Timeout:            300,
+			DisableShellTool:   &disableShell,
+			EnableOutputSchema: &enableSchema,
 		}
 	}
 
