@@ -1193,7 +1193,9 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		mainModulePath = os.Getenv("CODE_NERD_WORKSPACE_ROOT")
 	}
 	if mainModulePath != "" {
-		exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath)).Run()
+		editCmd := exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath))
+		editCmd.Dir = tmpDir
+		_ = editCmd.Run()
 	}
 
 	// Run go mod tidy
