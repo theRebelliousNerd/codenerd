@@ -132,6 +132,13 @@ safe_action(/corrective_research).
 
 # Execution operations
 safe_action(/exec_cmd).
+safe_action(/run_command).
+safe_action(/bash).
+safe_action(/run_build).
+safe_action(/run_tests).
+safe_action(/git_operation).
+safe_action(/git_diff).
+safe_action(/git_log).
 
 # Blocked patterns for dangerous commands
 blocked_pattern("git push --force").
@@ -155,6 +162,48 @@ dangerous_content(/exec_cmd, Payload) :-
 dangerous_content(/exec_cmd, Payload) :-
     pending_action(_, /exec_cmd, _, Payload, _),
     :string:contains(Payload, "git push"),
+    :string:contains(Payload, "-f").
+
+# Safety checks for run_command and bash
+dangerous_content(/run_command, Payload) :-
+    pending_action(_, /run_command, _, Payload, _),
+    blocked_pattern(Pattern),
+    :string:contains(Payload, Pattern).
+
+dangerous_content(/bash, Payload) :-
+    pending_action(_, /bash, _, Payload, _),
+    blocked_pattern(Pattern),
+    :string:contains(Payload, Pattern).
+
+dangerous_content(/run_command, Payload) :-
+    pending_action(_, /run_command, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "--force").
+
+dangerous_content(/run_command, Payload) :-
+    pending_action(_, /run_command, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "-f").
+
+dangerous_content(/bash, Payload) :-
+    pending_action(_, /bash, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "--force").
+
+dangerous_content(/bash, Payload) :-
+    pending_action(_, /bash, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "-f").
+
+# Safety checks for git_operation
+dangerous_content(/git_operation, Payload) :-
+    pending_action(_, /git_operation, _, Payload, _),
+    :string:contains(Payload, "\"operation\":\"push\""),
+    :string:contains(Payload, "--force").
+
+dangerous_content(/git_operation, Payload) :-
+    pending_action(_, /git_operation, _, Payload, _),
+    :string:contains(Payload, "\"operation\":\"push\""),
     :string:contains(Payload, "-f").
 
 # Investigation operations
