@@ -145,3 +145,8 @@ func (p SpawnPriority) String() string {
 
 // CtxKeyPriority is the context key for passing spawn priority.
 const CtxKeyPriority = "spawn_priority"
+
+// CtxKeyModelCapability is the context key for passing shard model capability hints
+// to shared LLM clients. This enables per-shard reasoning configuration even when
+// the process uses a single LLM client instance.
+const CtxKeyModelCapability = "model_capability"

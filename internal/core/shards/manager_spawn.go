@@ -361,6 +361,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		execCtx, execCancel := context.WithTimeout(ctx, execTimeout)
 		defer execCancel()
 
+		// Hint to shared LLM clients (e.g. Codex CLI) what capability tier this shard expects,
+		// enabling per-shard reasoning multiplexing without changing the LLMClient interface.
+		execCtx = context.WithValue(execCtx, types.CtxKeyModelCapability, config.Model.Capability)
+
 		res, err := agent.Execute(execCtx, task)
 
 		errMsg := ""

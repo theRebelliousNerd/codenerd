@@ -497,21 +497,33 @@ func (c *UserConfig) GetClaudeCLIConfig() *ClaudeCLIConfig {
 // GetCodexCLIConfig returns Codex CLI config with defaults applied.
 func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if c.CodexCLI == nil {
+		disableShell := true
+		enableSchema := true
 		return &CodexCLIConfig{
-			Model:   "gpt-5",
-			Sandbox: "read-only",
-			Timeout: 300,
+			Model:              "gpt-5.3-codex",
+			Sandbox:            "read-only",
+			Timeout:            300,
+			DisableShellTool:   &disableShell,
+			EnableOutputSchema: &enableSchema,
 		}
 	}
 	cfg := *c.CodexCLI
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5"
+		cfg.Model = "gpt-5.3-codex"
 	}
 	if cfg.Sandbox == "" {
 		cfg.Sandbox = "read-only"
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 300
+	}
+	if cfg.DisableShellTool == nil {
+		disableShell := true
+		cfg.DisableShellTool = &disableShell
+	}
+	if cfg.EnableOutputSchema == nil {
+		enableSchema := true
+		cfg.EnableOutputSchema = &enableSchema
 	}
 	return &cfg
 }

@@ -1,105 +1,40 @@
 package perception
 
+import (
+	"encoding/json"
+	"sync"
+
+	"codenerd/internal/articulation"
+)
+
+var (
+	piggybackSchemaOnce sync.Once
+	piggybackSchemaRaw  map[string]interface{}
+)
+
 // piggybackEnvelopeRawSchema returns the raw JSON schema for PiggybackEnvelope.
 // This is the base schema used by providers that support JSON schema enforcement.
-// IMPORTANT: This schema must match articulation/schema.go PiggybackEnvelopeSchema.
+//
+// IMPORTANT: This schema MUST match articulation/schema.go PiggybackEnvelopeSchema.
+// We parse the canonical schema constant to avoid schema drift (wiring gap class).
 func piggybackEnvelopeRawSchema() map[string]interface{} {
-	return map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"control_packet": map[string]interface{}{
+	piggybackSchemaOnce.Do(func() {
+		// Best-effort parse; fallback to a minimal schema if something goes wrong.
+		if err := json.Unmarshal([]byte(articulation.PiggybackEnvelopeSchema), &piggybackSchemaRaw); err != nil {
+			piggybackSchemaRaw = map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"intent_classification": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"category":   map[string]interface{}{"type": "string"},
-							"verb":       map[string]interface{}{"type": "string"},
-							"target":     map[string]interface{}{"type": "string"},
-							"constraint": map[string]interface{}{"type": "string"},
-							"confidence": map[string]interface{}{"type": "number"},
-						},
-						"required":             []string{"category", "verb", "target", "constraint", "confidence"},
-						"additionalProperties": false,
-					},
-					"mangle_updates": map[string]interface{}{
-						"type": "array",
-						"items": map[string]interface{}{
-							"type": "string",
-						},
-					},
-					"memory_operations": map[string]interface{}{
-						"type": "array",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"op":    map[string]interface{}{"type": "string"},
-								"key":   map[string]interface{}{"type": "string"},
-								"value": map[string]interface{}{"type": "string"},
-							},
-							"required":             []string{"op", "key", "value"},
-							"additionalProperties": false,
-						},
-					},
-					"self_correction": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"triggered":  map[string]interface{}{"type": "boolean"},
-							"hypothesis": map[string]interface{}{"type": "string"},
-						},
-						"additionalProperties": false,
-					},
-					"reasoning_trace": map[string]interface{}{
-						"type":        "string",
-						"description": "Step-by-step reasoning for debugging",
-					},
-					"knowledge_requests": map[string]interface{}{
-						"type": "array",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"specialist": map[string]interface{}{"type": "string"},
-								"query":      map[string]interface{}{"type": "string"},
-								"purpose":    map[string]interface{}{"type": "string"},
-								"priority":   map[string]interface{}{"type": "string"},
-							},
-							"required":             []string{"specialist", "query"},
-							"additionalProperties": false,
-						},
-					},
-					"context_feedback": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"overall_usefulness": map[string]interface{}{
-								"type":        "number",
-								"description": "How useful was the provided context (0.0-1.0)",
-							},
-							"helpful_facts": map[string]interface{}{
-								"type":  "array",
-								"items": map[string]interface{}{"type": "string"},
-							},
-							"noise_facts": map[string]interface{}{
-								"type":  "array",
-								"items": map[string]interface{}{"type": "string"},
-							},
-							"missing_context": map[string]interface{}{
-								"type":        "string",
-								"description": "What context would have been helpful",
-							},
-						},
-						"additionalProperties": false,
+					"control_packet": map[string]interface{}{"type": "object"},
+					"surface_response": map[string]interface{}{
+						"type": "string",
 					},
 				},
-				"required":             []string{"intent_classification", "mangle_updates"},
-				"additionalProperties": false,
-			},
-			"surface_response": map[string]interface{}{
-				"type": "string",
-			},
-		},
-		"required":             []string{"control_packet", "surface_response"},
-		"additionalProperties": false,
-	}
+				"required": []string{"control_packet", "surface_response"},
+			}
+		}
+	})
+
+	return piggybackSchemaRaw
 }
 
 // BuildZAIPiggybackEnvelopeSchema creates the response format for Z.AI structured output.

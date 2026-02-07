@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -199,6 +200,12 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	s.startTime = time.Now()
 	s.mu.Unlock()
 
+	// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
+	// Only set if the caller didn't provide an explicit hint.
+	if ctx.Value(types.CtxKeyModelCapability) == nil {
+		ctx = context.WithValue(ctx, types.CtxKeyModelCapability, capabilityHintForAgentName(s.config.Name))
+	}
+
 	// Apply timeout
 	if s.config.Timeout > 0 {
 		var timeoutCancel context.CancelFunc
@@ -241,6 +248,20 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 	s.mu.Unlock()
 
 	return result.Response, nil
+}
+
+func capabilityHintForAgentName(name string) types.ModelCapability {
+	switch strings.TrimSpace(strings.ToLower(name)) {
+	case "coder", "reviewer", "nemesis", "legislator":
+		return types.CapabilityHighReasoning
+	case "tester":
+		return types.CapabilityHighSpeed
+	case "researcher", "librarian", "planner":
+		return types.CapabilityBalanced
+	default:
+		// Custom specialists typically benefit from deeper reasoning.
+		return types.CapabilityHighReasoning
+	}
 }
 
 // Stop cancels the subagent's execution.
