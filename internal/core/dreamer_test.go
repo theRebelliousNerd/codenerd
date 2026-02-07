@@ -18,17 +18,19 @@ func setupTestDreamer(t *testing.T) (*Dreamer, *RealKernel) {
 	return d, k
 }
 
-// TODO: TEST_GAP: Performance/OOM - Missing test for massive code graph (100k+ facts).
-// The current implementation of codeGraphProjections performs full table scans of
-// code_defines and code_calls for every simulation. In a large repository, this
-// will cause massive heap allocations and potential OOM or timeouts.
-// A test should be added that populates the kernel with 50k dummy definitions and calls,
-// then asserts that SimulateAction completes within a strict budget (e.g., 500ms).
+// TODO: TEST_GAP: Performance/OOM - Full Table Scan (O(N) Complexity)
+// The codeGraphProjections function performs d.kernel.Query("code_defines") which fetches
+// ALL definitions in the system.
+// Mathematical Projection:
+// - 1k facts: ~1ms
+// - 100k facts: ~100ms
+// - 1M facts: ~1s per simulation
+// A load test is required with 100k+ facts to verify if the system hangs or OOMs.
 
-// TODO: TEST_GAP: Concurrency - Missing test for race conditions between SimulateAction and SetKernel.
-// Dreamer struct lacks mutex protection. Parallel execution of SimulateAction (reading d.kernel)
-// and SetKernel (writing d.kernel) causes undefined behavior or panic.
-// A stress test with concurrent goroutines is needed to verify thread safety.
+// TODO: TEST_GAP: Concurrency - Race Condition (Pointer Safety)
+// Dreamer.SetKernel (write) and Dreamer.SimulateAction (read) access the kernel pointer
+// without a mutex. This is undefined behavior.
+// A test with 10 concurrent readers and 1 concurrent writer is needed to prove the panic.
 
 func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -51,10 +53,11 @@ func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Safety - Missing test for Atom/String dissonance in ActionType.
-// projectEffects asserts projected_action with string(req.Type). If Mangle policy expects
-// an Atom (e.g., /read_file) instead of String ("read_file"), safety checks may silently
-// fail open. A test is needed to verify that the projected type matches the schema expectation.
+// TODO: TEST_GAP: Type Safety - Mangle Atom vs String Mismatch
+// projectEffects uses string(req.Type) -> "delete_file" (String)
+// But projected_fact uses MangleAtom("/file_missing") -> /file_missing (Atom)
+// Mangle rules expecting /delete_file will FAIL to fire against "delete_file".
+// A test must verify that the projected Go types align with the Mangle schema expectations.
 
 func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	d, k := setupTestDreamer(t)
@@ -88,10 +91,13 @@ func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Input Extremes - Missing test for empty or massive target paths.
-// 1. Empty Target: verify behavior when req.Target is empty string (potential match for current directory).
-// 2. Massive Target: verify behavior when req.Target is a 1MB string (buffer overflow/DoS check).
-// 3. Path Injection: verify that criticalPrefix handles "internal/../internal" correctly.
+// TODO: TEST_GAP: Input Extremes - Path Normalization & Canonicalization
+// criticalPrefix uses naive strings.Contains.
+// Missing coverage for:
+// 1. "../" traversal (e.g. "internal/core/../foo")
+// 2. Double slashes (e.g. "internal//core")
+// 3. Case sensitivity on Linux vs Mac (e.g. "Internal/Core")
+// 4. Unicode homoglyphs.
 
 func TestDreamer_ProjectEffects(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -131,27 +137,38 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Boundary Value - Massive Inputs
-// The current implementation of codeGraphProjections performs a full table scan
-// of 'code_defines' and 'code_calls'. We need a test that injects 100k+ facts
-// to verify this doesn't OOM or timeout on large repositories.
+// TODO: TEST_GAP: Security - Exploit Scenario: Whitespace Expansion
+// "rm  -rf /" (two spaces) bypasses "rm -rf" check.
+// Test case needed to prove bypass.
 
-// TODO: TEST_GAP: State Conflict - Race Condition
-// Dreamer.SetKernel and Dreamer.SimulateAction access the kernel pointer without
-// synchronization. A concurrent test is needed to prove safety during kernel updates.
+// TODO: TEST_GAP: Security - Exploit Scenario: Flag Reordering
+// "rm -fr /" bypasses "rm -rf" check.
+// Test case needed to prove bypass.
 
-// TODO: TEST_GAP: Boundary Value - Null/Empty/Whitespace
-// Verify behavior when ActionRequest.Target is empty, whitespace, or invalid.
-// Should ensure critical_path_hit is not falsely triggered or bypassed.
+// TODO: TEST_GAP: Security - Exploit Scenario: Flag Splitting
+// "rm -r -f /" bypasses "rm -rf" check.
+// Test case needed to prove bypass.
 
-// TODO: TEST_GAP: Negative Testing - Dangerous Command Evasion
-// The isDangerousCommand check is simple string matching. We need to test:
-// 1. Case variations ("RM -rf")
-// 2. Argument reordering ("rm -r -f")
-// 3. Path qualification ("/bin/rm")
-// 4. Shell obfuscation
-// 5. Chained commands ("echo safe; rm -rf /")
+// TODO: TEST_GAP: Security - Exploit Scenario: Shell Features
+// "eval $(echo ... | base64 -d)" executes hidden commands.
+// Test case needed to prove bypass.
 
-// TODO: TEST_GAP: Boundary Value - Nil Kernel Resilience
-// Verify that Dreamer handles a nil kernel gracefully, especially if the kernel
-// becomes nil between checks in the SimulateAction pipeline.
+// TODO: TEST_GAP: Security - Exploit Scenario: Indirect Execution
+// "python -c 'import os; ...'" executes commands.
+// Test case needed to prove bypass.
+
+// TODO: TEST_GAP: Resource Exhaustion - Unbounded DreamCache
+// The DreamCache grows indefinitely.
+// A test with 1M simulations is needed to verify OOM behavior.
+
+// TODO: TEST_GAP: Performance - Kernel Clone Cost
+// SimulateAction performs deep copy.
+// A test measuring latency with 100k facts in kernel is needed.
+
+// TODO: TEST_GAP: Fragile Defaults - Unknown Action Types
+// New ActionTypes (e.g., ActionNetworkRequest) hit default switch case and project nothing.
+// Test needed to verify behavior (likely false negative safety).
+
+// TODO: TEST_GAP: Reliability - Panic Safety
+// AssertWithoutEval can panic on malformed inputs.
+// Fuzz test needed with random types in Fact Args.
