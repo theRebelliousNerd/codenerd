@@ -3,7 +3,6 @@ package articulation
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -425,13 +424,6 @@ func (rp *ResponseProcessor) parseMarkdownWrappedJSON(s string) (PiggybackEnvelo
 	return rp.parseJSON(s)
 }
 
-var (
-	// Pattern to find JSON objects containing both keys, regardless of order
-	embeddedJSONPattern = regexp.MustCompile(`\{[\s\S]*("surface_response"[\s\S]*"control_packet"|"control_packet"[\s\S]*"surface_response")[\s\S]*\}`)
-	// Fallback pattern to find any JSON-like object
-	fallbackJSONPattern = regexp.MustCompile(`\{[\s\S]*\}`)
-)
-
 // extractEmbeddedJSON finds JSON within mixed content.
 func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "extractEmbeddedJSON")
@@ -439,30 +431,78 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 
 	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
 
-	match := embeddedJSONPattern.FindString(s)
-	if match == "" {
-		logging.ArticulationDebug("extractEmbeddedJSON: primary pattern (surface_response/control_packet) not found, trying fallback")
-		// Try alternative pattern
-		matches := fallbackJSONPattern.FindAllString(s, -1)
-		logging.ArticulationDebug("extractEmbeddedJSON: fallback pattern found %d potential JSON objects", len(matches))
+	// Find all top-level JSON object candidates
+	candidates := findJSONCandidates(s)
+	logging.ArticulationDebug("extractEmbeddedJSON: found %d candidates", len(candidates))
 
-		// Try each match, largest first
-		for i := len(matches) - 1; i >= 0; i-- {
-			logging.ArticulationDebug("extractEmbeddedJSON: trying match %d (length=%d)", i, len(matches[i]))
-			envelope, err := rp.parseJSON(matches[i])
+	// 1. Prioritize candidates that contain both required keys
+	for _, candidate := range candidates {
+		// Quick check for keys before parsing
+		if strings.Contains(candidate, `"surface_response"`) &&
+			strings.Contains(candidate, `"control_packet"`) {
+
+			envelope, err := rp.parseJSON(candidate)
 			if err == nil {
-				logging.ArticulationDebug("extractEmbeddedJSON: match %d parsed successfully", i)
+				logging.ArticulationDebug("extractEmbeddedJSON: found rich candidate")
 				return envelope, nil
 			}
-			logging.ArticulationDebug("extractEmbeddedJSON: match %d failed: %v", i, err)
 		}
-
-		logging.ArticulationDebug("extractEmbeddedJSON: all matches failed")
-		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
 	}
 
-	logging.ArticulationDebug("extractEmbeddedJSON: primary pattern matched (length=%d)", len(match))
-	return rp.parseJSON(match)
+	// 2. Fallback to any valid JSON candidate
+	// Iterate in reverse to prefer the last one (often the final answer)
+	for i := len(candidates) - 1; i >= 0; i-- {
+		envelope, err := rp.parseJSON(candidates[i])
+		if err == nil {
+			logging.ArticulationDebug("extractEmbeddedJSON: found fallback candidate")
+			return envelope, nil
+		}
+	}
+
+	logging.ArticulationDebug("extractEmbeddedJSON: no valid JSON found in candidates")
+	return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
+}
+
+// findJSONCandidates extracts all top-level balanced {...} blocks
+func findJSONCandidates(s string) []string {
+	var candidates []string
+	var depth int
+	var start int = -1
+	var inString bool
+	var escaped bool
+
+	for i, r := range s {
+		if inString {
+			if escaped {
+				escaped = false
+			} else if r == '\\' {
+				escaped = true
+			} else if r == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		if r == '"' {
+			inString = true
+			continue
+		}
+
+		if r == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		} else if r == '}' {
+			if depth > 0 {
+				depth--
+				if depth == 0 {
+					candidates = append(candidates, s[start:i+1])
+				}
+			}
+		}
+	}
+	return candidates
 }
 
 // GetStats returns current processing statistics.
