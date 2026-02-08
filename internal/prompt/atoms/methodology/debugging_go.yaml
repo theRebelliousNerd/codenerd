@@ -1,0 +1,75 @@
+# Go-Specific Debugging Workflow
+# Concrete implementation of debugging methodology for Go projects
+
+- id: "methodology/debugging/go_workflow"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/debug", "/fix"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## GO DEBUGGING WORKFLOW
+
+    Translate the abstract debugging cycle into concrete Go commands.
+
+    ### 1. OBSERVE (Data Gathering)
+    Use `fmt.Printf` or `log` for quick checks, or `delve` for deep inspection.
+
+    ```go
+    // Quick logging (adds timestamp)
+    log.Printf("DEBUG: variable=%v", variable)
+    // Structured logging (if available)
+    logger.Info("Checking state", "variable", variable)
+    ```
+
+    ### 2. REPRODUCE (Test Case)
+    Create a minimal reproduction case in a `_test.go` file.
+
+    ```bash
+    # Run specific test with verbose output
+    go test -v -run TestReproduction
+    ```
+
+    ### 3. DEEP INSPECTION (Delve)
+    If logging is insufficient, use Delve (`dlv`).
+
+    ```bash
+    # Debug a test
+    dlv test -- -test.run TestReproduction
+
+    # Inside dlv:
+    # (dlv) break main.go:123
+    # (dlv) continue
+    # (dlv) print variable
+    # (dlv) args
+    # (dlv) locals
+    ```
+
+    ### 4. CONCURRENCY ISSUES
+    If the bug is intermittent or related to goroutines, use the race detector.
+
+    ```bash
+    # Run with race detector enabled (10x slower but catches races)
+    go test -race -v ./...
+    ```
+
+    ### 5. PERFORMANCE ISSUES
+    If the issue is slowness or high memory usage, use `pprof`.
+
+    ```bash
+    # CPU profile
+    go test -cpuprofile cpu.prof -bench .
+    go tool pprof cpu.prof
+
+    # Memory profile
+    go test -memprofile mem.prof -bench .
+    go tool pprof mem.prof
+    ```
+
+    ### Common Go Gotchas
+    - **Nil Interfaces**: An interface holding a nil concrete value is NOT nil.
+    - **Loop Variables**: In Go < 1.22, loop variables are reused (capture correctly in closures).
+    - **Slice Capacity**: Appending to a slice might reallocate underlying array.
+    - **Defer Execution**: Defers run at function exit (beware in loops).

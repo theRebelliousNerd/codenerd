@@ -1,0 +1,71 @@
+# TypeScript-Specific Debugging Workflow
+# Concrete implementation of debugging methodology for TypeScript projects
+
+- id: "methodology/debugging/typescript_workflow"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/typescript", "/javascript"]
+  intent_verbs: ["/debug", "/fix"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## TYPESCRIPT DEBUGGING WORKFLOW
+
+    Translate the abstract debugging cycle into concrete TypeScript commands.
+
+    ### 1. OBSERVE (Console Logging)
+    Use `console.log`, `console.table`, or `console.dir` for quick checks.
+
+    ```typescript
+    console.log('Value:', value);
+    console.table(arrayOfObjects);
+    console.dir(obj, { depth: null }); // Inspect deep objects
+    ```
+
+    ### 2. REPRODUCE (Test Case)
+    Create a minimal reproduction case in a `*.test.ts` file.
+
+    ```bash
+    # Run specific test with verbose output
+    npm test -- -t "reproduction test"
+    ```
+
+    ### 3. DEEP INSPECTION (Node Inspector)
+    If logging is insufficient, use the Node.js debugger.
+
+    Add `debugger;` statement in code where you want to pause.
+
+    ```bash
+    # Run with inspect flag
+    node --inspect-brk -r ts-node/register script.ts
+    ```
+    Open `chrome://inspect` in Chrome to attach DevTools.
+
+    ### 4. VS CODE DEBUGGING
+    Use `.vscode/launch.json` for integrated debugging.
+
+    Example configuration:
+    ```json
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Jest Tests",
+      "program": "${workspaceFolder}/node_modules/.bin/jest",
+      "args": ["--runInBand"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    }
+    ```
+
+    ### 5. TYPE ISSUES
+    If the issue is type-related, inspect inferred types.
+    - Hover over variables in IDE.
+    - Check if `any` is masking errors.
+    - Use `tsc --noEmit` to check for compilation errors without generating output.
+
+    ### Common TypeScript Gotchas
+    - **Truthiness**: `0`, `""`, `null`, `undefined`, `NaN` are falsy.
+    - **Reference Equality**: `{} === {}` is false.
+    - **Event Loop**: Async operations might not complete when you expect.
+    - **`this` Binding**: Arrow functions capture `this` from lexical scope.

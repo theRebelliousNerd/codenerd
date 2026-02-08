@@ -1,0 +1,79 @@
+# Python-Specific Debugging Workflow
+# Concrete implementation of debugging methodology for Python projects
+
+- id: "methodology/debugging/python_workflow"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/python"]
+  intent_verbs: ["/debug", "/fix"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## PYTHON DEBUGGING WORKFLOW
+
+    Translate the abstract debugging cycle into concrete Python commands.
+
+    ### 1. OBSERVE (Data Gathering)
+    Use `print` or `logging` for quick checks.
+
+    ```python
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    logging.debug(f"variable={variable!r}")
+    ```
+
+    ### 2. REPRODUCE (Test Case)
+    Create a minimal reproduction case in a `test_*.py` file.
+
+    ```bash
+    # Run specific test with verbose output
+    pytest -v -k "test_reproduction"
+    ```
+
+    ### 3. DEEP INSPECTION (PDB)
+    If logging is insufficient, use the Python Debugger (`pdb` or `ipdb`).
+
+    ```bash
+    # Drop into debugger on failure
+    pytest --pdb
+
+    # Or insert breakpoint in code:
+    # breakpoint()  # Python 3.7+
+    # import pdb; pdb.set_trace()  # Older Python
+    ```
+
+    Inside PDB:
+    - `n` (next): Execute current line
+    - `s` (step): Step into function
+    - `c` (continue): Resume execution
+    - `p expr` (print): Evaluate expression
+    - `l` (list): Show source code
+    - `where`: Show stack trace
+
+    ### 4. TRACEBACK ANALYSIS
+    If there's an exception, analyze the traceback bottom-up.
+
+    - Look for the first frame in YOUR code.
+    - Check variable values at that point (if using `--showlocals` with pytest).
+
+    ```bash
+    # Show local variables in traceback
+    pytest -l
+    ```
+
+    ### 5. PROFILING
+    If the issue is performance.
+
+    ```bash
+    # Profile execution
+    python -m cProfile -o output.prof script.py
+    # Visualize
+    snakeviz output.prof
+    ```
+
+    ### Common Python Gotchas
+    - **Mutable Default Arguments**: `def f(x=[]):` shares list across calls.
+    - **Scope**: Variables in loops leak to enclosing scope (in Python 2/3).
+    - **Truthiness**: `[]`, `{}`, `0`, `""` are False.
+    - **Late Binding**: Lambda closures capture variable, not value.
