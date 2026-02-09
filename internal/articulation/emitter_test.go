@@ -145,8 +145,110 @@ func FuzzResponseProcessor_Process(f *testing.F) {
 	})
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Verify explicit 'null' in ControlPacket fields (mangle_updates, tool_requests) does not cause panics or silent failures.
-// TODO: TEST_GAP: Type Coercion - Verify that stringified numbers (e.g. "confidence": "0.9") or single strings for arrays (e.g. "mangle_updates": "a().") are handled gracefully or rejected with clear errors.
+func TestResponseProcessor_Process_NullFields(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// JSON with explicit nulls for array/pointer fields
+	raw := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": 0.9
+	    },
+	    "mangle_updates": null,
+	    "memory_operations": null,
+	    "tool_requests": null,
+	    "self_correction": null,
+        "context_feedback": null,
+        "knowledge_requests": null
+	  },
+	  "surface_response": "hello"
+	}`
+
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if res.Control.MangleUpdates != nil && len(res.Control.MangleUpdates) != 0 {
+		t.Errorf("Expected MangleUpdates to be nil or empty, got %v", res.Control.MangleUpdates)
+	}
+	if res.Control.MemoryOperations != nil && len(res.Control.MemoryOperations) != 0 {
+		t.Errorf("Expected MemoryOperations to be nil or empty, got %v", res.Control.MemoryOperations)
+	}
+	if res.Control.ToolRequests != nil && len(res.Control.ToolRequests) != 0 {
+		t.Errorf("Expected ToolRequests to be nil or empty, got %v", res.Control.ToolRequests)
+	}
+	if res.Control.SelfCorrection != nil {
+		t.Errorf("Expected SelfCorrection to be nil, got %v", res.Control.SelfCorrection)
+	}
+	if res.Control.ContextFeedback != nil {
+		t.Errorf("Expected ContextFeedback to be nil, got %v", res.Control.ContextFeedback)
+	}
+	if res.Control.KnowledgeRequests != nil && len(res.Control.KnowledgeRequests) != 0 {
+		t.Errorf("Expected KnowledgeRequests to be nil or empty, got %v", res.Control.KnowledgeRequests)
+	}
+
+	if res.Surface != "hello" {
+		t.Errorf("Surface = %q, want hello", res.Surface)
+	}
+}
+
+func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// Case 1: String for float
+	raw1 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": "0.9"
+	    },
+	    "mangle_updates": [],
+	    "memory_operations": []
+	  },
+	  "surface_response": "hello"
+	}`
+
+	_, err := rp.Process(raw1)
+	if err == nil {
+		t.Fatal("Expected error for stringified float, got nil")
+	}
+	// Check for unmarshal error
+	if !strings.Contains(err.Error(), "cannot unmarshal") {
+		t.Errorf("Unexpected error message: %v", err)
+	}
+
+	// Case 2: String for array
+	raw2 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "target": "x",
+	      "constraint": "none",
+	      "confidence": 0.9
+	    },
+	    "mangle_updates": "a().",
+	    "memory_operations": []
+	  },
+	  "surface_response": "hello"
+	}`
+
+	_, err = rp.Process(raw2)
+	if err == nil {
+		t.Fatal("Expected error for stringified array, got nil")
+	}
+}
+
 // TODO: TEST_GAP: User Request Extremes - Verify behavior with massive 'reasoning_trace' (>50MB) to ensure OOM protection.
 // TODO: TEST_GAP: User Request Extremes - Verify recursion depth limits for nested JSON objects to prevent stack overflow.
 // TODO: TEST_GAP: State Conflicts - Verify behavior when JSON contains duplicate keys (e.g. multiple 'surface_response' fields) - which one wins?
