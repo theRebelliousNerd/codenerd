@@ -172,3 +172,43 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 // TODO: TEST_GAP: Reliability - Panic Safety
 // AssertWithoutEval can panic on malformed inputs.
 // Fuzz test needed with random types in Fact Args.
+
+// TODO: TEST_GAP: Null/Undefined - Nil Context
+// SimulateAction accepts a context.Context which might be nil.
+// If code inside attempts to use it (e.g. ctx.Done()), it will panic.
+// A test case passing nil context is required to ensure graceful handling.
+
+// TODO: TEST_GAP: Null/Undefined - Nil Kernel
+// Dreamer constructor allows nil kernel, or SetKernel(nil) can be called.
+// SimulateAction currently returns "Safe" (fail-open) if kernel is nil.
+// A test case is needed to verify this behavior and argue for fail-closed logic.
+
+// TODO: TEST_GAP: Null/Undefined - Empty ActionRequest Fields
+// ActionRequest.Type or ActionRequest.Target can be empty strings.
+// projectEffects blindly converts these to strings.
+// A test case is needed to ensure empty fields don't cause Mangle logic errors or security bypasses.
+
+// TODO: TEST_GAP: Type Coercion - Complex Types in Payload
+// ActionRequest.Payload (map[string]interface{}) might contain structs or slices.
+// fmt.Sprintf("%v") conversion produces non-parseable strings in Mangle.
+// A test case passing complex objects is needed to verify proper marshaling or error handling.
+
+// TODO: TEST_GAP: User Extremes - Massive Path Length
+// Target path can be arbitrarily long (e.g. 1MB string).
+// This could cause memory spikes or timeouts during string operations or Mangle interning.
+// A test case with a 1MB path string is needed to verify resilience.
+
+// TODO: TEST_GAP: User Extremes - Deeply Nested Paths
+// Paths with excessive depth (e.g. a/b/c/.../z with 1000 segments).
+// Could trigger stack overflows in recursive Mangle rules or regex performance issues.
+// A test case with deep nesting is needed.
+
+// TODO: TEST_GAP: Concurrency - Race Condition: SetKernel vs SimulateAction
+// Dreamer.kernel pointer is accessed without locking.
+// While one goroutine calls SetKernel, another calling SimulateAction might see an inconsistent state or crash.
+// A concurrent test case running SetKernel and SimulateAction in parallel is needed to verify thread safety.
+
+// TODO: TEST_GAP: Type Coercion - Atom vs String Dissonance
+// projectEffects converts ActionRequest.Type (string) to a Mangle string literal.
+// Mangle rules often expect atoms (e.g., /read_file) instead of strings ("read_file").
+// A test case is needed to verify that projected facts use consistent types (Atoms or Strings) matching the schema.
