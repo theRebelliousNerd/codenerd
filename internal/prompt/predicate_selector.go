@@ -294,16 +294,23 @@ func (ps *PredicateSelector) FormatForPrompt(predicates []SelectedPredicate) str
 
 	for _, domain := range domains {
 		preds := byDomain[domain]
-		sb.WriteString(fmt.Sprintf("### %s\n", domain))
+		sb.WriteString("### ")
+		sb.WriteString(domain)
+		sb.WriteString("\n")
 		for _, p := range preds {
-			sb.WriteString(fmt.Sprintf("- `%s/%d`", p.Name, p.Arity))
+			sb.WriteString("- `")
+			sb.WriteString(p.Name)
+			sb.WriteString("/")
+			sb.WriteString(strconv.Itoa(p.Arity))
+			sb.WriteString("`")
 			if p.Description != "" {
 				// Truncate long descriptions
 				desc := p.Description
 				if len(desc) > 60 {
 					desc = desc[:60] + "..."
 				}
-				sb.WriteString(fmt.Sprintf(" - %s", desc))
+				sb.WriteString(" - ")
+				sb.WriteString(desc)
 			}
 			sb.WriteString("\n")
 		}
