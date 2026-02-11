@@ -1,0 +1,47 @@
+# Go-Specific Debugging Methodology
+# Concrete implementation of debugging for Go projects
+
+- id: "methodology/debugging/go"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/debug", "/fix", "/investigate"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## GO DEBUGGING TOOLKIT
+
+    ### 1. The Printf Arsenal
+    Go's `fmt` and `log` packages are often faster than a debugger for concurrency issues.
+    - `fmt.Printf("VAR: %+v\n", var)` (Detailed struct info)
+    - `fmt.Printf("TYPE: %T\n", var)` (Type inspection)
+    - `log.SetFlags(log.LstdFlags | log.Lshortfile)` (Add line numbers)
+
+    ### 2. The Race Detector
+    **Mandatory** for any concurrency bug.
+    ```bash
+    go test -race ./...
+    go run -race main.go
+    ```
+    *Warning:* `-race` slows execution ~10x and consumes more memory.
+
+    ### 3. Delve (dlv)
+    The standard Go debugger.
+    ```bash
+    dlv test ./pkg/...    # Debug tests
+    dlv debug main.go     # Debug binary
+    ```
+    *Commands:* `break main.main`, `continue`, `print var`, `locals`, `stack`
+
+    ### 4. Pprof (Performance)
+    If "debugging" means "why is it slow/heavy":
+    ```go
+    import _ "net/http/pprof"
+    // Then visit http://localhost:6060/debug/pprof/
+    ```
+
+    ### Common Go Gotchas
+    - **Nil Map Assignment:** `var m map[string]int; m["key"]=1` panics. Use `make(map...)`.
+    - **Loop Variable Capture:** In versions < 1.22, `for _, v := range items { go func() { use(v) }() }` uses the same `v`.
+    - **Shadowing:** `x, err := ...` can shadow an outer `x`. Use `go vet`.
