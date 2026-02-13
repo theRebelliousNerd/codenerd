@@ -3,7 +3,6 @@ package articulation
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -425,44 +424,66 @@ func (rp *ResponseProcessor) parseMarkdownWrappedJSON(s string) (PiggybackEnvelo
 	return rp.parseJSON(s)
 }
 
-var (
-	// Pattern to find JSON objects containing both keys, regardless of order
-	embeddedJSONPattern = regexp.MustCompile(`\{[\s\S]*("surface_response"[\s\S]*"control_packet"|"control_packet"[\s\S]*"surface_response")[\s\S]*\}`)
-	// Fallback pattern to find any JSON-like object
-	fallbackJSONPattern = regexp.MustCompile(`\{[\s\S]*\}`)
-)
-
-// extractEmbeddedJSON finds JSON within mixed content.
+// extractEmbeddedJSON finds JSON within mixed content using a state-machine scanner.
 func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "extractEmbeddedJSON")
 	defer timer.Stop()
 
 	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
 
-	match := embeddedJSONPattern.FindString(s)
-	if match == "" {
-		logging.ArticulationDebug("extractEmbeddedJSON: primary pattern (surface_response/control_packet) not found, trying fallback")
-		// Try alternative pattern
-		matches := fallbackJSONPattern.FindAllString(s, -1)
-		logging.ArticulationDebug("extractEmbeddedJSON: fallback pattern found %d potential JSON objects", len(matches))
-
-		// Try each match, largest first
-		for i := len(matches) - 1; i >= 0; i-- {
-			logging.ArticulationDebug("extractEmbeddedJSON: trying match %d (length=%d)", i, len(matches[i]))
-			envelope, err := rp.parseJSON(matches[i])
-			if err == nil {
-				logging.ArticulationDebug("extractEmbeddedJSON: match %d parsed successfully", i)
-				return envelope, nil
-			}
-			logging.ArticulationDebug("extractEmbeddedJSON: match %d failed: %v", i, err)
-		}
-
-		logging.ArticulationDebug("extractEmbeddedJSON: all matches failed")
+	candidates := findJSONCandidates(s)
+	if len(candidates) == 0 {
+		logging.ArticulationDebug("extractEmbeddedJSON: no JSON candidates found")
 		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
 	}
 
-	logging.ArticulationDebug("extractEmbeddedJSON: primary pattern matched (length=%d)", len(match))
-	return rp.parseJSON(match)
+	logging.ArticulationDebug("extractEmbeddedJSON: found %d candidate JSON objects", len(candidates))
+
+	// Keep track of the last error to provide better diagnostics if all fail
+	var lastErr error
+
+	// Pass 1: Prioritize candidates containing both required keys.
+	// This heuristic is faster than parsing everything.
+	for i, cand := range candidates {
+		if strings.Contains(cand, `"surface_response"`) && strings.Contains(cand, `"control_packet"`) {
+			logging.ArticulationDebug("extractEmbeddedJSON: candidate %d contains required keys, attempting parse", i)
+			envelope, err := rp.parseJSON(cand)
+			if err == nil {
+				logging.ArticulationDebug("extractEmbeddedJSON: candidate %d parsed successfully", i)
+				return envelope, nil
+			}
+			logging.ArticulationDebug("extractEmbeddedJSON: candidate %d parse failed: %v", i, err)
+			lastErr = err
+		}
+	}
+
+	// Pass 2: Try parsing other candidates (fallback).
+	// We iterate backwards to try largest/latest objects first, assuming the response might be at the end.
+	for i := len(candidates) - 1; i >= 0; i-- {
+		// Skip if we already tried it (optimization)
+		if strings.Contains(candidates[i], `"surface_response"`) && strings.Contains(candidates[i], `"control_packet"`) {
+			// We already tried parsing this in Pass 1 and it failed (otherwise we would have returned).
+			// We can't easily retrieve the error from Pass 1 here without storing it, so let's just
+			// assume the loop continues.
+			// Actually, to fully capture the error for the test case which has only 1 candidate that fails in Pass 1,
+			// we need to capture errors in Pass 1 too.
+			continue
+		}
+
+		logging.ArticulationDebug("extractEmbeddedJSON: fallback trying candidate %d", i)
+		envelope, err := rp.parseJSON(candidates[i])
+		if err == nil {
+			logging.ArticulationDebug("extractEmbeddedJSON: fallback candidate %d parsed successfully", i)
+			return envelope, nil
+		}
+		lastErr = err
+	}
+
+	logging.ArticulationDebug("extractEmbeddedJSON: all %d candidates failed", len(candidates))
+	if lastErr != nil {
+		return PiggybackEnvelope{}, fmt.Errorf("no valid embedded JSON found in %d candidates (last error: %w)", len(candidates), lastErr)
+	}
+	return PiggybackEnvelope{}, fmt.Errorf("no valid embedded JSON found in %d candidates", len(candidates))
 }
 
 // GetStats returns current processing statistics.
