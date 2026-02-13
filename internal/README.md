@@ -6,7 +6,7 @@ The brain of codeNERD. This package contains all core logic, transducers, and th
 
 ## Package Overview
 
-```text
+```
 internal/
 ├── core/           # The Cortex - kernel, VirtualStore, fact management
 ├── session/        # **NEW** Session Executor, Spawner, SubAgents (JIT execution)
@@ -44,7 +44,7 @@ internal/
 
 ## Data Flow (JIT-Driven Architecture)
 
-```text
+```
 User Input
     │
     ▼
@@ -381,6 +381,3 @@ Operation visibility and explanation system.
 
 **Last Updated:** December 2024
 **Architecture Version:** 2.0.0 (JIT-Driven)
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

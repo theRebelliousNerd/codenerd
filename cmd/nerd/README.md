@@ -16,7 +16,7 @@ Each project maintains its own `.nerd/` directory with project-specific knowledg
 
 ## Structure
 
-```text
+```
 cmd/nerd/
 ├── main.go              # Cobra root command and subcommands
 ├── ui/                  # UI components (campaign page, diff view, etc.)
@@ -108,7 +108,7 @@ Artifacts persist under `.nerd/campaigns/<campaign>/assault/` (targets, batches,
 
 ## Architecture
 
-```text
+```
 ┌────────────────────────────────────────────────────────────┐
 │                    Cobra Root Command                      │
 │                         (main.go)                          │
@@ -209,6 +209,3 @@ func (m *Model) handleMyCommand(input string) tea.Cmd {
 
 **Last Updated:** December 2024
 **Architecture Version:** 2.0.0 (JIT-Driven)
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

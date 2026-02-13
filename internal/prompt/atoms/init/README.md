@@ -89,6 +89,3 @@ Expected phase durations:
 ## Integration
 
 See `internal/init/initializer.go` for the initialization orchestration that uses these atoms.
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

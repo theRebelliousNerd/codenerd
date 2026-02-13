@@ -10,7 +10,7 @@ The Perception layer sits at the entry point of the system, converting natural l
 
 ## Architecture
 
-```text
+```
 User Input → Transducer → Intent{Verb, Target, Category}
                 ↓
          Piggyback Protocol
@@ -23,7 +23,7 @@ surface_response    control_packet
 
 ## Structure
 
-```text
+```
 perception/
 ├── transducer.go           # NL → Intent conversion
 ├── taxonomy.go             # Verb taxonomy engine
@@ -111,6 +111,3 @@ go test ./internal/perception/...
 ---
 
 **Last Updated:** December 2024
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

@@ -12,7 +12,7 @@ The `session` package implements codeNERD's clean execution loop, replacing the 
 
 ## Architecture
 
-```text
+```
 User Input → Transducer → user_intent atoms
                               ↓
                     Intent Routing (Mangle)
@@ -72,7 +72,7 @@ subagent, _ := spawner.SpawnForIntent(ctx, intent, task)
 Context-isolated execution instance with independent conversation history.
 
 **State Machine:**
-```text
+```
 IDLE → RUNNING → COMPLETED
               └→ FAILED
 ```
@@ -109,6 +109,3 @@ IDLE → RUNNING → COMPLETED
 ---
 
 **Last Updated:** December 2024
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

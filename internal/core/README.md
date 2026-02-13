@@ -25,7 +25,7 @@ As of **December 2024**, the `ShardManager` has been **removed** and replaced by
 
 ## Current Components
 
-```text
+```
 core/
 ├── kernel_*.go          # RealKernel - Mangle engine wrapper (modularized into 8 files)
 ├── virtual_store*.go    # FFI gateway to external systems (modularized)
@@ -50,7 +50,7 @@ The kernel wraps Google Mangle with proper EDB/IDB separation.
 
 ### Architecture
 
-```text
+```
 ┌─────────────────────────────────────────────────────────────┐
 │                        RealKernel                           │
 ├─────────────────────────────────────────────────────────────┤
@@ -157,7 +157,7 @@ The FFI gateway that abstracts external systems into logic predicates.
 
 ### Architecture
 
-```text
+```
 ┌─────────────────────────────────────────────────────────────┐
 │                      VirtualStore                           │
 ├─────────────────────────────────────────────────────────────┤
@@ -312,7 +312,7 @@ Virtual predicates evaluate on demand:
 
 ### Kernel Role in New Architecture
 
-```text
+```
 User Input → Perception Transducer → user_intent atoms
                                           ↓
                                     Kernel.Assert(user_intent)
@@ -330,7 +330,7 @@ User Input → Perception Transducer → user_intent atoms
 
 ### VirtualStore Role in New Architecture
 
-```text
+```
 Session Executor receives LLM response with tool calls
      ↓
 For each tool call:
@@ -455,6 +455,3 @@ subagent, _ := spawner.Spawn(ctx, session.SpawnRequest{
 
 **Last Updated:** December 27, 2024
 **Architecture Version:** 2.0.0 (JIT-Driven)
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

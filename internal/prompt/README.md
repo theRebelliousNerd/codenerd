@@ -23,7 +23,7 @@ The ConfigFactory (`config_factory.go`) is the second half of the JIT system, ge
 - **Mode**: Execution mode (SingleTurn, Campaign, etc.)
 
 **Flow:**
-```text
+```
 User Input → Intent Routing → persona(/coder)
                                   ↓
                     ConfigFactory.GetAtom("/coder")
@@ -103,7 +103,7 @@ At a high level, `JITPromptCompiler.Compile()` (`internal/prompt/compiler.go`) d
 5. **Fit token budget** with polymorphic rendering (`internal/prompt/budget.go`).
 6. **Assemble final prompt** (`internal/prompt/assembler.go`).
 
-For debugging/observability, the compiler emits a `PromptManifest` "flight recorder" + `CompilationStats` (see `internal/prompt/manifest.go` and `internal/prompt/compiler.go`).
+For debugging/observability, the compiler emits a `PromptManifest` “flight recorder” + `CompilationStats` (see `internal/prompt/manifest.go` and `internal/prompt/compiler.go`).
 
 ## Enabling semantic retrieval (embeddings)
 
@@ -134,7 +134,7 @@ When you change built-in atoms under `internal/prompt/atoms/`, regenerate the ba
 
 The JIT Compiler and ConfigFactory work together to provide complete agent configuration to the Session Executor:
 
-```text
+```
 Session Executor receives task
   ↓
 1. Transducer → Intent
@@ -173,6 +173,3 @@ See: `internal/session/executor.go`, `internal/session/CLAUDE.md`
 - `internal/session/executor.go` (Session Executor using JIT + ConfigFactory)
 - `internal/jit/config/types.go` (AgentConfig schema)
 - `internal/articulation/emitter.go` (Piggyback protocol integration)
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*
-

@@ -10,7 +10,7 @@ The tactile package is the motor cortex of the neuro-symbolic architecture, prov
 
 ## Architecture
 
-```text
+```
 VirtualStore → Executor Selection → Command Execution → Audit Trail
                      ↓
          ┌──────────┴──────────────────┐
@@ -21,7 +21,7 @@ VirtualStore → Executor Selection → Command Execution → Audit Trail
 
 ## Structure
 
-```text
+```
 tactile/
 ├── types.go              # Command, ExecutionResult types
 ├── executor_interface.go # Executor interface contract
@@ -66,7 +66,7 @@ type Command struct {
 
 ## Executor Hierarchy
 
-```text
+```
 Executor (interface)
     ├── DirectExecutor (no sandbox)
     ├── DockerExecutor (ephemeral containers)
@@ -112,6 +112,3 @@ go test ./internal/tactile/...
 ---
 
 **Last Updated:** December 2024
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

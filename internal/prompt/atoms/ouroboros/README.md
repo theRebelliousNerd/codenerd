@@ -4,7 +4,7 @@ This directory contains prompt atoms for the Ouroboros/Autopoiesis system - code
 
 ## Directory Structure
 
-```text
+```
 ouroboros/
 ├── tool_generator_identity.yaml  # Identity and mission for tool generator
 ├── detection.yaml                 # Tool need detection guidance
@@ -157,7 +157,7 @@ The JIT prompt compiler will:
 6. Compile into a unified system prompt
 
 Example for Specification stage:
-```text
+```
 Stage: /specification
 Selected atoms:
   - ouroboros/specification/completeness_requirement (90, mandatory)
@@ -186,7 +186,7 @@ Selected atoms:
 
 ## Atom Dependencies
 
-```text
+```
 ouroboros/identity/mission
   └── ouroboros/identity/code_standards (depends_on: mission)
       ├── ouroboros/specification/generation_principles
@@ -216,6 +216,3 @@ Potential additions:
 - `test_generation.yaml` - Test code generation guidance
 - `logging_injection.yaml` - Mandatory logging guidance
 - `reasoning_trace.yaml` - Reasoning capture guidance
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

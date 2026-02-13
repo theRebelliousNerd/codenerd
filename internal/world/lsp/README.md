@@ -16,7 +16,7 @@ Unlike traditional LSP servers that only serve editors, codeNERD's LSP integrati
 
 ## Architecture
 
-```text
+```
 ┌─────────────────────────────────────────────────────────┐
 │              World Model (Ground Truth)                 │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -380,6 +380,3 @@ go_implements_predicate(GoFunc, ManglePred) :-
 ---
 
 **Architecture Philosophy**: LSP data flows into the World Model, enabling logic-based reasoning about code structure. This inverts the traditional approach where LSP is merely an editor feature - here, LSP becomes a first-class citizen of the neuro-symbolic architecture.
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

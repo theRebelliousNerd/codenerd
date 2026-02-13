@@ -10,7 +10,7 @@ The context package implements the Context Compression system for achieving "Inf
 
 ## Architecture
 
-```text
+```
 User Intent → Spreading Activation → High-Activation Facts
                                             ↓
 Verbose History → Semantic Compression → Mangle Atoms (100:1 ratio)
@@ -24,7 +24,7 @@ Verbose History → Semantic Compression → Mangle Atoms (100:1 ratio)
 
 ## Structure
 
-```text
+```
 context/
 ├── activation.go      # Spreading activation engine
 ├── compressor.go      # Semantic compression orchestrator
@@ -50,7 +50,7 @@ Energy flows from user intent through the fact graph:
 
 Surface text is discarded, only logical atoms retained:
 
-```text
+```
 Before: "I fixed the null pointer bug in auth.go by adding a nil check on line 42"
 After:  fix_applied(/auth.go, /null_pointer, 42).
 ```
@@ -111,6 +111,3 @@ go test ./internal/context/...
 ---
 
 **Last Updated:** December 2024
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*

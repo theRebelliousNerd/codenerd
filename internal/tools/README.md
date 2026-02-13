@@ -8,13 +8,13 @@ Modular Tool Registry for JIT-driven agent execution.
 
 This package provides modular tool definitions for the JIT Clean Loop architecture. Tools are standalone executables that any agent can use based on intent-driven JIT selection.
 
-```text
+```
 Intent → ConfigFactory → AllowedTools[] → Registry.Get() → Tool.Execute()
 ```
 
 ## Structure
 
-```text
+```
 tools/
 ├── types.go      # Tool, ToolCategory, ToolSchema types
 ├── registry.go   # Thread-safe tool registry
@@ -100,6 +100,3 @@ go test ./internal/tools/...
 ---
 
 **Last Updated:** December 2024
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*
-

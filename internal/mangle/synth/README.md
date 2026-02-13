@@ -79,6 +79,3 @@ Output:
 - This aligns with the existing `mangle_synth_v1` schema and synth compiler.
 - The parser check ensures syntax is correct even if JSON compiles.
 - Diagnostics should be consistent with the mangle feedback system for reuse.
-
-
-> *[Archived & Reviewed by The Librarian on 2026-01-25]*
