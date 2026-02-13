@@ -148,3 +148,6 @@ func TestUnderstandingTransducer_UnderstandingToIntent_Nil(t *testing.T) {
 		t.Errorf("Expected Response 'Internal error: understanding is nil', got %s", intent.Response)
 	}
 }
+
+// TODO: TEST_GAP: Add concurrency test (TestUnderstandingTransducer_Concurrency) to detect data race on t.lastUnderstanding.
+// Run with -race to confirm.
