@@ -177,6 +177,7 @@ type Styles struct {
 
 // NewStyles creates a new Styles instance with the given theme
 // TODO: Consider using a builder pattern or functional options for Styles configuration if complexity grows.
+// TODO: IMPROVEMENT: Use functional options for Styles configuration.
 func NewStyles(theme Theme) Styles {
 	return Styles{
 		Theme: theme,
@@ -293,6 +294,7 @@ func DefaultStyles() Styles {
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
 	// TODO: Extract this hardcoded ASCII art to a resource file or constant to declutter the code.
+	// TODO: IMPROVEMENT: Load ASCII art from a separate resource file.
 	logo := `
    ___          _      _  _ ___ ___ ___  
   / __|___  __| |___ | \| | __| _ \   \ 

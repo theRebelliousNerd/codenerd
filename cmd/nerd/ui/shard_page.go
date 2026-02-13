@@ -99,6 +99,7 @@ func (m ShardPageModel) View() string {
 }
 
 // SetSize updates the size.
+// TODO: IMPROVEMENT: Extract magic numbers (w-4, h-6) to layout constants.
 func (m *ShardPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h

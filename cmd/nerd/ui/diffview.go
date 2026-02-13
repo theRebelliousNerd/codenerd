@@ -42,6 +42,7 @@ type PendingMutation struct {
 }
 
 // DiffApprovalView handles interactive diff approval
+// TODO: IMPROVEMENT: Refactor state management to use a state machine or cleaner model transition logic.
 type DiffApprovalView struct {
 	Styles         Styles
 	Viewport       viewport.Model
