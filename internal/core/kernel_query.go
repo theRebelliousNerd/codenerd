@@ -183,6 +183,81 @@ func normalizeQueryValue(v interface{}) interface{} {
 	}
 }
 
+// QueryCallback retrieves facts for a predicate and invokes the callback for each fact.
+// This allows streaming processing and avoids O(N) memory allocation for large result sets.
+// Like Query, it accepts an optional pattern (e.g., "code_defines(/file.go, X)").
+func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error {
+	timer := logging.StartTimer(logging.CategoryKernel, "QueryCallback")
+	logging.KernelDebug("QueryCallback: predicate=%s", predicate)
+
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if !k.initialized {
+		err := fmt.Errorf("kernel not initialized")
+		logging.Get(logging.CategoryKernel).Error("QueryCallback: %v", err)
+		return err
+	}
+
+	// Parse optional pattern form
+	var (
+		patternFact   Fact
+		hasPattern    bool
+		desiredArity  int
+		predicateName = predicate
+	)
+	if idx := strings.Index(predicate, "("); idx > 0 {
+		predicateName = strings.TrimSpace(predicate[:idx])
+		if parsedFact, err := ParseFactString(predicate); err == nil {
+			patternFact = parsedFact
+			hasPattern = true
+			desiredArity = len(parsedFact.Args)
+			predicateName = parsedFact.Predicate
+		}
+	}
+
+	if k.programInfo == nil {
+		logging.KernelDebug("QueryCallback: programInfo is nil, returning")
+		timer.Stop()
+		return nil
+	}
+
+	// Find the predicate in the decls
+	predicateFound := false
+	count := 0
+	for pred := range k.programInfo.Decls {
+		if pred.Symbol == predicateName && (!hasPattern || pred.Arity == desiredArity) {
+			predicateFound = true
+			// Query the store for all atoms of this predicate
+			err := k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+				fact := atomToFact(a)
+				// If a pattern was provided, filter by constants.
+				if !hasPattern || factMatchesPattern(fact, patternFact) {
+					if err := cb(fact); err != nil {
+						return err
+					}
+					count++
+				}
+				return nil
+			})
+			if err != nil {
+				timer.Stop()
+				return err
+			}
+			break
+		}
+	}
+
+	if !predicateFound {
+		logging.Get(logging.CategoryKernel).Warn("QueryCallback: predicate '%s' not found in declarations", predicateName)
+	}
+
+	elapsed := timer.Stop()
+	logging.KernelDebug("QueryCallback: predicate=%s processed %d results", predicate, count)
+	logging.Audit().KernelQuery(predicate, count, elapsed.Milliseconds())
+	return nil
+}
+
 // QueryAll retrieves all derived facts organized by predicate.
 func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "QueryAll")

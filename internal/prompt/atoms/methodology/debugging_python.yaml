@@ -1,0 +1,52 @@
+# Python-Specific Debugging Methodology
+# Concrete implementation of debugging for Python projects
+
+- id: "methodology/debugging/python"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/python"]
+  intent_verbs: ["/debug", "/fix", "/investigate"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## PYTHON DEBUGGING TOOLKIT
+
+    ### 1. PDB (The Python Debugger)
+    Insert a breakpoint anywhere:
+    ```python
+    import pdb; pdb.set_trace()
+    # Or in Python 3.7+:
+    breakpoint()
+    ```
+    *Commands:* `n` (next), `s` (step), `c` (continue), `p var` (print), `l` (list)
+
+    ### 2. IPDB (Improved Debugger)
+    If available, `ipdb` offers syntax highlighting and tab completion.
+    ```bash
+    pip install ipdb
+    ```
+    Usage: `import ipdb; ipdb.set_trace()`
+
+    ### 3. Pytest Debugging
+    Drop into PDB on failure automatically:
+    ```bash
+    pytest --pdb
+    ```
+    Show local variables in tracebacks:
+    ```bash
+    pytest -l
+    ```
+
+    ### 4. Logging
+    Stop using `print()`. Use `logging` for toggleable verbosity.
+    ```python
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    logging.debug(f"State: {state}")
+    ```
+
+    ### Common Python Gotchas
+    - **Mutable Default Args:** `def foo(l=[]):` shares `l` across calls. Use `None`.
+    - **Scope (LEGB):** Variable resolution order (Local, Enclosing, Global, Built-in).
+    - **Import Errors:** Circular imports or shadowing standard library names (e.g. naming file `email.py`).
