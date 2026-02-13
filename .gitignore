@@ -26,6 +26,7 @@ Thumbs.db
 nul
 *.log
 debug_output*.txt
+debug_program_ERROR*.mg
 
 # Caches
 **/__pycache__/
