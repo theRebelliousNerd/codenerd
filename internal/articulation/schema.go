@@ -32,7 +32,16 @@ const PiggybackEnvelopeSchema = `{
   "properties": {
     "control_packet": {
       "type": "object",
-      "required": ["intent_classification", "mangle_updates"],
+      "required": [
+        "intent_classification",
+        "mangle_updates",
+        "memory_operations",
+        "self_correction",
+        "reasoning_trace",
+        "knowledge_requests",
+        "context_feedback",
+        "tool_requests"
+      ],
       "additionalProperties": false,
       "properties": {
         "intent_classification": {
@@ -95,6 +104,7 @@ const PiggybackEnvelopeSchema = `{
         },
         "self_correction": {
           "type": "object",
+          "required": ["triggered", "hypothesis"],
           "additionalProperties": false,
           "properties": {
             "triggered": {
@@ -116,7 +126,7 @@ const PiggybackEnvelopeSchema = `{
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["specialist", "query"],
+            "required": ["specialist", "query", "purpose", "priority"],
             "additionalProperties": false,
             "properties": {
               "specialist": {
@@ -142,6 +152,7 @@ const PiggybackEnvelopeSchema = `{
         },
         "context_feedback": {
           "type": "object",
+          "required": ["overall_usefulness", "helpful_facts", "noise_facts", "missing_context"],
           "additionalProperties": false,
           "properties": {
             "overall_usefulness": {
@@ -171,7 +182,7 @@ const PiggybackEnvelopeSchema = `{
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["id", "tool_name", "tool_args"],
+            "required": ["id", "tool_name", "tool_args", "purpose", "required"],
             "additionalProperties": false,
             "properties": {
               "id": {

@@ -754,7 +754,22 @@ You MUST output a JSON object with this exact structure. No exceptions.
         "priority": "required|optional"
       }
     ],
-    "reasoning_trace": "Step-by-step reasoning..."
+    "reasoning_trace": "Step-by-step reasoning...",
+    "context_feedback": {
+      "overall_usefulness": 0.8,
+      "helpful_facts": ["file_topology", "test_state"],
+      "noise_facts": ["dom_node"],
+      "missing_context": ""
+    },
+    "tool_requests": [
+      {
+        "id": "req_1",
+        "tool_name": "read_file",
+        "tool_args": {"path": "path/to/file.go"},
+        "purpose": "Read source to answer accurately",
+        "required": true
+      }
+    ]
   },
   "surface_response": "Human-readable response to the user"
 }
@@ -787,6 +802,14 @@ Use knowledge_requests when you need information you don't have:
 
 NEVER say "I don't have that information" - request knowledge instead!
 The system will gather knowledge and re-invoke you with the results.
+
+## REQUIRED FIELDS
+
+When Piggyback Protocol is active, the output MUST include ALL fields shown in the schema.
+If a field is not needed, emit an empty value instead:
+- arrays: []
+- strings: ""
+- objects: include all keys with empty values
 `
 
 // =============================================================================

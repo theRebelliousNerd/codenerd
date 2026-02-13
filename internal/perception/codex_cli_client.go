@@ -189,10 +189,11 @@ func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
 }
 
 func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
-	// Keep this heuristic consistent with API clients. If we detect Piggyback, we can safely
-	// enforce the Piggyback JSON schema via Codex CLI --output-schema.
+	// We only enforce Piggyback JSON schema when the prompt clearly requests the Piggyback
+	// envelope (i.e. includes control_packet). Some other structured prompts (like the
+	// UnderstandingTransducer's output) also contain "surface_response" but are NOT Piggyback.
 	return strings.Contains(systemPrompt, "control_packet") ||
-		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(systemPrompt, "PiggybackEnvelope") ||
 		strings.Contains(userPrompt, "PiggybackEnvelope") ||
 		strings.Contains(userPrompt, "control_packet")
 }

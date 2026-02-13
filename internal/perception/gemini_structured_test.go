@@ -209,7 +209,7 @@ func TestContextFeedbackSchema(t *testing.T) {
 		}
 	}
 
-	// Verify context_feedback is NOT in required fields (it's optional)
+	// Verify required fields (strict schema for structured outputs)
 	var required []string
 	switch v := controlPacket["required"].(type) {
 	case []string:
@@ -226,15 +226,30 @@ func TestContextFeedbackSchema(t *testing.T) {
 		t.Fatalf("Missing required array in control_packet (type=%T)", controlPacket["required"])
 	}
 
+	expectedRequired := []string{
+		"intent_classification",
+		"mangle_updates",
+		"memory_operations",
+		"self_correction",
+		"reasoning_trace",
+		"knowledge_requests",
+		"context_feedback",
+		"tool_requests",
+	}
+
+	requiredSet := make(map[string]bool, len(required))
 	for _, req := range required {
-		if req == "context_feedback" {
-			t.Error("context_feedback should NOT be in required fields (it's optional)")
+		requiredSet[req] = true
+	}
+
+	for _, exp := range expectedRequired {
+		if !requiredSet[exp] {
+			t.Errorf("Expected %s to be required, but it was missing (required=%v)", exp, required)
 		}
 	}
 
-	// Verify only intent_classification and mangle_updates are required
-	if len(required) != 2 {
-		t.Errorf("Expected 2 required fields, got %d: %v", len(required), required)
+	if len(required) != len(expectedRequired) {
+		t.Errorf("Expected %d required fields, got %d: %v", len(expectedRequired), len(required), required)
 	}
 
 	t.Logf("Schema validated: context_feedback present with fields: %v", expectedFields)
