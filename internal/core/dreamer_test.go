@@ -68,7 +68,7 @@ func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	// Note: We map ActionID in the policy rule to the first arg of panic_state
 	policy := `
 	panic_state(ActionID, "forbidden file") :-
-		projected_action(ActionID, "read_file", "secret.txt").
+		projected_action(ActionID, /read_file, "secret.txt").
 	`
 	k.AppendPolicy(policy)
 

@@ -58,6 +58,7 @@ func (c *DreamCache) Get(actionID string) (DreamResult, bool) {
 
 // Dreamer simulates the impact of actions before execution.
 type Dreamer struct {
+	mu     sync.RWMutex
 	kernel *RealKernel
 }
 
@@ -69,13 +70,31 @@ func NewDreamer(kernel *RealKernel) *Dreamer {
 
 // SetKernel updates the kernel reference (used when the virtual store swaps kernels).
 func (d *Dreamer) SetKernel(kernel *RealKernel) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.kernel = kernel
 	logging.DreamDebug("Dreamer: kernel reference updated")
+}
+
+func (d *Dreamer) getKernel() *RealKernel {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.kernel
 }
 
 // SimulateAction performs a speculative evaluation of a single action.
 // It returns a DreamResult with any panic_state detections.
 func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	timer := logging.StartTimer(logging.CategoryDream, fmt.Sprintf("SimulateAction(%s)", req.Type))
 	actionID := fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano())
 	logging.Dream("SimulateAction: starting simulation for %s (target=%s)", req.Type, req.Target)
@@ -86,16 +105,19 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		Request:  req,
 	}
 
-	// No kernel available -> nothing to simulate
-	if d == nil || d.kernel == nil {
-		logging.DreamDebug("SimulateAction: no kernel available, returning safe (no simulation)")
+	// No kernel available -> fail closed (safety system must not default-allow on internal failure).
+	kernel := d.getKernel()
+	if kernel == nil {
+		result.Unsafe = true
+		result.Reason = "dreamer kernel unavailable"
+		logging.Get(logging.CategoryDream).Error("SimulateAction: %s", result.Reason)
 		timer.Stop()
 		return result
 	}
 
 	// Build projected facts for this action
 	logging.DreamDebug("SimulateAction: projecting effects for action %s", actionID)
-	projected := d.projectEffects(actionID, req)
+	projected := d.projectEffects(kernel, actionID, req)
 	result.ProjectedFacts = projected
 	logging.DreamDebug("SimulateAction: projected %d facts", len(projected))
 
@@ -110,7 +132,7 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	}
 
 	logging.DreamDebug("SimulateAction: evaluating projection for safety")
-	unsafe, reason := d.evaluateProjection(actionID, projected)
+	unsafe, reason := d.evaluateProjection(kernel, actionID, projected)
 	result.Unsafe = unsafe
 	result.Reason = reason
 
@@ -125,10 +147,10 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 }
 
 // evaluateProjection loads projected facts into a sandboxed kernel and queries panic_state.
-func (d *Dreamer) evaluateProjection(actionID string, projected []Fact) (bool, string) {
+func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projected []Fact) (bool, string) {
 	timer := logging.StartTimer(logging.CategoryDream, "evaluateProjection")
 	logging.DreamDebug("evaluateProjection: cloning kernel for sandbox evaluation")
-	clone := d.kernel.Clone()
+	clone := kernel.Clone()
 
 	// Batch-assert projections for performance
 	logging.DreamDebug("evaluateProjection: asserting %d projected facts", len(projected))
@@ -147,9 +169,10 @@ func (d *Dreamer) evaluateProjection(actionID string, projected []Fact) (bool, s
 	logging.DreamDebug("evaluateProjection: querying panic_state predicate")
 	results, err := clone.Query("panic_state")
 	if err != nil {
-		logging.DreamDebug("evaluateProjection: panic_state query failed: %v", err)
+		// Conservative: if we can't query panic_state, we can't prove safety.
+		logging.Get(logging.CategoryDream).Error("evaluateProjection: panic_state query failed: %v", err)
 		timer.Stop()
-		return false, ""
+		return true, fmt.Sprintf("dream query failed: %v", err)
 	}
 
 	logging.DreamDebug("evaluateProjection: found %d panic_state results", len(results))
@@ -176,7 +199,7 @@ func (d *Dreamer) evaluateProjection(actionID string, projected []Fact) (bool, s
 }
 
 // projectEffects converts an ActionRequest into a set of projected facts.
-func (d *Dreamer) projectEffects(actionID string, req ActionRequest) []Fact {
+func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req ActionRequest) []Fact {
 	logging.DreamDebug("projectEffects: projecting effects for action %s (type=%s, target=%s)", actionID, req.Type, req.Target)
 
 	path := strings.TrimSpace(req.Target)
@@ -185,7 +208,7 @@ func (d *Dreamer) projectEffects(actionID string, req ActionRequest) []Fact {
 			Predicate: "projected_action",
 			Args: []interface{}{
 				actionID,
-				string(req.Type),
+				MangleAtom("/" + string(req.Type)),
 				path,
 			},
 		},
@@ -213,7 +236,7 @@ func (d *Dreamer) projectEffects(actionID string, req ActionRequest) []Fact {
 				},
 			})
 		}
-		projected = append(projected, d.codeGraphProjections(actionID, path)...)
+		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
 
 	case ActionWriteFile, ActionEditFile, ActionEditLines, ActionInsertLines, ActionDeleteLines:
 		logging.DreamDebug("projectEffects: projecting file modification effects for %s", path)
@@ -244,7 +267,7 @@ func (d *Dreamer) projectEffects(actionID string, req ActionRequest) []Fact {
 				},
 			})
 		}
-		projected = append(projected, d.codeGraphProjections(actionID, path)...)
+		projected = append(projected, d.codeGraphProjections(kernel, actionID, path)...)
 
 	case ActionExecCmd:
 		logging.DreamDebug("projectEffects: projecting exec_cmd effects for command: %s", path)
@@ -279,19 +302,19 @@ func (d *Dreamer) projectEffects(actionID string, req ActionRequest) []Fact {
 // codeGraphProjections emits projections based on the code graph for a file path:
 // - touches_symbol(Symbol)
 // - impacts_test(TestSymbol) when a touched symbol is called by a test
-func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
+func (d *Dreamer) codeGraphProjections(kernel *RealKernel, actionID, path string) []Fact {
 	logging.DreamDebug("codeGraphProjections: analyzing code graph for %s", path)
 
-	if d == nil || d.kernel == nil {
+	if kernel == nil {
 		logging.DreamDebug("codeGraphProjections: no kernel, skipping")
 		return nil
 	}
 
 	// Lock kernel for direct store access to avoid O(N) allocations in QueryCallback
-	d.kernel.mu.RLock()
-	defer d.kernel.mu.RUnlock()
+	kernel.mu.RLock()
+	defer kernel.mu.RUnlock()
 
-	programInfo := d.kernel.programInfo
+	programInfo := kernel.programInfo
 	if programInfo == nil {
 		return nil
 	}
@@ -300,7 +323,9 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 	var codeDefinesPred ast.PredicateSym
 	foundDefines := false
 	for pred := range programInfo.Decls {
-		if pred.Symbol == "code_defines" && pred.Arity == 2 {
+		// code_defines is currently declared as /5 (File, Symbol, Type, StartLine, EndLine).
+		// Be tolerant of older arities to avoid schema drift breakage.
+		if pred.Symbol == "code_defines" && (pred.Arity == 5 || pred.Arity == 2) {
 			codeDefinesPred = pred
 			foundDefines = true
 			break
@@ -319,8 +344,8 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 	// We iterate ast.Atom directly and filter using fast checks.
 	pathClean := filepath.Clean(path)
 
-	err := d.kernel.store.GetFacts(ast.NewQuery(codeDefinesPred), func(a ast.Atom) error {
-		if len(a.Args) != 2 {
+	err := kernel.store.GetFacts(ast.NewQuery(codeDefinesPred), func(a ast.Atom) error {
+		if len(a.Args) < 2 {
 			return nil
 		}
 
@@ -389,7 +414,7 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 
 	// Stream code_calls to find impacts
 	impactedTests := 0
-	err = d.kernel.store.GetFacts(ast.NewQuery(codeCallsPred), func(a ast.Atom) error {
+	err = kernel.store.GetFacts(ast.NewQuery(codeCallsPred), func(a ast.Atom) error {
 		if len(a.Args) != 2 {
 			return nil
 		}
