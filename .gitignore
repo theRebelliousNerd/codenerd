@@ -14,12 +14,9 @@
 /query-kb
 /bin
 
-# Hidden/system files and folders
+# Hidden/system files and folders (including all dot folders)
 .*
-!.github/
-!.github/**
 !.gitignore
-!/.gitignore
 
 # OS noise
 Thumbs.db
@@ -49,6 +46,7 @@ Docs/plans/
 # Local runtime / tooling state
 /conductor/
 /scripts/
+/script/
 /tools/
 
 # Hidden runtime/config paths
