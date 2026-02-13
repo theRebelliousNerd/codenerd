@@ -15,7 +15,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"codenerd/internal/core"
@@ -330,16 +329,10 @@ func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 
 	// WorldStates: match if ANY required world state is present
 	if len(a.WorldStates) > 0 {
-		contextStates := cc.WorldStates()
 		found := false
 		for _, ws := range a.WorldStates {
-			for _, cs := range contextStates {
-				if ws == cs {
-					found = true
-					break
-				}
-			}
-			if found {
+			if hasWorldState(cc, ws) {
+				found = true
 				break
 			}
 		}
@@ -351,6 +344,28 @@ func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 	return true
 }
 
+// hasWorldState checks if a world state is active in the context.
+// optimized to avoid allocating a slice of strings.
+func hasWorldState(cc *CompilationContext, state string) bool {
+	switch state {
+	case "failing_tests":
+		return cc.FailingTestCount > 0
+	case "diagnostics":
+		return cc.DiagnosticCount > 0
+	case "large_refactor":
+		return cc.IsLargeRefactor
+	case "security_issues":
+		return cc.HasSecurityIssues
+	case "new_files":
+		return cc.HasNewFiles
+	case "high_churn":
+		return cc.IsHighChurn
+	case "reflection_hits":
+		return cc.HasReflectionHits
+	}
+	return false
+}
+
 // matchSelector checks if a value matches a selector list.
 // Empty selector list means "match any". Empty value matches empty list only.
 func matchSelector(selector []string, value string) bool {
@@ -360,15 +375,27 @@ func matchSelector(selector []string, value string) bool {
 	if value == "" {
 		return false // Has constraint but no value = no match
 	}
-	// Normalize to allow legacy selector values without leading "/" to match
-	// canonical context values (and vice versa). This preserves backward
-	// compatibility while encouraging "/"-prefixed tags going forward.
-	normalizedValue := strings.TrimPrefix(value, "/")
+
+	// Pre-calculate normalized value
+	normalizedValue := value
+	if len(value) > 0 && value[0] == '/' {
+		normalizedValue = value[1:]
+	}
+
 	for _, s := range selector {
+		// Check exact match
 		if s == value {
 			return true
 		}
-		if strings.TrimPrefix(s, "/") == normalizedValue {
+
+		// Check normalized match
+		// Manual trim prefix optimization to avoid strings.TrimPrefix overhead
+		normalizedS := s
+		if len(s) > 0 && s[0] == '/' {
+			normalizedS = s[1:]
+		}
+
+		if normalizedS == normalizedValue {
 			return true
 		}
 	}
