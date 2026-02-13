@@ -115,3 +115,29 @@ func TestUnderstandingTransducer_ExtractMemoryOperations(t *testing.T) {
 		t.Errorf("Expected op forget, got %s", opsForget[0].Op)
 	}
 }
+
+func TestUnderstandingTransducer_UnderstandingToIntent_Nil(t *testing.T) {
+	// Setup
+	tr := &UnderstandingTransducer{}
+
+	// Verify we don't panic
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("understandingToIntent panicked with %v", r)
+		}
+	}()
+
+	// Execute
+	intent := tr.understandingToIntent(nil)
+
+	// Verify safe default
+	if intent.Verb != "/explain" {
+		t.Errorf("Expected Verb /explain, got %s", intent.Verb)
+	}
+	if intent.Category != "/query" {
+		t.Errorf("Expected Category /query, got %s", intent.Category)
+	}
+	if intent.Response != "Internal error: understanding is nil" {
+		t.Errorf("Expected Response 'Internal error: understanding is nil', got %s", intent.Response)
+	}
+}
