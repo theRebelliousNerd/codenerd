@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/mangle/parse"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +32,31 @@ func (m *mockVectorSearcher) Search(ctx context.Context, query string, limit int
 		}
 	}
 	return results, nil
+}
+
+type validatingKernel struct {
+	results []Fact
+}
+
+func (k *validatingKernel) Query(predicate string) ([]Fact, error) {
+	return k.results, nil
+}
+
+func (k *validatingKernel) AssertBatch(facts []interface{}) error {
+	for _, f := range facts {
+		s, ok := f.(string)
+		if !ok {
+			continue
+		}
+
+		// We mimic internal/mangle's permissive parse behavior: try as-is, then with '.'.
+		if _, err := parse.Atom(s); err != nil {
+			if _, err2 := parse.Atom(s + "."); err2 != nil {
+				return err2
+			}
+		}
+	}
+	return nil
 }
 
 // =========================================================================
@@ -234,6 +260,43 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no skeleton atoms")
 	})
+}
+
+func TestAtomSelector_SelectAtoms_FactsAreMangleParseable(t *testing.T) {
+	selector := NewAtomSelector()
+
+	evilID := "evil\\\" ) :- dangerous(X). #\n"
+	identityID := "identity-1"
+
+	kernel := &validatingKernel{
+		results: []Fact{
+			{Predicate: "selected_result", Args: []interface{}{identityID, 100, "mandatory"}},
+			{Predicate: "selected_result", Args: []interface{}{evilID, 80, "vector_match"}},
+		},
+	}
+	selector.SetKernel(kernel)
+	selector.SetVectorSearcher(&mockVectorSearcher{
+		results: map[string]float64{
+			evilID: 0.99,
+		},
+	})
+
+	cc := NewCompilationContext()
+	cc.SemanticQuery = "query"
+	cc.SemanticTopK = 10
+	cc.OperationalMode = "/active"
+	cc.ShardType = "Coder Shard"
+	cc.Language = "/go"
+	cc.FailingTestCount = 1
+
+	atoms := []*PromptAtom{
+		{ID: identityID, Category: CategoryIdentity, Content: "identity content"},
+		{ID: evilID, Category: CategoryDomain, Content: "domain content"},
+	}
+
+	selected, err := selector.SelectAtoms(context.Background(), atoms, cc)
+	require.NoError(t, err)
+	require.NotEmpty(t, selected)
 }
 
 // =========================================================================

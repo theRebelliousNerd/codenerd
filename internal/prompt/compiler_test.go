@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,28 @@ func (m *mockKernel) AssertBatch(facts []interface{}) error {
 	}
 	m.facts = append(m.facts, facts...)
 	return nil
+}
+
+func TestJITPromptCompiler_RegisterDB_ClearsCache(t *testing.T) {
+	tmp := t.TempDir()
+
+	c, err := NewJITPromptCompiler()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Seed a fake cached result.
+	c.cacheMu.Lock()
+	c.cache["seed"] = &CompilationResult{}
+	c.cacheMu.Unlock()
+
+	dbPath := filepath.Join(tmp, "jit-cache-test.db")
+	err = c.RegisterDB("corpus", dbPath)
+	require.NoError(t, err)
+
+	c.cacheMu.RLock()
+	got := len(c.cache)
+	c.cacheMu.RUnlock()
+	assert.Equal(t, 0, got)
 }
 
 func atomsToFacts(atoms []*PromptAtom) []interface{} {

@@ -54,13 +54,22 @@ func (r *DependencyResolver) Resolve(atoms []*ScoredAtom) ([]*OrderedAtom, error
 
 	// Build lookup map
 	atomMap := make(map[string]*ScoredAtom, len(atoms))
+	valid := make([]*ScoredAtom, 0, len(atoms))
 	for _, sa := range atoms {
+		if sa == nil || sa.Atom == nil || sa.Atom.ID == "" {
+			logging.Get(logging.CategoryContext).Warn("DependencyResolver.Resolve: skipping nil/invalid atom")
+			continue
+		}
 		atomMap[sa.Atom.ID] = sa
+		valid = append(valid, sa)
+	}
+	if len(valid) == 0 {
+		return nil, nil
 	}
 
 	// Step 1: Topological sort
 	// We rely on Mangle to have already filtered out prohibited/conflicting/missing-dep atoms.
-	sorted, err := r.topologicalSort(atoms, atomMap)
+	sorted, err := r.topologicalSort(valid, atomMap)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +242,9 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 	graph := make(map[string][]string, len(atoms))
 	atomSet := make(map[string]bool, len(atoms))
 	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
 		atomSet[atom.ID] = true
 		for _, depID := range atom.DependsOn {
 			graph[atom.ID] = append(graph[atom.ID], depID)
@@ -284,6 +296,9 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 	}
 
 	for _, atom := range atoms {
+		if atom == nil || atom.ID == "" {
+			continue
+		}
 		if color[atom.ID] == white {
 			if dfs(atom.ID) {
 				return cyclePath
@@ -299,6 +314,9 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	// Group by category
 	byCategory := make(map[AtomCategory][]*OrderedAtom)
 	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		cat := oa.Atom.Category
 		byCategory[cat] = append(byCategory[cat], oa)
 	}
@@ -322,8 +340,15 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	}
 
 	// Append any remaining categories not in standard order
-	for _, atoms := range byCategory {
-		result = append(result, atoms...)
+	unknownCats := make([]AtomCategory, 0, len(byCategory))
+	for cat := range byCategory {
+		unknownCats = append(unknownCats, cat)
+	}
+	sort.Slice(unknownCats, func(i, j int) bool {
+		return string(unknownCats[i]) < string(unknownCats[j])
+	})
+	for _, cat := range unknownCats {
+		result = append(result, byCategory[cat]...)
 	}
 
 	// Update order indices

@@ -1118,6 +1118,19 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
+func (c *JITPromptCompiler) clearPromptCache(reason string) {
+	c.cacheMu.Lock()
+	c.cache = make(map[string]*CompilationResult)
+	c.cacheMu.Unlock()
+
+	atomic.StoreInt64(&c.cacheHits, 0)
+	atomic.StoreInt64(&c.cacheMiss, 0)
+
+	if reason != "" {
+		logging.Get(logging.CategoryJIT).Info("Cleared prompt cache: %s", reason)
+	}
+}
+
 // RegisterDB registers a named database with the JIT compiler.
 // Known names:
 //   - "corpus": Sets the project-level corpus database (embedded atoms synced to SQLite)
@@ -1154,6 +1167,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		logging.Get(logging.CategoryContext).Info("Registered database %s: %s", name, dbPath)
 	}
 
+	c.clearPromptCache("database registration updated")
 	return nil
 }
 
@@ -1162,15 +1176,17 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 // which contains both knowledge_atoms and prompt_atoms tables.
 func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.shardDBs[shardID] = db
+	c.mu.Unlock()
+	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
 }
 
 // UnregisterShardDB removes a shard database registration.
 func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	delete(c.shardDBs, shardID)
+	c.mu.Unlock()
+	c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
 }
 
 // LoadAtoms loads atoms from a database into memory.

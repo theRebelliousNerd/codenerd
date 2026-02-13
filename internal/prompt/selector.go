@@ -56,6 +56,112 @@ func estimateAtomTokens(atom *PromptAtom) int {
 	return EstimateTokens(atom.Content)
 }
 
+func mangleQuoteString(s string) string {
+	// Mangle short strings can be single or double quoted. We standardize on
+	// double quotes and escape using the escapes supported by the Mangle lexer:
+	//   \" \\ \n \t \xHH \u{HHHH[HH]}
+	//
+	// We keep output ASCII-only to avoid encoding edge cases.
+	const hex = "0123456789abcdef"
+
+	if s == "" {
+		return "\"\""
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(s) + 2)
+	sb.WriteByte('"')
+
+	for _, r := range s {
+		switch r {
+		case '"':
+			sb.WriteString("\\\"")
+		case '\\':
+			sb.WriteString("\\\\")
+		case '\n':
+			sb.WriteString("\\n")
+		case '\t':
+			sb.WriteString("\\t")
+		default:
+			// Printable ASCII (excluding backslash/quote handled above).
+			if r >= 0x20 && r <= 0x7e {
+				sb.WriteRune(r)
+				continue
+			}
+
+			// Control bytes and low bytes: \xHH
+			if r >= 0 && r <= 0xff {
+				sb.WriteString("\\x")
+				b := byte(r)
+				sb.WriteByte(hex[b>>4])
+				sb.WriteByte(hex[b&0x0f])
+				continue
+			}
+
+			// Unicode: \u{hhhh} (4-6 lowercase hex digits)
+			sb.WriteString("\\u{")
+			width := 4
+			if r > 0xffff {
+				width = 6
+			}
+			for shift := (width - 1) * 4; shift >= 0; shift -= 4 {
+				d := byte((r >> shift) & 0x0f)
+				sb.WriteByte(hex[d])
+			}
+			sb.WriteByte('}')
+		}
+	}
+
+	sb.WriteByte('"')
+	return sb.String()
+}
+
+func mangleNormalizeNameConst(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
+	}
+	s = strings.ToLower(s)
+
+	// Mangle constant syntax: '/' CONSTANT_CHAR+ ('/' CONSTANT_CHAR+)* where
+	// CONSTANT_CHAR is [A-Za-z0-9._-~%]. We normalize unknown characters to '_'
+	// and drop empty segments to avoid invalid constants like '//'.
+	parts := strings.Split(s, "/")
+	var cleaned []string
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		var b strings.Builder
+		b.Grow(len(p))
+		for i := 0; i < len(p); i++ {
+			c := p[i]
+			switch {
+			case c >= 'a' && c <= 'z':
+				b.WriteByte(c)
+			case c >= '0' && c <= '9':
+				b.WriteByte(c)
+			case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
+				b.WriteByte(c)
+			default:
+				b.WriteByte('_')
+			}
+		}
+		seg := strings.Trim(b.String(), "_")
+		if seg == "" {
+			continue
+		}
+		cleaned = append(cleaned, seg)
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	return "/" + strings.Join(cleaned, "/")
+}
+
 func mangleMandatoryLimits(cc *CompilationContext) (int, int) {
 	tokenCap := mangleMandatoryTokenCap
 	atomCap := mangleMandatoryAtomCap
@@ -451,6 +557,11 @@ func (s *AtomSelector) SelectAtomsLegacy(
 			if !strings.HasPrefix(val, "/") {
 				val = "/" + val
 			}
+			dim = mangleNormalizeNameConst(dim)
+			val = mangleNormalizeNameConst(val)
+			if dim == "" || val == "" {
+				return
+			}
 			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
 		}
 	}
@@ -474,11 +585,11 @@ func (s *AtomSelector) SelectAtomsLegacy(
 				isMandatory = true
 			}
 		}
-		facts = append(facts, fmt.Sprintf("atom('%s')", id))
-		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
-		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
+		facts = append(facts, fmt.Sprintf("atom(%s)", mangleQuoteString(id)))
+		facts = append(facts, fmt.Sprintf("atom_category(%s, %s)", mangleQuoteString(id), mangleQuoteString(string(atom.Category))))
+		facts = append(facts, fmt.Sprintf("atom_priority(%s, %d)", mangleQuoteString(id), atom.Priority))
 		if isMandatory {
-			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+			facts = append(facts, fmt.Sprintf("is_mandatory(%s)", mangleQuoteString(id)))
 		}
 
 		// Tags helper
@@ -497,7 +608,12 @@ func (s *AtomSelector) SelectAtomsLegacy(
 				if !strings.HasPrefix(atomVal, "/") {
 					atomVal = "/" + atomVal
 				}
-				facts = append(facts, fmt.Sprintf("atom_tag('%s', %s, %s)", id, atomDim, atomVal))
+				atomDim = mangleNormalizeNameConst(atomDim)
+				atomVal = mangleNormalizeNameConst(atomVal)
+				if atomDim == "" || atomVal == "" {
+					continue
+				}
+				facts = append(facts, fmt.Sprintf("atom_tag(%s, %s, %s)", mangleQuoteString(id), atomDim, atomVal))
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -517,7 +633,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 		if err == nil {
 			vectorScores = scores
 			for id, score := range scores {
-				facts = append(facts, fmt.Sprintf("vector_hit('%s', %f)", id, score))
+				facts = append(facts, fmt.Sprintf("vector_hit(%s, %f)", mangleQuoteString(id), score))
 			}
 		} else {
 			logging.Get(logging.CategoryContext).Warn("Vector search failed: %v", err)
@@ -781,7 +897,7 @@ func (s *AtomSelector) loadFleshAtoms(
 
 	// Add vector hits as facts
 	for id, score := range vectorScores {
-		facts = append(facts, fmt.Sprintf("vector_hit('%s', %f)", id, score))
+		facts = append(facts, fmt.Sprintf("vector_hit(%s, %f)", mangleQuoteString(id), score))
 	}
 
 	// Step 3: Query Mangle (if kernel available)
@@ -953,6 +1069,11 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 			if !strings.HasPrefix(val, "/") {
 				val = "/" + val
 			}
+			dim = mangleNormalizeNameConst(dim)
+			val = mangleNormalizeNameConst(val)
+			if dim == "" || val == "" {
+				return
+			}
 			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
 		}
 	}
@@ -981,11 +1102,11 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				isMandatory = true
 			}
 		}
-		facts = append(facts, fmt.Sprintf("atom('%s')", id))
-		facts = append(facts, fmt.Sprintf("atom_category('%s', '%s')", id, atom.Category))
-		facts = append(facts, fmt.Sprintf("atom_priority('%s', %d)", id, atom.Priority))
+		facts = append(facts, fmt.Sprintf("atom(%s)", mangleQuoteString(id)))
+		facts = append(facts, fmt.Sprintf("atom_category(%s, %s)", mangleQuoteString(id), mangleQuoteString(string(atom.Category))))
+		facts = append(facts, fmt.Sprintf("atom_priority(%s, %d)", mangleQuoteString(id), atom.Priority))
 		if isMandatory {
-			facts = append(facts, fmt.Sprintf("is_mandatory('%s')", id))
+			facts = append(facts, fmt.Sprintf("is_mandatory(%s)", mangleQuoteString(id)))
 		}
 
 		// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
@@ -1015,9 +1136,9 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 		}
 
-		facts = append(facts, fmt.Sprintf("prompt_atom('%s', %s, %d, '%s', %s)",
+		facts = append(facts, fmt.Sprintf("prompt_atom(%s, %s, %d, %s, %s)",
 
-			id, category, atom.Priority, hash, isMandatoryAtom))
+			mangleQuoteString(id), mangleNormalizeNameConst(category), atom.Priority, mangleQuoteString(hash), isMandatoryAtom))
 
 		// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
@@ -1034,7 +1155,12 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				if !strings.HasPrefix(atomVal, "/") {
 					atomVal = "/" + atomVal
 				}
-				facts = append(facts, fmt.Sprintf("atom_tag('%s', %s, %s)", id, atomDim, atomVal))
+				atomDim = mangleNormalizeNameConst(atomDim)
+				atomVal = mangleNormalizeNameConst(atomVal)
+				if atomDim == "" || atomVal == "" {
+					continue
+				}
+				facts = append(facts, fmt.Sprintf("atom_tag(%s, %s, %s)", mangleQuoteString(id), atomDim, atomVal))
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -1052,14 +1178,14 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {
 			if dep != "" {
-				facts = append(facts, fmt.Sprintf("atom_requires('%s', '%s')", id, dep))
+				facts = append(facts, fmt.Sprintf("atom_requires(%s, %s)", mangleQuoteString(id), mangleQuoteString(dep)))
 			}
 		}
 
 		// Conflicts - needed for atom_conflicts() in jit_compiler.mg
 		for _, conflict := range atom.ConflictsWith {
 			if conflict != "" {
-				facts = append(facts, fmt.Sprintf("atom_conflicts('%s', '%s')", id, conflict))
+				facts = append(facts, fmt.Sprintf("atom_conflicts(%s, %s)", mangleQuoteString(id), mangleQuoteString(conflict)))
 			}
 		}
 	}

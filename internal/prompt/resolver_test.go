@@ -452,6 +452,61 @@ func TestDependencyResolver_MandatoryAtomsFirst(t *testing.T) {
 	})
 }
 
+func TestDependencyResolver_Resolve_NilAtomsAreSkipped(t *testing.T) {
+	resolver := NewDependencyResolver()
+
+	// Should not panic.
+	ordered, err := resolver.Resolve([]*ScoredAtom{
+		nil,
+		{Atom: nil},
+		{Atom: &PromptAtom{ID: ""}},
+	})
+	if err != nil {
+		t.Fatalf("Resolve returned error for nil atoms: %v", err)
+	}
+	if ordered != nil {
+		t.Fatalf("Expected nil result for all-invalid input, got %v", ordered)
+	}
+}
+
+func TestDependencyResolver_SortByCategory_DeterministicUnknownCategories(t *testing.T) {
+	resolver := NewDependencyResolver()
+
+	input := []*OrderedAtom{
+		{
+			Atom:  &PromptAtom{ID: "a", Category: AtomCategory("custom_b")},
+			Score: 1.0,
+		},
+		{
+			Atom:  &PromptAtom{ID: "b", Category: AtomCategory("custom_a")},
+			Score: 1.0,
+		},
+	}
+
+	// Run multiple times to catch non-determinism.
+	var want string
+	for i := 0; i < 50; i++ {
+		// Copy slice to avoid reusing the same backing array after re-ordering.
+		atoms := append([]*OrderedAtom(nil), input...)
+		sorted := resolver.SortByCategory(atoms)
+		if len(sorted) != 2 {
+			t.Fatalf("Expected 2 atoms, got %d", len(sorted))
+		}
+		// Deterministic fallback order: unknown categories should be appended in lexicographic order.
+		if sorted[0].Atom.Category != "custom_a" || sorted[1].Atom.Category != "custom_b" {
+			t.Fatalf("Unexpected unknown-category order: got=%q,%q", sorted[0].Atom.Category, sorted[1].Atom.Category)
+		}
+		got := sorted[0].Atom.ID + "," + sorted[1].Atom.ID
+		if i == 0 {
+			want = got
+			continue
+		}
+		if got != want {
+			t.Fatalf("SortByCategory is non-deterministic: got=%q want=%q", got, want)
+		}
+	}
+}
+
 // Benchmark tests
 
 func BenchmarkResolve_SmallSet(b *testing.B) {
