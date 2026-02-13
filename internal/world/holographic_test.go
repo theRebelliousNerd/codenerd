@@ -167,6 +167,11 @@ func TestFormatPrioritizedCallersCompact(t *testing.T) {
 }
 
 func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
+	// TODO: TEST_GAP: Type Coercion Safety
+	// priorityAtomToInt assumes atoms are strings (e.g., "/high").
+	// If the kernel returns a custom atom type or a raw number, the integration might fail.
+	// Tests should verify behavior with non-string inputs and malformed atom strings.
+
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -268,6 +273,12 @@ func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Large File Handling (OOM Risk)
+// fetchFunctionBody uses os.ReadFile which reads the entire file into memory.
+// We need a test that mocks a large file (e.g., via a mocked file system interface)
+// or generates a temporary large file to verify that the system handles it gracefully
+// (e.g., returns error or truncates reading) instead of crashing with OOM.
+
 func TestExtractLineRange(t *testing.T) {
 	h := &HolographicProvider{}
 
@@ -359,6 +370,16 @@ func TestFindFunctionEnd(t *testing.T) {
 			want:     1, // Falls back to startIdx + maxCallerBodyLines or len-1
 		},
 	}
+
+	// TODO: TEST_GAP: Naive Brace Parsing
+	// The current implementation of findFunctionEnd counts braces without respecting string literals or comments.
+	// A test case like:
+	//   func foo() {
+	//       s := "}"
+	//       return
+	//   }
+	// currently fails (finds end at the line with "}"), causing truncated context.
+	// See .quality_assurance/2025-02-18_world_boundary_analysis.md for details.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
