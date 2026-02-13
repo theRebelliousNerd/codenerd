@@ -30,10 +30,15 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 	// SKIP: This test has pre-existing mock interaction issues with LLMTransducer.
 	// The actual perception flow is tested via live integration tests.
 	t.Skip("Pre-existing mock issue: LLMTransducer uses internal prompt flow that doesn't match mock")
+	// TODO: FIX: Unskip this test. The main entry point `ParseIntentWithContext` lacks unit test coverage.
+	// Use gomock or a proper mock interface to simulate LLM interaction.
 }
 
 func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 	tr := &UnderstandingTransducer{}
+
+	// TODO: TEST_GAP: Add test cases for case-insensitive matching (e.g., "Investigate", "MODIFY").
+	// Current implementation only handles lowercase, which might fail with non-deterministic LLM output.
 
 	tests := []struct {
 		action string
@@ -62,6 +67,8 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 
 func TestUnderstandingTransducer_MapSemanticToCategory(t *testing.T) {
 	tr := &UnderstandingTransducer{}
+
+	// TODO: TEST_GAP: Add test cases for empty strings and unknown types to verify fallback logic.
 
 	tests := []struct {
 		semantic string
