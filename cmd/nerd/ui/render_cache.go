@@ -1,4 +1,4 @@
-// Package ui provides rendering cache for performance optimization
+// Package ui provides rendering cache for performance optimization.
 package ui
 
 import (
@@ -7,20 +7,20 @@ import (
 	"sync"
 )
 
-// RenderCache provides hash-based caching for rendered content
+// RenderCache provides hash-based caching for rendered content.
 type RenderCache struct {
 	cache   sync.Map
 	maxSize int
 }
 
-// cacheEntry stores cached render output with metadata
+// cacheEntry stores cached render output with metadata.
 type cacheEntry struct {
 	hash    uint64
 	content string
 	hits    int
 }
 
-// NewRenderCache creates a new render cache with the specified max size
+// NewRenderCache creates a new render cache with the specified max size.
 func NewRenderCache(maxSize int) *RenderCache {
 	return &RenderCache{
 		cache:   sync.Map{},
@@ -28,10 +28,12 @@ func NewRenderCache(maxSize int) *RenderCache {
 	}
 }
 
-// DefaultRenderCache is a singleton cache for general UI rendering
+// DefaultRenderCache is a singleton cache for general UI rendering.
 var DefaultRenderCache = NewRenderCache(100)
 
-// computeHash computes a FNV-1a hash for cache keys
+// computeHash computes a FNV-1a hash for cache keys.
+//
+// Supported types are intentionally limited to avoid allocations in hot paths.
 func computeHash(inputs ...interface{}) uint64 {
 	h := fnv.New64a()
 	var b [8]byte
@@ -41,7 +43,6 @@ func computeHash(inputs ...interface{}) uint64 {
 		case string:
 			h.Write([]byte(v))
 		case int:
-			// Convert int to bytes
 			u := uint64(v)
 			b[0] = byte(u)
 			b[1] = byte(u >> 8)
@@ -75,7 +76,7 @@ func computeHash(inputs ...interface{}) uint64 {
 	return h.Sum64()
 }
 
-// Get retrieves cached content if available
+// Get retrieves cached content if available.
 func (rc *RenderCache) Get(key uint64) (string, bool) {
 	if val, ok := rc.cache.Load(key); ok {
 		entry := val.(*cacheEntry)
@@ -85,7 +86,7 @@ func (rc *RenderCache) Get(key uint64) (string, bool) {
 	return "", false
 }
 
-// Set stores rendered content in the cache
+// Set stores rendered content in the cache.
 func (rc *RenderCache) Set(key uint64, content string) {
 	entry := &cacheEntry{
 		hash:    key,
@@ -95,12 +96,12 @@ func (rc *RenderCache) Set(key uint64, content string) {
 	rc.cache.Store(key, entry)
 }
 
-// Clear empties the cache
+// Clear empties the cache.
 func (rc *RenderCache) Clear() {
 	rc.cache = sync.Map{}
 }
 
-// GetOrCompute retrieves from cache or computes if missing
+// GetOrCompute retrieves from cache or computes if missing.
 func (rc *RenderCache) GetOrCompute(key uint64, compute func() string) string {
 	if content, ok := rc.Get(key); ok {
 		return content
@@ -111,19 +112,19 @@ func (rc *RenderCache) GetOrCompute(key uint64, compute func() string) string {
 	return content
 }
 
-// ComputeKey generates a cache key from multiple inputs
+// ComputeKey generates a cache key from multiple inputs.
 func ComputeKey(inputs ...interface{}) uint64 {
 	return computeHash(inputs...)
 }
 
-// CachedRender wraps a render function with caching
+// CachedRender wraps a render function with caching.
 type CachedRender struct {
 	cache      *RenderCache
 	lastKey    uint64
 	lastResult string
 }
 
-// NewCachedRender creates a new cached render wrapper
+// NewCachedRender creates a new cached render wrapper.
 func NewCachedRender(cache *RenderCache) *CachedRender {
 	if cache == nil {
 		cache = DefaultRenderCache
@@ -133,24 +134,22 @@ func NewCachedRender(cache *RenderCache) *CachedRender {
 	}
 }
 
-// Render executes the render function with caching
+// Render executes the render function with caching.
 func (cr *CachedRender) Render(keyInputs []interface{}, renderFunc func() string) string {
 	key := ComputeKey(keyInputs...)
 
-	// Fast path: same as last render
+	// Fast path: same as last render.
 	if key == cr.lastKey && cr.lastResult != "" {
 		return cr.lastResult
 	}
 
-	// Check cache
 	result := cr.cache.GetOrCompute(key, renderFunc)
 	cr.lastKey = key
 	cr.lastResult = result
-
 	return result
 }
 
-// Invalidate clears the last cached result
+// Invalidate clears the last cached result.
 func (cr *CachedRender) Invalidate() {
 	cr.lastKey = 0
 	cr.lastResult = ""
