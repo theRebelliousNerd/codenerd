@@ -156,6 +156,15 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 // understandingToIntent converts the new Understanding to legacy Intent.
 // This enables gradual migration without breaking existing code.
 func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent {
+	// Guard against nil understanding
+	if u == nil {
+		return Intent{
+			Verb:     "/explain",
+			Category: "/query",
+			Response: "Internal error: understanding is nil",
+		}
+	}
+
 	// Map action_type to verb
 	verb := t.mapActionToVerb(u.ActionType, u.Domain)
 
