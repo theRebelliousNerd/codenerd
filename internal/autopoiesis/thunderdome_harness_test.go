@@ -44,3 +44,11 @@ func extractFunctionCall(code string) string {
 	}
 	return "Function call not found"
 }
+
+func TestThunderdome_Gaps(t *testing.T) {
+	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
+	// TODO: TEST_GAP: Verify that inputs with newlines are not truncated by scanner.Scan().
+	// TODO: TEST_GAP: Verify OOM detection reliability with a tool that allocates memory rapidly > 100ms interval.
+	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
+	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
+}
