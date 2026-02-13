@@ -1,0 +1,51 @@
+# Mangle-Specific TDD Workflow
+# TDD methodology for Mangle logic using Go test harnesses
+
+- id: "methodology/tdd/mangle_workflow"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  languages: ["/mangle"]
+  intent_verbs: ["/test", "/fix", "/implement"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## MANGLE LOGIC TDD PROTOCOL
+
+    Testing logic rules requires a Go test harness. Do not rely on "eye-balling" the rules.
+
+    ### 1. RED (Define the Case)
+    Create a table-driven Go test (`*_test.go`) defining the input facts (EDB) and expected derived facts (IDB).
+
+    ```go
+    tests := []struct {
+        name string
+        edb  []ast.Clause      // Input facts
+        want ast.Atom          // Expected derivation
+    }{
+        {
+            name: "Admin Access",
+            edb:  []ast.Clause{fact("admin", ast.Name("alice"))},
+            want: atom("access", ast.Name("alice")),
+        },
+    }
+    ```
+
+    ### 2. GREEN (Implement Logic)
+    Write the Mangle rule to satisfy the case.
+
+    ```mangle
+    access(User) :- admin(User).
+    ```
+
+    ### 3. VERIFY (Run Harness)
+    Run the Go test. The harness MUST:
+    1. **Fresh Store**: `store := factstore.NewSimpleInMemoryStore()` per test.
+    2. **Analyze**: `analysis.Analyze(program)` to catch safety errors (unbound variables).
+    3. **Eval**: `engine.EvalProgram(ctx, program, store)`.
+    4. **Assert**: Check `store.Read()` for the `want` atom.
+
+    ### CRITICAL SAFETY CHECKS
+    - **Atom vs String**: `ast.Name("foo")` is `/foo`. `ast.String("foo")` is `"foo"`. They DO NOT match.
+    - **Clean Slate**: Never reuse a store between cases. Ghost facts will break logic.
+    - **Termination**: Use `context.WithTimeout` to catch infinite recursion.
