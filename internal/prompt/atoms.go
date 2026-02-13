@@ -578,19 +578,22 @@ func copyStringSlice(s []string) []string {
 // EmbeddedCorpus holds the embedded (baked-in) prompt atoms.
 // These are loaded at compile time and cannot be modified.
 type EmbeddedCorpus struct {
-	atoms     map[string]*PromptAtom
-	cachedAll []*PromptAtom
+	atoms      map[string]*PromptAtom
+	cachedAll  []*PromptAtom
+	byCategory map[AtomCategory][]*PromptAtom
 }
 
 // NewEmbeddedCorpus creates a new embedded corpus from a slice of atoms.
 func NewEmbeddedCorpus(atoms []*PromptAtom) *EmbeddedCorpus {
 	corpus := &EmbeddedCorpus{
-		atoms:     make(map[string]*PromptAtom, len(atoms)),
-		cachedAll: make([]*PromptAtom, len(atoms)),
+		atoms:      make(map[string]*PromptAtom, len(atoms)),
+		cachedAll:  make([]*PromptAtom, len(atoms)),
+		byCategory: make(map[AtomCategory][]*PromptAtom),
 	}
 	for i, atom := range atoms {
 		corpus.atoms[atom.ID] = atom
 		corpus.cachedAll[i] = atom
+		corpus.byCategory[atom.Category] = append(corpus.byCategory[atom.Category], atom)
 	}
 	return corpus
 }
@@ -602,14 +605,19 @@ func (c *EmbeddedCorpus) Get(id string) (*PromptAtom, bool) {
 }
 
 // GetByCategory returns all atoms in a category.
+// Optimized to use pre-built index (O(1) lookup vs O(N) scan).
 func (c *EmbeddedCorpus) GetByCategory(category AtomCategory) []*PromptAtom {
-	var result []*PromptAtom
-	for _, atom := range c.atoms {
-		if atom.Category == category {
-			result = append(result, atom)
-		}
-	}
+	src := c.byCategory[category]
+	// Return a copy to ensure thread safety and immutability of the internal cache.
+	result := make([]*PromptAtom, len(src))
+	copy(result, src)
 	return result
+}
+
+// AppendAll appends all atoms in the corpus to the provided slice.
+// This avoids allocating an intermediate slice like All() does.
+func (c *EmbeddedCorpus) AppendAll(dst []*PromptAtom) []*PromptAtom {
+	return append(dst, c.cachedAll...)
 }
 
 // All returns all atoms in the corpus.
