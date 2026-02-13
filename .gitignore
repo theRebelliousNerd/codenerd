@@ -1,4 +1,4 @@
-# Binaries
+# Build Artifacts
 *.exe
 *.dll
 *.so
@@ -12,105 +12,65 @@
 /nerd_new
 /nerd_test
 /query-kb
-bin/
+/bin
 
-# Debug and Logs
-debug_output*.txt
-*.log
-nul
-*.tmp
-*.temp
+# Hidden/system files and folders
+.*
+!.github/
+!.github/**
+!.gitignore
+!/.gitignore
 
-# OS and Cache
+# OS noise
 Thumbs.db
 .DS_Store
-.cache/
+*.tmp
+*.temp
+nul
+*.log
+debug_output*.txt
 
-# Directories
-.gemini/
-tmp/
-tmp_*/
-tmp*/
-
-# Documentation (Ignore Docs root, keep research + plans + guides)
-Docs/*
-!Docs/research/
-!Docs/plans/
-!Docs/plans/**
-!Docs/guides/
-
-# Python caches
+# Caches
 **/__pycache__/
 *.pyc
 *.pyo
 *.pyd
+.cache/
 
-# JSON (ignore runtime/state JSON by default; allow examples/schemas)
-*.json
-!*.example.json
-!*.schema.json
+# Temporary folders
+tmp/
+tmp_*/
+tmp*/
 
-# Markdown Docs (Global ignore with exceptions)
-*.md
-!README.md
-!**/README.md
-!CLAUDE.md
-!**/CLAUDE.md
-!Docs/research/**
-!Docs/plans/**/*.md
-!Docs/guides/**
-!.claude/skills/**/*.md
-!.codex/skills/**/SKILL.md
-!.agent/**/*.md
-!internal/prompt/atoms/**/*.md
-!conductor/**/*.md
-!.quality_assurance/*.md
+# Research / planning scratch folders
+Docs/research/
+Docs/plans/
 
-# Debug files
-debug_program*.mg
-*.exe~
---help
+# Local runtime / tooling state
+conductor/
+scripts/
+tools/
 
-# codeNERD local state (keep the dot-folders and conductor clean)
-.nerd/cache/
-.nerd/campaigns/
-.nerd/logs/
-.nerd/sessions/
-.nerd/tmp/
-.nerd/tools/.compiled/
-.nerd/tools/.learnings/
-.nerd/tools/.profiles/
-.nerd/tools/.traces/
+# Hidden runtime/config paths
+.nerd/
 
-# Local config contains API keys; keep it out of git.
-.nerd/config.json
-.nerd/config.local.json
-.nerd/config.*.json
+# Ignore any config.json payload (and derivatives) to prevent secret leakage.
+**/config.json
+**/config.*.json
+config.json
 
-# Allow safe, shareable templates.
-!.nerd/config.example.json
-!.nerd/review-rules.example.json
+# Markdown policy documents and local model prompts
+**/CLAUDE.md
+**/claude.md
+**/AGENTS.md
+**/agents.md
+**/GEMINI.md
+**/gemini.md
 
-# Local review rules (user-specific)
-.nerd/review-rules.json
-
-# Ignore runtime DBs under .nerd (note: tracked files are unaffected; see cleanup commit)
-.nerd/**/*.db
-.nerd/**/*.db-journal
-.nerd/**/*.db-shm
-.nerd/**/*.db-wal
-.nerd/**/*.backup_*
-
-# Conductor local state
-conductor/setup_state.json
-conductor/tracks/**/metadata.json
-
-
-# SQLite runtime files
+# SQLite/runtime artifacts
 *.db-shm
 *.db-wal
 *.db-journal
 *.sqlite-journal
 *.sqlite3-journal
 *.backup_*
-.claude/skills/log-analyzer/scripts/logquery/logquery
