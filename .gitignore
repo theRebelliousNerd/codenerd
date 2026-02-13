@@ -47,9 +47,9 @@ Docs/research/
 Docs/plans/
 
 # Local runtime / tooling state
-conductor/
-scripts/
-tools/
+/conductor/
+/scripts/
+/tools/
 
 # Hidden runtime/config paths
 .nerd/
