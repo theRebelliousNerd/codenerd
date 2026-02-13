@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/mangle/ast"
 )
 
 // DreamResult captures the speculative evaluation of a single action.
@@ -285,27 +287,62 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 		return nil
 	}
 
+	// Lock kernel for direct store access to avoid O(N) allocations in QueryCallback
+	d.kernel.mu.RLock()
+	defer d.kernel.mu.RUnlock()
+
+	programInfo := d.kernel.programInfo
+	if programInfo == nil {
+		return nil
+	}
+
+	// Find code_defines predicate
+	var codeDefinesPred ast.PredicateSym
+	foundDefines := false
+	for pred := range programInfo.Decls {
+		if pred.Symbol == "code_defines" && pred.Arity == 2 {
+			codeDefinesPred = pred
+			foundDefines = true
+			break
+		}
+	}
+
+	if !foundDefines {
+		logging.DreamDebug("codeGraphProjections: code_defines predicate not found")
+		return nil
+	}
+
 	symbolsInFile := make(map[string]bool)
 	testSymbols := make(map[string]bool)
 
-	// OPTIMIZATION: Use QueryCallback to stream facts and avoid massive slice allocations.
-	// We only map symbols if they are in the target file OR in a test file.
-	// This reduces memory usage from O(AllSymbols) to O(TestSymbols + FileSymbols).
-	err := d.kernel.QueryCallback("code_defines", func(def Fact) error {
-		if len(def.Args) < 2 {
-			return nil
-		}
-		file := toString(def.Args[0])
-		sym := toString(def.Args[1])
-		if file == "" || sym == "" {
+	// OPTIMIZATION: Direct store access avoids converting every fact to Go types.
+	// We iterate ast.Atom directly and filter using fast checks.
+	pathClean := filepath.Clean(path)
+
+	err := d.kernel.store.GetFacts(ast.NewQuery(codeDefinesPred), func(a ast.Atom) error {
+		if len(a.Args) != 2 {
 			return nil
 		}
 
-		if filepath.Clean(file) == filepath.Clean(path) {
-			symbolsInFile[sym] = true
+		// Check file (arg 0)
+		fileTerm := a.Args[0]
+		fileStr, ok := fastTermToString(fileTerm)
+		if !ok {
+			return nil
 		}
-		if strings.Contains(file, "_test.go") {
-			testSymbols[sym] = true
+
+		// Check if file matches target path
+		if filepath.Clean(fileStr) == pathClean {
+			if sym, ok := fastTermToString(a.Args[1]); ok {
+				symbolsInFile[sym] = true
+			}
+		}
+
+		// Check if file is a test file
+		if strings.Contains(fileStr, "_test.go") {
+			if sym, ok := fastTermToString(a.Args[1]); ok {
+				testSymbols[sym] = true
+			}
 		}
 		return nil
 	})
@@ -334,30 +371,50 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 		})
 	}
 
-	// Stream code_calls to find impacts without allocating slice for all calls
+	// Find code_calls predicate
+	var codeCallsPred ast.PredicateSym
+	foundCalls := false
+	for pred := range programInfo.Decls {
+		if pred.Symbol == "code_calls" && pred.Arity == 2 {
+			codeCallsPred = pred
+			foundCalls = true
+			break
+		}
+	}
+
+	if !foundCalls {
+		logging.DreamDebug("codeGraphProjections: code_calls predicate not found")
+		return projected
+	}
+
+	// Stream code_calls to find impacts
 	impactedTests := 0
-	err = d.kernel.QueryCallback("code_calls", func(cf Fact) error {
-		if len(cf.Args) < 2 {
+	err = d.kernel.store.GetFacts(ast.NewQuery(codeCallsPred), func(a ast.Atom) error {
+		if len(a.Args) != 2 {
 			return nil
 		}
-		caller := toString(cf.Args[0])
-		callee := toString(cf.Args[1])
-		if caller == "" || callee == "" {
+
+		// Check callee (arg 1) first as filter
+		calleeStr, ok := fastTermToString(a.Args[1])
+		if !ok || !symbolsInFile[calleeStr] {
 			return nil
 		}
-		if !symbolsInFile[callee] {
+
+		// Check caller (arg 0)
+		callerStr, ok := fastTermToString(a.Args[0])
+		if !ok {
 			return nil
 		}
 
 		// Check if caller is a test symbol
-		if testSymbols[caller] {
+		if testSymbols[callerStr] {
 			impactedTests++
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
 				Args: []interface{}{
 					actionID,
 					MangleAtom("/impacts_test"),
-					caller,
+					callerStr,
 				},
 			})
 		}
@@ -421,4 +478,15 @@ func toString(arg interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// fastTermToString extracts a string from a BaseTerm if it's a name or string constant.
+// This avoids interface conversion and allocation for non-matching types.
+func fastTermToString(term ast.BaseTerm) (string, bool) {
+	if c, ok := term.(ast.Constant); ok {
+		if c.Type == ast.NameType || c.Type == ast.StringType {
+			return c.Symbol, true
+		}
+	}
+	return "", false
 }
