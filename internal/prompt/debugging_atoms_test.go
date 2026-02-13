@@ -14,24 +14,24 @@ func TestDebuggingAtoms(t *testing.T) {
 
 	// Define test cases for each new atom
 	tests := []struct {
-		filename    string
-		expectedID  string
+		filename     string
+		expectedID   string
 		expectedLang []string
 	}{
 		{
-			filename:    "atoms/methodology/debugging_go.yaml",
-			expectedID:  "methodology/debugging/go_workflow",
+			filename:     "atoms/methodology/debugging_go.yaml",
+			expectedID:   "methodology/debugging/go",
 			expectedLang: []string{"/go", "/golang"},
 		},
 		{
-			filename:    "atoms/methodology/debugging_python.yaml",
-			expectedID:  "methodology/debugging/python_workflow",
+			filename:     "atoms/methodology/debugging_python.yaml",
+			expectedID:   "methodology/debugging/python",
 			expectedLang: []string{"/python"},
 		},
 		{
-			filename:    "atoms/methodology/debugging_typescript.yaml",
-			expectedID:  "methodology/debugging/typescript_workflow",
-			expectedLang: []string{"/typescript", "/javascript"},
+			filename:     "atoms/methodology/debugging_typescript.yaml",
+			expectedID:   "methodology/debugging/typescript",
+			expectedLang: []string{"/typescript", "/javascript", "/node"},
 		},
 	}
 

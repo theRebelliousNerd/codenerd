@@ -203,6 +203,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 
 	// Track parse errors for diagnostic logging on fallback
 	var parseErrors []string
+	// Track the most useful error seen so strict-mode failures don't get masked by
+	// later "no embedded JSON found" fallbacks.
+	var bestErr error
 
 	// 1. Try direct JSON parsing
 	logging.ArticulationDebug("Attempting direct JSON parsing")
@@ -234,6 +237,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		return result, nil
 	}
 	parseErrors = append(parseErrors, fmt.Sprintf("direct: %v", err))
+	if bestErr == nil {
+		bestErr = err
+	}
 	logging.ArticulationDebug("Direct JSON parse failed: %v", err)
 
 	// 2. Try markdown-wrapped JSON
@@ -252,6 +258,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 			return result, nil
 		}
 		parseErrors = append(parseErrors, fmt.Sprintf("markdown: %v", err))
+		if bestErr == nil {
+			bestErr = err
+		}
 		logging.ArticulationDebug("Markdown-wrapped JSON parse failed: %v", err)
 	}
 
@@ -272,6 +281,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		return result, nil
 	}
 	parseErrors = append(parseErrors, fmt.Sprintf("embedded: %v", err))
+	if bestErr == nil {
+		bestErr = err
+	}
 	logging.ArticulationDebug("Embedded JSON extraction failed: %v", err)
 
 	// 4. Fallback: treat entire response as surface text
@@ -317,7 +329,10 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 	logging.Get(logging.CategoryArticulation).Error("Strict mode: failed to parse Piggyback JSON after all attempts")
 	logging.ArticulationDebug("Validation failure stats: total=%d, failures=%d",
 		rp.stats.TotalProcessed, rp.stats.ValidationFailures)
-	return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", err)
+	if bestErr == nil {
+		bestErr = err
+	}
+	return nil, fmt.Errorf("failed to parse Piggyback JSON: %w", bestErr)
 }
 
 // applyCaps enforces surface/control size limits to avoid runaway payloads.
@@ -461,48 +476,6 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 
 	logging.ArticulationDebug("extractEmbeddedJSON: no valid JSON found in candidates")
 	return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
-}
-
-// findJSONCandidates extracts all top-level balanced {...} blocks
-func findJSONCandidates(s string) []string {
-	var candidates []string
-	var depth int
-	var start int = -1
-	var inString bool
-	var escaped bool
-
-	for i, r := range s {
-		if inString {
-			if escaped {
-				escaped = false
-			} else if r == '\\' {
-				escaped = true
-			} else if r == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		if r == '"' {
-			inString = true
-			continue
-		}
-
-		if r == '{' {
-			if depth == 0 {
-				start = i
-			}
-			depth++
-		} else if r == '}' {
-			if depth > 0 {
-				depth--
-				if depth == 0 {
-					candidates = append(candidates, s[start:i+1])
-				}
-			}
-		}
-	}
-	return candidates
 }
 
 // GetStats returns current processing statistics.

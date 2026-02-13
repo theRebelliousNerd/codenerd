@@ -271,6 +271,15 @@ func (p *LogicPane) ResetActivationThreshold() {
 	p.refreshNodes()
 }
 
+func (p *LogicPane) invalidateCache() {
+	p.cachedContent = ""
+	p.cacheValid = false
+	p.lastCacheWidth = 0
+	if p.renderCache != nil {
+		p.renderCache.Invalidate()
+	}
+}
+
 // GetActivationThreshold returns the current threshold value
 func (p *LogicPane) GetActivationThreshold() float64 {
 	return p.ActivationThreshold
@@ -343,6 +352,21 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 	return result
 }
 
+func (p *LogicPane) flattenNodesFiltered(nodes []*DerivationNode, depth int) []*DerivationNode {
+	flat := p.flattenNodes(nodes, depth)
+	if p.ActivationThreshold <= MinActivationThreshold {
+		return flat
+	}
+
+	filtered := make([]*DerivationNode, 0, len(flat))
+	for _, node := range flat {
+		if node.Activation >= p.ActivationThreshold {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered
+}
+
 // renderContent renders the logic pane content with hash-based caching
 func (p *LogicPane) renderContent() string {
 	if p.CurrentTrace == nil {
@@ -362,7 +386,7 @@ func (p *LogicPane) renderContent() string {
 			p.ShowActivation,
 			p.SelectedNode,
 			p.ScrollOffset,
-			p.SearchQuery,  // Include filter parameters in cache key
+			p.SearchQuery, // Include filter parameters in cache key
 			p.FilterSource,
 		}
 

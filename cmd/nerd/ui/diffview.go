@@ -44,17 +44,19 @@ type PendingMutation struct {
 // DiffApprovalView handles interactive diff approval
 // TODO: IMPROVEMENT: Refactor state management to use a state machine or cleaner model transition logic.
 type DiffApprovalView struct {
-	Styles         Styles
-	Viewport       viewport.Model
-	Mutations      []*PendingMutation
-	CurrentIndex   int
-	Width          int
-	Height         int
-	ShowWarnings   bool
-	SelectedHunk   int
-	ApprovalMode   ApprovalMode
-	WordLevelDiff  bool // Enable word-level diffing for changed lines
-	diffEngine     *diff.Engine
+	Styles       Styles
+	Viewport     viewport.Model
+	Mutations    []*PendingMutation
+	CurrentIndex int
+	Width        int
+	Height       int
+	ShowWarnings bool
+	// IgnoreWhitespace hides whitespace-only diffs (useful for formatting-only changes).
+	IgnoreWhitespace bool
+	SelectedHunk     int
+	ApprovalMode     ApprovalMode
+	WordLevelDiff    bool // Enable word-level diffing for changed lines
+	diffEngine       *diff.Engine
 }
 
 // ApprovalMode represents the current approval state
@@ -74,17 +76,18 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 	vp.SetContent("")
 
 	return DiffApprovalView{
-		Styles:        styles,
-		Viewport:      vp,
-		Mutations:     make([]*PendingMutation, 0),
-		CurrentIndex:  0,
-		Width:         width,
-		Height:        height,
-		ShowWarnings:  true,
-		SelectedHunk:  0,
-		ApprovalMode:  ModeReview,
-		WordLevelDiff: true, // Enable word-level diffing by default
-		diffEngine:    diff.NewEngine(),
+		Styles:           styles,
+		Viewport:         vp,
+		Mutations:        make([]*PendingMutation, 0),
+		CurrentIndex:     0,
+		Width:            width,
+		Height:           height,
+		ShowWarnings:     true,
+		IgnoreWhitespace: false,
+		SelectedHunk:     0,
+		ApprovalMode:     ModeReview,
+		WordLevelDiff:    true, // Enable word-level diffing by default
+		diffEngine:       diff.NewEngine(),
 	}
 }
 
@@ -372,7 +375,7 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 		sb.WriteString("\n")
 
 		// Render lines with word-level diffing for adjacent changed lines
-		sb.WriteString(d.renderHunkLines(hunk.Lines))
+		sb.WriteString(d.renderHunkLines(filteredLines))
 		sb.WriteString("\n")
 	}
 
@@ -472,6 +475,24 @@ func (d *DiffApprovalView) filterHunkLines(lines []DiffLine) []DiffLine {
 	}
 
 	return filtered
+}
+
+func isWhitespaceOnlyChange(a, b string) bool {
+	normalize := func(s string) string {
+		var sb strings.Builder
+		sb.Grow(len(s))
+		for i := 0; i < len(s); i++ {
+			switch s[i] {
+			case ' ', '\t', '\n', '\r':
+				continue
+			default:
+				sb.WriteByte(s[i])
+			}
+		}
+		return sb.String()
+	}
+
+	return normalize(a) == normalize(b)
 }
 
 // renderDiffLine renders a single diff line with appropriate styling
