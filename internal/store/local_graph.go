@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/logging"
 	"encoding/json"
 	"fmt"
+	"math"
 )
 
 // =============================================================================
@@ -24,14 +25,25 @@ func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64
 	timer := logging.StartTimer(logging.CategoryStore, "StoreLink")
 	defer timer.Stop()
 
+	// Validate inputs to avoid polluting the graph with ghost nodes or undefined weights.
+	if entityA == "" || relation == "" || entityB == "" {
+		return fmt.Errorf("invalid knowledge graph link: entityA/relation/entityB must be non-empty")
+	}
+	if math.IsNaN(weight) || math.IsInf(weight, 0) {
+		return fmt.Errorf("invalid knowledge graph link weight: %v", weight)
+	}
+
+	metaJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal knowledge graph metadata: %w", err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	logging.StoreDebug("Storing graph link: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
 
-	metaJSON, _ := json.Marshal(metadata)
-
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT OR REPLACE INTO knowledge_graph (entity_a, relation, entity_b, weight, metadata)
 		 VALUES (?, ?, ?, ?, ?)`,
 		entityA, relation, entityB, weight, string(metaJSON),
@@ -45,14 +57,10 @@ func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64
 	return nil
 }
 
-// QueryLinks retrieves links for an entity.
-func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLink, error) {
-	timer := logging.StartTimer(logging.CategoryStore, "QueryLinks")
-	defer timer.Stop()
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+// queryLinksLocked executes the link query assuming the caller holds at least s.mu.RLock().
+// This prevents nested RLock acquisition (TraversePath -> QueryLinks) which can deadlock
+// if a writer is pending.
+func (s *LocalStore) queryLinksLocked(entity string, direction string) ([]KnowledgeLink, error) {
 	logging.StoreDebug("Querying graph links for entity=%q direction=%s", entity, direction)
 
 	var query string
@@ -84,16 +92,31 @@ func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLin
 		var link KnowledgeLink
 		var metaJSON string
 		if err := rows.Scan(&link.EntityA, &link.Relation, &link.EntityB, &link.Weight, &metaJSON); err != nil {
+			logging.Get(logging.CategoryStore).Warn("Graph row scan failed: %v", err)
 			continue
 		}
 		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &link.Metadata)
+			if err := json.Unmarshal([]byte(metaJSON), &link.Metadata); err != nil {
+				// Don't fail the whole query on one corrupted row, but don't fail silently either.
+				logging.Get(logging.CategoryStore).Warn("Graph metadata unmarshal failed for %q -[%s]-> %q: %v",
+					link.EntityA, link.Relation, link.EntityB, err)
+			}
 		}
 		links = append(links, link)
 	}
 
 	logging.StoreDebug("Graph query returned %d links", len(links))
 	return links, nil
+}
+
+// QueryLinks retrieves links for an entity.
+func (s *LocalStore) QueryLinks(entity string, direction string) ([]KnowledgeLink, error) {
+	timer := logging.StartTimer(logging.CategoryStore, "QueryLinks")
+	defer timer.Stop()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.queryLinksLocked(entity, direction)
 }
 
 // TraversePath finds a path between two entities using BFS.
@@ -133,7 +156,9 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 			return current.path, nil
 		}
 
-		links, err := s.QueryLinks(current.entity, "outgoing")
+		// IMPORTANT: Avoid calling QueryLinks() here. TraversePath already holds RLock,
+		// and re-acquiring RLock can deadlock when a writer is waiting.
+		links, err := s.queryLinksLocked(current.entity, "outgoing")
 		if err != nil {
 			continue
 		}
