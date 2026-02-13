@@ -1,0 +1,41 @@
+# TypeScript/Node-Specific Debugging Methodology
+# Concrete implementation of debugging for TypeScript/Node projects
+
+- id: "methodology/debugging/typescript"
+  category: "methodology"
+  subcategory: "debugging"
+  priority: 95
+  is_mandatory: false
+  languages: ["/typescript", "/javascript", "/node"]
+  intent_verbs: ["/debug", "/fix", "/investigate"]
+  depends_on: ["methodology/debugging/core"]
+  content: |
+    ## TYPESCRIPT/NODE DEBUGGING TOOLKIT
+
+    ### 1. Console Power
+    Go beyond `console.log`:
+    - `console.dir(obj, { depth: null })` (Full object tree)
+    - `console.table(array)` (Tabular view)
+    - `console.trace()` (Print stack trace)
+
+    ### 2. Node Inspector
+    Debug without an IDE:
+    ```bash
+    node --inspect-brk dist/index.js
+    ```
+    Open `chrome://inspect` in Chrome to attach.
+
+    ### 3. TS-Node
+    Execute TypeScript directly without pre-compilation (great for quick repros):
+    ```bash
+    npx ts-node script.ts
+    ```
+
+    ### 4. Async Debugging
+    - **Uncaught Promises:** Ensure `catch()` or `try/catch` covers all async paths.
+    - **Trace Warnings:** `node --trace-warnings` shows where UnhandledPromiseRejection happened.
+
+    ### Common TS/JS Gotchas
+    - **Check for Undefined:** `obj.prop` throws if `obj` is undefined. Use optional chaining `obj?.prop`.
+    - **This Context:** `this` changes meaning in different scopes. Use arrow functions to preserve lexical `this`.
+    - **Strict Null Checks:** Ensure `tsconfig.json` has `"strict": true` to catch nulls at compile time.

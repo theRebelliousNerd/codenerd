@@ -285,29 +285,33 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 		return nil
 	}
 
-	// Collect symbols defined in the target file
-	defs, err := d.kernel.Query("code_defines")
-	if err != nil || len(defs) == 0 {
-		logging.DreamDebug("codeGraphProjections: no code_defines found (err=%v, count=%d)", err, len(defs))
-		return nil
-	}
-	logging.DreamDebug("codeGraphProjections: found %d code_defines facts", len(defs))
-
 	symbolsInFile := make(map[string]bool)
-	symbolToFile := make(map[string]string)
-	for _, def := range defs {
+	testSymbols := make(map[string]bool)
+
+	// OPTIMIZATION: Use QueryCallback to stream facts and avoid massive slice allocations.
+	// We only map symbols if they are in the target file OR in a test file.
+	// This reduces memory usage from O(AllSymbols) to O(TestSymbols + FileSymbols).
+	err := d.kernel.QueryCallback("code_defines", func(def Fact) error {
 		if len(def.Args) < 2 {
-			continue
+			return nil
 		}
 		file := toString(def.Args[0])
 		sym := toString(def.Args[1])
 		if file == "" || sym == "" {
-			continue
+			return nil
 		}
-		symbolToFile[sym] = file
+
 		if filepath.Clean(file) == filepath.Clean(path) {
 			symbolsInFile[sym] = true
 		}
+		if strings.Contains(file, "_test.go") {
+			testSymbols[sym] = true
+		}
+		return nil
+	})
+
+	if err != nil {
+		logging.DreamDebug("codeGraphProjections: error querying code_defines: %v", err)
 	}
 
 	if len(symbolsInFile) == 0 {
@@ -330,34 +334,23 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 		})
 	}
 
-	// Find tests that call touched symbols
-	callFacts, err := d.kernel.Query("code_calls")
-	if err != nil || len(callFacts) == 0 {
-		logging.DreamDebug("codeGraphProjections: no code_calls found, returning %d symbol projections", len(projected))
-		return projected
-	}
-	logging.DreamDebug("codeGraphProjections: analyzing %d code_calls for test impacts", len(callFacts))
-
+	// Stream code_calls to find impacts without allocating slice for all calls
 	impactedTests := 0
-	for _, cf := range callFacts {
+	err = d.kernel.QueryCallback("code_calls", func(cf Fact) error {
 		if len(cf.Args) < 2 {
-			continue
+			return nil
 		}
 		caller := toString(cf.Args[0])
 		callee := toString(cf.Args[1])
 		if caller == "" || callee == "" {
-			continue
+			return nil
 		}
 		if !symbolsInFile[callee] {
-			continue
+			return nil
 		}
 
-		// Identify caller file to check if it's a test
-		callerFile := symbolToFile[caller]
-		if callerFile == "" {
-			continue
-		}
-		if strings.Contains(callerFile, "_test.go") {
+		// Check if caller is a test symbol
+		if testSymbols[caller] {
 			impactedTests++
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
@@ -368,6 +361,11 @@ func (d *Dreamer) codeGraphProjections(actionID, path string) []Fact {
 				},
 			})
 		}
+		return nil
+	})
+
+	if err != nil {
+		logging.DreamDebug("codeGraphProjections: error querying code_calls: %v", err)
 	}
 
 	if impactedTests > 0 {
