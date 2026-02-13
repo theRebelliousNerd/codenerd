@@ -18,14 +18,15 @@
     "sandbox": "read-only",
     "timeout": 600,
     "fallback_model": "gpt-5.1-codex-mini",
-    "disable_shell_tool": true,
-    "enable_output_schema": true,
     "reasoning_effort_default": "medium",
     "reasoning_effort_high_reasoning": "high",
     "reasoning_effort_balanced": "medium",
-    "reasoning_effort_high_speed": "low"
+    "reasoning_effort_high_speed": "low",
+    "disable_shell_tool": true,
+    "enable_output_schema": true
   },
   "theme": "light",
+  "continuation_mode": 2,
   "context7_api_key": "ctx7sk-4a42a7f3-78c2-472f-b73a-61c62bead461",
   "context_window": {
     "max_tokens": 258000,

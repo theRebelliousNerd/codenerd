@@ -27,17 +27,25 @@
         "memory_operations": [
           {"op": "promote_to_long_term|forget|store_vector|note", "key": "...", "value": "..."}
         ],
+        "self_correction": {
+          "triggered": false,
+          "hypothesis": ""
+        },
+        "knowledge_requests": [],
         "reasoning_trace": "Step-by-step reasoning...",
         "context_feedback": {
           "overall_usefulness": 0.8,
           "helpful_facts": ["file_topology", "test_state"],
           "noise_facts": ["dom_node"],
           "missing_context": "optional: what would have helped"
-        }
+        },
+        "tool_requests": []
       },
       "surface_response": "Human-readable response to the user"
     }
     ```
+
+    If you don't need a field, emit an empty value (e.g. `[]` or `""`) instead of omitting it.
 
 - id: "protocol/piggyback/thought_first"
   category: "protocol"
@@ -182,10 +190,8 @@
     ```json
     {
       "self_correction": {
-        "original_assessment": "Initial thought...",
-        "correction_trigger": "What caused reconsideration",
-        "final_assessment": "Corrected conclusion",
-        "reason": "Why the correction was necessary"
+        "triggered": true,
+        "hypothesis": "What was wrong with the initial reasoning and what changed"
       }
     }
     ```
@@ -194,10 +200,8 @@
     ```json
     {
       "self_correction": {
-        "original_assessment": "/transport layer based on handler.go name",
-        "correction_trigger": "Found sql.DB import",
-        "final_assessment": "/integration layer - wiring code",
-        "reason": "File imports both HTTP and SQL, indicating integration/main.go pattern"
+        "triggered": true,
+        "hypothesis": "Initial assumption was based on filename; imports show DB wiring, so it's integration code"
       }
     }
     ```
