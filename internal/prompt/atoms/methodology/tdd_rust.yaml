@@ -1,0 +1,53 @@
+# Rust-Specific TDD Workflow
+# Concrete implementation of TDD methodology for Rust projects
+
+- id: "methodology/tdd/rust_workflow"
+  category: "methodology"
+  subcategory: "tdd"
+  priority: 95
+  is_mandatory: false
+  languages: ["/rust"]
+  intent_verbs: ["/test", "/fix", "/implement"]
+  depends_on: ["methodology/tdd/core"]
+  content: |
+    ## RUST TDD WORKFLOW
+
+    Translate the abstract TDD cycle into concrete Rust commands using `cargo test`.
+
+    ### 1. RED (Write Failing Test)
+    Create a new test module `#[cfg(test)] mod tests` or add a test function `#[test]` to an existing file.
+
+    ```bash
+    # Run specific test to confirm failure and ensure it fails for the right reason
+    cargo test test_function_name
+    ```
+
+    *Goal:* `FAIL` with a clear panic or assertion failure (e.g., "assertion failed: `(left == right)`").
+
+    ### 2. GREEN (Make It Pass)
+    Implement the minimal code required to satisfy the test. Do not worry about lifetimes or elegance yet, just make it compile and pass.
+
+    ```bash
+    # Run the specific test again
+    cargo test test_function_name
+    ```
+
+    *Goal:* `PASS`
+
+    ### 3. REFACTOR (Clean Up)
+    Improve code quality, check borrow checker rules, and simplify without changing behavior.
+
+    ```bash
+    # Verify no regressions in the crate
+    cargo test
+
+    # Check for static errors and clippy lints
+    cargo check
+    cargo clippy
+    ```
+
+    ### Critical Cargo Test Flags
+    - `-- --nocapture`: Show stdout/stderr output even for passing tests.
+    - `--test <name>`: Run only the specified integration test target.
+    - `--lib`: Test only the library target.
+    - `--doc`: Test only documentation examples.
