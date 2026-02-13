@@ -722,9 +722,12 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 
 	// 1. Embedded corpus (always first)
 	if c.embeddedCorpus != nil {
-		embedded := c.embeddedCorpus.All()
-		breakdown.embedded = len(embedded)
-		allAtoms = append(allAtoms, embedded...)
+		// Optimization: Pre-allocate slice with capacity for embedded + buffer for others
+		// This avoids multiple reallocations during append.
+		count := c.embeddedCorpus.Count()
+		breakdown.embedded = count
+		allAtoms = make([]*PromptAtom, 0, count+100)
+		allAtoms = c.embeddedCorpus.AppendAll(allAtoms)
 	}
 
 	// 2. Project database
