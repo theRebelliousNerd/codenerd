@@ -16,7 +16,7 @@ func TestAccountManager_AddAndGet(t *testing.T) {
 
 	// Override home dir for test
 	originalHome, _ := os.UserHomeDir()
-	os.Setenv("HOME", tempDir) // Linux/Mac
+	os.Setenv("HOME", tempDir)        // Linux/Mac
 	os.Setenv("USERPROFILE", tempDir) // Windows
 	defer func() {
 		os.Setenv("HOME", originalHome)
@@ -56,7 +56,7 @@ func TestAccountManager_Rotation(t *testing.T) {
 	t.Log("Starting Rotation Test")
 	tempDir, _ := os.MkdirTemp("", "nerd_auth_test_rot")
 	defer os.RemoveAll(tempDir)
-	
+
 	originalHome, _ := os.UserHomeDir()
 	os.Setenv("HOME", tempDir)
 	os.Setenv("USERPROFILE", tempDir)
@@ -110,7 +110,7 @@ func TestAccountManager_Rotation(t *testing.T) {
 func TestAccountManager_Delete(t *testing.T) {
 	tempDir, _ := os.MkdirTemp("", "nerd_auth_test_del")
 	defer os.RemoveAll(tempDir)
-	
+
 	originalHome, _ := os.UserHomeDir()
 	os.Setenv("HOME", tempDir)
 	os.Setenv("USERPROFILE", tempDir)
@@ -142,19 +142,18 @@ func TestAccountManager_Delete(t *testing.T) {
 }
 
 // TODO: TEST_GAP: Verify behavior when AddAccount is called with a nil Account.
-
 // TODO: TEST_GAP: Verify behavior when AddAccount is called with an Account having an empty Email.
-
+// TODO: TEST_GAP: Verify behavior when GetAccount is called with an empty email string.
 // TODO: TEST_GAP: Verify DeleteAccount returns error when attempting to delete a non-existent email.
-
 // TODO: TEST_GAP: Verify DeleteAccount correctly updates ActiveIndex when the active account is deleted.
-
 // TODO: TEST_GAP: Verify MarkRateLimited handles out-of-bounds index (negative or too large) gracefully.
-
 // TODO: TEST_GAP: Verify GetCurrentOrNextForFamily returns error when all accounts are rate-limited.
-
 // TODO: TEST_GAP: Verify GetCurrentOrNextForFamily returns error when no accounts are configured.
-
-// TODO: TEST_GAP: Verify Load handles corrupted JSON file gracefully (should return error or start empty).
-
+// TODO: TEST_GAP: Verify GetCurrentOrNextForFamily 'hybrid' strategy (currently only 'sticky' is tested).
+// TODO: TEST_GAP: Verify IsAccessTokenExpired boundary condition (e.g., exactly 60 seconds remaining).
+// TODO: TEST_GAP: Verify IsRateLimited boundary (reset time is exactly now vs 1ms in the past).
+// TODO: TEST_GAP: Verify behavior when RateLimitResetTimes contains a timestamp far in the past (negative duration).
+// TODO: TEST_GAP: Verify Load handles corrupted or empty JSON file gracefully (e.g., partial write).
 // TODO: TEST_GAP: Verify behavior when file system is read-only during Save (simulate write failure).
+// TODO: TEST_GAP: Verify concurrent access safety (race condition) between GetCurrentOrNextForFamily and MarkRateLimited.
+// TODO: TEST_GAP: Verify concurrent Load/Save (file lock / atomic write check).
