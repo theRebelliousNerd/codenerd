@@ -3,17 +3,21 @@
 *.dll
 *.so
 *.dylib
+*.a
+*.o
+*.obj
+*.test
+*.test.exe
 /nerd
 /nerd_new
 /nerd_test
 /query-kb
+bin/
 
 # Debug and Logs
 debug_output*.txt
 *.log
 nul
-.nerd/**/*.db
-*.json
 *.tmp
 *.temp
 
@@ -21,11 +25,12 @@ nul
 Thumbs.db
 .DS_Store
 .cache/
-.nerd/cache/
 
 # Directories
 .gemini/
 tmp/
+tmp_*/
+tmp*/
 
 # Documentation (Ignore Docs root, keep research + plans + guides)
 Docs/*
@@ -33,6 +38,17 @@ Docs/*
 !Docs/plans/
 !Docs/plans/**
 !Docs/guides/
+
+# Python caches
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# JSON (ignore runtime/state JSON by default; allow examples/schemas)
+*.json
+!*.example.json
+!*.schema.json
 
 # Markdown Docs (Global ignore with exceptions)
 *.md
@@ -55,15 +71,46 @@ debug_program*.mg
 *.exe~
 --help
 
-# Exceptions for .nerd
-!.nerd/prompts/corpus.db
-!.nerd/config.json
-!.nerd/knowledge.db
-!.nerd/learned_patterns.db
+# codeNERD local state (keep the dot-folders and conductor clean)
+.nerd/cache/
+.nerd/campaigns/
+.nerd/logs/
+.nerd/sessions/
+.nerd/tmp/
+.nerd/tools/.compiled/
+.nerd/tools/.learnings/
+.nerd/tools/.profiles/
+.nerd/tools/.traces/
+
+# Local config contains API keys; keep it out of git.
+.nerd/config.json
+.nerd/config.local.json
+.nerd/config.*.json
+
+# Allow safe, shareable templates.
+!.nerd/config.example.json
+!.nerd/review-rules.example.json
+
+# Local review rules (user-specific)
+.nerd/review-rules.json
+
+# Ignore runtime DBs under .nerd (note: tracked files are unaffected; see cleanup commit)
+.nerd/**/*.db
+.nerd/**/*.db-journal
+.nerd/**/*.db-shm
+.nerd/**/*.db-wal
+.nerd/**/*.backup_*
+
+# Conductor local state
+conductor/setup_state.json
+conductor/tracks/**/metadata.json
 
 
 # SQLite runtime files
 *.db-shm
 *.db-wal
+*.db-journal
+*.sqlite-journal
+*.sqlite3-journal
 *.backup_*
 .claude/skills/log-analyzer/scripts/logquery/logquery

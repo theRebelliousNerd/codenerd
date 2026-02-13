@@ -1,4 +1,10 @@
 # codeNERD local files
+config.json
+config.local.json
+config.*.json
+review-rules.json
+
+*.db
 knowledge.db
 knowledge.db-journal
 sessions/
@@ -8,6 +14,9 @@ logs/
 logs/*.mg
 mangle/scan.mg
 *.db-journal
+*.db-shm
+*.db-wal
+*.backup_*
 
 # Autopoiesis internal directories (always ignore)
 tools/.compiled/
