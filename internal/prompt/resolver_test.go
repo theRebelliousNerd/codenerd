@@ -531,3 +531,36 @@ func BenchmarkSortByCategory(b *testing.B) {
 		resolver.SortByCategory(atoms)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector A1] Verify Resolve behavior with nil Atom pointer.
+// Scenario: Resolve([]*ScoredAtom{{Atom: nil}}).
+// Risk: Panic due to nil pointer dereference when accessing Atom.ID.
+
+// TODO: TEST_GAP: [Vector A2] Verify Resolve behavior with empty strings in DependsOn.
+// Scenario: Atom A depends on ["", "B"].
+// Risk: Undefined behavior or silent failure.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector C1] Verify DetectCycles behavior with deep dependency chains (stack overflow).
+// Scenario: 10,000 atoms in a chain A->B->C...->Z.
+// Risk: Stack overflow due to recursive DFS in DetectCycles.
+
+// TODO: TEST_GAP: [Vector C2] Verify Resolve error message contains specific cycle path.
+// Scenario: Cycle A->B->A.
+// Current: "dependency cycle detected: processed X of Y atoms".
+// Expected: "dependency cycle detected: A -> B -> A".
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector D1] Verify SortByCategory determinism with unknown categories.
+// Scenario: Atoms with custom categories "CatA", "CatB", "CatC" (not in AllCategories).
+// Risk: Map iteration randomization causes non-deterministic prompt order.
