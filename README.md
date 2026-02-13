@@ -1,3 +1,5 @@
+# Readme
+
 <div align="center">
 
 ```text
@@ -41,7 +43,7 @@ Current AI coding agents make a **category error**: they ask LLMs to handle *eve
 
 ## The Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         USER / TERMINAL                             │
 └─────────────────────────────────────┬───────────────────────────────┘
@@ -336,7 +338,7 @@ codeNERD includes a comprehensive UX system that adapts to your experience level
 
 #### Enhanced `/why` Command
 
-```
+```text
 /why next_action
 
 ## Explanation
@@ -359,7 +361,7 @@ codeNERD includes a comprehensive UX system that adapts to your experience level
 
 codeNERD includes a built-in adversary that tries to break your patches before they ship:
 
-```
+```text
 Patch Submitted → Nemesis Analyzes → Attack Tools Generated → Thunderdome Battle
                                                                     ↓
                                     ← Patch Hardened ← Vulnerabilities Found?
@@ -403,7 +405,7 @@ Runtime prompt and configuration assembly with context-aware atom selection:
 - **Policy Loading** - Mangle policy files hot-loaded based on agent persona
 
 **Architecture:**
-```
+```text
 User Intent → Intent Routing (.mg) → ConfigFactory → AgentConfig
                                    ↓
                             JIT Compiler → System Prompt
@@ -500,7 +502,7 @@ nerd run --shadow "delete all test files"
 
 ## Project Structure
 
-```
+```text
 codenerd/
 ├── cmd/
 │   └── nerd/              # CLI entrypoint (Cobra, 80+ files)

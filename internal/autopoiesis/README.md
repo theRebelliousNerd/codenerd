@@ -10,7 +10,7 @@ The autopoiesis package implements self-creation capabilities - the ability for 
 
 ## Architecture
 
-```
+```text
 Detection → Specification → Safety Check → Compile → Register → Execute
     ↑                                                              |
     └────────── Evaluate → Detect Patterns → Refine ───────────────┘
@@ -18,7 +18,7 @@ Detection → Specification → Safety Check → Compile → Register → Execut
 
 ## Structure
 
-```
+```text
 autopoiesis/
 ├── autopoiesis.go          # Package marker (modularized)
 ├── autopoiesis_*.go        # Modular orchestrator files (10 files)
@@ -62,7 +62,7 @@ Named after the serpent eating its own tail - enables runtime tool generation.
 
 ## Feedback & Learning
 
-```
+```text
 Execute Tool → Evaluate Quality → Detect Patterns → Refine Tool
       ↑                                                  |
       └────────────────────────────────────────────────→┘
@@ -107,7 +107,7 @@ Adversarial testing arena where tools fight attack vectors:
 
 ## Directory Structure
 
-```
+```text
 .nerd/tools/
 ├── context7_docs.go        # Generated source
 ├── context7_docs_test.go   # Generated tests
@@ -126,3 +126,6 @@ go test ./internal/autopoiesis/...
 ---
 
 **Last Updated:** December 2024
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

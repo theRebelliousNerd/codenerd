@@ -19,7 +19,7 @@
 
 ## Error Resolution Flowchart
 
-```
+```text
 Got an error?
     |
     v
@@ -58,7 +58,7 @@ Does it occur during evaluation/query?
 ## Error Message Patterns
 
 ### Parse Phase (Before Analysis)
-```
+```text
 <line>:<col> parse error: <details>
 token recognition error at: '<token>'
 no viable alternative at input '<text>'
@@ -69,7 +69,7 @@ mismatched input '<found>' expecting '<expected>'
 ---
 
 ### Analysis Phase (After Parse)
-```
+```text
 stratification: program cannot be stratified
 variable <Var> is not bound in <clause>
 variable <Var> in <predicate> will not have a value yet
@@ -80,7 +80,7 @@ variable <Var> in <predicate> will not have a value yet
 ---
 
 ### Type System
-```
+```text
 could not unify <fact> and <decl>: type mismatch
 type mismatch <premise> : <error>
 :match_field struct type <type> does not have field <field>
@@ -91,7 +91,7 @@ expected <type>, got <actual>
 ---
 
 ### Runtime/Evaluation
-```
+```text
 could not find declaration for <predicate>
 query execution timed out after <duration>
 no decl for predicate <predicate>
@@ -103,7 +103,7 @@ stratification: <underlying error>
 ---
 
 ### Resource Limits
-```
+```text
 fact limit exceeded: <N>
 derived facts limit exceeded (inference gas limit)
 query execution timed out after <duration>
@@ -115,7 +115,7 @@ session validation budget exhausted
 ---
 
 ### Undefined Symbols
-```
+```text
 predicate <pred> is not declared in schemas
 function <func> not found
 rule uses undefined predicates: [<list>]
@@ -323,7 +323,7 @@ Errors sorted by frequency in LLM-generated Mangle code:
 
 ### For LLM Prompt Engineering
 Include relevant error reference sections in prompts:
-```
+```text
 When writing Mangle rules:
 1. All predicates MUST be declared (see undefined_errors.md)
 2. Use /atom for enums, "string" for text (see type_errors.md)
@@ -405,3 +405,6 @@ Found an error not documented here?
 - [patterns_comprehensive.md](../patterns_comprehensive.md) - Best practices
 - [antipatterns/](../antipatterns/) - What NOT to do
 - [codenerd/schema_validator.md](../codenerd/schema_validator.md) - Pre-validation system
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

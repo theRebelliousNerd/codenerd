@@ -314,3 +314,6 @@ When adding patterns to this library:
   - 120+ pattern variations
   - codeNERD-specific use cases
   - Performance optimization guidance
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

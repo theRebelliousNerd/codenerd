@@ -367,3 +367,6 @@ All built-in functions are implemented in the Google Mangle library:
 - **Predicates:** `github.com/google/mangle/builtin/builtin.go`
 - **Functions:** `github.com/google/mangle/functional/functional.go`
 - **Version:** Based on Mangle v0.4.0
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*

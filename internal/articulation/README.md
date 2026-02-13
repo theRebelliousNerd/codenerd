@@ -10,7 +10,7 @@ The Articulation layer sits at the exit point of the system, converting LLM outp
 
 ## Architecture
 
-```
+```text
 LLM Response → ResponseProcessor → PiggybackEnvelope
                                         ↓
                      ┌──────────────────┴───────────────────┐
@@ -21,7 +21,7 @@ LLM Response → ResponseProcessor → PiggybackEnvelope
 
 ## Structure
 
-```
+```text
 articulation/
 ├── emitter.go             # Piggyback Protocol implementation
 ├── prompt_assembler.go    # Dynamic system prompt generation
@@ -99,3 +99,6 @@ go test ./internal/articulation/...
 ---
 
 **Last Updated:** December 2024
+
+
+> *[Archived & Reviewed by The Librarian on 2026-01-25]*
