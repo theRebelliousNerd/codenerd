@@ -7,7 +7,19 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// ShardFilterMode represents the current filter mode
+type ShardFilterMode int
+
+const (
+	FilterModeAll ShardFilterMode = iota
+	FilterModeActive
+	FilterModeIdle
+	FilterModeFailed
 )
 
 // ShardPageModel defines the state of the Shard Console.
@@ -17,8 +29,14 @@ type ShardPageModel struct {
 	table  table.Model
 
 	// Data
-	activeShards []types.ShardAgent
-	backpressure *coreshards.BackpressureStatus
+	activeShards   []types.ShardAgent
+	filteredShards []types.ShardAgent // Shards after filtering
+	backpressure   *coreshards.BackpressureStatus
+
+	// Filter state
+	filterInput   textinput.Model
+	filterMode    ShardFilterMode
+	filterFocused bool // Whether filter input is focused
 
 	// Styles
 	styles Styles

@@ -335,13 +335,26 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 	sb.WriteString(d.Styles.Muted.Render(fileHeader))
 	sb.WriteString("\n\n")
 
+	// Show whitespace mode indicator
+	if d.IgnoreWhitespace {
+		sb.WriteString(d.Styles.Info.Render("(Ignoring whitespace changes)"))
+		sb.WriteString("\n\n")
+	}
+
 	if diff.IsBinary {
 		sb.WriteString(d.Styles.Warning.Render("Binary file - diff not shown"))
 		return sb.String()
 	}
 
-	// Render each hunk
+	// Render each hunk (with whitespace filtering if enabled)
 	for i, hunk := range diff.Hunks {
+		filteredLines := d.filterHunkLines(hunk.Lines)
+
+		// Skip hunks that become empty after whitespace filtering
+		if d.IgnoreWhitespace && len(filteredLines) == 0 {
+			continue
+		}
+
 		// Hunk header
 		hunkHeader := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
 			hunk.OldStart, hunk.OldCount,
@@ -390,6 +403,73 @@ func (d *DiffApprovalView) renderHunkLines(lines []DiffLine) string {
 	}
 
 	return sb.String()
+}
+
+// filterHunkLines filters lines based on whitespace settings
+func (d *DiffApprovalView) filterHunkLines(lines []DiffLine) []DiffLine {
+	if !d.IgnoreWhitespace {
+		return lines
+	}
+
+	// When ignoring whitespace, we need to identify whitespace-only changes
+	// and convert them to context lines or skip them
+	filtered := make([]DiffLine, 0, len(lines))
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		// Always keep context lines
+		if line.Type == DiffLineContext || line.Type == DiffLineHeader {
+			filtered = append(filtered, line)
+			continue
+		}
+
+		// For add/remove lines, check if there's a corresponding change that's whitespace-only
+		if line.Type == DiffLineRemoved {
+			// Look ahead for a corresponding added line
+			foundWhitespaceMatch := false
+			for j := i + 1; j < len(lines) && j < i+5; j++ { // Look ahead up to 5 lines
+				if lines[j].Type == DiffLineAdded {
+					if isWhitespaceOnlyChange(line.Content, lines[j].Content) {
+						// This is a whitespace-only change, convert to context
+						contextLine := DiffLine{
+							LineNum: line.LineNum,
+							Content: line.Content,
+							Type:    DiffLineContext,
+						}
+						filtered = append(filtered, contextLine)
+						foundWhitespaceMatch = true
+						break
+					}
+				} else if lines[j].Type == DiffLineRemoved {
+					// Another removal, can't be a whitespace match
+					break
+				}
+			}
+			if !foundWhitespaceMatch {
+				filtered = append(filtered, line)
+			}
+		} else if line.Type == DiffLineAdded {
+			// Look back for a corresponding removed line that was whitespace-only
+			foundWhitespaceMatch := false
+			for j := i - 1; j >= 0 && j > i-5; j-- {
+				if lines[j].Type == DiffLineRemoved {
+					if isWhitespaceOnlyChange(lines[j].Content, line.Content) {
+						// Already handled by the removed line logic, skip this added line
+						foundWhitespaceMatch = true
+						break
+					}
+				} else if lines[j].Type == DiffLineAdded {
+					break
+				}
+			}
+			if !foundWhitespaceMatch {
+				filtered = append(filtered, line)
+			}
+		}
+	}
+
+	return filtered
 }
 
 // renderDiffLine renders a single diff line with appropriate styling

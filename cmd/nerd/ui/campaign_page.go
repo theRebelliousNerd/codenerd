@@ -11,6 +11,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Virtualization constants for campaign phases
+const (
+	PhaseRowHeight    = 2  // Approximate lines per phase (name + status)
+	TaskRowHeight     = 1  // Lines per task
+	VirtualBufferSize = 5  // Extra phases to render above/below viewport
+	MaxVisiblePhases  = 50 // Maximum phases to render at once for performance
+)
+
 // CampaignPageModel defines the state of the campaign dashboard.
 type CampaignPageModel struct {
 	width    int
@@ -21,6 +29,11 @@ type CampaignPageModel struct {
 	// Data
 	campaignData *campaign.Campaign
 	progressData *campaign.Progress
+
+	// Virtualization state
+	visibleStartIdx int // First visible phase index
+	visibleEndIdx   int // Last visible phase index (exclusive)
+	totalPhases     int // Total number of phases
 
 	// Styles
 	styles Styles
@@ -104,8 +117,6 @@ func (m *CampaignPageModel) SetSize(w, h int) {
 }
 
 // UpdateContent updates the viewport content based on campaign data.
-// TODO: IMPROVEMENT: Refactor to avoid rebuilding large strings; use `lipgloss.Join` or component composition for better performance and maintainability.
-// TODO: IMPROVEMENT: Decouple rendering logic from UpdateContent (move to View or a helper).
 func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaign.Campaign) {
 	m.campaignData = camp
 	m.progressData = prog

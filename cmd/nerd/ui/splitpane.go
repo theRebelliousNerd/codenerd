@@ -38,6 +38,14 @@ const (
 	ModeFullLogic                  // Logic visualization only
 )
 
+// Activation threshold constants
+const (
+	MinActivationThreshold     = 0.0 // Show all nodes
+	MaxActivationThreshold     = 1.0 // Hide all nodes with activation < 1.0
+	DefaultActivationThreshold = 0.0 // Default: show all
+	ActivationThresholdStep    = 0.1 // Step size for keyboard adjustment
+)
+
 // DerivationNode represents a node in the derivation tree
 type DerivationNode struct {
 	Predicate  string
@@ -49,7 +57,6 @@ type DerivationNode struct {
 	Expanded   bool
 	Timestamp  time.Time
 	Activation float64 // Spreading activation score
-	// TODO: Add a threshold control to filter nodes with low activation scores.
 }
 
 // DerivationTrace represents the full derivation trace
@@ -75,6 +82,14 @@ type LogicPane struct {
 	Nodes          []*DerivationNode // Flattened list for navigation (filtered)
 	AllNodes       []*DerivationNode // Unfiltered node list
 	ScrollOffset   int
+
+	// Activation threshold filter - nodes below this threshold are hidden
+	ActivationThreshold float64
+
+	// Render cache for performance optimization
+	cachedContent  string
+	cacheValid     bool
+	lastCacheWidth int // Track width changes that invalidate cache
 
 	// Pre-compiled styles for performance (avoid recreation per node)
 	predStyle  lipgloss.Style
@@ -148,14 +163,15 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 	vp.SetContent("")
 
 	return LogicPane{
-		Viewport:       vp,
-		Styles:         styles,
-		Mode:           ModeSinglePane,
-		Width:          width,
-		Height:         height,
-		ShowActivation: true,
-		SelectedNode:   0,
-		Nodes:          make([]*DerivationNode, 0),
+		Viewport:            vp,
+		Styles:              styles,
+		Mode:                ModeSinglePane,
+		Width:               width,
+		Height:              height,
+		ShowActivation:      true,
+		SelectedNode:        0,
+		Nodes:               make([]*DerivationNode, 0),
+		ActivationThreshold: DefaultActivationThreshold,
 		// Pre-compile styles for performance
 		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
@@ -182,6 +198,7 @@ func (p *LogicPane) SetSize(width, height int) {
 // SetTrace updates the current derivation trace and invalidates cache
 func (p *LogicPane) SetTrace(trace *DerivationTrace) {
 	p.CurrentTrace = trace
+	p.invalidateCache()
 	if trace != nil {
 		p.AllNodes = p.flattenNodes(trace.RootNodes, 0)
 		p.applyFilters() // Apply any active filters
@@ -212,6 +229,66 @@ func (p *LogicPane) ToggleMode() {
 // ToggleActivation toggles the activation score display
 func (p *LogicPane) ToggleActivation() {
 	p.ShowActivation = !p.ShowActivation
+	p.invalidateCache()
+	p.Viewport.SetContent(p.renderContent())
+}
+
+// IncreaseActivationThreshold increases the threshold (hides more low-activation nodes)
+// Keyboard shortcut: typically bound to + or =
+func (p *LogicPane) IncreaseActivationThreshold() {
+	p.ActivationThreshold += ActivationThresholdStep
+	if p.ActivationThreshold > MaxActivationThreshold {
+		p.ActivationThreshold = MaxActivationThreshold
+	}
+	p.refreshNodes()
+}
+
+// DecreaseActivationThreshold decreases the threshold (shows more nodes)
+// Keyboard shortcut: typically bound to - or _
+func (p *LogicPane) DecreaseActivationThreshold() {
+	p.ActivationThreshold -= ActivationThresholdStep
+	if p.ActivationThreshold < MinActivationThreshold {
+		p.ActivationThreshold = MinActivationThreshold
+	}
+	p.refreshNodes()
+}
+
+// SetActivationThreshold sets the threshold to a specific value
+func (p *LogicPane) SetActivationThreshold(threshold float64) {
+	if threshold < MinActivationThreshold {
+		threshold = MinActivationThreshold
+	}
+	if threshold > MaxActivationThreshold {
+		threshold = MaxActivationThreshold
+	}
+	p.ActivationThreshold = threshold
+	p.refreshNodes()
+}
+
+// ResetActivationThreshold resets the threshold to show all nodes
+func (p *LogicPane) ResetActivationThreshold() {
+	p.ActivationThreshold = DefaultActivationThreshold
+	p.refreshNodes()
+}
+
+// GetActivationThreshold returns the current threshold value
+func (p *LogicPane) GetActivationThreshold() float64 {
+	return p.ActivationThreshold
+}
+
+// refreshNodes re-flattens and re-renders the node list with the current threshold
+func (p *LogicPane) refreshNodes() {
+	p.invalidateCache()
+	if p.CurrentTrace != nil {
+		p.Nodes = p.flattenNodesFiltered(p.CurrentTrace.RootNodes, 0)
+		// Reset selection if it's now out of bounds
+		if p.SelectedNode >= len(p.Nodes) {
+			p.SelectedNode = len(p.Nodes) - 1
+			if p.SelectedNode < 0 {
+				p.SelectedNode = 0
+			}
+		}
+	}
 	p.Viewport.SetContent(p.renderContent())
 }
 
@@ -249,6 +326,7 @@ func (p *LogicPane) ToggleExpand() {
 		return
 	}
 	p.Nodes[p.SelectedNode].Expanded = !p.Nodes[p.SelectedNode].Expanded
+	p.invalidateCache()
 	p.Viewport.SetContent(p.renderContent())
 }
 
@@ -268,7 +346,11 @@ func (p *LogicPane) flattenNodes(nodes []*DerivationNode, depth int) []*Derivati
 // renderContent renders the logic pane content with hash-based caching
 func (p *LogicPane) renderContent() string {
 	if p.CurrentTrace == nil {
-		return p.renderEmptyState()
+		content := p.renderEmptyState()
+		p.cachedContent = content
+		p.cacheValid = true
+		p.lastCacheWidth = p.Width
+		return content
 	}
 
 	// Use cache if available
@@ -593,6 +675,13 @@ func (p *LogicPane) renderLegend() string {
 		legend += "\n█ Activation Score (Spreading Activation)"
 	}
 
+	// Show activation threshold if filtering is active
+	if p.ActivationThreshold > 0 {
+		legend += fmt.Sprintf("\n🔍 Threshold: %.1f (Press +/- to adjust, 0 to reset)", p.ActivationThreshold)
+	} else {
+		legend += "\n🔍 Threshold: OFF (Press + to filter low-activation nodes)"
+	}
+
 	return legendStyle.Render(legend)
 }
 
@@ -601,8 +690,15 @@ func (p *LogicPane) View() string {
 	return p.Viewport.View()
 }
 
+// Split ratio adjustment constants
+const (
+	MinSplitRatio     = 0.2  // Minimum left pane percentage
+	MaxSplitRatio     = 0.9  // Maximum left pane percentage
+	SplitRatioStep    = 0.05 // Step size for keyboard resize
+	DefaultSplitRatio = 0.67 // Default left pane percentage (2/3 chat, 1/3 logic)
+)
+
 // SplitPaneView renders a split-pane view with chat and logic
-// TODO: IMPROVEMENT: Add support for resizing split ratio via mouse or keyboard
 type SplitPaneView struct {
 	Styles     Styles
 	LeftPane   string // Chat content
@@ -614,9 +710,6 @@ type SplitPaneView struct {
 	FocusRight bool
 }
 
-// DefaultSplitRatio is the default left pane percentage (2/3 chat, 1/3 logic)
-const DefaultSplitRatio = 0.67
-
 // NewSplitPaneView creates a new split pane view with default ratio
 func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 	return NewSplitPaneViewWithRatio(styles, width, height, DefaultSplitRatio)
@@ -625,11 +718,11 @@ func NewSplitPaneView(styles Styles, width, height int) SplitPaneView {
 // NewSplitPaneViewWithRatio creates a new split pane view with a configurable ratio
 func NewSplitPaneViewWithRatio(styles Styles, width, height int, splitRatio float64) SplitPaneView {
 	// Clamp ratio to valid range
-	if splitRatio < 0.2 {
-		splitRatio = 0.2
+	if splitRatio < MinSplitRatio {
+		splitRatio = MinSplitRatio
 	}
-	if splitRatio > 0.9 {
-		splitRatio = 0.9
+	if splitRatio > MaxSplitRatio {
+		splitRatio = MaxSplitRatio
 	}
 
 	rightWidth := int(float64(width) * (1 - splitRatio))
