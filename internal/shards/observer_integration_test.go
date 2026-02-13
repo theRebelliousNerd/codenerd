@@ -168,3 +168,79 @@ func TestBackgroundObserverManager_Integration_Concurrency(t *testing.T) {
 		return len(mgr.GetRecentAssessments(1000)) == eventCount
 	}, 5*time.Second, 100*time.Millisecond, "Should have recorded all assessments")
 }
+
+type MockNorthstarHandler struct {
+	Called bool
+	mu     sync.Mutex
+}
+
+func (m *MockNorthstarHandler) HandleEvent(ctx context.Context, event shards.ObserverEvent) (*shards.ObserverAssessment, error) {
+	m.mu.Lock()
+	m.Called = true
+	m.mu.Unlock()
+
+	return &shards.ObserverAssessment{
+		ObserverName: "Northstar",
+		Score:        95,
+		Level:        shards.LevelProceed,
+		VisionMatch:  "Direct Handler Works",
+	}, nil
+}
+
+func TestBackgroundObserverManager_Integration_NorthstarDirectHandler(t *testing.T) {
+	spawner := NewControllableSpawner()
+	mgr := shards.NewBackgroundObserverManager(spawner)
+
+	handler := &MockNorthstarHandler{}
+	mgr.SetNorthstarHandler(handler)
+
+	require.NoError(t, mgr.RegisterObserver("northstar"))
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+
+	received := make(chan shards.ObserverAssessment, 1)
+	mgr.AddCallback(func(a shards.ObserverAssessment) {
+		select {
+		case received <- a:
+		default:
+		}
+	})
+
+	mgr.SendEvent(shards.ObserverEvent{
+		Type:   shards.EventUserIntent,
+		Source: "user",
+		Target: "direct-handler-test",
+	})
+
+	select {
+	case <-received:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for direct handler assessment callback")
+	}
+
+	handler.mu.Lock()
+	called := handler.Called
+	handler.mu.Unlock()
+	require.True(t, called, "expected northstar direct handler to be invoked")
+
+	last := mgr.GetLastAssessment("northstar")
+	require.NotNil(t, last)
+	assert.Equal(t, 95, last.Score)
+	assert.Equal(t, "Direct Handler Works", last.VisionMatch)
+}
+
+func TestBackgroundObserverManager_Integration_GracefulShutdown(t *testing.T) {
+	spawner := NewControllableSpawner()
+	mgr := shards.NewBackgroundObserverManager(spawner)
+
+	require.NoError(t, mgr.RegisterObserver("northstar"))
+	require.NoError(t, mgr.Start())
+
+	// Send an event to ensure goroutines are live, then stop.
+	mgr.SendEvent(shards.ObserverEvent{Type: shards.EventTaskStarted})
+	mgr.Stop()
+
+	// Should be safe (no panic) to send events after shutdown.
+	mgr.SendEvent(shards.ObserverEvent{Type: shards.EventTaskCompleted})
+}
