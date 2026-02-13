@@ -223,6 +223,12 @@ func (d *DiffApprovalView) ToggleWordLevelDiff() {
 	d.updateContent()
 }
 
+// ToggleIgnoreWhitespace toggles whitespace-only change filtering.
+func (d *DiffApprovalView) ToggleIgnoreWhitespace() {
+	d.IgnoreWhitespace = !d.IgnoreWhitespace
+	d.updateContent()
+}
+
 // updateContent refreshes the viewport content
 func (d *DiffApprovalView) updateContent() {
 	if len(d.Mutations) == 0 {
@@ -593,7 +599,14 @@ func (d *DiffApprovalView) renderControls() string {
 		Padding(0, 1).
 		Width(ViewportWidth(d.Width))
 
-	controls := "Controls: [y] Approve  [n] Reject  [a] Approve All  [←/→] Prev/Next  [↑/↓] Prev/Next Hunk  [w] Toggle Warnings  [d] Toggle Word Diff  [q] Close"
+	wsStatus := "OFF"
+	if d.IgnoreWhitespace {
+		wsStatus = "ON"
+	}
+	controls := fmt.Sprintf(
+		"Controls: [y] Approve  [n] Reject  [a] Approve All  [←/→] Prev/Next  [↑/↓] Prev/Next Hunk  [w] Warnings  [s] Whitespace(%s)  [d] Word Diff  [q] Close",
+		wsStatus,
+	)
 
 	return controlStyle.Render(controls)
 }

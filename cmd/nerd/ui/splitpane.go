@@ -289,12 +289,22 @@ func (p *LogicPane) GetActivationThreshold() float64 {
 func (p *LogicPane) refreshNodes() {
 	p.invalidateCache()
 	if p.CurrentTrace != nil {
-		p.Nodes = p.flattenNodesFiltered(p.CurrentTrace.RootNodes, 0)
-		// Reset selection if it's now out of bounds
-		if p.SelectedNode >= len(p.Nodes) {
-			p.SelectedNode = len(p.Nodes) - 1
-			if p.SelectedNode < 0 {
-				p.SelectedNode = 0
+		var selected *DerivationNode
+		if p.SelectedNode >= 0 && p.SelectedNode < len(p.Nodes) {
+			selected = p.Nodes[p.SelectedNode]
+		}
+
+		// Expansion changes affect the flattening; rebuild and reapply all active filters.
+		p.AllNodes = p.flattenNodes(p.CurrentTrace.RootNodes, 0)
+		p.applyFilters()
+
+		// Restore selection if the selected node is still present post-filter.
+		if selected != nil {
+			for i, n := range p.Nodes {
+				if n == selected {
+					p.SelectedNode = i
+					break
+				}
 			}
 		}
 	}
@@ -334,7 +344,24 @@ func (p *LogicPane) ToggleExpand() {
 	if len(p.Nodes) == 0 || p.SelectedNode < 0 || p.SelectedNode >= len(p.Nodes) {
 		return
 	}
-	p.Nodes[p.SelectedNode].Expanded = !p.Nodes[p.SelectedNode].Expanded
+
+	selected := p.Nodes[p.SelectedNode]
+	selected.Expanded = !selected.Expanded
+
+	// Expansion affects which nodes are visible; rebuild and reapply filters.
+	if p.CurrentTrace != nil {
+		p.AllNodes = p.flattenNodes(p.CurrentTrace.RootNodes, 0)
+		p.applyFilters()
+
+		// Keep selection anchored on the same node if possible.
+		for i, n := range p.Nodes {
+			if n == selected {
+				p.SelectedNode = i
+				break
+			}
+		}
+	}
+
 	p.invalidateCache()
 	p.Viewport.SetContent(p.renderContent())
 }
@@ -384,6 +411,7 @@ func (p *LogicPane) renderContent() string {
 			p.Width,
 			p.Height,
 			p.ShowActivation,
+			p.ActivationThreshold,
 			p.SelectedNode,
 			p.ScrollOffset,
 			p.SearchQuery, // Include filter parameters in cache key
@@ -488,6 +516,11 @@ func (p *LogicPane) applyFilters() {
 	filtered := make([]*DerivationNode, 0, len(p.AllNodes))
 
 	for _, node := range p.AllNodes {
+		// Apply activation threshold filter.
+		if p.ActivationThreshold > MinActivationThreshold && node.Activation < p.ActivationThreshold {
+			continue
+		}
+
 		// Apply source filter
 		if p.FilterSource != "" && node.Source != p.FilterSource {
 			continue
@@ -781,6 +814,36 @@ func (s *SplitPaneView) SetMode(mode PaneMode) {
 // ToggleFocus switches focus between panes
 func (s *SplitPaneView) ToggleFocus() {
 	s.FocusRight = !s.FocusRight
+}
+
+// IncreaseSplitRatio increases the left pane size (moves divider right).
+func (s *SplitPaneView) IncreaseSplitRatio() {
+	s.SetSplitRatio(s.SplitRatio + SplitRatioStep)
+}
+
+// DecreaseSplitRatio decreases the left pane size (moves divider left).
+func (s *SplitPaneView) DecreaseSplitRatio() {
+	s.SetSplitRatio(s.SplitRatio - SplitRatioStep)
+}
+
+// SetSplitRatio sets the split ratio, clamped to valid range.
+func (s *SplitPaneView) SetSplitRatio(ratio float64) {
+	if ratio < MinSplitRatio {
+		ratio = MinSplitRatio
+	}
+	if ratio > MaxSplitRatio {
+		ratio = MaxSplitRatio
+	}
+	if ratio == s.SplitRatio {
+		return
+	}
+	s.SplitRatio = ratio
+	s.SetSize(s.Width, s.Height)
+}
+
+// ResetSplitRatio resets the split ratio to the default value.
+func (s *SplitPaneView) ResetSplitRatio() {
+	s.SetSplitRatio(DefaultSplitRatio)
 }
 
 // HandleKey processes keyboard input for split pane navigation

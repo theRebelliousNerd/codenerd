@@ -126,121 +126,213 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		return
 	}
 
-	// Calculate cache key components
-	// We include revision number, status, progress, and phase count as proxies for content change
+	// Update virtualization state.
+	m.totalPhases = len(camp.Phases)
+	m.calculateVisibleRange()
+
+	// Cache key components. Include scroll + visible range so we refresh on navigation.
 	var overallProgress float64
 	if prog != nil {
 		overallProgress = prog.OverallProgress
 	}
 
-	learningsCount := len(camp.Learnings)
-	phasesCount := len(camp.Phases)
-
 	cacheKey := []interface{}{
 		camp.RevisionNumber,
 		camp.Status,
 		overallProgress,
-		phasesCount,
-		learningsCount,
+		m.totalPhases,
+		len(camp.Learnings),
+		m.visibleStartIdx,
+		m.visibleEndIdx,
+		m.viewport.YOffset,
 		m.width,
 		m.height,
 	}
 
-	// Use RenderCache to avoid expensive string rebuilding
-	content := m.renderCache.Render(cacheKey, func() string {
-		// Optimized rendering using lipgloss.Join where appropriate
-
-		// 1. Header & Status
-		statusColor := m.styles.Info
-		if camp.Status == campaign.StatusFailed {
-			statusColor = m.styles.Error
-		} else if camp.Status == campaign.StatusCompleted {
-			statusColor = m.styles.Success
-		} else if camp.Status == campaign.StatusPaused {
-			statusColor = m.styles.Warning
-		}
-
-		title := m.styles.Header.Render(fmt.Sprintf(" %s ", camp.Title))
-		status := statusColor.Render(strings.ToUpper(string(camp.Status)))
-
-		// Optimization: Use lipgloss.JoinHorizontal instead of Fprintf
-		header := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", status)
-
+	render := func() string {
 		var sb strings.Builder
-		sb.WriteString(header + "\n\n")
+		sb.WriteString(m.renderHeader(camp))
 
-		// 2. Global Progress
 		if prog != nil {
 			sb.WriteString(m.styles.Bold.Render("Overall Progress") + "\n")
 			sb.WriteString(m.progress.ViewAs(prog.OverallProgress) + "\n\n")
 		}
 
-		// 3. Control Hints (The Direct Control Plane)
-		// TODO: Use bubbles/help component for standardized keybinding display.
 		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back")
 		sb.WriteString(hints + "\n\n")
 
-		// 4. Metrics Grid
-		metrics := fmt.Sprintf(
-			"Context Budget: %.1f%%  |  Learnings: %d  |  Replans: %d",
-			camp.ContextUtilization*100,
-			learningsCount,
-			camp.RevisionNumber,
-		)
-		sb.WriteString(m.styles.Info.Render(metrics) + "\n\n")
-
-		// 5. Phases List
-		// TODO: IMPROVEMENT: Virtualize the phases list if it grows too large.
-		// TODO: IMPROVEMENT: Refactor Phases list to use bubbles/list for better interactivity and scrolling.
-		// TODO: IMPROVEMENT: Use `bubbles/list` delegates to render tasks, allowing for better key navigation and selection.
-		// TODO: IMPROVEMENT: Break down phase rendering into smaller helper functions.
-		// TODO: Implement collapsible sections for phases to manage long lists.
-		sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
-		for _, p := range camp.Phases {
-			icon := "○" // Pending
-			style := m.styles.Muted
-			if p.Status == campaign.PhaseInProgress {
-				icon = "▶"
-				style = m.styles.Info
-			} else if p.Status == campaign.PhaseCompleted {
-				icon = "✓"
-				style = m.styles.Success
-			} else if p.Status == campaign.PhaseFailed {
-				icon = "✗"
-				style = m.styles.Error
-			}
-
-			line := fmt.Sprintf(" %s %s", icon, p.Name)
-			sb.WriteString(style.Render(line) + "\n")
-
-			// If active phase, show tasks
-			if p.Status == campaign.PhaseInProgress {
-				for _, t := range p.Tasks {
-					taskIcon := "  •"
-					taskStyle := m.styles.Muted
-					if t.Status == campaign.TaskInProgress {
-						taskIcon = "  ➜"
-						taskStyle = m.styles.Info
-					} else if t.Status == campaign.TaskCompleted {
-						taskIcon = "  ✓"
-						taskStyle = m.styles.Success
-					} else if t.Status == campaign.TaskFailed {
-						taskIcon = "  ✗"
-						taskStyle = m.styles.Error
-					}
-
-					// Show active tasks and failed tasks, generally hide pending/completed to save space unless focused
-					// For now, listing all for visibility
-					// TODO: Implement proper task filtering (show active/failed, toggle completed) to reduce visual clutter.
-					taskLine := fmt.Sprintf("   %s %-60s [%s]", taskIcon, t.Description, t.Type)
-					sb.WriteString(taskStyle.Render(taskLine) + "\n")
-				}
-				sb.WriteString("\n")
-			}
-		}
-
+		sb.WriteString(m.renderMetrics(camp))
+		sb.WriteString(m.renderVirtualizedPhases(camp))
 		return sb.String()
-	})
+	}
 
-	m.viewport.SetContent(content)
+	if m.renderCache != nil {
+		m.viewport.SetContent(m.renderCache.Render(cacheKey, render))
+		return
+	}
+
+	m.viewport.SetContent(render())
+}
+
+// calculateVisibleRange determines which phases should be rendered based on viewport
+func (m *CampaignPageModel) calculateVisibleRange() {
+	if m.totalPhases == 0 {
+		m.visibleStartIdx = 0
+		m.visibleEndIdx = 0
+		return
+	}
+
+	// Calculate available height for phases (accounting for header, progress, etc.)
+	availableHeight := m.height - 12 // Reserve space for header, progress, metrics, controls
+	if availableHeight < 5 {
+		availableHeight = 5
+	}
+
+	// Calculate how many phases can fit
+	maxVisible := availableHeight / PhaseRowHeight
+	if maxVisible > MaxVisiblePhases {
+		maxVisible = MaxVisiblePhases
+	}
+
+	// Start from viewport scroll position (approximate)
+	scrollRatio := 0.0
+	if m.viewport.TotalLineCount() > 0 {
+		scrollRatio = float64(m.viewport.YOffset) / float64(m.viewport.TotalLineCount())
+	}
+
+	startIdx := int(scrollRatio * float64(m.totalPhases))
+	startIdx -= VirtualBufferSize // Add buffer above
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	endIdx := startIdx + maxVisible + (VirtualBufferSize * 2)
+	if endIdx > m.totalPhases {
+		endIdx = m.totalPhases
+	}
+
+	m.visibleStartIdx = startIdx
+	m.visibleEndIdx = endIdx
+}
+
+// renderHeader renders the campaign header and status
+func (m *CampaignPageModel) renderHeader(camp *campaign.Campaign) string {
+	var sb strings.Builder
+
+	statusColor := m.styles.Info
+	if camp.Status == campaign.StatusFailed {
+		statusColor = m.styles.Error
+	} else if camp.Status == campaign.StatusCompleted {
+		statusColor = m.styles.Success
+	} else if camp.Status == campaign.StatusPaused {
+		statusColor = m.styles.Warning
+	}
+
+	title := m.styles.Header.Render(fmt.Sprintf(" %s ", camp.Title))
+	status := statusColor.Render(strings.ToUpper(string(camp.Status)))
+	header := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", status)
+	sb.WriteString(header + "\n\n")
+
+	return sb.String()
+}
+
+// renderMetrics renders the campaign metrics grid
+func (m *CampaignPageModel) renderMetrics(camp *campaign.Campaign) string {
+	metrics := fmt.Sprintf(
+		"Context Budget: %.1f%%  |  Learnings: %d  |  Replans: %d",
+		camp.ContextUtilization*100,
+		len(camp.Learnings),
+		camp.RevisionNumber,
+	)
+	return m.styles.Info.Render(metrics) + "\n\n"
+}
+
+// renderVirtualizedPhases renders only the visible phases for performance
+func (m *CampaignPageModel) renderVirtualizedPhases(camp *campaign.Campaign) string {
+	var sb strings.Builder
+
+	sb.WriteString(m.styles.Header.Render(" Phases ") + "\n")
+
+	// Show indicator if we're not at the start
+	if m.visibleStartIdx > 0 {
+		sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("  ... %d phases above ...\n", m.visibleStartIdx)))
+	}
+
+	// Render only visible phases
+	for i := m.visibleStartIdx; i < m.visibleEndIdx && i < len(camp.Phases); i++ {
+		sb.WriteString(m.renderPhase(&camp.Phases[i], i))
+	}
+
+	// Show indicator if there are more phases below
+	if m.visibleEndIdx < m.totalPhases {
+		remaining := m.totalPhases - m.visibleEndIdx
+		sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("  ... %d phases below ...\n", remaining)))
+	}
+
+	// Show total count
+	sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("\nTotal: %d phases", m.totalPhases)))
+
+	return sb.String()
+}
+
+// renderPhase renders a single phase with its tasks
+func (m *CampaignPageModel) renderPhase(p *campaign.Phase, index int) string {
+	var sb strings.Builder
+
+	icon := "○" // Pending
+	style := m.styles.Muted
+	if p.Status == campaign.PhaseInProgress {
+		icon = "▶"
+		style = m.styles.Info
+	} else if p.Status == campaign.PhaseCompleted {
+		icon = "✓"
+		style = m.styles.Success
+	} else if p.Status == campaign.PhaseFailed {
+		icon = "✗"
+		style = m.styles.Error
+	}
+
+	line := fmt.Sprintf(" %s %s", icon, p.Name)
+	sb.WriteString(style.Render(line) + "\n")
+
+	// If active phase, show tasks (with task count limit for very long task lists)
+	if p.Status == campaign.PhaseInProgress {
+		maxTasks := 20 // Limit tasks shown per phase
+		for j := range p.Tasks {
+			if j >= maxTasks {
+				remaining := len(p.Tasks) - maxTasks
+				sb.WriteString(m.styles.Muted.Render(fmt.Sprintf("     ... %d more tasks ...\n", remaining)))
+				break
+			}
+			sb.WriteString(m.renderTask(&p.Tasks[j]))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// renderTask renders a single task line
+func (m *CampaignPageModel) renderTask(t *campaign.Task) string {
+	taskIcon := "  •"
+	taskStyle := m.styles.Muted
+	if t.Status == campaign.TaskInProgress {
+		taskIcon = "  ➜"
+		taskStyle = m.styles.Info
+	} else if t.Status == campaign.TaskCompleted {
+		taskIcon = "  ✓"
+		taskStyle = m.styles.Success
+	} else if t.Status == campaign.TaskFailed {
+		taskIcon = "  ✗"
+		taskStyle = m.styles.Error
+	}
+
+	// Truncate long descriptions
+	desc := t.Description
+	if len(desc) > 55 {
+		desc = desc[:52] + "..."
+	}
+
+	taskLine := fmt.Sprintf("   %s %-55s [%s]", taskIcon, desc, t.Type)
+	return taskStyle.Render(taskLine) + "\n"
 }
