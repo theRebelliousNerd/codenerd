@@ -439,42 +439,59 @@ func (rp *ResponseProcessor) parseMarkdownWrappedJSON(s string) (PiggybackEnvelo
 	return rp.parseJSON(s)
 }
 
-// extractEmbeddedJSON finds JSON within mixed content.
+// extractEmbeddedJSON finds JSON within mixed content using a state-machine scanner.
 func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "extractEmbeddedJSON")
 	defer timer.Stop()
 
 	logging.ArticulationDebug("extractEmbeddedJSON: searching in %d bytes of content", len(s))
 
-	// Find all top-level JSON object candidates
 	candidates := findJSONCandidates(s)
+	if len(candidates) == 0 {
+		logging.ArticulationDebug("extractEmbeddedJSON: no JSON candidates found")
+		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
+	}
+
 	logging.ArticulationDebug("extractEmbeddedJSON: found %d candidates", len(candidates))
 
-	// 1. Prioritize candidates that contain both required keys
-	for _, candidate := range candidates {
-		// Quick check for keys before parsing
-		if strings.Contains(candidate, `"surface_response"`) &&
-			strings.Contains(candidate, `"control_packet"`) {
+	// Keep track of the last error to provide better diagnostics if all fail
+	var lastErr error
 
-			envelope, err := rp.parseJSON(candidate)
+	// Pass 1: Prioritize candidates containing both required keys.
+	// This heuristic is faster than parsing everything.
+	for i, cand := range candidates {
+		if strings.Contains(cand, `"surface_response"`) && strings.Contains(cand, `"control_packet"`) {
+			envelope, err := rp.parseJSON(cand)
 			if err == nil {
-				logging.ArticulationDebug("extractEmbeddedJSON: found rich candidate")
+				logging.ArticulationDebug("extractEmbeddedJSON: found rich candidate (%d)", i)
 				return envelope, nil
 			}
+			lastErr = err
 		}
 	}
 
-	// 2. Fallback to any valid JSON candidate
-	// Iterate in reverse to prefer the last one (often the final answer)
+	// Pass 2: Try parsing other candidates (fallback).
+	// We iterate backwards to try largest/latest objects first, assuming the response might be at the end.
 	for i := len(candidates) - 1; i >= 0; i-- {
-		envelope, err := rp.parseJSON(candidates[i])
+		cand := candidates[i]
+
+		// Skip if we already tried it (optimization)
+		if strings.Contains(cand, `"surface_response"`) && strings.Contains(cand, `"control_packet"`) {
+			continue
+		}
+
+		envelope, err := rp.parseJSON(cand)
 		if err == nil {
-			logging.ArticulationDebug("extractEmbeddedJSON: found fallback candidate")
+			logging.ArticulationDebug("extractEmbeddedJSON: found fallback candidate (%d)", i)
 			return envelope, nil
 		}
+		lastErr = err
 	}
 
-	logging.ArticulationDebug("extractEmbeddedJSON: no valid JSON found in candidates")
+	logging.ArticulationDebug("extractEmbeddedJSON: all %d candidates failed", len(candidates))
+	if lastErr != nil {
+		return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found (last error: %w)", lastErr)
+	}
 	return PiggybackEnvelope{}, fmt.Errorf("no embedded JSON found")
 }
 
