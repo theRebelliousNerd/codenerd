@@ -106,3 +106,33 @@ func TestQueryLinks(t *testing.T) {
 		t.Errorf("Expected 3 links for A (both), got %d", len(links))
 	}
 }
+
+// -----------------------------------------------------------------------------
+// QA NEGATIVE TESTING GAPS (Identified 2026-02-08)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: TestTraversePathDeadlock
+// Critical: Verify the nested RLock deadlock scenario.
+// Setup: Launch a goroutine calling TraversePath (Reader). Launch another goroutine calling StoreLink (Writer).
+// Expectation: If TraversePath calls QueryLinks internally, it will deadlock waiting for the Writer which is waiting for TraversePath.
+// Vector: State Conflict / Concurrency
+
+// TODO: TEST_GAP: TestJSONMetadataSilentFailure
+// Verify that StoreLink silently ignores JSON marshaling errors (e.g., cyclic maps).
+// Expectation: Metadata is lost (empty string in DB), leading to data integrity issues.
+// Vector: Data Integrity / Type Coercion
+
+// TODO: TEST_GAP: TestEmptyEntityInputs
+// Verify StoreLink behavior with empty strings for entities.
+// Expectation: Should fail validation, but currently likely creates "ghost" nodes.
+// Vector: Null/Empty Inputs
+
+// TODO: TEST_GAP: TestNaNAndInfiniteWeights
+// Verify StoreLink handles NaN and +/-Inf weights safely.
+// Expectation: Should reject or handle explicitly to prevent sorting issues in HydrateKnowledgeGraph.
+// Vector: Type Coercion / Numeric Stability
+
+// TODO: TEST_GAP: TestMassiveGraphTraversal
+// Performance: Test TraversePath with deep recursion and large branching factor.
+// Risk: Long-held RLock blocks all writers (StoreLink) for the duration of the traversal.
+// Vector: User Extremes / DoS
