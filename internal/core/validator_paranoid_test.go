@@ -679,3 +679,8 @@ func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
 		t.Errorf("Expected check_failed to be 'content_sampling' or 'hash_first_read', got %v", failedCheck)
 	}
 }
+
+// TODO: TEST_GAP: Verify behavior when context is cancelled (ctx.Done()) before or during validation.
+// TODO: TEST_GAP: Verify behavior when file is deleted between os.Stat and os.ReadFile.
+// TODO: TEST_GAP: Verify behavior with extremely large files (OOM protection check).
+// TODO: TEST_GAP: Verify behavior when SamplePoints is negative (should default or be ignored).
