@@ -362,6 +362,26 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("Memory operations truncated to %d items", maxMemoryOps))
 	}
+
+	// Reasoning traces are useful for debugging but must be capped to avoid OOMs.
+	const maxReasoningTrace = 50_000 // 50KB
+	if len(result.Control.ReasoningTrace) > maxReasoningTrace {
+		result.Control.ReasoningTrace = result.Control.ReasoningTrace[:maxReasoningTrace] + "\n[TRUNCATED]"
+		result.Warnings = append(result.Warnings, "Reasoning trace truncated")
+	}
+
+	// Tool and knowledge request spam can degrade executor performance.
+	const maxToolRequests = 20
+	if len(result.Control.ToolRequests) > maxToolRequests {
+		result.Control.ToolRequests = result.Control.ToolRequests[:maxToolRequests]
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Tool requests truncated to %d items", maxToolRequests))
+	}
+
+	const maxKnowledgeRequests = 20
+	if len(result.Control.KnowledgeRequests) > maxKnowledgeRequests {
+		result.Control.KnowledgeRequests = result.Control.KnowledgeRequests[:maxKnowledgeRequests]
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Knowledge requests truncated to %d items", maxKnowledgeRequests))
+	}
 }
 
 // parseJSON attempts direct JSON parsing.

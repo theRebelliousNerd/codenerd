@@ -61,6 +61,16 @@ func TestExtractJSON(t *testing.T) {
 			input:    `{"a":{"b":{"c":{"d":1}}}}`,
 			expected: `{"a":{"b":{"c":{"d":1}}}}`,
 		},
+		{
+			name:     "Brace In String - Closing",
+			input:    `{"a": "}"}`,
+			expected: `{"a": "}"}`,
+		},
+		{
+			name:     "Brace In String - Opening",
+			input:    `{"a": "{"}`,
+			expected: `{"a": "{"}`,
+		},
 	}
 
 	for _, tt := range tests {

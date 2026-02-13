@@ -160,7 +160,9 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 					goto fallback
 				}
 			}
+			t.mu.Lock()
 			t.lastUnderstanding = &envelope.Understanding
+			t.mu.Unlock()
 			return t.understandingToIntent(&envelope.Understanding), nil
 		}
 		logging.PerceptionWarn("CompleteWithSchema failed: %v, falling back to free-form", err)
@@ -200,7 +202,9 @@ fallback:
 	}
 
 	// 7. Store for debugging
+	t.mu.Lock()
 	t.lastUnderstanding = &envelope.Understanding
+	t.mu.Unlock()
 
 	// 8. Convert to Intent
 	return t.understandingToIntent(&envelope.Understanding), nil

@@ -256,9 +256,9 @@ func (t *Thunderdome) generateTestHarness(_ *GeneratedTool, entryPoint string) s
 	return fmt.Sprintf(`package tools
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -271,13 +271,12 @@ func TestThunderdomeArena(t *testing.T) {
 	debug.SetMemoryLimit(%d * 1024 * 1024)
 
 	// Read attack input from stdin
-	scanner := bufio.NewScanner(os.Stdin)
-	// Use larger buffer for potential attack payloads
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
-	var input string
-	if scanner.Scan() {
-		input = scanner.Text()
+	inputBytes, readErr := io.ReadAll(os.Stdin)
+	if readErr != nil {
+		fmt.Fprintf(os.Stderr, "HARNESS_ERROR: failed to read stdin: %%v\n", readErr)
+		os.Exit(1)
 	}
+	input := string(inputBytes)
 
 	// Set up panic recovery
 	defer func() {
@@ -496,9 +495,12 @@ func (t *Thunderdome) runAttack(ctx context.Context, binaryPath string, attack A
 
 	// Run the test binary with attack input
 	cmd := exec.CommandContext(ctx, binaryPath, "-test.run=TestThunderdomeArena", "-test.v")
+	cmd.Dir = filepath.Dir(binaryPath)
 
 	// Pipe attack input via stdin
 	cmd.Stdin = strings.NewReader(attack.Input)
+	// Isolation: don't inherit the full host environment (avoid leaking secrets).
+	cmd.Env = build.GetBuildEnv(nil, cmd.Dir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

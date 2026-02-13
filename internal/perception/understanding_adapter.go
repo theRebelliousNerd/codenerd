@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
@@ -25,6 +26,7 @@ type UnderstandingTransducer struct {
 	client            LLMClient
 	promptAssembler   *articulation.PromptAssembler
 	kernel            RoutingKernel
+	mu                sync.RWMutex
 	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
 	strategicContext  string         // Strategic knowledge about the codebase from /init
 }
@@ -145,7 +147,9 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	}
 
 	// GAP-018 FIX: Cache understanding for debugging
+	t.mu.Lock()
 	t.lastUnderstanding = understanding
+	t.mu.Unlock()
 
 	// Convert Understanding to Intent for backward compatibility
 	intent := t.understandingToIntent(understanding)
@@ -211,6 +215,9 @@ func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent
 
 // mapActionToVerb converts action_type to the legacy verb format.
 func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) string {
+	actionType = strings.ToLower(strings.TrimSpace(actionType))
+	domain = strings.ToLower(strings.TrimSpace(domain))
+
 	// Direct mappings
 	switch actionType {
 	case "investigate":
@@ -256,6 +263,9 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 
 // mapSemanticToCategory converts semantic_type to legacy category.
 func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType string) string {
+	semanticType = strings.ToLower(strings.TrimSpace(semanticType))
+	actionType = strings.ToLower(strings.TrimSpace(actionType))
+
 	// Use semantic type to refine category
 	if semanticType == "instruction" {
 		return "/instruction"
@@ -277,7 +287,7 @@ func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType
 func (t *UnderstandingTransducer) extractMemoryOperations(u *Understanding) []MemoryOperation {
 	var ops []MemoryOperation
 
-	switch u.ActionType {
+	switch strings.ToLower(strings.TrimSpace(u.ActionType)) {
 	case "remember":
 		// "Remember that X" -> store X
 		if u.Scope.Target != "" {
@@ -338,6 +348,8 @@ func (t *UnderstandingTransducer) ParseIntentWithGCD(ctx context.Context, input 
 // This allows inspection of the full LLM classification.
 // GAP-018 FIX: Returns cached understanding from last ParseIntentWithContext call
 func (t *UnderstandingTransducer) GetLastUnderstanding() *Understanding {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.lastUnderstanding
 }
 

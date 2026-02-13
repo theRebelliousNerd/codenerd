@@ -28,9 +28,9 @@ func TestThunderdome_GenerateTestHarness_PhantomPunchFix(t *testing.T) {
 		t.Error("Harness code explicitly discards input ('_ = input'), which is the Phantom Punch bug.")
 	}
 
-	// 3. Ensure the scanner text is assigned to input
-	if !strings.Contains(harnessCode, "input = scanner.Text()") {
-		t.Error("Harness code does not assign scanner text to input variable.")
+	// 3. Ensure stdin is read into input
+	if !strings.Contains(harnessCode, "io.ReadAll(os.Stdin)") {
+		t.Error("Harness code does not read stdin via io.ReadAll(os.Stdin).")
 	}
 }
 

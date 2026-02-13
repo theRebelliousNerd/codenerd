@@ -132,33 +132,59 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
 // It scans from the end of the string to efficiently find the last valid object without O(N^2) overhead.
 func extractJSON(response string) string {
-	// Scan from end to find the last valid JSON object.
-	for i := len(response) - 1; i >= 0; i-- {
-		if response[i] == '}' {
-			// Found a potential end of JSON object.
-			// Scan backwards to find the matching '{'.
-			depth := 1
-			for j := i - 1; j >= 0; j-- {
-				if response[j] == '}' {
-					depth++
-				} else if response[j] == '{' {
-					depth--
-					if depth == 0 {
-						// Found a balanced block.
-						candidate := response[j : i+1]
-						if json.Valid([]byte(candidate)) {
-							return candidate
-						}
-						// If not valid, we continue scanning for other '}' in the outer loop.
-						// This allows us to find:
-						// 1. Inner valid blocks if the outer block is invalid (e.g. { invalid { "valid": 1 } })
-						// 2. Preceding valid blocks (e.g. { "valid": 1 } { invalid })
-						break
-					}
-				}
+	// We need to tolerate:
+	// - pre/postamble text
+	// - nested objects
+	// - braces inside JSON strings
+	//
+	// Strategy: forward scan with string/escape tracking; record every balanced {...} span,
+	// including nested ones; return the last valid JSON object.
+	var (
+		inString   bool
+		escapeNext bool
+		stack      []int
+		candidates []string
+	)
+
+	for i := 0; i < len(response); i++ {
+		b := response[i]
+
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+
+		if inString {
+			if b == '\\' {
+				escapeNext = true
+			} else if b == '"' {
+				inString = false
 			}
+			continue
+		}
+
+		switch b {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, i)
+		case '}':
+			if len(stack) == 0 {
+				continue
+			}
+			start := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			candidates = append(candidates, response[start:i+1])
 		}
 	}
+
+	for i := len(candidates) - 1; i >= 0; i-- {
+		c := strings.TrimSpace(candidates[i])
+		if json.Valid([]byte(c)) {
+			return c
+		}
+	}
+
 	return ""
 }
 
