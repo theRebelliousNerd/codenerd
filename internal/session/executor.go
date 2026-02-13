@@ -781,7 +781,13 @@ func (e *Executor) isToolAllowed(toolName string, cfg *config.AgentConfig) bool 
 // checkSafety verifies a tool call against the Constitutional Gate.
 func (e *Executor) checkSafety(call ToolCall) bool {
 	if e.kernel == nil {
-		return true // No kernel, no safety check
+		// If the safety gate is enabled, missing kernel must FAIL CLOSED.
+		// Otherwise the agent effectively runs in "god mode" on kernel init failure.
+		if e.config.EnableSafetyGate {
+			logging.Get(logging.CategorySession).Error("Safety check failed closed: kernel is nil while EnableSafetyGate=true")
+			return false
+		}
+		return true // Gate disabled: allow
 	}
 
 	// 1. Prepare Mangle terms

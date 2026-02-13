@@ -78,14 +78,14 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 		t.Error("Expected action to be denied when target mismatches")
 	}
 
-	// 5. Case: No Kernel (Fail Open)
+	// 5. Case: No Kernel (Fail Closed when Safety Gate is enabled)
 	executorNoKernel := &Executor{
 		kernel: nil,
 		config: DefaultExecutorConfig(),
 	}
 	allowed = executorNoKernel.checkSafety(toolCall)
-	if !allowed {
-		t.Error("Expected action to be allowed (fail open) when kernel is nil")
+	if allowed {
+		t.Error("Expected action to be denied (fail closed) when kernel is nil and EnableSafetyGate=true")
 	}
 }
 
