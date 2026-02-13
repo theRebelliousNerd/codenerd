@@ -352,7 +352,14 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 // TODO: TEST_GAP: Verify behavior when context is canceled (should abort compilation immediately).
 // TODO: TEST_GAP: Verify behavior when mandatory atoms exceed the token budget (should error or return partial).
 // TODO: TEST_GAP: Verify behavior when ConfigFactory fails (should continue with warning).
-
+// TODO: TEST_GAP: Verify robustness against kernel returning non-string types (e.g. int, nil) in facts (Type Coercion).
+// TODO: TEST_GAP: Verify behavior with extreme token budgets (negative, zero, massive).
+// TODO: TEST_GAP: Verify handling of atoms with massive content strings (10MB+) (DoS/OOM protection).
+// TODO: TEST_GAP: Verify behavior with deeply nested or circular dependency graphs (Stack Overflow protection).
+// TODO: TEST_GAP: Verify robustness against empty/partial context fields (nil pointers, empty strings) in helpers like InjectAvailableSpecialists.
+// TODO: TEST_GAP: Verify vulnerability to Mangle Injection via Atom ID (e.g., IDs containing single quotes or newlines).
+// TODO: TEST_GAP: Verify handling of Atom Syntax violations in Context Fields (e.g. ShardType with spaces, special chars).
+// TODO: TEST_GAP: Verify behavior with Integer Overflow in Token Budget calculation (Budget Black Hole).
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
 		{
