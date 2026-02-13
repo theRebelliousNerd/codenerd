@@ -10,6 +10,11 @@ import (
 )
 
 func TestDataFlowExtractor_BasicAssignments(t *testing.T) {
+	// TODO: TEST_GAP: TOCTOU Race Condition
+	// ExtractDataFlow performs parser.ParseFile (reading V1) then os.ReadFile (reading V2).
+	// We need a test that modifies the file content between these two operations (e.g., via a hooked reader or race condition simulation)
+	// to verify that inconsistencies are handled or that the function is refactored to read once.
+
 	// Create a temporary Go file with test patterns
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test_assigns.go")
@@ -435,6 +440,11 @@ func TestSummarizeDataFlow(t *testing.T) {
 }
 
 func TestDataFlowExtractor_ComplexFunction(t *testing.T) {
+	// TODO: TEST_GAP: Recursion/Stack Overflow
+	// DataFlowExtractor uses ast.Inspect which is recursive.
+	// We need a test case with deeply nested structures (e.g., 10k nested ifs)
+	// to ensure the extractor doesn't crash the agent with a stack overflow.
+
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test_complex.go")
 
