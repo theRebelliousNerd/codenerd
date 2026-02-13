@@ -114,20 +114,20 @@ block_action(/awaiting_healing) :-
 # =============================================================================
 
 # Count validated actions
-validation_success_count(N) :-
-    action_validated(_) |>
-    let N = fn:count().
+# validation_success_count(N) :-
+#     action_validated(_) |>
+#     let N = fn:count().
 
 # Count failed validations
-validation_failure_count(N) :-
-    action_failed_validation(_) |>
-    let N = fn:count().
+# validation_failure_count(N) :-
+#     action_failed_validation(_) |>
+#     let N = fn:count().
 
 # Validation by method
-validation_by_method(Method, N) :-
-    validation_method_used(_, Method) |>
-    do fn:group_by(Method),
-    let N = fn:count().
+# validation_by_method(Method, N) :-
+#     validation_method_used(_, Method) |>
+#     do fn:group_by(Method),
+#     let N = fn:count().
 
 # =============================================================================
 # SECTION 6: CONFIDENCE THRESHOLDS
@@ -163,10 +163,10 @@ action_healed(ActionID) :-
     healing_attempt(ActionID, _, /true, _, _).
 
 # Count healing attempts by type
-healing_by_type(HealingType, N) :-
-    healing_attempt(_, HealingType, _, _, _) |>
-    do fn:group_by(HealingType),
-    let N = fn:count().
+# healing_by_type(HealingType, N) :-
+#     healing_attempt(_, HealingType, _, _, _) |>
+#     do fn:group_by(HealingType),
+#     let N = fn:count().
 
 # An action requires user intervention if escalated
 requires_user_intervention(ActionID) :-

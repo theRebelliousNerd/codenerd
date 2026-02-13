@@ -21,15 +21,15 @@
 # -----------------------------------------------------------------------------
 
 # Goal requires campaign (not single-shot) if it mentions multiple components
-goal_requires_campaign(Goal) :-
-    goal_topic_count(CampaignID, Count),
-    Count >= 2,
-    campaign_goal(CampaignID, Goal).
+# goal_requires_campaign(Goal) :-
+#     goal_topic_count(CampaignID, Count),
+#     Count >= 2,
+#     campaign_goal(CampaignID, Goal).
 
 # Count goal topics per campaign
-goal_topic_count(CampaignID, Count) :-
-    goal_topic(CampaignID, _)
-    |> do fn:group_by(CampaignID), let Count = fn:count().
+# goal_topic_count(CampaignID, Count) :-
+#     goal_topic(CampaignID, _)
+#     |> do fn:group_by(CampaignID), let Count = fn:count().
 
 # Goal requires campaign if it involves known complex patterns
 goal_requires_campaign(Goal) :-
@@ -417,27 +417,27 @@ campaign_task_error(CampaignID, ErrorType) :-
     campaign_task(TaskID, PhaseID, _, /failed, _),
     campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
-campaign_task_error_count(CampaignID, ErrorType, Count) :-
-    campaign_task_error(CampaignID, ErrorType)
-    |> do fn:group_by(CampaignID, ErrorType), let Count = fn:count().
+# campaign_task_error_count(CampaignID, ErrorType, Count) :-
+#     campaign_task_error(CampaignID, ErrorType)
+#     |> do fn:group_by(CampaignID, ErrorType), let Count = fn:count().
 
-systemic_error_detected(CampaignID, ErrorType) :-
-    campaign_task_error_count(CampaignID, ErrorType, Count),
-    Count >= 3.
+# systemic_error_detected(CampaignID, ErrorType) :-
+#     campaign_task_error_count(CampaignID, ErrorType, Count),
+#     Count >= 3.
 
 # Systemic error should trigger investigation
-next_action(/investigate_systemic) :-
-    current_campaign(CampaignID),
-    systemic_error_detected(CampaignID, ErrorType),
-    !systemic_error_investigated(CampaignID, ErrorType).
+# next_action(/investigate_systemic) :-
+#     current_campaign(CampaignID),
+#     systemic_error_detected(CampaignID, ErrorType),
+#     !systemic_error_investigated(CampaignID, ErrorType).
 
 # Helper for safe negation
 systemic_error_investigated(CampaignID, ErrorType) :-
     campaign_learning(CampaignID, /failure_pattern, ErrorType, _, _).
 
 # Learn to avoid systemic errors
-learning_signal(/avoid_pattern, ErrorType) :-
-    systemic_error_detected(_, ErrorType).
+# learning_signal(/avoid_pattern, ErrorType) :-
+#     systemic_error_detected(_, ErrorType).
 
 # -----------------------------------------------------------------------------
 # 5.3 Shard Performance in Campaigns
@@ -464,9 +464,9 @@ shard_has_many_failures(ShardType) :-
     Count >= 2.
 
 # Count shard failures per type
-shard_failure_count(ShardType, Count) :-
-    campaign_shard(_, _, ShardType, _, /failed)
-    |> do fn:group_by(ShardType), let Count = fn:count().
+# shard_failure_count(ShardType, Count) :-
+#     campaign_shard(_, _, ShardType, _, /failed)
+#     |> do fn:group_by(ShardType), let Count = fn:count().
 
 # Prefer reliable shards for campaign tasks
 delegate_task(ShardType, Task, /pending) :-
@@ -491,9 +491,9 @@ phase_failure_cascade(PhaseID) :-
     Count >= 3.
 
 # Count failed tasks per phase
-phase_failed_task_count(PhaseID, Count) :-
-    campaign_task(_, PhaseID, _, /failed, _)
-    |> do fn:group_by(PhaseID), let Count = fn:count().
+# phase_failed_task_count(PhaseID, Count) :-
+#     campaign_task(_, PhaseID, _, /failed, _)
+#     |> do fn:group_by(PhaseID), let Count = fn:count().
 
 # Cascade triggers phase pause
 phase_blocked(PhaseID, "failure_cascade") :-
@@ -784,9 +784,9 @@ campaign_type_effective(Type) :-
     campaign_type_count(Type, Count),
     Count >= 2.
 
-campaign_type_count(Type, Count) :-
-    campaign(_, Type, _, _, /completed)
-    |> do fn:group_by(Type), let Count = fn:count().
+# campaign_type_count(Type, Count) :-
+#     campaign(_, Type, _, _, /completed)
+#     |> do fn:group_by(Type), let Count = fn:count().
 
 # Learn from campaign failures
 campaign_failure_pattern(CampaignID, Reason) :-
@@ -866,9 +866,9 @@ campaign_has_multiple_phases(CampaignID) :-
     campaign_phase_count(CampaignID, Count),
     Count >= 2.
 
-campaign_phase_count(CampaignID, Count) :-
-    campaign_phase(_, CampaignID, _, _, _, _)
-    |> do fn:group_by(CampaignID), let Count = fn:count().
+# campaign_phase_count(CampaignID, Count) :-
+#     campaign_phase(_, CampaignID, _, _, _, _)
+#     |> do fn:group_by(CampaignID), let Count = fn:count().
 
 # =============================================================================
 # SECTION 12: INTEGRATION WITH BUILD TOPOLOGY

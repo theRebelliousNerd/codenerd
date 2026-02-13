@@ -2,12 +2,15 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
@@ -125,7 +128,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 
 	if useModern {
 		logging.VirtualStoreDebug("Using modern executor with audit logging")
-		return v.handleExecCmdModern(ctx, binary, args, timeout, req.SessionID)
+		return v.handleExecCmdModern(ctx, binary, args, timeout, req.SessionID, req.ActionID)
 	}
 
 	logging.VirtualStoreDebug("Using legacy SafeExecutor")
@@ -164,13 +167,14 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 }
 
 // handleExecCmdModern executes using the new tactile.Executor with auto-audit.
-func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, args []string, timeout int, sessionID string) (ActionResult, error) {
+func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, args []string, timeout int, sessionID, requestID string) (ActionResult, error) {
 	cmd := tactile.Command{
 		Binary:           binary,
 		Arguments:        args,
 		WorkingDirectory: v.workingDir,
 		Environment:      v.getAllowedEnv(),
 		SessionID:        sessionID,
+		RequestID:        requestID,
 		Limits: &tactile.ResourceLimits{
 			TimeoutMs: int64(timeout) * 1000,
 		},
@@ -282,10 +286,11 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 
 	content := string(data)
 	modTime := info.ModTime().Unix()
+	timestamp := time.Now().Unix()
 
 	facts := []Fact{
 		{Predicate: "file_content", Args: []interface{}{path, content}},
-		{Predicate: "file_read", Args: []interface{}{path, info.Size()}},
+		{Predicate: "file_read", Args: []interface{}{path, req.SessionID, timestamp}},
 	}
 
 	if truncated {
@@ -424,12 +429,17 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		}, nil
 	}
 
+	// Calculate hash
+	hash := sha256.Sum256([]byte(content))
+	hashStr := hex.EncodeToString(hash[:])
+	timestamp := time.Now().Unix()
+
 	logging.VirtualStore("File written: path=%s, bytes=%d", path, len(content))
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Written %d bytes to %s", len(content), path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_written", Args: []interface{}{path, len(content)}},
+			{Predicate: "file_written", Args: []interface{}{path, hashStr, req.SessionID, timestamp}},
 			{Predicate: "modified", Args: []interface{}{path}},
 		},
 	}, nil

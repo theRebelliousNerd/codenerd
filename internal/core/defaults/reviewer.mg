@@ -49,10 +49,10 @@ is_warning_finding(File, Line) :-
 # Uses the |> do fn:group_by() syntax required by Mangle.
 
 # Count findings by severity level
-finding_count(Severity, N) :-
-    review_finding(_, _, Severity, _, _) |>
-    do fn:group_by(Severity),
-    let N = fn:count().
+# finding_count(Severity, N) :-
+#     review_finding(_, _, Severity, _, _) |>
+#     do fn:group_by(Severity),
+#     let N = fn:count().
 
 # =============================================================================
 # SECTION 3: COMMIT BLOCKING
@@ -63,9 +63,9 @@ block_commit("critical_security_finding") :-
     is_critical_finding(_, _).
 
 # Block commit on high error count
-block_commit("too_many_errors") :-
-    finding_count(/error, N),
-    N > 10.
+# block_commit("too_many_errors") :-
+#     finding_count(/error, N),
+#     N > 10.
 
 # Block commit on security issues
 block_commit("security_vulnerabilities") :-
@@ -188,39 +188,39 @@ Decl review_approved(ReviewID, Pattern).
 
 # Aggregation: Count how many times each message pattern appears in findings
 # Enables recurring issue detection for autopoiesis learning
-pattern_count(Message, N) :-
-    review_finding(_, _, _, _, Message) |>
-    do fn:group_by(Message),
-    let N = fn:count().
+# pattern_count(Message, N) :-
+#     review_finding(_, _, _, _, Message) |>
+#     do fn:group_by(Message),
+#     let N = fn:count().
 
 # Aggregation: Count how many times each pattern was approved by users
 # Enables approved_pattern learning
-approval_count(Pattern, N) :-
-    review_approved(_, Pattern) |>
-    do fn:group_by(Pattern),
-    let N = fn:count().
+# approval_count(Pattern, N) :-
+#     review_approved(_, Pattern) |>
+#     do fn:group_by(Pattern),
+#     let N = fn:count().
 
 # Track patterns that get flagged repeatedly (>= 3 times)
 # NOTE: Pattern is extracted from Message (5th arg) in 5-arg schema
-recurring_issue_pattern(Message, Category) :-
-    review_finding(_, _, _, Category, Message),
-    pattern_count(Message, N),
-    N >= 3.
+# recurring_issue_pattern(Message, Category) :-
+#     review_finding(_, _, _, Category, Message),
+#     pattern_count(Message, N),
+#     N >= 3.
 
 # Learn project-specific anti-patterns
 # Note: Category is implicitly tracked via recurring_issue_pattern
-promote_to_long_term(/anti_pattern, Pattern) :-
-    recurring_issue_pattern(Pattern, _).
+# promote_to_long_term(/anti_pattern, Pattern) :-
+#     recurring_issue_pattern(Pattern, _).
 
 # Track patterns that pass review (approved >= 3 times)
-approved_pattern(Pattern) :-
-    review_approved(_, Pattern),
-    approval_count(Pattern, N),
-    N >= 3.
+# approved_pattern(Pattern) :-
+#     review_approved(_, Pattern),
+#     approval_count(Pattern, N),
+#     N >= 3.
 
 # Promote approved styles
-promote_to_long_term(/approved_style, Pattern) :-
-    approved_pattern(Pattern).
+# promote_to_long_term(/approved_style, Pattern) :-
+#     approved_pattern(Pattern).
 
 # =============================================================================
 # SECTION 8: REVIEW STATUS
@@ -340,10 +340,10 @@ has_rejections(ReviewID) :-
 
 # Aggregation: Count rejections per review session
 # Renamed from rejection_count to avoid conflict with schemas.mg's rejection_count(Pattern, Count)
-review_rejection_count(ReviewID, N) :-
-    user_rejected_finding(ReviewID, _, _, _, _) |>
-    do fn:group_by(ReviewID),
-    let N = fn:count().
+# review_rejection_count(ReviewID, N) :-
+#     user_rejected_finding(ReviewID, _, _, _, _) |>
+#     do fn:group_by(ReviewID),
+#     let N = fn:count().
 
 # Review is suspect if user rejected multiple findings
 review_suspect(ReviewID, "multiple_rejections") :-
@@ -465,18 +465,18 @@ co_committed_files(FileA, FileB, Hash) :-
 # Aggregation: Count how many times each file pair was co-committed
 Decl co_commit_count(FileA, FileB, Count).
 
-co_commit_count(FileA, FileB, N) :-
-    co_committed_files(FileA, FileB, _) |>
-    do fn:group_by(FileA, FileB),
-    let N = fn:count().
+# co_commit_count(FileA, FileB, N) :-
+#     co_committed_files(FileA, FileB, _) |>
+#     do fn:group_by(FileA, FileB),
+#     let N = fn:count().
 
 # Hidden coupling: Files that change together frequently (>= 3 times)
 # but have no static dependency between them
-hidden_coupling(FileA, FileB) :-
-    co_commit_count(FileA, FileB, N),
-    N >= 3,
-    !dependency_link_exists(FileA, FileB),
-    !dependency_link_exists(FileB, FileA).
+# hidden_coupling(FileA, FileB) :-
+#     co_commit_count(FileA, FileB, N),
+#     N >= 3,
+#     !dependency_link_exists(FileA, FileB),
+#     !dependency_link_exists(FileB, FileA).
 
 # Finding
 raw_finding(FileA, 1, /warning, /architecture, "SHOTGUN_SURGERY", FileB) :-
