@@ -565,3 +565,8 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 		}
 	}
 }
+
+// TODO: TEST_GAP: Environment Leakage - Verify that generated tools CANNOT read parent process environment variables (e.g. API keys).
+// TODO: TEST_GAP: Resource Exhaustion - Verify system behavior when a tool allocates massive memory (e.g. 10GB).
+// TODO: TEST_GAP: Infinite Loop - Verify that tools entering infinite loops are terminated strictly at ExecuteTimeout.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when multiple tools attempt to write to the same file concurrently.
