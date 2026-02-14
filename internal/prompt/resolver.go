@@ -112,7 +112,7 @@ func (r *DependencyResolver) topologicalSort(
 	}
 
 	// Find all atoms with no dependencies (in-degree 0)
-	var queue []*ScoredAtom
+	queue := make([]*ScoredAtom, 0, len(atoms))
 	for _, sa := range atoms {
 		if inDegree[sa.Atom.ID] == 0 {
 			queue = append(queue, sa)
@@ -139,7 +139,7 @@ func (r *DependencyResolver) topologicalSort(
 	}
 
 	// Process queue
-	var result []*ScoredAtom
+	result := make([]*ScoredAtom, 0, len(atoms))
 	for len(queue) > 0 {
 		// Pop front
 		current := queue[0]
@@ -329,7 +329,7 @@ func (r *DependencyResolver) SortByCategory(atoms []*OrderedAtom) []*OrderedAtom
 	}
 
 	// Assemble in category order
-	var result []*OrderedAtom
+	result := make([]*OrderedAtom, 0, len(atoms))
 	categoryOrder := AllCategories() // Defined order
 
 	for _, cat := range categoryOrder {
