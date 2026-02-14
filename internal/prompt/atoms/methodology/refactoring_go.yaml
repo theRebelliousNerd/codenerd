@@ -1,0 +1,94 @@
+# Go-Specific Refactoring Methodology
+# Concrete implementation of refactoring for Go projects
+
+- id: "methodology/refactoring/go_workflow"
+  category: "methodology"
+  subcategory: "refactoring"
+  priority: 95
+  is_mandatory: false
+  languages: ["/go", "/golang"]
+  intent_verbs: ["/refactor", "/cleanup", "/optimize"]
+  depends_on: ["methodology/refactoring/foundation"]
+  content: |
+    ## GO REFACTORING TOOLKIT
+
+    Translate abstract refactoring into concrete Go commands.
+
+    ### 1. Safety First (Tests)
+    Before touching any code, ensure the safety net is active.
+    ```bash
+    go test ./... -v      # Run all tests
+    go vet ./...          # Static analysis
+    ```
+
+    ### 2. Automated Refactoring Tools
+    Go has excellent tooling. Use it before manual editing.
+
+    **Formatting & Imports:**
+    ```bash
+    gofmt -w -s .         # Format and simplify code
+    goimports -w .        # Fix missing/unused imports (if installed)
+    ```
+
+    **Renaming (Safe):**
+    Use `gorename` (if installed) for type-safe renaming across packages.
+    ```bash
+    gorename -from "path/to/pkg.OldName" -to "NewName"
+    ```
+
+    ### 3. Manual Refactoring Patterns in Go
+
+    **Extract Interface (Dependency Injection):**
+    *Before:*
+    ```go
+    func Process(d *Database) { ... }
+    ```
+    *After:*
+    ```go
+    type DataStore interface {
+        Save(item Item) error
+    }
+    func Process(d DataStore) { ... }
+    ```
+
+    **Table-Driven Tests (Consolidate Test Logic):**
+    Refactor repetitive tests into table-driven tests using `t.Run`.
+    ```go
+    tests := []struct {
+        name  string
+        input string
+        want  string
+    }{ ... }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) { ... })
+    }
+    ```
+
+    **Error Handling:**
+    Avoid `if err != nil` nesting. Use guard clauses (early returns).
+    *Before:*
+    ```go
+    if err == nil {
+        // do work
+    }
+    return err
+    ```
+    *After:*
+    ```go
+    if err != nil {
+        return err
+    }
+    // do work
+    ```
+
+    ### 4. Verification
+    After changes, verify nothing broke.
+    ```bash
+    go test ./... -count=1  # Force run (no cache)
+    staticcheck ./...       # Deep static analysis (if installed)
+    ```
+
+    ### Common Go Refactoring Targets
+    - **Global State:** Move `var global` into a `struct` and pass it.
+    - **Long Functions:** Extract into small, private methods `func (s *Service) helper()`.
+    - **Package Cycles:** Extract shared interfaces to a separate `types` or `api` package.
