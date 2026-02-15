@@ -253,3 +253,19 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 // TODO: TEST_GAP: User Request Extremes - Verify recursion depth limits for nested JSON objects to prevent stack overflow.
 // TODO: TEST_GAP: State Conflicts - Verify behavior when JSON contains duplicate keys (e.g. multiple 'surface_response' fields) - which one wins?
 // TODO: TEST_GAP: Performance - Benchmark 'extractEmbeddedJSON' regex against massive inputs with near-matches to detect catastrophic backtracking.
+
+// TODO: TEST_GAP: Decoy Injection / State Conflict - Verify which candidate is selected when multiple valid-looking JSONs exist.
+// Scenario: Input contains `Example: {"control_packet": ...}` followed by `Real: {"control_packet": ...}`.
+// Currently, Pass 1 picks the FIRST one (Decoy). We need a test to enforce a safer selection policy (e.g. Last One Wins, or strict wrapper).
+
+// TODO: TEST_GAP: Hallucinated Keys - Verify behavior when keys are present but slightly wrong (e.g. "control_packets").
+// The heuristic scanner might pick it up, but `json.Unmarshal` will produce a default zero-value struct.
+// Test should confirm that strict mode (`RequireValidJSON`) correctly rejects this, while loose mode creates a safe fallback.
+
+// TODO: TEST_GAP: DoS / Resource Exhaustion - Verify `extractEmbeddedJSON` performance when input contains 10,000+ candidates.
+// Each candidate triggers `json.Unmarshal`. This test should measure the time taken and ensure it fails if it exceeds a threshold (e.g. 100ms).
+// Mitigation: implement a candidate limit or size limit.
+
+// TODO: TEST_GAP: Malformed Hiding - Verify behavior when a malformed real response (missing brace) hides a subsequent decoy.
+// Scenario: `{"real": ... (missing brace) ... {"decoy": ...}`.
+// The scanner might skip the real response but pick up the decoy if depth resets or aligns.
