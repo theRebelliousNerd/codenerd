@@ -108,3 +108,21 @@ func BenchmarkFindJSONCandidates(b *testing.B) {
 		}
 	}
 }
+
+// TODO: TEST_GAP: State Conflicts - Verify behavior when input contains a "decoy" JSON object before the real one.
+// Scenario: Input contains `{"fake": "decoy"} ... {"real": "data"}`. Does the scanner return both?
+// Does the consumer pick the correct one? This test should ensure we can distinguish between
+// multiple valid candidates, especially if one is designed to mislead (e.g. inside a code block).
+
+// TODO: TEST_GAP: User Request Extremes - Verify behavior with extremely deep nesting (e.g. 1000+ braces).
+// While the scanner uses an integer depth counter, we should ensure no unexpected behavior or performance cliffs
+// occur with deeply nested structures `{{{{...}}}}`.
+
+// TODO: TEST_GAP: User Request Extremes - Verify behavior with massive input containing many candidates (DoS vector).
+// Input: `[{}, {}, ... 10,000 times]`. Verify that scanning time remains linear and doesn't choke.
+
+// TODO: TEST_GAP: Code Block Capturing - Verify if the scanner captures generic code blocks like `func main() { ... }` as JSON candidates.
+// This is a potential source of "garbage" candidates that the downstream parser must handle gracefully.
+
+// TODO: TEST_GAP: Unicode/Emoji Handling - Verify that multi-byte characters (emojis, etc.) inside strings
+// do not confuse the byte-level scanner, especially near quote boundaries.
