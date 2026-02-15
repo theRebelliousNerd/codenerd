@@ -357,33 +357,6 @@ func TestTokenBudgetManager_GenerateReport(t *testing.T) {
 	})
 }
 
-func TestTokenBudgetManager_CategoriesByPriority(t *testing.T) {
-	mgr := NewTokenBudgetManager()
-	categories := mgr.categoriesByPriority()
-
-	t.Run("returns all categories", func(t *testing.T) {
-		assert.NotEmpty(t, categories)
-	})
-
-	t.Run("mandatory categories come first", func(t *testing.T) {
-		// Find first non-mandatory category
-		var firstNonMandatoryIdx int
-		for i, cat := range categories {
-			budget := mgr.budgets[cat]
-			if budget.Priority != PriorityMandatory {
-				firstNonMandatoryIdx = i
-				break
-			}
-		}
-
-		// All categories before that index should be mandatory
-		for i := 0; i < firstNonMandatoryIdx; i++ {
-			budget := mgr.budgets[categories[i]]
-			assert.Equal(t, PriorityMandatory, budget.Priority)
-		}
-	})
-}
-
 func TestClamp(t *testing.T) {
 	tests := []struct {
 		name     string

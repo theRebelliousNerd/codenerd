@@ -335,76 +335,113 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			totalBudget, m.reservedHeadroom)
 	}
 
-	// Group atoms by category
-	byCategory := make(map[AtomCategory][]*OrderedAtom)
-	for _, oa := range atoms {
-		cat := oa.Atom.Category
-		byCategory[cat] = append(byCategory[cat], oa)
+	// We'll work with a copy of the slice to avoid modifying the input order permanently
+	// (though modifying it might be safe, a copy is safer and cleaner).
+	sortedAtoms := make([]*OrderedAtom, len(atoms))
+	copy(sortedAtoms, atoms)
+
+	// Sort atoms: Priority -> Category -> Score
+	// Use a helper closure to get priority safely
+	getPriority := func(cat AtomCategory) int {
+		if b, ok := m.budgets[cat]; ok {
+			return int(b.Priority)
+		}
+		// Categories without budget config come last
+		return int(PriorityConditional) + 1
 	}
 
-	// Sort atoms within each category by score (descending)
-	for cat := range byCategory {
-		sort.Slice(byCategory[cat], func(i, j int) bool {
-			return byCategory[cat][i].Score > byCategory[cat][j].Score
-		})
+	sort.Slice(sortedAtoms, func(i, j int) bool {
+		catI := sortedAtoms[i].Atom.Category
+		catJ := sortedAtoms[j].Atom.Category
+
+		// If same category, sort by Score descending
+		if catI == catJ {
+			return sortedAtoms[i].Score > sortedAtoms[j].Score
+		}
+
+		prioI := getPriority(catI)
+		prioJ := getPriority(catJ)
+
+		if prioI != prioJ {
+			return prioI < prioJ
+		}
+
+		// Deterministic tie-break by category string
+		return catI < catJ
+	})
+
+	// Scan for present categories (lightweight set)
+	presentCategories := make(map[AtomCategory]bool)
+	for _, oa := range sortedAtoms {
+		presentCategories[oa.Atom.Category] = true
 	}
 
 	// Calculate category allocations
-	allocations := m.calculateAllocations(availableBudget, byCategory)
+	allocations := m.calculateAllocations(availableBudget, presentCategories)
 
-	// Select atoms within allocations
-	var result []*OrderedAtom
+	// Select atoms
+	result := make([]*OrderedAtom, 0, len(atoms))
+	unselected := make([]*OrderedAtom, 0, len(atoms))
 	usedTokens := 0
 
 	// Helper to get token count for a mode
 	getTokenCount := func(atom *PromptAtom, mode string) int {
 		switch mode {
 		case "concise":
-			// If pre-calculated, use it. Otherwise estimate.
-			// We didn't store token counts for variants, so we estimate on the fly.
 			if atom.ContentConcise != "" {
 				return EstimateTokens(atom.ContentConcise)
 			}
-			return atom.TokenCount // Fallback
+			return atom.TokenCount
 		case "min":
 			if atom.ContentMin != "" {
 				return EstimateTokens(atom.ContentMin)
 			}
-			return atom.TokenCount // Fallback
+			return atom.TokenCount
 		default:
 			return atom.TokenCount
 		}
 	}
 
-	// Process categories in priority order
-	categories := m.categoriesByPriority()
-	for _, cat := range categories {
-		atomsInCat, exists := byCategory[cat]
-		if !exists {
-			continue
+	// Iterate through sorted atoms in contiguous category chunks
+	for i := 0; i < len(sortedAtoms); {
+		cat := sortedAtoms[i].Atom.Category
+
+		// Find range for this category
+		start := i
+		end := i + 1
+		for end < len(sortedAtoms) && sortedAtoms[end].Atom.Category == cat {
+			end++
 		}
 
+		// Move iterator
+		i = end
+
+		// Process chunk [start, end)
 		allocation, hasAlloc := allocations[cat]
 		if !hasAlloc {
-			// If generic allocation (0) but CanExceedMax is true?
-			// Usually allocation=0 means no budget.
-			// But for Low Priority, allocation might be 0 but fillRemainingBudget handles it.
-			// We follow the strict allocation first.
+			// If no allocation, strictly 0 unless fillRemaining handles it later.
+			// Or Mandatory atoms?
+			// Existing behavior: Mandatory atoms in unbudgeted categories were skipped in Pass 1.
+			// We replicate this by setting allocation 0 and letting logic flow.
 			allocation = 0
 		}
 
-		// Checking CanExceed here or later?
-		// Existing logic tried to fit strictly.
-		// We'll stick to strict fit then overflow.
-
 		catTokens := 0
-		for _, oa := range atomsInCat {
-			// Determine best mode
+		for k := start; k < end; k++ {
+			oa := sortedAtoms[k]
 			mode := "standard"
 			tokens := getTokenCount(oa.Atom, mode)
 
-			// Mandatory atoms always included (Standard unless forced?)
-			// Let's keep mandatory as Standard for safety.
+			// Mandatory atoms: strict inclusion if configured?
+			// If hasAlloc is false, it means category is not in budget map.
+			// Existing logic skipped such categories entirely in Pass 1.
+			// So even Mandatory atoms were skipped in Pass 1.
+			// We should skip them here too to match behavior, adding to unselected.
+			if !hasAlloc {
+				unselected = append(unselected, oa)
+				continue
+			}
+
 			if oa.Atom.IsMandatory {
 				oa.RenderMode = mode
 				result = append(result, oa)
@@ -448,43 +485,22 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				}
 			}
 
-			// If we get here, atom doesn't fit even in Min mode.
-			// Log exclusion?
-			logging.Get(logging.CategoryContext).Debug(
-				"Atom %s excluded from cat %s (budget full)", oa.Atom.ID, cat,
-			)
+			// Rejected
+			unselected = append(unselected, oa)
 		}
 
-		logging.Get(logging.CategoryContext).Debug(
-			"Category %s: allocated %d tokens, used %d tokens",
-			cat, allocation, catTokens,
-		)
+		if hasAlloc {
+			logging.Get(logging.CategoryContext).Debug(
+				"Category %s: allocated %d tokens, used %d tokens",
+				cat, allocation, catTokens,
+			)
+		}
 	}
 
 	// Second pass: fill remaining budget with best remaining atoms
 	remaining := availableBudget - usedTokens
-	if remaining > 0 {
-		// Polymorphic fill?
-		// The fillRemainingBudget function needs update too.
-		// For now, let's just call it, assuming it uses Standard.
-		// Or update it to use the new logic?
-		// Let's implement inline fill logic here to support polymorphism.
-
-		// Collect unselected
-		selectedSet := make(map[string]bool)
-		for _, oa := range result {
-			selectedSet[oa.Atom.ID] = true
-		}
-
-		var unselected []*OrderedAtom
-		for _, catList := range byCategory {
-			for _, oa := range catList {
-				if !selectedSet[oa.Atom.ID] {
-					unselected = append(unselected, oa)
-				}
-			}
-		}
-
+	if remaining > 0 && len(unselected) > 0 {
+		// Sort unselected by Score descending
 		sort.Slice(unselected, func(i, j int) bool {
 			return unselected[i].Score > unselected[j].Score
 		})
@@ -534,14 +550,14 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 // calculateAllocations determines token allocation per category.
 func (m *TokenBudgetManager) calculateAllocations(
 	totalBudget int,
-	byCategory map[AtomCategory][]*OrderedAtom,
+	presentCategories map[AtomCategory]bool,
 ) map[AtomCategory]int {
 	allocations := make(map[AtomCategory]int)
 
 	switch m.strategy {
 	case StrategyProportional:
 		for cat, budget := range m.budgets {
-			if _, exists := byCategory[cat]; !exists {
+			if !presentCategories[cat] {
 				continue
 			}
 			allocation := int(float64(totalBudget) * budget.BasePercent)
@@ -552,54 +568,45 @@ func (m *TokenBudgetManager) calculateAllocations(
 	case StrategyPriorityFirst:
 		remaining := totalBudget
 
-		// Allocate mandatory first
-		for cat, budget := range m.budgets {
-			if budget.Priority != PriorityMandatory {
-				continue
+		// Helper to allocate for a priority level
+		allocateForPriority := func(p BudgetPriority) {
+			for cat, budget := range m.budgets {
+				if budget.Priority != p {
+					continue
+				}
+				if !presentCategories[cat] {
+					continue
+				}
+
+				var allocation int
+				// Use totalBudget for Mandatory to ensure they get their share?
+				// Existing logic used totalBudget for Mandatory.
+				if p == PriorityMandatory {
+					allocation = int(float64(totalBudget) * budget.BasePercent)
+				} else {
+					if remaining <= 0 {
+						allocation = 0
+					} else {
+						allocation = int(float64(remaining) * budget.BasePercent)
+					}
+				}
+
+				allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
+				allocations[cat] = allocation
+				remaining -= allocation
 			}
-			if _, exists := byCategory[cat]; !exists {
-				continue
-			}
-			allocation := int(float64(totalBudget) * budget.BasePercent)
-			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-			allocations[cat] = allocation
-			remaining -= allocation
 		}
 
-		// Then high priority
-		for cat, budget := range m.budgets {
-			if budget.Priority != PriorityHigh {
-				continue
-			}
-			if _, exists := byCategory[cat]; !exists {
-				continue
-			}
-			allocation := int(float64(remaining) * budget.BasePercent)
-			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-			allocations[cat] = allocation
-			remaining -= allocation
-		}
-
-		// Then medium priority
-		for cat, budget := range m.budgets {
-			if budget.Priority != PriorityMedium {
-				continue
-			}
-			if _, exists := byCategory[cat]; !exists {
-				continue
-			}
-			allocation := int(float64(remaining) * budget.BasePercent)
-			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-			allocations[cat] = allocation
-			remaining -= allocation
-		}
+		allocateForPriority(PriorityMandatory)
+		allocateForPriority(PriorityHigh)
+		allocateForPriority(PriorityMedium)
 
 		// Low and conditional get what's left
 		for cat, budget := range m.budgets {
 			if budget.Priority != PriorityLow && budget.Priority != PriorityConditional {
 				continue
 			}
-			if _, exists := byCategory[cat]; !exists {
+			if !presentCategories[cat] {
 				continue
 			}
 			if remaining <= 0 {
@@ -616,7 +623,7 @@ func (m *TokenBudgetManager) calculateAllocations(
 		// Start with minimum allocations
 		remaining := totalBudget
 		for cat, budget := range m.budgets {
-			if _, exists := byCategory[cat]; !exists {
+			if !presentCategories[cat] {
 				continue
 			}
 			allocations[cat] = budget.MinTokens
@@ -625,7 +632,7 @@ func (m *TokenBudgetManager) calculateAllocations(
 
 		// Distribute remaining proportionally
 		for cat, budget := range m.budgets {
-			if _, exists := byCategory[cat]; !exists {
+			if !presentCategories[cat] {
 				continue
 			}
 			extra := int(float64(remaining) * budget.BasePercent)
@@ -634,67 +641,6 @@ func (m *TokenBudgetManager) calculateAllocations(
 	}
 
 	return allocations
-}
-
-// categoriesByPriority returns categories sorted by budget priority.
-func (m *TokenBudgetManager) categoriesByPriority() []AtomCategory {
-	type catPriority struct {
-		cat      AtomCategory
-		priority BudgetPriority
-	}
-
-	var cats []catPriority
-	for cat, budget := range m.budgets {
-		cats = append(cats, catPriority{cat, budget.Priority})
-	}
-
-	sort.Slice(cats, func(i, j int) bool {
-		return cats[i].priority < cats[j].priority
-	})
-
-	result := make([]AtomCategory, len(cats))
-	for i, cp := range cats {
-		result[i] = cp.cat
-	}
-
-	return result
-}
-
-// fillRemainingBudget adds more atoms if budget remains.
-func (m *TokenBudgetManager) fillRemainingBudget(
-	selected []*OrderedAtom,
-	byCategory map[AtomCategory][]*OrderedAtom,
-	remaining int,
-) []*OrderedAtom {
-	// Build set of already selected atoms
-	selectedSet := make(map[string]bool, len(selected))
-	for _, oa := range selected {
-		selectedSet[oa.Atom.ID] = true
-	}
-
-	// Collect all unselected atoms, sorted by score
-	var unselected []*OrderedAtom
-	for _, atoms := range byCategory {
-		for _, oa := range atoms {
-			if !selectedSet[oa.Atom.ID] {
-				unselected = append(unselected, oa)
-			}
-		}
-	}
-
-	sort.Slice(unselected, func(i, j int) bool {
-		return unselected[i].Score > unselected[j].Score
-	})
-
-	// Add atoms until budget is exhausted
-	for _, oa := range unselected {
-		if oa.Atom.TokenCount <= remaining {
-			selected = append(selected, oa)
-			remaining -= oa.Atom.TokenCount
-		}
-	}
-
-	return selected
 }
 
 // clamp restricts a value to a range.
