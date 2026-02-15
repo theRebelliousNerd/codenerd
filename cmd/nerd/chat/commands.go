@@ -4,7 +4,8 @@
 // File Index (modularized):
 //
 //	commands.go            - Main command dispatcher (handleCommand switch)
-//	commands_help.go       - Help text constants (helpCommandText)
+//	help_renderer.go       - Experience-level aware /help rendering
+//	command_categories.go  - /help command registry (single source of truth)
 //	commands_tools.go      - Tool/status helpers (buildStatusReport, handleCleanupToolsCommand)
 //	commands_evolution.go  - Prompt Evolution helpers (renderEvolutionStats, runEvolutionCycle)
 //
@@ -186,10 +187,17 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		sessionID := parts[1]
 		return m.loadSelectedSession(sessionID)
 
-	case "/help":
+	case "/help", "/h", "/?":
+		// Progressive help system (experience-level aware).
+		// Supports: /help, /help all, /help advanced, /help <command>
+		arg := ""
+		if len(parts) > 1 {
+			arg = strings.Join(parts[1:], " ")
+		}
+		renderer := NewHelpRenderer(m.workspace)
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: helpCommandText, // Defined in commands_help.go
+			Content: renderer.RenderHelp(arg),
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
@@ -1189,11 +1197,11 @@ You have an existing Northstar definition. What would you like to do?
 			if fact == "" {
 				return responseMsg("No new patterns detected in recent interactions.")
 			}
-				clarification, err := m.stageLearningCandidateFromFact(fact, criticManualLearnReason)
-				if err != nil {
-					return responseMsg(fmt.Sprintf("Learning candidate staging failed: %v", err))
-				}
-				return clarification
+			clarification, err := m.stageLearningCandidateFromFact(fact, criticManualLearnReason)
+			if err != nil {
+				return responseMsg(fmt.Sprintf("Learning candidate staging failed: %v", err))
+			}
+			return clarification
 		}
 
 	case "/agents":

@@ -124,9 +124,26 @@ func (r *HelpRenderer) renderProgressiveHelp() string {
 	sb.WriteString("| Key | Action |\n|-----|--------|\n")
 	sb.WriteString("| `Ctrl+C` | Exit |\n")
 	sb.WriteString("| `Ctrl+X` | Stop current operation |\n")
-	sb.WriteString("| `Shift+Tab` | Cycle continuation mode |\n")
+	sb.WriteString("| `Shift+Tab` | Cycle continuation mode (Auto/Confirm/Breakpoint) |\n")
 	sb.WriteString("| `Alt+L` | Toggle logic pane |\n")
-	sb.WriteString("| `Alt+M` | Toggle mouse capture |\n")
+	sb.WriteString("| `Alt+G` | Cycle pane modes |\n")
+	sb.WriteString("| `Alt+W` | Toggle pane focus |\n")
+	sb.WriteString("| `Alt+C` | Toggle campaign panel |\n")
+	sb.WriteString("| `Alt+P` | Toggle prompt inspector (JIT) |\n")
+	sb.WriteString("| `Alt+A` | Toggle autopoiesis dashboard |\n")
+	sb.WriteString("| `Alt+S` | Toggle shard console |\n")
+	sb.WriteString("| `Alt+D` | Toggle Glass Box debug mode |\n")
+	sb.WriteString("| `Alt+M` | Toggle mouse capture (text selection) |\n")
+	sb.WriteString("| `Alt+E` | Toggle error panel focus |\n")
+	sb.WriteString("| `Alt+Shift+E` | Toggle error panel visibility |\n")
+	sb.WriteString("| `Alt+Y` | Toggle system action summaries |\n")
+
+	// Continuation modes are a first-class UX concept for long tasks.
+	sb.WriteString("\n### Continuation Modes\n\n")
+	sb.WriteString("| Mode | Behavior |\n|------|----------|\n")
+	sb.WriteString("| `[A] Auto` | Runs all steps automatically. Use `Ctrl+X` to stop. |\n")
+	sb.WriteString("| `[B] Confirm` | Pauses after each step. Use `/continue` to resume. |\n")
+	sb.WriteString("| `[C] Breakpoint` | Auto for reads, pauses before mutations. |\n")
 
 	return sb.String()
 }
