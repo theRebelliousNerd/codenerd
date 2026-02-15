@@ -565,3 +565,44 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// BOUNDARY VALUE ANALYSIS GAPS (TODO: Implement)
+// =============================================================================
+
+// TODO: TEST_GAP: TestOuroborosLoop_Execute_NilNeed
+// Description: Verify that passing a nil ToolNeed to Execute results in a
+// predictable panic recovery or error, rather than crashing the process.
+// Vector: Null/Undefined
+
+// TODO: TEST_GAP: TestOuroborosLoop_Execute_EmptyNeed
+// Description: Verify that passing a ToolNeed with empty Name/Purpose returns
+// an appropriate error or validation failure before starting the loop.
+// Vector: Null/Undefined
+
+// TODO: TEST_GAP: TestOuroborosLoop_ExecuteTool_Concurrent
+// Description: Verify that executing the same tool concurrently from multiple
+// goroutines works correctly and does not cause data races or corruption.
+// Vector: State Conflicts
+
+// TODO: TEST_GAP: TestOuroborosLoop_ExecuteTool_GarbageOutput
+// Description: Verify that if a tool outputs non-JSON garbage (e.g. debug prints)
+// before the JSON response, the wrapper or executor can handle it or report a
+// useful error instead of failing silently.
+// Vector: Type Coercion / Data Integrity
+
+// TODO: TEST_GAP: TestOuroborosLoop_HotReload_LockedBinary
+// Description: Verify behavior when hot-reloading a tool that is currently executing
+// (simulating Windows file locking behavior or Linux race conditions).
+// Vector: State Conflicts
+
+// TODO: TEST_GAP: TestOuroborosLoop_Mangle_TypeMismatch
+// Description: Verify that asserting Mangle facts with incorrect types (e.g. string
+// instead of int) results in an error or is handled safely, preventing silent logic failures.
+// Vector: Type Coercion
+
+// TODO: TEST_GAP: TestOuroborosLoop_FileSystem_Sandbox
+// Description: Verify that SafetyChecker correctly identifies and blocks critical
+// file system operations (like os.RemoveAll) when running in strict mode, preventing
+// sandbox escape scenarios.
+// Vector: Security
