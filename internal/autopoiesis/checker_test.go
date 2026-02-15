@@ -112,3 +112,7 @@ func ok() {}`,
 		})
 	}
 }
+
+// TODO: TEST_GAP: Safety Checker Bypass - Verify that function aliasing (e.g., 'var f = panic; f()') is detected as unsafe.
+// TODO: TEST_GAP: Safety Checker Bypass - Verify that indirect calls via interface methods are detected if they wrap unsafe operations.
+// TODO: TEST_GAP: Obfuscation - Verify that code using 'unsafe' or 'plugin' packages via import aliasing or trickery is blocked.

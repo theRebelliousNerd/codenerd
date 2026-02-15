@@ -570,6 +570,11 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 // BOUNDARY VALUE ANALYSIS GAPS (TODO: Implement)
 // =============================================================================
 
+// TODO: TEST_GAP: Environment Leakage - Verify that generated tools CANNOT read parent process environment variables (e.g. API keys).
+// TODO: TEST_GAP: Resource Exhaustion - Verify system behavior when a tool allocates massive memory (e.g. 10GB).
+// TODO: TEST_GAP: Infinite Loop - Verify that tools entering infinite loops are terminated strictly at ExecuteTimeout.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when multiple tools attempt to write to the same file concurrently.
+
 // TODO: TEST_GAP: TestOuroborosLoop_Execute_NilNeed
 // Description: Verify that passing a nil ToolNeed to Execute results in a
 // predictable panic recovery or error, rather than crashing the process.
