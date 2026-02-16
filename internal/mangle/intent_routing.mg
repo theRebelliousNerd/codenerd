@@ -302,25 +302,6 @@ modular_tool_priority(/web_fetch, 70).
 modular_tool_priority(/browser_navigate, 60).
 
 # =============================================================================
-# SECTION 5: Safety Constraints
-# =============================================================================
-# Constitutional gate integration
-
-# Dangerous operations require explicit permission
-requires_permission(/delete_file).
-requires_permission(/git_push).
-requires_permission(/git_force).
-requires_permission(/run_arbitrary_command).
-requires_permission(/system_modify).
-
-# Block dangerous patterns
-blocked_pattern("rm -rf").
-blocked_pattern("sudo").
-blocked_pattern("> /dev/").
-blocked_pattern("mkfs").
-blocked_pattern("dd if=").
-
-# =============================================================================
 # SECTION 6: Subagent Spawning
 # =============================================================================
 # Rules for when to spawn subagents vs inline execution
