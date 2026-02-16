@@ -133,27 +133,43 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 
 	logging.StoreDebug("Graph traversal: %s -> %s (maxDepth=%d)", from, to, maxDepth)
 
-	// BFS traversal
-	type pathNode struct {
+	// Optimization: Use cameFrom map instead of storing full paths in queue
+	// to reduce memory allocations from O(E * Depth) to O(V).
+	type queueItem struct {
 		entity string
-		path   []KnowledgeLink
+		depth  int
 	}
 
-	visited := make(map[string]bool)
-	queue := []pathNode{{entity: from, path: nil}}
+	// cameFrom maps a node to the link that reached it.
+	// We use a pointer to distinguish "start node" (nil) from "not visited".
+	cameFrom := make(map[string]*KnowledgeLink)
+	queue := []queueItem{{entity: from, depth: 0}}
 
-	for len(queue) > 0 && len(queue[0].path) < maxDepth {
+	// Mark start as visited (nil link)
+	cameFrom[from] = nil
+
+	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
 
-		if visited[current.entity] {
-			continue
-		}
-		visited[current.entity] = true
-
 		if current.entity == to {
-			logging.StoreDebug("Path found with %d hops, visited %d nodes", len(current.path), len(visited))
-			return current.path, nil
+			// Reconstruct path by backtracking
+			path := make([]KnowledgeLink, current.depth)
+			curr := to
+			for i := current.depth - 1; i >= 0; i-- {
+				link := cameFrom[curr]
+				if link == nil {
+					break
+				}
+				path[i] = *link
+				curr = link.EntityA
+			}
+			logging.StoreDebug("Path found with %d hops, visited %d nodes", len(path), len(cameFrom))
+			return path, nil
+		}
+
+		if current.depth >= maxDepth {
+			continue
 		}
 
 		// IMPORTANT: Avoid calling QueryLinks() here. TraversePath already holds RLock,
@@ -164,16 +180,15 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 		}
 
 		for _, link := range links {
-			if !visited[link.EntityB] {
-				newPath := make([]KnowledgeLink, len(current.path)+1)
-				copy(newPath, current.path)
-				newPath[len(current.path)] = link
-				queue = append(queue, pathNode{entity: link.EntityB, path: newPath})
+			if _, visited := cameFrom[link.EntityB]; !visited {
+				l := link // Copy for pointer safety
+				cameFrom[link.EntityB] = &l
+				queue = append(queue, queueItem{entity: link.EntityB, depth: current.depth + 1})
 			}
 		}
 	}
 
-	logging.StoreDebug("No path found from %s to %s (visited %d nodes)", from, to, len(visited))
+	logging.StoreDebug("No path found from %s to %s (visited %d nodes)", from, to, len(cameFrom))
 	return nil, fmt.Errorf("no path found from %s to %s", from, to)
 }
 
