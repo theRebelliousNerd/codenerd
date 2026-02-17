@@ -699,12 +699,13 @@ func typeString(t ArgType) string {
 	}
 }
 
+var unquotedStringRe = regexp.MustCompile(`\(([^"/)][^,)]*)\)`)
+
 // fixUnquotedStrings attempts to quote unquoted string arguments.
 func fixUnquotedStrings(atom string) string {
 	// Simple heuristic: find unquoted multi-word args and quote them
 	// This is a best-effort repair
-	re := regexp.MustCompile(`\(([^"/)][^,)]*)\)`)
-	return re.ReplaceAllStringFunc(atom, func(match string) string {
+	return unquotedStringRe.ReplaceAllStringFunc(atom, func(match string) string {
 		inner := match[1 : len(match)-1]
 		if !strings.HasPrefix(inner, "\"") && !strings.HasPrefix(inner, "/") && !isNumeric(inner) {
 			return "(\"" + inner + "\")"
