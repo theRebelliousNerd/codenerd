@@ -1253,12 +1253,13 @@ func extractTopicsFromGoal(goal string) []string {
 	return topics
 }
 
+var rePrefix = regexp.MustCompile(`^\d+[-_]?`)
+
 // deriveTagsFromPath converts structured folder/file names into tag tokens.
 func deriveTagsFromPath(path string) []string {
 	clean := strings.ReplaceAll(path, "\\", "/")
 	parts := strings.Split(clean, "/")
 	tags := make(map[string]struct{})
-	rePrefix := regexp.MustCompile(`^\d+[-_]?`)
 
 	for _, p := range parts {
 		base := strings.ToLower(strings.TrimSuffix(p, filepath.Ext(p)))
