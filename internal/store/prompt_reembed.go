@@ -105,19 +105,34 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 			embeddings = vecs
 		}
 
+		// Optimization: Use transaction for batch update
+		tx, err := s.db.Begin()
+		if err != nil {
+			return totalEmbedded, fmt.Errorf("failed to begin transaction: %w", err)
+		}
+
+		stmt, err := tx.Prepare("UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?")
+		if err != nil {
+			tx.Rollback()
+			return totalEmbedded, fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
 		for j, a := range batch {
 			if j >= len(embeddings) || embeddings[j] == nil || len(embeddings[j]) == 0 {
 				continue
 			}
 			blob := encodeFloat32Slice(embeddings[j])
-			_, err := s.db.Exec(
-				"UPDATE prompt_atoms SET embedding = ?, embedding_task = ? WHERE atom_id = ?",
-				blob, expectedTask, a.atomID,
-			)
+			_, err := stmt.Exec(blob, expectedTask, a.atomID)
 			if err != nil {
+				tx.Rollback()
 				return totalEmbedded, fmt.Errorf("failed to update prompt atom %s: %w", a.atomID, err)
 			}
 			totalEmbedded++
+		}
+
+		if err := tx.Commit(); err != nil {
+			return totalEmbedded, fmt.Errorf("failed to commit transaction: %w", err)
 		}
 	}
 
