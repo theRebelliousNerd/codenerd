@@ -559,21 +559,19 @@ func getLangFromPath(path string) string {
 	}
 }
 
+var descriptionPathPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)create\s+(\S+\.\w+)`),  // "Create internal/domain/foo.go"
+	regexp.MustCompile(`(?i)file[:\s]+(\S+\.\w+)`), // "file: path/to/file.go"
+	regexp.MustCompile(`(?i)(\S+/\S+\.\w+)`),       // Any path with / and extension
+	regexp.MustCompile(`(?i)internal/\S+\.\w+`),    // internal/... paths
+	regexp.MustCompile(`(?i)cmd/\S+\.\w+`),         // cmd/... paths
+	regexp.MustCompile(`(?i)pkg/\S+\.\w+`),         // pkg/... paths
+}
+
 // extractPathFromDescription attempts to extract a file path from a task description.
 // Looks for common patterns like "Create internal/domain/foo.go" or "file: path/to/file.go"
 func extractPathFromDescription(desc string) string {
-	// Common path patterns in task descriptions
-	patterns := []string{
-		`(?i)create\s+(\S+\.\w+)`,  // "Create internal/domain/foo.go"
-		`(?i)file[:\s]+(\S+\.\w+)`, // "file: path/to/file.go"
-		`(?i)(\S+/\S+\.\w+)`,       // Any path with / and extension
-		`(?i)internal/\S+\.\w+`,    // internal/... paths
-		`(?i)cmd/\S+\.\w+`,         // cmd/... paths
-		`(?i)pkg/\S+\.\w+`,         // pkg/... paths
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
+	for _, re := range descriptionPathPatterns {
 		matches := re.FindStringSubmatch(desc)
 		if len(matches) > 1 {
 			path := matches[1]
