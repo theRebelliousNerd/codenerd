@@ -2,18 +2,17 @@ package world
 
 import (
 	"codenerd/internal/core"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
 
 func TestDataFlowExtractor_BasicAssignments(t *testing.T) {
-	// TODO: TEST_GAP: TOCTOU Race Condition
-	// ExtractDataFlow performs parser.ParseFile (reading V1) then os.ReadFile (reading V2).
-	// We need a test that modifies the file content between these two operations (e.g., via a hooked reader or race condition simulation)
-	// to verify that inconsistencies are handled or that the function is refactored to read once.
 
 	// Create a temporary Go file with test patterns
 	tmpDir := t.TempDir()
@@ -507,5 +506,53 @@ func processData(data []byte) {}
 	}
 	if summary.FunctionScopeFacts < 2 {
 		t.Errorf("Expected at least 2 function scope facts (LoadConfig and processData), got %d", summary.FunctionScopeFacts)
+	}
+}
+
+func TestDataFlowExtractor_RaceCondition(t *testing.T) {
+	// Regression test for TOCTOU race condition
+	// We verify that modifying the file concurrently does not cause a panic
+	// due to mismatched line counts between parser and file reader.
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_race.go")
+
+	// Create a large file
+	var longFile strings.Builder
+	longFile.WriteString("package test\n\n")
+	for i := 0; i < 5000; i++ {
+		longFile.WriteString(fmt.Sprintf("func foo%d() { x := %d; _ = x }\n", i, i))
+	}
+
+	// Create a short file
+	shortFile := "package test\nfunc foo() {}\n"
+
+	// Try to trigger the race condition
+	for i := 0; i < 20; i++ {
+		// Reset file to long version
+		if err := os.WriteFile(testFile, []byte(longFile.String()), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		done := make(chan bool)
+		go func() {
+			time.Sleep(100 * time.Microsecond)
+			// Overwrite with short file
+			_ = os.WriteFile(testFile, []byte(shortFile), 0644)
+			close(done)
+		}()
+
+		extractor := NewDataFlowExtractor()
+
+		// Run extraction. If race occurs (and not handled), we might panic.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Race condition triggered panic: %v", r)
+				}
+			}()
+			_, _ = extractor.ExtractDataFlow(testFile)
+		}()
+		<-done
 	}
 }

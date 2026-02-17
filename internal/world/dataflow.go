@@ -47,19 +47,19 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 		return nil, nil
 	}
 
-	// Parse with full AST (need bodies for data flow analysis)
-	d.fset = token.NewFileSet()
-	node, err := parser.ParseFile(d.fset, path, nil, parser.ParseComments)
-	if err != nil {
-		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: parse failed: %s - %v", path, err)
-		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
-	}
-
 	// Read file content for line-based analysis
 	content, err := os.ReadFile(path)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: read failed: %s - %v", path, err)
 		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
+	}
+
+	// Parse with full AST (need bodies for data flow analysis)
+	d.fset = token.NewFileSet()
+	node, err := parser.ParseFile(d.fset, path, content, parser.ParseComments)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: parse failed: %s - %v", path, err)
+		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
 	}
 	lines := strings.Split(string(content), "\n")
 
@@ -630,17 +630,17 @@ func (d *DataFlowExtractor) ExtractDataFlowForDirectory(dir string) ([]core.Fact
 
 // DataFlowSummary provides aggregated statistics about extracted data flow.
 type DataFlowSummary struct {
-	TotalFacts           int
-	AssignmentsFacts     int
-	NullableAssignments  int
-	ErrorAssignments     int
-	GuardsBlockFacts     int
-	GuardsReturnFacts    int
-	ErrorCheckedFacts    int
-	UsesFacts            int
-	CallArgFacts         int
-	FunctionScopeFacts   int
-	GuardDominatesFacts  int
+	TotalFacts          int
+	AssignmentsFacts    int
+	NullableAssignments int
+	ErrorAssignments    int
+	GuardsBlockFacts    int
+	GuardsReturnFacts   int
+	ErrorCheckedFacts   int
+	UsesFacts           int
+	CallArgFacts        int
+	FunctionScopeFacts  int
+	GuardDominatesFacts int
 }
 
 // SummarizeDataFlow analyzes extracted facts and returns a summary.
