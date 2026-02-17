@@ -1252,7 +1252,7 @@ func (tc *ToolCompiler) writeWrapper(dir, funcName string) error {
 	content := fmt.Sprintf(`package main
 
 import (
-	"bufio"
+	"io"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1277,13 +1277,15 @@ func main() {
 	// Check for pipe input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
+		// Read up to 10MB to avoid OOM
+		reader := io.LimitReader(os.Stdin, 10*1024*1024)
+		inputBytes, err := io.ReadAll(reader)
+		if err == nil && len(inputBytes) > 0 {
 			var toolInput ToolInput
-			if err := json.Unmarshal(scanner.Bytes(), &toolInput); err == nil {
+			if err := json.Unmarshal(inputBytes, &toolInput); err == nil {
 				input = toolInput.Input
 			} else {
-				input = strings.TrimSpace(scanner.Text())
+				input = strings.TrimSpace(string(inputBytes))
 			}
 		}
 	} else if len(os.Args) > 1 {
