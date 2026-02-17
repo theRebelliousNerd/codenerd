@@ -146,6 +146,22 @@ blocked_pattern("git push -f").
 blocked_pattern("git push origin --force").
 blocked_pattern("git push origin -f").
 blocked_pattern("rm -rf /").
+blocked_pattern("rm -rf").
+blocked_pattern("sudo").
+blocked_pattern("> /dev/").
+blocked_pattern("mkfs").
+blocked_pattern("dd if=").
+
+# Centralized Permissions (merged from intent_routing.mg)
+requires_permission(/delete_file).
+requires_permission(/git_push).
+requires_permission(/git_force).
+requires_permission(/run_arbitrary_command).
+requires_permission(/system_modify).
+
+# Wiring: Actions requiring permission are dangerous by default
+# Note: dangerous_action takes ActionType (e.g., /delete_file), not ActionID.
+dangerous_action(ActionType) :- requires_permission(ActionType).
 
 # Identify dangerous command content
 dangerous_content(/exec_cmd, Payload) :-
