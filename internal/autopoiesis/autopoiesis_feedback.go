@@ -210,8 +210,8 @@ func (o *Orchestrator) AggregateLearningsForPrompt() string {
 func (o *Orchestrator) RefreshLearningsContext() {
 	ctx := o.AggregateLearningsForPrompt()
 	o.toolGen.SetLearningsContext(ctx)
-	if o.ouroboros != nil && o.ouroboros.toolGen != nil {
-		o.ouroboros.toolGen.SetLearningsContext(ctx)
+	if o.ouroboros != nil {
+		o.ouroboros.SetLearningsContext(ctx)
 	}
 }
 

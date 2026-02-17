@@ -89,10 +89,6 @@ import (
 // Named after the ancient symbol of a serpent eating its own tail,
 // representing infinite self-creation and renewal.
 
-// ToolRegisteredCallback is called when a tool is successfully registered.
-// This allows the Orchestrator to propagate facts to the parent kernel.
-type ToolRegisteredCallback func(tool *RuntimeTool)
-
 // OuroborosLoop orchestrates the full tool self-generation cycle
 // It implements a "Transactional State Machine" governed by Mangle.
 type OuroborosLoop struct {
@@ -155,21 +151,6 @@ func DefaultOuroborosConfig(workspaceRoot string) OuroborosConfig {
 		ThunderdomeConfig: DefaultThunderdomeConfig(),
 		MaxPanicRetries:   2,
 	}
-}
-
-// OuroborosStats tracks loop statistics
-type OuroborosStats struct {
-	ToolsGenerated   int
-	ToolsCompiled    int
-	ToolsRejected    int
-	SafetyViolations int
-	ExecutionCount   int
-	Panics           int
-	LastGeneration   time.Time
-	// Adversarial Co-Evolution stats
-	ThunderdomeRuns     int // Number of Thunderdome battles
-	ThunderdomeKills    int // Tools killed by PanicMaker
-	ThunderdomeSurvived int // Tools that survived
 }
 
 // RetryConfig controls the feedback retry loop for safety violations.
@@ -299,61 +280,6 @@ func (o *OuroborosLoop) SetOnToolRegistered(callback ToolRegisteredCallback) {
 // =============================================================================
 // THE LOOP STAGES
 // =============================================================================
-
-// LoopResult contains the result of a complete Ouroboros Loop execution
-type LoopResult struct {
-	Success       bool
-	ToolName      string
-	Stage         LoopStage
-	Error         string
-	SafetyReport  *SafetyReport
-	CompileResult *CompileResult
-	ToolHandle    *RuntimeTool
-	Duration      time.Duration
-}
-
-// LoopStage identifies where in the loop we are
-type LoopStage int
-
-const (
-	StageDetection LoopStage = iota
-	StageSpecification
-	StageSafetyCheck
-	StageThunderdome // NEW: Adversarial testing phase
-	StageCompilation
-	StageRegistration
-	StageExecution
-	StageComplete
-	StageSimulation // New stage
-	StagePanic      // New stage
-)
-
-func (s LoopStage) String() string {
-	switch s {
-	case StageDetection:
-		return "detection"
-	case StageSpecification:
-		return "specification"
-	case StageSafetyCheck:
-		return "safety_check"
-	case StageThunderdome:
-		return "thunderdome"
-	case StageCompilation:
-		return "compilation"
-	case StageRegistration:
-		return "registration"
-	case StageExecution:
-		return "execution"
-	case StageComplete:
-		return "complete"
-	case StageSimulation:
-		return "simulation"
-	case StagePanic:
-		return "panic"
-	default:
-		return "unknown"
-	}
-}
 
 // Execute executes the Transactional State Machine for tool generation with default config.
 // This is a convenience wrapper around ExecuteWithConfig.
@@ -1026,6 +952,32 @@ func (o *OuroborosLoop) GetTool(name string) (*ToolInfo, bool) {
 	}, true
 }
 
+// GetRuntimeTool returns the internal RuntimeTool handle.
+// Implements ToolSynthesizer interface for internal access.
+func (o *OuroborosLoop) GetRuntimeTool(name string) (*RuntimeTool, bool) {
+	return o.registry.Get(name)
+}
+
+// ListRuntimeTools returns all registered runtime tools.
+// Implements ToolSynthesizer interface.
+func (o *OuroborosLoop) ListRuntimeTools() []*RuntimeTool {
+	return o.registry.List()
+}
+
+// CheckToolSafety validates tool code without compiling.
+// Implements ToolSynthesizer interface.
+func (o *OuroborosLoop) CheckToolSafety(code string) *SafetyReport {
+	return o.safetyChecker.Check(code)
+}
+
+// SetLearningsContext updates the learnings context for the tool generator.
+// Implements ToolSynthesizer interface.
+func (o *OuroborosLoop) SetLearningsContext(ctx string) {
+	if o.toolGen != nil {
+		o.toolGen.SetLearningsContext(ctx)
+	}
+}
+
 // ToolInfo contains information about a registered tool
 type ToolInfo = types.ToolInfo
 
@@ -1111,16 +1063,6 @@ func (o *OuroborosLoop) GenerateToolFromCode(ctx context.Context, name, purpose,
 // ToolCompiler compiles generated tools
 type ToolCompiler struct {
 	config OuroborosConfig
-}
-
-// CompileResult contains compilation output
-type CompileResult struct {
-	Success     bool
-	OutputPath  string
-	Hash        string // SHA-256 of compiled binary
-	CompileTime time.Duration
-	Errors      []string
-	Warnings    []string
 }
 
 // NewToolCompiler creates a new tool compiler
@@ -1403,17 +1345,6 @@ func extractFunctionBody(code, funcName string) string {
 type RuntimeRegistry struct {
 	mu    sync.RWMutex
 	tools map[string]*RuntimeTool
-}
-
-// RuntimeTool represents a compiled tool ready for execution
-type RuntimeTool struct {
-	Name         string
-	Description  string
-	BinaryPath   string
-	Hash         string
-	Schema       ToolSchema
-	RegisteredAt time.Time
-	ExecuteCount int64
 }
 
 // NewRuntimeRegistry creates a new registry
