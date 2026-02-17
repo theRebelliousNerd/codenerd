@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/prompt"
 	"fmt"
 	"sort"
+	"github.com/atotto/clipboard"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -37,7 +38,7 @@ func (i atomItem) Title() string { return i.atom.ID }
 func (i atomItem) Description() string {
 	return fmt.Sprintf("[%s] Prio:%d Tokens:%d", i.atom.Category, i.atom.Priority, i.atom.TokenCount)
 }
-func (i atomItem) FilterValue() string { return i.atom.ID + " " + string(i.atom.Category) }
+func (i atomItem) FilterValue() string { return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content }
 
 // NewJITPageModel creates a new JIT inspector page.
 func NewJITPageModel() JITPageModel {
@@ -47,7 +48,7 @@ func NewJITPageModel() JITPageModel {
 	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "Prompt Atoms"
 	l.SetShowHelp(false)
-	l.SetShowStatusBar(false)
+	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 
@@ -81,6 +82,12 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			case "tab":
 				// Could toggle focus, but for now just let logic handle it or simple split
 				// TODO: Implement focus switching between list and viewport
+			case "c", "y":
+				if m.selected != nil {
+					_ = clipboard.WriteAll(m.selected.Content)
+					cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied to clipboard"))
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 	}
