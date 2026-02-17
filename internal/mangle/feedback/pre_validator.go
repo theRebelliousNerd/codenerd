@@ -5,6 +5,38 @@ import (
 	"strings"
 )
 
+var (
+	// Pre-compiled regexes for QuickFix
+	quotedAtomRegex     = regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
+	prologNegationRegex = regexp.MustCompile(`\\\+\s*`)
+	fnCountRegex        = regexp.MustCompile(`fn:Count\(`)
+	fnSumRegex          = regexp.MustCompile(`fn:Sum\(`)
+	fnMinRegex          = regexp.MustCompile(`fn:Min\(`)
+	fnMaxRegex          = regexp.MustCompile(`fn:Max\(`)
+	fnAvgRegex          = regexp.MustCompile(`fn:Avg\(`)
+	missingDoRegex      = regexp.MustCompile(`\|>\s*fn:`)
+
+	// Pre-compiled regexes for validateGlobal
+	ruleMissingPeriodRegex = regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\s*:-[^.]+)$`)
+)
+
+type colonAtomFix struct {
+	pattern *regexp.Regexp
+	word    string
+}
+
+var colonAtomFixes []colonAtomFix
+
+func init() {
+	// Fix colon atoms :atom -> /atom
+	for _, word := range []string{"active", "pending", "status", "type", "error", "success", "warning", "info", "enabled", "disabled"} {
+		colonAtomFixes = append(colonAtomFixes, colonAtomFix{
+			pattern: regexp.MustCompile(`([^:]):` + word + `\b`),
+			word:    word,
+		})
+	}
+}
+
 // PreValidator performs fast regex-based validation of LLM-generated Mangle code
 // BEFORE expensive Mangle compilation. It catches common AI errors with specific
 // feedback for retry attempts.
@@ -81,8 +113,6 @@ func (pv *PreValidator) validateLine(line string, lineNum int) []ValidationError
 func (pv *PreValidator) validateGlobal(code string) []ValidationError {
 	var errors []ValidationError
 
-	// Check for rules without periods
-	rulePattern := regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\s*:-[^.]+)$`)
 	lines := strings.Split(code, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -105,7 +135,7 @@ func (pv *PreValidator) validateGlobal(code string) []ValidationError {
 				}
 			}
 
-			if !isComplete && rulePattern.MatchString(trimmed) {
+			if !isComplete && ruleMissingPeriodRegex.MatchString(trimmed) {
 				errors = append(errors, ValidationError{
 					Category:   CategoryMissingPeriod,
 					Line:       i + 1,
@@ -339,26 +369,24 @@ func (pv *PreValidator) QuickFix(code string) string {
 	fixed = strings.ReplaceAll(fixed, "`", "")
 
 	// Convert quoted atoms to /atoms: "compile" -> /compile
-	quotedAtomRegex := regexp.MustCompile(`"([a-z][a-z0-9_]*)"`)
 	fixed = quotedAtomRegex.ReplaceAllString(fixed, "/$1")
 
 	// Fix Prolog negation \+ -> ! (regex \\\+ matches literal \+)
-	fixed = regexp.MustCompile(`\\\+\s*`).ReplaceAllString(fixed, "!")
+	fixed = prologNegationRegex.ReplaceAllString(fixed, "!")
 
 	// Fix capitalized aggregation functions to lowercase (engine expects lowercase)
-	fixed = regexp.MustCompile(`fn:Count\(`).ReplaceAllString(fixed, "fn:count(")
-	fixed = regexp.MustCompile(`fn:Sum\(`).ReplaceAllString(fixed, "fn:sum(")
-	fixed = regexp.MustCompile(`fn:Min\(`).ReplaceAllString(fixed, "fn:min(")
-	fixed = regexp.MustCompile(`fn:Max\(`).ReplaceAllString(fixed, "fn:max(")
-	fixed = regexp.MustCompile(`fn:Avg\(`).ReplaceAllString(fixed, "fn:avg(")
+	fixed = fnCountRegex.ReplaceAllString(fixed, "fn:count(")
+	fixed = fnSumRegex.ReplaceAllString(fixed, "fn:sum(")
+	fixed = fnMinRegex.ReplaceAllString(fixed, "fn:min(")
+	fixed = fnMaxRegex.ReplaceAllString(fixed, "fn:max(")
+	fixed = fnAvgRegex.ReplaceAllString(fixed, "fn:avg(")
 
 	// Fix missing 'do' keyword: |> fn: -> |> do fn:
-	fixed = regexp.MustCompile(`\|>\s*fn:`).ReplaceAllString(fixed, "|> do fn:")
+	fixed = missingDoRegex.ReplaceAllString(fixed, "|> do fn:")
 
 	// Fix colon atoms :atom -> /atom
-	for _, word := range []string{"active", "pending", "status", "type", "error", "success", "warning", "info", "enabled", "disabled"} {
-		pattern := regexp.MustCompile(`([^:]):` + word + `\b`)
-		fixed = pattern.ReplaceAllString(fixed, "${1}/"+word)
+	for _, fix := range colonAtomFixes {
+		fixed = fix.pattern.ReplaceAllString(fixed, "${1}/"+fix.word)
 	}
 
 	return fixed
