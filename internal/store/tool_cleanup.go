@@ -95,42 +95,71 @@ func (s *ToolStore) CleanupByRuntimeBudget(budgetHours float64) (*CleanupStats, 
 	logging.Store("CleanupByRuntimeBudget: need to free %.1f hours (current: %.1f, budget: %.1f)",
 		hoursToFree, currentHours, budgetHours)
 
-	// Delete oldest executions until under budget
-	// We delete by oldest created_at, which correlates with oldest runtime
-	for currentHours > budgetHours {
-		// Get oldest execution
-		var id int64
-		var resultSize int
-		var runtimeMs int64
-		row := s.db.QueryRow(`
-			SELECT id, result_size, session_runtime_ms
+	// Batch delete oldest sessions until under budget
+	// We sort by MIN(created_at) to delete oldest sessions first.
+	// We delete entire sessions because partial deletion doesn't reduce session_runtime_ms (max value).
+	batchSize := 500
+	for hoursToFree > 0 {
+		// Identify sessions to delete
+		rows, err := s.db.Query(`
+			SELECT session_id, MAX(session_runtime_ms), COUNT(*), SUM(result_size)
 			FROM tool_executions
-			ORDER BY created_at ASC LIMIT 1`)
-		if err := row.Scan(&id, &resultSize, &runtimeMs); err != nil {
-			break // No more rows
-		}
-
-		// Delete it
-		_, err := s.db.Exec("DELETE FROM tool_executions WHERE id = ?", id)
+			GROUP BY session_id
+			ORDER BY MIN(created_at) ASC
+			LIMIT ?`, batchSize)
 		if err != nil {
-			break
+			return stats, err
 		}
 
-		stats.ExecutionsDeleted++
-		stats.BytesFreed += int64(resultSize)
+		var sessionsToDelete []string
 
-		// Recalculate current hours
-		row = s.db.QueryRow(`
-			SELECT COALESCE(SUM(max_runtime) / 3600000.0, 0) FROM (
-				SELECT MAX(session_runtime_ms) as max_runtime
-				FROM tool_executions GROUP BY session_id
-			)`)
-		if err := row.Scan(&currentHours); err != nil {
-			break
+		for rows.Next() {
+			var sessionID string
+			var runtimeMs int64
+			var count int
+			var size int64
+
+			if err := rows.Scan(&sessionID, &runtimeMs, &count, &size); err != nil {
+				continue
+			}
+
+			sessionsToDelete = append(sessionsToDelete, sessionID)
+
+			// Update stats
+			freedHours := float64(runtimeMs) / 3600000.0
+			stats.ExecutionsDeleted += count
+			stats.BytesFreed += size
+			stats.RuntimeHoursFreed += freedHours
+			hoursToFree -= freedHours
+
+			if hoursToFree <= 0 {
+				break
+			}
 		}
+		rows.Close()
+
+		if len(sessionsToDelete) == 0 {
+			break // No more sessions found
+		}
+
+		// Batch delete execution
+		placeholders := strings.Repeat("?,", len(sessionsToDelete)-1) + "?"
+		query := fmt.Sprintf("DELETE FROM tool_executions WHERE session_id IN (%s)", placeholders)
+
+		args := make([]interface{}, len(sessionsToDelete))
+		for i, id := range sessionsToDelete {
+			args[i] = id
+		}
+
+		_, err = s.db.Exec(query, args...)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("CleanupByRuntimeBudget: failed to delete batch: %v", err)
+			return stats, err
+		}
+
+		logging.Store("CleanupByRuntimeBudget: deleted batch of %d sessions", len(sessionsToDelete))
 	}
 
-	stats.RuntimeHoursFreed = hoursToFree
 	logging.Store("CleanupByRuntimeBudget: deleted %d executions, freed %d bytes",
 		stats.ExecutionsDeleted, stats.BytesFreed)
 
