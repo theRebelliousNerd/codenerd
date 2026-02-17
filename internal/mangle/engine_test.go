@@ -363,3 +363,42 @@ func TestEngineToggleAutoEval(t *testing.T) {
 // Deep Gap: Explicitly test the cliff between 1.0 (becomes 100) and 1.0000001 (becomes 1).
 // This nonlinear behavior is a significant logic risk.
 // Vector: Boundary Value Analysis
+
+// -----------------------------------------------------------------------------
+// QA BOUNDARY GAPS (Identified 2026-02-17)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: TestInvalidUTF8Strings
+// Need to verify behavior when invalid UTF-8 sequences are passed as arguments.
+// Expectation: Should be sanitized or rejected to prevent store corruption.
+// Vector: Malformed Input
+
+// TODO: TEST_GAP: TestZeroTimeouts
+// Need to verify Query behavior when timeout is 0 or negative.
+// Expectation: Should default to a safe value or error immediately, not block indefinitely.
+// Vector: User Extremes / Configuration
+
+// TODO: TEST_GAP: TestNegativeLimits
+// Need to verify NewEngine or AddFacts behavior when FactLimit/DerivedFactsLimit are negative.
+// Expectation: Should be treated as 0 (unlimited) or rejected.
+// Vector: User Extremes / Configuration
+
+// TODO: TEST_GAP: TestPredicateArityMismatch
+// Explicitly test AddFact with too few/many arguments for a declared predicate.
+// Expectation: Should return a clear error, not panic or corrupt store.
+// Vector: Schema Violation
+
+// TODO: TEST_GAP: TestPartialBatchFailure
+// Verify the partial insertion behavior of AddFacts.
+// If a batch fails halfway, are the first half of facts retained?
+// Vector: State Consistency / Atomicity
+
+// TODO: TEST_GAP: TestNilConfigDefaults
+// Verify that a zero-value Config struct results in safe defaults.
+// Especially QueryTimeout=0 (danger of no timeout).
+// Vector: Null/Undefined / Configuration
+
+// TODO: TEST_GAP: TestLargeStringHandling
+// Verify system behavior when extremely large strings (>100MB) are passed.
+// Expectation: Should fail gracefully with OOM or LimitExceeded, not crash.
+// Vector: Resource Exhaustion
