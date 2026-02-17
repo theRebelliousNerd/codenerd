@@ -269,3 +269,12 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 // TODO: TEST_GAP: Malformed Hiding - Verify behavior when a malformed real response (missing brace) hides a subsequent decoy.
 // Scenario: `{"real": ... (missing brace) ... {"decoy": ...}`.
 // The scanner might skip the real response but pick up the decoy if depth resets or aligns.
+
+// TODO: TEST_GAP: Non-ASCII Handling - Verify proper handling of Unicode characters (emojis, CJK) in control_packet fields.
+// Ensure that `findJSONCandidates` and `json.Unmarshal` correctly preserve non-ASCII data and that length caps operate on runes or bytes correctly.
+
+// TODO: TEST_GAP: Scanner Brace Imbalance - Verify `findJSONCandidates` behavior with pathological brace patterns like `{{{{` or `}}}}`.
+// Ensure it does not hang or consume excessive memory when no closing braces are found.
+
+// TODO: TEST_GAP: Type Coercion Resilience - Verify if we can gracefully handle "stringified" floats for `confidence` or "stringified" booleans for `required`.
+// Currently this fails strict validation, but a resilient parser should perhaps attempt coercion before rejection.
