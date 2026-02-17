@@ -43,6 +43,143 @@ type JITCompiler interface {
 }
 
 // =============================================================================
+// OUROBOROS INTERFACES & TYPES
+// =============================================================================
+
+// ToolSynthesizer defines the interface for the Ouroboros tool generation loop.
+// This allows mocking the complex tool generation process for testing.
+type ToolSynthesizer interface {
+	// Execute runs the Ouroboros loop to generate a tool.
+	Execute(ctx context.Context, need *ToolNeed) *LoopResult
+
+	// GenerateToolFromCode generates a tool from pre-existing code.
+	GenerateToolFromCode(ctx context.Context, name, purpose, code string, confidence, priority float64, isDiagnostic bool) (success bool, toolName, binaryPath, errMsg string)
+
+	// SetOnToolRegistered sets a callback for when a tool is registered.
+	SetOnToolRegistered(callback ToolRegisteredCallback)
+
+	// GetStats returns current loop statistics.
+	GetStats() OuroborosStats
+
+	// ListTools returns all registered tools.
+	ListTools() []types.ToolInfo
+
+	// GetTool returns info about a specific tool.
+	GetTool(name string) (*types.ToolInfo, bool)
+
+	// ExecuteTool runs a registered tool with the given input
+	ExecuteTool(ctx context.Context, toolName string, input string) (string, error)
+
+	// GetRuntimeTool returns the internal RuntimeTool handle.
+	// Used by Orchestrator for direct access to registry.
+	GetRuntimeTool(name string) (*RuntimeTool, bool)
+
+	// ListRuntimeTools returns all registered runtime tools.
+	ListRuntimeTools() []*RuntimeTool
+
+	// CheckToolSafety validates tool code without compiling.
+	CheckToolSafety(code string) *SafetyReport
+
+	// SetLearningsContext updates the learnings context for the tool generator.
+	SetLearningsContext(ctx string)
+}
+
+// ToolRegisteredCallback is called when a tool is successfully registered.
+// This allows the Orchestrator to propagate facts to the parent kernel.
+type ToolRegisteredCallback func(tool *RuntimeTool)
+
+// RuntimeTool represents a compiled tool ready for execution
+type RuntimeTool struct {
+	Name         string
+	Description  string
+	BinaryPath   string
+	Hash         string
+	Schema       ToolSchema
+	RegisteredAt time.Time
+	ExecuteCount int64
+}
+
+// LoopResult contains the result of a complete Ouroboros Loop execution
+type LoopResult struct {
+	Success       bool
+	ToolName      string
+	Stage         LoopStage
+	Error         string
+	SafetyReport  *SafetyReport
+	CompileResult *CompileResult
+	ToolHandle    *RuntimeTool
+	Duration      time.Duration
+}
+
+// CompileResult contains compilation output
+type CompileResult struct {
+	Success     bool
+	OutputPath  string
+	Hash        string // SHA-256 of compiled binary
+	CompileTime time.Duration
+	Errors      []string
+	Warnings    []string
+}
+
+// LoopStage identifies where in the loop we are
+type LoopStage int
+
+const (
+	StageDetection LoopStage = iota
+	StageSpecification
+	StageSafetyCheck
+	StageThunderdome // NEW: Adversarial testing phase
+	StageCompilation
+	StageRegistration
+	StageExecution
+	StageComplete
+	StageSimulation // New stage
+	StagePanic      // New stage
+)
+
+func (s LoopStage) String() string {
+	switch s {
+	case StageDetection:
+		return "detection"
+	case StageSpecification:
+		return "specification"
+	case StageSafetyCheck:
+		return "safety_check"
+	case StageThunderdome:
+		return "thunderdome"
+	case StageCompilation:
+		return "compilation"
+	case StageRegistration:
+		return "registration"
+	case StageExecution:
+		return "execution"
+	case StageComplete:
+		return "complete"
+	case StageSimulation:
+		return "simulation"
+	case StagePanic:
+		return "panic"
+	default:
+		return "unknown"
+	}
+}
+
+// OuroborosStats tracks loop statistics
+type OuroborosStats struct {
+	ToolsGenerated   int
+	ToolsCompiled    int
+	ToolsRejected    int
+	SafetyViolations int
+	ExecutionCount   int
+	Panics           int
+	LastGeneration   time.Time
+	// Adversarial Co-Evolution stats
+	ThunderdomeRuns     int // Number of Thunderdome battles
+	ThunderdomeKills    int // Tools killed by PanicMaker
+	ThunderdomeSurvived int // Tools that survived
+}
+
+// =============================================================================
 // CORE TYPES
 // =============================================================================
 

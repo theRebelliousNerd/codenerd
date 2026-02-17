@@ -88,6 +88,97 @@ func (m *MockLLMClient) CompleteWithTools(ctx context.Context, sys, user string,
 	return &types.LLMToolResponse{Text: "default"}, nil
 }
 
+// --- MockToolSynthesizer ---
+
+type MockToolSynthesizer struct {
+	ExecuteFunc              func(ctx context.Context, need *ToolNeed) *LoopResult
+	GenerateToolFromCodeFunc func(ctx context.Context, name, purpose, code string, confidence, priority float64, isDiagnostic bool) (success bool, toolName, binaryPath, errMsg string)
+	SetOnToolRegisteredFunc  func(callback ToolRegisteredCallback)
+	GetStatsFunc             func() OuroborosStats
+	ListToolsFunc            func() []types.ToolInfo
+	GetToolFunc              func(name string) (*types.ToolInfo, bool)
+	ExecuteToolFunc          func(ctx context.Context, toolName string, input string) (string, error)
+	GetRuntimeToolFunc       func(name string) (*RuntimeTool, bool)
+	ListRuntimeToolsFunc     func() []*RuntimeTool
+	CheckToolSafetyFunc      func(code string) *SafetyReport
+	SetLearningsContextFunc  func(ctx string)
+}
+
+func (m *MockToolSynthesizer) Execute(ctx context.Context, need *ToolNeed) *LoopResult {
+	if m.ExecuteFunc != nil {
+		return m.ExecuteFunc(ctx, need)
+	}
+	return &LoopResult{Success: false, Error: "mock execute not implemented"}
+}
+
+func (m *MockToolSynthesizer) GenerateToolFromCode(ctx context.Context, name, purpose, code string, confidence, priority float64, isDiagnostic bool) (success bool, toolName, binaryPath, errMsg string) {
+	if m.GenerateToolFromCodeFunc != nil {
+		return m.GenerateToolFromCodeFunc(ctx, name, purpose, code, confidence, priority, isDiagnostic)
+	}
+	return false, name, "", "mock generate not implemented"
+}
+
+func (m *MockToolSynthesizer) SetOnToolRegistered(callback ToolRegisteredCallback) {
+	if m.SetOnToolRegisteredFunc != nil {
+		m.SetOnToolRegisteredFunc(callback)
+	}
+}
+
+func (m *MockToolSynthesizer) GetStats() OuroborosStats {
+	if m.GetStatsFunc != nil {
+		return m.GetStatsFunc()
+	}
+	return OuroborosStats{}
+}
+
+func (m *MockToolSynthesizer) ListTools() []types.ToolInfo {
+	if m.ListToolsFunc != nil {
+		return m.ListToolsFunc()
+	}
+	return nil
+}
+
+func (m *MockToolSynthesizer) GetTool(name string) (*types.ToolInfo, bool) {
+	if m.GetToolFunc != nil {
+		return m.GetToolFunc(name)
+	}
+	return nil, false
+}
+
+func (m *MockToolSynthesizer) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
+	if m.ExecuteToolFunc != nil {
+		return m.ExecuteToolFunc(ctx, toolName, input)
+	}
+	return "", nil
+}
+
+func (m *MockToolSynthesizer) GetRuntimeTool(name string) (*RuntimeTool, bool) {
+	if m.GetRuntimeToolFunc != nil {
+		return m.GetRuntimeToolFunc(name)
+	}
+	return nil, false
+}
+
+func (m *MockToolSynthesizer) ListRuntimeTools() []*RuntimeTool {
+	if m.ListRuntimeToolsFunc != nil {
+		return m.ListRuntimeToolsFunc()
+	}
+	return nil
+}
+
+func (m *MockToolSynthesizer) CheckToolSafety(code string) *SafetyReport {
+	if m.CheckToolSafetyFunc != nil {
+		return m.CheckToolSafetyFunc(code)
+	}
+	return &SafetyReport{Safe: true}
+}
+
+func (m *MockToolSynthesizer) SetLearningsContext(ctx string) {
+	if m.SetLearningsContextFunc != nil {
+		m.SetLearningsContextFunc(ctx)
+	}
+}
+
 // Helper to create a test orchestrator
 func createTestOrchestrator(t *testing.T) (*Orchestrator, *MockKernelInterface, *MockLLMClient) {
 	mockLLM := &MockLLMClient{}
@@ -105,4 +196,13 @@ func createTestOrchestrator(t *testing.T) (*Orchestrator, *MockKernelInterface, 
 	orch.SetKernel(mockKernel)
 
 	return orch, mockKernel, mockLLM
+}
+
+// Helper to replace ouroboros with mock
+func replaceOuroborosWithMock(orch *Orchestrator) *MockToolSynthesizer {
+	mock := &MockToolSynthesizer{}
+	orch.mu.Lock()
+	orch.ouroboros = mock
+	orch.mu.Unlock()
+	return mock
 }

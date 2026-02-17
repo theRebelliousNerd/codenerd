@@ -157,7 +157,7 @@ func (o *Orchestrator) GetOuroborosStats() OuroborosStats {
 
 // ListGeneratedTools returns all registered generated tools
 func (o *Orchestrator) ListGeneratedTools() []*RuntimeTool {
-	return o.ouroboros.registry.List()
+	return o.ouroboros.ListRuntimeTools()
 }
 
 // ListTools returns tool info for all registered tools (for chat UI)
@@ -172,11 +172,11 @@ func (o *Orchestrator) GetToolInfo(name string) (*ToolInfo, bool) {
 
 // HasGeneratedTool checks if a tool exists in the registry
 func (o *Orchestrator) HasGeneratedTool(name string) bool {
-	_, exists := o.ouroboros.registry.Get(name)
+	_, exists := o.ouroboros.GetRuntimeTool(name)
 	return exists
 }
 
 // CheckToolSafety validates tool code without compiling
 func (o *Orchestrator) CheckToolSafety(code string) *SafetyReport {
-	return o.ouroboros.safetyChecker.Check(code)
+	return o.ouroboros.CheckToolSafety(code)
 }

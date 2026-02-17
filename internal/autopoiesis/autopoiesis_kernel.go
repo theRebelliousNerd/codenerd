@@ -32,7 +32,7 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		return
 	}
 
-	tools := o.ouroboros.registry.List()
+	tools := o.ouroboros.ListRuntimeTools()
 	if len(tools) == 0 {
 		return
 	}

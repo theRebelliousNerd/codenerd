@@ -27,7 +27,7 @@ type Orchestrator struct {
 	toolGen     *ToolGenerator
 	persistence *PersistenceAnalyzer
 	agentCreate *AgentCreator
-	ouroboros   *OuroborosLoop // The Ouroboros Loop for tool self-generation
+	ouroboros   ToolSynthesizer // The Ouroboros Loop for tool self-generation
 	client      LLMClient
 
 	// Kernel Integration - Bridge to Mangle Logic Core
@@ -301,7 +301,7 @@ func (o *Orchestrator) SetJITComponents(jitCompiler JITCompiler, assembler Promp
 
 // GetOuroborosLoop returns the Ouroboros Loop for tool self-generation.
 // This implements core.ToolGenerator interface for routing coder shard self-tools.
-func (o *Orchestrator) GetOuroborosLoop() *OuroborosLoop {
+func (o *Orchestrator) GetOuroborosLoop() ToolSynthesizer {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.ouroboros
@@ -339,8 +339,8 @@ func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*Runti
 	}
 
 	// 4. Retrieve registered tool to return
-	// We access the registry directly through Ouroboros
-	if tool, exists := o.ouroboros.registry.Get(toolName); exists {
+	// We access the registry directly through Ouroboros via interface
+	if tool, exists := o.ouroboros.GetRuntimeTool(toolName); exists {
 		return tool, nil
 	}
 
