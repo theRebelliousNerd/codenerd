@@ -592,13 +592,13 @@ func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) 
 			if len(f.Args) < 2 {
 				continue
 			}
-			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+			if types.ExtractString(f.Args[0]) != intentID {
 				continue
 			}
 			if q, ok := f.Args[1].(string); ok {
 				question = q
 			} else {
-				question = fmt.Sprintf("%v", f.Args[1])
+				question = types.ExtractString(f.Args[1])
 			}
 			break
 		}
@@ -609,7 +609,7 @@ func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) 
 				if q, ok := facts[0].Args[0].(string); ok {
 					question = q
 				} else {
-					question = fmt.Sprintf("%v", facts[0].Args[0])
+					question = types.ExtractString(facts[0].Args[0])
 				}
 			}
 		}
@@ -625,11 +625,11 @@ func (m Model) shouldClarifyFromKernel(intent *perception.Intent, input string) 
 			if len(f.Args) < 3 {
 				continue
 			}
-			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+			if types.ExtractString(f.Args[0]) != intentID {
 				continue
 			}
-			verb := fmt.Sprintf("%v", f.Args[1])
-			label := fmt.Sprintf("%v", f.Args[2])
+			verb := types.ExtractString(f.Args[1])
+			label := types.ExtractString(f.Args[2])
 			option := verb
 			if label != "" && label != "<nil>" {
 				option = fmt.Sprintf("%s (%s)", label, verb)
@@ -732,18 +732,18 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 			switch f.Predicate {
 			case "dependency_link":
 				if len(f.Args) >= 2 {
-					a := fmt.Sprintf("%v", f.Args[0])
-					b := fmt.Sprintf("%v", f.Args[1])
+					a := types.ExtractString(f.Args[0])
+					b := types.ExtractString(f.Args[1])
 					rel := "depends_on"
 					if len(f.Args) >= 3 {
-						rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
 					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
 				}
 			case "symbol_graph":
 				if len(f.Args) >= 4 {
-					sid := fmt.Sprintf("%v", f.Args[0])
-					file := fmt.Sprintf("%v", f.Args[3])
+					sid := types.ExtractString(f.Args[0])
+					file := types.ExtractString(f.Args[3])
 					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
 				}
 			}
@@ -1021,11 +1021,11 @@ func parseExecutionResults(facts []core.Fact) []systemExecutionResult {
 			continue
 		}
 		result := systemExecutionResult{
-			ActionID:   fmt.Sprintf("%v", fact.Args[0]),
-			ActionType: fmt.Sprintf("%v", fact.Args[1]),
-			Target:     fmt.Sprintf("%v", fact.Args[2]),
+			ActionID:   types.ExtractString(fact.Args[0]),
+			ActionType: types.ExtractString(fact.Args[1]),
+			Target:     types.ExtractString(fact.Args[2]),
 			Success:    parseBool(fact.Args[3]),
-			Output:     fmt.Sprintf("%v", fact.Args[4]),
+			Output:     types.ExtractString(fact.Args[4]),
 		}
 		if len(fact.Args) >= 6 {
 			if ts, ok := fact.Args[5].(int64); ok {
@@ -1058,7 +1058,7 @@ func parseBool(value interface{}) bool {
 
 func nextActionName(action core.Fact) string {
 	if len(action.Args) > 0 {
-		value := strings.TrimSpace(fmt.Sprintf("%v", action.Args[0]))
+		value := strings.TrimSpace(types.ExtractString(action.Args[0]))
 		if value != "" {
 			if !strings.HasPrefix(value, "/") {
 				value = "/" + value
@@ -1100,9 +1100,9 @@ func parseDelegateFact(fact core.Fact) (string, string, bool) {
 	if len(fact.Args) < 3 {
 		return "", "", false
 	}
-	shardType := normalizeShardType(fmt.Sprintf("%v", fact.Args[0]))
-	task := fmt.Sprintf("%v", fact.Args[1])
-	status := strings.ToLower(fmt.Sprintf("%v", fact.Args[2]))
+	shardType := normalizeShardType(types.ExtractString(fact.Args[0]))
+	task := types.ExtractString(fact.Args[1])
+	status := strings.ToLower(types.ExtractString(fact.Args[2]))
 	pending := status == "/pending" || status == "pending"
 	return shardType, strings.TrimSpace(task), pending
 }
@@ -1259,11 +1259,11 @@ func formatSystemResults(routing, exec []core.Fact) string {
 		if len(f.Args) < 2 {
 			continue
 		}
-		actionID := fmt.Sprintf("%v", f.Args[0])
-		result := fmt.Sprintf("%v", f.Args[1])
+		actionID := types.ExtractString(f.Args[0])
+		result := types.ExtractString(f.Args[1])
 		details := ""
 		if len(f.Args) >= 3 {
-			details = trunc(fmt.Sprintf("%v", f.Args[2]))
+			details = trunc(types.ExtractString(f.Args[2]))
 		}
 		if details == "" || details == "()" {
 			lines = append(lines, fmt.Sprintf("- %s: %s", actionID, result))
@@ -1277,19 +1277,19 @@ func formatSystemResults(routing, exec []core.Fact) string {
 		if len(f.Args) < 4 {
 			continue
 		}
-		actionID := fmt.Sprintf("%v", f.Args[0])
-		actionType := fmt.Sprintf("%v", f.Args[1])
+		actionID := types.ExtractString(f.Args[0])
+		actionType := types.ExtractString(f.Args[1])
 		target := ""
 		success := ""
 		output := ""
 		if len(f.Args) >= 3 {
-			target = trunc(fmt.Sprintf("%v", f.Args[2]))
+			target = trunc(types.ExtractString(f.Args[2]))
 		}
 		if len(f.Args) >= 4 {
-			success = fmt.Sprintf("%v", f.Args[3])
+			success = types.ExtractString(f.Args[3])
 		}
 		if len(f.Args) >= 5 {
-			output = trunc(fmt.Sprintf("%v", f.Args[4]))
+			output = trunc(types.ExtractString(f.Args[4]))
 		}
 
 		line := fmt.Sprintf("- %s: %s", actionID, actionType)

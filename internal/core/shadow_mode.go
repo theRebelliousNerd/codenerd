@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // ShadowMode represents a counterfactual simulation environment.
@@ -220,7 +222,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		// Check if this triggers impacted dependencies
 		deps, _ := sm.shadowKernel.Query("dependency_link")
 		for _, dep := range deps {
-			if len(dep.Args) >= 2 && fmt.Sprintf("%v", dep.Args[1]) == action.Target {
+			if len(dep.Args) >= 2 && types.ExtractString(dep.Args[1]) == action.Target {
 				effects = append(effects, SimulatedEffect{
 					ActionID:   action.ID,
 					Predicate:  "impacted",
@@ -285,7 +287,7 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	for _, bc := range blockCommits {
 		reason := "unknown"
 		if len(bc.Args) > 0 {
-			reason = fmt.Sprintf("%v", bc.Args[0])
+			reason = types.ExtractString(bc.Args[0])
 		}
 		violations = append(violations, ProjectionViolation{
 			ActionID:      actionID,
@@ -301,7 +303,7 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	for _, ur := range unsafeRefactors {
 		target := "unknown"
 		if len(ur.Args) > 0 {
-			target = fmt.Sprintf("%v", ur.Args[0])
+			target = types.ExtractString(ur.Args[0])
 		}
 		violations = append(violations, ProjectionViolation{
 			ActionID:      actionID,
@@ -318,10 +320,10 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 		file := "unknown"
 		reason := ""
 		if len(fw.Args) > 0 {
-			file = fmt.Sprintf("%v", fw.Args[0])
+			file = types.ExtractString(fw.Args[0])
 		}
 		if len(fw.Args) > 1 {
-			reason = fmt.Sprintf("%v", fw.Args[1])
+			reason = types.ExtractString(fw.Args[1])
 		}
 		violations = append(violations, ProjectionViolation{
 			ActionID:      actionID,
@@ -337,7 +339,7 @@ func (sm *ShadowMode) checkViolations(actionID string) []ProjectionViolation {
 	for _, pv := range projViolations {
 		violationType := "unknown"
 		if len(pv.Args) > 1 {
-			violationType = fmt.Sprintf("%v", pv.Args[1])
+			violationType = types.ExtractString(pv.Args[1])
 		}
 		violations = append(violations, ProjectionViolation{
 			ActionID:      actionID,

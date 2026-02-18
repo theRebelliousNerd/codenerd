@@ -730,7 +730,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		systemPrompts, _ := m.kernel.Query("final_system_prompt")
 		systemPrompt := ""
 		if len(systemPrompts) > 0 && len(systemPrompts[0].Args) > 0 {
-			systemPrompt = fmt.Sprintf("%v", systemPrompts[0].Args[0])
+			systemPrompt = types.ExtractString(systemPrompts[0].Args[0])
 		}
 
 		// Inject the "Steven Moore Flare" persona

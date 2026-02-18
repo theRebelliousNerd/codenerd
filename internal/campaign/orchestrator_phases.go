@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"time"
@@ -20,7 +21,7 @@ func (o *Orchestrator) getCurrentPhase() *Phase {
 		return nil
 	}
 
-	phaseID := fmt.Sprintf("%v", facts[0].Args[0])
+	phaseID := types.ExtractString(facts[0].Args[0])
 	logging.CampaignDebug("Current phase from kernel: %s", phaseID)
 
 	// Find phase in campaign
@@ -55,7 +56,7 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 	tasks := make([]*Task, 0, len(facts))
 	for i := range phase.Tasks {
 		for _, fact := range facts {
-			taskID := fmt.Sprintf("%v", fact.Args[0])
+			taskID := types.ExtractString(fact.Args[0])
 			if phase.Tasks[i].ID == taskID {
 				tasks = append(tasks, &phase.Tasks[i])
 				break
@@ -97,7 +98,7 @@ func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 		return nil
 	}
 
-	taskID := fmt.Sprintf("%v", facts[0].Args[0])
+	taskID := types.ExtractString(facts[0].Args[0])
 	logging.CampaignDebug("Next task from kernel: %s", taskID)
 
 	// Find task in phase
@@ -143,7 +144,7 @@ func (o *Orchestrator) getCampaignBlockReason() string {
 
 	reason := "unknown"
 	if len(facts[0].Args) >= 2 {
-		reason = fmt.Sprintf("%v", facts[0].Args[1])
+		reason = types.ExtractString(facts[0].Args[1])
 	}
 	logging.CampaignDebug("Campaign blocked detected: %s", reason)
 	return reason
@@ -187,7 +188,7 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 		return fmt.Errorf("no eligible phases")
 	}
 
-	phaseID := fmt.Sprintf("%v", facts[0].Args[0])
+	phaseID := types.ExtractString(facts[0].Args[0])
 	logging.Campaign("Phase transition: starting phase %s", phaseID)
 
 	// Find and update phase

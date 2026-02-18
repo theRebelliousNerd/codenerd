@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/types"
 )
 
 // LLMTransducer implements LLM-first intent classification.
@@ -561,14 +562,14 @@ func (k *RealKernelRouter) QueryRouting(ctx context.Context, predicate string, a
 		}
 
 		// First arg should be the query arg (semantic type, action, domain)
-		firstArg := fmt.Sprintf("%v", fact.Args[0])
+		firstArg := types.ExtractString(fact.Args[0])
 		if firstArg != "/"+arg && firstArg != arg {
 			continue
 		}
 
 		// Second arg is the target (mode, context, shard, tool)
 		match := RoutingMatch{
-			Target: strings.TrimPrefix(fmt.Sprintf("%v", fact.Args[1]), "/"),
+			Target: types.StripAtomPrefix(types.ExtractString(fact.Args[1])),
 		}
 
 		// Third arg (if present) is the weight
@@ -633,7 +634,7 @@ func (k *RealKernelRouter) ValidateField(ctx context.Context, field, value strin
 	// Check if any fact matches the value
 	for _, fact := range facts {
 		if len(fact.Args) >= 1 {
-			factValue := strings.TrimPrefix(fmt.Sprintf("%v", fact.Args[0]), "/")
+			factValue := types.StripAtomPrefix(types.ExtractString(fact.Args[0]))
 			if factValue == value {
 				return true
 			}

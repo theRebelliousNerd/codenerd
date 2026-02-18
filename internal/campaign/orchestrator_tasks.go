@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -360,7 +361,7 @@ func (o *Orchestrator) applyLearnings(ctx context.Context, task *Task, result an
 		}
 		learning := Learning{
 			Type:      "/success_pattern",
-			Pattern:   fmt.Sprintf("%v", fact.Args[0]),
+			Pattern:   types.ExtractString(fact.Args[0]),
 			Fact:      factStr,
 			AppliedAt: time.Now(),
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -85,11 +86,11 @@ func formatSystemResults(routing, exec []core.Fact) string {
 		if len(f.Args) < 2 {
 			continue
 		}
-		actionID := fmt.Sprintf("%v", f.Args[0])
-		result := fmt.Sprintf("%v", f.Args[1])
+		actionID := types.ExtractString(f.Args[0])
+		result := types.ExtractString(f.Args[1])
 		details := ""
 		if len(f.Args) >= 3 {
-			details = trunc(fmt.Sprintf("%v", f.Args[2]))
+			details = trunc(types.ExtractString(f.Args[2]))
 		}
 		if details == "" || details == "()" {
 			lines = append(lines, fmt.Sprintf("- %s: %s", actionID, result))
@@ -103,19 +104,19 @@ func formatSystemResults(routing, exec []core.Fact) string {
 		if len(f.Args) < 4 {
 			continue
 		}
-		actionID := fmt.Sprintf("%v", f.Args[0])
-		actionType := fmt.Sprintf("%v", f.Args[1])
+		actionID := types.ExtractString(f.Args[0])
+		actionType := types.ExtractString(f.Args[1])
 		target := ""
 		success := ""
 		output := ""
 		if len(f.Args) >= 3 {
-			target = trunc(fmt.Sprintf("%v", f.Args[2]))
+			target = trunc(types.ExtractString(f.Args[2]))
 		}
 		if len(f.Args) >= 4 {
-			success = fmt.Sprintf("%v", f.Args[3])
+			success = types.ExtractString(f.Args[3])
 		}
 		if len(f.Args) >= 5 {
-			output = trunc(fmt.Sprintf("%v", f.Args[4]))
+			output = trunc(types.ExtractString(f.Args[4]))
 		}
 
 		line := fmt.Sprintf("- %s: %s", actionID, actionType)

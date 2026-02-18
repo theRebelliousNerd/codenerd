@@ -684,17 +684,17 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 	// Also project dependency links into knowledge_graph for fast lookup
 	for _, f := range facts {
 		if f.Predicate == "dependency_link" && len(f.Args) >= 2 {
-			a := fmt.Sprintf("%v", f.Args[0])
-			b := fmt.Sprintf("%v", f.Args[1])
+			a := types.ExtractString(f.Args[0])
+			b := types.ExtractString(f.Args[1])
 			rel := "depends_on"
 			if len(f.Args) >= 3 {
-				rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+				rel = "depends_on:" + types.ExtractString(f.Args[2])
 			}
 			_ = w.VirtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "world_model"})
 		}
 		if f.Predicate == "symbol_graph" && len(f.Args) >= 4 {
-			symbolID := fmt.Sprintf("%v", f.Args[0])
-			filePath := fmt.Sprintf("%v", f.Args[3])
+			symbolID := types.ExtractString(f.Args[0])
+			filePath := types.ExtractString(f.Args[3])
 			_ = w.VirtualStore.PersistLink(symbolID, "defined_in", filePath, 1.0, map[string]interface{}{"source": "world_model"})
 		}
 	}

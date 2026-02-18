@@ -261,9 +261,9 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		didWork = true
 
 		// pending_action(ActionID, ActionType, Target, Payload, Timestamp)
-		actionID := fmt.Sprintf("%v", fact.Args[0])
-		actionType := fmt.Sprintf("%v", fact.Args[1])
-		target := fmt.Sprintf("%v", fact.Args[2])
+		actionID := types.ExtractString(fact.Args[0])
+		actionType := types.ExtractString(fact.Args[1])
+		target := types.ExtractString(fact.Args[2])
 		payload := map[string]interface{}{}
 		if len(fact.Args) > 3 {
 			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
@@ -436,7 +436,7 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 		if len(p.Args) < 1 {
 			continue
 		}
-		argStr := fmt.Sprintf("%v", p.Args[0])
+		argStr := types.ExtractString(p.Args[0])
 		// Match with or without leading /
 		if argStr != actionType && argStr != "/"+actionType {
 			continue
@@ -444,7 +444,7 @@ func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, 
 
 		// Check Target if present (Args[1])
 		if len(p.Args) >= 2 {
-			factTarget := fmt.Sprintf("%v", p.Args[1])
+			factTarget := types.ExtractString(p.Args[1])
 			if factTarget != target && factTarget != "_" {
 				continue
 			}
@@ -649,12 +649,12 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 	c.Autopoiesis.RecordProposal(proposedRule)
 
 	// If high confidence, auto-apply; otherwise escalate for human approval
-		if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
-			// Rule already validated by feedback loop, safe to apply
-			if err := c.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
-				c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
-				logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
-			} else {
+	if proposedRule.Confidence >= c.Autopoiesis.RuleConfidence {
+		// Rule already validated by feedback loop, safe to apply
+		if err := c.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
+			c.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+			logging.SystemShards("[ConstitutionGate] Autopoiesis rule auto-applied: %s", truncateForLog(proposedRule.MangleCode, 80))
+		} else {
 			// This should not happen since feedback loop validated it, but handle gracefully
 			logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Failed to apply validated rule: %v", err)
 		}

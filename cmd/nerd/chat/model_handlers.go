@@ -9,15 +9,15 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 const (
-    criticAutoLearnReason  = "/critic_autolearn"
-    criticManualLearnReason = "/critic_manual"
+	criticAutoLearnReason   = "/critic_autolearn"
+	criticManualLearnReason = "/critic_manual"
 )
-
 
 // =============================================================================
 // RENDERING CACHE HELPERS
@@ -214,10 +214,10 @@ func (m Model) loadLearningConfirmationCandidate() (*learningCandidate, bool) {
 			continue
 		}
 		return &learningCandidate{
-			Phrase: strings.TrimSpace(fmt.Sprintf("%v", f.Args[0])),
-			Verb:   strings.TrimSpace(fmt.Sprintf("%v", f.Args[1])),
-			Target: strings.TrimSpace(fmt.Sprintf("%v", f.Args[2])),
-			Reason: strings.TrimSpace(fmt.Sprintf("%v", f.Args[3])),
+			Phrase: strings.TrimSpace(types.ExtractString(f.Args[0])),
+			Verb:   strings.TrimSpace(types.ExtractString(f.Args[1])),
+			Target: strings.TrimSpace(types.ExtractString(f.Args[2])),
+			Reason: strings.TrimSpace(types.ExtractString(f.Args[3])),
 		}, true
 	}
 	return nil, false
@@ -235,12 +235,12 @@ func (m Model) loadLearningCandidateFact(candidate *learningCandidate) string {
 		if len(f.Args) < 5 {
 			continue
 		}
-		phrase := strings.TrimSpace(fmt.Sprintf("%v", f.Args[0]))
-		verb := strings.TrimSpace(fmt.Sprintf("%v", f.Args[1]))
-		target := strings.TrimSpace(fmt.Sprintf("%v", f.Args[2]))
-		reason := strings.TrimSpace(fmt.Sprintf("%v", f.Args[3]))
+		phrase := strings.TrimSpace(types.ExtractString(f.Args[0]))
+		verb := strings.TrimSpace(types.ExtractString(f.Args[1]))
+		target := strings.TrimSpace(types.ExtractString(f.Args[2]))
+		reason := strings.TrimSpace(types.ExtractString(f.Args[3]))
 		if phrase == candidate.Phrase && verb == candidate.Verb && target == candidate.Target && reason == candidate.Reason {
-			return strings.TrimSpace(fmt.Sprintf("%v", f.Args[4]))
+			return strings.TrimSpace(types.ExtractString(f.Args[4]))
 		}
 	}
 	return ""
@@ -819,11 +819,11 @@ func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 		if fact == "" {
 			return responseMsg("I analyzed the interaction but couldn't identify a clear pattern to generalize yet. I will keep this in mind.")
 		}
-			clarification, err := m.stageLearningCandidateFromFact(fact, criticAutoLearnReason)
-			if err != nil {
-				return responseMsg(fmt.Sprintf("Auto-learning candidate staging failed: %v", err))
-			}
-			return clarification
+		clarification, err := m.stageLearningCandidateFromFact(fact, criticAutoLearnReason)
+		if err != nil {
+			return responseMsg(fmt.Sprintf("Auto-learning candidate staging failed: %v", err))
+		}
+		return clarification
 	}
 
 	return m, tea.Batch(m.spinner.Tick, learningCmd)

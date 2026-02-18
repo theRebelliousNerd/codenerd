@@ -297,7 +297,7 @@ func (p *PerceptionFirewallShard) isVerbActionMapped(verb string) (bool, error) 
 		if len(fact.Args) < 2 {
 			continue
 		}
-		mappedVerb := normalizeAtom(fmt.Sprintf("%v", fact.Args[0]))
+		mappedVerb := normalizeAtom(types.ExtractString(fact.Args[0]))
 		if mappedVerb == normalized {
 			return true, nil
 		}

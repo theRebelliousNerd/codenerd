@@ -559,16 +559,16 @@ func (e *ExecutivePolicyShard) latestUserIntent() *userIntentSnapshot {
 		if len(f.Args) < 5 {
 			continue
 		}
-		id := fmt.Sprintf("%v", f.Args[0])
+		id := types.ExtractString(f.Args[0])
 		if id != "/current_intent" {
 			continue
 		}
 		return &userIntentSnapshot{
 			ID:         id,
-			Category:   fmt.Sprintf("%v", f.Args[1]),
-			Verb:       fmt.Sprintf("%v", f.Args[2]),
-			Target:     fmt.Sprintf("%v", f.Args[3]),
-			Constraint: fmt.Sprintf("%v", f.Args[4]),
+			Category:   types.ExtractString(f.Args[1]),
+			Verb:       types.ExtractString(f.Args[2]),
+			Target:     types.ExtractString(f.Args[3]),
+			Constraint: types.ExtractString(f.Args[4]),
 			Timestamp:  time.Now().UnixNano(),
 		}
 	}
@@ -578,7 +578,7 @@ func (e *ExecutivePolicyShard) latestUserIntent() *userIntentSnapshot {
 		if len(f.Args) < 5 {
 			continue
 		}
-		id := fmt.Sprintf("%v", f.Args[0])
+		id := types.ExtractString(f.Args[0])
 		ts, ok := parseIntentTimestamp(id)
 		if !ok {
 			continue
@@ -586,10 +586,10 @@ func (e *ExecutivePolicyShard) latestUserIntent() *userIntentSnapshot {
 		if best == nil || ts > best.Timestamp {
 			best = &userIntentSnapshot{
 				ID:         id,
-				Category:   fmt.Sprintf("%v", f.Args[1]),
-				Verb:       fmt.Sprintf("%v", f.Args[2]),
-				Target:     fmt.Sprintf("%v", f.Args[3]),
-				Constraint: fmt.Sprintf("%v", f.Args[4]),
+				Category:   types.ExtractString(f.Args[1]),
+				Verb:       types.ExtractString(f.Args[2]),
+				Target:     types.ExtractString(f.Args[3]),
+				Constraint: types.ExtractString(f.Args[4]),
 				Timestamp:  ts,
 			}
 		}
@@ -620,13 +620,13 @@ func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string
 			if len(f.Args) < 2 {
 				continue
 			}
-			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+			if types.ExtractString(f.Args[0]) != intentID {
 				continue
 			}
 			if q, ok := f.Args[1].(string); ok {
 				question = q
 			} else {
-				question = fmt.Sprintf("%v", f.Args[1])
+				question = types.ExtractString(f.Args[1])
 			}
 			break
 		}
@@ -638,11 +638,11 @@ func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string
 			if len(f.Args) < 3 {
 				continue
 			}
-			if fmt.Sprintf("%v", f.Args[0]) != intentID {
+			if types.ExtractString(f.Args[0]) != intentID {
 				continue
 			}
-			verb := fmt.Sprintf("%v", f.Args[1])
-			label := fmt.Sprintf("%v", f.Args[2])
+			verb := types.ExtractString(f.Args[1])
+			label := types.ExtractString(f.Args[2])
 			if label != "" && label != "<nil>" {
 				options = append(options, fmt.Sprintf("%s (%s)", label, verb))
 			} else {
@@ -657,7 +657,7 @@ func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string
 				if q, ok := facts[0].Args[0].(string); ok {
 					question = q
 				} else {
-					question = fmt.Sprintf("%v", facts[0].Args[0])
+					question = types.ExtractString(facts[0].Args[0])
 				}
 			}
 		}
@@ -680,7 +680,7 @@ func (e *ExecutivePolicyShard) loadUserInputString() string {
 	if len(facts[0].Args) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(fmt.Sprintf("%v", facts[0].Args[0]))
+	return strings.TrimSpace(types.ExtractString(facts[0].Args[0]))
 }
 
 func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapshot, reason string) {
@@ -948,7 +948,7 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 						if len(f.Args) < 2 {
 							continue
 						}
-						if fmt.Sprintf("%v", f.Args[0]) == intent.ID {
+						if types.ExtractString(f.Args[0]) == intent.ID {
 							alreadyRecorded = true
 							break
 						}

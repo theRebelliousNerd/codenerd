@@ -2,6 +2,7 @@ package core
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -186,7 +187,7 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 		}
 		reason := ""
 		if len(fact.Args) > 1 {
-			reason = fmt.Sprintf("%v", fact.Args[1])
+			reason = types.ExtractString(fact.Args[1])
 		}
 		logging.Dream("evaluateProjection: UNSAFE - panic_state detected for %s: %s", actionID, reason)
 		timer.Stop()

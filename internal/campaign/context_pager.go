@@ -206,7 +206,7 @@ func (cp *ContextPager) CompressPhase(ctx context.Context, phase *Phase) (string
 	// Filter to this phase
 	var phaseFacts []core.Fact
 	for _, atom := range phaseAtoms {
-		if len(atom.Args) >= 1 && fmt.Sprintf("%v", atom.Args[0]) == phase.ID {
+		if len(atom.Args) >= 1 && types.ExtractString(atom.Args[0]) == phase.ID {
 			phaseFacts = append(phaseFacts, atom)
 		}
 	}
@@ -266,7 +266,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	})
 	for _, fact := range phaseFacts {
 		if len(fact.Args) >= 2 {
-			factPredicate := fmt.Sprintf("%v", fact.Args[1])
+			factPredicate := types.ExtractString(fact.Args[1])
 			postFacts = append(postFacts, core.Fact{
 				Predicate: "activation",
 				Args:      []interface{}{factPredicate, -100},
@@ -368,12 +368,12 @@ func (cp *ContextPager) getContextProfile(profileID string) (*ContextProfile, er
 	}
 
 	for _, fact := range facts {
-		if len(fact.Args) >= 4 && fmt.Sprintf("%v", fact.Args[0]) == profileID {
+		if len(fact.Args) >= 4 && types.ExtractString(fact.Args[0]) == profileID {
 			return &ContextProfile{
 				ID:              profileID,
-				RequiredSchemas: strings.Split(fmt.Sprintf("%v", fact.Args[1]), ","),
-				RequiredTools:   strings.Split(fmt.Sprintf("%v", fact.Args[2]), ","),
-				FocusPatterns:   strings.Split(fmt.Sprintf("%v", fact.Args[3]), ","),
+				RequiredSchemas: strings.Split(types.ExtractString(fact.Args[1]), ","),
+				RequiredTools:   strings.Split(types.ExtractString(fact.Args[2]), ","),
+				FocusPatterns:   strings.Split(types.ExtractString(fact.Args[3]), ","),
 			}, nil
 		}
 	}
@@ -448,11 +448,11 @@ func (cp *ContextPager) scopedDocsForPhase(phaseName string) []string {
 		if len(fact.Args) < 2 {
 			continue
 		}
-		phaseVal := normalizeLayerName(fmt.Sprintf("%v", fact.Args[0]))
+		phaseVal := normalizeLayerName(types.ExtractString(fact.Args[0]))
 		if phaseVal != target {
 			continue
 		}
-		doc := fmt.Sprintf("%v", fact.Args[1])
+		doc := types.ExtractString(fact.Args[1])
 		if doc == "" {
 			continue
 		}

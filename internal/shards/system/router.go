@@ -418,9 +418,9 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		didWork = true
 
 		// permitted_action(ActionID, ActionType, Target, Payload, Timestamp)
-		actionID := fmt.Sprintf("%v", fact.Args[0])
-		actionType := fmt.Sprintf("%v", fact.Args[1])
-		target := fmt.Sprintf("%v", fact.Args[2])
+		actionID := types.ExtractString(fact.Args[0])
+		actionType := types.ExtractString(fact.Args[1])
+		target := types.ExtractString(fact.Args[2])
 		payload := map[string]interface{}{}
 		intentID := ""
 		if len(fact.Args) > 3 {

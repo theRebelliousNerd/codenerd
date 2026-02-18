@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/types"
 
 	"github.com/go-rod/rod"
 )
@@ -61,7 +62,7 @@ func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error
 	var results []DetectionResult
 	for _, hp := range honeypots {
 		if len(hp.Args) > 0 {
-			elemID := fmt.Sprintf("%v", hp.Args[0])
+			elemID := types.ExtractString(hp.Args[0])
 			result := DetectionResult{
 				ElementID:  elemID,
 				Reasons:    d.getHoneypotReasons(elemID),

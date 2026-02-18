@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // TransactionManager orchestrates atomic multi-file edits using 2PC protocol.
@@ -268,10 +269,10 @@ func (tm *TransactionManager) Prepare(ctx context.Context) (*ShadowValidationRes
 		ref := ""
 		reason := ""
 		if len(de.Args) > 0 {
-			ref = fmt.Sprintf("%v", de.Args[0])
+			ref = types.ExtractString(de.Args[0])
 		}
 		if len(de.Args) > 1 {
-			reason = fmt.Sprintf("%v", de.Args[1])
+			reason = types.ExtractString(de.Args[1])
 		}
 		result.IsValid = false
 		result.SafetyBlocks = append(result.SafetyBlocks, SafetyBlock{

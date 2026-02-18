@@ -685,18 +685,18 @@ func (m Model) runScan(deep bool) tea.Cmd {
 				switch f.Predicate {
 				case "dependency_link":
 					if len(f.Args) >= 2 {
-						a := fmt.Sprintf("%v", f.Args[0])
-						b := fmt.Sprintf("%v", f.Args[1])
+						a := types.ExtractString(f.Args[0])
+						b := types.ExtractString(f.Args[1])
 						rel := "depends_on"
 						if len(f.Args) >= 3 {
-							rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+							rel = "depends_on:" + types.ExtractString(f.Args[2])
 						}
 						_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
 					}
 				case "symbol_graph":
 					if len(f.Args) >= 4 {
-						sid := fmt.Sprintf("%v", f.Args[0])
-						file := fmt.Sprintf("%v", f.Args[3])
+						sid := types.ExtractString(f.Args[0])
+						file := types.ExtractString(f.Args[3])
 						_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
 					}
 				}
@@ -864,18 +864,18 @@ func (m *Model) ensureDeepWorldFacts() error {
 			switch f.Predicate {
 			case "dependency_link":
 				if len(f.Args) >= 2 {
-					a := fmt.Sprintf("%v", f.Args[0])
-					b := fmt.Sprintf("%v", f.Args[1])
+					a := types.ExtractString(f.Args[0])
+					b := types.ExtractString(f.Args[1])
 					rel := "depends_on"
 					if len(f.Args) >= 3 {
-						rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
 					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"})
 				}
 			case "symbol_graph":
 				if len(f.Args) >= 4 {
-					sid := fmt.Sprintf("%v", f.Args[0])
-					file := fmt.Sprintf("%v", f.Args[3])
+					sid := types.ExtractString(f.Args[0])
+					file := types.ExtractString(f.Args[3])
 					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-deep"})
 				}
 			}
@@ -924,18 +924,18 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 						switch f.Predicate {
 						case "dependency_link":
 							if len(f.Args) >= 2 {
-								a := fmt.Sprintf("%v", f.Args[0])
-								b := fmt.Sprintf("%v", f.Args[1])
+								a := types.ExtractString(f.Args[0])
+								b := types.ExtractString(f.Args[1])
 								rel := "depends_on"
 								if len(f.Args) >= 3 {
-									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
 								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-path"})
 							}
 						case "symbol_graph":
 							if len(f.Args) >= 4 {
-								sid := fmt.Sprintf("%v", f.Args[0])
-								file := fmt.Sprintf("%v", f.Args[3])
+								sid := types.ExtractString(f.Args[0])
+								file := types.ExtractString(f.Args[3])
 								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-path"})
 							}
 						}
@@ -1012,18 +1012,18 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 						switch f.Predicate {
 						case "dependency_link":
 							if len(f.Args) >= 2 {
-								a := fmt.Sprintf("%v", f.Args[0])
-								b := fmt.Sprintf("%v", f.Args[1])
+								a := types.ExtractString(f.Args[0])
+								b := types.ExtractString(f.Args[1])
 								rel := "depends_on"
 								if len(f.Args) >= 3 {
-									rel = "depends_on:" + fmt.Sprintf("%v", f.Args[2])
+									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
 								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-dir"})
 							}
 						case "symbol_graph":
 							if len(f.Args) >= 4 {
-								sid := fmt.Sprintf("%v", f.Args[0])
-								file := fmt.Sprintf("%v", f.Args[3])
+								sid := types.ExtractString(f.Args[0])
+								file := types.ExtractString(f.Args[3])
 								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-dir"})
 							}
 						}

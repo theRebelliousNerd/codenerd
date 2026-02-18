@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/tools/research"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -484,14 +485,14 @@ func (r *Replanner) getReplanTriggers(campaignID string) []ReplanTrigger {
 	var triggers []ReplanTrigger
 	for _, fact := range facts {
 		if len(fact.Args) >= 3 {
-			if fmt.Sprintf("%v", fact.Args[0]) == campaignID {
+			if types.ExtractString(fact.Args[0]) == campaignID {
 				ts := int64(0)
 				if t, ok := fact.Args[2].(int64); ok {
 					ts = t
 				}
 				triggers = append(triggers, ReplanTrigger{
 					CampaignID:  campaignID,
-					Reason:      fmt.Sprintf("%v", fact.Args[1]),
+					Reason:      types.ExtractString(fact.Args[1]),
 					TriggeredAt: time.Unix(ts, 0),
 				})
 			}

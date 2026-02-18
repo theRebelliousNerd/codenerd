@@ -471,7 +471,7 @@ func (m *Model) populateGitContext(sessionCtx *types.SessionContext) {
 		// git_state(Attribute, Value)
 		if len(fact.Args) >= 2 {
 			attr, _ := fact.Args[0].(string)
-			val := fmt.Sprintf("%v", fact.Args[1])
+			val := types.ExtractString(fact.Args[1])
 			switch attr {
 			case "branch":
 				sessionCtx.GitBranch = val

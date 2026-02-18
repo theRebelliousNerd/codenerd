@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	coresys "codenerd/internal/system"
+	"codenerd/internal/types"
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 
@@ -142,8 +143,8 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	if len(delegateFacts) > 0 {
 		// Execute via shard
 		fact := delegateFacts[0]
-		shardType := fmt.Sprintf("%v", fact.Args[0])
-		task := fmt.Sprintf("%v", fact.Args[1])
+		shardType := types.ExtractString(fact.Args[0])
+		task := types.ExtractString(fact.Args[1])
 		logger.Info("Delegating to shard", zap.String("type", shardType), zap.String("task", task))
 
 		// Special handling for System Components

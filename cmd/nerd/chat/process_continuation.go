@@ -41,7 +41,7 @@ func (m *Model) checkContinuation(shardType, task, result string) *continueMsg {
 		if len(subtask.Args) >= 3 {
 			nextID, _ := subtask.Args[0].(string)
 			nextDesc, _ := subtask.Args[1].(string)
-			nextShard := strings.TrimPrefix(fmt.Sprintf("%v", subtask.Args[2]), "/")
+			nextShard := types.StripAtomPrefix(types.ExtractString(subtask.Args[2]))
 
 			// Check if this is a mutation operation
 			isMutation := isMutationOperation(nextShard)
@@ -120,7 +120,7 @@ func (m Model) executeSubtask(subtaskID, description, shardType string) tea.Cmd 
 				if len(subtask.Args) >= 3 {
 					nextID, _ := subtask.Args[0].(string)
 					nextDesc, _ := subtask.Args[1].(string)
-					nextShard := strings.TrimPrefix(fmt.Sprintf("%v", subtask.Args[2]), "/")
+					nextShard := types.StripAtomPrefix(types.ExtractString(subtask.Args[2]))
 
 					// Check if this is a mutation operation
 					isMutation := isMutationOperation(nextShard)
