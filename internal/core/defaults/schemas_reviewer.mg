@@ -51,7 +51,8 @@ Decl shard_model_config(ShardType, ModelType) bound [/name, /name].
 # Decl user_input_string imported from schema/intent_core.mg
 
 # string_contains(Haystack, Needle) - virtual predicate for dynamic substring checks
-Decl string_contains(Haystack, Needle) bound [/string, /string].
+# External predicate: both args are required inputs
+Decl string_contains(Haystack, Needle) descr [external(), mode('+', '+')] bound [/string, /string].
 
 # is_relevant(Path) - derived: path is relevant to current campaign/intent
 Decl is_relevant(Path) bound [/string].

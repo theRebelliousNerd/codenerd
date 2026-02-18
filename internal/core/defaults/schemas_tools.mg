@@ -305,11 +305,13 @@ Decl has_tool_usage(ToolName) bound [/string].
 
 # query_traces(ShardType, Limit, TraceID, Success, DurationMs)
 # Queries reasoning_traces table via VirtualStore FFI
-Decl query_traces(ShardType, Limit, TraceID, Success, DurationMs) bound [/name, /number, /string, /name, /number].
+# External predicate: ShardType required as input
+Decl query_traces(ShardType, Limit, TraceID, Success, DurationMs) descr [external(), mode('+', '-', '-', '-', '-')] bound [/name, /number, /string, /name, /number].
 
 # query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration)
 # Retrieves aggregate stats for a shard type
-Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration) bound [/name, /number, /number, /number].
+# External predicate: ShardType required as input
+Decl query_trace_stats(ShardType, SuccessCount, FailCount, AvgDuration) descr [external(), mode('+', '-', '-', '-')] bound [/name, /number, /number, /number].
 
 # -----------------------------------------------------------------------------
 # 41.12 Reviewer Feedback Loop Predicates (Self-Correction)

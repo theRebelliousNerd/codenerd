@@ -33,25 +33,32 @@ Decl learning_recall_result(LearningID, Score, Predicate, Description) bound [/s
 # Virtual predicates computed on-demand by the Go runtime (VirtualStore)
 
 # query_learned(Predicate, Args) - Queries cold_storage for learned facts
-Decl query_learned(Predicate, Args) bound [/string, /string].
+# External predicate: both args are output (enumeration mode)
+Decl query_learned(Predicate, Args) descr [external(), mode('-', '-')] bound [/string, /string].
 
 # query_session(SessionID, TurnNumber, UserInput) - Queries session_history
-Decl query_session(SessionID, TurnNumber, UserInput) bound [/string, /number, /string].
+# External predicate: SessionID required as input
+Decl query_session(SessionID, TurnNumber, UserInput) descr [external(), mode('+', '-', '-')] bound [/string, /number, /string].
 
 # recall_similar(Query, TopK, Results) - Semantic search on vectors table
-Decl recall_similar(Query, TopK, Results) bound [/string, /number, /string].
+# External predicate: Query required as input
+Decl recall_similar(Query, TopK, Results) descr [external(), mode('+', '-', '-')] bound [/string, /number, /string].
 
 # query_knowledge_graph(EntityA, Relation, EntityB) - Entity relationships
-Decl query_knowledge_graph(EntityA, Relation, EntityB) bound [/string, /string, /string].
+# External predicate: EntityA required as input
+Decl query_knowledge_graph(EntityA, Relation, EntityB) descr [external(), mode('+', '-', '-')] bound [/string, /string, /string].
 
 # query_strategic(Category, Content, Confidence) - Strategic knowledge atoms
-Decl query_strategic(Category, Content, Confidence) bound [/name, /string, /number].
+# External predicate: all outputs (enumeration mode)
+Decl query_strategic(Category, Content, Confidence) descr [external(), mode('-', '-', '-')] bound [/name, /string, /number].
 
 # query_activations(FactID, Score) - Activation log scores
-Decl query_activations(FactID, Score) bound [/string, /number].
+# External predicate: all outputs (enumeration mode)
+Decl query_activations(FactID, Score) descr [external(), mode('-', '-')] bound [/string, /number].
 
 # has_learned(Predicate) - Check if facts exist in cold_storage
-Decl has_learned(Predicate) bound [/string].
+# External predicate: output (enumeration mode)
+Decl has_learned(Predicate) descr [external(), mode('-')] bound [/string].
 
 # =============================================================================
 # SECTION 7C: HYDRATED KNOWLEDGE FACTS (asserted by HydrateLearnings)

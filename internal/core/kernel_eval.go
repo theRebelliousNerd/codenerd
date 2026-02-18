@@ -142,11 +142,6 @@ func (k *RealKernel) evaluate() error {
 	for _, atom := range k.cachedAtoms {
 		baseStore.Add(atom)
 	}
-	evalStore := factstore.FactStore(baseStore)
-	if k.virtualStore != nil {
-		evalStore = newVirtualFactStore(baseStore, k.virtualStore)
-	}
-
 	// Evaluate to fixpoint using cached programInfo
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
 	// Prevent fact explosions from recursive learned rules
@@ -156,9 +151,34 @@ func (k *RealKernel) evaluate() error {
 	}
 	logging.KernelDebug("evaluate: running fixpoint evaluation (derivedFactLimit=%d)", derivedFactLimit)
 
+	// Build eval options
+	evalOpts := []engine.EvalOption{
+		engine.WithCreatedFactLimit(derivedFactLimit), // Hard cap: max 500K derived facts
+	}
+
+	// #17: Register external predicates instead of virtualFactStore wrapping
+	// Only register callbacks for predicates that have a matching Decl with
+	// external() descriptor in the current program. This avoids validation
+	// errors when tests (or minimal configs) use a subset of schemas.
+	if k.virtualStore != nil {
+		allCallbacks := k.virtualStore.BuildExternalPredicates()
+		if len(allCallbacks) > 0 && k.programInfo != nil && k.programInfo.Decls != nil {
+			callbacks := make(map[ast.PredicateSym]engine.ExternalPredicateCallback, len(allCallbacks))
+			for pred, cb := range allCallbacks {
+				if decl, declared := k.programInfo.Decls[pred]; declared && decl.IsExternal() {
+					callbacks[pred] = cb
+				}
+			}
+			if len(callbacks) > 0 {
+				evalOpts = append(evalOpts, engine.WithExternalPredicates(callbacks))
+				logging.KernelDebug("evaluate: registered %d/%d external predicates (filtered by Decl)", len(callbacks), len(allCallbacks))
+			}
+		}
+	}
+
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
-	stats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, evalStore,
-		engine.WithCreatedFactLimit(derivedFactLimit)) // Hard cap: max 500K derived facts
+	stats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, baseStore,
+		evalOpts...)
 	evalDuration := evalTimer.Stop()
 
 	if err != nil {
@@ -171,7 +191,6 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	k.store = baseStore
-	k.wrapStoreLocked()
 
 	// Log evaluation stats
 	totalDuration := time.Duration(0)
@@ -216,7 +235,6 @@ func (k *RealKernel) Clear() {
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
-	k.wrapStoreLocked()
 	k.initialized = false
 	logging.KernelDebug("Kernel cleared (facts removed, schemas/policy retained)")
 }
@@ -229,7 +247,6 @@ func (k *RealKernel) Reset() {
 	k.cachedAtoms = make([]ast.Atom, 0) // OPTIMIZATION: Clear atom cache
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
-	k.wrapStoreLocked()
 	k.initialized = false
 	// Keep schemas, policy, learned - only reset facts
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
@@ -287,7 +304,6 @@ func (k *RealKernel) Clone() *RealKernel {
 	for _, atom := range clone.cachedAtoms {
 		clone.store.Add(atom)
 	}
-	clone.wrapStoreLocked()
 
 	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", len(clone.facts), len(clone.policy))
 	return clone
