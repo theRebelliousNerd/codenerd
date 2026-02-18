@@ -117,6 +117,12 @@ Decl gauntlet_result(PatchID, Phase, Verdict, Timestamp) bound [/string, /name, 
 # gauntlet_passed() - derived: at least one gauntlet passed in session
 Decl gauntlet_passed().
 
+# thunderdome_result(ToolName, AttackType, Outcome) - Adversarial battle results
+# Records Thunderdome combat outcomes from PanicMaker/Nemesis battles
+# AttackType: /nil_pointer, /boundary, /resource, /concurrency, /format
+# Outcome: /survived, /defeated
+Decl thunderdome_result(ToolName, AttackType, Outcome) bound [/string, /name, /name].
+
 # -----------------------------------------------------------------------------
 # 48.3 Verification Support (verification.go)
 # -----------------------------------------------------------------------------

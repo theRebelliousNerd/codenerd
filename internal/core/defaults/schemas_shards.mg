@@ -350,6 +350,10 @@ Decl action_permitted(ActionID) bound [/string].
 # ready_for_routing(ActionID) - derived: action ready for router
 Decl ready_for_routing(ActionID) bound [/string].
 
+# route_to(Target, Reason) - Routing decision record
+# Records where an action was routed and why (for transparency display)
+Decl route_to(Target, Reason) bound [/name, /string].
+
 # exec_request(ToolName, Target, Timeout, CallID, Timestamp) - router output
 Decl exec_request(ToolName, Target, Timeout, CallID, Timestamp) bound [/string, /string, /number, /string, /number].
 

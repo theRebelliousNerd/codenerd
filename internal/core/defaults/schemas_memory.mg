@@ -26,6 +26,18 @@ Decl trace_recall_result(TraceID, Score, Outcome, Summary) bound [/string, /numb
 # Score is integer 0-100 (scaled from 0.0-1.0 in Go)
 Decl learning_recall_result(LearningID, Score, Predicate, Description) bound [/string, /number, /string, /string].
 
+# knowledge_edge(Subject, Relation, Object) - Knowledge graph relationship edge
+# Records entity relationships in the knowledge graph tier
+Decl knowledge_edge(Subject, Relation, Object) bound [/string, /name, /string].
+
+# cold_storage_entry(Key, Value) - Long-term cold storage entries
+# Records entries persisted in the cold storage memory tier
+Decl cold_storage_entry(Key, Value) bound [/string, /string].
+
+# compressed_context(SessionID, Summary) - Semantically compressed context entries
+# Produced by the context compressor for infinite context support
+Decl compressed_context(SessionID, Summary) bound [/string, /string].
+
 # =============================================================================
 # SECTION 7B: VIRTUAL PREDICATES FOR KNOWLEDGE QUERIES (Bound)
 # =============================================================================

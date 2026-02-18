@@ -14,6 +14,12 @@ Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence) bound [/str
 
 Decl valid_intent(Verb, Target) bound [/name, /string].
 
+# learned_pattern(Category, Pattern) - Patterns learned from repeated outcomes
+# Stored by autopoiesis feedback loop; queried by /systems status display
+# Category: pattern category (e.g., "bug_fix", "common_error")
+# Pattern: the learned pattern description
+Decl learned_pattern(Category, Pattern) bound [/string, /string].
+
 # Note: Conf is integer 0-100, not float 0.0-1.0
 valid_intent(Verb, Target) :-
     learned_exemplar(Pattern, Verb, Target, _, Conf),

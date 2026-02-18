@@ -98,6 +98,10 @@ Decl derived_rule(Pattern, FactType, FactValue) bound [/string, /name, /string].
 # FactValue is the specific value to learn
 Decl promote_to_long_term(FactType, FactValue) bound [/name, /string].
 
+# prompt_evolved(AtomID, Timestamp) - Records prompt atom evolution events
+# Tracks when JIT prompt atoms are modified or evolved through autopoiesis
+Decl prompt_evolved(AtomID, Timestamp) bound [/string, /number].
+
 # =============================================================================
 # SECTION 37: HOLOGRAPHIC CODE GRAPH (Cartographer)
 # =============================================================================

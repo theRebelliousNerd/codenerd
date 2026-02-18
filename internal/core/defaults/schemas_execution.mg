@@ -65,6 +65,10 @@ Decl safe_action(ActionType) bound [/name].
 # ActionType: /analyze_code, /fs_read, /search_files, /exec_cmd, /run_tests, etc.
 Decl action_mapping(IntentVerb, ActionType) bound [/name, /name].
 
+# tool_invocation(ToolName, Input, Timestamp) - Tool execution record
+# Records tool invocations for transparency/observability display
+Decl tool_invocation(ToolName, Input, Timestamp) bound [/name, /string, /number].
+
 # =============================================================================
 # SECTION 11: POST-ACTION VALIDATION (§4.1)
 # =============================================================================
