@@ -134,7 +134,7 @@ var ProviderModels = map[string][]string{
 		"claude-sonnet-4-5-thinking",
 		"claude-opus-4-5-thinking",
 	},
-	"xai": {"grok-2-latest", "grok-2", "grok-beta"},
+	"xai": {"grok-4-1-fast-reasoning", "grok-2-latest", "grok-2", "grok-beta"},
 	"openrouter": {
 		// Anthropic via OpenRouter
 		"anthropic/claude-3.5-sonnet",
