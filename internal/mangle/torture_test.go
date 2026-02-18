@@ -5,10 +5,14 @@
 //   - TestTorture_Eval_*:   Programs that MUST parse, evaluate, and derive expected facts
 //   - TestTorture_Error_*:  Programs that MUST fail at parse, analysis, or stratification
 //   - TestTorture_Lifecycle_*: Engine lifecycle invariants (Reset, Clear, Close, ordering)
-//   - TestTorture_Differential_*: Differential engine (snapshot, delta, concurrent)
+//   - TestTorture_Differential_*: Differential engine (snapshot, delta, query, concurrent)
 //   - TestTorture_SchemaValidator_*: Schema drift prevention + arity + forbidden heads
 //   - TestTorture_TypeSystem_*: Boundary types (NaN, Inf, MaxInt, bool, time, duration)
-//   - TestTorture_Concurrency_*: Race detector targets
+//   - TestTorture_Concurrency_*: Race detector targets (concurrent add/query/recompute/delta)
+//   - TestTorture_Eval_Aggregation*: Aggregation pipelines (count, sum, min, max, collect, group_by)
+//   - TestTorture_ChainedFactStore_*: Overlay/base store pattern (contains, merge, multi-base)
+//   - TestTorture_KnowledgeGraph_*: Stratum layer invariants
+//   - TestTorture_FactStoreProxy_*: Lazy loading predicates
 //
 // Convention: each test is deterministic and does NOT require external resources.
 // Run with: CGO_CFLAGS="-IC:/CodeProjects/codeNERD/sqlite_headers" go test ./internal/mangle/... -run TestTorture -count=1 -race -timeout 120s
@@ -16,12 +20,15 @@ package mangle
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/mangle/ast"
+	"github.com/google/mangle/factstore"
 	"github.com/google/mangle/parse"
 )
 
@@ -1768,5 +1775,1065 @@ func TestTorture_Engine_QueryFactsFiltered(t *testing.T) {
 	results = engine.QueryFacts("record", "z")
 	if len(results) != 0 {
 		t.Errorf("QueryFacts(record, z): expected 0, got %d", len(results))
+	}
+}
+
+// =============================================================================
+// 10. AGGREGATION EVALUATION TORTURE — programs with |> pipelines that MUST
+//     parse, evaluate, and produce correct aggregation results.
+//     This was previously a ZERO-COVERAGE gap: only parsing was tested.
+// =============================================================================
+
+func TestTorture_Eval_AggregationCount(t *testing.T) {
+	// CRITICAL: aggregation functions are ALL LOWERCASE (fn:count, fn:sum, fn:min, fn:max)
+	// Uppercase variants (fn:Count, fn:Sum) parse successfully but fail analysis!
+	program := `
+Decl item(X).
+Decl total_items(N).
+total_items(N) :-
+    item(_) |>
+    do fn:group_by(),
+    let N = fn:count().
+`
+	facts := []testFact{
+		{"item", []interface{}{"a"}},
+		{"item", []interface{}{"b"}},
+		{"item", []interface{}{"c"}},
+	}
+	result := evaluateAndQuery(t, program, facts, "total_items")
+	if len(result) != 1 {
+		t.Fatalf("count aggregation: expected 1 total_items fact, got %d", len(result))
+	}
+	if n, ok := result[0].Args[0].(int64); !ok || n != 3 {
+		t.Errorf("count aggregation: expected 3, got %v (type %T)", result[0].Args[0], result[0].Args[0])
+	}
+}
+
+func TestTorture_Eval_AggregationSum(t *testing.T) {
+	program := `
+Decl sale(Amount).
+Decl total_sales(Total).
+total_sales(Total) :-
+    sale(Amount) |>
+    do fn:group_by(),
+    let Total = fn:sum(Amount).
+`
+	facts := []testFact{
+		{"sale", []interface{}{int64(10)}},
+		{"sale", []interface{}{int64(20)}},
+		{"sale", []interface{}{int64(30)}},
+	}
+	result := evaluateAndQuery(t, program, facts, "total_sales")
+	if len(result) != 1 {
+		t.Fatalf("sum aggregation: expected 1 total_sales fact, got %d", len(result))
+	}
+	if total, ok := result[0].Args[0].(int64); !ok || total != 60 {
+		t.Errorf("sum aggregation: expected 60, got %v (type %T)", result[0].Args[0], result[0].Args[0])
+	}
+}
+
+func TestTorture_Eval_AggregationGroupBySum(t *testing.T) {
+	program := `
+Decl sale(Region, Amount).
+Decl total_by_region(Region, Total).
+total_by_region(Region, Total) :-
+    sale(Region, Amount) |>
+    do fn:group_by(Region),
+    let Total = fn:sum(Amount).
+`
+	facts := []testFact{
+		{"sale", []interface{}{"north", int64(100)}},
+		{"sale", []interface{}{"north", int64(200)}},
+		{"sale", []interface{}{"south", int64(50)}},
+		{"sale", []interface{}{"south", int64(75)}},
+		{"sale", []interface{}{"south", int64(25)}},
+	}
+	result := evaluateAndQuery(t, program, facts, "total_by_region")
+	if len(result) != 2 {
+		t.Fatalf("group_by+sum: expected 2 region totals, got %d: %v", len(result), result)
+	}
+
+	totals := make(map[string]int64)
+	for _, f := range result {
+		region := f.Args[0].(string)
+		total := f.Args[1].(int64)
+		totals[region] = total
+	}
+	if totals["north"] != 300 {
+		t.Errorf("north total: expected 300, got %d", totals["north"])
+	}
+	if totals["south"] != 150 {
+		t.Errorf("south total: expected 150, got %d", totals["south"])
+	}
+}
+
+func TestTorture_Eval_AggregationGroupByCount(t *testing.T) {
+	program := `
+Decl event(Category, ID).
+Decl event_count(Category, N).
+event_count(Category, N) :-
+    event(Category, _) |>
+    do fn:group_by(Category),
+    let N = fn:count().
+`
+	facts := []testFact{
+		{"event", []interface{}{"click", "e1"}},
+		{"event", []interface{}{"click", "e2"}},
+		{"event", []interface{}{"click", "e3"}},
+		{"event", []interface{}{"scroll", "e4"}},
+		{"event", []interface{}{"scroll", "e5"}},
+	}
+	result := evaluateAndQuery(t, program, facts, "event_count")
+	if len(result) != 2 {
+		t.Fatalf("group_by+count: expected 2 category counts, got %d", len(result))
+	}
+
+	counts := make(map[string]int64)
+	for _, f := range result {
+		cat := f.Args[0].(string)
+		n := f.Args[1].(int64)
+		counts[cat] = n
+	}
+	if counts["click"] != 3 {
+		t.Errorf("click count: expected 3, got %d", counts["click"])
+	}
+	if counts["scroll"] != 2 {
+		t.Errorf("scroll count: expected 2, got %d", counts["scroll"])
+	}
+}
+
+func TestTorture_Eval_AggregationMinMax(t *testing.T) {
+	program := `
+Decl score(Player, Value).
+Decl player_min(Player, Min).
+Decl player_max(Player, Max).
+player_min(Player, Min) :-
+    score(Player, Value) |>
+    do fn:group_by(Player),
+    let Min = fn:min(Value).
+player_max(Player, Max) :-
+    score(Player, Value) |>
+    do fn:group_by(Player),
+    let Max = fn:max(Value).
+`
+	facts := []testFact{
+		{"score", []interface{}{"alice", int64(50)}},
+		{"score", []interface{}{"alice", int64(90)}},
+		{"score", []interface{}{"alice", int64(70)}},
+		{"score", []interface{}{"bob", int64(60)}},
+		{"score", []interface{}{"bob", int64(80)}},
+	}
+
+	t.Run("min", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, facts, "player_min")
+		mins := make(map[string]int64)
+		for _, f := range result {
+			mins[f.Args[0].(string)] = f.Args[1].(int64)
+		}
+		if mins["alice"] != 50 {
+			t.Errorf("alice min: expected 50, got %d", mins["alice"])
+		}
+		if mins["bob"] != 60 {
+			t.Errorf("bob min: expected 60, got %d", mins["bob"])
+		}
+	})
+
+	t.Run("max", func(t *testing.T) {
+		result := evaluateAndQuery(t, program, facts, "player_max")
+		maxes := make(map[string]int64)
+		for _, f := range result {
+			maxes[f.Args[0].(string)] = f.Args[1].(int64)
+		}
+		if maxes["alice"] != 90 {
+			t.Errorf("alice max: expected 90, got %d", maxes["alice"])
+		}
+		if maxes["bob"] != 80 {
+			t.Errorf("bob max: expected 80, got %d", maxes["bob"])
+		}
+	})
+}
+
+func TestTorture_Eval_AggregationCollect(t *testing.T) {
+	program := `
+Decl tag(Item, Tag).
+Decl item_tags(Item, Tags).
+item_tags(Item, Tags) :-
+    tag(Item, Tag) |>
+    do fn:group_by(Item),
+    let Tags = fn:collect(Tag).
+`
+	facts := []testFact{
+		{"tag", []interface{}{"doc1", "go"}},
+		{"tag", []interface{}{"doc1", "mangle"}},
+		{"tag", []interface{}{"doc2", "python"}},
+	}
+	result := evaluateAndQuery(t, program, facts, "item_tags")
+	if len(result) != 2 {
+		t.Fatalf("collect: expected 2 item_tags facts, got %d", len(result))
+	}
+
+	// Verify each item has its tags collected
+	for _, f := range result {
+		item := f.Args[0].(string)
+		tags := f.Args[1] // This is a list/pair
+		t.Logf("collect: %s -> %v (type %T)", item, tags, tags)
+		if item == "doc1" && tags == nil {
+			t.Error("doc1 should have collected tags")
+		}
+	}
+}
+
+func TestTorture_Eval_AggregationEmptyInput(t *testing.T) {
+	// Aggregation over empty set should produce no results (not crash)
+	program := `
+Decl item(X).
+Decl total_items(N).
+total_items(N) :-
+    item(_) |>
+    do fn:group_by(),
+    let N = fn:count().
+`
+	// No facts at all
+	result := evaluateAndQuery(t, program, nil, "total_items")
+	// Empty input to aggregation: no groups means no results
+	t.Logf("aggregation over empty: %d results", len(result))
+	// Should be 0 (no items to count) or 1 with count 0 — either is acceptable
+}
+
+func TestTorture_Eval_AggregationWithFilter(t *testing.T) {
+	// Aggregation after a filter in the rule body
+	program := `
+Decl sale(Region, Amount).
+Decl big_sale_count(Region, N).
+big_sale_count(Region, N) :-
+    sale(Region, Amount), Amount > 50 |>
+    do fn:group_by(Region),
+    let N = fn:count().
+`
+	facts := []testFact{
+		{"sale", []interface{}{"north", int64(100)}},
+		{"sale", []interface{}{"north", int64(20)}},
+		{"sale", []interface{}{"north", int64(200)}},
+		{"sale", []interface{}{"south", int64(30)}},
+		{"sale", []interface{}{"south", int64(75)}},
+	}
+	result := evaluateAndQuery(t, program, facts, "big_sale_count")
+	counts := make(map[string]int64)
+	for _, f := range result {
+		counts[f.Args[0].(string)] = f.Args[1].(int64)
+	}
+	if counts["north"] != 2 {
+		t.Errorf("north big sale count: expected 2, got %d", counts["north"])
+	}
+	if counts["south"] != 1 {
+		t.Errorf("south big sale count: expected 1, got %d", counts["south"])
+	}
+}
+
+// =============================================================================
+// 11. DIFFERENTIAL ENGINE EXPANDED TORTURE
+// =============================================================================
+
+func TestTorture_Differential_ApplyDelta(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	schema := `
+Decl item(X).
+Decl derived(X).
+derived(X) :- item(X).
+`
+	if err := baseEngine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Apply delta with a single fact
+	err = diffEngine.ApplyDelta([]Fact{
+		{Predicate: "item", Args: []interface{}{"hello"}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDelta: %v", err)
+	}
+
+	// Verify fact was stored in some stratum
+	found := false
+	for _, layer := range diffEngine.strataStores {
+		count := layer.store.EstimateFactCount()
+		if count > 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("ApplyDelta: fact was not stored in any stratum")
+	}
+}
+
+func TestTorture_Differential_ApplyDeltaEmpty(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl item(X).`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Empty delta should not error
+	err = diffEngine.ApplyDelta(nil)
+	if err != nil {
+		t.Fatalf("ApplyDelta(nil): %v", err)
+	}
+
+	err = diffEngine.ApplyDelta([]Fact{})
+	if err != nil {
+		t.Fatalf("ApplyDelta(empty): %v", err)
+	}
+}
+
+func TestTorture_Differential_AddFactIncremental(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl item(X).`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// AddFactIncremental is a convenience wrapper
+	err = diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"single"}})
+	if err != nil {
+		t.Fatalf("AddFactIncremental: %v", err)
+	}
+}
+
+func TestTorture_Differential_QueryWithDeclaredMode(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	schema := `
+Decl item(X) descr [mode("-")].
+`
+	if err := baseEngine.LoadSchemaString(schema); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Add fact via delta
+	err = diffEngine.ApplyDelta([]Fact{
+		{Predicate: "item", Args: []interface{}{"test_value"}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDelta: %v", err)
+	}
+
+	// Query should find the fact
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := diffEngine.Query(ctx, "item(X)")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Bindings) != 1 {
+		t.Errorf("expected 1 binding, got %d", len(result.Bindings))
+	}
+}
+
+func TestTorture_Differential_QueryUndeclaredPredicate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl item(X) descr [mode("-")].`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err = diffEngine.Query(ctx, "ghost_predicate(X)")
+	if err == nil {
+		t.Error("Query for undeclared predicate should fail")
+	}
+}
+
+func TestTorture_Differential_SnapshotMutationIsolation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl item(X) descr [mode("-")].`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Add initial fact
+	_ = diffEngine.ApplyDelta([]Fact{
+		{Predicate: "item", Args: []interface{}{"before_snapshot"}},
+	})
+
+	// Take snapshot
+	snapshot := diffEngine.Snapshot()
+
+	// Mutate original after snapshot
+	_ = diffEngine.ApplyDelta([]Fact{
+		{Predicate: "item", Args: []interface{}{"after_snapshot"}},
+	})
+
+	// Snapshot should NOT see the fact added after it was taken
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	snapshotResult, err := snapshot.Query(ctx, "item(X)")
+	if err != nil {
+		t.Fatalf("snapshot query: %v", err)
+	}
+
+	// Snapshot should only have "before_snapshot"
+	for _, binding := range snapshotResult.Bindings {
+		if val, ok := binding["X"]; ok && val == "after_snapshot" {
+			t.Error("snapshot should not see facts added after snapshot was taken")
+		}
+	}
+}
+
+func TestTorture_Differential_MultipleDeltas(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl counter(ID, Value).`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Apply multiple deltas sequentially
+	for i := 0; i < 10; i++ {
+		err := diffEngine.ApplyDelta([]Fact{
+			{Predicate: "counter", Args: []interface{}{fmt.Sprintf("id_%d", i), int64(i)}},
+		})
+		if err != nil {
+			t.Fatalf("ApplyDelta(%d): %v", i, err)
+		}
+	}
+
+	// Verify all facts stored
+	totalFacts := 0
+	for _, layer := range diffEngine.strataStores {
+		totalFacts += layer.store.EstimateFactCount()
+	}
+	if totalFacts < 10 {
+		t.Errorf("expected at least 10 facts across strata, got %d", totalFacts)
+	}
+}
+
+// =============================================================================
+// 12. CHAINED FACT STORE TORTURE — overlay/base store pattern
+// =============================================================================
+
+func TestTorture_ChainedFactStore_BasicOverlay(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	// Add fact to base
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	baseAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("base_val")}}
+	base.Add(baseAtom)
+
+	// Add fact to overlay
+	overlayAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("overlay_val")}}
+	overlay.Add(overlayAtom)
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	// GetFacts should return both
+	var found []string
+	chain.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
+		if len(a.Args) > 0 {
+			found = append(found, convertBaseTermToInterface(a.Args[0]).(string))
+		}
+		return nil
+	})
+	if len(found) != 2 {
+		t.Errorf("expected 2 facts (base+overlay), got %d: %v", len(found), found)
+	}
+}
+
+func TestTorture_ChainedFactStore_Contains(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	baseAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("in_base")}}
+	base.Add(baseAtom)
+
+	overlayAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("in_overlay")}}
+	overlay.Add(overlayAtom)
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	if !chain.Contains(baseAtom) {
+		t.Error("Contains: should find fact in base")
+	}
+	if !chain.Contains(overlayAtom) {
+		t.Error("Contains: should find fact in overlay")
+	}
+
+	missingAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("missing")}}
+	if chain.Contains(missingAtom) {
+		t.Error("Contains: should not find missing fact")
+	}
+}
+
+func TestTorture_ChainedFactStore_ListPredicates(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	pred1 := ast.PredicateSym{Symbol: "pred_a", Arity: 1}
+	pred2 := ast.PredicateSym{Symbol: "pred_b", Arity: 1}
+	pred3 := ast.PredicateSym{Symbol: "pred_c", Arity: 1}
+
+	base.Add(ast.Atom{Predicate: pred1, Args: []ast.BaseTerm{ast.String("x")}})
+	base.Add(ast.Atom{Predicate: pred2, Args: []ast.BaseTerm{ast.String("y")}})
+	overlay.Add(ast.Atom{Predicate: pred2, Args: []ast.BaseTerm{ast.String("z")}}) // duplicate pred
+	overlay.Add(ast.Atom{Predicate: pred3, Args: []ast.BaseTerm{ast.String("w")}})
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	preds := chain.ListPredicates()
+	// Should have 3 unique predicates (pred_a, pred_b, pred_c), no duplicates
+	predNames := make(map[string]bool)
+	for _, p := range preds {
+		predNames[p.Symbol] = true
+	}
+	if len(predNames) != 3 {
+		t.Errorf("expected 3 unique predicates, got %d: %v", len(predNames), predNames)
+	}
+}
+
+func TestTorture_ChainedFactStore_EstimateFactCount(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	for i := 0; i < 5; i++ {
+		base.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String(fmt.Sprintf("base_%d", i))}})
+	}
+	for i := 0; i < 3; i++ {
+		overlay.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String(fmt.Sprintf("overlay_%d", i))}})
+	}
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	count := chain.EstimateFactCount()
+	if count != 8 {
+		t.Errorf("expected estimate of 8, got %d", count)
+	}
+}
+
+func TestTorture_ChainedFactStore_Merge(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+	source := factstore.NewSimpleInMemoryStore()
+
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	source.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("merged_val")}})
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	// Merge copies facts from source into overlay
+	chain.Merge(source)
+
+	// Verify via GetFacts on the overlay (Merge uses GetFacts with empty atom,
+	// which may not iterate all facts in SimpleInMemoryStore — check via chain instead)
+	var found int
+	chain.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
+		found++
+		return nil
+	})
+	// The Merge implementation queries with ast.Atom{} — if the store doesn't support
+	// wildcard queries, merge may not copy anything. This documents that behavior.
+	t.Logf("Merge: chain has %d facts for predicate, overlay estimate=%d",
+		found, overlay.EstimateFactCount())
+}
+
+func TestTorture_ChainedFactStore_MultipleBases(t *testing.T) {
+	base1 := factstore.NewSimpleInMemoryStore()
+	base2 := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	base1.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("from_base1")}})
+	base2.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("from_base2")}})
+	overlay.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("from_overlay")}})
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base1, base2},
+		overlay: overlay,
+	}
+
+	var found []string
+	chain.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
+		if len(a.Args) > 0 {
+			found = append(found, convertBaseTermToInterface(a.Args[0]).(string))
+		}
+		return nil
+	})
+	if len(found) != 3 {
+		t.Errorf("expected 3 facts from 2 bases + overlay, got %d: %v", len(found), found)
+	}
+}
+
+func TestTorture_ChainedFactStore_AddGoesToOverlay(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	overlay := factstore.NewSimpleInMemoryStore()
+
+	chain := &ChainedFactStore{
+		base:    []factstore.FactStore{base},
+		overlay: overlay,
+	}
+
+	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
+	newAtom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("new_fact")}}
+	chain.Add(newAtom)
+
+	// Should be in overlay, not base
+	if !overlay.Contains(newAtom) {
+		t.Error("Add should write to overlay")
+	}
+	if base.Contains(newAtom) {
+		t.Error("Add should not write to base")
+	}
+}
+
+// =============================================================================
+// 13. SCHEMA VALIDATOR EXPANDED TORTURE
+// =============================================================================
+
+func TestTorture_SchemaValidator_AllForbiddenHeads(t *testing.T) {
+	sv := NewSchemaValidator(`Decl user(X).`, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	// Test every entry in forbiddenLearnedHeads
+	for head, reason := range forbiddenLearnedHeads {
+		t.Run(head, func(t *testing.T) {
+			rule := fmt.Sprintf(`%s(/test) :- user(/admin).`, head)
+			err := sv.ValidateLearnedRule(rule)
+			if err == nil {
+				t.Errorf("learned rule for %q (reason: %s) should be rejected", head, reason)
+			}
+		})
+	}
+}
+
+func TestTorture_SchemaValidator_IsDeclared(t *testing.T) {
+	sv := NewSchemaValidator("Decl alpha(X).\nDecl beta(X, Y).", "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	if !sv.IsDeclared("alpha") {
+		t.Error("alpha should be declared")
+	}
+	if !sv.IsDeclared("beta") {
+		t.Error("beta should be declared")
+	}
+	if sv.IsDeclared("gamma") {
+		t.Error("gamma should not be declared")
+	}
+}
+
+func TestTorture_SchemaValidator_MultiRuleValidation(t *testing.T) {
+	sv := NewSchemaValidator(`
+Decl user(X).
+Decl admin(X).
+Decl regular(X).
+`, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	rules := []string{
+		`regular(X) :- user(X), !admin(X).`,
+		`regular(X) :- user(X), !ghost_pred(X).`, // should fail
+	}
+	errors := sv.ValidateRules(rules)
+	if len(errors) != 1 {
+		t.Errorf("expected 1 error (ghost_pred undefined), got %d: %v", len(errors), errors)
+	}
+}
+
+func TestTorture_SchemaValidator_LearnedFromFile(t *testing.T) {
+	schemas := `Decl user(X). Decl score(X, Y).`
+	learned := `custom_result(X) :- user(X).`
+
+	sv := NewSchemaValidator(schemas, learned)
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	// custom_result should be implicitly declared via learned text heads
+	if !sv.IsDeclared("custom_result") {
+		t.Error("custom_result should be declared from learned text")
+	}
+}
+
+func TestTorture_SchemaValidator_CommentAndBlankLines(t *testing.T) {
+	sv := NewSchemaValidator(`Decl item(X).`, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	// Comments and blank lines should not cause errors
+	if err := sv.ValidateLearnedRule(""); err != nil {
+		t.Errorf("empty line should be valid: %v", err)
+	}
+	if err := sv.ValidateLearnedRule("# This is a comment"); err != nil {
+		t.Errorf("comment should be valid: %v", err)
+	}
+}
+
+func TestTorture_SchemaValidator_SetPredicateArity(t *testing.T) {
+	sv := NewSchemaValidator("", "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	// Initially unknown
+	if sv.GetArity("custom") != -1 {
+		t.Error("unset arity should be -1")
+	}
+
+	sv.SetPredicateArity("custom", 3)
+	if sv.GetArity("custom") != 3 {
+		t.Errorf("expected arity 3, got %d", sv.GetArity("custom"))
+	}
+
+	// Check arity enforcement
+	if err := sv.CheckArity("custom", 3); err != nil {
+		t.Errorf("correct arity should pass: %v", err)
+	}
+	if err := sv.CheckArity("custom", 5); err == nil {
+		t.Error("wrong arity should fail")
+	}
+}
+
+func TestTorture_SchemaValidator_GetDeclaredPredicates(t *testing.T) {
+	sv := NewSchemaValidator(`
+Decl alpha(X).
+Decl beta(X, Y).
+Decl gamma(X, Y, Z).
+`, "")
+	if err := sv.LoadDeclaredPredicates(); err != nil {
+		t.Fatalf("LoadDeclaredPredicates: %v", err)
+	}
+
+	preds := sv.GetDeclaredPredicates()
+	if len(preds) != 3 {
+		t.Errorf("expected 3 declared predicates, got %d: %v", len(preds), preds)
+	}
+}
+
+// =============================================================================
+// 14. ADDITIONAL CONCURRENCY TORTURE
+// =============================================================================
+
+func TestTorture_Concurrency_ConcurrentQueryAndRecompute(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = true
+	eng, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := eng.LoadSchemaString(`
+Decl base(X).
+Decl derived(X).
+derived(X) :- base(X).
+`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	// Seed some data
+	for i := 0; i < 50; i++ {
+		_ = eng.AddFact("base", fmt.Sprintf("item_%d", i))
+	}
+
+	var wg sync.WaitGroup
+
+	// Concurrent readers
+	for g := 0; g < 5; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 30; i++ {
+				_, _ = eng.GetFacts("derived")
+			}
+		}()
+	}
+
+	// Concurrent recompute
+	for g := 0; g < 3; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				_ = eng.RecomputeRules()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Engine should still be functional
+	facts, err := eng.GetFacts("derived")
+	if err != nil {
+		t.Fatalf("GetFacts after concurrent ops: %v", err)
+	}
+	t.Logf("concurrent query+recompute: %d derived facts", len(facts))
+}
+
+func TestTorture_Concurrency_DifferentialDeltaConcurrent(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl item(X).`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	var wg sync.WaitGroup
+
+	// Concurrent delta applications
+	for g := 0; g < 5; g++ {
+		wg.Add(1)
+		go func(gid int) {
+			defer wg.Done()
+			for i := 0; i < 20; i++ {
+				_ = diffEngine.ApplyDelta([]Fact{
+					{Predicate: "item", Args: []interface{}{fmt.Sprintf("g%d_i%d", gid, i)}},
+				})
+			}
+		}(g)
+	}
+
+	// Concurrent snapshots
+	for g := 0; g < 3; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 5; i++ {
+				_ = diffEngine.Snapshot()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Engine should not have panicked; count facts
+	totalFacts := 0
+	for _, layer := range diffEngine.strataStores {
+		totalFacts += layer.store.EstimateFactCount()
+	}
+	t.Logf("concurrent diff delta: %d total facts", totalFacts)
+}
+
+// =============================================================================
+// 15. KNOWLEDGE GRAPH TORTURE — stratum layer invariants
+// =============================================================================
+
+func TestTorture_KnowledgeGraph_NewIsEmpty(t *testing.T) {
+	kg := NewKnowledgeGraph()
+	if kg == nil {
+		t.Fatal("NewKnowledgeGraph returned nil")
+	}
+	if kg.isFrozen {
+		t.Error("new KnowledgeGraph should not be frozen")
+	}
+	if kg.store.EstimateFactCount() != 0 {
+		t.Errorf("new KnowledgeGraph should be empty, got %d facts", kg.store.EstimateFactCount())
+	}
+}
+
+func TestTorture_KnowledgeGraph_AddAndRetrieve(t *testing.T) {
+	kg := NewKnowledgeGraph()
+
+	predSym := ast.PredicateSym{Symbol: "test_pred", Arity: 1}
+	atom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("value")}}
+
+	kg.store.Add(atom)
+
+	if !kg.store.Contains(atom) {
+		t.Error("KnowledgeGraph should contain added fact")
+	}
+	if kg.store.EstimateFactCount() != 1 {
+		t.Errorf("expected 1 fact, got %d", kg.store.EstimateFactCount())
+	}
+}
+
+// =============================================================================
+// 16. FACT STORE PROXY TORTURE — lazy loading
+// =============================================================================
+
+func TestTorture_FactStoreProxy_LazyLoading(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	proxy := NewFactStoreProxy(base)
+
+	loadCount := 0
+	predSym := ast.PredicateSym{Symbol: "lazy_pred", Arity: 2}
+
+	proxy.RegisterLoader("lazy_pred", func(queryAtom ast.Atom) bool {
+		loadCount++
+		// Simulate loading content for the queried key
+		if len(queryAtom.Args) > 0 {
+			key := convertBaseTermToInterface(queryAtom.Args[0])
+			if keyStr, ok := key.(string); ok {
+				newAtom := ast.Atom{
+					Predicate: predSym,
+					Args:      []ast.BaseTerm{ast.String(keyStr), ast.String("loaded_content")},
+				}
+				base.Add(newAtom)
+				return true
+			}
+		}
+		return false
+	})
+
+	// Query should trigger lazy loading
+	queryAtom := ast.Atom{
+		Predicate: predSym,
+		Args:      []ast.BaseTerm{ast.String("file.txt"), ast.Variable{Symbol: "Content"}},
+	}
+
+	var results []ast.Atom
+	proxy.GetFacts(queryAtom, func(a ast.Atom) error {
+		results = append(results, a)
+		return nil
+	})
+
+	if loadCount != 1 {
+		t.Errorf("expected loader called once, got %d", loadCount)
+	}
+}
+
+func TestTorture_FactStoreProxy_NoLoaderForPredicate(t *testing.T) {
+	base := factstore.NewSimpleInMemoryStore()
+	proxy := NewFactStoreProxy(base)
+
+	// Add a fact directly
+	predSym := ast.PredicateSym{Symbol: "direct_pred", Arity: 1}
+	atom := ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String("value")}}
+	base.Add(atom)
+
+	// Query without a registered loader should still work
+	var count int
+	proxy.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
+		count++
+		return nil
+	})
+	if count != 1 {
+		t.Errorf("expected 1 fact without loader, got %d", count)
+	}
+}
+
+func TestTorture_Differential_RegisterVirtualPredicate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AutoEval = false
+	baseEngine, err := NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	if err := baseEngine.LoadSchemaString(`Decl file_content(Path, Content).`); err != nil {
+		t.Fatalf("LoadSchemaString: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngine)
+	if err != nil {
+		t.Fatalf("NewDifferentialEngine: %v", err)
+	}
+
+	// Register a virtual predicate that returns content
+	diffEngine.RegisterVirtualPredicate("file_content", func(key string) (string, error) {
+		if key == "main.go" {
+			return "package main", nil
+		}
+		return "", fmt.Errorf("not found: %s", key)
+	})
+
+	// Verify the base layer got wrapped with a proxy
+	baseLayer := diffEngine.strataStores[0]
+	if _, ok := baseLayer.store.(*FactStoreProxy); !ok {
+		t.Error("RegisterVirtualPredicate should wrap base store with FactStoreProxy")
 	}
 }
