@@ -69,11 +69,11 @@ type ActivationEngine struct {
 
 // CampaignActivationContext holds campaign-specific activation state.
 type CampaignActivationContext struct {
-	CampaignID    string
-	CurrentPhase  string
-	CurrentTask   string
-	PhaseGoals    []string
-	RelevantFiles []string
+	CampaignID      string
+	CurrentPhase    string
+	CurrentTask     string
+	PhaseGoals      []string
+	RelevantFiles   []string
 	RelevantSymbols []string
 }
 
@@ -542,12 +542,12 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 	// Enhanced verb-predicate relevance boosting
 	verbPredicateBoosts := map[string]map[string]float64{
 		"/fix": {
-			"diagnostic":      35.0,
-			"test_state":      30.0,
-			"impacted":        25.0,
-			"file_content":    20.0,
-			"error_context":   40.0,
-			"knowledge_atom":  30.0, // Architecture knowledge helps fix decisions
+			"diagnostic":     35.0,
+			"test_state":     30.0,
+			"impacted":       25.0,
+			"file_content":   20.0,
+			"error_context":  40.0,
+			"knowledge_atom": 30.0, // Architecture knowledge helps fix decisions
 		},
 		"/debug": {
 			"diagnostic":     40.0,
@@ -586,18 +586,18 @@ func (ae *ActivationEngine) computeRelevanceScore(fact core.Fact) float64 {
 			"documentation":  35.0,
 		},
 		"/review": {
-			"diagnostic":      35.0,
-			"security_issue":  45.0,
-			"code_smell":      30.0,
-			"complexity":      25.0,
-			"knowledge_atom":  35.0, // Pattern knowledge for code review
+			"diagnostic":     35.0,
+			"security_issue": 45.0,
+			"code_smell":     30.0,
+			"complexity":     25.0,
+			"knowledge_atom": 35.0, // Pattern knowledge for code review
 		},
 		"/security": {
-			"security_issue":    50.0,
-			"vulnerability":     50.0,
-			"diagnostic":        30.0,
-			"security_pattern":  40.0,
-			"knowledge_atom":    30.0, // Security constraints from docs
+			"security_issue":   50.0,
+			"vulnerability":    50.0,
+			"diagnostic":       30.0,
+			"security_pattern": 40.0,
+			"knowledge_atom":   30.0, // Security constraints from docs
 		},
 		"/create": {
 			"file_topology":   30.0,
@@ -759,8 +759,18 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 	// Boost facts matching keywords (weighted)
 	for keyword, weight := range ae.issueContext.Keywords {
 		if strings.Contains(factStr, strings.ToLower(keyword)) {
-			// Scale weight (0.0-1.0) to score points (0-50)
-			score += weight * 50.0
+			// Clamp weight to [0.0, 1.0] to prevent adversarial facts from
+			// reaching uncapped scores (e.g., weight=100 → score=5000) that
+			// push safety rules out of the context window.
+			clampedWeight := weight
+			if clampedWeight < 0 {
+				clampedWeight = 0
+			}
+			if clampedWeight > 1.0 {
+				clampedWeight = 1.0
+			}
+			// Scale clamped weight to score points (0-50)
+			score += clampedWeight * 50.0
 		}
 	}
 
@@ -811,14 +821,14 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 		"activation_boost": 20.0,
 
 		// Test/diagnostic predicates (general-purpose)
-		"pytest_failure":       50.0,
-		"assertion_mismatch":   45.0,
-		"traceback_frame":      35.0,
-		"pytest_root_cause":    55.0,
-		"source_file_failure":  50.0,
-		"test_failure":         50.0,
-		"diagnostic":           45.0,
-		"error_context":        40.0,
+		"pytest_failure":      50.0,
+		"assertion_mismatch":  45.0,
+		"traceback_frame":     35.0,
+		"pytest_root_cause":   55.0,
+		"source_file_failure": 50.0,
+		"test_failure":        50.0,
+		"diagnostic":          45.0,
+		"error_context":       40.0,
 
 		// Benchmark-specific predicates (loaded only when running benchmarks)
 		// These are in benchmarks.mg and only relevant during benchmark evaluation
@@ -832,7 +842,7 @@ func (ae *ActivationEngine) computeIssueScore(fact core.Fact) float64 {
 		score += boost
 	}
 
-	return math.Min(score, 80.0) // Cap at 80
+	return math.Min(score, 100.0) // Cap at 100 to prevent any single fact from dominating context
 }
 
 // computeFeedbackScore applies learned predicate usefulness from LLM feedback.

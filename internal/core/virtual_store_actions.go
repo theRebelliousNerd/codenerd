@@ -35,8 +35,11 @@ func (v *VirtualStore) Exec(ctx context.Context, cmd string, env []string) (stri
 	}
 
 	// Merge allowed env with provided env
-	// Provided env overrides allowed env if duplicates exist (tactile executor usually handles last-win or simple append)
-	finalEnv := append(v.getAllowedEnv(), env...)
+	// SECURITY: Filter provided env vars against the allowlist to prevent
+	// PATH/LD_PRELOAD injection. In Go's os/exec, the last duplicate key wins,
+	// so an attacker could override critical vars by appending them.
+	filteredEnv := v.filterCallerEnv(env)
+	finalEnv := append(v.getAllowedEnv(), filteredEnv...)
 
 	// Construct Command
 	command := tactile.Command{

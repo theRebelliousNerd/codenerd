@@ -51,7 +51,12 @@ import (
 // Commands are organized by category: session, config, shard, query, campaign.
 
 func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
+	// Sanitize: strip null bytes and ANSI escapes before processing
+	input = sanitizeCommandInput(input)
 	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return m, nil
+	}
 	cmd := parts[0]
 
 	switch cmd {

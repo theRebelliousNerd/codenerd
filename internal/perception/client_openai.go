@@ -142,9 +142,8 @@ func (c *OpenAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
@@ -287,14 +286,14 @@ func (c *OpenAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			}
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 				continue
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 
 				// Some providers/models reject response_format; retry once without it.
@@ -475,19 +474,19 @@ func (c *OpenAIClient) completeNonStreaming(ctx context.Context, reqBody OpenAIR
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		resp.Body.Close() // Close immediately after read
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)

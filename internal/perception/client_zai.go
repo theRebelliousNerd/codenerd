@@ -551,9 +551,8 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		readDuration := time.Since(httpStart) - httpDuration
 
 		if err != nil {
@@ -934,9 +933,8 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		readDuration := time.Since(httpStart) - httpDuration
 
 		if err != nil {
@@ -1229,7 +1227,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				_ = resp.Body.Close()
 				if acquired {
 					<-c.sem
@@ -1415,19 +1413,19 @@ func (c *ZAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response body: %w", err)

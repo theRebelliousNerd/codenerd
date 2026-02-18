@@ -251,9 +251,20 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	return "/explain", "/query", 0.3, ""
 }
 
+// maxRegexInputLen caps the input length fed to regex matching.
+// Go's regexp uses Thompson NFA (linear time), but there's no reason to
+// run the full VerbCorpus against a 100KB paste. The first 2000 chars
+// contain all meaningful verb/intent signals.
+const maxRegexInputLen = 2000
+
 // getRegexCandidates returns all verbs that match the input via regex or synonyms.
 func getRegexCandidates(input string) []VerbEntry {
-	lower := strings.ToLower(input)
+	// Truncate to prevent linear-cost amplification on massive inputs
+	truncated := input
+	if len(truncated) > maxRegexInputLen {
+		truncated = truncated[:maxRegexInputLen]
+	}
+	lower := strings.ToLower(truncated)
 	var candidates []VerbEntry
 	seen := make(map[string]bool)
 
@@ -340,6 +351,34 @@ type ConversationTurn struct {
 	Content string
 }
 
+// sanitizeFactArg strips Mangle control characters and caps length to prevent
+// injection attacks when user/LLM-derived strings are embedded as fact arguments.
+// Without this, a Target like "foo). malicious_rule(X) :- " could inject rules.
+func sanitizeFactArg(s string) string {
+	const maxFactArgLen = 2048
+	if len(s) > maxFactArgLen {
+		s = s[:maxFactArgLen]
+	}
+	// Strip characters that have syntactic meaning in Mangle:
+	// ( ) . , / :- ; could terminate atoms or inject new rules
+	// Also strip null bytes and control characters
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == 0: // null byte
+			continue
+		case r < 0x20 && r != '\n' && r != '\r' && r != '\t': // control chars (keep newlines/tabs)
+			continue
+		case r == 0x1b: // ANSI escape
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // ToFact converts the intent to a Mangle Fact.
 func (i Intent) ToFact() core.Fact {
 	return core.Fact{
@@ -348,8 +387,8 @@ func (i Intent) ToFact() core.Fact {
 			core.MangleAtom("/current_intent"), // ID as name constant
 			core.MangleAtom(i.Category),
 			core.MangleAtom(i.Verb),
-			i.Target,
-			i.Constraint,
+			sanitizeFactArg(i.Target),
+			sanitizeFactArg(i.Constraint),
 		},
 	}
 }

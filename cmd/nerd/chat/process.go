@@ -48,6 +48,14 @@ import (
 
 func (m Model) processInput(input string) tea.Cmd {
 	return func() tea.Msg {
+		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
+		// Bubbletea runtime. An unrecovered panic here kills the entire process.
+		defer func() {
+			if r := recover(); r != nil {
+				logging.API("PANIC in processInput (recovered): %v", r)
+			}
+		}()
+
 		// Guard: ensure transducer is initialized
 		if m.transducer == nil {
 			return errorMsg(fmt.Errorf("system not ready: transducer not initialized (boot may still be in progress)"))
@@ -56,7 +64,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			return errorMsg(fmt.Errorf("system not ready: LLM client not initialized"))
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), config.GetLLMTimeouts().OODALoopTimeout)
+		// Use shutdownCtx as parent so Ctrl+X cancels in-flight LLM calls cleanly
+		baseCtx := m.shutdownCtx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(baseCtx, config.GetLLMTimeouts().OODALoopTimeout)
 		if m.usageTracker != nil {
 			ctx = usage.NewContext(ctx, m.usageTracker)
 		}
@@ -956,6 +969,12 @@ func (m Model) processInput(input string) tea.Cmd {
 				if m.goroutineWg != nil {
 					defer m.goroutineWg.Done()
 				}
+				// Panic recovery for background compression goroutine
+				defer func() {
+					if r := recover(); r != nil {
+						logging.API("PANIC in compression goroutine (recovered): %v", r)
+					}
+				}()
 
 				// Use a shutdown-scoped context so compression can finish after the main turn ctx is canceled.
 				baseCtx := m.shutdownCtx

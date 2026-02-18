@@ -223,6 +223,27 @@ func (k *RealKernel) GetDerivedFactLimit() int {
 	return k.derivedFactLimit
 }
 
+// defaultMaxFacts is the default limit for EDB facts in the kernel.
+const defaultMaxFacts = 250_000
+
+// SetMaxFacts sets the maximum number of EDB facts the kernel will accept.
+// Set to 0 or negative to use the default (250,000).
+func (k *RealKernel) SetMaxFacts(limit int) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.maxFacts = limit
+}
+
+// GetMaxFacts returns the current EDB fact limit.
+func (k *RealKernel) GetMaxFacts() int {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.maxFacts <= 0 {
+		return defaultMaxFacts
+	}
+	return k.maxFacts
+}
+
 // SetRepairInterceptor sets the repair interceptor for learned rule validation.
 // The interceptor is called before any learned rule is persisted, allowing
 // the MangleRepairShard to validate and repair rules.

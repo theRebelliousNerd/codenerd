@@ -464,9 +464,9 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
@@ -715,9 +715,9 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
@@ -886,14 +886,14 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 			}
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 				continue
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 
 				// Some models may reject responseJsonSchema; retry once without it.
@@ -913,8 +913,6 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 				return
 			}
-
-			defer resp.Body.Close()
 
 			scanner := bufio.NewScanner(resp.Body)
 			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -975,6 +973,7 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 
 			select {
 			case <-scanDone:
+				resp.Body.Close()
 				select {
 				case err := <-scanErrChan:
 					logging.PerceptionError("[Gemini] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
@@ -1096,7 +1095,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -1321,7 +1320,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

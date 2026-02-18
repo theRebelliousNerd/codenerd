@@ -133,9 +133,8 @@ func (c *AnthropicClient) CompleteWithSystem(ctx context.Context, systemPrompt, 
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
@@ -255,7 +254,7 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 			return
 		}
@@ -389,7 +388,7 @@ func (c *AnthropicClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

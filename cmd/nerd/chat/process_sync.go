@@ -25,7 +25,12 @@ func (m Model) checkWorkspaceSync() tea.Cmd {
 		}
 
 		start := time.Now()
-		res, err := m.scanner.ScanWorkspaceIncremental(context.Background(), m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
+		// Use shutdownCtx so workspace scans cancel cleanly on quit
+		ctx := m.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		res, err := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 		if err != nil {
 			return scanCompleteMsg{err: err}
 		}

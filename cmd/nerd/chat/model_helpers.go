@@ -13,6 +13,31 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// sanitizeCommandInput strips null bytes, ANSI escape sequences, and control
+// characters from command input. Also caps length to prevent OOM from massive
+// inputs flowing into strings.Fields() and downstream command handlers.
+func sanitizeCommandInput(input string) string {
+	const maxCommandInputLen = 10_000
+	if len(input) > maxCommandInputLen {
+		input = input[:maxCommandInputLen]
+	}
+	var b strings.Builder
+	b.Grow(len(input))
+	for _, r := range input {
+		switch {
+		case r == 0: // null byte — corrupts SQLite and Mangle parser
+			continue
+		case r == 0x1b: // ANSI escape — hijacks terminal display
+			continue
+		case r < 0x20 && r != '\n' && r != '\r' && r != '\t': // other control chars
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // extractFindings parses findings from shard output (reviewer/tester results).
 // Looks for structured patterns like "- [ERROR] file:line: message"
 func extractFindings(result string) []map[string]any {

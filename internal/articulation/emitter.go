@@ -356,6 +356,34 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 			fmt.Sprintf("Mangle updates truncated to %d atoms", maxMangleUpdates))
 	}
 
+	// Content-level validation for MangleUpdates: reject oversized or syntactically
+	// invalid atoms to prevent Mangle injection from LLM hallucinations.
+	const maxSingleUpdateLen = 1000
+	validUpdates := make([]string, 0, len(result.Control.MangleUpdates))
+	for _, update := range result.Control.MangleUpdates {
+		trimmed := strings.TrimSpace(update)
+		if trimmed == "" {
+			continue
+		}
+		if len(trimmed) > maxSingleUpdateLen {
+			result.Warnings = append(result.Warnings, "Mangle update too long, skipped")
+			continue
+		}
+		// Basic Mangle atom syntax: must contain '(' and end with '.'
+		if !strings.Contains(trimmed, "(") || !strings.HasSuffix(trimmed, ".") {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("Invalid Mangle update syntax skipped: %.40s...", trimmed))
+			continue
+		}
+		// Reject shell metacharacters that could escape from Mangle into exec
+		if strings.ContainsAny(trimmed, "`$;|") {
+			result.Warnings = append(result.Warnings, "Mangle update with shell metacharacters skipped")
+			continue
+		}
+		validUpdates = append(validUpdates, update)
+	}
+	result.Control.MangleUpdates = validUpdates
+
 	const maxMemoryOps = 500
 	if len(result.Control.MemoryOperations) > maxMemoryOps {
 		result.Control.MemoryOperations = result.Control.MemoryOperations[:maxMemoryOps]

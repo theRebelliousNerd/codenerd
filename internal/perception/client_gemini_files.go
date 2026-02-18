@@ -74,7 +74,7 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("upload start failed (status %d): %s", resp.StatusCode, body)
 	}
 
@@ -101,7 +101,7 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 	defer respUpload.Body.Close()
 
 	if respUpload.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(respUpload.Body)
+		body, _ := io.ReadAll(io.LimitReader(respUpload.Body, 10*1024*1024))
 		return "", fmt.Errorf("upload finalization failed (status %d): %s", respUpload.StatusCode, body)
 	}
 
@@ -300,7 +300,7 @@ func (c *GeminiClient) CreateCachedContent(ctx context.Context, files []string, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("create cache failed (status %d): %s", resp.StatusCode, body)
 	}
 

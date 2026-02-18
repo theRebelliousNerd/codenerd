@@ -63,6 +63,7 @@ type RealKernel struct {
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
 	virtualStore      *VirtualStore          // Virtual predicate source for query_* handlers
 	derivedFactLimit  int                    // Configurable limit for derived facts (0 = use default)
+	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

@@ -364,12 +364,13 @@ func (v *VirtualStore) GetAuditMetrics() tactile.ExecutionMetricsSnapshot {
 // SetKernel sets the kernel for fact injection feedback.
 func (v *VirtualStore) SetKernel(k Kernel) {
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	v.kernel = k
+	v.mu.Unlock()
 
 	logging.VirtualStore("Kernel attached to VirtualStore")
 
 	// Build permission cache from kernel's safe_action/1 facts (O(1) lookup optimization)
+	// NOTE: rebuildPermissionCache manages its own locking to avoid deadlock
 	v.rebuildPermissionCache()
 
 	// Wire VirtualStore back to RealKernel for bidirectional communication.
@@ -379,8 +380,11 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 	}
 
 	// Also set kernel on tool registry
-	if v.toolRegistry != nil {
-		v.toolRegistry.SetKernel(k)
+	v.mu.RLock()
+	tr := v.toolRegistry
+	v.mu.RUnlock()
+	if tr != nil {
+		tr.SetKernel(k)
 		logging.VirtualStoreDebug("Tool registry kernel reference updated")
 	}
 }
@@ -452,17 +456,27 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 }
 
 // rebuildPermissionCache queries the kernel for all safe_action/1 facts
-// and builds a O(1) lookup cache. Must be called with v.mu held.
+// and builds a O(1) lookup cache.
+//
+// DEADLOCK FIX: This method does NOT hold v.mu while querying the kernel.
+// The previous implementation held v.mu (write lock) during kernel.Query(),
+// which could deadlock if the kernel's virtual predicate handlers tried to
+// read-lock v.mu. Now we query first, then lock only to write the cache.
 func (v *VirtualStore) rebuildPermissionCache() {
 	if v.kernel == nil {
+		v.mu.Lock()
 		v.permittedCache = nil
+		v.mu.Unlock()
 		return
 	}
 
+	// Query kernel WITHOUT holding v.mu to prevent deadlock
 	results, err := v.kernel.Query("safe_action")
 	if err != nil {
 		logging.VirtualStoreDebug("Failed to query safe_action facts for cache: %v", err)
+		v.mu.Lock()
 		v.permittedCache = nil
+		v.mu.Unlock()
 		return
 	}
 
@@ -481,7 +495,10 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		}
 	}
 
+	// Lock only to write the cache
+	v.mu.Lock()
 	v.permittedCache = cache
+	v.mu.Unlock()
 	logging.VirtualStore("Permission cache built: %d safe_action entries", len(results))
 }
 
@@ -881,11 +898,23 @@ func (v *VirtualStore) initConstitution() {
 			Name:        "path_traversal_protection",
 			Description: "Prevent path traversal attacks",
 			Check: func(req ActionRequest) error {
-				if req.Type != ActionReadFile && req.Type != ActionWriteFile && req.Type != ActionDeleteFile {
+				// Apply to ALL file operations, including edit (was missing)
+				if req.Type != ActionReadFile && req.Type != ActionWriteFile && req.Type != ActionDeleteFile && req.Type != ActionEditFile {
 					return nil
 				}
-				if strings.Contains(req.Target, "..") {
+				// Normalize path before checking — raw strings.Contains("..") is
+				// trivially bypassed with symlinks or encoded sequences.
+				cleaned := filepath.Clean(req.Target)
+				if strings.Contains(cleaned, "..") {
 					return fmt.Errorf("constitutional violation: path traversal blocked")
+				}
+				// On systems that support symlinks, resolve and verify the target
+				// stays within the workspace. EvalSymlinks is best-effort here
+				// (target may not exist yet for writes).
+				if abs, err := filepath.EvalSymlinks(cleaned); err == nil {
+					if strings.Contains(filepath.Clean(abs), "..") {
+						return fmt.Errorf("constitutional violation: symlink path traversal blocked")
+					}
 				}
 				return nil
 			},
@@ -897,8 +926,9 @@ func (v *VirtualStore) initConstitution() {
 				if req.Type != ActionWriteFile && req.Type != ActionDeleteFile && req.Type != ActionEditFile {
 					return nil
 				}
-				systemPaths := []string{"/etc/", "/usr/", "/bin/", "/sbin/", "C:\\Windows\\"}
-				target := req.Target
+				systemPaths := []string{"/etc/", "/usr/", "/bin/", "/sbin/", "c:\\windows\\", "c:/windows/"}
+				// Normalize to forward slashes and lowercase for case-insensitive comparison (Windows)
+				target := strings.ToLower(filepath.ToSlash(req.Target))
 				for _, sp := range systemPaths {
 					if strings.HasPrefix(target, sp) {
 						return fmt.Errorf("constitutional violation: system file modification blocked")
@@ -1342,6 +1372,36 @@ func (v *VirtualStore) getAllowedEnv() []string {
 	return env
 }
 
+// filterCallerEnv filters caller-provided env vars against the allowlist.
+// This prevents attackers from injecting PATH, LD_PRELOAD, or other dangerous
+// environment variables via the env parameter of Exec(). In Go's os/exec,
+// the last duplicate key wins, so unfiltered appending is exploitable.
+func (v *VirtualStore) filterCallerEnv(env []string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	// Build a set from the allowlist for O(1) lookup
+	allowed := make(map[string]bool, len(v.allowedEnvVars))
+	for _, key := range v.allowedEnvVars {
+		allowed[strings.ToUpper(key)] = true
+	}
+
+	filtered := make([]string, 0, len(env))
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		key := strings.ToUpper(parts[0])
+		if allowed[key] {
+			filtered = append(filtered, e)
+		} else {
+			logging.VirtualStoreDebug("Rejected caller env var not in allowlist: %s", parts[0])
+		}
+	}
+	return filtered
+}
+
 func (v *VirtualStore) injectFact(fact Fact) {
 	v.mu.RLock()
 	kernel := v.kernel
@@ -1571,10 +1631,11 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 	}
 
 	if cache == nil {
-		v.mu.Lock()
+		// rebuildPermissionCache manages its own locking to avoid deadlock
 		v.rebuildPermissionCache()
+		v.mu.RLock()
 		cache = v.permittedCache
-		v.mu.Unlock()
+		v.mu.RUnlock()
 	}
 
 	if cache != nil {

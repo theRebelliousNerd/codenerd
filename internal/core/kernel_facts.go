@@ -351,21 +351,34 @@ func (k *RealKernel) rebuildFactIndexLocked() {
 // addFactIfNewLocked appends a fact only if it is not already present.
 // Returns true if added. Call only while holding k.mu.
 // OPTIMIZATION: Also caches the converted atom to avoid repeated ToAtom() calls.
+// SAFETY: Enforces MaxFactsInKernel limit and rejects facts that fail ToAtom().
 func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
+	// Enforce EDB size limit to prevent unbounded memory growth
+	maxFacts := k.maxFacts
+	if maxFacts <= 0 {
+		maxFacts = defaultMaxFacts
+	}
+	if len(k.facts) >= maxFacts {
+		logging.Get(logging.CategoryKernel).Warn("EDB fact limit reached (%d/%d), rejecting fact: %s",
+			len(k.facts), maxFacts, f.Predicate)
+		return false
+	}
+
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
 	if _, ok := k.factIndex[key]; ok {
 		return false
 	}
 
-	// Convert to atom once and cache it
+	// Convert to atom once and cache it.
+	// SAFETY: Reject facts that fail conversion to prevent cache desync.
+	// Previously, failed facts were added to k.facts but skipped k.cachedAtoms,
+	// causing evaluate() to detect a length mismatch and attempt a full rebuild
+	// that could also fail, soft-bricking the kernel.
 	atom, err := f.ToAtom()
 	if err != nil {
-		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: failed to convert fact to atom: %v", err)
-		// Still add the fact, but without cached atom (will be regenerated in evaluate)
-		k.facts = append(k.facts, f)
-		k.factIndex[key] = struct{}{}
-		return true
+		logging.Get(logging.CategoryKernel).Error("addFactIfNewLocked: rejecting fact that fails ToAtom: %s - %v", f.Predicate, err)
+		return false
 	}
 
 	k.facts = append(k.facts, f)

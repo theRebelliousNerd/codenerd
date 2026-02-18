@@ -84,7 +84,7 @@ func InitChat(cfg Config) Model {
 	ta := textarea.New()
 	ta.Placeholder = "System initializing..."
 	ta.Prompt = "┃ "
-	ta.CharLimit = 0 // Unlimited
+	ta.CharLimit = 100_000 // Hard cap: prevents OOM in token counter and regex engine on massive paste
 	ta.SetWidth(80)
 	ta.SetHeight(3) // 3 lines default
 	ta.ShowLineNumbers = false

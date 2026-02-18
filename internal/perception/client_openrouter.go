@@ -144,9 +144,8 @@ func (c *OpenRouterClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 			lastErr = fmt.Errorf("request failed: %w", err)
 			continue
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response: %w", err)
 			continue
@@ -290,14 +289,14 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 			}
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
 				continue
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
+				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 				resp.Body.Close()
 
 				// Some providers/models reject response_format; retry once without it.

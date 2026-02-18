@@ -503,12 +503,12 @@ func (c *AntigravityClient) doRequest(ctx context.Context, accessToken, projectI
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("429 rate limited: %s", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("request failed (%d): %s", resp.StatusCode, string(body))
 	}
 
@@ -729,12 +729,12 @@ func (c *AntigravityClient) doMultiTurnRequest(
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("429 rate limited: %s", string(body))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		return "", fmt.Errorf("request failed (%d): %s", resp.StatusCode, string(body))
 	}
 
