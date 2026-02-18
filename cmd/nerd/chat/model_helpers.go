@@ -146,6 +146,14 @@ func matchesAnyTrigger(input string, triggers []string) bool {
 		return false
 	}
 	for _, t := range triggers {
+		// Slash-prefixed commands (e.g. /learn_yes) — exact match only
+		// \b doesn't work with "/" since it's a non-word character
+		if strings.HasPrefix(t, "/") {
+			if lower == t {
+				return true
+			}
+			continue
+		}
 		// Single-word triggers need word boundary matching
 		if !strings.ContainsAny(t, " ,:!") {
 			pattern := `\b` + regexp.QuoteMeta(t) + `\b`
@@ -209,6 +217,13 @@ func isAffirmativeResponse(input string) bool {
 	exactMatches := []string{"y", "yes", "ok", "okay", "yep", "yeah", "sure"}
 	for _, m := range exactMatches {
 		if lower == m {
+			return true
+		}
+	}
+	// Prefix match: "yes I want to do that" starts with affirmative word
+	prefixWords := []string{"yes ", "yeah ", "yep ", "sure ", "ok ", "okay "}
+	for _, p := range prefixWords {
+		if strings.HasPrefix(lower, p) {
 			return true
 		}
 	}

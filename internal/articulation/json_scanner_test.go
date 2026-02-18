@@ -154,3 +154,86 @@ func TestFindJSONCandidates_UnicodeEmoji(t *testing.T) {
 		t.Errorf("Expected %q, got %q", input, candidates[0])
 	}
 }
+
+// =============================================================================
+// DEPTH CAP TESTS (Pre-Chaos Hardening Phase 1.3)
+// =============================================================================
+
+func TestFindJSONCandidates_DepthCap(t *testing.T) {
+	// Build JSON nested deeper than maxJSONDepth (200)
+	var b strings.Builder
+	for i := 0; i < 300; i++ {
+		b.WriteString(`{"a":`)
+	}
+	b.WriteString(`"deep"`)
+	for i := 0; i < 300; i++ {
+		b.WriteString(`}`)
+	}
+	input := b.String()
+
+	candidates := findJSONCandidates(input)
+	// Should NOT return the deeply nested object (depth exceeded)
+	for _, c := range candidates {
+		if len(c) > 1000 {
+			t.Error("should not extract deeply nested objects exceeding maxJSONDepth")
+		}
+	}
+}
+
+func TestFindJSONCandidates_SizeLimit(t *testing.T) {
+	// Build a single JSON object larger than maxJSONCandidateSize (5MB)
+	bigValue := strings.Repeat("x", 6*1024*1024) // 6MB
+	input := `{"key":"` + bigValue + `"}`
+
+	candidates := findJSONCandidates(input)
+	for _, c := range candidates {
+		if len(c) > maxJSONCandidateSize {
+			t.Errorf("candidate size %d exceeds cap %d", len(c), maxJSONCandidateSize)
+		}
+	}
+}
+
+func TestFindJSONCandidates_DepthAtLimit(t *testing.T) {
+	// Exactly at maxJSONDepth should still work
+	var b strings.Builder
+	for i := 0; i < maxJSONDepth; i++ {
+		b.WriteString(`{"a":`)
+	}
+	b.WriteString(`"ok"`)
+	for i := 0; i < maxJSONDepth; i++ {
+		b.WriteString(`}`)
+	}
+	input := b.String()
+
+	candidates := findJSONCandidates(input)
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 candidate at exactly maxJSONDepth, got %d", len(candidates))
+	}
+}
+
+func TestFindJSONCandidates_SmallObjectsAfterDeepReset(t *testing.T) {
+	// After a depth-exceeded reset, small objects should still be found
+	var b strings.Builder
+	// Deep object that exceeds depth
+	for i := 0; i < 300; i++ {
+		b.WriteString(`{"a":`)
+	}
+	b.WriteString(`"deep"`)
+	for i := 0; i < 300; i++ {
+		b.WriteString(`}`)
+	}
+	// Then a normal small object
+	b.WriteString(` {"simple": "yes"}`)
+	input := b.String()
+
+	candidates := findJSONCandidates(input)
+	found := false
+	for _, c := range candidates {
+		if c == `{"simple": "yes"}` {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("small objects after depth reset should still be extracted")
+	}
+}

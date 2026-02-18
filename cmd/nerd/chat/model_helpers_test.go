@@ -204,3 +204,67 @@ func TestExtractCorrectionContent(t *testing.T) {
 		t.Fatalf("extractCorrectionContent fallback = %q, want %q", got, "no marker here")
 	}
 }
+
+// =============================================================================
+// SANITIZATION TESTS (Pre-Chaos Hardening Phase 3.2)
+// =============================================================================
+
+func TestSanitizeCommandInput_NullBytes(t *testing.T) {
+	// Null bytes should be stripped
+	input := "hello\x00world"
+	result := sanitizeCommandInput(input)
+	if strings.Contains(result, "\x00") {
+		t.Error("null bytes should be stripped")
+	}
+	if result != "helloworld" {
+		t.Errorf("expected 'helloworld', got %q", result)
+	}
+}
+
+func TestSanitizeCommandInput_ANSIEscape(t *testing.T) {
+	input := "hello\x1b[31mred\x1b[0mworld"
+	result := sanitizeCommandInput(input)
+	if strings.Contains(result, "\x1b") {
+		t.Error("ANSI escape sequences should be stripped")
+	}
+}
+
+func TestSanitizeCommandInput_PreservesNewlines(t *testing.T) {
+	input := "line1\nline2\ttab\rcarriage"
+	result := sanitizeCommandInput(input)
+	if !strings.Contains(result, "\n") || !strings.Contains(result, "\t") || !strings.Contains(result, "\r") {
+		t.Error("newlines, tabs, and carriage returns should be preserved")
+	}
+}
+
+func TestSanitizeCommandInput_ControlChars(t *testing.T) {
+	input := "hello\x01\x02\x03\x04\x05world"
+	result := sanitizeCommandInput(input)
+	if result != "helloworld" {
+		t.Errorf("control chars should be stripped, got %q", result)
+	}
+}
+
+func TestSanitizeCommandInput_LengthCap(t *testing.T) {
+	// Build a string longer than 10K
+	input := strings.Repeat("A", 15000)
+	result := sanitizeCommandInput(input)
+	if len(result) > 10000 {
+		t.Errorf("expected result capped at 10000, got %d", len(result))
+	}
+}
+
+func TestSanitizeCommandInput_EmptyInput(t *testing.T) {
+	result := sanitizeCommandInput("")
+	if result != "" {
+		t.Errorf("empty input should produce empty output, got %q", result)
+	}
+}
+
+func TestSanitizeCommandInput_NormalInput(t *testing.T) {
+	input := "/review internal/core/kernel.go"
+	result := sanitizeCommandInput(input)
+	if result != input {
+		t.Errorf("normal input should pass through unchanged, got %q", result)
+	}
+}

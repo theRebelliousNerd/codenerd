@@ -369,3 +369,112 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 }
 
 // min is declared in validator_paranoid.go, removing redeclaration
+
+// =============================================================================
+// PRE-CHAOS HARDENING TESTS (Phase 4)
+// =============================================================================
+
+// createTestVirtualStore creates a minimal VirtualStore for constitution/env tests.
+func createTestVirtualStore(t *testing.T) *VirtualStore {
+	t.Helper()
+	cfg := DefaultVirtualStoreConfig()
+	vs := NewVirtualStoreWithConfig(nil, cfg)
+	return vs
+}
+
+func TestConstitution_PathTraversal_EditFile(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	req := ActionRequest{
+		Type:   ActionEditFile,
+		Target: "../../etc/passwd",
+	}
+	err := vs.checkConstitution(req)
+	if err == nil {
+		t.Error("path traversal via ActionEditFile should be blocked")
+	}
+}
+
+func TestConstitution_PathTraversal_CleanPath(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	// filepath.Clean normalizes this
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: "foo/bar/../../../etc/passwd",
+	}
+	err := vs.checkConstitution(req)
+	if err == nil {
+		t.Error("normalized path traversal should be blocked")
+	}
+}
+
+func TestConstitution_SystemPath_CaseInsensitive(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"lowercase", "c:/windows/system32/config"},
+		{"uppercase", "C:/WINDOWS/System32/Config"},
+		{"mixed", "C:/WiNdOwS/system32"},
+		{"backslash", "C:\\Windows\\System32"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ActionRequest{
+				Type:   ActionWriteFile,
+				Target: tt.target,
+			}
+			err := vs.checkConstitution(req)
+			if err == nil {
+				t.Errorf("system path %q should be blocked", tt.target)
+			}
+		})
+	}
+}
+
+func TestFilterCallerEnv_AllowedOnly(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	// Set a known allowlist
+	vs.allowedEnvVars = []string{"HOME", "PATH"}
+
+	env := []string{
+		"HOME=/home/user",
+		"PATH=/usr/bin",
+		"LD_PRELOAD=/evil.so",
+		"MALICIOUS=true",
+	}
+	filtered := vs.filterCallerEnv(env)
+
+	for _, e := range filtered {
+		key := strings.SplitN(e, "=", 2)[0]
+		if strings.ToUpper(key) != "HOME" && strings.ToUpper(key) != "PATH" {
+			t.Errorf("non-allowlisted env var %q should be filtered", key)
+		}
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 filtered env vars, got %d", len(filtered))
+	}
+}
+
+func TestFilterCallerEnv_CaseInsensitive(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	vs.allowedEnvVars = []string{"PATH"}
+
+	env := []string{"path=/usr/bin", "Path=/usr/local/bin"}
+	filtered := vs.filterCallerEnv(env)
+	if len(filtered) != 2 {
+		t.Errorf("case-insensitive match should allow both, got %d", len(filtered))
+	}
+}
+
+func TestFilterCallerEnv_Empty(t *testing.T) {
+	vs := createTestVirtualStore(t)
+	filtered := vs.filterCallerEnv(nil)
+	if filtered != nil {
+		t.Error("nil input should return nil")
+	}
+	filtered = vs.filterCallerEnv([]string{})
+	if filtered != nil {
+		t.Error("empty input should return nil")
+	}
+}

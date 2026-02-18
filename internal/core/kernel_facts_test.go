@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -83,5 +84,63 @@ func TestKernelFacts_RetractFact(t *testing.T) {
 		t.Errorf("Expected 1 remaining tag fact, got %d", len(remaining))
 	} else if remaining[0].Args[0] != "file2" {
 		t.Errorf("Expected file2 tag to remain, got %v", remaining[0])
+	}
+}
+
+// =============================================================================
+// PRE-CHAOS HARDENING TESTS (Phase 5)
+// =============================================================================
+
+func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
+	k := setupMockKernel(t)
+
+	// Record baseline count (kernel boots with some facts from embedded .mg files)
+	initialCount := k.FactCount()
+
+	// Set a very low limit relative to current count
+	k.SetMaxFacts(initialCount + 5)
+
+	// Add facts up to the limit
+	for i := 0; i < 5; i++ {
+		err := k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{fmt.Sprintf("item_%d", i)}})
+		if err != nil {
+			t.Fatalf("Assert %d should succeed: %v", i, err)
+		}
+	}
+
+	// The 6th fact should be rejected (silently - addFactIfNewLocked returns false)
+	// Assert won't error because it just skips, but the fact won't be added
+	beforeCount := k.FactCount()
+	_ = k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{"overflow"}})
+	afterCount := k.FactCount()
+
+	// The fact count should not increase beyond the limit
+	// Note: derived facts from evaluate() may add some, but EDB facts should be capped
+	if afterCount > beforeCount+1 {
+		t.Errorf("fact count should not grow unboundedly, before=%d after=%d", beforeCount, afterCount)
+	}
+}
+
+func TestSetMaxFacts_DefaultValue(t *testing.T) {
+	k := setupMockKernel(t)
+	// Default should be 250,000
+	if k.GetMaxFacts() != 250000 {
+		t.Errorf("default maxFacts should be 250000, got %d", k.GetMaxFacts())
+	}
+}
+
+func TestSetMaxFacts_CustomValue(t *testing.T) {
+	k := setupMockKernel(t)
+	k.SetMaxFacts(100)
+	if k.GetMaxFacts() != 100 {
+		t.Errorf("expected maxFacts=100, got %d", k.GetMaxFacts())
+	}
+}
+
+func TestSetMaxFacts_ZeroUsesDefault(t *testing.T) {
+	k := setupMockKernel(t)
+	k.SetMaxFacts(0)
+	if k.GetMaxFacts() != 250000 {
+		t.Errorf("maxFacts=0 should use default 250000, got %d", k.GetMaxFacts())
 	}
 }

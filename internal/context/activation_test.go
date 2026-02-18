@@ -622,3 +622,55 @@ func TestLookupPriority(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// PRE-CHAOS HARDENING TESTS (Phase 5.2)
+// =============================================================================
+
+func TestComputeIssueScore_WeightClamping(t *testing.T) {
+	// This test verifies that keyword weights are clamped to [0.0, 1.0]
+	// to prevent adversarial facts from getting astronomical scores.
+	config := DefaultConfig()
+	engine := NewActivationEngine(config)
+	engine.issueContext = &IssueActivationContext{
+		Keywords: map[string]float64{
+			"exploit": 100.0, // Adversarial: should be clamped to 1.0
+		},
+	}
+
+	fact := core.Fact{
+		Predicate: "test_exploit_fact",
+		Args:      []interface{}{"exploit vulnerability"},
+	}
+
+	score := engine.computeIssueScore(fact)
+	// With clamped weight (1.0 * 50 = 50), plus possible predicate boost,
+	// the score should be at most 100.0 (the hard cap)
+	if score > 100.0 {
+		t.Errorf("score should be capped at 100.0, got %f", score)
+	}
+	// Without clamping, score would be 100.0 * 50 = 5000.0
+	if score > 100.1 {
+		t.Errorf("unclamped weight produced score %f (should be impossible after fix)", score)
+	}
+}
+
+func TestComputeIssueScore_NegativeWeight(t *testing.T) {
+	config := DefaultConfig()
+	engine := NewActivationEngine(config)
+	engine.issueContext = &IssueActivationContext{
+		Keywords: map[string]float64{
+			"negative": -5.0, // Should be clamped to 0.0
+		},
+	}
+
+	fact := core.Fact{
+		Predicate: "test_negative",
+		Args:      []interface{}{"negative keyword"},
+	}
+
+	score := engine.computeIssueScore(fact)
+	if score < 0 {
+		t.Errorf("negative weight should be clamped to 0, score=%f", score)
+	}
+}

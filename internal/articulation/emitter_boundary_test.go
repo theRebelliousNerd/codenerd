@@ -246,3 +246,62 @@ func TestExtractEmbeddedJSON_DecoyInjection(t *testing.T) {
 		t.Errorf("Expected real verb '/explain', got %q", envelope.Control.IntentClassification.Verb)
 	}
 }
+
+// =============================================================================
+// MANGLE UPDATES CONTENT VALIDATION (Pre-Chaos Hardening Phase 3.3)
+// =============================================================================
+
+func TestApplyCaps_MangleUpdates_RejectsTooLong(t *testing.T) {
+	rp := NewResponseProcessor()
+	longUpdate := strings.Repeat("a", 1100) + "(x)."
+	result := &ArticulationResult{
+		Control: ControlPacket{
+			MangleUpdates: []string{longUpdate},
+		},
+	}
+	rp.applyCaps(result)
+	if len(result.Control.MangleUpdates) != 0 {
+		t.Error("updates longer than 1000 chars should be rejected")
+	}
+}
+
+func TestApplyCaps_MangleUpdates_RejectsInvalidSyntax(t *testing.T) {
+	rp := NewResponseProcessor()
+	result := &ArticulationResult{
+		Control: ControlPacket{
+			MangleUpdates: []string{
+				"valid_fact(x).", // valid
+				"no_period(x)",   // missing .
+				"no_parens.",     // missing (
+				"",               // empty
+				"   ",            // whitespace
+			},
+		},
+	}
+	rp.applyCaps(result)
+	if len(result.Control.MangleUpdates) != 1 {
+		t.Errorf("expected 1 valid update, got %d: %v", len(result.Control.MangleUpdates), result.Control.MangleUpdates)
+	}
+	if result.Control.MangleUpdates[0] != "valid_fact(x)." {
+		t.Errorf("expected 'valid_fact(x).', got %q", result.Control.MangleUpdates[0])
+	}
+}
+
+func TestApplyCaps_MangleUpdates_RejectsShellMetachars(t *testing.T) {
+	rp := NewResponseProcessor()
+	result := &ArticulationResult{
+		Control: ControlPacket{
+			MangleUpdates: []string{
+				"safe(x).",
+				"inject(`rm -rf`).",   // backtick
+				"inject($PATH).",      // dollar
+				"inject(x); rm -rf .", // semicolon
+				"inject(x|y).",        // pipe
+			},
+		},
+	}
+	rp.applyCaps(result)
+	if len(result.Control.MangleUpdates) != 1 {
+		t.Errorf("expected 1 safe update, got %d", len(result.Control.MangleUpdates))
+	}
+}
