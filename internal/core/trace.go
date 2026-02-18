@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codenerd/internal/mangle"
+	"codenerd/internal/types"
 )
 
 // TraceQuery executes a query and returns a derivation trace.
@@ -120,7 +121,7 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 			deps, _ := k.Query("dependency_link")
 			for _, d := range deps {
 				// Filter to facts where first arg matches
-				if len(d.Args) > 0 && fmt.Sprintf("%v", d.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+				if len(d.Args) > 0 && types.ExtractString(d.Args[0]) == types.ExtractString(fact.Args[0]) {
 					premises = append(premises, convertCoreFactToMangle(d))
 				}
 			}
@@ -132,7 +133,7 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 			safes, _ := k.Query("safe_action")
 			for _, s := range safes {
 				// Filter to facts where arg matches
-				if len(s.Args) > 0 && fmt.Sprintf("%v", s.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+				if len(s.Args) > 0 && types.ExtractString(s.Args[0]) == types.ExtractString(fact.Args[0]) {
 					premises = append(premises, convertCoreFactToMangle(s))
 				}
 			}
@@ -144,7 +145,7 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 			focus, _ := k.Query("focus_resolution")
 			for _, f := range focus {
 				// Filter to facts where first arg matches
-				if len(f.Args) > 0 && fmt.Sprintf("%v", f.Args[0]) == fmt.Sprintf("%v", fact.Args[0]) {
+				if len(f.Args) > 0 && types.ExtractString(f.Args[0]) == types.ExtractString(fact.Args[0]) {
 					premises = append(premises, convertCoreFactToMangle(f))
 				}
 			}

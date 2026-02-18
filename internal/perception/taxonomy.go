@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"os"
@@ -231,9 +232,9 @@ func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
 			continue
 		}
 		v := VerbEntry{
-			Verb:      fact.Args[0].(string),
-			Category:  fact.Args[1].(string),
-			ShardType: fact.Args[2].(string),
+			Verb:      types.ExtractString(fact.Args[0]),
+			Category:  types.ExtractString(fact.Args[1]),
+			ShardType: types.ExtractString(fact.Args[2]),
 			Priority:  toInt(fact.Args[3]),
 		}
 		if v.ShardType == "/none" {
@@ -274,9 +275,9 @@ func (t *TaxonomyEngine) getSynonyms(verb string) ([]string, error) {
 	var syns []string
 	for _, fact := range facts {
 		if len(fact.Args) == 2 {
-			v := fact.Args[0].(string)
+			v := types.ExtractString(fact.Args[0])
 			if v == targetVerb || v == verb {
-				syns = append(syns, fact.Args[1].(string))
+				syns = append(syns, types.ExtractString(fact.Args[1]))
 			}
 		}
 	}
@@ -297,9 +298,9 @@ func (t *TaxonomyEngine) getPatterns(verb string) ([]string, error) {
 	var pats []string
 	for _, fact := range facts {
 		if len(fact.Args) == 2 {
-			v := fact.Args[0].(string)
+			v := types.ExtractString(fact.Args[0])
 			if v == targetVerb || v == verb {
-				pats = append(pats, fact.Args[1].(string))
+				pats = append(pats, types.ExtractString(fact.Args[1]))
 			}
 		}
 	}

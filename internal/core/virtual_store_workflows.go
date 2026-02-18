@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -245,8 +246,8 @@ func (v *VirtualStore) handleRefreshShardContext(ctx context.Context, req Action
 		if len(f.Args) < 2 {
 			continue
 		}
-		shardID := fmt.Sprintf("%v", f.Args[0])
-		atom := fmt.Sprintf("%v", f.Args[1])
+		shardID := types.ExtractString(f.Args[0])
+		atom := types.ExtractString(f.Args[1])
 		if shardFilter != "" && shardID != shardFilter {
 			continue
 		}

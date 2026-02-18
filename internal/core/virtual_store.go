@@ -471,7 +471,7 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		if len(f.Args) == 0 {
 			continue
 		}
-		action := fmt.Sprintf("%v", f.Args[0])
+		action := types.ExtractString(f.Args[0])
 		// Store both with and without leading slash for fast lookup
 		cache[action] = true
 		if strings.HasPrefix(action, "/") {
@@ -1047,12 +1047,12 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 	}
 
 	// First arg is ActionID
-	req.ActionID = fmt.Sprintf("%v", action.Args[0])
+	req.ActionID = types.ExtractString(action.Args[0])
 
 	// Second arg is action type
 	actionType, ok := action.Args[1].(string)
 	if !ok {
-		actionType = fmt.Sprintf("%v", action.Args[1])
+		actionType = types.ExtractString(action.Args[1])
 	}
 	// Strip leading slash if present (Mangle name constants)
 	actionType = strings.TrimPrefix(actionType, "/")
@@ -1061,7 +1061,7 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 	// Third arg is target
 	target, ok := action.Args[2].(string)
 	if !ok {
-		target = fmt.Sprintf("%v", action.Args[2])
+		target = types.ExtractString(action.Args[2])
 	}
 	req.Target = target
 
@@ -1597,14 +1597,14 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 		}
 
 		// 1. Check ActionType
-		argType := fmt.Sprintf("%v", f.Args[0])
+		argType := types.ExtractString(f.Args[0])
 		if argType != wantType && argType != altType {
 			continue
 		}
 
 		// 2. Check Target (if present in fact)
 		if len(f.Args) >= 2 {
-			factTarget := fmt.Sprintf("%v", f.Args[1])
+			factTarget := types.ExtractString(f.Args[1])
 			if factTarget != target && factTarget != "_" {
 				continue
 			}

@@ -24,13 +24,13 @@ import (
 type CampaignType string
 
 const (
-	CampaignTypeGreenfield  CampaignType = "/greenfield"  // Build from scratch
-	CampaignTypeFeature     CampaignType = "/feature"     // Add major feature
-	CampaignTypeAudit       CampaignType = "/audit"       // Stability/security audit
-	CampaignTypeMigration   CampaignType = "/migration"   // Technology migration
-	CampaignTypeRemediation CampaignType = "/remediation" // Fix issues across codebase
+	CampaignTypeGreenfield         CampaignType = "/greenfield"          // Build from scratch
+	CampaignTypeFeature            CampaignType = "/feature"             // Add major feature
+	CampaignTypeAudit              CampaignType = "/audit"               // Stability/security audit
+	CampaignTypeMigration          CampaignType = "/migration"           // Technology migration
+	CampaignTypeRemediation        CampaignType = "/remediation"         // Fix issues across codebase
 	CampaignTypeAdversarialAssault CampaignType = "/adversarial_assault" // Long-horizon stress + adversarial probing
-	CampaignTypeCustom      CampaignType = "/custom"      // User-defined campaign
+	CampaignTypeCustom             CampaignType = "/custom"              // User-defined campaign
 )
 
 // CampaignStatus represents the current status of a campaign.
@@ -119,12 +119,12 @@ const (
 type VerificationMethod string
 
 const (
-	VerifyTestsPass     VerificationMethod = "/tests_pass"
-	VerifyBuilds        VerificationMethod = "/builds"
-	VerifyManualReview  VerificationMethod = "/manual_review"
-	VerifyShardValidate VerificationMethod = "/shard_validation"
+	VerifyTestsPass       VerificationMethod = "/tests_pass"
+	VerifyBuilds          VerificationMethod = "/builds"
+	VerifyManualReview    VerificationMethod = "/manual_review"
+	VerifyShardValidate   VerificationMethod = "/shard_validation"
 	VerifyNemesisGauntlet VerificationMethod = "/nemesis_gauntlet"
-	VerifyNone          VerificationMethod = "/none"
+	VerifyNone            VerificationMethod = "/none"
 )
 
 // DependencyType represents the type of dependency between phases.
@@ -402,7 +402,7 @@ func (c *Campaign) ToFacts() []core.Fact {
 	// Campaign metadata
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_metadata",
-		Args:      []interface{}{c.ID, c.CreatedAt.Unix(), len(c.Phases), c.Confidence},
+		Args:      []interface{}{c.ID, c.CreatedAt.Unix(), len(c.Phases), int64(c.Confidence * 100)}, // Scale 0.0-1.0 → 0-100 integer
 	})
 
 	// Campaign goal

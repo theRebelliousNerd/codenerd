@@ -579,8 +579,8 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 
 	for _, fact := range facts {
 		if fact.Predicate == "missing_tool_for" && len(fact.Args) >= 2 {
-			intent := fmt.Sprintf("%v", fact.Args[0])
-			capability := fmt.Sprintf("%v", fact.Args[1])
+			intent := types.ExtractString(fact.Args[0])
+			capability := types.ExtractString(fact.Args[1])
 			logging.Session("Detected missing_tool_for: intent=%s capability=%s", intent, capability)
 		}
 	}
@@ -848,19 +848,19 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		}
 
 		// Check Action (Handle both MangleAtom and string types)
-		factAction := fmt.Sprintf("%v", f.Args[0])
+		factAction := types.ExtractString(f.Args[0])
 		if factAction != string(actionAtom) {
 			continue
 		}
 
 		// Check Target
-		factTarget := fmt.Sprintf("%v", f.Args[1])
+		factTarget := types.ExtractString(f.Args[1])
 		if factTarget != target {
 			continue
 		}
 
 		// Check Payload
-		factPayload := fmt.Sprintf("%v", f.Args[2])
+		factPayload := types.ExtractString(f.Args[2])
 		if factPayload != payload {
 			continue
 		}
@@ -880,7 +880,7 @@ func (e *Executor) extractTarget(args map[string]interface{}) string {
 	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query"}
 	for _, key := range candidates {
 		if val, ok := args[key]; ok {
-			return fmt.Sprintf("%v", val)
+			return types.ExtractString(val)
 		}
 	}
 	return "unknown"

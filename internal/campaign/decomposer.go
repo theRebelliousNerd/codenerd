@@ -1029,7 +1029,7 @@ func (d *Decomposer) relevantPathsFromKernel() []string {
 		}
 		path, ok := fact.Args[0].(string)
 		if !ok {
-			path = fmt.Sprintf("%v", fact.Args[0])
+			path = types.ExtractString(fact.Args[0])
 		}
 		if path == "" {
 			continue
@@ -1095,7 +1095,7 @@ func (d *Decomposer) topologyContextSummary() string {
 			if len(fact.Args) == 0 {
 				continue
 			}
-			phase := fmt.Sprintf("%v", fact.Args[0])
+			phase := types.ExtractString(fact.Args[0])
 			if phase != "" {
 				phaseSet[phase] = struct{}{}
 			}
@@ -1142,8 +1142,8 @@ func (d *Decomposer) topologyContextSummary() string {
 			if len(fact.Args) < 2 {
 				continue
 			}
-			phase := fmt.Sprintf("%v", fact.Args[0])
-			doc := fmt.Sprintf("%v", fact.Args[1])
+			phase := types.ExtractString(fact.Args[0])
+			doc := types.ExtractString(fact.Args[1])
 			if phase == "" || doc == "" {
 				continue
 			}
@@ -1756,9 +1756,9 @@ func (d *Decomposer) validatePlan(campaignID string) []PlanValidationIssue {
 	} else {
 		for _, fact := range facts {
 			if len(fact.Args) >= 3 {
-				phaseID := fmt.Sprintf("%v", fact.Args[0])
-				issueType := fmt.Sprintf("%v", fact.Args[1])
-				desc := fmt.Sprintf("%v", fact.Args[2])
+				phaseID := types.ExtractString(fact.Args[0])
+				issueType := types.ExtractString(fact.Args[1])
+				desc := types.ExtractString(fact.Args[2])
 				issues = append(issues, PlanValidationIssue{
 					CampaignID:  campaignID,
 					IssueType:   issueType,
