@@ -35,6 +35,7 @@ func TestProofTreeTracer_TraceQuery(t *testing.T) {
 
 	// 4. Trace
 	tracer := NewProofTreeTracer(engine)
+	tracer.IndexRules() // Populate ruleIndex from ProgramInfo for premise discovery
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -60,12 +61,12 @@ func TestProofTreeTracer_TraceQuery(t *testing.T) {
 	if root.Source != SourceIDB {
 		t.Errorf("Expected SourceIDB, got %v", root.Source)
 	}
-	if root.RuleName != "transitive_impact" {
-		t.Errorf("Expected rule 'transitive_impact', got '%s'", root.RuleName)
+	if root.RuleName != "impacted" {
+		t.Errorf("Expected rule 'impacted', got '%s'", root.RuleName)
 	}
 
 	// Verify Children (Premises)
-	// findPremises for 'transitive_impact' looks for 'dependency_link(X, ...)'
+	// findPremises for 'impacted' looks for body predicates from ProgramInfo rules
 	if len(root.Children) != 1 {
 		t.Fatalf("Expected 1 child (premise), got %d", len(root.Children))
 	}
@@ -84,7 +85,7 @@ func TestProofTreeTracer_RenderASCII(t *testing.T) {
 	root := &DerivationNode{
 		Fact:     Fact{Predicate: "impacted", Args: []interface{}{"main.go"}},
 		Source:   SourceIDB,
-		RuleName: "transitive_impact",
+		RuleName: "impacted",
 		Children: []*DerivationNode{
 			{
 				Fact:   Fact{Predicate: "dependency_link", Args: []interface{}{"main.go", "lib.go", "import"}},
@@ -112,7 +113,7 @@ func TestProofTreeTracer_RenderASCII(t *testing.T) {
 	// impacted("main.go"). [IDB:transitive_impact]
 	// └── dependency_link("main.go", "lib.go", "import"). [EDB]
 
-	expectedRoot := `impacted("main.go"). [IDB:transitive_impact]`
+	expectedRoot := `impacted("main.go"). [IDB:impacted]`
 	if !containsNormalized(ascii, expectedRoot) {
 		t.Errorf("ASCII output missing root node pattern. Got:\n%s", ascii)
 	}

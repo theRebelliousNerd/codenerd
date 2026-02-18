@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
 )
 
@@ -88,15 +89,40 @@ func (t *ProofTreeTracer) IndexRules() {
 		return
 	}
 
-	// Extract rules from program info
-	for _, decl := range programInfo.Decls {
-		pred := decl.DeclaredAtom.Predicate.Symbol
+	// Clear existing index.
+	t.ruleIndex = make(map[string][]RuleSpec)
 
-		// Check if this predicate has derivation rules (IDB)
-		// This is a simplified indexing - full implementation would parse policy.mg
-		if _, ok := t.ruleIndex[pred]; !ok {
-			t.ruleIndex[pred] = []RuleSpec{}
+	// Index IDB rules by head predicate, extracting body predicates.
+	for _, rule := range programInfo.Rules {
+		headPred := rule.Head.Predicate.Symbol
+
+		var bodyPreds []string
+		isRecursive := false
+		for _, premise := range rule.Premises {
+			var predSym string
+			switch p := premise.(type) {
+			case ast.Atom:
+				predSym = p.Predicate.Symbol
+			case ast.NegAtom:
+				predSym = p.Atom.Predicate.Symbol
+			default:
+				continue
+			}
+			if predSym != "" {
+				bodyPreds = append(bodyPreds, predSym)
+				if predSym == headPred {
+					isRecursive = true
+				}
+			}
 		}
+
+		spec := RuleSpec{
+			Name:        headPred,
+			HeadPred:    headPred,
+			BodyPreds:   bodyPreds,
+			IsRecursive: isRecursive,
+		}
+		t.ruleIndex[headPred] = append(t.ruleIndex[headPred], spec)
 	}
 }
 
@@ -211,100 +237,88 @@ func (t *ProofTreeTracer) buildDerivationNode(ctx context.Context, fact Fact, pa
 	return node
 }
 
-// classifyFact determines if a fact is from EDB or IDB.
+// classifyFact determines if a fact is from EDB or IDB using ProgramInfo.
 func (t *ProofTreeTracer) classifyFact(fact Fact) (DerivationSource, string) {
-	// EDB predicates (base facts from schemas.mg)
-	edbPredicates := map[string]bool{
-		"file_topology":    true,
-		"file_content":     true,
-		"symbol_graph":     true,
-		"dependency_link":  true,
-		"diagnostic":       true,
-		"observation":      true,
-		"user_intent":      true,
-		"focus_resolution": true,
-		"preference":       true,
-		"shard_profile":    true,
-		"knowledge_atom":   true,
+	t.engine.mu.RLock()
+	info := t.engine.programInfo
+	t.engine.mu.RUnlock()
+
+	if info != nil {
+		// Check IDB first — any predicate symbol that appears as a rule head is IDB.
+		for sym := range info.IdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				// Try to find the first rule name (head predicate of the deriving rule).
+				ruleName := t.findRuleName(info, fact.Predicate)
+				return SourceIDB, ruleName
+			}
+		}
+
+		// Check EDB — predicates with declarations but no deriving rules.
+		for sym := range info.EdbPredicates {
+			if sym.Symbol == fact.Predicate {
+				return SourceEDB, ""
+			}
+		}
 	}
 
-	if edbPredicates[fact.Predicate] {
-		return SourceEDB, ""
-	}
-
-	// IDB predicates (derived by rules in policy.mg)
-	idbRules := map[string]string{
-		"next_action":          "strategy_selector",
-		"permitted":            "permission_gate",
-		"block_commit":         "commit_barrier",
-		"impacted":             "transitive_impact",
-		"clarification_needed": "focus_threshold",
-		"unsafe_to_refactor":   "refactoring_guard",
-		"test_state":           "tdd_loop",
-		"context_atom":         "spreading_activation",
-		"missing_hypothesis":   "abductive_repair",
-		"delegate_task":        "shard_delegation",
-		"activation":           "activation_rules",
-	}
-
-	if ruleName, ok := idbRules[fact.Predicate]; ok {
-		return SourceIDB, ruleName
-	}
-
-	// Unknown predicates default to EDB
+	// Unknown predicates default to EDB.
 	return SourceEDB, ""
 }
 
+// findRuleName finds a descriptive rule name for an IDB predicate from ProgramInfo.Rules.
+func (t *ProofTreeTracer) findRuleName(info *analysis.ProgramInfo, predicate string) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	// Check the ruleIndex cache first.
+	if specs, ok := t.ruleIndex[predicate]; ok && len(specs) > 0 {
+		return specs[0].Name
+	}
+
+	// Fall back to scanning Rules from ProgramInfo.
+	for _, rule := range info.Rules {
+		if rule.Head.Predicate.Symbol == predicate {
+			// Use the predicate name itself as the rule name (e.g., "next_action" → "next_action").
+			return predicate
+		}
+	}
+	return predicate
+}
+
 // findPremises finds the facts that were used to derive a given fact.
-func (t *ProofTreeTracer) findPremises(ctx context.Context, fact Fact, ruleName string) []Fact {
+// Uses the ruleIndex (populated by IndexRules from ProgramInfo) to discover
+// body predicates dynamically, rather than hardcoding rule structures.
+func (t *ProofTreeTracer) findPremises(_ context.Context, fact Fact, ruleName string) []Fact {
 	var premises []Fact
 
-	// Rule-specific premise discovery
-	switch ruleName {
-	case "transitive_impact":
-		// impacted(X) :- dependency_link(X, Y, _), modified(Y).
-		// Look for dependency_link facts that could have derived this
-		deps, _ := t.engine.GetFacts("dependency_link")
-		for _, dep := range deps {
-			if len(dep.Args) >= 2 && dep.Args[0] == fact.Args[0] {
-				premises = append(premises, dep)
+	t.mu.RLock()
+	specs := t.ruleIndex[ruleName]
+	t.mu.RUnlock()
+
+	if len(specs) == 0 {
+		return nil
+	}
+
+	// Collect unique body predicates across all rules for this head predicate.
+	seen := make(map[string]bool)
+	for _, spec := range specs {
+		for _, bodyPred := range spec.BodyPreds {
+			if bodyPred == ruleName {
+				continue // Skip self-referential (recursive) predicates to avoid cycles.
+			}
+			seen[bodyPred] = true
+		}
+	}
+
+	// For each body predicate, look for facts whose first arg matches.
+	for bodyPred := range seen {
+		bodyFacts, _ := t.engine.GetFacts(bodyPred)
+		for _, bf := range bodyFacts {
+			// Heuristic: match on first arg if both facts have args.
+			if len(bf.Args) >= 1 && len(fact.Args) >= 1 && bf.Args[0] == fact.Args[0] {
+				premises = append(premises, bf)
 			}
 		}
-
-	case "permission_gate":
-		// permitted(Action) :- safe_action(Action).
-		safeFacts, _ := t.engine.GetFacts("safe_action")
-		for _, sf := range safeFacts {
-			if len(sf.Args) >= 1 && len(fact.Args) >= 1 && sf.Args[0] == fact.Args[0] {
-				premises = append(premises, sf)
-			}
-		}
-
-	case "spreading_activation":
-		// context_atom is derived from activation rules
-		activations, _ := t.engine.GetFacts("activation")
-		for _, a := range activations {
-			if len(a.Args) >= 1 && len(fact.Args) >= 1 && a.Args[0] == fact.Args[0] {
-				premises = append(premises, a)
-			}
-		}
-
-	case "focus_threshold":
-		// clarification_needed(Ref) :- focus_resolution(Ref, _, _, Score), Score < 85.
-		focuses, _ := t.engine.GetFacts("focus_resolution")
-		for _, f := range focuses {
-			if len(f.Args) >= 1 && len(fact.Args) >= 1 && f.Args[0] == fact.Args[0] {
-				premises = append(premises, f)
-			}
-		}
-
-	case "strategy_selector":
-		// next_action derived from user_intent + file_topology
-		intents, _ := t.engine.GetFacts("user_intent")
-		premises = append(premises, intents...)
-
-	default:
-		// Generic: no premises identified
 	}
 
 	return premises

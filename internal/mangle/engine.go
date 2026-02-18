@@ -846,6 +846,14 @@ func (e *Engine) Close() error {
 	return nil
 }
 
+// GetProgramInfo returns the current ProgramInfo, or nil if schemas haven't been loaded.
+// Callers must NOT mutate the returned pointer.
+func (e *Engine) GetProgramInfo() *analysis.ProgramInfo {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.programInfo
+}
+
 type queryVariable struct {
 	Name  string
 	Index int

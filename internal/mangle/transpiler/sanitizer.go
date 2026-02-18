@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/mangle"
 
+	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
 )
@@ -39,6 +40,12 @@ func (s *Sanitizer) LoadPolicy(path string) error {
 		return fmt.Errorf("failed to read policy file: %w", err)
 	}
 	return s.validator.UpdateFromSchema(string(data))
+}
+
+// UpdateFromProgramInfo refreshes the sanitizer's predicate/type map from parsed ProgramInfo.
+// This is preferred over UpdateSchema when analysis.ProgramInfo is available.
+func (s *Sanitizer) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
+	s.validator.UpdateFromProgramInfo(info)
 }
 
 // Sanitize cleans up LLM-generated Mangle code.

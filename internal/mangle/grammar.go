@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/google/mangle/analysis"
+	"github.com/google/mangle/ast"
 )
 
 // ============================================================================
@@ -235,6 +238,7 @@ func (v *AtomValidator) loadCorePredicates() {
 }
 
 // UpdateFromSchema updates ValidPredicates by parsing Decl statements from a schema string.
+// Deprecated: Prefer UpdateFromProgramInfo when analysis.ProgramInfo is available.
 func (v *AtomValidator) UpdateFromSchema(schema string) error {
 	// Simple regex-based parser for getting Decls to populate TypeMap
 	// Pattern: Decl predicate(Type, Type).
@@ -301,6 +305,68 @@ func parseArgTypeFromSchema(s string) ArgType {
 	case "Any", "any":
 		return ArgTypeAny
 	default:
+		return ArgTypeAny
+	}
+}
+
+// UpdateFromProgramInfo populates ValidPredicates from parsed analysis.ProgramInfo.Decls.
+// This is the preferred method: it reads typed declarations directly from the Mangle AST
+// rather than regex-parsing raw schema text.
+func (v *AtomValidator) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
+	if info == nil {
+		return
+	}
+	for sym, decl := range info.Decls {
+		spec := PredicateSpec{
+			Name:  sym.Symbol,
+			Arity: sym.Arity,
+			Args:  make([]ArgSpec, sym.Arity),
+		}
+
+		// Extract argument names from DeclaredAtom.Args (always ast.Variable instances).
+		for i, arg := range decl.DeclaredAtom.Args {
+			if variable, ok := arg.(ast.Variable); ok {
+				spec.Args[i].Name = variable.Symbol
+			} else {
+				spec.Args[i].Name = fmt.Sprintf("Arg%d", i)
+			}
+		}
+
+		// Extract types from the primary bound alternative (Bounds[0]).
+		if len(decl.Bounds) > 0 && len(decl.Bounds[0].Bounds) == sym.Arity {
+			for i, bound := range decl.Bounds[0].Bounds {
+				spec.Args[i].Type = boundToArgType(bound)
+			}
+		}
+
+		v.ValidPredicates[sym.Symbol] = spec
+	}
+}
+
+// boundToArgType converts a Mangle bound type (e.g. ast.NameBound, ast.StringBound)
+// to the grammar validator's ArgType enum.
+func boundToArgType(bound ast.BaseTerm) ArgType {
+	c, ok := bound.(ast.Constant)
+	if !ok {
+		return ArgTypeAny
+	}
+	switch {
+	case c.Equals(ast.NameBound):
+		return ArgTypeName
+	case c.Equals(ast.StringBound):
+		return ArgTypeString
+	case c.Equals(ast.NumberBound):
+		return ArgTypeNumber
+	case c.Equals(ast.Float64Bound):
+		return ArgTypeNumber // Float64 maps to the Number ArgType for validation purposes
+	case c.Equals(ast.AnyBound):
+		return ArgTypeAny
+	default:
+		// TimeBound, DurationBound, BytesBound, and composite types (List, Map, etc.)
+		// all map to ArgTypeAny since the validator doesn't have dedicated ArgType variants.
+		if c.Type == ast.NameType {
+			return ArgTypeName
+		}
 		return ArgTypeAny
 	}
 }
@@ -733,6 +799,11 @@ func NewRepairLoop() *RepairLoop {
 		Validator:  NewAtomValidator(),
 		MaxRetries: 3,
 	}
+}
+
+// UpdateFromProgramInfo refreshes the validator's predicate specs from ProgramInfo.
+func (r *RepairLoop) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
+	r.Validator.UpdateFromProgramInfo(info)
 }
 
 // ValidateAndRepair validates atoms and generates repair prompts if needed.
