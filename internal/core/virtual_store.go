@@ -1423,6 +1423,23 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 	// Keep action logs bounded to protect kernel evaluation performance.
 	prune("execution_result", 4, now.Add(-15*time.Minute).Unix())
 	prune("shard_context_refreshed", 2, now.Add(-60*time.Minute).Unix())
+	prune("system_heartbeat", 1, now.Add(-5*time.Minute).Unix())
+
+	// Cap diagnostics by count (no timestamp field).
+	pruneByCount := func(predicate string, maxFacts int) {
+		facts, err := realKernel.Query(predicate)
+		if err != nil || len(facts) <= maxFacts {
+			return
+		}
+		// Remove oldest first (they appear earlier in the slice).
+		excess := facts[:len(facts)-maxFacts]
+		if err := realKernel.RetractExactFactsBatch(excess); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("failed to cap %s facts: %v", predicate, err)
+		}
+	}
+	pruneByCount("diagnostic", 200)
+	pruneByCount("code_diagnostic", 200)
+	pruneByCount("lsp_diagnostic", 200)
 }
 
 func unixSecondsArgAt(args []interface{}, idx int) (int64, bool) {

@@ -34,6 +34,12 @@ type KernelQuerier interface {
 	AssertBatch(facts []interface{}) error
 }
 
+// KernelRetracter is an optional extension of KernelQuerier for predicate retraction.
+// Implementations that support it (e.g., RealKernel) enable cleanup of ephemeral facts.
+type KernelRetracter interface {
+	Retract(predicate string) error
+}
+
 // VectorSearcher defines the interface for semantic search.
 type VectorSearcher interface {
 	// Search performs semantic search and returns atom IDs with scores.
@@ -502,6 +508,14 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 	stats.VectorQueryMs = vectorMs
+
+	// Step 2.5: Retract ephemeral compile_context facts to prevent accumulation.
+	// These were only needed for Mangle-based atom selection and are stale after.
+	if retracter, ok := c.kernel.(KernelRetracter); ok {
+		if err := retracter.Retract("compile_context"); err != nil {
+			logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", err)
+		}
+	}
 
 	logging.Get(logging.CategoryJIT).Debug(
 		"Selected %d atoms after scoring in %dms (vector=%dms)",
