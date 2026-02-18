@@ -389,21 +389,28 @@
     
     ---
     
-    ### permitted/1
+    ### permitted/3
     
     **Purpose**: Constitutional permission gate
     
     **Type**: IDB (derived from safety policy)
     
     **Arguments**:
-    1. Action (Name) - Action to check
+    1. ActionType (Name) - Action type to check
+    2. Target (String) - Target of action (file path, symbol, etc.)
+    3. Payload (String) - Action payload or parameters
     
     **Usage**: **Every** action must derive `permitted` before execution. Default deny.
     
     **Derivation**:
     ```mangle
-    permitted(Action) :- safe_action(Action).
-    permitted(Action) :- dangerous_action(Action), admin_override(_), signed_approval(Action).
+    permitted(ActionType, Target, Payload) :-
+        safe_action(ActionType),
+        pending_action(_, ActionType, Target, Payload, _).
+    permitted(ActionType, Target, Payload) :-
+        dangerous_action(ActionType),
+        admin_override(_),
+        signed_approval(ActionType).
     ```
     
     ---

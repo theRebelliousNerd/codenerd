@@ -25,11 +25,11 @@
     ### Common patterns
     - **Eligibility gating**
       ```
-      permitted(Action) :- safe_action(Action), not blocked(Action).
+      permitted(ActionType, Target, Payload) :- safe_action(ActionType), pending_action(_, ActionType, Target, Payload, _).
       ```
     - **Next action**
       ```
-      next_action(A) :- user_intent(_, Verb, Target, _), choose_action(Verb, Target, A).
+      next_action(A) :- user_intent(_, _, Verb, Target, _), choose_action(Verb, Target, A).
       ```
     - **Recursive closure**
       ```

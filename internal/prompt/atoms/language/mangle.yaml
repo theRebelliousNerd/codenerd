@@ -157,44 +157,45 @@
 
     ### COMMON PREDICATES
     ```mangle
-    # Intent classification
-    user_intent(Category, Verb, Target, Constraint, Mode).
+    # Intent classification (5 args: ID, Category, Verb, Target, Constraint)
+    user_intent(ID, Category, Verb, Target, Constraint).
 
     # Actions
     next_action(Action).
-    permitted(Action).
+    permitted(ActionType, Target, Payload).
 
     # Context
     current_file(Path).
     current_function(Name, File, Line).
 
     # Safety
-    forbidden_action(Action).
-    requires_confirmation(Action).
+    forbidden(ActionType).
+    dangerous_action(ActionType).
+    requires_approval(ActionType).
     ```
 
     ### POLICY RULES
     ```mangle
     # Derive next action from intent
-    next_action("/code") :-
-        user_intent("/mutation", "/create", _, _, _),
-        !forbidden_action("/code").
+    next_action(/code) :-
+        user_intent(_, /mutation, /create, _, _),
+        safe_action(/code).
 
     # Permission gate
-    permitted(Action) :-
-        next_action(Action),
-        !forbidden_action(Action),
-        !requires_confirmation(Action).
+    permitted(Action, Target, Payload) :-
+        safe_action(Action),
+        pending_action(_, Action, Target, Payload, _),
+        !dangerous_content(Action, Payload).
     ```
 
     ### SCHEMA DECLARATIONS
     ```mangle
-    # Declare predicate signatures
-    Decl user_intent(category: /category, verb: /verb,
-                     target: String, constraint: String, mode: /mode).
+    # Declare predicate signatures with Mangle Type<> syntax
+    Decl user_intent(ID.Type<n>, Category.Type<n>, Verb.Type<n>,
+                     Target.Type<string>, Constraint.Type<string>).
 
-    Decl file_modified(path: String, lines: Number).
+    Decl file_modified(Path.Type<string>, Lines.Type<int>).
 
-    Decl hypothesis(type: /hypothesis_type, file: String,
-                    line: Number, confidence: Number).
+    Decl hypothesis(HType.Type<n>, File.Type<string>,
+                    Line.Type<int>, Confidence.Type<int>).
     ```

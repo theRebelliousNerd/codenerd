@@ -31,10 +31,10 @@
     Every statement MUST end with a period (`.`):
     ```mangle
     # CORRECT
-    permitted(/action).
+    permitted(/read, "file.go", "").
     
     # WRONG - will not parse
-    permitted(/action)
+    permitted(/read, "file.go", "")
     ```
     
     ### Comments

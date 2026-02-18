@@ -328,12 +328,12 @@
     
     **States**: `/passing`, `/failing`, `/compiling`, `/unknown`, `/log_read`, `/cause_found`, `/patch_applied`
     
-    ### permitted/1
+    ### permitted/3
     
     ```go
-    engine.AddFact("permitted", "/read_file")
-    engine.AddFact("permitted", "/write_test_file")
-    engine.AddFact("permitted", "/run_tests")
+    engine.AddFact("permitted", "/read_file", "main.go", "")
+    engine.AddFact("permitted", "/write_test_file", "test.go", "")
+    engine.AddFact("permitted", "/run_tests", "", "")
     ```
     
     ---

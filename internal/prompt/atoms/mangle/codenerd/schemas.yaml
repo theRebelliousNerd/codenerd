@@ -317,19 +317,19 @@
     
     **Common Actions**: `/read_error_log`, `/analyze_root_cause`, `/generate_patch`, `/run_tests`, `/escalate_to_user`
     
-    ### permitted/1
+    ### permitted/3
     
     Constitutional safety gate - actions permitted by policy.
     
     ```mangle
-    Decl permitted(Action.Type<n>).
+    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
     ```
     
     **Examples**:
     ```mangle
-    permitted(/read_file).
-    permitted(/write_file).
-    permitted(/run_tests).
+    permitted(/read_file, "main.go", "").
+    permitted(/write_file, "test.go", "").
+    permitted(/run_tests, "", "").
     ```
     
     ---

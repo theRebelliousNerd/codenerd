@@ -35,9 +35,9 @@
   content: |
     ## Verb Categories
 
-    - Query: explain, describe, search, find, show, list, analyze
+    - Query: explain, describe, search, find, show, list, analyze, review
     - Mutation: fix, refactor, create, delete, implement, add, modify
-    - Instruction: run, test, build, deploy, review, debug
+    - Instruction: run, test, build, deploy, debug
 
 - id: "system/perception/precision"
   category: "methodology"

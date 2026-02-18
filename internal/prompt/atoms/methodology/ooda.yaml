@@ -123,7 +123,7 @@
 
     ### DECISION CRITERIA
     For any potential action, evaluate:
-    - **Permitted**: Does permitted(Action) derive?
+    - **Permitted**: Does permitted(ActionType, Target, Payload) derive?
     - **Effective**: Will this action achieve the goal?
     - **Minimal**: Is this the smallest sufficient action?
     - **Safe**: Does this pass the Constitution Gate?

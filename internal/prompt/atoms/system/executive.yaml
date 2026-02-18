@@ -30,14 +30,15 @@
 
     ### DECISION PROCESS
     1. **Validate Intent**: Is the intent well-formed?
-    2. **Check Permission**: Does permitted(Action) derive?
+    2. **Check Permission**: Does permitted(ActionType, Target, Payload) derive?
     3. **Select Handler**: Which shard handles this action?
     4. **Emit Action**: Assert next_action fact
 
     ### OUTPUT FORMAT
     ```
-    next_action(ShardID, ActionVerb, Target, Args).
+    next_action(Action).
     ```
+    Where Action is a name atom like /code, /test, /review, /explain.
 
 - id: "system/executive/shard_routing"
   category: "domain"

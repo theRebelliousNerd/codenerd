@@ -41,7 +41,7 @@
     ```mangle
     # schemas.mg has:
     Decl user_action(Action.Type<name>).
-    Decl permitted(Action.Type<name>).
+    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
     
     # Rule uses undefined predicate:
     candidate_action(/monitor_server) :- server_health(/degraded).
@@ -325,11 +325,11 @@
     ```mangle
     # schemas.mg has:
     Decl user_action(A.Type<name>).
-    Decl permitted(A.Type<name>).
+    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
     
     # AI generates rule with undefined predicates:
     candidate_action(/fix_issue) :-
-        user_intent(/debug, Target, _),
+        user_intent(_, /query, /debug, Target, _),
         system_load(Load),           # Undefined!
         server_health(/degraded),    # Undefined!
         Load > 80.
@@ -347,7 +347,7 @@
     
     # Now rule is valid
     candidate_action(/fix_issue) :-
-        user_intent(/debug, Target, _),
+        user_intent(_, /query, /debug, Target, _),
         system_load(Load),
         server_health(/degraded),
         Load > 80.
@@ -357,8 +357,8 @@
     ```mangle
     # CORRECT - use only declared predicates
     candidate_action(/fix_issue) :-
-        user_intent(/debug, Target, _),
-        permitted(/fix_issue).
+        user_intent(_, /query, /debug, Target, _),
+        permitted(/fix_issue, Target, "").
     ```
     
     **Option 3:** Add to learned.mg
@@ -582,7 +582,7 @@
     
     # Output:
     # Decl user_action(Action.Type<name>).
-    # Decl permitted(Action.Type<name>).
+    # Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
     # ...
     ```
     
@@ -615,10 +615,10 @@
     ```mangle
     # Base facts in schemas
     Decl user_action(Action.Type<name>).
-    Decl permitted(Action.Type<name>).
+    Decl permitted(ActionType.Type<n>, Target.Type<string>, Payload.Type<string>).
     
     # Derived predicates in learned.mg (automatically available)
-    candidate_action(Action) :- user_action(Action), permitted(Action).
+    candidate_action(Action) :- user_action(Action), permitted(Action, _, _).
     
     # Can use candidate_action in other rules
     next_action(Action) :- candidate_action(Action), priority(Action, /high).

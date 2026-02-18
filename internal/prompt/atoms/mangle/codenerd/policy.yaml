@@ -280,14 +280,16 @@
     
     ```mangle
     # Safe actions are permitted
-    permitted(Action) :-
-        safe_action(Action).
+    permitted(ActionType, Target, Payload) :-
+        safe_action(ActionType),
+        pending_action(_, ActionType, Target, Payload, _).
     
     # Dangerous actions require override + approval
-    permitted(Action) :-
-        dangerous_action(Action),
+    permitted(ActionType, Target, Payload) :-
+        dangerous_action(ActionType),
         admin_override(User),
-        signed_approval(Action).
+        signed_approval(ActionType),
+        pending_action(_, ActionType, Target, Payload, _).
     ```
     
     ### Safe Action Classification
@@ -357,7 +359,7 @@
     
     # Detect exfiltration attempts
     security_violation(/exfiltration, URL) :-
-        next_action(/network_request, URL),
+        pending_action(_, /network_request, URL, _, _),
         extract_domain(URL, Domain),
         not network_allowlist(Domain).
     ```

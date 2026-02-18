@@ -82,8 +82,8 @@
 
     ### CONFIRMATION PROTOCOL
     When encountering a dangerous action:
-    1. Emit `dangerous_action(Action)` fact to kernel
-    2. Wait for `permitted(Action)` derivation
+    1. Emit `dangerous_action(ActionType)` fact to kernel
+    2. Wait for `permitted(ActionType, Target, Payload)` derivation
     3. If not permitted, emit `dream_block(Action, Reason)`
     4. Request user confirmation with clear explanation
 

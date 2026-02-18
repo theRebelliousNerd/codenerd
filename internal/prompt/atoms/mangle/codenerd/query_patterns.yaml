@@ -374,7 +374,7 @@
     
     ```mangle
     # Is action permitted?
-    ? permitted(/write_file).
+    ? permitted(/write_file, _, _).
     
     # Is action dangerous?
     ? dangerous_action(Action).
@@ -385,7 +385,7 @@
     
     ```go
     // Check if action allowed
-    result, _ := engine.Query(ctx, "permitted(/write_file)")
+    result, _ := engine.Query(ctx, "permitted(/write_file, _, _)")
     if len(result.Bindings) == 0 {
         fmt.Println("Write not permitted")
     }

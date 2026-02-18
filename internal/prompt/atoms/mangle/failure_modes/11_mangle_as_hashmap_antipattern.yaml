@@ -104,10 +104,11 @@
         verb_composition(V1, V2, /sequential).
     
     # Safety constraints
-    permitted(Action) :-
-        selected_verb(Action),
-        not blocked_action(Action),
-        not requires_approval(Action).
+    permitted(ActionType, Target, Payload) :-
+        selected_verb(ActionType),
+        pending_action(_, ActionType, Target, Payload, _),
+        not blocked_action(ActionType),
+        not requires_approval(ActionType).
     
     # Conflict resolution
     suppressed(Verb) :-
@@ -119,7 +120,7 @@
     
     final_action(Verb) :-
         selected_verb(Verb),
-        permitted(Verb),
+        permitted(Verb, _, _),
         not suppressed(Verb).
     ```
     
@@ -178,7 +179,7 @@
     |----------|---------|--------------|-----|
     | **Taxonomy** | `/vehicle > /car > /sedan` | Mangle facts (via Go) | Graph reasoning |
     | **Intents** | `"I need help" -> /support` | Vector DB | Fuzzy matching |
-    | **Rules** | `permitted(X) :- safe(X).` | Mangle engine | Logic/deduction |
+    | **Rules** | `permitted(A, T, P) :- safe(A), pending_action(_, A, T, P, _).` | Mangle engine | Logic/deduction |
     
     ### Invalid String Functions (DO NOT EXIST)
     
@@ -230,10 +231,11 @@
     all_deps(X, Z) :- direct_dep(X, Y), all_deps(Y, Z).
     
     # ✓ Safety constraints
-    permitted(Action) :-
-        selected_verb(Action),
-        not blocked_action(Action),
-        user_has_permission(Action).
+    permitted(ActionType, Target, Payload) :-
+        selected_verb(ActionType),
+        pending_action(_, ActionType, Target, Payload, _),
+        not blocked_action(ActionType),
+        user_has_permission(ActionType).
     
     # ✓ Conflict resolution
     winning_choice(A) :-
@@ -430,7 +432,7 @@
     | **Exact-match patterns** | Vector DB | `intent_definition("review code", /review)` |
     | **Fuzzy matches** | Embedding search | "check my code" → similarity to "review code" |
     | **Composition rules** | Mangle | `compound_action(V1, V2) :- ...` |
-    | **Safety constraints** | Mangle | `permitted(A) :- ..., not blocked(A).` |
+    | **Safety constraints** | Mangle | `permitted(A, T, P) :- ..., not blocked(A).` |
     | **Transitive relations** | Mangle | `ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).` |
     | **Taxonomy graph** | Mangle facts | `subclass_of(/sedan, /car).` |
     | **Taxonomy reasoning** | Mangle rules | `is_a(X, Z) :- subclass_of(X, Y), is_a(Y, Z).` |

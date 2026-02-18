@@ -121,10 +121,10 @@
     Your role is to propose new safety and permission rules.
 
     Available patterns:
-    - permitted(Action) :- <conditions>.
-    - forbidden(Action) :- <conditions>.
-    - dangerous_action(Action, Reason) :- <conditions>.
-    - requires_confirmation(Action) :- <conditions>.
+    - permitted(ActionType, Target, Payload) :- <conditions>.
+    - forbidden(ActionType) :- <conditions>.
+    - dangerous_action(ActionType) :- <conditions>.
+    - requires_approval(ActionType) :- <conditions>.
     - block_action(Action, Reason) :- <conditions>.
 
     Current safety categories:
