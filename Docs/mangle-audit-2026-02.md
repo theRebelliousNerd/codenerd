@@ -2,8 +2,76 @@
 
 **Date:** February 17, 2026
 **Scope:** `internal/mangle/`, `internal/core/`, `internal/types/`, `internal/perception/`, `internal/prompt/`
-**Mangle Version Pinned:** `v0.4.0` (go.mod line 14)
-**Upstream HEAD:** `29970168` (Feb 11, 2026) -- significantly ahead of v0.4.0
+**Mangle Version Pinned:** ~~`v0.4.0`~~ → `v0.4.1-0.20260211131615-299701686e7a` (upgraded to HEAD)
+**Upstream HEAD:** `29970168` (Feb 11, 2026)
+**Status:** **COMPLETE** — 29/30 items resolved. 1 item blocked upstream.
+**Completed:** February 18, 2026 (13 sessions, 13 commits)
+
+---
+
+## Completion Summary
+
+| Phase | Items | Status |
+|-------|-------|--------|
+| Phase 1: Immediate Fixes | #1-#9 | All 9 DONE |
+| Phase 2: Error Handling & Fact Lifecycle | #10-#15 | All 6 DONE |
+| Phase 3: Architecture Improvements | #16-#21 | 5/6 DONE (#18 blocked upstream) |
+| Phase 4: Cleanup | #22-#30 | All 9 DONE |
+
+### Item Status Detail
+
+| # | Description | Commit | Status |
+|---|-------------|--------|--------|
+| 1 | Float coercion: `ast.Float64()` path | `412de772`, `395a4ccf` | DONE |
+| 2 | `time.Time`/`time.Duration` in `ToAtom()` | `412de772`, `395a4ccf` | DONE |
+| 3 | `/time`, `/duration`, `/float` type bound switch | `412de772`, `395a4ccf` | DONE |
+| 4 | Fix prompt atom `Decl` syntax | `618e8eea` | DONE |
+| 5 | Reconcile predicate arities in prompt atoms | `618e8eea` | DONE (16 YAML files) |
+| 6 | Replace `fmt.Fprintf(os.Stderr)` with logger | `412de772` | DONE |
+| 7 | Delete custom `min()` | `412de772` | DONE |
+| 8 | Precompile regexes | `412de772` | DONE |
+| 9 | Add `float64` case to `goToMangleTerm` | `412de772`, `395a4ccf` | DONE |
+| 10 | Log errors on kernel mutations | `412de772` | DONE (28 sites) |
+| 11 | Retract-before-assert for TDD state | `412de772` | DONE |
+| 12 | Add pruning for heartbeats, diagnostics | `0d7df3ce` | DONE |
+| 13 | Retract JIT context facts after compilation | `0d7df3ce` | DONE |
+| 14 | Centralized fact arg extraction utilities | `10715853`, `0014fc49` | DONE (131 conversions) |
+| 15 | Add type annotations to schema `.mg` files | `ac119ac4` | DONE (1200+ Decls) |
+| 16 | Update Mangle dependency to latest HEAD | `395a4ccf` | DONE (v0.4.0 → HEAD) |
+| 17 | Migrate virtual predicates to external API | `9ce388c3` | DONE |
+| 18 | Temporal fact lifecycle (DatalogMTL) | — | BLOCKED UPSTREAM |
+| 19 | Fix perception fallback chain | `5c818471` | DONE (9 verbs + taxonomy) |
+| 20 | Generate predicate specs from ProgramInfo | `df961f35` | DONE |
+| 21 | Atomic retract+assert operations | `334dd164` | DONE |
+| 22 | Deduplicate `ReplaceFactsForFile*` | `412de772` | DONE |
+| 23 | Move `isBuiltin` map to package level | `412de772` | DONE |
+| 24 | Use `WithCreatedFactLimit` in Engine | `412de772` | DONE |
+| 25 | Remove deprecated `convertValueToBaseTerm` | `412de772` | DONE |
+| 26 | Extract repeated error strings | `412de772` | DONE |
+| 27 | Fix LSP JSON unmarshal error handling | `395a4ccf` | DONE |
+| 28 | Fill test gaps | `9e14a57f` | DONE (18 tests) |
+| 29 | Update AGENTS.md to reference correct API | Session 10 | DONE (disk only, .gitignore) |
+| 30 | Derive proof tree predicate sets from ProgramInfo | `df961f35` | DONE |
+
+### #18 Blocked Upstream Detail
+
+Item #18 (temporal fact lifecycle) requires Mangle's full DatalogMTL temporal reasoning
+system: `@[start, end]` interval syntax, `TemporalLiteral`, `TemporalStore`, Allen's
+Interval Relations, temporal operators (`<-[0d, 30d]`, etc.). These features exist in
+upstream commit `77dd1714` (Feb 9, 2026) but are NOT included in our pinned HEAD
+(`29970168`, Feb 11, 2026) — likely on a separate branch not yet merged to main.
+
+**Interim mitigations already implemented:**
+- Heartbeat TTL pruning (5min) + count caps for diagnostics (#12, commit `0d7df3ce`)
+- TDD retract-before-assert pattern (#11, commit `412de772`)
+- JIT context fact retraction after compilation (#13, commit `0d7df3ce`)
+- Atomic transaction API for retract+assert sequences (#21, commit `334dd164`)
+
+When upstream merges the temporal branch, #18 can be unblocked by:
+1. Updating `go.mod` to new Mangle version with temporal support
+2. Replacing `system_heartbeat` pruning with `@[now, now+5m]` intervals
+3. Adding `@[spawn_time, completion_time]` to shard lifecycle facts
+4. Using temporal operators in policy rules for lookback queries
 
 ---
 
@@ -658,53 +726,53 @@ Accept `*analysis.ProgramInfo` in the constructor and derive EDB/IDB classificat
 
 ### Phase 1: Immediate Fixes (High Impact, Low Effort)
 
-| # | Issue | Files | Effort | Impact |
-|---|-------|-------|--------|--------|
-| 1 | Float coercion: add `ast.Float64()` path | `types.go`, `engine.go`, `kernel_facts.go` | 2h | Eliminates data loss for all numeric values |
-| 2 | Add `time.Time`/`time.Duration` to `ToAtom()` | `types.go` | 1h | Enables temporal fact assertions |
-| 3 | Add `/time`, `/duration`, `/float` to type bound switch | `engine.go:566-575` | 30m | Completes type mapping |
-| 4 | Fix prompt atom `Decl` syntax | `language/mangle.yaml` | 1h | LLM generates valid Mangle code |
-| 5 | Reconcile predicate arities in prompt atoms | Multiple yaml files | 2h | Consistent instructions to LLM |
-| 6 | Replace `fmt.Fprintf(os.Stderr)` with logger | `engine.go:535` | 5m | Logging consistency |
-| 7 | Delete custom `min()` | `lsp.go:1049-1054` | 1m | Go 1.24 compatibility |
-| 8 | Precompile regexes | `grammar.go:672`, `prompt_builder.go:414` | 10m | Performance |
-| 9 | Add `float64` case to `goToMangleTerm` | `virtual_store_graph.go:73-94` | 15m | Graph floats handled correctly |
+| # | Issue | Files | Effort | Impact | Status |
+|---|-------|-------|--------|--------|--------|
+| 1 | Float coercion: add `ast.Float64()` path | `types.go`, `engine.go`, `kernel_facts.go` | 2h | Eliminates data loss for all numeric values | DONE |
+| 2 | Add `time.Time`/`time.Duration` to `ToAtom()` | `types.go` | 1h | Enables temporal fact assertions | DONE |
+| 3 | Add `/time`, `/duration`, `/float` to type bound switch | `engine.go:566-575` | 30m | Completes type mapping | DONE |
+| 4 | Fix prompt atom `Decl` syntax | `language/mangle.yaml` | 1h | LLM generates valid Mangle code | DONE |
+| 5 | Reconcile predicate arities in prompt atoms | Multiple yaml files | 2h | Consistent instructions to LLM | DONE |
+| 6 | Replace `fmt.Fprintf(os.Stderr)` with logger | `engine.go:535` | 5m | Logging consistency | DONE |
+| 7 | Delete custom `min()` | `lsp.go:1049-1054` | 1m | Go 1.24 compatibility | DONE |
+| 8 | Precompile regexes | `grammar.go:672`, `prompt_builder.go:414` | 10m | Performance | DONE |
+| 9 | Add `float64` case to `goToMangleTerm` | `virtual_store_graph.go:73-94` | 15m | Graph floats handled correctly | DONE |
 
 ### Phase 2: Error Handling & Fact Lifecycle (High Impact, Medium Effort)
 
-| # | Issue | Files | Effort | Impact |
-|---|-------|-------|--------|--------|
-| 10 | Log errors on kernel mutations (replace `_ = err`) | 28 sites across `internal/core/` | 3h | Visibility into kernel state failures |
-| 11 | Retract-before-assert pattern for TDD state | `tdd_loop.go` | 1h | Correct `next_action` derivation |
-| 12 | Add pruning for heartbeats, diagnostics, test_state | `virtual_store.go`, `tdd_loop.go` | 3h | Prevents fact store bloat |
-| 13 | Retract JIT context facts after compilation | `compiler.go` | 1h | Clean atom selection state |
-| 14 | Create centralized fact arg extraction utilities | New file in `internal/types/` | 4h | Replaces 100+ `fmt.Sprintf("%v")` calls |
-| 15 | Add type annotations to schema `.mg` files | All `defaults/*.mg` | 4h | Enables Mangle type checking |
+| # | Issue | Files | Effort | Impact | Status |
+|---|-------|-------|--------|--------|--------|
+| 10 | Log errors on kernel mutations (replace `_ = err`) | 28 sites across `internal/core/` | 3h | Visibility into kernel state failures | DONE |
+| 11 | Retract-before-assert pattern for TDD state | `tdd_loop.go` | 1h | Correct `next_action` derivation | DONE |
+| 12 | Add pruning for heartbeats, diagnostics, test_state | `virtual_store.go`, `tdd_loop.go` | 3h | Prevents fact store bloat | DONE |
+| 13 | Retract JIT context facts after compilation | `compiler.go` | 1h | Clean atom selection state | DONE |
+| 14 | Create centralized fact arg extraction utilities | New file in `internal/types/` | 4h | Replaces 100+ `fmt.Sprintf("%v")` calls | DONE |
+| 15 | Add type annotations to schema `.mg` files | All `defaults/*.mg` | 4h | Enables Mangle type checking | DONE |
 
 ### Phase 3: Architecture Improvements (High Impact, High Effort)
 
-| # | Issue | Files | Effort | Impact |
-|---|-------|-------|--------|--------|
-| 16 | Update Mangle dependency to latest HEAD | `go.mod` | 4h | Unlocks temporal, time/duration, external predicates |
-| 17 | Migrate virtual predicates to native external predicates API | `virtual_fact_store.go`, `virtual_store.go` | 2d | Filter pushdown, proper stratification |
-| 18 | Implement temporal fact lifecycle (when upstream adopted) | `kernel_facts.go`, policy `.mg` files | 3d | Automatic fact expiry, interval-based queries |
-| 19 | Fix perception fallback chain | `understanding_adapter.go`, `transducer.go` | 1d | Correct intent classification for uncommon verbs |
-| 20 | Generate predicate specs from schema declarations | `grammar.go` | 1d | Eliminates schema drift |
-| 21 | Atomic retract+assert operations | `kernel_facts.go` | 1d | Eliminates query-between-mutation races |
+| # | Issue | Files | Effort | Impact | Status |
+|---|-------|-------|--------|--------|--------|
+| 16 | Update Mangle dependency to latest HEAD | `go.mod` | 4h | Unlocks temporal, time/duration, external predicates | DONE |
+| 17 | Migrate virtual predicates to native external predicates API | `virtual_fact_store.go`, `virtual_store.go` | 2d | Filter pushdown, proper stratification | DONE |
+| 18 | Implement temporal fact lifecycle (when upstream adopted) | `kernel_facts.go`, policy `.mg` files | 3d | Automatic fact expiry, interval-based queries | BLOCKED UPSTREAM |
+| 19 | Fix perception fallback chain | `understanding_adapter.go`, `transducer.go` | 1d | Correct intent classification for uncommon verbs | DONE |
+| 20 | Generate predicate specs from schema declarations | `grammar.go` | 1d | Eliminates schema drift | DONE |
+| 21 | Atomic retract+assert operations | `kernel_facts.go` | 1d | Eliminates query-between-mutation races | DONE |
 
 ### Phase 4: Cleanup (Low Impact, Low Effort)
 
-| # | Issue | Files | Effort |
-|---|-------|-------|--------|
-| 22 | Deduplicate `ReplaceFactsForFile*` | `engine.go` | 30m |
-| 23 | Move `isBuiltin` map to package level | `schema_validator.go` | 10m |
-| 24 | Use `WithCreatedFactLimit` in Engine | `engine.go` | 30m |
-| 25 | Remove deprecated `convertValueToBaseTerm` | `engine.go` | 5m |
-| 26 | Extract repeated error strings | `engine.go` | 15m |
-| 27 | Fix LSP JSON unmarshal error handling | `lsp.go` | 30m |
-| 28 | Fill 11 test gaps | `engine_test.go` | 4h |
-| 29 | Update AGENTS.md to reference correct API | `internal/mangle/AGENTS.md` | 30m |
-| 30 | Derive proof tree predicate sets from ProgramInfo | `proof_tree.go` | 1h |
+| # | Issue | Files | Effort | Status |
+|---|-------|-------|--------|--------|
+| 22 | Deduplicate `ReplaceFactsForFile*` | `engine.go` | 30m | DONE |
+| 23 | Move `isBuiltin` map to package level | `schema_validator.go` | 10m | DONE |
+| 24 | Use `WithCreatedFactLimit` in Engine | `engine.go` | 30m | DONE |
+| 25 | Remove deprecated `convertValueToBaseTerm` | `engine.go` | 5m | DONE |
+| 26 | Extract repeated error strings | `engine.go` | 15m | DONE |
+| 27 | Fix LSP JSON unmarshal error handling | `lsp.go` | 30m | DONE |
+| 28 | Fill 11 test gaps | `engine_test.go` | 4h | DONE (18 tests) |
+| 29 | Update AGENTS.md to reference correct API | `internal/mangle/AGENTS.md` | 30m | DONE |
+| 30 | Derive proof tree predicate sets from ProgramInfo | `proof_tree.go` | 1h | DONE |
 
 ---
 
