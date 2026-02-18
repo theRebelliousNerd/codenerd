@@ -139,6 +139,10 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 				_ = localDB.StoreLink(root, "/has_file", rel, 1.0, map[string]interface{}{"path": rel})
 			}
 
+			// Collect batch data for vector storage
+			var batchContents []string
+			var batchMeta []map[string]interface{}
+
 			for idx, chunk := range chunks {
 				chunkHash := prompt.HashContent(chunk)[:12]
 				atomID := fmt.Sprintf("ingest/%s/%s/%03d/%s", agentKey, sourceHash, idx, chunkHash)
@@ -161,11 +165,20 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 						"agent":        agentName,
 						"content_type": contentTypeForIngestPath(rel),
 					}
-					_ = localDB.StoreVectorWithEmbedding(ctx, chunk, meta)
+					batchContents = append(batchContents, chunk)
+					batchMeta = append(batchMeta, meta)
 					_ = localDB.StoreKnowledgeAtom(rel, chunk, 0.9)
 					_ = localDB.StoreLink(rel, "/has_chunk", fmt.Sprintf("%s#%d", rel, idx), 0.5, meta)
-					knowledgeChunks++
 				}
+			}
+
+			// Batch-store vectors per file to reduce fsync overhead
+			if localDB != nil && len(batchContents) > 0 {
+				stored, err := localDB.StoreVectorBatchWithEmbedding(ctx, batchContents, batchMeta)
+				if err != nil {
+					logging.Get(logging.CategoryStore).Warn("Batch vector store for %s: stored %d/%d: %v", rel, stored, len(batchContents), err)
+				}
+				knowledgeChunks += stored
 			}
 		}
 
@@ -221,23 +234,54 @@ func collectIngestFiles(root string, isDir bool) ([]string, error) {
 	return files, nil
 }
 
+// chunkTextRunes splits text into chunks of approximately maxLen runes,
+// preferring to break on paragraph (\n\n), line (\n), or word (' ') boundaries
+// to preserve semantic integrity for RAG embeddings.
 func chunkTextRunes(text string, maxLen int) []string {
 	if maxLen <= 0 {
 		maxLen = 2000
 	}
-	rs := []rune(text)
-	if len(rs) == 0 {
+	if len(text) == 0 {
 		return nil
 	}
-	out := make([]string, 0, (len(rs)/maxLen)+1)
-	for i := 0; i < len(rs); i += maxLen {
-		end := i + maxLen
-		if end > len(rs) {
-			end = len(rs)
+
+	var chunks []string
+	remaining := text
+	for len(remaining) > 0 {
+		if len([]rune(remaining)) <= maxLen {
+			chunks = append(chunks, remaining)
+			break
 		}
-		out = append(out, string(rs[i:end]))
+
+		// Work in rune-space for the boundary search
+		rs := []rune(remaining)
+		limit := maxLen
+		if limit > len(rs) {
+			limit = len(rs)
+		}
+		candidate := string(rs[:limit])
+
+		// Try paragraph break first, then line break, then space
+		splitIdx := -1
+		if idx := strings.LastIndex(candidate, "\n\n"); idx > 0 {
+			splitIdx = idx + 2 // include the double-newline in current chunk
+		} else if idx := strings.LastIndex(candidate, "\n"); idx > 0 {
+			splitIdx = idx + 1
+		} else if idx := strings.LastIndex(candidate, " "); idx > 0 {
+			splitIdx = idx + 1
+		}
+
+		if splitIdx <= 0 {
+			// No boundary found — hard split as fallback (e.g., very long URL)
+			splitIdx = len(candidate)
+		}
+
+		chunks = append(chunks, strings.TrimRight(remaining[:splitIdx], " "))
+		remaining = remaining[splitIdx:]
+		// Trim leading whitespace from next chunk to avoid blank-prefix embeddings
+		remaining = strings.TrimLeft(remaining, " ")
 	}
-	return out
+	return chunks
 }
 
 func isSupportedIngestExt(path string) bool {

@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/auth/antigravity"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -14,7 +13,6 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
-	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,432 +35,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	var (
-		tiCmd  tea.Cmd
-		vpCmd  tea.Cmd
-		errCmd tea.Cmd
-		spCmd  tea.Cmd
+		tiCmd tea.Cmd
+		vpCmd tea.Cmd
+		spCmd tea.Cmd
 	)
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// If the error panel is focused, capture scroll keys first.
-		// Keep global keys (Ctrl+C, etc.) handled normally.
-		if m.focusError && m.err != nil && m.showError && !msg.Alt {
-			switch msg.Type {
-			case tea.KeyEsc:
-				m.focusError = false
-				return m, nil
-			case tea.KeyUp, tea.KeyDown, tea.KeyPgUp, tea.KeyPgDown, tea.KeyHome, tea.KeyEnd:
-				m.errorVP, errCmd = m.errorVP.Update(msg)
-				return m, errCmd
-			default:
-				// Swallow other keys while focused to avoid editing input accidentally.
-				return m, nil
-			}
-		}
-
-		// Global Keybindings (Ctrl+C, Ctrl+X, Shift+Tab, Esc)
-		switch msg.Type {
-		case tea.KeyCtrlC:
-			// Graceful shutdown before quit
-			m.performShutdown()
-			return m, tea.Quit
-
-		case tea.KeyCtrlX:
-			// Ctrl+X: Stop current activity immediately
-			if m.isLoading {
-				m.isInterrupted = true
-				if m.kernel != nil {
-					_ = m.kernel.Assert(core.Fact{Predicate: "interrupt_requested", Args: nil})
-				}
-				m.isLoading = false
-				stepMsg := ""
-				if m.continuationTotal > 0 {
-					stepMsg = fmt.Sprintf(" at step %d/%d", m.continuationStep, m.continuationTotal)
-				}
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⏹️ Stopped%s. Type '/continue' to resume or give new instructions.", stepMsg),
-					Time:    time.Now(),
-				})
-				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
-				return m, nil
-			}
-
-		case tea.KeyShiftTab:
-			// Shift+Tab: Cycle continuation mode (A → B → C → A)
-			m.continuationMode = (m.continuationMode + 1) % 3
-			modeName := m.continuationMode.String()
-			modeChar := 'A' + rune(m.continuationMode)
-			m.statusMessage = fmt.Sprintf("Mode: [%c] %s", modeChar, modeName)
-			// Persist to config
-			if m.Config != nil {
-				m.Config.ContinuationMode = int(m.continuationMode)
-				_ = m.Config.Save(config.DefaultUserConfigPath())
-			}
-			return m, nil
-
-		case tea.KeyEsc:
-			if m.viewMode == ListView {
-				m.viewMode = ChatView // Escape list view
-				return m, nil
-			}
-			if m.viewMode == UsageView {
-				m.viewMode = ChatView // Escape usage view
-				return m, nil
-			}
-			// Only Quit if not in List View
-			m.performShutdown()
-			return m, tea.Quit
-		}
-
-		// List View Handling
-		if m.viewMode == ListView {
-			// Check for Enter to select session
-			if msg.Type == tea.KeyEnter {
-				if selected, ok := m.list.SelectedItem().(sessionItem); ok {
-					return m.loadSelectedSession(selected.id)
-				}
-			}
-			var cmd tea.Cmd
-			m.list, cmd = m.list.Update(msg)
-			return m, cmd
-		}
-
-		// File Picker View Handling
-		if m.viewMode == FilePickerView {
-			var cmd tea.Cmd
-			m.filepicker, cmd = m.filepicker.Update(msg)
-
-			// Check for selection
-			if didSelect, path := m.filepicker.DidSelectFile(msg); didSelect {
-				// File selected!
-				m.textarea.SetValue(fmt.Sprintf("/read %s", path))
-				m.viewMode = ChatView
-				m.filepicker = filepicker.New() // Reset for next time (optional, but good practice)
-				return m, cmd
-			}
-
-			// Check for disabled selection (optional warning)
-			if didSelect, path := m.filepicker.DidSelectDisabledFile(msg); didSelect {
-				m.err = fmt.Errorf("file %s is disabled", path)
-				m.showError = true
-				m.focusError = false
-				m.refreshErrorViewport()
-				m.errorVP.GotoTop()
-				return m, cmd
-			}
-
-			return m, cmd
-		}
-
-		if m.viewMode == UsageView {
-			var cmd tea.Cmd
-			m.usagePage, cmd = m.usagePage.Update(msg)
-			return m, cmd
-		}
-
-		// Campaign Page Handling
-		if m.viewMode == CampaignPage {
-			// Direct Control Plane
-			switch msg.String() {
-			case "esc", "q":
-				m.viewMode = ChatView
-				return m, nil
-			case " ":
-				// Toggle Pause/Resume
-				if m.activeCampaign != nil && m.campaignOrch != nil {
-					if m.activeCampaign.Status == campaign.StatusPaused {
-						m.campaignOrch.Resume()
-					} else {
-						m.campaignOrch.Pause()
-					}
-					// Force status update visibility immediately
-					m.campaignPage.UpdateContent(m.campaignProgress, m.activeCampaign)
-				}
-				return m, nil
-			}
-
-			// Forward other keys (scrolling) to the page model
-			var cmd tea.Cmd
-			m.campaignPage, cmd = m.campaignPage.Update(msg)
-			return m, cmd
-		}
-
-		// Prompt Inspector Handling
-		if m.viewMode == PromptInspector {
-			switch msg.String() {
-			case "esc", "q":
-				m.viewMode = ChatView
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.jitPage, cmd = m.jitPage.Update(msg)
-			return m, cmd
-		}
-
-		// Autopoiesis Dashboard Handling
-		if m.viewMode == AutopoiesisPage {
-			switch msg.String() {
-			case "esc", "q":
-				m.viewMode = ChatView
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.autoPage, cmd = m.autoPage.Update(msg)
-			return m, cmd
-		}
-
-		// Shard Console Handling
-		if m.viewMode == ShardPage {
-			switch msg.String() {
-			case "esc", "q":
-				m.viewMode = ChatView
-				return m, nil
-			}
-			// Refresh content on every update tick or keypress to keep it live
-			if m.shardMgr != nil {
-				m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
-			}
-			var cmd tea.Cmd
-			m.shardPage, cmd = m.shardPage.Update(msg)
-			return m, cmd
-		}
-
-		// Chat View Handling
-		switch msg.Type {
-
-		case tea.KeyEnter:
-			// Allow Alt+Enter for newlines
-			if msg.Alt {
-				// Let textarea handle it
-				break
-			}
-
-			// Bracketed paste: don't submit on Enter during paste, insert newline instead
-			if msg.Paste {
-				break // Let textarea handle it as newline
-			}
-
-			// Logic pane: Enter toggles expand/collapse
-			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
-				m.logicPane.ToggleExpand()
-				return m, nil
-			}
-
-			// Enter sends the message if not loading
-			if !m.isLoading {
-				if m.awaitingClarification {
-					return m.handleClarificationResponse()
-				}
-				return m.handleSubmit()
-			}
-
-		case tea.KeyUp:
-			// Logic pane navigation when focused
-			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
-				m.logicPane.SelectPrev()
-				return m, nil
-			}
-
-			// Navigate options when in clarification mode
-			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
-				if m.selectedOption > 0 {
-					m.selectedOption--
-				}
-				return m, nil
-			}
-
-			// History Previous (if at top line)
-			if m.textarea.Line() == 0 {
-				if m.historyIndex > 0 {
-					m.historyIndex--
-					m.textarea.SetValue(m.inputHistory[m.historyIndex])
-					// Move cursor to end
-					m.textarea.CursorEnd()
-				}
-				return m, nil
-			}
-
-		case tea.KeyDown:
-			// Logic pane navigation when focused
-			if m.splitPane != nil && m.splitPane.FocusRight && m.logicPane != nil {
-				m.logicPane.SelectNext()
-				return m, nil
-			}
-
-			// Navigate options when in clarification mode
-			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
-				if m.selectedOption < len(m.clarificationState.Options)-1 {
-					m.selectedOption++
-				}
-				return m, nil
-			}
-
-			// History Next (if at bottom line)
-			if m.textarea.Line() == m.textarea.LineCount()-1 {
-				if m.historyIndex < len(m.inputHistory) {
-					m.historyIndex++
-					if m.historyIndex == len(m.inputHistory) {
-						m.textarea.SetValue("")
-					} else {
-						m.textarea.SetValue(m.inputHistory[m.historyIndex])
-						m.textarea.CursorEnd()
-					}
-				}
-				return m, nil
-			}
-
-		case tea.KeyTab:
-			// Tab cycles through options
-			if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
-				m.selectedOption = (m.selectedOption + 1) % len(m.clarificationState.Options)
-				return m, nil
-			}
-		}
-
-		// Handle Alt key bindings
-		if msg.Alt && len(msg.Runes) > 0 {
-			switch msg.Runes[0] {
-			case 'e', 'E':
-				// Error panel controls
-				// - Alt+E: toggle focus (enables scrolling)
-				// - Alt+Shift+E: toggle visibility
-				if m.err != nil {
-					if msg.Runes[0] == 'E' {
-						m.showError = !m.showError
-						if !m.showError {
-							m.focusError = false
-						}
-						return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
-					}
-
-					if m.showError {
-						m.focusError = !m.focusError
-					} else {
-						m.showError = true
-						m.focusError = true
-						return m, func() tea.Msg { return tea.WindowSizeMsg{Width: m.width, Height: m.height} }
-					}
-				}
-				return m, nil
-
-			case 'l':
-				// Toggle logic pane (Alt+L)
-				m.showLogic = !m.showLogic
-				var cmd tea.Cmd
-				if m.showLogic {
-					m.paneMode = ui.ModeSplitPane
-					m.splitPane.SetMode(ui.ModeSplitPane)
-					cmd = m.fetchTrace("") // Fetch default trace
-				} else {
-					m.paneMode = ui.ModeSinglePane
-					m.splitPane.SetMode(ui.ModeSinglePane)
-				}
-				// Trigger resize to update viewport width
-				cmd = tea.Batch(cmd, func() tea.Msg {
-					return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-				})
-				return m, cmd
-
-			case 'g':
-				// Cycle through pane modes (Alt+G)
-				switch m.paneMode {
-				case ui.ModeSinglePane:
-					m.paneMode = ui.ModeSplitPane
-					m.showLogic = true
-				case ui.ModeSplitPane:
-					m.paneMode = ui.ModeFullLogic
-				case ui.ModeFullLogic:
-					m.paneMode = ui.ModeSinglePane
-					m.showLogic = false
-				}
-				m.splitPane.SetMode(m.paneMode)
-				return m, nil
-
-			case 'w':
-				// Toggle focus (Alt+W)
-				if m.paneMode == ui.ModeSplitPane {
-					m.splitPane.ToggleFocus()
-				}
-				return m, nil
-
-			case 'c':
-				// Toggle campaign progress panel (Alt+C)
-				m.showCampaignPanel = !m.showCampaignPanel
-				return m, nil
-
-			case 'm':
-				// Toggle mouse capture (Alt+M) - disable to allow text selection
-				m.mouseEnabled = !m.mouseEnabled
-				if m.mouseEnabled {
-					return m, tea.EnableMouseCellMotion
-				}
-				return m, tea.DisableMouse
-
-			case 'p':
-				// Toggle Prompt Inspector (Alt+P)
-				if m.viewMode == PromptInspector {
-					m.viewMode = ChatView
-				} else {
-					m.viewMode = PromptInspector
-					if m.jitCompiler != nil {
-						m.jitPage.UpdateContent(m.jitCompiler.GetLastResult())
-					}
-				}
-				return m, nil
-
-			case 'a':
-				// Toggle Autopoiesis Dashboard (Alt+A)
-				if m.viewMode == AutopoiesisPage {
-					m.viewMode = ChatView
-				} else {
-					m.viewMode = AutopoiesisPage
-					if m.autopoiesis != nil {
-						m.autoPage.UpdateContent(m.autopoiesis.GetAllPatterns(0.0), m.autopoiesis.GetAllLearnings())
-					}
-				}
-				return m, nil
-
-			case 's':
-				// Toggle Shard Console (Alt+S)
-				if m.viewMode == ShardPage {
-					m.viewMode = ChatView
-				} else {
-					m.viewMode = ShardPage
-					if m.shardMgr != nil {
-						m.shardPage.UpdateContent(m.shardMgr.GetActiveShards(), m.shardMgr.GetBackpressureStatus())
-					}
-				}
-				return m, nil
-
-			case 'd':
-				// Toggle Glass Box Debug Mode (Alt+D)
-				msg := m.toggleGlassBox()
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: msg,
-					Time:    time.Now(),
-				})
-				m.viewport.SetContent(m.renderHistory())
-				m.viewport.GotoBottom()
-				// Start listening for events if enabled
-				if m.glassBoxEnabled {
-					return m, m.listenGlassBoxEvents()
-				}
-				return m, nil
-
-			case 'y':
-				// Toggle system action summaries in chat output (Alt+Y)
-				m.showSystemActions = !m.showSystemActions
-				return m, nil
-			}
-		}
-
-		// Handle regular key input
-		if !m.isLoading {
-			m.textarea, tiCmd = m.textarea.Update(msg)
+		var handled bool
+		m, tiCmd, handled = m.handleKeyMsg(msg)
+		if handled {
+			return m, tiCmd
 		}
 
 	case windowSizeMsg:
@@ -567,13 +150,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			explainer := transparency.NewExplainer()
 			explanation := explainer.ExplainTrace(msg.Trace)
 
-			m = m.addMessage(Message{
-				Role:    "assistant",
-				Content: explanation,
-				Time:    time.Now(),
-			})
-			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m = m.pushAssistantMsg(explanation)
 		}
 		return m, nil
 
@@ -595,25 +172,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.storeShardResult(msg.ShardResult.ShardType, msg.ShardResult.Task, msg.ShardResult.Result, msg.ShardResult.Facts)
 		}
 
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: msg.Surface,
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(msg.Surface)
 		m.saveSessionState()
 
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: string(msg),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(string(msg))
 		// Persist session after each response
 		m.saveSessionState()
 
@@ -625,13 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			content = m.formatAlignmentCheckResult(msg)
 		}
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: content,
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(content)
 
 	case multiShardReviewMsg:
 		// Multi-shard review completed
@@ -680,13 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Add clarification question to history
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: m.formatClarificationRequest(ClarificationState(msg)),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(m.formatClarificationRequest(ClarificationState(msg)))
 
 	case errorMsg:
 		m.isLoading = false
@@ -712,23 +265,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case campaignErrorMsg:
 		m.isLoading = false
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("## Campaign Error\n\n%v", msg.err),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(fmt.Sprintf("## Campaign Error\n\n%v", msg.err))
 
 	case northstarDocsAnalyzedMsg:
 		m.isLoading = false
 		if m.northstarWizard != nil {
 			if msg.err != nil {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err),
-					Time:    time.Now(),
-				})
+				m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Document analysis encountered an error: %v\n\nContinuing without extracted insights.", msg.err))
 			} else if len(msg.facts) > 0 {
 				m.northstarWizard.ExtractedFacts = msg.facts
 				var sb strings.Builder
@@ -742,11 +285,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sb.WriteString(fmt.Sprintf("\n_...and %d more insights that will inform the process._\n", len(msg.facts)-5))
 				}
 				sb.WriteString("\n---\n\n## Phase 2: Problem Statement\n\n**What problem does this project solve?**\n\n_Your research insights will help refine this._")
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: sb.String(),
-					Time:    time.Now(),
-				})
+				m = m.pushAssistantMsg(sb.String())
 			}
 			m.northstarWizard.Phase = NorthstarProblemStatement
 			m.textarea.Placeholder = "Describe the problem..."
@@ -758,11 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		if m.northstarWizard != nil {
 			if msg.err != nil {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err),
-					Time:    time.Now(),
-				})
+				m = m.pushAssistantMsg(fmt.Sprintf("⚠️ Requirement generation encountered an error: %v\n\nYou can add requirements manually.", msg.err))
 			} else if len(msg.requirements) > 0 {
 				// Append generated requirements to wizard state
 				m.northstarWizard.Requirements = append(m.northstarWizard.Requirements, msg.requirements...)
@@ -777,17 +312,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					sb.WriteString(fmt.Sprintf("\n_...and %d more requirements._\n", len(msg.requirements)-5))
 				}
 				sb.WriteString("\n_Add more requirements manually or type \"done\" to continue._")
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: sb.String(),
-					Time:    time.Now(),
-				})
+				m = m.pushAssistantMsg(sb.String())
 			} else {
-				m = m.addMessage(Message{
-					Role:    "assistant",
-					Content: "No requirements could be auto-generated. Please add requirements manually.",
-					Time:    time.Now(),
-				})
+				m = m.pushAssistantMsg("No requirements could be auto-generated. Please add requirements manually.")
 			}
 			m.textarea.Placeholder = "Add requirement or 'done'..."
 		}
@@ -802,13 +329,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignProgressChan = msg.progressChan // Store channels for listening
 		m.campaignEventChan = msg.eventChan
 		m.showCampaignPanel = true
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: m.renderCampaignStarted(msg.campaign),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(m.renderCampaignStarted(msg.campaign))
 
 		// Start orchestrator execution in background and return both listeners
 		if m.campaignOrch != nil {
@@ -853,13 +374,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.campaignProgressChan = nil // Clear channels to stop listeners
 		m.campaignEventChan = nil
 		m.showCampaignPanel = false
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: m.renderCampaignCompleted(msg),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(m.renderCampaignCompleted(msg))
 
 	// =========================================================================
 	// CONTINUATION PROTOCOL MESSAGE HANDLERS
@@ -878,13 +393,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.continuationStep = 1
 
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: msg.completedSurface,
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(msg.completedSurface)
 
 		// Decide whether to pause before next step.
 		shouldPause := false
@@ -933,13 +442,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.continuationStep++
 
 		// Show progress for completed step
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage))
 
 		// Check continuation mode to decide whether to pause
 		shouldPause := false
@@ -1003,13 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.kernel != nil {
 			_ = m.kernel.Retract("interrupt_requested")
 		}
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary))
 
 	case initCompleteMsg:
 		m.isLoading = false
@@ -1026,13 +523,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shardMgr.SetLearningStore(adapter)
 		}
 		// Build summary message from result
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: m.renderInitComplete(msg.result),
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(m.renderInitComplete(msg.result))
 		// Persist session after init
 		m.saveSessionState()
 
@@ -1071,8 +562,14 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m.textarea.Focus()
 
-			// Check for first-run onboarding after boot completes
-			return m, checkFirstRun(m.workspace)
+			// Fire first-run onboarding check AND LLM health check in parallel.
+			// The health check is a non-blocking smoke test that also generates
+			// a project-aware welcome message. If it fails, the user sees a
+			// warning but can still use slash commands.
+			return m, tea.Batch(
+				checkFirstRun(m.workspace),
+				m.performWelcomeHealthCheck(msg),
+			)
 		}
 
 	case docRefreshCompleteMsg:
@@ -1152,13 +649,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		} else {
 			content = formatEvolutionResult(msg.result)
 		}
-		m = m.addMessage(Message{
-			Role:    "assistant",
-			Content: content,
-			Time:    time.Now(),
-		})
-		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m = m.pushAssistantMsg(content)
 		return m, nil
 
 	case toolEventMsg:
@@ -1313,6 +804,28 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
+		return m, nil
+
+	case welcomeHealthCheckMsg:
+		// LLM health check completed (or failed) after boot
+		if msg.err != nil {
+			// Health check failed — warn user but don't block
+			providerInfo := msg.provider
+			if msg.model != "" {
+				providerInfo += "/" + msg.model
+			}
+			if providerInfo == "" {
+				providerInfo = "unknown"
+			}
+			m = m.pushAssistantMsg(fmt.Sprintf(
+				"**LLM health check failed** (%s): %v\n\nYou can still use slash commands. Check your API key and network connection.",
+				providerInfo, msg.err,
+			))
+		} else if msg.welcome != "" {
+			// Health check succeeded — show LLM-generated welcome
+			m = m.pushAssistantMsg(msg.welcome)
+		}
+		// If welcome is empty but no error, silently skip (LLM returned empty)
 		return m, nil
 
 	case knowledgeGatheredMsg:

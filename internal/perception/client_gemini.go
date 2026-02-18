@@ -319,6 +319,51 @@ func (c *GeminiClient) SetCachedContent(name string) {
 	c.cachedContentName = name
 }
 
+// =============================================================================
+// SHARED REQUEST HELPERS
+// =============================================================================
+
+// rateLimit enforces minimum inter-request spacing to avoid 429 responses.
+// Must be called before each API request.
+func (c *GeminiClient) rateLimit() {
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+}
+
+// extractResponseText separates thought parts from response parts in a Gemini response.
+// Returns the thought content and the response content as separate strings.
+func extractResponseText(parts []GeminiResponsePart) (thoughts string, response string) {
+	var thoughtBuilder strings.Builder
+	var responseBuilder strings.Builder
+	for _, part := range parts {
+		if part.Thought {
+			thoughtBuilder.WriteString(part.Text)
+		} else if part.Text != "" {
+			responseBuilder.WriteString(part.Text)
+		}
+	}
+	return strings.TrimSpace(thoughtBuilder.String()), strings.TrimSpace(responseBuilder.String())
+}
+
+// captureGroundingSources extracts web grounding sources from a Gemini response
+// and stores them in the client's lastGroundingSources field.
+func (c *GeminiClient) captureGroundingSources(resp *GeminiResponse) {
+	c.lastGroundingSources = nil
+	if len(resp.Candidates) > 0 && resp.Candidates[0].GroundingMetadata != nil {
+		gm := resp.Candidates[0].GroundingMetadata
+		for _, chunk := range gm.GroundingChunks {
+			if chunk.Web != nil && chunk.Web.URI != "" {
+				c.lastGroundingSources = append(c.lastGroundingSources, chunk.Web.URI)
+			}
+		}
+	}
+}
+
 // Complete sends a prompt and returns the completion.
 func (c *GeminiClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return c.CompleteWithSystem(ctx, "", prompt)
@@ -359,13 +404,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		strings.Contains(userPrompt, "control_packet")
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	reqBody := GeminiRequest{
 		Contents: []GeminiContent{
@@ -471,25 +510,13 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		// Separate thought parts from response parts for clear presentation
-		var thoughtContent strings.Builder
-		var responseContent strings.Builder
-		numThoughtParts := 0
-		for i, part := range geminiResp.Candidates[0].Content.Parts {
-			logging.PerceptionDebug("[Gemini] Part %d: thought=%t text_len=%d", i, part.Thought, len(part.Text))
-			if part.Thought {
-				thoughtContent.WriteString(part.Text)
-				numThoughtParts++
-			} else {
-				responseContent.WriteString(part.Text)
-			}
-		}
-		logging.PerceptionDebug("[Gemini] CompleteWithSystem: %d thought parts, thoughtSummary=%d chars",
-			numThoughtParts, len(geminiResp.ThoughtSummary))
+		thinkingText, responseText := extractResponseText(geminiResp.Candidates[0].Content.Parts)
+		logging.PerceptionDebug("[Gemini] CompleteWithSystem: thinking_len=%d thoughtSummary=%d chars",
+			len(thinkingText), len(geminiResp.ThoughtSummary))
 
 		// Build final response with thinking section if present
 		// Use part-level thoughts if available, otherwise fall back to response-level thoughtSummary
 		var result strings.Builder
-		thinkingText := strings.TrimSpace(thoughtContent.String())
 		if thinkingText == "" && geminiResp.ThoughtSummary != "" {
 			thinkingText = strings.TrimSpace(geminiResp.ThoughtSummary)
 		}
@@ -498,7 +525,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			result.WriteString(thinkingText)
 			result.WriteString("\n\n---\n\n")
 		}
-		result.WriteString(strings.TrimSpace(responseContent.String()))
+		result.WriteString(responseText)
 		response := result.String()
 
 		// Store thought summary for API access
@@ -507,24 +534,12 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		// Extract and store grounding sources for transparency
-		c.lastGroundingSources = nil // Reset
-		if len(geminiResp.Candidates) > 0 && geminiResp.Candidates[0].GroundingMetadata != nil {
-			gm := geminiResp.Candidates[0].GroundingMetadata
-			for _, chunk := range gm.GroundingChunks {
-				if chunk.Web != nil && chunk.Web.URI != "" {
-					c.lastGroundingSources = append(c.lastGroundingSources, chunk.Web.URI)
-				}
-			}
-			if len(c.lastGroundingSources) > 0 {
-				logging.PerceptionDebug("[Gemini] CompleteWithSystem: grounding sources=%d queries=%v",
-					len(c.lastGroundingSources), gm.WebSearchQueries)
-			}
-		}
+		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d thinking_chars=%d grounding_sources=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, thoughtContent.Len(), len(c.lastGroundingSources))
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(thinkingText), len(c.lastGroundingSources))
 		} else {
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources))
@@ -649,13 +664,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 	}
 
 	// Rate limiting
-	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	if elapsed < 100*time.Millisecond {
-		time.Sleep(100*time.Millisecond - elapsed)
-	}
-	c.lastRequest = time.Now()
-	c.mu.Unlock()
+	c.rateLimit()
 
 	reqBody := GeminiRequest{
 		Contents: []GeminiContent{
@@ -753,38 +762,15 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		}
 
 		// Filter out thought parts - only include non-thought content for structured output
-		var result strings.Builder
-		var thoughtContent strings.Builder
-		for _, part := range geminiResp.Candidates[0].Content.Parts {
-			if part.Thought {
-				// Capture thought content separately for logging/debugging
-				thoughtContent.WriteString(part.Text)
-			} else {
-				result.WriteString(part.Text)
-			}
-		}
+		thinkingText, response := extractResponseText(geminiResp.Candidates[0].Content.Parts)
 
 		// Log thought summary if any thinking was done
-		if thoughtContent.Len() > 0 {
-			logging.PerceptionDebug("[Gemini] CompleteWithSchema: thought summary length=%d", thoughtContent.Len())
+		if thinkingText != "" {
+			logging.PerceptionDebug("[Gemini] CompleteWithSchema: thought summary length=%d", len(thinkingText))
 		}
-
-		response := strings.TrimSpace(result.String())
 
 		// Extract and store grounding sources for transparency
-		c.lastGroundingSources = nil // Reset
-		if len(geminiResp.Candidates) > 0 && geminiResp.Candidates[0].GroundingMetadata != nil {
-			gm := geminiResp.Candidates[0].GroundingMetadata
-			for _, chunk := range gm.GroundingChunks {
-				if chunk.Web != nil && chunk.Web.URI != "" {
-					c.lastGroundingSources = append(c.lastGroundingSources, chunk.Web.URI)
-				}
-			}
-			if len(c.lastGroundingSources) > 0 {
-				logging.PerceptionDebug("[Gemini] CompleteWithSchema: grounding sources=%d queries=%v",
-					len(c.lastGroundingSources), gm.WebSearchQueries)
-			}
-		}
+		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {

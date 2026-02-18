@@ -476,6 +476,15 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 				// Non-fatal - continue without context-based boosting
 			} else {
 				logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
+				// Defer retraction immediately — ensures cleanup even if later steps fail.
+				// This prevents stale compile_context facts from poisoning subsequent compilations.
+				if retracter, ok := c.kernel.(KernelRetracter); ok {
+					defer func() {
+						if retractErr := retracter.Retract("compile_context"); retractErr != nil {
+							logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", retractErr)
+						}
+					}()
+				}
 			}
 		}
 	}
@@ -509,13 +518,8 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 	stats.VectorQueryMs = vectorMs
 
-	// Step 2.5: Retract ephemeral compile_context facts to prevent accumulation.
-	// These were only needed for Mangle-based atom selection and are stale after.
-	if retracter, ok := c.kernel.(KernelRetracter); ok {
-		if err := retracter.Retract("compile_context"); err != nil {
-			logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", err)
-		}
-	}
+	// NOTE: compile_context retraction is now handled by defer (see Step 1.5 above).
+	// This ensures cleanup even if SelectAtomsWithTiming fails.
 
 	logging.Get(logging.CategoryJIT).Debug(
 		"Selected %d atoms after scoring in %dms (vector=%dms)",

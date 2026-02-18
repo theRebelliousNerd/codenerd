@@ -478,12 +478,14 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 	var lastErr error
 
 	// Pass 1: Prioritize candidates containing both required keys.
-	// This heuristic is faster than parsing everything.
-	for i, cand := range candidates {
+	// Iterate BACKWARDS (last-match-wins) to defeat decoy injection attacks
+	// where an attacker injects a fake control packet before the real LLM output.
+	for i := len(candidates) - 1; i >= 0; i-- {
+		cand := candidates[i]
 		if strings.Contains(cand, `"surface_response"`) && strings.Contains(cand, `"control_packet"`) {
 			envelope, err := rp.parseJSON(cand)
 			if err == nil {
-				logging.ArticulationDebug("extractEmbeddedJSON: found rich candidate (%d)", i)
+				logging.ArticulationDebug("extractEmbeddedJSON: found rich candidate (%d, last-match-wins)", i)
 				return envelope, nil
 			}
 			lastErr = err

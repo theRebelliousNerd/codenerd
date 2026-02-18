@@ -642,4 +642,15 @@ type (
 		Suggestions []string // Improvement suggestions
 		Err         error    // Any error that occurred
 	}
+
+	// welcomeHealthCheckMsg carries the result of the post-boot LLM health check.
+	// On success, it contains a project-aware welcome message from the LLM.
+	// On failure, it contains the error so a graceful warning can be displayed.
+	// This doubles as a smoke test: if the LLM responds, the provider is working.
+	welcomeHealthCheckMsg struct {
+		welcome  string // LLM-generated welcome message (empty on error)
+		provider string // LLM provider that was tested (e.g. "gemini", "anthropic")
+		model    string // Model ID that was tested (e.g. "gemini-3-pro-preview")
+		err      error  // nil on success
+	}
 )

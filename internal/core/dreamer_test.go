@@ -91,6 +91,50 @@ func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	}
 }
 
+// TestIsDangerousCommand_BypassAttempts verifies that whitespace expansion,
+// flag reordering, flag splitting, and tab injection don't bypass detection.
+func TestIsDangerousCommand_BypassAttempts(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		expected bool
+	}{
+		// Original patterns still work
+		{"rm -rf basic", "rm -rf /", true},
+		{"rm -r basic", "rm -r important/", true},
+		{"git reset --hard", "git reset --hard HEAD~5", true},
+		{"terraform destroy", "terraform destroy -auto-approve", true},
+		{"dd if=", "dd if=/dev/zero of=/dev/sda", true},
+
+		// Bypass attempts that should now be caught
+		{"whitespace expansion", "rm  -rf  /", true},
+		{"tabs between flags", "rm\t-rf\t/", true},
+		{"flag reorder -fr", "rm -fr /tmp", true},
+		{"flag splitting -r -f", "rm -r -f /home", true},
+		{"flag splitting -f -r", "rm -f -r important/", true},
+		{"mixed spaces and tabs", "rm   \t -rf /home", true},
+		{"long flags --recursive", "rm --recursive dir/", true},
+		{"long flags --force", "rm --force file.txt", true},
+		{"new patterns: mkfs", "mkfs.ext4 /dev/sda1", true},
+		{"new patterns: format", "format c: /q", true},
+
+		// Safe commands should still pass
+		{"safe ls", "ls -la /tmp", false},
+		{"safe cat", "cat README.md", false},
+		{"safe echo rm", "echo 'rm -rf' > log.txt", true}, // Contains the pattern in echo, but "rm -rf" still triggers — acceptable false positive
+		{"safe go test", "go test ./...", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDangerousCommand(tt.cmd)
+			if got != tt.expected {
+				t.Errorf("isDangerousCommand(%q) = %v, want %v", tt.cmd, got, tt.expected)
+			}
+		})
+	}
+}
+
 // TODO: TEST_GAP: Input Extremes - Path Normalization & Canonicalization
 // criticalPrefix uses naive strings.Contains.
 // Missing coverage for:

@@ -118,6 +118,81 @@ func TestFeedbackDetectors(t *testing.T) {
 	}
 }
 
+// TestFeedbackDetectors_FalsePositives ensures heuristic functions
+// do NOT trigger on natural conversational input that happens to
+// contain trigger substrings (the bug that word-boundary matching fixes).
+func TestFeedbackDetectors_FalsePositives(t *testing.T) {
+	// "fail" as substring within a word — should NOT trigger
+	if isNegativeFeedback("The failsafe mechanism caught the error") {
+		t.Error("isNegativeFeedback false-positive: 'failsafe'")
+	}
+	// "stop" as substring within a word — should NOT trigger
+	if isNegativeFeedback("I need a stopwatch function") {
+		t.Error("isNegativeFeedback false-positive: 'stopwatch'")
+	}
+
+	// "correct" embedded as substring in "incorrect" — should NOT trigger
+	if isDreamConfirmation("this is incorrect behavior") {
+		t.Error("isDreamConfirmation false-positive: 'incorrect' containing 'correct'")
+	}
+
+	// "yes" as substring — should NOT trigger (yesterday)
+	if isAffirmativeResponse("yesterday I deployed the fix") {
+		t.Error("isAffirmativeResponse false-positive: 'yesterday'")
+	}
+
+	// "no" as substring — should NOT trigger (another, innovation)
+	if isNegativeResponse("another approach would be better") {
+		t.Error("isNegativeResponse false-positive: 'another'")
+	}
+	if isNegativeResponse("innovation is key") {
+		t.Error("isNegativeResponse false-positive: 'innovation'")
+	}
+
+	// Exact short responses SHOULD work
+	if !isAffirmativeResponse("yes") {
+		t.Error("isAffirmativeResponse should match exact 'yes'")
+	}
+	if !isNegativeResponse("no") {
+		t.Error("isNegativeResponse should match exact 'no'")
+	}
+	if !isNegativeResponse("nope") {
+		t.Error("isNegativeResponse should match exact 'nope'")
+	}
+}
+
+func TestChunkTextRunes_SemanticBoundaries(t *testing.T) {
+	// Words should not be split
+	input := "hello world this is a test of semantic chunking"
+	chunks := chunkTextRunes(input, 15)
+	for i, chunk := range chunks {
+		trimmed := strings.TrimSpace(chunk)
+		// No chunk should start or end mid-word (no partial words)
+		if trimmed != "" && trimmed[len(trimmed)-1] == '-' {
+			t.Errorf("chunk %d ends with hyphen (word split): %q", i, chunk)
+		}
+	}
+	// All words from original should appear in chunks
+	inputWords := strings.Fields(input)
+	allChunkText := strings.Join(chunks, " ")
+	for _, word := range inputWords {
+		if !strings.Contains(allChunkText, word) {
+			t.Errorf("word %q lost during chunking", word)
+		}
+	}
+
+	// Paragraph boundaries should be preferred
+	input2 := "paragraph one content\n\nparagraph two content\n\nparagraph three"
+	chunks2 := chunkTextRunes(input2, 30)
+	if len(chunks2) < 2 {
+		t.Fatalf("expected at least 2 chunks for paragraph split, got %d", len(chunks2))
+	}
+	// First chunk should contain first paragraph and end at paragraph boundary
+	if !strings.Contains(chunks2[0], "paragraph one") {
+		t.Errorf("first chunk should contain 'paragraph one': %q", chunks2[0])
+	}
+}
+
 func TestExtractCorrectionContent(t *testing.T) {
 	if got := extractCorrectionContent("No, actually use tests"); got != "use tests" {
 		t.Fatalf("extractCorrectionContent = %q, want %q", got, "use tests")

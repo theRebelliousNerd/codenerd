@@ -121,12 +121,32 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 		if err2 := json.Unmarshal([]byte(jsonStr), &understanding); err2 != nil {
 			return nil, fmt.Errorf("JSON parse failed: %w (also tried: %v)", err, err2)
 		}
+		normalizeLLMFields(&understanding)
 		return &understanding, nil
 	}
 
 	// Copy surface response into understanding
 	envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
+	normalizeLLMFields(&envelope.Understanding)
 	return &envelope.Understanding, nil
+}
+
+// normalizeLLMFields normalizes LLM-generated field values to lowercase
+// so they match the Mangle routing vocabulary. LLMs may return mixed-case
+// values like "Code_Generation" when the vocabulary expects "code_generation".
+func normalizeLLMFields(u *Understanding) {
+	if u == nil {
+		return
+	}
+	u.SemanticType = strings.ToLower(u.SemanticType)
+	u.ActionType = strings.ToLower(u.ActionType)
+	u.Domain = strings.ToLower(u.Domain)
+	if u.Scope.Level != "" {
+		u.Scope.Level = strings.ToLower(u.Scope.Level)
+	}
+	if u.SuggestedApproach.Mode != "" {
+		u.SuggestedApproach.Mode = strings.ToLower(u.SuggestedApproach.Mode)
+	}
 }
 
 // extractJSON finds the last valid JSON object in the response.

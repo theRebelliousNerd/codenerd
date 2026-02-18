@@ -460,14 +460,40 @@ func (d *Dreamer) codeGraphProjections(kernel *RealKernel, actionID, path string
 }
 
 // isDangerousCommand flags obviously destructive commands.
+// It normalizes whitespace to prevent bypass via extra spaces/tabs
+// and checks comprehensive patterns including flag reordering.
 func isDangerousCommand(cmd string) bool {
+	// Normalize: lowercase + collapse whitespace runs to single space
 	lc := strings.ToLower(cmd)
+	// Replace tabs with spaces first
+	lc = strings.ReplaceAll(lc, "\t", " ")
+	// Collapse multiple spaces into one
+	for strings.Contains(lc, "  ") {
+		lc = strings.ReplaceAll(lc, "  ", " ")
+	}
+	lc = strings.TrimSpace(lc)
+
 	dangerous := []string{
+		// rm variants: -rf, -fr, -r -f, -f -r, plus --recursive --force
 		"rm -rf",
+		"rm -fr",
+		"rm -r -f",
+		"rm -f -r",
 		"rm -r",
+		"rm --recursive",
+		"rm --force",
+		// git reset
 		"git reset --hard",
+		// terraform
 		"terraform destroy",
+		// dd
 		"dd if=",
+		// format/wipe
+		"mkfs.",
+		"format c:",
+		// chmod/chown -R on root
+		"chmod -r 777 /",
+		"chown -r",
 	}
 	for _, token := range dangerous {
 		if strings.Contains(lc, token) {

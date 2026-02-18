@@ -110,3 +110,97 @@ func BenchmarkExtractJSON(b *testing.B) {
 		extractJSON(input)
 	}
 }
+
+// TestNormalizeLLMFields_WhenMixedCase_ShouldLowercase verifies that
+// LLM-generated field values are normalized to lowercase for Mangle vocabulary matching.
+func TestNormalizeLLMFields_WhenMixedCase_ShouldLowercase(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    Understanding
+		expected Understanding
+	}{
+		{
+			name: "Mixed case fields",
+			input: Understanding{
+				SemanticType: "Code_Generation",
+				ActionType:   "IMPLEMENT",
+				Domain:       "Testing",
+				Scope:        Scope{Level: "METHOD"},
+				SuggestedApproach: SuggestedApproach{
+					Mode: "NORMAL",
+				},
+			},
+			expected: Understanding{
+				SemanticType: "code_generation",
+				ActionType:   "implement",
+				Domain:       "testing",
+				Scope:        Scope{Level: "method"},
+				SuggestedApproach: SuggestedApproach{
+					Mode: "normal",
+				},
+			},
+		},
+		{
+			name: "Already lowercase",
+			input: Understanding{
+				SemanticType: "code_generation",
+				ActionType:   "implement",
+				Domain:       "testing",
+			},
+			expected: Understanding{
+				SemanticType: "code_generation",
+				ActionType:   "implement",
+				Domain:       "testing",
+			},
+		},
+		{
+			name: "Empty fields preserved",
+			input: Understanding{
+				SemanticType: "Query",
+				ActionType:   "",
+				Domain:       "DATABASE",
+				Scope:        Scope{Level: ""},
+				SuggestedApproach: SuggestedApproach{
+					Mode: "",
+				},
+			},
+			expected: Understanding{
+				SemanticType: "query",
+				ActionType:   "",
+				Domain:       "database",
+				Scope:        Scope{Level: ""},
+				SuggestedApproach: SuggestedApproach{
+					Mode: "",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := tt.input
+			normalizeLLMFields(&u)
+			if u.SemanticType != tt.expected.SemanticType {
+				t.Errorf("SemanticType = %q, want %q", u.SemanticType, tt.expected.SemanticType)
+			}
+			if u.ActionType != tt.expected.ActionType {
+				t.Errorf("ActionType = %q, want %q", u.ActionType, tt.expected.ActionType)
+			}
+			if u.Domain != tt.expected.Domain {
+				t.Errorf("Domain = %q, want %q", u.Domain, tt.expected.Domain)
+			}
+			if u.Scope.Level != tt.expected.Scope.Level {
+				t.Errorf("Scope.Level = %q, want %q", u.Scope.Level, tt.expected.Scope.Level)
+			}
+			if u.SuggestedApproach.Mode != tt.expected.SuggestedApproach.Mode {
+				t.Errorf("Mode = %q, want %q", u.SuggestedApproach.Mode, tt.expected.SuggestedApproach.Mode)
+			}
+		})
+	}
+}
+
+// TestNormalizeLLMFields_WhenNil_ShouldNotPanic verifies nil safety.
+func TestNormalizeLLMFields_WhenNil_ShouldNotPanic(t *testing.T) {
+	// Should not panic
+	normalizeLLMFields(nil)
+}

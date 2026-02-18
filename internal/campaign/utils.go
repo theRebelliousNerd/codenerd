@@ -6,22 +6,48 @@ import (
 	"strings"
 )
 
-// chunkText splits a string into rune-safe chunks of maxLen (approx chars).
+// chunkText splits text into chunks of approximately maxLen runes,
+// preferring to break on paragraph (\n\n), line (\n), or word (' ') boundaries
+// to preserve semantic integrity for embeddings and LLM context.
 func chunkText(text string, maxLen int) []string {
 	if maxLen <= 0 {
 		maxLen = 2000
 	}
-	runes := []rune(text)
-	if len(runes) == 0 {
+	if len(text) == 0 {
 		return nil
 	}
-	chunks := make([]string, 0, (len(runes)/maxLen)+1)
-	for i := 0; i < len(runes); i += maxLen {
-		end := i + maxLen
-		if end > len(runes) {
-			end = len(runes)
+
+	var chunks []string
+	remaining := text
+	for len(remaining) > 0 {
+		if len([]rune(remaining)) <= maxLen {
+			chunks = append(chunks, remaining)
+			break
 		}
-		chunks = append(chunks, string(runes[i:end]))
+
+		rs := []rune(remaining)
+		limit := maxLen
+		if limit > len(rs) {
+			limit = len(rs)
+		}
+		candidate := string(rs[:limit])
+
+		splitIdx := -1
+		if idx := strings.LastIndex(candidate, "\n\n"); idx > 0 {
+			splitIdx = idx + 2
+		} else if idx := strings.LastIndex(candidate, "\n"); idx > 0 {
+			splitIdx = idx + 1
+		} else if idx := strings.LastIndex(candidate, " "); idx > 0 {
+			splitIdx = idx + 1
+		}
+
+		if splitIdx <= 0 {
+			splitIdx = len(candidate)
+		}
+
+		chunks = append(chunks, strings.TrimRight(remaining[:splitIdx], " "))
+		remaining = remaining[splitIdx:]
+		remaining = strings.TrimLeft(remaining, " ")
 	}
 	return chunks
 }

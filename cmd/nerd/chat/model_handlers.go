@@ -43,6 +43,25 @@ func (m Model) addMessage(msg Message) Model {
 	return m
 }
 
+// pushAssistantMsg is a convenience wrapper that adds an assistant message,
+// re-renders the viewport, and scrolls to bottom in one call.
+// Replaces the repetitive 3-line pattern used throughout Update handlers.
+func (m Model) pushAssistantMsg(content string) Model {
+	m = m.addMessage(Message{Role: "assistant", Content: content, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m
+}
+
+// pushUserMsg is a convenience wrapper that adds a user message,
+// re-renders the viewport, and scrolls to bottom in one call.
+func (m Model) pushUserMsg(content string) Model {
+	m = m.addMessage(Message{Role: "user", Content: content, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m
+}
+
 // addMessages appends multiple messages and pre-renders them into cache.
 func (m Model) addMessages(msgs ...Message) Model {
 	if len(msgs) == 0 {
@@ -535,13 +554,7 @@ func (m Model) formatClarificationRequest(state ClarificationState) string {
 // handleDreamLearningConfirmation processes user confirmation of dream state learnings
 func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m = m.addMessage(Message{
-		Role:    "user",
-		Content: input,
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushUserMsg(input)
 	m.textarea.Reset()
 
 	// Confirm staged learnings
@@ -598,13 +611,7 @@ func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd
 		sb.WriteString(fmt.Sprintf("I'll remember these %d insights for future tasks.", successCount))
 	}
 
-	m = m.addMessage(Message{
-		Role:    "assistant",
-		Content: sb.String(),
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushAssistantMsg(sb.String())
 
 	m.isLoading = false
 	return m, nil
@@ -613,13 +620,7 @@ func (m Model) handleDreamLearningConfirmation(input string) (tea.Model, tea.Cmd
 // handleDreamLearningCorrection processes user corrections to dream state learnings
 func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m = m.addMessage(Message{
-		Role:    "user",
-		Content: input,
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushUserMsg(input)
 	m.textarea.Reset()
 
 	// Extract the correction content (everything after the trigger phrase)
@@ -652,13 +653,7 @@ func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) 
 		response = fmt.Sprintf("✅ **Correction noted:**\n\n*%s*\n\nI'll remember this for future tasks.", correction)
 	}
 
-	m = m.addMessage(Message{
-		Role:    "assistant",
-		Content: response,
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushAssistantMsg(response)
 
 	m.isLoading = false
 	return m, nil
@@ -668,13 +663,7 @@ func (m Model) handleDreamLearningCorrection(input string) (tea.Model, tea.Cmd) 
 // This is triggered by phrases like "do it", "execute that", "run the plan".
 func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 	// Add user message to history
-	m = m.addMessage(Message{
-		Role:    "user",
-		Content: input,
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushUserMsg(input)
 	m.textarea.Reset()
 
 	plan := m.dreamPlanManager.GetCurrentPlan()
@@ -731,13 +720,7 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 	}
 	sb.WriteString("\n_* = mutation (file change)_\n")
 
-	m = m.addMessage(Message{
-		Role:    "assistant",
-		Content: sb.String(),
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushAssistantMsg(sb.String())
 
 	// Start execution using existing multi-step infrastructure
 	if err := m.dreamPlanManager.StartExecution(); err != nil {
@@ -774,23 +757,11 @@ func (m Model) handleDreamPlanExecution(input string) (tea.Model, tea.Cmd) {
 // triggerLearningLoop initiates the Ouroboros self-correction process
 func (m Model) triggerLearningLoop(userInput string) (tea.Model, tea.Cmd) {
 	// Add the user's complaint to history first so the Critic sees it
-	m = m.addMessage(Message{
-		Role:    "user",
-		Content: userInput,
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushUserMsg(userInput)
 	m.textarea.Reset()
 
 	// Notify user we are paying attention
-	m = m.addMessage(Message{
-		Role:    "assistant",
-		Content: "I detect dissatisfaction. Invoking Meta-Cognitive Supervisor to analyze our interaction and learn from this mistake...",
-		Time:    time.Now(),
-	})
-	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m = m.pushAssistantMsg("I detect dissatisfaction. Invoking Meta-Cognitive Supervisor to analyze our interaction and learn from this mistake...")
 
 	m.isLoading = true
 

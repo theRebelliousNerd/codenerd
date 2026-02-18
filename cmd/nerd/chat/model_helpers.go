@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -111,69 +112,67 @@ func extractClarificationQuestion(errMsg string) string {
 	return errMsg
 }
 
-// isNegativeFeedback checks for common frustration signals
-func isNegativeFeedback(input string) bool {
-	lower := strings.ToLower(input)
-	triggers := []string{
-		"bad bot", "wrong", "stop", "no that's not right",
-		"you didn't", "fail", "incorrect", "mistake",
+// matchesAnyTrigger checks if input matches any trigger phrase with word-boundary awareness.
+// Single-word triggers use regex \b boundaries to prevent false positives (e.g., "correct" in "incorrect").
+// Multi-word triggers (containing spaces or punctuation) use substring match since phrases are inherently bounded.
+func matchesAnyTrigger(input string, triggers []string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
 	}
 	for _, t := range triggers {
-		if strings.Contains(lower, t) {
-			return true
+		// Single-word triggers need word boundary matching
+		if !strings.ContainsAny(t, " ,:!") {
+			pattern := `\b` + regexp.QuoteMeta(t) + `\b`
+			if matched, _ := regexp.MatchString(pattern, lower); matched {
+				return true
+			}
+		} else {
+			// Multi-word phrases — substring is safe
+			if strings.Contains(lower, t) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// isNegativeFeedback checks for common frustration signals.
+// Uses word boundaries to avoid false-positives (e.g., "how do I fail gracefully" won't trigger).
+func isNegativeFeedback(input string) bool {
+	return matchesAnyTrigger(input, []string{
+		"bad bot", "wrong", "stop", "no that's not right",
+		"you didn't", "fail", "incorrect", "mistake",
+	})
 }
 
 // isDreamConfirmation checks if user is confirming dream state learnings
 func isDreamConfirmation(input string) bool {
-	lower := strings.ToLower(input)
-	triggers := []string{
+	return matchesAnyTrigger(input, []string{
 		"correct!", "correct", "learn this", "learn that", "remember this",
 		"remember that", "yes, do that", "that's right", "exactly!",
 		"yes!", "perfect", "good approach", "sounds right",
-	}
-	for _, t := range triggers {
-		if strings.Contains(lower, t) {
-			return true
-		}
-	}
-	return false
+	})
 }
 
 // isDreamCorrection checks if user is correcting dream state learnings
 func isDreamCorrection(input string) bool {
-	lower := strings.ToLower(input)
-	triggers := []string{
+	return matchesAnyTrigger(input, []string{
 		"no, actually", "actually, we", "wrong, we", "instead, we",
 		"not that way", "we don't", "we always", "remember:",
 		"learn:", "actually:",
-	}
-	for _, t := range triggers {
-		if strings.Contains(lower, t) {
-			return true
-		}
-	}
-	return false
+	})
 }
 
 // isDreamExecutionTrigger checks if user wants to execute the dream plan.
 // DISTINCT from isDreamConfirmation (which persists learnings, not executes).
 func isDreamExecutionTrigger(input string) bool {
-	lower := strings.ToLower(input)
-	triggers := []string{
+	return matchesAnyTrigger(input, []string{
 		"do it", "execute that", "run the plan", "go ahead",
 		"make it so", "proceed", "execute the plan", "run that",
 		"let's do it", "implement that", "start execution",
 		"yes, do it", "yes, execute", "carry it out", "perform that",
-	}
-	for _, t := range triggers {
-		if strings.Contains(lower, t) {
-			return true
-		}
-	}
-	return false
+	})
 }
 
 func isAffirmativeResponse(input string) bool {
@@ -181,17 +180,17 @@ func isAffirmativeResponse(input string) bool {
 	if lower == "" {
 		return false
 	}
-	triggers := []string{
-		"/learn_yes",
-		"yes", "y", "yeah", "yep", "sure", "ok", "okay",
-		"correct", "learn this", "confirm", "do it",
-	}
-	for _, t := range triggers {
-		if strings.Contains(lower, t) {
+	// Exact match for very short responses
+	exactMatches := []string{"y", "yes", "ok", "okay", "yep", "yeah", "sure"}
+	for _, m := range exactMatches {
+		if lower == m {
 			return true
 		}
 	}
-	return false
+	return matchesAnyTrigger(input, []string{
+		"/learn_yes",
+		"correct", "learn this", "confirm", "do it",
+	})
 }
 
 func isNegativeResponse(input string) bool {
@@ -199,17 +198,18 @@ func isNegativeResponse(input string) bool {
 	if lower == "" {
 		return false
 	}
-	triggers := []string{
-		"/learn_no",
-		"no", "n", "nope", "nah", "don't", "do not", "never",
-		"reject", "skip", "not now",
-	}
-	for _, t := range triggers {
-		if strings.Contains(lower, t) {
+	// Exact match for very short responses
+	exactMatches := []string{"n", "no", "nope", "nah"}
+	for _, m := range exactMatches {
+		if lower == m {
 			return true
 		}
 	}
-	return false
+	return matchesAnyTrigger(input, []string{
+		"/learn_no",
+		"don't", "do not", "never",
+		"reject", "skip", "not now",
+	})
 }
 
 func escapeMangleString(s string) string {
