@@ -18,21 +18,21 @@
 # mcp_server_registered(ServerID, Endpoint, Protocol, RegisteredAt)
 # Records an MCP server connection.
 # Protocol: /http, /stdio, /sse
-Decl mcp_server_registered(ServerID, Endpoint, Protocol, RegisteredAt).
+Decl mcp_server_registered(ServerID, Endpoint, Protocol, RegisteredAt) bound [/string, /string, /name, /number].
 
 # mcp_server_status(ServerID, Status)
 # Current connection status.
 # Status: /connected, /disconnected, /connecting, /error
-Decl mcp_server_status(ServerID, Status).
+Decl mcp_server_status(ServerID, Status) bound [/string, /name].
 
 # mcp_server_capabilities(ServerID, Capability)
 # Capabilities advertised by the server.
 # Capability: /tools, /resources, /prompts, /logging
-Decl mcp_server_capabilities(ServerID, Capability).
+Decl mcp_server_capabilities(ServerID, Capability) bound [/string, /name].
 
 # mcp_server_name(ServerID, Name)
 # Human-readable server name.
-Decl mcp_server_name(ServerID, Name).
+Decl mcp_server_name(ServerID, Name) bound [/string, /string].
 
 # -----------------------------------------------------------------------------
 # 50.2 MCP Tool Registration
@@ -41,19 +41,19 @@ Decl mcp_server_name(ServerID, Name).
 # mcp_tool_registered(ToolID, ServerID, RegisteredAt)
 # Records an MCP tool discovered from a server.
 # ToolID format: "server_id/tool_name"
-Decl mcp_tool_registered(ToolID, ServerID, RegisteredAt).
+Decl mcp_tool_registered(ToolID, ServerID, RegisteredAt) bound [/string, /string, /number].
 
 # mcp_tool_name(ToolID, Name)
 # The tool's name as advertised by the server.
-Decl mcp_tool_name(ToolID, Name).
+Decl mcp_tool_name(ToolID, Name) bound [/string, /string].
 
 # mcp_tool_description(ToolID, Description)
 # The tool's description from the server.
-Decl mcp_tool_description(ToolID, Description).
+Decl mcp_tool_description(ToolID, Description) bound [/string, /string].
 
 # mcp_tool_condensed(ToolID, Condensed)
 # LLM-generated one-line description (max 80 chars) for condensed rendering.
-Decl mcp_tool_condensed(ToolID, Condensed).
+Decl mcp_tool_condensed(ToolID, Condensed) bound [/string, /string].
 
 # -----------------------------------------------------------------------------
 # 50.3 MCP Tool Metadata (LLM-Extracted)
@@ -62,26 +62,26 @@ Decl mcp_tool_condensed(ToolID, Condensed).
 # mcp_tool_capability(ToolID, Capability)
 # Capabilities extracted by LLM analysis.
 # Capability: /read, /write, /delete, /search, /transform, /execute, /analyze, /validate
-Decl mcp_tool_capability(ToolID, Capability).
+Decl mcp_tool_capability(ToolID, Capability) bound [/string, /name].
 
 # mcp_tool_category(ToolID, Category)
 # Categories extracted by LLM analysis.
 # Category: /filesystem, /code_analysis, /code_generation, /shell, /git, /web, /database, /api, /testing, /documentation, /search
-Decl mcp_tool_category(ToolID, Category).
+Decl mcp_tool_category(ToolID, Category) bound [/string, /name].
 
 # mcp_tool_domain(ToolID, Domain)
 # Primary language/framework domain.
 # Domain: /go, /python, /typescript, /rust, /java, /general
-Decl mcp_tool_domain(ToolID, Domain).
+Decl mcp_tool_domain(ToolID, Domain) bound [/string, /name].
 
 # mcp_tool_shard_affinity(ToolID, ShardType, Score)
 # LLM-determined affinity score (0-100) for each shard type.
 # ShardType: /coder, /tester, /reviewer, /researcher
-Decl mcp_tool_shard_affinity(ToolID, ShardType, Score).
+Decl mcp_tool_shard_affinity(ToolID, ShardType, Score) bound [/string, /name, /number].
 
 # mcp_tool_analyzed(ToolID)
 # Indicates tool has been analyzed by LLM.
-Decl mcp_tool_analyzed(ToolID).
+Decl mcp_tool_analyzed(ToolID) bound [/string].
 
 # -----------------------------------------------------------------------------
 # 50.4 MCP Tool Selection (Derived Predicates)
@@ -89,37 +89,37 @@ Decl mcp_tool_analyzed(ToolID).
 
 # mcp_tool_available(ToolID)
 # Tool is available (server is connected).
-Decl mcp_tool_available(ToolID).
+Decl mcp_tool_available(ToolID) bound [/string].
 
 # mcp_tool_vector_score(ToolID, Score)
 # Semantic similarity score (0-100) from vector search.
 # Asserted by Go code after embedding-based search.
-Decl mcp_tool_vector_score(ToolID, Score).
+Decl mcp_tool_vector_score(ToolID, Score) bound [/string, /number].
 
 # mcp_tool_base_relevance(ShardType, ToolID, Score)
 # Base relevance from shard affinity.
-Decl mcp_tool_base_relevance(ShardType, ToolID, Score).
+Decl mcp_tool_base_relevance(ShardType, ToolID, Score) bound [/name, /string, /number].
 
 # mcp_tool_intent_boost(ToolID, Score)
 # Bonus score when tool capability matches intent verb.
-Decl mcp_tool_intent_boost(ToolID, Score).
+Decl mcp_tool_intent_boost(ToolID, Score) bound [/string, /number].
 
 # mcp_tool_domain_boost(ToolID, Score)
 # Bonus score when tool domain matches target language.
-Decl mcp_tool_domain_boost(ToolID, Score).
+Decl mcp_tool_domain_boost(ToolID, Score) bound [/string, /number].
 
 # mcp_tool_relevance(ShardType, ToolID, Score)
 # Combined relevance score (logic * 0.7 + vector * 0.3).
-Decl mcp_tool_relevance(ShardType, ToolID, Score).
+Decl mcp_tool_relevance(ShardType, ToolID, Score) bound [/name, /string, /number].
 
 # mcp_tool_selected(ShardType, ToolID, RenderMode)
 # Final tool selection with render mode.
 # RenderMode: /full, /condensed, /minimal
-Decl mcp_tool_selected(ShardType, ToolID, RenderMode).
+Decl mcp_tool_selected(ShardType, ToolID, RenderMode) bound [/name, /string, /name].
 
 # mcp_tool_skeleton(ToolID)
 # Tool is a skeleton tool (always selected for certain categories).
-Decl mcp_tool_skeleton(ToolID).
+Decl mcp_tool_skeleton(ToolID) bound [/string].
 
 # -----------------------------------------------------------------------------
 # 50.5 MCP Tool Usage Statistics
@@ -127,15 +127,15 @@ Decl mcp_tool_skeleton(ToolID).
 
 # mcp_tool_usage(ToolID, UsageCount, SuccessCount)
 # Aggregated usage statistics.
-Decl mcp_tool_usage(ToolID, UsageCount, SuccessCount).
+Decl mcp_tool_usage(ToolID, UsageCount, SuccessCount) bound [/string, /number, /number].
 
 # mcp_tool_last_used(ToolID, Timestamp)
 # Last usage timestamp.
-Decl mcp_tool_last_used(ToolID, Timestamp).
+Decl mcp_tool_last_used(ToolID, Timestamp) bound [/string, /number].
 
 # mcp_tool_success_rate(ToolID, Rate)
 # Success rate (0-100) derived from usage statistics.
-Decl mcp_tool_success_rate(ToolID, Rate).
+Decl mcp_tool_success_rate(ToolID, Rate) bound [/string, /number].
 
 # -----------------------------------------------------------------------------
 # 50.6 Intent-Capability Mapping (for tool selection)

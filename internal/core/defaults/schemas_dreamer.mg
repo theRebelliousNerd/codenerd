@@ -11,23 +11,23 @@
 # Projected facts produced by the Dreamer to simulate action effects.
 
 # projected_action(ActionID, ActionType, Target)
-Decl projected_action(ActionID, ActionType, Target).
+Decl projected_action(ActionID, ActionType, Target) bound [/string, /name, /string].
 
 # projected_fact(ActionID, FactType, Value)
 # FactType: /file_missing, /file_exists, /modified
-Decl projected_fact(ActionID, FactType, Value).
+Decl projected_fact(ActionID, FactType, Value) bound [/string, /name, /string].
 
 # panic_state(ActionID, Reason) - Derived: future state violates invariant
-Decl panic_state(ActionID, Reason).
+Decl panic_state(ActionID, Reason) bound [/string, /string].
 
 # dream_block(ActionID, Reason) - Derived: action blocked by Dreamer
-Decl dream_block(ActionID, Reason).
+Decl dream_block(ActionID, Reason) bound [/string, /string].
 
 # critical_file(Path) - Enumerates files whose deletion is catastrophic
-Decl critical_file(Path).
+Decl critical_file(Path) bound [/string].
 
 # critical_path_prefix(Prefix) - Paths that should never be removed recursively
-Decl critical_path_prefix(Prefix).
+Decl critical_path_prefix(Prefix) bound [/string].
 
 # =============================================================================
 # SECTION 38B: DREAM STATE LEARNING (§8.3.1)
@@ -37,25 +37,25 @@ Decl critical_path_prefix(Prefix).
 
 # dream_state(Hypothetical, Timestamp)
 # Records a dream state consultation was performed
-Decl dream_state(Hypothetical, Timestamp).
+Decl dream_state(Hypothetical, Timestamp) bound [/string, /number].
 
 # dream_tool_need(ToolName, Description, Confidence, Hypothetical)
 # Tool capability gap identified by Dream State consultation
 # Routes to Ouroboros for potential tool generation
-Decl dream_tool_need(ToolName, Description, Confidence, Hypothetical).
+Decl dream_tool_need(ToolName, Description, Confidence, Hypothetical) bound [/string, /string, /number, /string].
 
 # dream_risk_pattern(RiskType, Content, Confidence)
 # Safety/risk awareness learned from Dream State
 # RiskType: /security, /data_integrity, /performance, /stability, /deployment, /general
-Decl dream_risk_pattern(RiskType, Content, Confidence).
+Decl dream_risk_pattern(RiskType, Content, Confidence) bound [/name, /string, /number].
 
 # dream_preference(Content, Confidence)
 # User/project preference learned from Dream State
-Decl dream_preference(Content, Confidence).
+Decl dream_preference(Content, Confidence) bound [/string, /number].
 
 # dream_learning_confirmed(LearningID, Type, Content, Timestamp)
 # Records a confirmed dream learning for audit trail
-Decl dream_learning_confirmed(LearningID, Type, Content, Timestamp).
+Decl dream_learning_confirmed(LearningID, Type, Content, Timestamp) bound [/string, /name, /string, /number].
 
 # =============================================================================
 # SECTION 38C: DREAM PLAN EXECUTION (§8.3.2)
@@ -66,20 +66,20 @@ Decl dream_learning_confirmed(LearningID, Type, Content, Timestamp).
 # dream_plan(PlanID, Hypothetical, Status, CreatedAt)
 # Records a dream plan extracted from multi-agent consultation
 # Status: /pending, /approved, /executing, /completed, /failed, /cancelled
-Decl dream_plan(PlanID, Hypothetical, Status, CreatedAt).
+Decl dream_plan(PlanID, Hypothetical, Status, CreatedAt) bound [/string, /string, /name, /number].
 
 # dream_plan_subtask(PlanID, StepOrder, ShardType, Description, Status)
 # Individual steps within a dream plan
 # Status: /pending, /running, /completed, /failed, /skipped
-Decl dream_plan_subtask(PlanID, StepOrder, ShardType, Description, Status).
+Decl dream_plan_subtask(PlanID, StepOrder, ShardType, Description, Status) bound [/string, /number, /name, /string, /name].
 
 # dream_plan_approved(PlanID, ApprovedAt)
 # Records when user approved a dream plan for execution ("do it")
-Decl dream_plan_approved(PlanID, ApprovedAt).
+Decl dream_plan_approved(PlanID, ApprovedAt) bound [/string, /number].
 
 # dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt)
 # Audit trail for completed steps
-Decl dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt).
+Decl dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt) bound [/string, /number, /string, /number].
 
 # =============================================================================
 # SECTION 48: CROSS-MODULE SUPPORT PREDICATES
@@ -92,7 +92,7 @@ Decl dream_plan_step_completed(PlanID, StepOrder, Result, CompletedAt).
 
 # effective_prompt_atom(AtomID) - Derived: atom is effective (selected and led to success)
 # Used for learning signals to improve prompt compilation over time
-Decl effective_prompt_atom(AtomID).
+Decl effective_prompt_atom(AtomID) bound [/string].
 
 # -----------------------------------------------------------------------------
 # 48.2 Nemesis / Chaos Engineering Support (nemesis.go, chaos.mg)
@@ -102,17 +102,17 @@ Decl effective_prompt_atom(AtomID).
 # InvariantID: Identifier for the invariant (/http_500_rate, /deadlock_detected, etc.)
 # Timestamp: When the violation was detected
 # Used by NemesisShard and Thunderdome for chaos engineering
-Decl system_invariant_violated(InvariantID, Timestamp).
+Decl system_invariant_violated(InvariantID, Timestamp) bound [/string, /number].
 
 # patch_diff(PatchID, DiffContent) - Stores patch diffs for analysis
 # PatchID: Identifier for the patch
 # DiffContent: The actual diff content as a string
 # Used by NemesisShard for adversarial patch analysis
-Decl patch_diff(PatchID, DiffContent).
+Decl patch_diff(PatchID, DiffContent) bound [/string, /string].
 
 # gauntlet_result(PatchID, Phase, Verdict, Timestamp) - Nemesis gauntlet outcome
 # Verdict: /passed or /failed
-Decl gauntlet_result(PatchID, Phase, Verdict, Timestamp).
+Decl gauntlet_result(PatchID, Phase, Verdict, Timestamp) bound [/string, /name, /name, /number].
 
 # gauntlet_passed() - derived: at least one gauntlet passed in session
 Decl gauntlet_passed().
@@ -128,5 +128,4 @@ Decl gauntlet_passed().
 # Dismissed: Number dismissed
 # DurationMs: Duration in milliseconds
 # Used by ReviewerShard hypothesis verification loop
-Decl verification_summary(Timestamp, Total, Confirmed, Dismissed, DurationMs).
-
+Decl verification_summary(Timestamp, Total, Confirmed, Dismissed, DurationMs) bound [/number, /number, /number, /number, /number].

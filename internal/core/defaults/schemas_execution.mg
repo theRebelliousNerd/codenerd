@@ -13,18 +13,18 @@
 # State: /failing, /log_read, /cause_found, /patch_applied, /passing, /unknown
 # Priority: 95
 # SerializationOrder: 4
-Decl test_state(State).
+Decl test_state(State) bound [/name].
 
 # test_type(Type)
 # Type: /unit, /integration, /e2e (detected from test file patterns)
-Decl test_type(Type).
+Decl test_type(Type) bound [/name].
 
 # retry_count(Count)
-Decl retry_count(Count).
+Decl retry_count(Count) bound [/number].
 
 # task_status(TaskID, Status)
 # Status: /pending, /in_progress, /completed, /blocked, /failed
-Decl task_status(TaskID, Status).
+Decl task_status(TaskID, Status) bound [/string, /name].
 
 # =============================================================================
 # SECTION 10: ACTION & EXECUTION (§4.0)
@@ -35,35 +35,35 @@ Decl task_status(TaskID, Status).
 #             /escalate_to_user, /complete, /interrogative_mode
 # Priority: 70
 # SerializationOrder: 5
-Decl next_action(ActionType).
+Decl next_action(ActionType) bound [/name].
 
 # Strategy-Specific Next Actions (derived by strategy policy rules)
 # tdd_next_action(ActionType) - TDD repair loop derived action
-Decl tdd_next_action(ActionType).
+Decl tdd_next_action(ActionType) bound [/name].
 
 # campaign_next_action(ActionType) - Campaign orchestration derived action
-Decl campaign_next_action(ActionType).
+Decl campaign_next_action(ActionType) bound [/name].
 
 # repair_next_action(ActionType) - Repair strategy derived action
-Decl repair_next_action(ActionType).
+Decl repair_next_action(ActionType) bound [/name].
 
 # Blocking Conditions (derived by policy rules)
 # block_action(Reason) - General action blocking condition
-Decl block_action(Reason).
+Decl block_action(Reason) bound [/name].
 
 # test_state_blocking(Reason) - Test state prevents action
-Decl test_state_blocking(Reason).
+Decl test_state_blocking(Reason) bound [/name].
 
 # action_details(ActionType, Payload)
-Decl action_details(ActionType, Payload).
+Decl action_details(ActionType, Payload) bound [/name, /string].
 
 # safe_action(ActionType)
-Decl safe_action(ActionType).
+Decl safe_action(ActionType) bound [/name].
 
 # action_mapping(IntentVerb, ActionType) - maps intent verbs to executable actions
 # IntentVerb: /explain, /read, /search, /run, /test, /review, /fix, /refactor, etc.
 # ActionType: /analyze_code, /fs_read, /search_files, /exec_cmd, /run_tests, etc.
-Decl action_mapping(IntentVerb, ActionType).
+Decl action_mapping(IntentVerb, ActionType) bound [/name, /name].
 
 # =============================================================================
 # SECTION 11: POST-ACTION VALIDATION (§4.1)
@@ -76,49 +76,49 @@ Decl action_mapping(IntentVerb, ActionType).
 # Emitted when post-action validation succeeds.
 # Method: /hash, /syntax, /existence, /content_check, /output_scan, /codedom_refresh, /paranoid_validation, /enhanced_edit_validation
 # Confidence: 0-100 integer score (Go scales 0.0-1.0 to 0-100)
-Decl action_verified(ActionID, ActionType, Method, Confidence, Timestamp).
+Decl action_verified(ActionID, ActionType, Method, Confidence, Timestamp) bound [/string, /name, /name, /number, /number].
 
 # action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp)
 # Emitted when post-action validation fails.
 # Triggers self-healing or escalation.
-Decl action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp).
+Decl action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp) bound [/string, /name, /name, /string, /number].
 
 # validation_method_used(ActionID, Method)
 # Tracks which validation method was applied to each action.
-Decl validation_method_used(ActionID, Method).
+Decl validation_method_used(ActionID, Method) bound [/string, /name].
 
 # action_pre_state(ActionID, StateHash)
 # Captures state before action execution (for rollback).
-Decl action_pre_state(ActionID, StateHash).
+Decl action_pre_state(ActionID, StateHash) bound [/string, /string].
 
 # action_post_state(ActionID, StateHash)
 # Captures state after action execution (for verification).
-Decl action_post_state(ActionID, StateHash).
+Decl action_post_state(ActionID, StateHash) bound [/string, /string].
 
 # action_state_delta(ActionID, PreHash, PostHash)
 # Records the change in state from action execution.
-Decl action_state_delta(ActionID, PreHash, PostHash).
+Decl action_state_delta(ActionID, PreHash, PostHash) bound [/string, /string, /string].
 
 # validation_attempt(ActionID, AttemptNum, Success, Timestamp)
 # Tracks validation retry attempts.
-Decl validation_attempt(ActionID, AttemptNum, Success, Timestamp).
+Decl validation_attempt(ActionID, AttemptNum, Success, Timestamp) bound [/string, /number, /name, /number].
 
 # validation_max_retries_reached(ActionID)
 # Indicates self-healing exhausted retry budget.
-Decl validation_max_retries_reached(ActionID).
+Decl validation_max_retries_reached(ActionID) bound [/string].
 
 # needs_self_healing(ActionID, HealingType)
 # Triggers automatic recovery when validation fails.
 # HealingType: /retry, /rollback, /escalate, /alternative_approach
-Decl needs_self_healing(ActionID, HealingType).
+Decl needs_self_healing(ActionID, HealingType) bound [/string, /name].
 
 # healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp)
 # Records a self-healing attempt and its outcome.
-Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp).
+Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp) bound [/string, /name, /name, /string, /number].
 
 # action_escalated(ActionID, Reason, Timestamp)
 # Indicates an action was escalated to user for manual intervention.
-Decl action_escalated(ActionID, Reason, Timestamp).
+Decl action_escalated(ActionID, Reason, Timestamp) bound [/string, /name, /number].
 
 
 # =============================================================================
@@ -126,36 +126,36 @@ Decl action_escalated(ActionID, Reason, Timestamp).
 # =============================================================================
 
 # cmd_succeeded(Binary, Output)
-Decl cmd_succeeded(Binary, Output).
+Decl cmd_succeeded(Binary, Output) bound [/string, /string].
 
 # cmd_failed(Binary, Error)
-Decl cmd_failed(Binary, Error).
+Decl cmd_failed(Binary, Error) bound [/string, /string].
 
 # file_read_error(Path, Error)
-Decl file_read_error(Path, Error).
+Decl file_read_error(Path, Error) bound [/string, /string].
 
 # file_write_error(Path, Error)
-Decl file_write_error(Path, Error).
+Decl file_write_error(Path, Error) bound [/string, /string].
 
 # file_truncated(Path, Limit)
 
 # dir_read(Path, Count)
-Decl dir_read(Path, Count).
+Decl dir_read(Path, Count) bound [/string, /number].
 
 # dir_read_error(Path, Error)
-Decl dir_read_error(Path, Error).
+Decl dir_read_error(Path, Error) bound [/string, /string].
 
 # edit_failed(Path, Reason)
-Decl edit_failed(Path, Reason).
+Decl edit_failed(Path, Reason) bound [/string, /name].
 
 # file_edited(Path)
-Decl file_edited(Path).
+Decl file_edited(Path) bound [/string].
 
 # delete_blocked(Path, Reason)
-Decl delete_blocked(Path, Reason).
+Decl delete_blocked(Path, Reason) bound [/string, /name].
 
 # file_deleted(Path)
-Decl file_deleted(Path).
+Decl file_deleted(Path) bound [/string].
 
 # file_read(Path, SessionID, Timestamp) - matches VirtualStore usage
 # Override/Supplement schemas_codedom.mg usage
@@ -174,5 +174,5 @@ Decl file_deleted(Path).
 # execution_resource_usage, execution_io, execution_sandbox, execution_killed,
 # execution_error, execution_blocked
 
-Decl execution_sandboxed(RequestID, SandboxMode).
-Decl execution_tag(RequestID, Key, Value).
+Decl execution_sandboxed(RequestID, SandboxMode) bound [/string, /name].
+Decl execution_tag(RequestID, Key, Value) bound [/string, /string, /string].

@@ -14,23 +14,23 @@
 # IsTestFile: /true, /false
 # Priority: 80
 # SerializationOrder: 10
-Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
+Decl file_topology(Path, Hash, Language, LastModified, IsTestFile) bound [/string, /string, /name, /number, /name].
 
 # directory(Path, Name)
-Decl directory(Path, Name).
+Decl directory(Path, Name) bound [/string, /string].
 
 # file_exists(Path) - Derived from file_topology
 # Checks if a file exists in the workspace
-Decl file_exists(Path).
+Decl file_exists(Path) bound [/string].
 file_exists(Path) :- file_topology(Path, _, _, _, _).
 
 # modified(FilePath) - marks a file as modified
 # Priority: 85
 # SerializationOrder: 8
-Decl modified(FilePath).
+Decl modified(FilePath) bound [/string].
 
 # test_coverage(FilePath) - marks a file as having test coverage
-Decl test_coverage(FilePath).
+Decl test_coverage(FilePath) bound [/string].
 
 # =============================================================================
 # SECTION 4: SYMBOL GRAPH / AST PROJECTION (§2.3)
@@ -41,12 +41,12 @@ Decl test_coverage(FilePath).
 # Visibility: /public, /private, /protected
 # Priority: 75
 # SerializationOrder: 12
-Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature).
+Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature) bound [/string, /name, /name, /string, /string].
 
 # dependency_link(CallerID, CalleeID, ImportPath)
 # Priority: 70
 # SerializationOrder: 13
-Decl dependency_link(CallerID, CalleeID, ImportPath).
+Decl dependency_link(CallerID, CalleeID, ImportPath) bound [/string, /string, /string].
 
 # =============================================================================
 # SECTION 5: DIAGNOSTICS / LINTER-LOGIC BRIDGE (§2.2)
@@ -56,7 +56,7 @@ Decl dependency_link(CallerID, CalleeID, ImportPath).
 # Severity: /panic, /error, /warning, /info
 # Priority: 95
 # SerializationOrder: 3
-Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
+Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message) bound [/name, /string, /number, /string, /string].
 
 # =============================================================================
 # SECTION 5.1: LSP CODE INTELLIGENCE (Language Server Protocol Integration)
@@ -69,26 +69,25 @@ Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message).
 # Lang: /mangle, /go, /python, /rust, etc.
 # Priority: 75
 # SerializationOrder: 12
-Decl symbol_defined(Lang, SymbolName, FilePath, Line, Column).
+Decl symbol_defined(Lang, SymbolName, FilePath, Line, Column) bound [/name, /string, /string, /number, /number].
 
 # symbol_referenced(Lang, SymbolName, FilePath, Line, Column, Kind)
 # Marks where a symbol is referenced/used in code
 # Kind: /head, /body, /fact, /query (for Mangle), /call, /import (for other languages)
 # Priority: 70
 # SerializationOrder: 13
-Decl symbol_referenced(Lang, SymbolName, FilePath, Line, Column, Kind).
+Decl symbol_referenced(Lang, SymbolName, FilePath, Line, Column, Kind) bound [/name, /string, /string, /number, /number, /name].
 
 # code_diagnostic(FilePath, Line, Severity, Message)
 # LSP-derived diagnostics (syntax errors, warnings, hints)
 # Severity: /error, /warning, /info, /hint
 # Priority: 95
 # SerializationOrder: 3
-Decl code_diagnostic(FilePath, Line, Severity, Message).
+Decl code_diagnostic(FilePath, Line, Severity, Message) bound [/string, /number, /name, /string].
 
 # symbol_completion(FilePath, Line, Column, Suggestions)
 # Available completions at a cursor position (list of suggestion strings)
 # Used by LegislatorShard and CoderShard for intelligent code generation
 # Priority: 60
 # SerializationOrder: 15
-Decl symbol_completion(FilePath, Line, Column, Suggestions).
-
+Decl symbol_completion(FilePath, Line, Column, Suggestions) bound [/string, /number, /number, /string].

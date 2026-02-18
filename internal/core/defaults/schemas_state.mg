@@ -24,56 +24,56 @@
 # =============================================================================
 # CORE STATE DECLARATIONS (Original)
 # =============================================================================
-Decl state(StepID, Stability, Loc).
-Decl proposed(StepID).
-Decl history(StepID, Hash).
-Decl error_event(Type).
+Decl state(StepID, Stability, Loc) bound [/string, /number, /string].
+Decl proposed(StepID) bound [/string].
+Decl history(StepID, Hash) bound [/string, /string].
+Decl error_event(Type) bound [/name].
 
 # =============================================================================
 # ITERATION TRACKING
 # =============================================================================
-Decl iteration(StepID, IterNum).
-Decl max_iterations(Limit).
-Decl state_at_iteration(StepID, IterNum, Stability).
+Decl iteration(StepID, IterNum) bound [/string, /number].
+Decl max_iterations(Limit) bound [/number].
+Decl state_at_iteration(StepID, IterNum, Stability) bound [/string, /number, /number].
 
 # =============================================================================
 # RETRY TRACKING
 # =============================================================================
-Decl retry_attempt(StepID, AttemptNum, Reason).
-Decl max_retries(Limit).
+Decl retry_attempt(StepID, AttemptNum, Reason) bound [/string, /number, /name].
+Decl max_retries(Limit) bound [/number].
 
 # =============================================================================
 # ERROR HISTORY
 # =============================================================================
-Decl error_history(StepID, ErrorType, Timestamp).
+Decl error_history(StepID, ErrorType, Timestamp) bound [/string, /name, /number].
 
 # =============================================================================
 # STABILITY PENALTIES
 # =============================================================================
-Decl stability_penalty(StepID, Amount).
-Decl cumulative_penalty(StepID, Total).
-Decl base_stability(StepID, Score).
-Decl effective_stability(StepID, Score).
-Decl has_penalty(StepID).
-Decl has_panic_penalty(StepID).
-Decl has_retry_penalty(StepID).
-Decl has_effective_stability(StepID).
+Decl stability_penalty(StepID, Amount) bound [/string, /number].
+Decl cumulative_penalty(StepID, Total) bound [/string, /number].
+Decl base_stability(StepID, Score) bound [/string, /number].
+Decl effective_stability(StepID, Score) bound [/string, /number].
+Decl has_penalty(StepID) bound [/string].
+Decl has_panic_penalty(StepID) bound [/string].
+Decl has_retry_penalty(StepID) bound [/string].
+Decl has_effective_stability(StepID) bound [/string].
 
 # =============================================================================
 # HOT-RELOAD TRACKING
 # =============================================================================
-Decl tool_hot_loaded(ToolName, Timestamp).
-Decl tool_version(ToolName, Version).
+Decl tool_hot_loaded(ToolName, Timestamp) bound [/string, /number].
+Decl tool_version(ToolName, Version) bound [/string, /string].
 
 # =============================================================================
 # TERMINATION CONDITIONS
 # =============================================================================
-Decl should_halt(StepID).
-Decl should_complete(StepID).
-Decl max_iterations_exceeded(StepID).
-Decl max_retries_exceeded(StepID).
-Decl stability_degrading(StepID).
-Decl converged(StepID).
+Decl should_halt(StepID) bound [/string].
+Decl should_complete(StepID) bound [/string].
+Decl max_iterations_exceeded(StepID) bound [/string].
+Decl max_retries_exceeded(StepID) bound [/string].
+Decl stability_degrading(StepID) bound [/string].
+Decl converged(StepID) bound [/string].
 
 # =============================================================================
 # HALTING ORACLE (Original)
