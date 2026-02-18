@@ -1370,3 +1370,54 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 			result.MandatoryCount, result.OptionalCount, result.AtomsIncluded)
 	})
 }
+
+// =============================================================================
+// Negative Testing & Boundary Value Analysis Gaps (Added 2026-02-18)
+// =============================================================================
+// The following gaps were identified during deep dive QA analysis.
+// See .quality_assurance/2026-02-18_05-17-EST_jit_compiler_negative_testing.md
+
+// TODO: TEST_GAP: [Vector A/D] TestCompiler_FallbackOnCorruptProjectDB
+// Scenario: Project DB query returns error or hangs.
+// Objective: Verify that the compiler degrades gracefully (logs warning, uses embedded corpus)
+// and does NOT panic or fail the entire compilation.
+// Criticality: High (Production reliability)
+
+// TODO: TEST_GAP: [Vector D] TestCompiler_StaleCacheOnKernelUpdate
+// Scenario:
+// 1. Compile(Context A) -> Cache Miss -> Result 1
+// 2. Update Kernel State (assert new context facts or register new DB)
+// 3. Compile(Context A) -> Should be Cache Miss -> Result 2
+// Objective: Verify that the cache key includes a hash of the external state (DB version, Kernel state),
+// preventing stale prompts from being served after knowledge updates.
+// Criticality: Critical (Correctness)
+
+// TODO: TEST_GAP: [Vector D] TestCompiler_ContextFactLeakage_OnError
+// Scenario:
+// 1. Compile() starts and asserts context facts to Kernel.
+// 2. An error occurs during atom selection (e.g., Vector Search failure).
+// 3. Verify if context facts are retracted.
+// Objective: Ensure ephemeral facts are cleaned up even on error paths to prevent pollution.
+// Criticality: High (State hygiene)
+
+// TODO: TEST_GAP: [Vector B] TestCompiler_TypeCoercion_KernelFacts
+// Scenario: Kernel returns facts with non-string arguments (int, float, nil, []byte).
+// Objective: Verify that `collectKernelInjectedAtoms` and other fact consumers handle these types
+// robustly (safe string conversion) without panicking.
+// Criticality: Medium (Robustness against Mangle engine changes)
+
+// TODO: TEST_GAP: [Vector C] TestCompiler_MassiveTokenBudget
+// Scenario: Call WithTokenBudget(math.MaxInt64, 0) and WithTokenBudget(0, 0).
+// Objective: Verify integer overflow protection and sane behavior (0 budget = mandatory only).
+// Criticality: Medium (Edge case safety)
+
+// TODO: TEST_GAP: [Vector C] TestCompiler_CircularDependencies
+// Scenario: Atom A depends on B, B depends on A.
+// Objective: Verify that the DependencyResolver detects the cycle, logs a warning, and breaks it
+// without infinite recursion or stack overflow.
+// Criticality: High (DoS protection)
+
+// TODO: TEST_GAP: [Vector A] TestCompiler_MissingSpecialistRegistry
+// Scenario: .nerd/agents.json is missing or malformed.
+// Objective: Verify safe fallback to default specialist list without compilation failure.
+// Criticality: Low (UX degradation)
