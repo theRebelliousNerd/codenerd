@@ -1012,6 +1012,36 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			logStep("Wired Ouroboros as ToolGenerator for self-tool routing")
 		}
 
+		// Wire tool registry to session executor for Piggyback++ dual-registry.
+		// This enables the Executor to include Ouroboros-generated tools in its
+		// tool catalog (buildToolCatalogForPiggyback) and execute them (executeToolCall).
+		// The VirtualStore's toolRegistry is already synced from Ouroboros above.
+		if sessionExecutor != nil {
+			sessionExecutor.SetOuroborosRegistry(virtualStore.GetToolRegistry())
+			logStep("Wired Ouroboros tool registry to session executor for Piggyback++ dual-registry")
+		}
+
+		// Create Dream → Ouroboros tool need bridge goroutine.
+		// When Dream State identifies a capability gap (ToolNeed), this bridge
+		// converts core.ToolNeed to autopoiesis.ToolNeed and dispatches to Ouroboros.
+		// The goroutine is bounded by autopoiesisCtx cancellation (fail-fast on shutdown).
+		var dreamToolQ chan<- core.ToolNeed
+		dreamToolCh := make(chan core.ToolNeed, 16)
+		dreamToolQ = dreamToolCh
+		go func() {
+			for need := range dreamToolCh {
+				ctx, cancel := context.WithTimeout(autopoiesisCtx, 5*time.Minute)
+				autoNeed := &autopoiesis.ToolNeed{
+					Name:     need.Name,
+					Purpose:  need.Description,
+					Priority: need.Priority,
+				}
+				autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
+				cancel()
+			}
+		}()
+		logStep("Dream → Ouroboros tool need bridge started")
+
 		// Hydrate tools from disk and available_tools.json
 		logStep("Hydrating tools from .nerd/tools/...")
 		toolsNerdDir := filepath.Join(workspace, ".nerd")
@@ -1117,6 +1147,8 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 				ObserverMgr: observerMgr,
 				// Consultation Manager
 				ConsultationMgr: consultationMgr,
+				// Dream → Ouroboros bridge channel
+				DreamToolQ: dreamToolQ,
 			},
 		}
 	}

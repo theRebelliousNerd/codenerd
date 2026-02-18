@@ -1,5 +1,7 @@
 package types
 
+import "codenerd/internal/logging"
+
 // KernelTransaction defines the interface for atomic kernel fact operations.
 // Buffer retract/assert operations, then call Commit() to apply them atomically
 // with a single rebuild/evaluate cycle instead of N separate rebuilds.
@@ -61,7 +63,9 @@ func (t *KernelTx) Retract(predicate string) {
 	if t.tx != nil {
 		t.tx.Retract(predicate)
 	} else {
-		_ = t.kernel.Retract(predicate)
+		if err := t.kernel.Retract(predicate); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: Retract(%s) failed: %v", predicate, err)
+		}
 	}
 }
 
@@ -70,7 +74,9 @@ func (t *KernelTx) RetractFact(fact Fact) {
 	if t.tx != nil {
 		t.tx.RetractFact(fact)
 	} else {
-		_ = t.kernel.RetractFact(fact)
+		if err := t.kernel.RetractFact(fact); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RetractFact(%s) failed: %v", fact.Predicate, err)
+		}
 	}
 }
 
@@ -79,7 +85,9 @@ func (t *KernelTx) RetractExactFact(fact Fact) {
 	if t.tx != nil {
 		t.tx.RetractExactFact(fact)
 	} else {
-		_ = t.kernel.RetractExactFactsBatch([]Fact{fact})
+		if err := t.kernel.RetractExactFactsBatch([]Fact{fact}); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RetractExactFact(%s) failed: %v", fact.Predicate, err)
+		}
 	}
 }
 
@@ -88,7 +96,9 @@ func (t *KernelTx) RetractPredicateSet(predicates map[string]struct{}) {
 	if t.tx != nil {
 		t.tx.RetractPredicateSet(predicates)
 	} else {
-		_ = t.kernel.RemoveFactsByPredicateSet(predicates)
+		if err := t.kernel.RemoveFactsByPredicateSet(predicates); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RemoveFactsByPredicateSet failed: %v", err)
+		}
 	}
 }
 
@@ -97,7 +107,9 @@ func (t *KernelTx) Assert(fact Fact) {
 	if t.tx != nil {
 		t.tx.Assert(fact)
 	} else {
-		_ = t.kernel.Assert(fact)
+		if err := t.kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: Assert(%s) failed: %v", fact.Predicate, err)
+		}
 	}
 }
 
@@ -110,7 +122,9 @@ func (t *KernelTx) LoadFacts(facts []Fact) {
 			t.tx.Assert(f)
 		}
 	} else {
-		_ = t.kernel.LoadFacts(facts)
+		if err := t.kernel.LoadFacts(facts); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: LoadFacts(%d facts) failed: %v", len(facts), err)
+		}
 	}
 }
 

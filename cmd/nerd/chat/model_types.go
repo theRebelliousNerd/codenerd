@@ -481,6 +481,8 @@ type SystemComponents struct {
 	// Clean Loop Architecture (replaces hardcoded shard logic)
 	SessionExecutor *session.Executor // Clean execution loop (JIT-driven)
 	SessionSpawner  *session.Spawner  // JIT-driven subagent spawning
+	// Dream → Ouroboros bridge channel for tool need routing
+	DreamToolQ chan<- core.ToolNeed
 	// Background Observer Manager (Northstar, etc.)
 	ObserverMgr *shards.BackgroundObserverManager
 	// Consultation Manager for cross-specialist consultations

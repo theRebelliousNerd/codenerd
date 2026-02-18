@@ -748,6 +748,11 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			m.dreamCollector = core.NewDreamLearningCollector()
 			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
 
+			// Wire Dream → Ouroboros tool need bridge (§8.3.1)
+			if c.DreamToolQ != nil {
+				m.dreamRouter.SetOuroborosQueue(c.DreamToolQ)
+			}
+
 			// Initialize Dream Plan Manager for dream-to-execute pipeline (§8.3.2)
 			m.dreamPlanManager = core.NewDreamPlanManager(m.kernel)
 
