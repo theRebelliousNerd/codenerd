@@ -84,8 +84,8 @@ func TestFactToAtomConversion(t *testing.T) {
 	assertStringConstant(t, atom.Args[4], "plain")
 	assertNumberConstant(t, atom.Args[5], 3)
 	assertNumberConstant(t, atom.Args[6], 4)
-	assertNumberConstant(t, atom.Args[7], 42)  // 0.42 * 100
-	assertNumberConstant(t, atom.Args[8], 270) // 2.7 * 100
+	assertFloat64Constant(t, atom.Args[7], 0.42) // native Float64
+	assertFloat64Constant(t, atom.Args[8], 2.7)  // native Float64
 	assertNameConstant(t, atom.Args[9], "/true")
 	assertNameConstant(t, atom.Args[10], "/false")
 }
@@ -152,5 +152,23 @@ func assertNumberConstant(t *testing.T, term ast.BaseTerm, want int64) {
 	}
 	if c.NumValue != want {
 		t.Fatalf("expected number %d, got %d", want, c.NumValue)
+	}
+}
+
+func assertFloat64Constant(t *testing.T, term ast.BaseTerm, want float64) {
+	t.Helper()
+	c, ok := term.(ast.Constant)
+	if !ok {
+		t.Fatalf("expected constant term")
+	}
+	if c.Type != ast.Float64Type {
+		t.Fatalf("expected Float64Type, got %v", c.Type)
+	}
+	got, err := c.Float64Value()
+	if err != nil {
+		t.Fatalf("Float64Value() error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected float64 %f, got %f", want, got)
 	}
 }

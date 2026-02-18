@@ -139,15 +139,15 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 		case int64:
 			terms = append(terms, ast.Number(v))
 		case float32:
-			terms = append(terms, ast.Number(int64(float64(v)*100)))
+			terms = append(terms, ast.Float64(float64(v)))
 		case float64:
-			terms = append(terms, ast.Number(int64(v*100)))
+			terms = append(terms, ast.Float64(v))
 		case time.Time:
-			// Store as Unix nanoseconds (ast.TimeType not available in v0.4.0)
-			terms = append(terms, ast.Number(v.UnixNano()))
+			// Native TimeType: store as Unix nanoseconds
+			terms = append(terms, ast.Time(v.UnixNano()))
 		case time.Duration:
-			// Store as nanoseconds integer
-			terms = append(terms, ast.Number(int64(v)))
+			// Native DurationType: store as nanoseconds
+			terms = append(terms, ast.Duration(int64(v)))
 		case bool:
 			if v {
 				terms = append(terms, ast.TrueConstant)

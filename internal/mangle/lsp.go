@@ -854,7 +854,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 				Version int    `json:"version"`
 			} `json:"textDocument"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil // Notification: no response expected
+		}
 		s.OpenDocument(params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
 		return nil
 
@@ -868,7 +870,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 				Text string `json:"text"`
 			} `json:"contentChanges"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Error: &LSPError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}}
+		}
 		if len(params.ContentChanges) > 0 {
 			s.OpenDocument(params.TextDocument.URI, params.ContentChanges[0].Text, params.TextDocument.Version)
 		}
@@ -884,7 +888,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 				Character int `json:"character"`
 			} `json:"position"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Error: &LSPError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}}
+		}
 		defs := s.GoToDefinition(params.TextDocument.URI, params.Position.Line+1, params.Position.Character)
 		if len(defs) == 0 {
 			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Result: nil}
@@ -911,7 +917,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 				Character int `json:"character"`
 			} `json:"position"`
 		}
-		json.Unmarshal(req.Params, &params)
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Error: &LSPError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}}
+		}
 		hover := s.GetHover(params.TextDocument.URI, params.Position.Line+1, params.Position.Character)
 		if hover == "" {
 			return &LSPResponse{JSONRPC: "2.0", ID: req.ID, Result: nil}

@@ -895,8 +895,17 @@ func evaluateAndQuery(t *testing.T, program string, facts []testFact, queryPred 
 		store.Add(atom)
 	}
 
-	// Evaluate
-	_, err = engine.EvalProgramWithStats(programInfo, store)
+	// Evaluate using stratified evaluation (replaces deprecated EvalProgramWithStats)
+	strata, predToStratum, stratErr := analysis.Stratify(analysis.Program{
+		EdbPredicates: programInfo.EdbPredicates,
+		IdbPredicates: programInfo.IdbPredicates,
+		Rules:         programInfo.Rules,
+	})
+	if stratErr != nil {
+		t.Fatalf("Failed to stratify program: %v", stratErr)
+	}
+
+	_, err = engine.EvalStratifiedProgramWithStats(programInfo, strata, predToStratum, store)
 	if err != nil {
 		t.Fatalf("Failed to evaluate program: %v", err)
 	}

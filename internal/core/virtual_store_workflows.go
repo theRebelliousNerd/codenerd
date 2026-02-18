@@ -855,7 +855,7 @@ func (v *VirtualStore) handleEmergencyCompress(ctx context.Context, req ActionRe
 		Success: true,
 		Output:  "Emergency context compression initiated",
 		FactsToAdd: []Fact{
-			{Predicate: "context_compressing", Args: []interface{}{"emergency", 0.25}},
+			{Predicate: "context_compressing", Args: []interface{}{"emergency", int64(25)}},
 			{Predicate: "compression_requested", Args: []interface{}{"/emergency"}},
 		},
 	}, nil

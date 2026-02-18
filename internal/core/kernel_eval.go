@@ -79,6 +79,19 @@ func (k *RealKernel) rebuildProgram() error {
 	k.programInfo = programInfo
 	k.policyDirty = false
 
+	// Cache stratification for EvalStratifiedProgramWithStats
+	strata, predToStratum, err := analysis.Stratify(analysis.Program{
+		EdbPredicates: programInfo.EdbPredicates,
+		IdbPredicates: programInfo.IdbPredicates,
+		Rules:         programInfo.Rules,
+	})
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("rebuildProgram: stratification failed: %v", err)
+		return fmt.Errorf("failed to stratify program: %w", err)
+	}
+	k.strata = strata
+	k.predToStratum = predToStratum
+
 	// Log predicate count
 	declCount := 0
 	if programInfo.Decls != nil {
@@ -144,7 +157,7 @@ func (k *RealKernel) evaluate() error {
 	logging.KernelDebug("evaluate: running fixpoint evaluation (derivedFactLimit=%d)", derivedFactLimit)
 
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.fixpoint")
-	stats, err := engine.EvalProgramWithStats(k.programInfo, evalStore,
+	stats, err := engine.EvalStratifiedProgramWithStats(k.programInfo, k.strata, k.predToStratum, evalStore,
 		engine.WithCreatedFactLimit(derivedFactLimit)) // Hard cap: max 500K derived facts
 	evalDuration := evalTimer.Stop()
 
@@ -236,6 +249,8 @@ func (k *RealKernel) Clone() *RealKernel {
 		bootPrompts:       make([]HybridPrompt, len(k.bootPrompts)),
 		store:             factstore.NewSimpleInMemoryStore(), // Fresh store
 		programInfo:       k.programInfo,                      // Share programInfo (immutable after analysis)
+		strata:            k.strata,                           // Share strata (immutable after stratification)
+		predToStratum:     k.predToStratum,                    // Share predToStratum (immutable after stratification)
 		schemas:           k.schemas,
 		policy:            k.policy,
 		learned:           k.learned,

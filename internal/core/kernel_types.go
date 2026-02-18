@@ -11,9 +11,7 @@ import (
 	"github.com/google/mangle/analysis"
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/factstore"
-)
-
-// =============================================================================
+) // =============================================================================
 // TYPE ALIASES - Import from internal/types to break import cycles
 // =============================================================================
 // These types are defined in internal/types and aliased here for backward compatibility.
@@ -49,6 +47,8 @@ type RealKernel struct {
 	bootPrompts       []HybridPrompt      // Prompt atoms extracted from hybrid .mg files
 	store             factstore.FactStore
 	programInfo       *analysis.ProgramInfo
+	strata            []analysis.Nodeset       // Cached stratification for EvalStratifiedProgramWithStats
+	predToStratum     map[ast.PredicateSym]int // Cached predicate-to-stratum mapping
 	schemas           string
 	policy            string
 	learned           string              // Learned rules (autopoiesis) - loaded from learned.mg

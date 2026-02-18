@@ -364,7 +364,7 @@ func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
 				shardType,
 				successCount,
 				failCount,
-				avgDuration,
+				int64(avgDuration), // Milliseconds as integer per schema
 			},
 		},
 	}

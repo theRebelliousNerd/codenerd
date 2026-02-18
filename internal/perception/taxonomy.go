@@ -389,10 +389,9 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 	facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []interface{}{input}})
 
 	for _, cand := range candidates {
-		baseScore := float64(cand.Priority)
 		facts = append(facts, mangle.Fact{
 			Predicate: "candidate_intent",
-			Args:      []interface{}{cand.Verb, baseScore},
+			Args:      []interface{}{cand.Verb, int64(cand.Priority)},
 		})
 	}
 

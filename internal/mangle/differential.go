@@ -408,7 +408,17 @@ func (de *DifferentialEngine) ApplyDelta(facts []Fact) error {
 			subsetInfo := *de.programInfo // Shallow copy
 			subsetInfo.Rules = rules
 
-			_, err := mengine.EvalProgramWithStats(&subsetInfo, chain)
+			// Stratify the subset for EvalStratifiedProgramWithStats
+			subStrata, subPredToStratum, stratErr := analysis.Stratify(analysis.Program{
+				EdbPredicates: subsetInfo.EdbPredicates,
+				IdbPredicates: subsetInfo.IdbPredicates,
+				Rules:         rules,
+			})
+			if stratErr != nil {
+				return fmt.Errorf("differential stratification for stratum %d failed: %w", s, stratErr)
+			}
+
+			_, err := mengine.EvalStratifiedProgramWithStats(&subsetInfo, subStrata, subPredToStratum, chain)
 			if err != nil {
 				return err
 			}

@@ -44,13 +44,13 @@ type ValidationResult struct {
 
 // ValidationMethod constants for consistent method reporting
 const (
-	ValidationMethodHash         = "hash"
-	ValidationMethodSyntax       = "syntax"
-	ValidationMethodExistence    = "existence"
-	ValidationMethodContentCheck = "content_check"
-	ValidationMethodOutputScan   = "output_scan"
+	ValidationMethodHash           = "hash"
+	ValidationMethodSyntax         = "syntax"
+	ValidationMethodExistence      = "existence"
+	ValidationMethodContentCheck   = "content_check"
+	ValidationMethodOutputScan     = "output_scan"
 	ValidationMethodCodeDOMRefresh = "codedom_refresh"
-	ValidationMethodSkipped      = "skipped"
+	ValidationMethodSkipped        = "skipped"
 )
 
 // ActionValidator verifies that an action actually succeeded after execution.
@@ -293,7 +293,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 				vr.ActionID,
 				string(vr.ActionType),
 				vr.Method,
-				vr.Confidence,
+				int64(vr.Confidence * 100), // Scale 0.0-1.0 → 0-100 integer per schema
 				vr.Timestamp.Unix(),
 			},
 		})

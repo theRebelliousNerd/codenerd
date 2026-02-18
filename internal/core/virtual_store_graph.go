@@ -79,9 +79,9 @@ func goToMangleTerm(val interface{}) (ast.BaseTerm, error) {
 	case int64:
 		return ast.Number(v), nil
 	case float32:
-		return ast.Number(int64(float64(v) * 100)), nil
+		return ast.Float64(float64(v)), nil
 	case float64:
-		return ast.Number(int64(v * 100)), nil
+		return ast.Float64(v), nil
 	case bool:
 		if v {
 			return ast.TrueConstant, nil

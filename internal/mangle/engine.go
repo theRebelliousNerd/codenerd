@@ -63,6 +63,8 @@ type Engine struct {
 	store           factstore.ConcurrentFactStore
 	baseStore       factstore.FactStoreWithRemove
 	programInfo     *analysis.ProgramInfo
+	strata          []analysis.Nodeset       // Cached stratification from last rebuildProgramLocked
+	predToStratum   map[ast.PredicateSym]int // Cached predicate-to-stratum mapping
 	queryContext    *mengine.QueryContext
 	predicateIndex  map[string]ast.PredicateSym
 	schemaFragments []parse.SourceUnit
@@ -198,35 +200,37 @@ func (e *Engine) RecomputeRules() error {
 	return nil
 }
 
-// evalWithGasLimit wraps EvalProgramWithStats with derived facts gas limit enforcement.
+// evalWithGasLimit wraps EvalStratifiedProgramWithStats with derived facts gas limit enforcement.
 // This prevents runaway inference from exhausting memory.
+// Uses pre-computed strata from rebuildProgramLocked() for proper stratified evaluation.
 func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
+	if e.strata == nil || e.predToStratum == nil {
+		return mengine.Stats{}, fmt.Errorf("stratification not computed; call LoadSchema first")
+	}
+
 	// Count facts before evaluation
 	beforeCount := e.store.EstimateFactCount()
 
-	// Run evaluation
-	stats, err := mengine.EvalProgramWithStats(e.programInfo, e.store)
+	// Build eval options
+	var opts []mengine.EvalOption
+	if e.config.DerivedFactsLimit > 0 {
+		opts = append(opts, mengine.WithCreatedFactLimit(e.config.DerivedFactsLimit))
+	}
+
+	// Run stratified evaluation (replaces deprecated EvalProgramWithStats)
+	stats, err := mengine.EvalStratifiedProgramWithStats(e.programInfo, e.strata, e.predToStratum, e.store, opts...)
 	if err != nil {
 		return mengine.Stats{}, err
 	}
 
-	// Count facts after evaluation
+	// Telemetry: track derived facts for monitoring
 	afterCount := e.store.EstimateFactCount()
 	derivedThisRound := afterCount - beforeCount
 	e.derivedCount += derivedThisRound
 
-	// ENFORCEMENT: Check gas limit
-	if e.config.DerivedFactsLimit > 0 && e.derivedCount > e.config.DerivedFactsLimit {
-		logging.Get(logging.CategoryKernel).Error("DERIVED FACTS GAS LIMIT EXCEEDED: %d derived > %d limit (this round: %d)",
-			e.derivedCount, e.config.DerivedFactsLimit, derivedThisRound)
-		return mengine.Stats{}, fmt.Errorf("%w: %d derived facts exceeds limit of %d",
-			ErrDerivedFactsLimitExceeded, e.derivedCount, e.config.DerivedFactsLimit)
-	}
-
 	if derivedThisRound > 0 {
 		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
 			derivedThisRound, e.derivedCount, e.config.DerivedFactsLimit)
-		// Telemetry: Log derived fact metrics for monitoring
 		logging.Get(logging.CategoryKernel).Info("Mangle Inference: +%d facts, total %d", derivedThisRound, e.derivedCount)
 	}
 
@@ -304,6 +308,19 @@ func (e *Engine) rebuildProgramLocked() error {
 	}
 
 	e.programInfo = programInfo
+
+	// Cache stratification for EvalStratifiedProgramWithStats
+	strata, predToStratum, err := analysis.Stratify(analysis.Program{
+		EdbPredicates: programInfo.EdbPredicates,
+		IdbPredicates: programInfo.IdbPredicates,
+		Rules:         programInfo.Rules,
+	})
+	if err != nil {
+		return fmt.Errorf("stratification failed: %w", err)
+	}
+	e.strata = strata
+	e.predToStratum = predToStratum
+
 	e.predicateIndex = make(map[string]ast.PredicateSym, len(programInfo.Decls))
 
 	predToDecl := make(map[ast.PredicateSym]*ast.Decl, len(programInfo.Decls))
@@ -544,6 +561,10 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 						expectedType = ast.NumberType
 					case "/float64":
 						expectedType = ast.Float64Type
+					case "/time":
+						expectedType = ast.TimeType
+					case "/duration":
+						expectedType = ast.DurationType
 					case "/bytes":
 						expectedType = ast.BytesType
 					}
@@ -616,9 +637,9 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	case int64:
 		return ast.Number(v), nil
 	case float32:
-		return ast.Number(int64(float64(v) * 100)), nil
+		return ast.Float64(float64(v)), nil
 	case float64:
-		return ast.Number(int64(v * 100)), nil
+		return ast.Float64(v), nil
 	case bool:
 		if v {
 			return ast.TrueConstant, nil
@@ -811,6 +832,8 @@ func (e *Engine) Reset() {
 	e.factCount = 0
 	e.fileFacts = make(map[string][]ast.Atom)
 	e.programInfo = nil
+	e.strata = nil
+	e.predToStratum = nil
 	e.queryContext = nil
 	e.predicateIndex = make(map[string]ast.PredicateSym)
 	e.schemaFragments = nil
@@ -915,6 +938,10 @@ func constantToInterface(constant ast.Constant) interface{} {
 		return constant.NumValue
 	case ast.Float64Type:
 		return math.Float64frombits(uint64(constant.NumValue))
+	case ast.TimeType:
+		return time.Unix(0, constant.NumValue).UTC()
+	case ast.DurationType:
+		return time.Duration(constant.NumValue)
 	default:
 		// DEFENSIVE: Fallback to Symbol instead of String() to avoid quotes/formatting
 		// Log warning for unknown types to catch new AST types early
