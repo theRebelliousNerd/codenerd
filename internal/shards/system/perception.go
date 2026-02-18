@@ -492,30 +492,35 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	phrase := strings.TrimSpace(input)
 
 	// Clear stale Perception ephemera to avoid old ambiguity/clarification loops.
-	_ = p.Kernel.Retract("ambiguity_flag")
-	_ = p.Kernel.Retract("clarification_needed")
-	_ = p.Kernel.Retract("intent_unknown")
-	_ = p.Kernel.Retract("intent_unmapped")
-	_ = p.Kernel.Retract("no_action_reason")
-	_ = p.Kernel.Retract("clarification_question")
-	_ = p.Kernel.Retract("clarification_option")
-	_ = p.Kernel.Retract("learning_candidate")
-	_ = p.Kernel.Retract("learning_candidate_fact")
-	_ = p.Kernel.Retract("learning_candidate_count")
-	_ = p.Kernel.Retract("awaiting_clarification")
-	_ = p.Kernel.Retract("awaiting_user_input")
-	_ = p.Kernel.Retract("campaign_awaiting_clarification")
-	_ = p.Kernel.Retract("focus_resolution")
-	_ = p.Kernel.Retract("user_input_string")
-	_ = p.Kernel.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
-	_ = p.Kernel.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
-	_ = p.Kernel.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+	// Use a transaction to batch all retracts+asserts into a single rebuild.
+	tx := types.NewKernelTx(p.Kernel)
+	tx.Retract("ambiguity_flag")
+	tx.Retract("clarification_needed")
+	tx.Retract("intent_unknown")
+	tx.Retract("intent_unmapped")
+	tx.Retract("no_action_reason")
+	tx.Retract("clarification_question")
+	tx.Retract("clarification_option")
+	tx.Retract("learning_candidate")
+	tx.Retract("learning_candidate_fact")
+	tx.Retract("learning_candidate_count")
+	tx.Retract("awaiting_clarification")
+	tx.Retract("awaiting_user_input")
+	tx.Retract("campaign_awaiting_clarification")
+	tx.Retract("focus_resolution")
+	tx.Retract("user_input_string")
+	tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+	tx.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+	tx.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
 
 	if phrase != "" {
-		_ = p.Kernel.Assert(types.Fact{
+		tx.Assert(types.Fact{
 			Predicate: "user_input_string",
 			Args:      []interface{}{phrase},
 		})
+	}
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryPerception).Error("perception ephemera cleanup failed: %v", err)
 	}
 
 	unknownReason := ""

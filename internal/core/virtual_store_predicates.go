@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 
 	"github.com/google/mangle/ast"
 )
@@ -550,24 +551,13 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 
 	count := 0
 
-	// Reset short-term context so each turn reflects the latest retrievals.
-	if err := kernel.Retract("session_turn"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract session_turn: %v", err)
-	}
-	if err := kernel.Retract("similar_content"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract similar_content: %v", err)
-	}
-	if err := kernel.Retract("reasoning_trace"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract reasoning_trace: %v", err)
-	}
+	// Collect all facts to hydrate before touching the kernel.
+	var allFacts []Fact
 
 	if strings.TrimSpace(sessionID) != "" {
 		if turns, err := v.QuerySession(sessionID, defaultSessionLimit); err == nil && len(turns) > 0 {
-			if err := kernel.LoadFacts(turns); err != nil {
-				logging.Get(logging.CategoryKernel).Warn("Failed to load session_turn facts: %v", err)
-			} else {
-				count += len(turns)
-			}
+			allFacts = append(allFacts, turns...)
+			count += len(turns)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: session turns failed: %v", err)
 		}
@@ -575,11 +565,8 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 
 	if strings.TrimSpace(query) != "" {
 		if matches, err := v.RecallSimilar(query, defaultRecallTopK); err == nil && len(matches) > 0 {
-			if err := kernel.LoadFacts(matches); err != nil {
-				logging.Get(logging.CategoryKernel).Warn("Failed to load similar_content facts: %v", err)
-			} else {
-				count += len(matches)
-			}
+			allFacts = append(allFacts, matches...)
+			count += len(matches)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: recall failed: %v", err)
 		}
@@ -591,14 +578,21 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 			continue
 		}
 		if traces, err := v.QueryTraces(normalized, defaultTraceLimit); err == nil && len(traces) > 0 {
-			if err := kernel.LoadFacts(traces); err != nil {
-				logging.Get(logging.CategoryKernel).Warn("Failed to load reasoning_trace facts: %v", err)
-			} else {
-				count += len(traces)
-			}
+			allFacts = append(allFacts, traces...)
+			count += len(traces)
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: traces failed for %s: %v", normalized, err)
 		}
+	}
+
+	// Atomic retract + assert: clear stale context and load new facts in one rebuild.
+	tx := types.NewKernelTx(kernel)
+	tx.Retract("session_turn")
+	tx.Retract("similar_content")
+	tx.Retract("reasoning_trace")
+	tx.LoadFacts(allFacts)
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("HydrateSessionContext: transaction commit failed: %v", err)
 	}
 
 	logging.VirtualStore("HydrateSessionContext completed: %d facts hydrated", count)

@@ -418,11 +418,15 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		if err == nil && refinedPlan != nil {
 			logging.Campaign("Refinement successful, rebuilding campaign")
 			campaign = d.buildCampaign(campaignID, req, refinedPlan)
-			// Reload and revalidate
-			d.kernel.Retract("campaign")
-			d.kernel.Retract("campaign_phase")
-			d.kernel.Retract("campaign_task")
-			d.kernel.LoadFacts(campaign.ToFacts())
+			// Reload and revalidate using transaction for atomic rebuild
+			tx := types.NewKernelTx(d.kernel)
+			tx.Retract("campaign")
+			tx.Retract("campaign_phase")
+			tx.Retract("campaign_task")
+			tx.LoadFacts(campaign.ToFacts())
+			if err := tx.Commit(); err != nil {
+				logging.Get(logging.CategoryCampaign).Error("decomposer: failed to commit campaign facts: %v", err)
+			}
 			issues = d.validatePlan(campaignID)
 			logging.Campaign("After refinement: %d issues remaining", len(issues))
 		} else if err != nil {

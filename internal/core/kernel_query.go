@@ -440,30 +440,27 @@ func ParseFactsFromString(content string) ([]Fact, error) {
 func (k *RealKernel) UpdateSystemFacts() error {
 	now := time.Now().Unix()
 
-	if err := k.Retract("current_time"); err != nil {
-		return err
-	}
-	if assertErr := k.Assert(Fact{Predicate: "current_time", Args: []interface{}{now}}); assertErr != nil {
-		return assertErr
-	}
+	tx := k.Transaction()
+	tx.Retract("current_time")
+	tx.Assert(Fact{Predicate: "current_time", Args: []interface{}{now}})
 
 	workspaceRoot := strings.TrimSpace(k.workspaceRoot)
 	if workspaceRoot == "" {
 		logging.KernelDebug("UpdateSystemFacts: workspace root not set, skipping git facts")
-		return nil
+		return tx.Commit()
 	}
 	if abs, err := filepath.Abs(workspaceRoot); err == nil {
 		workspaceRoot = abs
 	}
 	if info, err := os.Stat(workspaceRoot); err != nil || !info.IsDir() {
 		logging.KernelDebug("UpdateSystemFacts: invalid workspace root: %s", workspaceRoot)
-		return nil
+		return tx.Commit()
 	}
 
 	gitRoot, err := gitRepoRoot(workspaceRoot)
 	if err != nil {
 		logging.KernelDebug("UpdateSystemFacts: git root not found: %v", err)
-		return nil
+		return tx.Commit()
 	}
 
 	branch, _ := gitCmd(gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
@@ -473,33 +470,22 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	modifiedFiles, unstagedCount := parseGitStatus(statusOutput)
 	recentCommits := splitLinesTrimmed(commitOutput)
 
-	if err := k.Retract("git_state"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("failed to retract git_state: %v", err)
-	}
-	if err := k.Retract("git_branch"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("failed to retract git_branch: %v", err)
-	}
+	tx.Retract("git_state")
+	tx.Retract("git_branch")
 
-	var facts []Fact
 	if branch != "" {
-		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"branch", branch}})
-		facts = append(facts, Fact{Predicate: "git_branch", Args: []interface{}{branch}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"branch", branch}})
+		tx.Assert(Fact{Predicate: "git_branch", Args: []interface{}{branch}})
 	}
 	if len(modifiedFiles) > 0 {
-		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"modified_files", strings.Join(modifiedFiles, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"modified_files", strings.Join(modifiedFiles, "\n")}})
 	}
 	if len(recentCommits) > 0 {
-		facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"recent_commits", strings.Join(recentCommits, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"recent_commits", strings.Join(recentCommits, "\n")}})
 	}
-	facts = append(facts, Fact{Predicate: "git_state", Args: []interface{}{"unstaged_count", strconv.Itoa(unstagedCount)}})
+	tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"unstaged_count", strconv.Itoa(unstagedCount)}})
 
-	for _, fact := range facts {
-		if assertErr := k.Assert(fact); assertErr != nil {
-			return assertErr
-		}
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 func gitRepoRoot(workspaceRoot string) (string, error) {

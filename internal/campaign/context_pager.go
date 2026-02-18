@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -81,8 +82,12 @@ func (cp *ContextPager) ResetPhaseContext() {
 		return
 	}
 	// Best-effort: these predicates are phase-scoped in campaign execution.
-	_ = cp.kernel.Retract("activation")
-	_ = cp.kernel.Retract("phase_context_atom")
+	tx := types.NewKernelTx(cp.kernel)
+	tx.Retract("activation")
+	tx.Retract("phase_context_atom")
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("ResetPhaseContext: failed to commit: %v", err)
+	}
 }
 
 // ActivatePhase loads context for a new phase.

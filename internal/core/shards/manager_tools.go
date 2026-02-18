@@ -145,49 +145,38 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 		return
 	}
 
-	if err := sm.kernel.Retract("current_shard_type"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract current_shard_type: %v", err)
-	}
-	if err := sm.kernel.Retract("current_intent"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract current_intent: %v", err)
-	}
-	if err := sm.kernel.Retract("current_time"); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to retract current_time: %v", err)
-	}
+	tx := types.NewKernelTx(sm.kernel)
+	tx.Retract("current_shard_type")
+	tx.Retract("current_intent")
+	tx.Retract("current_time")
 
 	shardAtom := normalizeMangleAtom(query.ShardType)
-	if err := sm.kernel.Assert(types.Fact{
+	tx.Assert(types.Fact{
 		Predicate: "current_shard_type",
 		Args:      []interface{}{shardAtom},
-	}); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to assert current_shard_type: %v", err)
-	}
+	})
 
 	if query.IntentVerb != "" {
 		intentID := "/tool_routing_context"
 		verbAtom := normalizeMangleAtom(query.IntentVerb)
-		if err := sm.kernel.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}}); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("Failed to retract user_intent for tool routing: %v", err)
-		}
-		if err := sm.kernel.Assert(types.Fact{
+		tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+		tx.Assert(types.Fact{
 			Predicate: "current_intent",
 			Args:      []interface{}{intentID},
-		}); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("Failed to assert current_intent: %v", err)
-		}
-		if err := sm.kernel.Assert(types.Fact{
+		})
+		tx.Assert(types.Fact{
 			Predicate: "user_intent",
 			Args:      []interface{}{intentID, "/routing", verbAtom, query.TargetFile, "_"},
-		}); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("Failed to assert user_intent for tool routing: %v", err)
-		}
+		})
 	}
 
-	if err := sm.kernel.Assert(types.Fact{
+	tx.Assert(types.Fact{
 		Predicate: "current_time",
 		Args:      []interface{}{int64(time.Now().Unix())},
-	}); err != nil {
-		logging.Get(logging.CategoryKernel).Warn("Failed to assert current_time: %v", err)
+	})
+
+	if err := tx.Commit(); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Failed to commit tool routing context: %v", err)
 	}
 }
 

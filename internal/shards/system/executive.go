@@ -54,21 +54,21 @@ type ExecutiveConfig struct {
 	TickInterval time.Duration // How often to evaluate policy (default: 100ms)
 
 	// Behavior
-	StrictBarriers    bool // Block all actions when barriers exist (default: true)
-	MaxActionsPerTick int  // Prevent action storms (default: 5)
-	DebugMode         bool // Emit detailed derivation traces
-	OODATimeout       time.Duration // How long to wait before declaring OODA stalled
-	LearningCandidateThreshold int // Repeats required before candidate (default: 3)
+	StrictBarriers             bool          // Block all actions when barriers exist (default: true)
+	MaxActionsPerTick          int           // Prevent action storms (default: 5)
+	DebugMode                  bool          // Emit detailed derivation traces
+	OODATimeout                time.Duration // How long to wait before declaring OODA stalled
+	LearningCandidateThreshold int           // Repeats required before candidate (default: 3)
 }
 
 // DefaultExecutiveConfig returns sensible defaults.
 func DefaultExecutiveConfig() ExecutiveConfig {
 	return ExecutiveConfig{
-		TickInterval:      100 * time.Millisecond,
-		StrictBarriers:    true,
-		MaxActionsPerTick: 5,
-		DebugMode:         false,
-		OODATimeout:       30 * time.Second,
+		TickInterval:               100 * time.Millisecond,
+		StrictBarriers:             true,
+		MaxActionsPerTick:          5,
+		DebugMode:                  false,
+		OODATimeout:                30 * time.Second,
 		LearningCandidateThreshold: 3,
 	}
 }
@@ -344,11 +344,15 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 	// left over from persisted kernel state or previous sessions.
 	if e.Kernel != nil {
 		logging.SystemShardsDebug("[ExecutivePolicy] Clearing stale intent facts from previous sessions")
-		_ = e.Kernel.Retract("user_intent")
-		_ = e.Kernel.Retract("processed_intent")
-		_ = e.Kernel.Retract("executive_processed_intent")
-		_ = e.Kernel.Retract("pending_action")
-		_ = e.Kernel.Retract("delegate_task")
+		tx := types.NewKernelTx(e.Kernel)
+		tx.Retract("user_intent")
+		tx.Retract("processed_intent")
+		tx.Retract("executive_processed_intent")
+		tx.Retract("pending_action")
+		tx.Retract("delegate_task")
+		if err := tx.Commit(); err != nil {
+			logging.Get(logging.CategoryKernel).Error("[ExecutivePolicy] stale intent cleanup failed: %v", err)
+		}
 	}
 
 	ticker := time.NewTicker(e.config.TickInterval)
@@ -1146,9 +1150,9 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		return
 	}
 
-        // FeedbackLoop validated the rule; extract metadata via parseProposedRule
-        proposedRule := e.parseProposedRule(result.Rule, cases)
-        proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
+	// FeedbackLoop validated the rule; extract metadata via parseProposedRule
+	proposedRule := e.parseProposedRule(result.Rule, cases)
+	proposedRule.MangleCode = result.Rule // Use the validated (possibly sanitized) rule
 
 	// If parseProposedRule couldn't extract confidence, use a high default since it validated
 	if proposedRule.Confidence == 0 {
@@ -1157,15 +1161,15 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 
 	e.Autopoiesis.RecordProposal(proposedRule)
 
-        if proposedRule.Confidence >= e.Autopoiesis.RuleConfidence {
-                if err := e.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
-                        e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
-                        logging.SystemShards("[ExecutivePolicy] Autopoiesis rule applied: %s (confidence: %.2f, attempts: %d, auto-fixed: %v)",
-                                truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
-                } else {
-                        logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Failed to apply validated rule: %v", err)
-                }
-        } else {
+	if proposedRule.Confidence >= e.Autopoiesis.RuleConfidence {
+		if err := e.Kernel.HotLoadLearnedRule(proposedRule.MangleCode); err == nil {
+			e.Autopoiesis.RecordApplied(proposedRule.MangleCode)
+			logging.SystemShards("[ExecutivePolicy] Autopoiesis rule applied: %s (confidence: %.2f, attempts: %d, auto-fixed: %v)",
+				truncateRule(proposedRule.MangleCode), proposedRule.Confidence, result.Attempts, result.AutoFixed)
+		} else {
+			logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Failed to apply validated rule: %v", err)
+		}
+	} else {
 		// Low confidence rules are recorded but require approval
 		if assertErr := e.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",
