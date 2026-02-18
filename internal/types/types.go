@@ -138,24 +138,16 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 			terms = append(terms, ast.Number(int64(v)))
 		case int64:
 			terms = append(terms, ast.Number(v))
+		case float32:
+			terms = append(terms, ast.Number(int64(float64(v)*100)))
 		case float64:
-			// IMPLICIT FLOAT COERCION:
-			// Mangle's comparison operators (>, <, >=, <=) don't support float types,
-			// so we convert floats to integers for Mangle compatibility.
-			//
-			// Conversion rules:
-			//   - Values in 0.0-1.0 range are scaled to 0-100 (probability/confidence)
-			//     Example: 0.85 → 85 (for use in Score > 70 comparisons)
-			//   - Values outside 0.0-1.0 are truncated to int
-			//     Example: 1234.56 → 1234
-			//
-			// IMPORTANT: Callers must be aware of this scaling when comparing
-			// against thresholds in Mangle rules (e.g., Score > 70 not Score > 0.70).
-			if v >= 0.0 && v <= 1.0 {
-				terms = append(terms, ast.Number(int64(v*100)))
-			} else {
-				terms = append(terms, ast.Number(int64(v)))
-			}
+			terms = append(terms, ast.Number(int64(v*100)))
+		case time.Time:
+			// Store as Unix nanoseconds (ast.TimeType not available in v0.4.0)
+			terms = append(terms, ast.Number(v.UnixNano()))
+		case time.Duration:
+			// Store as nanoseconds integer
+			terms = append(terms, ast.Number(int64(v)))
 		case bool:
 			if v {
 				terms = append(terms, ast.TrueConstant)

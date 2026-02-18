@@ -664,13 +664,15 @@ func inferArgType(arg string) ArgType {
 	return ArgTypeAny
 }
 
+// numericPattern is precompiled for isNumeric (avoids per-call regexp compilation).
+var numericPattern = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+
 // isNumeric checks if a string represents a number.
 func isNumeric(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	matched, _ := regexp.MatchString(`^-?\d+(\.\d+)?$`, s)
-	return matched
+	return numericPattern.MatchString(s)
 }
 
 // compatibleTypes checks if actual type is compatible with expected.

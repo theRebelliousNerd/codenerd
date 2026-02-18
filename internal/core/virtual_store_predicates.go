@@ -551,14 +551,23 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 	count := 0
 
 	// Reset short-term context so each turn reflects the latest retrievals.
-	_ = kernel.Retract("session_turn")
-	_ = kernel.Retract("similar_content")
-	_ = kernel.Retract("reasoning_trace")
+	if err := kernel.Retract("session_turn"); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Failed to retract session_turn: %v", err)
+	}
+	if err := kernel.Retract("similar_content"); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Failed to retract similar_content: %v", err)
+	}
+	if err := kernel.Retract("reasoning_trace"); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("Failed to retract reasoning_trace: %v", err)
+	}
 
 	if strings.TrimSpace(sessionID) != "" {
 		if turns, err := v.QuerySession(sessionID, defaultSessionLimit); err == nil && len(turns) > 0 {
-			_ = kernel.LoadFacts(turns)
-			count += len(turns)
+			if err := kernel.LoadFacts(turns); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load session_turn facts: %v", err)
+			} else {
+				count += len(turns)
+			}
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: session turns failed: %v", err)
 		}
@@ -566,8 +575,11 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 
 	if strings.TrimSpace(query) != "" {
 		if matches, err := v.RecallSimilar(query, defaultRecallTopK); err == nil && len(matches) > 0 {
-			_ = kernel.LoadFacts(matches)
-			count += len(matches)
+			if err := kernel.LoadFacts(matches); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load similar_content facts: %v", err)
+			} else {
+				count += len(matches)
+			}
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: recall failed: %v", err)
 		}
@@ -579,8 +591,11 @@ func (v *VirtualStore) HydrateSessionContext(ctx context.Context, sessionID, que
 			continue
 		}
 		if traces, err := v.QueryTraces(normalized, defaultTraceLimit); err == nil && len(traces) > 0 {
-			_ = kernel.LoadFacts(traces)
-			count += len(traces)
+			if err := kernel.LoadFacts(traces); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to load reasoning_trace facts: %v", err)
+			} else {
+				count += len(traces)
+			}
 		} else if err != nil {
 			logging.VirtualStoreDebug("HydrateSessionContext: traces failed for %s: %v", normalized, err)
 		}

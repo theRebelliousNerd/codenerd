@@ -253,7 +253,7 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 	case "forget":
 		return "/forget"
 	case "chat":
-		return "/greet"
+		return "/converse"
 	case "deploy":
 		return "/deploy"
 	default:
@@ -273,8 +273,10 @@ func (t *UnderstandingTransducer) mapSemanticToCategory(semanticType, actionType
 
 	// Actions that modify code are mutations
 	switch actionType {
-	case "implement", "modify", "refactor", "verify", "attack", "revert", "configure":
+	case "implement", "modify", "refactor", "attack", "revert", "configure":
 		return "/mutation"
+	case "verify":
+		return "/query"
 	case "remember", "forget":
 		return "/instruction"
 	}

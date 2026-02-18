@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 var (
@@ -216,14 +218,25 @@ func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[strin
 
 	// Inject state into kernel for logic-driven decisions
 	if t.kernel != nil {
-		_ = t.kernel.Assert(Fact{
+		// Retract old state before asserting new values to prevent fact accumulation
+		if err := t.kernel.Retract("test_state"); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to retract test_state: %v", err)
+		}
+		if err := t.kernel.Retract("retry_count"); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to retract retry_count: %v", err)
+		}
+		if err := t.kernel.Assert(Fact{
 			Predicate: "test_state",
 			Args:      []interface{}{"/" + string(newState)},
-		})
-		_ = t.kernel.Assert(Fact{
+		}); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to assert test_state: %v", err)
+		}
+		if err := t.kernel.Assert(Fact{
 			Predicate: "retry_count",
 			Args:      []interface{}{int64(t.retryCount)},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to assert retry_count: %v", err)
+		}
 	}
 }
 
@@ -378,7 +391,9 @@ func (t *TDDLoop) readErrorLog(ctx context.Context) error {
 	// Inject them into the kernel for analysis
 	for _, diag := range t.diagnostics {
 		if t.kernel != nil {
-			_ = t.kernel.Assert(diag.ToFact())
+			if err := t.kernel.Assert(diag.ToFact()); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("Failed to assert diagnostic: %v", err)
+			}
 		}
 	}
 
@@ -408,10 +423,12 @@ func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
 
 	// Inject hypothesis into kernel
 	if t.kernel != nil {
-		_ = t.kernel.Assert(Fact{
+		if err := t.kernel.Assert(Fact{
 			Predicate: "hypothesis",
 			Args:      []interface{}{t.hypothesis},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to assert hypothesis: %v", err)
+		}
 	}
 
 	t.transition(TDDStateGenerating, TDDActionAnalyzeRoot, map[string]interface{}{
@@ -689,7 +706,9 @@ func (t *TDDLoop) InjectPatch(patch Patch) {
 	t.patches = append(t.patches, patch)
 
 	if t.kernel != nil {
-		_ = t.kernel.Assert(patch.ToFact())
+		if err := t.kernel.Assert(patch.ToFact()); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to assert patch fact: %v", err)
+		}
 	}
 }
 
@@ -700,10 +719,12 @@ func (t *TDDLoop) SetHypothesis(hypothesis string) {
 	t.hypothesis = hypothesis
 
 	if t.kernel != nil {
-		_ = t.kernel.Assert(Fact{
+		if err := t.kernel.Assert(Fact{
 			Predicate: "hypothesis",
 			Args:      []interface{}{hypothesis},
-		})
+		}); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("Failed to assert hypothesis: %v", err)
+		}
 	}
 }
 

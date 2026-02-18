@@ -1415,7 +1415,9 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 		if len(toRemove) == 0 {
 			return
 		}
-		_ = realKernel.RetractExactFactsBatch(toRemove)
+		if err := realKernel.RetractExactFactsBatch(toRemove); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("failed to retract stale facts batch: %v", err)
+		}
 	}
 
 	// Keep action logs bounded to protect kernel evaluation performance.
@@ -1483,12 +1485,16 @@ func (v *VirtualStore) clearCodeDOMFacts() {
 
 	// Fast path: RealKernel can remove a predicate set with a single rebuild pass.
 	if realKernel, ok := kernel.(*RealKernel); ok {
-		_ = realKernel.RemoveFactsByPredicateSet(preds)
+		if err := realKernel.RemoveFactsByPredicateSet(preds); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("failed to remove facts by predicate set: %v", err)
+		}
 		return
 	}
 
 	for p := range preds {
-		_ = kernel.Retract(p)
+		if err := kernel.Retract(p); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("failed to retract predicate %q: %v", p, err)
+		}
 	}
 }
 

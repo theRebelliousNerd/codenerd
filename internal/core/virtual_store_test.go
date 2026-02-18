@@ -317,6 +317,7 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	if out != content {
 		t.Fatalf("unexpected output content; got len=%d want len=%d", len(out), len(content))
 	}
+
 	fileFacts, err := kernel.Query("file_content")
 	if err != nil {
 		t.Fatalf("Query(file_content) error: %v", err)

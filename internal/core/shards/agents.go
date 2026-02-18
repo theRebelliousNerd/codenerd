@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -418,10 +419,12 @@ func (s *SystemShard) Execute(ctx context.Context, task string) (string, error) 
 		case tick := <-ticker.C:
 			// Propagate a heartbeat fact to the parent kernel
 			if s.kernel != nil {
-				_ = s.kernel.Assert(types.Fact{
+				if err := s.kernel.Assert(types.Fact{
 					Predicate: "system_heartbeat",
 					Args:      []interface{}{s.id, tick.Unix()},
-				})
+				}); err != nil {
+					logging.Get(logging.CategoryKernel).Warn("failed to assert system_heartbeat: %v", err)
+				}
 			}
 		}
 	}

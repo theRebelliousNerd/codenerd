@@ -53,7 +53,7 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 		{"verify", "", "/test"},
 
 		{"attack", "", "/assault"},
-		{"chat", "", "/greet"},
+		{"chat", "", "/converse"},
 		{"unknown", "", "/explain"},
 	}
 

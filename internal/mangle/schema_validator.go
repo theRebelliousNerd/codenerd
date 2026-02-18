@@ -334,21 +334,23 @@ func (sv *SchemaValidator) ValidateProgram(programText string) error {
 	return nil
 }
 
+// mangleBuiltins is the set of built-in Mangle operators (package-level to avoid per-call allocation).
+var mangleBuiltins = map[string]bool{
+	"count":   true,
+	"sum":     true,
+	"min":     true,
+	"max":     true,
+	"avg":     true,
+	"bound":   true,
+	"applyFn": true,
+	"fn":      true,
+	"match":   true,
+	"collect": true,
+}
+
 // isBuiltin checks if a predicate is a built-in Mangle operator.
 func (sv *SchemaValidator) isBuiltin(predicate string) bool {
-	builtins := map[string]bool{
-		"count":   true,
-		"sum":     true,
-		"min":     true,
-		"max":     true,
-		"avg":     true,
-		"bound":   true,
-		"applyFn": true,
-		"fn":      true,
-		"match":   true,
-		"collect": true,
-	}
-	return builtins[predicate]
+	return mangleBuiltins[predicate]
 }
 
 // getAvailablePredicates returns a sorted list of available predicates for error messages.

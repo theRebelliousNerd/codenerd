@@ -135,15 +135,15 @@ func canonValue(v interface{}) string {
 	case uint64:
 		return strconv.FormatUint(t, 10)
 	case float32:
-		return strconv.FormatInt(normalizeFloatToInt64(float64(t)), 10)
+		return canonFloat64(float64(t))
 	case float64:
-		return strconv.FormatInt(normalizeFloatToInt64(t), 10)
+		return canonFloat64(t)
 	case json.Number:
 		if i, err := t.Int64(); err == nil {
 			return strconv.FormatInt(i, 10)
 		}
 		if f, err := t.Float64(); err == nil {
-			return strconv.FormatInt(normalizeFloatToInt64(f), 10)
+			return canonFloat64(f)
 		}
 		return strconv.Quote(t.String())
 	case []byte:
@@ -183,11 +183,9 @@ func canonString(v string) string {
 	return strconv.Quote(v)
 }
 
-func normalizeFloatToInt64(v float64) int64 {
-	if v >= 0.0 && v <= 1.0 {
-		return int64(v * 100)
-	}
-	return int64(v)
+// canonFloat64 returns a canonical string representation of a float64 value.
+func canonFloat64(v float64) string {
+	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
 func canonSliceInterface(values []interface{}) string {
@@ -249,7 +247,7 @@ func canonSliceFloat64(values []float64) string {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		sb.WriteString(strconv.FormatInt(normalizeFloatToInt64(v), 10))
+		sb.WriteString(canonFloat64(v))
 	}
 	sb.WriteString("]")
 	return sb.String()

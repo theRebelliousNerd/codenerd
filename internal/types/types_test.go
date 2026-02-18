@@ -84,8 +84,8 @@ func TestFactToAtomConversion(t *testing.T) {
 	assertStringConstant(t, atom.Args[4], "plain")
 	assertNumberConstant(t, atom.Args[5], 3)
 	assertNumberConstant(t, atom.Args[6], 4)
-	assertNumberConstant(t, atom.Args[7], 42)
-	assertNumberConstant(t, atom.Args[8], 2)
+	assertNumberConstant(t, atom.Args[7], 42)  // 0.42 * 100
+	assertNumberConstant(t, atom.Args[8], 270) // 2.7 * 100
 	assertNameConstant(t, atom.Args[9], "/true")
 	assertNameConstant(t, atom.Args[10], "/false")
 }

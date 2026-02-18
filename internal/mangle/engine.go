@@ -51,6 +51,9 @@ func DefaultConfig() Config {
 // ErrDerivedFactsLimitExceeded is returned when inference exceeds the gas limit.
 var ErrDerivedFactsLimitExceeded = fmt.Errorf("derived facts limit exceeded (inference gas limit)")
 
+// errNoSchemas is the sentinel error for operations attempted before schema loading.
+var errNoSchemas = fmt.Errorf("no schemas loaded; call LoadSchema first")
+
 // Engine wraps the production-grade Google Mangle engine.
 // Implements the Hollow Kernel pattern from Cortex 1.5.0 Section 2.1.
 type Engine struct {
@@ -163,7 +166,7 @@ func (e *Engine) RecomputeRules() error {
 	defer e.mu.Unlock()
 
 	if e.programInfo == nil {
-		return fmt.Errorf("no schemas loaded; call LoadSchema first")
+		return errNoSchemas
 	}
 
 	logging.Kernel("Starting Mangle rule recomputation...")
@@ -280,7 +283,7 @@ func (e *Engine) LoadSchemaString(schema string) error {
 // rebuildProgramLocked analyzes all loaded schema fragments and refreshes predicate indexes.
 func (e *Engine) rebuildProgramLocked() error {
 	if len(e.schemaFragments) == 0 {
-		return fmt.Errorf("no schemas loaded")
+		return errNoSchemas
 	}
 
 	var clauses []ast.Clause
@@ -342,7 +345,7 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 	defer e.mu.Unlock()
 
 	if e.programInfo == nil {
-		return fmt.Errorf("no schemas loaded; call LoadSchema before WarmFromPersistence")
+		return errNoSchemas
 	}
 
 	wasAuto := e.autoEval
@@ -381,7 +384,7 @@ func (e *Engine) AddFacts(facts []Fact) error {
 	defer e.mu.Unlock()
 
 	if e.programInfo == nil {
-		return fmt.Errorf("no schemas loaded; call LoadSchema first")
+		return errNoSchemas
 	}
 
 	for _, fact := range facts {
@@ -408,53 +411,22 @@ func (e *Engine) AddFactsContext(ctx context.Context, facts []Fact) error {
 
 // ReplaceFactsForFile removes previously stored facts for a file before inserting new ones.
 func (e *Engine) ReplaceFactsForFile(file string, facts []Fact) error {
-	target := canonicalPath(file)
-
-	e.mu.Lock()
-	if e.programInfo == nil {
-		e.mu.Unlock()
-		return fmt.Errorf("no schemas loaded; call LoadSchema first")
-	}
-
-	removed := e.removeFactsLocked(target)
-	for _, fact := range facts {
-		if err := e.insertFactLocked(fact); err != nil {
-			e.mu.Unlock()
-			return err
-		}
-	}
-
-	if removed > 0 && (e.config.FactLimit == 0 || float64(e.factCount) < float64(e.config.FactLimit)*0.7) {
-		e.factLimitWarned = false
-	}
-
-	if e.autoEval {
-		_, err := e.evalWithGasLimit()
-		if err != nil {
-			e.mu.Unlock()
-			return err
-		}
-	}
-
-	shouldPersist := e.persistence != nil && !isNilPersistence(e.persistence)
-	e.mu.Unlock()
-
-	if shouldPersist {
-		if err := e.persistence.ReplaceFactsForFile(context.Background(), target, facts, ""); err != nil {
-			return fmt.Errorf("persist facts for %s: %w", target, err)
-		}
-	}
-	return nil
+	return e.replaceFactsForFileImpl(file, facts, "")
 }
 
 // ReplaceFactsForFileWithHash is like ReplaceFactsForFile but allows passing a content hash.
 func (e *Engine) ReplaceFactsForFileWithHash(file string, facts []Fact, contentHash string) error {
+	return e.replaceFactsForFileImpl(file, facts, contentHash)
+}
+
+// replaceFactsForFileImpl is the shared implementation for ReplaceFactsForFile variants.
+func (e *Engine) replaceFactsForFileImpl(file string, facts []Fact, contentHash string) error {
 	target := canonicalPath(file)
 
 	e.mu.Lock()
 	if e.programInfo == nil {
 		e.mu.Unlock()
-		return fmt.Errorf("no schemas loaded; call LoadSchema first")
+		return errNoSchemas
 	}
 
 	removed := e.removeFactsLocked(target)
@@ -532,7 +504,7 @@ func (e *Engine) maybeWarnFactLimit() {
 	if e.config.FactLimit > 0 {
 		utilization := float64(e.factCount) / float64(e.config.FactLimit)
 		if utilization >= 0.85 {
-			fmt.Fprintf(os.Stderr, "warning: fact store is %.1f%% of configured capacity (%d / %d)\n", utilization*100, e.factCount, e.config.FactLimit)
+			logging.Get(logging.CategoryKernel).Warn("Fact store is %.1f%% of configured capacity (%d / %d)", utilization*100, e.factCount, e.config.FactLimit)
 			e.factLimitWarned = true
 		}
 	}
@@ -570,6 +542,8 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 						expectedType = ast.StringType
 					case "/number":
 						expectedType = ast.NumberType
+					case "/float64":
+						expectedType = ast.Float64Type
 					case "/bytes":
 						expectedType = ast.BytesType
 					}
@@ -642,20 +616,9 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	case int64:
 		return ast.Number(v), nil
 	case float32:
-		// Convert floats to integers for Mangle compatibility
-		// (Mangle comparison operators don't support float types)
-		f := float64(v)
-		if f >= 0.0 && f <= 1.0 {
-			return ast.Number(int64(f * 100)), nil
-		}
-		return ast.Number(int64(f)), nil
+		return ast.Number(int64(float64(v) * 100)), nil
 	case float64:
-		// Convert floats to integers for Mangle compatibility
-		// 0.0-1.0 range -> 0-100 scale, otherwise truncate to int
-		if v >= 0.0 && v <= 1.0 {
-			return ast.Number(int64(v * 100)), nil
-		}
-		return ast.Number(int64(v)), nil
+		return ast.Number(int64(v * 100)), nil
 	case bool:
 		if v {
 			return ast.TrueConstant, nil
@@ -690,11 +653,6 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	}
 }
 
-// Deprecated: Internal use only, redirected to convertValueToTypedTerm
-func convertValueToBaseTerm(value interface{}) (ast.BaseTerm, error) {
-	return convertValueToTypedTerm(value, -1)
-}
-
 // Query evaluates a query expressed in Mangle notation.
 func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) {
 	logging.KernelDebug("Query: %s", query)
@@ -708,7 +666,7 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 	queryContext := e.queryContext
 	if queryContext == nil {
 		e.mu.RUnlock()
-		return nil, fmt.Errorf("no schemas loaded; cannot execute query")
+		return nil, errNoSchemas
 	}
 
 	decl, ok := queryContext.PredToDecl[shape.atom.Predicate]

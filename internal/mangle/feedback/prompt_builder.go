@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// factPatternRe is precompiled for extractRuleFromResponse (avoids per-call regexp compilation).
+var factPatternRe = regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
+
 // PromptBuilder constructs feedback prompts for LLM retry attempts.
 // Uses progressive strategy: more context and constraints on each retry.
 type PromptBuilder struct {
@@ -411,8 +414,7 @@ func ExtractRuleFromResponse(response string) string {
 	}
 
 	// Try to find a fact pattern anywhere in the response
-	factPattern := regexp.MustCompile(`([a-z_][a-z0-9_]*\s*\([^)]*\)\.)`)
-	if match := factPattern.FindString(response); match != "" {
+	if match := factPatternRe.FindString(response); match != "" {
 		return cleanRuleCandidate(match)
 	}
 

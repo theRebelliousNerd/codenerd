@@ -473,8 +473,12 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	modifiedFiles, unstagedCount := parseGitStatus(statusOutput)
 	recentCommits := splitLinesTrimmed(commitOutput)
 
-	_ = k.Retract("git_state")
-	_ = k.Retract("git_branch")
+	if err := k.Retract("git_state"); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("failed to retract git_state: %v", err)
+	}
+	if err := k.Retract("git_branch"); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("failed to retract git_branch: %v", err)
+	}
 
 	var facts []Fact
 	if branch != "" {
