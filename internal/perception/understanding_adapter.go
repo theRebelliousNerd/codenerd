@@ -162,6 +162,7 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 func (t *UnderstandingTransducer) understandingToIntent(u *Understanding) Intent {
 	// Guard against nil understanding
 	if u == nil {
+		logging.Get(logging.CategoryPerception).Warn("understandingToIntent called with nil understanding, falling back to /explain")
 		return Intent{
 			Verb:     "/explain",
 			Category: "/query",
@@ -256,7 +257,26 @@ func (t *UnderstandingTransducer) mapActionToVerb(actionType, domain string) str
 		return "/converse"
 	case "deploy":
 		return "/deploy"
+	case "migrate":
+		return "/migrate"
+	case "optimize":
+		return "/optimize"
+	case "document":
+		return "/document"
+	case "benchmark":
+		return "/benchmark"
+	case "profile":
+		return "/profile"
+	case "audit":
+		return "/audit"
+	case "scaffold":
+		return "/scaffold"
+	case "lint":
+		return "/lint"
+	case "format":
+		return "/format"
 	default:
+		logging.Get(logging.CategoryPerception).Warn("Unknown action_type %q (domain=%q) fell back to /explain", actionType, domain)
 		return "/explain" // Safe fallback
 	}
 }
@@ -400,6 +420,15 @@ You are the perception layer of a coding agent. Your job is to deeply understand
 | remember | Store preference for future | No (memory only) |
 | forget | Remove stored preference | No (memory only) |
 | chat | Social interaction, greeting | No |
+| migrate | Move code between frameworks/versions | Yes |
+| optimize | Improve performance, reduce resource usage | Yes |
+| document | Write docs, comments, READMEs | Yes |
+| benchmark | Measure performance, run benchmarks | Maybe |
+| profile | Profile CPU/memory, find bottlenecks | No |
+| audit | Security/compliance/quality audit | No |
+| scaffold | Generate boilerplate, project structure | Yes |
+| lint | Run linters, fix lint issues | Maybe |
+| format | Format code, fix style issues | Yes |
 
 ### 3. Domain (WHAT AREA is this about?)
 

@@ -689,4 +689,49 @@ var DefaultTaxonomyData = []TaxonomyDef{
 		Synonyms: []string{"read", "show", "display", "open", "view", "cat"},
 		Patterns: []string{"(?i)read.*file", "(?i)show.*contents", "(?i)display.*file", "(?i)open.*file"},
 	},
+	{
+		Verb: "/migrate", Category: "/mutation", ShardType: "/coder", Priority: 85,
+		Synonyms: []string{"migrate", "migration", "upgrade", "port", "convert", "transition"},
+		Patterns: []string{"(?i)migrate", "(?i)upgrade.*to", "(?i)port.*to", "(?i)convert.*from.*to"},
+	},
+	{
+		Verb: "/optimize", Category: "/mutation", ShardType: "/coder", Priority: 86,
+		Synonyms: []string{"optimize", "optimise", "speed up", "make faster", "improve performance"},
+		Patterns: []string{"(?i)optimize", "(?i)optimise", "(?i)speed.*up", "(?i)make.*faster", "(?i)improve.*perf"},
+	},
+	{
+		Verb: "/document", Category: "/mutation", ShardType: "/coder", Priority: 72,
+		Synonyms: []string{"document", "write docs", "add comments", "add documentation", "write readme"},
+		Patterns: []string{"(?i)document", "(?i)write.*doc", "(?i)add.*comment", "(?i)add.*doc", "(?i)write.*readme"},
+	},
+	{
+		Verb: "/benchmark", Category: "/query", ShardType: "/tester", Priority: 80,
+		Synonyms: []string{"benchmark", "bench", "perf test", "performance test", "load test"},
+		Patterns: []string{"(?i)benchmark", "(?i)bench\\b", "(?i)perf.*test", "(?i)load.*test"},
+	},
+	{
+		Verb: "/profile", Category: "/query", ShardType: "/tester", Priority: 78,
+		Synonyms: []string{"profile", "profiling", "cpu profile", "memory profile", "pprof", "trace"},
+		Patterns: []string{"(?i)profile", "(?i)profil", "(?i)pprof", "(?i)cpu.*usage", "(?i)memory.*usage"},
+	},
+	{
+		Verb: "/audit", Category: "/query", ShardType: "/reviewer", Priority: 90,
+		Synonyms: []string{"audit", "compliance", "security audit", "code audit"},
+		Patterns: []string{"(?i)audit", "(?i)compliance", "(?i)security.*check", "(?i)code.*audit"},
+	},
+	{
+		Verb: "/scaffold", Category: "/mutation", ShardType: "/coder", Priority: 75,
+		Synonyms: []string{"scaffold", "scaffolding", "boilerplate", "bootstrap", "generate project", "create project"},
+		Patterns: []string{"(?i)scaffold", "(?i)boilerplate", "(?i)bootstrap.*project", "(?i)generate.*project", "(?i)create.*project"},
+	},
+	{
+		Verb: "/lint", Category: "/query", ShardType: "/reviewer", Priority: 83,
+		Synonyms: []string{"lint", "linter", "static analysis", "check style", "code quality"},
+		Patterns: []string{"(?i)\\blint\\b", "(?i)linter", "(?i)static.*analysis", "(?i)check.*style", "(?i)code.*quality"},
+	},
+	{
+		Verb: "/format", Category: "/mutation", ShardType: "/coder", Priority: 70,
+		Synonyms: []string{"format", "fmt", "gofmt", "prettier", "auto-format", "fix formatting"},
+		Patterns: []string{"(?i)\\bformat\\b", "(?i)\\bfmt\\b", "(?i)gofmt", "(?i)prettier", "(?i)fix.*format"},
+	},
 }

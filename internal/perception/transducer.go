@@ -247,7 +247,7 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 		}
 	}
 
-	logging.PerceptionDebug("No verb match found, defaulting to /explain")
+	logging.Get(logging.CategoryPerception).Warn("No verb match found for input, defaulting to /explain")
 	return "/explain", "/query", 0.3, ""
 }
 
