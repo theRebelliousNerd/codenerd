@@ -55,19 +55,11 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
 	}
 
-	// Read file content for line-based analysis
-	content, err := os.ReadFile(path)
-	if err != nil {
-		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: read failed: %s - %v", path, err)
-		return nil, fmt.Errorf("failed to read file %s: %w", path, err)
-	}
-	lines := strings.Split(string(content), "\n")
 
 	var facts []core.Fact
 	ctx := &extractionContext{
 		fset:  d.fset,
 		path:  path,
-		lines: lines,
 		facts: &facts,
 	}
 
@@ -90,7 +82,6 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 type extractionContext struct {
 	fset        *token.FileSet
 	path        string
-	lines       []string
 	facts       *[]core.Fact
 	currentFunc string // Current function name for scoping
 	funcStart   int    // Start line of current function
