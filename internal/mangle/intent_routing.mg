@@ -377,3 +377,24 @@ next_action(/execute_intent) :-
     !tdd_state(/red),
     !tdd_state(/green),
     !tdd_state(/refactor).
+
+# =============================================================================
+# SECTION 9: Wired Predicates (Improvement)
+# =============================================================================
+# Wiring for predicates that were previously declared but unconnected
+
+# Derive code modification from execution history
+code_modified_recently() :- file_edited(_).
+
+# Derive recent test execution
+tests_run_recently() :- action_verified(_, /run_tests, _, _, _).
+
+# Derive test success (heuristic: 100% confidence verification on test run)
+test_passed_after_fix() :- action_verified(_, /run_tests, _, 100, _).
+
+# Map diagnostics to intent routing predicates
+diagnostic_active(Path, Line, Severity, Message) :-
+    diagnostic(Severity, Path, Line, _, Message).
+
+code_quality_issue(/diagnostic, Message) :-
+    diagnostic(_, _, _, _, Message).
