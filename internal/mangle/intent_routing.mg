@@ -389,8 +389,8 @@ code_modified_recently() :- file_edited(_).
 # Derive recent test execution
 tests_run_recently() :- action_verified(_, /run_tests, _, _, _).
 
-# Derive test success (heuristic: 100% confidence verification on test run)
-test_passed_after_fix() :- action_verified(_, /run_tests, _, 100, _).
+# Derive test success (heuristic: >=80% confidence verification on test run)
+test_passed_after_fix() :- action_verified(_, /run_tests, _, Confidence, _), Confidence >= 80.
 
 # Map diagnostics to intent routing predicates
 diagnostic_active(Path, Line, Severity, Message) :-
