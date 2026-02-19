@@ -113,22 +113,25 @@ func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 		return nil, fmt.Errorf("no JSON found in response")
 	}
 
-	// Parse the envelope
+	// Try envelope first, then direct Understanding.
+	// Go's json.Unmarshal is lenient: it succeeds even when the JSON has no
+	// "understanding" key, leaving envelope.Understanding zero-valued. We must
+	// detect that case and fall through to the direct parse path.
 	var envelope UnderstandingEnvelope
-	if err := json.Unmarshal([]byte(jsonStr), &envelope); err != nil {
-		// Try parsing as just Understanding (no envelope)
-		var understanding Understanding
-		if err2 := json.Unmarshal([]byte(jsonStr), &understanding); err2 != nil {
-			return nil, fmt.Errorf("JSON parse failed: %w (also tried: %v)", err, err2)
-		}
-		normalizeLLMFields(&understanding)
-		return &understanding, nil
+	if err := json.Unmarshal([]byte(jsonStr), &envelope); err == nil && envelope.Understanding.PrimaryIntent != "" {
+		// Valid envelope with populated Understanding
+		envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
+		normalizeLLMFields(&envelope.Understanding)
+		return &envelope.Understanding, nil
 	}
 
-	// Copy surface response into understanding
-	envelope.Understanding.SurfaceResponse = envelope.SurfaceResponse
-	normalizeLLMFields(&envelope.Understanding)
-	return &envelope.Understanding, nil
+	// Try parsing as just Understanding (no envelope wrapper)
+	var understanding Understanding
+	if err := json.Unmarshal([]byte(jsonStr), &understanding); err != nil {
+		return nil, fmt.Errorf("JSON parse failed: %w", err)
+	}
+	normalizeLLMFields(&understanding)
+	return &understanding, nil
 }
 
 // normalizeLLMFields normalizes LLM-generated field values to lowercase

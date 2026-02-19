@@ -277,7 +277,13 @@ func (t *TaxonomyEngine) getSynonyms(verb string) ([]string, error) {
 		if len(fact.Args) == 2 {
 			v := types.ExtractString(fact.Args[0])
 			if v == targetVerb || v == verb {
-				syns = append(syns, types.ExtractString(fact.Args[1]))
+				syn := types.ExtractString(fact.Args[1])
+				// Defense-in-depth: strip leading "/" from synonyms that were
+				// incorrectly stored as NameType atoms instead of strings.
+				// This handles legacy data from when verb_synonym was declared
+				// bound [/name, /name] instead of bound [/name, /string].
+				syn = strings.TrimPrefix(syn, "/")
+				syns = append(syns, syn)
 			}
 		}
 	}

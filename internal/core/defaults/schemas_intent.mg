@@ -103,7 +103,7 @@ Decl boost(Verb, Amount) bound [/name, /number].
 Decl penalty(Verb, Amount) bound [/name, /number].
 Decl potential_score(Verb, Score) bound [/name, /number].
 Decl verb_def(Verb, Category, Shard, Priority) bound [/name, /name, /name, /number].
-Decl verb_synonym(Verb, Synonym) bound [/name, /name].
+Decl verb_synonym(Verb, Synonym) bound [/name, /string].
 Decl verb_pattern(Verb, Regex) bound [/name, /string].
 Decl verb_composition(Verb1, Verb2, Relation, Priority) bound [/name, /name, /name, /number].
 
