@@ -276,7 +276,7 @@ func (p *PerceptionFirewallShard) isVerbKnown(verb string) bool {
 	if normalized == "" || normalized == "none" {
 		return false
 	}
-	for _, entry := range perception.VerbCorpus {
+	for _, entry := range perception.GetVerbCorpus() {
 		if normalizeAtom(entry.Verb) == normalized {
 			return true
 		}

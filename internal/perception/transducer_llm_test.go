@@ -231,7 +231,7 @@ func TestGetRegexCandidates_TruncationPreservesMatches(t *testing.T) {
 			break
 		}
 	}
-	if !found && len(VerbCorpus) > 0 {
+	if !found && len(GetVerbCorpus()) > 0 {
 		// Only fail if VerbCorpus is populated (it may not be in unit test context)
 		// The key assertion is: the function didn't hang or OOM
 		t.Log("review verb not found, but VerbCorpus may not be populated in test context")

@@ -183,7 +183,7 @@ func (t *TaxonomyEngine) HydrateFromDB() error {
 	// Keep the package-level VerbCorpus in sync after hydration so parsing reflects
 	// any newly learned verbs/synonyms/patterns persisted in SQLite.
 	if verbs, err := t.GetVerbs(); err == nil && len(verbs) > 0 {
-		VerbCorpus = verbs
+		SetVerbCorpus(verbs)
 	}
 
 	return nil

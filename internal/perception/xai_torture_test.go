@@ -569,7 +569,7 @@ func TestTorture_PureGo_ParseResponse(t *testing.T) {
 // =============================================================================
 
 func TestTorture_PureGo_GetRegexCandidates(t *testing.T) {
-	if len(VerbCorpus) == 0 {
+	if len(GetVerbCorpus()) == 0 {
 		t.Skip("VerbCorpus not initialized")
 	}
 
@@ -597,7 +597,7 @@ func TestTorture_PureGo_GetRegexCandidates(t *testing.T) {
 	// Build a set of verbs actually present in VerbCorpus so we can skip
 	// assertions for verbs not loaded (e.g. fallback-only test context).
 	corpusVerbs := make(map[string]bool)
-	for _, entry := range VerbCorpus {
+	for _, entry := range GetVerbCorpus() {
 		corpusVerbs[entry.Verb] = true
 	}
 
@@ -623,7 +623,7 @@ func TestTorture_PureGo_GetRegexCandidates(t *testing.T) {
 				}
 			}
 			if len(applicableWants) == 0 {
-				t.Skipf("none of %v are in VerbCorpus (%d entries), skipping", tt.wantVerbs, len(VerbCorpus))
+				t.Skipf("none of %v are in VerbCorpus (%d entries), skipping", tt.wantVerbs, len(GetVerbCorpus()))
 				return
 			}
 			found := false

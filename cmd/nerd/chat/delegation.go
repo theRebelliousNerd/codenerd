@@ -1088,7 +1088,7 @@ func detectMultiStepTask(input string, intent perception.Intent) bool {
 
 	// Check for multiple verbs in the input
 	verbCount := 0
-	for _, entry := range perception.VerbCorpus {
+	for _, entry := range perception.GetVerbCorpus() {
 		for _, synonym := range entry.Synonyms {
 			if strings.Contains(lower, synonym) {
 				verbCount++

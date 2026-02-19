@@ -608,7 +608,7 @@ func parseVerbAndTarget(text string) (verb string, target string) {
 	lower := strings.ToLower(text)
 
 	// Try to match against known verbs from corpus
-	for _, entry := range perception.VerbCorpus {
+	for _, entry := range perception.GetVerbCorpus() {
 		for _, synonym := range entry.Synonyms {
 			if strings.HasPrefix(lower, synonym+" ") || strings.HasPrefix(lower, synonym+":") {
 				verb = entry.Verb
@@ -710,7 +710,7 @@ func normalizeVerb(verb string) string {
 	}
 
 	// Check if it's a known verb
-	for _, entry := range perception.VerbCorpus {
+	for _, entry := range perception.GetVerbCorpus() {
 		if entry.Verb == verb {
 			return verb
 		}

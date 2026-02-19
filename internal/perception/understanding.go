@@ -1,5 +1,7 @@
 package perception
 
+import "math"
+
 // Understanding represents the LLM's interpretation of user intent.
 // This is the output of LLM-first classification - the LLM tells us
 // what it understands, and the harness uses this to route appropriately.
@@ -165,7 +167,7 @@ func (u *Understanding) Validate() error {
 	if u.Domain == "" {
 		return &ValidationError{Field: "domain", Message: "required"}
 	}
-	if u.Confidence < 0 || u.Confidence > 1 {
+	if math.IsNaN(u.Confidence) || math.IsInf(u.Confidence, 0) || u.Confidence < 0 || u.Confidence > 1 {
 		return &ValidationError{Field: "confidence", Message: "must be between 0 and 1"}
 	}
 	return nil

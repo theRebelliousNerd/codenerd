@@ -4,6 +4,8 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/config"
@@ -48,20 +50,35 @@ type VerbEntry struct {
 	ShardType string           // Which shard handles this (reviewer, coder, tester, researcher)
 }
 
-// VerbCorpus is the comprehensive mapping of natural language to verbs.
+// verbCorpus is the comprehensive mapping of natural language to verbs.
 // It is populated dynamically from the Mangle taxonomy engine on startup.
-var VerbCorpus []VerbEntry
+// Access must go through GetVerbCorpus/SetVerbCorpus to avoid data races.
+var verbCorpus []VerbEntry
+var verbCorpusMu sync.RWMutex
+
+// GetVerbCorpus returns a snapshot of the current verb corpus (safe for concurrent use).
+func GetVerbCorpus() []VerbEntry {
+	verbCorpusMu.RLock()
+	defer verbCorpusMu.RUnlock()
+	return verbCorpus
+}
+
+// SetVerbCorpus replaces the verb corpus atomically (safe for concurrent use).
+func SetVerbCorpus(v []VerbEntry) {
+	verbCorpusMu.Lock()
+	defer verbCorpusMu.Unlock()
+	verbCorpus = v
+}
 
 func init() {
 	// Robust initialization from the SharedTaxonomy
 	// This satisfies the requirement to "use Mangle to create the corpus"
 	if SharedTaxonomy != nil {
-		var err error
-		VerbCorpus, err = SharedTaxonomy.GetVerbs()
+		verbs, err := SharedTaxonomy.GetVerbs()
 		if err != nil {
 			logging.Get(logging.CategoryPerception).Error("Failed to load verb taxonomy from Mangle: %v", err)
 			// Fallback to a minimal safe mode to prevent crash
-			VerbCorpus = []VerbEntry{
+			SetVerbCorpus([]VerbEntry{
 				{
 					Verb:      "/explain",
 					Category:  "/query",
@@ -70,10 +87,11 @@ func init() {
 					Priority:  1,
 					ShardType: "",
 				},
-			}
+			})
 			logging.Perception("Initialized VerbCorpus with fallback (1 verb)")
 		} else {
-			logging.Perception("Initialized VerbCorpus from Mangle taxonomy (%d verbs)", len(VerbCorpus))
+			SetVerbCorpus(verbs)
+			logging.Perception("Initialized VerbCorpus from Mangle taxonomy (%d verbs)", len(verbs))
 		}
 	} else {
 		logging.Get(logging.CategoryPerception).Error("SharedTaxonomy is nil - cannot load verb taxonomy")
@@ -120,11 +138,17 @@ var ConstraintPatterns = []*regexp.Regexp{
 }
 
 // truncateForLog truncates a string for logging purposes.
+// Uses rune-aware truncation to avoid splitting multi-byte UTF-8 characters.
 func truncateForLog(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	// Walk backward from maxLen to find a valid rune boundary
+	truncated := s[:maxLen]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated + "..."
 }
 
 // matchVerbFromCorpus finds the best matching verb using Regex Candidates + Semantic + Mangle Inference.
@@ -179,7 +203,7 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 				}
 			}
 			// If not found in candidates (rare), find in corpus
-			for _, entry := range VerbCorpus {
+			for _, entry := range GetVerbCorpus() {
 				if entry.Verb == bestVerb {
 					logging.Perception("Matched verb %s from corpus (category: %s, shard: %s, confidence: %.2f)", entry.Verb, entry.Category, entry.ShardType, conf)
 					return entry.Verb, entry.Category, conf, entry.ShardType
@@ -268,7 +292,7 @@ func getRegexCandidates(input string) []VerbEntry {
 	var candidates []VerbEntry
 	seen := make(map[string]bool)
 
-	for _, entry := range VerbCorpus {
+	for _, entry := range GetVerbCorpus() {
 		matched := false
 		// Check patterns
 		for _, pattern := range entry.Patterns {
@@ -462,7 +486,7 @@ func containsAny(s string, subs []string) bool {
 // GetShardTypeForVerb returns the shard type associated with a canonical verb.
 // Returns empty string if verb is not found in the VerbCorpus.
 func GetShardTypeForVerb(verb string) string {
-	for _, entry := range VerbCorpus {
+	for _, entry := range GetVerbCorpus() {
 		if entry.Verb == verb {
 			return entry.ShardType
 		}
