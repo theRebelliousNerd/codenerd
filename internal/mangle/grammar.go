@@ -237,6 +237,8 @@ func (v *AtomValidator) loadCorePredicates() {
 	}
 }
 
+var declRe = regexp.MustCompile(`^Decl\s+([a-z][a-z0-9_]*)\((.*)\)\.`)
+
 // UpdateFromSchema updates ValidPredicates by parsing Decl statements from a schema string.
 // Deprecated: Prefer UpdateFromProgramInfo when analysis.ProgramInfo is available.
 func (v *AtomValidator) UpdateFromSchema(schema string) error {
@@ -247,8 +249,6 @@ func (v *AtomValidator) UpdateFromSchema(schema string) error {
 	// Normalize newlines
 	schema = strings.ReplaceAll(schema, "\r\n", "\n")
 	lines := strings.Split(schema, "\n")
-
-	declRe := regexp.MustCompile(`^Decl\s+([a-z][a-z0-9_]*)\((.*)\)\.`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
