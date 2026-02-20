@@ -3,6 +3,7 @@
 package ui
 
 import (
+	_ "embed"
 	"os"
 	"strconv"
 	"strings"
@@ -291,17 +292,12 @@ func DefaultStyles() Styles {
 	return NewStyles(DetectTheme())
 }
 
+//go:embed logo.txt
+var logoArt string
+
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
-	// TODO: Extract this hardcoded ASCII art to a resource file or constant to declutter the code.
-	// TODO: IMPROVEMENT: Load ASCII art from a separate resource file.
-	logo := `
-   ___          _      _  _ ___ ___ ___  
-  / __|___  __| |___ | \| | __| _ \   \ 
- | (__/ _ \/ _` + "`" + ` / -_)| .` + "`" + ` | _||   / |) |
-  \___\___/\__,_\___||_|\_|___|_|_\___/ 
-`
-	return s.Title.Foreground(s.Theme.Primary).Render(logo)
+	return s.Title.Foreground(s.Theme.Primary).Render(logoArt)
 }
 
 // Divider returns a horizontal divider
