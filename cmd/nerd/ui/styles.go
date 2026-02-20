@@ -295,7 +295,6 @@ func DefaultStyles() Styles {
 //go:embed logo.txt
 var logoArt string
 
-
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
 	return s.Title.Foreground(s.Theme.Primary).Render(logoArt)
