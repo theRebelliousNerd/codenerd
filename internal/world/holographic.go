@@ -1081,9 +1081,64 @@ func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string)
 func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int {
 	depth := 0
 	inFunction := false
+	inBlockComment := false
+	inString := rune(0) // 0 if not in string, else the quote char: '"', '\'', '`'
 
 	for i := startIdx; i < len(lines); i++ {
-		for _, ch := range lines[i] {
+		line := lines[i]
+		lineRunes := []rune(line)
+
+		for j := 0; j < len(lineRunes); j++ {
+			ch := lineRunes[j]
+
+			// Handle block comment content
+			if inBlockComment {
+				if ch == '*' && j+1 < len(lineRunes) && lineRunes[j+1] == '/' {
+					inBlockComment = false
+					j++ // skip /
+				}
+				continue
+			}
+
+			// Handle string/char literal content
+			if inString != 0 {
+				if ch == inString {
+					// Check for escape
+					// Count consecutive backslashes preceding this quote
+					backslashes := 0
+					for k := j - 1; k >= 0; k-- {
+						if lineRunes[k] != '\\' {
+							break
+						}
+						backslashes++
+					}
+					// If even number of backslashes (0, 2...), the quote is NOT escaped
+					if backslashes%2 == 0 {
+						inString = 0
+					}
+				}
+				continue
+			}
+
+			// Start of block comment
+			if ch == '/' && j+1 < len(lineRunes) && lineRunes[j+1] == '*' {
+				inBlockComment = true
+				j++ // skip *
+				continue
+			}
+
+			// Start of line comment
+			if ch == '/' && j+1 < len(lineRunes) && lineRunes[j+1] == '/' {
+				break // ignore rest of line
+			}
+
+			// Start of string/char literal
+			if ch == '"' || ch == '\'' || ch == '`' {
+				inString = ch
+				continue
+			}
+
+			// Brace counting
 			if ch == '{' {
 				depth++
 				inFunction = true
@@ -1093,6 +1148,12 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 					return i
 				}
 			}
+		}
+
+		// Reset string state ONLY for single-line quotes (" and ')
+		// Backticks (`) span multiple lines.
+		if inString == '"' || inString == '\'' {
+			inString = 0
 		}
 	}
 
