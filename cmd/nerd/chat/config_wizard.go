@@ -260,7 +260,7 @@ func (m Model) configWizardWelcome(input string) (tea.Model, tea.Cmd) {
 	}
 	// User pressed enter to start, move to engine selection
 	m.configWizard.Step = StepEngine
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: `## Step 1: LLM Engine
 
@@ -296,7 +296,7 @@ func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
 
 	engine, ok := engines[strings.ToLower(input)]
 	if !ok {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Invalid selection. Please enter 1-3 or an engine name (api, claude-cli, codex-cli):",
 			Time:    time.Now(),
@@ -311,7 +311,7 @@ func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
 	switch engine {
 	case "claude-cli":
 		m.configWizard.Step = StepClaudeCLIConfig
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## Step 2: Claude Code CLI Configuration
 
@@ -334,7 +334,7 @@ Enter model number/name (Enter for default):`, m.configWizard.ClaudeCLIModel),
 
 	case "codex-cli":
 		m.configWizard.Step = StepCodexCLIConfig
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## Step 2: Codex CLI Configuration
 
@@ -361,7 +361,7 @@ Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
 
 	default: // "api"
 		m.configWizard.Step = StepProvider
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Step 2: LLM Provider
 
@@ -407,7 +407,7 @@ func (m Model) configWizardClaudeCLI(input string) (tea.Model, tea.Cmd) {
 
 	// Skip to shard configuration (no API key needed for CLI)
 	m.configWizard.Step = StepShardConfig
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 3: Per-Shard Configuration
 
@@ -456,7 +456,7 @@ func (m Model) configWizardCodexCLI(input string) (tea.Model, tea.Cmd) {
 
 	// Skip to shard configuration (no API key needed for CLI)
 	m.configWizard.Step = StepShardConfig
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 3: Per-Shard Configuration
 
@@ -496,7 +496,7 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 
 	provider, ok := providers[strings.ToLower(input)]
 	if !ok {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Invalid selection. Please enter 1-7 or a provider name (zai, anthropic, openai, gemini, antigravity, xai, openrouter):",
 			Time:    time.Now(),
@@ -524,7 +524,7 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 		"openrouter": "OPENROUTER_API_KEY",
 	}[provider]
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 2: API Key
 
@@ -551,7 +551,7 @@ func (m Model) showAntigravityAccountsPrompt() (tea.Model, tea.Cmd) {
 	// Load existing accounts
 	store, err := antigravity.NewAccountStore()
 	if err != nil {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("**Error loading accounts:** %v\n\nPress Enter to continue with OAuth flow.", err),
 			Time:    time.Now(),
@@ -612,7 +612,7 @@ You can add **multiple Google accounts** for load balancing and rate limit rotat
 
 	sb.WriteString("\nEnter your choice:")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -635,7 +635,7 @@ func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd
 	case input == "d" || input == "done" || input == "":
 		// Check if we have at least one account
 		if len(m.configWizard.AntigravityAccounts) == 0 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "**Warning:** No accounts configured. You need at least one account to use Antigravity.\n\nEnter **a** to add an account, or **q** to go back and choose a different provider.",
 				Time:    time.Now(),
@@ -651,7 +651,7 @@ func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd
 		// Remove account by number
 		parts := strings.Fields(input)
 		if len(parts) < 2 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Please specify account number to remove, e.g., `r 1`",
 				Time:    time.Now(),
@@ -662,7 +662,7 @@ func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd
 		}
 		num, err := strconv.Atoi(parts[1])
 		if err != nil || num < 1 || num > len(m.configWizard.AntigravityAccounts) {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Invalid account number. Enter 1-%d.", len(m.configWizard.AntigravityAccounts)),
 				Time:    time.Now(),
@@ -675,13 +675,13 @@ func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd
 		store, _ := antigravity.NewAccountStore()
 		email := m.configWizard.AntigravityAccounts[num-1].Email
 		if err := store.DeleteAccount(email); err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**Error removing account:** %v", err),
 				Time:    time.Now(),
 			})
 		} else {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Removed account: **%s**", email),
 				Time:    time.Now(),
@@ -693,7 +693,7 @@ func (m Model) configWizardAntigravityAccounts(input string) (tea.Model, tea.Cmd
 	case input == "q" || input == "back":
 		// Go back to provider selection
 		m.configWizard.Step = StepProvider
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Step 2: LLM Provider
 
@@ -718,7 +718,7 @@ Enter a number (1-7) or provider name:`,
 		return m, nil
 
 	default:
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Invalid choice. Enter **a** to add account, **d** when done, or **r <#>** to remove.",
 			Time:    time.Now(),
@@ -734,7 +734,7 @@ func (m Model) startAntigravityOAuth() (tea.Model, tea.Cmd) {
 	// Start OAuth flow
 	authResult, err := antigravity.StartAuth()
 	if err != nil {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("**Error starting OAuth:** %v\n\nPress Enter to try again.", err),
 			Time:    time.Now(),
@@ -750,7 +750,7 @@ func (m Model) startAntigravityOAuth() (tea.Model, tea.Cmd) {
 	// Open browser
 	openBrowserURL(authResult.AuthURL)
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Adding Google Account
 
@@ -871,7 +871,7 @@ func (m Model) showAntigravityModelPrompt() (tea.Model, tea.Cmd) {
 	}
 	sb.WriteString("\nEnter a number or model name (Enter for default):")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -920,7 +920,7 @@ func (m Model) configWizardAPIKey(input string) (tea.Model, tea.Cmd) {
 	}
 	sb.WriteString("\nEnter a number or model name (Enter for default):")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -957,7 +957,7 @@ func (m Model) configWizardModel(input string) (tea.Model, tea.Cmd) {
 
 	m.configWizard.Step = StepShardConfig
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 4: Per-Shard Configuration
 
@@ -1017,7 +1017,7 @@ func (m Model) showShardModelPrompt() (tea.Model, tea.Cmd) {
 	}
 	sb.WriteString("\nEnter model number/name (Enter to use default):")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -1062,7 +1062,7 @@ func (m Model) configWizardShardModel(input string) (tea.Model, tea.Cmd) {
 		"researcher": 0.6,
 	}[shard]
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`### Temperature for %s
 
@@ -1110,7 +1110,7 @@ func (m Model) configWizardShardTemperature(input string) (tea.Model, tea.Cmd) {
 		"researcher": 25000,
 	}[shard]
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`### Context Tokens for %s
 
@@ -1173,7 +1173,7 @@ func (m Model) configWizardNextShard(input string) (tea.Model, tea.Cmd) {
 
 // showEmbeddingProviderPrompt shows embedding provider selection.
 func (m Model) showEmbeddingProviderPrompt() (tea.Model, tea.Cmd) {
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: `## Step 5: Embedding Engine
 
@@ -1200,7 +1200,7 @@ func (m Model) configWizardEmbeddingProvider(input string) (tea.Model, tea.Cmd) 
 	case "1", "ollama":
 		m.configWizard.EmbeddingProvider = "ollama"
 		m.configWizard.Step = StepEmbeddingConfig
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`### Ollama Configuration
 
@@ -1215,7 +1215,7 @@ Enter Ollama endpoint (or Enter for default):`, m.configWizard.OllamaEndpoint, m
 	case "2", "genai":
 		m.configWizard.EmbeddingProvider = "genai"
 		m.configWizard.Step = StepEmbeddingConfig
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `### GenAI Configuration
 
@@ -1255,7 +1255,7 @@ func (m Model) configWizardEmbeddingConfig(input string) (tea.Model, tea.Cmd) {
 
 // showContextWindowPrompt shows context window configuration.
 func (m Model) showContextWindowPrompt() (tea.Model, tea.Cmd) {
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 6: Context Window
 
@@ -1289,7 +1289,7 @@ func (m Model) configWizardContextWindow(input string) (tea.Model, tea.Cmd) {
 
 	m.configWizard.Step = StepCoreLimits
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Step 7: Resource Limits
 
@@ -1391,7 +1391,7 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 	sb.WriteString("\n---\n\n")
 	sb.WriteString("**Save this configuration?** (y/n)")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -1407,7 +1407,7 @@ func (m Model) configWizardReview(input string) (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(strings.ToLower(input), "y") {
 		// Save configuration
 		if err := m.saveConfigWizard(); err != nil {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("**Error saving configuration:** %v\n\nPlease try again.", err),
 				Time:    time.Now(),
@@ -1415,7 +1415,7 @@ func (m Model) configWizardReview(input string) (tea.Model, tea.Cmd) {
 		} else {
 			m.configWizard.Step = StepComplete
 			m.awaitingConfigWizard = false
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: `## Configuration Saved!
 
@@ -1435,7 +1435,7 @@ You can edit the config manually or run ` + "`" + `/config wizard` + "`" + ` aga
 		// Cancel
 		m.awaitingConfigWizard = false
 		m.configWizard = nil
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Configuration cancelled. No changes were saved.",
 			Time:    time.Now(),

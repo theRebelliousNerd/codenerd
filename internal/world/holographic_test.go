@@ -369,17 +369,57 @@ func TestFindFunctionEnd(t *testing.T) {
 			startIdx: 0,
 			want:     1, // Falls back to startIdx + maxCallerBodyLines or len-1
 		},
-	}
 
-	// TODO: TEST_GAP: Naive Brace Parsing
-	// The current implementation of findFunctionEnd counts braces without respecting string literals or comments.
-	// A test case like:
-	//   func foo() {
-	//       s := "}"
-	//       return
-	//   }
-	// currently fails (finds end at the line with "}"), causing truncated context.
-	// See .quality_assurance/2025-02-18_world_boundary_analysis.md for details.
+		{
+			name: "brace_in_string",
+			lines: []string{
+				"func foo() {",
+				"    s := \"}\"",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     3,
+		},
+		{
+			name: "brace_in_comment",
+			lines: []string{
+				"func foo() {",
+				"    // }",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     3,
+		},
+		{
+			name: "brace_in_multiline_comment",
+			lines: []string{
+				"func foo() {",
+				"    /*",
+				"    }",
+				"    */",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+		{
+			name: "brace_in_backtick",
+			lines: []string{
+				"func foo() {",
+				"    s := `",
+				"    }",
+				"    `",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
