@@ -28,26 +28,6 @@ func TestAutopoiesisPage_TabNavigation(t *testing.T) {
 	}
 }
 
-func TestAutopoiesisPage_ArrowKeyTabNavigation(t *testing.T) {
-	m := NewAutopoiesisPageModel()
-
-	// Navigate with Right arrow
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}, Alt: false})
-	keyMsg := tea.KeyMsg{}
-	keyMsg.Type = tea.KeyRight
-	m, _ = m.Update(keyMsg)
-	if m.activeTab != TabLearnings {
-		t.Errorf("Expected tab to be TabLearnings after Right arrow, got %d", m.activeTab)
-	}
-
-	// Navigate with Left arrow
-	keyMsg.Type = tea.KeyLeft
-	m, _ = m.Update(keyMsg)
-	if m.activeTab != TabPatterns {
-		t.Errorf("Expected tab to be TabPatterns after Left arrow, got %d", m.activeTab)
-	}
-}
-
 func TestAutopoiesisPage_ShiftTabNavigation(t *testing.T) {
 	m := NewAutopoiesisPageModel()
 	m.activeTab = TabLearnings

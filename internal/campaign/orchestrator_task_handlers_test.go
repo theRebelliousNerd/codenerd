@@ -25,21 +25,108 @@ import (
 // - Shard claims success but file missing
 // - Shard claims success but file is empty
 
-// TODO: TEST_GAP: TestExtractCodeBlock_EdgeCases
-// Verify extractCodeBlock handles various LLM output formats.
-// Edge cases:
-// - Input without markdown fences
-// - Input with multiple code blocks (should pick correct one)
-// - Input with nested backticks
-// - Empty input
-// - Non-matching language fences
+func TestExtractCodeBlock_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		lang     string
+		expected string
+	}{
+		{
+			name:     "standard markdown",
+			input:    "Here is the code:\n```go\npackage main\nfunc main() {}\n```",
+			lang:     "go",
+			expected: "package main\nfunc main() {}",
+		},
+		{
+			name:     "no fences",
+			input:    "package main\nfunc main() {}",
+			lang:     "go",
+			expected: "package main\nfunc main() {}",
+		},
+		{
+			name:     "multiple blocks",
+			input:    "Block 1:\n```go\nfunc one() {}\n```\nBlock 2:\n```go\nfunc two() {}\n```",
+			lang:     "go",
+			expected: "func one() {}",
+		},
+		{
+			name:     "nested backticks inside code",
+			input:    "```go\nfmt.Println(\"`backticks`\")\n```",
+			lang:     "go",
+			expected: "fmt.Println(\"`backticks`\")",
+		},
+		{
+			name:     "language mismatch (should return original)",
+			input:    "```python\nprint('hello')\n```",
+			lang:     "go",
+			expected: "```python\nprint('hello')\n```",
+		},
+		{
+			name:     "bare fences",
+			input:    "```\nfunc main() {}\n```",
+			lang:     "go",
+			expected: "func main() {}",
+		},
+	}
 
-// TODO: TEST_GAP: TestExtractPathFromDescription_EdgeCases
-// Verify extraction logic for complex or malformed descriptions.
-// Edge cases:
-// - Description with no path
-// - Description with multiple paths
-// - Description with "file: " prefix variants
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractCodeBlock(tc.input, tc.lang)
+			if got != tc.expected {
+				t.Errorf("extractCodeBlock(%q, %q) = %q; want %q", tc.input, tc.lang, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestExtractPathFromDescription_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     string
+		expected string
+	}{
+		{
+			name:     "create pattern",
+			desc:     "Create internal/domain/foo.go",
+			expected: "internal/domain/foo.go",
+		},
+		{
+			name:     "file pattern",
+			desc:     "file: path/to/file.go",
+			expected: "path/to/file.go",
+		},
+		{
+			name:     "bare path",
+			desc:     "cmd/nerd/main.go",
+			expected: "cmd/nerd/main.go",
+		},
+		{
+			name:     "no path",
+			desc:     "Just a description without path",
+			expected: "",
+		},
+		{
+			name:     "multiple paths (first match)",
+			desc:     "Update internal/a.go and internal/b.go",
+			expected: "internal/a.go",
+		},
+		{
+			name:     "internal path",
+			desc:     "internal/pkg/utils.go needs update",
+			expected: "internal/pkg/utils.go",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractPathFromDescription(tc.desc)
+			if got != tc.expected {
+				t.Errorf("extractPathFromDescription(%q) = %q; want %q", tc.desc, got, tc.expected)
+			}
+		})
+	}
+}
 
 // TODO: TEST_GAP: TestExecuteTestRunTask_Timeout
 // Verify that test execution enforces timeouts.

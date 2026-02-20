@@ -38,7 +38,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 	case 0: // Name
 		name := strings.TrimSpace(input)
 		if name == "" {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Agent name cannot be empty. Please enter a name (e.g., 'RustExpert'):",
 				Time:    time.Now(),
@@ -47,7 +47,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 		}
 		m.agentWizard.Name = name
 		m.agentWizard.Step = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Great, I'll call it **%s**.\n\nWhat is this agent's primary role or domain of expertise?\n(e.g., 'Expert in async Rust programming and Tokio runtime')", name),
 			Time:    time.Now(),
@@ -58,7 +58,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 	case 1: // Role
 		role := strings.TrimSpace(input)
 		if role == "" {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Role cannot be empty. Please describe the agent's role:",
 				Time:    time.Now(),
@@ -67,7 +67,7 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 		}
 		m.agentWizard.Role = role
 		m.agentWizard.Step = 2
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Got it: *%s*.\n\nFinally, what specific topics, libraries, or documentation URLs should this agent study?\nThis will be used to populate its knowledge base via Context7 and Deep Research.\n(e.g., 'https://docs.rs/tokio', 'actix-web', 'async traits')", role),
 			Time:    time.Now(),
