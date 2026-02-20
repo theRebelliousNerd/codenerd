@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestThunderdome_GenerateTestHarness_PhantomPunchFix(t *testing.T) {
@@ -103,7 +104,90 @@ func extractFunctionCall(code string) string {
 }
 
 func TestThunderdome_Gaps(t *testing.T) {
-	// TODO: TEST_GAP: Verify OOM detection reliability with a tool that allocates memory rapidly > 100ms interval.
+	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
+	// TODO: TEST_GAP: Verify that inputs with newlines are not truncated by scanner.Scan().
 	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
+}
+
+func TestThunderdome_OOM_Detection(t *testing.T) {
+	// 1. Setup Thunderdome with strict memory limit (50MB) and sufficient timeout
+	config := DefaultThunderdomeConfig()
+	config.MaxMemoryMB = 50
+	config.Timeout = 5 * time.Second
+	// Use sequential attacks to ensure clean failure analysis
+	config.ParallelAttacks = 1
+	td := NewThunderdomeWithConfig(config)
+
+	// 2. Define a tool that allocates memory rapidly
+	// It allocates 10MB chunks every 10ms.
+	// In 100ms (monitor interval), it should allocate ~100MB > 50MB.
+	// The function signature matches what Thunderdome expects: (ctx, input) (string, error)
+	toolCode := `package tools
+
+import (
+	"context"
+	"time"
+)
+
+// RapidAllocator allocates memory until it crashes
+func RapidAllocator(ctx context.Context, input string) (string, error) {
+	var data [][]byte
+	// Allocation loop
+	for {
+		// Allocate 10MB chunk
+		chunk := make([]byte, 10*1024*1024)
+		data = append(data, chunk)
+
+		// Small sleep to allow monitor to catch it, but fast enough to OOM quickly
+		time.Sleep(10 * time.Millisecond)
+
+		// Check context
+		select {
+		case <-ctx.Done():
+			return "cancelled", ctx.Err()
+		default:
+		}
+	}
+	return "done", nil
+}
+`
+	// Create a dummy generated tool structure
+	tool := &GeneratedTool{
+		Name: "rapid_allocator",
+		Code: toolCode,
+	}
+
+	// 3. Define attack
+	attacks := []AttackVector{
+		{
+			Name:            "Memory Stress Test",
+			Category:        "resource",
+			Input:           "start",
+			Description:     "Forces rapid memory allocation",
+			ExpectedFailure: "oom",
+		},
+	}
+
+	// 4. Run Battle
+	ctx := context.Background()
+	// Battle compiles the tool and runs the attack
+	result, err := td.Battle(ctx, tool, attacks)
+	if err != nil {
+		t.Fatalf("Battle failed unexpectedly: %v", err)
+	}
+
+	// 5. Verification
+	if result.Survived {
+		t.Error("Tool should have been defeated by OOM, but it survived.")
+	}
+
+	if len(result.Results) == 0 {
+		t.Fatal("No attack results returned.")
+	}
+
+	attackResult := result.Results[0]
+	if attackResult.Failure != "oom" {
+		t.Errorf("Expected failure mode 'oom', got '%s'. Output: %s", attackResult.Failure, attackResult.StackDump)
+	}
 }
