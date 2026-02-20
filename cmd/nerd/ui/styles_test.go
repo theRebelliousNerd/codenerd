@@ -22,10 +22,12 @@ func TestDetectTheme(t *testing.T) {
 func TestLogo(t *testing.T) {
 	s := DefaultStyles()
 	logo := Logo(s)
-	if len(logo) == 0 {
+	if logo == "" {
 		t.Error("Logo() returned empty string")
 	}
-	// The logo should be at least a few lines of ASCII art
+	if len(logo) < 50 {
+		t.Errorf("Logo() seems too short: %d chars", len(logo))
+	}
 	if strings.Count(logo, "\n") < 3 {
 		t.Errorf("Logo() expected multiple lines, got %d", strings.Count(logo, "\n"))
 	}
