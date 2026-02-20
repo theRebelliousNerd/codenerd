@@ -232,3 +232,36 @@ func TestAutopoiesisPageModelResize(t *testing.T) {
 		t.Errorf("expected 2 columns in compact mode (Learnings tab), got %d", len(model.table.Columns()))
 	}
 }
+
+func TestAutopoiesisPageModelJSONRendering(t *testing.T) {
+	model := NewAutopoiesisPageModel()
+	model.SetSize(80, 20)
+
+	// Case 1: Valid JSON
+	jsonExample := `{"key": "value", "number": 123}`
+	patterns := []*autopoiesis.DetectedPattern{
+		{
+			PatternID:  "json-pattern",
+			IssueType:  autopoiesis.IssueIncomplete,
+			Confidence: 0.9,
+			Examples:   []string{jsonExample},
+		},
+	}
+	model.UpdateContent(patterns, nil)
+
+	view := model.View()
+	// glamour/chroma might add colors, but the text content should be preserved (though potentially with extra spaces/newlines)
+	if !strings.Contains(view, "\"key\": \"value\"") {
+		t.Errorf("expected formatted JSON content in view, got: %s", view)
+	}
+
+	// Case 2: Invalid JSON (Plain text)
+	plainExample := "Simple error message"
+	patterns[0].Examples = []string{plainExample}
+	model.UpdateContent(patterns, nil)
+
+	view = model.View()
+	if !strings.Contains(view, plainExample) {
+		t.Errorf("expected plain text in view")
+	}
+}

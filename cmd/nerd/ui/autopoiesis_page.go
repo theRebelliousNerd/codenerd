@@ -2,12 +2,14 @@ package ui
 
 import (
 	"codenerd/internal/autopoiesis"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -36,6 +38,9 @@ type AutopoiesisPageModel struct {
 
 	// Styles
 	styles Styles
+
+	// Rendering
+	renderer *glamour.TermRenderer
 }
 
 // NewAutopoiesisPageModel creates a new dashboard.
@@ -53,11 +58,17 @@ func NewAutopoiesisPageModel() AutopoiesisPageModel {
 		table.WithHeight(10),
 	)
 
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(80),
+	)
+
 	return AutopoiesisPageModel{
 		viewport:  vp,
 		table:     t,
 		styles:    DefaultStyles(),
 		activeTab: TabPatterns,
+		renderer:  renderer,
 	}
 }
 
@@ -154,6 +165,19 @@ func (m *AutopoiesisPageModel) refreshTable() {
 	m.table.SetRows(rows)
 }
 
+// formatJSON attempts to format a string as indented JSON.
+func formatJSON(input string) (string, bool) {
+	var obj interface{}
+	if err := json.Unmarshal([]byte(input), &obj); err != nil {
+		return input, false
+	}
+	bytes, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return input, false
+	}
+	return string(bytes), true
+}
+
 // View renders the page.
 // TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
 // TODO: IMPROVEMENT: Add a help/legend component to explain the table columns and status icons.
@@ -182,7 +206,6 @@ func (m AutopoiesisPageModel) View() string {
 	sb.WriteString(m.styles.Content.Render(m.table.View()))
 
 	// Detail View (if selected)
-	// TODO: Enhance detail view with full JSON structure and syntax highlighting.
 	sb.WriteString("\n\n")
 	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
 		sel := m.table.Cursor()
@@ -190,7 +213,21 @@ func (m AutopoiesisPageModel) View() string {
 			p := m.patterns[sel]
 			if len(p.Examples) > 0 {
 				sb.WriteString(m.styles.Bold.Render("Example Trace:") + "\n")
-				sb.WriteString(p.Examples[0] + "\n")
+
+				example := p.Examples[0]
+				formatted, isJSON := formatJSON(example)
+
+				if isJSON && m.renderer != nil {
+					md := fmt.Sprintf("```json\n%s\n```", formatted)
+					rendered, err := m.renderer.Render(md)
+					if err == nil {
+						sb.WriteString(rendered)
+					} else {
+						sb.WriteString(formatted + "\n")
+					}
+				} else {
+					sb.WriteString(example + "\n")
+				}
 			} else {
 				sb.WriteString(m.styles.Muted.Render("No examples available.") + "\n")
 			}
@@ -208,6 +245,14 @@ func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.height = h
 	m.table.SetWidth(w - 4)
 	m.table.SetHeight(h - 10)
+
+	// Re-initialize renderer with new width if applicable
+	if w > 20 {
+		m.renderer, _ = glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(w-10),
+		)
+	}
 
 	// Responsive column visibility
 	cols := m.table.Columns()
