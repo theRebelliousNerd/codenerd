@@ -114,7 +114,7 @@ func (m Model) showNorthstarPhasePrompt() (tea.Model, tea.Cmd) {
 		placeholder = "Constraints..."
 	}
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: prompt,
 		Time:    time.Now(),
@@ -136,7 +136,7 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 
 	// If LLM is available, use it for intelligent requirement generation
 	if m.client != nil && (len(w.Capabilities) > 0 || len(w.Risks) > 0 || len(w.ExtractedFacts) > 0) {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Analyzing vision, capabilities, and risks to generate requirements... This may take a moment.",
 			Time:    time.Now(),
@@ -235,7 +235,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		sourceStr = strings.Join(sources, ", ")
 	}
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`Auto-generated **%d requirements** from %s.
 

@@ -3,6 +3,7 @@
 package ui
 
 import (
+	_ "embed"
 	"os"
 	"strconv"
 	"strings"
@@ -291,9 +292,12 @@ func DefaultStyles() Styles {
 	return NewStyles(DetectTheme())
 }
 
+//go:embed logo.txt
+var logoArt string
+
 // Logo returns the codeNERD ASCII logo
 func Logo(s Styles) string {
-	return s.Title.Foreground(s.Theme.Primary).Render(logoASCII)
+	return s.Title.Foreground(s.Theme.Primary).Render(logoArt)
 }
 
 // Divider returns a horizontal divider

@@ -188,47 +188,54 @@ func TestUsagePageModelContent(t *testing.T) {
 func TestAutopoiesisPageModelResize(t *testing.T) {
 	model := NewAutopoiesisPageModel()
 
-	// Initial State: Full view (width > 60)
-	// Default table has 3 columns (Pattern, Confidence, Count)
-	if len(model.table.Columns()) != 3 {
-		t.Errorf("expected 3 columns initially, got %d", len(model.table.Columns()))
-	}
-
-	// Resize to compact (width < 60)
-	model.SetSize(50, 20)
-	if len(model.table.Columns()) != 1 {
-		t.Errorf("expected 1 column in compact mode (Patterns tab), got %d", len(model.table.Columns()))
-	}
-	if model.table.Columns()[0].Width != 40 { // 50 - 10
-		t.Errorf("expected column width 40, got %d", model.table.Columns()[0].Width)
-	}
-
-	// Resize within compact mode (width changes)
-	model.SetSize(40, 20)
-	if len(model.table.Columns()) != 1 {
-		t.Errorf("expected 1 column in compact mode, got %d", len(model.table.Columns()))
-	}
-	if model.table.Columns()[0].Width != 30 { // 40 - 10
-		t.Errorf("expected column width 30, got %d", model.table.Columns()[0].Width)
-	}
-
-	// Resize back to full (width >= 60)
+	// Initial State
 	model.SetSize(80, 20)
-	if len(model.table.Columns()) != 3 {
-		t.Errorf("expected 3 columns in full mode, got %d", len(model.table.Columns()))
+	if model.list.Width() != 76 { // 80 - 4
+		t.Errorf("expected list width 76, got %d", model.list.Width())
+	}
+	if model.list.Height() != 10 { // 20 - 10
+		t.Errorf("expected list height 10, got %d", model.list.Height())
 	}
 
-	// Switch tab and test compact
-	model.activeTab = TabLearnings
-	model.refreshTable() // Manually refresh to apply tab change
+	// Resize
+	model.SetSize(50, 30)
+	if model.list.Width() != 46 { // 50 - 4
+		t.Errorf("expected list width 46, got %d", model.list.Width())
+	}
+	if model.list.Height() != 20 { // 30 - 10
+		t.Errorf("expected list height 20, got %d", model.list.Height())
+	}
+}
 
-	if len(model.table.Columns()) != 5 {
-		t.Errorf("expected 5 columns in full mode (Learnings tab), got %d", len(model.table.Columns()))
+func TestAutopoiesisPageModelJSONRendering(t *testing.T) {
+	model := NewAutopoiesisPageModel()
+	model.SetSize(80, 20)
+
+	// Case 1: Valid JSON
+	jsonExample := `{"key": "value", "number": 123}`
+	patterns := []*autopoiesis.DetectedPattern{
+		{
+			PatternID:  "json-pattern",
+			IssueType:  autopoiesis.IssueIncomplete,
+			Confidence: 0.9,
+			Examples:   []string{jsonExample},
+		},
+	}
+	model.UpdateContent(patterns, nil)
+
+	view := model.View()
+	// glamour/chroma might add colors, but the text content should be preserved (though potentially with extra spaces/newlines)
+	if !strings.Contains(view, "\"key\": \"value\"") {
+		t.Errorf("expected formatted JSON content in view, got: %s", view)
 	}
 
-	// Resize to compact
-	model.SetSize(50, 20)
-	if len(model.table.Columns()) != 2 {
-		t.Errorf("expected 2 columns in compact mode (Learnings tab), got %d", len(model.table.Columns()))
+	// Case 2: Invalid JSON (Plain text)
+	plainExample := "Simple error message"
+	patterns[0].Examples = []string{plainExample}
+	model.UpdateContent(patterns, nil)
+
+	view = model.View()
+	if !strings.Contains(view, plainExample) {
+		t.Errorf("expected plain text in view")
 	}
 }

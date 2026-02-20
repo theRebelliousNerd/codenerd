@@ -20,13 +20,15 @@ func TestDetectTheme(t *testing.T) {
 }
 
 func TestLogo(t *testing.T) {
-	styles := DefaultStyles()
-	logo := Logo(styles)
-	if len(logo) == 0 {
-		t.Error("Logo returned empty string")
+	s := DefaultStyles()
+	logo := Logo(s)
+	if logo == "" {
+		t.Error("Logo() returned empty string")
 	}
-	// Check for a substring from the logo
-	if !strings.Contains(logo, "___") {
-		t.Error("Logo does not contain expected ASCII art")
+	if len(logo) < 50 {
+		t.Errorf("Logo() seems too short: %d chars", len(logo))
+	}
+	if strings.Count(logo, "\n") < 3 {
+		t.Errorf("Logo() expected multiple lines, got %d", strings.Count(logo, "\n"))
 	}
 }
