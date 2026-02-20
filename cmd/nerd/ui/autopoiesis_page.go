@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -18,13 +18,49 @@ const (
 	TabLearnings
 )
 
+// Wrapper for DetectedPattern to implement list.Item
+type patternItem struct {
+	*autopoiesis.DetectedPattern
+}
+
+func (i patternItem) Title() string {
+	return fmt.Sprintf("[%s] %s", i.IssueType, i.PatternID)
+}
+
+func (i patternItem) Description() string {
+	return fmt.Sprintf("Confidence: %.2f | Occurrences: %d", i.Confidence, i.Occurrences)
+}
+
+func (i patternItem) FilterValue() string {
+	return i.PatternID + " " + string(i.IssueType)
+}
+
+// Wrapper for ToolLearning to implement list.Item
+type learningItem struct {
+	*autopoiesis.ToolLearning
+}
+
+func (i learningItem) Title() string {
+	return i.ToolName
+}
+
+func (i learningItem) Description() string {
+	successCount := int(float64(i.TotalExecutions) * i.SuccessRate)
+	failCount := i.TotalExecutions - successCount
+	return fmt.Sprintf("Rate: %.1f%% | Uses: %d | Success: %d | Fail: %d", i.SuccessRate*100, i.TotalExecutions, successCount, failCount)
+}
+
+func (i learningItem) FilterValue() string {
+	return i.ToolName
+}
+
 // AutopoiesisPageModel defines the state of the Autopoiesis Dashboard.
 type AutopoiesisPageModel struct {
 	width    int
 	height   int
 	viewport viewport.Model
 	// TODO: Use bubbles/list instead of table for better list management if items grow.
-	table    table.Model
+	list     list.Model
 
 	// State
 	// TODO: IMPROVEMENT: Consider using a state machine for managing tab transitions and view states if complexity increases.
@@ -42,20 +78,16 @@ type AutopoiesisPageModel struct {
 func NewAutopoiesisPageModel() AutopoiesisPageModel {
 	vp := viewport.New(0, 0)
 
-	// Default table
-	t := table.New(
-		table.WithColumns([]table.Column{
-			{Title: "Pattern", Width: 40},
-			{Title: "Confidence", Width: 10},
-			{Title: "Count", Width: 10},
-		}),
-		table.WithFocused(true),
-		table.WithHeight(10),
-	)
+	// Default list
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Detected Patterns"
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(true)
+	l.SetFilteringEnabled(true)
 
 	return AutopoiesisPageModel{
 		viewport:  vp,
-		table:     t,
+		list:      l,
 		styles:    DefaultStyles(),
 		activeTab: TabPatterns,
 	}
@@ -72,91 +104,58 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Don't intercept keys if filtering is active
+		if m.list.FilterState() == list.Filtering {
+			break
+		}
+
 		switch msg.String() {
-		// Tab switching (Tab key and Left/Right arrows)
-		case "tab", "right":
+		// Tab switching (Tab key)
+		case "tab":
 			m.activeTab = (m.activeTab + 1) % 2
-			m.refreshTable()
+			m.refreshList()
 			return m, nil
-		case "shift+tab", "left":
+		case "shift+tab":
 			if m.activeTab == 0 {
 				m.activeTab = 1
 			} else {
 				m.activeTab = 0
 			}
-			m.refreshTable()
+			m.refreshList()
 			return m, nil
-
-		// Table navigation (Up/Down arrows handled by table itself)
-		case "up", "k":
-			// Handled by table.Update below
-		case "down", "j":
-			// Handled by table.Update below
-		case "pgup":
-			// Page up in table
-		case "pgdown":
-			// Page down in table
-		case "home":
-			// Go to first row
-		case "end":
-			// Go to last row
 		}
+	case tea.WindowSizeMsg:
+		m.SetSize(msg.Width, msg.Height)
 	}
 
-	// Let table handle its own navigation events
-	m.table, cmd = m.table.Update(msg)
+	// Let list handle its own navigation events
+	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
 
-// refreshTable updates the table rows based on active tab
-// TODO: IMPROVEMENT: Add sorting capabilities to the table columns.
-// TODO: IMPROVEMENT: Optimize refreshTable for large datasets (consider virtualization or diffing).
-func (m *AutopoiesisPageModel) refreshTable() {
-	var rows []table.Row
-	var cols []table.Column
+// refreshList updates the list items based on active tab
+// TODO: IMPROVEMENT: Optimize refreshList for large datasets (consider virtualization or diffing).
+func (m *AutopoiesisPageModel) refreshList() {
+	var items []list.Item
 
 	if m.activeTab == TabPatterns {
-		cols = []table.Column{
-			{Title: "Category", Width: 20},
-			{Title: "Pattern Rule", Width: 50},
-			{Title: "Confidence", Width: 10},
-		}
+		m.list.Title = "Detected Patterns"
 		for _, p := range m.patterns {
-			rows = append(rows, table.Row{
-				string(p.IssueType),
-				p.PatternID,
-				fmt.Sprintf("%.2f", p.Confidence),
-			})
+			items = append(items, patternItem{p})
 		}
 	} else {
-		cols = []table.Column{
-			{Title: "Tool", Width: 30},
-			{Title: "Uses", Width: 10},
-			{Title: "Success", Width: 10},
-			{Title: "Fail", Width: 10},
-			{Title: "Rate", Width: 10},
-		}
+		m.list.Title = "Tool Learnings"
 		for _, l := range m.learnings {
-			successCount := int(float64(l.TotalExecutions) * l.SuccessRate)
-			failureCount := l.TotalExecutions - successCount
-
-			rows = append(rows, table.Row{
-				l.ToolName,
-				fmt.Sprintf("%d", l.TotalExecutions),
-				fmt.Sprintf("%d", successCount),
-				fmt.Sprintf("%d", failureCount),
-				fmt.Sprintf("%.1f%%", l.SuccessRate*100),
-			})
+			items = append(items, learningItem{l})
 		}
 	}
 
-	m.table.SetColumns(cols)
-	m.table.SetRows(rows)
+	m.list.SetItems(items)
 }
 
 // View renders the page.
 // TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
-// TODO: IMPROVEMENT: Add a help/legend component to explain the table columns and status icons.
+// TODO: IMPROVEMENT: Add a help/legend component to explain the list columns and status icons.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 
@@ -179,15 +178,15 @@ func (m AutopoiesisPageModel) View() string {
 	)
 
 	sb.WriteString(tabs + "\n\n")
-	sb.WriteString(m.styles.Content.Render(m.table.View()))
+	sb.WriteString(m.styles.Content.Render(m.list.View()))
 
 	// Detail View (if selected)
 	// TODO: Enhance detail view with full JSON structure and syntax highlighting.
 	sb.WriteString("\n\n")
 	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
-		sel := m.table.Cursor()
-		if sel < len(m.patterns) {
-			p := m.patterns[sel]
+		item := m.list.SelectedItem()
+		if pItem, ok := item.(patternItem); ok {
+			p := pItem.DetectedPattern
 			if len(p.Examples) > 0 {
 				sb.WriteString(m.styles.Bold.Render("Example Trace:") + "\n")
 				sb.WriteString(p.Examples[0] + "\n")
@@ -206,42 +205,13 @@ func (m AutopoiesisPageModel) View() string {
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	m.table.SetWidth(w - 4)
-	m.table.SetHeight(h - 10)
-
-	// Responsive column visibility
-	cols := m.table.Columns()
-	isCompact := len(cols) <= 2
-	shouldBeCompact := w < 60
-
-	if shouldBeCompact {
-		// In compact mode, we always update columns because width is dynamic (w - X)
-		// This handles both the switch to compact AND resizing within compact mode.
-		if m.activeTab == TabPatterns {
-			// Compact view for small terminals
-			m.table.SetColumns([]table.Column{
-				{Title: "Pattern Rule", Width: w - 10},
-			})
-		} else {
-			// Compact view for tool learning
-			m.table.SetColumns([]table.Column{
-				{Title: "Tool", Width: w - 20},
-				{Title: "Rate", Width: 10},
-			})
-		}
-	} else {
-		// In full mode, widths are fixed constants (defined in refreshTable).
-		// We only need to refresh (rebuild table) if we are switching from compact to full.
-		// If we are already in full mode, resizing doesn't change column widths, so we skip refresh.
-		if isCompact {
-			m.refreshTable()
-		}
-	}
+	m.list.SetWidth(w - 4)
+	m.list.SetHeight(h - 10)
 }
 
 // UpdateContent updates the data.
 func (m *AutopoiesisPageModel) UpdateContent(patterns []*autopoiesis.DetectedPattern, learnings []*autopoiesis.ToolLearning) {
 	m.patterns = patterns
 	m.learnings = learnings
-	m.refreshTable()
+	m.refreshList()
 }
