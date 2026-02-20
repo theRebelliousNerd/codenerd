@@ -15,3 +15,14 @@ func TestDetectTheme(t *testing.T) {
 		t.Fatalf("expected light theme when CODENERD_DARK_MODE is unset")
 	}
 }
+
+func TestLogo(t *testing.T) {
+	s := DefaultStyles()
+	l := Logo(s)
+	if l == "" {
+		t.Error("Logo() returned empty string")
+	}
+	if len(l) < 50 {
+		t.Errorf("Logo() seems too short: %d chars", len(l))
+	}
+}
