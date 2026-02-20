@@ -19,6 +19,22 @@ func TestDetectTheme(t *testing.T) {
 	}
 }
 
+func TestThemeRenderer(t *testing.T) {
+	// Light Theme
+	light := LightTheme()
+	rLight := light.Renderer(nil)
+	if rLight.HasDarkBackground() {
+		t.Errorf("expected light theme renderer to have light background")
+	}
+
+	// Dark Theme
+	dark := DarkTheme()
+	rDark := dark.Renderer(nil)
+	if !rDark.HasDarkBackground() {
+		t.Errorf("expected dark theme renderer to have dark background")
+	}
+}
+
 func TestLogo(t *testing.T) {
 	s := DefaultStyles()
 	logo := Logo(s)

@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"io"
 	_ "embed"
 	"os"
 	"strconv"
@@ -55,7 +56,6 @@ var (
 // TODO: Create Theme interface for easier testing and swapping of themes.
 type Theme struct {
 	// TODO: IMPROVEMENT: Expand Theme struct with semantic naming (e.g. Surface, OnSurface, Container, OnContainer) for better consistency.
-	// TODO: IMPROVEMENT: Add a helper method to return a `lipgloss.Renderer` initialized with this theme's settings to ensure consistent rendering context.
 	Background lipgloss.Color
 	Foreground lipgloss.Color
 	Primary    lipgloss.Color
@@ -65,6 +65,17 @@ type Theme struct {
 	Border     lipgloss.Color
 	Card       lipgloss.Color
 	IsDark     bool
+}
+
+// Renderer returns a lipgloss.Renderer initialized with the theme's settings.
+// It accepts an optional io.Writer, defaulting to os.Stdout if nil.
+func (t Theme) Renderer(w io.Writer) *lipgloss.Renderer {
+	if w == nil {
+		w = os.Stdout
+	}
+	r := lipgloss.NewRenderer(w)
+	r.SetHasDarkBackground(t.IsDark)
+	return r
 }
 
 // LightTheme returns the light mode theme
