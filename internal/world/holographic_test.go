@@ -223,6 +223,10 @@ func TestHolographicProviderStringArg(t *testing.T) {
 }
 
 func TestHolographicProviderIntArg(t *testing.T) {
+	// TODO: TEST_GAP: Numeric String Handling
+	// Verify that intArg correctly handles numeric strings (e.g., "80") which might be returned
+	// by Mangle if the type system isn't strictly enforced. Currently it might default to 50.
+
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -258,6 +262,10 @@ func TestBuildWithImpactPrioritiesNilContext(t *testing.T) {
 }
 
 func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
+	// TODO: TEST_GAP: Context Cancellation
+	// We should verify that BuildWithImpactPriorities respects ctx.Done() and aborts
+	// processing, especially during the loop where it fetches function bodies.
+
 	h := NewHolographicProvider(nil, ".")
 
 	ctx := context.Background()
@@ -330,6 +338,11 @@ func TestExtractLineRange(t *testing.T) {
 }
 
 func TestFindFunctionEnd(t *testing.T) {
+	// TODO: TEST_GAP: Python Docstrings and Complex Syntax
+	// The current brace counting logic may fail on Python multi-line strings (""" ... """)
+	// if they contain braces. It treats " as a single-line string delimiter.
+	// We need a test case with Python docstrings containing braces to verify this failure mode.
+
 	h := &HolographicProvider{}
 
 	tests := []struct {
