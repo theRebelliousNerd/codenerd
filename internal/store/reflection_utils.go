@@ -27,7 +27,7 @@ var (
 		{replacement: "[redacted]", pattern: regexp.MustCompile(`sk-[A-Za-z0-9]{10,}`)},
 		{replacement: "[redacted]", pattern: regexp.MustCompile(`ctx7sk-[0-9a-f-]{8,}`)},
 	}
-	fileHintPattern = regexp.MustCompile(`\\b[\\w./-]+\\.(go|mg|mangle|yaml|yml|json|md|ts|tsx|js|jsx|py|rs|java|sh|ps1|txt)\\b`)
+	fileHintPattern = regexp.MustCompile(`\b[\w./-]+\.(go|mg|mangle|yaml|yml|json|md|ts|tsx|js|jsx|py|rs|java|sh|ps1|txt)\b`)
 )
 
 func sanitizeDescriptor(text string) string {
