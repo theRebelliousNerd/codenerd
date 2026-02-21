@@ -16,6 +16,8 @@
 # From tester.mg (not in default schemas)
 # Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl file_contains(FilePath, Pattern).
+# Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
+# Decl file_imports(Importer, Imported).
 
 # Internal predicates defined only in this file (or missing from defaults)
 Decl test_scope(Scope).
@@ -398,3 +400,6 @@ diagnostic_active(Path, Line, Severity, Message) :-
 
 code_quality_issue(/diagnostic, Message) :-
     diagnostic(_, _, _, _, Message).
+
+# Map file imports to context scope
+imports(Target, Path) :- file_imports(Target, Path).
