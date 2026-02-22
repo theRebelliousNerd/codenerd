@@ -114,3 +114,29 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'p'")
 	}
 }
+
+func TestJITPageFocusSwitching(t *testing.T) {
+	model := NewJITPageModel()
+
+	// Initial state: Focus on List (focusViewport = false)
+	if model.focusViewport {
+		t.Errorf("Expected initial focus to be on List (focusViewport=false), got true")
+	}
+
+	// Send Tab
+	msg := tea.KeyMsg{Type: tea.KeyTab}
+	model, _ = model.Update(msg)
+
+	// Expect Focus on Viewport
+	if !model.focusViewport {
+		t.Errorf("Expected focus to switch to Viewport after Tab, got false")
+	}
+
+	// Send Tab again
+	model, _ = model.Update(msg)
+
+	// Expect Focus on List
+	if model.focusViewport {
+		t.Errorf("Expected focus to switch back to List after Tab, got true")
+	}
+}
