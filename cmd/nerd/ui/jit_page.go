@@ -12,6 +12,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// clipboardWriteAll is a package-level variable to allow mocking in tests.
+var clipboardWriteAll = clipboard.WriteAll
+
 // JITPageModel defines the state of the JIT Prompt Inspector.
 // TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
 type JITPageModel struct {
@@ -70,7 +73,6 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// TODO: Add search bar to filter atoms by content, not just ID/Category.
-	// TODO: IMPROVEMENT: Add support for copying atom content to the system clipboard.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
@@ -84,8 +86,20 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 				// TODO: Implement focus switching between list and viewport
 			case "c", "y":
 				if m.selected != nil {
-					_ = clipboard.WriteAll(m.selected.Content)
-					cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied to clipboard"))
+					if err := clipboardWriteAll(m.selected.Content); err != nil {
+						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
+					} else {
+						cmd = m.list.NewStatusMessage(m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)))
+					}
+					cmds = append(cmds, cmd)
+				}
+			case "p":
+				if m.lastResult != nil {
+					if err := clipboardWriteAll(m.lastResult.Prompt); err != nil {
+						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy full prompt"))
+					} else {
+						cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied full prompt to clipboard"))
+					}
 					cmds = append(cmds, cmd)
 				}
 			}
@@ -148,14 +162,18 @@ func (m JITPageModel) View() string {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
 	}
 
-	// Split view: List (30%) | Viewport (70%)
+	// Split view: List (35%) | Viewport (65%)
 	listWidth := int(float64(m.width) * 0.35)
 	viewWidth := m.width - listWidth - 4
 
 	listView := m.styles.Content.Copy().Width(listWidth).Render(m.list.View())
 	contentView := m.styles.Content.Copy().Width(viewWidth).Render(m.viewport.View())
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, listView, contentView)
+	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listView, contentView)
+
+	help := m.styles.Muted.Render(" • c/y: copy atom • p: copy full prompt • tab: focus viewport • /: filter")
+
+	return lipgloss.JoinVertical(lipgloss.Left, mainView, help)
 }
 
 // SetSize updates the size.
@@ -164,9 +182,9 @@ func (m *JITPageModel) SetSize(w, h int) {
 	m.height = h
 
 	listWidth := int(float64(w) * 0.35)
-	m.list.SetSize(listWidth, h-2)
+	m.list.SetSize(listWidth, h-3) // Reserve space for footer
 	m.viewport.Width = w - listWidth - 4
-	m.viewport.Height = h - 2
+	m.viewport.Height = h - 3
 }
 
 // UpdateContent updates the data from the JIT compiler.
