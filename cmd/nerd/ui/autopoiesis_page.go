@@ -13,16 +13,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type AutoTab int
-
 const (
-	TabPatterns AutoTab = iota
-	TabLearnings
-
 	listWidthPadding  = 4
 	listHeightPadding = 10
 	minTermWidth      = 20
 )
+
+// TabComponent defines the interface for autopoiesis dashboard tabs.
+type TabComponent interface {
+	Update(msg tea.Msg) (TabComponent, tea.Cmd)
+	View() string
+	SetSize(width, height int)
+	UpdateData(patterns []*autopoiesis.DetectedPattern, learnings []*autopoiesis.ToolLearning)
+	Title() string
+	IsFiltering() bool
+}
 
 // Wrapper for DetectedPattern to implement list.Item
 type patternItem struct {
@@ -39,6 +44,107 @@ func (i patternItem) Description() string {
 
 func (i patternItem) FilterValue() string {
 	return i.PatternID + " " + string(i.IssueType)
+}
+
+// PatternsTab implements the TabComponent for detected patterns.
+type PatternsTab struct {
+	list     list.Model
+	patterns []*autopoiesis.DetectedPattern
+	styles   Styles
+	renderer *glamour.TermRenderer
+	width    int
+	height   int
+}
+
+func NewPatternsTab(styles Styles) *PatternsTab {
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Detected Patterns"
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(true)
+	l.SetFilteringEnabled(true)
+
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(80),
+	)
+
+	return &PatternsTab{
+		list:     l,
+		styles:   styles,
+		renderer: renderer,
+	}
+}
+
+func (p *PatternsTab) Update(msg tea.Msg) (TabComponent, tea.Cmd) {
+	var cmd tea.Cmd
+	p.list, cmd = p.list.Update(msg)
+	return p, cmd
+}
+
+func (p *PatternsTab) View() string {
+	var sb strings.Builder
+	sb.WriteString(p.styles.Content.Render(p.list.View()))
+
+	// Detail View (if selected)
+	sb.WriteString("\n\n")
+	if len(p.patterns) > 0 {
+		item := p.list.SelectedItem()
+		if pItem, ok := item.(patternItem); ok {
+			pat := pItem.DetectedPattern
+			if len(pat.Examples) > 0 {
+				sb.WriteString(p.styles.Bold.Render("Example Trace:") + "\n")
+
+				example := pat.Examples[0]
+				formatted, isJSON := formatJSON(example)
+
+				if isJSON && p.renderer != nil {
+					md := fmt.Sprintf("```json\n%s\n```", formatted)
+					rendered, err := p.renderer.Render(md)
+					if err == nil {
+						sb.WriteString(rendered)
+					} else {
+						sb.WriteString(formatted + "\n")
+					}
+				} else {
+					sb.WriteString(example + "\n")
+				}
+			} else {
+				sb.WriteString(p.styles.Muted.Render("No examples available.") + "\n")
+			}
+		}
+	}
+	return sb.String()
+}
+
+func (p *PatternsTab) SetSize(w, h int) {
+	p.width = w
+	p.height = h
+	p.list.SetWidth(w - listWidthPadding)
+	p.list.SetHeight(h - listHeightPadding)
+
+	if w > minTermWidth {
+		p.renderer, _ = glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(w-listHeightPadding),
+		)
+	}
+}
+
+func (p *PatternsTab) UpdateData(patterns []*autopoiesis.DetectedPattern, _ []*autopoiesis.ToolLearning) {
+	p.patterns = patterns
+	items := make([]list.Item, 0, len(patterns))
+	for _, pat := range patterns {
+		items = append(items, patternItem{pat})
+	}
+	p.list.SetItems(items)
+}
+
+func (p *PatternsTab) Title() string {
+	return "Patterns"
+}
+
+func (p *PatternsTab) IsFiltering() bool {
+	return p.list.FilterState() == list.Filtering
 }
 
 // Wrapper for ToolLearning to implement list.Item
@@ -60,50 +166,91 @@ func (i learningItem) FilterValue() string {
 	return i.ToolName
 }
 
+// LearningsTab implements the TabComponent for tool learnings.
+type LearningsTab struct {
+	list      list.Model
+	learnings []*autopoiesis.ToolLearning
+	styles    Styles
+	width     int
+	height    int
+}
+
+func NewLearningsTab(styles Styles) *LearningsTab {
+	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Tool Learnings"
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(true)
+	l.SetFilteringEnabled(true)
+
+	return &LearningsTab{
+		list:   l,
+		styles: styles,
+	}
+}
+
+func (l *LearningsTab) Update(msg tea.Msg) (TabComponent, tea.Cmd) {
+	var cmd tea.Cmd
+	l.list, cmd = l.list.Update(msg)
+	return l, cmd
+}
+
+func (l *LearningsTab) View() string {
+	return l.styles.Content.Render(l.list.View())
+}
+
+func (l *LearningsTab) SetSize(w, h int) {
+	l.width = w
+	l.height = h
+	l.list.SetWidth(w - listWidthPadding)
+	l.list.SetHeight(h - listHeightPadding)
+}
+
+func (l *LearningsTab) UpdateData(_ []*autopoiesis.DetectedPattern, learnings []*autopoiesis.ToolLearning) {
+	l.learnings = learnings
+	items := make([]list.Item, 0, len(learnings))
+	for _, learn := range learnings {
+		items = append(items, learningItem{learn})
+	}
+	l.list.SetItems(items)
+}
+
+func (l *LearningsTab) Title() string {
+	return "Tool Learnings"
+}
+
+func (l *LearningsTab) IsFiltering() bool {
+	return l.list.FilterState() == list.Filtering
+}
+
 // AutopoiesisPageModel defines the state of the Autopoiesis Dashboard.
 type AutopoiesisPageModel struct {
 	width    int
 	height   int
 	viewport viewport.Model
-	list     list.Model
 
 	// State
-	// TODO: IMPROVEMENT: Consider using a state machine for managing tab transitions and view states if complexity increases.
-	activeTab AutoTab
-
-	// Data
-	patterns  []*autopoiesis.DetectedPattern
-	learnings []*autopoiesis.ToolLearning
+	tabs           []TabComponent
+	activeTabIndex int
 
 	// Styles
 	styles Styles
-
-	// Rendering
-	renderer *glamour.TermRenderer
 }
 
 // NewAutopoiesisPageModel creates a new dashboard.
 func NewAutopoiesisPageModel() AutopoiesisPageModel {
 	vp := viewport.New(0, 0)
+	styles := DefaultStyles()
 
-	// Default list
-	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
-	l.Title = "Detected Patterns"
-	l.SetShowHelp(false)
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-
-	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
+	tabs := []TabComponent{
+		NewPatternsTab(styles),
+		NewLearningsTab(styles),
+	}
 
 	return AutopoiesisPageModel{
-		viewport:  vp,
-		list:      l,
-		styles:    DefaultStyles(),
-		activeTab: TabPatterns,
-		renderer:  renderer,
+		viewport:       vp,
+		styles:         styles,
+		tabs:           tabs,
+		activeTabIndex: 0,
 	}
 }
 
@@ -116,58 +263,44 @@ func (m AutopoiesisPageModel) Init() tea.Cmd {
 func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Get active tab
+	var activeTab TabComponent
+	if len(m.tabs) > 0 {
+		activeTab = m.tabs[m.activeTabIndex]
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Don't intercept keys if filtering is active
-		if m.list.FilterState() == list.Filtering {
+		// Don't intercept global navigation keys if the active tab is filtering
+		if activeTab != nil && activeTab.IsFiltering() {
+			// Let the tab handle it
 			break
 		}
 
 		switch msg.String() {
 		// Tab switching (Tab key)
 		case "tab":
-			m.activeTab = (m.activeTab + 1) % 2
-			m.list.ResetFilter()
-			m.refreshList()
+			m.activeTabIndex = (m.activeTabIndex + 1) % len(m.tabs)
 			return m, nil
 		case "shift+tab":
-			if m.activeTab == 0 {
-				m.activeTab = 1
-			} else {
-				m.activeTab = 0
+			m.activeTabIndex--
+			if m.activeTabIndex < 0 {
+				m.activeTabIndex = len(m.tabs) - 1
 			}
-			m.list.ResetFilter()
-			m.refreshList()
 			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 	}
 
-	// Let list handle its own navigation events
-	m.list, cmd = m.list.Update(msg)
-	return m, cmd
-}
-
-// refreshList updates the list items based on active tab
-func (m *AutopoiesisPageModel) refreshList() {
-	var items []list.Item
-
-	if m.activeTab == TabPatterns {
-		m.list.Title = "Detected Patterns"
-		items = make([]list.Item, 0, len(m.patterns))
-		for _, p := range m.patterns {
-			items = append(items, patternItem{p})
-		}
-	} else {
-		m.list.Title = "Tool Learnings"
-		items = make([]list.Item, 0, len(m.learnings))
-		for _, l := range m.learnings {
-			items = append(items, learningItem{l})
-		}
+	// Delegate to active tab
+	if activeTab != nil {
+		var newTab TabComponent
+		newTab, cmd = activeTab.Update(msg)
+		m.tabs[m.activeTabIndex] = newTab
 	}
 
-	m.list.SetItems(items)
+	return m, cmd
 }
 
 // formatJSON attempts to format a string as indented JSON.
@@ -184,59 +317,29 @@ func formatJSON(input string) (string, bool) {
 }
 
 // View renders the page.
-// TODO: IMPROVEMENT: Refactor the tab system to use a dedicated component or better state management for scalability.
-// TODO: IMPROVEMENT: Add a help/legend component to explain the list columns and status icons.
 func (m AutopoiesisPageModel) View() string {
 	var sb strings.Builder
 
 	// Header / Tabs
-	patStyle := m.styles.Muted
-	learnStyle := m.styles.Muted
-
-	if m.activeTab == TabPatterns {
-		patStyle = m.styles.Info.Copy().Bold(true)
-	} else {
-		learnStyle = m.styles.Info.Copy().Bold(true)
+	var tabViews []string
+	for i, tab := range m.tabs {
+		style := m.styles.Muted
+		label := fmt.Sprintf("[ %s ]", tab.Title())
+		if i == m.activeTabIndex {
+			style = m.styles.Info.Copy().Bold(true)
+		}
+		tabViews = append(tabViews, style.Render(label))
+		tabViews = append(tabViews, "  ")
 	}
 
-	tabs := lipgloss.JoinHorizontal(lipgloss.Top,
-		patStyle.Render("[ Patterns ]"),
-		"  ",
-		learnStyle.Render("[ Tool Learnings ]"),
-		"  ",
-		m.styles.Muted.Render("(Press Tab to switch)"),
-	)
+	// Join tabs
+	tabsHeader := lipgloss.JoinHorizontal(lipgloss.Top, tabViews...)
+	tabsHeader = lipgloss.JoinHorizontal(lipgloss.Top, tabsHeader, m.styles.Muted.Render("(Press Tab to switch)"))
 
-	sb.WriteString(tabs + "\n\n")
-	sb.WriteString(m.styles.Content.Render(m.list.View()))
+	sb.WriteString(tabsHeader + "\n\n")
 
-	// Detail View (if selected)
-	sb.WriteString("\n\n")
-	if m.activeTab == TabPatterns && len(m.patterns) > 0 {
-		item := m.list.SelectedItem()
-		if pItem, ok := item.(patternItem); ok {
-			p := pItem.DetectedPattern
-			if len(p.Examples) > 0 {
-				sb.WriteString(m.styles.Bold.Render("Example Trace:") + "\n")
-
-				example := p.Examples[0]
-				formatted, isJSON := formatJSON(example)
-
-				if isJSON && m.renderer != nil {
-					md := fmt.Sprintf("```json\n%s\n```", formatted)
-					rendered, err := m.renderer.Render(md)
-					if err == nil {
-						sb.WriteString(rendered)
-					} else {
-						sb.WriteString(formatted + "\n")
-					}
-				} else {
-					sb.WriteString(example + "\n")
-				}
-			} else {
-				sb.WriteString(m.styles.Muted.Render("No examples available.") + "\n")
-			}
-		}
+	if len(m.tabs) > 0 {
+		sb.WriteString(m.tabs[m.activeTabIndex].View())
 	}
 
 	return sb.String()
@@ -246,21 +349,14 @@ func (m AutopoiesisPageModel) View() string {
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	m.list.SetWidth(w - listWidthPadding)
-	m.list.SetHeight(h - listHeightPadding)
-
-	// Keep markdown rendering aligned with terminal width while avoiding tiny wraps.
-	if w > minTermWidth {
-		m.renderer, _ = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(w-listHeightPadding),
-		)
+	for _, tab := range m.tabs {
+		tab.SetSize(w, h)
 	}
 }
 
 // UpdateContent updates the data.
 func (m *AutopoiesisPageModel) UpdateContent(patterns []*autopoiesis.DetectedPattern, learnings []*autopoiesis.ToolLearning) {
-	m.patterns = patterns
-	m.learnings = learnings
-	m.refreshList()
+	for _, tab := range m.tabs {
+		tab.UpdateData(patterns, learnings)
+	}
 }
