@@ -18,6 +18,10 @@ type AutoTab int
 const (
 	TabPatterns AutoTab = iota
 	TabLearnings
+
+	listWidthPadding  = 4
+	listHeightPadding = 10
+	minTermWidth      = 20
 )
 
 // Wrapper for DetectedPattern to implement list.Item
@@ -61,7 +65,6 @@ type AutopoiesisPageModel struct {
 	width    int
 	height   int
 	viewport viewport.Model
-	// TODO: Use bubbles/list instead of table for better list management if items grow.
 	list     list.Model
 
 	// State
@@ -124,6 +127,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 		// Tab switching (Tab key)
 		case "tab":
 			m.activeTab = (m.activeTab + 1) % 2
+			m.list.ResetFilter()
 			m.refreshList()
 			return m, nil
 		case "shift+tab":
@@ -132,6 +136,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 			} else {
 				m.activeTab = 0
 			}
+			m.list.ResetFilter()
 			m.refreshList()
 			return m, nil
 		}
@@ -145,17 +150,18 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 }
 
 // refreshList updates the list items based on active tab
-// TODO: IMPROVEMENT: Optimize refreshList for large datasets (consider virtualization or diffing).
 func (m *AutopoiesisPageModel) refreshList() {
 	var items []list.Item
 
 	if m.activeTab == TabPatterns {
 		m.list.Title = "Detected Patterns"
+		items = make([]list.Item, 0, len(m.patterns))
 		for _, p := range m.patterns {
 			items = append(items, patternItem{p})
 		}
 	} else {
 		m.list.Title = "Tool Learnings"
+		items = make([]list.Item, 0, len(m.learnings))
 		for _, l := range m.learnings {
 			items = append(items, learningItem{l})
 		}
@@ -237,19 +243,17 @@ func (m AutopoiesisPageModel) View() string {
 }
 
 // SetSize updates the size.
-// TODO: IMPROVEMENT: Replace magic number '60' with a defined breakpoint constant.
-// TODO: IMPROVEMENT: Implement a generic responsive layout manager to handle visibility of components based on available width.
 func (m *AutopoiesisPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	m.list.SetWidth(w - 4)
-	m.list.SetHeight(h - 10)
+	m.list.SetWidth(w - listWidthPadding)
+	m.list.SetHeight(h - listHeightPadding)
 
 	// Keep markdown rendering aligned with terminal width while avoiding tiny wraps.
-	if w > 20 {
+	if w > minTermWidth {
 		m.renderer, _ = glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(w-10),
+			glamour.WithWordWrap(w-listHeightPadding),
 		)
 	}
 }
