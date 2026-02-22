@@ -84,20 +84,81 @@ func RunMigrations(db *sql.DB) error {
 
 	logging.Store("Running schema migrations (%d pending)", len(pendingMigrations))
 
+	// Pre-fetch schema information to avoid N+1 queries
+	existingTables := make(map[string]bool)
+	tableRows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query tables: %v", err)
+		return fmt.Errorf("failed to query tables: %w", err)
+	}
+	defer tableRows.Close()
+
+	for tableRows.Next() {
+		var name string
+		if err := tableRows.Scan(&name); err != nil {
+			continue
+		}
+		existingTables[name] = true
+	}
+	tableRows.Close()
+
+	// Identify relevant tables from pending migrations
+	relevantTables := make(map[string]bool)
+	for _, m := range pendingMigrations {
+		relevantTables[m.Table] = true
+	}
+
+	// Pre-fetch columns for relevant tables
+	existingColumns := make(map[string]map[string]bool)
+	for table := range relevantTables {
+		if !existingTables[table] {
+			continue
+		}
+
+		cols := make(map[string]bool)
+		query := fmt.Sprintf("PRAGMA table_info(%s)", table)
+		rows, err := db.Query(query)
+		if err != nil {
+			logging.StoreDebug("PRAGMA table_info(%s) failed: %v", table, err)
+			continue
+		}
+
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+				continue
+			}
+			cols[name] = true
+		}
+		rows.Close()
+		existingColumns[table] = cols
+	}
+
 	appliedCount := 0
 	skippedCount := 0
 
 	for _, m := range pendingMigrations {
 		logging.StoreDebug("Checking migration: %s.%s", m.Table, m.Column)
 
-		// If the table doesn't exist in this DB, skip quietly.
-		if !tableExists(db, m.Table) {
+		// Check if table exists using cached map
+		if !existingTables[m.Table] {
 			logging.StoreDebug("Table missing, skipping migration: %s.%s", m.Table, m.Column)
 			skippedCount++
 			continue
 		}
 
-		if !columnExists(db, m.Table, m.Column) {
+		// Check if column exists using cached map
+		// Note: existingColumns[m.Table] might be nil if query failed, treated as empty map
+		columns, ok := existingColumns[m.Table]
+		if !ok {
+			// Should not happen if logic above is correct, unless PRAGMA failed
+			columns = make(map[string]bool)
+		}
+
+		if !columns[m.Column] {
 			query := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", m.Table, m.Column, m.Def)
 			logging.StoreDebug("Executing migration: %s", query)
 
@@ -108,6 +169,12 @@ func RunMigrations(db *sql.DB) error {
 			} else {
 				logging.Store("Migration applied: added %s.%s", m.Table, m.Column)
 				appliedCount++
+
+				// Update cache in case future migrations check this column (unlikely for ADD COLUMN but correct)
+				if existingColumns[m.Table] == nil {
+					existingColumns[m.Table] = make(map[string]bool)
+				}
+				existingColumns[m.Table][m.Column] = true
 			}
 		} else {
 			logging.StoreDebug("Column already exists, skipping: %s.%s", m.Table, m.Column)
