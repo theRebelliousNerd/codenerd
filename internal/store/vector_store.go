@@ -376,17 +376,19 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 
 	var candidates []candidate
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var entry VectorEntry
-		var embeddingJSON, metaJSON string
+		var embeddingJSON, metaJSON []byte
 
 		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
 
 		// Deserialize embedding
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+		if parseErr != nil {
 			continue
 		}
 
@@ -397,8 +399,8 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 		}
 
 		// Deserialize metadata
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 
 		candidates = append(candidates, candidate{
@@ -503,20 +505,24 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 	}
 	candidates := make([]candidate, 0, limit*2)
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var entry VectorEntry
-		var embeddingJSON, metaJSON string
+		var embeddingJSON, metaJSON []byte
 
 		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
 
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+
+		if parseErr != nil {
 			continue
 		}
 
@@ -632,23 +638,27 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 
 	candidates := make([]candidate, 0, limit*2)
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var entry VectorEntry
-		var embeddingJSON, metaJSON string
+		var embeddingJSON, metaJSON []byte
 
 		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
 
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 		if !matchesMetadata(entry.Metadata, metaKey, metaValue) {
 			continue
 		}
 
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+
+		if parseErr != nil {
 			continue
 		}
 
@@ -804,7 +814,8 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 	results := make([]VectorEntry, 0, limit)
 	for rows.Next() {
 		var id int64
-		var content, metaJSON string
+		var content string
+		var metaJSON []byte
 		var dist float64
 		if err := rows.Scan(&id, &content, &metaJSON, &dist); err != nil {
 			continue
@@ -815,8 +826,8 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 			CreatedAt: time.Now(),
 			Metadata:  make(map[string]interface{}),
 		}
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 		if entry.Metadata == nil {
 			entry.Metadata = make(map[string]interface{})
@@ -878,15 +889,18 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	var toInsert []embeddingRow
 	skippedCount := 0
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var id int64
-		var content, embeddingJSON, metaJSON string
+		var content string
+		var embeddingJSON, metaJSON []byte
 		if err := rows.Scan(&id, &content, &embeddingJSON, &metaJSON); err != nil {
 			skippedCount++
 			continue
 		}
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+		if parseErr != nil {
 			skippedCount++
 			continue
 		}
@@ -898,7 +912,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 			id:       id,
 			content:  content,
 			vecBlob:  encodeFloat32Slice(embeddingVec),
-			metaJSON: metaJSON,
+			metaJSON: string(metaJSON),
 		})
 	}
 	rows.Close() // Close rows before transaction
@@ -1444,16 +1458,20 @@ func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int)
 
 	var candidates []candidate
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var entry VectorEntry
-		var embeddingJSON, metaJSON string
+		var embeddingJSON, metaJSON []byte
 
 		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
 
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+
+		if parseErr != nil {
 			continue
 		}
 
@@ -1462,8 +1480,8 @@ func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int)
 			continue
 		}
 
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 
 		candidates = append(candidates, candidate{
@@ -1525,23 +1543,27 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryEmbedding []float32, li
 
 	var candidates []candidate
 
+	var embeddingVec []float32
 	for rows.Next() {
 		var entry VectorEntry
-		var embeddingJSON, metaJSON string
+		var embeddingJSON, metaJSON []byte
 
 		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
 			continue
 		}
 
-		if metaJSON != "" {
-			json.Unmarshal([]byte(metaJSON), &entry.Metadata)
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 		if !matchesMetadata(entry.Metadata, metaKey, metaValue) {
 			continue
 		}
 
-		var embeddingVec []float32
-		if err := json.Unmarshal([]byte(embeddingJSON), &embeddingVec); err != nil {
+		var parseErr error
+
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+
+		if parseErr != nil {
 			continue
 		}
 
