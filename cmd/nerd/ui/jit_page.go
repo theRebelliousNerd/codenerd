@@ -129,6 +129,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 // renderAtomContent formats the atom for display using lipgloss.JoinVertical
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
+	// TODO: Consider using strings.Builder or a more efficient rendering method for large content.
 	headerStyle := m.styles.Header
 	infoStyle := m.styles.Info
 	mutedStyle := m.styles.Muted
