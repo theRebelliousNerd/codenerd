@@ -115,7 +115,6 @@ func extractFunctionCall(code string) string {
 
 func TestThunderdome_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
-	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
 }
 
@@ -198,5 +197,74 @@ func RapidAllocator(ctx context.Context, input string) (string, error) {
 	attackResult := result.Results[0]
 	if attackResult.Failure != "oom" {
 		t.Errorf("Expected failure mode 'oom', got '%s'. Output: %s", attackResult.Failure, attackResult.StackDump)
+	}
+}
+
+func TestThunderdome_EnvironmentIsolation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping isolation test in short mode")
+	}
+
+	// 1. Setup Host Environment with a secret
+	secretKey := "THUNDERDOME_SECRET_KEY"
+	secretVal := "super_secret_value_that_must_not_leak"
+	t.Setenv(secretKey, secretVal)
+
+	// 2. Setup Thunderdome
+	td := NewThunderdome()
+	td.config.WorkDir = t.TempDir()
+
+	// 3. Create a tool that attempts to read the secret
+	// Note: We panic if we find it, which causes a "failure" in Thunderdome terms.
+	// So "Survival" means success (isolation worked).
+	toolCode := `package tools
+
+import (
+	"context"
+	"fmt"
+	"os"
+)
+
+func CheckIsolation(ctx context.Context, input string) (string, error) {
+	val := os.Getenv("THUNDERDOME_SECRET_KEY")
+	if val != "" {
+		panic(fmt.Sprintf("LEAK DETECTED: Found %s=%s", "THUNDERDOME_SECRET_KEY", val))
+	}
+	// Also verify that basic env vars like PATH are present (sanity check)
+	// if os.Getenv("PATH") == "" {
+	// 	return "error", fmt.Errorf("PATH is missing, environment is too sterile")
+	// }
+	return "secure", nil
+}
+`
+	tool := &GeneratedTool{
+		Name: "isolation_checker",
+		Code: toolCode,
+	}
+
+	// 4. Define attack (dummy input)
+	attacks := []AttackVector{
+		{
+			Name:     "Env Check",
+			Category: "security",
+			Input:    "check",
+		},
+	}
+
+	// 5. Run Battle
+	ctx := context.Background()
+	result, err := td.Battle(ctx, tool, attacks)
+	if err != nil {
+		t.Fatalf("Battle failed: %v", err)
+	}
+
+	// 6. Verify Survival (Isolation)
+	if !result.Survived {
+		t.Errorf("Isolation test failed: Tool was able to access host environment variable.")
+		for _, r := range result.Results {
+			if !r.Survived {
+				t.Logf("Failure Details: %s\nStack: %s", r.Failure, r.StackDump)
+			}
+		}
 	}
 }
