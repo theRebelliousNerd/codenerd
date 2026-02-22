@@ -58,8 +58,12 @@
     - Omit unnecessary `else` blocks after `return`
     - Use labeled breaks/continues for complex loops
 
+    ### Modern Go (1.21+)
+    - Use `min()`, `max()`, `clear()` built-ins
+    - Use `slices` and `maps` packages for common operations
+    - Loop variables are per-iteration (safe to capture in closures)
+
     ### Common Pitfalls
-    - Range loop variables are reused: capture in new variable or use index
     - Defer runs at function exit, not block exit
     - Slices and maps are reference types; copying requires `copy()` or manual iteration
     - Method receivers: pointer for mutation, value for immutability
