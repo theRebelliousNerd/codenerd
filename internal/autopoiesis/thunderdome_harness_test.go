@@ -114,7 +114,6 @@ func extractFunctionCall(code string) string {
 }
 
 func TestThunderdome_Gaps(t *testing.T) {
-	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
 	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
 }
@@ -198,5 +197,67 @@ func RapidAllocator(ctx context.Context, input string) (string, error) {
 	attackResult := result.Results[0]
 	if attackResult.Failure != "oom" {
 		t.Errorf("Expected failure mode 'oom', got '%s'. Output: %s", attackResult.Failure, attackResult.StackDump)
+	}
+}
+
+func TestThunderdome_LargeInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping large input test in short mode")
+	}
+
+	// 1. Setup Thunderdome
+	// Use default config which allows 100MB memory
+	td := NewThunderdome()
+	td.config.WorkDir = t.TempDir()
+
+	// 2. Define a tool that verifies input length
+	// It expects > 10MB input.
+	toolCode := `package tools
+
+import (
+	"context"
+	"fmt"
+)
+
+func CheckLength(ctx context.Context, input string) (string, error) {
+	if len(input) < 11*1024*1024 {
+		return "", fmt.Errorf("input too short: %d bytes", len(input))
+	}
+	return fmt.Sprintf("received %d bytes", len(input)), nil
+}
+`
+	tool := &GeneratedTool{
+		Name: "length_checker",
+		Code: toolCode,
+	}
+
+	// 3. Define attack with 12MB input
+	// This ensures we test handling of inputs larger than default scanner buffer (64KB)
+	// and even larger than the 10MB limit mentioned in TODOs if applicable.
+	largeInput := strings.Repeat("a", 12*1024*1024)
+	attacks := []AttackVector{
+		{
+			Name:        "Large Input Test",
+			Category:    "resource",
+			Input:       largeInput,
+			Description: "Sends > 10MB input",
+		},
+	}
+
+	// 4. Run Battle
+	ctx := context.Background()
+	result, err := td.Battle(ctx, tool, attacks)
+	if err != nil {
+		t.Fatalf("Battle failed: %v", err)
+	}
+
+	// 5. Verification
+	if !result.Survived {
+		t.Errorf("Tool failed large input test. Result: %+v", result)
+		for _, r := range result.Results {
+			if !r.Survived {
+				t.Logf("Failure: %s", r.Failure)
+			}
+		}
 	}
 }
