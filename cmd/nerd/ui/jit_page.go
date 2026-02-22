@@ -23,6 +23,9 @@ type JITPageModel struct {
 	list     list.Model
 	viewport viewport.Model
 
+	// Focus state
+	focusViewport bool
+
 	// Data
 	lastResult *prompt.CompilationResult
 	selected   *prompt.PromptAtom
@@ -78,12 +81,15 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 		m.SetSize(msg.Width, msg.Height)
 
 	case tea.KeyMsg:
+		// Toggle focus with Tab if not filtering
+		if m.list.FilterState() != list.Filtering && msg.String() == "tab" {
+			m.focusViewport = !m.focusViewport
+			return m, nil
+		}
+
 		// Viewport navigation if list is not filtering
 		if m.list.FilterState() != list.Filtering {
 			switch msg.String() {
-			case "tab":
-				// Could toggle focus, but for now just let logic handle it or simple split
-				// TODO: Implement focus switching between list and viewport
 			case "c", "y":
 				if m.selected != nil {
 					if err := clipboardWriteAll(m.selected.Content); err != nil {
@@ -106,13 +112,21 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 		}
 	}
 
-	// Update List
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
+	// Determine where to route events
+	// Always update both for non-key messages (like ticks, resize)
+	_, isKey := msg.(tea.KeyMsg)
+	updateList := !isKey || (!m.focusViewport || m.list.FilterState() == list.Filtering)
+	updateViewport := !isKey || (m.focusViewport && m.list.FilterState() != list.Filtering)
 
-	// Update Viewport
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+	if updateList {
+		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	if updateViewport {
+		m.viewport, cmd = m.viewport.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 	// Check for selection change
 	if sel := m.list.SelectedItem(); sel != nil {
@@ -164,15 +178,40 @@ func (m JITPageModel) View() string {
 	}
 
 	// Split view: List (35%) | Viewport (65%)
-	listWidth := int(float64(m.width) * 0.35)
-	viewWidth := m.width - listWidth - 4
+	// Note: Widths are calculated in SetSize for the inner components.
+	// But we need to render the containers here.
 
-	listView := m.styles.Content.Copy().Width(listWidth).Render(m.list.View())
-	contentView := m.styles.Content.Copy().Width(viewWidth).Render(m.viewport.View())
+	// Re-calculate pane widths (outer widths)
+	totalWidth := m.width
+	listPaneWidth := int(float64(totalWidth) * 0.35)
+	viewPaneWidth := totalWidth - listPaneWidth
+
+	// Define base styles with border
+	baseStyle := m.styles.Content.Copy().
+		Padding(0, 1). // Reduced padding to accommodate border
+		Border(lipgloss.RoundedBorder())
+
+	// Focus styles
+	focusedBorder := m.styles.Theme.Accent
+	blurredBorder := m.styles.Theme.Muted
+
+	var listStyle, viewStyle lipgloss.Style
+	if !m.focusViewport {
+		listStyle = baseStyle.BorderForeground(focusedBorder)
+		viewStyle = baseStyle.BorderForeground(blurredBorder)
+	} else {
+		listStyle = baseStyle.BorderForeground(blurredBorder)
+		viewStyle = baseStyle.BorderForeground(focusedBorder)
+	}
+
+	// Render panes
+	// We force the width on the style to ensure layout consistency
+	listView := listStyle.Width(listPaneWidth - 4).Render(m.list.View())
+	contentView := viewStyle.Width(viewPaneWidth - 4).Render(m.viewport.View())
 
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listView, contentView)
 
-	help := m.styles.Muted.Render(" • c/y: copy atom • p: copy full prompt • tab: focus viewport • /: filter")
+	help := m.styles.Muted.Render(" • c/y: copy atom • p: copy full prompt • tab: focus switch • /: filter")
 
 	return lipgloss.JoinVertical(lipgloss.Left, mainView, help)
 }
@@ -182,10 +221,20 @@ func (m *JITPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 
-	listWidth := int(float64(w) * 0.35)
-	m.list.SetSize(listWidth, h-3) // Reserve space for footer
-	m.viewport.Width = w - listWidth - 4
-	m.viewport.Height = h - 3
+	// Chrome: Border(2) + Padding(2) = 4 width per pane
+	chromeW := 4
+	// Vertical: Border(2) + Padding(0) = 2 height
+	chromeH := 2
+
+	paneH := h - 3 - chromeH // Footer(1+margin) - VerticalChrome
+
+	listPaneWidth := int(float64(w) * 0.35)
+	viewPaneWidth := w - listPaneWidth
+
+	// Inner sizes
+	m.list.SetSize(listPaneWidth - chromeW, paneH)
+	m.viewport.Width = viewPaneWidth - chromeW
+	m.viewport.Height = paneH
 }
 
 // UpdateContent updates the data from the JIT compiler.
