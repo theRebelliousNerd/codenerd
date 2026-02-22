@@ -1251,6 +1251,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
+	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
 	// We duplicate high-priority terms to increase their semantic weight.
 	var sb strings.Builder
 	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
@@ -1302,6 +1303,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
+	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -1406,6 +1408,7 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	}
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
+// TODO: Ensure active JIT compilations are finished before closing databases.
 
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
@@ -1432,6 +1435,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
