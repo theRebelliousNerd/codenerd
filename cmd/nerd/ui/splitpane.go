@@ -174,8 +174,8 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		ActivationThreshold: DefaultActivationThreshold,
 		// Pre-compile styles for performance
 		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
-		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Foreground),
-		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Muted).Italic(true),
+		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurface),
+		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceMuted).Italic(true),
 		activStyle: lipgloss.NewStyle().Foreground(Success),
 		// Initialize render cache
 		renderCache:  NewCachedRender(DefaultRenderCache),
@@ -433,7 +433,7 @@ func (p *LogicPane) renderContentUncached() string {
 		Bold(true).
 		Foreground(p.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(p.Styles.Theme.Border).
+		BorderForeground(p.Styles.Theme.Outline).
 		Width(ViewportWidth(p.Width)).
 		Padding(0, 1)
 
@@ -441,13 +441,13 @@ func (p *LogicPane) renderContentUncached() string {
 
 	// Query info
 	queryStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.Accent).
+		Foreground(p.Styles.Theme.Secondary).
 		Italic(true)
 
 	query := queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query))
 
 	infoStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.Muted)
+		Foreground(p.Styles.Theme.OnSurfaceMuted)
 
 	info := infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
 		p.CurrentTrace.TotalFacts,
@@ -484,7 +484,7 @@ func (p *LogicPane) renderContentUncached() string {
 // renderEmptyState renders the empty state message
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.Muted).
+		Foreground(p.Styles.Theme.OnSurfaceMuted).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(p.Width)).
@@ -684,8 +684,8 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 
 	// Selection highlight
 	if selected {
-		predStyle = predStyle.Background(p.Styles.Theme.Secondary)
-		argsStyle = argsStyle.Background(p.Styles.Theme.Secondary)
+		predStyle = predStyle.Background(p.Styles.Theme.Container)
+		argsStyle = argsStyle.Background(p.Styles.Theme.Container)
 	}
 
 	// Format predicate with args
@@ -722,7 +722,7 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 func (p *LogicPane) renderLegend() string {
 	legendStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(p.Styles.Theme.Border).
+		BorderForeground(p.Styles.Theme.Outline).
 		Padding(0, 1).
 		Width(ViewportWidth(p.Width))
 
@@ -924,8 +924,8 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 	dividerStyle := lipgloss.NewStyle().
 		Width(SplitPaneDivider).
 		Height(s.Height).
-		Background(s.Styles.Theme.Border).
-		Foreground(s.Styles.Theme.Muted)
+		Background(s.Styles.Theme.Outline).
+		Foreground(s.Styles.Theme.OnSurfaceMuted)
 
 	// Style for right pane
 	rightBorder := lipgloss.NormalBorder()
@@ -939,9 +939,9 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		Border(rightBorder).
 		BorderForeground(func() lipgloss.Color {
 			if s.FocusRight {
-				return s.Styles.Theme.Accent
+				return s.Styles.Theme.Secondary
 			}
-			return s.Styles.Theme.Border
+			return s.Styles.Theme.Outline
 		}())
 
 	// Build divider
