@@ -55,7 +55,7 @@ import (
 
 func CheckNewline(ctx context.Context, input string) (string, error) {
 	if !strings.Contains(input, "\n") {
-		return "", fmt.Errorf("input truncated, missing newline. Input: %q", input)
+		panic(fmt.Sprintf("input truncated, missing newline. Input: %q", input))
 	}
 	return "ok", nil
 }
@@ -71,6 +71,16 @@ func CheckNewline(ctx context.Context, input string) (string, error) {
 			Name:     "Newline Input",
 			Category: "formatting",
 			Input:    "line1\nline2",
+		},
+		{
+			Name:     "Trailing Newline",
+			Category: "formatting",
+			Input:    "line1\n",
+		},
+		{
+			Name:     "Multiple Newlines",
+			Category: "formatting",
+			Input:    "line1\nline2\nline3\n",
 		},
 	}
 
@@ -105,7 +115,6 @@ func extractFunctionCall(code string) string {
 
 func TestThunderdome_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
-	// TODO: TEST_GAP: Verify that inputs with newlines are not truncated by scanner.Scan().
 	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
 }
