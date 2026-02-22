@@ -190,20 +190,23 @@ func TestAutopoiesisPageModelResize(t *testing.T) {
 
 	// Initial State
 	model.SetSize(80, 20)
-	if model.list.Width() != 76 { // 80 - 4
-		t.Errorf("expected list width 76, got %d", model.list.Width())
+
+	pt := model.tabs[0].(*PatternsTab)
+
+	if pt.list.Width() != 76 { // 80 - 4
+		t.Errorf("expected list width 76, got %d", pt.list.Width())
 	}
-	if model.list.Height() != 10 { // 20 - 10
-		t.Errorf("expected list height 10, got %d", model.list.Height())
+	if pt.list.Height() != 10 { // 20 - 10
+		t.Errorf("expected list height 10, got %d", pt.list.Height())
 	}
 
 	// Resize
 	model.SetSize(50, 30)
-	if model.list.Width() != 46 { // 50 - 4
-		t.Errorf("expected list width 46, got %d", model.list.Width())
+	if pt.list.Width() != 46 { // 50 - 4
+		t.Errorf("expected list width 46, got %d", pt.list.Width())
 	}
-	if model.list.Height() != 20 { // 30 - 10
-		t.Errorf("expected list height 20, got %d", model.list.Height())
+	if pt.list.Height() != 20 { // 30 - 10
+		t.Errorf("expected list height 20, got %d", pt.list.Height())
 	}
 }
 
