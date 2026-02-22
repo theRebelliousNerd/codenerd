@@ -241,7 +241,7 @@ func (d *DiffApprovalView) updateContent() {
 // renderEmpty renders the empty state
 func (d *DiffApprovalView) renderEmpty() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Muted).
+		Foreground(d.Styles.Theme.OnSurfaceMuted).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(d.Width)).
@@ -289,13 +289,13 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 		Bold(true).
 		Foreground(d.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(d.Styles.Theme.Border).
+		BorderForeground(d.Styles.Theme.Outline).
 		Width(ViewportWidth(d.Width)).
 		Padding(0, 1)
 
 	// Status indicator
 	status := "⏳ PENDING"
-	statusColor := d.Styles.Theme.Muted
+	statusColor := d.Styles.Theme.OnSurfaceMuted
 	if m.Approved {
 		status = "✅ APPROVED"
 		statusColor = Success
@@ -374,8 +374,8 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 		hunkStyle := d.Styles.Muted
 		if i == d.SelectedHunk {
 			hunkStyle = lipgloss.NewStyle().
-				Background(d.Styles.Theme.Secondary).
-				Foreground(d.Styles.Theme.Primary)
+				Background(d.Styles.Theme.Container).
+				Foreground(d.Styles.Theme.OnContainer)
 		}
 		sb.WriteString(hunkStyle.Render(hunkHeader))
 		sb.WriteString("\n")
@@ -593,9 +593,9 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 // TODO: IMPROVEMENT: Use `bubbles/help` for the help view to ensure consistency.
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Muted).
+		Foreground(d.Styles.Theme.OnSurfaceMuted).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Border).
+		BorderForeground(d.Styles.Theme.Outline).
 		Padding(0, 1).
 		Width(ViewportWidth(d.Width))
 

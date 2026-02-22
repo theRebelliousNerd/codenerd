@@ -55,16 +55,30 @@ var (
 // Theme holds the current color scheme
 // TODO: Create Theme interface for easier testing and swapping of themes.
 type Theme struct {
-	// TODO: IMPROVEMENT: Expand Theme struct with semantic naming (e.g. Surface, OnSurface, Container, OnContainer) for better consistency.
-	Background lipgloss.Color
-	Foreground lipgloss.Color
-	Primary    lipgloss.Color
-	Accent     lipgloss.Color
-	Secondary  lipgloss.Color
-	Muted      lipgloss.Color
-	Border     lipgloss.Color
-	Card       lipgloss.Color
-	IsDark     bool
+	IsDark bool
+
+	// Backgrounds
+	Background   lipgloss.Color
+	OnBackground lipgloss.Color
+
+	// Surfaces (Cards, etc)
+	Surface   lipgloss.Color
+	OnSurface lipgloss.Color
+
+	// Brand Colors
+	Primary   lipgloss.Color
+	OnPrimary lipgloss.Color
+
+	Secondary   lipgloss.Color
+	OnSecondary lipgloss.Color
+
+	// Containers
+	Container   lipgloss.Color
+	OnContainer lipgloss.Color
+
+	// Outlines/Borders
+	Outline        lipgloss.Color
+	OnSurfaceMuted lipgloss.Color
 }
 
 // Renderer returns a lipgloss.Renderer initialized with the theme's settings.
@@ -81,30 +95,38 @@ func (t Theme) Renderer(w io.Writer) *lipgloss.Renderer {
 // LightTheme returns the light mode theme
 func LightTheme() Theme {
 	return Theme{
-		Background: LightBackground,
-		Foreground: LightForeground,
-		Primary:    LightPrimary,
-		Accent:     LightAccent,
-		Secondary:  LightSecondary,
-		Muted:      LightMuted,
-		Border:     LightBorder,
-		Card:       LightCard,
-		IsDark:     false,
+		IsDark:         false,
+		Background:     LightBackground,
+		OnBackground:   LightForeground,
+		Surface:        LightCard,
+		OnSurface:      LightForeground,
+		Primary:        LightPrimary,
+		OnPrimary:      lipgloss.Color("#ffffff"),
+		Secondary:      LightAccent,
+		OnSecondary:    lipgloss.Color("#ffffff"),
+		Container:      LightSecondary,
+		OnContainer:    LightPrimary,
+		Outline:        LightBorder,
+		OnSurfaceMuted: LightMuted,
 	}
 }
 
 // DarkTheme returns the dark mode theme
 func DarkTheme() Theme {
 	return Theme{
-		Background: DarkBackground,
-		Foreground: DarkForeground,
-		Primary:    DarkPrimary,
-		Accent:     DarkAccent,
-		Secondary:  DarkSecondary,
-		Muted:      DarkMuted,
-		Border:     DarkBorder,
-		Card:       DarkCard,
-		IsDark:     true,
+		IsDark:         true,
+		Background:     DarkBackground,
+		OnBackground:   DarkForeground,
+		Surface:        DarkCard,
+		OnSurface:      DarkForeground,
+		Primary:        DarkPrimary,
+		OnPrimary:      lipgloss.Color("#101F38"),
+		Secondary:      DarkAccent,
+		OnSecondary:    lipgloss.Color("#ffffff"),
+		Container:      DarkSecondary,
+		OnContainer:    DarkPrimary,
+		Outline:        DarkBorder,
+		OnSurfaceMuted: DarkMuted,
 	}
 }
 
@@ -197,16 +219,16 @@ func NewStyles(theme Theme) Styles {
 		// Layout styles
 		App: lipgloss.NewStyle().
 			Background(theme.Background).
-			Foreground(theme.Foreground),
+			Foreground(theme.OnBackground),
 
 		Header: lipgloss.NewStyle().
 			Background(theme.Primary).
-			Foreground(lipgloss.Color("#ffffff")).
+			Foreground(theme.OnPrimary).
 			Padding(0, 2).
 			Bold(true),
 
 		Footer: lipgloss.NewStyle().
-			Foreground(theme.Muted).
+			Foreground(theme.OnSurfaceMuted).
 			Padding(0, 2),
 
 		Content: lipgloss.NewStyle().
@@ -219,37 +241,37 @@ func NewStyles(theme Theme) Styles {
 			MarginBottom(1),
 
 		Subtitle: lipgloss.NewStyle().
-			Foreground(theme.Muted).
+			Foreground(theme.OnSurfaceMuted).
 			Italic(true),
 
 		Body: lipgloss.NewStyle().
-			Foreground(theme.Foreground),
+			Foreground(theme.OnSurface),
 
 		Muted: lipgloss.NewStyle().
-			Foreground(theme.Muted),
+			Foreground(theme.OnSurfaceMuted),
 
 		Bold: lipgloss.NewStyle().
-			Foreground(theme.Foreground).
+			Foreground(theme.OnSurface).
 			Bold(true),
 
 		// Interactive styles
 		Prompt: lipgloss.NewStyle().
-			Foreground(theme.Accent).
+			Foreground(theme.Secondary).
 			Bold(true),
 
 		PromptCursor: lipgloss.NewStyle().
-			Foreground(theme.Accent).
-			Background(theme.Accent),
+			Foreground(theme.Secondary).
+			Background(theme.Secondary),
 
 		UserInput: lipgloss.NewStyle().
-			Foreground(theme.Foreground),
+			Foreground(theme.OnSurface),
 
 		AgentResponse: lipgloss.NewStyle().
-			Foreground(theme.Foreground).
+			Foreground(theme.OnSurface).
 			PaddingLeft(2).
 			BorderLeft(true).
 			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(theme.Accent),
+			BorderForeground(theme.Secondary),
 
 		// Status styles
 		Success: lipgloss.NewStyle().
@@ -269,30 +291,30 @@ func NewStyles(theme Theme) Styles {
 
 		// Code styles
 		CodeBlock: lipgloss.NewStyle().
-			Background(theme.Card).
-			Foreground(theme.Foreground).
+			Background(theme.Surface).
+			Foreground(theme.OnSurface).
 			Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(theme.Border),
+			BorderForeground(theme.Outline),
 
 		InlineCode: lipgloss.NewStyle().
-			Background(theme.Secondary).
-			Foreground(theme.Primary).
+			Background(theme.Container).
+			Foreground(theme.OnContainer).
 			Padding(0, 1),
 
 		// Component styles
 		Spinner: lipgloss.NewStyle().
-			Foreground(theme.Accent),
+			Foreground(theme.Secondary),
 
 		ProgressBar: lipgloss.NewStyle().
-			Foreground(theme.Accent),
+			Foreground(theme.Secondary),
 
 		Divider: lipgloss.NewStyle().
-			Foreground(theme.Border),
+			Foreground(theme.Outline),
 
 		Badge: lipgloss.NewStyle().
-			Background(theme.Accent).
-			Foreground(lipgloss.Color("#ffffff")).
+			Background(theme.Secondary).
+			Foreground(theme.OnSecondary).
 			Padding(0, 1).
 			Bold(true),
 	}
