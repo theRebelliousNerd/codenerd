@@ -75,7 +75,6 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
-	// TODO: Add search bar to filter atoms by content, not just ID/Category.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
