@@ -167,11 +167,6 @@ func TestFormatPrioritizedCallersCompact(t *testing.T) {
 }
 
 func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
-	// TODO: TEST_GAP: Type Coercion Safety
-	// priorityAtomToInt assumes atoms are strings (e.g., "/high").
-	// If the kernel returns a custom atom type or a raw number, the integration might fail.
-	// Tests should verify behavior with non-string inputs and malformed atom strings.
-
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -187,13 +182,23 @@ func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
 		{name: "lowest", atom: "/lowest", want: 10},
 		{name: "unknown", atom: "/unknown", want: 50},
 		{name: "no_slash", atom: "high", want: 80},
+		// Additional test cases for non-standard inputs
+		{name: "empty_string", atom: "", want: 50},
+		{name: "single_slash", atom: "/", want: 50},
+		{name: "uppercase_critical", atom: "CRITICAL", want: 100},
+		{name: "uppercase_slash_critical", atom: "/CRITICAL", want: 100},
+		{name: "whitespace_padded", atom: "  high  ", want: 50}, // whitespace not trimmed currently
+		{name: "numeric_string_100", atom: "100", want: 50},     // numeric strings return default
+		{name: "numeric_string_0", atom: "0", want: 50},         // numeric strings return default
+		{name: "malformed_slashes", atom: "//high", want: 50},    // double slash not handled
+		{name: "malformed_path", atom: "/super/high", want: 50},  // path-like atom not handled
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := h.priorityAtomToInt(tt.atom)
 			if got != tt.want {
-				t.Errorf("priorityAtomToInt(%s) = %d, want %d", tt.atom, got, tt.want)
+				t.Errorf("priorityAtomToInt(%q) = %d, want %d", tt.atom, got, tt.want)
 			}
 		})
 	}
