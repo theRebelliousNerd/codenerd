@@ -192,8 +192,8 @@ func (m JITPageModel) View() string {
 		Border(lipgloss.RoundedBorder())
 
 	// Focus styles
-	focusedBorder := m.styles.Theme.Accent
-	blurredBorder := m.styles.Theme.Muted
+	focusedBorder := m.styles.Theme.Secondary
+	blurredBorder := m.styles.Theme.OnSurfaceVariant
 
 	var listStyle, viewStyle lipgloss.Style
 	if !m.focusViewport {
