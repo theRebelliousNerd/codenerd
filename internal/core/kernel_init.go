@@ -312,6 +312,7 @@ func (k *RealKernel) loadMangleFiles() error {
 		"schemas_codedom_polyglot.mg", // Polyglot Language Facts (Go, Python, TS, Rust)
 		"schemas_testing.mg",          // Verification, Reasoning Traces, Pytest
 		"schemas_campaign.mg",         // Campaign Orchestration
+		"schemas_intelligence.mg",     // Campaign Intelligence & Context
 		"schemas_tools.mg",            // Ouroboros, Tool Learning, Routing
 		"schemas_mcp.mg",              // MCP integration schema
 		"schemas_prompts.mg",          // Dynamic Prompt Composition & JIT
