@@ -60,6 +60,7 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 	logging.Store("Force re-embedding %d prompt atoms in DB: %s", len(atoms), s.dbPath)
 
 	taskTypeAware, hasTaskAware := s.embeddingEngine.(embedding.TaskTypeAwareEngine)
+	taskTypeBatchAware, hasTaskBatchAware := s.embeddingEngine.(embedding.TaskTypeBatchAwareEngine)
 	expectedTask := embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
 
 	batchSize := 32
@@ -72,10 +73,22 @@ func (s *LocalStore) ReembedAllPromptAtomsForce(ctx context.Context) (int, error
 		logging.Store("ReembedAllPromptAtomsForce [%s]: batch %d/%d (%d atoms)",
 			s.dbPath, batchNum, totalBatches, len(batch))
 
-		embeddings := make([][]float32, len(batch))
+		var embeddings [][]float32
 
-		// If task-aware, embed individually with the prompt atom task type.
-		if hasTaskAware {
+		// If task-batch-aware, embed in batch with task type (FASTEST).
+		if hasTaskBatchAware {
+			texts := make([]string, len(batch))
+			for j, a := range batch {
+				texts[j] = a.text
+			}
+			vecs, err := taskTypeBatchAware.EmbedBatchWithTask(ctx, texts, expectedTask)
+			if err != nil {
+				return totalEmbedded, fmt.Errorf("failed to batch embed prompt atoms: %w", err)
+			}
+			embeddings = vecs
+		} else if hasTaskAware {
+			// If task-aware but not batch-aware, embed individually (SLOW).
+			embeddings = make([][]float32, len(batch))
 			for j, a := range batch {
 				vec, err := taskTypeAware.EmbedWithTask(ctx, a.text, expectedTask)
 				if err != nil {
