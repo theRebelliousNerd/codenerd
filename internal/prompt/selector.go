@@ -380,6 +380,7 @@ func (s *AtomSelector) SetMinScoreThreshold(threshold float64) {
 //	PHASE 3: Merge and dedupe
 //	  - Skeleton atoms take precedence
 //	  - Deduplication by atom ID
+// TODO: Feature: Allow configuring vector vs logic weight per-request via CompilationContext.
 func (s *AtomSelector) SelectAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -522,6 +523,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 
 // SelectAtomsLegacy is the original implementation for backwards compatibility.
 // Deprecated: Use SelectAtoms with System 2 bifurcation instead.
+// TODO: Performance: Deprecate and remove this legacy method to reduce maintenance burden.
 func (s *AtomSelector) SelectAtomsLegacy(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -544,6 +546,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	}
 
 	// 1. Prepare Facts for Mangle
+	// TODO: Performance: Optimize fact construction.
 	var facts []interface{}
 
 	// Context Facts - dimension names must be Mangle constants (start with /)
@@ -698,6 +701,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 
 // getVectorScores retrieves semantic similarity scores for atoms.
 // Uses a 10-second sub-timeout to prevent blocking JIT compilation.
+// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,
@@ -709,6 +713,7 @@ func (s *AtomSelector) getVectorScores(
 
 	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
 	// If embedding/search takes too long, we skip vector scoring rather than failing.
+	// TODO: Make this timeout configurable.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -1055,6 +1060,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
+// TODO: Performance: Optimize fact string construction. Use pre-allocated buffer or builder instead of fmt.Sprintf for every fact.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	var facts []interface{}
 
@@ -1194,6 +1200,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 }
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
+// TODO: Performance: Replace fmt.Sprintf fallback with type switch for common types (int, float, bool) to avoid reflection overhead in hot loops.
 func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:

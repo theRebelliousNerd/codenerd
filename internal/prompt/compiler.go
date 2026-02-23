@@ -491,6 +491,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
 	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
+	// TODO: Reliability: Pre-allocate candidate slice capacity if dynamic atom count is predictable to avoid reallocations.
 	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
 	if dynErr != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
@@ -597,6 +598,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
+	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
 	c.mu.Lock()
 	c.lastResult = result
 	c.mu.Unlock()
@@ -650,6 +652,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -1055,6 +1058,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	}
 
 	// 2. Load Context Tags
+	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
 	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
 	if err != nil {
 		// Log warning but don't fail, maybe table is empty or migration pending
@@ -1251,6 +1255,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
+	// TODO: Reliability: Implement proper query expansion or keyword extraction instead of heuristic duplication.
 	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
 	// We duplicate high-priority terms to increase their semantic weight.
 	var sb strings.Builder
@@ -1303,6 +1308,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
+	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
 	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

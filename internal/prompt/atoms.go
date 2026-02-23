@@ -264,6 +264,7 @@ func NewPromptAtom(id string, category AtomCategory, content string) *PromptAtom
 // MatchesContext checks if this atom should be included for the given context.
 // Returns true if the atom matches ALL non-empty selector dimensions.
 // Empty selector lists are treated as "match any".
+// TODO: Performance: Optimize selector matching by pre-computing normalized values or using bitmasks for enum-like dimensions.
 func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 	if cc == nil {
 		return true
