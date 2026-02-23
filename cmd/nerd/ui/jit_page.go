@@ -90,6 +90,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 		if m.list.FilterState() != list.Filtering {
 			switch msg.String() {
 			case "c", "y":
+				// TODO: Reliability: Move clipboard operations to an asynchronous tea.Cmd to avoid freezing the UI on slow clipboard access.
 				if m.selected != nil {
 					if err := clipboardWriteAll(m.selected.Content); err != nil {
 						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
@@ -141,6 +142,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 
 // renderAtomContent formats the atom for display using lipgloss.JoinVertical
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
+// TODO: UX: Integrate glamour or similar library for markdown rendering and syntax highlighting.
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	// TODO: Consider using strings.Builder or a more efficient rendering method for large content.
 	headerStyle := m.styles.Header
