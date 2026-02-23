@@ -803,36 +803,10 @@ func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, fil
 		return hc, nil
 	}
 
-	// 5. Fetch function bodies for prioritized callers
-	for i := range callers {
-		select {
-		case <-ctx.Done():
-			return hc, ctx.Err()
-		default:
-		}
-
-		body, fetchErr := h.fetchFunctionBody(callers[i].File, callers[i].Name)
-		if fetchErr != nil {
-			logging.WorldDebug("BuildWithImpactPriorities: could not fetch body for %s:%s: %v",
-				callers[i].File, callers[i].Name, fetchErr)
-			continue
-		}
-		callers[i].Body = body
-	}
-
-	// 6. Sort by priority (descending) then by depth (ascending)
-	sort.Slice(callers, func(i, j int) bool {
-		if callers[i].Priority != callers[j].Priority {
-			return callers[i].Priority > callers[j].Priority
-		}
-		return callers[i].Depth < callers[j].Depth
-	})
-
-	// 7. Limit to prevent context explosion
-	if len(callers) > maxPrioritizedCallers {
-		logging.WorldDebug("BuildWithImpactPriorities: limiting callers from %d to %d",
-			len(callers), maxPrioritizedCallers)
-		callers = callers[:maxPrioritizedCallers]
+	// 5. Resolve callers (sort, limit, and fetch bodies)
+	callers, err = h.ResolvePrioritizedCallers(ctx, callers)
+	if err != nil {
+		return hc, err
 	}
 
 	// 8. Calculate overall impact priority (max of all callers)
@@ -850,6 +824,46 @@ func (h *HolographicProvider) BuildWithImpactPriorities(ctx context.Context, fil
 		len(callers), maxPriority)
 
 	return hc, nil
+}
+
+// ResolvePrioritizedCallers sorts, limits, and fetches bodies for prioritized callers.
+// It optimizes by sorting and limiting *before* fetching bodies to avoid unnecessary I/O.
+func (h *HolographicProvider) ResolvePrioritizedCallers(ctx context.Context, callers []PrioritizedCaller) ([]PrioritizedCaller, error) {
+	// 1. Sort by priority (descending) then by depth (ascending)
+	sort.Slice(callers, func(i, j int) bool {
+		if callers[i].Priority != callers[j].Priority {
+			return callers[i].Priority > callers[j].Priority
+		}
+		return callers[i].Depth < callers[j].Depth
+	})
+
+	// 2. Limit to prevent context explosion
+	if len(callers) > maxPrioritizedCallers {
+		logging.WorldDebug("ResolvePrioritizedCallers: limiting callers from %d to %d",
+			len(callers), maxPrioritizedCallers)
+		callers = callers[:maxPrioritizedCallers]
+	}
+
+	// 3. Fetch function bodies for prioritized callers with caching
+	cache := newFileContentCache()
+
+	for i := range callers {
+		select {
+		case <-ctx.Done():
+			return callers, ctx.Err()
+		default:
+		}
+
+		body, fetchErr := h.fetchFunctionBody(callers[i].File, callers[i].Name, cache)
+		if fetchErr != nil {
+			logging.WorldDebug("ResolvePrioritizedCallers: could not fetch body for %s:%s: %v",
+				callers[i].File, callers[i].Name, fetchErr)
+			continue
+		}
+		callers[i].Body = body
+	}
+
+	return callers, nil
 }
 
 // parsePriorityFacts extracts PrioritizedCaller structs from Mangle query results.
@@ -980,9 +994,24 @@ func (h *HolographicProvider) priorityAtomToInt(atom string) int {
 	}
 }
 
+// fileContentCache stores file contents and parsed ASTs to avoid redundant I/O and parsing.
+type fileContentCache struct {
+	contents map[string]string
+	asts     map[string]*ast.File
+	fsets    map[string]*token.FileSet
+}
+
+func newFileContentCache() *fileContentCache {
+	return &fileContentCache{
+		contents: make(map[string]string),
+		asts:     make(map[string]*ast.File),
+		fsets:    make(map[string]*token.FileSet),
+	}
+}
+
 // fetchFunctionBody retrieves the body of a function from a file.
 // Uses AST parsing for Go files, falls back to regex for other languages.
-func (h *HolographicProvider) fetchFunctionBody(file, funcName string) (string, error) {
+func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fileContentCache) (string, error) {
 	if file == "" {
 		return "", fmt.Errorf("empty file path")
 	}
@@ -993,30 +1022,61 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string) (string, 
 		resolvedPath = filepath.Join(h.workDir, file)
 	}
 
-	content, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file %s: %w", resolvedPath, err)
+	var content string
+
+	if cache != nil {
+		if c, ok := cache.contents[resolvedPath]; ok {
+			content = c
+		}
+	}
+
+	if content == "" {
+		b, err := os.ReadFile(resolvedPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read file %s: %w", resolvedPath, err)
+		}
+		content = string(b)
+		if cache != nil {
+			cache.contents[resolvedPath] = content
+		}
 	}
 
 	// For Go files, use AST parsing
 	if strings.HasSuffix(file, ".go") {
-		return h.extractGoFunctionBody(string(content), funcName)
+		return h.extractGoFunctionBody(content, funcName, resolvedPath, cache)
 	}
 
 	// For other files, use regex-based extraction
-	return h.extractFunctionBodyRegex(string(content), funcName)
+	return h.extractFunctionBodyRegex(content, funcName)
 }
 
 // extractGoFunctionBody uses Go's AST parser to extract a function body.
-func (h *HolographicProvider) extractGoFunctionBody(content, funcName string) (string, error) {
+func (h *HolographicProvider) extractGoFunctionBody(content, funcName, file string, cache *fileContentCache) (string, error) {
 	if funcName == "" {
 		return "", fmt.Errorf("empty function name")
 	}
 
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "", content, parser.ParseComments)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse Go file: %w", err)
+	var node *ast.File
+	var fset *token.FileSet
+	var err error
+
+	if cache != nil {
+		if n, ok := cache.asts[file]; ok {
+			node = n
+			fset = cache.fsets[file]
+		}
+	}
+
+	if node == nil {
+		fset = token.NewFileSet()
+		node, err = parser.ParseFile(fset, "", content, parser.ParseComments)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse Go file: %w", err)
+		}
+		if cache != nil {
+			cache.asts[file] = node
+			cache.fsets[file] = fset
+		}
 	}
 
 	var targetFunc *ast.FuncDecl
