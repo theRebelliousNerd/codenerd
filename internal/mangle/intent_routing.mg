@@ -17,9 +17,14 @@
 # Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl file_contains(FilePath, Pattern).
 # Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
-# Decl file_imports(Importer, Imported).
+Decl file_imports(Importer, Imported) bound [/string, /string].
 
 # Internal predicates defined only in this file (or missing from defaults)
+# These declarations ensure standalone validation works correctly
+Decl same_package(File1, File2) bound [/string, /string].
+Decl diagnostic(Severity, FilePath, Line, ErrorCode, Message) bound [/name, /string, /number, /string, /string].
+Decl pytest_failure(TestName, ErrorCategory, RootFile, RootLine, Message) bound [/string, /name, /string, /number, /string].
+
 Decl test_scope(Scope).
 Decl review_type(Type).
 Decl code_modified_recently().
@@ -400,6 +405,10 @@ diagnostic_active(Path, Line, Severity, Message) :-
 
 code_quality_issue(/diagnostic, Message) :-
     diagnostic(_, _, _, _, Message).
+
+# Map test failures to generic test_failed predicate
+# Used for TDD loop state transitions (/red state)
+test_failed(Path, Name, Msg) :- pytest_failure(Name, _, Path, _, Msg).
 
 # Map file imports to context scope
 imports(Target, Path) :- file_imports(Target, Path).
