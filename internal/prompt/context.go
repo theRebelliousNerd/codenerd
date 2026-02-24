@@ -220,7 +220,8 @@ func NewCompilationContextWithBudget(tokenBudget int) *CompilationContext {
 // WorldStates returns the world state strings for atom matching.
 // These are derived from the boolean/numeric world model fields.
 func (cc *CompilationContext) WorldStates() []string {
-	var states []string
+	// Optimization: Pre-allocate with max possible capacity (7) to avoid reallocations
+	states := make([]string, 0, 7)
 
 	if cc.FailingTestCount > 0 {
 		states = append(states, "failing_tests")
@@ -363,48 +364,131 @@ func (cc *CompilationContext) String() string {
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
 // TODO: Reliability: Use a safer fact builder or validate input to prevent potential Mangle injection issues with string concatenation.
 func (cc *CompilationContext) ToContextFacts() []interface{} {
-	worldStates := cc.WorldStates()
-
-	// Pre-calculate capacity to avoid reallocation
-	// 9 core dimensions + frameworks + world states
-	cap := 9 + len(cc.Frameworks) + len(worldStates)
-	facts := make([]interface{}, 0, cap)
+	// Optimization: Pre-calculate capacity to avoid reallocation
+	// 9 core dimensions + frameworks + max 7 world states
+	// This over-allocates slightly if world states are few, but avoids resizing and eliminates
+	// the intermediate WorldStates() slice allocation completely.
+	capacity := 9 + len(cc.Frameworks) + 7
+	facts := make([]interface{}, 0, capacity)
 
 	// Helper to add compile_context facts for non-empty values.
 	// Format: compile_context(/dimension, /value). or compile_context(/dimension, "string").
-	// Optimized to use string concatenation and assume correct input where possible.
-	addFact := func(dimension, value string) {
-		if value == "" {
-			return
-		}
-		// Values that look like name constants (start with /) stay as-is
-		// Others get quoted as strings
-		if len(value) > 0 && value[0] == '/' {
-			facts = append(facts, "compile_context("+dimension+", "+value+").")
+	// Optimization: Inlined to avoid closure overhead and use direct append.
+	// We check for / prefix to distinguish atoms from strings.
+
+	if val := cc.OperationalMode; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/operational_mode, "+val+").")
 		} else {
-			facts = append(facts, "compile_context("+dimension+", \""+value+"\").")
+			facts = append(facts, "compile_context(/operational_mode, \""+val+"\").")
 		}
 	}
 
-	// Core context dimensions (per schemas.mg Section 45)
-	// We pass dimensions with '/' prefix directly to avoid helper overhead
-	addFact("/operational_mode", cc.OperationalMode)
-	addFact("/campaign_phase", cc.CampaignPhase)
-	addFact("/build_layer", cc.BuildLayer)
-	addFact("/init_phase", cc.InitPhase)
-	addFact("/northstar_phase", cc.NorthstarPhase)
-	addFact("/ouroboros_stage", cc.OuroborosStage)
-	addFact("/intent_verb", cc.IntentVerb)
-	addFact("/shard_type", cc.ShardType)
-	addFact("/language", cc.Language)
+	if val := cc.CampaignPhase; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/campaign_phase, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/campaign_phase, \""+val+"\").")
+		}
+	}
+
+	if val := cc.BuildLayer; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/build_layer, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/build_layer, \""+val+"\").")
+		}
+	}
+
+	if val := cc.InitPhase; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/init_phase, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/init_phase, \""+val+"\").")
+		}
+	}
+
+	if val := cc.NorthstarPhase; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/northstar_phase, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/northstar_phase, \""+val+"\").")
+		}
+	}
+
+	if val := cc.OuroborosStage; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/ouroboros_stage, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/ouroboros_stage, \""+val+"\").")
+		}
+	}
+
+	if val := cc.IntentVerb; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/intent_verb, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/intent_verb, \""+val+"\").")
+		}
+	}
+
+	if val := cc.ShardType; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/shard_type, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/shard_type, \""+val+"\").")
+		}
+	}
+
+	if val := cc.Language; val != "" {
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/language, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/language, \""+val+"\").")
+		}
+	}
 
 	// Multi-value dimensions
-	for _, fw := range cc.Frameworks {
-		addFact("/framework", fw)
+	for _, val := range cc.Frameworks {
+		if val == "" {
+			continue
+		}
+		if len(val) > 0 && val[0] == '/' {
+			facts = append(facts, "compile_context(/framework, "+val+").")
+		} else {
+			facts = append(facts, "compile_context(/framework, \""+val+"\").")
+		}
 	}
 
-	for _, ws := range worldStates {
-		addFact("/world_state", ws)
+	// World States - Inlined from WorldStates() to avoid slice allocation
+	// Optimization: Use constant strings since world states are known constants.
+
+	if cc.FailingTestCount > 0 {
+		facts = append(facts, "compile_context(/world_state, \"failing_tests\").")
+	}
+
+	if cc.DiagnosticCount > 0 {
+		facts = append(facts, "compile_context(/world_state, \"diagnostics\").")
+	}
+
+	if cc.IsLargeRefactor {
+		facts = append(facts, "compile_context(/world_state, \"large_refactor\").")
+	}
+
+	if cc.HasSecurityIssues {
+		facts = append(facts, "compile_context(/world_state, \"security_issues\").")
+	}
+
+	if cc.HasNewFiles {
+		facts = append(facts, "compile_context(/world_state, \"new_files\").")
+	}
+
+	if cc.IsHighChurn {
+		facts = append(facts, "compile_context(/world_state, \"high_churn\").")
+	}
+
+	if cc.HasReflectionHits {
+		facts = append(facts, "compile_context(/world_state, \"reflection_hits\").")
 	}
 
 	return facts
