@@ -114,3 +114,9 @@ func TestFitBudgetDemotesTools(t *testing.T) {
 		t.Fatalf("TokensUsed = %d, want <= 50", stats.TokensUsed)
 	}
 }
+
+// TODO: TEST_GAP: Null/Undefined - Verify behavior when 'allTools' contains nil pointers to prevent panic in buildToolSet.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when multiple tools share the same ToolID (last-write-wins vs error).
+// TODO: TEST_GAP: Type Coercion/Robustness - Verify case-insensitive handling of RenderMode strings from Mangle (e.g. "FULL").
+// TODO: TEST_GAP: User Request Extremes - Verify behavior with 0 or negative TokenBudget (should probably error or return empty safely).
+// TODO: TEST_GAP: Performance - Benchmark fitBudget with 10,000 tools to ensure O(N) complexity holds.
