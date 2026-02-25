@@ -8,6 +8,18 @@ import (
 )
 
 func BenchmarkVectorRecallBruteForce(b *testing.B) {
+	runBenchmarkVectorRecallBruteForce(b, 1000)
+}
+
+func BenchmarkVectorRecallBruteForce_Scaling_5000(b *testing.B) {
+	runBenchmarkVectorRecallBruteForce(b, 5000)
+}
+
+func BenchmarkVectorRecallBruteForce_Scaling_10000(b *testing.B) {
+	runBenchmarkVectorRecallBruteForce(b, 10000)
+}
+
+func runBenchmarkVectorRecallBruteForce(b *testing.B, numVectors int) {
 	store, err := NewLocalStore(":memory:")
 	if err != nil {
 		b.Fatalf("Failed to create store: %v", err)
@@ -15,8 +27,7 @@ func BenchmarkVectorRecallBruteForce(b *testing.B) {
 	defer store.Close()
 
 	// 1. Populate Store with N vectors
-	numVectors := 1000 // Adjust as needed to see impact
-	dim := 1536        // Typical OpenAI embedding size
+	dim := 1536 // Typical OpenAI embedding size
 
 	// Create a mock engine that just returns random vectors
 	mockEngine := &MockEmbeddingEngine{
@@ -36,9 +47,13 @@ func BenchmarkVectorRecallBruteForce(b *testing.B) {
 	// Batch insert for speed
 	batchSize := 100
 	for i := 0; i < numVectors; i += batchSize {
-		contents := make([]string, batchSize)
-		metas := make([]map[string]interface{}, batchSize)
-		for j := 0; j < batchSize; j++ {
+		count := batchSize
+		if i+count > numVectors {
+			count = numVectors - i
+		}
+		contents := make([]string, count)
+		metas := make([]map[string]interface{}, count)
+		for j := 0; j < count; j++ {
 			contents[j] = fmt.Sprintf("content_%d", i+j)
 			metas[j] = map[string]interface{}{"id": i + j}
 		}
