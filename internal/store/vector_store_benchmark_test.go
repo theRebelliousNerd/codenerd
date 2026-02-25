@@ -27,6 +27,17 @@ func BenchmarkVectorRecallBruteForce(b *testing.B) {
 			}
 			return vec, nil
 		},
+		EmbedBatchFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+			result := make([][]float32, len(texts))
+			for i := range texts {
+				vec := make([]float32, dim)
+				for j := 0; j < dim; j++ {
+					vec[j] = rand.Float32()
+				}
+				result[i] = vec
+			}
+			return result, nil
+		},
 		DimensionsFunc: func() int { return dim },
 	}
 	store.SetEmbeddingEngine(mockEngine)

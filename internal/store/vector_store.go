@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -410,13 +411,15 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.similarity > b.similarity {
+			return -1
 		}
-	}
+		if a.similarity < b.similarity {
+			return 1
+		}
+		return 0
+	})
 
 	// Return top K
 	if len(candidates) > limit {
@@ -537,13 +540,16 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		})
 	}
 
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	// Sort by similarity descending
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.similarity > b.similarity {
+			return -1
 		}
-	}
+		if a.similarity < b.similarity {
+			return 1
+		}
+		return 0
+	})
 
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
@@ -674,13 +680,15 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.similarity > b.similarity {
+			return -1
 		}
-	}
+		if a.similarity < b.similarity {
+			return 1
+		}
+		return 0
+	})
 
 	// Return top K
 	if len(candidates) > limit {
@@ -1491,13 +1499,15 @@ func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int)
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.similarity > b.similarity {
+			return -1
 		}
-	}
+		if a.similarity < b.similarity {
+			return 1
+		}
+		return 0
+	})
 
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
@@ -1579,13 +1589,15 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryEmbedding []float32, li
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		if a.similarity > b.similarity {
+			return -1
 		}
-	}
+		if a.similarity < b.similarity {
+			return 1
+		}
+		return 0
+	})
 
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
