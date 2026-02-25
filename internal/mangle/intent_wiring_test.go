@@ -28,9 +28,37 @@ Decl tdd_state(State).
 Decl next_action(Action).
 Decl same_package(File1, File2).
 Decl file_imports(Importer, Imported).
+Decl persona_tool_allowed(Persona, Tool).
 `
 
 	program := mockSchema + "\n" + string(data)
+
+	t.Run("persona_tool_allowed derivation", func(t *testing.T) {
+		// Test that /coder persona gets write_file permission
+		// persona(/coder) :- user_intent(_, _, /fix, _, _).
+		facts := []testFact{
+			{"user_intent", []interface{}{"id1", "/command", "/fix", "file.go", "/none"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "persona_tool_allowed")
+
+		found := false
+		for _, f := range result {
+			// persona_tool_allowed(Persona, Tool)
+			if len(f.Args) == 2 {
+				persona, ok1 := f.Args[0].(string)
+				tool, ok2 := f.Args[1].(string)
+
+				if ok1 && ok2 && persona == "/coder" && tool == "/write_file" {
+					found = true
+					break
+				}
+			}
+		}
+
+		if !found {
+			t.Errorf("Expected persona_tool_allowed(/coder, /write_file), got: %v", result)
+		}
+	})
 
 	t.Run("code_modified_recently derivation", func(t *testing.T) {
 		facts := []testFact{

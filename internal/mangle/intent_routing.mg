@@ -164,54 +164,54 @@ test_framework(/minitest) :- file_exists("Gemfile"), file_contains("Gemfile", "m
 # Maps personas and action types to allowed tools
 
 # Core tools available to all personas
-tool_allowed(P, /read_file) :- persona(P).
-tool_allowed(P, /search_code) :- persona(P).
-tool_allowed(P, /list_files) :- persona(P).
-tool_allowed(P, /glob) :- persona(P).
-tool_allowed(P, /grep) :- persona(P).
+persona_tool_allowed(P, /read_file) :- persona(P).
+persona_tool_allowed(P, /search_code) :- persona(P).
+persona_tool_allowed(P, /list_files) :- persona(P).
+persona_tool_allowed(P, /glob) :- persona(P).
+persona_tool_allowed(P, /grep) :- persona(P).
 
 # Code DOM tools - available to all personas for semantic code navigation
-tool_allowed(P, /get_elements) :- persona(P).
-tool_allowed(P, /get_element) :- persona(P).
+persona_tool_allowed(P, /get_elements) :- persona(P).
+persona_tool_allowed(P, /get_element) :- persona(P).
 
 # Coder-specific tools
-tool_allowed(/coder, /write_file).
-tool_allowed(/coder, /edit_file).
-tool_allowed(/coder, /delete_file).
-tool_allowed(/coder, /run_build).
-tool_allowed(/coder, /run_command).
-tool_allowed(/coder, /bash).
-tool_allowed(/coder, /git_operation).
-tool_allowed(/coder, /edit_lines).
-tool_allowed(/coder, /insert_lines).
-tool_allowed(/coder, /delete_lines).
+persona_tool_allowed(/coder, /write_file).
+persona_tool_allowed(/coder, /edit_file).
+persona_tool_allowed(/coder, /delete_file).
+persona_tool_allowed(/coder, /run_build).
+persona_tool_allowed(/coder, /run_command).
+persona_tool_allowed(/coder, /bash).
+persona_tool_allowed(/coder, /git_operation).
+persona_tool_allowed(/coder, /edit_lines).
+persona_tool_allowed(/coder, /insert_lines).
+persona_tool_allowed(/coder, /delete_lines).
 
 # Tester-specific tools
-tool_allowed(/tester, /run_tests).
-tool_allowed(/tester, /run_command).
-tool_allowed(/tester, /bash).
-tool_allowed(/tester, /write_file).  # Can write test files
-tool_allowed(/tester, /edit_file).
-tool_allowed(/tester, /edit_lines).
-tool_allowed(/tester, /insert_lines).
-tool_allowed(/tester, /delete_lines).
-tool_allowed(/tester, /get_impacted_tests).
-tool_allowed(/tester, /run_impacted_tests).
+persona_tool_allowed(/tester, /run_tests).
+persona_tool_allowed(/tester, /run_command).
+persona_tool_allowed(/tester, /bash).
+persona_tool_allowed(/tester, /write_file).  # Can write test files
+persona_tool_allowed(/tester, /edit_file).
+persona_tool_allowed(/tester, /edit_lines).
+persona_tool_allowed(/tester, /insert_lines).
+persona_tool_allowed(/tester, /delete_lines).
+persona_tool_allowed(/tester, /get_impacted_tests).
+persona_tool_allowed(/tester, /run_impacted_tests).
 
 # Coder can also use test impact tools
-tool_allowed(/coder, /get_impacted_tests).
-tool_allowed(/coder, /run_impacted_tests).
+persona_tool_allowed(/coder, /get_impacted_tests).
+persona_tool_allowed(/coder, /run_impacted_tests).
 
 # Reviewer-specific tools (read-heavy)
-tool_allowed(/reviewer, /git_diff).
-tool_allowed(/reviewer, /git_log).
-tool_allowed(/reviewer, /run_command).  # For static analysis tools
+persona_tool_allowed(/reviewer, /git_diff).
+persona_tool_allowed(/reviewer, /git_log).
+persona_tool_allowed(/reviewer, /run_command).  # For static analysis tools
 
 # Researcher-specific tools
-tool_allowed(/researcher, /web_search).
-tool_allowed(/researcher, /web_fetch).
-tool_allowed(/researcher, /context7_fetch).
-tool_allowed(/researcher, /write_file).  # Can write documentation
+persona_tool_allowed(/researcher, /web_search).
+persona_tool_allowed(/researcher, /web_fetch).
+persona_tool_allowed(/researcher, /context7_fetch).
+persona_tool_allowed(/researcher, /write_file).  # Can write documentation
 
 # =============================================================================
 # SECTION 4.5: Modular Tool Routing
