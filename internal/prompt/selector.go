@@ -471,6 +471,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
+	// TODO: Performance: Phase 1 (Skeleton) and Phase 2 (Flesh) are independent and can be executed concurrently to reduce total selection time.
 	// =========================================================================
 	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {
@@ -1060,7 +1061,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
-// TODO: Performance: Optimize fact string construction. Use pre-allocated buffer or builder instead of fmt.Sprintf for every fact.
+// TODO: Performance: Optimize fact string construction. Use a pre-allocated buffer or builder instead of fmt.Sprintf for every fact to reduce memory allocations.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	var facts []interface{}
 

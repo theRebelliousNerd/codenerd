@@ -448,6 +448,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
 	// Step 1: Collect all candidate atoms from all sources
+	// TODO: Performance: Execute atom collection (collectAtomsWithStats), kernel injection (collectKernelInjectedAtoms), and knowledge retrieval (collectKnowledgeAtoms) concurrently to reduce total compilation latency.
 	collectStart := time.Now()
 	candidates, sourceBreakdown, err := c.collectAtomsWithStats(ctx, cc)
 	if err != nil {
@@ -598,7 +599,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
+	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency to avoid blocking other compilations during stats update.
 	c.mu.Lock()
 	c.lastResult = result
 	c.mu.Unlock()
@@ -652,7 +653,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
-		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types (int, float, bool) to avoid reflection overhead in hot loops.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -1058,7 +1059,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	}
 
 	// 2. Load Context Tags
-	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
+	// TODO: Performance: Use a JOIN query to fetch atoms and their tags in a single round-trip instead of the current 1+1 pattern.
 	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
 	if err != nil {
 		// Log warning but don't fail, maybe table is empty or migration pending
@@ -1308,8 +1309,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
-	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
+	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to prevent premature timeouts on slow systems or unnecessary waiting on fast ones.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -1441,7 +1441,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
+// TODO: Performance: Cache the parsed agents.json content and use a file watcher or TTL to avoid disk I/O and JSON parsing on every compilation.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
