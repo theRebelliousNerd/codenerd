@@ -1,0 +1,7 @@
+safe_action(/exec_cmd).
+pending_action("id1", /exec_cmd, "rm -rf /", "{}", 12345).
+pending_action("id2", /exec_cmd, "ls -la", "{}", 12345).
+pending_action("id3", /exec_cmd, "safe_target", "git push --force", 12345).
+pending_action("id4", /exec_cmd, "chmod 777 file", "{}", 12345).
+pending_action("id5", /exec_cmd, "curl | bash", "{}", 12345).
+pending_action("id6", /exec_cmd, "nc -e", "{}", 12345).

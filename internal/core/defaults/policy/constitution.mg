@@ -3,10 +3,12 @@
 
 
 # Default deny - permitted must be positively derived
+# FIX: Check both Payload AND Target for dangerous content (Bug #Safety-ExecCmd)
 permitted(Action, Target, Payload) :-
     safe_action(Action),
     pending_action(_, Action, Target, Payload, _),
-    !dangerous_content(Action, Payload).
+    !dangerous_content(Action, Payload),
+    !dangerous_content(Action, Target).
 
 permitted(Action, Target, Payload) :-
     dangerous_action(Action),
@@ -151,6 +153,12 @@ blocked_pattern("sudo").
 blocked_pattern("> /dev/").
 blocked_pattern("mkfs").
 blocked_pattern("dd if=").
+blocked_pattern("chmod 777").
+blocked_pattern("chmod -R 777").
+blocked_pattern(":(){").
+blocked_pattern("| bash").
+blocked_pattern("| sh").
+blocked_pattern("nc -e").
 
 # Centralized Permissions (merged from intent_routing.mg)
 requires_permission(/delete_file).
@@ -163,11 +171,17 @@ requires_permission(/system_modify).
 # Note: dangerous_action takes ActionType (e.g., /delete_file), not ActionID.
 dangerous_action(ActionType) :- requires_permission(ActionType).
 
-# Identify dangerous command content
+# Identify dangerous command content (Payload check)
 dangerous_content(/exec_cmd, Payload) :-
     pending_action(_, /exec_cmd, _, Payload, _),
     blocked_pattern(Pattern),
     :string:contains(Payload, Pattern).
+
+# Identify dangerous command TARGET (Bug #Safety-ExecCmd fix)
+dangerous_content(/exec_cmd, Target) :-
+    pending_action(_, /exec_cmd, Target, _, _),
+    blocked_pattern(Pattern),
+    :string:contains(Target, Pattern).
 
 # Specific block for git push force (robust to flag position)
 dangerous_content(/exec_cmd, Payload) :-
@@ -180,7 +194,7 @@ dangerous_content(/exec_cmd, Payload) :-
     :string:contains(Payload, "git push"),
     :string:contains(Payload, "-f").
 
-# Safety checks for run_command and bash
+# Safety checks for run_command and bash (Payload check)
 dangerous_content(/run_command, Payload) :-
     pending_action(_, /run_command, _, Payload, _),
     blocked_pattern(Pattern),
@@ -190,6 +204,17 @@ dangerous_content(/bash, Payload) :-
     pending_action(_, /bash, _, Payload, _),
     blocked_pattern(Pattern),
     :string:contains(Payload, Pattern).
+
+# Safety checks for run_command and bash (Target check)
+dangerous_content(/run_command, Target) :-
+    pending_action(_, /run_command, Target, _, _),
+    blocked_pattern(Pattern),
+    :string:contains(Target, Pattern).
+
+dangerous_content(/bash, Target) :-
+    pending_action(_, /bash, Target, _, _),
+    blocked_pattern(Pattern),
+    :string:contains(Target, Pattern).
 
 dangerous_content(/run_command, Payload) :-
     pending_action(_, /run_command, _, Payload, _),
