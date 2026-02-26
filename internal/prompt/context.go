@@ -362,6 +362,7 @@ func (cc *CompilationContext) String() string {
 // These facts are formatted for the compile_context(Dimension, Value) schema
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
 // TODO: Reliability: Use a safer fact builder or validate input to prevent potential Mangle injection issues with string concatenation.
+// TODO: Security: Implement proper string escaping for Mangle values (e.g. quote characters) to prevent syntax errors or injection vulnerabilities.
 func (cc *CompilationContext) ToContextFacts() []interface{} {
 	worldStates := cc.WorldStates()
 

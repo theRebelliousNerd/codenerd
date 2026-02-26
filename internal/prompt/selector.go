@@ -1201,6 +1201,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
 // TODO: Performance: Replace fmt.Sprintf fallback with type switch for common types (int, float, bool) to avoid reflection overhead in hot loops.
+// TODO: Reliability: Replace fmt.Sprintf("%v") with type switch to prevent silent type coercion errors (e.g. "<nil>") and improve performance.
 func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:

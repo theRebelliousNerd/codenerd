@@ -26,6 +26,7 @@ type Fact struct {
 
 // KernelQuerier defines the interface for querying the Mangle kernel.
 // This abstracts the kernel to avoid circular imports.
+// TODO: Reliability: Add context.Context to Query/AssertBatch to support cancellation of long-running logic operations.
 type KernelQuerier interface {
 	// Query retrieves facts matching a predicate.
 	Query(predicate string) ([]Fact, error)
@@ -739,6 +740,8 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	var breakdown sourceBreakdown
 
 	c.mu.RLock()
+	// TODO: Performance: Release lock before performing database I/O to avoid blocking other readers/writers.
+	// Copy the necessary DB handles locally, then unlock, then query.
 	defer c.mu.RUnlock()
 
 	// 1. Embedded corpus (always first)
@@ -750,6 +753,8 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 		allAtoms = make([]*PromptAtom, 0, count+100)
 		allAtoms = c.embeddedCorpus.AppendAll(allAtoms)
 	}
+
+	// TODO: Performance: Parallelize project and shard DB loading using sync.WaitGroup to reduce total latency.
 
 	// 2. Project database
 	if c.projectDB != nil {

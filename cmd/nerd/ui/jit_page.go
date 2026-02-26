@@ -249,6 +249,8 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	items := make([]list.Item, 0, len(result.IncludedAtoms))
 
 	// Sort by priority desc
+	// CRITICAL TODO: Reliability: sort.Slice mutates the shared result.IncludedAtoms slice, which corrupts the JIT compiler's cache.
+	// This must be fixed by cloning the slice before sorting to avoid race conditions.
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority
 	})
