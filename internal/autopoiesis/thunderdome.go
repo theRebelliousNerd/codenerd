@@ -271,6 +271,8 @@ func TestThunderdomeArena(t *testing.T) {
 	debug.SetMemoryLimit(%d * 1024 * 1024)
 
 	// Read attack input from stdin
+	// TODO: SECURITY: Use io.LimitReader(os.Stdin, MAX_SIZE) here to prevent
+	// an attacker from causing an OOM just by piping infinite data to stdin.
 	inputBytes, readErr := io.ReadAll(os.Stdin)
 	if readErr != nil {
 		fmt.Fprintf(os.Stderr, "HARNESS_ERROR: failed to read stdin: %%v\n", readErr)

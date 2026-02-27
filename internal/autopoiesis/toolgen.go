@@ -67,6 +67,8 @@ func (tg *ToolGenerator) WriteTool(tool *GeneratedTool) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	// TODO: RELIABILITY: Use atomic file writing here (write to temp file, then rename).
+	// This prevents partial writes if the system crashes during tool generation.
 	// Write main code
 	if err := os.WriteFile(tool.FilePath, []byte(tool.Code), 0644); err != nil {
 		return fmt.Errorf("failed to write tool code: %w", err)
