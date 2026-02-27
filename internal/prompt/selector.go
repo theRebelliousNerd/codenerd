@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1205,6 +1206,16 @@ func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:
 		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case bool:
+		return strconv.FormatBool(v)
 	case fmt.Stringer:
 		return v.String()
 	default:
