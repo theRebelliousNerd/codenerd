@@ -62,11 +62,14 @@ func TestActivatePhase(t *testing.T) {
 		FocusPatterns:   []string{"*.go", "*.md"},
 	}
 	// Inject profile fact into kernel
+	// TODO: Test getContextProfile with malformed "context_profile" facts (e.g., non-comma-separated strings, nil args)
 	kernel.Assert(profile.ToFacts()[0])
 
 	// Inject scoped docs fact
 	// Predicate: phase_context_scope(Layer, Doc)
 	// Phase Name: "Test Phase" -> Normalized: "test_phase"
+	// TODO: Test scopedDocsForPhase when kernel returns non-string arguments (int, bool, nil)
+	// TODO: Test scopedDocsForPhase with 1,000,000 phase_context_scope facts to check linear scan performance
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
 		Args:      []interface{}{"test_phase", "scoped_doc.md"},
@@ -87,6 +90,15 @@ func TestActivatePhase(t *testing.T) {
 	}
 
 	// 2. Activate Phase
+	// TODO: Test ActivatePhase with nil phase (should handle gracefully)
+	// TODO: Test ActivatePhase with phase containing nil Tasks slice
+	// TODO: Test ActivatePhase with phase containing Tasks with nil Artifacts
+	// TODO: Test ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
+	// TODO: Test ActivatePhase with 10,000+ tasks to verify performance and memory stability
+	// TODO: Test ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
+	// TODO: Test ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
+	// TODO: Test Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
+	// TODO: Test Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
 	err := cp.ActivatePhase(ctx, phase)
 	if err != nil {
 		t.Fatalf("ActivatePhase failed: %v", err)
@@ -187,6 +199,8 @@ func TestCompressPhase(t *testing.T) {
 	})
 
 	// Run Compression
+	// TODO: Test CompressPhase with nil phase
+	// TODO: Test CompressPhase with massive 'accomplishments' output (10MB+) to ensure no OOM or LLM client failure
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
 	if err != nil {
 		t.Fatalf("CompressPhase failed: %v", err)
@@ -314,3 +328,6 @@ func TestPruneIrrelevant(t *testing.T) {
 		t.Error("Expected browser predicates to be suppressed")
 	}
 }
+
+// TODO: Additional Negative Testing Scenarios
+// - Test Reset Failure: Mock kernel.Retract failure and verify "ghost facts" persist
