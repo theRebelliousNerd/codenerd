@@ -1,0 +1,33 @@
+# Go Modern Features Atom
+# Guidance on using features from recent Go versions (1.21+)
+
+- id: "language/go/modern_features"
+  category: "language"
+  subcategory: "go"
+  priority: 50
+  is_mandatory: false
+  shard_types: ["/coder"]
+  languages: ["/go"]
+  content: |
+    ## Modern Go Features (Go 1.21+)
+
+    ### Loop Variable Scoping (Go 1.22+)
+    - Loop variables are now per-iteration, not per-loop.
+    - You no longer need `v := v` inside loops to capture values for closures/goroutines.
+    - **Legacy:** `for _, v := range s { v := v; go func() { use(v) }() }`
+    - **Modern:** `for _, v := range s { go func() { use(v) }() }`
+
+    ### Structured Logging (Go 1.21+)
+    - Use `log/slog` for structured, leveled logging.
+    - Prefer `slog.Info("msg", "key", value)` over `log.Printf`.
+    - Use `slog.Group` to namespace attributes.
+
+    ### Built-in Min/Max/Clear (Go 1.21+)
+    - Use `min(a, b)` and `max(a, b)` for ordered types.
+    - Use `clear(map)` to remove all entries from a map.
+    - Use `clear(slice)` to zero out slice elements (keeps length/capacity).
+
+    ### Slice and Map Packages (Go 1.21+)
+    - Use `slices.Sort`, `slices.Contains`, `slices.Clone`.
+    - Use `maps.Clone`, `maps.Copy`.
+    - These generic functions replace many custom utility implementations.
