@@ -220,6 +220,15 @@ func TestGetProblemTypeDescription(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: TestProblemClassifier_EmptyInput
+// Verify Classify("") returns a safe default with low confidence
+
+// TODO: TEST_GAP: TestProblemClassifier_HugeInput
+// Verify regex classification on 1MB+ strings completes within reasonable time (ReDoS check)
+
+// TODO: TEST_GAP: TestProblemClassifier_BinaryInput
+// Verify classification of random binary data does not crash
+
 // =============================================================================
 // EVOLVER CONFIG TESTS
 // =============================================================================
@@ -321,6 +330,18 @@ func TestFeedbackCollector(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: TestFeedbackCollector_NilRecord
+// Verify Record(nil) returns an error and does not panic
+
+// TODO: TEST_GAP: TestFeedbackCollector_LargePayload
+// Verify recording execution with 10MB+ text fields
+
+// TODO: TEST_GAP: TestFeedbackCollector_ConcurrentWrites
+// Verify Record is thread-safe under heavy concurrent load (50+ goroutines)
+
+// TODO: TEST_GAP: TestFeedbackCollector_DatabaseError
+// Verify behavior when the underlying SQLite DB is closed or corrupted
+
 // =============================================================================
 // STRATEGY STORE TESTS
 // =============================================================================
@@ -371,6 +392,9 @@ func TestStrategyStore(t *testing.T) {
 		}
 	}
 }
+
+// TODO: TEST_GAP: TestStrategyStore_MassiveStrategyCount
+// Verify performance when the store contains 10,000+ strategies
 
 // =============================================================================
 // ATOM GENERATOR HELPER TESTS
@@ -452,6 +476,12 @@ func TestEstimateTokens(t *testing.T) {
 		})
 	}
 }
+
+// TODO: TEST_GAP: TestAtomGenerator_EmptyFailures
+// Verify GenerateFromFailures with empty failure list
+
+// TODO: TEST_GAP: TestAtomGenerator_MalformedLLMResponse
+// Verify parser handles broken YAML/JSON from LLM gracefully
 
 // =============================================================================
 // PROMPT EVOLVER TESTS
@@ -595,6 +625,15 @@ func TestPromptEvolver_SelectStrategies(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: TestPromptEvolver_WriteFailure
+// Verify behavior when filesystem is read-only
+
+// TODO: TEST_GAP: TestPromptEvolver_InvalidConfig
+// Verify initialization with invalid configuration
+
+// TODO: TEST_GAP: TestPromptEvolver_ConcurrentAccess
+// Verify GetStats and RecordExecution can be called concurrently
+
 // =============================================================================
 // INTEGRATION-STYLE TESTS
 // =============================================================================
@@ -670,3 +709,9 @@ func TestFullEvolutionCycle(t *testing.T) {
 	t.Logf("Evolution result: failures=%d, atoms=%d, errors=%v",
 		result.FailuresAnalyzed, result.AtomsGenerated, result.Errors)
 }
+
+// TODO: TEST_GAP: TestTaskJudge_NilExecution
+// Verify Evaluate(ctx, nil) returns an error
+
+// TODO: TEST_GAP: TestTaskJudge_ContextCancellation
+// Verify long-running LLM calls respect context cancellation
