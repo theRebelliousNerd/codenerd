@@ -154,3 +154,36 @@ func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 	// core.RealKernel generally needs initialization.
 	// So assume we stop here. Use a specialized test that mocks kernel methods if we could, but we can't easily mock *RealKernel methods.
 }
+
+// TODO: TEST_GAP: TestDecompose_LLMMalformedJSON
+// Mock LLMClient.Complete to return invalid JSON on the first try, and valid JSON on the retry.
+// Verify Decompose recovers and succeeds.
+
+// TODO: TEST_GAP: TestDecompose_LLMTotalFailure
+// Mock LLMClient.Complete to return an error or timeout.
+// Verify Decompose returns a wrapped error and cleans up.
+
+// TODO: TEST_GAP: TestDecompose_EmptyGoal
+// Verify Decompose handles an empty goal gracefully (error or fallback plan).
+
+// TODO: TEST_GAP: TestCleanJSONResponse_EdgeCases
+// Test cleanJSONResponse with:
+// - Markdown containing text before and after the ```json block.
+// - Raw JSON without markdown fences but with trailing garbage.
+// - Nested JSON objects and arrays.
+
+// TODO: TEST_GAP: TestValidatePlan_CircularDependency
+// Mock Kernel.Query("validation_error") to return a circular dependency issue.
+// Verify validatePlan correctly parses the issue into the PlanValidationIssue slice.
+
+// TODO: TEST_GAP: TestRefinePlan_Success
+// Provide a RawPlan and a list of issues. Mock LLM to return a corrected plan.
+// Verify the refined plan is returned.
+
+// TODO: TEST_GAP: TestIngestSourceDocuments_Cancellation
+// Create a directory with dummy files. Pass a context that cancels after a few files are processed.
+// Verify the function returns early with context.Canceled.
+
+// TODO: TEST_GAP: TestRefinePlan_TxCommitFail
+// Mock tx.Commit() to return error during atomic rebuild failure.
+// Reverts state, returns error, logs warning.
