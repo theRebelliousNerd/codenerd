@@ -738,22 +738,32 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	var allAtoms []*PromptAtom
 	var breakdown sourceBreakdown
 
+	// ⚡ Bolt: Lock contention optimization
+	// Acquired RLock only to read shared pointers (embeddedCorpus, projectDB, shardDB)
+	// instead of wrapping the entire function. This prevents slow database queries
+	// (loadAtomsFromDB) from blocking other threads from accessing the compiler state.
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	embeddedCorpus := c.embeddedCorpus
+	projectDB := c.projectDB
+	var shardDB *sql.DB
+	if cc.ShardID != "" {
+		shardDB = c.shardDBs[cc.ShardID]
+	}
+	c.mu.RUnlock()
 
 	// 1. Embedded corpus (always first)
-	if c.embeddedCorpus != nil {
+	if embeddedCorpus != nil {
 		// Optimization: Pre-allocate slice with capacity for embedded + buffer for others
 		// This avoids multiple reallocations during append.
-		count := c.embeddedCorpus.Count()
+		count := embeddedCorpus.Count()
 		breakdown.embedded = count
 		allAtoms = make([]*PromptAtom, 0, count+100)
-		allAtoms = c.embeddedCorpus.AppendAll(allAtoms)
+		allAtoms = embeddedCorpus.AppendAll(allAtoms)
 	}
 
 	// 2. Project database
-	if c.projectDB != nil {
-		projectAtoms, err := c.loadAtomsFromDB(ctx, c.projectDB)
+	if projectDB != nil {
+		projectAtoms, err := c.loadAtomsFromDB(ctx, projectDB)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load project atoms: %v", err)
 		} else {
@@ -763,15 +773,13 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	}
 
 	// 3. Shard-specific database (if shard context is set)
-	if cc.ShardID != "" {
-		if shardDB, ok := c.shardDBs[cc.ShardID]; ok {
-			shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
-			if err != nil {
-				logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
-			} else {
-				breakdown.shard = len(shardAtoms)
-				allAtoms = append(allAtoms, shardAtoms...)
-			}
+	if shardDB != nil {
+		shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
+		} else {
+			breakdown.shard = len(shardAtoms)
+			allAtoms = append(allAtoms, shardAtoms...)
 		}
 	}
 
