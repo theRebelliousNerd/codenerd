@@ -381,6 +381,7 @@ func (s *AtomSelector) SetMinScoreThreshold(threshold float64) {
 //	  - Skeleton atoms take precedence
 //	  - Deduplication by atom ID
 // TODO: Feature: Allow configuring vector vs logic weight per-request via CompilationContext.
+// TODO: Performance: Run Phase 1 (Skeleton) and Phase 2 (Flesh) concurrently to reduce total selection latency.
 func (s *AtomSelector) SelectAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -1061,6 +1062,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 
 // buildContextFacts builds Mangle facts from context and atoms.
 // TODO: Performance: Optimize fact string construction. Use pre-allocated buffer or builder instead of fmt.Sprintf for every fact.
+// TODO: Maintainability: Consolidate duplicate Mangle fact generation logic between buildContextFacts and ToContextFacts.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	var facts []interface{}
 

@@ -28,6 +28,7 @@ type Fact struct {
 // This abstracts the kernel to avoid circular imports.
 type KernelQuerier interface {
 	// Query retrieves facts matching a predicate.
+	// TODO: Reliability: Add context.Context to Query and AssertBatch methods to support cancellation of long-running operations.
 	Query(predicate string) ([]Fact, error)
 
 	// AssertBatch adds multiple facts efficiently.
@@ -262,6 +263,7 @@ type JITPromptCompiler struct {
 	lastResult *CompilationResult
 
 	// Concurrency control
+	// TODO: Performance: Replace coarse-grained mu with finer-grained locks (e.g. separate locks for config, db registries, lastResult) to reduce contention.
 	mu sync.RWMutex
 
 	// Configuration
@@ -1414,8 +1416,8 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	}
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
-// TODO: Ensure active JIT compilations are finished before closing databases.
 
+// TODO: Reliability: Ensure active JIT compilations are finished before closing databases in Close().
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
 	c.mu.Lock()
@@ -1441,7 +1443,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
+// TODO: Performance: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {

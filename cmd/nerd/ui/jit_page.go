@@ -17,6 +17,7 @@ var clipboardWriteAll = clipboard.WriteAll
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
 // TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
+// TODO: Reliability: Fix race condition sorting shared CompilationResult.IncludedAtoms in place to prevent compiler cache corruption.
 type JITPageModel struct {
 	width    int
 	height   int
