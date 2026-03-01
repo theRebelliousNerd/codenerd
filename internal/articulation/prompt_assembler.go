@@ -1025,6 +1025,7 @@ func (pa *PromptAssembler) SetJITBudgets(tokenBudget, reservedTokens, semanticTo
 	}
 	if pa.tokenBudget > 0 && pa.reservedTokens >= pa.tokenBudget {
 		// Clamp to a safe fallback so Validate() doesn't fail.
+		// TODO: This clamping logic is arbitrary. Consider making it configurable.
 		pa.reservedTokens = pa.tokenBudget / 10
 		if pa.reservedTokens >= pa.tokenBudget {
 			pa.reservedTokens = 0
@@ -1187,6 +1188,7 @@ func (pa *PromptAssembler) BuildContextSection(shardID string) (string, error) {
 }
 
 // queryAndFormatContext queries injectable_context and formats it for prompt injection.
+	// TODO: Querying all facts might be slow for large stores. Consider optimized queries.
 func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
 	facts, err := pa.kernel.Query("injectable_context")
 	if err != nil {

@@ -78,7 +78,7 @@ Stored to:
 _The Campaign Planner will decompose your vision into actionable phases._`,
 			northstarPath, jsonPath)
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: msg,
 			Time:    time.Now(),
@@ -114,7 +114,7 @@ _The Campaign Planner will decompose your vision into actionable phases._`,
 	msgBuilder.WriteString("- Run `/query northstar_mission` to query the kernel\n")
 	msgBuilder.WriteString("- The vision will inform all future planning")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: msgBuilder.String(),
 		Time:    time.Now(),

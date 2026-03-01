@@ -304,10 +304,6 @@ var CommonDocURLs = map[string][]string{
 		"https://github.com/charmbracelet/bubbletea",
 		"https://pkg.go.dev/github.com/charmbracelet/bubbletea",
 	},
-	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
-	"cloudcode": {
-		"https://cloud.google.com/code/docs",
-	},
 }
 
 // GetDocURLsForTech returns documentation URLs for a technology.

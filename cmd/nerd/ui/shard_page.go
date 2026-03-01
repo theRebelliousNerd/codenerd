@@ -245,7 +245,7 @@ func (m ShardPageModel) renderFilterBar() string {
 	// Filter input
 	filterStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Border).
+		BorderForeground(m.styles.Theme.Outline).
 		Padding(0, 1)
 
 	if m.filterFocused {

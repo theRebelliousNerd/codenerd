@@ -87,16 +87,16 @@ func (s *Sanitizer) Sanitize(raw string) (string, error) {
 	return s.serializeUnit(unit.Decls, newClauses)
 }
 
+// aggPattern matches: VAR = count(VAR) or VAR = sum(VAR)
+// Limitiation: Simple cases only.
+// Groups: 1=ResVar, 2=Func, 3=ArgVar
+var aggPattern = regexp.MustCompile(`([A-Z][a-zA-Z0-9_]*)\s*=\s*(count|sum|min|max|avg)\(([A-Z][a-zA-Z0-9_]*)\)`)
+
 // preprocessAggregations converts invalid `VAR = AGG(VAR)` syntax to a temporary valid predicate `llm_agg`.
 func (s *Sanitizer) preprocessAggregations(raw string) string {
-	// Regex for: VAR = count(VAR) or VAR = sum(VAR)
-	// Limitiation: Simple cases only.
-	// Groups: 1=ResVar, 2=Func, 3=ArgVar
-	re := regexp.MustCompile(`([A-Z][a-zA-Z0-9_]*)\s*=\s*(count|sum|min|max|avg)\(([A-Z][a-zA-Z0-9_]*)\)`)
-
 	// Replacement: llm_agg("FUNC", ResVar, ArgVar)
 	// We quote the func name to make it a string constant
-	return re.ReplaceAllString(raw, `llm_agg("$2", $1, $3)`)
+	return aggPattern.ReplaceAllString(raw, `llm_agg("$2", $1, $3)`)
 }
 
 // SanitizeAtoms acts as the public entry point for just Atom Interning (Pass 1).

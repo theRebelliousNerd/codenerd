@@ -55,7 +55,7 @@ Let's get you set up in under 2 minutes.
 Type a number (1-4) or "skip" to use defaults:
 `
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: welcomeMsg,
 		Time:    time.Now(),
@@ -113,7 +113,7 @@ func (m Model) handleExperienceSelection(input string) (tea.Model, tea.Cmd) {
 		level = string(config.ExperienceExpert)
 		levelName = "Expert"
 	default:
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Please enter a number (1-4) or type \"skip\" to use defaults.",
 			Time:    time.Now(),
@@ -148,7 +148,7 @@ I need an LLM backend to work. Choose one:
 Type a number (1-3) or "skip" to configure later:
 `, levelName)
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: apiMsg,
 		Time:    time.Now(),
@@ -170,7 +170,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 			Step:   StepEngine,
 			Engine: "api",
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Let's set up your API key. Starting configuration wizard...\n\n" + getAPIProviderPrompt(),
 			Time:    time.Now(),
@@ -186,7 +186,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 			Step:   StepClaudeCLIConfig,
 			Engine: "claude-cli",
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Setting up Claude CLI integration...\n\nWhich model tier? (sonnet/opus/haiku)",
 			Time:    time.Now(),
@@ -201,7 +201,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 			Step:   StepCodexCLIConfig,
 			Engine: "codex-cli",
 		}
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Setting up Codex CLI integration...\n\nWhich model? (gpt-5/o4-mini/codex-mini-latest)",
 			Time:    time.Now(),
@@ -213,7 +213,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 		return m.showWowMoment("")
 
 	default:
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Please enter a number (1-3) or type \"skip\" to configure later.",
 			Time:    time.Now(),
@@ -259,7 +259,7 @@ func (m Model) showWowMoment(levelName string) (tea.Model, tea.Cmd) {
 **Press Enter to complete setup**, or type any command to jump right in!
 `
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: wowMsg,
 		Time:    time.Now(),
@@ -291,7 +291,7 @@ func (m Model) skipOnboarding() (tea.Model, tea.Cmd) {
 		_ = pm.Save()
 	}
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: "Onboarding skipped. Type `/help` anytime to see available commands.\n\nReady when you are!",
 		Time:    time.Now(),
@@ -345,7 +345,7 @@ You're all set. Here are the essentials:
 Just type naturally - I'll figure out the rest. Happy coding!
 `
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: completeMsg,
 		Time:    time.Now(),

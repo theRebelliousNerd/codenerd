@@ -37,9 +37,6 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 	tr := &UnderstandingTransducer{}
 
-	// TODO: TEST_GAP: Add test cases for case-insensitive matching (e.g., "Investigate", "MODIFY").
-	// Current implementation only handles lowercase, which might fail with non-deterministic LLM output.
-
 	tests := []struct {
 		action string
 		domain string
@@ -55,6 +52,12 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 		{"attack", "", "/assault"},
 		{"chat", "", "/converse"},
 		{"unknown", "", "/explain"},
+
+		// Case-insensitive matching tests
+		{"Investigate", "Testing", "/debug"},
+		{"MODIFY", "general", "/fix"},
+		{"reFactor", "", "/refactor"},
+		{" implement ", "", "/create"},
 	}
 
 	for _, tt := range tests {

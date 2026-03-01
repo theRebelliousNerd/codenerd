@@ -64,13 +64,10 @@ func (m *UsagePageModel) UpdateContent() {
 	sb.WriteString("\n")
 
 	// Helper to render map tables
-	// TODO: IMPROVEMENT: Componentize table rendering by moving this to a reusable component or bubble.
 	renderTable := func(title string, data map[string]usage.TokenCounts) {
 		if len(data) == 0 {
 			return
 		}
-		sb.WriteString(m.styles.Title.Render(title))
-		sb.WriteString("\n")
 
 		// Sort keys
 		keys := make([]string, 0, len(data))
@@ -79,16 +76,17 @@ func (m *UsagePageModel) UpdateContent() {
 		}
 		sort.Strings(keys)
 
-		// Header
-		// Name | Input | Output | Total
-		sb.WriteString(fmt.Sprintf("%-20s | %-10s | %-10s | %-10s\n", "Name", "Input", "Output", "Total"))
-		sb.WriteString(strings.Repeat("-", 60) + "\n")
-
+		t := NewSimpleTable(title, []string{"Name", "Input", "Output", "Total"})
 		for _, k := range keys {
 			c := data[k]
-			sb.WriteString(fmt.Sprintf("%-20s | %-10d | %-10d | %-10d\n", truncate(k, 20), c.Input, c.Output, c.Total))
+			t.AddRow(
+				truncate(k, 20),
+				fmt.Sprintf("%d", c.Input),
+				fmt.Sprintf("%d", c.Output),
+				fmt.Sprintf("%d", c.Total),
+			)
 		}
-		sb.WriteString("\n")
+		sb.WriteString(t.View(m.styles))
 	}
 
 	renderTable("By Provider", stats.ByProvider)

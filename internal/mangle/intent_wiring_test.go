@@ -27,6 +27,7 @@ Decl test_state(State).
 Decl tdd_state(State).
 Decl next_action(Action).
 Decl same_package(File1, File2).
+Decl file_imports(Importer, Imported).
 `
 
 	program := mockSchema + "\n" + string(data)

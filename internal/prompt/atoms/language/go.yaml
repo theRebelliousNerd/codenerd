@@ -21,7 +21,7 @@
     - Accept interfaces, return structs
     - Keep interfaces small (1-3 methods ideal)
     - Define interfaces at point of use, not definition
-    - The empty interface `interface{}` should be rare (prefer `any` in Go 1.18+)
+    - Use `any` alias instead of `interface{}` for readability
 
     ### Concurrency Patterns
     - Don't communicate by sharing memory; share memory by communicating
@@ -45,6 +45,7 @@
     - Exported names start with uppercase, unexported with lowercase
     - Keep package scope minimal - prefer unexported when possible
     - Group related functionality in the same file
+    - Use `log/slog` for structured logging (standard since Go 1.21)
 
     ### Variable Declarations
     - Use `:=` for local variables when type is obvious
@@ -59,7 +60,6 @@
     - Use labeled breaks/continues for complex loops
 
     ### Common Pitfalls
-    - Range loop variables are reused: capture in new variable or use index
     - Defer runs at function exit, not block exit
     - Slices and maps are reference types; copying requires `copy()` or manual iteration
     - Method receivers: pointer for mutation, value for immutability

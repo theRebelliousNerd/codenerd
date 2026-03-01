@@ -11,8 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
-
 // authCmd manages CLI engine authentication
 var authCmd = &cobra.Command{
 	Use:   "auth",

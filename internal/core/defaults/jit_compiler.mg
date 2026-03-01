@@ -61,6 +61,7 @@ has_constraint(Atom, Dim) :- atom_tag(Atom, Dim, _).
 
 satisfied_constraint(Atom, Dim) :-
     atom_tag(Atom, Dim, Tag),
+# TODO: Verify if all new atom types implicitly require their tags as constraints.
     current_context(Dim, Tag).
     
 # An atom is blocked only if context EXPLICITLY has a different value for Dim.

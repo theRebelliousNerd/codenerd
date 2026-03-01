@@ -21,7 +21,6 @@ type ProviderConfig struct {
 
 	// Provider-specific configurations
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
-	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 }
 
 // DefaultConfigPath returns the default path to .nerd/config.json.

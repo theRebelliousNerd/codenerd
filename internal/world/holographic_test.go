@@ -167,11 +167,6 @@ func TestFormatPrioritizedCallersCompact(t *testing.T) {
 }
 
 func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
-	// TODO: TEST_GAP: Type Coercion Safety
-	// priorityAtomToInt assumes atoms are strings (e.g., "/high").
-	// If the kernel returns a custom atom type or a raw number, the integration might fail.
-	// Tests should verify behavior with non-string inputs and malformed atom strings.
-
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -187,13 +182,23 @@ func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
 		{name: "lowest", atom: "/lowest", want: 10},
 		{name: "unknown", atom: "/unknown", want: 50},
 		{name: "no_slash", atom: "high", want: 80},
+		// Additional test cases for non-standard inputs
+		{name: "empty_string", atom: "", want: 50},
+		{name: "single_slash", atom: "/", want: 50},
+		{name: "uppercase_critical", atom: "CRITICAL", want: 100},
+		{name: "uppercase_slash_critical", atom: "/CRITICAL", want: 100},
+		{name: "whitespace_padded", atom: "  high  ", want: 50}, // whitespace not trimmed currently
+		{name: "numeric_string_100", atom: "100", want: 50},     // numeric strings return default
+		{name: "numeric_string_0", atom: "0", want: 50},         // numeric strings return default
+		{name: "malformed_slashes", atom: "//high", want: 50},    // double slash not handled
+		{name: "malformed_path", atom: "/super/high", want: 50},  // path-like atom not handled
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := h.priorityAtomToInt(tt.atom)
 			if got != tt.want {
-				t.Errorf("priorityAtomToInt(%s) = %d, want %d", tt.atom, got, tt.want)
+				t.Errorf("priorityAtomToInt(%q) = %d, want %d", tt.atom, got, tt.want)
 			}
 		})
 	}
@@ -223,6 +228,10 @@ func TestHolographicProviderStringArg(t *testing.T) {
 }
 
 func TestHolographicProviderIntArg(t *testing.T) {
+	// TODO: TEST_GAP: Numeric String Handling
+	// Verify that intArg correctly handles numeric strings (e.g., "80") which might be returned
+	// by Mangle if the type system isn't strictly enforced. Currently it might default to 50.
+
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -258,6 +267,10 @@ func TestBuildWithImpactPrioritiesNilContext(t *testing.T) {
 }
 
 func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
+	// TODO: TEST_GAP: Context Cancellation
+	// We should verify that BuildWithImpactPriorities respects ctx.Done() and aborts
+	// processing, especially during the loop where it fetches function bodies.
+
 	h := NewHolographicProvider(nil, ".")
 
 	ctx := context.Background()
@@ -330,6 +343,11 @@ func TestExtractLineRange(t *testing.T) {
 }
 
 func TestFindFunctionEnd(t *testing.T) {
+	// TODO: TEST_GAP: Python Docstrings and Complex Syntax
+	// The current brace counting logic may fail on Python multi-line strings (""" ... """)
+	// if they contain braces. It treats " as a single-line string delimiter.
+	// We need a test case with Python docstrings containing braces to verify this failure mode.
+
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -369,17 +387,57 @@ func TestFindFunctionEnd(t *testing.T) {
 			startIdx: 0,
 			want:     1, // Falls back to startIdx + maxCallerBodyLines or len-1
 		},
-	}
 
-	// TODO: TEST_GAP: Naive Brace Parsing
-	// The current implementation of findFunctionEnd counts braces without respecting string literals or comments.
-	// A test case like:
-	//   func foo() {
-	//       s := "}"
-	//       return
-	//   }
-	// currently fails (finds end at the line with "}"), causing truncated context.
-	// See .quality_assurance/2025-02-18_world_boundary_analysis.md for details.
+		{
+			name: "brace_in_string",
+			lines: []string{
+				"func foo() {",
+				"    s := \"}\"",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     3,
+		},
+		{
+			name: "brace_in_comment",
+			lines: []string{
+				"func foo() {",
+				"    // }",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     3,
+		},
+		{
+			name: "brace_in_multiline_comment",
+			lines: []string{
+				"func foo() {",
+				"    /*",
+				"    }",
+				"    */",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+		{
+			name: "brace_in_backtick",
+			lines: []string{
+				"func foo() {",
+				"    s := `",
+				"    }",
+				"    `",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

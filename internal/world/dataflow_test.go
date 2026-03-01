@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"sync"
 
@@ -437,10 +438,6 @@ func TestSummarizeDataFlow(t *testing.T) {
 }
 
 func TestDataFlowExtractor_ComplexFunction(t *testing.T) {
-	// TODO: TEST_GAP: Recursion/Stack Overflow
-	// DataFlowExtractor uses ast.Inspect which is recursive.
-	// We need a test case with deeply nested structures (e.g., 10k nested ifs)
-	// to ensure the extractor doesn't crash the agent with a stack overflow.
 
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test_complex.go")
@@ -562,4 +559,46 @@ func foo() {
 
 	close(done)
 	wg.Wait()
+}
+
+func TestDataFlowExtractor_DeepNesting(t *testing.T) {
+	// Addresses Recursion/Stack Overflow concerns
+	// DataFlowExtractor uses ast.Inspect which is recursive.
+	// We test with deeply nested structures to ensure the extractor doesn't crash.
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test_deep.go")
+
+	var sb strings.Builder
+	sb.WriteString("package test\n\nfunc deep() {\n")
+	sb.WriteString("\tx := 0\n")
+
+	// Create deeply nested if statements
+	// Go default stack size is small, but grows.
+	// 5000 is usually enough to stress test recursion without timing out the test.
+	const depth = 5000
+	for i := 0; i < depth; i++ {
+		sb.WriteString("if x > 0 {\n")
+	}
+	sb.WriteString("x++\n")
+	for i := 0; i < depth; i++ {
+		sb.WriteString("}\n")
+	}
+	sb.WriteString("}\n")
+
+	if err := os.WriteFile(testFile, []byte(sb.String()), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	extractor := NewDataFlowExtractor()
+	// This should not panic
+	facts, err := extractor.ExtractDataFlow(testFile)
+	if err != nil {
+		t.Fatalf("ExtractDataFlow failed on deep recursion: %v", err)
+	}
+
+	// We expect at least one fact (assignment x := 0)
+	if len(facts) == 0 {
+		t.Error("Expected facts from deep function")
+	}
 }

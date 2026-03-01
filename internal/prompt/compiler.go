@@ -491,6 +491,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
 	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
+	// TODO: Reliability: Pre-allocate candidate slice capacity if dynamic atom count is predictable to avoid reallocations.
 	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
 	if dynErr != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
@@ -597,6 +598,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
+	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
 	c.mu.Lock()
 	c.lastResult = result
 	c.mu.Unlock()
@@ -650,6 +652,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -735,22 +738,32 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	var allAtoms []*PromptAtom
 	var breakdown sourceBreakdown
 
+	// ⚡ Bolt: Lock contention optimization
+	// Acquired RLock only to read shared pointers (embeddedCorpus, projectDB, shardDB)
+	// instead of wrapping the entire function. This prevents slow database queries
+	// (loadAtomsFromDB) from blocking other threads from accessing the compiler state.
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	embeddedCorpus := c.embeddedCorpus
+	projectDB := c.projectDB
+	var shardDB *sql.DB
+	if cc.ShardID != "" {
+		shardDB = c.shardDBs[cc.ShardID]
+	}
+	c.mu.RUnlock()
 
 	// 1. Embedded corpus (always first)
-	if c.embeddedCorpus != nil {
+	if embeddedCorpus != nil {
 		// Optimization: Pre-allocate slice with capacity for embedded + buffer for others
 		// This avoids multiple reallocations during append.
-		count := c.embeddedCorpus.Count()
+		count := embeddedCorpus.Count()
 		breakdown.embedded = count
 		allAtoms = make([]*PromptAtom, 0, count+100)
-		allAtoms = c.embeddedCorpus.AppendAll(allAtoms)
+		allAtoms = embeddedCorpus.AppendAll(allAtoms)
 	}
 
 	// 2. Project database
-	if c.projectDB != nil {
-		projectAtoms, err := c.loadAtomsFromDB(ctx, c.projectDB)
+	if projectDB != nil {
+		projectAtoms, err := c.loadAtomsFromDB(ctx, projectDB)
 		if err != nil {
 			logging.Get(logging.CategoryJIT).Warn("Failed to load project atoms: %v", err)
 		} else {
@@ -760,15 +773,13 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	}
 
 	// 3. Shard-specific database (if shard context is set)
-	if cc.ShardID != "" {
-		if shardDB, ok := c.shardDBs[cc.ShardID]; ok {
-			shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
-			if err != nil {
-				logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
-			} else {
-				breakdown.shard = len(shardAtoms)
-				allAtoms = append(allAtoms, shardAtoms...)
-			}
+	if shardDB != nil {
+		shardAtoms, err := c.loadAtomsFromDB(ctx, shardDB)
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Warn("Failed to load shard atoms: %v", err)
+		} else {
+			breakdown.shard = len(shardAtoms)
+			allAtoms = append(allAtoms, shardAtoms...)
 		}
 	}
 
@@ -1055,6 +1066,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	}
 
 	// 2. Load Context Tags
+	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
 	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
 	if err != nil {
 		// Log warning but don't fail, maybe table is empty or migration pending
@@ -1251,6 +1263,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
+	// TODO: Reliability: Implement proper query expansion or keyword extraction instead of heuristic duplication.
+	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
 	// We duplicate high-priority terms to increase their semantic weight.
 	var sb strings.Builder
 	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
@@ -1302,6 +1316,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
+	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
+	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -1406,6 +1422,7 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	}
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
+// TODO: Ensure active JIT compilations are finished before closing databases.
 
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
@@ -1432,6 +1449,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {

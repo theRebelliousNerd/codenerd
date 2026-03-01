@@ -50,31 +50,13 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 
 	logging.StoreDebug("Storing knowledge atom: concept=%s content_len=%d confidence=%.2f", concept, len(content), confidence)
 
-	// Ensure knowledge_atoms table exists
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS knowledge_atoms (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			concept TEXT NOT NULL,
-			content TEXT NOT NULL,
-			confidence REAL DEFAULT 1.0,
-			content_hash TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)
-	`)
-	if err != nil {
-		logging.Get(logging.CategoryStore).Error("Failed to create knowledge_atoms table: %v", err)
-		return fmt.Errorf("failed to create knowledge_atoms table: %w", err)
-	}
 
-	// Create index if not exists
-	_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_atoms_concept ON knowledge_atoms(concept)`)
 
 	// Compute content hash for deduplication
 	contentHash := ComputeContentHash(concept, content)
 
 	// Insert the knowledge atom with content_hash
-	_, err = s.db.Exec(
+	_, err := s.db.Exec(
 		`INSERT INTO knowledge_atoms (concept, content, confidence, content_hash) VALUES (?, ?, ?, ?)`,
 		concept, content, confidence, contentHash,
 	)

@@ -307,3 +307,41 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 		t.Errorf("unicode should be preserved, got %q", result)
 	}
 }
+
+// =============================================================================
+// MISSING TEST COVERAGE (BOUNDARY ANALYSIS)
+// =============================================================================
+
+// TODO: TestExtractJSON_Array
+// GAP: extractJSON ignores JSON arrays `[...]`.
+// INPUT: `[{"intent": "fix"}]`
+// EXPECTED: Should either return the array string or handle it gracefully. Currently returns empty string.
+
+// TODO: TestExtractJSON_NonObject
+// GAP: extractJSON ignores valid JSON that isn't an object.
+// INPUT: `"just a string"` or `123` or `true`
+// EXPECTED: Should clarify if strict object requirement is intentional.
+
+// TODO: TestDeriveRouting_Ambiguity
+// GAP: deriveRouting uses non-deterministic map iteration for tie-breaking equal scores.
+// SETUP: Mock RoutingKernel returning equal weights for "coder" and "researcher".
+// ACTION: Call deriveShards multiple times.
+// EXPECTED: Should return consistent winner (currently flaky).
+
+// TODO: TestDeriveRouting_KernelError
+// GAP: deriveRouting ignores errors from kernel.QueryRouting.
+// SETUP: Mock RoutingKernel returning error.
+// ACTION: Call deriveRouting.
+// EXPECTED: Should handle error (log warning or metric), currently silently swallowed.
+
+// TODO: TestDeriveRouting_EmptyKernelResult
+// GAP: Verify fallback to LLM suggestion when kernel returns no matches.
+// SETUP: Mock RoutingKernel returning empty list.
+// ACTION: Call deriveRouting with LLM suggestion.
+// EXPECTED: Should use LLM suggestion.
+
+// TODO: TestDeriveRouting_WeightSorting
+// GAP: Verify that highest weight wins when multiple matches exist.
+// SETUP: Mock RoutingKernel returning {Target: "A", Weight: 10}, {Target: "B", Weight: 20}.
+// ACTION: Call deriveRouting.
+// EXPECTED: Should select "B".

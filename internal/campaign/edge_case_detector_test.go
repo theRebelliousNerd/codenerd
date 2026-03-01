@@ -293,3 +293,39 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 		t.Errorf("expected 2 no-test files, got %d", len(analysis.NoTestFiles))
 	}
 }
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: Context cancellation behavior.
+// Test what happens when AnalyzeFiles is called with an already canceled context.
+// Expected behavior: Should return immediately with a ctx.Err() and empty decisions.
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
+// Test what happens when `paths` contains `""`.
+// Expected behavior: The system should not panic; `detectLanguage` should return "unknown";
+// `matchesPath` behavior with empty strings must be defined and validated.
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty (but not nil).
+// Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
+// Expected behavior: Should default to ActionCreate gracefully.
+
+// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
+// Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
+// Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
+// or cause ActionRefactorFirst permanently.
+
+// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
+// Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
+// Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
+
+// TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
+// The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
+// Expected behavior: Currently the detector relies on potentially stale state; a test should highlight
+// this discrepancy and a fix should query the actual filesystem (`os.Stat`) if possible.
+
+// TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
+// Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
+// Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
+// Test should define boundaries of acceptable latency.
+
+// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
+// Test determineAction with `LineCount = math.MaxInt32`.
+// Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).

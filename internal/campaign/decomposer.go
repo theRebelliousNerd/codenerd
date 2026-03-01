@@ -1228,6 +1228,8 @@ func (d *Decomposer) generateDiscoveryQuestions(goal string) []string {
 	return questions
 }
 
+var goalTopicRegex = regexp.MustCompile(`[a-z0-9]+`)
+
 // extractTopicsFromGoal tokenizes a goal into lowercase topics for Mangle selection.
 func extractTopicsFromGoal(goal string) []string {
 	goal = strings.ToLower(goal)
@@ -1235,8 +1237,7 @@ func extractTopicsFromGoal(goal string) []string {
 		return nil
 	}
 
-	re := regexp.MustCompile(`[a-z0-9]+`)
-	matches := re.FindAllString(goal, -1)
+	matches := goalTopicRegex.FindAllString(goal, -1)
 	if len(matches) == 0 {
 		return nil
 	}

@@ -39,7 +39,6 @@ const (
 	ProviderAnthropic  Provider = "anthropic"
 	ProviderOpenAI     Provider = "openai"
 	ProviderGemini     Provider = "gemini"
-	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 	ProviderXAI        Provider = "xai"
 	ProviderOpenRouter Provider = "openrouter"
 )
@@ -400,8 +399,7 @@ type GeminiRequest struct {
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
-	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
-	SessionID string `json:"sessionId,omitempty"`
+	SessionID        string `json:"sessionId,omitempty"`
 	// CachedContent is a resource name of cached context content
 	CachedContent string `json:"cachedContent,omitempty"`
 }

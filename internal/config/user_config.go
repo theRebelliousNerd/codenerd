@@ -48,8 +48,6 @@ type UserConfig struct {
 	// Gemini-specific configuration (thinking mode, grounding tools)
 	Gemini *GeminiProviderConfig `json:"gemini,omitempty"`
 
-	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
-
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
 

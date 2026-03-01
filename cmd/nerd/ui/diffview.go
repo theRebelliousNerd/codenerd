@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	"codenerd/internal/diff"
@@ -53,6 +54,7 @@ type DiffApprovalView struct {
 	ShowWarnings bool
 	// IgnoreWhitespace hides whitespace-only diffs (useful for formatting-only changes).
 	IgnoreWhitespace bool
+	HorizontalOffset int
 	SelectedHunk     int
 	ApprovalMode     ApprovalMode
 	WordLevelDiff    bool // Enable word-level diffing for changed lines
@@ -231,17 +233,38 @@ func (d *DiffApprovalView) ToggleIgnoreWhitespace() {
 
 // updateContent refreshes the viewport content
 func (d *DiffApprovalView) updateContent() {
+	// Preserve vertical scroll position
+	yOffset := d.Viewport.YOffset
+
+	var content string
 	if len(d.Mutations) == 0 {
-		d.Viewport.SetContent(d.renderEmpty())
-		return
+		content = d.renderEmpty()
+	} else {
+		content = d.renderCurrentMutation()
 	}
-	d.Viewport.SetContent(d.renderCurrentMutation())
+
+	// Apply horizontal scrolling if needed
+	if d.HorizontalOffset > 0 {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			lines[i] = ansi.TruncateLeft(line, d.HorizontalOffset, "")
+		}
+		content = strings.Join(lines, "\n")
+	}
+
+	d.Viewport.SetContent(content)
+
+	// Restore vertical scroll position if possible
+	// Check if content height still supports the old offset
+	// SetContent resets YOffset to 0 in bubbles/viewport usually, but we want to keep it.
+	// However, bubbles implementation might vary. Explicitly setting it is safer.
+	d.Viewport.YOffset = yOffset
 }
 
 // renderEmpty renders the empty state
 func (d *DiffApprovalView) renderEmpty() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Muted).
+		Foreground(d.Styles.Theme.OnSurfaceVariant).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(d.Width)).
@@ -289,13 +312,13 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 		Bold(true).
 		Foreground(d.Styles.Theme.Primary).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(d.Styles.Theme.Border).
+		BorderForeground(d.Styles.Theme.Outline).
 		Width(ViewportWidth(d.Width)).
 		Padding(0, 1)
 
 	// Status indicator
 	status := "⏳ PENDING"
-	statusColor := d.Styles.Theme.Muted
+	statusColor := d.Styles.Theme.OnSurfaceVariant
 	if m.Approved {
 		status = "✅ APPROVED"
 		statusColor = Success
@@ -374,8 +397,8 @@ func (d *DiffApprovalView) renderDiff(diff *FileDiff) string {
 		hunkStyle := d.Styles.Muted
 		if i == d.SelectedHunk {
 			hunkStyle = lipgloss.NewStyle().
-				Background(d.Styles.Theme.Secondary).
-				Foreground(d.Styles.Theme.Primary)
+				Background(d.Styles.Theme.Container).
+				Foreground(d.Styles.Theme.OnContainer)
 		}
 		sb.WriteString(hunkStyle.Render(hunkHeader))
 		sb.WriteString("\n")
@@ -593,9 +616,9 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 // TODO: IMPROVEMENT: Use `bubbles/help` for the help view to ensure consistency.
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
-		Foreground(d.Styles.Theme.Muted).
+		Foreground(d.Styles.Theme.OnSurfaceVariant).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(d.Styles.Theme.Border).
+		BorderForeground(d.Styles.Theme.Outline).
 		Padding(0, 1).
 		Width(ViewportWidth(d.Width))
 
@@ -618,21 +641,23 @@ func (d *DiffApprovalView) View() string {
 
 // ScrollRight scrolls the viewport right for viewing long lines
 func (d *DiffApprovalView) ScrollRight() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineRight/horizontal scrolling.
-	// This code was causing build errors. Re-enable when bubbles is updated or alternative found.
-	// d.Viewport.LineRight(3)
+	d.HorizontalOffset += 3
+	d.updateContent()
 }
 
 // ScrollLeft scrolls the viewport left
 func (d *DiffApprovalView) ScrollLeft() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineLeft/horizontal scrolling.
-	// d.Viewport.LineLeft(3)
+	d.HorizontalOffset -= 3
+	if d.HorizontalOffset < 0 {
+		d.HorizontalOffset = 0
+	}
+	d.updateContent()
 }
 
 // ScrollToStart scrolls to the beginning of lines
 func (d *DiffApprovalView) ScrollToStart() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support GotoLeft.
-	// d.Viewport.GotoLeft()
+	d.HorizontalOffset = 0
+	d.updateContent()
 }
 
 // CreateDiffFromStrings creates a FileDiff using the robust sergi/go-diff library

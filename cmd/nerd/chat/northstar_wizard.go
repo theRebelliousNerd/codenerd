@@ -60,7 +60,7 @@ func (m Model) handleNorthstarWizardInput(input string) (tea.Model, tea.Cmd) {
 		m.awaitingNorthstar = false
 		m.northstarWizard = nil
 		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Northstar wizard cancelled. Your progress was not saved.",
 			Time:    time.Now(),
@@ -107,7 +107,7 @@ func (m Model) handleNorthstarWelcome(input string) (tea.Model, tea.Cmd) {
 
 	if lower == "yes" || lower == "y" || lower == "1" {
 		w.Phase = NorthstarDocIngestion
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Phase 1: Research Document Ingestion
 
@@ -126,7 +126,7 @@ _Type "done" if you have no documents to ingest._`,
 		m.textarea.Placeholder = "Enter document paths or 'done'..."
 	} else {
 		w.Phase = NorthstarProblemStatement
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Phase 2: Problem Statement
 
@@ -158,7 +158,7 @@ func (m Model) handleNorthstarDocIngestion(input string) (tea.Model, tea.Cmd) {
 	if lower == "done" || lower == "" {
 		// If we have documents, analyze them with LLM
 		if len(w.ResearchDocs) > 0 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Analyzing **%d document(s)**... This may take a moment.", len(w.ResearchDocs)),
 				Time:    time.Now(),
@@ -174,7 +174,7 @@ func (m Model) handleNorthstarDocIngestion(input string) (tea.Model, tea.Cmd) {
 
 		// No documents - move directly to next phase
 		w.Phase = NorthstarProblemStatement
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Phase 2: Problem Statement
 
@@ -221,7 +221,7 @@ _Write freely - we'll refine it together._`,
 		}
 		msg.WriteString(fmt.Sprintf("\n**Total queued:** %d\n\n_Add more paths or type \"done\" to continue._", len(w.ResearchDocs)))
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: msg.String(),
 			Time:    time.Now(),
@@ -239,7 +239,7 @@ func (m Model) handleNorthstarProblem(input string) (tea.Model, tea.Cmd) {
 
 	// Validate: require meaningful problem statement (at least 10 chars)
 	if len(strings.TrimSpace(input)) < 10 {
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Please provide a more detailed problem statement (at least a sentence describing the pain point).",
 			Time:    time.Now(),
@@ -253,7 +253,7 @@ func (m Model) handleNorthstarProblem(input string) (tea.Model, tea.Cmd) {
 	w.Problem = input
 	w.Phase = NorthstarVisionStatement
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role: "assistant",
 		Content: fmt.Sprintf(`## Problem Captured
 
@@ -288,7 +288,7 @@ func (m Model) handleNorthstarVision(input string) (tea.Model, tea.Cmd) {
 	if w.SubStep == 0 {
 		// Validate: require meaningful vision statement (at least 20 chars)
 		if len(strings.TrimSpace(input)) < 20 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Please describe a more detailed vision - what does success look like? (at least a couple sentences)",
 				Time:    time.Now(),
@@ -300,7 +300,7 @@ func (m Model) handleNorthstarVision(input string) (tea.Model, tea.Cmd) {
 		}
 		w.Vision = input
 		w.SubStep = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `## Vision Captured
 
@@ -319,7 +319,7 @@ Examples:
 	} else {
 		// Validate: require meaningful mission statement (at least 10 chars)
 		if len(strings.TrimSpace(input)) < 10 {
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Please provide a mission statement - a single sentence that captures the essence of your project.",
 				Time:    time.Now(),
@@ -332,7 +332,7 @@ Examples:
 		w.Mission = input
 		w.SubStep = 0
 		w.Phase = NorthstarTargetUsers
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## Mission Locked
 
@@ -370,7 +370,7 @@ func (m Model) handleNorthstarUsers(input string) (tea.Model, tea.Cmd) {
 	if lower == "done" {
 		if len(w.Personas) == 0 {
 			// Add a default persona from the input if we have one
-			m.history = append(m.history, Message{
+			m = m.addMessage(Message{
 				Role:    "assistant",
 				Content: "Please add at least one user persona before continuing.",
 				Time:    time.Now(),
@@ -382,7 +382,7 @@ func (m Model) handleNorthstarUsers(input string) (tea.Model, tea.Cmd) {
 		}
 
 		w.Phase = NorthstarCapabilities
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## %d Persona(s) Defined
 
@@ -410,7 +410,7 @@ _Type "done" when finished adding capabilities._`, len(w.Personas)),
 		// Start a new persona
 		w.CurrentPersona = &UserPersona{Name: input}
 		w.SubStep = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`**Persona: %s**
 
@@ -422,7 +422,7 @@ What are their **top pain points**? (comma-separated or one per line)`, input),
 		// Pain points
 		w.CurrentPersona.PainPoints = splitAndTrim(input)
 		w.SubStep = 2
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "What do they **need most** from this solution? (comma-separated)",
 			Time:    time.Now(),
@@ -435,7 +435,7 @@ What are their **top pain points**? (comma-separated or one per line)`, input),
 		w.CurrentPersona = nil
 		w.SubStep = 0
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`✓ **Persona added:** %s
 
@@ -458,7 +458,7 @@ func (m Model) handleNorthstarCapabilities(input string) (tea.Model, tea.Cmd) {
 	if lower == "done" {
 		w.Phase = NorthstarRedTeaming
 		w.SubStep = 0
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## %d Capability(ies) Mapped
 
@@ -486,7 +486,7 @@ _Describe a risk, or type "done" when finished._`, len(w.Capabilities)),
 	} else if w.CurrentCapability == nil {
 		w.CurrentCapability = &Capability{Description: input}
 		w.SubStep = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `**Timeline?**
 
@@ -503,7 +503,7 @@ _Enter number or description:_`,
 	} else if w.SubStep == 1 {
 		w.CurrentCapability.Timeline = parseTimeline(input)
 		w.SubStep = 2
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `**Priority?**
 
@@ -521,7 +521,7 @@ _Enter number or description:_`,
 		w.SubStep = 0
 
 		cap := w.Capabilities[len(w.Capabilities)-1]
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`✓ **Capability added:** %s
    Timeline: %s | Priority: %s
@@ -544,7 +544,7 @@ func (m Model) handleNorthstarRedTeam(input string) (tea.Model, tea.Cmd) {
 
 	if lower == "done" {
 		w.Phase = NorthstarRequirements
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## %d Risk(s) Identified
 
@@ -567,7 +567,7 @@ _Type "done" when finished, or "auto" to let me suggest requirements._`, len(w.R
 	} else if w.CurrentRisk == nil {
 		w.CurrentRisk = &Risk{Description: input}
 		w.SubStep = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: `**How likely is this risk?** (high/medium/low)`,
 			Time:    time.Now(),
@@ -576,7 +576,7 @@ _Type "done" when finished, or "auto" to let me suggest requirements._`, len(w.R
 	} else if w.SubStep == 1 {
 		w.CurrentRisk.Likelihood = parseLikelihood(input)
 		w.SubStep = 2
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: `**If it happens, what's the impact?** (high/medium/low)`,
 			Time:    time.Now(),
@@ -585,7 +585,7 @@ _Type "done" when finished, or "auto" to let me suggest requirements._`, len(w.R
 	} else if w.SubStep == 2 {
 		w.CurrentRisk.Impact = parseLikelihood(input) // Same parser works
 		w.SubStep = 3
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: `**How could we mitigate this?** (or "none" if unknown)`,
 			Time:    time.Now(),
@@ -598,7 +598,7 @@ _Type "done" when finished, or "auto" to let me suggest requirements._`, len(w.R
 		w.SubStep = 0
 
 		risk := w.Risks[len(w.Risks)-1]
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`✓ **Risk logged:** %s
    Likelihood: %s | Impact: %s
@@ -621,7 +621,7 @@ func (m Model) handleNorthstarRequirements(input string) (tea.Model, tea.Cmd) {
 
 	if lower == "done" {
 		w.Phase = NorthstarConstraints
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`## %d Requirement(s) Captured
 
@@ -656,7 +656,7 @@ _Enter constraints (one per line) or type "done"._`, len(w.Requirements)),
 			Source:      "user",
 		})
 		w.SubStep = 1
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `**Type?**
 1. Functional (what it does)
@@ -669,7 +669,7 @@ _Enter constraints (one per line) or type "done"._`, len(w.Requirements)),
 		req := &w.Requirements[len(w.Requirements)-1]
 		req.Type = parseReqType(input)
 		w.SubStep = 2
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: `**Priority?**
 1. Must-have (critical for launch)
@@ -683,7 +683,7 @@ _Enter constraints (one per line) or type "done"._`, len(w.Requirements)),
 		req.Priority = parseReqPriority(input)
 		w.SubStep = 0
 
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role: "assistant",
 			Content: fmt.Sprintf(`✓ **%s:** %s
    Type: %s | Priority: %s
@@ -713,7 +713,7 @@ func (m Model) handleNorthstarConstraints(input string) (tea.Model, tea.Cmd) {
 	constraints := splitAndTrim(input)
 	w.Constraints = append(w.Constraints, constraints...)
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: fmt.Sprintf("✓ Added %d constraint(s). Total: %d\n\n_Add more or type \"done\"._", len(constraints), len(w.Constraints)),
 		Time:    time.Now(),
@@ -807,7 +807,7 @@ func (m Model) showNorthstarSummary() (tea.Model, tea.Cmd) {
 	sb.WriteString("- Type **\"edit\"** to make changes\n")
 	sb.WriteString("- Type **\"campaign\"** to save AND start a campaign based on this vision\n")
 
-	m.history = append(m.history, Message{
+	m = m.addMessage(Message{
 		Role:    "assistant",
 		Content: sb.String(),
 		Time:    time.Now(),
@@ -833,7 +833,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 	case "new":
 		// Start fresh
 		m.northstarWizard = NewNorthstarWizard()
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: getNorthstarWelcomeMessage(),
 			Time:    time.Now(),
@@ -845,7 +845,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "edit", "back":
 		m.northstarWizard.Phase = NorthstarProblemStatement
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Returning to edit mode. Starting from Problem Statement.\n\nType \"skip\" to skip any phase.",
 			Time:    time.Now(),
@@ -856,7 +856,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		m.textarea.Reset()
 		return m, nil
 	default:
-		m.history = append(m.history, Message{
+		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Please type **save**, **edit**, or **campaign**.",
 			Time:    time.Now(),

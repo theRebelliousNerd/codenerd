@@ -49,7 +49,7 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 
 	// Parse with full AST (need bodies for data flow analysis)
 	d.fset = token.NewFileSet()
-	node, err := parser.ParseFile(d.fset, path, nil, parser.ParseComments)
+	node, err := parser.ParseFile(d.fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: parse failed: %s - %v", path, err)
 		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)

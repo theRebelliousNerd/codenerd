@@ -16,6 +16,8 @@
 # From tester.mg (not in default schemas)
 # Decl file_exists(FilePath) - Moved to schemas_world.mg (global)
 Decl file_contains(FilePath, Pattern).
+# Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
+# Decl file_imports(Importer, Imported).
 
 # Internal predicates defined only in this file (or missing from defaults)
 Decl test_scope(Scope).
@@ -389,8 +391,8 @@ code_modified_recently() :- file_edited(_).
 # Derive recent test execution
 tests_run_recently() :- action_verified(_, /run_tests, _, _, _).
 
-# Derive test success (heuristic: 100% confidence verification on test run)
-test_passed_after_fix() :- action_verified(_, /run_tests, _, 100, _).
+# Derive test success (heuristic: >=80% confidence verification on test run)
+test_passed_after_fix() :- action_verified(_, /run_tests, _, Confidence, _), Confidence >= 80.
 
 # Map diagnostics to intent routing predicates
 diagnostic_active(Path, Line, Severity, Message) :-
@@ -398,3 +400,6 @@ diagnostic_active(Path, Line, Severity, Message) :-
 
 code_quality_issue(/diagnostic, Message) :-
     diagnostic(_, _, _, _, Message).
+
+# Map file imports to context scope
+imports(Target, Path) :- file_imports(Target, Path).

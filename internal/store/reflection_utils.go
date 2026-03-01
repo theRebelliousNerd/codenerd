@@ -14,20 +14,24 @@ const (
 )
 
 var (
-	secretPatterns = []struct {
-		replacement string
-		pattern     *regexp.Regexp
-	}{
-		{replacement: "${1}[redacted]", pattern: regexp.MustCompile(`(?i)(api[_-]?key\\s*[:=]\\s*)([^\\s,]+)`)},
-		{replacement: "${1}[redacted]", pattern: regexp.MustCompile(`(?i)(secret\\s*[:=]\\s*)([^\\s,]+)`)},
-		{replacement: "${1}[redacted]", pattern: regexp.MustCompile(`(?i)(token\\s*[:=]\\s*)([^\\s,]+)`)},
-		{replacement: "${1}[redacted]", pattern: regexp.MustCompile(`(?i)(password\\s*[:=]\\s*)([^\\s,]+)`)},
-		{replacement: "bearer [redacted]", pattern: regexp.MustCompile(`(?i)bearer\\s+[A-Za-z0-9._-]+`)},
-		{replacement: "[redacted]", pattern: regexp.MustCompile(`AIza[0-9A-Za-z_-]{10,}`)},
-		{replacement: "[redacted]", pattern: regexp.MustCompile(`sk-[A-Za-z0-9]{10,}`)},
-		{replacement: "[redacted]", pattern: regexp.MustCompile(`ctx7sk-[0-9a-f-]{8,}`)},
-	}
-	fileHintPattern = regexp.MustCompile(`\\b[\\w./-]+\\.(go|mg|mangle|yaml|yml|json|md|ts|tsx|js|jsx|py|rs|java|sh|ps1|txt)\\b`)
+	// Combined regex for key-value secrets (e.g., "api_key: secret")
+	// Matches: key followed by separator OR "bearer" followed by space.
+	// Group 1: The key+separator (e.g., "api_key: " or "bearer ")
+	// Group 2: The value (e.g., "secret")
+	//
+	// Optimization: Combined 5 separate patterns into one to reduce passes over the string.
+	// Also fixed double backslash bug (\\s -> \s) in raw strings.
+	combinedKeyPattern = regexp.MustCompile(`(?i)((?:api[_-]?key|secret|token|password)\s*[:=]\s*|bearer\s+)([^\s,]+)`)
+
+	// Combined regex for standalone secrets (e.g., "AIza...", "sk-...")
+	// Matches known secret formats directly.
+	//
+	// Optimization: Combined 3 separate patterns into one.
+	combinedSecretPattern = regexp.MustCompile(`(AIza[0-9A-Za-z_-]{10,}|sk-[A-Za-z0-9]{10,}|ctx7sk-[0-9a-f-]{8,})`)
+
+	// File hint pattern
+	// Fixed double backslash bug (\\b -> \b) in raw strings.
+	fileHintPattern = regexp.MustCompile(`\b[\w./-]+\.(go|mg|mangle|yaml|yml|json|md|ts|tsx|js|jsx|py|rs|java|sh|ps1|txt)\b`)
 )
 
 func sanitizeDescriptor(text string) string {
@@ -35,9 +39,13 @@ func sanitizeDescriptor(text string) string {
 	if text == "" {
 		return text
 	}
-	for _, pattern := range secretPatterns {
-		text = pattern.pattern.ReplaceAllString(text, pattern.replacement)
-	}
+
+	// Redact key-value pairs (single pass for 5 patterns)
+	text = combinedKeyPattern.ReplaceAllString(text, "${1}[redacted]")
+
+	// Redact standalone secrets (single pass for 3 patterns)
+	text = combinedSecretPattern.ReplaceAllString(text, "[redacted]")
+
 	text = strings.Join(strings.Fields(text), " ")
 	if len(text) > defaultDescriptorMaxLen {
 		text = text[:defaultDescriptorMaxLen]

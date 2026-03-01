@@ -44,7 +44,8 @@ func (m *Model) handleGlassBoxEvent(event transparency.GlassBoxEvent) {
 
 	// Convert to Message and add to history
 	msg := m.glassBoxEventToMessage(event)
-	m.history = append(m.history, msg)
+	// Use addMessage to ensure caching
+	*m = m.addMessage(msg)
 }
 
 // glassBoxEventToMessage converts a GlassBoxEvent to a Message for display.
@@ -252,7 +253,8 @@ func (m *Model) handleToolEvent(event transparency.ToolEvent) {
 	}
 
 	// Add to history with "tool" role
-	m.history = append(m.history, Message{
+	// Use addMessage to ensure caching
+	*m = m.addMessage(Message{
 		Role:    "tool",
 		Content: content,
 		Time:    event.Timestamp,

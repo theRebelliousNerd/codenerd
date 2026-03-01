@@ -110,7 +110,7 @@ func (m Model) renderSingleMessage(msg Message) string {
 	default: // RoleAssistant
 		// Render assistant message with markdown
 		assistantStyle := m.styles.Bold.
-			Foreground(m.styles.Theme.Accent).
+			Foreground(m.styles.Theme.Secondary).
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
@@ -424,7 +424,7 @@ func (m Model) renderChatView() string {
 	// Input area
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(m.styles.Theme.Accent).
+		BorderForeground(m.styles.Theme.Secondary).
 		Padding(0, 1)
 
 	inputArea := inputStyle.Render(m.textarea.View())

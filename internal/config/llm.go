@@ -116,8 +116,6 @@ type GeminiProviderConfig struct {
 	EnableURLContext bool `json:"enable_url_context,omitempty"`
 }
 
-// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
-
 // DefaultGeminiProviderConfig returns sensible defaults for Gemini 3 Flash Preview.
 // Uses "high" thinking level for dynamic reasoning (Gemini 3 default).
 // Available levels: "minimal", "low", "medium", "high"
