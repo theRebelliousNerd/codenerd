@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1200,13 +1201,24 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 }
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
-// TODO: Performance: Replace fmt.Sprintf fallback with type switch for common types (int, float, bool) to avoid reflection overhead in hot loops.
+// ⚡ Bolt Optimization: Added explicit type checks for common primitive types
+// to avoid the reflection overhead and memory allocations of fmt.Sprintf("%v", v).
+// Expected Impact: Significant reduction in CPU time and garbage collection
+// pressure during hot loops (e.g., when evaluating large result sets from Mangle).
 func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:
 		return v
 	case fmt.Stringer:
 		return v.String()
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case bool:
+		return strconv.FormatBool(v)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
