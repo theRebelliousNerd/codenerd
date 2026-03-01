@@ -1061,6 +1061,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 
 // buildContextFacts builds Mangle facts from context and atoms.
 // TODO: Performance: Optimize fact string construction. Use pre-allocated buffer or builder instead of fmt.Sprintf for every fact.
+// TODO: Maintainability: Consolidate duplicated Mangle context logic between this function and CompilationContext.ToContextFacts to reduce maintainability risk.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	var facts []interface{}
 
@@ -1200,7 +1201,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 }
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
-// TODO: Performance: Replace fmt.Sprintf fallback with type switch for common types (int, float, bool) to avoid reflection overhead in hot loops.
+// TODO: Performance: Implement a type switch with strconv for primitive types (int, int64, float64, bool) to optimize performance before falling back to fmt.Sprintf. Use strconv.FormatFloat(v, 'g', -1, 64) for float64 to match fmt.Sprintf("%v", v) behavior.
 func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:

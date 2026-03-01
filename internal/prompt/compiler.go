@@ -26,6 +26,7 @@ type Fact struct {
 
 // KernelQuerier defines the interface for querying the Mangle kernel.
 // This abstracts the kernel to avoid circular imports.
+// TODO: Reliability: Add context.Context to KernelQuerier methods to support cancellation of long-running logic operations.
 type KernelQuerier interface {
 	// Query retrieves facts matching a predicate.
 	Query(predicate string) ([]Fact, error)
@@ -598,7 +599,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
+	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency to avoid contention between disparate fields like lastResult and shardDBs.
 	c.mu.Lock()
 	c.lastResult = result
 	c.mu.Unlock()
@@ -1066,7 +1067,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	}
 
 	// 2. Load Context Tags
-	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
+	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce database round trips.
 	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
 	if err != nil {
 		// Log warning but don't fail, maybe table is empty or migration pending
@@ -1449,7 +1450,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
+// TODO: Performance: Cache the parsed .nerd/agents.json content to address the performance bottleneck of re-reading it on every compilation call.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
