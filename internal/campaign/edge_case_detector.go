@@ -795,3 +795,35 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 
 	return tasks
 }
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: Context cancellation behavior.
+// analyzeFile should aggressively verify ctx.Err() before executing heavy operations,
+// potentially mid-query, to prevent leaking goroutines or excessive delay.
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
+// AnalyzeFiles should filter or reject `""` paths before processing them.
+// detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
+
+// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
+// If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
+// to incorrect Action decisions.
+
+// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
+// Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
+// trigger ActionRefactorFirst or create panics on math operations.
+
+// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
+// For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
+// golang/typescript-style suffixes (`_types`, `_helpers`) which could be invalid syntax.
+
+// TODO: Missing Edge Case - State Conflicts: Race condition between `intel` and actual filesystem.
+// Files marked `Exists: true` in intelligence might have been deleted. Should verify
+// against `os.Stat(path)` to prevent invalid `ActionExtend` or `ActionModularize` commands.
+
+// TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
+// `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
+// For campaigns on large repos, this becomes O(N * M) and hangs the orchestrator.
+// Need to parallelize AnalyzeFiles or parameterize kernel queries.
+
+// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
+// `LineCount` bounds checking should prevent `float64` precision or overflow issues
