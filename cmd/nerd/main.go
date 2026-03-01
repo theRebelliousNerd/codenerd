@@ -234,16 +234,7 @@ func init() {
 	authCmd.AddCommand(
 		authClaudeCmd,
 		authCodexCmd,
-		authAntigravityCmd,
 		authStatusCmd,
-	)
-
-	// Antigravity subcommands
-	authAntigravityCmd.AddCommand(
-		authAntigravityAddCmd,
-		authAntigravityListCmd,
-		authAntigravityRemoveCmd,
-		authAntigravityStatusCmd,
 	)
 
 	// Add commands to root

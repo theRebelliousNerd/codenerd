@@ -48,8 +48,7 @@ type UserConfig struct {
 	// Gemini-specific configuration (thinking mode, grounding tools)
 	Gemini *GeminiProviderConfig `json:"gemini,omitempty"`
 
-	// Antigravity-specific configuration (Google internal IDE)
-	Antigravity *AntigravityProviderConfig `json:"antigravity,omitempty"`
+	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 
 	// Claude Code CLI configuration (used when Engine="claude-cli")
 	ClaudeCLI *ClaudeCLIConfig `json:"claude_cli,omitempty"`
@@ -392,8 +391,6 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	// If provider is explicitly set, use that provider's key
 	if c.Provider != "" {
 		switch c.Provider {
-		case "antigravity":
-			return "antigravity", "oauth-managed" // Antigravity uses internal token management
 		case "anthropic":
 			if c.AnthropicAPIKey != "" {
 				return "anthropic", c.AnthropicAPIKey
@@ -423,9 +420,6 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	}
 
 	// Check for provider-specific keys in priority order
-	// Antigravity check (only via explicit config for now, or if we want auto-detection?)
-	// For now, let's stick to explicit provider="antigravity" or maybe env var presence?
-	// But OAuth is interactive, so maybe not auto-detect unless configured.
 
 	if c.AnthropicAPIKey != "" {
 		return "anthropic", c.AnthropicAPIKey

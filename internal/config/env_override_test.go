@@ -10,8 +10,17 @@ import (
 func TestEnvOverrides_LLM(t *testing.T) {
 	t.Run("ZAI_API_KEY sets provider if empty", func(t *testing.T) {
 		t.Setenv("ZAI_API_KEY", "zai-key")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("ANTHROPIC_API_KEY", "")
 		// Ensure others are unset
 		t.Setenv("ANTHROPIC_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
 
 		cfg := &Config{}
 		cfg.applyEnvOverrides()
@@ -22,6 +31,11 @@ func TestEnvOverrides_LLM(t *testing.T) {
 
 	t.Run("ZAI_API_KEY does not override existing provider", func(t *testing.T) {
 		t.Setenv("ZAI_API_KEY", "zai-key")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("ANTHROPIC_API_KEY", "")
 
 		cfg := &Config{
 			LLM: LLMConfig{Provider: "custom"},
@@ -34,6 +48,11 @@ func TestEnvOverrides_LLM(t *testing.T) {
 
 	t.Run("ANTHROPIC_API_KEY overrides provider", func(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "ant-key")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("ZAI_API_KEY", "")
 
 		cfg := &Config{
 			LLM: LLMConfig{Provider: "initial"},
@@ -46,7 +65,15 @@ func TestEnvOverrides_LLM(t *testing.T) {
 
 	t.Run("Precedence: OPENAI overrides ANTHROPIC", func(t *testing.T) {
 		t.Setenv("ANTHROPIC_API_KEY", "ant-key")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
+		t.Setenv("ZAI_API_KEY", "")
 		t.Setenv("OPENAI_API_KEY", "oa-key")
+		t.Setenv("GEMINI_API_KEY", "")
+		t.Setenv("XAI_API_KEY", "")
+		t.Setenv("OPENROUTER_API_KEY", "")
 
 		cfg := &Config{}
 		cfg.applyEnvOverrides()

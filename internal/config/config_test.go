@@ -27,6 +27,8 @@ func TestConfig_SaveLoad(t *testing.T) {
 	// Ensure no env vars interfere
 	t.Setenv("ZAI_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("XAI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 
 	tmpDir := t.TempDir()
@@ -55,7 +57,12 @@ func TestConfig_SaveLoad(t *testing.T) {
 
 func TestConfig_EnvOverrides(t *testing.T) {
 	// Set env vars
-	os.Setenv("ZAI_API_KEY", "env-zai-key")
+	t.Setenv("ZAI_API_KEY", "env-zai-key")
+	t.Setenv("XAI_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
 	defer os.Unsetenv("ZAI_API_KEY")
 
 	os.Setenv("CODEGRAPH_URL", "http://codegraph:8080")

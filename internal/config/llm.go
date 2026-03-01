@@ -116,18 +116,7 @@ type GeminiProviderConfig struct {
 	EnableURLContext bool `json:"enable_url_context,omitempty"`
 }
 
-// AntigravityProviderConfig holds Antigravity-specific configuration.
-// Supports Google's internal Cloud Code IDE features.
-type AntigravityProviderConfig struct {
-	// EnableThinking enables thinking/reasoning mode
-	EnableThinking bool `json:"enable_thinking,omitempty"`
-
-	// ThinkingLevel for Gemini 3: "minimal", "low", "medium", "high" (MUST be lowercase)
-	ThinkingLevel string `json:"thinking_level,omitempty"`
-
-	// ProjectID overrides the Google Cloud Project ID (default: auto-detect)
-	ProjectID string `json:"project_id,omitempty"`
-}
+// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 
 // DefaultGeminiProviderConfig returns sensible defaults for Gemini 3 Flash Preview.
 // Uses "high" thinking level for dynamic reasoning (Gemini 3 default).

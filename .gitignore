@@ -43,6 +43,7 @@ tmp*/
 # Research / planning scratch folders
 Docs/research/
 Docs/plans/
+Docs/Spec/
 
 # Local runtime / tooling state
 /conductor/

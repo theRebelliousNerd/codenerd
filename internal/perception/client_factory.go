@@ -20,8 +20,8 @@ type ProviderConfig struct {
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
 
 	// Provider-specific configurations
-	Gemini      *config.GeminiProviderConfig      // Gemini thinking mode and built-in tools
-	Antigravity *config.AntigravityProviderConfig // Antigravity configuration
+	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
+	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 }
 
 // DefaultConfigPath returns the default path to .nerd/config.json.
@@ -74,7 +74,6 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		Model:          userCfg.Model,
 		Context7APIKey: context7Key,
 		Gemini:         userCfg.GetGeminiConfig(),
-		Antigravity:    userCfg.Antigravity,
 	}, nil
 }
 
@@ -93,7 +92,6 @@ func DetectProvider() (*ProviderConfig, error) {
 			return cfg, nil
 		}
 		// API mode requires an API key
-		// Antigravity has a placeholder key "oauth-managed" or similar, so check for empty
 		if cfg.APIKey != "" {
 			logging.Perception("DetectProvider: using provider=%s from config", cfg.Provider)
 			return cfg, nil
@@ -153,9 +151,6 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 
 	// API-based provider selection
 	switch config.Provider {
-	case ProviderAntigravity:
-		return NewAntigravityClient(config.Antigravity, config.Model)
-
 	case ProviderAnthropic:
 		client := NewAnthropicClient(config.APIKey)
 		if config.Model != "" {

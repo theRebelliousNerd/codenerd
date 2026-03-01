@@ -35,13 +35,13 @@ type LLMToolResponse = types.LLMToolResponse
 type Provider string
 
 const (
-	ProviderZAI         Provider = "zai"
-	ProviderAnthropic   Provider = "anthropic"
-	ProviderOpenAI      Provider = "openai"
-	ProviderGemini      Provider = "gemini"
-	ProviderAntigravity Provider = "antigravity"
-	ProviderXAI         Provider = "xai"
-	ProviderOpenRouter  Provider = "openrouter"
+	ProviderZAI        Provider = "zai"
+	ProviderAnthropic  Provider = "anthropic"
+	ProviderOpenAI     Provider = "openai"
+	ProviderGemini     Provider = "gemini"
+	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
+	ProviderXAI        Provider = "xai"
+	ProviderOpenRouter Provider = "openrouter"
 )
 
 // ZAIConfig holds configuration for ZAI client.
@@ -400,7 +400,7 @@ type GeminiRequest struct {
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
-	// SessionID is required for Antigravity requests to maintain context
+	// WARNING: The antigravity oauth login breaks terms of service and will get users a lifetime ban.
 	SessionID string `json:"sessionId,omitempty"`
 	// CachedContent is a resource name of cached context content
 	CachedContent string `json:"cachedContent,omitempty"`
