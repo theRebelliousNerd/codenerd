@@ -1,7 +1,12 @@
 package campaign
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
+
+	"codenerd/internal/types"
 )
 
 // TODO: TEST_GAP: TestExecuteTask_Dispatch
@@ -141,12 +146,123 @@ func TestExtractPathFromDescription_EdgeCases(t *testing.T) {
 // - Timeout waiting for tool_registered fact
 // - Context cancellation during wait
 
-// TODO: TEST_GAP: TestSpawnTask_InputValidation
-// Verify spawnTask handles invalid inputs.
-// Edge cases:
-// - Nil taskExecutor
-// - Empty shard type
-// - Huge task payload
+type MockTaskExecutor struct {
+	ExecuteFunc            func(ctx context.Context, intent string, task string) (string, error)
+	ExecuteWithContextFunc func(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
+	ExecuteAsyncFunc       func(ctx context.Context, intent string, task string) (string, error)
+	GetResultFunc          func(taskID string) (string, bool, error)
+	WaitForResultFunc      func(ctx context.Context, taskID string) (string, error)
+}
+
+func (m *MockTaskExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
+	if m.ExecuteFunc != nil {
+		return m.ExecuteFunc(ctx, intent, task)
+	}
+	return "", errors.New("not implemented")
+}
+
+func (m *MockTaskExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	if m.ExecuteWithContextFunc != nil {
+		return m.ExecuteWithContextFunc(ctx, intent, task, sessionCtx, priority)
+	}
+	return "", errors.New("not implemented")
+}
+
+func (m *MockTaskExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
+	if m.ExecuteAsyncFunc != nil {
+		return m.ExecuteAsyncFunc(ctx, intent, task)
+	}
+	return "", errors.New("not implemented")
+}
+
+func (m *MockTaskExecutor) GetResult(taskID string) (string, bool, error) {
+	if m.GetResultFunc != nil {
+		return m.GetResultFunc(taskID)
+	}
+	return "", false, errors.New("not implemented")
+}
+
+func (m *MockTaskExecutor) WaitForResult(ctx context.Context, taskID string) (string, error) {
+	if m.WaitForResultFunc != nil {
+		return m.WaitForResultFunc(ctx, taskID)
+	}
+	return "", errors.New("not implemented")
+}
+
+func TestSpawnTask_InputValidation(t *testing.T) {
+	t.Run("nil taskExecutor", func(t *testing.T) {
+		o := &Orchestrator{}
+		_, err := o.spawnTask(context.Background(), "coder", "do something")
+		if err == nil || err.Error() != "taskExecutor not initialized" {
+			t.Errorf("expected error 'taskExecutor not initialized', got %v", err)
+		}
+	})
+
+	t.Run("empty shard type", func(t *testing.T) {
+		o := &Orchestrator{
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+					// Core logic maps empty to / intent via LegacyShardNameToIntent default
+					if intent != "/" {
+						return "", fmt.Errorf("expected empty shard to map to / intent, got %s", intent)
+					}
+					return "success", nil
+				},
+			},
+		}
+		res, err := o.spawnTask(context.Background(), "", "do something")
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if res != "success" {
+			t.Errorf("expected 'success', got %v", res)
+		}
+	})
+
+	t.Run("huge task payload", func(t *testing.T) {
+		// Create a massive task payload (e.g. 10MB)
+		hugePayload := make([]byte, 10*1024*1024)
+		for i := range hugePayload {
+			hugePayload[i] = 'A'
+		}
+		taskStr := string(hugePayload)
+
+		o := &Orchestrator{
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+					if len(task) != len(taskStr) {
+						return "", errors.New("task payload size mismatch")
+					}
+					return "success", nil
+				},
+			},
+		}
+		res, err := o.spawnTask(context.Background(), "coder", taskStr)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if res != "success" {
+			t.Errorf("expected 'success', got %v", res)
+		}
+	})
+
+	t.Run("valid taskExecutor", func(t *testing.T) {
+		o := &Orchestrator{
+			taskExecutor: &MockTaskExecutor{
+				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+					return "success", nil
+				},
+			},
+		}
+		res, err := o.spawnTask(context.Background(), "coder", "do something")
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if res != "success" {
+			t.Errorf("expected 'success', got %v", res)
+		}
+	})
+}
 
 func BenchmarkExtractPathFromDescription(b *testing.B) {
 	descriptions := []string{
