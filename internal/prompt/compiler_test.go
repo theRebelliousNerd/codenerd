@@ -1094,7 +1094,7 @@ func TestCompiler_FallbackOnKernelUnavailable(t *testing.T) {
 		// Expected fallback behavior: returns mandatory atoms only
 		if err != nil {
 			// Document current behavior - kernel is required
-			assert.Contains(t, err.Error(), "kernel", "error should mention kernel requirement")
+			assert.Contains(t, err.Error(), "kernel", "error should relate to kernel requirement")
 			t.Logf("Current behavior: %v (fallback not yet implemented)", err)
 
 			// Skip further assertions since fallback isn't implemented
@@ -1421,3 +1421,26 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 // Scenario: .nerd/agents.json is missing or malformed.
 // Objective: Verify safe fallback to default specialist list without compilation failure.
 // Criticality: Low (UX degradation)
+
+// =============================================================================
+// Additional Negative Testing Gaps (Added 2026-02-23)
+// =============================================================================
+// See .quality_assurance/2026-02-23_00-07-EST_jit_compiler_negative_testing.md
+
+// TODO: TEST_GAP: [Vector D1] TestCompiler_ConcurrentRegisterDB_Safety
+// Scenario: A long-running Compile() is active while another goroutine calls RegisterDB().
+// Objective: Ensure that closing the underlying sql.DB in RegisterDB does not cause
+// panic or fatal error in the active compilation query (race condition).
+// Criticality: Medium (Reliability)
+
+// TODO: TEST_GAP: [Vector B1] TestCompiler_ExtractStringArg_Robustness
+// Scenario: Kernel returns nil, []byte, or unexpected types for atom IDs.
+// Objective: Verify extractStringArg does not panic and returns a safe sentinel or error,
+// avoiding "ghost atoms" with IDs like "<nil>" or "[1 2 3]".
+// Criticality: High (Runtime Safety)
+
+// TODO: TEST_GAP: [Vector C1] TestCompiler_InputSanitization_DoS
+// Scenario: CompilationContext provided with 1MB+ strings for IntentVerb or ShardID.
+// Objective: Verify that internal query construction truncates these inputs to prevent
+// memory spikes or downstream errors in Vector Search / Embedding APIs.
+// Criticality: Low (DoS Protection)
