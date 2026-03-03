@@ -16,6 +16,21 @@ import (
 
 // clipboardWriteAll is a package-level variable to allow mocking in tests.
 var clipboardWriteAll = clipboard.WriteAll
+// clipboardMsg is sent when a clipboard operation completes
+type clipboardMsg struct {
+	err error
+	msg string
+}
+// copyToClipboardCmd creates a command to asynchronously copy text to the clipboard
+func copyToClipboardCmd(content string, successMsg string, errorMsg string) tea.Cmd {
+	return func() tea.Msg {
+		err := clipboardWriteAll(content)
+		if err != nil {
+			return clipboardMsg{err: err, msg: errorMsg}
+		}
+		return clipboardMsg{msg: successMsg}
+	}
+}
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
 // TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
@@ -83,6 +98,10 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
 
+	case clipboardMsg:
+		cmd = m.list.NewStatusMessage(msg.msg)
+		cmds = append(cmds, cmd)
+
 	case tea.KeyMsg:
 		// Toggle focus with Tab if not filtering
 		if m.list.FilterState() != list.Filtering && msg.String() == "tab" {
@@ -94,22 +113,17 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 		if m.list.FilterState() != list.Filtering {
 			switch msg.String() {
 			case "c", "y":
-				// TODO: Reliability: Move clipboard operations to an asynchronous tea.Cmd to avoid freezing the UI on slow clipboard access.
 				if m.selected != nil {
-					if err := clipboardWriteAll(m.selected.Content); err != nil {
-						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
-					} else {
-						cmd = m.list.NewStatusMessage(m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)))
-					}
+					cmd = copyToClipboardCmd(m.selected.Content,
+						m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)),
+						m.styles.Error.Render("Failed to copy atom content"))
 					cmds = append(cmds, cmd)
 				}
 			case "p":
 				if m.lastResult != nil {
-					if err := clipboardWriteAll(m.lastResult.Prompt); err != nil {
-						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy full prompt"))
-					} else {
-						cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied full prompt to clipboard"))
-					}
+					cmd = copyToClipboardCmd(m.lastResult.Prompt,
+						m.styles.Success.Render("Copied full prompt to clipboard"),
+						m.styles.Error.Render("Failed to copy full prompt"))
 					cmds = append(cmds, cmd)
 				}
 			}
