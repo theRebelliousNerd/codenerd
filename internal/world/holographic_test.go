@@ -436,7 +436,47 @@ func TestFindFunctionEnd(t *testing.T) {
 			startIdx: 0,
 			want:     5,
 		},
-
+		{
+			name: "python_docstring_with_braces",
+			lines: []string{
+				"def foo(): {",
+				"    \"\"\"",
+				"    docstring with {",
+				"    and }",
+				"    \"\"\"",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     6,
+		},
+		{
+			name: "python_single_quote_docstring",
+			lines: []string{
+				"def bar(): {",
+				"    '''",
+				"    {",
+				"    '''",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+		{
+			name: "python_docstring_with_internal_quotes_and_braces",
+			lines: []string{
+				"def foo(): {",
+				"    \"\"\"",
+				"    docstring with a \" quote and {",
+				"    and }",
+				"    \"\"\"",
+				"    return",
+				"}",
+			},
+			startIdx: 0,
+			want:     6,
+		},
 	}
 
 	for _, tt := range tests {

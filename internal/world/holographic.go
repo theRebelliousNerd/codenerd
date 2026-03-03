@@ -1083,6 +1083,7 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 	inFunction := false
 	inBlockComment := false
 	inString := rune(0) // 0 if not in string, else the quote char: '"', '\'', '`'
+	inTripleString := rune(0)
 
 	for i := startIdx; i < len(lines); i++ {
 		line := lines[i]
@@ -1096,6 +1097,25 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 				if ch == '*' && j+1 < len(lineRunes) && lineRunes[j+1] == '/' {
 					inBlockComment = false
 					j++ // skip /
+				}
+				continue
+			}
+
+			// Handle triple string content
+			if inTripleString != 0 {
+				if ch == inTripleString && j+2 < len(lineRunes) && lineRunes[j+1] == inTripleString && lineRunes[j+2] == inTripleString {
+					// Check for escape
+					backslashes := 0
+					for k := j - 1; k >= 0; k-- {
+						if lineRunes[k] != '\\' {
+							break
+						}
+						backslashes++
+					}
+					if backslashes%2 == 0 {
+						inTripleString = 0
+						j += 2 // skip the other two quotes
+					}
 				}
 				continue
 			}
@@ -1130,6 +1150,13 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 			// Start of line comment
 			if ch == '/' && j+1 < len(lineRunes) && lineRunes[j+1] == '/' {
 				break // ignore rest of line
+			}
+
+			// Start of triple string
+			if (ch == '"' || ch == '\'') && j+2 < len(lineRunes) && lineRunes[j+1] == ch && lineRunes[j+2] == ch {
+				inTripleString = ch
+				j += 2
+				continue
 			}
 
 			// Start of string/char literal
