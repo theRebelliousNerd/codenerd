@@ -132,6 +132,7 @@ func TestThunderdome_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: Verify handling of binary data (null bytes).
 	// Ensure that inputs with \x00 are passed correctly to the tool.
 
+	// TODO: TEST_GAP: Verify environment isolation (host env vars should not leak to tool).
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
 }
 
@@ -247,10 +248,6 @@ func CheckIsolation(ctx context.Context, input string) (string, error) {
 	if val != "" {
 		panic(fmt.Sprintf("LEAK DETECTED: Found %s=%s", "THUNDERDOME_SECRET_KEY", val))
 	}
-	// Also verify that basic env vars like PATH are present (sanity check)
-	// if os.Getenv("PATH") == "" {
-	// 	return "error", fmt.Errorf("PATH is missing, environment is too sterile")
-	// }
 	return "secure", nil
 }
 `
@@ -281,6 +278,66 @@ func CheckIsolation(ctx context.Context, input string) (string, error) {
 		for _, r := range result.Results {
 			if !r.Survived {
 				t.Logf("Failure Details: %s\nStack: %s", r.Failure, r.StackDump)
+			}
+		}
+	}
+}
+
+func TestThunderdome_LargeInput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping large input test in short mode")
+	}
+
+	// 1. Setup Thunderdome
+	// Use default config which allows 100MB memory
+	td := NewThunderdome()
+	td.config.WorkDir = t.TempDir()
+
+	// 2. Define a tool that verifies input length
+	// It expects > 10MB input.
+	toolCode := `package tools
+
+import (
+	"context"
+	"fmt"
+)
+
+func CheckLength(ctx context.Context, input string) (string, error) {
+	if len(input) < 11*1024*1024 {
+		return "", fmt.Errorf("input too short: %d bytes", len(input))
+	}
+	return fmt.Sprintf("received %d bytes", len(input)), nil
+}
+`
+	tool := &GeneratedTool{
+		Name: "length_checker",
+		Code: toolCode,
+	}
+
+	// 3. Define attack with 12MB input
+	largeInput := strings.Repeat("a", 12*1024*1024)
+	attacks := []AttackVector{
+		{
+			Name:        "Large Input Test",
+			Category:    "resource",
+			Input:       largeInput,
+			Description: "Sends > 10MB input",
+		},
+	}
+
+	// 4. Run Battle
+	ctx := context.Background()
+	result, err := td.Battle(ctx, tool, attacks)
+	if err != nil {
+		t.Fatalf("Battle failed: %v", err)
+	}
+
+	// 5. Verification
+	if !result.Survived {
+		t.Errorf("Tool failed large input test. Result: %+v", result)
+		for _, r := range result.Results {
+			if !r.Survived {
+				t.Logf("Failure: %s", r.Failure)
 			}
 		}
 	}
