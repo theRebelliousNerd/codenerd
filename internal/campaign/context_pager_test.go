@@ -198,8 +198,16 @@ func TestCompressPhase(t *testing.T) {
 		Args:      []interface{}{phaseID, "some_atom", 100},
 	})
 
+	// Test CompressPhase with nil phase
+	nilSummary, nilCount, _, err := cp.CompressPhase(ctx, nil)
+	if err != nil {
+		t.Fatalf("CompressPhase with nil failed: %v", err)
+	}
+	if nilSummary != "" || nilCount != 0 {
+		t.Errorf("CompressPhase with nil phase expected empty summary and 0 count, got '%s' and %d", nilSummary, nilCount)
+	}
+
 	// Run Compression
-	// TODO: Test CompressPhase with nil phase
 	// TODO: Test CompressPhase with massive 'accomplishments' output (10MB+) to ensure no OOM or LLM client failure
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
 	if err != nil {
