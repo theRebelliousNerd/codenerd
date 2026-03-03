@@ -343,7 +343,17 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 
 				logging.Get(logging.CategoryShards).Error("Shard %s failed attempt %d: %v", shardName, attempt, err)
 				if attempt == 1 {
-					time.Sleep(500 * time.Millisecond) // Brief pause before retry
+					select {
+					case <-time.After(500 * time.Millisecond): // Brief pause before retry
+					case <-ctx.Done():
+						return ShardReviewResult{
+							Shard:    shardName,
+							Result:   "",
+							Err:      fmt.Errorf("context cancelled during retry delay: %w", ctx.Err()),
+							Attempt:  attempt,
+							Duration: time.Since(spawnStart),
+						}
+					}
 				}
 			}
 
