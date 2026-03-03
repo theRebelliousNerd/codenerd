@@ -535,7 +535,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	var promptAssembler *articulation.PromptAssembler
 	if pa, err := articulation.NewPromptAssembler(kernel); err == nil {
 		pa.SetJITCompiler(jitCompiler)
-		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 		pa.EnableJIT(jitCfg.Enabled)
 		promptAssembler = pa
 		transducer.SetPromptAssembler(pa)

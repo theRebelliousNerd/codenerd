@@ -63,7 +63,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 				if m.Config != nil {
 					jitCfg = m.Config.GetEffectiveJITConfig()
 				}
-				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+				pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 				pa.EnableJIT(jitCfg.Enabled)
 				promptProvider = &campaignJITProvider{assembler: pa}
 			}

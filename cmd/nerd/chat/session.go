@@ -670,7 +670,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		if jitCompiler != nil {
 			if pa, err := articulation.NewPromptAssemblerWithJIT(kernel, jitCompiler); err == nil {
 				promptAssembler = pa
-				promptAssembler.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+				promptAssembler.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 				promptAssembler.EnableJIT(jitCfg.Enabled)
 				logging.Boot("PromptAssembler created with JIT compiler")
 			} else {

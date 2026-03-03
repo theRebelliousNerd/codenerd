@@ -759,6 +759,9 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		if c.JIT.ReservedTokens != 0 {
 			cfg.ReservedTokens = c.JIT.ReservedTokens
 		}
+		if c.JIT.ReservedTokensFallbackRatio != 0 {
+			cfg.ReservedTokensFallbackRatio = c.JIT.ReservedTokensFallbackRatio
+		}
 		cfg.DebugMode = c.JIT.DebugMode
 		cfg.TraceLLMIO = c.JIT.TraceLLMIO
 		if c.JIT.SemanticTopK != 0 {
@@ -778,7 +781,11 @@ func (c *UserConfig) GetEffectiveJITConfig() JITConfig {
 	}
 
 	if cfg.TokenBudget > 0 && cfg.ReservedTokens >= cfg.TokenBudget {
-		cfg.ReservedTokens = cfg.TokenBudget / 10
+		fallbackRatio := cfg.ReservedTokensFallbackRatio
+		if fallbackRatio <= 0 {
+			fallbackRatio = 10
+		}
+		cfg.ReservedTokens = cfg.TokenBudget / fallbackRatio
 		if cfg.ReservedTokens >= cfg.TokenBudget {
 			cfg.ReservedTokens = 0
 		}

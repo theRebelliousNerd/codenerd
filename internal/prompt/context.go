@@ -146,6 +146,9 @@ type CompilationContext struct {
 	// ReservedTokens is tokens reserved for response/output
 	ReservedTokens int
 
+	// ReservedTokensFallbackRatio is the ratio used to calculate reserved tokens when budget is exceeded
+	ReservedTokensFallbackRatio int
+
 	// =========================================================================
 	// Semantic Search
 	// =========================================================================
@@ -202,6 +205,7 @@ func NewCompilationContext() *CompilationContext {
 		OperationalMode:     "/active",
 		TokenBudget:         200000, // 200k tokens default - callers should override from config
 		ReservedTokens:      8000,   // Reserve 8k for response
+		ReservedTokensFallbackRatio: 10, // Default 10 fallback ratio
 		SemanticTopK:        20,     // Top 20 semantic results
 		ActivationThreshold: 0.5,    // Default activation threshold
 	}

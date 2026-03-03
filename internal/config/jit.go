@@ -20,6 +20,9 @@ type JITConfig struct {
 	// ReservedTokens is tokens reserved for response generation (default: 8000)
 	ReservedTokens int `yaml:"reserved_tokens" json:"reserved_tokens"`
 
+	// ReservedTokensFallbackRatio is the ratio used to calculate reserved tokens when budget is exceeded (default: 10)
+	ReservedTokensFallbackRatio int `yaml:"reserved_tokens_fallback_ratio" json:"reserved_tokens_fallback_ratio"`
+
 	// DebugMode enables verbose JIT logging (default: false)
 	DebugMode bool `yaml:"debug_mode" json:"debug_mode"`
 
@@ -65,6 +68,7 @@ func DefaultJITConfig() JITConfig {
 		FallbackEnabled: true,
 		TokenBudget:     200000, // 200k tokens default
 		ReservedTokens:  8000,
+		ReservedTokensFallbackRatio: 10,
 		DebugMode:       false,
 		TraceLLMIO:      false,
 		SemanticTopK:    20,

@@ -120,7 +120,7 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 				jitCfg = config.DefaultJITConfig()
 			}
 			pa.SetJITCompiler(ctx.JITCompiler)
-			pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+			pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 			pa.EnableJIT(jitCfg.Enabled)
 		}
 		return pa

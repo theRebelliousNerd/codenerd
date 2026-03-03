@@ -57,6 +57,7 @@ type PromptAssembler struct {
 	tokenBudget    int
 	reservedTokens int
 	semanticTopK   int
+	reservedTokensFallbackRatio int
 }
 
 // NewPromptAssembler creates a PromptAssembler with the given kernel querier.
@@ -124,7 +125,7 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	cc.ShardInstanceID = pc.ShardID
 
 	// Apply configured JIT budgets (if any)
-	tokenBudget, reservedTokens, semanticTopK := pa.getBudgetConfig()
+	tokenBudget, reservedTokens, semanticTopK, reservedTokensFallbackRatio := pa.getBudgetConfig()
 	if tokenBudget > 0 {
 		cc.TokenBudget = tokenBudget
 	}
@@ -133,6 +134,9 @@ func (pa *PromptAssembler) toCompilationContext(pc *PromptContext) *prompt.Compi
 	}
 	if semanticTopK > 0 {
 		cc.SemanticTopK = semanticTopK
+	}
+	if reservedTokensFallbackRatio > 0 {
+		cc.ReservedTokensFallbackRatio = reservedTokensFallbackRatio
 	}
 	switch pc.ShardType {
 	case "legislator", "mangle_repair":
@@ -1011,7 +1015,7 @@ func (pa *PromptAssembler) IsJITEnabled() bool {
 }
 
 // SetJITBudgets overrides token budgets for compiled prompts.
-func (pa *PromptAssembler) SetJITBudgets(tokenBudget, reservedTokens, semanticTopK int) {
+func (pa *PromptAssembler) SetJITBudgets(tokenBudget, reservedTokens, semanticTopK, reservedTokensFallbackRatio int) {
 	pa.mu.Lock()
 	defer pa.mu.Unlock()
 	if tokenBudget > 0 {
@@ -1023,20 +1027,26 @@ func (pa *PromptAssembler) SetJITBudgets(tokenBudget, reservedTokens, semanticTo
 	if semanticTopK > 0 {
 		pa.semanticTopK = semanticTopK
 	}
+	if reservedTokensFallbackRatio > 0 {
+		pa.reservedTokensFallbackRatio = reservedTokensFallbackRatio
+	}
 	if pa.tokenBudget > 0 && pa.reservedTokens >= pa.tokenBudget {
 		// Clamp to a safe fallback so Validate() doesn't fail.
-		// TODO: This clamping logic is arbitrary. Consider making it configurable.
-		pa.reservedTokens = pa.tokenBudget / 10
+		fallbackRatio := pa.reservedTokensFallbackRatio
+		if fallbackRatio <= 0 {
+			fallbackRatio = 10
+		}
+		pa.reservedTokens = pa.tokenBudget / fallbackRatio
 		if pa.reservedTokens >= pa.tokenBudget {
 			pa.reservedTokens = 0
 		}
 	}
 }
 
-func (pa *PromptAssembler) getBudgetConfig() (int, int, int) {
+func (pa *PromptAssembler) getBudgetConfig() (int, int, int, int) {
 	pa.mu.RLock()
 	defer pa.mu.RUnlock()
-	return pa.tokenBudget, pa.reservedTokens, pa.semanticTopK
+	return pa.tokenBudget, pa.reservedTokens, pa.semanticTopK, pa.reservedTokensFallbackRatio
 }
 
 // =============================================================================
