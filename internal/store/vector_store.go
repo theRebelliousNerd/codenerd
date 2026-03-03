@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
@@ -410,13 +411,9 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].similarity > candidates[j].similarity
+	})
 
 	// Return top K
 	if len(candidates) > limit {
@@ -537,13 +534,9 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		})
 	}
 
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].similarity > candidates[j].similarity
+	})
 
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
@@ -674,13 +667,9 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].similarity > candidates[j].similarity
+	})
 
 	// Return top K
 	if len(candidates) > limit {
@@ -1579,13 +1568,9 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryEmbedding []float32, li
 	}
 
 	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].similarity > candidates[j].similarity
+	})
 
 	if len(candidates) > limit {
 		candidates = candidates[:limit]
