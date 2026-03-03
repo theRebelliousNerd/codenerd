@@ -262,7 +262,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Create a PromptAssembler-backed provider
 	var campaignPromptProvider campaign.PromptProvider
 	if pa, err := articulation.NewPromptAssemblerWithJIT(kern, jitCompiler); err == nil {
-		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK)
+		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 		pa.EnableJIT(jitCfg.Enabled)
 		campaignPromptProvider = &CampaignJITProvider{assembler: pa}
 	}
