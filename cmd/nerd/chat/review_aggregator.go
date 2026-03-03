@@ -344,7 +344,6 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 				logging.Get(logging.CategoryShards).Error("Shard %s failed attempt %d: %v", shardName, attempt, err)
 				if attempt == 1 {
 					select {
-					case <-time.After(500 * time.Millisecond): // Brief pause before retry
 					case <-ctx.Done():
 						return ShardReviewResult{
 							Shard:    shardName,
@@ -353,6 +352,8 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 							Attempt:  attempt,
 							Duration: time.Since(spawnStart),
 						}
+					case <-time.After(500 * time.Millisecond):
+						// Brief pause before retry
 					}
 				}
 			}
