@@ -23,14 +23,14 @@ Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
 Decl file_exists(Path).
 Decl file_edited(Path).
 Decl action_verified(ID, Type, Method, Confidence, Timestamp).
-Decl diagnostic(Severity, FilePath, Line, Code, Message).
+# Decl diagnostic(Severity, FilePath, Line, Code, Message). - In intent_routing.mg
 Decl test_state(State).
 Decl tdd_state(State).
 Decl next_action(Action).
-Decl same_package(File1, File2).
+# Decl same_package(File1, File2). - In intent_routing.mg
 
 # The predicate we want to wire:
-Decl file_imports(Importer, Imported).
+# Decl file_imports(Importer, Imported). - In intent_routing.mg
 `
 
 	program := mockSchema + "\n" + string(data)

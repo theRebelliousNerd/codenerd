@@ -22,12 +22,12 @@ Decl file_topology(Path, Hash, Language, LastModified, IsTestFile).
 Decl file_exists(Path).
 Decl file_edited(Path).
 Decl action_verified(ID, Type, Method, Confidence, Timestamp).
-Decl diagnostic(Severity, FilePath, Line, Code, Message).
+# Decl diagnostic(Severity, FilePath, Line, Code, Message). - In intent_routing.mg
 Decl test_state(State).
 Decl tdd_state(State).
 Decl next_action(Action).
-Decl same_package(File1, File2).
-Decl file_imports(Importer, Imported).
+# Decl same_package(File1, File2). - In intent_routing.mg
+# Decl file_imports(Importer, Imported). - In intent_routing.mg
 Decl persona_tool_allowed(Persona, Tool).
 `
 
@@ -163,6 +163,33 @@ Decl persona_tool_allowed(Persona, Tool).
 
 		if !found {
 			t.Error("Expected tdd_state(/green) when file edited and no failures")
+		}
+	})
+
+	t.Run("test_failed derivation", func(t *testing.T) {
+		// test_failed(Path, Name, Msg) :- pytest_failure(Name, _, Path, _, Msg).
+		facts := []testFact{
+			{"pytest_failure", []interface{}{"test_foo", "/assertion", "foo_test.py", int64(10), "assert 1 == 2"}},
+		}
+		result := evaluateAndQuery(t, program, facts, "test_failed")
+
+		found := false
+		for _, f := range result {
+			// test_failed(Path, Name, Msg)
+			if len(f.Args) == 3 {
+				path, ok1 := f.Args[0].(string)
+				name, ok2 := f.Args[1].(string)
+				msg, ok3 := f.Args[2].(string)
+
+				if ok1 && ok2 && ok3 && path == "foo_test.py" && name == "test_foo" && msg == "assert 1 == 2" {
+					found = true
+					break
+				}
+			}
+		}
+
+		if !found {
+			t.Errorf("Expected test_failed(foo_test.py, test_foo, assert 1 == 2), got: %v", result)
 		}
 	})
 }
