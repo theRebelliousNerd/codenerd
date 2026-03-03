@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,25 +45,30 @@ func (m Model) addMessage(msg Message) Model {
 
 // renderHistory with cache
 func (m Model) renderHistory() string {
-	var result string
+	var builder strings.Builder
 	startIdx := 0
 	if len(m.history) > 100 {
 		startIdx = len(m.history) - 100
+	}
+
+	// Calculate a rough capacity to avoid reallocations
+	if len(m.history) - startIdx > 0 {
+		builder.Grow((len(m.history) - startIdx) * 50) // Assuming average message is ~50 bytes
 	}
 
 	for idx := startIdx; idx < len(m.history); idx++ {
 		// Check cache
 		if m.renderedCache != nil && idx < m.cacheInvalidFrom {
 			if cached, exists := m.renderedCache[idx]; exists {
-				result += cached
+				builder.WriteString(cached)
 				continue
 			}
 		}
 		// Render without cache
 		msg := m.history[idx]
-		result += fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content)
+		builder.WriteString(fmt.Sprintf("[%s] %s\n", msg.Role, msg.Content))
 	}
-	return result
+	return builder.String()
 }
 
 func main() {
