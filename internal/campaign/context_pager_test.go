@@ -90,7 +90,10 @@ func TestActivatePhase(t *testing.T) {
 	}
 
 	// 2. Activate Phase
-	// TODO: Test ActivatePhase with nil phase (should handle gracefully)
+	err := cp.ActivatePhase(ctx, nil)
+	if err != nil {
+		t.Errorf("ActivatePhase with nil phase failed: %v", err)
+	}
 	// TODO: Test ActivatePhase with phase containing nil Tasks slice
 	// TODO: Test ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: Test ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
@@ -99,7 +102,7 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: Test ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
 
 	// TODO: Test Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
-	err := cp.ActivatePhase(ctx, phase)
+	err = cp.ActivatePhase(ctx, phase)
 	if err != nil {
 		t.Fatalf("ActivatePhase failed: %v", err)
 	}
