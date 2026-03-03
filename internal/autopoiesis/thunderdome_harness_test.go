@@ -115,6 +115,23 @@ func extractFunctionCall(code string) string {
 
 func TestThunderdome_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
+	// NOTE: Current implementation uses io.ReadAll(), which solves the scanner buffer limit but introduces OOM risk for massive inputs.
+	// The Ouroboros wrapper uses io.LimitReader(10MB), creating a discrepancy.
+
+	// TODO: TEST_GAP: Verify handling of single-argument functions (Signature Mismatch).
+	// Currently, findEntryPoint accepts func(ctx) or func(input), but generateTestHarness hardcodes a 2-arg call.
+	// This leads to compile errors in the harness.
+
+	// TODO: TEST_GAP: Verify file system isolation.
+	// The current sandbox only clears env vars. It does not restrict file system access.
+	// A malicious tool could write to /tmp or read sensitive files.
+
+	// TODO: TEST_GAP: Verify behavior with inputs > 10MB (consistency with Ouroboros).
+	// Thunderdome should enforce the same input limits as the production wrapper.
+
+	// TODO: TEST_GAP: Verify handling of binary data (null bytes).
+	// Ensure that inputs with \x00 are passed correctly to the tool.
+
 	t.Skip("This test marks missing coverage for Thunderdome edge cases.")
 }
 
