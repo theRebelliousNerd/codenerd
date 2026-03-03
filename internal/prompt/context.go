@@ -346,6 +346,7 @@ func (cc *CompilationContext) Validate() error {
 }
 
 // String returns a human-readable summary of the context.
+// TODO: Observability: Include more fields in the summary (e.g., CampaignID, active world states) for better debugging context.
 func (cc *CompilationContext) String() string {
 	return fmt.Sprintf(
 		"CompilationContext{mode=%s, campaign=%s, shard=%s, lang=%s, intent=%s, budget=%d}",

@@ -468,6 +468,7 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 	// OR create separate link tables `atom_dependencies`, `atom_conflicts`.
 	// For simplicity, let's use `atom_context_tags` with reserved dimensions.
 	// This works for simple ID references.
+	// TODO: Architecture: Migrate `depends_on` and `conflicts_with` to explicit relational tables (`atom_dependencies`, `atom_conflicts`) with foreign key constraints to ensure referential integrity.
 	for _, dep := range atom.DependsOn {
 		if _, err := stmt.ExecContext(ctx, atom.ID, "depends_on", dep); err != nil {
 			return fmt.Errorf("insert dep failed: %w", err)
