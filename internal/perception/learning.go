@@ -100,12 +100,8 @@ func ExtractFactFromResponse(response string) string {
 }
 
 func extractFactFromJSON(response string) string {
-	if !strings.Contains(response, "mangle_updates") {
-		return ""
-	}
-
-	start := strings.Index(response, "{")
-	if start == -1 {
+	jsonStr := ExtractCleanJSON(response)
+	if jsonStr == "" {
 		return ""
 	}
 
@@ -117,8 +113,7 @@ func extractFactFromJSON(response string) string {
 	}
 
 	var envelope mangleUpdatesEnvelope
-	decoder := json.NewDecoder(strings.NewReader(response[start:]))
-	if err := decoder.Decode(&envelope); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &envelope); err != nil {
 		logging.PerceptionDebug("ExtractFactFromResponse: JSON parse failed: %v", err)
 		return ""
 	}

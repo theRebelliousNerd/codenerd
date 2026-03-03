@@ -37,7 +37,7 @@ func TestBreak_ExtractJSON_UnbalancedBraces_10K(t *testing.T) {
 	// Attack: 10,000 open braces with no closing braces.
 	// The stack slice grows to 10K entries. Should not panic or OOM.
 	input := strings.Repeat("{", 10_000)
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	if result != "" {
 		t.Errorf("expected empty result for unbalanced braces, got %d bytes", len(result))
 	}
@@ -51,7 +51,7 @@ func TestBreak_ExtractJSON_UnbalancedBraces_1M(t *testing.T) {
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memAfter)
@@ -74,7 +74,7 @@ func TestBreak_ExtractJSON_ThousandCandidates(t *testing.T) {
 	input := strings.Repeat("{}", 5_000)
 
 	start := time.Now()
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	elapsed := time.Since(start)
 
 	t.Logf("5K balanced pairs: result=%q, took %v", result, elapsed)
@@ -91,7 +91,7 @@ func TestBreak_ExtractJSON_NestedBraces_500Deep(t *testing.T) {
 	depth := 500
 	input := strings.Repeat("{", depth) + strings.Repeat("}", depth)
 
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	// The innermost {} is valid JSON (empty object)
 	if result == "" {
 		t.Error("expected to find at least the innermost {} as valid JSON")
@@ -107,7 +107,7 @@ func TestBreak_ExtractJSON_5MB_Response(t *testing.T) {
 	input := padding + validJSON + padding
 
 	start := time.Now()
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	elapsed := time.Since(start)
 
 	if result != validJSON {
@@ -124,7 +124,7 @@ func TestBreak_ExtractJSON_UnterminatedString(t *testing.T) {
 	// The brace tracker should stay in "inString" mode and not count these.
 	// But what happens when the string never closes?
 	input := `{"key": "this string never closes { { { { {`
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	// Should NOT find valid JSON because the string is unterminated
 	if result != "" {
 		// If it found something, check it's actually valid
@@ -138,7 +138,7 @@ func TestBreak_ExtractJSON_EscapeSequenceAtEnd(t *testing.T) {
 	// Attack: string ending with backslash — the escapeNext flag is set
 	// but there's no next character.
 	input := `{"key": "value\`
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	if result != "" {
 		t.Logf("unexpected result from trailing backslash: %q", result)
 	}
@@ -148,7 +148,7 @@ func TestBreak_ExtractJSON_AlternatingBracesInStrings(t *testing.T) {
 	// Attack: braces inside strings that look like they balance but shouldn't.
 	// The tracker must correctly ignore braces inside quotes.
 	input := `prefix {"outer": "has } inside", "real": true} suffix`
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	if result == "" {
 		t.Error("failed to extract JSON with braces inside strings")
 	} else {
@@ -167,7 +167,7 @@ func TestBreak_ExtractJSON_BinaryPayload(t *testing.T) {
 	}
 	input := string(binary) + `{"safe": true}` + string(binary)
 
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	// Should either find the valid JSON or return empty, but NOT panic
 	t.Logf("binary payload: result=%q (len=%d)", truncateForLog(result, 50), len(result))
 }
@@ -175,7 +175,7 @@ func TestBreak_ExtractJSON_BinaryPayload(t *testing.T) {
 func TestBreak_ExtractJSON_NullBytes(t *testing.T) {
 	// Attack: null bytes throughout the input
 	input := "{\x00\"key\"\x00:\x00\"value\"\x00}\x00"
-	result := extractJSON(input)
+	result := ExtractCleanJSON(input)
 	t.Logf("null bytes: result=%q", result)
 }
 
@@ -812,7 +812,7 @@ func TestBreak_ExtractJSON_MemoryPressure(t *testing.T) {
 	runtime.ReadMemStats(&memBefore)
 
 	for i := 0; i < 100; i++ {
-		_ = extractJSON(input)
+		_ = ExtractCleanJSON(input)
 	}
 
 	runtime.GC()

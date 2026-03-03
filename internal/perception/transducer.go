@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/config"
@@ -143,12 +142,24 @@ func truncateForLog(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	// Walk backward from maxLen to find a valid rune boundary
-	truncated := s[:maxLen]
-	for len(truncated) > 0 && !utf8.ValidString(truncated) {
-		truncated = truncated[:len(truncated)-1]
+	return safeTruncate(s, maxLen) + "..."
+}
+
+// safeTruncate performs a UTF-8 safe truncation of a string to avoid
+// slicing halfway through a multi-byte character.
+func safeTruncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
 	}
-	return truncated + "..."
+
+	// Walk backwards from limit to find the start of a valid UTF-8 rune boundary.
+	for i := limit; i > 0; i-- {
+		if (s[i] & 0xC0) != 0x80 {
+			return s[:i]
+		}
+	}
+	// Fallback if somehow invalid UTF-8 byte stream
+	return s[:limit]
 }
 
 // matchVerbFromCorpus finds the best matching verb using Regex Candidates + Semantic + Mangle Inference.

@@ -218,23 +218,23 @@ func TestTorture_PureGo_ExtractJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractJSON(tt.input)
+			got := ExtractCleanJSON(tt.input)
 			if tt.wantEmpty {
 				if got != "" {
-					t.Errorf("extractJSON() = %q, want empty", got)
+					t.Errorf("ExtractCleanJSON() = %q, want empty", got)
 				}
 				return
 			}
 			if got == "" {
-				t.Fatalf("extractJSON() returned empty, want non-empty")
+				t.Fatalf("ExtractCleanJSON() returned empty, want non-empty")
 			}
 			var parsed map[string]interface{}
 			if err := json.Unmarshal([]byte(got), &parsed); err != nil {
-				t.Fatalf("extractJSON() returned invalid JSON: %v\nraw: %s", err, got)
+				t.Fatalf("ExtractCleanJSON() returned invalid JSON: %v\nraw: %s", err, got)
 			}
 			for _, key := range tt.wantKeys {
 				if _, ok := parsed[key]; !ok {
-					t.Errorf("extractJSON() missing key %q in parsed JSON: %v", key, parsed)
+					t.Errorf("ExtractCleanJSON() missing key %q in parsed JSON: %v", key, parsed)
 				}
 			}
 		})

@@ -2,10 +2,10 @@ package perception
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // understandingSchema is the JSON schema for Gemini structured output.
@@ -74,10 +74,13 @@ func (t *GeminiThinkingTransducer) ParseIntentWithContext(ctx context.Context, i
 	t.initialize(ctx)
 
 	// 2. Semantic grounding (same as base)
+	var semanticMatches []SemanticMatch
 	if SharedSemanticClassifier != nil {
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
 			_ = matches
+		} else {
+			semanticMatches = matches
 		}
 	}
 
@@ -109,27 +112,8 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 	// changing the struct, we will reimplement the 'Understand' logic here using the client directly.
 
 	// 5. Build Final Prompt
-	// We reconstruct the user prompt manually here since LLMTransducer doesn't expose it publically.
-	var sb strings.Builder
-
-	// Include relevant history for context
-	if len(turns) > 0 {
-		sb.WriteString("## Recent Conversation\n\n")
-		// Only include last few turns to stay focused
-		start := 0
-		if len(turns) > 5 {
-			start = len(turns) - 5
-		}
-		for _, turn := range turns[start:] {
-			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
-		}
-		sb.WriteString("---\n\n")
-	}
-
-	sb.WriteString("## Current Request\n\n")
-	sb.WriteString(input) // Use original input, not formatted USER: line, to match LLMTransducer style
-
-	userPrompt := sb.String()
+	// Reuse LLMTransducer's powerful prompt building logic
+	userPrompt := t.llmTransducer.BuildPrompt(input, turns, semanticMatches, types.GetSessionContext(ctx), t.strategicContext)
 
 	// 5a. Try structured output first (most reliable for JSON)
 	var envelope UnderstandingEnvelope
@@ -142,7 +126,7 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 
 			// Even structured output might have markdown or extra text due to thinking mode
 			// Try to extract clean JSON first
-			cleanJSON := extractLastJSON(rawResponse)
+			cleanJSON := ExtractCleanJSON(rawResponse)
 			if cleanJSON == "" {
 				cleanJSON = rawResponse // Fallback to raw if no JSON found
 			}
@@ -180,7 +164,7 @@ fallback:
 	// 6. Specialized Parsing for Thinking Output
 	// We expect: [Thoughts...] { JSON }
 	// We find the *last* valid JSON object.
-	jsonStr := extractLastJSON(rawResponse)
+	jsonStr := ExtractCleanJSON(rawResponse)
 	if jsonStr == "" {
 		return Intent{}, fmt.Errorf("failed to extract JSON from thinking response")
 	}
@@ -208,67 +192,4 @@ fallback:
 
 	// 8. Convert to Intent
 	return t.understandingToIntent(&envelope.Understanding), nil
-}
-
-// extractLastJSON finds the last valid JSON object in a string.
-// It handles cases where the LLM wraps JSON in markdown code fences.
-func extractLastJSON(s string) string {
-	// First, try to strip markdown code fences if present
-	cleaned := stripMarkdownCodeFences(s)
-
-	// Find the last closing brace
-	end := strings.LastIndex(cleaned, "}")
-	if end == -1 {
-		return ""
-	}
-
-	// Scan backwards to find the matching opening brace
-	balance := 0
-	for i := end; i >= 0; i-- {
-		switch cleaned[i] {
-		case '}':
-			balance++
-		case '{':
-			balance--
-		}
-
-		if balance == 0 && cleaned[i] == '{' {
-			// Found the matching opening brace
-			candidate := cleaned[i : end+1]
-			if json.Valid([]byte(candidate)) {
-				return candidate
-			}
-			// If invalid (e.g. valid brace pair but content is garbage),
-			// it usually means we're inside a string or comment, or the JSON is malformed.
-			// But since we are looking for the OUTERMOST object that ends at 'end',
-			// this must be it. If it's not valid, then no valid JSON ends at 'end'.
-			return ""
-		}
-	}
-
-	return ""
-}
-
-// stripMarkdownCodeFences removes markdown code fence wrapping from a string.
-// Handles ```json, ```, and variations with language specifiers.
-func stripMarkdownCodeFences(s string) string {
-	// Check for ```json or ``` at start and end
-	trimmed := strings.TrimSpace(s)
-
-	// Common patterns: ```json\n...\n``` or just ```\n...\n```
-	if strings.HasPrefix(trimmed, "```") {
-		// Find end of first line (after opening fence)
-		firstNewline := strings.Index(trimmed, "\n")
-		if firstNewline != -1 {
-			// Find closing fence
-			lastFence := strings.LastIndex(trimmed, "```")
-			if lastFence > firstNewline {
-				// Extract content between fences
-				content := trimmed[firstNewline+1 : lastFence]
-				return strings.TrimSpace(content)
-			}
-		}
-	}
-
-	return s
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"codenerd/internal/core"
@@ -52,9 +53,9 @@ func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LL
 
 // Understand uses the LLM to interpret user intent.
 // This is the primary (and only) classification path.
-func (t *LLMTransducer) Understand(ctx context.Context, input string, history []Turn) (*Understanding, error) {
-	// 1. Build the prompt with conversation history
-	fullPrompt := t.buildPrompt(input, history)
+func (t *LLMTransducer) Understand(ctx context.Context, input string, history []Turn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
+	// 1. Build the prompt with conversation history and new contexts
+	fullPrompt := t.BuildPrompt(input, history, semanticMatches, sessionCtx, strategicContext)
 
 	// 2. Call LLM for classification
 	response, err := t.client.CompleteWithSystem(ctx, t.prompt, fullPrompt)
@@ -81,9 +82,53 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 	return understanding, nil
 }
 
-// buildPrompt constructs the user prompt with conversation history.
-func (t *LLMTransducer) buildPrompt(input string, history []Turn) string {
+// BuildPrompt constructs the user prompt with conversation history, learned semantic matches,
+// ambient session context, and strategic guidance context.
+func (t *LLMTransducer) BuildPrompt(input string, history []Turn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
 	var sb strings.Builder
+
+	// Incorporate Ambient Workspace Context
+	if sessionCtx != nil && sessionCtx.Ambient != nil {
+		sb.WriteString("## Ambient Workspace Context\n\n")
+		if sessionCtx.Ambient.ActiveFile != "" {
+			sb.WriteString(fmt.Sprintf("- **Active File:** %s\n", sessionCtx.Ambient.ActiveFile))
+		}
+		if sessionCtx.Ambient.CursorLine > 0 {
+			sb.WriteString(fmt.Sprintf("- **Cursor Line:** %d\n", sessionCtx.Ambient.CursorLine))
+		}
+		if sessionCtx.Ambient.SelectedText != "" {
+			sb.WriteString(fmt.Sprintf("- **Selected Text:**\n```\n%s\n```\n", sessionCtx.Ambient.SelectedText))
+		}
+		if len(sessionCtx.Ambient.Diagnostics) > 0 {
+			sb.WriteString("- **Diagnostics:**\n")
+			for _, diag := range sessionCtx.Ambient.Diagnostics {
+				sb.WriteString(fmt.Sprintf("  - %s\n", diag))
+			}
+		}
+		sb.WriteString("\n---\n\n")
+	}
+
+	// Incorporate Strategic Context
+	if strategicContext != "" {
+		sb.WriteString("## Strategic Context\n\n")
+		sb.WriteString(strategicContext)
+		sb.WriteString("\n\n---\n\n")
+	}
+
+	// Incorporate Learned Semantic Matches (Few-Shot Exemplars)
+	if len(semanticMatches) > 0 {
+		sb.WriteString("## Learned Semantic Matches\n\n")
+		sb.WriteString("These are similar past interactions that may guide your understanding:\n\n")
+		for _, match := range semanticMatches {
+			// Include high confidence matches as exemplars
+			if match.Similarity > 0.8 {
+				sb.WriteString(fmt.Sprintf("- **User Input:** \"%s\"\n", match.TextContent))
+				sb.WriteString(fmt.Sprintf("  **Mapped Intent:** Verb=%s, Target=%s, Constraint=%s (Similarity: %.2f)\n\n",
+					match.Verb, match.Target, match.Constraint, match.Similarity))
+			}
+		}
+		sb.WriteString("---\n\n")
+	}
 
 	// Include relevant history for context
 	if len(history) > 0 {
@@ -108,7 +153,7 @@ func (t *LLMTransducer) buildPrompt(input string, history []Turn) string {
 // parseResponse extracts Understanding from LLM JSON response.
 func (t *LLMTransducer) parseResponse(response string) (*Understanding, error) {
 	// Try to extract JSON from response (may have markdown wrapper)
-	jsonStr := extractJSON(response)
+	jsonStr := ExtractCleanJSON(response)
 	if jsonStr == "" {
 		return nil, fmt.Errorf("no JSON found in response")
 	}
@@ -152,10 +197,10 @@ func normalizeLLMFields(u *Understanding) {
 	}
 }
 
-// extractJSON finds the last valid JSON object in the response.
+// ExtractCleanJSON finds the last valid JSON object in the response.
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
 // It scans from the end of the string to efficiently find the last valid object without O(N^2) overhead.
-func extractJSON(response string) string {
+func ExtractCleanJSON(response string) string {
 	// We need to tolerate:
 	// - pre/postamble text
 	// - nested objects
@@ -503,13 +548,9 @@ func (k *MangleRoutingKernel) QueryRouting(ctx context.Context, predicate string
 	}
 
 	// Sort by weight descending
-	for i := 0; i < len(matches)-1; i++ {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[j].Weight > matches[i].Weight {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
-		}
-	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Weight > matches[j].Weight
+	})
 
 	return matches, nil
 }

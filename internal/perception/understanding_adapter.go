@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // ThinkingProvider is an optional interface for clients that support thinking.
@@ -93,6 +94,10 @@ func getUnderstandingPrompt(ctx context.Context, pa *articulation.PromptAssemble
 		ShardType: "perception",
 	}
 
+	if sCtx := types.GetSessionContext(ctx); sCtx != nil {
+		pc.WithSessionContext(sCtx)
+	}
+
 	// Attempt JIT compilation
 	prompt, err := pa.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
@@ -121,12 +126,15 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// GAP-006 FIX: Run semantic classification to inject semantic_match facts into kernel
 	// This provides neuro-symbolic grounding even in LLM-first mode
+	var semanticMatches []SemanticMatch
 	if SharedSemanticClassifier != nil {
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
 			// Graceful degradation - log but continue with LLM-only classification
 			// Semantic classification is optional enhancement, not required
 			_ = matches // matches already injected into kernel by Classify()
+		} else {
+			semanticMatches = matches
 		}
 		// Note: semantic_match facts are automatically asserted by Classify()
 	}
@@ -141,7 +149,8 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	}
 
 	// Get Understanding from LLM
-	understanding, err := t.llmTransducer.Understand(ctx, input, turns)
+	sessionCtx := types.GetSessionContext(ctx)
+	understanding, err := t.llmTransducer.Understand(ctx, input, turns, semanticMatches, sessionCtx, t.strategicContext)
 	if err != nil {
 		return Intent{}, fmt.Errorf("LLM classification failed: %w", err)
 	}

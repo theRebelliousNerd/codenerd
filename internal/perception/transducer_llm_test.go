@@ -75,7 +75,7 @@ func TestExtractJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractJSON(tt.input)
+			got := ExtractCleanJSON(tt.input)
 			if got != tt.expected {
 				// Special handling for "Valid inside Invalid" case if behaviors differ,
 				// but let's see what the current implementation does first.
@@ -84,7 +84,7 @@ func TestExtractJSON(t *testing.T) {
 					// My implementation will return `{"valid": "inside"}`.
 					// So they should match.
 				}
-				t.Errorf("extractJSON() = %q, want %q", got, tt.expected)
+				t.Errorf("ExtractCleanJSON() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -107,7 +107,7 @@ func BenchmarkExtractJSON(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		extractJSON(input)
+		ExtractCleanJSON(input)
 	}
 }
 

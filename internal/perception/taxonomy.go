@@ -206,12 +206,18 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 
 	// Use defaults from Go struct
 	for _, entry := range DefaultTaxonomyData {
-		t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority)
+		if err := t.store.StoreVerbDef(entry.Verb, entry.Category, entry.ShardType, entry.Priority); err != nil {
+			return fmt.Errorf("failed to store verb def for %s: %w", entry.Verb, err)
+		}
 		for _, syn := range entry.Synonyms {
-			t.store.StoreVerbSynonym(entry.Verb, syn)
+			if err := t.store.StoreVerbSynonym(entry.Verb, syn); err != nil {
+				return fmt.Errorf("failed to store synonym %s for %s: %w", syn, entry.Verb, err)
+			}
 		}
 		for _, pat := range entry.Patterns {
-			t.store.StoreVerbPattern(entry.Verb, pat)
+			if err := t.store.StoreVerbPattern(entry.Verb, pat); err != nil {
+				return fmt.Errorf("failed to store pattern %s for %s: %w", pat, entry.Verb, err)
+			}
 		}
 	}
 
