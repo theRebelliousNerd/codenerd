@@ -2,7 +2,6 @@ package campaign
 
 import (
 	"codenerd/internal/core"
-	"codenerd/internal/types"
 	"testing"
 	"time"
 )
@@ -65,7 +64,7 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 				Tasks: []Task{
 					{ID: "/task_1"},
 					{ID: "/task_2"},
-					{ID: "/task_3", NextRetryAt: time.Now().Add(1 * time.Hour)}, // Future backoff
+					{ID: "/task_3", NextRetryAt: time.Now().Add(1 * time.Hour)},  // Future backoff
 					{ID: "/task_4", NextRetryAt: time.Now().Add(-1 * time.Hour)}, // Past backoff
 				},
 			},

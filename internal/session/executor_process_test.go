@@ -262,7 +262,7 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 	}
 
 	// Execute with context
-	ctx := WithSessionContext(context.Background(), sessionCtx)
+	ctx := types.WithSessionContext(context.Background(), sessionCtx)
 	_, err := executor.Process(ctx, "Dream a little dream")
 	if err != nil {
 		t.Fatalf("Process failed: %v", err)

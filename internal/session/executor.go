@@ -45,18 +45,6 @@ type MangleAtom string
 
 func (m MangleAtom) String() string { return string(m) }
 
-// sessionContextKey is the context key for passing SessionContext.
-type sessionContextKeyType struct{}
-
-var sessionContextKey = sessionContextKeyType{}
-
-// WithSessionContext returns a context with the SessionContext attached.
-// This enables passing session context through the executor loop without
-// relying on stateful Executor fields (thread-safe).
-func WithSessionContext(ctx context.Context, sessionCtx *types.SessionContext) context.Context {
-	return context.WithValue(ctx, sessionContextKey, sessionCtx)
-}
-
 // Executor implements the clean execution loop.
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
@@ -267,8 +255,26 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	result.Duration = time.Since(start)
 
 	// Update conversation history
-	e.appendToHistory("user", input)
-	e.appendToHistory("assistant", result.Response)
+	e.appendToHistory(perception.ConversationTurn{
+		Role:    "user",
+		Content: input,
+	})
+	e.appendToHistory(perception.ConversationTurn{
+		Role:             "assistant",
+		Content:          result.Response,
+		ThoughtSummary:   llmResponse.ThoughtSummary,
+		ThoughtSignature: llmResponse.ThoughtSignature,
+	})
+
+	// Dispatch asynchronous learning
+	if perception.SharedTaxonomy != nil {
+		trace := perception.ReasoningTrace{
+			UserPrompt: input,
+			Response:   result.Response,
+			Success:    result.Error == nil,
+		}
+		perception.SharedTaxonomy.QueueForLearning([]perception.ReasoningTrace{trace})
+	}
 
 	logging.Session("Execution complete: %d tool calls, %v duration", result.ToolCallsExecuted, result.Duration)
 
@@ -308,7 +314,7 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 
 	// Set session context if available
 	// Priority 1: Check context (thread-safe, request-scoped)
-	if sCtx, ok := ctx.Value(sessionContextKey).(*types.SessionContext); ok {
+	if sCtx := types.GetSessionContext(ctx); sCtx != nil {
 		cc.SessionContext = sCtx
 		if sCtx.DreamMode {
 			cc.OperationalMode = "/dream"
@@ -887,14 +893,11 @@ func (e *Executor) extractTarget(args map[string]interface{}) string {
 }
 
 // appendToHistory adds a turn to conversation history.
-func (e *Executor) appendToHistory(role, content string) {
+func (e *Executor) appendToHistory(turn perception.ConversationTurn) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.conversationHistory = append(e.conversationHistory, perception.ConversationTurn{
-		Role:    role,
-		Content: content,
-	})
+	e.conversationHistory = append(e.conversationHistory, turn)
 
 	// Limit history size
 	maxHistory := 50

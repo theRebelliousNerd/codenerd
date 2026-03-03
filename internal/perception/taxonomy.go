@@ -21,6 +21,7 @@ type TaxonomyEngine struct {
 	client        LLMClient
 	workspaceRoot string // Explicit workspace root (for .nerd paths)
 	learnedPath   string // Absolute path of loaded .nerd/mangle/learned.mg (if any)
+	worker        *ConsolidationWorker
 }
 
 // SharedTaxonomy is the global instance loaded on init.
@@ -44,6 +45,8 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 		return nil, fmt.Errorf("failed to init taxonomy engine: %w", err)
 	}
 	t := &TaxonomyEngine{engine: eng}
+	t.worker = NewConsolidationWorker(t)
+	t.worker.Start()
 
 	// Load Intent Definition Schemas (Modular) - must be loaded in order
 	intentFiles := []string{
@@ -140,6 +143,20 @@ func (t *TaxonomyEngine) SetWorkspace(root string) {
 // HasWorkspace returns true if an explicit workspace root has been set.
 func (t *TaxonomyEngine) HasWorkspace() bool {
 	return t.workspaceRoot != ""
+}
+
+// QueueForLearning enqueues the reasoning traces for background pattern extraction.
+func (t *TaxonomyEngine) QueueForLearning(traces []ReasoningTrace) {
+	if t.worker != nil {
+		t.worker.Enqueue(traces)
+	}
+}
+
+// StopWorker gracefully shuts down the consolidation worker.
+func (t *TaxonomyEngine) StopWorker() {
+	if t.worker != nil {
+		t.worker.Stop()
+	}
 }
 
 // nerdPath returns the correct path for a .nerd subdirectory.

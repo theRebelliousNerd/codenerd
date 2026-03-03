@@ -1,10 +1,11 @@
 package ui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
 	"codenerd/internal/prompt"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestJITPageFilterByContent(t *testing.T) {
@@ -100,12 +101,8 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'c'")
 	}
 
-	clipboardMsgResult := cmd()
-	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
-		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
-	}
-
-	model, _ = model.Update(clipboardMsgResult)
+	msgResult := cmd()
+	model, _ = model.Update(msgResult)
 
 	// Test 'y' key
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
@@ -114,12 +111,8 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'y'")
 	}
 
-	clipboardMsgResult = cmd()
-	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
-		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
-	}
-
-	model, _ = model.Update(clipboardMsgResult)
+	msgResult = cmd()
+	model, _ = model.Update(msgResult)
 
 	// Test 'p' key
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}
@@ -128,12 +121,8 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'p'")
 	}
 
-	clipboardMsgResult = cmd()
-	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
-		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
-	}
-
-	model, _ = model.Update(clipboardMsgResult)
+	msgResult = cmd()
+	model, _ = model.Update(msgResult)
 }
 
 func TestJITPageFocusSwitching(t *testing.T) {

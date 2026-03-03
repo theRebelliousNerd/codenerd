@@ -4,12 +4,36 @@
 package types
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/mangle/ast"
 )
+
+// =============================================================================
+// CONTEXT KEYS & HELPERS
+// =============================================================================
+
+// sessionContextKey is the context key for passing SessionContext.
+type sessionContextKeyType struct{}
+
+var sessionContextKey = sessionContextKeyType{}
+
+// WithSessionContext returns a context with the SessionContext attached.
+// This enables passing session context through execution loops (thread-safe).
+func WithSessionContext(ctx context.Context, sessionCtx *SessionContext) context.Context {
+	return context.WithValue(ctx, sessionContextKey, sessionCtx)
+}
+
+// GetSessionContext retrieves the SessionContext from the context if it exists.
+func GetSessionContext(ctx context.Context) *SessionContext {
+	if sCtx, ok := ctx.Value(sessionContextKey).(*SessionContext); ok {
+		return sCtx
+	}
+	return nil
+}
 
 // =============================================================================
 // MANGLE FACT TYPES
@@ -268,6 +292,14 @@ type ToolExecutionSummary struct {
 // SESSION CONTEXT - Blackboard Pattern
 // =============================================================================
 
+// AmbientContext provides context about the user's active IDE workspace environment.
+type AmbientContext struct {
+	ActiveFile   string
+	CursorLine   int
+	SelectedText string
+	Diagnostics  []string
+}
+
 // SessionContext holds compressed session context for shard injection (Blackboard Pattern).
 // This enables shards to understand the full session history without token explosion.
 // Extended to include all context types specified in the codeNERD architecture.
@@ -280,6 +312,7 @@ type SessionContext struct {
 	RecentActions     []string          // Recent shard actions taken
 	ActiveFiles       []string          // Files currently in focus
 	ExtraContext      map[string]string // Additional context key-values
+	Ambient           *AmbientContext   // Current ambient IDE context (cursor, selection, etc.)
 
 	// ==========================================================================
 	// DREAM MODE (Simulation/Learning)

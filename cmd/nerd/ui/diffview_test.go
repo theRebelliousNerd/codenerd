@@ -7,34 +7,34 @@ import (
 )
 
 func TestDiffApprovalView_HorizontalOffset_Logic(t *testing.T) {
-	// This test focuses on the state changes of HorizontalOffset
+	// This test focuses on the state changes of XOffset
 	view := NewDiffApprovalView(Styles{}, 10, 10)
 
-	assert.Equal(t, 0, view.HorizontalOffset)
+	assert.Equal(t, 0, view.XOffset)
 
 	// Scroll Right
 	view.ScrollRight()
-	assert.Equal(t, 3, view.HorizontalOffset)
+	assert.Equal(t, 4, view.XOffset)
 
 	view.ScrollRight()
-	assert.Equal(t, 6, view.HorizontalOffset)
+	assert.Equal(t, 8, view.XOffset)
 
 	// Scroll Left
 	view.ScrollLeft()
-	assert.Equal(t, 3, view.HorizontalOffset)
+	assert.Equal(t, 4, view.XOffset)
 
 	view.ScrollLeft()
-	assert.Equal(t, 0, view.HorizontalOffset)
+	assert.Equal(t, 0, view.XOffset)
 
 	// Scroll Left (Should not go negative)
 	view.ScrollLeft()
-	assert.Equal(t, 0, view.HorizontalOffset)
+	assert.Equal(t, 0, view.XOffset)
 
 	// Scroll To Start
-	view.ScrollRight() // 3
-	view.ScrollRight() // 6
+	view.ScrollRight() // 4
+	view.ScrollRight() // 8
 	view.ScrollToStart()
-	assert.Equal(t, 0, view.HorizontalOffset)
+	assert.Equal(t, 0, view.XOffset)
 }
 
 func TestDiffApprovalView_Rendering_Truncation(t *testing.T) {

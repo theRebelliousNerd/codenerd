@@ -84,14 +84,7 @@ func (t *GeminiThinkingTransducer) ParseIntentWithContext(ctx context.Context, i
 		}
 	}
 
-	// 3. Prepare History
-	var turns []Turn
-	for _, h := range history {
-		turns = append(turns, Turn{
-			Role:    h.Role,
-			Content: h.Content,
-		})
-	}
+	// 3. History is already in ConversationTurn format
 
 	// 4. Specialized Gemini Thinking Prompt
 	// We wrap the standard prompt with specific instructions for Thinking models
@@ -112,8 +105,7 @@ IMPORTANT: You are a model with "Thinking" capabilities enabled.
 	// changing the struct, we will reimplement the 'Understand' logic here using the client directly.
 
 	// 5. Build Final Prompt
-	// Reuse LLMTransducer's powerful prompt building logic
-	userPrompt := t.llmTransducer.BuildPrompt(input, turns, semanticMatches, types.GetSessionContext(ctx), t.strategicContext)
+	userPrompt := t.llmTransducer.BuildPrompt(input, history, semanticMatches, types.GetSessionContext(ctx), t.strategicContext)
 
 	// 5a. Try structured output first (most reliable for JSON)
 	var envelope UnderstandingEnvelope

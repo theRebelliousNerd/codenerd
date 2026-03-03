@@ -53,7 +53,7 @@ func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LL
 
 // Understand uses the LLM to interpret user intent.
 // This is the primary (and only) classification path.
-func (t *LLMTransducer) Understand(ctx context.Context, input string, history []Turn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
+func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
 	// 1. Build the prompt with conversation history and new contexts
 	fullPrompt := t.BuildPrompt(input, history, semanticMatches, sessionCtx, strategicContext)
 
@@ -84,7 +84,7 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 
 // BuildPrompt constructs the user prompt with conversation history, learned semantic matches,
 // ambient session context, and strategic guidance context.
-func (t *LLMTransducer) BuildPrompt(input string, history []Turn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
+func (t *LLMTransducer) BuildPrompt(input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) string {
 	var sb strings.Builder
 
 	// Incorporate Ambient Workspace Context
@@ -139,6 +139,9 @@ func (t *LLMTransducer) BuildPrompt(input string, history []Turn, semanticMatche
 			start = len(history) - 5
 		}
 		for _, turn := range history[start:] {
+			if turn.ThoughtSummary != "" {
+				sb.WriteString(fmt.Sprintf("**%s (Previous Thoughts)**:\n```\n%s\n```\n\n", turn.Role, turn.ThoughtSummary))
+			}
 			sb.WriteString(fmt.Sprintf("**%s**: %s\n\n", turn.Role, turn.Content))
 		}
 		sb.WriteString("---\n\n")

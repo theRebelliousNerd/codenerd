@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -79,37 +80,48 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 
 	logging.Autopoiesis("Evaluating batch of %d executions", len(execs))
 
-	verdicts := make([]*JudgeVerdict, 0, len(execs))
-	var errors []error
+	verdicts := make([]*JudgeVerdict, len(execs))
+	var wg sync.WaitGroup
+	
+	// Limit to 5 concurrent LLM calls to avoid API rate-limiting
+	sem := make(chan struct{}, 5) 
 
 	for i, exec := range execs {
 		// Skip already evaluated executions
 		if exec.Verdict != nil {
-			verdicts = append(verdicts, exec.Verdict)
+			verdicts[i] = exec.Verdict
 			continue
 		}
 
-		verdict, err := tj.Evaluate(ctx, exec)
-		if err != nil {
-			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to evaluate execution %d/%d: %v",
-				i+1, len(execs), err)
-			errors = append(errors, err)
-			continue
+		wg.Add(1)
+		go func(idx int, ex *ExecutionRecord) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire token
+			defer func() { <-sem }() // release token
+
+			verdict, err := tj.Evaluate(ctx, ex)
+			if err != nil {
+				logging.Get(logging.CategoryAutopoiesis).Warn("Failed to evaluate execution %d/%d: %v",
+					idx+1, len(execs), err)
+				return
+			}
+
+			verdicts[idx] = verdict
+			ex.Verdict = verdict // Attach verdict to execution record
+		}(i, exec)
+	}
+	wg.Wait()
+
+	var finalVerdicts []*JudgeVerdict
+	for _, v := range verdicts {
+		if v != nil {
+			finalVerdicts = append(finalVerdicts, v)
 		}
-
-		verdicts = append(verdicts, verdict)
-		exec.Verdict = verdict // Attach verdict to execution record
 	}
 
-	if len(errors) > 0 {
-		logging.Get(logging.CategoryAutopoiesis).Warn("Batch evaluation had %d errors out of %d",
-			len(errors), len(execs))
-	}
+	logging.Autopoiesis("Batch evaluation complete: %d verdicts", len(finalVerdicts))
 
-	logging.Autopoiesis("Batch evaluation complete: %d verdicts, %d errors",
-		len(verdicts), len(errors))
-
-	return verdicts, nil
+	return finalVerdicts, nil
 }
 
 // buildEvaluationPrompt constructs the prompt for evaluation.

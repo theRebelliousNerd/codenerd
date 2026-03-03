@@ -382,8 +382,10 @@ type Intent struct {
 // ConversationTurn represents a single turn in conversation history.
 // Used to pass context to the perception layer.
 type ConversationTurn struct {
-	Role    string // "user" or "assistant"
-	Content string
+	Role             string // "user" or "assistant"
+	Content          string
+	ThoughtSignature string // For multi-turn reasoning continuity
+	ThoughtSummary   string // Actual reasoning text used by the model
 }
 
 // sanitizeFactArg strips Mangle control characters and caps length to prevent

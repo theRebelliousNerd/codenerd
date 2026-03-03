@@ -139,18 +139,9 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 		// Note: semantic_match facts are automatically asserted by Classify()
 	}
 
-	// Convert history to Turn format
-	var turns []Turn
-	for _, h := range history {
-		turns = append(turns, Turn{
-			Role:    h.Role,
-			Content: h.Content,
-		})
-	}
-
 	// Get Understanding from LLM
 	sessionCtx := types.GetSessionContext(ctx)
-	understanding, err := t.llmTransducer.Understand(ctx, input, turns, semanticMatches, sessionCtx, t.strategicContext)
+	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, t.strategicContext)
 	if err != nil {
 		return Intent{}, fmt.Errorf("LLM classification failed: %w", err)
 	}
