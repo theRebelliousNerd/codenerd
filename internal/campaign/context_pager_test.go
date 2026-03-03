@@ -97,7 +97,7 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: Test ActivatePhase with 10,000+ tasks to verify performance and memory stability
 	// TODO: Test ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 	// TODO: Test ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
-	// TODO: Test Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
+
 	// TODO: Test Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
 	err := cp.ActivatePhase(ctx, phase)
 	if err != nil {
@@ -331,3 +331,99 @@ func TestPruneIrrelevant(t *testing.T) {
 
 // TODO: Additional Negative Testing Scenarios
 // - Test Reset Failure: Mock kernel.Retract failure and verify "ghost facts" persist
+
+
+
+func TestActivatePhase_DoubleActivation(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phase := &Phase{
+		ID:   "phase1",
+		Name: "Test Phase",
+		Tasks: []Task{
+			{
+				ID: "task1",
+				Artifacts: []TaskArtifact{
+					{Path: "src/main.go"},
+				},
+			},
+		},
+	}
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("First ActivatePhase failed: %v", err)
+	}
+
+	// Capture initial activation scores and facts state
+	initialScores := make(map[string]interface{})
+	distinctFactsCount := 0
+	seenFacts := make(map[string]struct{})
+
+	for _, f := range kernel.Facts {
+		factKey := fmt.Sprintf("%s:%v", f.Predicate, f.Args)
+		if _, exists := seenFacts[factKey]; !exists {
+			seenFacts[factKey] = struct{}{}
+			distinctFactsCount++
+		}
+
+		if f.Predicate == "activation" && len(f.Args) >= 2 {
+			key := fmt.Sprintf("%v", f.Args[0])
+			initialScores[key] = f.Args[1]
+		}
+	}
+
+	initialUsedTokens := cp.usedTokens
+
+	// Call a second time to test idempotency
+	err = cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("Second ActivatePhase failed: %v", err)
+	}
+
+	// Verify idempotency
+	secondScores := make(map[string]interface{})
+	newDistinctFactsCount := 0
+	newSeenFacts := make(map[string]struct{})
+
+	for _, f := range kernel.Facts {
+		factKey := fmt.Sprintf("%s:%v", f.Predicate, f.Args)
+		if _, exists := newSeenFacts[factKey]; !exists {
+			newSeenFacts[factKey] = struct{}{}
+			newDistinctFactsCount++
+		}
+
+		// Always keep the latest score assigned to simulate state update if any
+		if f.Predicate == "activation" && len(f.Args) >= 2 {
+			key := fmt.Sprintf("%v", f.Args[0])
+			secondScores[key] = f.Args[1]
+		}
+	}
+
+	if newDistinctFactsCount != distinctFactsCount {
+		t.Errorf("Idempotency failed: distinct facts count changed from %d to %d", distinctFactsCount, newDistinctFactsCount)
+	}
+
+	if len(initialScores) == 0 {
+		t.Fatal("Expected initial activation scores to be populated")
+	}
+
+	for key, initialScore := range initialScores {
+		secondScore, ok := secondScores[key]
+		if !ok {
+			t.Errorf("Missing activation score for %s on second activation", key)
+			continue
+		}
+
+		if initialScore != secondScore {
+			t.Errorf("Idempotency failed for %s: initial score %v, second score %v", key, initialScore, secondScore)
+		}
+	}
+
+	if cp.usedTokens != initialUsedTokens {
+		t.Errorf("Idempotency failed: expected usedTokens to be %d, got %d", initialUsedTokens, cp.usedTokens)
+	}
+}
