@@ -4,6 +4,8 @@ import (
 	"codenerd/internal/prompt"
 	"fmt"
 	"sort"
+	"strings"
+
 	"github.com/atotto/clipboard"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -44,7 +46,9 @@ func (i atomItem) Title() string { return i.atom.ID }
 func (i atomItem) Description() string {
 	return fmt.Sprintf("[%s] Prio:%d Tokens:%d", i.atom.Category, i.atom.Priority, i.atom.TokenCount)
 }
-func (i atomItem) FilterValue() string { return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content }
+func (i atomItem) FilterValue() string {
+	return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content
+}
 
 // NewJITPageModel creates a new JIT inspector page.
 func NewJITPageModel() JITPageModel {
@@ -140,35 +144,33 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// renderAtomContent formats the atom for display using lipgloss.JoinVertical
+// renderAtomContent formats the atom for display using strings.Builder
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 // TODO: UX: Integrate glamour or similar library for markdown rendering and syntax highlighting.
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	// TODO: Consider using strings.Builder or a more efficient rendering method for large content.
-	headerStyle := m.styles.Header
-	infoStyle := m.styles.Info
-	mutedStyle := m.styles.Muted
+	var b strings.Builder
+	// Pre-allocate assuming a reasonable starting size
+	b.Grow(len(atom.Content) + 256)
 
-	header := headerStyle.Render(atom.ID)
-	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
+	b.WriteString(m.styles.Header.Render(atom.ID))
+	b.WriteString("\n")
 
-	mandatoryStatus := ""
+	b.WriteString(m.styles.Info.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount)))
+	b.WriteString("\n")
+
 	if atom.IsMandatory {
-		mandatoryStatus = m.styles.Error.Render("MANDATORY (Skeleton)")
+		b.WriteString(m.styles.Error.Render("MANDATORY (Skeleton)"))
 	} else {
-		mandatoryStatus = m.styles.Success.Render("OPTIONAL (Flesh)")
+		b.WriteString(m.styles.Success.Render("OPTIONAL (Flesh)"))
 	}
+	b.WriteString("\n")
 
-	separator := mutedStyle.Render("--- Content ---")
+	b.WriteString(m.styles.Muted.Render("--- Content ---"))
+	b.WriteString("\n")
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		info,
-		mandatoryStatus,
-		separator,
-		atom.Content,
-	)
+	b.WriteString(atom.Content)
+
+	return b.String()
 }
 
 // View renders the page.
@@ -233,7 +235,7 @@ func (m *JITPageModel) SetSize(w, h int) {
 	viewPaneWidth := w - listPaneWidth
 
 	// Inner sizes
-	m.list.SetSize(listPaneWidth - chromeW, paneH)
+	m.list.SetSize(listPaneWidth-chromeW, paneH)
 	m.viewport.Width = viewPaneWidth - chromeW
 	m.viewport.Height = paneH
 }
