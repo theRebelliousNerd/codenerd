@@ -652,7 +652,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
-		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
