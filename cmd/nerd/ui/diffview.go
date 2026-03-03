@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 )
 
 // Type aliases for backward compatibility with UI code
@@ -57,6 +58,7 @@ type DiffApprovalView struct {
 	ApprovalMode     ApprovalMode
 	WordLevelDiff    bool // Enable word-level diffing for changed lines
 	diffEngine       *diff.Engine
+	XOffset          int // Horizontal scroll offset (columns)
 }
 
 // ApprovalMode represents the current approval state
@@ -528,7 +530,9 @@ func (d *DiffApprovalView) renderDiffLine(line DiffLine, wordDiffs interface{}) 
 
 	// If word diffs provided, render with highlights (wordDiffs not used yet, placeholder)
 	_ = wordDiffs
-	return style.Render(fmt.Sprintf("%s%s", prefix, line.Content))
+	fullLine := fmt.Sprintf("%s%s", prefix, line.Content)
+	slicedLine := sliceString(fullLine, d.XOffset, d.Viewport.Width)
+	return style.Render(slicedLine)
 }
 
 // renderWordDiffPair renders a removed/added line pair with word-level highlighting
@@ -585,7 +589,9 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 	_ = highlightStyle // Placeholder for future enhancement
 	_ = wordDiffs
 
-	return baseStyle.Render(fmt.Sprintf("%s%s", prefix, line.Content))
+	fullLine := fmt.Sprintf("%s%s", prefix, line.Content)
+	slicedLine := sliceString(fullLine, d.XOffset, d.Viewport.Width)
+	return baseStyle.Render(slicedLine)
 }
 
 // renderControls renders the approval controls
@@ -618,25 +624,64 @@ func (d *DiffApprovalView) View() string {
 
 // ScrollRight scrolls the viewport right for viewing long lines
 func (d *DiffApprovalView) ScrollRight() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineRight/horizontal scrolling.
-	// This code was causing build errors. Re-enable when bubbles is updated or alternative found.
-	// d.Viewport.LineRight(3)
+	d.XOffset += 4
+	y := d.Viewport.YPosition
+	d.updateContent()
+	d.Viewport.YPosition = y
 }
 
 // ScrollLeft scrolls the viewport left
 func (d *DiffApprovalView) ScrollLeft() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineLeft/horizontal scrolling.
-	// d.Viewport.LineLeft(3)
+	if d.XOffset > 0 {
+		d.XOffset -= 4
+		if d.XOffset < 0 {
+			d.XOffset = 0
+		}
+		y := d.Viewport.YPosition
+		d.updateContent()
+		d.Viewport.YPosition = y
+	}
 }
 
 // ScrollToStart scrolls to the beginning of lines
 func (d *DiffApprovalView) ScrollToStart() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support GotoLeft.
-	// d.Viewport.GotoLeft()
+	d.XOffset = 0
+	y := d.Viewport.YPosition
+	d.updateContent()
+	d.Viewport.YPosition = y
 }
 
-// CreateDiffFromStrings creates a FileDiff using the robust sergi/go-diff library
-// with caching support for performance optimization.
+// sliceString returns a substring starting at startCol (column index) with maxCols width.
+// It handles multi-byte characters and wide characters correctly using runewidth.
+func sliceString(s string, startCol, maxCols int) string {
+	if startCol < 0 {
+		startCol = 0
+	}
+	if maxCols <= 0 {
+		return ""
+	}
+
+	var currentWidth int
+	var outputWidth int
+	var sb strings.Builder
+	runes := []rune(s)
+
+	for _, r := range runes {
+		w := runewidth.RuneWidth(r)
+
+		if currentWidth >= startCol {
+			if outputWidth+w > maxCols {
+				break
+			}
+			sb.WriteRune(r)
+			outputWidth += w
+		}
+		currentWidth += w
+	}
+
+	return sb.String()
+}
+
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	return diff.ComputeDiff(oldPath, newPath, oldContent, newContent)
 }
