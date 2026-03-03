@@ -410,6 +410,9 @@ func WithConfigFactory(factory *ConfigFactory) CompilerOption {
 // Compile generates a system prompt for the given context.
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
+	// TODO: Performance: Replace coarse-grained locking with finer-grained locks or RCU pattern.
+	// Currently c.mu protects disparate fields (lastResult, shardDBs), creating unnecessary contention.
+
 	// Legacy timer for backward compatibility
 	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
 	defer timer.Stop()
@@ -625,6 +628,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		return nil, nil
 	}
 
+	// TODO: Performance: Pre-allocate dynamic slice based on kernel query count to avoid reallocation resizing.
+
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -652,7 +657,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
-		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
+		// Replace with type assertion switch (string, fmt.Stringer) in a utility function.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -1255,8 +1261,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Build semantic query from compilation context
 	// Combine intent, shard type, and language for best semantic match
-	// TODO: Reliability: Implement proper query expansion or keyword extraction instead of heuristic duplication.
-	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
+	// TODO: Quality: Replace heuristic term duplication with proper query expansion/re-weighting.
+	// Current approach of "duplicating words" is a naive hack that distorts embedding vectors.
 	// We duplicate high-priority terms to increase their semantic weight.
 	var sb strings.Builder
 	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
@@ -1308,8 +1314,8 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
-	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
+	// TODO: Reliability: Hardcoded 10s timeout is risky for long-running tasks or slow environments.
+	// Make this configurable via CompilerConfig.
 	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -1441,7 +1447,7 @@ func (c *JITPromptCompiler) Close() error {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
+// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
