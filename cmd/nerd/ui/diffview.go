@@ -10,7 +10,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-)
+
+	tea "github.com/charmbracelet/bubbletea"
+	"reflect"
+	"unsafe")
 
 // Type aliases for backward compatibility with UI code
 type (
@@ -74,6 +77,9 @@ const (
 func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 	vp := viewport.New(ViewportWidth(width), ViewportHeight(height))
 	vp.SetContent("")
+
+	// Enable horizontal scrolling by setting step size (workaround for bubbles v0.21.0)
+	setHorizontalStep(&vp, 1)
 
 	return DiffApprovalView{
 		Styles:           styles,
@@ -618,25 +624,56 @@ func (d *DiffApprovalView) View() string {
 
 // ScrollRight scrolls the viewport right for viewing long lines
 func (d *DiffApprovalView) ScrollRight() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineRight/horizontal scrolling.
-	// This code was causing build errors. Re-enable when bubbles is updated or alternative found.
-	// d.Viewport.LineRight(3)
+	// Simulate KeyRight 3 times as bubbles v0.21.0 doesn't support LineRight
+	for i := 0; i < 3; i++ {
+		d.Viewport, _ = d.Viewport.Update(tea.KeyMsg{Type: tea.KeyRight})
+	}
 }
 
 // ScrollLeft scrolls the viewport left
 func (d *DiffApprovalView) ScrollLeft() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support LineLeft/horizontal scrolling.
-	// d.Viewport.LineLeft(3)
+	// Simulate KeyLeft 3 times as bubbles v0.21.0 doesn't support LineLeft
+	for i := 0; i < 3; i++ {
+		d.Viewport, _ = d.Viewport.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	}
 }
 
 // ScrollToStart scrolls to the beginning of lines
 func (d *DiffApprovalView) ScrollToStart() {
-	// TODO: FIX: bubbles/viewport v0.21.0 does not support GotoLeft.
-	// d.Viewport.GotoLeft()
+	// Simulate KeyLeft until at start as bubbles v0.21.0 doesn't support GotoLeft
+	maxIterations := 1000
+	for i := 0; i < maxIterations; i++ {
+		if d.Viewport.HorizontalScrollPercent() <= 0 {
+			break
+		}
+		d.Viewport, _ = d.Viewport.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	}
 }
 
 // CreateDiffFromStrings creates a FileDiff using the robust sergi/go-diff library
 // with caching support for performance optimization.
+
+// setHorizontalStep sets the horizontal scroll step for the viewport model using reflection and unsafe.
+// This is required because bubbles/viewport v0.21.0 does not expose a way to set the horizontal step,
+// and defaults it to 0, which disables horizontal scrolling.
+func setHorizontalStep(m *viewport.Model, step int) {
+	v := reflect.ValueOf(m).Elem()
+	t := v.Type()
+
+	// Find the unexported field "horizontalStep"
+	field, ok := t.FieldByName("horizontalStep")
+	if !ok {
+		return // Field not found, likely bubbles version changed layout or removed field
+	}
+
+	// Get pointer to the field
+	ptr := unsafe.Pointer(uintptr(unsafe.Pointer(m)) + field.Offset)
+
+	// Set the value
+	*(*int)(ptr) = step
+}
+
+
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	return diff.ComputeDiff(oldPath, newPath, oldContent, newContent)
 }

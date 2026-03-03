@@ -169,3 +169,62 @@ func makeTwoHunkDiff() *FileDiff {
 		},
 	}
 }
+
+func TestDiffApprovalViewHorizontalScrolling(t *testing.T) {
+	// Create a view with small width
+	view := NewDiffApprovalView(DefaultStyles(), 10, 10)
+
+	// Create a diff with a very long line
+	longLine := strings.Repeat("a", 50)
+	diff := &FileDiff{
+		OldPath: "old.txt",
+		NewPath: "new.txt",
+		Hunks: []DiffHunk{
+			{
+				OldStart: 1, OldCount: 1,
+				NewStart: 1, NewCount: 1,
+				Lines: []DiffLine{
+					{LineNum: 1, Content: longLine, Type: DiffLineContext},
+				},
+			},
+		},
+	}
+
+	view.AddMutation(&PendingMutation{
+		ID:          "1",
+		Description: "Test",
+		FilePath:    "file.go",
+		Diff:        diff,
+	})
+
+	// Initial state should be at start
+	if p := view.Viewport.HorizontalScrollPercent(); p != 0 {
+		t.Fatalf("expected initial horizontal scroll percent 0, got %f", p)
+	}
+
+	// Scroll right
+	view.ScrollRight()
+
+	if p := view.Viewport.HorizontalScrollPercent(); p <= 0 {
+		t.Errorf("expected horizontal scroll percent > 0 after ScrollRight, got %f", p)
+	}
+
+	// Remember percent
+	pAfterRight := view.Viewport.HorizontalScrollPercent()
+
+	// Scroll left
+	view.ScrollLeft()
+	if p := view.Viewport.HorizontalScrollPercent(); p >= pAfterRight {
+		t.Errorf("expected horizontal scroll percent to decrease after ScrollLeft, got %f (was %f)", p, pAfterRight)
+	}
+
+	// Scroll right again to test ScrollToStart
+	view.ScrollRight()
+	view.ScrollRight()
+
+	// Scroll to start
+	view.ScrollToStart()
+	if p := view.Viewport.HorizontalScrollPercent(); p != 0 {
+		t.Errorf("expected horizontal scroll percent 0 after ScrollToStart, got %f", p)
+	}
+}
