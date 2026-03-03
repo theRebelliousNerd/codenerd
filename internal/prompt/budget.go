@@ -548,6 +548,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 }
 
 // calculateAllocations determines token allocation per category.
+// TODO: Reliability: Handle precision loss/rounding errors in `BasePercent` allocations to ensure 100% of the budget is distributed effectively when `StrategyProportional` or `StrategyPriorityFirst` is used.
 func (m *TokenBudgetManager) calculateAllocations(
 	totalBudget int,
 	presentCategories map[AtomCategory]bool,

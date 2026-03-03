@@ -253,6 +253,7 @@ type JITPromptCompiler struct {
 	assembler *FinalAssembler
 
 	// Bug #5 fix: Prompt cache to prevent recompilation spam
+	// TODO: Reliability: Implement an LRU eviction policy or a hard size limit for this cache to prevent unbounded memory growth (OOM) in long-running sessions.
 	cache     map[string]*CompilationResult
 	cacheMu   sync.RWMutex
 	cacheHits int64

@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"strconv"
 	"time"
 
 	"codenerd/internal/logging"
@@ -548,7 +547,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	}
 
 	// 1. Prepare Facts for Mangle
-	// TODO: Performance: Optimize fact construction.
+	// TODO: Performance: Optimize fact construction. Pre-allocate capacity based on atom count and context complexity to reduce slice reallocations.
 	var facts []interface{}
 
 	// Context Facts - dimension names must be Mangle constants (start with /)
