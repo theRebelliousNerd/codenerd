@@ -29,7 +29,7 @@ func TestCompilationContext_WorldStates(t *testing.T) {
 		{
 			name:     "no world states when all zero/false",
 			context:  &CompilationContext{},
-			expected: nil,
+			expected: []string{},
 		},
 		{
 			name: "failing tests",
