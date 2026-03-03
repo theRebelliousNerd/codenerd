@@ -1,12 +1,14 @@
 package autopoiesis
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +57,9 @@ func Echo(ctx context.Context, input string) (string, error) {
 
 	// Compile the tool
 	outputPath := filepath.Join(tmpDir, "echo_tool")
+	if runtime.GOOS == "windows" {
+		outputPath += ".exe"
+	}
 	// Using "go build" directly as we are testing the generated code, not the Ouroboros build process itself
 	cmd := exec.Command("go", "build", "-o", outputPath, ".")
 	cmd.Dir = tmpDir
@@ -150,4 +155,59 @@ func Echo(ctx context.Context, input string) (string, error) {
 			t.Errorf("Got length %d, want %d (10MB limit)", len(out), limit)
 		}
 	})
+}
+
+func TestRuntimeTool_EnvironmentIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	source := `package main
+
+import (
+	"encoding/json"
+	"os"
+)
+
+type ToolOutput struct {
+	Output string ` + "`json:\"output\"`" + `
+	Error  string ` + "`json:\"error,omitempty\"`" + `
+}
+
+func main() {
+	_ = json.NewDecoder(os.Stdin).Decode(&map[string]any{})
+	_ = json.NewEncoder(os.Stdout).Encode(ToolOutput{
+		Output: os.Getenv("CODE_NERD_SECRET"),
+	})
+}
+`
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(source), 0644); err != nil {
+		t.Fatalf("Failed to write source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module env_tool\n\ngo 1.23\n"), 0644); err != nil {
+		t.Fatalf("Failed to write go.mod: %v", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "env_tool")
+	if runtime.GOOS == "windows" {
+		outputPath += ".exe"
+	}
+	buildCmd := exec.Command("go", "build", "-o", outputPath, ".")
+	buildCmd.Dir = tmpDir
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Fatalf("Compilation failed: %v\nOutput: %s", err, out)
+	}
+
+	rt := &RuntimeTool{
+		Name:       "env_tool",
+		BinaryPath: outputPath,
+	}
+
+	t.Setenv("CODE_NERD_SECRET", "should_not_leak")
+
+	out, err := rt.Execute(context.Background(), "ignored")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("Expected isolated environment (empty output), got %q", out)
+	}
 }

@@ -309,6 +309,13 @@ func (o *Orchestrator) QueryFilesInScope() int {
 
 // RecordCodeEditOutcome records the outcome of a code edit for learning.
 func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string, success bool) {
+	o.mu.RLock()
+	kernel := o.kernel
+	o.mu.RUnlock()
+	if kernel == nil {
+		return
+	}
+
 	successStr := "/false"
 	if success {
 		successStr = "/true"
@@ -318,7 +325,7 @@ func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string,
 
 	// Prune old events if we exceed the limit
 	// We use the 4-arity predicate code_edit_outcome(Ref, Type, Success, Timestamp)
-	facts, err := o.kernel.QueryPredicate("code_edit_outcome")
+	facts, err := kernel.QueryPredicate("code_edit_outcome")
 	if err == nil && len(facts) >= o.config.MaxLearningFacts {
 		// Find oldest fact to retract
 		// Note: This assumes all facts are 4-arity and 4th arg is timestamp (int/int64/float64)
@@ -352,7 +359,7 @@ func (o *Orchestrator) RecordCodeEditOutcome(elementRef string, editType string,
 		}
 
 		if oldestFact != nil {
-			_ = o.kernel.RetractFact(*oldestFact)
+			_ = kernel.RetractFact(*oldestFact)
 		}
 	}
 

@@ -40,6 +40,9 @@ func NewTaskJudge(llmClient LLMClient, modelName string) *TaskJudge {
 func (tj *TaskJudge) Evaluate(ctx context.Context, exec *ExecutionRecord) (*JudgeVerdict, error) {
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "TaskJudge.Evaluate")
 	defer timer.Stop()
+	if exec == nil {
+		return nil, fmt.Errorf("execution record is nil")
+	}
 
 	logging.AutopoiesisDebug("Evaluating execution: task=%s, shard=%s, success=%v",
 		exec.TaskID, exec.ShardType, exec.ExecutionResult.Success)
@@ -82,9 +85,9 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 
 	verdicts := make([]*JudgeVerdict, len(execs))
 	var wg sync.WaitGroup
-	
+
 	// Limit to 5 concurrent LLM calls to avoid API rate-limiting
-	sem := make(chan struct{}, 5) 
+	sem := make(chan struct{}, 5)
 
 	for i, exec := range execs {
 		// Skip already evaluated executions

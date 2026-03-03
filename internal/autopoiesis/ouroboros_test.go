@@ -575,15 +575,33 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 // TODO: TEST_GAP: Infinite Loop - Verify that tools entering infinite loops are terminated strictly at ExecuteTimeout.
 // TODO: TEST_GAP: State Conflicts - Verify behavior when multiple tools attempt to write to the same file concurrently.
 
-// TODO: TEST_GAP: TestOuroborosLoop_Execute_NilNeed
-// Description: Verify that passing a nil ToolNeed to Execute results in a
-// predictable panic recovery or error, rather than crashing the process.
-// Vector: Null/Undefined
+func TestOuroborosLoop_Execute_NilNeed(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	result := loop.Execute(context.Background(), nil)
+	if result == nil {
+		t.Fatal("Execute returned nil result for nil need")
+	}
+	if result.Success {
+		t.Fatal("expected nil need execution to fail")
+	}
+	if !strings.Contains(result.Error, "nil") {
+		t.Fatalf("expected nil-need error, got: %q", result.Error)
+	}
+}
 
-// TODO: TEST_GAP: TestOuroborosLoop_Execute_EmptyNeed
-// Description: Verify that passing a ToolNeed with empty Name/Purpose returns
-// an appropriate error or validation failure before starting the loop.
-// Vector: Null/Undefined
+func TestOuroborosLoop_Execute_EmptyNeed(t *testing.T) {
+	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
+	result := loop.Execute(context.Background(), &ToolNeed{})
+	if result == nil {
+		t.Fatal("Execute returned nil result for empty need")
+	}
+	if result.Success {
+		t.Fatal("expected empty need execution to fail")
+	}
+	if !strings.Contains(strings.ToLower(result.Error), "name") {
+		t.Fatalf("expected name validation error, got: %q", result.Error)
+	}
+}
 
 // TODO: TEST_GAP: TestOuroborosLoop_ExecuteTool_Concurrent
 // Description: Verify that executing the same tool concurrently from multiple

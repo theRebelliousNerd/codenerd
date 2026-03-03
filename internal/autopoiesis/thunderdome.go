@@ -270,10 +270,8 @@ func TestThunderdomeArena(t *testing.T) {
 	// Set memory limit
 	debug.SetMemoryLimit(%d * 1024 * 1024)
 
-	// Read attack input from stdin
-	// TODO: SECURITY: Use io.LimitReader(os.Stdin, MAX_SIZE) here to prevent
-	// an attacker from causing an OOM just by piping infinite data to stdin.
-	inputBytes, readErr := io.ReadAll(os.Stdin)
+	// Read attack input from stdin (bounded at 10MB for consistency with Ouroboros wrapper)
+	inputBytes, readErr := io.ReadAll(io.LimitReader(os.Stdin, 10*1024*1024))
 	if readErr != nil {
 		fmt.Fprintf(os.Stderr, "HARNESS_ERROR: failed to read stdin: %%v\n", readErr)
 		os.Exit(1)
@@ -502,7 +500,7 @@ func (t *Thunderdome) runAttack(ctx context.Context, binaryPath string, attack A
 	// Pipe attack input via stdin
 	cmd.Stdin = strings.NewReader(attack.Input)
 	// Isolation: don't inherit the full host environment (avoid leaking secrets).
-	cmd.Env = build.GetBuildEnv(nil, cmd.Dir)
+	cmd.Env = toolExecutionEnv()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

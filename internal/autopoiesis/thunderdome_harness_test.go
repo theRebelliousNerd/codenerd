@@ -30,9 +30,9 @@ func TestThunderdome_GenerateTestHarness_PhantomPunchFix(t *testing.T) {
 		t.Error("Harness code explicitly discards input ('_ = input'), which is the Phantom Punch bug.")
 	}
 
-	// 3. Ensure stdin is read into input
-	if !strings.Contains(harnessCode, "io.ReadAll(os.Stdin)") {
-		t.Error("Harness code does not read stdin via io.ReadAll(os.Stdin).")
+	// 3. Ensure stdin is read into input with bounded input size.
+	if !strings.Contains(harnessCode, "io.LimitReader(os.Stdin, 10*1024*1024)") {
+		t.Error("Harness code does not enforce 10MB stdin limit via io.LimitReader.")
 	}
 }
 
@@ -115,8 +115,7 @@ func extractFunctionCall(code string) string {
 
 func TestThunderdome_Gaps(t *testing.T) {
 	// TODO: TEST_GAP: Verify behavior when input exceeds the scanner's 10MB buffer (scanner.Scan() returns false).
-	// NOTE: Current implementation uses io.ReadAll(), which solves the scanner buffer limit but introduces OOM risk for massive inputs.
-	// The Ouroboros wrapper uses io.LimitReader(10MB), creating a discrepancy.
+	// NOTE: Harness now uses io.LimitReader(10MB), but this still needs an explicit behavioral test.
 
 	// TODO: TEST_GAP: Verify handling of single-argument functions (Signature Mismatch).
 	// Currently, findEntryPoint accepts func(ctx) or func(input), but generateTestHarness hardcodes a 2-arg call.
@@ -126,8 +125,7 @@ func TestThunderdome_Gaps(t *testing.T) {
 	// The current sandbox only clears env vars. It does not restrict file system access.
 	// A malicious tool could write to /tmp or read sensitive files.
 
-	// TODO: TEST_GAP: Verify behavior with inputs > 10MB (consistency with Ouroboros).
-	// Thunderdome should enforce the same input limits as the production wrapper.
+	// TODO: TEST_GAP: Verify behavior with inputs > 10MB (limit enforcement check).
 
 	// TODO: TEST_GAP: Verify handling of binary data (null bytes).
 	// Ensure that inputs with \x00 are passed correctly to the tool.

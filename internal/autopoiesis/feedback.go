@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -269,52 +270,50 @@ func (tr *ToolRefiner) SetPromptAssembler(assembler PromptAssembler) {
 
 // buildRefinementPrompt creates the prompt for tool improvement
 func (tr *ToolRefiner) buildRefinementPrompt(req RefinementRequest) string {
-	var sb fmt.Stringer
-	var builder interface {
-		WriteString(string) (int, error)
-		String() string
-	}
-
-	// Use a simple string concatenation approach
-	prompt := "Improve this tool based on execution feedback:\n\n"
-	prompt += fmt.Sprintf("Tool Name: %s\n\n", req.ToolName)
-	prompt += fmt.Sprintf("Original Code:\n```go\n%s\n```\n\n", req.OriginalCode)
+	var sb strings.Builder
+	sb.WriteString("Improve this tool based on execution feedback:\n\n")
+	sb.WriteString(fmt.Sprintf("Tool Name: %s\n\n", req.ToolName))
+	sb.WriteString(fmt.Sprintf("Original Code:\n```go\n%s\n```\n\n", req.OriginalCode))
 
 	// Add feedback summary
-	prompt += "Execution Feedback:\n"
+	sb.WriteString("Execution Feedback:\n")
 	for i, fb := range req.Feedback {
 		if i >= 3 {
-			prompt += fmt.Sprintf("... and %d more executions\n", len(req.Feedback)-3)
+			sb.WriteString(fmt.Sprintf("... and %d more executions\n", len(req.Feedback)-3))
 			break
 		}
-		prompt += fmt.Sprintf("- Execution %d: success=%v, quality=%.2f\n",
-			i+1, fb.Success, fb.Quality.Score)
-		for _, issue := range fb.Quality.Issues {
-			prompt += fmt.Sprintf("  - Issue: %s (%s)\n", issue.Type, issue.Description)
+		quality := 0.0
+		var issues []QualityIssue
+		if fb.Quality != nil {
+			quality = fb.Quality.Score
+			issues = fb.Quality.Issues
+		}
+		sb.WriteString(fmt.Sprintf("- Execution %d: success=%v, quality=%.2f\n", i+1, fb.Success, quality))
+		for _, issue := range issues {
+			sb.WriteString(fmt.Sprintf("  - Issue: %s (%s)\n", issue.Type, issue.Description))
 		}
 	}
 
 	// Add detected patterns
 	if len(req.Patterns) > 0 {
-		prompt += "\nRecurring Patterns:\n"
+		sb.WriteString("\nRecurring Patterns:\n")
 		for _, p := range req.Patterns {
-			prompt += fmt.Sprintf("- %s: %d occurrences (%.0f%% confidence)\n",
-				p.IssueType, p.Occurrences, p.Confidence*100)
+			sb.WriteString(fmt.Sprintf("- %s: %d occurrences (%.0f%% confidence)\n", p.IssueType, p.Occurrences, p.Confidence*100))
 		}
 	}
 
 	// Add suggestions
 	if len(req.Suggestions) > 0 {
-		prompt += "\nSuggested Improvements:\n"
+		sb.WriteString("\nSuggested Improvements:\n")
 		for _, s := range req.Suggestions {
-			prompt += fmt.Sprintf("- %s: %s\n", s.Type, s.Description)
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", s.Type, s.Description))
 			if s.CodeHint != "" {
-				prompt += fmt.Sprintf("  Hint: %s\n", s.CodeHint)
+				sb.WriteString(fmt.Sprintf("  Hint: %s\n", s.CodeHint))
 			}
 		}
 	}
 
-	prompt += `
+	sb.WriteString(`
 Return JSON with:
 {
   "improved_code": "full improved Go code",
@@ -322,31 +321,23 @@ Return JSON with:
   "expected_gain": 0.0-1.0,
   "test_cases": ["test case descriptions to verify improvements"]
 }
-`
+`)
 
-	// Suppress unused variable warnings
-	_ = sb
-	_ = builder
-
-	return prompt
+	return sb.String()
 }
 
-var refinementSystemPrompt = `You are a Go code optimizer specializing in improving tool reliability and completeness.
+var refinementSystemPrompt = `You are an elite Go code optimizer. Improve reliability, safety, and completeness.
 
-When improving tools, focus on:
-1. PAGINATION - Always fetch all pages, not just the first
-2. LIMITS - Use maximum allowed limits, not defaults
-3. RETRIES - Add exponential backoff for transient failures
-4. ERROR HANDLING - Handle all error cases gracefully
-5. VALIDATION - Validate inputs and outputs
+Avoid domain assumptions. Do not add network retries/pagination unless the code clearly performs network I/O.
 
-Common anti-patterns to fix:
-- Only fetching first page of paginated results
-- Using default limit (10) instead of max (100+)
-- No retry logic for rate limits or network errors
-- Missing error handling for edge cases
+Prioritize:
+1. NIL SAFETY - Check pointers/interfaces before dereference.
+2. RESOURCE SAFETY - Close files/streams/connections with defer.
+3. CONTEXT - Respect cancellation in loops/blocking operations.
+4. ERROR WRAPPING - Return descriptive errors using %w when appropriate.
+5. BOUNDS CHECKS - Prevent slice/map/index panics.
 
-Generate clean, idiomatic Go code with proper error handling.`
+Fix root causes without inventing unrelated features. Return clean, idiomatic Go.`
 
 // =============================================================================
 // LEARNING STORE - PERSIST LEARNINGS
@@ -510,12 +501,21 @@ func (ls *LearningStore) save() {
 	}
 
 	path := filepath.Join(ls.storePath, "tool_learnings.json")
+	tmpPath := path + ".tmp"
 	data, err := json.MarshalIndent(ls.learnings, "", "  ")
 	if err != nil {
 		return
 	}
 
-	os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return
+	}
+
+	// Best-effort atomic swap.
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(path)
+		_ = os.Rename(tmpPath, path)
+	}
 }
 
 // =============================================================================

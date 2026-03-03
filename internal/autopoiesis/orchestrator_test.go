@@ -53,6 +53,20 @@ func TestRecordCodeEditOutcome(t *testing.T) {
 	// We'd need to mock QueryPredicate to return > MaxLearningFacts.
 }
 
+func TestRecordCodeEditOutcome_NoKernel(t *testing.T) {
+	cfg := Config{
+		ToolsDir:         t.TempDir(),
+		AgentsDir:        t.TempDir(),
+		WorkspaceRoot:    t.TempDir(),
+		MinConfidence:    0.6,
+		MaxLearningFacts: 10,
+	}
+	orch := NewOrchestrator(&MockLLMClient{}, cfg)
+
+	// Should be a no-op when kernel is not attached.
+	orch.RecordCodeEditOutcome("func:NoKernel", "fix", true)
+}
+
 func TestShouldGenerateTool(t *testing.T) {
 	orch, kernel, _ := createTestOrchestrator(t)
 

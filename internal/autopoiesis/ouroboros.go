@@ -70,6 +70,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -298,6 +299,25 @@ func (o *OuroborosLoop) Execute(ctx context.Context, need *ToolNeed) (result *Lo
 func (o *OuroborosLoop) ExecuteWithConfig(ctx context.Context, need *ToolNeed, cfg ExecuteConfig) (result *LoopResult) {
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "OuroborosLoop.Execute")
 	start := time.Now()
+
+	if need == nil {
+		return &LoopResult{
+			Success: false,
+			Stage:   StageDetection,
+			Error:   "tool need is nil",
+		}
+	}
+	if strings.TrimSpace(need.Name) == "" {
+		return &LoopResult{
+			Success:  false,
+			ToolName: "",
+			Stage:    StageDetection,
+			Error:    "tool need name is required",
+		}
+	}
+	if strings.TrimSpace(need.Purpose) == "" {
+		need.Purpose = fmt.Sprintf("Auto-generated tool for capability: %s", need.Name)
+	}
 
 	logging.Autopoiesis("=== OUROBOROS LOOP START: tool=%s ===", need.Name)
 	logging.AutopoiesisDebug("Tool need: purpose=%s, confidence=%.2f, priority=%.2f",
@@ -1459,6 +1479,7 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 	// Execute the tool binary
 	cmd := exec.CommandContext(ctx, rt.BinaryPath)
 	cmd.Stdin = strings.NewReader(string(inputJSON))
+	cmd.Env = toolExecutionEnv()
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -1481,6 +1502,23 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 
 	rt.ExecuteCount++
 	return result.Output, nil
+}
+
+// toolExecutionEnv returns a minimal runtime environment for executing generated tools.
+// This limits accidental leakage of host secrets while preserving process launch stability.
+func toolExecutionEnv() []string {
+	if runtime.GOOS != "windows" {
+		return []string{}
+	}
+
+	keys := []string{"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "ComSpec"}
+	env := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if val := os.Getenv(key); val != "" {
+			env = append(env, key+"="+val)
+		}
+	}
+	return env
 }
 
 // =============================================================================

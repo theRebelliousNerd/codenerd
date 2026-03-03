@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -220,14 +223,48 @@ func TestGetProblemTypeDescription(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: TestProblemClassifier_EmptyInput
-// Verify Classify("") returns a safe default with low confidence
+func TestProblemClassifier_EmptyInput(t *testing.T) {
+	classifier := NewProblemClassifier()
+	pt, conf := classifier.Classify("")
+	if pt == "" {
+		t.Fatal("expected default problem type for empty input")
+	}
+	if conf < 0 || conf > 1 {
+		t.Fatalf("confidence out of range: %v", conf)
+	}
+	if conf > 0.5 {
+		t.Fatalf("expected low confidence for empty input, got %v", conf)
+	}
+}
 
-// TODO: TEST_GAP: TestProblemClassifier_HugeInput
-// Verify regex classification on 1MB+ strings completes within reasonable time (ReDoS check)
+func TestProblemClassifier_HugeInput(t *testing.T) {
+	classifier := NewProblemClassifier()
+	huge := strings.Repeat("a", 1024*1024) + " fix the bug in service"
+	start := time.Now()
+	pt, conf := classifier.Classify(huge)
+	elapsed := time.Since(start)
+	if pt == "" {
+		t.Fatal("expected classification for huge input")
+	}
+	if conf < 0 || conf > 1 {
+		t.Fatalf("confidence out of range: %v", conf)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("classification too slow for huge input: %v", elapsed)
+	}
+}
 
-// TODO: TEST_GAP: TestProblemClassifier_BinaryInput
-// Verify classification of random binary data does not crash
+func TestProblemClassifier_BinaryInput(t *testing.T) {
+	classifier := NewProblemClassifier()
+	input := string([]byte{0x00, 0xff, 0x01, 0x10, 0x7f, 0x41, 0x42})
+	pt, conf := classifier.Classify(input)
+	if pt == "" {
+		t.Fatal("expected classification for binary input")
+	}
+	if conf < 0 || conf > 1 {
+		t.Fatalf("confidence out of range: %v", conf)
+	}
+}
 
 // =============================================================================
 // EVOLVER CONFIG TESTS
@@ -330,17 +367,111 @@ func TestFeedbackCollector(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: TestFeedbackCollector_NilRecord
-// Verify Record(nil) returns an error and does not panic
+func TestFeedbackCollector_NilRecord(t *testing.T) {
+	tempDir := t.TempDir()
+	fc, err := NewFeedbackCollector(tempDir)
+	if err != nil {
+		t.Fatalf("NewFeedbackCollector failed: %v", err)
+	}
+	defer fc.Close()
+	if err := fc.Record(nil); err == nil {
+		t.Fatal("expected error for nil record")
+	}
+}
 
-// TODO: TEST_GAP: TestFeedbackCollector_LargePayload
-// Verify recording execution with 10MB+ text fields
+func TestFeedbackCollector_LargePayload(t *testing.T) {
+	tempDir := t.TempDir()
+	fc, err := NewFeedbackCollector(tempDir)
+	if err != nil {
+		t.Fatalf("NewFeedbackCollector failed: %v", err)
+	}
+	defer fc.Close()
 
-// TODO: TEST_GAP: TestFeedbackCollector_ConcurrentWrites
-// Verify Record is thread-safe under heavy concurrent load (50+ goroutines)
+	large := strings.Repeat("x", 10*1024*1024+1)
+	exec := &ExecutionRecord{
+		TaskID:      "task-large-001",
+		SessionID:   "session-large",
+		ShardType:   "/coder",
+		TaskRequest: large,
+		Timestamp:   time.Now(),
+		ExecutionResult: ExecutionResult{
+			Success: false,
+			Output:  large,
+		},
+	}
+	if err := fc.Record(exec); err != nil {
+		t.Fatalf("expected large payload to be recorded, got error: %v", err)
+	}
+}
 
-// TODO: TEST_GAP: TestFeedbackCollector_DatabaseError
-// Verify behavior when the underlying SQLite DB is closed or corrupted
+func TestFeedbackCollector_ConcurrentWrites(t *testing.T) {
+	tempDir := t.TempDir()
+	fc, err := NewFeedbackCollector(tempDir)
+	if err != nil {
+		t.Fatalf("NewFeedbackCollector failed: %v", err)
+	}
+	defer fc.Close()
+
+	const workers = 50
+	var wg sync.WaitGroup
+	errCh := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := &ExecutionRecord{
+				TaskID:      "task-concurrent-" + strconv.Itoa(i),
+				SessionID:   "session-concurrent",
+				ShardType:   "/coder",
+				TaskRequest: "concurrent write",
+				Timestamp:   time.Now(),
+				ExecutionResult: ExecutionResult{
+					Success: true,
+				},
+			}
+			if err := fc.Record(rec); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatalf("concurrent record failed: %v", err)
+	}
+
+	total, _ := fc.GetStats()
+	if total != workers {
+		t.Fatalf("expected %d records, got %d", workers, total)
+	}
+}
+
+func TestFeedbackCollector_DatabaseError(t *testing.T) {
+	tempDir := t.TempDir()
+	fc, err := NewFeedbackCollector(tempDir)
+	if err != nil {
+		t.Fatalf("NewFeedbackCollector failed: %v", err)
+	}
+	if err := fc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	rec := &ExecutionRecord{
+		TaskID:      "task-db-error",
+		SessionID:   "session-db-error",
+		ShardType:   "/coder",
+		TaskRequest: "db closed",
+		Timestamp:   time.Now(),
+		ExecutionResult: ExecutionResult{
+			Success: false,
+		},
+	}
+	if err := fc.Record(rec); err == nil {
+		t.Fatal("expected record error after database close")
+	}
+}
 
 // =============================================================================
 // STRATEGY STORE TESTS
@@ -477,11 +608,43 @@ func TestEstimateTokens(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: TestAtomGenerator_EmptyFailures
-// Verify GenerateFromFailures with empty failure list
+func TestAtomGenerator_EmptyFailures(t *testing.T) {
+	ag := NewAtomGenerator(&mockLLMClient{}, nil)
+	atoms, err := ag.GenerateFromFailures(context.Background(), nil, "/coder", string(ProblemDebugging))
+	if err != nil {
+		t.Fatalf("GenerateFromFailures returned error: %v", err)
+	}
+	if len(atoms) != 0 {
+		t.Fatalf("expected no atoms for empty failures, got %d", len(atoms))
+	}
+}
 
-// TODO: TEST_GAP: TestAtomGenerator_MalformedLLMResponse
-// Verify parser handles broken YAML/JSON from LLM gracefully
+type malformedAtomLLMClient struct{}
+
+func (m *malformedAtomLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "invalid", nil
+}
+
+func (m *malformedAtomLLMClient) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	return "not yaml and not atom json", nil
+}
+
+func (m *malformedAtomLLMClient) CompleteWithOptions(ctx context.Context, system, user string, opts map[string]interface{}) (string, error) {
+	return m.CompleteWithSystem(ctx, system, user)
+}
+
+func TestAtomGenerator_MalformedLLMResponse(t *testing.T) {
+	ag := NewAtomGenerator(&malformedAtomLLMClient{}, nil)
+	failures := []*JudgeVerdict{{
+		Verdict:     "FAIL",
+		Explanation: "bad output",
+		Category:    CategoryLogicError,
+		TaskID:      "task-malformed",
+	}}
+	if _, err := ag.GenerateFromFailures(context.Background(), failures, "/coder", string(ProblemDebugging)); err == nil {
+		t.Fatal("expected parsing error for malformed LLM response")
+	}
+}
 
 // =============================================================================
 // PROMPT EVOLVER TESTS
@@ -710,8 +873,42 @@ func TestFullEvolutionCycle(t *testing.T) {
 		result.FailuresAnalyzed, result.AtomsGenerated, result.Errors)
 }
 
-// TODO: TEST_GAP: TestTaskJudge_NilExecution
-// Verify Evaluate(ctx, nil) returns an error
+type blockingJudgeLLMClient struct{}
 
-// TODO: TEST_GAP: TestTaskJudge_ContextCancellation
-// Verify long-running LLM calls respect context cancellation
+func (m *blockingJudgeLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func (m *blockingJudgeLLMClient) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func TestTaskJudge_NilExecution(t *testing.T) {
+	judge := NewTaskJudge(&mockLLMClient{}, "test")
+	if _, err := judge.Evaluate(context.Background(), nil); err == nil {
+		t.Fatal("expected error for nil execution")
+	}
+}
+
+func TestTaskJudge_ContextCancellation(t *testing.T) {
+	judge := NewTaskJudge(&blockingJudgeLLMClient{}, "test")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	exec := &ExecutionRecord{
+		TaskID:      "task-cancel",
+		SessionID:   "session-cancel",
+		ShardType:   "/coder",
+		TaskRequest: "cancelled task",
+		Timestamp:   time.Now(),
+		ExecutionResult: ExecutionResult{
+			Success: false,
+		},
+	}
+
+	if _, err := judge.Evaluate(ctx, exec); err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+}

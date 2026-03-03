@@ -982,6 +982,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		autopoiesisOrch := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
 		autopoiesisKernelAdapter := core.NewAutopoiesisBridge(kernel)
 		autopoiesisOrch.SetKernel(autopoiesisKernelAdapter)
+		if promptAssembler != nil {
+			// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
+			// jitCompiler is intentionally nil here: autopoiesis currently consumes the
+			// assembler interface for JIT prompt paths.
+			autopoiesisOrch.SetJITComponents(nil, promptAssembler)
+		}
 
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)

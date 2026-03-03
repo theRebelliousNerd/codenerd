@@ -111,6 +111,9 @@ func (fc *FeedbackCollector) loadStats() {
 func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
+	if exec == nil {
+		return fmt.Errorf("execution record is nil")
+	}
 
 	logging.AutopoiesisDebug("Recording execution: task=%s, shard=%s, success=%v",
 		exec.TaskID, exec.ShardType, exec.ExecutionResult.Success)

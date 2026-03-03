@@ -3,6 +3,7 @@ package autopoiesis
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -138,68 +139,108 @@ func (o *Orchestrator) AggregateLearningsForPrompt() string {
 
 	var sb strings.Builder
 
-	// Aggregate success/failure statistics
-	var totalSuccess, totalFail int
-	var commonIssues = make(map[IssueType]int)
-	var antiPatterns []string
+	commonIssues := make(map[IssueType]int)
+	antiPatterns := make(map[string]int)
 
 	for _, l := range learnings {
-		if l.SuccessRate >= 0.5 {
-			totalSuccess++
-		} else {
-			totalFail++
-		}
 		for _, issue := range l.KnownIssues {
 			commonIssues[issue]++
 		}
-		antiPatterns = append(antiPatterns, l.AntiPatterns...)
+		for _, ap := range l.AntiPatterns {
+			if ap != "" {
+				antiPatterns[ap]++
+			}
+		}
 	}
 
-	// Generate summary
 	sb.WriteString(fmt.Sprintf("Based on %d previous tool generations:\n", len(learnings)))
 
-	// Top issues to avoid
+	// Top issues to avoid (Top-K to limit prompt growth)
 	if len(commonIssues) > 0 {
-		sb.WriteString("\nCOMMON ISSUES TO AVOID:\n")
+		type issueCount struct {
+			issue IssueType
+			count int
+		}
+		issueCounts := make([]issueCount, 0, len(commonIssues))
 		for issue, count := range commonIssues {
 			if count >= 2 {
-				sb.WriteString(fmt.Sprintf("- %s (occurred %d times)\n", issue, count))
+				issueCounts = append(issueCounts, issueCount{issue: issue, count: count})
+			}
+		}
+		sort.Slice(issueCounts, func(i, j int) bool {
+			return issueCounts[i].count > issueCounts[j].count
+		})
+		if len(issueCounts) > 0 {
+			sb.WriteString("\nTOP COMMON ISSUES TO AVOID:\n")
+			limit := 5
+			if len(issueCounts) < limit {
+				limit = len(issueCounts)
+			}
+			for i := 0; i < limit; i++ {
+				sb.WriteString(fmt.Sprintf("- %s (occurred %d times)\n", issueCounts[i].issue, issueCounts[i].count))
 			}
 		}
 	}
 
-	// Anti-patterns from patterns detector
+	// Top anti-patterns (Top-K to limit prompt growth)
 	if len(antiPatterns) > 0 {
-		sb.WriteString("\nANTI-PATTERNS DETECTED:\n")
-		seen := make(map[string]bool)
-		for _, ap := range antiPatterns {
-			if !seen[ap] && len(ap) > 0 {
-				sb.WriteString(fmt.Sprintf("- %s\n", ap))
-				seen[ap] = true
-			}
+		type antiPatternCount struct {
+			name  string
+			count int
+		}
+		apCounts := make([]antiPatternCount, 0, len(antiPatterns))
+		for ap, count := range antiPatterns {
+			apCounts = append(apCounts, antiPatternCount{name: ap, count: count})
+		}
+		sort.Slice(apCounts, func(i, j int) bool {
+			return apCounts[i].count > apCounts[j].count
+		})
+		sb.WriteString("\nTOP ANTI-PATTERNS DETECTED:\n")
+		limit := 5
+		if len(apCounts) < limit {
+			limit = len(apCounts)
+		}
+		for i := 0; i < limit; i++ {
+			sb.WriteString(fmt.Sprintf("- %s\n", apCounts[i].name))
 		}
 	}
 
-	// Best practices (from successful tools)
 	sb.WriteString("\nBEST PRACTICES:\n")
 	sb.WriteString("- Always check context.Done() for cancellation\n")
 	sb.WriteString("- Handle empty/nil inputs gracefully\n")
 	sb.WriteString("- Don't import unused packages\n")
 	sb.WriteString("- Return descriptive errors\n")
 
-	// Tool-specific learnings for low-quality tools
+	// Tool-specific learnings for the worst quality tools (Top-K)
+	type lowQualityTool struct {
+		name    string
+		quality float64
+		issues  []IssueType
+	}
+	badTools := make([]lowQualityTool, 0)
 	for _, l := range learnings {
 		if l.AverageQuality < 0.5 && l.TotalExecutions >= 2 {
-			sb.WriteString(fmt.Sprintf("\nTool '%s' had issues (quality=%.1f):\n", l.ToolName, l.AverageQuality))
-			for _, issue := range l.KnownIssues {
-				sb.WriteString(fmt.Sprintf("  - %s\n", issue))
-			}
+			badTools = append(badTools, lowQualityTool{name: l.ToolName, quality: l.AverageQuality, issues: l.KnownIssues})
+		}
+	}
+	sort.Slice(badTools, func(i, j int) bool {
+		return badTools[i].quality < badTools[j].quality
+	})
+	toolLimit := 3
+	if len(badTools) < toolLimit {
+		toolLimit = len(badTools)
+	}
+	for i := 0; i < toolLimit; i++ {
+		sb.WriteString(fmt.Sprintf("\nTool '%s' had issues (quality=%.1f):\n", badTools[i].name, badTools[i].quality))
+		for _, issue := range badTools[i].issues {
+			sb.WriteString(fmt.Sprintf("  - %s\n", issue))
 		}
 	}
 
 	result := sb.String()
-	if len(result) > 2000 {
-		result = result[:2000] + "...[truncated]"
+	runes := []rune(result)
+	if len(runes) > 2000 {
+		result = string(runes[:2000]) + "...[truncated]"
 	}
 
 	return result

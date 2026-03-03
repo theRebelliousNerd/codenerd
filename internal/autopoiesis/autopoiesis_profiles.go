@@ -126,6 +126,7 @@ Based on the tool's purpose and implementation, determine:
 
 Return JSON:
 {
+  "analysis_summary": "1-2 sentence rationale for tool type and quality expectations",
   "tool_type": "data_fetch",
   "description": "Brief description of what tool does",
   "performance": {
@@ -232,9 +233,10 @@ func parseProfileResponse(toolName string, response string) (*ToolQualityProfile
 
 	// Parse into intermediate struct
 	var raw struct {
-		ToolType    string `json:"tool_type"`
-		Description string `json:"description"`
-		Performance struct {
+		AnalysisSummary string `json:"analysis_summary"`
+		ToolType        string `json:"tool_type"`
+		Description     string `json:"description"`
+		Performance     struct {
 			ExpectedDurationMinMS int64   `json:"expected_duration_min_ms"`
 			ExpectedDurationMaxMS int64   `json:"expected_duration_max_ms"`
 			AcceptableDurationMS  int64   `json:"acceptable_duration_ms"`

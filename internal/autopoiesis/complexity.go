@@ -4,6 +4,7 @@ package autopoiesis
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 )
@@ -106,22 +107,22 @@ var (
 
 	// Phase indicators (suggest multi-phase work)
 	phaseIndicators = map[string]string{
-		"test":          "Testing Phase",
-		"document":      "Documentation Phase",
-		"implement":     "Implementation Phase",
-		"design":        "Design Phase",
-		"refactor":      "Refactoring Phase",
-		"migrate":       "Migration Phase",
-		"deploy":        "Deployment Phase",
-		"review":        "Review Phase",
-		"validate":      "Validation Phase",
-		"integrate":     "Integration Phase",
+		"test":           "Testing Phase",
+		"document":       "Documentation Phase",
+		"implement":      "Implementation Phase",
+		"design":         "Design Phase",
+		"refactor":       "Refactoring Phase",
+		"migrate":        "Migration Phase",
+		"deploy":         "Deployment Phase",
+		"review":         "Review Phase",
+		"validate":       "Validation Phase",
+		"integrate":      "Integration Phase",
 		"authentication": "Auth Implementation",
-		"authorization": "Auth Implementation",
-		"database":      "Database Phase",
-		"api":           "API Phase",
-		"frontend":      "Frontend Phase",
-		"backend":       "Backend Phase",
+		"authorization":  "Auth Implementation",
+		"database":       "Database Phase",
+		"api":            "API Phase",
+		"frontend":       "Frontend Phase",
+		"backend":        "Backend Phase",
 	}
 )
 
@@ -246,12 +247,12 @@ func (ca *ComplexityAnalyzer) AnalyzeWithLLM(ctx context.Context, input string) 
 	// Use LLM for ambiguous cases
 	prompt := `Analyze this task for complexity. Return JSON only:
 {
+  "analysis_summary": "1-2 sentence rationale for the complexity choice",
   "complexity": "simple|moderate|complex|epic",
   "needs_campaign": true/false,
   "needs_persistent": true/false,
   "estimated_files": number,
-  "phases": ["phase1", "phase2"],
-  "reasoning": "brief explanation"
+  "phases": ["phase1", "phase2"]
 }
 
 Task: "` + input + `"
@@ -263,23 +264,62 @@ JSON only:`
 		return result, nil // Fall back to heuristic result
 	}
 
-	// Parse LLM response and merge with heuristics
-	// (simplified - in production you'd parse JSON properly)
-	if strings.Contains(strings.ToLower(resp), `"epic"`) {
+	// Parse LLM response and merge with heuristics using structured JSON first.
+	jsonStr := extractJSON(resp)
+	if jsonStr != "" {
+		var parsed struct {
+			Complexity      string   `json:"complexity"`
+			NeedsCampaign   bool     `json:"needs_campaign"`
+			NeedsPersistent bool     `json:"needs_persistent"`
+			EstimatedFiles  int      `json:"estimated_files"`
+			Phases          []string `json:"phases"`
+		}
+
+		if err := json.Unmarshal([]byte(jsonStr), &parsed); err == nil {
+			switch strings.ToLower(parsed.Complexity) {
+			case "epic":
+				result.Level = ComplexityEpic
+				result.Score = 0.95
+				result.NeedsCampaign = true
+			case "complex":
+				result.Level = ComplexityComplex
+				result.Score = max(result.Score, 0.75)
+				result.NeedsCampaign = true
+			case "moderate":
+				result.Level = ComplexityModerate
+				result.Score = max(result.Score, 0.5)
+			case "simple":
+				// Preserve heuristic if it already inferred higher complexity.
+			}
+
+			result.NeedsCampaign = result.NeedsCampaign || parsed.NeedsCampaign
+			result.NeedsPersistent = result.NeedsPersistent || parsed.NeedsPersistent
+			if parsed.EstimatedFiles > 0 {
+				result.EstimatedFiles = parsed.EstimatedFiles
+			}
+			for _, phase := range parsed.Phases {
+				result.SuggestedPhases = appendUnique(result.SuggestedPhases, phase)
+			}
+			return result, nil
+		}
+	}
+
+	// Fallback: coarse detection if model returned malformed JSON.
+	respLower := strings.ToLower(resp)
+	if strings.Contains(respLower, `"complexity":"epic"`) || strings.Contains(respLower, `"complexity": "epic"`) {
 		result.Level = ComplexityEpic
 		result.Score = 0.95
 		result.NeedsCampaign = true
-	} else if strings.Contains(strings.ToLower(resp), `"complex"`) {
+	} else if strings.Contains(respLower, `"complexity":"complex"`) || strings.Contains(respLower, `"complexity": "complex"`) {
 		result.Level = ComplexityComplex
 		result.Score = max(result.Score, 0.75)
 		result.NeedsCampaign = true
 	}
 
-	if strings.Contains(resp, `"needs_campaign": true`) || strings.Contains(resp, `"needs_campaign":true`) {
+	if strings.Contains(respLower, `"needs_campaign": true`) || strings.Contains(respLower, `"needs_campaign":true`) {
 		result.NeedsCampaign = true
 	}
-
-	if strings.Contains(resp, `"needs_persistent": true`) || strings.Contains(resp, `"needs_persistent":true`) {
+	if strings.Contains(respLower, `"needs_persistent": true`) || strings.Contains(respLower, `"needs_persistent":true`) {
 		result.NeedsPersistent = true
 	}
 

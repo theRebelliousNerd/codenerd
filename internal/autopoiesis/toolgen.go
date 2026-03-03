@@ -67,20 +67,33 @@ func (tg *ToolGenerator) WriteTool(tool *GeneratedTool) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// TODO: RELIABILITY: Use atomic file writing here (write to temp file, then rename).
-	// This prevents partial writes if the system crashes during tool generation.
 	// Write main code
-	if err := os.WriteFile(tool.FilePath, []byte(tool.Code), 0644); err != nil {
+	if err := writeFileAtomic(tool.FilePath, []byte(tool.Code), 0644); err != nil {
 		return fmt.Errorf("failed to write tool code: %w", err)
 	}
 
 	// Write test code
 	testPath := strings.TrimSuffix(tool.FilePath, ".go") + "_test.go"
-	if err := os.WriteFile(testPath, []byte(tool.TestCode), 0644); err != nil {
+	if err := writeFileAtomic(testPath, []byte(tool.TestCode), 0644); err != nil {
 		// Non-fatal
 		tool.Errors = append(tool.Errors, fmt.Sprintf("failed to write test code: %v", err))
 	}
 
+	return nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(path)
+		if retryErr := os.Rename(tmpPath, path); retryErr != nil {
+			_ = os.Remove(tmpPath)
+			return retryErr
+		}
+	}
 	return nil
 }
 

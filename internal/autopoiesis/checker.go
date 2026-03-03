@@ -137,6 +137,7 @@ func ExtractASTFacts(sourceCode string) ([]mangle.Fact, error) {
 	emitter := &astFactEmitter{
 		fset:     fset,
 		fileName: fileName,
+		aliases:  make(map[string]string),
 	}
 	emitter.emitImports(file)
 	ast.Walk(&astFactVisitor{emitter: emitter}, file)
@@ -164,7 +165,15 @@ func (sc *SafetyChecker) Check(code string) *SafetyReport {
 	astTimer.Stop()
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Error("AST parsing failed: %v", err)
-		return sc.fail(report, ViolationParseError, "", fmt.Sprintf("failed to parse code: %v", err))
+		errMsg := fmt.Sprintf("failed to parse code: %v", err)
+		errLower := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(errLower, "expected 'package'"):
+			errMsg += " (hint: start file with `package main` and return full compilable source)"
+		case strings.Contains(errLower, "expected declaration"):
+			errMsg += " (hint: include imports/types/functions at file scope; avoid snippet-only output)"
+		}
+		return sc.fail(report, ViolationParseError, "", errMsg)
 	}
 	logging.AutopoiesisDebug("Extracted %d AST facts", len(facts))
 
@@ -413,6 +422,7 @@ type astFactEmitter struct {
 	fileName   string
 	currentFcn string
 	facts      []mangle.Fact
+	aliases    map[string]string
 }
 
 func (e *astFactEmitter) emitImports(file *ast.File) {
@@ -427,6 +437,11 @@ func (e *astFactEmitter) emitImports(file *ast.File) {
 
 func (e *astFactEmitter) emitCall(call *ast.CallExpr) {
 	callee := e.exprToString(call.Fun)
+	if ident, ok := call.Fun.(*ast.Ident); ok {
+		if resolved, exists := e.aliases[ident.Name]; exists {
+			callee = resolved
+		}
+	}
 	e.facts = append(e.facts, mangle.Fact{
 		Predicate: "ast_call",
 		Args:      []interface{}{e.currentFcn, callee},
@@ -454,13 +469,53 @@ func (e *astFactEmitter) emitAssignment(assign *ast.AssignStmt) {
 		if i >= len(assign.Rhs) {
 			break
 		}
-		if ident, ok := lhs.(*ast.Ident); ok && ident.Name != "_" {
-			if rhsIdent, ok := assign.Rhs[i].(*ast.Ident); ok && rhsIdent.Name == "nil" {
-				e.facts = append(e.facts, mangle.Fact{
-					Predicate: "ast_assignment",
-					Args:      []interface{}{ident.Name, "nil"},
-				})
-			}
+		ident, ok := lhs.(*ast.Ident)
+		if !ok || ident.Name == "_" {
+			continue
+		}
+		e.handleAssignment(ident.Name, assign.Rhs[i])
+	}
+}
+
+func (e *astFactEmitter) emitValueSpec(spec *ast.ValueSpec) {
+	for i, name := range spec.Names {
+		if name == nil || name.Name == "_" {
+			continue
+		}
+		if i >= len(spec.Values) {
+			continue
+		}
+		e.handleAssignment(name.Name, spec.Values[i])
+	}
+}
+
+func (e *astFactEmitter) handleAssignment(lhsName string, rhs ast.Expr) {
+	if rhsIdent, ok := rhs.(*ast.Ident); ok {
+		if rhsIdent.Name == "nil" {
+			e.facts = append(e.facts, mangle.Fact{
+				Predicate: "ast_assignment",
+				Args:      []interface{}{lhsName, "nil"},
+			})
+			return
+		}
+		// Track simple aliasing for dangerous calls (e.g. var f = panic; f()).
+		if rhsIdent.Name == "panic" {
+			e.aliases[lhsName] = "panic"
+			return
+		}
+		// Track alias-to-alias chains.
+		if resolved, exists := e.aliases[rhsIdent.Name]; exists {
+			e.aliases[lhsName] = resolved
+		}
+		return
+	}
+
+	if sel, ok := rhs.(*ast.SelectorExpr); ok {
+		// Track aliases to dangerous selector calls (e.g. f := os.RemoveAll).
+		resolved := e.exprToString(sel)
+		switch resolved {
+		case "os.RemoveAll", "os.Remove", "unsafe.Pointer":
+			e.aliases[lhsName] = resolved
 		}
 	}
 }
@@ -529,6 +584,8 @@ func (v *astFactVisitor) Visit(node ast.Node) ast.Visitor {
 		v.emitter.emitGoroutine(n)
 	case *ast.AssignStmt:
 		v.emitter.emitAssignment(n)
+	case *ast.ValueSpec:
+		v.emitter.emitValueSpec(n)
 	}
 
 	return v

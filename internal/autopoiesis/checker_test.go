@@ -75,6 +75,28 @@ func main() {
 			descContain: "panic",
 		},
 		{
+			name: "Panic Alias Usage",
+			code: `package main
+func main() {
+	var f = panic
+	f("crash")
+}`,
+			shouldPass:  false,
+			violation:   ViolationPanic,
+			descContain: "panic",
+		},
+		{
+			name: "Forbidden Import With Alias",
+			code: `package main
+import p "plugin"
+func main() {
+	_ = p.Open
+}`,
+			shouldPass:  false,
+			violation:   ViolationForbiddenImport,
+			descContain: "plugin",
+		},
+		{
 			name: "Empty Function",
 			code: `package main
 func ok() {}`,
@@ -113,6 +135,4 @@ func ok() {}`,
 	}
 }
 
-// TODO: TEST_GAP: Safety Checker Bypass - Verify that function aliasing (e.g., 'var f = panic; f()') is detected as unsafe.
 // TODO: TEST_GAP: Safety Checker Bypass - Verify that indirect calls via interface methods are detected if they wrap unsafe operations.
-// TODO: TEST_GAP: Obfuscation - Verify that code using 'unsafe' or 'plugin' packages via import aliasing or trickery is blocked.
