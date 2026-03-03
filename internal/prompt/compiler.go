@@ -1261,58 +1261,14 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 		return nil
 	}
 
-	// Build semantic query from compilation context
-	// Combine intent, shard type, and language for best semantic match
-	// TODO: Reliability: Implement proper query expansion or keyword extraction instead of heuristic duplication.
-	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
-	// We duplicate high-priority terms to increase their semantic weight.
-	var sb strings.Builder
-	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
-	sb.Grow(256)
-
-	// High priority (weight 3x): Intent verb and target
-	if cc.IntentVerb != "" {
-		sb.WriteString(cc.IntentVerb)
-		sb.WriteString(" ")
-		sb.WriteString(cc.IntentVerb)
-		sb.WriteString(" ")
-		sb.WriteString(cc.IntentVerb)
-		sb.WriteString(" ")
-	}
-	if cc.IntentTarget != "" {
-		sb.WriteString(cc.IntentTarget)
-		sb.WriteString(" ")
-		sb.WriteString(cc.IntentTarget)
-		sb.WriteString(" ")
-		sb.WriteString(cc.IntentTarget)
-		sb.WriteString(" ")
-	}
-
-	// Medium priority (weight 2x): ShardID and Language
-	if cc.ShardID != "" {
-		sb.WriteString(cc.ShardID)
-		sb.WriteString(" ")
-		sb.WriteString(cc.ShardID)
-		sb.WriteString(" ")
-	}
-	if cc.Language != "" {
-		sb.WriteString(cc.Language)
-		sb.WriteString(" ")
-		sb.WriteString(cc.Language)
-		sb.WriteString(" ")
-	}
-
-	// Low priority (weight 1x): Frameworks
-	for _, fw := range cc.Frameworks {
-		sb.WriteString(fw)
-		sb.WriteString(" ")
-	}
-
-	if sb.Len() == 0 {
+	// Generate a comprehensive semantic query by applying keyword extraction
+	// (removing stop words) and query expansion (adding synonyms).
+	// This strategy optimizes retrieval quality for our vector embedding search
+	// and is superior to the prior heuristic string duplication logic.
+	query := buildExpandedQuery(cc)
+	if query == "" {
 		return nil
 	}
-
-	query := strings.TrimSpace(sb.String())
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
