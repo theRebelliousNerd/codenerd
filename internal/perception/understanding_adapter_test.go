@@ -27,11 +27,67 @@ func (m *mockLLMClientUT) CompleteWithTools(ctx context.Context, sys, user strin
 }
 
 func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
-	// SKIP: This test has pre-existing mock interaction issues with LLMTransducer.
-	// The actual perception flow is tested via live integration tests.
-	t.Skip("Pre-existing mock issue: LLMTransducer uses internal prompt flow that doesn't match mock")
-	// TODO: FIX: Unskip this test. The main entry point `ParseIntentWithContext` lacks unit test coverage.
-	// Use gomock or a proper mock interface to simulate LLM interaction.
+	mockClient := &mockLLMClientUT{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			// Return a JSON representation of an UnderstandingEnvelope
+			return `{
+				"understanding": {
+					"primary_intent": "implement",
+					"semantic_type": "",
+					"action_type": "implement",
+					"domain": "general",
+					"scope": {
+						"level": "function",
+						"target": "myNewFeature"
+					},
+					"user_constraints": ["keep it simple"],
+					"implicit_assumptions": [],
+					"confidence": 0.9,
+					"signals": {
+						"is_question": false,
+						"is_hypothetical": false,
+						"is_multi_step": false,
+						"is_negated": false,
+						"requires_confirmation": false,
+						"urgency": "normal"
+					},
+					"suggested_approach": {
+						"mode": "normal",
+						"primary_shard": "coder",
+						"supporting_shards": [],
+						"tools_needed": [],
+						"context_needed": []
+					}
+				},
+				"surface_response": "I will implement myNewFeature."
+			}`, nil
+		},
+	}
+
+	tr := NewUnderstandingTransducer(mockClient)
+
+	// Call ParseIntentWithContext
+	intent, err := tr.ParseIntentWithContext(context.Background(), "implement a new feature", nil)
+	if err != nil {
+		t.Fatalf("ParseIntentWithContext failed: %v", err)
+	}
+
+	// Verify the parsed intent
+	if intent.Verb != "/create" {
+		t.Errorf("Expected Verb /create, got %s", intent.Verb)
+	}
+	if intent.Category != "/mutation" {
+		t.Errorf("Expected Category /mutation, got %s", intent.Category)
+	}
+	if intent.Target != "myNewFeature" {
+		t.Errorf("Expected Target 'myNewFeature', got %s", intent.Target)
+	}
+	if intent.Constraint != "keep it simple" {
+		t.Errorf("Expected Constraint 'keep it simple', got %s", intent.Constraint)
+	}
+	if intent.Confidence != 0.9 {
+		t.Errorf("Expected Confidence 0.9, got %v", intent.Confidence)
+	}
 }
 
 func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
