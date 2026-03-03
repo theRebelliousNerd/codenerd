@@ -1,7 +1,8 @@
 package store
 
 import (
-<<<<<<< HEAD
+	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -75,11 +76,26 @@ func TestSanitizeDescriptor(t *testing.T) {
 			name:     "Whitespace Only",
 			input:    "   ",
 			expected: "",
-=======
-	"reflect"
-	"sort"
-	"testing"
-)
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeDescriptor(tc.input)
+			if got != tc.expected {
+				t.Errorf("sanitizeDescriptor(%q) = %q; want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func BenchmarkSanitizeDescriptor(b *testing.B) {
+	input := "Here is a log message with api_key: secret123 and also a Bearer token-xyz and maybe a sk-abcdef123456 inside. It also has some normal text context to make it longer and more realistic."
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sanitizeDescriptor(input)
+	}
+}
 
 func TestExtractFileHints(t *testing.T) {
 	tests := []struct {
@@ -116,7 +132,7 @@ func TestExtractFileHints(t *testing.T) {
 			name:     "False positives (URLs, etc)",
 			input:    "Check http://google.com/search or user@example.com",
 			max:      5,
-			expected: nil, // Should hopefully not match URLs as files if regex is strict enough
+			expected: nil,
 		},
 		{
 			name:     "Dashed filenames",
@@ -128,37 +144,19 @@ func TestExtractFileHints(t *testing.T) {
 			name:     "Relative paths",
 			input:    "./cmd/nerd/main.go",
 			max:      5,
-			expected: []string{"cmd/nerd/main.go"}, // Leading ./ is skipped by \b
->>>>>>> origin/bolt-fix-file-hint-regex-9178670173409163218
+			expected: []string{"cmd/nerd/main.go"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-<<<<<<< HEAD
-			got := sanitizeDescriptor(tc.input)
-			if got != tc.expected {
-				t.Errorf("sanitizeDescriptor(%q) = %q; want %q", tc.input, got, tc.expected)
-=======
 			got := extractFileHints(tc.input, tc.max)
 			sort.Strings(got)
 			sort.Strings(tc.expected)
 
 			if !reflect.DeepEqual(got, tc.expected) {
 				t.Errorf("extractFileHints(%q, %d) = %v; want %v", tc.input, tc.max, got, tc.expected)
->>>>>>> origin/bolt-fix-file-hint-regex-9178670173409163218
 			}
 		})
 	}
 }
-<<<<<<< HEAD
-
-func BenchmarkSanitizeDescriptor(b *testing.B) {
-	input := "Here is a log message with api_key: secret123 and also a Bearer token-xyz and maybe a sk-abcdef123456 inside. It also has some normal text context to make it longer and more realistic."
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sanitizeDescriptor(input)
-	}
-}
-=======
->>>>>>> origin/bolt-fix-file-hint-regex-9178670173409163218

@@ -413,17 +413,7 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 
 	// Sort by similarity descending
 	slices.SortFunc(candidates, func(a, b candidate) int {
-<<<<<<< HEAD
 		return cmp.Compare(b.similarity, a.similarity)
-=======
-		if a.similarity > b.similarity {
-			return -1
-		}
-		if a.similarity < b.similarity {
-			return 1
-		}
-		return 0
->>>>>>> origin/bolt/vector-store-sort-optimization-1626065401134199105
 	})
 
 	// Return top K
@@ -547,17 +537,7 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 
 	// Sort by similarity descending
 	slices.SortFunc(candidates, func(a, b candidate) int {
-<<<<<<< HEAD
 		return cmp.Compare(b.similarity, a.similarity)
-=======
-		if a.similarity > b.similarity {
-			return -1
-		}
-		if a.similarity < b.similarity {
-			return 1
-		}
-		return 0
->>>>>>> origin/bolt/vector-store-sort-optimization-1626065401134199105
 	})
 
 	if len(candidates) > limit {
@@ -690,17 +670,7 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 
 	// Sort by similarity descending
 	slices.SortFunc(candidates, func(a, b candidate) int {
-<<<<<<< HEAD
 		return cmp.Compare(b.similarity, a.similarity)
-=======
-		if a.similarity > b.similarity {
-			return -1
-		}
-		if a.similarity < b.similarity {
-			return 1
-		}
-		return 0
->>>>>>> origin/bolt/vector-store-sort-optimization-1626065401134199105
 	})
 
 	// Return top K

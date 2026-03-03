@@ -393,6 +393,7 @@ func (s *AtomSelector) SetVectorSearchTimeout(timeout time.Duration) {
 //	PHASE 3: Merge and dedupe
 //	  - Skeleton atoms take precedence
 //	  - Deduplication by atom ID
+//
 // TODO: Feature: Allow configuring vector vs logic weight per-request via CompilationContext.
 func (s *AtomSelector) SelectAtoms(
 	ctx context.Context,
@@ -1225,14 +1226,6 @@ func extractStringArg(arg interface{}) string {
 		return strconv.FormatBool(v)
 	case fmt.Stringer:
 		return v.String()
-	case int:
-		return strconv.Itoa(v)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64)
-	case bool:
-		return strconv.FormatBool(v)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
