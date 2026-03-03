@@ -97,6 +97,20 @@ func main() {
 			descContain: "plugin",
 		},
 		{
+			name: "Panic Through Interface Method",
+			code: `package main
+type killer interface{ Kill() }
+type impl struct{}
+func (impl) Kill() { panic("boom") }
+func main() {
+	var k killer = impl{}
+	k.Kill()
+}`,
+			shouldPass:  false,
+			violation:   ViolationPanic,
+			descContain: "panic",
+		},
+		{
 			name: "Empty Function",
 			code: `package main
 func ok() {}`,
@@ -134,5 +148,3 @@ func ok() {}`,
 		})
 	}
 }
-
-// TODO: TEST_GAP: Safety Checker Bypass - Verify that indirect calls via interface methods are detected if they wrap unsafe operations.

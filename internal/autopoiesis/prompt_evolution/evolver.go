@@ -59,6 +59,40 @@ func DefaultEvolverConfig() *EvolverConfig {
 	}
 }
 
+func validateEvolverConfig(config *EvolverConfig) (*EvolverConfig, error) {
+	if config == nil {
+		return nil, fmt.Errorf("evolver config is nil")
+	}
+
+	normalized := *config
+	var errs []string
+
+	if normalized.MinFailuresForEvolution < 1 {
+		errs = append(errs, "min_failures_for_evolution must be >= 1")
+	}
+	if normalized.EvolutionInterval <= 0 {
+		errs = append(errs, "evolution_interval must be > 0")
+	}
+	if normalized.MaxAtomsPerEvolution < 1 {
+		errs = append(errs, "max_atoms_per_evolution must be >= 1")
+	}
+	if normalized.ConfidenceThreshold < 0 || normalized.ConfidenceThreshold > 1 {
+		errs = append(errs, "confidence_threshold must be between 0 and 1")
+	}
+	if normalized.StrategyRefineThreshold < 1 {
+		errs = append(errs, "strategy_refine_threshold must be >= 1")
+	}
+	if strings.TrimSpace(normalized.JudgeModel) == "" {
+		normalized.JudgeModel = "gemini-3-pro"
+	}
+
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("invalid evolver config: %s", strings.Join(errs, "; "))
+	}
+
+	return &normalized, nil
+}
+
 // PromptEvolver orchestrates the prompt evolution system.
 // It ties together the judge, feedback collector, strategy store,
 // and atom generator into a cohesive learning loop.
@@ -97,6 +131,11 @@ func NewPromptEvolver(
 	if config == nil {
 		config = DefaultEvolverConfig()
 	}
+	validatedConfig, err := validateEvolverConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	config = validatedConfig
 
 	// Create directories
 	evolvedDir := filepath.Join(nerdDir, "prompts", "evolved")
@@ -128,9 +167,6 @@ func NewPromptEvolver(
 	}
 
 	judgeModel := config.JudgeModel
-	if judgeModel == "" {
-		judgeModel = "gemini-3-pro"
-	}
 	judge := NewTaskJudge(llmClient, judgeModel)
 	atomGenerator := NewAtomGenerator(llmClient, strategyStore)
 	classifier := NewProblemClassifier()
@@ -294,9 +330,6 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 // storeEvolvedAtom saves an evolved atom to the pending directory.
 func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
-	// Add to memory
-	pe.evolvedAtoms[ga.Atom.ID] = ga
-
 	// Save to pending directory
 	filename := strings.ReplaceAll(ga.Atom.ID, "/", "_") + ".yaml"
 	path := filepath.Join(pe.pendingDir, filename)
@@ -324,6 +357,9 @@ func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write atom file: %w", err)
 	}
+
+	// Only add to memory after durable write succeeds.
+	pe.evolvedAtoms[ga.Atom.ID] = ga
 
 	logging.Autopoiesis("Evolved atom stored: id=%s, path=%s", ga.Atom.ID, path)
 	return nil

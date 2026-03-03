@@ -142,7 +142,65 @@ func ExtractASTFacts(sourceCode string) ([]mangle.Fact, error) {
 	emitter.emitImports(file)
 	ast.Walk(&astFactVisitor{emitter: emitter}, file)
 
+	// Lightweight interprocedural summary:
+	// If a function/method contains a direct panic call, propagate that to callers
+	// by emitting synthetic ast_call(caller, "panic") facts when they call it.
+	emitter.facts = propagatePanicCalls(emitter.facts)
+
 	return emitter.facts, nil
+}
+
+func propagatePanicCalls(facts []mangle.Fact) []mangle.Fact {
+	panicFuncs := make(map[string]struct{})
+	for _, fact := range facts {
+		if fact.Predicate != "ast_call" || len(fact.Args) < 2 {
+			continue
+		}
+		caller, okCaller := fact.Args[0].(string)
+		callee, okCallee := fact.Args[1].(string)
+		if !okCaller || !okCallee {
+			continue
+		}
+		if callee == "panic" || callee == "/panic" {
+			panicFuncs[caller] = struct{}{}
+		}
+	}
+	if len(panicFuncs) == 0 {
+		return facts
+	}
+
+	seen := make(map[string]struct{})
+	extra := make([]mangle.Fact, 0)
+	for _, fact := range facts {
+		if fact.Predicate != "ast_call" || len(fact.Args) < 2 {
+			continue
+		}
+		caller, okCaller := fact.Args[0].(string)
+		callee, okCallee := fact.Args[1].(string)
+		if !okCaller || !okCallee || callee == "panic" || callee == "/panic" {
+			continue
+		}
+		simple := callee
+		if dot := strings.LastIndex(simple, "."); dot >= 0 {
+			simple = simple[dot+1:]
+		}
+		if _, risky := panicFuncs[simple]; !risky {
+			continue
+		}
+		key := caller + "->panic"
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		extra = append(extra, mangle.Fact{
+			Predicate: "ast_call",
+			Args:      []interface{}{caller, "panic"},
+		})
+		seen[key] = struct{}{}
+	}
+	if len(extra) == 0 {
+		return facts
+	}
+	return append(facts, extra...)
 }
 
 // Check performs a safety check on the code using the Mangle policy.

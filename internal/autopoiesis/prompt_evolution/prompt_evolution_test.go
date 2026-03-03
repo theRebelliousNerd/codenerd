@@ -524,8 +524,95 @@ func TestStrategyStore(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: TestStrategyStore_MassiveStrategyCount
-// Verify performance when the store contains 10,000+ strategies
+func TestStrategyStore_MassiveStrategyCount(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "strategy_massive_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	ss, err := NewStrategyStore(tempDir)
+	if err != nil {
+		t.Fatalf("NewStrategyStore failed: %v", err)
+	}
+	defer ss.Close()
+
+	const strategyCount = 10000
+	now := time.Now()
+
+	tx, err := ss.db.Begin()
+	if err != nil {
+		t.Fatalf("failed to begin transaction: %v", err)
+	}
+	stmt, err := tx.Prepare(`
+		INSERT INTO strategies
+		(id, problem_type, shard_type, content, success_count, failure_count, success_rate,
+		 last_used, last_refined, version, source, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("failed to prepare bulk insert: %v", err)
+	}
+
+	for i := 0; i < strategyCount; i++ {
+		successCount := (i % 10) + 1
+		failureCount := i % 3
+		successRate := float64(successCount) / float64(successCount+failureCount+1)
+		createdAt := now.Add(-time.Duration(i) * time.Second)
+		if _, err := stmt.Exec(
+			"massive-strategy-"+strconv.Itoa(i),
+			ProblemDebugging,
+			"/coder",
+			"bulk strategy content "+strconv.Itoa(i),
+			successCount,
+			failureCount,
+			successRate,
+			createdAt,
+			createdAt,
+			1,
+			"generated",
+			createdAt,
+		); err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			t.Fatalf("bulk insert failed at row %d: %v", i, err)
+		}
+	}
+
+	if err := stmt.Close(); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("failed to close bulk insert statement: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("failed to commit bulk insert: %v", err)
+	}
+
+	total, _, err := ss.GetStats()
+	if err != nil {
+		t.Fatalf("GetStats failed: %v", err)
+	}
+	if total < strategyCount {
+		t.Fatalf("expected at least %d strategies, got %d", strategyCount, total)
+	}
+
+	selectStart := time.Now()
+	selected, err := ss.SelectStrategies(ProblemDebugging, "/coder", 10)
+	if err != nil {
+		t.Fatalf("SelectStrategies failed: %v", err)
+	}
+	if len(selected) != 10 {
+		t.Fatalf("expected 10 selected strategies, got %d", len(selected))
+	}
+	if elapsed := time.Since(selectStart); elapsed > 2*time.Second {
+		t.Fatalf("SelectStrategies too slow with %d strategies: %v", strategyCount, elapsed)
+	}
+
+	for i := 1; i < len(selected); i++ {
+		if selected[i-1].SuccessRate < selected[i].SuccessRate {
+			t.Fatalf("strategies are not sorted by success_rate desc at index %d", i)
+		}
+	}
+}
 
 // =============================================================================
 // ATOM GENERATOR HELPER TESTS
@@ -788,14 +875,201 @@ func TestPromptEvolver_SelectStrategies(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: TestPromptEvolver_WriteFailure
-// Verify behavior when filesystem is read-only
+func TestPromptEvolver_WriteFailure(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "evolver_write_failure_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
 
-// TODO: TEST_GAP: TestPromptEvolver_InvalidConfig
-// Verify initialization with invalid configuration
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, nil)
+	if err != nil {
+		t.Fatalf("NewPromptEvolver failed: %v", err)
+	}
+	defer evolver.Close()
 
-// TODO: TEST_GAP: TestPromptEvolver_ConcurrentAccess
-// Verify GetStats and RecordExecution can be called concurrently
+	blockedPath := filepath.Join(tempDir, "pending-file")
+	if err := os.WriteFile(blockedPath, []byte("not-a-directory"), 0644); err != nil {
+		t.Fatalf("failed to create blocking file: %v", err)
+	}
+
+	evolver.pendingDir = blockedPath
+	atom := &GeneratedAtom{
+		Atom: &prompt.PromptAtom{
+			ID:       "test/write/failure",
+			Category: prompt.CategoryMethodology,
+			Content:  "Always validate write paths before persistence",
+		},
+		Source:     "failure_analysis",
+		SourceIDs:  []string{"task-write-failure"},
+		Confidence: 0.5,
+		CreatedAt:  time.Now(),
+	}
+
+	if err := evolver.storeEvolvedAtom(atom); err == nil {
+		t.Fatal("expected storeEvolvedAtom to fail when pendingDir is not writable as a directory")
+	}
+	if _, exists := evolver.evolvedAtoms[atom.Atom.ID]; exists {
+		t.Fatal("storeEvolvedAtom should not keep atom in memory when persistence fails")
+	}
+}
+
+func TestPromptEvolver_InvalidConfig(t *testing.T) {
+	base := DefaultEvolverConfig()
+	cases := []struct {
+		name   string
+		mutate func(*EvolverConfig)
+	}{
+		{
+			name: "min failures below 1",
+			mutate: func(c *EvolverConfig) {
+				c.MinFailuresForEvolution = 0
+			},
+		},
+		{
+			name: "non-positive interval",
+			mutate: func(c *EvolverConfig) {
+				c.EvolutionInterval = 0
+			},
+		},
+		{
+			name: "max atoms below 1",
+			mutate: func(c *EvolverConfig) {
+				c.MaxAtomsPerEvolution = 0
+			},
+		},
+		{
+			name: "confidence below 0",
+			mutate: func(c *EvolverConfig) {
+				c.ConfidenceThreshold = -0.1
+			},
+		},
+		{
+			name: "confidence above 1",
+			mutate: func(c *EvolverConfig) {
+				c.ConfidenceThreshold = 1.1
+			},
+		},
+		{
+			name: "strategy refine threshold below 1",
+			mutate: func(c *EvolverConfig) {
+				c.StrategyRefineThreshold = 0
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir, err := os.MkdirTemp("", "evolver_invalid_config_test")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tempDir)
+
+			cfg := *base
+			tc.mutate(&cfg)
+			evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, &cfg)
+			if err == nil {
+				if evolver != nil {
+					_ = evolver.Close()
+				}
+				t.Fatal("expected NewPromptEvolver to fail for invalid config")
+			}
+		})
+	}
+
+	t.Run("empty judge model falls back to default", func(t *testing.T) {
+		tempDir, err := os.MkdirTemp("", "evolver_config_default_model_test")
+		if err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tempDir)
+
+		cfg := *base
+		cfg.JudgeModel = ""
+		evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, &cfg)
+		if err != nil {
+			t.Fatalf("unexpected error for empty judge model: %v", err)
+		}
+		defer evolver.Close()
+
+		if evolver.judge == nil || evolver.judge.modelName != "gemini-3-pro" {
+			t.Fatalf("expected default judge model gemini-3-pro, got %+v", evolver.judge)
+		}
+	})
+}
+
+func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "evolver_concurrent_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	config := DefaultEvolverConfig()
+	config.MinFailuresForEvolution = 1
+
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, config)
+	if err != nil {
+		t.Fatalf("NewPromptEvolver failed: %v", err)
+	}
+	defer evolver.Close()
+
+	const writers = 48
+	const readers = 24
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, writers+readers)
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			rec := &ExecutionRecord{
+				TaskID:      "task-concurrent-" + strconv.Itoa(idx),
+				SessionID:   "session-concurrent",
+				ShardType:   "/coder",
+				TaskRequest: "concurrent record execution",
+				Timestamp:   time.Now(),
+				ExecutionResult: ExecutionResult{
+					Success: idx%2 == 0,
+					Output:  "output " + strconv.Itoa(idx),
+				},
+			}
+			if err := evolver.RecordExecution(rec); err != nil {
+				errCh <- err
+			}
+		}(i)
+	}
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 40; j++ {
+				stats := evolver.GetStats()
+				if stats == nil {
+					errCh <- os.ErrInvalid
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("concurrent access error: %v", err)
+		}
+	}
+
+	stats := evolver.GetStats()
+	if stats.TotalExecutionsRecorded != writers {
+		t.Fatalf("expected %d executions recorded, got %d", writers, stats.TotalExecutionsRecorded)
+	}
+}
 
 // =============================================================================
 // INTEGRATION-STYLE TESTS

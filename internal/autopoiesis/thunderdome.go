@@ -190,13 +190,14 @@ func (t *Thunderdome) prepareArena(ctx context.Context, tool *GeneratedTool) (ar
 	// would fail to compile alongside the "package tools" harness.
 	toolCode := t.normalizePackage(tool.Code)
 
-	// Detect the entry point function using AST parsing
-	entryPoint, err := t.findEntryPoint(toolCode)
+	// Detect the entry point function and generate correct call form.
+	entryPoint, callExpr, err := t.findEntryPointCall(toolCode)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to find entry point, defaulting to 'Execute': %v", err)
 		entryPoint = "Execute"
+		callExpr = "_, toolErr = Execute(ctx, input)"
 	}
-	logging.AutopoiesisDebug("Detected entry point function: %s", entryPoint)
+	logging.AutopoiesisDebug("Detected entry point function: %s (%s)", entryPoint, callExpr)
 
 	// Write the normalized tool code to arena
 	sourcePath := filepath.Join(arenaDir, "tool.go")
@@ -205,7 +206,7 @@ func (t *Thunderdome) prepareArena(ctx context.Context, tool *GeneratedTool) (ar
 	}
 
 	// Create a test harness that wraps the tool and ACTUALLY CALLS IT
-	harnessCode := t.generateTestHarness(tool, entryPoint)
+	harnessCode := t.generateTestHarnessWithCall(tool, callExpr)
 	harnessPath := filepath.Join(arenaDir, "harness_test.go")
 	if err := os.WriteFile(harnessPath, []byte(harnessCode), 0644); err != nil {
 		return arenaDir, "", fmt.Errorf("failed to write test harness: %w", err)
@@ -250,6 +251,22 @@ go 1.21
 // This fixes the "Phantom Punch" bug where attack inputs were being discarded.
 // NOTE: Verified "Phantom Punch" bug fix (see thunderdome_harness_test.go).
 func (t *Thunderdome) generateTestHarness(_ *GeneratedTool, entryPoint string) string {
+	return t.generateTestHarnessWithCall(nil, fmt.Sprintf("_, toolErr = %s(ctx, input)", entryPoint))
+}
+
+// generateTestHarnessWithCall creates Go test code with an explicit invocation statement.
+func (t *Thunderdome) generateTestHarnessWithCall(_ *GeneratedTool, callExpr string) string {
+	usesCtx := regexp.MustCompile(`\bctx\b`).MatchString(callExpr)
+	usesInput := regexp.MustCompile(`\binput\b`).MatchString(callExpr)
+	ctxNoop := ""
+	inputNoop := ""
+	if !usesCtx {
+		ctxNoop = "\t\t_ = ctx\n"
+	}
+	if !usesInput {
+		inputNoop = "\t\t_ = input\n"
+	}
+
 	// Generate a test harness that reads attack input from stdin
 	// and ACTUALLY executes the tool's entry point with that input
 	// NOTE: Must match the tool's package (tools) for Go test to work
@@ -311,10 +328,11 @@ func TestThunderdomeArena(t *testing.T) {
 		// Create context with timeout for the tool execution
 		ctx, cancel := context.WithTimeout(context.Background(), %d*time.Second)
 		defer cancel()
+%s%s
 
 		// *** FIX: ACTUALLY CALL THE TOOL'S ENTRY POINT ***
 		// This invokes the tool's logic with the attack payload
-		_, toolErr = %s(ctx, input)
+		%s
 	}()
 
 	// Wait for completion or timeout
@@ -330,7 +348,7 @@ func TestThunderdomeArena(t *testing.T) {
 		os.Exit(2)
 	}
 }
-`, t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), entryPoint)
+`, t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), t.config.MaxMemoryMB, int(t.config.Timeout.Seconds()), ctxNoop, inputNoop, callExpr)
 }
 
 // normalizePackage ensures the tool code uses "package tools" to match the harness.
@@ -359,13 +377,25 @@ func (t *Thunderdome) normalizePackage(code string) string {
 // It looks for exported functions with context + string signatures that match
 // the standard tool interface: func Name(ctx context.Context, input string) (string, error)
 func (t *Thunderdome) findEntryPoint(code string) (string, error) {
+	name, _, err := t.findEntryPointCall(code)
+	return name, err
+}
+
+// findEntryPointCall returns the best entry point name and invocation statement.
+// It supports common signatures:
+//
+//	func X(ctx context.Context, input string) (string, error)
+//	func X(ctx context.Context) (string, error)
+//	func X(input string) (string, error)
+func (t *Thunderdome) findEntryPointCall(code string) (string, string, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "tool.go", code, 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse tool code: %w", err)
+		return "", "", fmt.Errorf("failed to parse tool code: %w", err)
 	}
 
 	var bestFunc string
+	var bestCall string
 	var bestScore int
 
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -388,7 +418,8 @@ func (t *Thunderdome) findEntryPoint(code string) (string, error) {
 			score += 10
 		}
 
-		// Check parameters - prefer (context.Context, string)
+		// Determine call expression from parameters.
+		callExpr := fmt.Sprintf("_, toolErr = %s(ctx, input)", name)
 		if fn.Type.Params != nil {
 			params := fn.Type.Params.List
 			if len(params) >= 2 {
@@ -404,9 +435,13 @@ func (t *Thunderdome) findEntryPoint(code string) (string, error) {
 				// Single param functions are acceptable
 				if t.isContextParam(params[0]) {
 					score += 5
+					callExpr = fmt.Sprintf("_, toolErr = %s(ctx)", name)
 				} else if t.isStringParam(params[0]) {
 					score += 5
+					callExpr = fmt.Sprintf("_, toolErr = %s(input)", name)
 				}
+			} else {
+				callExpr = fmt.Sprintf("_, toolErr = %s()", name)
 			}
 		}
 
@@ -436,17 +471,18 @@ func (t *Thunderdome) findEntryPoint(code string) (string, error) {
 		if score > bestScore {
 			bestScore = score
 			bestFunc = name
+			bestCall = callExpr
 		}
 
 		return true
 	})
 
 	if bestFunc == "" {
-		return "", fmt.Errorf("no suitable entry point function found in tool code")
+		return "", "", fmt.Errorf("no suitable entry point function found in tool code")
 	}
 
 	logging.AutopoiesisDebug("Found entry point '%s' with score %d", bestFunc, bestScore)
-	return bestFunc, nil
+	return bestFunc, bestCall, nil
 }
 
 // isContextParam checks if a parameter is context.Context
