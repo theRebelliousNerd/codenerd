@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/core"
@@ -951,6 +952,10 @@ func (h *HolographicProvider) intArg(arg interface{}, defaultVal int) int {
 	case float64:
 		return int(v)
 	case string:
+		// Try to parse as an integer first
+		if val, err := strconv.Atoi(v); err == nil {
+			return val
+		}
 		// Try to parse priority atoms
 		return h.priorityAtomToInt(v)
 	default:

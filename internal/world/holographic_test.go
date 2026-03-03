@@ -228,10 +228,6 @@ func TestHolographicProviderStringArg(t *testing.T) {
 }
 
 func TestHolographicProviderIntArg(t *testing.T) {
-	// TODO: TEST_GAP: Numeric String Handling
-	// Verify that intArg correctly handles numeric strings (e.g., "80") which might be returned
-	// by Mangle if the type system isn't strictly enforced. Currently it might default to 50.
-
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -244,6 +240,8 @@ func TestHolographicProviderIntArg(t *testing.T) {
 		{name: "int64", arg: int64(100), defaultVal: 0, want: 100},
 		{name: "float64", arg: float64(75.9), defaultVal: 0, want: 75},
 		{name: "string_high", arg: "/high", defaultVal: 0, want: 80},
+		{name: "numeric_string", arg: "80", defaultVal: 0, want: 80},
+		{name: "numeric_string_negative", arg: "-10", defaultVal: 50, want: -10},
 		{name: "unknown_type", arg: struct{}{}, defaultVal: 50, want: 50},
 	}
 
