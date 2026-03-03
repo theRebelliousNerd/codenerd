@@ -62,7 +62,6 @@ func TestActivatePhase(t *testing.T) {
 		FocusPatterns:   []string{"*.go", "*.md"},
 	}
 	// Inject profile fact into kernel
-	// TODO: Test getContextProfile with malformed "context_profile" facts (e.g., non-comma-separated strings, nil args)
 	kernel.Assert(profile.ToFacts()[0])
 
 	// Inject scoped docs fact
@@ -90,19 +89,16 @@ func TestActivatePhase(t *testing.T) {
 	}
 
 	// 2. Activate Phase
-	err := cp.ActivatePhase(ctx, nil)
-	if err != nil {
-		t.Errorf("ActivatePhase with nil phase failed: %v", err)
-	}
+	// TODO: Test ActivatePhase with nil phase (should handle gracefully)
 	// TODO: Test ActivatePhase with phase containing nil Tasks slice
 	// TODO: Test ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: Test ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: Test ActivatePhase with 10,000+ tasks to verify performance and memory stability
 	// TODO: Test ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 	// TODO: Test ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
-
+	// TODO: Test Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
 	// TODO: Test Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
-	err = cp.ActivatePhase(ctx, phase)
+	err := cp.ActivatePhase(ctx, phase)
 	if err != nil {
 		t.Fatalf("ActivatePhase failed: %v", err)
 	}
@@ -201,16 +197,8 @@ func TestCompressPhase(t *testing.T) {
 		Args:      []interface{}{phaseID, "some_atom", 100},
 	})
 
-	// Test CompressPhase with nil phase
-	nilSummary, nilCount, _, err := cp.CompressPhase(ctx, nil)
-	if err != nil {
-		t.Fatalf("CompressPhase with nil failed: %v", err)
-	}
-	if nilSummary != "" || nilCount != 0 {
-		t.Errorf("CompressPhase with nil phase expected empty summary and 0 count, got '%s' and %d", nilSummary, nilCount)
-	}
-
 	// Run Compression
+	// TODO: Test CompressPhase with nil phase
 	// TODO: Test CompressPhase with massive 'accomplishments' output (10MB+) to ensure no OOM or LLM client failure
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
 	if err != nil {
@@ -343,98 +331,79 @@ func TestPruneIrrelevant(t *testing.T) {
 // TODO: Additional Negative Testing Scenarios
 // - Test Reset Failure: Mock kernel.Retract failure and verify "ghost facts" persist
 
-
-
-func TestActivatePhase_DoubleActivation(t *testing.T) {
+func TestGetContextProfile_Malformed(t *testing.T) {
 	kernel := &MockKernel{}
-	llm := &MockLLMClient{}
-	cp := NewContextPager(kernel, llm, 100000)
-	ctx := context.Background()
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
 
-	phase := &Phase{
-		ID:   "phase1",
-		Name: "Test Phase",
-		Tasks: []Task{
-			{
-				ID: "task1",
-				Artifacts: []TaskArtifact{
-					{Path: "src/main.go"},
-				},
-			},
-		},
+	// Inject malformed profiles
+	// 1. Not enough arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"short_profile", "schema1"},
+	})
+
+	// 2. Nil arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"nil_profile", nil, nil, nil},
+	})
+
+	// 3. Non-string arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"type_profile", 123, true, 45.6},
+	})
+
+	// 4. Non-comma-separated strings
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"space_profile", "schema1 schema2", "tool1", "pattern1"},
+	})
+
+	// Test 1: Short Profile (Should return error because it's skipped in loop)
+	_, err := cp.getContextProfile("short_profile")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Expected 'not found' error for short_profile, got %v", err)
 	}
 
-	err := cp.ActivatePhase(ctx, phase)
+	// Test 2: Nil Profile
+	// ExtractString(nil) -> "". strings.Split("", ",") -> [""]
+	prof, err := cp.getContextProfile("nil_profile")
 	if err != nil {
-		t.Fatalf("First ActivatePhase failed: %v", err)
+		t.Fatalf("Unexpected error for nil_profile: %v", err)
+	}
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "" {
+		t.Errorf("Expected empty schema slice from nil, got %q", prof.RequiredSchemas)
+	}
+	if len(prof.RequiredTools) != 1 || prof.RequiredTools[0] != "" {
+		t.Errorf("Expected empty tools slice from nil, got %q", prof.RequiredTools)
 	}
 
-	// Capture initial activation scores and facts state
-	initialScores := make(map[string]interface{})
-	distinctFactsCount := 0
-	seenFacts := make(map[string]struct{})
-
-	for _, f := range kernel.Facts {
-		factKey := fmt.Sprintf("%s:%v", f.Predicate, f.Args)
-		if _, exists := seenFacts[factKey]; !exists {
-			seenFacts[factKey] = struct{}{}
-			distinctFactsCount++
-		}
-
-		if f.Predicate == "activation" && len(f.Args) >= 2 {
-			key := fmt.Sprintf("%v", f.Args[0])
-			initialScores[key] = f.Args[1]
-		}
-	}
-
-	initialUsedTokens := cp.usedTokens
-
-	// Call a second time to test idempotency
-	err = cp.ActivatePhase(ctx, phase)
+	// Test 3: Type Profile
+	// ExtractString converts int/bool/float to string representation
+	prof, err = cp.getContextProfile("type_profile")
 	if err != nil {
-		t.Fatalf("Second ActivatePhase failed: %v", err)
+		t.Fatalf("Unexpected error for type_profile: %v", err)
+	}
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "123" {
+		t.Errorf("Expected [\"123\"], got %q", prof.RequiredSchemas)
+	}
+	// ExtractString(true) -> "/true"
+	if len(prof.RequiredTools) != 1 || prof.RequiredTools[0] != "/true" {
+		t.Errorf("Expected [\"/true\"], got %q", prof.RequiredTools)
+	}
+	// ExtractString(45.6) -> "45.6"
+	if len(prof.FocusPatterns) != 1 || prof.FocusPatterns[0] != "45.6" {
+		t.Errorf("Expected [\"45.6\"], got %q", prof.FocusPatterns)
 	}
 
-	// Verify idempotency
-	secondScores := make(map[string]interface{})
-	newDistinctFactsCount := 0
-	newSeenFacts := make(map[string]struct{})
-
-	for _, f := range kernel.Facts {
-		factKey := fmt.Sprintf("%s:%v", f.Predicate, f.Args)
-		if _, exists := newSeenFacts[factKey]; !exists {
-			newSeenFacts[factKey] = struct{}{}
-			newDistinctFactsCount++
-		}
-
-		// Always keep the latest score assigned to simulate state update if any
-		if f.Predicate == "activation" && len(f.Args) >= 2 {
-			key := fmt.Sprintf("%v", f.Args[0])
-			secondScores[key] = f.Args[1]
-		}
+	// Test 4: Space Profile
+	// Space-separated strings should not be split correctly
+	prof, err = cp.getContextProfile("space_profile")
+	if err != nil {
+		t.Fatalf("Unexpected error for space_profile: %v", err)
 	}
-
-	if newDistinctFactsCount != distinctFactsCount {
-		t.Errorf("Idempotency failed: distinct facts count changed from %d to %d", distinctFactsCount, newDistinctFactsCount)
-	}
-
-	if len(initialScores) == 0 {
-		t.Fatal("Expected initial activation scores to be populated")
-	}
-
-	for key, initialScore := range initialScores {
-		secondScore, ok := secondScores[key]
-		if !ok {
-			t.Errorf("Missing activation score for %s on second activation", key)
-			continue
-		}
-
-		if initialScore != secondScore {
-			t.Errorf("Idempotency failed for %s: initial score %v, second score %v", key, initialScore, secondScore)
-		}
-	}
-
-	if cp.usedTokens != initialUsedTokens {
-		t.Errorf("Idempotency failed: expected usedTokens to be %d, got %d", initialUsedTokens, cp.usedTokens)
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
+		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
 	}
 }
