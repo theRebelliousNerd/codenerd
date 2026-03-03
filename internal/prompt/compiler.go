@@ -299,19 +299,23 @@ type CompilerConfig struct {
 
 	// DebugMode enables verbose JIT manifest logging
 	DebugMode bool
+
+	// KnowledgeSearchTimeout is the max time to wait for knowledge atom embedding and search
+	KnowledgeSearchTimeout time.Duration
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
 // Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
-		DefaultTokenBudget:  200000, // 200k tokens default - callers should override from config
-		EnableVectorSearch:  true,
-		VectorSearchWeight:  0.3, // 70% logic, 30% vector
-		MaxAtomsPerCategory: 10,
-		EnableCaching:       true,
-		CacheTTLSeconds:     300, // 5 minutes
-		DebugMode:           false,
+		DefaultTokenBudget:     200000, // 200k tokens default - callers should override from config
+		EnableVectorSearch:     true,
+		VectorSearchWeight:     0.3, // 70% logic, 30% vector
+		MaxAtomsPerCategory:    10,
+		EnableCaching:          true,
+		CacheTTLSeconds:        300, // 5 minutes
+		DebugMode:              false,
+		KnowledgeSearchTimeout: 10 * time.Second,
 	}
 }
 
@@ -1316,16 +1320,14 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
-	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
-	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	searchCtx, cancel := context.WithTimeout(ctx, c.config.KnowledgeSearchTimeout)
 	defer cancel()
 
 	// Search for semantically relevant knowledge atoms
 	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (10s limit), skipping")
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", c.config.KnowledgeSearchTimeout)
 		} else {
 			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
 		}
@@ -1422,6 +1424,7 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	}
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
+
 // TODO: Ensure active JIT compilations are finished before closing databases.
 
 // Close releases all resources held by the compiler.
