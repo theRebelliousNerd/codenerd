@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"codenerd/internal/core"
+
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -266,11 +268,33 @@ func TestBuildWithImpactPrioritiesNilContext(t *testing.T) {
 	}
 }
 
-func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
-	// TODO: TEST_GAP: Context Cancellation
-	// We should verify that BuildWithImpactPriorities respects ctx.Done() and aborts
-	// processing, especially during the loop where it fetches function bodies.
+func TestBuildWithImpactPrioritiesContextCancellation(t *testing.T) {
+	k, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("Failed to create kernel: %v", err)
+	}
+	h := NewHolographicProvider(k, ".")
 
+	// Need to mock priority facts to enter the loop
+	k.Assert(core.Fact{
+		Predicate: "context_priority_file",
+		Args:      []any{"testdata/large_file.go", "FuncA", int64(100)},
+	})
+	k.Assert(core.Fact{
+		Predicate: "context_priority_file",
+		Args:      []any{"testdata/large_file.go", "FuncB", int64(90)},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err = h.BuildWithImpactPriorities(ctx, "test.go")
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 	h := NewHolographicProvider(nil, ".")
 
 	ctx := context.Background()
