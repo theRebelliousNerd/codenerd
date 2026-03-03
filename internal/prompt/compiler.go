@@ -259,7 +259,7 @@ type JITPromptCompiler struct {
 	cacheMiss int64
 
 	// Observability
-	lastResult *CompilationResult
+	lastResult atomic.Pointer[CompilationResult]
 
 	// Concurrency control
 	mu sync.RWMutex
@@ -602,10 +602,8 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
-	c.mu.Lock()
-	c.lastResult = result
-	c.mu.Unlock()
+	// Performance: Replaced coarse-grained lock with atomic pointer for high concurrency.
+	c.lastResult.Store(result)
 
 	// Bug #5 fix: Store result in cache for future reuse
 	c.cacheMu.Lock()
@@ -1022,10 +1020,7 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 // GetLastResult returns the most recent compilation result.
 // This is used by the TUI Prompt Inspector for observability.
 func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.lastResult
-
+	return c.lastResult.Load()
 }
 
 // loadAtomsFromDB loads atoms from a SQLite database.
