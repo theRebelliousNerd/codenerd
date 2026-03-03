@@ -1245,7 +1245,6 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.config = config
-	c.selector.SetVectorSearchTimeout(config.VectorSearchTimeout)
 }
 
 // SetLocalDB sets the LocalStore for semantic knowledge atom queries.
@@ -1264,12 +1263,7 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	c.mu.RLock()
 	db := c.localDB
-	timeout := c.config.VectorSearchTimeout
 	c.mu.RUnlock()
-
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
 
 	if db == nil || cc == nil {
 		return nil
@@ -1332,7 +1326,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
 	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
 	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
-	searchCtx, cancel := context.WithTimeout(ctx, timeout)
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Search for semantically relevant knowledge atoms
