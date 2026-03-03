@@ -73,6 +73,9 @@ Decl specialist_consultation_route(FromSpec, ToSpec, Question) bound [/string, /
 # specialist_allowed_tools(Specialist, Tool) - derived: tools specialist can use
 Decl specialist_allowed_tools(Specialist, Tool) bound [/string, /name].
 
+# persona_tool_allowed(Persona, Tool) - derived: tools allowed for a persona
+Decl persona_tool_allowed(Persona, Tool) bound [/name, /name].
+
 # =============================================================================
 # SECTION 30: CODER SHARD HELPERS
 # =============================================================================
