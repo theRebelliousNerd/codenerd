@@ -1034,17 +1034,19 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	timer := logging.StartTimer(logging.CategoryContext, "JITPromptCompiler.loadAtomsFromDB")
 	defer timer.Stop()
 
-	// 1. Load Base Atoms
+	// 1. Load Base Atoms and Context Tags combined
 	query := `
-		SELECT atom_id, version, content, token_count, content_hash,
-		       description, content_concise, content_min,
-		       category, subcategory, priority, is_mandatory, is_exclusive, created_at
-		FROM prompt_atoms
+		SELECT a.atom_id, a.version, a.content, a.token_count, a.content_hash,
+		       a.description, a.content_concise, a.content_min,
+		       a.category, a.subcategory, a.priority, a.is_mandatory, a.is_exclusive, a.created_at,
+		       t.dimension, t.tag
+		FROM prompt_atoms a
+		LEFT JOIN atom_context_tags t ON a.atom_id = t.atom_id
 	`
 
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query atoms: %w", err)
+		return nil, fmt.Errorf("failed to query atoms with tags: %w", err)
 	}
 	defer rows.Close()
 
@@ -1052,68 +1054,62 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	atomMap := make(map[string]*PromptAtom)
 
 	for rows.Next() {
-		atom, err := scanAtom(rows)
+		var id string
+		var version int
+		var content string
+		var tokenCount int
+		var contentHash string
+		var priority int
+		var isMandatory bool
+		var createdAt time.Time
+
+		var category string
+		var desc, conc, min, sub, excl, dim, tag sql.NullString
+
+		err := rows.Scan(
+			&id, &version, &content, &tokenCount, &contentHash,
+			&desc, &conc, &min,
+			&category, &sub, &priority, &isMandatory, &excl, &createdAt,
+			&dim, &tag,
+		)
 		if err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to scan atom: %v", err)
+			logging.Get(logging.CategoryContext).Warn("Failed to scan atom row: %v", err)
 			continue
 		}
-		atoms = append(atoms, atom)
-		atomMap[atom.ID] = atom
+
+		atom, exists := atomMap[id]
+		if !exists {
+			atom = &PromptAtom{
+				ID:             id,
+				Version:        version,
+				Content:        content,
+				TokenCount:     tokenCount,
+				ContentHash:    contentHash,
+				Category:       AtomCategory(category),
+				Subcategory:    sub.String,
+				Description:    desc.String,
+				ContentConcise: conc.String,
+				ContentMin:     min.String,
+				Priority:       priority,
+				IsMandatory:    isMandatory,
+				IsExclusive:    excl.String,
+				CreatedAt:      createdAt,
+			}
+			atoms = append(atoms, atom)
+			atomMap[id] = atom
+		}
+
+		// Apply tag if present
+		if dim.Valid && tag.Valid {
+			c.appendTag(atom, dim.String, tag.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating atoms: %w", err)
 	}
 
-	// 2. Load Context Tags
-	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
-	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
-	if err != nil {
-		// Log warning but don't fail, maybe table is empty or migration pending
-		logging.Get(logging.CategoryContext).Warn("Failed to query atom tags: %v", err)
-		return atoms, nil
-	}
-	defer tagRows.Close()
-
-	var atomID, dim, tag string
-	for tagRows.Next() {
-		if err := tagRows.Scan(&atomID, &dim, &tag); err != nil {
-			continue
-		}
-
-		if atom, exists := atomMap[atomID]; exists {
-			c.appendTag(atom, dim, tag)
-		}
-	}
-
 	return atoms, nil
-}
-
-// scanAtom scans a database row into a PromptAtom.
-func scanAtom(rows *sql.Rows) (*PromptAtom, error) {
-	var atom PromptAtom
-	var category string
-	var desc, conc, min, sub, excl sql.NullString
-	// Note: depends_on and conflicts_with are also relations now (via tags or separate table)
-	// We load them via tags if we stored them there.
-
-	err := rows.Scan(
-		&atom.ID, &atom.Version, &atom.Content, &atom.TokenCount, &atom.ContentHash,
-		&desc, &conc, &min,
-		&category, &sub, &atom.Priority, &atom.IsMandatory, &excl, &atom.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	atom.Category = AtomCategory(category)
-	atom.Subcategory = sub.String
-	atom.Description = desc.String
-	atom.ContentConcise = conc.String
-	atom.ContentMin = min.String
-	atom.IsExclusive = excl.String
-
-	return &atom, nil
 }
 
 // appendTag helper to hydrate atom slices based on dimension
