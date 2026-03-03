@@ -100,6 +100,13 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'c'")
 	}
 
+	clipboardMsgResult := cmd()
+	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
+		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
+	}
+
+	model, _ = model.Update(clipboardMsgResult)
+
 	// Test 'y' key
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}
 	_, cmd = model.Update(msg)
@@ -107,12 +114,26 @@ func TestJITPageClipboardKeys(t *testing.T) {
 		t.Errorf("Expected a tea.Cmd after pressing 'y'")
 	}
 
+	clipboardMsgResult = cmd()
+	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
+		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
+	}
+
+	model, _ = model.Update(clipboardMsgResult)
+
 	// Test 'p' key
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")}
 	_, cmd = model.Update(msg)
 	if cmd == nil {
 		t.Errorf("Expected a tea.Cmd after pressing 'p'")
 	}
+
+	clipboardMsgResult = cmd()
+	if _, ok := clipboardMsgResult.(clipboardMsg); !ok {
+		t.Errorf("Expected returned cmd to return a clipboardMsg, got %T", clipboardMsgResult)
+	}
+
+	model, _ = model.Update(clipboardMsgResult)
 }
 
 func TestJITPageFocusSwitching(t *testing.T) {
