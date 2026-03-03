@@ -210,6 +210,8 @@ type PromptAtom struct {
 
 	// Embedding is the vector representation (3072-dim for Gemini)
 	// Not serialized to JSON to avoid bloating API responses
+	// TODO: OPTIMIZATION: Use quantized embeddings (int8 or binary) here to reduce memory usage and database size.
+	// 3072 floats = 12KB per atom. 10k atoms = 120MB. Quantization can reduce this by 4x-32x with minimal accuracy loss.
 	Embedding []float32 `json:"-"`
 
 	// EmbeddingTask records which task type was used for embedding

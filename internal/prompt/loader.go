@@ -221,6 +221,11 @@ func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
+	// TODO: SCALABILITY: Use a streaming YAML decoder here.
+	// Loading the entire file into memory (data) and then unmarshalling into a large slice (rawAtoms)
+	// causes double memory usage and can OOM on very large atom files.
+	// A streaming decoder would process atoms one by one.
+
 	// Parse as array of atoms
 	var rawAtoms []yamlAtomDefinition
 	if err := yaml.Unmarshal(data, &rawAtoms); err != nil {

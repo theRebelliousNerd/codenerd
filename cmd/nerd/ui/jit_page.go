@@ -264,6 +264,9 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	// Convert atoms to items
 	items := make([]list.Item, 0, len(result.IncludedAtoms))
 
+	// TODO: CRITICAL: This sort modifies the slice in-place, which is shared with the JIT compiler's cache.
+	// This creates a data race if the compiler is reading the cached result concurrently.
+	// Must copy `result.IncludedAtoms` before sorting.
 	// Sort by priority desc
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority

@@ -571,6 +571,8 @@ func (cc *CompilationContext) Hash() string {
 
 	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
 	// string->[]byte allocation when passing to sha256.Sum256.
+	// TODO: PERFORMANCE: Use a sync.Pool for these buffers to reduce GC pressure
+	// during high-frequency compilation requests.
 	var buf bytes.Buffer
 	// Estimate size: ~20 fields * 10-15 chars = 200-300 chars. 256 is usually sufficient.
 	buf.Grow(256)
