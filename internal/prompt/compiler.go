@@ -1032,7 +1032,7 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	timer := logging.StartTimer(logging.CategoryContext, "JITPromptCompiler.loadAtomsFromDB")
 	defer timer.Stop()
 
-	// 1. Load Base Atoms and Context Tags combined
+	// 1. Load Base Atoms and Context Tags combined via LEFT JOIN
 	query := `
 		SELECT a.atom_id, a.version, a.content, a.token_count, a.content_hash,
 		       a.description, a.content_concise, a.content_min,
@@ -1052,20 +1052,15 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	atomMap := make(map[string]*PromptAtom)
 
 	for rows.Next() {
-		var id string
-		var version int
-		var content string
-		var tokenCount int
-		var contentHash string
-		var priority int
+		var atomID, content, contentHash, category string
+		var tokenCount, priority, version int
 		var isMandatory bool
 		var createdAt time.Time
-
-		var category string
-		var desc, conc, min, sub, excl, dim, tag sql.NullString
+		var desc, conc, min, sub, excl sql.NullString
+		var dim, tag sql.NullString
 
 		err := rows.Scan(
-			&id, &version, &content, &tokenCount, &contentHash,
+			&atomID, &version, &content, &tokenCount, &contentHash,
 			&desc, &conc, &min,
 			&category, &sub, &priority, &isMandatory, &excl, &createdAt,
 			&dim, &tag,
@@ -1075,26 +1070,26 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 			continue
 		}
 
-		atom, exists := atomMap[id]
+		atom, exists := atomMap[atomID]
 		if !exists {
 			atom = &PromptAtom{
-				ID:             id,
+				ID:             atomID,
 				Version:        version,
 				Content:        content,
 				TokenCount:     tokenCount,
 				ContentHash:    contentHash,
-				Category:       AtomCategory(category),
-				Subcategory:    sub.String,
 				Description:    desc.String,
 				ContentConcise: conc.String,
 				ContentMin:     min.String,
+				Category:       AtomCategory(category),
+				Subcategory:    sub.String,
 				Priority:       priority,
 				IsMandatory:    isMandatory,
 				IsExclusive:    excl.String,
 				CreatedAt:      createdAt,
 			}
 			atoms = append(atoms, atom)
-			atomMap[id] = atom
+			atomMap[atomID] = atom
 		}
 
 		// Apply tag if present
