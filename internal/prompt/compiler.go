@@ -496,7 +496,6 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
 	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
-	// TODO: Reliability: Pre-allocate candidate slice capacity if dynamic atom count is predictable to avoid reallocations.
 	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
 	if dynErr != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
@@ -643,14 +642,14 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		return rawTrim == cc.ShardID
 	}
 
-	var dynamic []*PromptAtom
+	dynamic := make([]*PromptAtom, 0, 2)
 
 	// Injectable context atoms
 	ctxFacts, err := c.kernel.Query("injectable_context")
 	if err != nil {
 		return nil, err
 	}
-	var ctxAtoms []string
+	ctxAtoms := make([]string, 0, len(ctxFacts))
 	for _, fact := range ctxFacts {
 		if len(fact.Args) < 2 {
 			continue
@@ -689,7 +688,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			topic   string
 			content string
 		}
-		var blocks []block
+		blocks := make([]block, 0, len(knowledgeFacts))
 		for _, fact := range knowledgeFacts {
 			if len(fact.Args) < 3 {
 				continue
