@@ -328,13 +328,17 @@ type AtomSelector struct {
 
 	// Minimum score threshold for inclusion
 	minScoreThreshold float64
+
+	// Timeout for vector searches
+	vectorSearchTimeout time.Duration
 }
 
 // NewAtomSelector creates a new atom selector with default settings.
 func NewAtomSelector() *AtomSelector {
 	return &AtomSelector{
-		vectorWeight:      0.3, // 70% logic, 30% vector
-		minScoreThreshold: 0.1, // Minimum 10% match
+		vectorWeight:        0.3, // 70% logic, 30% vector
+		minScoreThreshold:   0.1, // Minimum 10% match
+		vectorSearchTimeout: 10 * time.Second,
 	}
 }
 
@@ -362,6 +366,14 @@ func (s *AtomSelector) SetVectorWeight(weight float64) {
 // SetMinScoreThreshold sets the minimum score for atom inclusion.
 func (s *AtomSelector) SetMinScoreThreshold(threshold float64) {
 	s.minScoreThreshold = threshold
+}
+
+// SetVectorSearchTimeout sets the timeout duration for vector searches.
+func (s *AtomSelector) SetVectorSearchTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	s.vectorSearchTimeout = timeout
 }
 
 // SelectAtoms selects the best atoms from the candidates using System 2 bifurcation.
@@ -701,8 +713,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 }
 
 // getVectorScores retrieves semantic similarity scores for atoms.
-// Uses a 10-second sub-timeout to prevent blocking JIT compilation.
-// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig.
+// Uses a configurable sub-timeout to prevent blocking JIT compilation.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,
@@ -714,14 +725,13 @@ func (s *AtomSelector) getVectorScores(
 
 	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
 	// If embedding/search takes too long, we skip vector scoring rather than failing.
-	// TODO: Make this timeout configurable.
-	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	searchCtx, cancel := context.WithTimeout(ctx, s.vectorSearchTimeout)
 	defer cancel()
 
 	results, err := s.vectorSearcher.Search(searchCtx, query, topK)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (10s limit)")
+			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (%v limit)", s.vectorSearchTimeout)
 		}
 		return nil, err
 	}

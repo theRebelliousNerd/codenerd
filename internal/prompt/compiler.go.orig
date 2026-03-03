@@ -253,14 +253,13 @@ type JITPromptCompiler struct {
 	assembler *FinalAssembler
 
 	// Bug #5 fix: Prompt cache to prevent recompilation spam
-	// TODO: Reliability: Implement an LRU eviction policy or a hard size limit for this cache to prevent unbounded memory growth (OOM) in long-running sessions.
 	cache     map[string]*CompilationResult
 	cacheMu   sync.RWMutex
 	cacheHits int64
 	cacheMiss int64
 
 	// Observability
-	lastResult atomic.Pointer[CompilationResult]
+	lastResult *CompilationResult
 
 	// Concurrency control
 	mu sync.RWMutex
@@ -303,23 +302,20 @@ type CompilerConfig struct {
 
 	// DebugMode enables verbose JIT manifest logging
 	DebugMode bool
-
-	// KnowledgeSearchTimeout is the max time to wait for knowledge atom embedding and search
-	KnowledgeSearchTimeout time.Duration
 }
 
 // DefaultCompilerConfig returns a sensible default configuration.
 // Note: DefaultTokenBudget should be overridden via WithDefaultTokenBudget() from config.ContextWindow.MaxTokens.
 func DefaultCompilerConfig() CompilerConfig {
 	return CompilerConfig{
-		DefaultTokenBudget:     200000, // 200k tokens default - callers should override from config
-		EnableVectorSearch:     true,
-		VectorSearchWeight:     0.3, // 70% logic, 30% vector
-		MaxAtomsPerCategory:    10,
-		EnableCaching:          true,
-		CacheTTLSeconds:        300, // 5 minutes
-		DebugMode:              false,
-		KnowledgeSearchTimeout: 10 * time.Second,
+		DefaultTokenBudget:  200000, // 200k tokens default - callers should override from config
+		EnableVectorSearch:  true,
+		VectorSearchWeight:  0.3, // 70% logic, 30% vector
+		VectorSearchTimeout: 10 * time.Second,
+		MaxAtomsPerCategory: 10,
+		EnableCaching:       true,
+		CacheTTLSeconds:     300, // 5 minutes
+		DebugMode:           false,
 	}
 }
 
@@ -503,6 +499,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
 	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
+	// TODO: Reliability: Pre-allocate candidate slice capacity if dynamic atom count is predictable to avoid reallocations.
 	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
 	if dynErr != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
@@ -609,8 +606,10 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// Performance: Replaced coarse-grained lock with atomic pointer for high concurrency.
-	c.lastResult.Store(result)
+	// TODO: Performance: Replace coarse-grained lock with atomic pointer or finer-grained locking for high concurrency.
+	c.mu.Lock()
+	c.lastResult = result
+	c.mu.Unlock()
 
 	// Bug #5 fix: Store result in cache for future reuse
 	c.cacheMu.Lock()
@@ -649,18 +648,19 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		return rawTrim == cc.ShardID
 	}
 
-	dynamic := make([]*PromptAtom, 0, 2)
+	var dynamic []*PromptAtom
 
 	// Injectable context atoms
 	ctxFacts, err := c.kernel.Query("injectable_context")
 	if err != nil {
 		return nil, err
 	}
-	ctxAtoms := make([]string, 0, len(ctxFacts))
+	var ctxAtoms []string
 	for _, fact := range ctxFacts {
 		if len(fact.Args) < 2 {
 			continue
 		}
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow. Replace with type switch for common types.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -695,7 +695,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			topic   string
 			content string
 		}
-		blocks := make([]block, 0, len(knowledgeFacts))
+		var blocks []block
 		for _, fact := range knowledgeFacts {
 			if len(fact.Args) < 3 {
 				continue
@@ -1027,7 +1027,10 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 // GetLastResult returns the most recent compilation result.
 // This is used by the TUI Prompt Inspector for observability.
 func (c *JITPromptCompiler) GetLastResult() *CompilationResult {
-	return c.lastResult.Load()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastResult
+
 }
 
 // loadAtomsFromDB loads atoms from a SQLite database.
@@ -1039,19 +1042,17 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	timer := logging.StartTimer(logging.CategoryContext, "JITPromptCompiler.loadAtomsFromDB")
 	defer timer.Stop()
 
-	// 1. Load Base Atoms and Context Tags combined via LEFT JOIN
+	// 1. Load Base Atoms
 	query := `
-		SELECT a.atom_id, a.version, a.content, a.token_count, a.content_hash,
-		       a.description, a.content_concise, a.content_min,
-		       a.category, a.subcategory, a.priority, a.is_mandatory, a.is_exclusive, a.created_at,
-		       t.dimension, t.tag
-		FROM prompt_atoms a
-		LEFT JOIN atom_context_tags t ON a.atom_id = t.atom_id
+		SELECT atom_id, version, content, token_count, content_hash,
+		       description, content_concise, content_min,
+		       category, subcategory, priority, is_mandatory, is_exclusive, created_at
+		FROM prompt_atoms
 	`
 
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query atoms with tags: %w", err)
+		return nil, fmt.Errorf("failed to query atoms: %w", err)
 	}
 	defer rows.Close()
 
@@ -1059,57 +1060,68 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	atomMap := make(map[string]*PromptAtom)
 
 	for rows.Next() {
-		var atomID, content, contentHash, category string
-		var tokenCount, priority, version int
-		var isMandatory bool
-		var createdAt time.Time
-		var desc, conc, min, sub, excl sql.NullString
-		var dim, tag sql.NullString
-
-		err := rows.Scan(
-			&atomID, &version, &content, &tokenCount, &contentHash,
-			&desc, &conc, &min,
-			&category, &sub, &priority, &isMandatory, &excl, &createdAt,
-			&dim, &tag,
-		)
+		atom, err := scanAtom(rows)
 		if err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to scan atom row: %v", err)
+			logging.Get(logging.CategoryContext).Warn("Failed to scan atom: %v", err)
 			continue
 		}
-
-		atom, exists := atomMap[atomID]
-		if !exists {
-			atom = &PromptAtom{
-				ID:             atomID,
-				Version:        version,
-				Content:        content,
-				TokenCount:     tokenCount,
-				ContentHash:    contentHash,
-				Description:    desc.String,
-				ContentConcise: conc.String,
-				ContentMin:     min.String,
-				Category:       AtomCategory(category),
-				Subcategory:    sub.String,
-				Priority:       priority,
-				IsMandatory:    isMandatory,
-				IsExclusive:    excl.String,
-				CreatedAt:      createdAt,
-			}
-			atoms = append(atoms, atom)
-			atomMap[atomID] = atom
-		}
-
-		// Apply tag if present
-		if dim.Valid && tag.Valid {
-			c.appendTag(atom, dim.String, tag.String)
-		}
+		atoms = append(atoms, atom)
+		atomMap[atom.ID] = atom
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating atoms: %w", err)
 	}
 
+	// 2. Load Context Tags
+	// TODO: Performance: Combine with atom query using JOIN to avoid N+1 query pattern and reduce round trips.
+	tagRows, err := db.QueryContext(ctx, "SELECT atom_id, dimension, tag FROM atom_context_tags")
+	if err != nil {
+		// Log warning but don't fail, maybe table is empty or migration pending
+		logging.Get(logging.CategoryContext).Warn("Failed to query atom tags: %v", err)
+		return atoms, nil
+	}
+	defer tagRows.Close()
+
+	var atomID, dim, tag string
+	for tagRows.Next() {
+		if err := tagRows.Scan(&atomID, &dim, &tag); err != nil {
+			continue
+		}
+
+		if atom, exists := atomMap[atomID]; exists {
+			c.appendTag(atom, dim, tag)
+		}
+	}
+
 	return atoms, nil
+}
+
+// scanAtom scans a database row into a PromptAtom.
+func scanAtom(rows *sql.Rows) (*PromptAtom, error) {
+	var atom PromptAtom
+	var category string
+	var desc, conc, min, sub, excl sql.NullString
+	// Note: depends_on and conflicts_with are also relations now (via tags or separate table)
+	// We load them via tags if we stored them there.
+
+	err := rows.Scan(
+		&atom.ID, &atom.Version, &atom.Content, &atom.TokenCount, &atom.ContentHash,
+		&desc, &conc, &min,
+		&category, &sub, &atom.Priority, &atom.IsMandatory, &excl, &atom.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	atom.Category = AtomCategory(category)
+	atom.Subcategory = sub.String
+	atom.Description = desc.String
+	atom.ContentConcise = conc.String
+	atom.ContentMin = min.String
+	atom.IsExclusive = excl.String
+
+	return &atom, nil
 }
 
 // appendTag helper to hydrate atom slices based on dimension
@@ -1233,7 +1245,6 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.config = config
-	c.selector.SetVectorSearchTimeout(config.VectorSearchTimeout)
 }
 
 // SetLocalDB sets the LocalStore for semantic knowledge atom queries.
@@ -1252,36 +1263,77 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	c.mu.RLock()
 	db := c.localDB
-	timeout := c.config.VectorSearchTimeout
 	c.mu.RUnlock()
-
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
 
 	if db == nil || cc == nil {
 		return nil
 	}
 
-	// Generate a comprehensive semantic query by applying keyword extraction
-	// (removing stop words) and query expansion (adding synonyms).
-	// This strategy optimizes retrieval quality for our vector embedding search
-	// and is superior to the prior heuristic string duplication logic.
-	query := buildExpandedQuery(cc)
-	if query == "" {
+	// Build semantic query from compilation context
+	// Combine intent, shard type, and language for best semantic match
+	// TODO: Reliability: Implement proper query expansion or keyword extraction instead of heuristic duplication.
+	// TODO: Current query expansion (duplicating words) is a heuristic. Consider using better embedding strategies or query rewriting.
+	// We duplicate high-priority terms to increase their semantic weight.
+	var sb strings.Builder
+	// Estimate size: ~50-100 chars typical. 256 covers most cases without realloc.
+	sb.Grow(256)
+
+	// High priority (weight 3x): Intent verb and target
+	if cc.IntentVerb != "" {
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentVerb)
+		sb.WriteString(" ")
+	}
+	if cc.IntentTarget != "" {
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+		sb.WriteString(cc.IntentTarget)
+		sb.WriteString(" ")
+	}
+
+	// Medium priority (weight 2x): ShardID and Language
+	if cc.ShardID != "" {
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
+		sb.WriteString(cc.ShardID)
+		sb.WriteString(" ")
+	}
+	if cc.Language != "" {
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
+		sb.WriteString(cc.Language)
+		sb.WriteString(" ")
+	}
+
+	// Low priority (weight 1x): Frameworks
+	for _, fw := range cc.Frameworks {
+		sb.WriteString(fw)
+		sb.WriteString(" ")
+	}
+
+	if sb.Len() == 0 {
 		return nil
 	}
 
+	query := strings.TrimSpace(sb.String())
+
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	searchCtx, cancel := context.WithTimeout(ctx, c.config.KnowledgeSearchTimeout)
+	// TODO: Reliability: Make this timeout (10s) configurable via CompilerConfig to handle slow environments.
+	// TODO: Make this timeout configurable or context-aware to prevent premature termination on slower systems.
+	searchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Search for semantically relevant knowledge atoms
 	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", c.config.KnowledgeSearchTimeout)
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (10s limit), skipping")
 		} else {
 			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
 		}
@@ -1378,7 +1430,6 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	}
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
-
 // TODO: Ensure active JIT compilations are finished before closing databases.
 
 // Close releases all resources held by the compiler.
@@ -1405,18 +1456,8 @@ func (c *JITPromptCompiler) Close() error {
 	return nil
 }
 
-// specialistCache stores cached specialist strings to avoid re-reading agents.json.
-var (
-	specialistCache   = make(map[string]specialistCacheEntry)
-	specialistCacheMu sync.RWMutex
-)
-
-type specialistCacheEntry struct {
-	modTime time.Time
-	content string
-}
-
 // InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Cache the parsed agents.json content and use a file watcher to avoid re-reading on every compilation.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
@@ -1425,31 +1466,9 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	}
 
 	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
-
-	// Check file existence and mod time
-	stat, err := os.Stat(registryPath)
-	if err != nil {
-		// Graceful degradation - no specialists available
-		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
-		return nil
-	}
-
-	modTime := stat.ModTime()
-
-	// Check cache
-	specialistCacheMu.RLock()
-	entry, found := specialistCache[registryPath]
-	specialistCacheMu.RUnlock()
-
-	if found && !modTime.After(entry.modTime) {
-		ctx.AvailableSpecialists = entry.content
-		return nil
-	}
-
-	// Cache miss or stale - read file
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
-		// Should be rare since Stat succeeded, but possible
+		// Graceful degradation - no specialists available
 		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
 		return nil
 	}
@@ -1490,22 +1509,12 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
 	}
 
-	var result string
 	if len(specialists) == 0 {
-		result = "No specialists available. Use **researcher** for general knowledge gathering."
+		ctx.AvailableSpecialists = "No specialists available. Use **researcher** for general knowledge gathering."
 	} else {
-		result = strings.Join(specialists, "\n")
+		ctx.AvailableSpecialists = strings.Join(specialists, "\n")
 	}
 
-	// Update cache
-	specialistCacheMu.Lock()
-	specialistCache[registryPath] = specialistCacheEntry{
-		modTime: modTime,
-		content: result,
-	}
-	specialistCacheMu.Unlock()
-
-	ctx.AvailableSpecialists = result
 	logging.Get(logging.CategoryJIT).Debug("Injected %d available specialists into context", len(specialists))
 	return nil
 }
