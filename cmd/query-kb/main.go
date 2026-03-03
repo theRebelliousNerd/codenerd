@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,25 +22,43 @@ func main() {
 			os.Exit(1)
 		}
 
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
 		for _, entry := range entries {
 			if filepath.Ext(entry.Name()) == ".db" {
-				dbPath := filepath.Join(shardsDir, entry.Name())
-				fmt.Printf("\n=== %s ===\n", entry.Name())
-				queryDB(dbPath, 5)
+				wg.Add(1)
+				go func(e os.DirEntry) {
+					defer wg.Done()
+					dbPath := filepath.Join(shardsDir, e.Name())
+
+					// We cannot intercept stdout securely concurrently using os.Stdout pipe
+					// because it's a global variable and multiple goroutines writing to it
+					// simultaneously will mix output.
+					// We need to modify queryDB to accept an io.Writer instead.
+					var buf bytes.Buffer
+					fmt.Fprintf(&buf, "\n=== %s ===\n", e.Name())
+					queryDB(dbPath, 5, &buf)
+
+					mu.Lock()
+					os.Stdout.Write(buf.Bytes())
+					mu.Unlock()
+				}(entry)
 			}
 		}
+		wg.Wait()
 		return
 	}
 
 	dbPath := os.Args[1]
 	limit := 10
-	queryDB(dbPath, limit)
+	queryDB(dbPath, limit, os.Stdout)
 }
 
-func queryDB(dbPath string, limit int) {
+func queryDB(dbPath string, limit int, w io.Writer) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		fmt.Printf("Error opening DB: %v\n", err)
+		fmt.Fprintf(w, "Error opening DB: %v\n", err)
 		return
 	}
 	defer db.Close()
@@ -45,7 +66,7 @@ func queryDB(dbPath string, limit int) {
 	// Check table schema
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
 	if err != nil {
-		fmt.Printf("Error querying tables: %v\n", err)
+		fmt.Fprintf(w, "Error querying tables: %v\n", err)
 		return
 	}
 
@@ -56,38 +77,38 @@ func queryDB(dbPath string, limit int) {
 		tables = append(tables, name)
 	}
 	rows.Close()
-	fmt.Printf("Tables: %v\n", tables)
+	fmt.Fprintf(w, "Tables: %v\n", tables)
 
 	// Get schema of knowledge_atoms table
 	schemaRows, err := db.Query("PRAGMA table_info(knowledge_atoms)")
 	if err != nil {
-		fmt.Printf("No knowledge_atoms table\n")
+		fmt.Fprintf(w, "No knowledge_atoms table\n")
 		return
 	}
-	fmt.Printf("\nSchema:\n")
+	fmt.Fprintf(w, "\nSchema:\n")
 	for schemaRows.Next() {
 		var cid int
 		var name, typ string
 		var notNull, pk int
 		var dflt interface{}
 		schemaRows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk)
-		fmt.Printf("  - %s (%s)\n", name, typ)
+		fmt.Fprintf(w, "  - %s (%s)\n", name, typ)
 	}
 	schemaRows.Close()
 
 	// Query all columns
 	rows, err = db.Query(fmt.Sprintf(`SELECT * FROM knowledge_atoms LIMIT %d`, limit))
 	if err != nil {
-		fmt.Printf("Error querying knowledge: %v\n", err)
+		fmt.Fprintf(w, "Error querying knowledge: %v\n", err)
 		return
 	}
 	defer rows.Close()
 
 	cols, _ := rows.Columns()
-	fmt.Printf("\nColumns: %v\n", cols)
+	fmt.Fprintf(w, "\nColumns: %v\n", cols)
 
-	fmt.Printf("\nSample data:\n")
-	fmt.Println("─────────────────────────────────────────────────────────────")
+	fmt.Fprintf(w, "\nSample data:\n")
+	fmt.Fprintln(w, "─────────────────────────────────────────────────────────────")
 	i := 0
 	for rows.Next() {
 		// Scan all columns dynamically
@@ -97,35 +118,35 @@ func queryDB(dbPath string, limit int) {
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			fmt.Printf("Scan error: %v\n", err)
+			fmt.Fprintf(w, "Scan error: %v\n", err)
 			continue
 		}
 		i++
-		fmt.Printf("%d. ", i)
+		fmt.Fprintf(w, "%d. ", i)
 		for j, col := range cols {
 			val := values[j]
 			if s, ok := val.(string); ok && len(s) > 100 {
 				val = s[:100] + "..."
 			}
-			fmt.Printf("%s=%v  ", col, val)
+			fmt.Fprintf(w, "%s=%v  ", col, val)
 		}
-		fmt.Println()
+		fmt.Fprintln(w)
 	}
 
 	// Count total
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM knowledge_atoms").Scan(&count)
-	fmt.Printf("\nTotal knowledge_atoms: %d\n", count)
+	fmt.Fprintf(w, "\nTotal knowledge_atoms: %d\n", count)
 
 	// Check vectors table
 	var vecCount int
 	db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&vecCount)
-	fmt.Printf("Total vectors: %d\n", vecCount)
+	fmt.Fprintf(w, "Total vectors: %d\n", vecCount)
 
 	// Sample vectors
 	vecRows, err := db.Query("SELECT id, content, metadata FROM vectors LIMIT 5")
 	if err == nil {
-		fmt.Println("\nVector samples:")
+		fmt.Fprintln(w, "\nVector samples:")
 		for vecRows.Next() {
 			var id int
 			var content, metadata string
@@ -133,7 +154,7 @@ func queryDB(dbPath string, limit int) {
 			if len(content) > 100 {
 				content = content[:100] + "..."
 			}
-			fmt.Printf("  %d: %s\n", id, content)
+			fmt.Fprintf(w, "  %d: %s\n", id, content)
 		}
 		vecRows.Close()
 	}

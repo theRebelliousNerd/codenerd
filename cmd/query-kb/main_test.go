@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"database/sql"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,9 +32,9 @@ func TestQueryDBOutput(t *testing.T) {
 		t.Fatalf("failed to close db: %v", err)
 	}
 
-	output := captureStdout(func() {
-		queryDB(dbPath, 1)
-	})
+	var buf bytes.Buffer
+	queryDB(dbPath, 1, &buf)
+	output := buf.String()
 
 	if !strings.Contains(output, "Tables:") {
 		t.Fatalf("expected tables output")
@@ -47,20 +45,4 @@ func TestQueryDBOutput(t *testing.T) {
 	if !strings.Contains(output, "Total vectors: 1") {
 		t.Fatalf("expected vector count")
 	}
-}
-
-func captureStdout(fn func()) string {
-	orig := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	fn()
-
-	_ = w.Close()
-	os.Stdout = orig
-
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	_ = r.Close()
-	return buf.String()
 }
