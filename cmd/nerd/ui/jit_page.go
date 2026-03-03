@@ -4,8 +4,6 @@ import (
 	"codenerd/internal/prompt"
 	"fmt"
 	"sort"
-	"strings"
-
 	"github.com/atotto/clipboard"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -16,21 +14,6 @@ import (
 
 // clipboardWriteAll is a package-level variable to allow mocking in tests.
 var clipboardWriteAll = clipboard.WriteAll
-// clipboardMsg is sent when a clipboard operation completes
-type clipboardMsg struct {
-	err error
-	msg string
-}
-// copyToClipboardCmd creates a command to asynchronously copy text to the clipboard
-func copyToClipboardCmd(content string, successMsg string, errorMsg string) tea.Cmd {
-	return func() tea.Msg {
-		err := clipboardWriteAll(content)
-		if err != nil {
-			return clipboardMsg{err: err, msg: errorMsg}
-		}
-		return clipboardMsg{msg: successMsg}
-	}
-}
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
 // TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
@@ -61,9 +44,7 @@ func (i atomItem) Title() string { return i.atom.ID }
 func (i atomItem) Description() string {
 	return fmt.Sprintf("[%s] Prio:%d Tokens:%d", i.atom.Category, i.atom.Priority, i.atom.TokenCount)
 }
-func (i atomItem) FilterValue() string {
-	return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content
-}
+func (i atomItem) FilterValue() string { return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content }
 
 // NewJITPageModel creates a new JIT inspector page.
 func NewJITPageModel() JITPageModel {
@@ -94,13 +75,10 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
+	// TODO: Add search bar to filter atoms by content, not just ID/Category.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.SetSize(msg.Width, msg.Height)
-
-	case clipboardMsg:
-		cmd = m.list.NewStatusMessage(msg.msg)
-		cmds = append(cmds, cmd)
 
 	case tea.KeyMsg:
 		// Toggle focus with Tab if not filtering
@@ -114,16 +92,20 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			switch msg.String() {
 			case "c", "y":
 				if m.selected != nil {
-					cmd = copyToClipboardCmd(m.selected.Content,
-						m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)),
-						m.styles.Error.Render("Failed to copy atom content"))
+					if err := clipboardWriteAll(m.selected.Content); err != nil {
+						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
+					} else {
+						cmd = m.list.NewStatusMessage(m.styles.Success.Render(fmt.Sprintf("Copied atom content for [%s] to clipboard", m.selected.ID)))
+					}
 					cmds = append(cmds, cmd)
 				}
 			case "p":
 				if m.lastResult != nil {
-					cmd = copyToClipboardCmd(m.lastResult.Prompt,
-						m.styles.Success.Render("Copied full prompt to clipboard"),
-						m.styles.Error.Render("Failed to copy full prompt"))
+					if err := clipboardWriteAll(m.lastResult.Prompt); err != nil {
+						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy full prompt"))
+					} else {
+						cmd = m.list.NewStatusMessage(m.styles.Success.Render("Copied full prompt to clipboard"))
+					}
 					cmds = append(cmds, cmd)
 				}
 			}
@@ -158,33 +140,34 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// renderAtomContent formats the atom for display using strings.Builder
+// renderAtomContent formats the atom for display using lipgloss.JoinVertical
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
-// TODO: UX: Integrate glamour or similar library for markdown rendering and syntax highlighting.
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	var b strings.Builder
-	// Pre-allocate assuming a reasonable starting size
-	b.Grow(len(atom.Content) + 256)
+	// TODO: Consider using strings.Builder or a more efficient rendering method for large content.
+	headerStyle := m.styles.Header
+	infoStyle := m.styles.Info
+	mutedStyle := m.styles.Muted
 
-	b.WriteString(m.styles.Header.Render(atom.ID))
-	b.WriteString("\n")
+	header := headerStyle.Render(atom.ID)
+	info := infoStyle.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount))
 
-	b.WriteString(m.styles.Info.Render(fmt.Sprintf("Category: %s | Priority: %d | Tokens: %d", atom.Category, atom.Priority, atom.TokenCount)))
-	b.WriteString("\n")
-
+	mandatoryStatus := ""
 	if atom.IsMandatory {
-		b.WriteString(m.styles.Error.Render("MANDATORY (Skeleton)"))
+		mandatoryStatus = m.styles.Error.Render("MANDATORY (Skeleton)")
 	} else {
-		b.WriteString(m.styles.Success.Render("OPTIONAL (Flesh)"))
+		mandatoryStatus = m.styles.Success.Render("OPTIONAL (Flesh)")
 	}
-	b.WriteString("\n")
 
-	b.WriteString(m.styles.Muted.Render("--- Content ---"))
-	b.WriteString("\n")
+	separator := mutedStyle.Render("--- Content ---")
 
-	b.WriteString(atom.Content)
-
-	return b.String()
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		info,
+		mandatoryStatus,
+		separator,
+		atom.Content,
+	)
 }
 
 // View renders the page.
@@ -210,7 +193,7 @@ func (m JITPageModel) View() string {
 
 	// Focus styles
 	focusedBorder := m.styles.Theme.Secondary
-	blurredBorder := m.styles.Theme.OnSurfaceVariant
+	blurredBorder := m.styles.Theme.OnSurfaceMuted
 
 	var listStyle, viewStyle lipgloss.Style
 	if !m.focusViewport {
@@ -249,7 +232,7 @@ func (m *JITPageModel) SetSize(w, h int) {
 	viewPaneWidth := w - listPaneWidth
 
 	// Inner sizes
-	m.list.SetSize(listPaneWidth-chromeW, paneH)
+	m.list.SetSize(listPaneWidth - chromeW, paneH)
 	m.viewport.Width = viewPaneWidth - chromeW
 	m.viewport.Height = paneH
 }
@@ -264,9 +247,6 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	// Convert atoms to items
 	items := make([]list.Item, 0, len(result.IncludedAtoms))
 
-	// TODO: CRITICAL: This sort modifies the slice in-place, which is shared with the JIT compiler's cache.
-	// This creates a data race if the compiler is reading the cached result concurrently.
-	// Must copy `result.IncludedAtoms` before sorting.
 	// Sort by priority desc
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority

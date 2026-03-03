@@ -175,7 +175,7 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		// Pre-compile styles for performance
 		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurface),
-		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceVariant).Italic(true),
+		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceMuted).Italic(true),
 		activStyle: lipgloss.NewStyle().Foreground(Success),
 		// Initialize render cache
 		renderCache:  NewCachedRender(DefaultRenderCache),
@@ -447,7 +447,7 @@ func (p *LogicPane) renderContentUncached() string {
 	query := queryStyle.Render(fmt.Sprintf("Query: %s", p.CurrentTrace.Query))
 
 	infoStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.OnSurfaceVariant)
+		Foreground(p.Styles.Theme.OnSurfaceMuted)
 
 	info := infoStyle.Render(fmt.Sprintf("Facts: %d │ Time: %v",
 		p.CurrentTrace.TotalFacts,
@@ -484,7 +484,7 @@ func (p *LogicPane) renderContentUncached() string {
 // renderEmptyState renders the empty state message
 func (p *LogicPane) renderEmptyState() string {
 	emptyStyle := lipgloss.NewStyle().
-		Foreground(p.Styles.Theme.OnSurfaceVariant).
+		Foreground(p.Styles.Theme.OnSurfaceMuted).
 		Italic(true).
 		Padding(2).
 		Width(ViewportWidth(p.Width)).
@@ -925,7 +925,7 @@ func (s *SplitPaneView) renderSplit(leftContent string) string {
 		Width(SplitPaneDivider).
 		Height(s.Height).
 		Background(s.Styles.Theme.Outline).
-		Foreground(s.Styles.Theme.OnSurfaceVariant)
+		Foreground(s.Styles.Theme.OnSurfaceMuted)
 
 	// Style for right pane
 	rightBorder := lipgloss.NormalBorder()
