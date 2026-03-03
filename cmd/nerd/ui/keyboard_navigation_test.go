@@ -11,31 +11,31 @@ func TestAutopoiesisPage_TabNavigation(t *testing.T) {
 	m := NewAutopoiesisPageModel()
 
 	// Initial state
-	if m.activeTab != TabPatterns {
-		t.Errorf("Expected initial tab to be TabPatterns, got %d", m.activeTab)
+	if m.activeTabIndex != 0 {
+		t.Errorf("Expected initial tab index to be 0, got %d", m.activeTabIndex)
 	}
 
 	// Navigate forward with Tab
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if m.activeTab != TabLearnings {
-		t.Errorf("Expected tab to be TabLearnings after Tab, got %d", m.activeTab)
+	if m.activeTabIndex != 1 {
+		t.Errorf("Expected tab index to be 1 after Tab, got %d", m.activeTabIndex)
 	}
 
 	// Wrap around with Tab
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	if m.activeTab != TabPatterns {
-		t.Errorf("Expected tab to wrap to TabPatterns, got %d", m.activeTab)
+	if m.activeTabIndex != 0 {
+		t.Errorf("Expected tab index to wrap to 0, got %d", m.activeTabIndex)
 	}
 }
 
 func TestAutopoiesisPage_ShiftTabNavigation(t *testing.T) {
 	m := NewAutopoiesisPageModel()
-	m.activeTab = TabLearnings
+	m.activeTabIndex = 1
 
 	// Navigate backward with Shift+Tab
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
-	if m.activeTab != TabPatterns {
-		t.Errorf("Expected tab to be TabPatterns after Shift+Tab, got %d", m.activeTab)
+	if m.activeTabIndex != 0 {
+		t.Errorf("Expected tab index to be 0 after Shift+Tab, got %d", m.activeTabIndex)
 	}
 }
 
