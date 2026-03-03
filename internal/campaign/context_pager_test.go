@@ -62,7 +62,6 @@ func TestActivatePhase(t *testing.T) {
 		FocusPatterns:   []string{"*.go", "*.md"},
 	}
 	// Inject profile fact into kernel
-	// TODO: Test getContextProfile with malformed "context_profile" facts (e.g., non-comma-separated strings, nil args)
 	kernel.Assert(profile.ToFacts()[0])
 
 	// Inject scoped docs fact
@@ -331,3 +330,80 @@ func TestPruneIrrelevant(t *testing.T) {
 
 // TODO: Additional Negative Testing Scenarios
 // - Test Reset Failure: Mock kernel.Retract failure and verify "ghost facts" persist
+
+func TestGetContextProfile_Malformed(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+
+	// Inject malformed profiles
+	// 1. Not enough arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"short_profile", "schema1"},
+	})
+
+	// 2. Nil arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"nil_profile", nil, nil, nil},
+	})
+
+	// 3. Non-string arguments
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"type_profile", 123, true, 45.6},
+	})
+
+	// 4. Non-comma-separated strings
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{"space_profile", "schema1 schema2", "tool1", "pattern1"},
+	})
+
+	// Test 1: Short Profile (Should return error because it's skipped in loop)
+	_, err := cp.getContextProfile("short_profile")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("Expected 'not found' error for short_profile, got %v", err)
+	}
+
+	// Test 2: Nil Profile
+	// ExtractString(nil) -> "". strings.Split("", ",") -> [""]
+	prof, err := cp.getContextProfile("nil_profile")
+	if err != nil {
+		t.Fatalf("Unexpected error for nil_profile: %v", err)
+	}
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "" {
+		t.Errorf("Expected empty schema slice from nil, got %q", prof.RequiredSchemas)
+	}
+	if len(prof.RequiredTools) != 1 || prof.RequiredTools[0] != "" {
+		t.Errorf("Expected empty tools slice from nil, got %q", prof.RequiredTools)
+	}
+
+	// Test 3: Type Profile
+	// ExtractString converts int/bool/float to string representation
+	prof, err = cp.getContextProfile("type_profile")
+	if err != nil {
+		t.Fatalf("Unexpected error for type_profile: %v", err)
+	}
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "123" {
+		t.Errorf("Expected [\"123\"], got %q", prof.RequiredSchemas)
+	}
+	// ExtractString(true) -> "/true"
+	if len(prof.RequiredTools) != 1 || prof.RequiredTools[0] != "/true" {
+		t.Errorf("Expected [\"/true\"], got %q", prof.RequiredTools)
+	}
+	// ExtractString(45.6) -> "45.6"
+	if len(prof.FocusPatterns) != 1 || prof.FocusPatterns[0] != "45.6" {
+		t.Errorf("Expected [\"45.6\"], got %q", prof.FocusPatterns)
+	}
+
+	// Test 4: Space Profile
+	// Space-separated strings should not be split correctly
+	prof, err = cp.getContextProfile("space_profile")
+	if err != nil {
+		t.Fatalf("Unexpected error for space_profile: %v", err)
+	}
+	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
+		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
