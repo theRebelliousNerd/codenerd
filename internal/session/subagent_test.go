@@ -110,3 +110,8 @@ func TestSubAgent_MemoryCompression(t *testing.T) {
 	// Logic depends on implementation.
 	// Assuming it replaces old turns with summary.
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty: What happens if CompressMemory is called with threshold 0?
+// TODO: TEST_GAP: State Conflicts: CompressMemory acquires s.mu but then blocks on s.compressor.Compress(ctx). If the LLM call takes 30s, the entire SubAgent is blocked from reporting state or metrics.
+// TODO: TEST_GAP: User Request Extremes: What happens if the generated summary from compression is massively large (hallucination)? It defeats the purpose of compression and wastes tokens.
+// TODO: TEST_GAP: Type Coercion: Summary is pushed back with role "assistant" and prefix [MEMORY SUMMARY]. Will this break tool parsers expecting structured output from "assistant"?
