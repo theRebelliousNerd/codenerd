@@ -410,6 +410,7 @@ func (a *FinalAssembler) AssembleWithOptions(
 
 // minifyWhitespace reduces excessive whitespace while preserving structure.
 func minifyWhitespace(content string) string {
+	// TODO: Performance: Replace O(N^2) strings.ReplaceAll loop for newline minification with a single-pass linear scan using strings.Builder to prevent CPU spikes on massive prompts.
 	// Replace multiple newlines with double newlines
 	for strings.Contains(content, "\n\n\n") {
 		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
@@ -426,6 +427,7 @@ func minifyWhitespace(content string) string {
 
 // truncatePrompt truncates content at a sensible boundary.
 func truncatePrompt(content string, maxLen int) string {
+	// TODO: Reliability: Ensure prompt truncation happens at valid UTF-8 rune boundaries instead of raw byte indices to prevent returning invalid utf-8 strings.
 	if len(content) <= maxLen {
 		return content
 	}

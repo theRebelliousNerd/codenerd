@@ -238,6 +238,7 @@ func (e DependencyError) Error() string {
 // DetectCycles finds dependency cycles in a set of atoms.
 // Returns the cycle path if found, or nil if no cycle exists.
 func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
+	// TODO: Reliability: Add a maximum recursion depth limit to the DFS cycle detection to prevent stack overflow panics from maliciously crafted or deeply nested dependency graphs.
 	// Build adjacency list
 	graph := make(map[string][]string, len(atoms))
 	atomSet := make(map[string]bool, len(atoms))
