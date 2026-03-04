@@ -1325,6 +1325,119 @@ type RawTask struct {
 	ContextFrom []int  `json:"context_from,omitempty"` // Task indices to pull results from for context
 }
 
+// planResponseSchema enforces RawPlan structure for schema-capable LLM clients.
+// Keep this aligned with RawPlan/RawPhase/RawTask fields.
+const planResponseSchema = `{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["title", "confidence", "phases"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "name",
+          "order",
+          "category",
+          "description",
+          "objective_type",
+          "verification_method",
+          "complexity",
+          "depends_on",
+          "focus_patterns",
+          "required_tools",
+          "tasks"
+        ],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "order": { "type": "integer", "minimum": 0 },
+          "category": {
+            "type": "string",
+            "enum": ["/scaffold", "/domain_core", "/data_layer", "/service", "/transport", "/integration", "/research", "/test", "/ops"]
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "objective_type": {
+            "type": "string",
+            "enum": ["/create", "/modify", "/test", "/research", "/validate", "/integrate", "/review"]
+          },
+          "verification_method": {
+            "type": "string",
+            "enum": ["/tests_pass", "/builds", "/manual_review", "/shard_validation", "/none", "/nemesis_gauntlet"]
+          },
+          "complexity": { "type": "string", "enum": ["/low", "/medium", "/high", "/critical"] },
+          "depends_on": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "focus_patterns": { "type": "array", "items": { "type": "string" } },
+          "required_tools": { "type": "array", "items": { "type": "string" } },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["description", "type", "priority", "depends_on", "artifacts"],
+              "properties": {
+                "description": { "type": "string", "minLength": 1 },
+                "type": {
+                  "type": "string",
+                  "enum": ["/file_create", "/file_modify", "/test_write", "/test_run", "/research", "/verify", "/document", "/campaign_ref", "/tool_create"]
+                },
+                "priority": { "type": "string", "enum": ["/critical", "/high", "/normal", "/low"] },
+                "order": { "type": "integer", "minimum": 0 },
+                "depends_on": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+                "artifacts": { "type": "array", "items": { "type": "string" } },
+                "write_set": { "type": "array", "items": { "type": "string" } },
+                "shard": { "type": "string" },
+                "shard_input": { "type": "string" },
+                "context_from": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+func (d *Decomposer) completePlanWithSchemaOrFallback(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if schemaClient, ok := core.AsSchemaCapable(d.llmClient); ok {
+		resp, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, planResponseSchema)
+		if err == nil {
+			return resp, nil
+		}
+		logging.CampaignDebug("Schema-constrained plan call failed, falling back to non-schema call: %v", err)
+	}
+
+	if systemClient, ok := d.llmClient.(interface {
+		CompleteWithSystem(ctx context.Context, system, user string) (string, error)
+	}); ok {
+		return systemClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	}
+	return d.llmClient.Complete(ctx, systemPrompt+"\n\n"+userPrompt)
+}
+
+func parseRawPlanResponse(resp string) (*RawPlan, error) {
+	clean := cleanJSONResponse(resp)
+
+	var plan RawPlan
+	if err := json.Unmarshal([]byte(clean), &plan); err == nil {
+		return &plan, nil
+	} else {
+		// Compatibility fallback for providers that wrap payload under "plan".
+		var wrapped struct {
+			Plan RawPlan `json:"plan"`
+		}
+		if wrapErr := json.Unmarshal([]byte(clean), &wrapped); wrapErr == nil &&
+			(strings.TrimSpace(wrapped.Plan.Title) != "" || len(wrapped.Plan.Phases) > 0) {
+			return &wrapped.Plan, nil
+		}
+		return nil, err
+	}
+}
+
 // llmProposePlan asks LLM to propose a plan structure using retrieved context.
 func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) (*RawPlan, error) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "llmProposePlan")
@@ -1432,16 +1545,14 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		plannerPrompt = PlannerLogic
 	}
 
-	// System prompt with JSON enforcement - includes "control_packet" to trigger Gemini's JSON mode
-	systemPrompt := `You are a Campaign Planner. Output a JSON object with control_packet and surface_response.
+	// System prompt with JSON enforcement.
+	systemPrompt := `You are a Campaign Planner. Output only a valid JSON object representing the campaign plan.
 
 CRITICAL: Your response MUST be valid JSON matching this schema:
 {
   "title": "Campaign Title",
   "confidence": 0.9,
-  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}],
-  "control_packet": {"status": "plan_created"},
-  "surface_response": "Created campaign with N phases"
+  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}]
 }
 
 Do NOT use markdown. Do NOT include text outside the JSON object.`
@@ -1454,17 +1565,7 @@ Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 
 	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(userPrompt))
 
-	// Try with CompleteWithSystem for better prompt separation (enables Gemini JSON mode)
-	var resp string
-	var llmErr error
-	if systemClient, ok := d.llmClient.(interface {
-		CompleteWithSystem(ctx context.Context, system, user string) (string, error)
-	}); ok {
-		resp, llmErr = systemClient.CompleteWithSystem(ctx, systemPrompt, userPrompt)
-	} else {
-		// Fallback to Complete with inline system prompt
-		resp, llmErr = d.llmClient.Complete(ctx, systemPrompt+"\n\n"+userPrompt)
-	}
+	resp, llmErr := d.completePlanWithSchemaOrFallback(ctx, systemPrompt, userPrompt)
 	if llmErr != nil {
 		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", llmErr)
 		return nil, llmErr
@@ -1472,9 +1573,8 @@ Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 	logging.CampaignDebug("LLM response received (length=%d)", len(resp))
 
 	// Parse response with retry on failure
-	resp = cleanJSONResponse(resp)
-	var plan RawPlan
-	if parseErr := json.Unmarshal([]byte(resp), &plan); parseErr != nil {
+	plan, parseErr := parseRawPlanResponse(resp)
+	if parseErr != nil {
 		// Log the raw response for debugging
 		rawPreview := resp
 		if len(rawPreview) > 500 {
@@ -1491,26 +1591,21 @@ Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 		}
 		retryPrompt := fmt.Sprintf(`The previous response was not valid JSON. Output ONLY a JSON object.
 
-Required structure (control_packet triggers JSON mode):
-{"title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE", "confidence": 0.9, "phases": [], "control_packet": {}, "surface_response": ""}
+Required structure:
+{"title": "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE", "confidence": 0.9, "phases": []}
 
 Goal: %s
 Context: %s
 
 Output ONLY the JSON:`, req.Goal, contextPreview)
 
-		if systemClient, ok := d.llmClient.(interface {
-			CompleteWithSystem(ctx context.Context, system, user string) (string, error)
-		}); ok {
-			resp, llmErr = systemClient.CompleteWithSystem(ctx, "You output ONLY valid JSON with control_packet.", retryPrompt)
-		} else {
-			resp, llmErr = d.llmClient.Complete(ctx, retryPrompt)
-		}
+		retrySystemPrompt := "You output ONLY valid JSON matching the campaign plan schema."
+		resp, llmErr = d.completePlanWithSchemaOrFallback(ctx, retrySystemPrompt, retryPrompt)
 		if llmErr != nil {
 			return nil, fmt.Errorf("retry failed: %w", llmErr)
 		}
-		resp = cleanJSONResponse(resp)
-		if retryErr := json.Unmarshal([]byte(resp), &plan); retryErr != nil {
+		plan, retryErr := parseRawPlanResponse(resp)
+		if retryErr != nil {
 			retryPreview := resp
 			if len(retryPreview) > 500 {
 				retryPreview = retryPreview[:500]
@@ -1518,8 +1613,16 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 			logging.CampaignDebug("Retry raw response (first 500 chars): %s", retryPreview)
 			return nil, fmt.Errorf("failed to parse plan JSON after retry: %w", retryErr)
 		}
+		return d.normalizeRawPlanFromLLM(plan, req)
 	}
 
+	return d.normalizeRawPlanFromLLM(plan, req)
+}
+
+func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest) (*RawPlan, error) {
+	if plan == nil {
+		return nil, fmt.Errorf("nil plan")
+	}
 	// Validate and fix plan title if it's a placeholder or empty
 	if plan.Title == "" || plan.Title == "string" || plan.Title == "REPLACE_WITH_ACTUAL_CAMPAIGN_TITLE" {
 		// Extract title from goal: use first sentence or first 60 chars
@@ -1580,7 +1683,7 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 			i, phase.Name, phase.Category, len(phase.Tasks))
 	}
 
-	return &plan, nil
+	return plan, nil
 }
 
 // buildCampaign converts a RawPlan to a Campaign.

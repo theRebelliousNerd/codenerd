@@ -4,12 +4,18 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
 // mockLLMClient implements perception.LLMClient for testing.
 type mockLLMClient struct {
-	completeFunc func(ctx context.Context, prompt string) (string, error)
+	completeFunc           func(ctx context.Context, prompt string) (string, error)
+	completeWithSystemFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	completeWithSchemaFunc func(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error)
+	schemaCapable          bool
 }
 
 func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -20,6 +26,9 @@ func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, er
 }
 
 func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if m.completeWithSystemFunc != nil {
+		return m.completeWithSystemFunc(ctx, systemPrompt, userPrompt)
+	}
 	if m.completeFunc != nil {
 		return m.completeFunc(ctx, userPrompt)
 	}
@@ -47,6 +56,17 @@ func (m *mockLLMClient) GetModel() string { return "mock-model" }
 
 // DisableSemaphore is needed for the interface
 func (m *mockLLMClient) DisableSemaphore() {}
+
+func (m *mockLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	if m.completeWithSchemaFunc != nil {
+		return m.completeWithSchemaFunc(ctx, systemPrompt, userPrompt, jsonSchema)
+	}
+	return "", errors.New("schema not configured")
+}
+
+func (m *mockLLMClient) SchemaCapable() bool {
+	return m.schemaCapable
+}
 
 func TestNewDecomposer(t *testing.T) {
 	mockKernel := &core.RealKernel{} // Minimal struct
@@ -155,9 +175,200 @@ func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 	// So assume we stop here. Use a specialized test that mocks kernel methods if we could, but we can't easily mock *RealKernel methods.
 }
 
-// TODO: TEST_GAP: TestDecompose_LLMMalformedJSON
-// Mock LLMClient.Complete to return invalid JSON on the first try, and valid JSON on the retry.
-// Verify Decompose recovers and succeeds.
+func TestLLMProposePlan_UsesSchemaCapableClient(t *testing.T) {
+	var schemaCalls int
+	client := &mockLLMClient{
+		schemaCapable: true,
+		completeWithSchemaFunc: func(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+			schemaCalls++
+			if jsonSchema == "" || !strings.Contains(jsonSchema, `"title"`) {
+				t.Fatalf("expected non-empty plan schema")
+			}
+			return sampleRawPlanJSON("Schema Plan"), nil
+		},
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			t.Fatalf("unexpected fallback CompleteWithSystem call")
+			return "", nil
+		},
+	}
+
+	d := &Decomposer{
+		llmClient:      client,
+		workspace:      t.TempDir(),
+		promptProvider: NewStaticPromptProvider(),
+	}
+
+	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
+		Goal:         "Build campaign planning reliability",
+		CampaignType: CampaignTypeCustom,
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("llmProposePlan failed: %v", err)
+	}
+	if schemaCalls != 1 {
+		t.Fatalf("expected 1 schema call, got %d", schemaCalls)
+	}
+	if plan.Title != "Schema Plan" {
+		t.Fatalf("expected schema plan title, got %q", plan.Title)
+	}
+}
+
+func TestLLMProposePlan_SchemaFailureFallsBack(t *testing.T) {
+	var schemaCalls int
+	var systemCalls int
+	client := &mockLLMClient{
+		schemaCapable: true,
+		completeWithSchemaFunc: func(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+			schemaCalls++
+			return "", errors.New("schema rejected")
+		},
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			systemCalls++
+			return sampleRawPlanJSON("Fallback Plan"), nil
+		},
+	}
+
+	d := &Decomposer{
+		llmClient:      client,
+		workspace:      t.TempDir(),
+		promptProvider: NewStaticPromptProvider(),
+	}
+
+	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
+		Goal:         "Fallback from schema failure",
+		CampaignType: CampaignTypeCustom,
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("llmProposePlan failed: %v", err)
+	}
+	if schemaCalls != 1 {
+		t.Fatalf("expected 1 schema attempt, got %d", schemaCalls)
+	}
+	if systemCalls != 1 {
+		t.Fatalf("expected 1 fallback system call, got %d", systemCalls)
+	}
+	if plan.Title != "Fallback Plan" {
+		t.Fatalf("expected fallback plan title, got %q", plan.Title)
+	}
+}
+
+func TestLLMProposePlan_MalformedThenRetrySucceeds(t *testing.T) {
+	callCount := 0
+	client := &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			callCount++
+			if callCount == 1 {
+				return `{"title":"broken","confidence":"not-a-number","phases":[}`, nil
+			}
+			return sampleRawPlanJSON("Recovered Plan"), nil
+		},
+	}
+
+	d := &Decomposer{
+		llmClient:      client,
+		workspace:      t.TempDir(),
+		promptProvider: NewStaticPromptProvider(),
+	}
+
+	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
+		Goal:         "Recover from malformed output",
+		CampaignType: CampaignTypeCustom,
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("llmProposePlan failed: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 calls (initial + retry), got %d", callCount)
+	}
+	if plan.Title != "Recovered Plan" {
+		t.Fatalf("expected recovered plan title, got %q", plan.Title)
+	}
+}
+
+func TestLLMProposePlan_MalformedAfterRetryFails(t *testing.T) {
+	client := &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return `{"title":"bad","phases":[`, nil
+		},
+	}
+
+	d := &Decomposer{
+		llmClient:      client,
+		workspace:      t.TempDir(),
+		promptProvider: NewStaticPromptProvider(),
+	}
+
+	_, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
+		Goal:         "Should fail after malformed retry",
+		CampaignType: CampaignTypeCustom,
+	}, "", nil, nil)
+	if err == nil {
+		t.Fatal("expected parse failure error")
+	}
+	if !strings.Contains(err.Error(), "failed to parse plan JSON after retry") {
+		t.Fatalf("expected retry parse failure message, got %v", err)
+	}
+}
+
+func TestLLMProposePlan_EmptyPhasesFallsBackToScaffold(t *testing.T) {
+	client := &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return `{"title":"Empty Plan","confidence":0.9,"phases":[]}`, nil
+		},
+	}
+
+	d := &Decomposer{
+		llmClient:      client,
+		workspace:      t.TempDir(),
+		promptProvider: NewStaticPromptProvider(),
+	}
+
+	plan, err := d.llmProposePlan(context.Background(), "/campaign_test", DecomposeRequest{
+		Goal:         "Generate fallback phases",
+		CampaignType: CampaignTypeCustom,
+	}, "", nil, nil)
+	if err != nil {
+		t.Fatalf("llmProposePlan failed: %v", err)
+	}
+	if len(plan.Phases) != 3 {
+		t.Fatalf("expected fallback 3 phases, got %d", len(plan.Phases))
+	}
+	if plan.Confidence != 0.5 {
+		t.Fatalf("expected fallback confidence 0.5, got %.2f", plan.Confidence)
+	}
+}
+
+func sampleRawPlanJSON(title string) string {
+	return fmt.Sprintf(`{
+  "title": %q,
+  "confidence": 0.92,
+  "phases": [
+    {
+      "name": "Phase 1",
+      "order": 0,
+      "category": "/scaffold",
+      "description": "Create baseline scaffolding",
+      "objective_type": "/create",
+      "verification_method": "/none",
+      "complexity": "/low",
+      "depends_on": [],
+      "focus_patterns": ["internal/campaign/*"],
+      "required_tools": ["fs_read", "fs_write"],
+      "tasks": [
+        {
+          "description": "Create skeleton files",
+          "type": "/file_create",
+          "priority": "/normal",
+          "order": 0,
+          "depends_on": [],
+          "artifacts": ["internal/campaign/new_file.go"],
+          "write_set": ["internal/campaign/new_file.go"]
+        }
+      ]
+    }
+  ]
+}`, title)
+}
 
 // TODO: TEST_GAP: TestDecompose_LLMTotalFailure
 // Mock LLMClient.Complete to return an error or timeout.

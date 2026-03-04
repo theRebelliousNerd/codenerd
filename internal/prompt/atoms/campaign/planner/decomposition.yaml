@@ -55,10 +55,12 @@
     Tags: /low, /medium, /high, /critical.
 
     // =============================================================================
-    // VIII. OUTPUT SCHEMA (DETAILED)
+    // VIII. OUTPUT CONTRACT (SCHEMA-FIRST)
     // =============================================================================
 
     Return valid JSON matching the 'RawPlan' schema.
+    If a provider-level JSON schema is present, you MUST satisfy it exactly.
+    Output must be a single JSON object only (no markdown, no prose wrapper).
 
     {
       "title": "Campaign Title",
@@ -82,7 +84,8 @@
               "priority": "/critical|/high|/normal|/low",
               "order": 0,
               "depends_on": [task_indices_in_this_phase],
-              "artifacts": ["/path/to/file.go"]
+              "artifacts": ["/path/to/file.go"],
+              "write_set": ["/absolute/or/project/relative/path.go"]
             }
           ]
         }
