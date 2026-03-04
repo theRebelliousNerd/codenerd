@@ -96,7 +96,7 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
 
 		// Create orchestrator with channels for real-time progress/event streaming
-		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:    m.workspace,
 			Kernel:       m.kernel,
 			LLMClient:    m.client,
@@ -106,6 +106,9 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 			ProgressChan: progressChan,
 			EventChan:    eventChan,
 		})
+		if err != nil {
+			return campaignErrorMsg{err: fmt.Errorf("failed to initialize campaign orchestrator: %w", err)}
+		}
 		if promptProvider != nil {
 			orch.SetPromptProvider(promptProvider)
 		}

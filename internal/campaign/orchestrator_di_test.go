@@ -1,7 +1,10 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
+	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/perception"
+	"codenerd/internal/tactile"
 	"context"
 	"testing"
 )
@@ -26,7 +29,14 @@ func TestOrchestrator_DependencyInjection(t *testing.T) {
 		Transducer: mockTransducer,
 	}
 
-	orch := NewOrchestrator(config)
+	config.Executor = tactile.NewDirectExecutor()
+	config.VirtualStore = &core.VirtualStore{}
+	config.ShardManager = coreshards.NewShardManager()
+
+	orch, err := NewOrchestrator(config)
+	if err != nil {
+		t.Fatalf("NewOrchestrator() error = %v", err)
+	}
 
 	// Verify dependencies were injected correctly
 	if orch.kernel != mockKernel {

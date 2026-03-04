@@ -5,14 +5,22 @@ import (
 	"codenerd/internal/northstar"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 // NewOrchestrator creates a new campaign orchestrator.
-func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
+func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	timer := logging.StartTimer(logging.CategoryCampaign, "NewOrchestrator")
 	defer timer.Stop()
+
+	if err := validateOrchestratorConfig(cfg); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Invalid campaign orchestrator config: %v", err)
+		return nil, err
+	}
 
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
 
@@ -163,7 +171,94 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d, campaignTimeout=%v, taskTimeout=%v",
 		o.maxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
 
-	return o
+	return o, nil
+}
+
+func validateOrchestratorConfig(cfg OrchestratorConfig) error {
+	var missing []string
+	if cfg.Kernel == nil {
+		missing = append(missing, "kernel")
+	}
+	if cfg.LLMClient == nil {
+		missing = append(missing, "llm_client")
+	}
+	if cfg.Executor == nil {
+		missing = append(missing, "executor")
+	}
+	if cfg.VirtualStore == nil {
+		missing = append(missing, "virtual_store")
+	}
+	if cfg.ShardManager == nil && cfg.TaskExecutor == nil {
+		missing = append(missing, "task_executor_or_shard_manager")
+	}
+	if len(missing) > 0 {
+		return errors.Join(
+			ErrInvalidConfig,
+			ErrNilDependency,
+			fmt.Errorf("missing required dependencies: %s", strings.Join(missing, ", ")),
+		)
+	}
+
+	var invalid []string
+	if strings.TrimSpace(cfg.Workspace) == "" {
+		invalid = append(invalid, "workspace must be non-empty")
+	}
+	if cfg.MaxRetries < 0 {
+		invalid = append(invalid, "max_retries must be >= 0")
+	}
+	if cfg.ReplanThreshold < 0 {
+		invalid = append(invalid, "replan_threshold must be >= 0")
+	}
+	if cfg.MaxParallelTasks < 0 {
+		invalid = append(invalid, "max_parallel_tasks must be >= 0")
+	}
+	if cfg.ContextBudget < 0 {
+		invalid = append(invalid, "context_budget must be >= 0")
+	}
+	if cfg.TaskResultCacheLimit < 0 {
+		invalid = append(invalid, "task_result_cache_limit must be >= 0")
+	}
+	if cfg.CampaignTimeout < 0 {
+		invalid = append(invalid, "campaign_timeout must be >= 0")
+	}
+	if cfg.TaskTimeout < 0 {
+		invalid = append(invalid, "task_timeout must be >= 0")
+	}
+	if cfg.HeartbeatEvery < 0 {
+		invalid = append(invalid, "heartbeat_every must be >= 0")
+	}
+	if cfg.AutosaveEvery < 0 {
+		invalid = append(invalid, "autosave_every must be >= 0")
+	}
+	if cfg.RetryBackoffBase < 0 {
+		invalid = append(invalid, "retry_backoff_base must be >= 0")
+	}
+	if cfg.RetryBackoffMax < 0 {
+		invalid = append(invalid, "retry_backoff_max must be >= 0")
+	}
+	if cfg.WriteSetLockTimeout < 0 {
+		invalid = append(invalid, "write_set_lock_timeout must be >= 0")
+	}
+	if cfg.WriteSetLockRetry < 0 {
+		invalid = append(invalid, "write_set_lock_retry must be >= 0")
+	}
+	if cfg.WriteSetLockPoll < 0 {
+		invalid = append(invalid, "write_set_lock_poll must be >= 0")
+	}
+	if cfg.RiskGateThreshold < 0 {
+		invalid = append(invalid, "risk_gate_threshold must be >= 0")
+	}
+	if cfg.RiskIntelligenceTimeout < 0 {
+		invalid = append(invalid, "risk_intelligence_timeout must be >= 0")
+	}
+
+	if len(invalid) > 0 {
+		return errors.Join(
+			ErrInvalidConfig,
+			fmt.Errorf("invalid configuration values: %s", strings.Join(invalid, "; ")),
+		)
+	}
+	return nil
 }
 
 // SetPromptProvider wires a PromptProvider into the orchestrator's planning components.

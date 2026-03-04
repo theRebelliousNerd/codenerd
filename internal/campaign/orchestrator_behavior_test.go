@@ -8,6 +8,7 @@ import (
 
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -30,16 +31,21 @@ func TestOrchestrator_AssertsCampaignConfigFacts(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
 
-	orch := NewOrchestrator(OrchestratorConfig{
+	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace:        t.TempDir(),
 		Kernel:           kernel,
 		LLMClient:        &stubLLM{},
 		ShardManager:     coreshards.NewShardManager(),
+		Executor:         tactile.NewDirectExecutor(),
+		VirtualStore:     &core.VirtualStore{},
 		MaxRetries:       5,
 		ReplanThreshold:  2,
 		AutoReplan:       true,
 		CheckpointOnFail: true,
 	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator() error = %v", err)
+	}
 
 	now := time.Now()
 	c := &Campaign{

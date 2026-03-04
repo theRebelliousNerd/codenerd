@@ -387,7 +387,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("   ✓ Intelligence systems initialized")
 
-	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:            cwd,
 		Kernel:               kern,
 		LLMClient:            llmClient,
@@ -402,6 +402,9 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		EdgeCaseDetector:     edgeCaseDetector,
 		ToolPregenerator:     toolPregenerator,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
+	}
 	if campaignPromptProvider != nil {
 		orchestrator.SetPromptProvider(campaignPromptProvider)
 	}
@@ -718,7 +721,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(taskExecutor)
 
-	orchestrator := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:    cwd,
 		Kernel:       kern,
 		LLMClient:    llmClient,
@@ -729,6 +732,9 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		ProgressChan: progressChan,
 		EventChan:    eventChan,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
+	}
 
 	if err := orchestrator.SetCampaign(pausedCampaign); err != nil {
 		return fmt.Errorf("failed to load campaign: %w", err)

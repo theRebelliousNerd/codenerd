@@ -199,7 +199,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 	logging.SystemShards("[CampaignRunner] Resuming campaign: %s", campaignID)
 
 	executor := tactile.NewDirectExecutor()
-	orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+	orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 		Workspace:        workspace,
 		Kernel:           s.Kernel,
 		LLMClient:        s.LLMClient,
@@ -210,6 +210,10 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 		CheckpointOnFail: true,
 		DisableTimeouts:  true,
 	})
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Invalid orchestrator config for %s: %v", campaignID, err)
+		return
+	}
 
 	if err := orch.LoadCampaign(campaignID); err != nil {
 		logging.Get(logging.CategorySystemShards).Error("[CampaignRunner] Failed to load campaign %s: %v", campaignID, err)

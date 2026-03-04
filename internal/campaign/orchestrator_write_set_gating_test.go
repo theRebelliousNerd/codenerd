@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
 
@@ -222,17 +223,22 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 		},
 	}
 
-	orch := NewOrchestrator(OrchestratorConfig{
+	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace:           workspace,
 		Kernel:              mockKernel,
 		LLMClient:           &noopLLM{},
 		TaskExecutor:        executor,
+		Executor:            tactile.NewDirectExecutor(),
+		VirtualStore:        &core.VirtualStore{},
 		MaxParallelTasks:    2,
 		DisableTimeouts:     true,
 		WriteSetLockTimeout: 40 * time.Millisecond,
 		WriteSetLockRetry:   20 * time.Millisecond,
 		WriteSetLockPoll:    5 * time.Millisecond,
 	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator() error = %v", err)
+	}
 
 	orch.campaign = &Campaign{
 		ID:          "/campaign_locking",

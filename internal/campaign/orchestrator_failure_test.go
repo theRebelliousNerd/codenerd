@@ -1,12 +1,15 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/tactile"
 )
 
 func TestClassifyTaskError_DeterministicBuckets(t *testing.T) {
@@ -214,16 +217,23 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 	kernel := &MockKernel{}
 	eventCh := make(chan OrchestratorEvent, 32)
 
-	orch := NewOrchestrator(OrchestratorConfig{
+	orch, err := NewOrchestrator(OrchestratorConfig{
 		Workspace:        t.TempDir(),
 		Kernel:           kernel,
 		LLMClient:        &MockLLMClient{},
+		Executor:         tactile.NewDirectExecutor(),
+		VirtualStore:     &core.VirtualStore{},
+		ShardManager:     nil,
+		TaskExecutor:     &MockTaskExecutor{},
 		EventChan:        eventCh,
 		MaxRetries:       maxRetries,
 		DisableTimeouts:  true,
 		CheckpointOnFail: false,
 		AutoReplan:       false,
 	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator() error = %v", err)
+	}
 
 	now := time.Now()
 	orch.campaign = &Campaign{

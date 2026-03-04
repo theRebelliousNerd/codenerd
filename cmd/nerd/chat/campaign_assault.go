@@ -71,7 +71,7 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 		progressChan := make(chan campaign.Progress, 100)
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
 
-		orch := campaign.NewOrchestrator(campaign.OrchestratorConfig{
+		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
 			Workspace:        m.workspace,
 			Kernel:           m.kernel,
 			LLMClient:        m.client,
@@ -85,6 +85,9 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 			DisableTimeouts:  true,
 			MaxParallelTasks: 1,
 		})
+		if err != nil {
+			return campaignErrorMsg{err: fmt.Errorf("failed to initialize assault orchestrator: %w", err)}
+		}
 		if promptProvider != nil {
 			orch.SetPromptProvider(promptProvider)
 		}
