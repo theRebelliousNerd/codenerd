@@ -143,7 +143,10 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 			i.grounding.EnableURLContext(docURLs)
 		}
 
-		response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+		response, err = i.withJITPrompt(ctx, "analysis", prompt, &profile, func(ctx context.Context, p string) (string, error) {
+			resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+			return resp, err
+		})
 
 		// Capture grounding sources
 		sources := i.grounding.CaptureGroundingSources()
@@ -154,7 +157,9 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 			logging.Boot("Strategic knowledge grounded with %d sources", len(sources))
 		}
 	} else {
-		response, err = i.config.LLMClient.Complete(ctx, prompt)
+		response, err = i.withJITPrompt(ctx, "analysis", prompt, &profile, func(ctx context.Context, p string) (string, error) {
+			return i.config.LLMClient.Complete(ctx, p)
+		})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("LLM analysis failed: %w", err)
@@ -507,7 +512,10 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 		var response string
 		var err error
 		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-			response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
+				resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+				return resp, err
+			})
 			// Capture grounding sources
 			sources := i.grounding.CaptureGroundingSources()
 			if len(sources) > 0 {
@@ -516,7 +524,9 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 				i.mu.Unlock()
 			}
 		} else {
-			response, err = i.config.LLMClient.Complete(ctx, prompt)
+			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
+				return i.config.LLMClient.Complete(ctx, p)
+			})
 		}
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Debug("LLM extraction failed for chunk %d: %v", chunkIdx, err)
@@ -609,7 +619,9 @@ Categories: architecture, philosophy, pattern, capability, constraint, integrati
 Focus on high-level architectural decisions, core philosophy, and system boundaries.
 `, doc.Title)
 
-	response, err := i.config.LLMClient.Complete(ctx, prompt)
+	response, err := i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
+		return i.config.LLMClient.Complete(ctx, p)
+	})
 	if err != nil {
 		return 0, fmt.Errorf("extraction query failed: %w", err)
 	}
@@ -755,7 +767,10 @@ Respond with JSON matching this structure:
 	var response string
 	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
 		var grErr error
-		response, _, grErr = i.grounding.CompleteWithGrounding(ctx, prompt)
+		response, grErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
+			resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+			return resp, err
+		})
 		if grErr != nil {
 			return nil, fmt.Errorf("synthesis LLM call failed: %w", grErr)
 		}
@@ -768,7 +783,9 @@ Respond with JSON matching this structure:
 		}
 	} else {
 		var llmErr error
-		response, llmErr = i.config.LLMClient.Complete(ctx, prompt)
+		response, llmErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
+			return i.config.LLMClient.Complete(ctx, p)
+		})
 		if llmErr != nil {
 			return nil, fmt.Errorf("synthesis LLM call failed: %w", llmErr)
 		}
@@ -1051,7 +1068,10 @@ Prefer fewer, high-quality documents over including everything.
 		var response string
 		var err error
 		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-			response, _, err = i.grounding.CompleteWithGrounding(ctx, prompt)
+			response, err = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
+				resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+				return resp, err
+			})
 			// Capture grounding sources
 			sources := i.grounding.CaptureGroundingSources()
 			if len(sources) > 0 {
@@ -1060,7 +1080,9 @@ Prefer fewer, high-quality documents over including everything.
 				i.mu.Unlock()
 			}
 		} else {
-			response, err = i.config.LLMClient.Complete(ctx, prompt)
+			response, err = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
+				return i.config.LLMClient.Complete(ctx, p)
+			})
 		}
 		if err != nil {
 			logging.Get(logging.CategoryBoot).Warn("LLM relevance filtering failed for batch: %v", err)
