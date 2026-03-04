@@ -78,6 +78,11 @@ has_incomplete_phase_task(PhaseID) :-
     /completed != Status,
     /skipped != Status.
 
+# Phase has pending tasks currently waiting in retry/backoff window
+phase_waiting_for_retry(PhaseID) :-
+    current_phase(PhaseID),
+    phase_has_backoff_task(PhaseID).
+
 all_phase_tasks_complete(PhaseID) :-
     campaign_phase(PhaseID, _, _, _, _, _),
     !has_incomplete_phase_task(PhaseID).

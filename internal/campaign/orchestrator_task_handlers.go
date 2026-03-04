@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
+	internaltypes "codenerd/internal/types"
 )
 
 // spawnTask is the unified entry point for task execution.
@@ -473,26 +474,131 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 // Currently it validates the sub-campaign ID and logs the intent.
 // In a full fractal implementation, this would spawn a child Orchestrator.
 func (o *Orchestrator) executeCampaignRefTask(ctx context.Context, task *Task) (any, error) {
+	_ = ctx
 	logging.CampaignDebug("Executing campaign ref task %s", task.ID)
 	if task.SubCampaignID == "" {
 		logging.Get(logging.CategoryCampaign).Error("Task %s has type /campaign_ref but no sub_campaign_id", task.ID)
 		return nil, fmt.Errorf("task %s has type /campaign_ref but no sub_campaign_id", task.ID)
 	}
 
-	logging.Campaign("Linking sub-campaign: %s", task.SubCampaignID)
-	o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), nil)
+	failurePolicy := normalizeCampaignRefFailurePolicy(task.CampaignRefFailurePolicy)
+	inheritance := normalizeCampaignRefInheritance(task.CampaignRefInheritance)
+	subStatus, found := o.lookupCampaignStatus(task.SubCampaignID)
+	lifecycle := CampaignRefLifecycleLinked
+	if found {
+		lifecycle = campaignRefLifecycleFromStatus(subStatus)
+	}
 
-	// In the future, this would look like:
-	// childOrch := NewOrchestrator(o.kernel, o.llmClient, ...)
-	// childOrch.LoadCampaign(task.SubCampaignID)
-	// err := childOrch.Run(ctx)
-
-	// For now, we treat it as a pointer that is "satisfied" if the sub-campaign exists or is acknowledged.
-	logging.CampaignDebug("Sub-campaign %s linked (fractal execution not yet implemented)", task.SubCampaignID)
-	return map[string]interface{}{
+	envelope := CampaignRefResult{
+		Version:       1,
+		SubCampaignID: task.SubCampaignID,
+		Status:        lifecycle,
+		Artifacts:     []string{},
+		LearnedFacts:  []string{},
+		Checkpoints:   0,
+		FailurePolicy: failurePolicy,
+		Inheritance:   inheritance,
+	}
+	eventData := map[string]any{
 		"sub_campaign_id": task.SubCampaignID,
-		"status":          "linked",
-	}, nil
+		"lifecycle":       envelope.Status,
+		"failure_policy":  string(envelope.FailurePolicy),
+	}
+	if found {
+		eventData["sub_campaign_status"] = string(subStatus)
+	} else {
+		eventData["sub_campaign_status"] = "/unknown"
+	}
+
+	if lifecycle == CampaignRefLifecycleFailed {
+		envelope.FailureSummary = fmt.Sprintf("sub-campaign %s is in failed state", task.SubCampaignID)
+		envelope.Status, envelope.LearnedFacts = applyCampaignRefFailurePolicy(failurePolicy, envelope.LearnedFacts)
+		eventData["mapped_lifecycle"] = envelope.Status
+
+		o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
+		if failurePolicy == CampaignRefPolicyPropagate {
+			return nil, fmt.Errorf("%s", envelope.FailureSummary)
+		}
+
+		logging.Campaign("Linked sub-campaign %s with policy %s -> %s", task.SubCampaignID, failurePolicy, envelope.Status)
+		return envelope, nil
+	}
+
+	o.emitEvent("sub_campaign_referenced", "", task.ID, fmt.Sprintf("Linking sub-campaign %s", task.SubCampaignID), eventData)
+	logging.Campaign("Linked sub-campaign %s with lifecycle %s", task.SubCampaignID, envelope.Status)
+	return envelope, nil
+}
+
+func (o *Orchestrator) lookupCampaignStatus(campaignID string) (CampaignStatus, bool) {
+	if o.kernel == nil || campaignID == "" {
+		return "", false
+	}
+
+	facts, err := o.kernel.Query("campaign")
+	if err != nil {
+		logging.CampaignWarn("failed to query campaign status for %s: %v", campaignID, err)
+		return "", false
+	}
+
+	// Walk reverse to favor newest asserted campaign status.
+	for i := len(facts) - 1; i >= 0; i-- {
+		fact := facts[i]
+		if len(fact.Args) < 5 {
+			continue
+		}
+		if internaltypes.ExtractString(fact.Args[0]) != campaignID {
+			continue
+		}
+		return CampaignStatus(internaltypes.ExtractString(fact.Args[4])), true
+	}
+	return "", false
+}
+
+func normalizeCampaignRefFailurePolicy(policy CampaignRefFailurePolicy) CampaignRefFailurePolicy {
+	switch policy {
+	case CampaignRefPolicyAbsorb, CampaignRefPolicyTransform, CampaignRefPolicyPropagate:
+		return policy
+	default:
+		return CampaignRefPolicyPropagate
+	}
+}
+
+func normalizeCampaignRefInheritance(inheritance *CampaignRefInheritance) CampaignRefInheritance {
+	normalized := CampaignRefInheritance{
+		FactsScope:  "campaign_namespace_readonly",
+		FSScope:     "child_snapshot_rw",
+		MemoryScope: "scoped_vector_campaign_namespace",
+		ToolScope:   "parent_tool_allowlist",
+	}
+	if inheritance == nil {
+		return normalized
+	}
+
+	if strings.TrimSpace(inheritance.FactsScope) != "" {
+		normalized.FactsScope = strings.TrimSpace(inheritance.FactsScope)
+	}
+	if strings.TrimSpace(inheritance.FSScope) != "" {
+		normalized.FSScope = strings.TrimSpace(inheritance.FSScope)
+	}
+	if strings.TrimSpace(inheritance.MemoryScope) != "" {
+		normalized.MemoryScope = strings.TrimSpace(inheritance.MemoryScope)
+	}
+	if strings.TrimSpace(inheritance.ToolScope) != "" {
+		normalized.ToolScope = strings.TrimSpace(inheritance.ToolScope)
+	}
+
+	return normalized
+}
+
+func applyCampaignRefFailurePolicy(policy CampaignRefFailurePolicy, learnedFacts []string) (string, []string) {
+	switch policy {
+	case CampaignRefPolicyAbsorb:
+		return CampaignRefLifecycleCompleted, append(learnedFacts, "/campaign_ref_failure_absorbed")
+	case CampaignRefPolicyTransform:
+		return CampaignRefLifecycleCompleted, append(learnedFacts, "/campaign_ref_failure_transformed")
+	default:
+		return CampaignRefLifecycleFailed, learnedFacts
+	}
 }
 
 // executeGenericTask runs a generic task via shard delegation.

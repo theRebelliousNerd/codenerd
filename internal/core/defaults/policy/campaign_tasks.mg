@@ -2,6 +2,9 @@
 # Extracted from campaign.mg
 # Stratification: Depends on campaign_phases.mg (for current_phase)
 
+# Local helper declaration for clock-availability gating in isolated policy tests.
+Decl has_current_time().
+
 # =============================================================================
 # Task Selection & Execution
 # =============================================================================
@@ -22,11 +25,20 @@ task_conflict_active(TaskID) :-
     task_conflict(OtherTaskID, TaskID),
     campaign_task(OtherTaskID, _, _, /in_progress, _).
 
-# Optional conflict heuristic: same artifact path -> conflict
+# Canonical task write path:
+# 1) explicit runtime write contract via task_write_target
+# 2) fallback to legacy task_artifact path
+task_write_path(TaskID, Path) :-
+    task_write_target(TaskID, Path).
+
+task_write_path(TaskID, Path) :-
+    task_artifact(TaskID, _, Path, _).
+
+# Conflict heuristic: same canonical write path -> conflict
 task_conflict(TaskID, OtherTaskID) :-
-    TaskID != OtherTaskID,
-    task_artifact(TaskID, _, Path, _),
-    task_artifact(OtherTaskID, _, Path, _).
+    task_write_path(TaskID, Path),
+    task_write_path(OtherTaskID, Path),
+    TaskID != OtherTaskID.
 
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
@@ -50,6 +62,20 @@ task_in_backoff(TaskID) :-
     current_time(Now),
     Now < RetryAt.
 
+has_current_time() :-
+    current_time(_).
+
+# Fail closed: if no clock fact is available, keep retry tasks in backoff.
+task_in_backoff(TaskID) :-
+    task_retry_at(TaskID, _),
+    !has_current_time().
+
+# A current-phase task is waiting for retry window after lock timeout/backoff.
+phase_has_backoff_task(PhaseID) :-
+    current_phase(PhaseID),
+    campaign_task(TaskID, PhaseID, _, /pending, _),
+    task_in_backoff(TaskID).
+
 # Eligible tasks: highest-priority pending tasks in the current phase without blockers or conflicts
 eligible_task(TaskID) :-
     current_phase(PhaseID),
@@ -67,11 +93,17 @@ next_campaign_task(TaskID) :-
 has_next_campaign_task() :-
     next_campaign_task(_).
 
+# Backoff tasks keep campaign routing alive while waiting for retry.
+# This prevents transient lock contention from being misclassified as hard blocking.
+has_next_campaign_task() :-
+    phase_has_backoff_task(_).
+
 # Campaign blocked if all remaining tasks are blocked
 campaign_blocked(CampaignID, "all_tasks_blocked") :-
     current_campaign(CampaignID),
     current_phase(PhaseID),
     !has_next_campaign_task(),
+    !phase_has_backoff_task(PhaseID),
     has_incomplete_phase_task(PhaseID).
 
 # Derive next_action based on campaign task type
@@ -147,7 +179,7 @@ activation(Fact, 150) :-
 activation(Target, 140) :-
     next_campaign_task(TaskID),
     campaign_task(TaskID, _, _, _, _),
-    task_artifact(TaskID, _, Target, _).
+    task_write_path(TaskID, Target).
 
 # Suppress context from completed phases
 activation(Fact, -50) :-

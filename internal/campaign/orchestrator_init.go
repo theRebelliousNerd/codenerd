@@ -49,6 +49,49 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	if cfg.RetryBackoffMax == 0 {
 		cfg.RetryBackoffMax = 5 * time.Minute
 	}
+	if cfg.WriteSetLockTimeout <= 0 {
+		cfg.WriteSetLockTimeout = 15 * time.Second
+	}
+	if cfg.WriteSetLockRetry <= 0 {
+		cfg.WriteSetLockRetry = 500 * time.Millisecond
+	}
+	if cfg.WriteSetLockPoll <= 0 {
+		cfg.WriteSetLockPoll = defaultWriteSetLockPollInterval
+	}
+	if cfg.RiskGateThreshold <= 0 {
+		cfg.RiskGateThreshold = defaultRiskGateThreshold
+	}
+	if cfg.RiskGateThreshold < defaultRiskGateThreshold {
+		cfg.RiskGateThreshold = defaultRiskGateThreshold
+	}
+	if cfg.RiskGateMode == "" {
+		cfg.RiskGateMode = RiskGateModeAuto
+	}
+	if cfg.AdvisoryGateToggle == "" {
+		cfg.AdvisoryGateToggle = RiskGateToggleAuto
+	}
+	if cfg.EdgeGateToggle == "" {
+		cfg.EdgeGateToggle = RiskGateToggleAuto
+	}
+	if cfg.NorthstarGateToggle == "" {
+		cfg.NorthstarGateToggle = RiskGateToggleAuto
+	}
+	if cfg.RiskIntelligenceTimeout <= 0 {
+		cfg.RiskIntelligenceTimeout = defaultRiskIntelligenceTimeout
+	}
+	// Default on for deterministic auto-wiring in the common zero-config path.
+	if !cfg.EnableRiskAutoWiring &&
+		cfg.RiskGateMode == RiskGateModeAuto &&
+		cfg.CampaignRiskOverride == nil &&
+		len(cfg.TaskRiskOverrides) == 0 {
+		cfg.EnableRiskAutoWiring = true
+	}
+	// Default on in zero-config path.
+	if !cfg.GlobalRiskGate &&
+		cfg.RiskGateMode == RiskGateModeAuto &&
+		cfg.CampaignRiskOverride == nil {
+		cfg.GlobalRiskGate = true
+	}
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
 	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
@@ -70,6 +113,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		taskResultOrder:  make([]string, 0),
 		config:           cfg,
 		promptProvider:   NewStaticPromptProvider(),
+		writeSetLocks:    newWriteSetLockManager(cfg.Workspace),
 	}
 
 	// Initialize sub-components
@@ -91,6 +135,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	o.advisoryBoard = cfg.AdvisoryBoard
 	o.edgeCaseDetector = cfg.EdgeCaseDetector
 	o.toolPregenerator = cfg.ToolPregenerator
+	o.configuredNorthstarObserver = o.northstarObserver
 
 	// Wire intelligence components into decomposer for campaign planning
 	if cfg.IntelligenceGatherer != nil {
@@ -113,6 +158,7 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 	if cfg.MaxParallelTasks > 0 {
 		o.maxParallelTasks = cfg.MaxParallelTasks
 	}
+	o.refreshRiskGateState()
 
 	logging.Campaign("Orchestrator initialized with maxParallelTasks=%d, campaignTimeout=%v, taskTimeout=%v",
 		o.maxParallelTasks, o.config.CampaignTimeout, o.config.TaskTimeout)
@@ -170,6 +216,8 @@ func (o *Orchestrator) SetNorthstarObserver(observer *northstar.CampaignObserver
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.northstarObserver = observer
+	o.configuredNorthstarObserver = observer
+	o.recomputeRiskGateStateLocked()
 	logging.Campaign("NorthstarObserver set on orchestrator")
 }
 
@@ -191,6 +239,7 @@ func (o *Orchestrator) SetAdvisoryBoard(board *ShardAdvisoryBoard) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.advisoryBoard = board
+	o.recomputeRiskGateStateLocked()
 	if o.decomposer != nil {
 		o.decomposer.SetAdvisoryBoard(board)
 	}
@@ -203,6 +252,7 @@ func (o *Orchestrator) SetEdgeCaseDetector(detector *EdgeCaseDetector) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.edgeCaseDetector = detector
+	o.recomputeRiskGateStateLocked()
 	if o.decomposer != nil {
 		o.decomposer.SetEdgeCaseDetector(detector)
 	}

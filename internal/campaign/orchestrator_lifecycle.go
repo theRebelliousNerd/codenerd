@@ -39,6 +39,9 @@ func (o *Orchestrator) LoadCampaign(campaignID string) error {
 	logging.Campaign("Campaign loaded: %s (title=%s, phases=%d, tasks=%d)",
 		campaign.ID, campaign.Title, len(campaign.Phases), campaign.TotalTasks)
 
+	// Recover monotonic journal sequence, ignoring corrupt tail records.
+	o.recoverJournalSequence(campaign.ID)
+
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
 	logging.CampaignDebug("Loading %d facts into kernel", len(facts))
@@ -62,6 +65,9 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 
 	o.campaign = campaign
 
+	// Resume journal sequence for existing campaign IDs to avoid sequence reuse.
+	o.recoverJournalSequence(campaign.ID)
+
 	// Load campaign facts into kernel
 	facts := campaign.ToFacts()
 	logging.CampaignDebug("Loading %d campaign facts into kernel", len(facts))
@@ -82,6 +88,9 @@ func (o *Orchestrator) SetCampaign(campaign *Campaign) error {
 
 // saveCampaign persists the campaign to disk.
 func (o *Orchestrator) saveCampaign() error {
+	if o.campaign == nil {
+		return fmt.Errorf("no campaign loaded")
+	}
 	logging.CampaignDebug("Saving campaign to disk: %s", o.campaign.ID)
 	campaignsDir := filepath.Join(o.nerdDir, "campaigns")
 	if err := os.MkdirAll(campaignsDir, 0755); err != nil {
@@ -94,10 +103,34 @@ func (o *Orchestrator) saveCampaign() error {
 		logging.Get(logging.CategoryCampaign).Error("Failed to marshal campaign JSON: %v", err)
 		return err
 	}
+	snapshotChecksum := checksumBytes(data)
+
+	// Event-before-ack: append journal entry first.
+	if err := o.appendJournalEventLocked(
+		"snapshot_write_requested",
+		map[string]any{
+			"status":          o.campaign.Status,
+			"completed_tasks": o.campaign.CompletedTasks,
+			"total_tasks":     o.campaign.TotalTasks,
+		},
+		snapshotChecksum,
+	); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to append journal event: %v", err)
+		return err
+	}
 
 	campaignPath := filepath.Join(campaignsDir, o.campaign.ID+".json")
-	if err := os.WriteFile(campaignPath, data, 0644); err != nil {
+	if err := o.writeCampaignSnapshotAtomic(campaignPath, data); err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Failed to write campaign file: %v", err)
+		return err
+	}
+
+	if err := o.appendJournalEventLocked(
+		"snapshot_write_committed",
+		map[string]any{"path": campaignPath},
+		snapshotChecksum,
+	); err != nil {
+		logging.Get(logging.CategoryCampaign).Error("Failed to append commit journal event: %v", err)
 		return err
 	}
 	logging.CampaignDebug("Campaign saved successfully: %s (%d bytes)", campaignPath, len(data))

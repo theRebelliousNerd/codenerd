@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -130,10 +131,24 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				if active[task.ID] || task.Status != TaskPending {
 					continue
 				}
+
+				lease, lockErr := o.acquireWriteSetLease(ctx, phase.ID, task)
+				if lockErr != nil {
+					if errors.Is(lockErr, ErrWriteSetLockTimeout) {
+						continue
+					}
+					if errors.Is(lockErr, context.Canceled) || errors.Is(lockErr, context.DeadlineExceeded) {
+						return lockErr
+					}
+					logging.Get(logging.CategoryCampaign).Error("Write-set lock error for task %s: %v", task.ID, lockErr)
+					o.handleTaskFailure(ctx, phase, task, lockErr)
+					continue
+				}
+
 				logging.Campaign("Scheduling task: %s (type=%s)", task.Description[:min(50, len(task.Description))], task.Type)
 				active[task.ID] = true
 				o.updateTaskStatus(task, TaskInProgress)
-				go o.runSingleTask(ctx, phase, task, results)
+				go o.runSingleTask(ctx, phase, task, lease, results)
 			}
 		}
 
@@ -212,7 +227,11 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 }
 
 // runSingleTask executes a task and sends the result back to the phase loop.
-func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Task, results chan<- taskResult) {
+func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Task, lease *writeSetLockLease, results chan<- taskResult) {
+	if lease != nil {
+		defer lease.release()
+	}
+
 	// Apply task-level timeout
 	if o.config.TaskTimeout > 0 {
 		var cancel context.CancelFunc
@@ -226,7 +245,7 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	logging.CampaignDebug("Task description: %s", task.Description)
 
 	o.emitEvent("task_started", phase.ID, task.ID, task.Description, nil)
-	result, err := o.executeTask(ctx, task)
+	result, err := o.executeTaskWithRollback(ctx, task)
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Task failed: %s - %v", task.ID, err)
 		taskTimer.Stop()
@@ -248,6 +267,146 @@ func (o *Orchestrator) runSingleTask(ctx context.Context, phase *Phase, task *Ta
 	o.mu.Unlock()
 
 	results <- taskResult{taskID: task.ID, result: result}
+}
+
+func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string, task *Task) (*writeSetLockLease, error) {
+	if task == nil || o.writeSetLocks == nil {
+		return nil, nil
+	}
+
+	writeSet := o.resolveTaskWriteSet(task)
+	if len(writeSet) == 0 {
+		if isMutatingTaskType(task.Type) {
+			return nil, fmt.Errorf("task %s missing write_set for mutating type %s", task.ID, task.Type)
+		}
+		return nil, nil
+	}
+
+	timeout := o.config.WriteSetLockTimeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+
+	lockCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	lease, err := o.writeSetLocks.acquire(lockCtx, task.ID, writeSet, o.config.WriteSetLockPoll)
+	if err == nil {
+		return lease, nil
+	}
+
+	if errors.Is(err, ErrWriteSetLockTimeout) {
+		retryDelay := o.computeWriteSetLockRetryDelay(ctx, timeout)
+		if retryDelay <= 0 {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			retryDelay = 10 * time.Millisecond
+		}
+		nextRetryAt := time.Now().Add(retryDelay)
+		o.setTaskRetryAt(task.ID, nextRetryAt)
+		o.emitEvent("task_lock_timeout", phaseID, task.ID, "write_set lock timeout", map[string]interface{}{
+			"write_set":       writeSet,
+			"timeout_ms":      timeout.Milliseconds(),
+			"next_retry_unix": nextRetryAt.Unix(),
+		})
+		logging.CampaignDebug("Write-set lock timeout for task %s (write_set=%v)", task.ID, writeSet)
+	}
+
+	return nil, err
+}
+
+func (o *Orchestrator) computeWriteSetLockRetryDelay(ctx context.Context, lockTimeout time.Duration) time.Duration {
+	retryDelay := o.config.WriteSetLockRetry
+	if retryDelay <= 0 {
+		retryDelay = 500 * time.Millisecond
+	}
+
+	const (
+		minRetryDelay = 10 * time.Millisecond
+		maxRetryDelay = 2 * time.Second
+	)
+
+	if retryDelay < minRetryDelay {
+		retryDelay = minRetryDelay
+	}
+	if retryDelay > maxRetryDelay {
+		retryDelay = maxRetryDelay
+	}
+	if lockTimeout > 0 && retryDelay > lockTimeout {
+		retryDelay = lockTimeout
+	}
+
+	if ctx != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				return 0
+			}
+			if retryDelay > remaining {
+				retryDelay = remaining
+			}
+		}
+	}
+
+	return retryDelay
+}
+
+func (o *Orchestrator) resolveTaskWriteSet(task *Task) []string {
+	if task == nil {
+		return nil
+	}
+	if len(task.WriteSet) == 0 && !isMutatingTaskType(task.Type) {
+		return nil
+	}
+
+	candidates := make([]string, 0, len(task.WriteSet)+len(task.Artifacts)+1)
+	candidates = append(candidates, task.WriteSet...)
+	if len(candidates) == 0 {
+		for _, artifact := range task.Artifacts {
+			if artifact.Path != "" {
+				candidates = append(candidates, artifact.Path)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		if inferred := extractPathFromDescription(task.Description); inferred != "" {
+			candidates = append(candidates, inferred)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return normalizeWriteSetPaths(o.workspace, candidates)
+}
+
+func (o *Orchestrator) setTaskRetryAt(taskID string, retryAt time.Time) {
+	if o.campaign == nil {
+		return
+	}
+
+	o.mu.Lock()
+	for i := range o.campaign.Phases {
+		for j := range o.campaign.Phases[i].Tasks {
+			if o.campaign.Phases[i].Tasks[j].ID == taskID {
+				o.campaign.Phases[i].Tasks[j].NextRetryAt = retryAt
+				break
+			}
+		}
+	}
+	o.mu.Unlock()
+
+	_ = o.kernel.RetractFact(core.Fact{
+		Predicate: "task_retry_at",
+		Args:      []interface{}{taskID},
+	})
+	_ = o.kernel.Assert(core.Fact{
+		Predicate: "task_retry_at",
+		Args:      []interface{}{taskID, retryAt.Unix()},
+	})
 }
 
 // updateTaskStatus updates task status in campaign and kernel.

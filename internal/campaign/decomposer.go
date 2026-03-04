@@ -1317,6 +1317,7 @@ type RawTask struct {
 	Order       int      `json:"order,omitempty"`
 	DependsOn   []int    `json:"depends_on"` // Indices of dependent tasks in same phase
 	Artifacts   []string `json:"artifacts"`
+	WriteSet    []string `json:"write_set,omitempty"`
 
 	// Shard routing (optional - enables explicit shard selection)
 	Shard       string `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
@@ -1687,6 +1688,7 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				Order:       orderIndex,
 				DependsOn:   make([]string, 0),
 				Artifacts:   make([]TaskArtifact, 0),
+				WriteSet:    normalizeWriteSetPaths(d.workspace, rawTask.WriteSet),
 				// Shard routing fields (explicit shard selection)
 				Shard:       rawTask.Shard,
 				ShardInput:  rawTask.ShardInput,
@@ -1733,6 +1735,22 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 					Type: artifactType,
 					Path: normalizedPath,
 				})
+			}
+
+			// Mutating tasks default to artifact-backed write sets if explicit write_set was omitted.
+			if len(task.WriteSet) == 0 && isMutatingTaskType(task.Type) {
+				inferredWriteSet := make([]string, 0, len(task.Artifacts)+1)
+				for _, a := range task.Artifacts {
+					if a.Path != "" {
+						inferredWriteSet = append(inferredWriteSet, a.Path)
+					}
+				}
+				if len(inferredWriteSet) == 0 {
+					if inferred := extractPathFromDescription(task.Description); inferred != "" {
+						inferredWriteSet = append(inferredWriteSet, inferred)
+					}
+				}
+				task.WriteSet = normalizeWriteSetPaths(d.workspace, inferredWriteSet)
 			}
 
 			phase.Tasks = append(phase.Tasks, task)

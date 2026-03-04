@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -90,6 +91,16 @@ const (
 	TaskTypeAssaultDiscover TaskType = "/assault_discover" // Enumerate targets + create batch tasks
 	TaskTypeAssaultBatch    TaskType = "/assault_batch"    // Execute a persisted batch
 	TaskTypeAssaultTriage   TaskType = "/assault_triage"   // Summarize results + generate remediation tasks
+)
+
+// campaign_ref lifecycle contract states.
+const (
+	CampaignRefLifecycleLinked    = "/linked"    // Reference exists, target status unknown/not yet visible
+	CampaignRefLifecycleQueued    = "/queued"    // Target campaign exists but not actively executing
+	CampaignRefLifecycleActive    = "/active"    // Target campaign currently executing
+	CampaignRefLifecyclePaused    = "/paused"    // Target campaign paused
+	CampaignRefLifecycleCompleted = "/completed" // Target campaign completed successfully
+	CampaignRefLifecycleFailed    = "/failed"    // Target campaign failed
 )
 
 // TaskPriority represents task priority levels.
@@ -235,6 +246,7 @@ type Task struct {
 	DependsOn []string `json:"depends_on,omitempty"` // Task IDs this depends on
 	SoftDeps  []string `json:"soft_deps,omitempty"`  // Soft dependencies (preferred order)
 	Resources []string `json:"resources,omitempty"`  // Required resources (semaphores)
+	WriteSet  []string `json:"write_set,omitempty"`  // Canonical file paths this task is allowed to mutate
 
 	// Shard routing (explicit shard selection, overrides type-based inference)
 	Shard       string   `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
@@ -243,6 +255,10 @@ type Task struct {
 
 	// Recursion
 	SubCampaignID string `json:"sub_campaign_id,omitempty"` // If set, this task is a sub-campaign
+
+	// Sub-campaign contract (TaskTypeCampaignRef)
+	CampaignRefFailurePolicy CampaignRefFailurePolicy `json:"campaign_ref_failure_policy,omitempty"`
+	CampaignRefInheritance   *CampaignRefInheritance  `json:"campaign_ref_inheritance,omitempty"`
 
 	// Artifacts produced
 	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
@@ -257,6 +273,36 @@ type Task struct {
 	LastError string        `json:"last_error,omitempty"`
 	// Backoff control (persisted for long-horizon durability)
 	NextRetryAt time.Time `json:"next_retry_at,omitempty"`
+}
+
+// CampaignRefFailurePolicy controls how parent task status reacts to child status.
+type CampaignRefFailurePolicy string
+
+const (
+	CampaignRefPolicyPropagate CampaignRefFailurePolicy = "/propagate"
+	CampaignRefPolicyAbsorb    CampaignRefFailurePolicy = "/absorb"
+	CampaignRefPolicyTransform CampaignRefFailurePolicy = "/transform"
+)
+
+// CampaignRefInheritance defines parent -> child scope inheritance.
+type CampaignRefInheritance struct {
+	FactsScope  string `json:"facts_scope,omitempty"`
+	FSScope     string `json:"fs_scope,omitempty"`
+	MemoryScope string `json:"memory_scope,omitempty"`
+	ToolScope   string `json:"tool_scope,omitempty"`
+}
+
+// CampaignRefResult is the typed result envelope returned from /campaign_ref tasks.
+type CampaignRefResult struct {
+	Version        int                      `json:"version"`
+	SubCampaignID  string                   `json:"sub_campaign_id"`
+	Status         string                   `json:"status"`
+	Artifacts      []string                 `json:"artifacts,omitempty"`
+	LearnedFacts   []string                 `json:"learned_facts,omitempty"`
+	Checkpoints    int                      `json:"checkpoints"`
+	FailureSummary string                   `json:"failure_summary,omitempty"`
+	FailurePolicy  CampaignRefFailurePolicy `json:"failure_policy"`
+	Inheritance    CampaignRefInheritance   `json:"inheritance"`
 }
 
 // TaskArtifact represents an artifact produced by a task.
@@ -599,7 +645,78 @@ func (t *Task) ToFacts() []core.Fact {
 		})
 	}
 
+	// Deterministic write contract
+	for _, writePath := range t.DeterministicWriteSet() {
+		facts = append(facts, core.Fact{
+			Predicate: "task_write_target",
+			Args:      []interface{}{t.ID, writePath},
+		})
+	}
+
 	return facts
+}
+
+// DeterministicWriteSet returns a canonical, stable write_set for task contracts.
+// It prefers explicit WriteSet contracts and falls back to Artifacts for compatibility.
+func (t *Task) DeterministicWriteSet() []string {
+	paths := make([]string, 0, len(t.WriteSet)+len(t.Artifacts))
+	paths = append(paths, t.WriteSet...)
+	if len(paths) == 0 {
+		for _, artifact := range t.Artifacts {
+			if artifact.Path != "" {
+				paths = append(paths, artifact.Path)
+			}
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(paths))
+	writeSet := make([]string, 0, len(paths))
+	for _, candidate := range paths {
+		path := normalizePath(candidate)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		writeSet = append(writeSet, path)
+	}
+	sort.Strings(writeSet)
+	return writeSet
+}
+
+func campaignRefLifecycleFromStatus(status CampaignStatus) string {
+	switch status {
+	case StatusPlanning, StatusDecomposing, StatusValidating:
+		return CampaignRefLifecycleQueued
+	case StatusActive:
+		return CampaignRefLifecycleActive
+	case StatusPaused:
+		return CampaignRefLifecyclePaused
+	case StatusCompleted:
+		return CampaignRefLifecycleCompleted
+	case StatusFailed:
+		return CampaignRefLifecycleFailed
+	default:
+		return CampaignRefLifecycleLinked
+	}
+}
+
+func campaignRefLifecycleContractMap() map[string]string {
+	return map[string]string{
+		string(StatusPlanning):    CampaignRefLifecycleQueued,
+		string(StatusDecomposing): CampaignRefLifecycleQueued,
+		string(StatusValidating):  CampaignRefLifecycleQueued,
+		string(StatusActive):      CampaignRefLifecycleActive,
+		string(StatusPaused):      CampaignRefLifecyclePaused,
+		string(StatusCompleted):   CampaignRefLifecycleCompleted,
+		string(StatusFailed):      CampaignRefLifecycleFailed,
+		"/unknown":                CampaignRefLifecycleLinked,
+	}
 }
 
 // ToFacts converts a ContextProfile to Mangle facts.

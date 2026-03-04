@@ -197,6 +197,9 @@ type IntelligenceReport struct {
 	CodePatterns      []CodePattern `json:"code_patterns"`
 	ArchitectureHints []string      `json:"architecture_hints"`
 
+	// Pinned snapshot used by deterministic campaign risk scoring.
+	RiskInputs RiskInputSnapshot `json:"risk_inputs"`
+
 	// Errors during gathering (non-fatal)
 	GatheringErrors []string `json:"gathering_errors"`
 }
@@ -458,6 +461,7 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 	}
 
 	report.Duration = time.Since(startTime)
+	report.RiskInputs = deriveRiskInputSnapshotFromReport(report)
 	logging.Campaign("Intelligence gathering completed: %d world facts, %d churn hotspots, %d learnings, %d errors (took %v)",
 		len(report.WorldFacts), len(report.GitChurnHotspots), len(report.HistoricalPatterns),
 		len(report.GatheringErrors), report.Duration)

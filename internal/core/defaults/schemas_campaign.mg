@@ -68,7 +68,7 @@ Decl phase_dependency(PhaseID, DependsOnPhaseID, DependencyType) bound [/string,
 
 # phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity)
 # EstimatedComplexity: /low, /medium, /high, /critical
-Decl phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity) bound [/string, /number, /number].
+Decl phase_estimate(PhaseID, EstimatedTasks, EstimatedComplexity) bound [/string, /number, /name].
 
 # architectural_violation(DownstreamPhase, UpstreamPhase, Reason) - build order inversion detection
 Decl architectural_violation(DownstreamPhase, UpstreamPhase, Reason) bound [/string, /string, /string].
@@ -92,7 +92,7 @@ Decl task_conflict(TaskID, OtherTaskID) bound [/string, /string].
 
 # task_priority(TaskID, Priority)
 # Priority: /critical, /high, /normal, /low
-Decl task_priority(TaskID, Priority) bound [/string, /number].
+Decl task_priority(TaskID, Priority) bound [/string, /name].
 
 # task_order(TaskID, OrderIndex) - stable ordering for deterministic scheduling
 Decl task_order(TaskID, OrderIndex) bound [/string, /number].
@@ -107,6 +107,13 @@ Decl task_remediation_target(RemediationTaskID, OriginalTaskID, ViolationType) b
 # task_artifact(TaskID, ArtifactType, Path, Hash)
 # ArtifactType: /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
 Decl task_artifact(TaskID, ArtifactType, Path, Hash) bound [/string, /name, /string, /string].
+
+# task_write_target(TaskID, Path)
+# Canonical deterministic write_set declared by runtime/planner.
+Decl task_write_target(TaskID, Path) bound [/string, /string].
+
+# task_write_path(TaskID, Path) - derived canonical path for conflict/activation rules
+Decl task_write_path(TaskID, Path) bound [/string, /string].
 
 # task_inference(TaskID, InferredFrom, Confidence, Reasoning)
 # Tracks WHERE this task came from (spec section, user intent, LLM inference)
@@ -162,6 +169,9 @@ Decl task_retry_at(TaskID, RetryAt) bound [/string, /number].
 
 # task_in_backoff(TaskID) - derived: task not yet eligible to retry
 Decl task_in_backoff(TaskID) bound [/string].
+
+# phase_has_backoff_task(PhaseID) - helper: current phase has pending backoff-retry work
+Decl phase_has_backoff_task(PhaseID) bound [/string].
 
 # phase_checkpoint(PhaseID, CheckpointType, Passed, Details, Timestamp)
 # CheckpointType: /tests, /build, /lint, /coverage, /manual, /integration
@@ -320,6 +330,9 @@ Decl replan_needed(CampaignID, Reason) bound [/string, /name].
 
 # phase_stuck(PhaseID) - derived: in-progress phase with no runnable work
 Decl phase_stuck(PhaseID) bound [/string].
+
+# phase_waiting_for_retry(PhaseID) - derived: current phase waiting for retry window
+Decl phase_waiting_for_retry(PhaseID) bound [/string].
 
 # has_pending_tasks(PhaseID) - helper for safe negation
 Decl has_pending_tasks(PhaseID) bound [/string].

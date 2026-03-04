@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
+	"codenerd/internal/core"
 	"codenerd/internal/types"
 )
 
@@ -262,6 +264,203 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 			t.Errorf("expected 'success', got %v", res)
 		}
 	})
+}
+
+func TestExecuteCampaignRefTask_MissingSubCampaignID(t *testing.T) {
+	o := &Orchestrator{
+		kernel: &MockKernel{},
+	}
+	task := &Task{
+		ID:   "/task_campaign_ref",
+		Type: TaskTypeCampaignRef,
+	}
+
+	res, err := o.executeCampaignRefTask(context.Background(), task)
+	if err == nil {
+		t.Fatal("expected error for missing sub_campaign_id")
+	}
+	if res != nil {
+		t.Fatalf("expected nil result on error, got %#v", res)
+	}
+}
+
+func TestExecuteCampaignRefTask_DefaultPolicyAndTypedEnvelope(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 1)
+	o := &Orchestrator{
+		kernel:    &MockKernel{},
+		campaign:  &Campaign{ID: "/parent_campaign"},
+		eventChan: eventCh,
+	}
+	task := &Task{
+		ID:            "/task_campaign_ref",
+		Type:          TaskTypeCampaignRef,
+		SubCampaignID: "/child_campaign",
+	}
+
+	res, err := o.executeCampaignRefTask(context.Background(), task)
+	if err != nil {
+		t.Fatalf("executeCampaignRefTask() error = %v", err)
+	}
+
+	envelope, ok := res.(CampaignRefResult)
+	if !ok {
+		t.Fatalf("expected CampaignRefResult, got %T", res)
+	}
+	if envelope.Version != 1 {
+		t.Fatalf("expected version 1, got %d", envelope.Version)
+	}
+	if envelope.SubCampaignID != "/child_campaign" {
+		t.Fatalf("unexpected sub_campaign_id: %s", envelope.SubCampaignID)
+	}
+	if envelope.Status != CampaignRefLifecycleLinked {
+		t.Fatalf("expected linked status, got %s", envelope.Status)
+	}
+	if envelope.FailurePolicy != CampaignRefPolicyPropagate {
+		t.Fatalf("expected default propagate policy, got %s", envelope.FailurePolicy)
+	}
+	if envelope.Inheritance.FactsScope != "campaign_namespace_readonly" ||
+		envelope.Inheritance.FSScope != "child_snapshot_rw" ||
+		envelope.Inheritance.MemoryScope != "scoped_vector_campaign_namespace" ||
+		envelope.Inheritance.ToolScope != "parent_tool_allowlist" {
+		t.Fatalf("unexpected default inheritance: %#v", envelope.Inheritance)
+	}
+
+	select {
+	case evt := <-eventCh:
+		if evt.Type != "sub_campaign_referenced" {
+			t.Fatalf("unexpected event type: %s", evt.Type)
+		}
+		data, ok := evt.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("expected map data in event, got %T", evt.Data)
+		}
+		if data["failure_policy"] != string(CampaignRefPolicyPropagate) {
+			t.Fatalf("expected event failure_policy %s, got %#v", CampaignRefPolicyPropagate, data["failure_policy"])
+		}
+	default:
+		t.Fatal("expected sub_campaign_referenced event")
+	}
+}
+
+func TestExecuteCampaignRefTask_FailurePolicyMapping(t *testing.T) {
+	testCases := []struct {
+		name             string
+		policy           CampaignRefFailurePolicy
+		expectError      bool
+		expectedStatus   string
+		expectedFactHint string
+	}{
+		{
+			name:           "propagate",
+			policy:         CampaignRefPolicyPropagate,
+			expectError:    true,
+			expectedStatus: CampaignRefLifecycleFailed,
+		},
+		{
+			name:             "absorb",
+			policy:           CampaignRefPolicyAbsorb,
+			expectError:      false,
+			expectedStatus:   CampaignRefLifecycleCompleted,
+			expectedFactHint: "/campaign_ref_failure_absorbed",
+		},
+		{
+			name:             "transform",
+			policy:           CampaignRefPolicyTransform,
+			expectError:      false,
+			expectedStatus:   CampaignRefLifecycleCompleted,
+			expectedFactHint: "/campaign_ref_failure_transformed",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			kernel := &MockKernel{}
+			_ = kernel.Assert(core.Fact{
+				Predicate: "campaign",
+				Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusFailed)},
+			})
+
+			o := &Orchestrator{
+				kernel: kernel,
+			}
+			task := &Task{
+				ID:                       "/task_campaign_ref",
+				Type:                     TaskTypeCampaignRef,
+				SubCampaignID:            "/child_campaign",
+				CampaignRefFailurePolicy: tc.policy,
+				CampaignRefInheritance: &CampaignRefInheritance{
+					ToolScope: "/isolate",
+				},
+			}
+
+			res, err := o.executeCampaignRefTask(context.Background(), task)
+			if tc.expectError {
+				if err == nil {
+					t.Fatal("expected error but got nil")
+				}
+				if !strings.Contains(err.Error(), "failed state") {
+					t.Fatalf("expected failed state error, got %v", err)
+				}
+				if res != nil {
+					t.Fatalf("expected nil result when policy propagates, got %#v", res)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("executeCampaignRefTask() error = %v", err)
+			}
+			envelope, ok := res.(CampaignRefResult)
+			if !ok {
+				t.Fatalf("expected CampaignRefResult, got %T", res)
+			}
+			if envelope.Status != tc.expectedStatus {
+				t.Fatalf("expected status %s, got %s", tc.expectedStatus, envelope.Status)
+			}
+			if envelope.FailurePolicy != tc.policy {
+				t.Fatalf("expected policy %s, got %s", tc.policy, envelope.FailurePolicy)
+			}
+			if envelope.FailureSummary == "" {
+				t.Fatal("expected failure summary for failed child campaign")
+			}
+			if envelope.Inheritance.ToolScope != "/isolate" {
+				t.Fatalf("expected tool scope override, got %#v", envelope.Inheritance)
+			}
+			if tc.expectedFactHint != "" {
+				found := false
+				for _, f := range envelope.LearnedFacts {
+					if f == tc.expectedFactHint {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("expected learned fact %s, got %#v", tc.expectedFactHint, envelope.LearnedFacts)
+				}
+			}
+		})
+	}
+}
+
+func TestLookupCampaignStatus_UsesLatestFact(t *testing.T) {
+	kernel := &MockKernel{}
+	_ = kernel.Assert(core.Fact{
+		Predicate: "campaign",
+		Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusActive)},
+	})
+	_ = kernel.Assert(core.Fact{
+		Predicate: "campaign",
+		Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusPaused)},
+	})
+
+	o := &Orchestrator{kernel: kernel}
+	status, ok := o.lookupCampaignStatus("/child_campaign")
+	if !ok {
+		t.Fatal("expected campaign status to be found")
+	}
+	if status != StatusPaused {
+		t.Fatalf("expected latest status %s, got %s", StatusPaused, status)
+	}
 }
 
 func BenchmarkExtractPathFromDescription(b *testing.B) {
