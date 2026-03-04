@@ -114,6 +114,13 @@ func (m Model) renderSingleMessage(msg Message) string {
 			MarginTop(1)
 		rendered.WriteString(assistantStyle.Render(LabelAssistant) + "\n")
 
+		// Render reasoning trace if present
+		if msg.ThoughtSummary != "" {
+			thoughtStyle := m.styles.Muted.Italic(true)
+			// Prefix with a thinking indicator, e.g., 🤔
+			rendered.WriteString(thoughtStyle.Render("🤔 "+msg.ThoughtSummary) + "\n\n")
+		}
+
 		// Render markdown with panic recovery
 		markdownRendered := m.safeRenderMarkdown(msg.Content)
 		rendered.WriteString(markdownRendered)

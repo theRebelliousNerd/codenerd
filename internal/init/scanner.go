@@ -3,6 +3,9 @@ package init
 
 import (
 	"codenerd/internal/config"
+	coreshards "codenerd/internal/core/shards"
+	"codenerd/internal/prompt"
+	sysshards "codenerd/internal/shards"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1451,53 +1454,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			TaskType:       "SEMANTIC_SIMILARITY",
 		},
 
-		// Shard profiles tuned for Gemini 3 Flash
-		ShardProfiles: map[string]config.ShardProfile{
-			"coder": {
-				Model:                 "gemini-3-flash-preview",
-				Temperature:           0.7,
-				TopP:                  0.9,
-				MaxContextTokens:      1048576,
-				MaxOutputTokens:       65536,
-				MaxExecutionTimeSec:   600,
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 30000,
-				EnableLearning:        true,
-			},
-			"tester": {
-				Model:                 "gemini-3-flash-preview",
-				Temperature:           0.5,
-				TopP:                  0.9,
-				MaxContextTokens:      1048576,
-				MaxOutputTokens:       65536,
-				MaxExecutionTimeSec:   300,
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 20000,
-				EnableLearning:        true,
-			},
-			"reviewer": {
-				Model:                 "gemini-3-flash-preview",
-				Temperature:           0.3,
-				TopP:                  0.9,
-				MaxContextTokens:      1048576,
-				MaxOutputTokens:       65536,
-				MaxExecutionTimeSec:   900,
-				MaxRetries:            2,
-				MaxFactsInShardKernel: 30000,
-				EnableLearning:        false,
-			},
-			"researcher": {
-				Model:                 "gemini-3-flash-preview",
-				Temperature:           0.6,
-				TopP:                  0.95,
-				MaxContextTokens:      1048576,
-				MaxOutputTokens:       65536,
-				MaxExecutionTimeSec:   600,
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 25000,
-				EnableLearning:        true,
-			},
-		},
+		// Shard profiles are populated dynamically below,
 		DefaultShard: &config.ShardProfile{
 			Model:                 "gemini-3-flash-preview",
 			Temperature:           0.7,
@@ -1539,6 +1496,33 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			TargetOS:   "windows",
 			TargetArch: "amd64",
 		},
+	}
+
+	// Dynamically build the ShardProfiles mapping
+	cfg.ShardProfiles = make(map[string]config.ShardProfile)
+
+	defaultProfile := *cfg.DefaultShard
+
+	// 1. Gather System Shards from the factory registry
+	sm := coreshards.NewShardManager()
+	sysshards.RegisterAllShardFactories(sm, sysshards.RegistryContext{})
+	for _, info := range sm.ListAvailableShards() {
+		cfg.ShardProfiles[info.Name] = defaultProfile
+	}
+
+	// 2. Gather Ephemeral Shards (Personas) from the prompt corpus
+	if corpus, err := prompt.LoadEmbeddedCorpus(); err == nil {
+		for _, atom := range corpus.GetByCategory(prompt.CategoryIdentity) {
+			for _, st := range atom.ShardTypes {
+				name := strings.TrimPrefix(st, "/") // Remove leading slash
+				if name != "" {
+					// Don't overwrite if it was already added by System Shards registry
+					if _, exists := cfg.ShardProfiles[name]; !exists {
+						cfg.ShardProfiles[name] = defaultProfile
+					}
+				}
+			}
+		}
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")

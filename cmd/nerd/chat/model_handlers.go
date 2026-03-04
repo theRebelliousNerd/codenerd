@@ -53,6 +53,15 @@ func (m Model) pushAssistantMsg(content string) Model {
 	return m
 }
 
+// pushAssistantMsgWithThought is a convenience wrapper that adds an assistant message
+// containing a reasoning trace, re-renders the viewport, and scrolls to bottom.
+func (m Model) pushAssistantMsgWithThought(content string, thought string) Model {
+	m = m.addMessage(Message{Role: "assistant", Content: content, ThoughtSummary: thought, Time: time.Now()})
+	m.viewport.SetContent(m.renderHistory())
+	m.viewport.GotoBottom()
+	return m
+}
+
 // pushUserMsg is a convenience wrapper that adds a user message,
 // re-renders the viewport, and scrolls to bottom in one call.
 func (m Model) pushUserMsg(content string) Model {

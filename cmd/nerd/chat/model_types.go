@@ -398,9 +398,10 @@ type KnowledgeResult struct {
 
 // Message represents a single message in the chat history
 type Message struct {
-	Role    string // "user", "assistant", or "system" (Glass Box events)
-	Content string
-	Time    time.Time
+	Role           string // "user", "assistant", or "system" (Glass Box events)
+	Content        string
+	ThoughtSummary string // The reasoning trace / thoughts
+	Time           time.Time
 
 	// Glass Box fields (only set when Role == "system")
 	GlassBoxCategory transparency.GlassBoxCategory // Event category for styling
@@ -539,6 +540,7 @@ type (
 		ShardResult       *ShardResultPayload
 		ClarifyUpdate     *ClarifyUpdate
 		DreamHypothetical string
+		ThoughtSummary    string
 	}
 
 	// Memory sampling message

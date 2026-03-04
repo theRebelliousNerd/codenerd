@@ -1,5 +1,7 @@
 # Build Artifacts
 *.exe
+**/*.exe
+*.exe~
 *.dll
 *.so
 *.dylib
@@ -50,6 +52,7 @@ Docs/Spec/
 /scripts/
 /script/
 /tools/
+/data/traces/
 
 # Hidden runtime/config paths
 .nerd/

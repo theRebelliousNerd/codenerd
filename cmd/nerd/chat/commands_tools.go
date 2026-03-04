@@ -4,8 +4,10 @@ package chat
 
 import (
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/perception"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -76,6 +78,39 @@ func (m Model) buildStatusReport() string {
 				sb.WriteString(fmt.Sprintf("  - `%s`: %d executions\n", tool.Name, tool.ExecuteCount))
 				count++
 			}
+		}
+	}
+
+	// Output LLM Metrics
+	metrics := perception.GetLLMMetrics()
+	if len(metrics) > 0 {
+		sb.WriteString("\n### LLM Usage Metrics\n\n")
+		sb.WriteString("| Category | Shard | Calls | Tokens | Avg Latency | Errors |\n")
+		sb.WriteString("|---|---|---|---|---|---|\n")
+
+		var keys []string
+		for k := range metrics {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			pts := strings.SplitN(k, ":", 2)
+			cat := ""
+			typ := k
+			if len(pts) == 2 {
+				cat = pts[0]
+				typ = pts[1]
+			}
+
+			met := metrics[k]
+			avg := int64(0)
+			if met.Calls > 0 {
+				avg = met.DurationMs / met.Calls
+			}
+
+			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %dms | %d |\n",
+				cat, typ, met.Calls, met.TokensUsed, avg, met.Errors))
 		}
 	}
 

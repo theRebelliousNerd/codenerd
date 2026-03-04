@@ -137,6 +137,15 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 		logging.API("LLM call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
 	}
 
+	// Calculate tokens if available
+	tokensUsed := 0
+	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+		tokensUsed = mg.GetLastThinkingTokens() // Approximate/placeholder, real token tracking might vary by client
+	}
+
+	// Update Metrics
+	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
+
 	// Create trace
 	trace := &ReasoningTrace{
 		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
@@ -210,6 +219,12 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 	} else {
 		logging.API("LLM schema call completed: shard=%s duration=%v response_len=%d", shardID, duration, len(response))
 	}
+
+	tokensUsed := 0
+	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+		tokensUsed = mg.GetLastThinkingTokens()
+	}
+	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
 
 	trace := &ReasoningTrace{
 		ID:            fmt.Sprintf("trace_%d", time.Now().UnixNano()),
@@ -361,6 +376,12 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 			logging.API("LLM streaming call completed: shard=%s duration=%v response_len=%d", shardID, duration, full.Len())
 		}
 
+		tokensUsed := 0
+		if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+			tokensUsed = mg.GetLastThinkingTokens()
+		}
+		RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), firstErr)
+
 		if firstErr != nil {
 			outErr <- firstErr
 		}
@@ -428,6 +449,12 @@ func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt,
 	} else {
 		logging.API("LLM tool call completed: shard=%s duration=%v tool_calls=%d text_len=%d", shardID, duration, len(response.ToolCalls), len(response.Text))
 	}
+
+	tokensUsed := 0
+	if mg, ok := tc.underlying.(interface{ GetLastThinkingTokens() int }); ok {
+		tokensUsed = mg.GetLastThinkingTokens()
+	}
+	RecordLLMCall(shardCategory, shardType, tokensUsed, duration.Milliseconds(), err)
 
 	// Create trace
 	responseText := ""

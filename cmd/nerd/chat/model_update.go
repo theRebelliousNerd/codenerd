@@ -171,7 +171,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.storeShardResult(msg.ShardResult.ShardType, msg.ShardResult.Task, msg.ShardResult.Result, msg.ShardResult.Facts)
 		}
 
-		m = m.pushAssistantMsg(msg.Surface)
+		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
 		m.saveSessionState()
 
 	case responseMsg:
