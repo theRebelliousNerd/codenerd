@@ -16,6 +16,14 @@ const (
 	defaultRiskIntelligenceTimeout = 45 * time.Second
 )
 
+var protectedCampaignRiskRoots = []string{
+	"internal/core",
+	"internal/mangle",
+	"internal/campaign",
+	"internal/perception",
+	"internal/articulation",
+}
+
 // RiskGateMode controls override behavior for campaign risk gating.
 type RiskGateMode string
 
@@ -199,6 +207,61 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 	}
 
 	o.recomputeRiskGateStateLocked()
+	targetPaths := collectCampaignRiskPaths(o.campaign)
+	protectedRoots := detectProtectedCampaignRoots(targetPaths)
+	if len(protectedRoots) > 0 {
+		if o.advisoryBoard == nil {
+			o.riskDecision = nil
+			o.northstarObserver = nil
+			reason := fmt.Sprintf("advisory board not configured for protected campaign surfaces: %s", strings.Join(protectedRoots, ", "))
+			o.emitRiskAudit("risk_gate_blocked", "Campaign blocked: mandatory advisory safety review missing", map[string]any{
+				"blocked_by":        string(RiskGateAdvisory),
+				"reason":            reason,
+				"protected_roots":   protectedRoots,
+				"target_path_count": len(targetPaths),
+			})
+			return &RiskGateEvaluation{
+				Allowed:     false,
+				BlockedBy:   RiskGateAdvisory,
+				BlockReason: reason,
+				Results: []RiskGateResult{{
+					Name:    RiskGateAdvisory,
+					Enabled: false,
+					Outcome: RiskGateOutcomeBlocked,
+					Reason:  reason,
+					Data: map[string]any{
+						"protected_roots": protectedRoots,
+					},
+				}},
+			}, fmt.Errorf("risk gate blocked campaign start (%s): %s", RiskGateAdvisory, reason)
+		}
+		if o.configuredNorthstarObserver == nil {
+			o.riskDecision = nil
+			o.northstarObserver = nil
+			reason := fmt.Sprintf("northstar observer not configured for protected campaign surfaces: %s", strings.Join(protectedRoots, ", "))
+			o.emitRiskAudit("risk_gate_blocked", "Campaign blocked: mandatory northstar safety review missing", map[string]any{
+				"blocked_by":        string(RiskGateNorthstar),
+				"reason":            reason,
+				"protected_roots":   protectedRoots,
+				"target_path_count": len(targetPaths),
+			})
+			return &RiskGateEvaluation{
+				Allowed:     false,
+				BlockedBy:   RiskGateNorthstar,
+				BlockReason: reason,
+				Results: []RiskGateResult{{
+					Name:    RiskGateNorthstar,
+					Enabled: false,
+					Outcome: RiskGateOutcomeBlocked,
+					Reason:  reason,
+					Data: map[string]any{
+						"protected_roots": protectedRoots,
+					},
+				}},
+			}, fmt.Errorf("risk gate blocked campaign start (%s): %s", RiskGateNorthstar, reason)
+		}
+	}
+
 	mode := normalizeRiskGateMode(o.config.RiskGateMode)
 	if !o.config.EnableRiskAutoWiring &&
 		mode == RiskGateModeAuto &&
@@ -217,7 +280,6 @@ func (o *Orchestrator) runRiskPreflight(ctx context.Context) (*RiskGateEvaluatio
 		}, nil
 	}
 
-	targetPaths := collectCampaignRiskPaths(o.campaign)
 	intel := o.gatherRiskIntelligence(ctx, targetPaths)
 	decision := buildCampaignRiskDecision(o.campaign, o.config, o.riskGateState, targetPaths, intel)
 	o.riskDecision = decision
@@ -763,13 +825,7 @@ func campaignMaxComplexity(c *Campaign) string {
 }
 
 func criticalityNorm(paths []string) int {
-	protectedRoots := []string{
-		"internal/core",
-		"internal/mangle",
-		"internal/campaign",
-		"internal/perception",
-		"internal/articulation",
-	}
+	protectedRoots := protectedCampaignRiskRoots
 	apiRoots := []string{
 		"internal/api",
 		"internal/models",
@@ -803,6 +859,64 @@ func criticalityNorm(paths []string) int {
 		}
 	}
 	return 10
+}
+
+func detectProtectedCampaignRoots(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	matched := make(map[string]struct{}, len(protectedCampaignRiskRoots))
+	for _, candidate := range paths {
+		path := normalizeRiskPathForMatch(candidate)
+		if path == "" {
+			continue
+		}
+		for _, root := range protectedCampaignRiskRoots {
+			if pathMatchesRiskRoot(path, root) {
+				matched[root] = struct{}{}
+			}
+		}
+	}
+
+	if len(matched) == 0 {
+		return nil
+	}
+
+	roots := make([]string, 0, len(matched))
+	for root := range matched {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	return roots
+}
+
+func normalizeRiskPathForMatch(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	normalized := strings.ToLower(normalizePath(path))
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.Trim(normalized, "/")
+	return normalized
+}
+
+func pathMatchesRiskRoot(path, root string) bool {
+	if path == "" || root == "" {
+		return false
+	}
+	root = normalizeRiskPathForMatch(root)
+	if root == "" {
+		return false
+	}
+	if path == root || strings.HasPrefix(path, root+"/") {
+		return true
+	}
+	if strings.Contains(path, "/"+root+"/") {
+		return true
+	}
+	return strings.HasSuffix(path, "/"+root)
 }
 
 func coverageFromPlan(c *Campaign) int {

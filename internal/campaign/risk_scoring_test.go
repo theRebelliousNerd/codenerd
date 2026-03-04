@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,7 +149,7 @@ func TestRiskGateAutoWiringDeterministic(t *testing.T) {
 func TestRunRiskPreflight_EmitsAuditEvents(t *testing.T) {
 	eventCh := make(chan OrchestratorEvent, 16)
 	orch := &Orchestrator{
-		campaign: testRiskCampaign(),
+		campaign: testNonProtectedRiskCampaign(),
 		config: OrchestratorConfig{
 			EnableRiskAutoWiring: true,
 			GlobalRiskGate:       true,
@@ -175,6 +176,94 @@ func TestRunRiskPreflight_EmitsAuditEvents(t *testing.T) {
 	}
 	if !events["risk_gate_skipped"] && !events["risk_gate_passed"] {
 		t.Fatalf("expected risk gate terminal event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_ProtectedCampaignBlocksWhenAdvisoryMissing(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan:                   eventCh,
+		configuredNorthstarObserver: newTestNorthstarObserver(t),
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err == nil {
+		t.Fatal("expected protected campaign to block when advisory board is missing")
+	}
+	if eval == nil || eval.Allowed {
+		t.Fatalf("expected blocked evaluation, got %+v", eval)
+	}
+	if eval.BlockedBy != RiskGateAdvisory {
+		t.Fatalf("expected advisory block, got %s", eval.BlockedBy)
+	}
+	if !strings.Contains(err.Error(), "advisory board not configured") {
+		t.Fatalf("expected advisory reason in error, got %v", err)
+	}
+	events := drainRiskEvents(eventCh)
+	if !events["risk_gate_blocked"] {
+		t.Fatalf("expected risk_gate_blocked event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_ProtectedCampaignBlocksWhenNorthstarMissing(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan:     eventCh,
+		advisoryBoard: &ShardAdvisoryBoard{},
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err == nil {
+		t.Fatal("expected protected campaign to block when northstar observer is missing")
+	}
+	if eval == nil || eval.Allowed {
+		t.Fatalf("expected blocked evaluation, got %+v", eval)
+	}
+	if eval.BlockedBy != RiskGateNorthstar {
+		t.Fatalf("expected northstar block, got %s", eval.BlockedBy)
+	}
+	if !strings.Contains(err.Error(), "northstar observer not configured") {
+		t.Fatalf("expected northstar reason in error, got %v", err)
+	}
+	events := drainRiskEvents(eventCh)
+	if !events["risk_gate_blocked"] {
+		t.Fatalf("expected risk_gate_blocked event, got %v", events)
+	}
+}
+
+func TestRunRiskPreflight_NonProtectedCampaignAllowedWithoutMandatoryReviews(t *testing.T) {
+	eventCh := make(chan OrchestratorEvent, 16)
+	orch := &Orchestrator{
+		campaign: testNonProtectedRiskCampaign(),
+		config: OrchestratorConfig{
+			EnableRiskAutoWiring: true,
+			GlobalRiskGate:       true,
+			RiskGateMode:         RiskGateModeAuto,
+			RiskGateThreshold:    100,
+		},
+		eventChan: eventCh,
+	}
+
+	eval, err := orch.runRiskPreflight(context.Background())
+	if err != nil {
+		t.Fatalf("expected non-protected campaign to remain allowed, got error: %v", err)
+	}
+	if eval == nil || !eval.Allowed {
+		t.Fatalf("expected allowed evaluation, got %+v", eval)
 	}
 }
 
@@ -247,6 +336,42 @@ func testRiskCampaign() *Campaign {
 						Artifacts: []TaskArtifact{
 							{Path: "internal/campaign/orchestrator_execution.go"},
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func testNonProtectedRiskCampaign() *Campaign {
+	now := time.Now().UTC()
+	return &Campaign{
+		ID:          "/risk_test_non_protected",
+		Type:        CampaignTypeCustom,
+		Title:       "Risk Test Non Protected",
+		Goal:        "Validate non-protected risk behavior",
+		Status:      StatusPlanning,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		TotalPhases: 1,
+		TotalTasks:  2,
+		Phases: []Phase{
+			{
+				ID:                  "/phase_np_1",
+				Name:                "Phase NP 1",
+				EstimatedComplexity: "/medium",
+				Tasks: []Task{
+					{
+						ID:          "/task_np_1",
+						Type:        TaskTypeRefactor,
+						Description: "Refactor internal/world/holographic.go",
+						WriteSet:    []string{"internal/world/holographic.go"},
+					},
+					{
+						ID:          "/task_np_2",
+						Type:        TaskTypeVerify,
+						Description: "Verify internal/store persistence behavior",
+						WriteSet:    []string{"internal/store/memory.go"},
 					},
 				},
 			},

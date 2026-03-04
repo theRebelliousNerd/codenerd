@@ -94,17 +94,36 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		// Larger buffers prevent backpressure during long campaigns (100+ phases)
 		progressChan := make(chan campaign.Progress, 100)
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
+		consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
+		intelligenceGatherer := campaign.NewIntelligenceGatherer(
+			m.kernel,
+			m.scanner,
+			nil,
+			m.learningStore,
+			m.localDB,
+			nil,
+			nil,
+			consultationProvider,
+		)
+		edgeCaseDetector := campaign.NewEdgeCaseDetector(m.kernel, m.scanner)
+		var advisoryBoard *campaign.ShardAdvisoryBoard
+		if consultationProvider != nil {
+			advisoryBoard = campaign.NewShardAdvisoryBoard(consultationProvider)
+		}
 
 		// Create orchestrator with channels for real-time progress/event streaming
 		orch, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-			Workspace:    m.workspace,
-			Kernel:       m.kernel,
-			LLMClient:    m.client,
-			ShardManager: m.shardMgr,
-			Executor:     m.executor,
-			VirtualStore: m.virtualStore,
-			ProgressChan: progressChan,
-			EventChan:    eventChan,
+			Workspace:            m.workspace,
+			Kernel:               m.kernel,
+			LLMClient:            m.client,
+			ShardManager:         m.shardMgr,
+			Executor:             m.executor,
+			VirtualStore:         m.virtualStore,
+			ProgressChan:         progressChan,
+			EventChan:            eventChan,
+			IntelligenceGatherer: intelligenceGatherer,
+			AdvisoryBoard:        advisoryBoard,
+			EdgeCaseDetector:     edgeCaseDetector,
 		})
 		if err != nil {
 			return campaignErrorMsg{err: fmt.Errorf("failed to initialize campaign orchestrator: %w", err)}

@@ -348,6 +348,8 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(taskExecutor)
+	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
+	consultationProvider := newCampaignConsultationProvider(consultationMgr)
 
 	// Initialize Intelligence Integration components (Campaign Intelligence Plan)
 	fmt.Println("🧠 Initializing intelligence gathering systems...")
@@ -365,16 +367,13 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		localDB,       // localStore - knowledge graph + cold storage
 		nil,           // toolGenerator - not yet wired in CLI mode
 		nil,           // mcpStore - not yet wired in CLI mode
-		nil,           // consultation - interface mismatch, needs adapter
+		consultationProvider,
 	)
 	fmt.Println("   ✓ Intelligence gatherer initialized")
 
 	// Create ShardAdvisoryBoard - domain experts review plans
-	var advisoryBoard *campaign.ShardAdvisoryBoard
-	// Note: NewShardAdvisoryBoard expects campaign.ConsultationProvider interface
-	// which requires an adapter from shards.ConsultationManager
-	// For now, leave as nil - can be added later with proper adapter
-	fmt.Println("   ⚠ Advisory board pending (needs interface adapter)")
+	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
+	fmt.Println("   ✓ Advisory board initialized")
 
 	// Create EdgeCaseDetector - file action decisions (create/extend/modularize)
 	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
@@ -720,17 +719,37 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
 	virtualStore.SetTaskExecutor(taskExecutor)
+	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
+	consultationProvider := newCampaignConsultationProvider(consultationMgr)
+
+	// Initialize campaign intelligence components for deterministic gating during resume.
+	worldScanner := world.NewScanner()
+	intelligenceGatherer := campaign.NewIntelligenceGatherer(
+		kern,
+		worldScanner,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		consultationProvider,
+	)
+	advisoryBoard := campaign.NewShardAdvisoryBoard(consultationProvider)
+	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
 
 	orchestrator, err := campaign.NewOrchestrator(campaign.OrchestratorConfig{
-		Workspace:    cwd,
-		Kernel:       kern,
-		LLMClient:    llmClient,
-		ShardManager: shardMgr,
-		TaskExecutor: taskExecutor,
-		Executor:     executor,
-		VirtualStore: virtualStore,
-		ProgressChan: progressChan,
-		EventChan:    eventChan,
+		Workspace:            cwd,
+		Kernel:               kern,
+		LLMClient:            llmClient,
+		ShardManager:         shardMgr,
+		TaskExecutor:         taskExecutor,
+		Executor:             executor,
+		VirtualStore:         virtualStore,
+		ProgressChan:         progressChan,
+		EventChan:            eventChan,
+		IntelligenceGatherer: intelligenceGatherer,
+		AdvisoryBoard:        advisoryBoard,
+		EdgeCaseDetector:     edgeCaseDetector,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize campaign orchestrator: %w", err)
@@ -940,4 +959,72 @@ func (a *campaignLLMAdapter) CompleteWithSystem(ctx context.Context, systemPromp
 
 func (a *campaignLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+}
+
+// campaignTaskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner.
+type campaignTaskExecutorConsultationSpawner struct {
+	executor session.TaskExecutor
+}
+
+func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
+	if s.executor == nil {
+		return "", fmt.Errorf("task executor not available")
+	}
+	intent := core.LegacyShardNameToIntent(specialistName)
+	return s.executor.Execute(ctx, intent, task)
+}
+
+// campaignConsultationProviderAdapter adapts shards.ConsultationManager to campaign.ConsultationProvider.
+type campaignConsultationProviderAdapter struct {
+	manager *shards.ConsultationManager
+}
+
+func newCampaignConsultationProvider(manager *shards.ConsultationManager) campaign.ConsultationProvider {
+	if manager == nil {
+		return nil
+	}
+	return &campaignConsultationProviderAdapter{manager: manager}
+}
+
+func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx context.Context, request campaign.BatchConsultRequest) ([]campaign.ConsultationResponse, error) {
+	if a == nil || a.manager == nil {
+		return nil, fmt.Errorf("consultation manager not configured")
+	}
+
+	question := strings.TrimSpace(request.Question)
+	if topic := strings.TrimSpace(request.Topic); topic != "" {
+		if question == "" {
+			question = topic
+		} else {
+			question = "[" + topic + "] " + question
+		}
+	}
+
+	targets := request.TargetSpec
+	if len(targets) == 0 {
+		targets = []string{"coder", "tester", "reviewer", "researcher"}
+	}
+
+	responses, err := a.manager.RequestBatchConsultation(ctx, question, request.Context, targets)
+	if err != nil {
+		return nil, err
+	}
+
+	converted := make([]campaign.ConsultationResponse, 0, len(responses))
+	for _, resp := range responses {
+		converted = append(converted, campaign.ConsultationResponse{
+			RequestID:    resp.RequestID,
+			FromSpec:     resp.FromSpec,
+			ToSpec:       resp.ToSpec,
+			Advice:       resp.Advice,
+			Confidence:   resp.Confidence,
+			References:   resp.References,
+			Caveats:      resp.Caveats,
+			Metadata:     resp.Metadata,
+			ResponseTime: resp.ResponseTime,
+			Duration:     resp.Duration,
+		})
+	}
+
+	return converted, nil
 }
