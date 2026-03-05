@@ -148,6 +148,8 @@ func TestAtomSelector_SetMinScoreThreshold(t *testing.T) {
 // =========================================================================
 
 func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
+	// TODO: TEST_GAP: selectAtoms with nil CompilationContext
+	// TODO: TEST_GAP: selectAtoms with nil PromptAtom elements in candidate slice
 	t.Run("empty atoms returns nil", func(t *testing.T) {
 		selector := NewAtomSelector()
 		kernel := &mockKernel{}
@@ -263,6 +265,7 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 }
 
 func TestAtomSelector_SelectAtoms_FactsAreMangleParseable(t *testing.T) {
+	// TODO: TEST_GAP: massive number of flesh atoms
 	selector := NewAtomSelector()
 
 	evilID := "evil\\\" ) :- dangerous(X). #\n"
@@ -618,6 +621,7 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 // =========================================================================
 
 func TestAtomSelector_SelectAtomsLegacy(t *testing.T) {
+	// TODO: TEST_GAP: verify atoms with extreme token counts don't crash the fallback selection
 	type mockResult struct {
 		id     string
 		source string
