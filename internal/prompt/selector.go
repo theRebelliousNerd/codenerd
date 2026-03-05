@@ -560,8 +560,8 @@ func (s *AtomSelector) SelectAtomsLegacy(
 	}
 
 	// 1. Prepare Facts for Mangle
-	// TODO: Performance: Optimize fact construction. Pre-allocate capacity based on atom count and context complexity to reduce slice reallocations.
-	var facts []interface{}
+	// Pre-allocate facts array to minimize reallocation.
+	facts := make([]interface{}, 0, 10+len(atoms)*10)
 
 	// Context Facts - dimension names must be Mangle constants (start with /)
 	addContextFact := func(dim, val string) {
@@ -579,7 +579,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 			if dim == "" || val == "" {
 				return
 			}
-			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
+			facts = append(facts, "current_context("+dim+", "+val+")")
 		}
 	}
 	addContextFact("mode", cc.OperationalMode)
@@ -602,11 +602,11 @@ func (s *AtomSelector) SelectAtomsLegacy(
 				isMandatory = true
 			}
 		}
-		facts = append(facts, fmt.Sprintf("atom(%s)", mangleQuoteString(id)))
-		facts = append(facts, fmt.Sprintf("atom_category(%s, %s)", mangleQuoteString(id), mangleQuoteString(string(atom.Category))))
-		facts = append(facts, fmt.Sprintf("atom_priority(%s, %d)", mangleQuoteString(id), atom.Priority))
+		facts = append(facts, "atom("+mangleQuoteString(id)+")")
+		facts = append(facts, "atom_category("+mangleQuoteString(id)+", "+mangleQuoteString(string(atom.Category))+")")
+		facts = append(facts, "atom_priority("+mangleQuoteString(id)+", "+strconv.Itoa(atom.Priority)+")")
 		if isMandatory {
-			facts = append(facts, fmt.Sprintf("is_mandatory(%s)", mangleQuoteString(id)))
+			facts = append(facts, "is_mandatory("+mangleQuoteString(id)+")")
 		}
 
 		// Tags helper
@@ -630,7 +630,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 				if atomDim == "" || atomVal == "" {
 					continue
 				}
-				facts = append(facts, fmt.Sprintf("atom_tag(%s, %s, %s)", mangleQuoteString(id), atomDim, atomVal))
+				facts = append(facts, "atom_tag("+mangleQuoteString(id)+", "+atomDim+", "+atomVal+")")
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -650,7 +650,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 		if err == nil {
 			vectorScores = scores
 			for id, score := range scores {
-				facts = append(facts, fmt.Sprintf("vector_hit(%s, %f)", mangleQuoteString(id), score))
+				facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatFloat(score, 'g', -1, 64)+")")
 			}
 		} else {
 			logging.Get(logging.CategoryContext).Warn("Vector search failed: %v", err)
@@ -914,7 +914,7 @@ func (s *AtomSelector) loadFleshAtoms(
 
 	// Add vector hits as facts
 	for id, score := range vectorScores {
-		facts = append(facts, fmt.Sprintf("vector_hit(%s, %f)", mangleQuoteString(id), score))
+		facts = append(facts, "vector_hit("+mangleQuoteString(id)+", "+strconv.FormatFloat(score, 'g', -1, 64)+")")
 	}
 
 	// Step 3: Query Mangle (if kernel available)
@@ -1072,9 +1072,9 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
-// TODO: Performance: Optimize fact string construction. Use pre-allocated buffer or builder instead of fmt.Sprintf for every fact.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
-	var facts []interface{}
+	// Pre-allocate facts array to minimize reallocation.
+	facts := make([]interface{}, 0, 15+len(atoms)*15)
 
 	// Context Facts - dimension names must be Mangle constants (start with /)
 	addContextFact := func(dim, val string) {
@@ -1092,7 +1092,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 			if dim == "" || val == "" {
 				return
 			}
-			facts = append(facts, fmt.Sprintf("current_context(%s, %s)", dim, val))
+			facts = append(facts, "current_context("+dim+", "+val+")")
 		}
 	}
 	addContextFact("mode", cc.OperationalMode)
@@ -1120,11 +1120,11 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				isMandatory = true
 			}
 		}
-		facts = append(facts, fmt.Sprintf("atom(%s)", mangleQuoteString(id)))
-		facts = append(facts, fmt.Sprintf("atom_category(%s, %s)", mangleQuoteString(id), mangleQuoteString(string(atom.Category))))
-		facts = append(facts, fmt.Sprintf("atom_priority(%s, %d)", mangleQuoteString(id), atom.Priority))
+		facts = append(facts, "atom("+mangleQuoteString(id)+")")
+		facts = append(facts, "atom_category("+mangleQuoteString(id)+", "+mangleQuoteString(string(atom.Category))+")")
+		facts = append(facts, "atom_priority("+mangleQuoteString(id)+", "+strconv.Itoa(atom.Priority)+")")
 		if isMandatory {
-			facts = append(facts, fmt.Sprintf("is_mandatory(%s)", mangleQuoteString(id)))
+			facts = append(facts, "is_mandatory("+mangleQuoteString(id)+")")
 		}
 
 		// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
@@ -1154,9 +1154,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 		}
 
-		facts = append(facts, fmt.Sprintf("prompt_atom(%s, %s, %d, %s, %s)",
-
-			mangleQuoteString(id), mangleNormalizeNameConst(category), atom.Priority, mangleQuoteString(hash), isMandatoryAtom))
+		facts = append(facts, "prompt_atom("+mangleQuoteString(id)+", "+mangleNormalizeNameConst(category)+", "+strconv.Itoa(atom.Priority)+", "+mangleQuoteString(hash)+", "+isMandatoryAtom+")")
 
 		// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
@@ -1178,7 +1176,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				if atomDim == "" || atomVal == "" {
 					continue
 				}
-				facts = append(facts, fmt.Sprintf("atom_tag(%s, %s, %s)", mangleQuoteString(id), atomDim, atomVal))
+				facts = append(facts, "atom_tag("+mangleQuoteString(id)+", "+atomDim+", "+atomVal+")")
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -1196,14 +1194,14 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {
 			if dep != "" {
-				facts = append(facts, fmt.Sprintf("atom_requires(%s, %s)", mangleQuoteString(id), mangleQuoteString(dep)))
+				facts = append(facts, "atom_requires("+mangleQuoteString(id)+", "+mangleQuoteString(dep)+")")
 			}
 		}
 
 		// Conflicts - needed for atom_conflicts() in jit_compiler.mg
 		for _, conflict := range atom.ConflictsWith {
 			if conflict != "" {
-				facts = append(facts, fmt.Sprintf("atom_conflicts(%s, %s)", mangleQuoteString(id), mangleQuoteString(conflict)))
+				facts = append(facts, "atom_conflicts("+mangleQuoteString(id)+", "+mangleQuoteString(conflict)+")")
 			}
 		}
 	}
