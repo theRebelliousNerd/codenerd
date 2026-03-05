@@ -715,6 +715,7 @@ func (s *AtomSelector) SelectAtomsLegacy(
 
 // getVectorScores retrieves semantic similarity scores for atoms.
 // Uses a configurable sub-timeout to prevent blocking JIT compilation.
+// TODO: Reliability: Ensure callers gracefully degrade (continue with 0 vector scores) if getVectorScores returns an error or times out, rather than failing the entire JIT compilation.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,

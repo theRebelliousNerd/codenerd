@@ -565,6 +565,7 @@ func AllContextDimensions() []ContextDimension {
 // Hash generates a stable hash key for caching based on context fields.
 // Bug #5 fix: Enable prompt caching to prevent recompilation spam.
 func (cc *CompilationContext) Hash() string {
+	// TODO: Performance: Write context dimension values directly to the sha256 hash.Hash object instead of allocating and concatenating a potentially massive string in bytes.Buffer first.
 	if cc == nil {
 		return "nil"
 	}
