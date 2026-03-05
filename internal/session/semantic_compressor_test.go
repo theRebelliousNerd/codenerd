@@ -48,3 +48,9 @@ func TestSemanticCompressor_Compress_Empty(t *testing.T) {
 		t.Errorf("Expected empty summary, got '%s'", summary)
 	}
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty: What happens if inputs are turns with empty content?
+// TODO: TEST_GAP: Type Coercion: What happens if Role is "tool"? It is coerced to "Assistant" which might confuse the summarizer.
+// TODO: TEST_GAP: User Request Extremes: What happens if turns contain 100,000 items? Does strings.Builder panic or OOM?
+// TODO: TEST_GAP: User Request Extremes: Does it exceed LLM token limits?
+// TODO: TEST_GAP: State Conflicts: What happens if CompleteWithSystem times out or fails?
