@@ -540,9 +540,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		promptAssembler = pa
 		transducer.SetPromptAssembler(pa)
 		// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
-		// jitCompiler is intentionally nil here: autopoiesis currently consumes the
-		// assembler interface for JIT prompt paths.
-		poiesis.SetJITComponents(nil, pa)
+		poiesis.SetPromptAssembler(pa)
 	}
 
 	// 5b. Register discovered user agents with JIT compiler and ShardManager

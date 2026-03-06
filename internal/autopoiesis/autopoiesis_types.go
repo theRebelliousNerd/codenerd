@@ -36,12 +36,6 @@ type PromptAssembler interface {
 	JITReady() bool
 }
 
-// JITCompiler is an interface for the JIT prompt compiler.
-// Implemented by prompt.JITPromptCompiler to avoid import cycles.
-type JITCompiler interface {
-	Compile(ctx context.Context, cc interface{}) (interface{}, error)
-}
-
 // =============================================================================
 // OUROBOROS INTERFACES & TYPES
 // =============================================================================

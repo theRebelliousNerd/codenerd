@@ -986,7 +986,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
 			// jitCompiler is intentionally nil here: autopoiesis currently consumes the
 			// assembler interface for JIT prompt paths.
-			autopoiesisOrch.SetJITComponents(nil, promptAssembler)
+			autopoiesisOrch.SetPromptAssembler(promptAssembler)
 		}
 
 		autopoiesisCtx, autopoiesisCancel := context.WithCancel(context.Background())

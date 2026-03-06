@@ -46,7 +46,6 @@ type Orchestrator struct {
 
 	// JIT Prompt Compilation (Phase 5) - using interfaces to avoid import cycles
 	promptAssembler PromptAssembler // JIT-aware prompt assembler
-	jitCompiler     JITCompiler     // JIT prompt compiler
 
 	// Gemini advanced features (nil if not Gemini or features unavailable)
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
@@ -287,12 +286,11 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 	return orch
 }
 
-// SetJITComponents attaches the JIT components using interfaces.
-// This enables context-aware prompt generation for tool generation stages.
-func (o *Orchestrator) SetJITComponents(jitCompiler JITCompiler, assembler PromptAssembler) {
+// SetPromptAssembler attaches the JIT-aware prompt assembler used by tool
+// generation and refinement paths.
+func (o *Orchestrator) SetPromptAssembler(assembler PromptAssembler) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.jitCompiler = jitCompiler
 	o.promptAssembler = assembler
 
 	// Wire the assembler to ToolGenerator and ToolRefiner

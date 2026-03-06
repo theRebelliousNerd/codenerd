@@ -130,10 +130,22 @@ func (s *ToolStore) Store(exec ToolExecution) error {
 	}
 
 	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO tool_executions
+		INSERT INTO tool_executions
 		(call_id, session_id, tool_name, action, input, result, error, success,
 		 duration_ms, result_size, session_runtime_ms, usefulness_score)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(call_id) DO UPDATE SET
+			session_id = excluded.session_id,
+			tool_name = excluded.tool_name,
+			action = excluded.action,
+			input = excluded.input,
+			result = excluded.result,
+			error = excluded.error,
+			success = excluded.success,
+			duration_ms = excluded.duration_ms,
+			result_size = excluded.result_size,
+			session_runtime_ms = excluded.session_runtime_ms,
+			usefulness_score = excluded.usefulness_score`,
 		exec.CallID, exec.SessionID, exec.ToolName, exec.Action, exec.Input,
 		exec.Result, exec.Error, successInt, exec.DurationMs, exec.ResultSize,
 		exec.SessionRuntimeMs, exec.UsefulnessScore,
