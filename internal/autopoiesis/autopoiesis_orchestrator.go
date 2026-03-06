@@ -279,6 +279,10 @@ func NewOrchestrator(client LLMClient, config Config) *Orchestrator {
 		orch.assertToolRegistered(tool)
 	})
 
+	// Prime the tool generators with any learnings restored from disk so the
+	// first generation pass in a new session benefits immediately.
+	orch.RefreshLearningsContext()
+
 	logging.Autopoiesis("Autopoiesis Orchestrator initialized successfully")
 	return orch
 }

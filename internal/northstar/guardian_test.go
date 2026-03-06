@@ -136,6 +136,40 @@ func TestGuardian_GetVision_Nil(t *testing.T) {
 	}
 }
 
+func TestGuardian_GetVision_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	vision := &Vision{
+		Mission:    "Immutable mission",
+		Problem:    "Immutable problem",
+		VisionStmt: "Immutable vision",
+		Personas: []Persona{
+			{Name: "Developer", Needs: []string{"speed"}},
+		},
+	}
+	if err := guardian.UpdateVision(vision); err != nil {
+		t.Fatalf("UpdateVision error: %v", err)
+	}
+
+	copyVision := guardian.GetVision()
+	copyVision.Mission = "mutated"
+	copyVision.Personas[0].Needs[0] = "mutated"
+
+	freshVision := guardian.GetVision()
+	if freshVision.Mission != "Immutable mission" {
+		t.Errorf("GetVision returned mutable internal state: got %q", freshVision.Mission)
+	}
+	if freshVision.Personas[0].Needs[0] != "speed" {
+		t.Errorf("nested vision slices should be copied, got %q", freshVision.Personas[0].Needs[0])
+	}
+}
+
 func TestGuardian_GetState(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +275,55 @@ func TestGuardian_CheckAlignment_NoLLM(t *testing.T) {
 	}
 }
 
+func TestGuardian_CheckAlignment_NoLLM_RecordsHistory(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	if err := guardian.UpdateVision(&Vision{
+		Mission:    "Test",
+		Problem:    "Test",
+		VisionStmt: "Test",
+	}); err != nil {
+		t.Fatalf("UpdateVision error: %v", err)
+	}
+
+	if _, err := store.IncrementTaskCount(); err != nil {
+		t.Fatalf("IncrementTaskCount error: %v", err)
+	}
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "test subject", "")
+	if err != nil {
+		t.Fatalf("CheckAlignment error: %v", err)
+	}
+	if check.Result != AlignmentPassed {
+		t.Fatalf("expected passed result, got %s", check.Result)
+	}
+
+	history, err := store.GetAlignmentHistory(10)
+	if err != nil {
+		t.Fatalf("GetAlignmentHistory error: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected 1 recorded alignment check, got %d", len(history))
+	}
+
+	state := guardian.GetState()
+	if state == nil {
+		t.Fatal("expected non-nil guardian state")
+	}
+	if state.TasksSinceCheck != 0 {
+		t.Errorf("TasksSinceCheck should reset after persisted check, got %d", state.TasksSinceCheck)
+	}
+	if state.LastCheck.IsZero() {
+		t.Error("LastCheck should be updated after persisted check")
+	}
+}
+
 func TestGuardian_CheckAlignment_WithLLM(t *testing.T) {
 	t.Parallel()
 
@@ -332,6 +415,44 @@ func TestGuardian_CheckAlignment_Failed(t *testing.T) {
 	// Score 0.4 is between failure (0.5) and block (0.3) thresholds
 	if check.Result != AlignmentFailed {
 		t.Errorf("expected Failed, got %s", check.Result)
+	}
+}
+
+func TestGuardian_CheckAlignment_DriftRefreshesGuardianState(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	if err := guardian.UpdateVision(&Vision{
+		Mission:    "Test",
+		Problem:    "Test",
+		VisionStmt: "Test",
+	}); err != nil {
+		t.Fatalf("UpdateVision error: %v", err)
+	}
+
+	guardian.SetLLMClient(&mockLLMClient{
+		response: "SCORE: 0.2\nRESULT: blocked\nEXPLANATION: Off mission\nSUGGESTIONS: stop",
+	})
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "dangerous change", "")
+	if err != nil {
+		t.Fatalf("CheckAlignment error: %v", err)
+	}
+	if check.Result != AlignmentBlocked {
+		t.Fatalf("expected blocked result, got %s", check.Result)
+	}
+
+	state := guardian.GetState()
+	if state == nil {
+		t.Fatal("expected non-nil guardian state")
+	}
+	if state.ActiveDriftCount != 1 {
+		t.Errorf("ActiveDriftCount should refresh after drift record, got %d", state.ActiveDriftCount)
 	}
 }
 
@@ -669,6 +790,20 @@ func TestGuardian_CalculatePathRelevance_HighImpact(t *testing.T) {
 	}
 }
 
+func TestGuardian_CalculatePathRelevance_WildcardMatchesNestedFile(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	config := DefaultGuardianConfig()
+	config.HighImpactPaths = []string{"*.mg"}
+	guardian := NewGuardian(store, config)
+
+	relevance := guardian.calculatePathRelevance(".nerd/northstar.mg")
+	if relevance != 0.9 {
+		t.Errorf("expected wildcard pattern to match nested .mg file, got %f", relevance)
+	}
+}
+
 // =============================================================================
 // PARSE ALIGNMENT RESPONSE TESTS
 // =============================================================================
@@ -725,6 +860,23 @@ func TestGuardian_ParseAlignmentResponse(t *testing.T) {
 				t.Errorf("expected no suggestions, got %v", check.Suggestions)
 			}
 		})
+	}
+}
+
+func TestGuardian_ParseAlignmentResponse_ExplicitResultWins(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+
+	check := &AlignmentCheck{}
+	guardian.parseAlignmentResponse("SCORE: 0.95\nRESULT: blocked\nEXPLANATION: Explicit block\nSUGGESTIONS: none", check)
+
+	if check.Score != 0.95 {
+		t.Fatalf("expected score 0.95, got %f", check.Score)
+	}
+	if check.Result != AlignmentBlocked {
+		t.Fatalf("explicit RESULT should win over score thresholds, got %s", check.Result)
 	}
 }
 

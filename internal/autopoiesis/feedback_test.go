@@ -376,13 +376,27 @@ func TestLearningStore_GenerateMangleFacts(t *testing.T) {
 
 	// Check for expected fact types
 	foundLearning := false
+	foundScaledQuality := false
+	foundIssueAtom := false
 	for _, fact := range facts {
 		if strings.Contains(fact, "tool_learning") {
 			foundLearning = true
+			if strings.Contains(fact, "80.00") {
+				foundScaledQuality = true
+			}
+		}
+		if strings.Contains(fact, "tool_known_issue") && strings.Contains(fact, "/slow") {
+			foundIssueAtom = true
 		}
 	}
 	if !foundLearning {
 		t.Error("Expected tool_learning fact")
+	}
+	if !foundScaledQuality {
+		t.Error("Expected tool_learning quality to be exported on 0-100 scale")
+	}
+	if !foundIssueAtom {
+		t.Error("Expected tool_known_issue fact to use atom-style issue names")
 	}
 }
 

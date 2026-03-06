@@ -24,26 +24,15 @@ func NewToolExecutorAdapter(orch *autopoiesis.Orchestrator) *ToolExecutorAdapter
 // ExecuteTool runs a registered tool with the given input
 func (a *ToolExecutorAdapter) ExecuteTool(ctx context.Context, toolName string, input string) (string, error) {
 	// Use ExecuteAndEvaluateWithProfile for full feedback loop
-	output, assessment, err := a.orchestrator.ExecuteAndEvaluateWithProfile(ctx, toolName, input)
+	output, _, err := a.orchestrator.ExecuteAndEvaluateWithProfile(ctx, toolName, input)
 	if err != nil {
 		return output, err
 	}
 
-	// Log quality assessment for learning (async to not block)
+	// ExecuteAndEvaluateWithProfile already records execution feedback.
+	// Only the refinement decision remains here.
 	go func() {
 		log := logging.Get(logging.CategoryAutopoiesis)
-		feedback := &autopoiesis.ExecutionFeedback{
-			ToolName:  toolName,
-			Input:     input,
-			Output:    output,
-			Duration:  time.Since(time.Now()), // Approximate - real duration tracked internally
-			Success:   true,
-			Timestamp: time.Now(),
-			Quality:   assessment, // Already a *QualityAssessment
-		}
-		a.orchestrator.RecordExecution(context.Background(), feedback)
-
-		// GAP-005 FIX: Check if tool needs refinement after recording execution
 		needsRefinement, suggestions := a.orchestrator.ShouldRefineTool(toolName)
 		if needsRefinement {
 			log.Info("Tool '%s' needs refinement based on %d patterns", toolName, len(suggestions))

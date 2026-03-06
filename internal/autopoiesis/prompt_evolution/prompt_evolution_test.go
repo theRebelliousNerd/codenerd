@@ -753,6 +753,20 @@ func (m *mockLLMClient) CompleteWithOptions(ctx context.Context, system, user st
 	return m.CompleteWithSystem(ctx, system, user)
 }
 
+type partialBatchJudgeLLMClient struct {
+}
+
+func (m *partialBatchJudgeLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "", nil
+}
+
+func (m *partialBatchJudgeLLMClient) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	if strings.Contains(user, "## Task Request\nsecond\n") {
+		return "not-json", nil
+	}
+	return `{"verdict":"FAIL","explanation":"failed","category":"LOGIC_ERROR","improvement_rule":"When testing, always validate the output"}`, nil
+}
+
 func TestPromptEvolver_Lifecycle(t *testing.T) {
 	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "evolver_test")
@@ -1068,6 +1082,109 @@ func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 	stats := evolver.GetStats()
 	if stats.TotalExecutionsRecorded != writers {
 		t.Fatalf("expected %d executions recorded, got %d", writers, stats.TotalExecutionsRecorded)
+	}
+}
+
+func TestTaskJudge_EvaluateBatchPreservesOrdering(t *testing.T) {
+	judge := NewTaskJudge(&partialBatchJudgeLLMClient{}, "test")
+
+	execs := []*ExecutionRecord{
+		{
+			TaskID:      "task-1",
+			ShardType:   "/coder",
+			TaskRequest: "first",
+			Timestamp:   time.Now(),
+		},
+		{
+			TaskID:      "task-2",
+			ShardType:   "/coder",
+			TaskRequest: "second",
+			Timestamp:   time.Now(),
+		},
+		{
+			TaskID:      "task-3",
+			ShardType:   "/coder",
+			TaskRequest: "third",
+			Timestamp:   time.Now(),
+		},
+	}
+
+	verdicts, err := judge.EvaluateBatch(context.Background(), execs)
+	if err != nil {
+		t.Fatalf("EvaluateBatch failed: %v", err)
+	}
+	if len(verdicts) != len(execs) {
+		t.Fatalf("expected %d verdict slots, got %d", len(execs), len(verdicts))
+	}
+	if verdicts[1] != nil {
+		t.Fatalf("expected failed parse to remain nil at index 1, got %+v", verdicts[1])
+	}
+	if verdicts[0] == nil || verdicts[0].TaskID != "task-1" {
+		t.Fatalf("expected verdict for task-1 at index 0, got %+v", verdicts[0])
+	}
+	if verdicts[2] == nil || verdicts[2].TaskID != "task-3" {
+		t.Fatalf("expected verdict for task-3 at index 2, got %+v", verdicts[2])
+	}
+}
+
+func TestFeedbackCollector_RoundTripsPromptContext(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "feedback_prompt_context_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	fc, err := NewFeedbackCollector(tempDir)
+	if err != nil {
+		t.Fatalf("NewFeedbackCollector failed: %v", err)
+	}
+	defer fc.Close()
+
+	exec := &ExecutionRecord{
+		TaskID:      "task-prompt-context",
+		SessionID:   "session-ctx",
+		ShardType:   "/coder",
+		TaskRequest: "fix the prompt wiring",
+		Timestamp:   time.Now(),
+		PromptManifest: &prompt.PromptManifest{
+			ContextHash: "ctx-123",
+			Selected: []prompt.AtomManifestEntry{
+				{ID: "atom/a", Category: "methodology", Source: "embedded"},
+			},
+		},
+		AtomIDs:          []string{"atom/a", "atom/b"},
+		ThoughtSummary:   "Reason through the bug first.",
+		ThinkingTokens:   42,
+		GroundingSources: []string{"https://example.com/doc"},
+		ExecutionResult: ExecutionResult{
+			Success: true,
+			Output:  "done",
+		},
+	}
+
+	if err := fc.Record(exec); err != nil {
+		t.Fatalf("Record failed: %v", err)
+	}
+
+	rows, err := fc.GetRecentByShardType("/coder", 1)
+	if err != nil {
+		t.Fatalf("GetRecentByShardType failed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(rows))
+	}
+	got := rows[0]
+	if got.PromptManifest == nil || got.PromptManifest.ContextHash != "ctx-123" {
+		t.Fatalf("expected prompt manifest to round-trip, got %+v", got.PromptManifest)
+	}
+	if len(got.AtomIDs) != 2 || got.AtomIDs[0] != "atom/a" {
+		t.Fatalf("expected atom IDs to round-trip, got %v", got.AtomIDs)
+	}
+	if got.ThoughtSummary != exec.ThoughtSummary || got.ThinkingTokens != exec.ThinkingTokens {
+		t.Fatalf("expected thinking metadata to round-trip, got summary=%q tokens=%d", got.ThoughtSummary, got.ThinkingTokens)
+	}
+	if len(got.GroundingSources) != 1 || got.GroundingSources[0] != exec.GroundingSources[0] {
+		t.Fatalf("expected grounding sources to round-trip, got %v", got.GroundingSources)
 	}
 }
 

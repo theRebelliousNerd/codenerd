@@ -12,7 +12,7 @@ import (
 //
 // Supported models by provider:
 //   - anthropic:   claude-sonnet-4-5-20250514, claude-opus-4-20250514, claude-3-5-sonnet-20241022
-//   - openai:      gpt-5.1-codex-max (default), gpt-5.1-codex-mini, gpt-5-codex, gpt-4o
+//   - openai:      gpt-5.4 (default), gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2-codex, gpt-5.1-codex-max, gpt-5-codex, gpt-4o
 //   - gemini:      gemini-3-flash-preview (default), gemini-3-pro-preview
 //   - xai:         grok-2-latest (default), grok-2, grok-beta
 //   - zai:         GLM-4.6 (default)
@@ -493,7 +493,7 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 		enableSchema := true
 		skillEnabled := true
 		return &CodexCLIConfig{
-			Model:              "gpt-5.3-codex",
+			Model:              "gpt-5.4",
 			Sandbox:            "read-only",
 			Timeout:            300,
 			SkillEnabled:       &skillEnabled,
@@ -505,7 +505,7 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	}
 	cfg := *c.CodexCLI
 	if cfg.Model == "" {
-		cfg.Model = "gpt-5.3-codex"
+		cfg.Model = "gpt-5.4"
 	}
 	if cfg.Sandbox == "" {
 		cfg.Sandbox = "read-only"

@@ -161,6 +161,7 @@ func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt
 		Success:       err == nil,
 		Timestamp:     time.Now(),
 	}
+	trace.Model = resolveTraceModel(ctx, tc.underlying)
 
 	if err != nil {
 		trace.ErrorMessage = err.Error()
@@ -240,6 +241,7 @@ func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt
 		Success:       err == nil,
 		Timestamp:     time.Now(),
 	}
+	trace.Model = resolveTraceModel(ctx, tc.underlying)
 
 	if err != nil {
 		trace.ErrorMessage = err.Error()
@@ -267,6 +269,10 @@ type streamingCallbackClient interface {
 
 type modelGetter interface {
 	GetModel() string
+}
+
+type contextualModelGetter interface {
+	ModelForContext(ctx context.Context) string
 }
 
 // CompleteWithStreaming implements streaming with trace capture.
@@ -400,9 +406,7 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 			Success:       firstErr == nil,
 			Timestamp:     time.Now(),
 		}
-		if mg, ok := tc.underlying.(modelGetter); ok {
-			trace.Model = mg.GetModel()
-		}
+		trace.Model = resolveTraceModel(ctx, tc.underlying)
 		if firstErr != nil {
 			trace.ErrorMessage = firstErr.Error()
 		}
@@ -424,6 +428,18 @@ func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPro
 // Use sparingly - prefer going through the tracing wrapper.
 func (tc *TracingLLMClient) GetUnderlying() LLMClient {
 	return tc.underlying
+}
+
+func resolveTraceModel(ctx context.Context, client LLMClient) string {
+	if resolver, ok := client.(contextualModelGetter); ok {
+		if model := strings.TrimSpace(resolver.ModelForContext(ctx)); model != "" {
+			return model
+		}
+	}
+	if mg, ok := client.(modelGetter); ok {
+		return mg.GetModel()
+	}
+	return ""
 }
 
 // CompleteWithTools implements LLMClient.CompleteWithTools with tracing.

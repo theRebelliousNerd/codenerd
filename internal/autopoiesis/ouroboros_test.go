@@ -557,7 +557,7 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 		t.Errorf("Expected at least 3 facts, got %d", len(facts))
 	}
 
-	expectedPredicates := []string{"tool_registered", "tool_hash", "has_capability"}
+	expectedPredicates := []string{"tool_registered", "tool_hash", "tool_capability"}
 	for _, pred := range expectedPredicates {
 		found := false
 		for _, fact := range facts {
@@ -568,6 +568,12 @@ func TestGenerateToolRegistrationFacts(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected fact with predicate %q", pred)
+		}
+	}
+
+	for _, fact := range facts {
+		if strings.Contains(fact, "tool_registered") && strings.Contains(fact, "RFC3339") {
+			t.Fatalf("expected numeric registration timestamp, got %s", fact)
 		}
 	}
 }

@@ -216,6 +216,45 @@ func TestStore_SaveVision_UpdateExisting(t *testing.T) {
 	}
 }
 
+func TestStore_SaveVision_PreservesCreatedAtOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+
+	original := &Vision{
+		Mission:    "Original mission",
+		Problem:    "Original problem",
+		VisionStmt: "Original statement",
+	}
+	if err := store.SaveVision(original); err != nil {
+		t.Fatalf("first SaveVision error: %v", err)
+	}
+
+	createdAt := original.CreatedAt
+	time.Sleep(10 * time.Millisecond)
+
+	updated := &Vision{
+		Mission:    "Updated mission",
+		Problem:    "Updated problem",
+		VisionStmt: "Updated statement",
+	}
+	if err := store.SaveVision(updated); err != nil {
+		t.Fatalf("second SaveVision error: %v", err)
+	}
+
+	loaded, err := store.LoadVision()
+	if err != nil {
+		t.Fatalf("LoadVision error: %v", err)
+	}
+
+	if !loaded.CreatedAt.Equal(createdAt) {
+		t.Errorf("CreatedAt changed on update: got %v, want %v", loaded.CreatedAt, createdAt)
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Errorf("in-memory CreatedAt should preserve original timestamp: got %v, want %v", updated.CreatedAt, createdAt)
+	}
+}
+
 // =============================================================================
 // OBSERVATION OPERATION TESTS
 // =============================================================================

@@ -473,11 +473,11 @@ func (ls *LearningStore) GenerateMangleFacts() []string {
 	facts := []string{}
 	for _, l := range ls.learnings {
 		facts = append(facts, fmt.Sprintf(`tool_learning(%q, %d, %.2f, %.2f).`,
-			l.ToolName, l.TotalExecutions, l.SuccessRate, l.AverageQuality))
+			l.ToolName, l.TotalExecutions, normalizePercent(l.SuccessRate), normalizePercent(l.AverageQuality)))
 
 		for _, issue := range l.KnownIssues {
-			facts = append(facts, fmt.Sprintf(`tool_known_issue(%q, %q).`,
-				l.ToolName, issue))
+			facts = append(facts, fmt.Sprintf(`tool_known_issue(%q, %s).`,
+				l.ToolName, normalizeCapabilityName(string(issue))))
 		}
 	}
 	return facts

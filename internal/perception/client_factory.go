@@ -141,7 +141,7 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	case "claude-cli":
 		return NewClaudeCodeCLIClient(config.ClaudeCLI), nil
 	case "codex-cli":
-		return NewCodexCLIClient(config.CodexCLI), nil
+		return NewCodexExecClient(config.CodexCLI), nil
 	case "api", "":
 		// Continue to API-based provider selection below
 	default:

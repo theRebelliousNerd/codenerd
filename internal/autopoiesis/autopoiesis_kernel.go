@@ -2,6 +2,7 @@ package autopoiesis
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -45,11 +46,11 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		if tool == nil {
 			continue
 		}
-		timestamp := tool.RegisteredAt.Format("2006-01-02T15:04:05Z07:00")
+		timestamp := tool.RegisteredAt.Unix()
 
 		allFacts = append(allFacts, KernelFact{Predicate: "tool_registered", Args: []interface{}{tool.Name, timestamp}})
 		allFacts = append(allFacts, KernelFact{Predicate: "tool_hash", Args: []interface{}{tool.Name, tool.Hash}})
-		allFacts = append(allFacts, KernelFact{Predicate: "has_capability", Args: []interface{}{tool.Name}})
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_capability", Args: []interface{}{tool.Name, normalizeCapabilityName(tool.Name)}})
 		if tool.Description != "" {
 			allFacts = append(allFacts, KernelFact{Predicate: "tool_description", Args: []interface{}{tool.Name, tool.Description}})
 		}
@@ -99,7 +100,7 @@ func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
 		return
 	}
 
-	timestamp := tool.RegisteredAt.Format("2006-01-02T15:04:05Z07:00")
+	timestamp := tool.RegisteredAt.Unix()
 
 	// tool_registered(ToolName, RegisteredAt)
 	_ = o.assertToKernel("tool_registered", tool.Name, timestamp)
@@ -107,8 +108,9 @@ func (o *Orchestrator) assertToolRegistered(tool *RuntimeTool) {
 	// tool_hash(ToolName, Hash)
 	_ = o.assertToKernel("tool_hash", tool.Name, tool.Hash)
 
-	// has_capability(ToolName)
-	_ = o.assertToKernel("has_capability", tool.Name)
+	// tool_capability(ToolName, Capability)
+	// Generated tools commonly use their tool name as the capability they satisfy.
+	_ = o.assertToKernel("tool_capability", tool.Name, normalizeCapabilityName(tool.Name))
 
 	// tool_description(ToolName, Description) - for LLM tool discovery
 	if tool.Description != "" {
@@ -140,14 +142,14 @@ func (o *Orchestrator) assertToolHotReloaded(toolName string) {
 	// tool_version(ToolName, Version) - start at 1 for newly hot-loaded tools
 	// Note: Versioning is tracked in OuroborosLoop's internal engine, but we
 	// assert version 1 to the parent kernel as a marker that the tool is current
-	_ = o.assertToKernel("tool_version", toolName, 1)
+	_ = o.assertToKernel("tool_version", toolName, "1")
 }
 
 // assertToolLearning asserts tool_learning fact to kernel.
 // Called when execution feedback is recorded.
 func (o *Orchestrator) assertToolLearning(toolName string, executions int, successRate, avgQuality float64) {
-	// tool_learning(ToolName, Executions, SuccessRate, AvgQuality)
-	_ = o.assertToKernel("tool_learning", toolName, executions, successRate, avgQuality)
+	// Mangle policy uses a 0-100 scale for these floating metrics.
+	_ = o.assertToKernel("tool_learning", toolName, executions, normalizePercent(successRate), normalizePercent(avgQuality))
 }
 
 // assertToolKnownIssue asserts tool_known_issue fact to kernel.
@@ -187,6 +189,10 @@ func (o *Orchestrator) assertAgentCreated(spec *AgentSpec) {
 // SyncLearningsToKernel pushes all current learnings to the kernel.
 // Call this periodically or after significant learning updates.
 func (o *Orchestrator) SyncLearningsToKernel() {
+	if o == nil || o.learnings == nil || o.kernel == nil {
+		return
+	}
+
 	learnings := o.learnings.GetAllLearnings()
 	for _, learning := range learnings {
 		// Prune old learnings for this tool (functional update)
@@ -213,6 +219,31 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 			o.assertToolKnownIssue(learning.ToolName, string(issue))
 		}
 	}
+}
+
+func normalizePercent(v float64) float64 {
+	switch {
+	case v <= 0:
+		return 0
+	case v >= 1:
+		if v > 100 {
+			return 100
+		}
+		return v
+	default:
+		return v * 100
+	}
+}
+
+func normalizeCapabilityName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "/unknown"
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return trimmed
+	}
+	return "/" + trimmed
 }
 
 // =============================================================================

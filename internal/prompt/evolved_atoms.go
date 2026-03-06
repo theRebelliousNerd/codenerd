@@ -185,6 +185,17 @@ func (c *JITPromptCompiler) ReloadEvolvedAtoms() error {
 	return mgr.Reload()
 }
 
+// RefreshEvolvedAtoms reloads evolved atoms and clears the prompt cache so
+// subsequent compilations see the updated corpus immediately.
+func (c *JITPromptCompiler) RefreshEvolvedAtoms() error {
+	if err := c.ReloadEvolvedAtoms(); err != nil {
+		return err
+	}
+
+	c.clearPromptCache("evolved atoms refreshed")
+	return nil
+}
+
 // GetEvolvedAtomCount returns the number of evolved atoms loaded.
 func (c *JITPromptCompiler) GetEvolvedAtomCount() int {
 	c.mu.RLock()

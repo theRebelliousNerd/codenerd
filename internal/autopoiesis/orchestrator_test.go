@@ -1,7 +1,9 @@
 package autopoiesis
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestNewOrchestrator(t *testing.T) {
@@ -102,5 +104,97 @@ func TestSyncExistingToolsToKernel(t *testing.T) {
 	if len(kernel.AssertedFacts) > 0 {
 		// Should be 0 if no tools
 		t.Errorf("Expected 0 assertions for empty registry, got %d", len(kernel.AssertedFacts))
+	}
+}
+
+func TestRecordExecution_RefreshesLearningsContext(t *testing.T) {
+	orch, kernel, _ := createTestOrchestrator(t)
+	mockToolSynth := replaceOuroborosWithMock(orch)
+
+	var ouroborosContext string
+	mockToolSynth.SetLearningsContextFunc = func(ctx string) {
+		ouroborosContext = ctx
+	}
+
+	feedback := &ExecutionFeedback{
+		ToolName:   "test_tool",
+		Timestamp:  time.Now(),
+		Input:      `{"query":"status"}`,
+		Output:     "ok",
+		OutputSize: 2,
+		Success:    true,
+		Quality: &QualityAssessment{
+			Score: 0.95,
+		},
+	}
+
+	orch.RecordExecution(context.Background(), feedback)
+
+	if orch.toolGen.learningsContext == "" {
+		t.Fatal("expected tool generator learnings context to be refreshed")
+	}
+	if ouroborosContext == "" {
+		t.Fatal("expected ouroboros learnings context to be refreshed")
+	}
+
+	foundLearningFact := false
+	for _, fact := range kernel.AssertedFacts {
+		if fact.Predicate == "tool_learning" {
+			foundLearningFact = true
+			if got, ok := fact.Args[3].(float64); !ok || got != 95 {
+				t.Fatalf("expected avg quality to be normalized to 95, got %#v", fact.Args[3])
+			}
+			break
+		}
+	}
+	if !foundLearningFact {
+		t.Fatal("expected tool_learning fact to be asserted to kernel")
+	}
+}
+
+func TestExecuteOuroborosLoop_RefreshesLearningsAfterGeneration(t *testing.T) {
+	orch, kernel, _ := createTestOrchestrator(t)
+	mockToolSynth := replaceOuroborosWithMock(orch)
+
+	var ouroborosContext string
+	mockToolSynth.SetLearningsContextFunc = func(ctx string) {
+		if ctx != "" {
+			ouroborosContext = ctx
+		}
+	}
+	mockToolSynth.ExecuteFunc = func(ctx context.Context, need *ToolNeed) *LoopResult {
+		return &LoopResult{
+			Success:  false,
+			ToolName: need.Name,
+			Stage:    StageSafetyCheck,
+			Error:    "blocked by safety policy",
+			Duration: 25 * time.Millisecond,
+		}
+	}
+
+	result := orch.ExecuteOuroborosLoop(context.Background(), &ToolNeed{
+		Name:    "generated_tool",
+		Purpose: "Generate a test helper",
+	})
+	if result == nil {
+		t.Fatal("expected loop result")
+	}
+
+	if orch.toolGen.learningsContext == "" {
+		t.Fatal("expected tool generator learnings context to be updated after generation")
+	}
+	if ouroborosContext == "" {
+		t.Fatal("expected ouroboros learnings context to be updated after generation")
+	}
+
+	foundLearningFact := false
+	for _, fact := range kernel.AssertedFacts {
+		if fact.Predicate == "tool_learning" {
+			foundLearningFact = true
+			break
+		}
+	}
+	if !foundLearningFact {
+		t.Fatal("expected generation learning to assert tool_learning fact")
 	}
 }

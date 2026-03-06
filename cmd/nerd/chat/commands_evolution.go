@@ -43,6 +43,13 @@ func (m Model) runEvolutionCycle() tea.Cmd {
 	}
 }
 
+func (m *Model) refreshEvolvedAtomsInCompiler() error {
+	if m == nil || m.jitCompiler == nil {
+		return nil
+	}
+	return m.jitCompiler.RefreshEvolvedAtoms()
+}
+
 // renderEvolutionStats generates a formatted display of evolution statistics.
 func (m Model) renderEvolutionStats() string {
 	if m.promptEvolver == nil {

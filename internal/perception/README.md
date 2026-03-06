@@ -37,7 +37,8 @@ perception/
 ├── client_xai.go           # xAI/Grok client
 ├── client_openrouter.go    # OpenRouter multi-model
 ├── claude_cli_client.go    # Claude CLI subprocess
-└── codex_cli_client.go     # Codex CLI subprocess
+├── codex_cli_client.go     # Codex exec subprocess backend
+└── codex_exec_client.go    # Explicit codex exec client alias
 ```
 
 ## LLM Providers

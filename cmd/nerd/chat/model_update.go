@@ -646,7 +646,11 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		if msg.err != nil {
 			content = fmt.Sprintf("Evolution cycle failed: %v", msg.err)
 		} else {
-			content = formatEvolutionResult(msg.result)
+			if refreshErr := m.refreshEvolvedAtomsInCompiler(); refreshErr != nil {
+				content = fmt.Sprintf("%s\n\nWarning: failed to refresh evolved atoms in JIT compiler: %v", formatEvolutionResult(msg.result), refreshErr)
+			} else {
+				content = formatEvolutionResult(msg.result)
+			}
 		}
 		m = m.pushAssistantMsg(content)
 		return m, nil

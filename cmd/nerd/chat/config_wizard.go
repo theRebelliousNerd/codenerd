@@ -113,7 +113,7 @@ var intentTypes = []string{"coder", "tester", "reviewer", "researcher"}
 var ProviderModels = map[string][]string{
 	"zai":       {"glm-4.6", "glm-4", "glm-4-air"},
 	"anthropic": {"claude-sonnet-4-5-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
-	"openai":    {"gpt-5.1-codex-max", "gpt-5.1-codex-mini", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
+	"openai":    {"gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2-codex", "gpt-5.1-codex-max", "gpt-5-codex", "gpt-4o", "gpt-4o-mini"},
 	"gemini":    {"gemini-3-flash-preview", "gemini-3-pro-preview"},
 	"xai":       {"grok-4-1-fast-reasoning", "grok-2-latest", "grok-2", "grok-beta"},
 	"openrouter": {
@@ -147,13 +147,16 @@ var ProviderModels = map[string][]string{
 var claudeCLIWizardModels = []string{"sonnet", "opus", "haiku"}
 
 var codexCLIWizardModels = []string{
+	"gpt-5.4",
+	"gpt-5.3-codex",
+	"gpt-5.3-codex-spark",
+	"gpt-5.2-codex",
+	"gpt-5.2",
 	"gpt-5.1-codex-max",
-	"gpt-5.1-codex-mini",
 	"gpt-5.1",
+	"gpt-5.1-codex",
 	"gpt-5-codex",
 	"gpt-5",
-	"o4-mini",
-	"codex-mini-latest",
 }
 
 // DefaultProviderModel returns the default model for a provider.
@@ -185,7 +188,7 @@ func NewConfigWizard() *ConfigWizardState {
 		Engine:                     "api", // Default to HTTP API mode
 		ClaudeCLIModel:             "sonnet",
 		ClaudeCLITimeout:           300,
-		CodexCLIModel:              "gpt-5.1-codex-max",
+		CodexCLIModel:              "gpt-5.4",
 		CodexCLISandbox:            "read-only",
 		CodexCLITimeout:            300,
 		CodexCLISkillEnabled:       true,
@@ -345,20 +348,23 @@ You selected **Codex CLI** engine.
 
 | # | Model | Description |
 |---|-------|-------------|
-| 1 | gpt-5.1-codex-max | **Recommended** - Best for agentic coding |
-| 2 | gpt-5.1-codex-mini | Cost-effective, faster |
-| 3 | gpt-5.1 | General coding and reasoning |
-| 4 | gpt-5-codex | Legacy agentic model |
-| 5 | gpt-5 | Legacy general model |
-| 6 | o4-mini | Fast reasoning (legacy) |
-| 7 | codex-mini-latest | Low-latency code Q&A |
+| 1 | gpt-5.4 | **Recommended** - Best current GPT-5 Codex-capable model |
+| 2 | gpt-5.3-codex | Current Codex-tuned model |
+| 3 | gpt-5.3-codex-spark | Fast Codex Spark variant |
+| 4 | gpt-5.2-codex | Previous Codex-tuned model |
+| 5 | gpt-5.2 | Previous general GPT-5 model |
+| 6 | gpt-5.1-codex-max | Older top-end Codex model |
+| 7 | gpt-5.1 | Older general GPT-5 model |
+| 8 | gpt-5.1-codex | Older Codex model |
+| 9 | gpt-5-codex | Legacy agentic model |
+| 10 | gpt-5 | Legacy general model |
 
 Current: **%s**
 
 Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
 			Time: time.Now(),
 		})
-		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5.1-codex-max)..."
+		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5.4)..."
 
 	default: // "api"
 		m.configWizard.Step = StepProvider
@@ -436,13 +442,16 @@ Would you like to configure individual shard settings?
 // configWizardCodexCLI handles Codex CLI configuration.
 func (m Model) configWizardCodexCLI(input string) (tea.Model, tea.Cmd) {
 	codexModels := map[string]string{
-		"1": "gpt-5.1-codex-max", "gpt-5.1-codex-max": "gpt-5.1-codex-max",
-		"2": "gpt-5.1-codex-mini", "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
-		"3": "gpt-5.1", "gpt-5.1": "gpt-5.1",
-		"4": "gpt-5-codex", "gpt-5-codex": "gpt-5-codex",
-		"5": "gpt-5", "gpt-5": "gpt-5",
-		"6": "o4-mini", "o4-mini": "o4-mini",
-		"7": "codex-mini-latest", "codex-mini-latest": "codex-mini-latest",
+		"1": "gpt-5.4", "gpt-5.4": "gpt-5.4",
+		"2": "gpt-5.3-codex", "gpt-5.3-codex": "gpt-5.3-codex",
+		"3": "gpt-5.3-codex-spark", "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+		"4": "gpt-5.2-codex", "gpt-5.2-codex": "gpt-5.2-codex",
+		"5": "gpt-5.2", "gpt-5.2": "gpt-5.2",
+		"6": "gpt-5.1-codex-max", "gpt-5.1-codex-max": "gpt-5.1-codex-max",
+		"7": "gpt-5.1", "gpt-5.1": "gpt-5.1",
+		"8": "gpt-5.1-codex", "gpt-5.1-codex": "gpt-5.1-codex",
+		"9": "gpt-5-codex", "gpt-5-codex": "gpt-5-codex",
+		"10": "gpt-5", "gpt-5": "gpt-5",
 	}
 
 	if input != "" {

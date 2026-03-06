@@ -1,11 +1,11 @@
 package perception
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,10 +59,10 @@ type CodexCLIClient struct {
 }
 
 // NewCodexCLIClient creates a new Codex CLI client.
-// If cfg is nil, defaults are applied (model: "gpt-5.3-codex", sandbox: "read-only", timeout: 300s).
+// If cfg is nil, defaults are applied (model: "gpt-5.4", sandbox: "read-only", timeout: 300s).
 func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 	client := &CodexCLIClient{
-		model:              "gpt-5.3-codex",
+		model:              "gpt-5.4",
 		sandbox:            "read-only",
 		timeout:            300 * time.Second,
 		skillEnabled:       true,
@@ -133,14 +133,7 @@ func (c *CodexCLIClient) Complete(ctx context.Context, prompt string) (string, e
 // CompleteWithSystem sends a prompt with an optional system message to Codex CLI.
 func (c *CodexCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
-
-	// Schema enforcement is only applied when we detect Piggyback protocol.
-	var schema map[string]interface{}
-	if c.enableOutputSchema && isPiggybackPrompt(systemPrompt, userPrompt) {
-		schema = piggybackEnvelopeRawSchema()
-	}
-
-	return c.executeWithFallback(ctx, combinedPrompt, schema)
+	return c.executeWithFallback(ctx, combinedPrompt, nil)
 }
 
 // CompleteWithSchema sends a prompt with an explicit JSON schema for validation.
@@ -211,11 +204,12 @@ func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt
 }
 
 func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
-	response, err := c.executeCLI(ctx, prompt, c.model, schema)
+	model := c.ModelForContext(ctx)
+	response, err := c.executeCLI(ctx, prompt, model, schema)
 	if err != nil {
 		var rateLimitErr *RateLimitError
 		if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
-			logging.PerceptionWarn("Codex CLI primary model rate-limited; trying fallback model=%s", c.fallbackModel)
+			logging.PerceptionWarn("Codex CLI primary model rate-limited; trying fallback model=%s (primary=%s)", c.fallbackModel, model)
 			response, err = c.executeCLI(ctx, prompt, c.fallbackModel, schema)
 			if err != nil {
 				logging.PerceptionError("Codex CLI fallback model exhausted: model=%s error=%v", c.fallbackModel, err)
@@ -251,16 +245,6 @@ func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
 	return fmt.Sprintf("$%s\n\n%s", c.skillName, prompt)
 }
 
-func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
-	// We only enforce Piggyback JSON schema when the prompt clearly requests the Piggyback
-	// envelope (i.e. includes control_packet). Some other structured prompts (like the
-	// UnderstandingTransducer's output) also contain "surface_response" but are NOT Piggyback.
-	return strings.Contains(systemPrompt, "control_packet") ||
-		strings.Contains(systemPrompt, "PiggybackEnvelope") ||
-		strings.Contains(userPrompt, "PiggybackEnvelope") ||
-		strings.Contains(userPrompt, "control_packet")
-}
-
 func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
 	var capHint types.ModelCapability
 	if v := ctx.Value(types.CtxKeyModelCapability); v != nil {
@@ -291,6 +275,19 @@ func (c *CodexCLIClient) reasoningEffortForContext(ctx context.Context) string {
 		return c.reasoningEffortDefault
 	}
 	return ""
+}
+
+// ModelForContext resolves the effective model for this request, preferring any
+// per-shard override carried in the context over the client's default model.
+func (c *CodexCLIClient) ModelForContext(ctx context.Context) string {
+	if ctx != nil {
+		if v := ctx.Value(types.CtxKeyModelName); v != nil {
+			if model, ok := v.(string); ok && strings.TrimSpace(model) != "" {
+				return strings.TrimSpace(model)
+			}
+		}
+	}
+	return c.model
 }
 
 func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schemaPath string) []string {
@@ -378,7 +375,8 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 		cmd.Dir = c.workspaceRoot
 	}
 	cmd.Stdin = strings.NewReader(prompt)
-	cmd.Stdout = io.Discard
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
 
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -392,14 +390,20 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 		}
 
 		stderrStr := strings.TrimSpace(stderr.String())
+		stdoutStr := strings.TrimSpace(stdout.String())
 		if isRateLimitError(stderrStr) {
 			return "", &RateLimitError{
 				Provider:    "codex-cli",
 				RawResponse: stderrStr,
 			}
 		}
+		if fallback := extractCodexExecAgentMessage(stdoutStr); strings.TrimSpace(fallback) != "" {
+			logging.PerceptionWarn("Codex CLI returned non-zero exit but emitted a final agent message; using stdout JSONL fallback")
+			return strings.TrimSpace(fallback), nil
+		}
 
-		return "", fmt.Errorf("codex CLI execution failed: %w (stderr: %s)", err, truncateString(stderrStr, 2000))
+		diag := joinCodexExecDiagnostics(stderrStr, stdoutStr)
+		return "", fmt.Errorf("codex CLI execution failed: %w (%s)", err, diag)
 	}
 
 	data, err := os.ReadFile(outPath)
@@ -408,7 +412,12 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 	}
 	result := strings.TrimSpace(string(data))
 	if result == "" {
-		return "", fmt.Errorf("codex CLI produced empty last-message output (model=%s)", model)
+		if fallback := extractCodexExecAgentMessage(stdout.String()); strings.TrimSpace(fallback) != "" {
+			logging.PerceptionWarn("Codex CLI wrote empty last-message output; recovered final agent message from stdout JSONL")
+			return strings.TrimSpace(fallback), nil
+		}
+		diag := joinCodexExecDiagnostics(strings.TrimSpace(stderr.String()), strings.TrimSpace(stdout.String()))
+		return "", fmt.Errorf("codex CLI produced empty last-message output (model=%s, %s)", model, diag)
 	}
 
 	return result, nil
@@ -504,4 +513,84 @@ func codexExecSkillPath(workspaceRoot, skillName string) (string, bool) {
 		return skillDoc, false
 	}
 	return skillDoc, true
+}
+
+type codexExecJSONLEvent struct {
+	Type string `json:"type"`
+	Item *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"item,omitempty"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func extractCodexExecAgentMessage(stdout string) string {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return ""
+	}
+
+	last := ""
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		var event codexExecJSONLEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event.Type == "item.completed" && event.Item != nil && event.Item.Type == "agent_message" && strings.TrimSpace(event.Item.Text) != "" {
+			last = strings.TrimSpace(event.Item.Text)
+		}
+	}
+
+	return last
+}
+
+func extractCodexExecFailureDetail(stdout string) string {
+	stdout = strings.TrimSpace(stdout)
+	if stdout == "" {
+		return ""
+	}
+
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		var event codexExecJSONLEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event.Error != nil && strings.TrimSpace(event.Error.Message) != "" {
+			return strings.TrimSpace(event.Error.Message)
+		}
+		if strings.TrimSpace(event.Message) != "" && (strings.Contains(strings.ToLower(event.Type), "fail") || strings.Contains(strings.ToLower(event.Type), "error")) {
+			return strings.TrimSpace(event.Message)
+		}
+	}
+
+	return ""
+}
+
+func joinCodexExecDiagnostics(stderrStr, stdoutStr string) string {
+	parts := make([]string, 0, 2)
+	if stderrStr != "" {
+		parts = append(parts, fmt.Sprintf("stderr: %s", truncateString(stderrStr, 2000)))
+	}
+	if detail := extractCodexExecFailureDetail(stdoutStr); detail != "" {
+		parts = append(parts, fmt.Sprintf("stdout: %s", truncateString(detail, 2000)))
+	} else if stdoutStr != "" {
+		parts = append(parts, fmt.Sprintf("stdout: %s", truncateString(stdoutStr, 2000)))
+	}
+	if len(parts) == 0 {
+		return "no stderr/stdout diagnostics"
+	}
+	return strings.Join(parts, "; ")
 }

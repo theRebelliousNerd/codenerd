@@ -87,3 +87,35 @@ func TestTaxonomyStore_Integration(t *testing.T) {
 		t.Error("learned_exemplar fact not found")
 	}
 }
+
+func TestTaxonomyStore_HydrateEngine_NormalizesNumericArgs(t *testing.T) {
+	localDB, err := store.NewLocalStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create local store: %v", err)
+	}
+	defer localDB.Close()
+
+	ts := NewTaxonomyStore(localDB)
+	if err := ts.StoreVerbDef("/analyze", "/query", "/reviewer", 95); err != nil {
+		t.Fatalf("StoreVerbDef failed: %v", err)
+	}
+	if err := ts.StoreLearnedExemplar("hello", "/explain", "user", "", 0.95); err != nil {
+		t.Fatalf("StoreLearnedExemplar failed: %v", err)
+	}
+
+	engine, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Fatalf("NewTaxonomyEngine failed: %v", err)
+	}
+	engine.SetStore(ts)
+
+	if err := engine.HydrateFromDB(); err != nil {
+		t.Fatalf("HydrateFromDB failed: %v", err)
+	}
+
+	if _, _, err := engine.ClassifyInput("analyze this", []VerbEntry{
+		{Verb: "/analyze", Category: "/query", ShardType: "/reviewer", Priority: 95},
+	}); err != nil {
+		t.Fatalf("ClassifyInput after hydrate failed: %v", err)
+	}
+}

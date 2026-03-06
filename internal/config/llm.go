@@ -54,8 +54,9 @@ type ClaudeCLIConfig struct {
 // - Sandbox is always "read-only" (codeNERD has its own Tactile Layer)
 // - Single completion per call, no agentic loops
 type CodexCLIConfig struct {
-	// Model: "gpt-5.1-codex-max" (recommended), "gpt-5.1-codex-mini", "gpt-5.1",
-	// "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5-codex", "gpt-5", "o4-mini", "codex-mini-latest"
+	// Model: "gpt-5.4" (recommended), "gpt-5.3-codex", "gpt-5.3-codex-spark",
+	// "gpt-5.2-codex", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1",
+	// "gpt-5.1-codex", "gpt-5-codex", "gpt-5"
 	Model string `json:"model,omitempty"`
 
 	// Sandbox mode: "read-only" (default), "workspace-write"

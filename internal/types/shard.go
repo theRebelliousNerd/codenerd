@@ -53,6 +53,7 @@ const (
 
 // ModelConfig defines the LLM requirements for a shard.
 type ModelConfig struct {
+	Name       string
 	Capability ModelCapability
 }
 
@@ -150,3 +151,7 @@ const CtxKeyPriority = "spawn_priority"
 // to shared LLM clients. This enables per-shard reasoning configuration even when
 // the process uses a single LLM client instance.
 const CtxKeyModelCapability = "model_capability"
+
+// CtxKeyModelName is the context key for passing a concrete per-shard model
+// override to shared LLM clients.
+const CtxKeyModelName = "model_name"

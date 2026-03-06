@@ -14,9 +14,9 @@ import (
 
 // Store manages the Northstar knowledge database.
 type Store struct {
-	db       *sql.DB
-	dbPath   string
-	mu       sync.RWMutex
+	db     *sql.DB
+	dbPath string
+	mu     sync.RWMutex
 }
 
 // NewStore creates or opens a Northstar knowledge store.
@@ -28,7 +28,7 @@ func NewStore(nerdDir string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -39,7 +39,9 @@ func NewStore(nerdDir string) (*Store, error) {
 	}
 
 	if err := store.initSchema(); err != nil {
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to initialize schema: %w (close error: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
@@ -48,6 +50,9 @@ func NewStore(nerdDir string) (*Store, error) {
 
 // Close closes the database connection.
 func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
 	return s.db.Close()
 }
 
@@ -162,22 +167,54 @@ func (s *Store) initSchema() error {
 
 // SaveVision stores or updates the project vision.
 func (s *Store) SaveVision(v *Vision) error {
+	if v == nil {
+		return fmt.Errorf("vision is nil")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	personasJSON, _ := json.Marshal(v.Personas)
-	capsJSON, _ := json.Marshal(v.Capabilities)
-	risksJSON, _ := json.Marshal(v.Risks)
-	reqsJSON, _ := json.Marshal(v.Requirements)
-	constraintsJSON, _ := json.Marshal(v.Constraints)
+	personasJSON, err := marshalJSONString("vision personas", v.Personas)
+	if err != nil {
+		return err
+	}
+	capsJSON, err := marshalJSONString("vision capabilities", v.Capabilities)
+	if err != nil {
+		return err
+	}
+	risksJSON, err := marshalJSONString("vision risks", v.Risks)
+	if err != nil {
+		return err
+	}
+	reqsJSON, err := marshalJSONString("vision requirements", v.Requirements)
+	if err != nil {
+		return err
+	}
+	constraintsJSON, err := marshalJSONString("vision constraints", v.Constraints)
+	if err != nil {
+		return err
+	}
 
 	now := time.Now()
 	if v.CreatedAt.IsZero() {
-		v.CreatedAt = now
+		createdAt, err := s.lookupVisionCreatedAt()
+		if err != nil {
+			return err
+		}
+		if createdAt.IsZero() {
+			createdAt = now
+		}
+		v.CreatedAt = createdAt
 	}
 	v.UpdatedAt = now
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin save vision transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		INSERT INTO vision (id, mission, problem, vision_statement, personas_json,
 			capabilities_json, risks_json, requirements_json, constraints_json,
 			created_at, updated_at)
@@ -200,8 +237,15 @@ func (s *Store) SaveVision(v *Vision) error {
 	}
 
 	// Update guardian state
-	_, err = s.db.Exec(`UPDATE guardian_state SET vision_defined = 1 WHERE id = 1`)
-	return err
+	if _, err := tx.Exec(`UPDATE guardian_state SET vision_defined = 1 WHERE id = 1`); err != nil {
+		return fmt.Errorf("failed to update guardian state for vision: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit save vision transaction: %w", err)
+	}
+
+	return nil
 }
 
 // LoadVision retrieves the project vision.
@@ -226,20 +270,20 @@ func (s *Store) LoadVision() (*Vision, error) {
 		return nil, fmt.Errorf("failed to load vision: %w", err)
 	}
 
-	if personasJSON.Valid {
-		json.Unmarshal([]byte(personasJSON.String), &v.Personas)
+	if err := unmarshalJSONField("vision personas", personasJSON, &v.Personas); err != nil {
+		return nil, err
 	}
-	if capsJSON.Valid {
-		json.Unmarshal([]byte(capsJSON.String), &v.Capabilities)
+	if err := unmarshalJSONField("vision capabilities", capsJSON, &v.Capabilities); err != nil {
+		return nil, err
 	}
-	if risksJSON.Valid {
-		json.Unmarshal([]byte(risksJSON.String), &v.Risks)
+	if err := unmarshalJSONField("vision risks", risksJSON, &v.Risks); err != nil {
+		return nil, err
 	}
-	if reqsJSON.Valid {
-		json.Unmarshal([]byte(reqsJSON.String), &v.Requirements)
+	if err := unmarshalJSONField("vision requirements", reqsJSON, &v.Requirements); err != nil {
+		return nil, err
 	}
-	if constraintsJSON.Valid {
-		json.Unmarshal([]byte(constraintsJSON.String), &v.Constraints)
+	if err := unmarshalJSONField("vision constraints", constraintsJSON, &v.Constraints); err != nil {
+		return nil, err
 	}
 
 	return &v, nil
@@ -251,7 +295,9 @@ func (s *Store) HasVision() bool {
 	defer s.mu.RUnlock()
 
 	var count int
-	s.db.QueryRow(`SELECT COUNT(*) FROM vision WHERE id = 1`).Scan(&count)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM vision WHERE id = 1`).Scan(&count); err != nil {
+		return false
+	}
 	return count > 0
 }
 
@@ -261,6 +307,10 @@ func (s *Store) HasVision() bool {
 
 // RecordObservation stores a new observation.
 func (s *Store) RecordObservation(obs *Observation) error {
+	if obs == nil {
+		return fmt.Errorf("observation is nil")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -271,10 +321,22 @@ func (s *Store) RecordObservation(obs *Observation) error {
 		obs.Timestamp = time.Now()
 	}
 
-	tagsJSON, _ := json.Marshal(obs.Tags)
-	metaJSON, _ := json.Marshal(obs.Metadata)
+	tagsJSON, err := marshalJSONString("observation tags", obs.Tags)
+	if err != nil {
+		return err
+	}
+	metaJSON, err := marshalJSONString("observation metadata", obs.Metadata)
+	if err != nil {
+		return err
+	}
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin record observation transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		INSERT INTO observations (id, session_id, timestamp, type, subject, content,
 			relevance, tags_json, metadata_json)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -286,12 +348,23 @@ func (s *Store) RecordObservation(obs *Observation) error {
 	}
 
 	// Update session observation count
-	_, err = s.db.Exec(`UPDATE guardian_state SET session_observations = session_observations + 1 WHERE id = 1`)
-	return err
+	if _, err := tx.Exec(`UPDATE guardian_state SET session_observations = session_observations + 1 WHERE id = 1`); err != nil {
+		return fmt.Errorf("failed to update observation count: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record observation transaction: %w", err)
+	}
+
+	return nil
 }
 
 // GetRecentObservations retrieves recent observations.
 func (s *Store) GetRecentObservations(limit int) ([]Observation, error) {
+	if limit <= 0 {
+		return []Observation{}, nil
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -312,15 +385,18 @@ func (s *Store) GetRecentObservations(limit int) ([]Observation, error) {
 		var tagsJSON, metaJSON sql.NullString
 		if err := rows.Scan(&obs.ID, &obs.SessionID, &obs.Timestamp, &obs.Type,
 			&obs.Subject, &obs.Content, &obs.Relevance, &tagsJSON, &metaJSON); err != nil {
-			continue
+			return nil, fmt.Errorf("scan observation: %w", err)
 		}
-		if tagsJSON.Valid {
-			json.Unmarshal([]byte(tagsJSON.String), &obs.Tags)
+		if err := unmarshalJSONField("observation tags", tagsJSON, &obs.Tags); err != nil {
+			return nil, err
 		}
-		if metaJSON.Valid {
-			json.Unmarshal([]byte(metaJSON.String), &obs.Metadata)
+		if err := unmarshalJSONField("observation metadata", metaJSON, &obs.Metadata); err != nil {
+			return nil, err
 		}
 		observations = append(observations, obs)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate observations: %w", err)
 	}
 	return observations, nil
 }
@@ -331,6 +407,10 @@ func (s *Store) GetRecentObservations(limit int) ([]Observation, error) {
 
 // RecordAlignmentCheck stores an alignment check result.
 func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
+	if check == nil {
+		return fmt.Errorf("alignment check is nil")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -341,9 +421,18 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 		check.Timestamp = time.Now()
 	}
 
-	suggestionsJSON, _ := json.Marshal(check.Suggestions)
+	suggestionsJSON, err := marshalJSONString("alignment suggestions", check.Suggestions)
+	if err != nil {
+		return err
+	}
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin record alignment check transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		INSERT INTO alignment_checks (id, timestamp, trigger, subject, context,
 			result, score, explanation, suggestions_json, duration_ms)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -356,7 +445,7 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 	}
 
 	// Update guardian state
-	_, err = s.db.Exec(`
+	_, err = tx.Exec(`
 		UPDATE guardian_state SET
 			last_check = ?,
 			tasks_since_check = 0,
@@ -364,11 +453,23 @@ func (s *Store) RecordAlignmentCheck(check *AlignmentCheck) error {
 		WHERE id = 1
 	`, check.Timestamp, check.Score)
 
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to update guardian state for alignment check: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record alignment check transaction: %w", err)
+	}
+
+	return nil
 }
 
 // GetAlignmentHistory retrieves alignment check history.
 func (s *Store) GetAlignmentHistory(limit int) ([]AlignmentCheck, error) {
+	if limit <= 0 {
+		return []AlignmentCheck{}, nil
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -392,15 +493,18 @@ func (s *Store) GetAlignmentHistory(limit int) ([]AlignmentCheck, error) {
 		var durationMs int64
 		if err := rows.Scan(&check.ID, &check.Timestamp, &check.Trigger, &check.Subject,
 			&context, &check.Result, &check.Score, &explanation, &suggestionsJSON, &durationMs); err != nil {
-			continue
+			return nil, fmt.Errorf("scan alignment check: %w", err)
 		}
 		check.Context = context.String
 		check.Explanation = explanation.String
 		check.Duration = time.Duration(durationMs) * time.Millisecond
-		if suggestionsJSON.Valid {
-			json.Unmarshal([]byte(suggestionsJSON.String), &check.Suggestions)
+		if err := unmarshalJSONField("alignment suggestions", suggestionsJSON, &check.Suggestions); err != nil {
+			return nil, err
 		}
 		checks = append(checks, check)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate alignment checks: %w", err)
 	}
 	return checks, nil
 }
@@ -411,6 +515,10 @@ func (s *Store) GetAlignmentHistory(limit int) ([]AlignmentCheck, error) {
 
 // RecordDriftEvent stores a drift event.
 func (s *Store) RecordDriftEvent(drift *DriftEvent) error {
+	if drift == nil {
+		return fmt.Errorf("drift event is nil")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -421,22 +529,42 @@ func (s *Store) RecordDriftEvent(drift *DriftEvent) error {
 		drift.Timestamp = time.Now()
 	}
 
-	evidenceJSON, _ := json.Marshal(drift.Evidence)
+	evidenceJSON, err := marshalJSONString("drift evidence", drift.Evidence)
+	if err != nil {
+		return err
+	}
+	var relatedCheck interface{}
+	if drift.RelatedCheck != "" {
+		relatedCheck = drift.RelatedCheck
+	}
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin record drift event transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.Exec(`
 		INSERT INTO drift_events (id, timestamp, severity, category, description,
 			evidence_json, related_check, resolved)
 		VALUES (?, ?, ?, ?, ?, ?, ?, 0)
 	`, drift.ID, drift.Timestamp, drift.Severity, drift.Category, drift.Description,
-		evidenceJSON, drift.RelatedCheck)
+		evidenceJSON, relatedCheck)
 
 	if err != nil {
 		return fmt.Errorf("failed to record drift event: %w", err)
 	}
 
 	// Update active drift count
-	_, err = s.db.Exec(`UPDATE guardian_state SET active_drift_count = active_drift_count + 1 WHERE id = 1`)
-	return err
+	if _, err := tx.Exec(`UPDATE guardian_state SET active_drift_count = active_drift_count + 1 WHERE id = 1`); err != nil {
+		return fmt.Errorf("failed to update guardian drift count: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit record drift event transaction: %w", err)
+	}
+
+	return nil
 }
 
 // ResolveDriftEvent marks a drift event as resolved.
@@ -444,8 +572,14 @@ func (s *Store) ResolveDriftEvent(id string, resolution string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin resolve drift event transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	now := time.Now()
-	result, err := s.db.Exec(`
+	result, err := tx.Exec(`
 		UPDATE drift_events SET resolved = 1, resolved_at = ?, resolution = ?
 		WHERE id = ? AND resolved = 0
 	`, now, resolution, id)
@@ -453,9 +587,17 @@ func (s *Store) ResolveDriftEvent(id string, resolution string) error {
 		return err
 	}
 
-	affected, _ := result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read affected drift rows: %w", err)
+	}
 	if affected > 0 {
-		s.db.Exec(`UPDATE guardian_state SET active_drift_count = MAX(0, active_drift_count - 1) WHERE id = 1`)
+		if _, err := tx.Exec(`UPDATE guardian_state SET active_drift_count = MAX(0, active_drift_count - 1) WHERE id = 1`); err != nil {
+			return fmt.Errorf("failed to update guardian drift count: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit resolve drift event transaction: %w", err)
 	}
 	return nil
 }
@@ -482,13 +624,16 @@ func (s *Store) GetActiveDriftEvents() ([]DriftEvent, error) {
 		var evidenceJSON, relatedCheck sql.NullString
 		if err := rows.Scan(&event.ID, &event.Timestamp, &event.Severity, &event.Category,
 			&event.Description, &evidenceJSON, &relatedCheck); err != nil {
-			continue
+			return nil, fmt.Errorf("scan drift event: %w", err)
 		}
 		event.RelatedCheck = relatedCheck.String
-		if evidenceJSON.Valid {
-			json.Unmarshal([]byte(evidenceJSON.String), &event.Evidence)
+		if err := unmarshalJSONField("drift evidence", evidenceJSON, &event.Evidence); err != nil {
+			return nil, err
 		}
 		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate drift events: %w", err)
 	}
 	return events, nil
 }
@@ -534,7 +679,9 @@ func (s *Store) IncrementTaskCount() (int, error) {
 	}
 
 	var count int
-	s.db.QueryRow(`SELECT tasks_since_check FROM guardian_state WHERE id = 1`).Scan(&count)
+	if err := s.db.QueryRow(`SELECT tasks_since_check FROM guardian_state WHERE id = 1`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("load task count: %w", err)
+	}
 	return count, nil
 }
 
@@ -545,4 +692,34 @@ func (s *Store) ResetSessionObservations() error {
 
 	_, err := s.db.Exec(`UPDATE guardian_state SET session_observations = 0 WHERE id = 1`)
 	return err
+}
+
+func (s *Store) lookupVisionCreatedAt() (time.Time, error) {
+	var createdAt time.Time
+	err := s.db.QueryRow(`SELECT created_at FROM vision WHERE id = 1`).Scan(&createdAt)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load existing vision created_at: %w", err)
+	}
+	return createdAt, nil
+}
+
+func marshalJSONString(field string, value interface{}) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("marshal %s: %w", field, err)
+	}
+	return string(raw), nil
+}
+
+func unmarshalJSONField(field string, raw sql.NullString, dest interface{}) error {
+	if !raw.Valid || raw.String == "" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(raw.String), dest); err != nil {
+		return fmt.Errorf("unmarshal %s: %w", field, err)
+	}
+	return nil
 }

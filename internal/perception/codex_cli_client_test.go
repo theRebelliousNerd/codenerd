@@ -22,7 +22,7 @@ func TestNewCodexCLIClient(t *testing.T) {
 		{
 			name:        "nil config uses defaults",
 			cfg:         nil,
-			wantModel:   "gpt-5.3-codex",
+			wantModel:   "gpt-5.4",
 			wantSandbox: "read-only",
 			wantTimeout: 300 * time.Second,
 		},
@@ -44,7 +44,7 @@ func TestNewCodexCLIClient(t *testing.T) {
 				Sandbox: "read-only",
 				Timeout: 120,
 			},
-			wantModel:   "gpt-5.3-codex",
+			wantModel:   "gpt-5.4",
 			wantSandbox: "read-only",
 			wantTimeout: 120 * time.Second,
 		},
@@ -62,11 +62,11 @@ func TestNewCodexCLIClient(t *testing.T) {
 		{
 			name: "fallback model configured",
 			cfg: &config.CodexCLIConfig{
-				Model:         "gpt-5.3-codex",
+				Model:         "gpt-5.4",
 				FallbackModel: "o4-mini",
 				Timeout:       300,
 			},
-			wantModel:   "gpt-5.3-codex",
+			wantModel:   "gpt-5.4",
 			wantSandbox: "read-only",
 			wantTimeout: 300 * time.Second,
 		},
@@ -226,7 +226,7 @@ func TestCodexCLIClient_buildCLIArgs_DisableShellToolDefault(t *testing.T) {
 func TestCodexCLIClient_buildCLIArgs_DisableShellToolConfig(t *testing.T) {
 	disableShell := false
 	client := NewCodexCLIClient(&config.CodexCLIConfig{
-		Model:            "gpt-5.3-codex",
+		Model:            "gpt-5.4",
 		DisableShellTool: &disableShell,
 	})
 
@@ -239,7 +239,7 @@ func TestCodexCLIClient_buildCLIArgs_DisableShellToolConfig(t *testing.T) {
 
 func TestCodexCLIClient_buildCLIArgs_ReasoningEffortByCapability(t *testing.T) {
 	client := NewCodexCLIClient(&config.CodexCLIConfig{
-		Model:                        "gpt-5.3-codex",
+		Model:                        "gpt-5.4",
 		ReasoningEffortDefault:       "high",
 		ReasoningEffortHighSpeed:     "low",
 		ReasoningEffortBalanced:      "medium",
@@ -257,7 +257,7 @@ func TestCodexCLIClient_buildCLIArgs_ReasoningEffortByCapability(t *testing.T) {
 
 func TestCodexCLIClient_buildCLIArgs_ConfigOverridesWin(t *testing.T) {
 	client := NewCodexCLIClient(&config.CodexCLIConfig{
-		Model:                  "gpt-5.3-codex",
+		Model:                  "gpt-5.4",
 		ReasoningEffortDefault: "xhigh",
 		ConfigOverrides: map[string]string{
 			"model_reasoning_effort": "\"low\"",
@@ -279,7 +279,7 @@ func TestCodexCLIClient_buildCLIArgs_ConfigOverridesWin(t *testing.T) {
 
 func TestCodexCLIClient_buildCLIArgs_ConfigOverridesDeterministicOrder(t *testing.T) {
 	client := NewCodexCLIClient(&config.CodexCLIConfig{
-		Model: "gpt-5.3-codex",
+		Model: "gpt-5.4",
 		ConfigOverrides: map[string]string{
 			"z_key": "\"z\"",
 			"a_key": "\"a\"",
@@ -300,7 +300,7 @@ func TestCodexCLIClient_buildCLIArgs_ConfigOverridesDeterministicOrder(t *testin
 
 func TestCodexCLIClient_StreamingConfig(t *testing.T) {
 	cfg := &config.CodexCLIConfig{
-		Model:     "gpt-5.3-codex",
+		Model:     "gpt-5.4",
 		Streaming: true,
 	}
 
@@ -331,9 +331,44 @@ func TestCodexCLIClient_SchemaCapable_Disabled(t *testing.T) {
 	}
 }
 
+func TestCodexCLIClient_ModelForContext(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	ctx := context.WithValue(context.Background(), types.CtxKeyModelName, "gpt-5.3-codex-spark")
+
+	if got := client.ModelForContext(ctx); got != "gpt-5.3-codex-spark" {
+		t.Fatalf("ModelForContext() = %q, want shard override", got)
+	}
+	if got := client.ModelForContext(context.Background()); got != "gpt-5.4" {
+		t.Fatalf("ModelForContext() without override = %q, want default", got)
+	}
+}
+
 func TestCodexCLIClient_CompleteWithSchema_InvalidSchema(t *testing.T) {
 	client := NewCodexCLIClient(nil)
 	if _, err := client.CompleteWithSchema(context.Background(), "", "hello", "{not-json"); err == nil {
 		t.Fatal("expected invalid JSON schema to return an error")
+	}
+}
+
+func TestExtractCodexExecAgentMessage(t *testing.T) {
+	stdout := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Hello from Codex"}}`,
+		`{"type":"turn.completed"}`,
+	}, "\n")
+
+	if got := extractCodexExecAgentMessage(stdout); got != "Hello from Codex" {
+		t.Fatalf("extractCodexExecAgentMessage() = %q, want final agent message", got)
+	}
+}
+
+func TestExtractCodexExecFailureDetail(t *testing.T) {
+	stdout := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"abc"}`,
+		`{"type":"turn.failed","message":"approval required for shell command"}`,
+	}, "\n")
+
+	if got := extractCodexExecFailureDetail(stdout); got != "approval required for shell command" {
+		t.Fatalf("extractCodexExecFailureDetail() = %q, want failure detail", got)
 	}
 }

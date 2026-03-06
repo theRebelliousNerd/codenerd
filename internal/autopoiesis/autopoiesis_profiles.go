@@ -67,10 +67,7 @@ func (o *Orchestrator) ExecuteAndEvaluateWithProfile(ctx context.Context, toolNa
 		feedback.Quality = o.evaluator.Evaluate(ctx, feedback)
 	}
 
-	// Record for learning
-	o.patterns.RecordExecution(*feedback)
-	patterns := o.patterns.GetToolPatterns(feedback.ToolName)
-	o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+	o.RecordExecution(ctx, feedback)
 
 	return output, feedback.Quality, err
 }

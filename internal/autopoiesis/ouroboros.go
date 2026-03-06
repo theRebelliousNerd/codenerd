@@ -1539,7 +1539,7 @@ func GenerateToolCapabilityFacts(toolName string, capabilities []string) []strin
 	facts = append(facts, fmt.Sprintf(`tool_exists(%q).`, toolName))
 
 	for _, cap := range capabilities {
-		facts = append(facts, fmt.Sprintf(`tool_capability(%q, %q).`, toolName, cap))
+		facts = append(facts, fmt.Sprintf(`tool_capability(%q, %s).`, toolName, normalizeCapabilityName(cap)))
 	}
 	return facts
 }
@@ -1548,9 +1548,9 @@ func GenerateToolCapabilityFacts(toolName string, capabilities []string) []strin
 // These facts enable Mangle-based tool discovery and routing.
 func GenerateToolRegistrationFacts(tool *RuntimeTool) []string {
 	facts := []string{
-		fmt.Sprintf(`tool_registered(%q, %q).`, tool.Name, tool.RegisteredAt.Format(time.RFC3339)),
+		fmt.Sprintf(`tool_registered(%q, %d).`, tool.Name, tool.RegisteredAt.Unix()),
 		fmt.Sprintf(`tool_hash(%q, %q).`, tool.Name, tool.Hash),
-		fmt.Sprintf(`has_capability(%q).`, tool.Name),
+		fmt.Sprintf(`tool_capability(%q, %s).`, tool.Name, normalizeCapabilityName(tool.Name)),
 	}
 	// Add description if available (enables LLM tool discovery)
 	if tool.Description != "" {

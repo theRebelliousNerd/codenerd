@@ -3,7 +3,9 @@ package perception
 import (
 	"codenerd/internal/mangle"
 	"codenerd/internal/store"
+	"encoding/json"
 	"fmt"
+	"math"
 )
 
 // TaxonomyStore handles persistence of taxonomy facts to the local SQLite database.
@@ -49,9 +51,10 @@ func (ts *TaxonomyStore) LoadAllTaxonomyFacts() ([]mangle.Fact, error) {
 
 	var facts []mangle.Fact
 	for _, sf := range storedFacts {
+		args := normalizeTaxonomyFactArgs(sf.Predicate, sf.Args)
 		facts = append(facts, mangle.Fact{
 			Predicate: sf.Predicate,
-			Args:      sf.Args,
+			Args:      args,
 		})
 	}
 	return facts, nil
@@ -70,4 +73,53 @@ func (ts *TaxonomyStore) HydrateEngine(engine *mangle.Engine) error {
 
 	// Batch insert for efficiency
 	return engine.AddFacts(facts)
+}
+
+func normalizeTaxonomyFactArgs(predicate string, args []interface{}) []interface{} {
+	if len(args) == 0 {
+		return args
+	}
+
+	out := make([]interface{}, len(args))
+	copy(out, args)
+
+	switch predicate {
+	case "verb_def":
+		if len(out) > 3 {
+			out[3] = normalizeWholeNumber(out[3])
+		}
+	case "learned_exemplar":
+		if len(out) > 4 {
+			out[4] = normalizeWholeNumber(out[4])
+		}
+	}
+
+	return out
+}
+
+func normalizeWholeNumber(v interface{}) interface{} {
+	switch n := v.(type) {
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	case int64:
+		return n
+	case float64:
+		if math.Trunc(n) == n {
+			return int64(n)
+		}
+		return n
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		if f, err := n.Float64(); err == nil {
+			if math.Trunc(f) == f {
+				return int64(f)
+			}
+			return f
+		}
+	}
+	return v
 }

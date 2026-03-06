@@ -19,6 +19,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	promptpkg "codenerd/internal/prompt"
 	"codenerd/internal/shards"
 	"codenerd/internal/types"
 
@@ -35,6 +36,7 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
+	ctx = m.withShardModelContext(ctx, shardType)
 	intent := core.LegacyShardNameToIntent(shardType)
 	return m.taskExecutor.Execute(ctx, intent, task)
 }
@@ -45,8 +47,20 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
+	ctx = m.withShardModelContext(ctx, shardType)
 	intent := core.LegacyShardNameToIntent(shardType)
 	return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+}
+
+func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {
+	if m == nil || m.Config == nil {
+		return ctx
+	}
+	profile := m.Config.GetShardProfile(strings.TrimSpace(shardType))
+	if strings.TrimSpace(profile.Model) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, types.CtxKeyModelName, strings.TrimSpace(profile.Model))
 }
 
 // =============================================================================
@@ -352,6 +366,8 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 		exec.ExecutionResult.BuildErrors = []string{err.Error()}
 	}
 
+	exec.PromptManifest, exec.AtomIDs = m.promptContextForExecution(shardType)
+
 	// Extract thinking metadata if client supports it (Gemini 3 with Thinking Mode)
 	// This allows the LLM-as-Judge to evaluate the model's reasoning process
 	if tp, ok := m.client.(types.ThinkingProvider); ok {
@@ -371,6 +387,77 @@ func (m Model) recordShardExecution(shardType, task, result string, err error, d
 			logging.Get(logging.CategoryAutopoiesis).Debug("Failed to record shard execution: %v", recErr)
 		}
 	}()
+}
+
+func (m Model) promptContextForExecution(shardType string) (*promptpkg.PromptManifest, []string) {
+	if m.jitCompiler == nil {
+		return nil, nil
+	}
+
+	jitResult := m.jitCompiler.GetLastResult()
+	if jitResult == nil {
+		return nil, nil
+	}
+
+	trimmedShardType := strings.TrimSpace(shardType)
+	if trimmedShardType != "" && jitResult.Stats != nil {
+		statsShard := strings.TrimSpace(jitResult.Stats.ShardID)
+		if statsShard != "" && statsShard != trimmedShardType && statsShard != strings.TrimPrefix(trimmedShardType, "/") {
+			return nil, nil
+		}
+	}
+
+	var manifest *promptpkg.PromptManifest
+	if jitResult.Manifest != nil {
+		manifest = clonePromptManifest(jitResult.Manifest)
+	}
+
+	atomIDs := collectExecutionAtomIDs(jitResult)
+	return manifest, atomIDs
+}
+
+func collectExecutionAtomIDs(result *promptpkg.CompilationResult) []string {
+	if result == nil {
+		return nil
+	}
+
+	if result.Manifest != nil && len(result.Manifest.Selected) > 0 {
+		ids := make([]string, 0, len(result.Manifest.Selected))
+		for _, entry := range result.Manifest.Selected {
+			if strings.TrimSpace(entry.ID) != "" {
+				ids = append(ids, entry.ID)
+			}
+		}
+		return ids
+	}
+
+	if len(result.IncludedAtoms) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(result.IncludedAtoms))
+	for _, atom := range result.IncludedAtoms {
+		if atom == nil || strings.TrimSpace(atom.ID) == "" {
+			continue
+		}
+		ids = append(ids, atom.ID)
+	}
+	return ids
+}
+
+func clonePromptManifest(src *promptpkg.PromptManifest) *promptpkg.PromptManifest {
+	if src == nil {
+		return nil
+	}
+
+	cloned := *src
+	if len(src.Selected) > 0 {
+		cloned.Selected = append([]promptpkg.AtomManifestEntry(nil), src.Selected...)
+	}
+	if len(src.Dropped) > 0 {
+		cloned.Dropped = append([]promptpkg.DroppedAtomEntry(nil), src.Dropped...)
+	}
+	return &cloned
 }
 
 // spawnShard spawns a shard agent for a task

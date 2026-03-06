@@ -27,6 +27,27 @@ func TestNewCampaignObserver(t *testing.T) {
 	}
 }
 
+func TestNewCampaignObserver_UsesGuardianConfig(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	cfg := DefaultGuardianConfig()
+	cfg.EnablePhaseGates = false
+	cfg.PeriodicCheckInterval = 2
+	guardian := NewGuardian(store, cfg)
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	observer := NewCampaignObserver(guardian)
+	if observer.checkOnPhaseTransition {
+		t.Error("observer should honor guardian phase-gate config")
+	}
+	if observer.checkEveryNTasks != 2 {
+		t.Errorf("observer should honor guardian periodic interval, got %d", observer.checkEveryNTasks)
+	}
+}
+
 func TestCampaignObserver_StartCampaign(t *testing.T) {
 	t.Parallel()
 
@@ -339,9 +360,51 @@ func TestBackgroundEventHandler_BuildEventContext(t *testing.T) {
 	guardian := NewGuardian(store, DefaultGuardianConfig())
 	handler := NewBackgroundEventHandler(guardian, "session-1")
 
-	ctx := handler.buildEventContext("task_completed", "executor", "file.go", map[string]string{"key": "value"})
+	ctx := handler.buildEventContext("task_completed", "executor", "file.go", map[string]string{"key": "value"}, time.Now())
 	if ctx == "" {
 		t.Error("expected non-empty context")
+	}
+}
+
+func TestBackgroundEventHandler_HandleEvent_RecordsObservation(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	if err := guardian.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	handler := NewBackgroundEventHandler(guardian, "session-1")
+	timestamp := time.Now().Truncate(time.Second)
+
+	assessment, err := handler.HandleEvent(
+		context.Background(),
+		"task_completed",
+		"executor",
+		"file.go",
+		map[string]string{"task_description": "Update file.go"},
+		timestamp,
+	)
+	if err != nil {
+		t.Fatalf("HandleEvent error: %v", err)
+	}
+	if assessment != nil {
+		t.Fatalf("expected nil assessment when no vision is defined, got %#v", assessment)
+	}
+
+	observations, err := store.GetRecentObservations(10)
+	if err != nil {
+		t.Fatalf("GetRecentObservations error: %v", err)
+	}
+	if len(observations) != 1 {
+		t.Fatalf("expected 1 recorded observation, got %d", len(observations))
+	}
+	if observations[0].SessionID != "session-1" {
+		t.Errorf("unexpected session id: got %q", observations[0].SessionID)
+	}
+	if !observations[0].Timestamp.Equal(timestamp) {
+		t.Errorf("expected recorded timestamp %v, got %v", timestamp, observations[0].Timestamp)
 	}
 }
 

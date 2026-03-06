@@ -115,16 +115,16 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 	}
 	wg.Wait()
 
-	var finalVerdicts []*JudgeVerdict
+	completed := 0
 	for _, v := range verdicts {
 		if v != nil {
-			finalVerdicts = append(finalVerdicts, v)
+			completed++
 		}
 	}
 
-	logging.Autopoiesis("Batch evaluation complete: %d verdicts", len(finalVerdicts))
+	logging.Autopoiesis("Batch evaluation complete: %d/%d verdicts", completed, len(execs))
 
-	return finalVerdicts, nil
+	return verdicts, nil
 }
 
 // buildEvaluationPrompt constructs the prompt for evaluation.

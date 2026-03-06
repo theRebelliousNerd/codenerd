@@ -2135,6 +2135,12 @@ You have an existing Northstar definition. What would you like to do?
 					Content: fmt.Sprintf("Failed to promote atom: %v", err),
 					Time:    time.Now(),
 				})
+			} else if err := m.refreshEvolvedAtomsInCompiler(); err != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Atom `%s` promoted, but JIT refresh failed: %v", atomID, err),
+					Time:    time.Now(),
+				})
 			} else {
 				m = m.addMessage(Message{
 					Role:    "assistant",
@@ -2167,6 +2173,12 @@ You have an existing Northstar definition. What would you like to do?
 				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Failed to reject atom: %v", err),
+					Time:    time.Now(),
+				})
+			} else if err := m.refreshEvolvedAtomsInCompiler(); err != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Atom `%s` rejected, but JIT refresh failed: %v", atomID, err),
 					Time:    time.Now(),
 				})
 			} else {

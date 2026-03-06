@@ -16,22 +16,40 @@ import (
 // RecordExecution records a tool execution and evaluates its quality.
 // It also syncs learning facts to the kernel for logic-driven refinement triggers.
 func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionFeedback) {
+	if o == nil || feedback == nil || strings.TrimSpace(feedback.ToolName) == "" {
+		return
+	}
+
+	if feedback.Timestamp.IsZero() {
+		feedback.Timestamp = time.Now()
+	}
+
 	// Evaluate quality
-	if feedback.Quality == nil {
+	if feedback.Quality == nil && o.evaluator != nil {
 		feedback.Quality = o.evaluator.Evaluate(ctx, feedback)
 	}
 
 	// Record in pattern detector
-	o.patterns.RecordExecution(*feedback)
+	if o.patterns != nil {
+		o.patterns.RecordExecution(*feedback)
+	}
 
 	// Get patterns for this tool
-	patterns := o.patterns.GetToolPatterns(feedback.ToolName)
+	var patterns []*DetectedPattern
+	if o.patterns != nil {
+		patterns = o.patterns.GetToolPatterns(feedback.ToolName)
+	}
 
 	// Update learning store
-	o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+	if o.learnings != nil {
+		o.learnings.RecordLearning(feedback.ToolName, feedback, patterns)
+	}
 
 	// Wire to kernel: Assert learning facts for logic-driven refinement
-	learning := o.learnings.GetLearning(feedback.ToolName)
+	var learning *ToolLearning
+	if o.learnings != nil {
+		learning = o.learnings.GetLearning(feedback.ToolName)
+	}
 	if learning != nil {
 		o.assertToolLearning(
 			learning.ToolName,
@@ -45,6 +63,10 @@ func (o *Orchestrator) RecordExecution(ctx context.Context, feedback *ExecutionF
 			o.assertToolKnownIssue(learning.ToolName, string(issue))
 		}
 	}
+
+	// Keep the active generation loop hot with the latest learnings instead of
+	// waiting for the next explicit refresh call.
+	o.RefreshLearningsContext()
 }
 
 // EvaluateToolQuality assesses the quality of a tool execution

@@ -3,6 +3,7 @@ package northstar
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +17,10 @@ type CampaignObserver struct {
 	mu       sync.RWMutex
 
 	// Campaign state
-	campaignID    string
-	currentPhase  string
-	tasksInPhase  int
-	phaseChecks   map[string]*AlignmentCheck
+	campaignID   string
+	currentPhase string
+	tasksInPhase int
+	phaseChecks  map[string]*AlignmentCheck
 
 	// Configuration
 	checkOnPhaseTransition bool
@@ -28,11 +29,22 @@ type CampaignObserver struct {
 
 // NewCampaignObserver creates a new campaign observer.
 func NewCampaignObserver(guardian *Guardian) *CampaignObserver {
+	checkOnPhaseTransition := true
+	checkEveryNTasks := 5
+	if guardian != nil {
+		guardian.mu.RLock()
+		checkOnPhaseTransition = guardian.config.EnablePhaseGates
+		if guardian.config.PeriodicCheckInterval > 0 {
+			checkEveryNTasks = guardian.config.PeriodicCheckInterval
+		}
+		guardian.mu.RUnlock()
+	}
+
 	return &CampaignObserver{
 		guardian:               guardian,
 		phaseChecks:            make(map[string]*AlignmentCheck),
-		checkOnPhaseTransition: true,
-		checkEveryNTasks:       5,
+		checkOnPhaseTransition: checkOnPhaseTransition,
+		checkEveryNTasks:       checkEveryNTasks,
 	}
 }
 
@@ -97,12 +109,13 @@ func (o *CampaignObserver) OnPhaseStart(ctx context.Context, phaseName, phaseGoa
 
 // OnPhaseComplete is called when a campaign phase completes.
 func (o *CampaignObserver) OnPhaseComplete(ctx context.Context, phaseName string, success bool, summary string) error {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	o.mu.RLock()
+	campaignID := o.campaignID
+	o.mu.RUnlock()
 
 	// Record observation
 	obs := &Observation{
-		SessionID: o.campaignID,
+		SessionID: campaignID,
 		Timestamp: time.Now(),
 		Type:      ObsTaskCompleted,
 		Subject:   fmt.Sprintf("phase:%s", phaseName),
@@ -123,18 +136,27 @@ func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc,
 	phase := o.currentPhase
 	o.mu.Unlock()
 
+	taskSubject := taskDesc
+	if taskID != "" {
+		taskSubject = fmt.Sprintf("%s [%s]", taskDesc, taskID)
+	}
+
 	// Record observation
-	o.guardian.ObserveTaskCompletion(o.campaignID, "campaign_task", taskDesc, result)
+	if err := o.guardian.ObserveTaskCompletion(o.campaignID, "campaign_task", taskSubject, result); err != nil {
+		logging.Get(logging.CategoryNorthstar).Debug("Failed to record campaign task observation: %v", err)
+	}
 
 	// Record file changes
 	for _, path := range filePaths {
-		o.guardian.ObserveFileChange(o.campaignID, path, "modified")
+		if err := o.guardian.ObserveFileChange(o.campaignID, path, "modified"); err != nil {
+			logging.Get(logging.CategoryNorthstar).Debug("Failed to record campaign file change: %v", err)
+		}
 	}
 
 	// Check if periodic check is due
 	if tasksInPhase > 0 && tasksInPhase%o.checkEveryNTasks == 0 && o.guardian.HasVision() {
-		check, err := o.guardian.CheckAlignment(ctx, TriggerTaskComplete, taskDesc,
-			fmt.Sprintf("After %d tasks in phase %s", tasksInPhase, phase))
+		check, err := o.guardian.CheckAlignment(ctx, TriggerTaskComplete, taskSubject,
+			fmt.Sprintf("After %d tasks in phase %s (task_id=%s)", tasksInPhase, phase, taskID))
 		if err != nil {
 			return nil, err
 		}
@@ -143,8 +165,8 @@ func (o *CampaignObserver) OnTaskComplete(ctx context.Context, taskID, taskDesc,
 
 	// Check for high-impact changes
 	if o.guardian.ShouldCheckNow(TriggerHighImpact, filePaths) {
-		check, err := o.guardian.CheckAlignment(ctx, TriggerHighImpact, taskDesc,
-			fmt.Sprintf("High-impact files modified: %v", filePaths))
+		check, err := o.guardian.CheckAlignment(ctx, TriggerHighImpact, taskSubject,
+			fmt.Sprintf("High-impact files modified after task %s: %v", taskID, filePaths))
 		return check, err
 	}
 
@@ -227,11 +249,15 @@ func (t *TaskObserver) OnTaskComplete(ctx context.Context, taskType, taskDesc, r
 	defer t.mu.Unlock()
 
 	// Record observation
-	t.guardian.ObserveTaskCompletion(t.sessionID, taskType, taskDesc, result)
+	if err := t.guardian.ObserveTaskCompletion(t.sessionID, taskType, taskDesc, result); err != nil {
+		logging.Get(logging.CategoryNorthstar).Debug("Failed to record task observation: %v", err)
+	}
 
 	// Record file changes
 	for _, path := range filePaths {
-		t.guardian.ObserveFileChange(t.sessionID, path, "modified")
+		if err := t.guardian.ObserveFileChange(t.sessionID, path, "modified"); err != nil {
+			logging.Get(logging.CategoryNorthstar).Debug("Failed to record task file change: %v", err)
+		}
 	}
 
 	// Delegate to guardian for periodic check logic
@@ -298,6 +324,10 @@ type ObserverEvent struct {
 
 // HandleEvent processes an observer event and returns an assessment.
 func (h *BackgroundEventHandler) HandleEvent(ctx context.Context, eventType, source, target string, details map[string]string, timestamp time.Time) (*ObserverAssessment, error) {
+	subject := h.buildSubject(eventType, source, target, details)
+	contextStr := h.buildEventContext(eventType, source, target, details, timestamp)
+	h.recordEventObservation(eventType, source, target, details, timestamp, subject, contextStr)
+
 	if !h.guardian.HasVision() {
 		return nil, nil // No vision defined, skip
 	}
@@ -316,12 +346,6 @@ func (h *BackgroundEventHandler) HandleEvent(ctx context.Context, eventType, sou
 	default:
 		trigger = TriggerPeriodic
 	}
-
-	// Build context from event details
-	contextStr := h.buildEventContext(eventType, source, target, details)
-
-	// Build subject from event
-	subject := h.buildSubject(eventType, source, target, details)
 
 	// Perform alignment check
 	check, err := h.guardian.CheckAlignment(ctx, trigger, subject, contextStr)
@@ -367,16 +391,25 @@ func (h *BackgroundEventHandler) buildSubject(eventType, source, target string, 
 	}
 }
 
-func (h *BackgroundEventHandler) buildEventContext(eventType, source, target string, details map[string]string) string {
+func (h *BackgroundEventHandler) buildEventContext(eventType, source, target string, details map[string]string, timestamp time.Time) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Event Type: %s\n", eventType))
 	sb.WriteString(fmt.Sprintf("Source: %s\n", source))
 	if target != "" {
 		sb.WriteString(fmt.Sprintf("Target: %s\n", target))
 	}
+	if !timestamp.IsZero() {
+		sb.WriteString(fmt.Sprintf("Timestamp: %s\n", timestamp.Format(time.RFC3339)))
+	}
 	if len(details) > 0 {
 		sb.WriteString("\nDetails:\n")
-		for k, v := range details {
+		keys := make([]string, 0, len(details))
+		for k := range details {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			v := details[k]
 			sb.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
 		}
 	}
@@ -395,5 +428,56 @@ func (h *BackgroundEventHandler) resultToLevel(result AlignmentResult) string {
 		return "block"
 	default:
 		return "note"
+	}
+}
+
+func (h *BackgroundEventHandler) recordEventObservation(eventType, source, target string, details map[string]string, timestamp time.Time, subject, context string) {
+	metadata := map[string]string{
+		"event_type": eventType,
+		"source":     source,
+	}
+	if target != "" {
+		metadata["target"] = target
+	}
+	for k, v := range details {
+		metadata["detail."+k] = v
+	}
+
+	relevance := h.guardian.calculateRelevance(subject + "\n" + context)
+	if eventType == "file_modified" && target != "" {
+		relevance = h.guardian.calculatePathRelevance(target)
+	}
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	obs := &Observation{
+		SessionID: h.sessionID,
+		Timestamp: timestamp,
+		Type:      h.observationTypeForEvent(eventType),
+		Subject:   subject,
+		Content:   context,
+		Relevance: relevance,
+		Tags:      []string{"background_observer", eventType},
+		Metadata:  metadata,
+	}
+
+	if err := h.guardian.store.RecordObservation(obs); err != nil {
+		logging.Get(logging.CategoryNorthstar).Debug("Failed to record background observer event: %v", err)
+	}
+}
+
+func (h *BackgroundEventHandler) observationTypeForEvent(eventType string) ObservationType {
+	switch eventType {
+	case "task_completed":
+		return ObsTaskCompleted
+	case "file_modified":
+		return ObsFileChanged
+	case "campaign_phase":
+		return ObsDecisionMade
+	case "alignment_check":
+		return ObsPatternDetected
+	default:
+		return ObsPatternDetected
 	}
 }

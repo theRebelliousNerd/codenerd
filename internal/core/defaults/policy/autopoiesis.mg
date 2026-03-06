@@ -15,6 +15,9 @@ promote_to_long_term(FactType, FactValue) :-
 # Autopoiesis: Missing Tool Detection
 # Helper: derive when we HAVE a capability (for safe negation)
 has_capability(Cap) :-
+    tool_capability(_, Cap).
+
+has_capability(Cap) :-
     tool_capabilities(_, Cap).
 
 # Derive missing_tool_for if user intent requires a capability we don't have
@@ -126,18 +129,18 @@ tool_lifecycle(ToolName, /ready) :-
 tool_quality_poor(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality < 50.
+    AvgQuality < 50.0.
 
 tool_quality_acceptable(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 50,
-    AvgQuality < 80.
+    AvgQuality >= 50.0,
+    AvgQuality < 80.0.
 
 tool_quality_good(ToolName) :-
     tool_learning(ToolName, Executions, _, AvgQuality),
     Executions >= 3,
-    AvgQuality >= 80.
+    AvgQuality >= 80.0.
 
 # Trigger refinement for poor quality tools
 tool_needs_refinement(ToolName) :-

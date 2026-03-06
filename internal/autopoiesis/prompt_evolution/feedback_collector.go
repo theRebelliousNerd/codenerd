@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/prompt"
 )
 
 // FeedbackCollector records and manages execution feedback.
@@ -79,7 +80,11 @@ func (fc *FeedbackCollector) ensureSchema() error {
 		actions_json TEXT,
 		result_json TEXT,
 		duration_ms INTEGER,
+		prompt_manifest_json TEXT,
 		atom_ids_json TEXT,
+		thought_summary TEXT,
+		thinking_tokens INTEGER DEFAULT 0,
+		grounding_sources_json TEXT,
 		verdict_json TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -94,8 +99,62 @@ func (fc *FeedbackCollector) ensureSchema() error {
 	);
 	`
 
-	_, err := fc.db.Exec(schema)
-	return err
+	if _, err := fc.db.Exec(schema); err != nil {
+		return err
+	}
+
+	return fc.ensureExecutionRecordColumns()
+}
+
+func (fc *FeedbackCollector) ensureExecutionRecordColumns() error {
+	type columnSpec struct {
+		name       string
+		definition string
+	}
+
+	required := []columnSpec{
+		{name: "prompt_manifest_json", definition: "TEXT"},
+		{name: "thought_summary", definition: "TEXT"},
+		{name: "thinking_tokens", definition: "INTEGER DEFAULT 0"},
+		{name: "grounding_sources_json", definition: "TEXT"},
+	}
+
+	existing := make(map[string]struct{})
+	rows, err := fc.db.Query(`PRAGMA table_info(execution_records)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notNull   int
+			defaultV  sql.NullString
+			primaryPK int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &defaultV, &primaryPK); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, col := range required {
+		if _, ok := existing[col.name]; ok {
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE execution_records ADD COLUMN %s %s", col.name, col.definition)
+		if _, err := fc.db.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to add column %s: %w", col.name, err)
+		}
+	}
+
+	return nil
 }
 
 // loadStats loads statistics from the database.
@@ -121,7 +180,9 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 	// Serialize JSON fields
 	actionsJSON, _ := json.Marshal(exec.AgentActions)
 	resultJSON, _ := json.Marshal(exec.ExecutionResult)
+	manifestJSON, _ := json.Marshal(exec.PromptManifest)
 	atomIDsJSON, _ := json.Marshal(exec.AtomIDs)
+	groundingJSON, _ := json.Marshal(exec.GroundingSources)
 
 	var verdictJSON []byte
 	if exec.Verdict != nil {
@@ -132,12 +193,15 @@ func (fc *FeedbackCollector) Record(exec *ExecutionRecord) error {
 	_, err := fc.db.Exec(`
 		INSERT OR REPLACE INTO execution_records
 		(task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		 actions_json, result_json, duration_ms, atom_ids_json, verdict_json, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		 thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		exec.TaskID, exec.SessionID, exec.ShardID, exec.ShardType,
 		exec.TaskRequest, exec.ProblemType,
 		string(actionsJSON), string(resultJSON), exec.Duration.Milliseconds(),
-		string(atomIDsJSON), string(verdictJSON), exec.Timestamp,
+		string(manifestJSON), string(atomIDsJSON),
+		exec.ThoughtSummary, exec.ThinkingTokens, string(groundingJSON),
+		string(verdictJSON), exec.Timestamp,
 	)
 
 	if err != nil {
@@ -169,7 +233,8 @@ func (fc *FeedbackCollector) GetRecentFailures(limit int) ([]*ExecutionRecord, e
 
 	rows, err := fc.db.Query(`
 		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, atom_ids_json, verdict_json, created_at
+		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
 		FROM execution_records
 		WHERE verdict_json LIKE '%"verdict":"FAIL"%'
 		   OR (verdict_json IS NULL AND result_json LIKE '%"success":false%')
@@ -191,7 +256,8 @@ func (fc *FeedbackCollector) GetRecentByShardType(shardType string, limit int) (
 
 	rows, err := fc.db.Query(`
 		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, atom_ids_json, verdict_json, created_at
+		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
 		FROM execution_records
 		WHERE shard_type = ?
 		ORDER BY created_at DESC
@@ -212,7 +278,8 @@ func (fc *FeedbackCollector) GetUnevaluated(limit int) ([]*ExecutionRecord, erro
 
 	rows, err := fc.db.Query(`
 		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, atom_ids_json, verdict_json, created_at
+		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
 		FROM execution_records
 		WHERE verdict_json IS NULL OR verdict_json = ''
 		ORDER BY created_at DESC
@@ -233,7 +300,8 @@ func (fc *FeedbackCollector) GetFailuresByProblemType(minCount int) (map[string]
 
 	rows, err := fc.db.Query(`
 		SELECT task_id, session_id, shard_id, shard_type, task_request, problem_type,
-		       actions_json, result_json, duration_ms, atom_ids_json, verdict_json, created_at
+		       actions_json, result_json, duration_ms, prompt_manifest_json, atom_ids_json,
+		       thought_summary, thinking_tokens, grounding_sources_json, verdict_json, created_at
 		FROM execution_records
 		WHERE verdict_json LIKE '%"verdict":"FAIL"%'
 		ORDER BY problem_type, shard_type, created_at DESC`)
@@ -306,16 +374,18 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 
 	for rows.Next() {
 		var rec ExecutionRecord
-		var actionsJSON, resultJSON, atomIDsJSON string
+		var actionsJSON, resultJSON, manifestJSON, atomIDsJSON, groundingJSON string
 		var verdictJSON sql.NullString
 		var durationMs int64
+		var thoughtSummary sql.NullString
+		var thinkingTokens sql.NullInt64
 		var createdAt time.Time
 
 		err := rows.Scan(
 			&rec.TaskID, &rec.SessionID, &rec.ShardID, &rec.ShardType,
 			&rec.TaskRequest, &rec.ProblemType,
-			&actionsJSON, &resultJSON, &durationMs,
-			&atomIDsJSON, &verdictJSON, &createdAt,
+			&actionsJSON, &resultJSON, &durationMs, &manifestJSON, &atomIDsJSON,
+			&thoughtSummary, &thinkingTokens, &groundingJSON, &verdictJSON, &createdAt,
 		)
 		if err != nil {
 			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to scan record: %v", err)
@@ -332,8 +402,23 @@ func (fc *FeedbackCollector) scanRecords(rows *sql.Rows) ([]*ExecutionRecord, er
 		if resultJSON != "" {
 			json.Unmarshal([]byte(resultJSON), &rec.ExecutionResult)
 		}
+		if manifestJSON != "" && manifestJSON != "null" {
+			rec.PromptManifest = &prompt.PromptManifest{}
+			if err := json.Unmarshal([]byte(manifestJSON), rec.PromptManifest); err != nil {
+				rec.PromptManifest = nil
+			}
+		}
 		if atomIDsJSON != "" {
 			json.Unmarshal([]byte(atomIDsJSON), &rec.AtomIDs)
+		}
+		if thoughtSummary.Valid {
+			rec.ThoughtSummary = thoughtSummary.String
+		}
+		if thinkingTokens.Valid {
+			rec.ThinkingTokens = int(thinkingTokens.Int64)
+		}
+		if groundingJSON != "" && groundingJSON != "null" {
+			json.Unmarshal([]byte(groundingJSON), &rec.GroundingSources)
 		}
 		if verdictJSON.Valid && verdictJSON.String != "" {
 			rec.Verdict = &JudgeVerdict{}
