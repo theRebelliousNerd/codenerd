@@ -3,7 +3,9 @@ package campaign
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 // TODO: TEST_GAP: Null/Undefined/Empty Input Vectors
@@ -74,5 +76,170 @@ func TestReplanner_RecursionFix_ErrorPropagates(t *testing.T) {
 	// Verification
 	if err != expectedErr {
 		t.Errorf("Expected error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestReplan_NilCampaign(t *testing.T) {
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+
+	err := r.Replan(context.Background(), nil, "")
+	if !errors.Is(err, ErrNilCampaign) {
+		t.Fatalf("expected ErrNilCampaign, got %v", err)
+	}
+}
+
+func TestReplanForNewRequirement_EmptyRequirement(t *testing.T) {
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+
+	err := r.ReplanForNewRequirement(context.Background(), &Campaign{ID: "/campaign_test"}, "   ")
+	if !errors.Is(err, ErrEmptyRequirement) {
+		t.Fatalf("expected ErrEmptyRequirement, got %v", err)
+	}
+}
+
+func TestReplanForNewRequirement_InvalidEnumsNormalized(t *testing.T) {
+	kernel := &MockKernel{}
+	r := NewReplanner(kernel, &MockLLMClient{
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			return `{
+				"new_tasks": [
+					{
+						"phase_order": 0,
+						"description": "Write regression coverage",
+						"type": "/magic_fix",
+						"priority": "/super_high"
+					}
+				],
+				"modified_tasks": [],
+				"summary": "Added safer test work"
+			}`, nil
+		},
+	})
+
+	campaign := &Campaign{
+		ID:              "/campaign_test",
+		Title:           "Planner Reliability",
+		CompletedPhases: 0,
+		TotalPhases:     1,
+		CompletedTasks:  0,
+		TotalTasks:      0,
+		Phases: []Phase{{
+			ID:       "/phase_test_0",
+			Order:    0,
+			Category: "/test",
+			Tasks:    nil,
+		}},
+	}
+
+	if err := r.ReplanForNewRequirement(context.Background(), campaign, "Add regression coverage"); err != nil {
+		t.Fatalf("ReplanForNewRequirement failed: %v", err)
+	}
+
+	if got := len(campaign.Phases[0].Tasks); got != 1 {
+		t.Fatalf("expected 1 new task, got %d", got)
+	}
+	task := campaign.Phases[0].Tasks[0]
+	if task.Type != TaskTypeTestWrite {
+		t.Fatalf("task type = %s, want %s", task.Type, TaskTypeTestWrite)
+	}
+	if task.Priority != PriorityNormal {
+		t.Fatalf("task priority = %s, want %s", task.Priority, PriorityNormal)
+	}
+	if campaign.TotalTasks != 1 {
+		t.Fatalf("campaign.TotalTasks = %d, want 1", campaign.TotalTasks)
+	}
+}
+
+func TestReplan_RollsBackOnKernelLoadFailure(t *testing.T) {
+	loadErr := errors.New("kernel load failed")
+	kernel := &MockKernel{LoadFactsErr: loadErr}
+	r := NewReplanner(kernel, &MockLLMClient{
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			return `{
+				"success": true,
+				"change_summary": "Retry with safer approach",
+				"retry_tasks": [
+					{"task_id": "/task_test_0_0", "new_approach": "Retry by shrinking prompt scope"}
+				],
+				"skip_tasks": [],
+				"add_tasks": [],
+				"modify_dependencies": []
+			}`, nil
+		},
+	})
+
+	campaign := &Campaign{
+		ID:             "/campaign_test",
+		Title:          "Planner Reliability",
+		Goal:           "Harden replanning",
+		CompletedTasks: 0,
+		TotalTasks:     1,
+		Phases: []Phase{{
+			ID:    "/phase_test_0",
+			Order: 0,
+			Tasks: []Task{{
+				ID:          "/task_test_0_0",
+				PhaseID:     "/phase_test_0",
+				Description: "Original failed task",
+				Status:      TaskFailed,
+				Type:        TaskTypeFileModify,
+				Priority:    PriorityNormal,
+				Attempts: []TaskAttempt{{
+					Number:    1,
+					Outcome:   "/failure",
+					Timestamp: time.Now(),
+					Error:     "compile failed",
+				}},
+				LastError: "compile failed",
+			}},
+		}},
+	}
+
+	err := r.Replan(context.Background(), campaign, "")
+	if err == nil || !strings.Contains(err.Error(), "failed to reload campaign") {
+		t.Fatalf("expected reload failure, got %v", err)
+	}
+	if got := campaign.Phases[0].Tasks[0].Description; got != "Original failed task" {
+		t.Fatalf("campaign mutated despite load failure, description=%q", got)
+	}
+	if campaign.RevisionNumber != 0 {
+		t.Fatalf("revision number mutated despite load failure: %d", campaign.RevisionNumber)
+	}
+}
+
+func TestBuildReplanContext_TruncatesLargeHistory(t *testing.T) {
+	r := NewReplanner(&MockKernel{}, &MockLLMClient{})
+	campaign := &Campaign{
+		ID:              "/campaign_test",
+		Title:           "Very Large Campaign",
+		Status:          StatusActive,
+		CompletedPhases: 1,
+		TotalPhases:     9,
+		CompletedTasks:  2,
+		TotalTasks:      20,
+	}
+
+	failedTasks := []Task{{
+		ID:          "/task_test_0_0",
+		Description: strings.Repeat("desc ", 2000),
+		LastError:   strings.Repeat("error ", 2000),
+		Attempts: []TaskAttempt{
+			{Number: 1, Outcome: "/failure", Error: strings.Repeat("attempt1 ", 1000)},
+			{Number: 2, Outcome: "/failure", Error: strings.Repeat("attempt2 ", 1000)},
+			{Number: 3, Outcome: "/failure", Error: strings.Repeat("attempt3 ", 1000)},
+			{Number: 4, Outcome: "/failure", Error: strings.Repeat("attempt4 ", 1000)},
+			{Number: 5, Outcome: "/failure", Error: strings.Repeat("attempt5 ", 1000)},
+		},
+	}}
+
+	contextText := r.buildReplanContext(campaign, failedTasks, nil, nil)
+	if len(contextText) > maxReplanContextChars {
+		t.Fatalf("context length = %d, want <= %d", len(contextText), maxReplanContextChars)
+	}
+	if got := strings.Count(contextText, "Attempt "); got != maxReplanAttemptsPerTask {
+		t.Fatalf("attempt count in context = %d, want %d", got, maxReplanAttemptsPerTask)
+	}
+	if !strings.Contains(contextText, "[truncated]") {
+		t.Fatalf("expected truncated marker in context, got %q", contextText)
 	}
 }

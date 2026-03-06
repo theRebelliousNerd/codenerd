@@ -60,6 +60,28 @@ func sanitizeCampaignID(id string) string {
 	return id
 }
 
+func isPathWithinWorkspace(workspace, target string) bool {
+	if workspace == "" || target == "" {
+		return true
+	}
+
+	workspaceAbs, err := filepath.Abs(workspace)
+	if err != nil {
+		workspaceAbs = filepath.Clean(workspace)
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		targetAbs = filepath.Clean(target)
+	}
+
+	rel, err := filepath.Rel(workspaceAbs, targetAbs)
+	if err != nil {
+		return false
+	}
+	rel = filepath.Clean(rel)
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // isSupportedDocExt filters to typical text docs.
 func isSupportedDocExt(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))

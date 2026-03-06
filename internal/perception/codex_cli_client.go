@@ -8,14 +8,19 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
+
+var codexExecCommandContext = exec.CommandContext
 
 // CodexCLIClient implements LLMClient using the Codex CLI subprocess.
 //
@@ -35,6 +40,13 @@ type CodexCLIClient struct {
 	timeout       time.Duration
 	streaming     bool
 
+	skillEnabled   bool
+	skillName      string
+	skillAvailable bool
+	skillPath      string
+	workspaceRoot  string
+	skillWarnOnce  sync.Once
+
 	disableShellTool   bool
 	enableOutputSchema bool
 
@@ -53,6 +65,8 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		model:              "gpt-5.3-codex",
 		sandbox:            "read-only",
 		timeout:            300 * time.Second,
+		skillEnabled:       true,
+		skillName:          config.DefaultCodexExecSkillName,
 		disableShellTool:   true,
 		enableOutputSchema: true,
 	}
@@ -69,6 +83,12 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		}
 		client.fallbackModel = cfg.FallbackModel
 		client.streaming = cfg.Streaming
+		if cfg.SkillEnabled != nil {
+			client.skillEnabled = *cfg.SkillEnabled
+		}
+		if strings.TrimSpace(cfg.SkillName) != "" {
+			client.skillName = strings.TrimSpace(cfg.SkillName)
+		}
 
 		if cfg.DisableShellTool != nil {
 			client.disableShellTool = *cfg.DisableShellTool
@@ -90,6 +110,18 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		}
 	}
 
+	client.workspaceRoot = codexExecWorkspaceRoot()
+	client.skillPath, client.skillAvailable = codexExecSkillPath(client.workspaceRoot, client.skillName)
+	if client.skillEnabled {
+		if client.skillAvailable {
+			logging.Perception("Codex CLI skill injection enabled: skill=%s path=%s", client.skillName, client.skillPath)
+		} else {
+			logging.PerceptionWarn("Codex CLI skill enabled but missing: skill=%s root=%s", client.skillName, client.workspaceRoot)
+		}
+	} else {
+		logging.Perception("Codex CLI skill injection disabled: skill=%s", client.skillName)
+	}
+
 	return client
 }
 
@@ -106,6 +138,20 @@ func (c *CodexCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, u
 	var schema map[string]interface{}
 	if c.enableOutputSchema && isPiggybackPrompt(systemPrompt, userPrompt) {
 		schema = piggybackEnvelopeRawSchema()
+	}
+
+	return c.executeWithFallback(ctx, combinedPrompt, schema)
+}
+
+// CompleteWithSchema sends a prompt with an explicit JSON schema for validation.
+func (c *CodexCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
+
+	var schema map[string]interface{}
+	if strings.TrimSpace(jsonSchema) != "" {
+		if err := json.Unmarshal([]byte(jsonSchema), &schema); err != nil {
+			return "", fmt.Errorf("invalid JSON schema for codex-cli: %w", err)
+		}
 	}
 
 	return c.executeWithFallback(ctx, combinedPrompt, schema)
@@ -169,10 +215,13 @@ func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string,
 	if err != nil {
 		var rateLimitErr *RateLimitError
 		if errors.As(err, &rateLimitErr) && c.fallbackModel != "" {
+			logging.PerceptionWarn("Codex CLI primary model rate-limited; trying fallback model=%s", c.fallbackModel)
 			response, err = c.executeCLI(ctx, prompt, c.fallbackModel, schema)
 			if err != nil {
+				logging.PerceptionError("Codex CLI fallback model exhausted: model=%s error=%v", c.fallbackModel, err)
 				return "", fmt.Errorf("fallback model also failed: %w", err)
 			}
+			logging.Perception("Codex CLI fallback model succeeded: model=%s", c.fallbackModel)
 			return response, nil
 		}
 		return "", err
@@ -182,10 +231,24 @@ func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string,
 
 // buildPrompt combines system and user prompts.
 func (c *CodexCLIClient) buildPrompt(systemPrompt, userPrompt string) string {
+	var prompt string
 	if strings.TrimSpace(systemPrompt) != "" {
-		return fmt.Sprintf("<system_instructions>\n%s\n</system_instructions>\n\n%s", systemPrompt, userPrompt)
+		prompt = fmt.Sprintf("<system_instructions>\n%s\n</system_instructions>\n\n%s", systemPrompt, userPrompt)
+	} else {
+		prompt = userPrompt
 	}
-	return userPrompt
+
+	if !c.skillEnabled {
+		return prompt
+	}
+	if !c.skillAvailable {
+		c.skillWarnOnce.Do(func() {
+			logging.PerceptionWarn("Codex CLI repo skill missing; falling back to legacy prompt path: skill=%s expected=%s", c.skillName, c.skillPath)
+		})
+		return prompt
+	}
+
+	return fmt.Sprintf("$%s\n\n%s", c.skillName, prompt)
 }
 
 func isPiggybackPrompt(systemPrompt, userPrompt string) bool {
@@ -310,7 +373,10 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 	}
 
 	args := c.buildCLIArgs(ctx, model, outPath, schemaPath)
-	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd := codexExecCommandContext(ctx, "codex", args...)
+	if c.workspaceRoot != "" {
+		cmd.Dir = c.workspaceRoot
+	}
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Stdout = io.Discard
 
@@ -348,6 +414,11 @@ func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, s
 	return result, nil
 }
 
+// SchemaCapable reports whether the client can enforce response schemas.
+func (c *CodexCLIClient) SchemaCapable() bool {
+	return c.enableOutputSchema
+}
+
 // SetModel changes the model used for completions.
 func (c *CodexCLIClient) SetModel(model string) { c.model = model }
 
@@ -378,6 +449,21 @@ func (c *CodexCLIClient) SetStreaming(streaming bool) { c.streaming = streaming 
 // GetStreaming returns whether streaming is enabled.
 func (c *CodexCLIClient) GetStreaming() bool { return c.streaming }
 
+// SkillEnabled reports whether repo-local Codex skill injection is enabled.
+func (c *CodexCLIClient) SkillEnabled() bool { return c.skillEnabled }
+
+// SkillName returns the configured Codex skill name.
+func (c *CodexCLIClient) SkillName() string { return c.skillName }
+
+// SkillPath returns the resolved repo-local skill path, if any.
+func (c *CodexCLIClient) SkillPath() string { return c.skillPath }
+
+// SkillAvailable reports whether the configured repo-local skill was found.
+func (c *CodexCLIClient) SkillAvailable() bool { return c.skillAvailable }
+
+// WorkspaceRoot returns the resolved workspace root for codex exec invocations.
+func (c *CodexCLIClient) WorkspaceRoot() string { return c.workspaceRoot }
+
 // CompleteWithTools sends a prompt with tool definitions.
 // Codex CLI is used as a backend here; tools are requested via Piggyback control_packet.tool_requests.
 func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
@@ -394,3 +480,28 @@ func (c *CodexCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, us
 // ShouldUsePiggybackTools returns true to instruct the system to use Piggyback Protocol
 // for tool invocation. This is required for Codex CLI since codeNERD owns tool execution.
 func (c *CodexCLIClient) ShouldUsePiggybackTools() bool { return true }
+
+func codexExecWorkspaceRoot() string {
+	root, err := config.FindWorkspaceRoot()
+	if err == nil && root != "" {
+		return root
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+	return ""
+}
+
+func codexExecSkillPath(workspaceRoot, skillName string) (string, bool) {
+	skillName = strings.TrimSpace(skillName)
+	if workspaceRoot == "" || skillName == "" {
+		return "", false
+	}
+
+	skillDir := filepath.Join(workspaceRoot, ".agents", "skills", skillName)
+	skillDoc := filepath.Join(skillDir, "SKILL.md")
+	if _, err := os.Stat(skillDoc); err != nil {
+		return skillDoc, false
+	}
+	return skillDoc, true
+}

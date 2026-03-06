@@ -82,10 +82,13 @@ func NewDecomposer(kernel core.Kernel, llmClient perception.LLMClient, workspace
 // This allows using JIT-compiled prompts from the articulation package.
 // If not set, static prompts will be used.
 func (d *Decomposer) SetPromptProvider(provider PromptProvider) {
-	d.promptProvider = provider
-	if provider != nil {
-		logging.CampaignDebug("Decomposer configured with custom prompt provider")
+	if provider == nil {
+		d.promptProvider = NewStaticPromptProvider()
+		return
 	}
+
+	d.promptProvider = provider
+	logging.CampaignDebug("Decomposer configured with custom prompt provider")
 }
 
 // SetShardLister sets the shard discovery interface for shard-aware planning.
@@ -204,6 +207,9 @@ func (d *Decomposer) completeWithGrounding(ctx context.Context, prompt string) (
 		return response, nil
 	}
 	// Fall back to standard completion
+	if d.llmClient == nil {
+		return "", fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
+	}
 	return d.llmClient.Complete(ctx, prompt)
 }
 
@@ -233,8 +239,27 @@ type DocClassification struct {
 	Reasoning  string  `json:"reasoning"`
 }
 
+const (
+	maxCampaignClassificationBytes  = 1 << 20
+	maxCampaignKnowledgeIngestBytes = 5 << 20
+)
+
 // Decompose creates a campaign plan through LLM + Mangle collaboration.
 func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*DecomposeResult, error) {
+	req.Goal = strings.TrimSpace(req.Goal)
+	if req.Goal == "" {
+		return nil, ErrEmptyGoal
+	}
+	if d.kernel == nil {
+		return nil, ErrNilKernel
+	}
+	if d.llmClient == nil {
+		return nil, fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
+	}
+	if req.ContextBudget < 0 {
+		return nil, fmt.Errorf("%w: context budget must be non-negative", ErrInvalidConfig)
+	}
+
 	timer := logging.StartTimer(logging.CategoryCampaign, "Decompose")
 	defer timer.StopWithInfo()
 
@@ -417,15 +442,13 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 		refineTimer.Stop()
 		if err == nil && refinedPlan != nil {
 			logging.Campaign("Refinement successful, rebuilding campaign")
+			previousCampaign := campaign
 			campaign = d.buildCampaign(campaignID, req, refinedPlan)
-			// Reload and revalidate using transaction for atomic rebuild
-			tx := types.NewKernelTx(d.kernel)
-			tx.Retract("campaign")
-			tx.Retract("campaign_phase")
-			tx.Retract("campaign_task")
-			tx.LoadFacts(campaign.ToFacts())
-			if err := tx.Commit(); err != nil {
+			campaign.SourceDocs = sourceDocs
+			campaign.KnowledgeBase = kbPath
+			if err := syncCampaignFacts(d.kernel, previousCampaign, campaign, "plan refinement"); err != nil {
 				logging.Get(logging.CategoryCampaign).Error("decomposer: failed to commit campaign facts: %v", err)
+				return nil, fmt.Errorf("failed to commit refined campaign facts: %w", err)
 			}
 			issues = d.validatePlan(campaignID)
 			logging.Campaign("After refinement: %d issues remaining", len(issues))
@@ -583,6 +606,11 @@ func (d *Decomposer) classifyDocuments(ctx context.Context, files []FileMetadata
 		files[i].Layer = "/scaffold"
 		files[i].LayerConfidence = 0.1
 
+		if files[i].SizeBytes > maxCampaignClassificationBytes {
+			logging.CampaignDebug("Skipping classification for oversized file: %s (%d bytes)", files[i].Path, files[i].SizeBytes)
+			continue
+		}
+
 		data, err := os.ReadFile(files[i].Path)
 		if err != nil {
 			logging.CampaignDebug("Cannot read file for classification: %s", files[i].Path)
@@ -734,6 +762,11 @@ func (d *Decomposer) ingestIntoKnowledgeStore(ctx context.Context, campaignID, d
 	ingestedCount := 0
 	totalBytes := int64(0)
 	for _, fm := range files {
+		if fm.SizeBytes > maxCampaignKnowledgeIngestBytes {
+			logging.CampaignDebug("Skipping knowledge ingestion for oversized file: %s (%d bytes)", fm.Path, fm.SizeBytes)
+			continue
+		}
+
 		data, err := os.ReadFile(fm.Path)
 		if err != nil {
 			logging.CampaignDebug("Failed to read file for ingestion: %s - %v", fm.Path, err)
@@ -1403,6 +1436,9 @@ const planResponseSchema = `{
 }`
 
 func (d *Decomposer) completePlanWithSchemaOrFallback(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if d.llmClient == nil {
+		return "", fmt.Errorf("%w: decomposer requires llm client", ErrNilDependency)
+	}
 	if schemaClient, ok := core.AsSchemaCapable(d.llmClient); ok {
 		resp, err := schemaClient.CompleteWithSchema(ctx, systemPrompt, userPrompt, planResponseSchema)
 		if err == nil {
@@ -1709,11 +1745,12 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 	}
 
 	// Build phases
+	slug := campaignSlug(campaignID)
 	phaseIDMap := make(map[int]string)      // Map phase order -> phaseID
 	globalTaskIDMap := make(map[int]string) // Map global task index -> taskID (for cross-phase context_from)
 	globalTaskIndex := 0                    // Running counter for global task indices
 	for i, rawPhase := range plan.Phases {
-		phaseID := fmt.Sprintf("/phase_%s_%d", campaignID[10:], i)
+		phaseID := fmt.Sprintf("/phase_%s_%d", slug, i)
 		phaseIDMap[i] = phaseID
 		phaseOrder := rawPhase.Order
 		if phaseOrder == 0 {
@@ -1723,7 +1760,7 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			i, rawPhase.Name, rawPhase.Category, len(rawPhase.Tasks), rawPhase.DependsOn)
 
 		// Create context profile
-		profileID := fmt.Sprintf("/profile_%s_%d", campaignID[10:], i)
+		profileID := fmt.Sprintf("/profile_%s_%d", slug, i)
 		contextProfile := ContextProfile{
 			ID:              profileID,
 			RequiredSchemas: []string{"file_topology", "symbol_graph", "diagnostic"},
@@ -1731,25 +1768,25 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 			FocusPatterns:   rawPhase.FocusPatterns,
 		}
 
-		// Load context profile
-		d.kernel.LoadFacts(contextProfile.ToFacts())
 		campaign.ContextProfiles = append(campaign.ContextProfiles, contextProfile)
+
+		phaseCategory := normalizeCategory(rawPhase.Category)
 
 		phase := Phase{
 			ID:             phaseID,
 			CampaignID:     campaignID,
 			Name:           rawPhase.Name,
 			Order:          phaseOrder,
-			Category:       normalizeCategory(rawPhase.Category),
+			Category:       phaseCategory,
 			Status:         PhasePending,
 			ContextProfile: profileID,
 			Objectives: []PhaseObjective{{
-				Type:               ObjectiveType(rawPhase.ObjectiveType),
+				Type:               normalizeObjectiveType(rawPhase.ObjectiveType, defaultObjectiveTypeForCategory(phaseCategory)),
 				Description:        rawPhase.Description,
-				VerificationMethod: VerificationMethod(rawPhase.VerificationMethod),
+				VerificationMethod: normalizeVerificationMethod(rawPhase.VerificationMethod),
 			}},
 			EstimatedTasks:      len(rawPhase.Tasks),
-			EstimatedComplexity: rawPhase.Complexity,
+			EstimatedComplexity: normalizeComplexity(rawPhase.Complexity),
 			Tasks:               make([]Task, 0),
 		}
 
@@ -1770,7 +1807,7 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 		taskIDMap := make(map[int]string) // Phase-local map for depends_on
 		logging.CampaignDebug("Building %d tasks for phase %s", len(rawPhase.Tasks), phaseID)
 		for j, rawTask := range rawPhase.Tasks {
-			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignID[10:], i, j)
+			taskID := fmt.Sprintf("/task_%s_%d_%d", slug, i, j)
 			taskIDMap[j] = taskID
 			globalTaskIDMap[globalTaskIndex] = taskID // Track global index for cross-phase context_from
 			globalTaskIndex++
@@ -1786,8 +1823,8 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				PhaseID:     phaseID,
 				Description: rawTask.Description,
 				Status:      TaskPending,
-				Type:        TaskType(rawTask.Type),
-				Priority:    TaskPriority(rawTask.Priority),
+				Type:        normalizeTaskType(rawTask.Type, defaultTaskTypeForCategory(phaseCategory)),
+				Priority:    normalizeTaskPriority(rawTask.Priority),
 				Order:       orderIndex,
 				DependsOn:   make([]string, 0),
 				Artifacts:   make([]TaskArtifact, 0),
@@ -1797,10 +1834,6 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				ShardInput:  rawTask.ShardInput,
 				ContextFrom: make([]string, 0),
 			}
-			if task.Priority == "" {
-				task.Priority = PriorityNormal
-			}
-
 			// Task dependencies
 			for _, depIdx := range rawTask.DependsOn {
 				if depTaskID, ok := taskIDMap[depIdx]; ok {
@@ -1833,7 +1866,11 @@ func (d *Decomposer) buildCampaign(campaignID string, req DecomposeRequest, plan
 				if strings.Contains(artifactPath, "_test") || strings.Contains(artifactPath, "test_") {
 					artifactType = "/test_file"
 				}
-				normalizedPath := normalizePath(artifactPath)
+				normalizedPath := sanitizeTaskArtifactPath(d.workspace, artifactPath)
+				if normalizedPath == "" {
+					logging.Get(logging.CategoryCampaign).Warn("Dropping unsafe artifact path %q for task %s", artifactPath, taskID)
+					continue
+				}
 				task.Artifacts = append(task.Artifacts, TaskArtifact{
 					Type: artifactType,
 					Path: normalizedPath,

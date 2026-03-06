@@ -2,11 +2,13 @@ package main
 
 import (
 	"codenerd/internal/config"
+	"codenerd/internal/perception"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -124,38 +126,49 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✓ Found Codex CLI at: %s\n", codexPath)
 
-	// Check authentication status
-	fmt.Println("Checking authentication status...")
-	checkCmd := newExecCommand(cmd.Context(), "codex", "--version")
-	if output, err := checkCmd.CombinedOutput(); err != nil {
-		fmt.Printf("Codex CLI check failed: %s\n", string(output))
-		fmt.Println("\nPlease run 'codex login' to authenticate with your ChatGPT subscription.")
-		return fmt.Errorf("codex CLI not authenticated")
-	}
-	fmt.Println("✓ Codex CLI is authenticated")
-
-	// Update config
+	// Load config before probing so custom Codex settings are honored.
 	cfg, err := loadOrCreateConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	probeCfg := cfg.GetCodexCLIConfig()
+
+	fmt.Println("Running noninteractive codex exec readiness probe...")
+	probeCtx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+	defer cancel()
+	probeClient := perception.NewCodexCLIClient(probeCfg)
+	probeResult, probeErr := probeClient.RunHealthProbe(probeCtx)
+	if probeErr != nil {
+		fmt.Printf("Codex exec probe status: %s\n", probeResult.Failure)
+		if probeResult.Detail != "" {
+			fmt.Printf("Details: %s\n", probeResult.Detail)
+		}
+		if probeResult.RawError != "" {
+			fmt.Printf("Raw error: %s\n", probeResult.RawError)
+		}
+		switch probeResult.Failure {
+		case perception.CodexCLIProbeFailureAuthUnavailable:
+			fmt.Println("\nPlease run 'codex login' to authenticate with your ChatGPT subscription.")
+			return fmt.Errorf("codex CLI not authenticated")
+		case perception.CodexCLIProbeFailureSkillMissing:
+			return fmt.Errorf("codex exec repo skill missing")
+		case perception.CodexCLIProbeFailureSchemaRejected:
+			return fmt.Errorf("codex exec schema probe failed")
+		case perception.CodexCLIProbeFailureRateLimited:
+			return fmt.Errorf("codex exec rate limited during probe")
+		case perception.CodexCLIProbeFailureFallbackModelMissing:
+			return fmt.Errorf("codex exec fallback model exhausted during probe")
+		default:
+			return fmt.Errorf("codex exec readiness probe failed")
+		}
+	}
+	fmt.Println("✓ Codex exec is authenticated and ready")
 
 	if err := cfg.SetEngine("codex-cli"); err != nil {
 		return fmt.Errorf("failed to set engine: %w", err)
 	}
 
-	// Ensure codex_cli config exists
-	if cfg.CodexCLI == nil {
-		disableShell := true
-		enableSchema := true
-		cfg.CodexCLI = &config.CodexCLIConfig{
-			Model:              "gpt-5.3-codex",
-			Sandbox:            "read-only",
-			Timeout:            300,
-			DisableShellTool:   &disableShell,
-			EnableOutputSchema: &enableSchema,
-		}
-	}
+	cfg.CodexCLI = probeCfg
 
 	if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -165,6 +178,11 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Engine: codex-cli")
 	fmt.Printf("  Model: %s\n", cfg.CodexCLI.Model)
 	fmt.Printf("  Sandbox: %s\n", cfg.CodexCLI.Sandbox)
+	if cfg.CodexCLI.SkillEnabled != nil {
+		fmt.Printf("  Skill enabled: %t\n", *cfg.CodexCLI.SkillEnabled)
+	}
+	fmt.Printf("  Skill: %s\n", cfg.CodexCLI.SkillName)
+	fmt.Printf("  Max concurrent calls: %d\n", cfg.CodexCLI.MaxConcurrentCalls)
 	fmt.Println("\ncodeNERD will now use your ChatGPT subscription for LLM calls.")
 	return nil
 }
@@ -199,12 +217,35 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Model: %s\n", cliCfg.Model)
 		fmt.Printf("  Sandbox: %s\n", cliCfg.Sandbox)
 		fmt.Printf("  Timeout: %ds\n", cliCfg.Timeout)
+		fmt.Printf("  Skill enabled: %t\n", cliCfg.SkillEnabled != nil && *cliCfg.SkillEnabled)
+		fmt.Printf("  Skill name: %s\n", cliCfg.SkillName)
+		fmt.Printf("  Max concurrent calls: %d\n", cliCfg.MaxConcurrentCalls)
+		fmt.Printf("  Effective scheduler ceiling: %d\n", cfg.GetEffectiveMaxConcurrentAPICalls())
 
 		// Check CLI status
-		if _, err := findExecutable("codex"); err != nil {
+		if codexPath, err := findExecutable("codex"); err != nil {
 			fmt.Println("  Status: ❌ CLI not installed")
 		} else {
-			fmt.Println("  Status: ✓ CLI installed")
+			fmt.Printf("  Status: ✓ CLI installed (%s)\n", codexPath)
+			probeCtx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+			defer cancel()
+			probeClient := perception.NewCodexCLIClient(cliCfg)
+			probeResult, probeErr := probeClient.RunHealthProbe(probeCtx)
+			probeLabel := "success"
+			if probeResult.Failure != perception.CodexCLIProbeFailureNone {
+				probeLabel = string(probeResult.Failure)
+			}
+			fmt.Printf("  Probe: %s\n", probeLabel)
+			fmt.Printf("  Skill path: %s\n", probeResult.SkillPath)
+			fmt.Printf("  Skill available: %t\n", probeResult.SkillAvailable)
+			fmt.Printf("  Schema support: %t\n", probeResult.SchemaValidated)
+			if probeResult.AuthAvailable {
+				fmt.Println("  Auth: ✓ noninteractive codex exec usable")
+			} else if probeErr == nil {
+				fmt.Println("  Auth: ✓ noninteractive codex exec ready")
+			} else {
+				fmt.Printf("  Auth: ❌ %s\n", probeResult.Detail)
+			}
 		}
 
 	default:

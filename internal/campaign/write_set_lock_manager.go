@@ -174,5 +174,8 @@ func normalizeAbsolutePath(workspace, rawPath string) string {
 	if runtime.GOOS == "windows" {
 		normalized = strings.ToLower(normalized)
 	}
+	if workspace != "" && !isPathWithinWorkspace(workspace, normalized) {
+		return ""
+	}
 	return normalized
 }

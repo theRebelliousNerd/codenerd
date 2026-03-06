@@ -11,15 +11,26 @@ import (
 // --- MockKernel ---
 
 type MockKernel struct {
-	Facts []core.Fact
+	Facts          []core.Fact
+	LoadFactsErr   error
+	QueryErr       error
+	AssertErr      error
+	RetractErr     error
+	RetractFactErr error
 }
 
 func (m *MockKernel) LoadFacts(facts []core.Fact) error {
+	if m.LoadFactsErr != nil {
+		return m.LoadFactsErr
+	}
 	m.Facts = append(m.Facts, facts...)
 	return nil
 }
 
 func (m *MockKernel) Query(predicate string) ([]core.Fact, error) {
+	if m.QueryErr != nil {
+		return nil, m.QueryErr
+	}
 	var results []core.Fact
 	for _, f := range m.Facts {
 		if f.Predicate == predicate {
@@ -38,6 +49,9 @@ func (m *MockKernel) QueryAll() (map[string][]core.Fact, error) {
 }
 
 func (m *MockKernel) Assert(fact core.Fact) error {
+	if m.AssertErr != nil {
+		return m.AssertErr
+	}
 	m.Facts = append(m.Facts, fact)
 	return nil
 }
@@ -48,10 +62,16 @@ func (m *MockKernel) AssertBatch(facts []core.Fact) error {
 }
 
 func (m *MockKernel) Retract(predicate string) error {
+	if m.RetractErr != nil {
+		return m.RetractErr
+	}
 	return nil
 }
 
 func (m *MockKernel) RetractFact(fact core.Fact) error {
+	if m.RetractFactErr != nil {
+		return m.RetractFactErr
+	}
 	return nil
 }
 

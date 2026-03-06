@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -35,6 +36,26 @@ func TestNormalizeWriteSetPaths_SortsAndDedupes(t *testing.T) {
 		if normalized[i] != expected[i] {
 			t.Fatalf("path[%d] = %q, want %q", i, normalized[i], expected[i])
 		}
+	}
+}
+
+func TestNormalizeWriteSetPaths_RejectsOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	insideAbs := filepath.Join(workspace, "pkg", "inside.go")
+
+	normalized := normalizeWriteSetPaths(workspace, []string{
+		"../escape.go",
+		insideAbs,
+		filepath.Join(workspace, "..", "outside.go"),
+	})
+
+	if len(normalized) != 1 {
+		t.Fatalf("expected exactly 1 in-workspace path, got %d: %v", len(normalized), normalized)
+	}
+
+	expected := normalizeAbsolutePath(workspace, insideAbs)
+	if normalized[0] != expected {
+		t.Fatalf("normalized[0] = %q, want %q", normalized[0], expected)
 	}
 }
 

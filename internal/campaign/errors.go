@@ -23,4 +23,16 @@ var (
 
 	// ErrInvalidConfig indicates invalid orchestrator configuration values.
 	ErrInvalidConfig = errors.New("campaign invalid configuration")
+
+	// ErrNilCampaign indicates a required campaign pointer was nil.
+	ErrNilCampaign = errors.New("campaign is nil")
+
+	// ErrNilKernel indicates a required kernel dependency was nil.
+	ErrNilKernel = errors.New("campaign kernel is nil")
+
+	// ErrEmptyRequirement indicates a requirement string was empty after trimming.
+	ErrEmptyRequirement = errors.New("campaign requirement is empty")
+
+	// ErrEmptyGoal indicates a decomposition goal was empty after trimming.
+	ErrEmptyGoal = errors.New("campaign goal is empty")
 )

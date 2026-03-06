@@ -1,5 +1,15 @@
 package config
 
+const (
+	// DefaultCodexExecSkillName is the repo-local Codex skill injected into
+	// codex exec prompts when skill support is enabled.
+	DefaultCodexExecSkillName = "codenerd-codex-exec"
+
+	// DefaultCodexMaxConcurrentCalls is the conservative default concurrency for
+	// subscription-backed codex exec usage.
+	DefaultCodexMaxConcurrentCalls = 2
+)
+
 // LLMConfig configures the LLM transducer.
 type LLMConfig struct {
 	Provider string `yaml:"provider"` // zai, anthropic, openai
@@ -63,6 +73,19 @@ type CodexCLIConfig struct {
 	// Streaming enables real-time streaming output
 	// When true, responses are streamed as they arrive
 	Streaming bool `json:"streaming,omitempty"`
+
+	// SkillEnabled controls whether codeNERD injects the repo-local Codex skill
+	// into each `codex exec` invocation. Defaults to true.
+	SkillEnabled *bool `json:"skill_enabled,omitempty"`
+
+	// SkillName is the explicit Codex skill name injected into prompts.
+	// Defaults to DefaultCodexExecSkillName.
+	SkillName string `json:"skill_name,omitempty"`
+
+	// MaxConcurrentCalls limits codex-cli requests beneath the global scheduler
+	// ceiling. Defaults to DefaultCodexMaxConcurrentCalls for subscription-backed
+	// Codex usage.
+	MaxConcurrentCalls int `json:"max_concurrent_calls,omitempty"`
 
 	// ReasoningEffortDefault overrides Codex CLI `model_reasoning_effort` when no
 	// per-capability override applies. Example values seen in the wild: "low",

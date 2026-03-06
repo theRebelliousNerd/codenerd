@@ -207,7 +207,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	// Configure global LLM API concurrency before any scheduled calls
 	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
 	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
 

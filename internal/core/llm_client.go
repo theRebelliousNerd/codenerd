@@ -19,7 +19,8 @@ var ErrSchemaNotSupported = errors.New("schema validation not supported")
 
 // SchemaCapableLLMClient extends LLMClient with JSON Schema validation.
 // This is an optional capability - use AsSchemaCapable() to check and convert.
-// Currently implemented by: ClaudeCodeCLIClient (via --json-schema flag)
+// Currently implemented by: ClaudeCodeCLIClient, CodexCLIClient, and providers
+// with native schema-constrained response support.
 //
 // JSON Schema validation ensures the LLM returns structured output conforming
 // to the schema. This is critical for the Piggyback Protocol where we need

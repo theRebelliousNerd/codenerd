@@ -57,9 +57,12 @@ type ConfigWizardState struct {
 	ClaudeCLITimeout int    // seconds
 
 	// Codex CLI configuration (when Engine="codex-cli")
-	CodexCLIModel   string // gpt-5, o4-mini, codex-mini-latest
-	CodexCLISandbox string // read-only, workspace-write
-	CodexCLITimeout int    // seconds
+	CodexCLIModel              string // gpt-5, o4-mini, codex-mini-latest
+	CodexCLISandbox            string // read-only, workspace-write
+	CodexCLITimeout            int    // seconds
+	CodexCLISkillEnabled       bool
+	CodexCLISkillName          string
+	CodexCLIMaxConcurrentCalls int
 
 	// Provider configuration (when Engine="api")
 	Provider string // zai, anthropic, openai, gemini, xai
@@ -141,6 +144,18 @@ var ProviderModels = map[string][]string{
 	},
 }
 
+var claudeCLIWizardModels = []string{"sonnet", "opus", "haiku"}
+
+var codexCLIWizardModels = []string{
+	"gpt-5.1-codex-max",
+	"gpt-5.1-codex-mini",
+	"gpt-5.1",
+	"gpt-5-codex",
+	"gpt-5",
+	"o4-mini",
+	"codex-mini-latest",
+}
+
 // DefaultProviderModel returns the default model for a provider.
 func DefaultProviderModel(provider string) string {
 	models, ok := ProviderModels[provider]
@@ -150,18 +165,32 @@ func DefaultProviderModel(provider string) string {
 	return ""
 }
 
+func (w *ConfigWizardState) availableModels() []string {
+	switch w.Engine {
+	case "claude-cli":
+		return claudeCLIWizardModels
+	case "codex-cli":
+		return codexCLIWizardModels
+	default:
+		return ProviderModels[w.Provider]
+	}
+}
+
 // NewConfigWizard creates a new configuration wizard state.
 func NewConfigWizard() *ConfigWizardState {
 	return &ConfigWizardState{
 		Step:          StepWelcome,
 		ShardProfiles: make(map[string]*ShardProfileConfig),
 		// Engine defaults
-		Engine:           "api", // Default to HTTP API mode
-		ClaudeCLIModel:   "sonnet",
-		ClaudeCLITimeout: 300,
-		CodexCLIModel:    "gpt-5.1-codex-max",
-		CodexCLISandbox:  "read-only",
-		CodexCLITimeout:  300,
+		Engine:                     "api", // Default to HTTP API mode
+		ClaudeCLIModel:             "sonnet",
+		ClaudeCLITimeout:           300,
+		CodexCLIModel:              "gpt-5.1-codex-max",
+		CodexCLISandbox:            "read-only",
+		CodexCLITimeout:            300,
+		CodexCLISkillEnabled:       true,
+		CodexCLISkillName:          internalconfig.DefaultCodexExecSkillName,
+		CodexCLIMaxConcurrentCalls: internalconfig.DefaultCodexMaxConcurrentCalls,
 		// Embedding defaults
 		OllamaEndpoint:        "http://localhost:11434",
 		OllamaModel:           "embeddinggemma",
@@ -432,6 +461,9 @@ func (m Model) configWizardCodexCLI(input string) (tea.Model, tea.Cmd) {
 		Content: fmt.Sprintf(`## Step 3: Per-Shard Configuration
 
 Codex CLI model: **%s**
+Repo skill: **%s**
+Schema mode: **enabled**
+Codex max concurrent calls: **%d**
 
 Would you like to configure individual shard settings?
 (model, temperature, context limits per shard type)
@@ -444,7 +476,7 @@ Would you like to configure individual shard settings?
 | researcher | Knowledge gathering |
 
 **y** = Configure each shard
-**n** = Use defaults for all shards (recommended for quick setup)`, m.configWizard.CodexCLIModel),
+**n** = Use defaults for all shards (recommended for quick setup)`, m.configWizard.CodexCLIModel, m.configWizard.CodexCLISkillName, m.configWizard.CodexCLIMaxConcurrentCalls),
 		Time: time.Now(),
 	})
 	m.textarea.Placeholder = "Configure shards? (y/n)..."
@@ -624,7 +656,7 @@ func (m Model) configWizardShardConfig(input string) (tea.Model, tea.Cmd) {
 // showShardModelPrompt shows the model selection prompt for current shard.
 func (m Model) showShardModelPrompt() (tea.Model, tea.Cmd) {
 	shard := m.configWizard.CurrentShard
-	models := ProviderModels[m.configWizard.Provider]
+	models := m.configWizard.availableModels()
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## Configuring: %s shard\n\n", shard))
@@ -653,7 +685,7 @@ func (m Model) showShardModelPrompt() (tea.Model, tea.Cmd) {
 // configWizardShardModel handles shard model selection.
 func (m Model) configWizardShardModel(input string) (tea.Model, tea.Cmd) {
 	shard := m.configWizard.CurrentShard
-	models := ProviderModels[m.configWizard.Provider]
+	models := m.configWizard.availableModels()
 
 	// Initialize shard profile if needed
 	if m.configWizard.ShardProfiles[shard] == nil {
@@ -961,6 +993,10 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.CodexCLIModel))
 		sb.WriteString(fmt.Sprintf("- **Sandbox**: %s\n", w.CodexCLISandbox))
 		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", w.CodexCLITimeout))
+		sb.WriteString(fmt.Sprintf("- **Repo Skill Enabled**: %t\n", w.CodexCLISkillEnabled))
+		sb.WriteString(fmt.Sprintf("- **Repo Skill**: %s\n", w.CodexCLISkillName))
+		sb.WriteString("- **Schema Mode**: enabled\n")
+		sb.WriteString(fmt.Sprintf("- **Max Concurrent Calls**: %d\n", w.CodexCLIMaxConcurrentCalls))
 		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
 
 	default: // "api"
@@ -1092,6 +1128,15 @@ func (m Model) renderCurrentConfig() string {
 		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", cliCfg.Model))
 		sb.WriteString(fmt.Sprintf("- **Sandbox**: %s\n", cliCfg.Sandbox))
 		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", cliCfg.Timeout))
+		if cliCfg.SkillEnabled != nil {
+			sb.WriteString(fmt.Sprintf("- **Repo Skill Enabled**: %t\n", *cliCfg.SkillEnabled))
+		}
+		sb.WriteString(fmt.Sprintf("- **Repo Skill**: %s\n", cliCfg.SkillName))
+		if cliCfg.EnableOutputSchema != nil {
+			sb.WriteString(fmt.Sprintf("- **Schema Mode**: %t\n", *cliCfg.EnableOutputSchema))
+		}
+		sb.WriteString(fmt.Sprintf("- **Max Concurrent Calls**: %d\n", cliCfg.MaxConcurrentCalls))
+		sb.WriteString(fmt.Sprintf("- **Effective Scheduler Ceiling**: %d\n", userCfg.GetEffectiveMaxConcurrentAPICalls()))
 		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
 
 	default: // "api"
@@ -1159,10 +1204,18 @@ func (m Model) saveConfigWizard() error {
 
 	case "codex-cli":
 		// Codex CLI configuration - no API key needed
+		skillEnabled := w.CodexCLISkillEnabled
+		disableShell := true
+		enableSchema := true
 		userCfg.CodexCLI = &internalconfig.CodexCLIConfig{
-			Model:   w.CodexCLIModel,
-			Sandbox: w.CodexCLISandbox,
-			Timeout: w.CodexCLITimeout,
+			Model:              w.CodexCLIModel,
+			Sandbox:            w.CodexCLISandbox,
+			Timeout:            w.CodexCLITimeout,
+			SkillEnabled:       &skillEnabled,
+			SkillName:          w.CodexCLISkillName,
+			MaxConcurrentCalls: w.CodexCLIMaxConcurrentCalls,
+			DisableShellTool:   &disableShell,
+			EnableOutputSchema: &enableSchema,
 		}
 
 	default: // "api"

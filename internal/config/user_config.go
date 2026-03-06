@@ -491,10 +491,14 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if c.CodexCLI == nil {
 		disableShell := true
 		enableSchema := true
+		skillEnabled := true
 		return &CodexCLIConfig{
 			Model:              "gpt-5.3-codex",
 			Sandbox:            "read-only",
 			Timeout:            300,
+			SkillEnabled:       &skillEnabled,
+			SkillName:          DefaultCodexExecSkillName,
+			MaxConcurrentCalls: DefaultCodexMaxConcurrentCalls,
 			DisableShellTool:   &disableShell,
 			EnableOutputSchema: &enableSchema,
 		}
@@ -509,6 +513,16 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 300
 	}
+	if cfg.SkillEnabled == nil {
+		skillEnabled := true
+		cfg.SkillEnabled = &skillEnabled
+	}
+	if cfg.SkillName == "" {
+		cfg.SkillName = DefaultCodexExecSkillName
+	}
+	if cfg.MaxConcurrentCalls == 0 {
+		cfg.MaxConcurrentCalls = DefaultCodexMaxConcurrentCalls
+	}
 	if cfg.DisableShellTool == nil {
 		disableShell := true
 		cfg.DisableShellTool = &disableShell
@@ -518,6 +532,22 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 		cfg.EnableOutputSchema = &enableSchema
 	}
 	return &cfg
+}
+
+// GetEffectiveMaxConcurrentAPICalls returns the scheduler ceiling after applying
+// engine-specific concurrency overrides.
+func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
+	coreLimits := c.GetCoreLimits()
+	effective := coreLimits.MaxConcurrentAPICalls
+
+	if c.GetEngine() == "codex-cli" {
+		codexCfg := c.GetCodexCLIConfig()
+		if codexCfg.MaxConcurrentCalls > 0 && codexCfg.MaxConcurrentCalls < effective {
+			effective = codexCfg.MaxConcurrentCalls
+		}
+	}
+
+	return effective
 }
 
 // GetShardProfile returns the profile for a specific shard type, falling back to defaults.

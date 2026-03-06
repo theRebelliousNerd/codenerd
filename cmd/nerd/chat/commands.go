@@ -744,7 +744,25 @@ Press **Enter** to begin...`,
 					engineDesc = fmt.Sprintf("**Claude Code CLI** (model: %s, timeout: %ds)", cliCfg.Model, cliCfg.Timeout)
 				case "codex-cli":
 					cliCfg := cfg.GetCodexCLIConfig()
-					engineDesc = fmt.Sprintf("**Codex CLI** (model: %s, sandbox: %s, timeout: %ds)", cliCfg.Model, cliCfg.Sandbox, cliCfg.Timeout)
+					skillEnabled := false
+					schemaEnabled := false
+					if cliCfg.SkillEnabled != nil {
+						skillEnabled = *cliCfg.SkillEnabled
+					}
+					if cliCfg.EnableOutputSchema != nil {
+						schemaEnabled = *cliCfg.EnableOutputSchema
+					}
+					engineDesc = fmt.Sprintf(
+						"**Codex CLI** (model: %s, sandbox: %s, timeout: %ds, skill: %s, skill_enabled: %t, schema_mode: %t, max_concurrent_calls: %d, effective_scheduler_ceiling: %d)",
+						cliCfg.Model,
+						cliCfg.Sandbox,
+						cliCfg.Timeout,
+						cliCfg.SkillName,
+						skillEnabled,
+						schemaEnabled,
+						cliCfg.MaxConcurrentCalls,
+						cfg.GetEffectiveMaxConcurrentAPICalls(),
+					)
 				default:
 					provider, _ := cfg.GetActiveProvider()
 					engineDesc = fmt.Sprintf("**API** (provider: %s)", provider)

@@ -191,7 +191,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Configure global LLM API concurrency
 	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
 	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
 
@@ -636,7 +636,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// Configure global LLM API concurrency
 	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = coreLimits.MaxConcurrentAPICalls
+	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
 	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
 

@@ -746,14 +746,165 @@ func joinStrings(strs []string) string {
 
 // normalizeCategory coerces category strings into canonical /atom form with a default.
 func normalizeCategory(category string) string {
-	cat := strings.TrimSpace(strings.ToLower(category))
-	if cat == "" {
-		return "/service"
+	return normalizePhaseCategory(category)
+}
+
+func normalizeAtomValue(value string) string {
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	if normalized == "" {
+		return ""
 	}
-	if !strings.HasPrefix(cat, "/") {
-		cat = "/" + cat
+	if !strings.HasPrefix(normalized, "/") {
+		normalized = "/" + normalized
 	}
-	return cat
+	return normalized
+}
+
+func defaultTaskTypeForCategory(category string) TaskType {
+	switch normalizeCategory(category) {
+	case "/research":
+		return TaskTypeResearch
+	case "/test", "/testing":
+		return TaskTypeTestWrite
+	case "/verify", "/validation", "/audit", "/review":
+		return TaskTypeVerify
+	case "/document", "/documentation", "/docs":
+		return TaskTypeDocument
+	case "/integrate", "/integration":
+		return TaskTypeIntegrate
+	case "/refactor":
+		return TaskTypeRefactor
+	case "/scaffold", "/create":
+		return TaskTypeFileCreate
+	default:
+		return TaskTypeFileModify
+	}
+}
+
+func normalizeTaskType(taskType string, fallback TaskType) TaskType {
+	normalized := normalizeAtomValue(taskType)
+	switch normalized {
+	case string(TaskTypeFileCreate):
+		return TaskTypeFileCreate
+	case string(TaskTypeFileModify):
+		return TaskTypeFileModify
+	case string(TaskTypeTestWrite):
+		return TaskTypeTestWrite
+	case string(TaskTypeTestRun):
+		return TaskTypeTestRun
+	case string(TaskTypeResearch):
+		return TaskTypeResearch
+	case string(TaskTypeShardSpawn):
+		return TaskTypeShardSpawn
+	case string(TaskTypeToolCreate):
+		return TaskTypeToolCreate
+	case string(TaskTypeVerify):
+		return TaskTypeVerify
+	case string(TaskTypeDocument):
+		return TaskTypeDocument
+	case string(TaskTypeRefactor):
+		return TaskTypeRefactor
+	case string(TaskTypeIntegrate):
+		return TaskTypeIntegrate
+	case string(TaskTypeCampaignRef):
+		return TaskTypeCampaignRef
+	case string(TaskTypeAssaultDiscover):
+		return TaskTypeAssaultDiscover
+	case string(TaskTypeAssaultBatch):
+		return TaskTypeAssaultBatch
+	case string(TaskTypeAssaultTriage):
+		return TaskTypeAssaultTriage
+	case "/code", "/modify", "/edit", "/patch":
+		return TaskTypeFileModify
+	case "/create", "/new_file":
+		return TaskTypeFileCreate
+	case "/test":
+		return TaskTypeTestWrite
+	case "/docs", "/documentation":
+		return TaskTypeDocument
+	case "/review", "/audit", "/validate":
+		return TaskTypeVerify
+	}
+	if fallback == "" {
+		return TaskTypeFileModify
+	}
+	return fallback
+}
+
+func normalizeTaskPriority(priority string) TaskPriority {
+	switch normalizeAtomValue(priority) {
+	case string(PriorityCritical), "/urgent":
+		return PriorityCritical
+	case string(PriorityHigh), "/important":
+		return PriorityHigh
+	case string(PriorityLow):
+		return PriorityLow
+	case string(PriorityNormal), "/medium", "/default":
+		return PriorityNormal
+	default:
+		return PriorityNormal
+	}
+}
+
+func defaultObjectiveTypeForCategory(category string) ObjectiveType {
+	switch normalizeCategory(category) {
+	case "/research":
+		return ObjectiveResearch
+	case "/test", "/testing":
+		return ObjectiveTest
+	case "/verify", "/validation", "/audit":
+		return ObjectiveValidate
+	case "/integrate", "/integration":
+		return ObjectiveIntegrate
+	case "/review":
+		return ObjectiveReview
+	case "/scaffold", "/create":
+		return ObjectiveCreate
+	default:
+		return ObjectiveModify
+	}
+}
+
+func normalizeObjectiveType(objective string, fallback ObjectiveType) ObjectiveType {
+	switch normalizeAtomValue(objective) {
+	case string(ObjectiveCreate):
+		return ObjectiveCreate
+	case string(ObjectiveModify), "/code":
+		return ObjectiveModify
+	case string(ObjectiveTest), "/testing":
+		return ObjectiveTest
+	case string(ObjectiveResearch):
+		return ObjectiveResearch
+	case string(ObjectiveValidate), "/verify", "/validation", "/audit":
+		return ObjectiveValidate
+	case string(ObjectiveIntegrate), "/integration":
+		return ObjectiveIntegrate
+	case string(ObjectiveReview):
+		return ObjectiveReview
+	}
+	if fallback == "" {
+		return ObjectiveModify
+	}
+	return fallback
+}
+
+func normalizeVerificationMethod(method string) VerificationMethod {
+	switch normalizeAtomValue(method) {
+	case string(VerifyTestsPass), "/test", "/tests", "/testing":
+		return VerifyTestsPass
+	case string(VerifyBuilds), "/build":
+		return VerifyBuilds
+	case string(VerifyManualReview), "/review":
+		return VerifyManualReview
+	case string(VerifyShardValidate), "/validate", "/validation":
+		return VerifyShardValidate
+	case string(VerifyNemesisGauntlet), "/gauntlet", "/nemesis":
+		return VerifyNemesisGauntlet
+	case string(VerifyNone), "":
+		return VerifyNone
+	default:
+		return VerifyNone
+	}
 }
 
 // normalizePath cleans filesystem paths and converts separators to slash form.

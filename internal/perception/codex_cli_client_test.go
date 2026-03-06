@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	"codenerd/internal/types"
 )
 
@@ -127,10 +128,22 @@ func TestCodexCLIClient_SettersGetters(t *testing.T) {
 			t.Errorf("GetStreaming() after SetStreaming(true) = %v, want true", got)
 		}
 	})
+
+	t.Run("Skill getters", func(t *testing.T) {
+		if !client.SkillEnabled() {
+			t.Fatal("expected skill injection enabled by default")
+		}
+		if got := client.SkillName(); got != config.DefaultCodexExecSkillName {
+			t.Fatalf("SkillName() = %q, want %q", got, config.DefaultCodexExecSkillName)
+		}
+	})
 }
 
 func TestCodexCLIClient_buildPrompt(t *testing.T) {
-	client := NewCodexCLIClient(nil)
+	skillEnabled := false
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		SkillEnabled: &skillEnabled,
+	})
 
 	tests := []struct {
 		name         string
@@ -171,6 +184,32 @@ func TestCodexCLIClient_buildPrompt(t *testing.T) {
 				t.Errorf("buildPrompt(%q, %q) = %q, want %q", tt.systemPrompt, tt.userPrompt, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCodexCLIClient_buildPrompt_WithSkillPrefix(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	client.skillEnabled = true
+	client.skillAvailable = true
+	client.skillName = "codenerd-codex-exec"
+
+	got := client.buildPrompt("You are helpful.", "Hello")
+	want := "$codenerd-codex-exec\n\n<system_instructions>\nYou are helpful.\n</system_instructions>\n\nHello"
+	if got != want {
+		t.Fatalf("buildPrompt with skill = %q, want %q", got, want)
+	}
+}
+
+func TestCodexCLIClient_buildPrompt_MissingSkillFallsBack(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	client.skillEnabled = true
+	client.skillAvailable = false
+	client.skillName = "codenerd-codex-exec"
+
+	got := client.buildPrompt("You are helpful.", "Hello")
+	want := "<system_instructions>\nYou are helpful.\n</system_instructions>\n\nHello"
+	if got != want {
+		t.Fatalf("buildPrompt missing skill = %q, want %q", got, want)
 	}
 }
 
@@ -274,4 +313,27 @@ func TestCodexCLIClient_StreamingConfig(t *testing.T) {
 // TestCodexCLIClient_LLMClientInterface verifies the client implements LLMClient.
 func TestCodexCLIClient_LLMClientInterface(t *testing.T) {
 	var _ LLMClient = (*CodexCLIClient)(nil)
+	var _ core.SchemaCapableLLMClient = (*CodexCLIClient)(nil)
+}
+
+func TestCodexCLIClient_SchemaCapable(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	if !client.SchemaCapable() {
+		t.Fatal("expected CodexCLIClient to report schema capability when output schema is enabled")
+	}
+}
+
+func TestCodexCLIClient_SchemaCapable_Disabled(t *testing.T) {
+	enableSchema := false
+	client := NewCodexCLIClient(&config.CodexCLIConfig{EnableOutputSchema: &enableSchema})
+	if client.SchemaCapable() {
+		t.Fatal("expected schema capability to be disabled when output schema is disabled")
+	}
+}
+
+func TestCodexCLIClient_CompleteWithSchema_InvalidSchema(t *testing.T) {
+	client := NewCodexCLIClient(nil)
+	if _, err := client.CompleteWithSchema(context.Background(), "", "hello", "{not-json"); err == nil {
+		t.Fatal("expected invalid JSON schema to return an error")
+	}
 }

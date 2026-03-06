@@ -19,6 +19,38 @@
 # Hidden/system files and folders (including all dot folders)
 .*
 !.gitignore
+!.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/codenerd-builder/
+.agents/skills/codenerd-builder/*
+!.agents/skills/codenerd-builder/SKILL.md
+!.agents/skills/codenerd-builder/references/
+.agents/skills/codenerd-builder/references/*
+!.agents/skills/codenerd-builder/references/skill-registry.md
+!.agents/skills/codenerd-codex-exec/
+!.agents/skills/codenerd-codex-exec/**
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/codenerd-builder/
+.claude/skills/codenerd-builder/*
+!.claude/skills/codenerd-builder/SKILL.md
+!.claude/skills/codenerd-builder/references/
+.claude/skills/codenerd-builder/references/*
+!.claude/skills/codenerd-builder/references/skill-registry.md
+!.codex/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/codenerd-builder/
+.codex/skills/codenerd-builder/*
+!.codex/skills/codenerd-builder/SKILL.md
+!.codex/skills/codenerd-builder/references/
+.codex/skills/codenerd-builder/references/*
+!.codex/skills/codenerd-builder/references/skill-registry.md
 
 # OS noise
 Thumbs.db

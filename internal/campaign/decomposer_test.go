@@ -175,6 +175,106 @@ func TestDecomposer_Decompose_ValidationFailure(t *testing.T) {
 	// So assume we stop here. Use a specialized test that mocks kernel methods if we could, but we can't easily mock *RealKernel methods.
 }
 
+func TestDecompose_NilKernel_ReturnsError(t *testing.T) {
+	d := NewDecomposer(nil, &mockLLMClient{}, t.TempDir())
+
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Harden campaign planning",
+		CampaignType: CampaignTypeCustom,
+	})
+	if !errors.Is(err, ErrNilKernel) {
+		t.Fatalf("expected ErrNilKernel, got %v", err)
+	}
+}
+
+func TestDecompose_NilLLM_ReturnsError(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, nil, t.TempDir())
+
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Harden campaign planning",
+		CampaignType: CampaignTypeCustom,
+	})
+	if !errors.Is(err, ErrNilDependency) {
+		t.Fatalf("expected ErrNilDependency, got %v", err)
+	}
+}
+
+func TestDecompose_EmptyGoal_ReturnsError(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "   ",
+		CampaignType: CampaignTypeCustom,
+	})
+	if !errors.Is(err, ErrEmptyGoal) {
+		t.Fatalf("expected ErrEmptyGoal, got %v", err)
+	}
+}
+
+func TestBuildCampaign_NormalizesEnumsAndJailsPaths(t *testing.T) {
+	kernel := &MockKernel{}
+	workspace := t.TempDir()
+	d := NewDecomposer(kernel, &mockLLMClient{}, workspace)
+
+	campaign := d.buildCampaign("/campaign_test", DecomposeRequest{
+		Goal:          "Stabilize campaign planning",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1000,
+	}, &RawPlan{
+		Title:      "Plan",
+		Confidence: 0.9,
+		Phases: []RawPhase{{
+			Name:               "Phase 1",
+			Category:           "/scaffold",
+			Description:        "Create baseline",
+			ObjectiveType:      "/unknown",
+			VerificationMethod: "/tests",
+			Tasks: []RawTask{{
+				Description: "Patch the core planner",
+				Type:        "/code",
+				Priority:    "/super_high",
+				Artifacts:   []string{"../escape.go", "internal/campaign/safe.go"},
+				WriteSet:    []string{"../outside.go", "internal/campaign/safe.go"},
+			}},
+		}},
+	})
+
+	if len(kernel.Facts) != 0 {
+		t.Fatalf("buildCampaign should not mutate kernel, got %d facts", len(kernel.Facts))
+	}
+
+	phase := campaign.Phases[0]
+	if got := phase.Objectives[0].Type; got != ObjectiveCreate {
+		t.Fatalf("objective type = %s, want %s", got, ObjectiveCreate)
+	}
+	if got := phase.Objectives[0].VerificationMethod; got != VerifyTestsPass {
+		t.Fatalf("verification method = %s, want %s", got, VerifyTestsPass)
+	}
+	if got := phase.EstimatedComplexity; got != "/medium" {
+		t.Fatalf("estimated complexity = %s, want %s", got, "/medium")
+	}
+
+	task := phase.Tasks[0]
+	if got := task.Type; got != TaskTypeFileModify {
+		t.Fatalf("task type = %s, want %s", got, TaskTypeFileModify)
+	}
+	if got := task.Priority; got != PriorityNormal {
+		t.Fatalf("priority = %s, want %s", got, PriorityNormal)
+	}
+	if len(task.Artifacts) != 1 {
+		t.Fatalf("expected 1 safe artifact, got %d: %#v", len(task.Artifacts), task.Artifacts)
+	}
+	if got := task.Artifacts[0].Path; got != "internal/campaign/safe.go" {
+		t.Fatalf("artifact path = %q, want %q", got, "internal/campaign/safe.go")
+	}
+	if len(task.WriteSet) != 1 {
+		t.Fatalf("expected 1 safe write_set entry, got %d: %v", len(task.WriteSet), task.WriteSet)
+	}
+	if got := task.WriteSet[0]; got != normalizeAbsolutePath(workspace, "internal/campaign/safe.go") {
+		t.Fatalf("write_set[0] = %q, want %q", got, normalizeAbsolutePath(workspace, "internal/campaign/safe.go"))
+	}
+}
+
 func TestLLMProposePlan_UsesSchemaCapableClient(t *testing.T) {
 	var schemaCalls int
 	client := &mockLLMClient{

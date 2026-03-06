@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Replanner handles campaign replanning when things go wrong.
 // It uses LLM + Mangle collaboration to adapt the plan.
 type Replanner struct {
+	mu             sync.Mutex
 	kernel         core.Kernel
 	llmClient      perception.LLMClient
 	promptProvider PromptProvider // Optional JIT prompt provider
@@ -24,6 +26,13 @@ type Replanner struct {
 	grounding *research.GroundingHelper // Google Search / URL Context grounding
 	thinking  *research.ThinkingHelper  // Thinking mode metadata capture
 }
+
+const (
+	maxReplanContextTasks    = 25
+	maxReplanAttemptsPerTask = 3
+	maxReplanContextText     = 400
+	maxReplanContextChars    = 16000
+)
 
 // NewReplanner creates a new replanner.
 func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner {
@@ -52,6 +61,11 @@ func NewReplanner(kernel core.Kernel, llmClient perception.LLMClient) *Replanner
 // This allows using JIT-compiled prompts from the articulation package.
 // If not set, static prompts will be used.
 func (r *Replanner) SetPromptProvider(provider PromptProvider) {
+	if provider == nil {
+		r.promptProvider = NewStaticPromptProvider()
+		return
+	}
+
 	r.promptProvider = provider
 }
 
@@ -74,7 +88,7 @@ func (r *Replanner) completeWithGrounding(ctx context.Context, prompt string) (s
 	}
 	// Fall back to standard completion
 	if r.llmClient == nil {
-		return "", fmt.Errorf("LLM client not available for fallback completion")
+		return "", fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
 	}
 	return r.llmClient.Complete(ctx, prompt)
 }
@@ -100,9 +114,50 @@ type ReplanResult struct {
 	NewPhases     []Phase
 }
 
+func truncateForPrompt(text string, maxLen int) string {
+	text = strings.TrimSpace(text)
+	if maxLen <= 0 || len(text) <= maxLen {
+		return text
+	}
+	suffix := "... [truncated]"
+	if maxLen <= len(suffix) {
+		return text[:maxLen]
+	}
+	return text[:maxLen-len(suffix)] + suffix
+}
+
+func appendReplanContextLine(sb *strings.Builder, line string) bool {
+	if line == "" {
+		return true
+	}
+
+	if sb.Len() >= maxReplanContextChars {
+		return false
+	}
+
+	remaining := maxReplanContextChars - sb.Len()
+	if len(line) > remaining {
+		if remaining <= 0 {
+			return false
+		}
+		line = truncateForPrompt(line, remaining)
+	}
+	sb.WriteString(line)
+	return sb.Len() < maxReplanContextChars
+}
+
 // Replan adapts the campaign plan based on current state and failures.
 // failedTaskID is optional; if provided, replanning is scoped to that task's subtree.
 func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID string) error {
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	// 1. Gather context about what went wrong
 	failedTasks := r.getFailedTasks(campaign)
 	blockedTasks := r.getBlockedTasks(campaign)
@@ -110,6 +165,9 @@ func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID
 
 	if len(failedTasks) == 0 && len(blockedTasks) == 0 && len(replanTriggers) == 0 && failedTaskID == "" {
 		return nil // Nothing to replan
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
 	}
 
 	// 2. Build context for LLM
@@ -124,36 +182,48 @@ func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID
 	}
 
 	// 4. Apply fixes
-	if err := r.applyFixes(campaign, fixes); err != nil {
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+	if err := r.applyFixes(workingCampaign, fixes); err != nil {
 		return fmt.Errorf("failed to apply fixes: %w", err)
 	}
 
 	// 5. Record revision
-	campaign.RevisionNumber++
-	campaign.LastRevision = fixes.ChangeSummary
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(fixes.ChangeSummary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Applied replan updates"
+	}
 
 	// 6. Reload campaign into kernel
-	facts := campaign.ToFacts()
-	if err := r.kernel.LoadFacts(facts); err != nil {
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
 		return fmt.Errorf("failed to reload campaign: %w", err)
 	}
 
-	// 7. Record plan revision
-	r.kernel.Assert(core.Fact{
-		Predicate: "plan_revision",
-		Args:      []interface{}{campaign.ID, campaign.RevisionNumber, fixes.ChangeSummary, time.Now().Unix()},
-	})
+	*campaign = *workingCampaign
 
 	return nil
 }
 
 // ReplanForNewRequirement adds tasks for a new requirement.
 func (r *Replanner) ReplanForNewRequirement(ctx context.Context, campaign *Campaign, requirement string) error {
-	// 1. Trigger replan
-	r.kernel.Assert(core.Fact{
-		Predicate: "replan_trigger",
-		Args:      []interface{}{campaign.ID, "/new_requirement", time.Now().Unix()},
-	})
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	requirement = strings.TrimSpace(requirement)
+	if requirement == "" {
+		return ErrEmptyRequirement
+	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	// 2. Ask LLM to incorporate new requirement
 	prompt := fmt.Sprintf(`A campaign is in progress and a new requirement has been added.
@@ -204,52 +274,43 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 		return fmt.Errorf("failed to parse replan response: %w", err)
 	}
 
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+
 	// 4. Add new tasks
 	for _, newTask := range changes.NewTasks {
-		if newTask.PhaseOrder >= 0 && newTask.PhaseOrder < len(campaign.Phases) {
-			phase := &campaign.Phases[newTask.PhaseOrder]
-
-			// Derive a stable slug from campaign ID without assuming prefix length.
-			campaignSlug := strings.TrimPrefix(campaign.ID, "/campaign_")
-			if campaignSlug == campaign.ID {
-				campaignSlug = sanitizeCampaignID(campaign.ID)
-			}
-			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug, newTask.PhaseOrder, len(phase.Tasks))
+		if newTask.PhaseOrder >= 0 && newTask.PhaseOrder < len(workingCampaign.Phases) {
+			phase := &workingCampaign.Phases[newTask.PhaseOrder]
+			taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(workingCampaign.ID), newTask.PhaseOrder, len(phase.Tasks))
 
 			task := Task{
 				ID:          taskID,
 				PhaseID:     phase.ID,
 				Description: newTask.Description,
 				Status:      TaskPending,
-				Type:        TaskType(newTask.Type),
-				Priority:    TaskPriority(newTask.Priority),
+				Type:        normalizeTaskType(newTask.Type, defaultTaskTypeForCategory(phase.Category)),
+				Priority:    normalizeTaskPriority(newTask.Priority),
+				Order:       len(phase.Tasks),
+			}
+			if strings.TrimSpace(task.Description) == "" {
+				continue
 			}
 
 			phase.Tasks = append(phase.Tasks, task)
-			campaign.TotalTasks++
-
-			// Add to kernel
-			r.kernel.LoadFacts(task.ToFacts())
+			workingCampaign.TotalTasks++
 		}
 	}
 
 	// 5. Modify existing tasks
 	for _, mod := range changes.ModifiedTasks {
-		for i := range campaign.Phases {
-			for j := range campaign.Phases[i].Tasks {
-				if campaign.Phases[i].Tasks[j].ID == mod.TaskID {
-					campaign.Phases[i].Tasks[j].Description = mod.NewDescription
-					// Update in kernel
-					r.kernel.Assert(core.Fact{
-						Predicate: "campaign_task",
-						Args: []interface{}{
-							mod.TaskID,
-							campaign.Phases[i].ID,
-							mod.NewDescription,
-							string(campaign.Phases[i].Tasks[j].Status),
-							string(campaign.Phases[i].Tasks[j].Type),
-						},
-					})
+		for i := range workingCampaign.Phases {
+			for j := range workingCampaign.Phases[i].Tasks {
+				if workingCampaign.Phases[i].Tasks[j].ID == mod.TaskID {
+					if desc := strings.TrimSpace(mod.NewDescription); desc != "" {
+						workingCampaign.Phases[i].Tasks[j].Description = desc
+					}
 					break
 				}
 			}
@@ -257,8 +318,23 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	}
 
 	// 6. Record revision
-	campaign.RevisionNumber++
-	campaign.LastRevision = changes.Summary
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(changes.Summary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Applied new requirement updates"
+	}
+
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
+		return fmt.Errorf("failed to reload campaign after new requirement: %w", err)
+	}
+	if err := r.kernel.Assert(core.Fact{
+		Predicate: "replan_trigger",
+		Args:      []interface{}{workingCampaign.ID, "/new_requirement", time.Now().Unix()},
+	}); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("ReplanForNewRequirement: failed to assert replan_trigger: %v", err)
+	}
+
+	*campaign = *workingCampaign
 
 	return nil
 }
@@ -269,6 +345,14 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 	if campaign == nil || completedPhase == nil {
 		return nil
 	}
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
+	if r.llmClient == nil {
+		return fmt.Errorf("%w: replanner requires llm client", ErrNilDependency)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	// Identify the next phase by order
 	var nextPhase *Phase
@@ -280,6 +364,21 @@ func (r *Replanner) RefineNextPhase(ctx context.Context, campaign *Campaign, com
 	}
 	if nextPhase == nil {
 		return nil // No further phases to refine
+	}
+
+	workingCampaign, err := cloneCampaign(campaign)
+	if err != nil {
+		return err
+	}
+	var workingNextPhase *Phase
+	for i := range workingCampaign.Phases {
+		if workingCampaign.Phases[i].Order == completedPhase.Order+1 {
+			workingNextPhase = &workingCampaign.Phases[i]
+			break
+		}
+	}
+	if workingNextPhase == nil {
+		return nil
 	}
 
 	// Summaries for prompt
@@ -361,38 +460,39 @@ Return JSON only:
 		action := strings.ToLower(strings.TrimSpace(t.Action))
 		switch action {
 		case "remove":
-			for i := range nextPhase.Tasks {
-				if nextPhase.Tasks[i].ID == t.TaskID {
-					nextPhase.Tasks = append(nextPhase.Tasks[:i], nextPhase.Tasks[i+1:]...)
+			for i := range workingNextPhase.Tasks {
+				if workingNextPhase.Tasks[i].ID == t.TaskID {
+					workingNextPhase.Tasks = append(workingNextPhase.Tasks[:i], workingNextPhase.Tasks[i+1:]...)
 					break
 				}
 			}
 		case "add":
 			newID := t.TaskID
 			if newID == "" {
-				newID = fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], nextPhase.Order, len(nextPhase.Tasks))
+				newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
 			}
 			task := Task{
 				ID:          newID,
-				PhaseID:     nextPhase.ID,
+				PhaseID:     workingNextPhase.ID,
 				Description: t.Description,
 				Status:      TaskPending,
-				Type:        TaskType(t.Type),
-				Priority:    TaskPriority(defaultPriority(t.Priority)),
+				Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
+				Priority:    normalizeTaskPriority(t.Priority),
+				Order:       len(workingNextPhase.Tasks),
 			}
-			nextPhase.Tasks = append(nextPhase.Tasks, task)
+			workingNextPhase.Tasks = append(workingNextPhase.Tasks, task)
 		default: // update
 			updated := false
-			for i := range nextPhase.Tasks {
-				if nextPhase.Tasks[i].ID == t.TaskID {
+			for i := range workingNextPhase.Tasks {
+				if workingNextPhase.Tasks[i].ID == t.TaskID {
 					if t.Description != "" {
-						nextPhase.Tasks[i].Description = t.Description
+						workingNextPhase.Tasks[i].Description = t.Description
 					}
 					if t.Type != "" {
-						nextPhase.Tasks[i].Type = TaskType(t.Type)
+						workingNextPhase.Tasks[i].Type = normalizeTaskType(t.Type, workingNextPhase.Tasks[i].Type)
 					}
 					if t.Priority != "" {
-						nextPhase.Tasks[i].Priority = TaskPriority(defaultPriority(t.Priority))
+						workingNextPhase.Tasks[i].Priority = normalizeTaskPriority(t.Priority)
 					}
 					updated = true
 					break
@@ -401,15 +501,16 @@ Return JSON only:
 			if !updated && t.Description != "" {
 				newID := t.TaskID
 				if newID == "" {
-					newID = fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], nextPhase.Order, len(nextPhase.Tasks))
+					newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
 				}
-				nextPhase.Tasks = append(nextPhase.Tasks, Task{
+				workingNextPhase.Tasks = append(workingNextPhase.Tasks, Task{
 					ID:          newID,
-					PhaseID:     nextPhase.ID,
+					PhaseID:     workingNextPhase.ID,
 					Description: t.Description,
 					Status:      TaskPending,
-					Type:        TaskType(t.Type),
-					Priority:    TaskPriority(defaultPriority(t.Priority)),
+					Type:        normalizeTaskType(t.Type, defaultTaskTypeForCategory(workingNextPhase.Category)),
+					Priority:    normalizeTaskPriority(t.Priority),
+					Order:       len(workingNextPhase.Tasks),
 				})
 			}
 		}
@@ -417,40 +518,41 @@ Return JSON only:
 
 	// Recompute totals
 	var totalTasks, completedTasks int
-	for i := range campaign.Phases {
-		for _, t := range campaign.Phases[i].Tasks {
+	for i := range workingCampaign.Phases {
+		for _, t := range workingCampaign.Phases[i].Tasks {
 			totalTasks++
 			if t.Status == TaskCompleted || t.Status == TaskSkipped {
 				completedTasks++
 			}
 		}
 	}
-	campaign.TotalTasks = totalTasks
-	campaign.CompletedTasks = completedTasks
-	campaign.RevisionNumber++
-	campaign.LastRevision = changes.Summary
+	workingCampaign.TotalTasks = totalTasks
+	workingCampaign.CompletedTasks = completedTasks
+	workingCampaign.RevisionNumber++
+	workingCampaign.LastRevision = strings.TrimSpace(changes.Summary)
+	if workingCampaign.LastRevision == "" {
+		workingCampaign.LastRevision = "Rolling-wave refinement"
+	}
 
 	// Refresh facts in kernel
-	if err := r.kernel.LoadFacts(campaign.ToFacts()); err != nil {
+	if err := syncCampaignFacts(r.kernel, campaign, workingCampaign, workingCampaign.LastRevision); err != nil {
 		return err
 	}
-	r.kernel.Assert(core.Fact{
-		Predicate: "plan_revision",
-		Args:      []interface{}{campaign.ID, campaign.RevisionNumber, changes.Summary, time.Now().Unix()},
-	})
+
+	*campaign = *workingCampaign
 
 	return nil
 }
 
 func defaultPriority(p string) string {
-	if p == "" {
-		return string(PriorityNormal)
-	}
-	return p
+	return string(normalizeTaskPriority(p))
 }
 
 // getFailedTasks returns all failed tasks in the campaign.
 func (r *Replanner) getFailedTasks(campaign *Campaign) []Task {
+	if campaign == nil {
+		return nil
+	}
 	var failed []Task
 	for _, phase := range campaign.Phases {
 		for _, task := range phase.Tasks {
@@ -464,6 +566,9 @@ func (r *Replanner) getFailedTasks(campaign *Campaign) []Task {
 
 // getBlockedTasks returns all blocked tasks in the campaign.
 func (r *Replanner) getBlockedTasks(campaign *Campaign) []Task {
+	if campaign == nil {
+		return nil
+	}
 	var blocked []Task
 	for _, phase := range campaign.Phases {
 		for _, task := range phase.Tasks {
@@ -477,6 +582,9 @@ func (r *Replanner) getBlockedTasks(campaign *Campaign) []Task {
 
 // getReplanTriggers returns replan triggers from the kernel.
 func (r *Replanner) getReplanTriggers(campaignID string) []ReplanTrigger {
+	if r.kernel == nil {
+		return nil
+	}
 	facts, err := r.kernel.Query("replan_trigger")
 	if err != nil {
 		return nil
@@ -503,38 +611,77 @@ func (r *Replanner) getReplanTriggers(campaignID string) []ReplanTrigger {
 
 // buildReplanContext builds a context string for the LLM.
 func (r *Replanner) buildReplanContext(campaign *Campaign, failedTasks, blockedTasks []Task, triggers []ReplanTrigger) string {
+	if campaign == nil {
+		return ""
+	}
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Campaign: %s\n", campaign.Title))
-	sb.WriteString(fmt.Sprintf("Status: %s\n", campaign.Status))
-	sb.WriteString(fmt.Sprintf("Progress: %d/%d phases, %d/%d tasks\n\n", campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks))
+	appendReplanContextLine(&sb, fmt.Sprintf("Campaign: %s\n", truncateForPrompt(campaign.Title, 200)))
+	appendReplanContextLine(&sb, fmt.Sprintf("Status: %s\n", campaign.Status))
+	appendReplanContextLine(&sb, fmt.Sprintf("Progress: %d/%d phases, %d/%d tasks\n\n", campaign.CompletedPhases, campaign.TotalPhases, campaign.CompletedTasks, campaign.TotalTasks))
 
 	if len(failedTasks) > 0 {
-		sb.WriteString("Failed Tasks:\n")
-		for _, task := range failedTasks {
-			sb.WriteString(fmt.Sprintf("- [%s] %s\n", task.ID, task.Description))
-			if task.LastError != "" {
-				sb.WriteString(fmt.Sprintf("  Error: %s\n", task.LastError))
+		if !appendReplanContextLine(&sb, "Failed Tasks:\n") {
+			return sb.String()
+		}
+		for idx, task := range failedTasks {
+			if idx >= maxReplanContextTasks {
+				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional failed tasks omitted\n", len(failedTasks)-idx))
+				break
 			}
-			for _, attempt := range task.Attempts {
-				sb.WriteString(fmt.Sprintf("  Attempt %d: %s - %s\n", attempt.Number, attempt.Outcome, attempt.Error))
+			if !appendReplanContextLine(&sb, fmt.Sprintf("- [%s] %s\n", task.ID, truncateForPrompt(task.Description, 240))) {
+				return sb.String()
+			}
+			if task.LastError != "" {
+				if !appendReplanContextLine(&sb, fmt.Sprintf("  Error: %q\n", truncateForPrompt(task.LastError, maxReplanContextText))) {
+					return sb.String()
+				}
+			}
+			start := 0
+			if len(task.Attempts) > maxReplanAttemptsPerTask {
+				start = len(task.Attempts) - maxReplanAttemptsPerTask
+			}
+			for _, attempt := range task.Attempts[start:] {
+				if !appendReplanContextLine(&sb, fmt.Sprintf("  Attempt %d: %s - %q\n", attempt.Number, attempt.Outcome, truncateForPrompt(attempt.Error, maxReplanContextText))) {
+					return sb.String()
+				}
 			}
 		}
-		sb.WriteString("\n")
+		if !appendReplanContextLine(&sb, "\n") {
+			return sb.String()
+		}
 	}
 
 	if len(blockedTasks) > 0 {
-		sb.WriteString("Blocked Tasks:\n")
-		for _, task := range blockedTasks {
-			sb.WriteString(fmt.Sprintf("- [%s] %s (depends on: %v)\n", task.ID, task.Description, task.DependsOn))
+		if !appendReplanContextLine(&sb, "Blocked Tasks:\n") {
+			return sb.String()
 		}
-		sb.WriteString("\n")
+		for idx, task := range blockedTasks {
+			if idx >= maxReplanContextTasks {
+				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional blocked tasks omitted\n", len(blockedTasks)-idx))
+				break
+			}
+			if !appendReplanContextLine(&sb, fmt.Sprintf("- [%s] %s (depends on: %v)\n", task.ID, truncateForPrompt(task.Description, 240), task.DependsOn)) {
+				return sb.String()
+			}
+		}
+		if !appendReplanContextLine(&sb, "\n") {
+			return sb.String()
+		}
 	}
 
 	if len(triggers) > 0 {
-		sb.WriteString("Replan Triggers:\n")
-		for _, trigger := range triggers {
-			sb.WriteString(fmt.Sprintf("- %s at %s\n", trigger.Reason, trigger.TriggeredAt.Format(time.RFC3339)))
+		if !appendReplanContextLine(&sb, "Replan Triggers:\n") {
+			return sb.String()
+		}
+		for idx, trigger := range triggers {
+			if idx >= maxReplanContextTasks {
+				appendReplanContextLine(&sb, fmt.Sprintf("... %d additional triggers omitted\n", len(triggers)-idx))
+				break
+			}
+			if !appendReplanContextLine(&sb, fmt.Sprintf("- %s at %s\n", trigger.Reason, trigger.TriggeredAt.Format(time.RFC3339))) {
+				return sb.String()
+			}
 		}
 	}
 
@@ -637,8 +784,8 @@ Output JSON:
 		result.AddedTasks = append(result.AddedTasks, Task{
 			PhaseID:     add.PhaseID,
 			Description: add.Description,
-			Type:        TaskType(add.Type),
-			Priority:    TaskPriority(add.Priority),
+			Type:        normalizeTaskType(add.Type, TaskTypeFileModify),
+			Priority:    normalizeTaskPriority(add.Priority),
 			Status:      TaskPending,
 		})
 	}
@@ -648,6 +795,13 @@ Output JSON:
 
 // applyFixes applies the replan fixes to the campaign.
 func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
+	if campaign == nil {
+		return ErrNilCampaign
+	}
+	if fixes == nil {
+		return nil
+	}
+
 	// 1. Skip tasks
 	for _, skipID := range fixes.RemovedTasks {
 		for i := range campaign.Phases {
@@ -679,7 +833,7 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 	for _, add := range fixes.AddedTasks {
 		for i := range campaign.Phases {
 			if campaign.Phases[i].ID == add.PhaseID {
-				taskID := fmt.Sprintf("/task_%s_%d_%d", campaign.ID[10:], i, len(campaign.Phases[i].Tasks))
+				taskID := fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), i, len(campaign.Phases[i].Tasks))
 				newTask := add
 				newTask.ID = taskID
 				campaign.Phases[i].Tasks = append(campaign.Phases[i].Tasks, newTask)
@@ -694,6 +848,9 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 
 // ClearReplanTriggers clears all replan triggers for a campaign.
 func (r *Replanner) ClearReplanTriggers(campaignID string) error {
+	if r.kernel == nil {
+		return ErrNilKernel
+	}
 	return r.kernel.RetractFact(core.Fact{
 		Predicate: "replan_trigger",
 		Args:      []interface{}{campaignID},

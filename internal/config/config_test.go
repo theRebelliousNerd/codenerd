@@ -230,6 +230,47 @@ func TestUserConfig_SetEngine_Validates(t *testing.T) {
 	}
 }
 
+func TestUserConfig_GetCodexCLIConfig_Defaults(t *testing.T) {
+	cfg := &UserConfig{}
+	codexCfg := cfg.GetCodexCLIConfig()
+
+	if codexCfg.SkillEnabled == nil || !*codexCfg.SkillEnabled {
+		t.Fatalf("expected SkillEnabled default true, got %#v", codexCfg.SkillEnabled)
+	}
+	if codexCfg.SkillName != DefaultCodexExecSkillName {
+		t.Fatalf("SkillName=%q, want %q", codexCfg.SkillName, DefaultCodexExecSkillName)
+	}
+	if codexCfg.MaxConcurrentCalls != DefaultCodexMaxConcurrentCalls {
+		t.Fatalf("MaxConcurrentCalls=%d, want %d", codexCfg.MaxConcurrentCalls, DefaultCodexMaxConcurrentCalls)
+	}
+}
+
+func TestUserConfig_GetEffectiveMaxConcurrentAPICalls(t *testing.T) {
+	cfg := &UserConfig{
+		Engine: "codex-cli",
+		CoreLimits: &CoreLimits{
+			MaxConcurrentAPICalls: 5,
+		},
+		CodexCLI: &CodexCLIConfig{
+			MaxConcurrentCalls: 2,
+		},
+	}
+
+	if got := cfg.GetEffectiveMaxConcurrentAPICalls(); got != 2 {
+		t.Fatalf("GetEffectiveMaxConcurrentAPICalls=%d, want 2", got)
+	}
+
+	cfg.CodexCLI.MaxConcurrentCalls = 9
+	if got := cfg.GetEffectiveMaxConcurrentAPICalls(); got != 5 {
+		t.Fatalf("GetEffectiveMaxConcurrentAPICalls=%d, want global ceiling 5", got)
+	}
+
+	cfg.Engine = "api"
+	if got := cfg.GetEffectiveMaxConcurrentAPICalls(); got != 5 {
+		t.Fatalf("GetEffectiveMaxConcurrentAPICalls=%d, want 5 in api mode", got)
+	}
+}
+
 func TestUserConfig_GetContext7APIKey_EnvOverridesConfig(t *testing.T) {
 	t.Setenv("CONTEXT7_API_KEY", "env-key")
 	cfg := &UserConfig{Context7APIKey: "file-key"}
