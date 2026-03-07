@@ -296,3 +296,7 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 // TODO: TEST_GAP: Verify handling of ToolCall with nil Args (prevent nil pointer deref).
 
 // TODO: TEST_GAP: Verify Process respects ctx.Done() and halts execution immediately.
+
+// TODO: TEST_GAP: Verify concurrent calls to Process() with same Executor properly handle shared conversation history locks.
+
+// TODO: TEST_GAP: Verify handling of nil dependencies like JITCompiler passed to NewExecutor (should it panic gracefully?).
