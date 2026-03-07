@@ -123,6 +123,7 @@ func (o *Orchestrator) ShouldRefineTool(toolName string) (bool, []ImprovementSug
 func (o *Orchestrator) RefineTool(ctx context.Context, toolName string, originalCode string) (*RefinementResult, error) {
 	// Gather feedback history
 	patterns := o.patterns.GetToolPatterns(toolName)
+	recentFeedback := o.getRecentExecutionsForTool(toolName, 5)
 
 	// Collect all suggestions
 	suggestions := []ImprovementSuggestion{}
@@ -133,11 +134,42 @@ func (o *Orchestrator) RefineTool(ctx context.Context, toolName string, original
 	req := RefinementRequest{
 		ToolName:     toolName,
 		OriginalCode: originalCode,
+		Feedback:     recentFeedback,
 		Patterns:     patterns,
 		Suggestions:  suggestions,
 	}
 
 	return o.refiner.Refine(ctx, req)
+}
+
+func (o *Orchestrator) getRecentExecutionsForTool(toolName string, limit int) []ExecutionFeedback {
+	if o == nil || o.patterns == nil || strings.TrimSpace(toolName) == "" {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+
+	o.patterns.mu.RLock()
+	defer o.patterns.mu.RUnlock()
+
+	if len(o.patterns.history) == 0 {
+		return nil
+	}
+
+	results := make([]ExecutionFeedback, 0, limit)
+	for i := len(o.patterns.history) - 1; i >= 0; i-- {
+		fb := o.patterns.history[i]
+		if fb.ToolName != toolName {
+			continue
+		}
+		results = append(results, fb)
+		if len(results) == limit {
+			break
+		}
+	}
+
+	return results
 }
 
 // GetToolLearning retrieves accumulated learnings for a tool

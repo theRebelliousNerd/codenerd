@@ -120,6 +120,10 @@ func (tr *ToolRefiner) Refine(ctx context.Context, req RefinementRequest) (*Refi
 		return tr.refineWithJIT(ctx, req)
 	}
 
+	return tr.refineLegacy(ctx, req)
+}
+
+func (tr *ToolRefiner) refineLegacy(ctx context.Context, req RefinementRequest) (*RefinementResult, error) {
 	// Fallback to legacy refinement
 	result := &RefinementResult{
 		Changes:   []string{},
@@ -201,8 +205,8 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 	systemPrompt, err := tr.promptAssembler.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
-		// Fall back to legacy refinement
-		return tr.Refine(ctx, req)
+		// Fall back to legacy refinement without re-entering the JIT path.
+		return tr.refineLegacy(ctx, req)
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled refinement system prompt: %d bytes", len(systemPrompt))

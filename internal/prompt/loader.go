@@ -360,6 +360,52 @@ func (l *AtomLoader) convertYAMLAtom(raw yamlAtomDefinition, sourcePath string) 
 
 // StoreAtom stores a prompt atom in the database with optional embedding.
 func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := l.storeAtomTx(ctx, tx, atom); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit failed: %w", err)
+	}
+
+	return nil
+}
+
+// ReplaceAtoms stores the provided prompt atoms transactionally after pruning the
+// existing prompt atom set in the target database.
+func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*PromptAtom) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM atom_context_tags"); err != nil {
+		return fmt.Errorf("clear tags failed: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM prompt_atoms"); err != nil {
+		return fmt.Errorf("clear atoms failed: %w", err)
+	}
+
+	for _, atom := range atoms {
+		if err := l.storeAtomTx(ctx, tx, atom); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit failed: %w", err)
+	}
+	return nil
+}
+
+func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAtom) error {
 	// Generate embedding if engine is available
 	var embeddingBlob []byte
 	var embeddingTask string
@@ -407,14 +453,8 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 	addTags("framework", atom.Frameworks)
 	addTags("state", atom.WorldStates)
 
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
 	// 1. Upsert Atom (Base Fields Only)
-	_, err = tx.ExecContext(ctx, `
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO prompt_atoms (
 			atom_id, version, content, token_count, content_hash,
 			description, content_concise, content_min,
@@ -483,10 +523,6 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 		if _, err := stmt.ExecContext(ctx, atom.ID, "conflicts_with", conf); err != nil {
 			return fmt.Errorf("insert conflict failed: %w", err)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit failed: %w", err)
 	}
 
 	return nil

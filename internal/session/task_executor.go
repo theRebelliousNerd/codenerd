@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,7 +105,19 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, tas
 		j.executor.SetSessionContext(sessionCtx)
 	}
 
-	result, err := j.executor.Process(ctx, task)
+	inlineTask := strings.TrimSpace(task)
+	if intent != "" {
+		intentWord := strings.TrimPrefix(strings.TrimSpace(intent), "/")
+		if intentWord != "" && (inlineTask == "" || !strings.HasPrefix(inlineTask, intentWord+" ")) {
+			if inlineTask == "" {
+				inlineTask = intentWord
+			} else {
+				inlineTask = intentWord + " " + inlineTask
+			}
+		}
+	}
+
+	result, err := j.executor.Process(ctx, inlineTask)
 	if err != nil {
 		return "", fmt.Errorf("execution failed: %w", err)
 	}

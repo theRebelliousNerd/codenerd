@@ -127,14 +127,11 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 		return fmt.Errorf("schema init failed: %w", err)
 	}
 
-	// 4. Store Atoms
-	count := 0
-	for _, atom := range atoms {
-		if err := s.atomLoader.StoreAtom(ctx, db, atom); err != nil {
-			return fmt.Errorf("store atom %s failed: %w", atom.ID, err)
-		}
-		count++
+	// 4. Replace prompt atom set transactionally to avoid stale partial state.
+	if err := s.atomLoader.ReplaceAtoms(ctx, db, atoms); err != nil {
+		return fmt.Errorf("replace atoms failed: %w", err)
 	}
+	count := len(atoms)
 
 	logging.Get(logging.CategoryStore).Debug("Agent %s: stored %d atoms in %s", agentID, count, dbPath)
 	return nil

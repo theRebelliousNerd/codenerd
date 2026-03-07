@@ -4,12 +4,10 @@
 package store
 
 import (
-	"bytes"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"context"
 	"database/sql"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -245,9 +243,8 @@ func (s *LearnedCorpusStore) Search(queryEmbedding []float32, topK int) ([]Seman
 	// Try vec table first (fast ANN search)
 	matches, err := s.searchVec(queryBlob, topK)
 	if err != nil {
-		// Fall back to brute-force search if vec table not available
-		logging.StoreDebug("Falling back to brute-force search: %v", err)
-		return s.searchBruteForce(queryEmbedding, topK)
+		logging.Get(logging.CategoryStore).Error("vec search failed: %v", err)
+		return nil, fmt.Errorf("ANN search failed (sqlite-vec required): %w", err)
 	}
 
 	logging.StoreDebug("Learned corpus search returned %d matches", len(matches))
@@ -309,83 +306,7 @@ func (s *LearnedCorpusStore) searchVec(queryBlob []byte, topK int) ([]SemanticMa
 	return matches, rows.Err()
 }
 
-// searchBruteForce performs brute-force cosine similarity search.
-// Used as fallback when sqlite-vec is not available.
-func (s *LearnedCorpusStore) searchBruteForce(queryEmbedding []float32, topK int) ([]SemanticMatch, error) {
-	rows, err := s.db.Query(`
-		SELECT id, pattern, verb, target, constraint_text, confidence, embedding
-		FROM learned_patterns
-		WHERE confidence > 0.3
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query patterns: %w", err)
-	}
-	defer rows.Close()
 
-	type candidate struct {
-		match      SemanticMatch
-		similarity float64
-	}
-
-	var candidates []candidate
-
-	for rows.Next() {
-		var id int64
-		var pattern, verb string
-		var target, constraintText sql.NullString
-		var confidence float64
-		var embeddingBlob []byte
-
-		if err := rows.Scan(&id, &pattern, &verb, &target, &constraintText, &confidence, &embeddingBlob); err != nil {
-			continue
-		}
-
-		// Decode embedding from blob
-		patternEmbedding := decodeFloat32SliceFromBlob(embeddingBlob)
-		if len(patternEmbedding) == 0 {
-			continue
-		}
-
-		// Calculate cosine similarity
-		similarity, err := embedding.CosineSimilarity(queryEmbedding, patternEmbedding)
-		if err != nil {
-			continue
-		}
-
-		match := SemanticMatch{
-			TextContent: pattern,
-			Predicate:   "learned_intent",
-			Verb:        verb,
-			Target:      target.String,
-			Category:    "learned",
-			Similarity:  similarity,
-		}
-
-		candidates = append(candidates, candidate{match: match, similarity: similarity})
-	}
-
-	// Sort by similarity descending
-	for i := 0; i < len(candidates); i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			if candidates[j].similarity > candidates[i].similarity {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
-		}
-	}
-
-	// Return top K
-	if len(candidates) > topK {
-		candidates = candidates[:topK]
-	}
-
-	matches := make([]SemanticMatch, len(candidates))
-	for i, c := range candidates {
-		c.match.Rank = i + 1
-		matches[i] = c.match
-	}
-
-	return matches, nil
-}
 
 // GetAllPatterns returns all stored learned patterns (for persistence/export).
 func (s *LearnedCorpusStore) GetAllPatterns() ([]LearnedPattern, error) {
@@ -642,16 +563,4 @@ func (s *LearnedCorpusStore) Close() error {
 	return nil
 }
 
-// decodeFloat32SliceFromBlob decodes a binary blob back to float32 slice.
-func decodeFloat32SliceFromBlob(blob []byte) []float32 {
-	if len(blob) == 0 || len(blob)%4 != 0 {
-		return nil
-	}
 
-	vec := make([]float32, len(blob)/4)
-	reader := bytes.NewReader(blob)
-	if err := binary.Read(reader, binary.LittleEndian, &vec); err != nil {
-		return nil
-	}
-	return vec
-}

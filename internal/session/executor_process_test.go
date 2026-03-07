@@ -55,6 +55,45 @@ func TestExecutor_Process_SimpleInput(t *testing.T) {
 	}
 }
 
+func TestExecutor_Process_NilJITCompilerUsesBaselinePrompt(t *testing.T) {
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			if sys != "You are an AI assistant helping with software development." {
+				t.Fatalf("expected baseline prompt, got %q", sys)
+			}
+			return &types.LLMToolResponse{Text: "baseline ok"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			if sys != "You are an AI assistant helping with software development." {
+				t.Fatalf("expected baseline prompt, got %q", sys)
+			}
+			return "baseline ok", nil
+		},
+	}
+	mockTransducer := &MockTransducer{
+		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+			return perception.Intent{Verb: "/greet", Category: "/chat"}, nil
+		},
+	}
+
+	executor := NewExecutor(
+		&MockKernel{},
+		&MockVirtualStore{},
+		mockLLM,
+		nil,
+		&MockConfigFactory{},
+		mockTransducer,
+	)
+
+	result, err := executor.Process(context.Background(), "Hello")
+	if err != nil {
+		t.Fatalf("Process failed: %v", err)
+	}
+	if result.Response != "baseline ok" {
+		t.Fatalf("expected baseline response, got %q", result.Response)
+	}
+}
+
 func TestExecutor_Process_ToolExecution(t *testing.T) {
 	// Register mock tool
 	tool := &tools.Tool{

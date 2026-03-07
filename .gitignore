@@ -94,11 +94,9 @@ Docs/Spec/
 **/config.*.json
 config.json
 
-# Markdown policy documents and local model prompts
+# Local model prompt files
 **/CLAUDE.md
 **/claude.md
-**/AGENTS.md
-**/agents.md
 **/GEMINI.md
 **/gemini.md
 

@@ -4,6 +4,7 @@ package autopoiesis
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,19 @@ import (
 
 	"go.uber.org/goleak"
 )
+
+type failingPromptAssembler struct {
+	err error
+}
+
+func (f failingPromptAssembler) AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return "", errors.New("assemble failed")
+}
+
+func (f failingPromptAssembler) JITReady() bool { return true }
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
@@ -100,6 +114,52 @@ func TestDetectToolNeed_PatternMatching(t *testing.T) {
 				t.Errorf("%s: got need=%v, want need=%v", tt.description, gotNeed, tt.wantNeed)
 			}
 		})
+	}
+}
+
+func TestToolGenerator_GenerateToolCode_JITFallbackDoesNotRecurse(t *testing.T) {
+	client := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+			return "```go\npackage tools\n\nfunc generated() {}\n```", nil
+		},
+	}
+	tg := NewToolGenerator(client, "/tmp/tools")
+	tg.SetPromptAssembler(failingPromptAssembler{err: errors.New("jit unavailable")})
+
+	code, err := tg.generateToolCode(context.Background(), &ToolNeed{
+		Name:       "generated",
+		Purpose:    "Generate a helper",
+		InputType:  "string",
+		OutputType: "string",
+	})
+	if err != nil {
+		t.Fatalf("generateToolCode failed: %v", err)
+	}
+	if !strings.Contains(code, "func generated()") {
+		t.Fatalf("expected legacy fallback code, got %q", code)
+	}
+}
+
+func TestToolGenerator_RegenerateWithFeedback_JITFallbackDoesNotRecurse(t *testing.T) {
+	client := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+			return "```go\npackage tools\n\nfunc regenerated() {}\n```", nil
+		},
+	}
+	tg := NewToolGenerator(client, "/tmp/tools")
+	tg.SetPromptAssembler(failingPromptAssembler{err: errors.New("jit unavailable")})
+
+	code, err := tg.regenerateToolCodeWithFeedback(context.Background(), &ToolNeed{
+		Name:       "regenerated",
+		Purpose:    "Regenerate a helper",
+		InputType:  "string",
+		OutputType: "string",
+	}, "package tools\n\nfunc broken() {}", "fix it")
+	if err != nil {
+		t.Fatalf("regenerateToolCodeWithFeedback failed: %v", err)
+	}
+	if !strings.Contains(code, "func regenerated()") {
+		t.Fatalf("expected legacy fallback code, got %q", code)
 	}
 }
 

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"codenerd/internal/campaign"
-	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
@@ -345,8 +344,7 @@ func (s *campaignRunnerShardManagerConsultationSpawner) SpawnConsultation(ctx co
 	if s == nil || s.shardMgr == nil {
 		return "", fmt.Errorf("shard manager not available")
 	}
-	intent := core.LegacyShardNameToIntent(specialistName)
-	return s.shardMgr.Spawn(ctx, intent, task)
+	return s.shardMgr.Spawn(ctx, specialistName, task)
 }
 
 // campaignRunnerConsultationManager is a lightweight local consultation manager for system shards.

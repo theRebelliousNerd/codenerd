@@ -19,7 +19,8 @@ func TestStoreSessionTurn(t *testing.T) {
 		t.Fatalf("StoreSessionTurn failed: %v", err)
 	}
 
-	// Store duplicate turn 1 (should be ignored due to INSERT OR IGNORE)
+	// Store duplicate turn 1 with placeholder payloads.
+	// The row should remain a single row and not lose non-placeholder data.
 	err = store.StoreSessionTurn(sessionID, 1, "hello2", "{}", "hi2", "[]")
 	if err != nil {
 		t.Fatalf("StoreSessionTurn failed on duplicate: %v", err)
@@ -34,9 +35,45 @@ func TestStoreSessionTurn(t *testing.T) {
 	if len(history) != 1 {
 		t.Errorf("Expected 1 history item, got %d", len(history))
 	}
+}
 
-	if history[0]["user_input"] != "hello" {
-		t.Errorf("Expected original input 'hello', got '%s'", history[0]["user_input"])
+func TestStoreSessionTurn_UpgradesPlaceholderPayloads(t *testing.T) {
+	store, err := NewLocalStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create local store: %v", err)
+	}
+	defer store.Close()
+
+	sessionID := "sess-upgrade"
+
+	err = store.StoreSessionTurn(sessionID, 1, "hello", "{}", "hi", "[]")
+	if err != nil {
+		t.Fatalf("initial StoreSessionTurn failed: %v", err)
+	}
+
+	err = store.StoreSessionTurn(sessionID, 1, "hello", `{"verb":"/fix"}`, "hi", `["fact(/x)."]`)
+	if err != nil {
+		t.Fatalf("upgrade StoreSessionTurn failed: %v", err)
+	}
+
+	// A later placeholder sync should not downgrade the richer payloads.
+	err = store.StoreSessionTurn(sessionID, 1, "hello", "{}", "hi", "[]")
+	if err != nil {
+		t.Fatalf("placeholder StoreSessionTurn failed: %v", err)
+	}
+
+	history, err := store.GetSessionHistory(sessionID, 10)
+	if err != nil {
+		t.Fatalf("GetSessionHistory failed: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("Expected 1 history item, got %d", len(history))
+	}
+	if history[0]["intent"] != `{"verb":"/fix"}` {
+		t.Fatalf("Expected upgraded intent JSON, got %q", history[0]["intent"])
+	}
+	if history[0]["atoms"] != `["fact(/x)."]` {
+		t.Fatalf("Expected upgraded atoms JSON, got %q", history[0]["atoms"])
 	}
 }
 

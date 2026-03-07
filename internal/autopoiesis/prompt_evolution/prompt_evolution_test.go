@@ -767,6 +767,19 @@ func (m *partialBatchJudgeLLMClient) CompleteWithSystem(ctx context.Context, sys
 	return `{"verdict":"FAIL","explanation":"failed","category":"LOGIC_ERROR","improvement_rule":"When testing, always validate the output"}`, nil
 }
 
+type evolutionJudgeLLMClient struct{}
+
+func (m *evolutionJudgeLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "", nil
+}
+
+func (m *evolutionJudgeLLMClient) CompleteWithSystem(ctx context.Context, system, user string) (string, error) {
+	if strings.Contains(system, "expert evaluator for an AI coding agent") {
+		return `{"verdict":"FAIL","explanation":"failed","category":"LOGIC_ERROR","improvement_rule":"When working from an evolved atom, always verify the outcome"}`, nil
+	}
+	return "```yaml\n- id: test/evolved/from-cycle\n  category: methodology\n  content: Test content\n```", nil
+}
+
 func TestPromptEvolver_Lifecycle(t *testing.T) {
 	// Create temp directory
 	tempDir, err := os.MkdirTemp("", "evolver_test")
@@ -1082,6 +1095,134 @@ func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 	stats := evolver.GetStats()
 	if stats.TotalExecutionsRecorded != writers {
 		t.Fatalf("expected %d executions recorded, got %d", writers, stats.TotalExecutionsRecorded)
+	}
+}
+
+func TestPromptEvolver_RecordExecutionTracksAtomUsageAndPromotion(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "evolver_usage_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := DefaultEvolverConfig()
+	cfg.AutoPromote = true
+	cfg.EnableStrategies = false
+
+	evolver, err := NewPromptEvolver(tempDir, &mockLLMClient{}, cfg)
+	if err != nil {
+		t.Fatalf("NewPromptEvolver failed: %v", err)
+	}
+	defer evolver.Close()
+
+	atomID := "test/evolved/usage"
+	if err := evolver.storeEvolvedAtom(&GeneratedAtom{
+		Atom: &prompt.PromptAtom{
+			ID:       atomID,
+			Category: prompt.CategoryMethodology,
+			Content:  "Always verify evolved atom usage outcomes",
+		},
+		Source:     "failure_analysis",
+		SourceIDs:  []string{"task-usage"},
+		Confidence: 0.5,
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatalf("storeEvolvedAtom failed: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		err := evolver.RecordExecution(&ExecutionRecord{
+			TaskID:      "usage-task-" + strconv.Itoa(i),
+			SessionID:   "session-usage",
+			ShardType:   "/coder",
+			TaskRequest: "use evolved atom",
+			Timestamp:   time.Now(),
+			AtomIDs:     []string{atomID},
+			Verdict: &JudgeVerdict{
+				Verdict: "PASS",
+			},
+			ExecutionResult: ExecutionResult{Success: true},
+		})
+		if err != nil {
+			t.Fatalf("RecordExecution failed: %v", err)
+		}
+	}
+
+	ga := evolver.evolvedAtoms[atomID]
+	if ga == nil {
+		t.Fatal("expected evolved atom to remain loaded")
+	}
+	if ga.UsageCount != 3 || ga.SuccessCount != 3 {
+		t.Fatalf("expected usage 3/3, got usage=%d success=%d", ga.UsageCount, ga.SuccessCount)
+	}
+	if ga.PromotedAt.IsZero() {
+		t.Fatal("expected atom to auto-promote after successful usage")
+	}
+}
+
+func TestPromptEvolver_RunEvolutionCycleAppliesUsageFromJudgedExecution(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "evolver_cycle_usage_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := DefaultEvolverConfig()
+	cfg.MinFailuresForEvolution = 1
+	cfg.AutoPromote = false
+	cfg.EnableStrategies = false
+
+	evolver, err := NewPromptEvolver(tempDir, &evolutionJudgeLLMClient{}, cfg)
+	if err != nil {
+		t.Fatalf("NewPromptEvolver failed: %v", err)
+	}
+	defer evolver.Close()
+
+	atomID := "test/evolved/cycle-usage"
+	if err := evolver.storeEvolvedAtom(&GeneratedAtom{
+		Atom: &prompt.PromptAtom{
+			ID:       atomID,
+			Category: prompt.CategoryMethodology,
+			Content:  "Cycle usage tracking content",
+		},
+		Source:     "failure_analysis",
+		SourceIDs:  []string{"task-cycle-usage"},
+		Confidence: 0.5,
+		CreatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatalf("storeEvolvedAtom failed: %v", err)
+	}
+
+	err = evolver.RecordExecution(&ExecutionRecord{
+		TaskID:      "task-cycle-usage",
+		SessionID:   "session-cycle",
+		ShardType:   "/coder",
+		TaskRequest: "fix the bug",
+		ProblemType: string(ProblemDebugging),
+		Timestamp:   time.Now(),
+		AtomIDs:     []string{atomID},
+		ExecutionResult: ExecutionResult{
+			Success: false,
+			Output:  "failed",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RecordExecution failed: %v", err)
+	}
+
+	if _, err := evolver.RunEvolutionCycle(context.Background()); err != nil {
+		t.Fatalf("RunEvolutionCycle failed: %v", err)
+	}
+
+	ga := evolver.evolvedAtoms[atomID]
+	if ga == nil {
+		t.Fatal("expected evolved atom to remain loaded")
+	}
+	if ga.UsageCount != 1 {
+		t.Fatalf("expected usage count 1, got %d", ga.UsageCount)
+	}
+	if ga.SuccessCount != 0 {
+		t.Fatalf("expected success count 0 for failed verdict, got %d", ga.SuccessCount)
 	}
 }
 

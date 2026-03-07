@@ -589,10 +589,8 @@ func (s *SessionPlannerShard) checkBlockedTasks() {
 					Predicate: "escalation_needed",
 					Args: []interface{}{
 						"session_planner",
-						"task_blocked",
-						item.ID,
+						escalationSubject("task_blocked", item.ID),
 						item.Description,
-						time.Now().Unix(),
 					},
 				})
 			}

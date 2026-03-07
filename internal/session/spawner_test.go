@@ -165,3 +165,26 @@ func TestSpawner_Lifecycle(t *testing.T) {
 
 	t.Logf("Final state: %v", state)
 }
+
+func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.T) {
+	spawner := NewSpawner(
+		&MockKernel{},
+		&MockVirtualStore{},
+		&MockLLMClient{},
+		nil,
+		&MockConfigFactory{},
+		&MockTransducer{},
+		DefaultSpawnerConfig(),
+	)
+
+	cfg, err := spawner.generateConfig(context.Background(), SpawnRequest{
+		Name:       "test-agent",
+		IntentVerb: "/review",
+	})
+	if err != nil {
+		t.Fatalf("generateConfig failed: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected empty config, got nil")
+	}
+}

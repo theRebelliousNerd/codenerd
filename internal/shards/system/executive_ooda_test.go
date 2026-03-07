@@ -85,3 +85,43 @@ func TestExecutiveOODATimeoutRespectsBootGuard(t *testing.T) {
 		t.Fatalf("ooda_timeout not asserted after boot guard disabled")
 	}
 }
+
+func TestExecutiveQueryNextActions_TranslatesDelegateTask(t *testing.T) {
+	kernel, err := core.NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	exec := NewExecutivePolicyShard()
+	exec.SetParentKernel(kernel)
+	exec.DisableBootGuard()
+
+	if err := kernel.Assert(core.Fact{
+		Predicate: "delegate_task",
+		Args:      []interface{}{"/reviewer", "internal/core/shards/agents.go", "/pending"},
+	}); err != nil {
+		t.Fatalf("assert delegate_task: %v", err)
+	}
+
+	actions, err := exec.queryNextActions()
+	if err != nil {
+		t.Fatalf("queryNextActions() error = %v", err)
+	}
+	if len(actions) == 0 {
+		t.Fatal("expected delegated action")
+	}
+
+	found := false
+	for _, action := range actions {
+		if action.Action != "/delegate_reviewer" {
+			continue
+		}
+		found = true
+		if action.Target != "internal/core/shards/agents.go" {
+			t.Fatalf("unexpected delegated target: %q", action.Target)
+		}
+	}
+	if !found {
+		t.Fatal("expected /delegate_reviewer action from delegate_task")
+	}
+}

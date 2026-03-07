@@ -59,7 +59,7 @@ func TestCortex_SpawnTask_Routing(t *testing.T) {
 	}
 
 	// Test routing to TaskExecutor
-	res, err := cortex.SpawnTask(context.Background(), "coder", "do something")
+	res, err := cortex.SpawnTask(context.Background(), "/fix", "do something")
 	if err != nil {
 		t.Fatalf("SpawnTask failed: %v", err)
 	}
@@ -67,8 +67,7 @@ func TestCortex_SpawnTask_Routing(t *testing.T) {
 		t.Errorf("Expected 'executed', got %s", res)
 	}
 
-	// Verify intent conversion
-	// session.LegacyShardNameToIntent("coder") -> "/fix"
+	// Verify exact intent passing (no legacy translation)
 	if mockExec.LastIntent != "/fix" {
 		t.Errorf("TaskExecutor.Execute called with intent %q, want \"/fix\"", mockExec.LastIntent)
 	}
@@ -81,7 +80,7 @@ func TestCortex_SpawnTaskWithContext_Routing(t *testing.T) {
 	}
 
 	// Test routing
-	res, err := cortex.SpawnTaskWithContext(context.Background(), "tester", "test it", nil, types.PriorityHigh)
+	res, err := cortex.SpawnTaskWithContext(context.Background(), "/test", "test it", nil, types.PriorityHigh)
 	if err != nil {
 		t.Fatalf("SpawnTaskWithContext failed: %v", err)
 	}

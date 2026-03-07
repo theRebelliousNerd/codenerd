@@ -30,109 +30,56 @@ type KernelTransactor interface {
 	Transaction() KernelTransaction
 }
 
-// KernelTx is a convenience wrapper that uses atomic transactions when
-// the kernel supports KernelTransactor, falling back to direct (non-atomic)
-// calls otherwise. This avoids code duplication at call sites and ensures
-// test mocks work without implementing KernelTransactor.
-//
-// Usage:
-//
-//	tx := types.NewKernelTx(kernel)
-//	tx.Retract("user_intent")
-//	tx.Retract("pending_action")
-//	tx.Assert(Fact{Predicate: "user_intent", Args: [...]})
-//	if err := tx.Commit(); err != nil { ... }
 type KernelTx struct {
-	kernel Kernel
-	tx     KernelTransaction // nil if kernel doesn't support transactions
+	tx KernelTransaction
 }
 
-// NewKernelTx creates a new transaction wrapper. If the kernel supports
-// KernelTransactor, operations are buffered for atomic commit (single rebuild).
-// Otherwise, operations execute immediately (non-atomic fallback for mocks).
+// NewKernelTx creates a new transaction wrapper. The kernel MUST support
+// KernelTransactor, allowing operations to be buffered for an atomic commit.
+// The non-atomic fallback has been removed to ensure strict transactional integrity.
 func NewKernelTx(k Kernel) *KernelTx {
-	kt := &KernelTx{kernel: k}
-	if transactor, ok := k.(KernelTransactor); ok {
-		kt.tx = transactor.Transaction()
+	transactor, ok := k.(KernelTransactor)
+	if !ok {
+		logging.Get(logging.CategoryKernel).Warn("Kernel does not implement KernelTransactor; non-atomic fallback has been removed")
+		panic("Kernel requires KernelTransactor for atomic transactions")
 	}
-	return kt
+	return &KernelTx{tx: transactor.Transaction()}
 }
 
 // Retract queues removal of all facts with the given predicate.
 func (t *KernelTx) Retract(predicate string) {
-	if t.tx != nil {
-		t.tx.Retract(predicate)
-	} else {
-		if err := t.kernel.Retract(predicate); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: Retract(%s) failed: %v", predicate, err)
-		}
-	}
+	t.tx.Retract(predicate)
 }
 
 // RetractFact queues removal of facts matching predicate + first argument.
 func (t *KernelTx) RetractFact(fact Fact) {
-	if t.tx != nil {
-		t.tx.RetractFact(fact)
-	} else {
-		if err := t.kernel.RetractFact(fact); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RetractFact(%s) failed: %v", fact.Predicate, err)
-		}
-	}
+	t.tx.RetractFact(fact)
 }
 
 // RetractExactFact queues removal of facts matching predicate + all arguments.
 func (t *KernelTx) RetractExactFact(fact Fact) {
-	if t.tx != nil {
-		t.tx.RetractExactFact(fact)
-	} else {
-		if err := t.kernel.RetractExactFactsBatch([]Fact{fact}); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RetractExactFact(%s) failed: %v", fact.Predicate, err)
-		}
-	}
+	t.tx.RetractExactFact(fact)
 }
 
 // RetractPredicateSet queues removal of all facts in a predicate set.
 func (t *KernelTx) RetractPredicateSet(predicates map[string]struct{}) {
-	if t.tx != nil {
-		t.tx.RetractPredicateSet(predicates)
-	} else {
-		if err := t.kernel.RemoveFactsByPredicateSet(predicates); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: RemoveFactsByPredicateSet failed: %v", err)
-		}
-	}
+	t.tx.RetractPredicateSet(predicates)
 }
 
 // Assert queues a fact for insertion.
 func (t *KernelTx) Assert(fact Fact) {
-	if t.tx != nil {
-		t.tx.Assert(fact)
-	} else {
-		if err := t.kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: Assert(%s) failed: %v", fact.Predicate, err)
-		}
-	}
+	t.tx.Assert(fact)
 }
 
-// LoadFacts queues multiple facts for insertion. When transactional, each fact
-// is buffered as an individual Assert. When non-transactional, delegates to
-// the kernel's LoadFacts for batch efficiency.
+// LoadFacts queues multiple facts for insertion. Each fact
+// is buffered as an individual Assert.
 func (t *KernelTx) LoadFacts(facts []Fact) {
-	if t.tx != nil {
-		for _, f := range facts {
-			t.tx.Assert(f)
-		}
-	} else {
-		if err := t.kernel.LoadFacts(facts); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("KernelTx fallback: LoadFacts(%d facts) failed: %v", len(facts), err)
-		}
+	for _, f := range facts {
+		t.tx.Assert(f)
 	}
 }
 
 // Commit applies all buffered operations atomically with a single rebuild.
-// For non-transactional kernels, this is a no-op (operations already applied).
 func (t *KernelTx) Commit() error {
-	if t.tx != nil {
-		return t.tx.Commit()
-	}
-	return nil
+	return t.tx.Commit()
 }

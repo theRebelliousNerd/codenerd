@@ -202,12 +202,20 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	compilationCtx := e.buildCompilationContext(ctx, intent)
 
 	// 3. JIT: Compile prompt with persona, skills, context
-	compileResult, err := e.jitCompiler.Compile(ctx, compilationCtx)
-	if err != nil {
-		logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", err)
-		// Fall back to baseline prompt if JIT fails
+	var compileResult *prompt.CompilationResult
+	if e.jitCompiler == nil {
+		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, using baseline prompt")
 		compileResult = &prompt.CompilationResult{
 			Prompt: "You are an AI assistant helping with software development.",
+		}
+	} else {
+		compileResult, err = e.jitCompiler.Compile(ctx, compilationCtx)
+		if err != nil {
+			logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", err)
+			// Fall back to baseline prompt if JIT fails
+			compileResult = &prompt.CompilationResult{
+				Prompt: "You are an AI assistant helping with software development.",
+			}
 		}
 	}
 

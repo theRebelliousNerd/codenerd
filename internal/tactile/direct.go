@@ -324,19 +324,3 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	return written, err
 }
 
-// ToCommand converts a legacy ShellCommand to the new Command type.
-func (sc ShellCommand) ToCommand() Command {
-	var limits *ResourceLimits
-	if sc.TimeoutSeconds > 0 {
-		limits = &ResourceLimits{
-			TimeoutMs: int64(sc.TimeoutSeconds) * 1000,
-		}
-	}
-	return Command{
-		Binary:           sc.Binary,
-		Arguments:        sc.Arguments,
-		WorkingDirectory: sc.WorkingDirectory,
-		Environment:      sc.EnvironmentVars,
-		Limits:           limits,
-	}
-}

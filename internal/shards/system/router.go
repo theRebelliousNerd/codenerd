@@ -12,7 +12,6 @@ package system
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -202,6 +201,7 @@ func DefaultRouterConfig() RouterConfig {
 			{ActionPattern: "delegate_reviewer", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
 			{ActionPattern: "delegate_coder", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
 			{ActionPattern: "delegate_researcher", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+			{ActionPattern: "delegate_tester", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
 			{ActionPattern: "delegate_tool_generator", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: true},
 		},
 		TickInterval:         100 * time.Millisecond,
@@ -235,8 +235,9 @@ type TactileRouterShard struct {
 	config RouterConfig
 
 	// Routing state
-	routes       map[string]ToolRoute // action -> route
-	rateLimiters map[string]*rateLimiter
+	routes          map[string]ToolRoute // action -> route
+	rateLimiters    map[string]*rateLimiter
+	allowlistSynced bool
 
 	// Dependencies
 	BrowserManager *browser.SessionManager
@@ -363,6 +364,8 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 		r.Kernel = kernel
 	}
 
+	r.syncToolAllowlist()
+
 	ticker := time.NewTicker(r.config.TickInterval)
 	defer ticker.Stop()
 
@@ -432,8 +435,12 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		r.lastActivity = time.Now()
 		r.mu.Unlock()
 
-		// Find route for action
-		route, found := r.findRoute(actionType)
+		// Prefer the Mangle-derived route when available; retain the local
+		// routing table as a deterministic fallback during cutover.
+		route, found := r.findPolicyRoute(actionID, actionType)
+		if !found {
+			route, found = r.findRoute(actionType)
+		}
 
 		if !found {
 			logging.Routing("No route found for action: %s (target=%s)", actionType, target)
@@ -623,6 +630,81 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 	}
 
 	return nil
+}
+
+func (r *TactileRouterShard) syncToolAllowlist() {
+	r.mu.Lock()
+	if r.allowlistSynced || r.Kernel == nil {
+		r.mu.Unlock()
+		return
+	}
+
+	toolNames := make(map[string]struct{})
+	for _, route := range r.routes {
+		if strings.TrimSpace(route.ToolName) == "" {
+			continue
+		}
+		toolNames[route.ToolName] = struct{}{}
+	}
+	r.allowlistSynced = true
+	r.mu.Unlock()
+
+	now := time.Now().Unix()
+	for toolName := range toolNames {
+		_ = r.Kernel.Assert(types.Fact{
+			Predicate: "tool_allowlist",
+			Args:      []interface{}{types.MangleAtom("/" + toolName), now},
+		})
+	}
+}
+
+func (r *TactileRouterShard) findPolicyRoute(actionID, actionType string) (ToolRoute, bool) {
+	if r.Kernel == nil || strings.TrimSpace(actionID) == "" {
+		return ToolRoute{}, false
+	}
+
+	facts, err := r.Kernel.Query("route_action")
+	if err != nil {
+		return ToolRoute{}, false
+	}
+
+	for _, fact := range facts {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		if types.ExtractString(fact.Args[0]) != actionID {
+			continue
+		}
+
+		toolName := strings.TrimPrefix(types.ExtractString(fact.Args[1]), "/")
+		if toolName == "" {
+			continue
+		}
+		if route, ok := r.findRouteByToolName(toolName); ok {
+			return route, true
+		}
+
+		return ToolRoute{
+			ActionPattern: strings.TrimPrefix(actionType, "/"),
+			ToolName:      toolName,
+			Timeout:       30 * time.Second,
+		}, true
+	}
+
+	return ToolRoute{}, false
+}
+
+func (r *TactileRouterShard) findRouteByToolName(toolName string) (ToolRoute, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, route := range r.routes {
+		if route.ToolName == toolName {
+			return route, true
+		}
+	}
+
+	return ToolRoute{}, false
 }
 
 func (r *TactileRouterShard) pruneRoutingResults() {
@@ -904,46 +986,12 @@ func (r *TactileRouterShard) getSessionID() string {
 }
 
 func normalizePayload(arg interface{}) (map[string]interface{}, string) {
-	payload := map[string]interface{}{}
-	intentID := ""
-	switch v := arg.(type) {
-	case map[string]interface{}:
-		payload = v
-		if id, ok := v["intent_id"].(string); ok {
-			intentID = id
-		}
-	case string:
-		intentID = extractIntentIDFromPayloadString(v)
-		if intentID != "" {
-			payload["intent_id"] = intentID
-		}
-	}
-	return payload, intentID
+	return decodeActionPayload(arg)
 }
 
 func extractIntentIDFromPayloadString(payload string) string {
-	trimmed := strings.TrimSpace(payload)
-	if trimmed == "" {
-		return ""
-	}
-	if strings.HasPrefix(trimmed, "{") {
-		var decoded map[string]interface{}
-		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
-			if id, ok := decoded["intent_id"].(string); ok {
-				return id
-			}
-		}
-	}
-	if strings.HasPrefix(trimmed, "map[") && strings.HasSuffix(trimmed, "]") {
-		trimmed = strings.TrimSuffix(strings.TrimPrefix(trimmed, "map["), "]")
-		for _, field := range strings.Fields(trimmed) {
-			parts := strings.SplitN(field, ":", 2)
-			if len(parts) == 2 && parts[0] == "intent_id" {
-				return parts[1]
-			}
-		}
-	}
-	return ""
+	_, intentID := decodeActionPayload(payload)
+	return intentID
 }
 
 // NOTE: Legacy routerAutopoiesisPrompt constant has been DELETED.

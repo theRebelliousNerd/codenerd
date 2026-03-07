@@ -970,8 +970,7 @@ func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	intent := core.LegacyShardNameToIntent(specialistName)
-	return s.executor.Execute(ctx, intent, task)
+	return s.executor.Execute(ctx, specialistName, task)
 }
 
 // campaignConsultationProviderAdapter adapts shards.ConsultationManager to campaign.ConsultationProvider.

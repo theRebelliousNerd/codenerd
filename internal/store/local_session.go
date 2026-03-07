@@ -75,7 +75,8 @@ func (s *LocalStore) GetRecentActivations(limit int, minScore float64) (map[stri
 }
 
 // StoreSessionTurn records a conversation turn.
-// Uses INSERT OR IGNORE for idempotent syncing (duplicate turns are silently skipped).
+// Duplicate rows are merged so richer intent/atom payloads can upgrade
+// placeholder rows written earlier in boot/migration flows.
 func (s *LocalStore) StoreSessionTurn(sessionID string, turnNumber int, userInput, intentJSON, response, atomsJSON string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,8 +85,33 @@ func (s *LocalStore) StoreSessionTurn(sessionID string, turnNumber int, userInpu
 		sessionID, turnNumber, len(userInput), len(response))
 
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO session_history (session_id, turn_number, user_input, intent_json, response, atoms_json)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO session_history (session_id, turn_number, user_input, intent_json, response, atoms_json)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(session_id, turn_number) DO UPDATE SET
+		   user_input = CASE
+		     WHEN excluded.user_input IS NOT NULL AND excluded.user_input != '' THEN excluded.user_input
+		     ELSE session_history.user_input
+		   END,
+		   intent_json = CASE
+		     WHEN excluded.intent_json IS NOT NULL
+		       AND excluded.intent_json != ''
+		       AND excluded.intent_json != '{}'
+		       AND excluded.intent_json != 'null'
+		     THEN excluded.intent_json
+		     ELSE session_history.intent_json
+		   END,
+		   response = CASE
+		     WHEN excluded.response IS NOT NULL AND excluded.response != '' THEN excluded.response
+		     ELSE session_history.response
+		   END,
+		   atoms_json = CASE
+		     WHEN excluded.atoms_json IS NOT NULL
+		       AND excluded.atoms_json != ''
+		       AND excluded.atoms_json != '[]'
+		       AND excluded.atoms_json != 'null'
+		     THEN excluded.atoms_json
+		     ELSE session_history.atoms_json
+		   END`,
 		sessionID, turnNumber, userInput, intentJSON, response, atomsJSON,
 	)
 	if err != nil {

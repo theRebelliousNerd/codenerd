@@ -204,9 +204,9 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 		o := &Orchestrator{
 			taskExecutor: &MockTaskExecutor{
 				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
-					// Core logic maps empty to / intent via LegacyShardNameToIntent default
-					if intent != "/" {
-						return "", fmt.Errorf("expected empty shard to map to / intent, got %s", intent)
+					// With the removal of LegacyShardNameToIntent, empty intent is passed as-is
+					if intent != "" {
+						return "", fmt.Errorf("expected empty intent to be passed directly, got %s", intent)
 					}
 					return "success", nil
 				},
@@ -239,7 +239,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 				},
 			},
 		}
-		res, err := o.spawnTask(context.Background(), "coder", taskStr)
+		res, err := o.spawnTask(context.Background(), "/fix", taskStr)
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}
@@ -256,7 +256,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 				},
 			},
 		}
-		res, err := o.spawnTask(context.Background(), "coder", "do something")
+		res, err := o.spawnTask(context.Background(), "/fix", "do something")
 		if err != nil {
 			t.Errorf("expected no error, got %v", err)
 		}

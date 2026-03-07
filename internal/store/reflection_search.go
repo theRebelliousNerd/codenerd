@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 )
 
@@ -55,9 +54,12 @@ func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]Trac
 		if err == nil {
 			return hits, nil
 		}
+		logging.Get(logging.CategoryStore).Error("vec search failed for traces: %v", err)
+	} else {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled or table missing")
 	}
 
-	return s.recallTraceBruteForce(query, limit)
+	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
 }
 
 // RecallTracesLexical falls back to keyword search on descriptors.
@@ -228,52 +230,7 @@ func (s *LocalStore) recallTraceVec(query []float32, limit int) ([]TraceRecallHi
 	return hits, nil
 }
 
-func (s *LocalStore) recallTraceBruteForce(query []float32, limit int) ([]TraceRecallHit, error) {
-	rows, err := s.db.Query(`
-		SELECT id, COALESCE(summary_descriptor, ''), shard_type, success, created_at,
-		       embedding, COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
-		FROM reasoning_traces
-		WHERE embedding IS NOT NULL AND length(embedding) > 0`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 
-	var hits []TraceRecallHit
-	for rows.Next() {
-		var hit TraceRecallHit
-		var success bool
-		var createdAt sql.NullTime
-		var blob []byte
-		if err := rows.Scan(&hit.TraceID, &hit.Summary, &hit.ShardType, &success, &createdAt, &blob, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask); err != nil {
-			continue
-		}
-		if createdAt.Valid {
-			hit.CreatedAt = createdAt.Time
-		}
-		if success {
-			hit.Outcome = "success"
-		} else {
-			hit.Outcome = "failure"
-		}
-		vec := decodeFloat32SliceFromBlob(blob)
-		if len(vec) == 0 || len(vec) != len(query) {
-			continue
-		}
-		score, err := embedding.CosineSimilarity(query, vec)
-		if err != nil {
-			continue
-		}
-		hit.Score = clampScore(score)
-		hits = append(hits, hit)
-	}
-
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
-	return hits, nil
-}
 
 func (ls *LearningStore) recallLearningsInShard(query []float32, shardType string, limit int) ([]LearningRecallHit, error) {
 	db, err := ls.getDB(shardType)
@@ -307,42 +264,12 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 			}
 			return hits, nil
 		}
+		logging.Get(logging.CategoryStore).Error("vec search failed for learnings: %v", err)
+	} else {
+		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled or table missing")
 	}
 
-	rows, err := db.Query(`
-		SELECT id, shard_type, fact_predicate, COALESCE(semantic_handle, ''), learned_at,
-		       embedding, COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
-		FROM learnings
-		WHERE embedding IS NOT NULL AND length(embedding) > 0`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var hits []LearningRecallHit
-	for rows.Next() {
-		var hit LearningRecallHit
-		var blob []byte
-		if err := rows.Scan(&hit.LearningID, &hit.ShardType, &hit.Predicate, &hit.Summary, &hit.LearnedAt, &blob, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask); err != nil {
-			continue
-		}
-		vec := decodeFloat32SliceFromBlob(blob)
-		if len(vec) == 0 || len(vec) != len(query) {
-			continue
-		}
-		score, err := embedding.CosineSimilarity(query, vec)
-		if err != nil {
-			continue
-		}
-		hit.Score = clampScore(score)
-		hits = append(hits, hit)
-	}
-
-	sort.Slice(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
-	return hits, nil
+	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
 }
 
 func (ls *LearningStore) recallLearningsLexicalInShard(shardType string, keywords []string, limit int) ([]LearningRecallHit, error) {

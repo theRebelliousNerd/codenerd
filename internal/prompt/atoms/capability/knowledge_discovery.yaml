@@ -15,7 +15,7 @@
     The current project has the following specialists available:
 
     ### Available Specialists
-    {{.AvailableSpecialists}}
+    {{available_specialists}}
 
     ### When You Don't Know Something
 

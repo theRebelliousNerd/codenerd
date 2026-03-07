@@ -815,6 +815,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				manifestHash,
 				artOutput.ContextFeedback.OverallUsefulness,
 				intent.Verb,
+				len(warnings) == 0,
 				artOutput.ContextFeedback.HelpfulFacts,
 				artOutput.ContextFeedback.NoiseFacts,
 			); err != nil {

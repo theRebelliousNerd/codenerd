@@ -37,8 +37,7 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	intent := core.LegacyShardNameToIntent(shardType)
-	return m.taskExecutor.Execute(ctx, intent, task)
+	return m.taskExecutor.Execute(ctx, shardType, task)
 }
 
 // spawnTaskWithContext spawns a task with additional session context and priority.
@@ -48,8 +47,7 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	intent := core.LegacyShardNameToIntent(shardType)
-	return m.taskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	return m.taskExecutor.ExecuteWithContext(ctx, shardType, task, sessionCtx, priority)
 }
 
 func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {

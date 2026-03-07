@@ -361,6 +361,12 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		compilationCtx.OperationalMode = "/dream"
 	}
 
+	var compileResult *prompt.CompilationResult
+	if s.jitCompiler == nil {
+		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, using empty subagent config")
+		return &config.AgentConfig{}, nil
+	}
+
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
 	if err != nil {
 		// Fallback strategy: Retry once with baseline context, then return empty config

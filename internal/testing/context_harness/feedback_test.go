@@ -25,18 +25,18 @@ func TestFeedbackTracerOutput(t *testing.T) {
 		MissingContext:    "dependency graph would have been helpful",
 		ActivePredicates: []PredicateFeedbackState{
 			{
-				Predicate:      "file_topology",
-				HelpfulCount:   15,
-				NoiseCount:     2,
-				TotalMentions:  17,
+				Predicate:       "file_topology",
+				HelpfulCount:    15,
+				NoiseCount:      2,
+				TotalMentions:   17,
 				UsefulnessScore: 0.76,
 				ScoreComponent:  15.2,
 			},
 			{
-				Predicate:      "browser_state",
-				HelpfulCount:   1,
-				NoiseCount:     12,
-				TotalMentions:  13,
+				Predicate:       "browser_state",
+				HelpfulCount:    1,
+				NoiseCount:      12,
+				TotalMentions:   13,
 				UsefulnessScore: -0.85,
 				ScoreComponent:  -17.0,
 			},
@@ -170,7 +170,7 @@ func TestContextFeedbackStoreIntegration(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		err := store.StoreFeedback(tc.turnID, "", tc.usefulness, tc.intentVerb, tc.helpfulFacts, tc.noiseFacts)
+		err := store.StoreFeedback(tc.turnID, "", tc.usefulness, tc.intentVerb, true, tc.helpfulFacts, tc.noiseFacts)
 		if err != nil {
 			t.Fatalf("Failed to store feedback for turn %d: %v", tc.turnID, err)
 		}

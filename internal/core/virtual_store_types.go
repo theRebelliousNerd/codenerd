@@ -15,16 +15,16 @@ const (
 	ActionWriteFile     ActionType = "write_file"
 	ActionEditFile      ActionType = "edit_file"
 	ActionDeleteFile    ActionType = "delete_file"
-	ActionListFiles     ActionType = "list_files"     // List files in directory
-	ActionGlob          ActionType = "glob"           // Find files by pattern
-	ActionGrep          ActionType = "grep"           // Search file contents
+	ActionListFiles     ActionType = "list_files" // List files in directory
+	ActionGlob          ActionType = "glob"       // Find files by pattern
+	ActionGrep          ActionType = "grep"       // Search file contents
 	ActionSearchCode    ActionType = "search_code"
 	ActionSearchFiles   ActionType = "search_files" // Back-compat alias for ActionSearchCode
 	ActionAnalyzeCode   ActionType = "analyze_code" // Alias for ActionSearchCode (policy emits /analyze_code)
 	ActionRunTests      ActionType = "run_tests"
-	ActionRunCommand    ActionType = "run_command"   // Execute shell command
-	ActionBash          ActionType = "bash"          // Run bash script
-	ActionRunBuild      ActionType = "run_build"     // Run build command (auto-detect)
+	ActionRunCommand    ActionType = "run_command" // Execute shell command
+	ActionBash          ActionType = "bash"        // Run bash script
+	ActionRunBuild      ActionType = "run_build"   // Run build command (auto-detect)
 	ActionBuildProject  ActionType = "build_project"
 	ActionGitOperation  ActionType = "git_operation"
 	ActionAnalyzeImpact ActionType = "analyze_impact"
@@ -37,6 +37,7 @@ const (
 	// Delegation aliases emitted by policy (map to ActionDelegate)
 	ActionDelegateReviewer      ActionType = "delegate_reviewer"
 	ActionDelegateCoder         ActionType = "delegate_coder"
+	ActionDelegateTester        ActionType = "delegate_tester"
 	ActionDelegateResearcher    ActionType = "delegate_researcher"
 	ActionDelegateToolGenerator ActionType = "delegate_tool_generator"
 
@@ -137,17 +138,17 @@ const (
 	ActionSWEBenchTeardown   ActionType = "swebench_teardown"    // Cleanup environment
 
 	// Research Tool Actions (modular tools for any agent)
-	ActionContext7Fetch    ActionType = "context7_fetch"     // Fetch LLM-optimized docs
-	ActionWebSearch        ActionType = "web_search"         // Search the web
-	ActionWebFetch         ActionType = "web_fetch"          // Fetch URL content
-	ActionBrowserNavigate  ActionType = "browser_navigate"   // Navigate browser to URL
-	ActionBrowserExtract   ActionType = "browser_extract"    // Extract content from page
+	ActionContext7Fetch     ActionType = "context7_fetch"     // Fetch LLM-optimized docs
+	ActionWebSearch         ActionType = "web_search"         // Search the web
+	ActionWebFetch          ActionType = "web_fetch"          // Fetch URL content
+	ActionBrowserNavigate   ActionType = "browser_navigate"   // Navigate browser to URL
+	ActionBrowserExtract    ActionType = "browser_extract"    // Extract content from page
 	ActionBrowserScreenshot ActionType = "browser_screenshot" // Capture screenshot
-	ActionBrowserClick     ActionType = "browser_click"      // Click element
-	ActionBrowserType      ActionType = "browser_type"       // Type into input
-	ActionBrowserClose     ActionType = "browser_close"      // Close browser session
-	ActionResearchCacheGet ActionType = "research_cache_get" // Get cached research
-	ActionResearchCacheSet ActionType = "research_cache_set" // Cache research result
+	ActionBrowserClick      ActionType = "browser_click"      // Click element
+	ActionBrowserType       ActionType = "browser_type"       // Type into input
+	ActionBrowserClose      ActionType = "browser_close"      // Close browser session
+	ActionResearchCacheGet  ActionType = "research_cache_get" // Get cached research
+	ActionResearchCacheSet  ActionType = "research_cache_set" // Cache research result
 )
 
 // ActionRequest represents a request to execute an action.

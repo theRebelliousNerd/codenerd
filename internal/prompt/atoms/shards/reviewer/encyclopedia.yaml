@@ -141,8 +141,7 @@
 
     ### Maintainability Checklist
     - Split monolith files by responsibility.
-    - Keep directory scopes cohesive (AGENTS.md boundaries matter).
+    - Keep directory scopes cohesive (documentation boundaries matter).
     - Ensure docs referenced in PRD headers exist and are up to date.
     - Prefer explicit types over `any`/empty interface.
     - Add tests for boundary behavior, not only happy paths.
-

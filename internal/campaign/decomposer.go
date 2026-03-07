@@ -2490,7 +2490,7 @@ Example task with explicit shard routing:
 
 Example task with context injection:
 {
-  "description": "Create agents.md for internal/core",
+  "description": "Create documentation for internal/core",
   "type": "/file_create",
   "shard": "coder",
   "context_from": [0],

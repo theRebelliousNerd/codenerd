@@ -6,7 +6,6 @@ package verification
 
 import (
 	"codenerd/internal/autopoiesis"
-	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -86,7 +85,6 @@ type TaskVerifier struct {
 	shardMgr     *coreshards.ShardManager // For ListAvailableShards. Use taskExecutor for task execution.
 	taskExecutor session.TaskExecutor     // For task execution (replaces direct shardMgr.Spawn calls)
 	autopoiesis  *autopoiesis.Orchestrator
-	context7Key  string
 
 	// Session context for persistence
 	sessionID string
@@ -102,16 +100,15 @@ func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
 
 // spawnTask is the unified entry point for task execution.
 // It uses TaskExecutor when available, falling back to ShardManager.
-func (v *TaskVerifier) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string) (string, error) {
 	// Prefer TaskExecutor when available
 	if v.taskExecutor != nil {
-		intent := core.LegacyShardNameToIntent(shardType)
 		return v.taskExecutor.Execute(ctx, intent, task)
 	}
 
 	// Fall back to ShardManager
-	if v.shardMgr != nil || v.taskExecutor != nil {
-		return v.spawnTask(ctx, shardType, task)
+	if v.shardMgr != nil {
+		return v.shardMgr.Spawn(ctx, intent, task)
 	}
 
 	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
@@ -123,14 +120,12 @@ func NewTaskVerifier(
 	localDB *store.LocalStore,
 	shardMgr *coreshards.ShardManager,
 	autopoiesisOrch *autopoiesis.Orchestrator,
-	context7Key string,
 ) *TaskVerifier {
 	return &TaskVerifier{
 		client:      client,
 		localDB:     localDB,
 		shardMgr:    shardMgr,
 		autopoiesis: autopoiesisOrch,
-		context7Key: context7Key,
 	}
 }
 
@@ -350,36 +345,13 @@ func (v *TaskVerifier) applyCorrectiveAction(ctx context.Context, action *Correc
 				return fmt.Sprintf("## Specialist Knowledge (%s)\n%s", specialist, truncateContext(result, 2000))
 			}
 		}
-		// Fallback to web research
-		if v.shardMgr != nil || v.taskExecutor != nil {
-			result, err := v.spawnTask(ctx, "researcher", "research: "+action.Query)
-			if err == nil && result != "" {
-				return fmt.Sprintf("## Research Results\n%s", truncateContext(result, 2000))
-			}
-		}
 
 	case CorrectiveDocs:
-		// PRIORITY 1: Check for specialist with pre-built knowledge
+		// Check for specialist with pre-built knowledge
 		if specialist := v.findMatchingSpecialist("", action.Query); specialist != "" && (v.shardMgr != nil || v.taskExecutor != nil) {
 			result, err := v.spawnTask(ctx, specialist, "docs: "+action.Query)
 			if err == nil && result != "" {
 				return fmt.Sprintf("## Specialist Documentation (%s)\n%s", specialist, truncateContext(result, 2000))
-			}
-		}
-
-		// PRIORITY 2: Context7 API (external LLM-optimized docs)
-		if v.context7Key != "" {
-			docs := v.fetchContext7Docs(ctx, action.Query)
-			if docs != "" {
-				return fmt.Sprintf("## Documentation\n%s", truncateContext(docs, 2000))
-			}
-		}
-
-		// PRIORITY 3: Researcher web fallback
-		if v.shardMgr != nil || v.taskExecutor != nil {
-			result, err := v.spawnTask(ctx, "researcher", "research docs: "+action.Query)
-			if err == nil && result != "" {
-				return fmt.Sprintf("## Documentation Research\n%s", truncateContext(result, 2000))
 			}
 		}
 
@@ -562,18 +534,6 @@ func (v *TaskVerifier) storeVerification(
 	}
 }
 
-// fetchContext7Docs fetches documentation from Context7 API.
-// STUBBED: Researcher shard removed as part of JIT refactor.
-// Context7 research is now handled on-demand via session.Executor with /researcher persona.
-func (v *TaskVerifier) fetchContext7Docs(ctx context.Context, query string) string {
-	if v.context7Key == "" || query == "" {
-		return ""
-	}
-
-	// Context7 research stubbed out - JIT clean loop handles this
-	logging.Boot("Context7 docs fetch stubbed (JIT refactor) - query: %s", query)
-	return ""
-}
 
 // basicQualityCheck performs simple pattern matching for quality violations.
 func (v *TaskVerifier) basicQualityCheck(result string) *VerificationResult {
@@ -738,7 +698,7 @@ func (v *TaskVerifier) heuristicShardSelection(
 		case HallucinatedAPI:
 			// Need research to find real APIs
 			return &ShardSelectionResult{
-				ShardType:    "researcher",
+				ShardType:    "/research",
 				Reason:       "Hallucinated API detected - researcher can find real documentation",
 				Confidence:   0.8,
 				Alternatives: []string{originalShardType},
@@ -746,15 +706,15 @@ func (v *TaskVerifier) heuristicShardSelection(
 		case MissingErrors:
 			// Reviewer can identify error handling patterns
 			return &ShardSelectionResult{
-				ShardType:    "reviewer",
+				ShardType:    "/review",
 				Reason:       "Missing error handling - reviewer can identify patterns",
 				Confidence:   0.7,
-				Alternatives: []string{"coder", originalShardType},
+				Alternatives: []string{"/fix", originalShardType},
 			}
 		case FakeTests:
 			// Tester knows how to write real tests
 			return &ShardSelectionResult{
-				ShardType:    "tester",
+				ShardType:    "/test",
 				Reason:       "Fake tests detected - tester shard specializes in real tests",
 				Confidence:   0.85,
 				Alternatives: []string{originalShardType},
@@ -767,7 +727,7 @@ func (v *TaskVerifier) heuristicShardSelection(
 		ShardType:    originalShardType,
 		Reason:       "No specific shard better suited - retry with additional context",
 		Confidence:   0.6,
-		Alternatives: []string{"researcher"},
+		Alternatives: []string{"/research"},
 	}
 }
 

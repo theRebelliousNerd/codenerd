@@ -266,9 +266,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		target := types.ExtractString(fact.Args[2])
 		payload := map[string]interface{}{}
 		if len(fact.Args) > 3 {
-			if pm, ok := fact.Args[3].(map[string]interface{}); ok {
-				payload = pm
-			}
+			payload, _ = decodeActionPayload(fact.Args[3])
 		}
 
 		logging.SystemShardsDebug("[ConstitutionGate] Checking action: type=%s, target=%s", actionType, truncateForLog(target, 50))
@@ -282,7 +280,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			// Primary permitted stream for tactile router
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permitted_action",
-				Args:      []interface{}{actionID, actionType, target, payload, ts},
+				Args:      []interface{}{actionID, actionType, target, encodeActionPayload(payload), ts},
 			})
 			// Emit canonical permission result for policy observability.
 			_ = c.Kernel.Assert(types.Fact{
@@ -517,10 +515,8 @@ func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, 
 		Predicate: "escalation_needed",
 		Args: []interface{}{
 			"constitution_gate",
-			actionType,
-			target,
+			escalationSubject(actionType, target),
 			reason,
-			time.Now().Unix(),
 		},
 	})
 }

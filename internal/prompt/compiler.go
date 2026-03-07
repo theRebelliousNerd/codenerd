@@ -1420,7 +1420,15 @@ type specialistCacheEntry struct {
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
-	if ctx == nil || workspace == "" {
+	if ctx == nil {
+		return nil
+	}
+	if workspace == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workspace = cwd
+		}
+	}
+	if workspace == "" {
 		return nil
 	}
 

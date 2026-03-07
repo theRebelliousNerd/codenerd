@@ -17,13 +17,43 @@
   shard_types: ["/perception", "/perception_firewall"]
   depends_on: ["system/perception/identity"]
   content: |
-    Output a JSON object with these fields:
+    Output ONLY valid JSON in the `UnderstandingEnvelope` shape.
+    Do NOT output Piggyback fields like `control_packet`.
+    Do NOT output the older flat intent schema with `category`, `verb`, `target`, or `constraint`.
+
+    Required shape:
     {
-      "category": "query" | "mutation" | "instruction",
-      "verb": "<action verb>",
-      "target": "<file path, symbol, or empty>",
-      "constraint": "<additional constraints>",
-      "confidence": 0.0-1.0
+      "understanding": {
+        "primary_intent": "<one word summary>",
+        "semantic_type": "<semantic classification>",
+        "action_type": "<action classification>",
+        "domain": "<problem domain>",
+        "scope": {
+          "level": "<line|block|function|type|file|package|module|codebase>",
+          "target": "<specific target>",
+          "file": "<file path if known>",
+          "symbol": "<symbol name if known>"
+        },
+        "user_constraints": ["<explicit constraints>"],
+        "implicit_assumptions": ["<unstated assumptions>"],
+        "confidence": 0.0-1.0,
+        "signals": {
+          "is_question": true,
+          "is_hypothetical": false,
+          "is_multi_step": false,
+          "is_negated": false,
+          "requires_confirmation": false,
+          "urgency": "normal"
+        },
+        "suggested_approach": {
+          "mode": "<normal|tdd|dream|debug|security_audit|campaign|research|assault>",
+          "primary_shard": "<coder|tester|reviewer|researcher|nemesis>",
+          "supporting_shards": [],
+          "tools_needed": [],
+          "context_needed": []
+        }
+      },
+      "surface_response": "<natural language response>"
     }
 
 - id: "system/perception/verb_categories"
@@ -60,4 +90,4 @@
   shard_types: ["/perception", "/perception_firewall"]
   content: |
     Parse the following user input into a structured intent.
-    Respond with only the JSON object.
+    Respond with only the `UnderstandingEnvelope` JSON object.

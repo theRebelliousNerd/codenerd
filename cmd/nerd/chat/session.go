@@ -205,8 +205,9 @@ func InitChat(cfg Config) Model {
 	}
 }
 
-// performSystemBoot performs the heavy backend initialization in a background thread
-func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Cmd {
+// performSystemBootLegacy contains the pre-cutover chat-local backend assembly path.
+// New callers should go through performSystemBoot in session_shared_boot.go.
+func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []string, workspace string) tea.Cmd {
 	return func() tea.Msg {
 		bootStart := time.Now()
 
@@ -318,16 +319,6 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		logStep("Evaluating kernel rules...")
 		if err := kernel.Evaluate(); err != nil {
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
-		}
-
-		// GAP-013 FIX: Consume boot intents and prompts from hybrid files
-		bootIntents := kernel.ConsumeBootIntents()
-		if len(bootIntents) > 0 {
-			logging.Get(logging.CategoryKernel).Info("Consumed %d boot intents from hybrid files", len(bootIntents))
-		}
-		bootPrompts := kernel.ConsumeBootPrompts()
-		if len(bootPrompts) > 0 {
-			logging.Get(logging.CategoryKernel).Info("Consumed %d boot prompts from hybrid files", len(bootPrompts))
 		}
 
 		logStep("Creating executor & shard manager...")
@@ -496,10 +487,10 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 			})
 		}
 
-		shardMgr.SetLLMClient(rawLLMClient)
-
 		// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
 		var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+		var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("chat_shards", rawLLMClient)
+		shardMgr.SetLLMClient(shardLLMClient)
 		if perception.SharedTaxonomy != nil {
 			perception.SharedTaxonomy.SetClient(llmClient)
 		}
@@ -595,6 +586,12 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 							}
 						}
 						_ = db.Close()
+					}
+
+					if promptCount, ingestErr := nerdsystem.IngestHybridPrompts(context.Background(), workspace, kernel, prompt.NewAtomLoader(nil)); ingestErr != nil {
+						logging.Boot("Warning: Failed to ingest hybrid prompts during chat boot: %v", ingestErr)
+					} else if promptCount > 0 {
+						logging.Boot("Ingested %d hybrid PROMPT atoms during chat boot", promptCount)
 					}
 
 					// Register corpus DB with JIT compiler for project-level atom queries.
@@ -993,16 +990,11 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 		autopoiesisListenerCh := autopoiesisOrch.StartKernelListener(autopoiesisCtx, 2*time.Second)
 
 		logStep("Creating task verifier...")
-		context7Key := appCfg.Context7APIKey
-		if context7Key == "" {
-			context7Key = os.Getenv("CONTEXT7_API_KEY")
-		}
 		taskVerifier := verification.NewTaskVerifier(
 			llmClient,
 			localDB,
 			shardMgr,
 			autopoiesisOrch,
-			context7Key,
 		)
 		logStep("Task verifier initialized")
 		taskVerifier.SetTaskExecutor(taskExecutor)
@@ -1061,6 +1053,7 @@ func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, wor
 
 		logStep("Hydrating session state...")
 		loadedSession, _ := hydrateNerdState(workspace, kernel, shardMgr, &initialMessages)
+		shardMgr.SetSessionID(resolveSessionID(loadedSession))
 
 		shards.RegisterSystemShardProfiles(shardMgr)
 
@@ -1169,8 +1162,7 @@ func (s *taskExecutorObserverSpawner) SpawnObserver(ctx context.Context, observe
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	intent := core.LegacyShardNameToIntent(observerName)
-	return s.executor.Execute(ctx, intent, task)
+	return s.executor.Execute(ctx, observerName, task)
 }
 
 // taskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner interface.
@@ -1182,8 +1174,7 @@ func (s *taskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context,
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	intent := core.LegacyShardNameToIntent(specialistName)
-	return s.executor.Execute(ctx, intent, task)
+	return s.executor.Execute(ctx, specialistName, task)
 }
 
 // northstarHandlerAdapter adapts northstar.BackgroundEventHandler to shards.NorthstarHandler interface.

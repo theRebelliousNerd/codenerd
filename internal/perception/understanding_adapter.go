@@ -109,8 +109,53 @@ func getUnderstandingPrompt(ctx context.Context, pa *articulation.PromptAssemble
 	if len(strings.TrimSpace(prompt)) < 100 {
 		return understandingSystemPrompt
 	}
+	if !isValidUnderstandingPromptContract(prompt) {
+		logging.PerceptionDebug("JIT perception prompt rejected: incompatible output contract, falling back to embedded prompt")
+		return understandingSystemPrompt
+	}
 
 	return prompt
+}
+
+func isValidUnderstandingPromptContract(prompt string) bool {
+	trimmed := strings.TrimSpace(prompt)
+	if trimmed == "" {
+		return false
+	}
+
+	// Perception expects UnderstandingEnvelope JSON, not Piggyback.
+	if strings.Contains(trimmed, "\"control_packet\"") {
+		return false
+	}
+
+	requiredSnippets := []string{
+		"\"understanding\"",
+		"\"surface_response\"",
+		"\"primary_intent\"",
+		"\"semantic_type\"",
+		"\"action_type\"",
+		"\"domain\"",
+		"\"suggested_approach\"",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(trimmed, snippet) {
+			return false
+		}
+	}
+
+	legacyFields := []string{
+		"\"category\"",
+		"\"verb\"",
+		"\"target\"",
+		"\"constraint\"",
+	}
+	for _, snippet := range legacyFields {
+		if strings.Contains(trimmed, snippet) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // ParseIntent parses user input into an Intent using LLM-first classification.

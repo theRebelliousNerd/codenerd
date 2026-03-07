@@ -88,19 +88,26 @@ func ResetGlobalCortex() {
 
 // Cortex represents a fully initialized system instance.
 type Cortex struct {
-	Kernel         core.Kernel
-	LLMClient      perception.LLMClient
-	ShardManager   *coreshards.ShardManager // For shard management (profiles, system shards). Use TaskExecutor for task execution.
-	TaskExecutor   session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
-	VirtualStore   *core.VirtualStore
-	Transducer     perception.Transducer
-	Orchestrator   *autopoiesis.Orchestrator
-	BrowserManager *browser.SessionManager
-	Scanner        *world.Scanner
-	UsageTracker   *usage.Tracker
-	LocalDB        *store.LocalStore
-	Workspace      string
-	JITCompiler    *prompt.JITPromptCompiler
+	Kernel          core.Kernel
+	RealKernel      *core.RealKernel
+	LLMClient       perception.LLMClient
+	ShardManager    *coreshards.ShardManager // For shard management (profiles, system shards). Use TaskExecutor for task execution.
+	TaskExecutor    session.TaskExecutor     // For task execution (replaces direct ShardManager.Spawn calls)
+	SessionExecutor *session.Executor
+	SessionSpawner  *session.Spawner
+	VirtualStore    *core.VirtualStore
+	Executor        tactile.Executor
+	Transducer      perception.Transducer
+	Orchestrator    *autopoiesis.Orchestrator
+	BrowserManager  *browser.SessionManager
+	Scanner         *world.Scanner
+	UsageTracker    *usage.Tracker
+	LocalDB         *store.LocalStore
+	LearningStore   *store.LearningStore
+	EmbeddingEngine embedding.EmbeddingEngine
+	Workspace       string
+	JITCompiler     *prompt.JITPromptCompiler
+	PromptAssembler *articulation.PromptAssembler
 }
 
 // SpawnTask is the unified entry point for task execution.
@@ -120,8 +127,7 @@ func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := core.LegacyShardNameToIntent(normalized)
-	return c.TaskExecutor.Execute(ctx, intent, task)
+	return c.TaskExecutor.Execute(ctx, shardType, task)
 }
 
 // SpawnTaskWithContext spawns a task with additional session context and priority.
@@ -140,8 +146,7 @@ func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, tas
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := core.LegacyShardNameToIntent(normalized)
-	return c.TaskExecutor.ExecuteWithContext(ctx, intent, task, sessionCtx, priority)
+	return c.TaskExecutor.ExecuteWithContext(ctx, shardType, task, sessionCtx, priority)
 }
 
 func normalizeShardTypeName(typeName string) string {
@@ -250,6 +255,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
 	var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+	var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("shards", rawLLMClient)
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetClient(llmClient)
 		if localDB != nil {
@@ -345,7 +351,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	shardManager := coreshards.NewShardManager()
 	shardManager.SetParentKernel(kernel)
-	shardManager.SetLLMClient(rawLLMClient)
+	shardManager.SetLLMClient(shardLLMClient)
 	virtualStore.SetShardManager(shardManager)
 
 	// Limits enforcement and spawn queue backpressure (config-driven)
@@ -460,7 +466,11 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	// Ingest any PROMPT directives extracted from hybrid .mg files into the
 	// project prompt corpus so JIT can pick them up.
-	ingestHybridPrompts(ctx, workspace, kernel, atomLoader)
+	if count, err := IngestHybridPrompts(ctx, workspace, kernel, atomLoader); err != nil {
+		logging.Get(logging.CategoryContext).Warn("Failed to ingest hybrid prompts: %v", err)
+	} else if count > 0 {
+		logging.Get(logging.CategoryContext).Info("Ingested %d hybrid PROMPT atoms during boot", count)
+	}
 
 	// Sync Agents (Distributed Storage)
 	// This ensures .nerd/shards/*.db are up-to-date with .nerd/agents/*.yaml
@@ -685,74 +695,78 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
 
+	var realKernel *core.RealKernel
+	if rk, ok := kernel.(*core.RealKernel); ok {
+		realKernel = rk
+	}
+
 	return &Cortex{
-		Kernel:         kernel,
-		LLMClient:      llmClient,
-		ShardManager:   shardManager,
-		TaskExecutor:   taskExecutor,
-		VirtualStore:   virtualStore,
-		Transducer:     transducer,
-		Orchestrator:   poiesis,
-		BrowserManager: browserMgr,
-		Scanner:        scanner,
-		UsageTracker:   tracker,
-		LocalDB:        localDB,
-		Workspace:      workspace,
-		JITCompiler:    jitCompiler,
+		Kernel:          kernel,
+		RealKernel:      realKernel,
+		LLMClient:       llmClient,
+		ShardManager:    shardManager,
+		TaskExecutor:    taskExecutor,
+		SessionExecutor: sessionExecutor,
+		SessionSpawner:  sessionSpawner,
+		VirtualStore:    virtualStore,
+		Executor:        executor,
+		Transducer:      transducer,
+		Orchestrator:    poiesis,
+		BrowserManager:  browserMgr,
+		Scanner:         scanner,
+		UsageTracker:    tracker,
+		LocalDB:         localDB,
+		LearningStore:   learningStore,
+		EmbeddingEngine: embeddingEngine,
+		Workspace:       workspace,
+		JITCompiler:     jitCompiler,
+		PromptAssembler: promptAssembler,
 	}, nil
 }
 
-// ingestHybridPrompts loads PROMPT directives extracted from hybrid .mg files
+// IngestHybridPrompts loads PROMPT directives extracted from hybrid .mg files
 // into the project prompt corpus database (.nerd/prompts/corpus.db).
 // This keeps hybrid files as a readable single source of truth while still
 // routing prompt atoms into the JIT system.
-func ingestHybridPrompts(ctx context.Context, workspace string, kernel SystemKernel, atomLoader *prompt.AtomLoader) {
+func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKernel, atomLoader *prompt.AtomLoader) (int, error) {
 	if kernel == nil || atomLoader == nil {
-		return
+		return 0, nil
 	}
 
 	hybridPrompts := kernel.ConsumeBootPrompts()
 	if len(hybridPrompts) == 0 {
-		return
+		return 0, nil
 	}
 
 	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
 	if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to materialize default prompt corpus for hybrid ingest: %v", err)
+		return 0, fmt.Errorf("failed to materialize default prompt corpus for hybrid ingest: %w", err)
 	} else if wrote {
 		logging.Get(logging.CategoryContext).Info("Materialized default prompt corpus to %s (hybrid ingest)", corpusPath)
 	}
 	if err := os.MkdirAll(filepath.Dir(corpusPath), 0755); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to create prompts dir for hybrid corpus: %v", err)
-		return
+		return 0, fmt.Errorf("failed to create prompts dir for hybrid corpus: %w", err)
 	}
 
 	db, err := sql.Open("sqlite3", corpusPath)
 	if err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to open hybrid prompt corpus DB: %v", err)
-		return
+		return 0, fmt.Errorf("failed to open hybrid prompt corpus DB: %w", err)
 	}
 	defer db.Close()
 
 	if err := atomLoader.EnsureSchema(ctx, db); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to ensure hybrid prompt corpus schema: %v", err)
-		return
+		return 0, fmt.Errorf("failed to ensure hybrid prompt corpus schema: %w", err)
 	}
 
 	stored := 0
 	for _, hp := range hybridPrompts {
-		cat, sub := mapHybridPromptCategory(hp.Category)
-		atom := prompt.NewPromptAtom(hp.ID, cat, hp.Content)
-		if sub != "" {
-			atom.Subcategory = sub
+		catStr := strings.TrimSpace(strings.ToLower(hp.Category))
+		if catStr == "" {
+			catStr = string(prompt.CategoryDomain)
 		}
+		atom := prompt.NewPromptAtom(hp.ID, prompt.AtomCategory(catStr), hp.Content)
 		if len(hp.Tags) > 1 {
-			extras := strings.Join(hp.Tags[1:], ",")
-			if atom.Subcategory != "" {
-				atom.Subcategory = atom.Subcategory + "," + extras
-			} else {
-				atom.Subcategory = extras
-			}
+			atom.Subcategory = strings.Join(hp.Tags[1:], ",")
 		}
 
 		// Default priority; skeleton categories are always included by selector.
@@ -763,36 +777,10 @@ func ingestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 		stored++
 	}
 
-	logging.Get(logging.CategoryContext).Info("Ingested %d hybrid PROMPT atoms into %s", stored, corpusPath)
+	return stored, nil
 }
 
-// mapHybridPromptCategory maps legacy hybrid category tags into JIT atom categories.
-// Unknown categories default to /domain with subcategory preserved.
-func mapHybridPromptCategory(raw string) (prompt.AtomCategory, string) {
-	clean := strings.ToLower(strings.TrimSpace(raw))
-	if clean == "" {
-		return prompt.CategoryDomain, ""
-	}
 
-	for _, cat := range prompt.AllCategories() {
-		if string(cat) == clean {
-			return cat, ""
-		}
-	}
-
-	switch clean {
-	case "role":
-		return prompt.CategoryIdentity, "role"
-	case "tool":
-		return prompt.CategoryProtocol, "tool"
-	case "safety":
-		return prompt.CategorySafety, "safety"
-	case "phase":
-		return prompt.CategoryMethodology, "phase"
-	}
-
-	return prompt.CategoryDomain, clean
-}
 
 // LocalStoreTraceAdapter wraps LocalStore to implement perception.TraceStore.
 // Duplicated from chat/session.go to avoid import cycle or dependency on `chat`.

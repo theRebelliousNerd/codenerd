@@ -2,7 +2,6 @@ package store
 
 import (
 	"codenerd/internal/logging"
-	"encoding/json"
 )
 
 // =============================================================================
@@ -104,7 +103,10 @@ func (s *LocalStore) ReplaceWorldFactsForFile(path, depth, fingerprint string, f
 	defer stmt.Close()
 
 	for _, f := range facts {
-		argsJSON, _ := json.Marshal(f.Args)
+		argsJSON, err := encodeFactArgs(f.Args)
+		if err != nil {
+			return err
+		}
 		if _, err := stmt.Exec(path, depth, fingerprint, f.Predicate, string(argsJSON)); err != nil {
 			return err
 		}
@@ -143,8 +145,10 @@ func (s *LocalStore) LoadWorldFactsForFile(path, depth string) ([]WorldFactInput
 			continue
 		}
 		fp = fingerprint
-		var args []interface{}
-		_ = json.Unmarshal([]byte(argsJSON), &args)
+		args, err := decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		out = append(out, WorldFactInput{Predicate: pred, Args: args})
 	}
 	return out, fp, nil
@@ -177,8 +181,10 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 		if err := rows.Scan(&pred, &argsJSON); err != nil {
 			continue
 		}
-		var args []interface{}
-		_ = json.Unmarshal([]byte(argsJSON), &args)
+		args, err := decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		out = append(out, WorldFactInput{Predicate: pred, Args: args})
 	}
 	return out, nil

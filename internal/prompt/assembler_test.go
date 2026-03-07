@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -226,30 +228,30 @@ func TestFinalAssembler_AssembleWithTemplates(t *testing.T) {
 }
 
 func TestCategoryHeader(t *testing.T) {
-		tests := []struct {
-			category AtomCategory
-			expected string
-		}{
-			{CategoryIdentity, "## Identity"},
-			{CategorySafety, "## Safety & Constraints"},
-			{CategoryProtocol, "## Protocols"},
-			{CategoryCapability, "## Capabilities"},
-			{CategoryMethodology, "## Methodology"},
-			{CategoryHallucination, "## Guardrails"},
-			{CategoryLanguage, "## Language Guidelines"},
-			{CategoryFramework, "## Framework Guidelines"},
-			{CategoryDomain, "## Domain Context"},
-			{CategoryCampaign, "## Campaign Context"},
-			{CategoryInit, "## Initialization"},
-			{CategoryNorthstar, "## Planning"},
-			{CategoryOuroboros, "## Self-Improvement"},
-			{CategoryAutopoiesis, "## Autopoiesis"},
-			{CategoryContext, "## Current Context"},
-			{CategoryReviewer, "## Reviewer Guidance"},
-			{CategoryEval, "## Evaluation"},
-			{CategoryExemplar, "## Examples"},
-			{AtomCategory("unknown"), "## unknown"},
-		}
+	tests := []struct {
+		category AtomCategory
+		expected string
+	}{
+		{CategoryIdentity, "## Identity"},
+		{CategorySafety, "## Safety & Constraints"},
+		{CategoryProtocol, "## Protocols"},
+		{CategoryCapability, "## Capabilities"},
+		{CategoryMethodology, "## Methodology"},
+		{CategoryHallucination, "## Guardrails"},
+		{CategoryLanguage, "## Language Guidelines"},
+		{CategoryFramework, "## Framework Guidelines"},
+		{CategoryDomain, "## Domain Context"},
+		{CategoryCampaign, "## Campaign Context"},
+		{CategoryInit, "## Initialization"},
+		{CategoryNorthstar, "## Planning"},
+		{CategoryOuroboros, "## Self-Improvement"},
+		{CategoryAutopoiesis, "## Autopoiesis"},
+		{CategoryContext, "## Current Context"},
+		{CategoryReviewer, "## Reviewer Guidance"},
+		{CategoryEval, "## Evaluation"},
+		{CategoryExemplar, "## Examples"},
+		{AtomCategory("unknown"), "## unknown"},
+	}
 
 	for _, tt := range tests {
 		t.Run(string(tt.category), func(t *testing.T) {
@@ -272,7 +274,7 @@ func TestNewTemplateEngine(t *testing.T) {
 		expectedFuncs := []string{
 			"language", "shard_type", "operational_mode",
 			"campaign_phase", "intent_verb", "frameworks",
-			"token_budget", "world_states",
+			"token_budget", "world_states", "available_specialists",
 		}
 
 		for _, fn := range expectedFuncs {
@@ -366,6 +368,12 @@ func TestTemplateEngine_Process(t *testing.T) {
 			expected: "States: failing_tests, diagnostics",
 		},
 		{
+			name:     "available_specialists template",
+			content:  "Specialists:\n{{available_specialists}}",
+			context:  &CompilationContext{AvailableSpecialists: "- **goexpert**: Go specialist"},
+			expected: "Specialists:\n- **goexpert**: Go specialist",
+		},
+		{
 			name:     "multiple templates",
 			content:  "{{shard_type}} using {{language}} in {{operational_mode}} mode",
 			context:  NewCompilationContext().WithShard("/coder", "", "").WithLanguage("/go").WithOperationalMode("/active"),
@@ -408,6 +416,40 @@ func TestTemplateEngine_ProcessFastPath(t *testing.T) {
 	result := te.Process(content, nil)
 
 	assert.Equal(t, content, result)
+}
+
+func TestFinalAssembler_Assemble_InjectsAvailableSpecialists(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".nerd"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	registry := `{"agents":[{"name":"goexpert","type":"persistent","status":"ready","description":"Go specialist"}]}`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".nerd", "agents.json"), []byte(registry), 0o644); err != nil {
+		t.Fatalf("write agents.json failed: %v", err)
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd failed: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(wd)
+	}()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir failed: %v", err)
+	}
+
+	assembler := NewFinalAssembler()
+	cc := NewCompilationContext()
+	prompt, err := assembler.Assemble([]*OrderedAtom{
+		{Atom: &PromptAtom{ID: "knowledge", Category: CategoryKnowledge, Content: "{{available_specialists}}"}, Order: 0},
+	}, cc)
+	if err != nil {
+		t.Fatalf("Assemble failed: %v", err)
+	}
+	if !strings.Contains(prompt, "goexpert") {
+		t.Fatalf("expected assembled prompt to include discovered specialist, got %q", prompt)
+	}
 }
 
 func TestDefaultAssemblyOptions(t *testing.T) {

@@ -62,6 +62,56 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	}
 }
 
+func TestJITExecutor_ExecuteWithContext_PreservesInlineIntent(t *testing.T) {
+	var observedInput string
+
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			return &types.LLMToolResponse{Text: "review complete"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			return "review complete", nil
+		},
+	}
+	mockTransducer := &MockTransducer{
+		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+			observedInput = input
+			return perception.Intent{Verb: "/review", Category: "/query"}, nil
+		},
+	}
+
+	executor := NewExecutor(
+		&MockKernel{},
+		&MockVirtualStore{},
+		mockLLM,
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		mockTransducer,
+	)
+	spawner := NewSpawner(
+		&MockKernel{},
+		&MockVirtualStore{},
+		mockLLM,
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		mockTransducer,
+		DefaultSpawnerConfig(),
+	)
+
+	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
+
+	result, err := jitExec.ExecuteWithContext(context.Background(), "/review", "internal/core/shards/agents.go", nil, types.PriorityNormal)
+	if err != nil {
+		t.Fatalf("ExecuteWithContext failed: %v", err)
+	}
+	if result != "review complete" {
+		t.Fatalf("expected review result, got %q", result)
+	}
+	if observedInput != "review internal/core/shards/agents.go" {
+		t.Fatalf("expected inline input to preserve intent, got %q", observedInput)
+	}
+}
+
 func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
 	// Setup
 	mockLLM := &MockLLMClient{

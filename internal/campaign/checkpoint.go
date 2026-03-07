@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
@@ -31,11 +30,10 @@ func NewCheckpointRunner(executor tactile.Executor, taskExecutor session.TaskExe
 }
 
 // spawnTask is the unified entry point for task execution.
-func (cr *CheckpointRunner) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
+func (cr *CheckpointRunner) spawnTask(ctx context.Context, intent string, task string) (string, error) {
 	if cr.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	intent := core.LegacyShardNameToIntent(shardType)
 	return cr.taskExecutor.Execute(ctx, intent, task)
 }
 
@@ -230,8 +228,8 @@ func (cr *CheckpointRunner) runShardValidationCheckpoint(ctx context.Context, ph
 
 	reviewPrompt.WriteString("\nProvide a brief assessment: PASS if objectives are met, FAIL with reason if not.")
 
-	// Spawn reviewer shard
-	result, err := cr.spawnTask(ctx, "reviewer", reviewPrompt.String())
+	// Spawn reviewer intent
+	result, err := cr.spawnTask(ctx, "/review", reviewPrompt.String())
 	if err != nil {
 		logging.CampaignError("runShardValidationCheckpoint: reviewer shard failed for phase=%s: %v", phase.Name, err)
 		return false, fmt.Sprintf("Reviewer shard failed: %v", err), err
@@ -282,7 +280,7 @@ func (cr *CheckpointRunner) runNemesisGauntletCheckpoint(ctx context.Context, ph
 
 	taskStr := fmt.Sprintf("review:%s", target)
 	logging.CampaignDebug("runNemesisGauntletCheckpoint: target=%s task=%s", target, taskStr)
-	result, err := cr.spawnTask(ctx, "nemesis", taskStr)
+	result, err := cr.spawnTask(ctx, "/nemesis", taskStr)
 	if err != nil {
 		logging.CampaignError("runNemesisGauntletCheckpoint: nemesis shard failed for phase=%s: %v", phaseName, err)
 		return false, fmt.Sprintf("Nemesis shard failed: %v", err), err

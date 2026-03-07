@@ -512,10 +512,10 @@ Decl intent_ready_for_executive(IntentID) bound [/string].
 # Action flow derived predicates
 Decl action_pending_permission(ActionID) bound [/string].
 Decl permission_checked(ActionID) bound [/string].
-Decl permission_check_result(ActionID, Result, Reason, Timestamp) bound [/string, /string, /string, /number].
+Decl permission_check_result(ActionID, Result, Reason, Timestamp) bound [/string, /name, /string, /number].
 Decl action_blocked(ActionID, Reason) bound [/string, /string].
 Decl action_routed(ActionID) bound [/string].
-Decl routing_result(ActionID, Result, Details, Timestamp) bound [/string, /string, /string, /number].
+Decl routing_result(ActionID, Result, Details, Timestamp) bound [/string, /name, /string, /number].
 Decl routing_succeeded(ActionID) bound [/string].
 Decl routing_failed(ActionID, Error) bound [/string, /string].
 

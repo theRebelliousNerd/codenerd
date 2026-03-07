@@ -92,6 +92,12 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 		return "", nil
 	}
 
+	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
+		if err := InjectAvailableSpecialists(cc, ""); err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Failed to inject available specialists: %v", err)
+		}
+	}
+
 	// Group atoms by category
 	byCategory := make(map[AtomCategory][]*OrderedAtom)
 	for _, oa := range atoms {
@@ -324,6 +330,14 @@ func (te *TemplateEngine) registerDefaults() {
 			return "normal"
 		}
 		return strings.Join(states, ", ")
+	}
+
+	// {{available_specialists}} - formatted specialist list for knowledge discovery
+	te.functions["available_specialists"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || strings.TrimSpace(cc.AvailableSpecialists) == "" {
+			return "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		}
+		return cc.AvailableSpecialists
 	}
 }
 

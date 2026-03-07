@@ -208,6 +208,7 @@ func (pe *PromptEvolver) RecordExecution(exec *ExecutionRecord) error {
 		exec.ProblemType = string(problemType)
 	}
 
+	pe.applyExecutionOutcomeLocked(exec)
 	return pe.feedbackCollector.Record(exec)
 }
 
@@ -247,6 +248,8 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 		for i, v := range verdicts {
 			if v != nil && i < len(unevaluated) {
 				pe.feedbackCollector.UpdateVerdict(unevaluated[i].TaskID, v)
+				unevaluated[i].Verdict = v
+				pe.applyExecutionOutcomeLocked(unevaluated[i])
 			}
 		}
 	}
@@ -330,28 +333,10 @@ func (pe *PromptEvolver) RunEvolutionCycle(ctx context.Context) (*EvolutionResul
 
 // storeEvolvedAtom saves an evolved atom to the pending directory.
 func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
-	// Save to pending directory
-	filename := strings.ReplaceAll(ga.Atom.ID, "/", "_") + ".yaml"
-	path := filepath.Join(pe.pendingDir, filename)
-
-	// Create wrapper for YAML
-	wrapper := struct {
-		Atom       *prompt.PromptAtom `yaml:"atom"`
-		Source     string             `yaml:"source"`
-		SourceIDs  []string           `yaml:"source_ids"`
-		Confidence float64            `yaml:"confidence"`
-		CreatedAt  time.Time          `yaml:"created_at"`
-	}{
-		Atom:       ga.Atom,
-		Source:     ga.Source,
-		SourceIDs:  ga.SourceIDs,
-		Confidence: ga.Confidence,
-		CreatedAt:  ga.CreatedAt,
-	}
-
-	data, err := yaml.Marshal(wrapper)
+	path := pe.atomStoragePathLocked(ga.Atom.ID, !ga.PromotedAt.IsZero())
+	data, err := pe.marshalGeneratedAtom(ga)
 	if err != nil {
-		return fmt.Errorf("failed to marshal atom: %w", err)
+		return err
 	}
 
 	if err := os.WriteFile(path, data, 0644); err != nil {
@@ -363,6 +348,46 @@ func (pe *PromptEvolver) storeEvolvedAtom(ga *GeneratedAtom) error {
 
 	logging.Autopoiesis("Evolved atom stored: id=%s, path=%s", ga.Atom.ID, path)
 	return nil
+}
+
+func (pe *PromptEvolver) atomStoragePathLocked(atomID string, promoted bool) string {
+	filename := strings.ReplaceAll(atomID, "/", "_") + ".yaml"
+	if promoted {
+		return filepath.Join(pe.promotedDir, filename)
+	}
+	return filepath.Join(pe.pendingDir, filename)
+}
+
+func (pe *PromptEvolver) marshalGeneratedAtom(ga *GeneratedAtom) ([]byte, error) {
+	wrapper := struct {
+		Atom         *prompt.PromptAtom `yaml:"atom"`
+		Source       string             `yaml:"source"`
+		SourceIDs    []string           `yaml:"source_ids"`
+		ShardType    string             `yaml:"shard_type"`
+		ProblemType  string             `yaml:"problem_type"`
+		Confidence   float64            `yaml:"confidence"`
+		UsageCount   int                `yaml:"usage_count"`
+		SuccessCount int                `yaml:"success_count"`
+		CreatedAt    time.Time          `yaml:"created_at"`
+		PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
+	}{
+		Atom:         ga.Atom,
+		Source:       ga.Source,
+		SourceIDs:    ga.SourceIDs,
+		ShardType:    ga.ShardType,
+		ProblemType:  ga.ProblemType,
+		Confidence:   ga.Confidence,
+		UsageCount:   ga.UsageCount,
+		SuccessCount: ga.SuccessCount,
+		CreatedAt:    ga.CreatedAt,
+		PromotedAt:   ga.PromotedAt,
+	}
+
+	data, err := yaml.Marshal(wrapper)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal atom: %w", err)
+	}
+	return data, nil
 }
 
 // updateStrategies updates or creates strategies based on outcomes.
@@ -442,6 +467,9 @@ func (pe *PromptEvolver) promoteAtomLocked(atomID string) error {
 	}
 
 	ga.PromotedAt = time.Now()
+	if err := pe.storeEvolvedAtom(ga); err != nil {
+		return err
+	}
 	logging.Autopoiesis("Atom promoted: id=%s", atomID)
 	return nil
 }
@@ -468,7 +496,10 @@ func (pe *PromptEvolver) RejectAtom(atomID string) error {
 func (pe *PromptEvolver) RecordAtomUsage(atomID string, success bool) {
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
+	pe.recordAtomUsageLocked(atomID, success)
+}
 
+func (pe *PromptEvolver) recordAtomUsageLocked(atomID string, success bool) {
 	ga, exists := pe.evolvedAtoms[atomID]
 	if !exists {
 		return
@@ -481,6 +512,14 @@ func (pe *PromptEvolver) RecordAtomUsage(atomID string, success bool) {
 
 	// Update confidence based on new data
 	ga.Confidence = ga.SuccessRate()
+	if err := pe.storeEvolvedAtom(ga); err != nil {
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to persist atom usage for %s: %v", atomID, err)
+	}
+	if pe.config.AutoPromote && ga.ShouldPromote(pe.config.ConfidenceThreshold) && ga.PromotedAt.IsZero() {
+		if err := pe.promoteAtomLocked(atomID); err != nil {
+			logging.Get(logging.CategoryAutopoiesis).Warn("Failed to auto-promote atom %s: %v", atomID, err)
+		}
+	}
 }
 
 // GetEvolvedAtoms returns all evolved atoms.
@@ -586,11 +625,16 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 		}
 
 		var wrapper struct {
-			Atom       *prompt.PromptAtom `yaml:"atom"`
-			Source     string             `yaml:"source"`
-			SourceIDs  []string           `yaml:"source_ids"`
-			Confidence float64            `yaml:"confidence"`
-			CreatedAt  time.Time          `yaml:"created_at"`
+			Atom         *prompt.PromptAtom `yaml:"atom"`
+			Source       string             `yaml:"source"`
+			SourceIDs    []string           `yaml:"source_ids"`
+			ShardType    string             `yaml:"shard_type"`
+			ProblemType  string             `yaml:"problem_type"`
+			Confidence   float64            `yaml:"confidence"`
+			UsageCount   int                `yaml:"usage_count"`
+			SuccessCount int                `yaml:"success_count"`
+			CreatedAt    time.Time          `yaml:"created_at"`
+			PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
 		}
 
 		if err := yaml.Unmarshal(data, &wrapper); err != nil {
@@ -602,14 +646,19 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 		}
 
 		ga := &GeneratedAtom{
-			Atom:       wrapper.Atom,
-			Source:     wrapper.Source,
-			SourceIDs:  wrapper.SourceIDs,
-			Confidence: wrapper.Confidence,
-			CreatedAt:  wrapper.CreatedAt,
+			Atom:         wrapper.Atom,
+			Source:       wrapper.Source,
+			SourceIDs:    wrapper.SourceIDs,
+			ShardType:    wrapper.ShardType,
+			ProblemType:  wrapper.ProblemType,
+			Confidence:   wrapper.Confidence,
+			UsageCount:   wrapper.UsageCount,
+			SuccessCount: wrapper.SuccessCount,
+			CreatedAt:    wrapper.CreatedAt,
+			PromotedAt:   wrapper.PromotedAt,
 		}
 
-		if promoted {
+		if promoted && ga.PromotedAt.IsZero() {
 			info, _ := entry.Info()
 			if info != nil {
 				ga.PromotedAt = info.ModTime()
@@ -619,6 +668,17 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 		}
 
 		pe.evolvedAtoms[wrapper.Atom.ID] = ga
+	}
+}
+
+func (pe *PromptEvolver) applyExecutionOutcomeLocked(exec *ExecutionRecord) {
+	if exec == nil || exec.Verdict == nil || len(exec.AtomIDs) == 0 {
+		return
+	}
+
+	success := exec.Verdict.IsPass()
+	for _, atomID := range exec.AtomIDs {
+		pe.recordAtomUsageLocked(atomID, success)
 	}
 }
 

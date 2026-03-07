@@ -32,26 +32,7 @@ type TaskDelegator interface {
 	Execute(ctx context.Context, intent string, task string) (string, error)
 }
 
-// LegacyShardNameToIntent maps legacy shard type names to intent verbs.
-// This enables gradual migration from ShardManager.Spawn("coder", task)
-// to TaskExecutor.Execute("/fix", task).
-func LegacyShardNameToIntent(shardType string) string {
-	mapping := map[string]string{
-		"coder":            "/fix",
-		"tester":           "/test",
-		"reviewer":         "/review",
-		"researcher":       "/research",
-		"debugger":         "/debug",
-		"security_auditor": "/audit",
-		"tool_generator":   "/generate-tool",
-		"nemesis":          "/attack",
-	}
-	if intent, ok := mapping[shardType]; ok {
-		return intent
-	}
-	// Default: use the shard type as-is with a leading slash
-	return "/" + shardType
-}
+
 
 // One-time imports
 var _ = types.ShardConfig{}
@@ -1156,6 +1137,8 @@ func (v *VirtualStore) executeAction(ctx context.Context, req ActionRequest) (Ac
 		return v.handleDelegateAlias(ctx, req, "/reviewer")
 	case ActionDelegateCoder:
 		return v.handleDelegateAlias(ctx, req, "/coder")
+	case ActionDelegateTester:
+		return v.handleDelegateAlias(ctx, req, "/tester")
 	case ActionDelegateResearcher:
 		return v.handleDelegateAlias(ctx, req, "/researcher")
 	case ActionDelegateToolGenerator:

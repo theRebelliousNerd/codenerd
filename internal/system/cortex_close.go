@@ -36,6 +36,13 @@ func (c *Cortex) Close() error {
 		c.LocalDB = nil
 	}
 
+	if c.LearningStore != nil {
+		if err := c.LearningStore.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.LearningStore = nil
+	}
+
 	if err := perception.ClosePerceptionLayer(); err != nil {
 		errs = append(errs, err)
 	}

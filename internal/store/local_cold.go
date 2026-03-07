@@ -2,7 +2,6 @@ package store
 
 import (
 	"codenerd/internal/logging"
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -65,9 +64,13 @@ func (s *LocalStore) StoreFact(predicate string, args []interface{}, factType st
 
 	logging.StoreDebug("Storing fact to cold storage: %s/%d args (type=%s, priority=%d)", predicate, len(args), factType, priority)
 
-	argsJSON, _ := json.Marshal(args)
+	argsJSON, err := encodeFactArgs(args)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to encode fact args for %s: %v", predicate, err)
+		return err
+	}
 
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO cold_storage (predicate, args, fact_type, priority, updated_at)
 		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(predicate, args) DO UPDATE SET
@@ -113,7 +116,10 @@ func (s *LocalStore) LoadFacts(predicate string) ([]StoredFact, error) {
 		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount); err != nil {
 			continue
 		}
-		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		fact.Args, err = decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		facts = append(facts, fact)
 		factIDs = append(factIDs, fact.ID)
 	}
@@ -165,7 +171,10 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount); err != nil {
 			continue
 		}
-		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		fact.Args, err = decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		facts = append(facts, fact)
 	}
 
@@ -180,8 +189,11 @@ func (s *LocalStore) DeleteFact(predicate string, args []interface{}) error {
 
 	logging.StoreDebug("Deleting fact from cold storage: %s", predicate)
 
-	argsJSON, _ := json.Marshal(args)
-	_, err := s.db.Exec("DELETE FROM cold_storage WHERE predicate = ? AND args = ?", predicate, string(argsJSON))
+	argsJSON, err := encodeFactArgs(args)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("DELETE FROM cold_storage WHERE predicate = ? AND args = ?", predicate, string(argsJSON))
 	if err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to delete fact %s: %v", predicate, err)
 		return err
@@ -311,7 +323,10 @@ func (s *LocalStore) GetArchivedFacts(predicate string) ([]ArchivedFact, error) 
 		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount, &fact.ArchivedAt); err != nil {
 			continue
 		}
-		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		fact.Args, err = decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		facts = append(facts, fact)
 	}
 
@@ -355,7 +370,10 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 		if err := rows.Scan(&fact.ID, &fact.Predicate, &argsJSON, &fact.FactType, &fact.Priority, &fact.CreatedAt, &fact.UpdatedAt, &fact.LastAccessed, &fact.AccessCount, &fact.ArchivedAt); err != nil {
 			continue
 		}
-		json.Unmarshal([]byte(argsJSON), &fact.Args)
+		fact.Args, err = decodeFactArgs(argsJSON)
+		if err != nil {
+			continue
+		}
 		facts = append(facts, fact)
 	}
 
@@ -373,7 +391,10 @@ func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) e
 
 	logging.Store("Restoring archived fact: %s (promoting to cold storage)", predicate)
 
-	argsJSON, _ := json.Marshal(args)
+	argsJSON, err := encodeFactArgs(args)
+	if err != nil {
+		return err
+	}
 
 	// Start transaction
 	tx, err := s.db.Begin()

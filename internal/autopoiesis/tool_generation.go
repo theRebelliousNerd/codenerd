@@ -188,6 +188,15 @@ func (tg *ToolGenerator) regenerateToolCodeWithFeedback(
 		return tg.regenerateToolCodeWithJIT(ctx, need, previousCode, feedback, "/refinement")
 	}
 
+	return tg.regenerateToolCodeWithFeedbackLegacy(ctx, need, previousCode, feedback)
+}
+
+func (tg *ToolGenerator) regenerateToolCodeWithFeedbackLegacy(
+	ctx context.Context,
+	need *ToolNeed,
+	previousCode string,
+	feedback string,
+) (string, error) {
 	// Fallback to legacy prompts
 	systemPrompt := `You are a Go code generator for the codeNERD agent system.
 Your previous code had safety violations. You must fix these issues.
@@ -268,8 +277,8 @@ func (tg *ToolGenerator) regenerateToolCodeWithJIT(
 	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed for refinement, falling back: %v", err)
-		// Fall back to legacy generation
-		return tg.regenerateToolCodeWithFeedback(ctx, need, previousCode, feedback)
+		// Fall back to legacy generation without re-entering the JIT path.
+		return tg.regenerateToolCodeWithFeedbackLegacy(ctx, need, previousCode, feedback)
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled refinement prompt: %d bytes", len(systemPrompt))
@@ -316,6 +325,10 @@ func (tg *ToolGenerator) generateToolCode(ctx context.Context, need *ToolNeed) (
 		return tg.generateToolCodeWithJIT(ctx, need, "/specification")
 	}
 
+	return tg.generateToolCodeLegacy(ctx, need)
+}
+
+func (tg *ToolGenerator) generateToolCodeLegacy(ctx context.Context, need *ToolNeed) (string, error) {
 	// Fallback to legacy prompts
 	systemPrompt := `You are a Go code generator for the codeNERD agent system.
 Generate clean, idiomatic Go code that follows these conventions:
@@ -387,8 +400,8 @@ func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *Tool
 	systemPrompt, err := tg.promptAssembler.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.Get(logging.CategoryAutopoiesis).Warn("JIT assembly failed, falling back: %v", err)
-		// Fall back to legacy generation
-		return tg.generateToolCode(ctx, need)
+		// Fall back to legacy generation without re-entering the JIT path.
+		return tg.generateToolCodeLegacy(ctx, need)
 	}
 
 	logging.AutopoiesisDebug("JIT-compiled system prompt: %d bytes", len(systemPrompt))

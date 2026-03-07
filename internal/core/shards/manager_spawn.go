@@ -473,7 +473,41 @@ func (sm *ShardManager) StartSystemShards(ctx context.Context) error {
 		}
 	}
 	sq := sm.spawnQueue
+	kernel := sm.kernel
 	sm.mu.RUnlock()
+
+	if kernel != nil {
+		activated, err := kernel.Query("activate_shard")
+		if err != nil {
+			logging.Get(logging.CategoryShards).Warn("StartSystemShards: failed to query activate_shard: %v", err)
+		} else {
+			seen := make(map[string]struct{}, len(toStart))
+			for _, name := range toStart {
+				seen[name] = struct{}{}
+			}
+			for _, fact := range activated {
+				if len(fact.Args) == 0 {
+					continue
+				}
+				name := normalizeShardTypeName(types.ExtractString(fact.Args[0]))
+				if name == "" {
+					continue
+				}
+				sm.mu.RLock()
+				cfg, ok := sm.profiles[name]
+				_, disabled := sm.disabled[name]
+				sm.mu.RUnlock()
+				if !ok || disabled || cfg.Type != types.ShardTypeSystem {
+					continue
+				}
+				if _, exists := seen[name]; exists {
+					continue
+				}
+				toStart = append(toStart, name)
+				seen[name] = struct{}{}
+			}
+		}
+	}
 
 	if sq != nil && sq.IsRunning() {
 		return sm.startSystemShardsWithQueue(ctx, toStart, sq)

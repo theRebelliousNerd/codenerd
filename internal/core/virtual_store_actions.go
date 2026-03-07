@@ -1064,8 +1064,7 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 	var err error
 	if delegator != nil {
 		// Use new TaskDelegator (JIT architecture)
-		intent := LegacyShardNameToIntent(shardType)
-		result, err = delegator.Execute(ctx, intent, task)
+		result, err = delegator.Execute(ctx, shardType, task)
 	} else {
 		// Fall back to legacy ShardManager
 		result, err = sm.Spawn(ctx, shardType, task)

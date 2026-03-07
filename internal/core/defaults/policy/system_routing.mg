@@ -15,12 +15,18 @@
 # Decl routing_failed(ActionID, Error).
 # Decl escalation_needed(Target, Subject, Reason).
 
-# Default routing table entries (can be extended via Autopoiesis)
-routing_table(/fs_read, /read_file, /low).
-routing_table(/fs_write, /write_file, /medium).
-routing_table(/exec_cmd, /execute_command, /high).
-routing_table(/browser, /browser_action, /high).
-routing_table(/code_graph, /analyze_code, /low).
+# Default routing table entries aligned with the live Go router.
+# Tool names here should mirror router.go's ToolRoute.ToolName values.
+routing_table(/fs_read, /fs_read, /low).
+routing_table(/fs_write, /fs_write, /medium).
+routing_table(/exec_cmd, /shell_exec, /high).
+routing_table(/browser, /browser_tool, /high).
+routing_table(/code_graph, /code_search, /low).
+routing_table(/delegate_reviewer, /shard_manager, /low).
+routing_table(/delegate_coder, /shard_manager, /medium).
+routing_table(/delegate_researcher, /shard_manager, /low).
+routing_table(/delegate_tester, /shard_manager, /low).
+routing_table(/delegate_tool_generator, /shard_manager, /medium).
 
 # Tool is allowed for action type
 tool_allowed(Tool, ActionType) :-

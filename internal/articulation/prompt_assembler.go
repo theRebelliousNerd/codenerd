@@ -54,9 +54,9 @@ type PromptAssembler struct {
 	mu          sync.RWMutex              // Protects JIT fields
 
 	// JIT budget overrides (optional; defaults set by prompt.NewCompilationContext)
-	tokenBudget    int
-	reservedTokens int
-	semanticTopK   int
+	tokenBudget                 int
+	reservedTokens              int
+	semanticTopK                int
 	reservedTokensFallbackRatio int
 }
 
@@ -359,7 +359,7 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input inter
 		result, err := pa.jitCompiler.Compile(ctx, cc)
 		if err == nil {
 			// Ensure Piggyback Protocol is present when required
-			if !prompt.IsStructuredOutputOnly(cc.ShardType) &&
+			if shouldAppendPiggybackProtocol(cc.ShardType, result.Prompt) &&
 				!strings.Contains(result.Prompt, "\"control_packet\"") {
 				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
 				result.Prompt += "\n\n" + PiggybackProtocolSuffix
@@ -452,6 +452,20 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input inter
 	result := sb.String()
 	logging.ArticulationDebug("Assembled system prompt: %d bytes", len(result))
 	return result, nil
+}
+
+func shouldAppendPiggybackProtocol(shardType string, promptText string) bool {
+	if prompt.IsStructuredOutputOnly(shardType) {
+		return false
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(shardType, "/")))
+	switch normalized {
+	case "perception", "perception_firewall":
+		return false
+	}
+
+	return true
 }
 
 // queryShardTemplate queries the kernel for the base template for a shard type.
@@ -1198,7 +1212,7 @@ func (pa *PromptAssembler) BuildContextSection(shardID string) (string, error) {
 }
 
 // queryAndFormatContext queries injectable_context and formats it for prompt injection.
-	// TODO: Querying all facts might be slow for large stores. Consider optimized queries.
+// TODO: Querying all facts might be slow for large stores. Consider optimized queries.
 func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
 	facts, err := pa.kernel.Query("injectable_context")
 	if err != nil {

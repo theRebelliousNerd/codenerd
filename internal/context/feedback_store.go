@@ -31,7 +31,7 @@ type ContextFeedbackStore struct {
 	cacheTime time.Time
 
 	// Configuration
-	minSamples   int           // Minimum samples before score affects activation
+	minSamples    int           // Minimum samples before score affects activation
 	decayHalfLife time.Duration // Time for feedback weight to halve
 }
 
@@ -48,12 +48,12 @@ type StoredFeedback struct {
 
 // PredicateFeedback represents aggregated feedback for a predicate.
 type PredicateFeedback struct {
-	Predicate      string
-	HelpfulCount   int
-	NoiseCount     int
-	TotalMentions  int
-	WeightedScore  float64 // -1.0 (always noise) to +1.0 (always helpful)
-	LastUpdated    time.Time
+	Predicate     string
+	HelpfulCount  int
+	NoiseCount    int
+	TotalMentions int
+	WeightedScore float64 // -1.0 (always noise) to +1.0 (always helpful)
+	LastUpdated   time.Time
 }
 
 // NewContextFeedbackStore creates a new feedback store.
@@ -67,7 +67,7 @@ func NewContextFeedbackStore(dbPath string) (*ContextFeedbackStore, error) {
 	store := &ContextFeedbackStore{
 		db:            db,
 		cache:         make(map[string]float64),
-		minSamples:    10,              // Conservative: 10 samples before affecting scoring
+		minSamples:    10,                 // Conservative: 10 samples before affecting scoring
 		decayHalfLife: 7 * 24 * time.Hour, // 7-day half-life for decay
 	}
 
@@ -117,6 +117,7 @@ func (s *ContextFeedbackStore) StoreFeedback(
 	manifestHash string,
 	overallUsefulness float64,
 	intentVerb string,
+	taskSucceeded bool,
 	helpfulFacts []string,
 	noiseFacts []string,
 ) error {
@@ -130,10 +131,15 @@ func (s *ContextFeedbackStore) StoreFeedback(
 	defer tx.Rollback()
 
 	// Insert main feedback record
+	taskSucceededInt := 0
+	if taskSucceeded {
+		taskSucceededInt = 1
+	}
+
 	result, err := tx.Exec(`
-		INSERT INTO context_feedback (turn_id, timestamp, manifest_hash, overall_usefulness, intent_verb)
-		VALUES (?, ?, ?, ?, ?)
-	`, turnID, time.Now().Format(time.RFC3339), manifestHash, overallUsefulness, intentVerb)
+		INSERT INTO context_feedback (turn_id, timestamp, manifest_hash, overall_usefulness, intent_verb, task_succeeded)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, turnID, time.Now().Format(time.RFC3339), manifestHash, overallUsefulness, intentVerb, taskSucceededInt)
 	if err != nil {
 		return fmt.Errorf("failed to insert feedback: %w", err)
 	}
@@ -225,9 +231,6 @@ func (s *ContextFeedbackStore) GetPredicateUsefulnessForIntent(predicate, intent
 // computePredicateScore calculates the weighted usefulness score.
 // Applies time-based decay and requires minimum samples.
 func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb string) float64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Build query based on whether intent filter is specified
 	var query string
 	var args []interface{}
@@ -309,9 +312,6 @@ func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb strin
 
 // GetPredicateFeedback returns detailed feedback statistics for a predicate.
 func (s *ContextFeedbackStore) GetPredicateFeedback(predicate string) (*PredicateFeedback, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	row := s.db.QueryRow(`
 		SELECT
 			pf.predicate,
@@ -343,9 +343,6 @@ func (s *ContextFeedbackStore) GetPredicateFeedback(predicate string) (*Predicat
 
 // GetTopHelpfulPredicates returns predicates with highest usefulness scores.
 func (s *ContextFeedbackStore) GetTopHelpfulPredicates(limit int) ([]PredicateFeedback, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	rows, err := s.db.Query(`
 		SELECT
 			pf.predicate,
@@ -378,9 +375,6 @@ func (s *ContextFeedbackStore) GetTopHelpfulPredicates(limit int) ([]PredicateFe
 
 // GetTopNoisePredicates returns predicates with lowest usefulness scores.
 func (s *ContextFeedbackStore) GetTopNoisePredicates(limit int) ([]PredicateFeedback, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	rows, err := s.db.Query(`
 		SELECT
 			pf.predicate,
@@ -413,9 +407,6 @@ func (s *ContextFeedbackStore) GetTopNoisePredicates(limit int) ([]PredicateFeed
 
 // GetOverallStats returns aggregate statistics about context feedback.
 func (s *ContextFeedbackStore) GetOverallStats() (totalFeedback int, avgUsefulness float64, err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	row := s.db.QueryRow(`
 		SELECT COUNT(*), AVG(overall_usefulness)
 		FROM context_feedback

@@ -759,10 +759,16 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			// Initialize Dream Plan Manager for dream-to-execute pipeline (§8.3.2)
 			m.dreamPlanManager = core.NewDreamPlanManager(m.kernel)
 
-			// Load previous session state if available (now that kernel is ready)
-			loadedSession, _ := hydrateNerdState(m.workspace, m.kernel, m.shardMgr, &m.history)
-			m.sessionID = resolveSessionID(loadedSession)
-			m.turnCount = resolveTurnCount(loadedSession)
+			// Boot already hydrated session state; trust the boot payload instead of
+			// re-hydrating and minting a second session identity here.
+			m.sessionID = c.SessionID
+			m.turnCount = c.TurnCount
+			if m.sessionID == "" {
+				m.sessionID = resolveSessionID(nil)
+			}
+			if m.shardMgr != nil {
+				m.shardMgr.SetSessionID(m.sessionID)
+			}
 
 			// Rehydrate semantic compression state for this session (if persisted).
 			m.hydrateCompressorForSession(m.sessionID)

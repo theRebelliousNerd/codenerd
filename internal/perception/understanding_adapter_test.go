@@ -124,6 +124,48 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 	}
 }
 
+func TestIsValidUnderstandingPromptContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		want   bool
+	}{
+		{
+			name: "valid understanding envelope contract",
+			prompt: `Output JSON like:
+{
+  "understanding": {
+    "primary_intent": "debug",
+    "semantic_type": "causation",
+    "action_type": "investigate",
+    "domain": "testing",
+    "suggested_approach": {}
+  },
+  "surface_response": "I will investigate."
+}`,
+			want: true,
+		},
+		{
+			name:   "piggyback contract is invalid for perception",
+			prompt: `{"control_packet": {}, "surface_response": "hi"}`,
+			want:   false,
+		},
+		{
+			name:   "legacy flat schema is invalid for perception",
+			prompt: `{"category":"query","verb":"review","target":"file.go","constraint":"","confidence":0.8}`,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isValidUnderstandingPromptContract(tt.prompt); got != tt.want {
+				t.Fatalf("isValidUnderstandingPromptContract() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUnderstandingTransducer_MapSemanticToCategory(t *testing.T) {
 	tr := &UnderstandingTransducer{}
 

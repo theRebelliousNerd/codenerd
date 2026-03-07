@@ -349,7 +349,6 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		tx.Retract("processed_intent")
 		tx.Retract("executive_processed_intent")
 		tx.Retract("pending_action")
-		tx.Retract("delegate_task")
 		if err := tx.Commit(); err != nil {
 			logging.Get(logging.CategoryKernel).Error("[ExecutivePolicy] stale intent cleanup failed: %v", err)
 		}
@@ -496,7 +495,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		actionCopy.Payload = payload
 		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{action.ID, action.Action, target, payload, time.Now().Unix()},
+			Args:      []interface{}{action.ID, action.Action, target, encodeActionPayload(payload), time.Now().Unix()},
 		})
 		// Consume one-shot next_action facts asserted by shards.
 		// Derived next_action from policy are not in EDB, so this is a safe no-op for them.
@@ -880,6 +879,13 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 	}
 
 	actions := make([]ActionDecision, 0, len(results))
+
+	delegations, err := e.queryDelegateActions()
+	if err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[ExecutivePolicy] Delegate task query failed: %v", err)
+	} else {
+		actions = append(actions, delegations...)
+	}
 	for _, fact := range results {
 		if len(fact.Args) < 1 {
 			continue
@@ -974,6 +980,65 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 	}
 
 	return actions, nil
+}
+
+func (e *ExecutivePolicyShard) queryDelegateActions() ([]ActionDecision, error) {
+	results, err := e.Kernel.Query("delegate_task")
+	if err != nil {
+		return nil, err
+	}
+
+	actions := make([]ActionDecision, 0, len(results))
+	for _, fact := range results {
+		if len(fact.Args) < 3 {
+			continue
+		}
+
+		shardType := types.ExtractString(fact.Args[0])
+		target := types.ExtractString(fact.Args[1])
+		status := types.ExtractString(fact.Args[2])
+		if status != "/pending" && status != "pending" {
+			continue
+		}
+
+		actionName := delegatedShardToAction(shardType)
+		if actionName == "" || actionName == "/delegate_tool_generator" {
+			continue
+		}
+
+		payload := map[string]interface{}{
+			"delegate_shard": shardType,
+		}
+
+		actions = append(actions, ActionDecision{
+			ID:        fmt.Sprintf("delegate-%d", time.Now().UnixNano()),
+			Action:    actionName,
+			Target:    target,
+			Payload:   payload,
+			RawFact:   fact,
+			DerivedAt: time.Now(),
+			FromRule:  "delegate_task",
+		})
+	}
+
+	return actions, nil
+}
+
+func delegatedShardToAction(shardType string) string {
+	switch strings.TrimSpace(shardType) {
+	case "/reviewer", "reviewer":
+		return "/delegate_reviewer"
+	case "/coder", "coder":
+		return "/delegate_coder"
+	case "/tester", "tester":
+		return "/delegate_tester"
+	case "/researcher", "researcher":
+		return "/delegate_researcher"
+	case "/tool_generator", "tool_generator":
+		return "/delegate_tool_generator"
+	default:
+		return ""
+	}
 }
 
 // checkBarriers checks for blocking conditions.

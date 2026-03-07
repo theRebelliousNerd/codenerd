@@ -211,6 +211,70 @@ func TestBuildRefinementPrompt(t *testing.T) {
 	}
 }
 
+func TestToolRefiner_RefineWithJIT_FallbackDoesNotRecurse(t *testing.T) {
+	client := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
+			return `{"improved_code":"package tools\n\nfunc improved() {}","changes":["fallback"],"expected_gain":0.2,"test_cases":["test"]}`, nil
+		},
+	}
+	toolGen := NewToolGenerator(client, "/tmp/tools")
+	refiner := NewToolRefiner(client, toolGen)
+	refiner.SetPromptAssembler(failingPromptAssembler{})
+
+	result, err := refiner.Refine(context.Background(), RefinementRequest{
+		ToolName:     "test_tool",
+		OriginalCode: "package tools\n\nfunc tool() {}",
+	})
+	if err != nil {
+		t.Fatalf("Refine error: %v", err)
+	}
+	if !result.Success {
+		t.Fatal("expected successful refinement")
+	}
+	if !strings.Contains(result.ImprovedCode, "func improved()") {
+		t.Fatalf("expected legacy fallback refinement result, got %q", result.ImprovedCode)
+	}
+}
+
+func TestOrchestratorRefineTool_IncludesRecentExecutionFeedback(t *testing.T) {
+	orch, _, mockLLM := createTestOrchestrator(t)
+
+	var capturedPrompt string
+	mockLLM.CompleteWithSystemFunc = func(ctx context.Context, system, user string) (string, error) {
+		capturedPrompt = user
+		return `{"improved_code":"package tools\n\nfunc improved() {}","changes":["fixed pagination"],"expected_gain":0.4,"test_cases":["pagination"]}`, nil
+	}
+
+	feedback := &ExecutionFeedback{
+		ToolName:  "refine_me",
+		Success:   false,
+		ErrorMsg:  "missing pages",
+		Output:    "partial result",
+		Timestamp: time.Now(),
+		Quality: &QualityAssessment{
+			Score: 0.3,
+			Issues: []QualityIssue{
+				{Type: IssuePagination, Description: "Missing pagination", Evidence: "only first page"},
+			},
+		},
+	}
+	orch.RecordExecution(context.Background(), feedback)
+
+	result, err := orch.RefineTool(context.Background(), "refine_me", "package tools\n\nfunc refine_me() {}")
+	if err != nil {
+		t.Fatalf("RefineTool error: %v", err)
+	}
+	if !result.Success {
+		t.Fatal("expected successful refinement")
+	}
+	if !strings.Contains(capturedPrompt, "Execution Feedback") {
+		t.Fatalf("expected prompt to include execution feedback section, got %q", capturedPrompt)
+	}
+	if !strings.Contains(capturedPrompt, "Missing pagination") {
+		t.Fatalf("expected prompt to include concrete issue description, got %q", capturedPrompt)
+	}
+}
+
 // =============================================================================
 // LEARNING STORE TESTS
 // =============================================================================

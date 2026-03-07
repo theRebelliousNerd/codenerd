@@ -403,37 +403,6 @@ func TestResourceUsage_TotalCPUTimeMs(t *testing.T) {
 	}
 }
 
-func TestShellCommand_ToCommand(t *testing.T) {
-	legacy := ShellCommand{
-		Binary:           "git",
-		Arguments:        []string{"status"},
-		WorkingDirectory: "/tmp",
-		TimeoutSeconds:   30,
-		EnvironmentVars:  []string{"GIT_DIR=/path"},
-	}
-
-	cmd := legacy.ToCommand()
-
-	if cmd.Binary != "git" {
-		t.Errorf("Expected binary 'git', got: %s", cmd.Binary)
-	}
-
-	if len(cmd.Arguments) != 1 || cmd.Arguments[0] != "status" {
-		t.Errorf("Unexpected arguments: %v", cmd.Arguments)
-	}
-
-	if cmd.WorkingDirectory != "/tmp" {
-		t.Errorf("Expected working dir '/tmp', got: %s", cmd.WorkingDirectory)
-	}
-
-	if cmd.Limits == nil || cmd.Limits.TimeoutMs != 30000 {
-		t.Errorf("Expected timeout 30000ms, got: %v", cmd.Limits)
-	}
-
-	if len(cmd.Environment) != 1 || cmd.Environment[0] != "GIT_DIR=/path" {
-		t.Errorf("Unexpected environment: %v", cmd.Environment)
-	}
-}
 
 func TestExecutorConfig_Merge(t *testing.T) {
 	config := DefaultExecutorConfig()
@@ -768,32 +737,3 @@ func TestRetryExecutor(t *testing.T) {
 	}
 }
 
-// =================================================================================================
-// LEGACY EXECUTOR TEST GAPS
-// The following tests are missing for internal/tactile/executor.go (SafeExecutor).
-// These are critical for security and reliability.
-// =================================================================================================
-
-// TODO: TEST_GAP: TestSafeExecutor_EnvironmentLeak
-// Verify that SafeExecutor does not leak the host environment when EnvironmentVars is nil.
-// Current implementation in executor.go inherits os.Environ() which is a security risk.
-// Test: Set a secret env var, run "env" via SafeExecutor with nil env, assert secret is NOT present.
-
-// TODO: TEST_GAP: TestSafeExecutor_OOM_DoS
-// Verify that SafeExecutor handles large outputs without crashing.
-// Current implementation uses CombinedOutput() which buffers everything in memory.
-// Test: Run a command that outputs 100MB+ of data and verify memory usage or panic handling.
-
-// TODO: TEST_GAP: TestSafeExecutor_Bypass
-// Verify that "AllowedBinaries" cannot be bypassed via shell injection.
-// Current implementation allows "bash", which can run any command.
-// Test: Run `bash -c "rm -rf /tmp/testfile"` and assert it fails (it will likely pass currently).
-
-// TODO: TEST_GAP: TestSafeExecutor_PathTraversal
-// Verify that WorkingDirectory cannot escape the workspace.
-// Current implementation passes paths directly to os/exec.
-// Test: Set WorkingDirectory to "../../../" and verify execution is blocked or jailed.
-
-// TODO: TEST_GAP: TestSafeExecutor_ZeroValues
-// Verify behavior with empty binary string or nil arguments.
-// Test: Run with Binary="" and assert error (currently relies on os/exec panic/error).

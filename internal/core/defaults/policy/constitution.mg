@@ -264,6 +264,7 @@ safe_action(/exec_tool).
 # Delegate routing patterns
 safe_action(/delegate_reviewer).
 safe_action(/delegate_coder).
+safe_action(/delegate_tester).
 safe_action(/delegate_researcher).
 safe_action(/delegate_tool_generator).
 
