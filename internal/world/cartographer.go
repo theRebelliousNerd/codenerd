@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -18,9 +17,6 @@ import (
 // - code_calls(Caller, Callee)
 // - code_implements(Struct, Interface)
 //
-// It also emits legacy atoms for backward compatibility:
-// - symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
-// - dependency_link(CallerID, CalleeID, ImportPath)
 //
 // Data flow facts (via MultiLangDataFlowExtractor):
 // - assigns(Var, TypeClass, File, Line)
@@ -71,32 +67,6 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 	pkgName := node.Name.Name
 	logging.WorldDebug("Cartographer: package=%s for %s", pkgName, filepath.Base(path))
 
-	// 1. Package Symbol
-	facts = append(facts, core.Fact{
-		Predicate: "symbol_graph",
-		Args: []interface{}{
-			fmt.Sprintf("pkg:%s", pkgName),
-			"package",
-			"public",
-			path,
-			"package " + pkgName,
-		},
-	})
-
-	// 2. Imports (Dependencies)
-	for _, imp := range node.Imports {
-		importPath := strings.Trim(imp.Path.Value, "\"")
-		facts = append(facts, core.Fact{
-			Predicate: "dependency_link",
-			Args: []interface{}{
-				fmt.Sprintf("pkg:%s", pkgName),
-				fmt.Sprintf("pkg:%s", importPath), // Simplified ID
-				importPath,
-			},
-		})
-	}
-	logging.WorldDebug("Cartographer: found %d imports", len(node.Imports))
-
 	// Track current function for call graph
 	var currentFunction string
 
@@ -128,11 +98,6 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			start := fset.Position(x.Pos()).Line
 			end := fset.Position(x.End()).Line
 
-			visibility := "private"
-			if ast.IsExported(name) {
-				visibility = "public"
-			}
-
 			// New Holographic Atom
 		facts = append(facts, core.Fact{
 				Predicate: "code_defines",
@@ -145,18 +110,6 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 				},
 			})
 
-			// Legacy Atom
-		facts = append(facts, core.Fact{
-				Predicate: "symbol_graph",
-				Args: []interface{}{
-					id,
-					"function",
-					visibility,
-					path,
-					fmt.Sprintf("func %s", name),
-				},
-			})
-
 		case *ast.TypeSpec:
 			// Type definition (Struct/Interface)
 			name := x.Name.Name
@@ -165,18 +118,10 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			end := fset.Position(x.End()).Line
 
 			typeType := "/type"
-			legacyType := "type"
 			if _, ok := x.Type.(*ast.StructType); ok {
 				typeType = "/struct"
-				legacyType = "struct"
 			} else if _, ok := x.Type.(*ast.InterfaceType); ok {
 				typeType = "/interface"
-				legacyType = "interface"
-			}
-
-			visibility := "private"
-			if ast.IsExported(name) {
-				visibility = "public"
 			}
 
 			// New Holographic Atom
@@ -188,18 +133,6 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 					core.MangleAtom(typeType),
 					int64(start),
 					int64(end),
-				},
-			})
-
-			// Legacy Atom
-		facts = append(facts, core.Fact{
-				Predicate: "symbol_graph",
-				Args: []interface{}{
-					id,
-					legacyType,
-					visibility,
-					path,
-					fmt.Sprintf("type %s", name),
 				},
 			})
 

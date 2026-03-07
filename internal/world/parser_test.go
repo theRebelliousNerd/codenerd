@@ -226,36 +226,6 @@ func main() {
 	}
 }
 
-// TestCodeElementParser_BackwardCompatibility tests legacy mode.
-func TestCodeElementParser_BackwardCompatibility(t *testing.T) {
-	tmpDir := t.TempDir()
-	goFile := filepath.Join(tmpDir, "test.go")
-	goContent := `package test
-
-type Config struct{}
-
-func Init() {}
-`
-	if err := os.WriteFile(goFile, []byte(goContent), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	// Test legacy constructor (no factory)
-	parser := NewCodeElementParser()
-	elements, err := parser.ParseFile(goFile)
-	if err != nil {
-		t.Fatalf("Legacy parse failed: %v", err)
-	}
-
-	if len(elements) != 2 {
-		t.Errorf("Expected 2 elements, got %d", len(elements))
-	}
-
-	// Factory should be nil in legacy mode
-	if parser.Factory() != nil {
-		t.Error("Legacy parser should have nil factory")
-	}
-}
 
 // TestCodeElementParser_WithFactory tests polyglot mode.
 func TestCodeElementParser_WithFactory(t *testing.T) {

@@ -188,6 +188,12 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 		entryPointFacts := detectEntryPoints(fullFacts)
 		res.NewFacts = append(res.NewFacts, entryPointFacts...)
 
+		if db != nil {
+			if err := PersistFastSnapshotToDB(db, res.NewFacts); err != nil {
+				logging.WorldWarn("ScanWorkspaceIncremental: failed to persist full world snapshot: %v", err)
+			}
+		}
+
 		return res, nil
 	}
 
@@ -393,7 +399,7 @@ func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 			// These world facts include a path arg somewhere; for persistence we key by file_topology path.
 			// We will attach them later when iterating grouped files.
 		default:
-			// Ignore other predicates here.
+			// Attach in the second pass or persist as global metadata if no file path exists.
 		}
 	}
 	// Attach non-topology world facts to their file by scanning args for a path.
@@ -403,16 +409,32 @@ func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 		}
 		var pathArg string
 		for _, a := range f.Args {
-			if s, ok := a.(string); ok && strings.Contains(s, string(filepath.Separator)) {
+			if s := worldFactPathArg(a); s != "" {
 				pathArg = s
 				break
 			}
 		}
 		if pathArg != "" {
 			out[pathArg] = append(out[pathArg], f)
+			continue
 		}
+		out[globalWorldFactsPath] = append(out[globalWorldFactsPath], f)
 	}
 	return out
+}
+
+func worldFactPathArg(arg interface{}) string {
+	s, ok := arg.(string)
+	if !ok || s == "" {
+		return ""
+	}
+	if s == globalWorldFactsPath {
+		return ""
+	}
+	if strings.Contains(s, string(filepath.Separator)) {
+		return s
+	}
+	return ""
 }
 
 func extractHashFromFacts(facts []core.Fact) string {

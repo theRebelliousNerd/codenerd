@@ -6,7 +6,6 @@ import (
 	"codenerd/internal/logging"
 	"crypto/sha256"
 	"fmt"
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -49,9 +48,6 @@ type FileScope struct {
 	// ModulePath is the Go module path (from go.mod)
 	ModulePath string
 
-	// Parser for extracting code elements (legacy)
-	parser *CodeElementParser
-
 	// ParserFactory for polyglot parsing
 	parserFactory *ParserFactory
 
@@ -75,7 +71,6 @@ func NewFileScope(projectRoot string) *FileScope {
 		InboundDeps:         make(map[string][]string),
 		FileHashes:          make(map[string]string),
 		ProjectRoot:         projectRoot,
-		parser:              NewCodeElementParser(),
 		parserFactory:       DefaultParserFactory(projectRoot),
 		diagnosticFacts:     make([]core.Fact, 0),
 		diagnosticFactIndex: make(map[string]struct{}),
@@ -532,8 +527,7 @@ func (s *FileScope) safeParseFile(path string) (elements []CodeElement, err erro
 		return result.Elements, nil
 	}
 
-	// Fall back to legacy parser
-	return s.parser.ParseFile(path)
+	return nil, fmt.Errorf("no parser factory registered for file: %s", filepath.Base(path))
 }
 
 // emitFact emits a single fact via the callback.
@@ -954,76 +948,6 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 	s.diagMu.Unlock()
 
 	return facts
-}
-
-// ParseGoPackage parses all Go files in a package directory.
-func (s *FileScope) ParseGoPackage(dir string) ([]CodeElement, error) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
-	if err != nil {
-		return nil, err
-	}
-
-	var allElements []CodeElement
-
-	for _, pkg := range pkgs {
-		for path, file := range pkg.Files {
-			absPath, _ := filepath.Abs(path)
-			elements, err := s.parseAstFile(fset, file, absPath)
-			if err != nil {
-				continue
-			}
-			allElements = append(allElements, elements...)
-		}
-	}
-
-	return allElements, nil
-}
-
-// parseAstFile parses an ast.File and returns code elements.
-func (s *FileScope) parseAstFile(fset *token.FileSet, file *ast.File, path string) ([]CodeElement, error) {
-	// Read file content for body extraction
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(string(content), "\n")
-
-	var elements []CodeElement
-	pkgName := file.Name.Name
-	defaultActions := []ActionType{ActionView, ActionReplace, ActionInsertBefore, ActionInsertAfter, ActionDelete}
-
-	// Track struct receivers
-	structRefs := make(map[string]string)
-	for _, decl := range file.Decls {
-		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
-			for _, spec := range genDecl.Specs {
-				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
-						name := typeSpec.Name.Name
-						ref := fmt.Sprintf("struct:%s.%s", pkgName, name)
-						structRefs[name] = ref
-					}
-				}
-			}
-		}
-	}
-
-	// Parse declarations
-	for _, decl := range file.Decls {
-		switch d := decl.(type) {
-		case *ast.FuncDecl:
-			elem := s.parser.parseFuncDecl(fset, d, path, pkgName, lines, structRefs, defaultActions)
-			elements = append(elements, elem)
-		case *ast.GenDecl:
-			elems := s.parser.parseGenDecl(fset, d, path, pkgName, lines, defaultActions)
-			elements = append(elements, elems...)
-		}
-	}
-
-	return elements, nil
 }
 
 // =============================================================================

@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const globalWorldFactsPath = "__world_global__"
+
 // PersistFastSnapshotToDB writes a full fast world snapshot into the LocalStore cache.
 // This is used by explicit full scans (e.g., `nerd scan`) to keep DB and scan.mg in sync.
 func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
@@ -16,10 +18,6 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 	}
 	grouped := groupFactsByPath(facts)
 	for path, fs := range grouped {
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			continue
-		}
 		lang := "unknown"
 		for _, f := range fs {
 			if f.Predicate == "file_topology" && len(f.Args) >= 3 {
@@ -29,15 +27,24 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 				break
 			}
 		}
-		fp := fileFingerprint(info)
-		if err := db.UpsertWorldFile(store.WorldFileMeta{
+		fp := path
+		meta := store.WorldFileMeta{
 			Path:        path,
 			Lang:        lang,
-			Size:        info.Size(),
-			ModTime:     info.ModTime().Unix(),
 			Hash:        extractHashFromFacts(fs),
-			Fingerprint: fp,
-		}); err != nil {
+			Fingerprint: path,
+		}
+		if path != globalWorldFactsPath {
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				continue
+			}
+			fp = fileFingerprint(info)
+			meta.Size = info.Size()
+			meta.ModTime = info.ModTime().Unix()
+			meta.Fingerprint = fp
+		}
+		if err := db.UpsertWorldFile(meta); err != nil {
 			logging.WorldWarn("PersistFastSnapshotToDB: failed to upsert world file %s: %v", path, err)
 		}
 		inputs := make([]store.WorldFactInput, 0, len(fs))
@@ -50,4 +57,3 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 	}
 	return nil
 }
-

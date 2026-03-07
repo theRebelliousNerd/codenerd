@@ -4,9 +4,6 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,15 +141,7 @@ type CodeElementParser struct {
 	projectRoot string
 }
 
-// NewCodeElementParser creates a new CodeElementParser.
-// Deprecated: Use NewCodeElementParserWithFactory for polyglot support.
-func NewCodeElementParser() *CodeElementParser {
-	logging.WorldDebug("Creating new CodeElementParser (legacy mode)")
-	return &CodeElementParser{
-		fileCache:   make(map[string][]string),
-		projectRoot: ".",
-	}
-}
+
 
 // NewCodeElementParserWithFactory creates a CodeElementParser with a ParserFactory.
 // This is the preferred constructor for polyglot CodeDOM support.
@@ -184,33 +173,32 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 	start := time.Now()
 	logging.WorldDebug("CodeElementParser: parsing file: %s", filepath.Base(path))
 
-	// Try factory-based parsing first (polyglot mode)
-	if p.factory != nil {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			logging.Get(logging.CategoryWorld).Error("CodeElementParser: read failed: %s - %v", path, err)
-			return nil, err
-		}
-
-		// Cache for body extraction
-		lines := strings.Split(string(content), "\n")
-		p.fileCache[path] = lines
-
-		if p.factory.HasParser(path) {
-			elems, err := p.factory.Parse(path, content)
-			if err != nil {
-				logging.Get(logging.CategoryWorld).Error("CodeElementParser: factory parse failed: %s - %v", path, err)
-				return nil, err
-			}
-			logging.WorldDebug("CodeElementParser: parsed %s via factory - %d elements in %v",
-				filepath.Base(path), len(elems), time.Since(start))
-			return elems, nil
-		}
-		// Fall through to legacy parsing if no parser registered
-		logging.WorldDebug("CodeElementParser: no factory parser for %s, using legacy", filepath.Base(path))
+	if p.factory == nil {
+		return nil, fmt.Errorf("ParserFactory is required but not configured for CodeElementParser")
 	}
 
-	// Legacy parsing (backward compatibility)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		logging.Get(logging.CategoryWorld).Error("CodeElementParser: read failed: %s - %v", path, err)
+		return nil, err
+	}
+
+	// Cache for body extraction
+	lines := strings.Split(string(content), "\n")
+	p.fileCache[path] = lines
+
+	if p.factory.HasParser(path) {
+		elems, err := p.factory.Parse(path, content)
+		if err != nil {
+			logging.Get(logging.CategoryWorld).Error("CodeElementParser: factory parse failed: %s - %v", path, err)
+			return nil, err
+		}
+		logging.WorldDebug("CodeElementParser: parsed %s via factory - %d elements in %v",
+			filepath.Base(path), len(elems), time.Since(start))
+		return elems, nil
+	}
+
+	// Mangle special case parsing
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".mg", ".dl", ".mangle":
@@ -224,307 +212,10 @@ func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 		return elems, nil
 	}
 
-	return p.parseGoFileLegacy(path, start)
+	return nil, fmt.Errorf("no parser factory registered for file: %s", filepath.Base(path))
 }
 
-// parseGoFileLegacy is the original Go parsing implementation for backward compatibility.
-func (p *CodeElementParser) parseGoFileLegacy(path string, start time.Time) ([]CodeElement, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		logging.Get(logging.CategoryWorld).Error("CodeElementParser: parse failed: %s - %v", path, err)
-		return nil, err
-	}
 
-	// Cache file content for body extraction
-	content, err := os.ReadFile(path)
-	if err != nil {
-		logging.Get(logging.CategoryWorld).Error("CodeElementParser: read failed: %s - %v", path, err)
-		return nil, err
-	}
-	lines := strings.Split(string(content), "\n")
-	p.fileCache[path] = lines
-
-	var elements []CodeElement
-	pkgName := node.Name.Name
-	logging.WorldDebug("CodeElementParser: package=%s, %d lines for %s", pkgName, len(lines), filepath.Base(path))
-
-	// Default actions for all elements
-	defaultActions := []ActionType{ActionView, ActionReplace, ActionInsertBefore, ActionInsertAfter, ActionDelete}
-
-	// Track struct receivers for method parent linking
-	structRefs := make(map[string]string) // receiver name -> struct ref
-
-	// First pass: collect all struct names
-	var structCount int
-	for _, decl := range node.Decls {
-		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
-			for _, spec := range genDecl.Specs {
-				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
-						name := typeSpec.Name.Name
-						ref := fmt.Sprintf("struct:%s.%s", pkgName, name)
-						structRefs[name] = ref
-						structCount++
-					}
-				}
-			}
-		}
-	}
-	logging.WorldDebug("CodeElementParser: found %d struct types", structCount)
-
-	// Process all declarations
-	var funcCount, methodCount, typeCount int
-	for _, decl := range node.Decls {
-		switch d := decl.(type) {
-		case *ast.FuncDecl:
-			elem := p.parseFuncDecl(fset, d, path, pkgName, lines, structRefs, defaultActions)
-			elements = append(elements, elem)
-			if elem.Type == ElementMethod {
-				methodCount++
-			} else {
-				funcCount++
-			}
-
-		case *ast.GenDecl:
-			elems := p.parseGenDecl(fset, d, path, pkgName, lines, defaultActions)
-			elements = append(elements, elems...)
-			typeCount += len(elems)
-		}
-	}
-
-	logging.WorldDebug("CodeElementParser: parsed %s - %d elements (funcs=%d, methods=%d, types=%d) in %v",
-		filepath.Base(path), len(elements), funcCount, methodCount, typeCount, time.Since(start))
-	return elements, nil
-}
-
-// parseFuncDecl parses a function or method declaration.
-func (p *CodeElementParser) parseFuncDecl(
-	fset *token.FileSet,
-	decl *ast.FuncDecl,
-	path, pkgName string,
-	lines []string,
-	structRefs map[string]string,
-	actions []ActionType,
-) CodeElement {
-	name := decl.Name.Name
-	startLine := fset.Position(decl.Pos()).Line
-	endLine := fset.Position(decl.End()).Line
-
-	// Determine visibility
-	visibility := VisibilityPrivate
-	if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
-		visibility = VisibilityPublic
-	}
-
-	// Determine if method and extract receiver info
-	elemType := ElementFunction
-	var parentRef string
-	ref := fmt.Sprintf("fn:%s.%s", pkgName, name)
-
-	if decl.Recv != nil && len(decl.Recv.List) > 0 {
-		elemType = ElementMethod
-		recv := decl.Recv.List[0]
-		recvName := extractReceiverTypeName(recv.Type)
-		if recvName != "" {
-			ref = fmt.Sprintf("fn:%s.%s.%s", pkgName, recvName, name)
-			if sref, ok := structRefs[recvName]; ok {
-				parentRef = sref
-			}
-		}
-	}
-
-	// Extract signature (first line of function)
-	signature := ""
-	if startLine > 0 && startLine <= len(lines) {
-		signature = strings.TrimSpace(lines[startLine-1])
-	}
-
-	// Extract body
-	body := extractBody(lines, startLine, endLine)
-
-	return CodeElement{
-		Ref:        ref,
-		Type:       elemType,
-		File:       path,
-		StartLine:  startLine,
-		EndLine:    endLine,
-		Signature:  signature,
-		Body:       body,
-		Parent:     parentRef,
-		Visibility: visibility,
-		Actions:    actions,
-		Package:    pkgName,
-		Name:       name,
-	}
-}
-
-// parseGenDecl parses type, const, and var declarations.
-func (p *CodeElementParser) parseGenDecl(
-	fset *token.FileSet,
-	decl *ast.GenDecl,
-	path, pkgName string,
-	lines []string,
-	actions []ActionType,
-) []CodeElement {
-	var elements []CodeElement
-
-	switch decl.Tok {
-	case token.TYPE:
-		for _, spec := range decl.Specs {
-			if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-				elem := p.parseTypeSpec(fset, decl, typeSpec, path, pkgName, lines, actions)
-				elements = append(elements, elem)
-			}
-		}
-
-	case token.CONST:
-		// Group constants together
-		startLine := fset.Position(decl.Pos()).Line
-		endLine := fset.Position(decl.End()).Line
-
-		for _, spec := range decl.Specs {
-			if valueSpec, ok := spec.(*ast.ValueSpec); ok {
-				for _, name := range valueSpec.Names {
-					elemName := name.Name
-					visibility := VisibilityPrivate
-					if len(elemName) > 0 && elemName[0] >= 'A' && elemName[0] <= 'Z' {
-						visibility = VisibilityPublic
-					}
-
-					specStart := fset.Position(spec.Pos()).Line
-					specEnd := fset.Position(spec.End()).Line
-					signature := ""
-					if specStart > 0 && specStart <= len(lines) {
-						signature = strings.TrimSpace(lines[specStart-1])
-					}
-
-					elements = append(elements, CodeElement{
-						Ref:        fmt.Sprintf("const:%s.%s", pkgName, elemName),
-						Type:       ElementConst,
-						File:       path,
-						StartLine:  specStart,
-						EndLine:    specEnd,
-						Signature:  signature,
-						Body:       extractBody(lines, startLine, endLine),
-						Visibility: visibility,
-						Actions:    actions,
-						Package:    pkgName,
-						Name:       elemName,
-					})
-				}
-			}
-		}
-
-	case token.VAR:
-		startLine := fset.Position(decl.Pos()).Line
-		endLine := fset.Position(decl.End()).Line
-
-		for _, spec := range decl.Specs {
-			if valueSpec, ok := spec.(*ast.ValueSpec); ok {
-				for _, name := range valueSpec.Names {
-					elemName := name.Name
-					visibility := VisibilityPrivate
-					if len(elemName) > 0 && elemName[0] >= 'A' && elemName[0] <= 'Z' {
-						visibility = VisibilityPublic
-					}
-
-					specStart := fset.Position(spec.Pos()).Line
-					specEnd := fset.Position(spec.End()).Line
-					signature := ""
-					if specStart > 0 && specStart <= len(lines) {
-						signature = strings.TrimSpace(lines[specStart-1])
-					}
-
-					elements = append(elements, CodeElement{
-						Ref:        fmt.Sprintf("var:%s.%s", pkgName, elemName),
-						Type:       ElementVar,
-						File:       path,
-						StartLine:  specStart,
-						EndLine:    specEnd,
-						Signature:  signature,
-						Body:       extractBody(lines, startLine, endLine),
-						Visibility: visibility,
-						Actions:    actions,
-						Package:    pkgName,
-						Name:       elemName,
-					})
-				}
-			}
-		}
-	}
-
-	return elements
-}
-
-// parseTypeSpec parses a type specification (struct, interface, alias).
-func (p *CodeElementParser) parseTypeSpec(
-	fset *token.FileSet,
-	decl *ast.GenDecl,
-	spec *ast.TypeSpec,
-	path, pkgName string,
-	lines []string,
-	actions []ActionType,
-) CodeElement {
-	name := spec.Name.Name
-	startLine := fset.Position(decl.Pos()).Line
-	endLine := fset.Position(decl.End()).Line
-
-	// For single type declarations without parens, use spec positions
-	if decl.Lparen == 0 {
-		startLine = fset.Position(spec.Pos()).Line
-		endLine = fset.Position(spec.End()).Line
-	}
-
-	visibility := VisibilityPrivate
-	if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' {
-		visibility = VisibilityPublic
-	}
-
-	elemType := ElementType_
-	refPrefix := "type"
-
-	switch spec.Type.(type) {
-	case *ast.StructType:
-		elemType = ElementStruct
-		refPrefix = "struct"
-	case *ast.InterfaceType:
-		elemType = ElementInterface
-		refPrefix = "interface"
-	}
-
-	ref := fmt.Sprintf("%s:%s.%s", refPrefix, pkgName, name)
-
-	signature := ""
-	if startLine > 0 && startLine <= len(lines) {
-		signature = strings.TrimSpace(lines[startLine-1])
-	}
-
-	return CodeElement{
-		Ref:        ref,
-		Type:       elemType,
-		File:       path,
-		StartLine:  startLine,
-		EndLine:    endLine,
-		Signature:  signature,
-		Body:       extractBody(lines, startLine, endLine),
-		Visibility: visibility,
-		Actions:    actions,
-		Package:    pkgName,
-		Name:       name,
-	}
-}
-
-// extractReceiverTypeName extracts the type name from a method receiver.
-func extractReceiverTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return extractReceiverTypeName(t.X)
-	}
-	return ""
-}
 
 // extractBody extracts the body text from line range (1-indexed, inclusive).
 func extractBody(lines []string, startLine, endLine int) string {

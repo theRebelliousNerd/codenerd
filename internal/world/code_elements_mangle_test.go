@@ -22,7 +22,7 @@ ancestor(X, Y) :-
 		t.Fatalf("write: %v", err)
 	}
 
-	p := NewCodeElementParser()
+	p := NewCodeElementParserWithRoot(".")
 	elems, err := p.ParseFile(path)
 	if err != nil {
 		t.Fatalf("ParseFile: %v", err)
