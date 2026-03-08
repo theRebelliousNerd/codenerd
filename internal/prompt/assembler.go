@@ -424,19 +424,42 @@ func (a *FinalAssembler) AssembleWithOptions(
 
 // minifyWhitespace reduces excessive whitespace while preserving structure.
 func minifyWhitespace(content string) string {
-	// TODO: Performance: Replace O(N^2) strings.ReplaceAll loop for newline minification with a single-pass linear scan using strings.Builder to prevent CPU spikes on massive prompts.
-	// Replace multiple newlines with double newlines
-	for strings.Contains(content, "\n\n\n") {
-		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
+	if content == "" {
+		return ""
 	}
 
-	// Trim trailing whitespace from lines
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " \t")
-	}
+	var sb strings.Builder
+	sb.Grow(len(content))
 
-	return strings.Join(lines, "\n")
+	newlineCount := 0
+
+	// We use a buffer for spaces/tabs within a line.
+	// We only commit them to sb if a non-whitespace character follows.
+	var ws strings.Builder
+
+	for _, r := range content {
+		if r == '\n' {
+			ws.Reset() // Discard trailing whitespace
+			newlineCount++
+			if newlineCount <= 2 {
+				sb.WriteByte('\n')
+			}
+		} else if r == ' ' || r == '\t' {
+			newlineCount = 0
+			ws.WriteRune(r)
+		} else {
+			newlineCount = 0
+			if ws.Len() > 0 {
+				sb.WriteString(ws.String())
+				ws.Reset()
+			}
+			sb.WriteRune(r)
+		}
+	}
+	// Note: any trailing whitespace in the ws buffer at the end of the content
+	// is naturally ignored as we've finished the loop.
+
+	return sb.String()
 }
 
 // truncatePrompt truncates content at a sensible boundary.
