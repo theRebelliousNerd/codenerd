@@ -4,9 +4,9 @@
 #
 # Dynamic minimum line counts:
 #   - Counts non-test .go files in the source package
-#   - Small packages (1-10 files): per-doc minimum = source_files * 5
-#   - Large packages (11+ files): per-doc minimum = source_files * 10
-#   - Floor of 15 lines per doc (even tiny packages need substance)
+#   - Small packages (1-10 files): per-doc minimum = source_files * 10
+#   - Large packages (11+ files): per-doc minimum = source_files * 20
+#   - Floor of 30 lines per doc (even tiny packages need substance)
 #
 # Anti-cheating checks:
 #   1. Placeholder evasion ("varies", "TBD", "N/A" in table cells)
@@ -131,14 +131,14 @@ function Get-SourceFileCount {
 
 function Get-MinLinesPerDoc {
     param([int]$SourceFileCount)
-    if ($SourceFileCount -le 0) { return 15 }
+    if ($SourceFileCount -le 0) { return 30 }
     if ($SourceFileCount -le 10) {
-        # Small package: multiply by 5
-        return [math]::Max(15, $SourceFileCount * 5)
+        # Small package: multiply by 10
+        return [math]::Max(30, $SourceFileCount * 10)
     }
     else {
-        # Large package: multiply by 10
-        return [math]::Max(15, $SourceFileCount * 10)
+        # Large package: multiply by 20
+        return [math]::Max(30, $SourceFileCount * 20)
     }
 }
 

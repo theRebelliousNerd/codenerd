@@ -55,10 +55,10 @@ Before writing, classify the subsystem by its source file count (non-test .go fi
 
 | Tier | Source Files | Multiplier | Example Min Lines/Doc | Example |
 |------|-------------|------------|----------------------|---------|
-| Small | 1-10 files | file_count * 5 | 5 files = 25 lines/doc | internal/types, internal/diff |
-| Large | 11+ files | file_count * 10 | 30 files = 300 lines/doc | internal/core, internal/campaign |
+| Small | 1-10 files | file_count * 10 | 5 files = 50 lines/doc | internal/types, internal/diff |
+| Large | 11+ files | file_count * 20 | 30 files = 600 lines/doc | internal/core, internal/campaign |
 
-Floor: 15 lines per doc minimum regardless of package size.
+Floor: 30 lines per doc minimum regardless of package size.
 
 Detailed specs are expected. Thin, superficial documents that meet the minimum structure but lack substance will be flagged by `quality-scan.ps1`. Every document should be thorough enough that a senior engineer joining the project can understand the subsystem from the spec alone.
 
