@@ -1,0 +1,49 @@
+
+=== Spec Quality Scan ===
+  Generated: 2026-03-07 13:23
+
+  [internal/mcp] (10 source files, small, min 50 lines/doc)
+    README.md                   85  B
+  LENGTH
+    north-star.md               15  F
+  LENGTH, THIN_SECTION, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION
+    current-state.md            60  D
+  LENGTH, GROUNDING, TRACE
+    gap-analysis.md              0  F
+  LENGTH, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION, 
+MISSING_SECTION, ALIGNMENT
+    data-flow.md                70  C
+  LENGTH, GROUNDING
+    dependencies.md             70  C
+  LENGTH, GROUNDING
+    wiring.md                   70  C
+  LENGTH, GROUNDING
+    api-contract.md             60  D
+  LENGTH, CODE, GROUNDING
+    test-strategy.md            85  B
+  LENGTH
+    failure-modes.md            50  F
+  LENGTH, GROUNDING, MISSING_SECTION
+    error-taxonomy.md           70  C
+  LENGTH, GROUNDING
+    safety-model.md             85  B
+  LENGTH
+    performance-profile.md      70  C
+  LENGTH, GROUNDING
+    observability.md            85  B
+  LENGTH
+    configuration.md            70  C
+  LENGTH, GROUNDING
+    design-decisions.md         65  D
+  LENGTH, MISSING_SECTION
+    todos.md                    65  D
+  LENGTH, MISSING_SECTION
+    glossary.md                 85  B
+  LENGTH
+    --- Cross-Document ---
+    ALIGNMENT: gap-analysis.md has no north-star references at all
+    --------------------------
+    Overall (weighted):     59  F
+    Pillar docs avg:        25  F
+    Status: NOT READY -- needs quality improvements
+

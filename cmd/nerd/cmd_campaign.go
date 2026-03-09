@@ -125,13 +125,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// FIX: Respect authenticated engine configuration instead of hardcoding ZAI
 	rawLLMClient, clientErr := perception.NewClientFromEnv()
 	if clientErr != nil {
-		// Fallback to ZAI if config detection fails
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
-		rawLLMClient = perception.NewZAIClient(key)
-		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
+		return fmt.Errorf("failed to initialize LLM client: %w", clientErr)
 	}
 	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
 	llmClient := core.NewScheduledLLMCall("campaign-cli", rawLLMClient)
@@ -595,17 +589,12 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Resuming campaign: %s\n", pausedCampaign.Title)
 
-	// Resolve API key
-	key := apiKey
-	if key == "" {
-		key = os.Getenv("ZAI_API_KEY")
-	}
+	// (Legacy fallback key resolution removed)
 
 	// Initialize components
 	rawLLMClient, clientErr := perception.NewClientFromEnv()
 	if clientErr != nil {
-		rawLLMClient = perception.NewZAIClient(key)
-		fmt.Printf("⚠ Using fallback ZAI client: %v\n", clientErr)
+		return fmt.Errorf("failed to initialize LLM client: %w", clientErr)
 	}
 	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
 	llmClient := core.NewScheduledLLMCall("campaign-resume", rawLLMClient)

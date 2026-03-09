@@ -1,0 +1,71 @@
+
+=== Spec Quality Scan ===
+  Generated: 2026-03-08 20:32
+
+  [internal/verification] (1 source files, small, min 30 lines/doc)
+    README.md                   85  B  LENGTH
+    north-star.md               15  F  LENGTH, THIN_SECTION, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION
+    current-state.md            75  C  LENGTH, TRACE
+    gap-analysis.md              0  F  LENGTH, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION, ALIGNMENT
+    data-flow.md                70  C  LENGTH, GROUNDING
+    dependencies.md             85  B  GROUNDING
+    wiring.md                   70  C  LENGTH, GROUNDING
+    api-contract.md             75  C  CODE, GROUNDING
+    test-strategy.md            85  B  LENGTH
+    failure-modes.md            50  F  LENGTH, GROUNDING, MISSING_SECTION
+    error-taxonomy.md           85  B  GROUNDING
+    safety-model.md             85  B  LENGTH
+    performance-profile.md      70  C  LENGTH, GROUNDING
+    observability.md            85  B  LENGTH
+    configuration.md            70  C  LENGTH, GROUNDING
+    design-decisions.md         65  D  LENGTH, MISSING_SECTION
+    todos.md                    65  D  LENGTH, MISSING_SECTION
+    glossary.md                 85  B  LENGTH
+    --- Cross-Document ---
+    ALIGNMENT: gap-analysis.md has no north-star references at all
+    --------------------------
+    Overall (weighted):     62  D
+    Pillar docs avg:        30  F
+    Status: NOT READY -- needs quality improvements
+
+    +========================================================+
+    |              SOURCE MANDATE (READ FIRST)                |
+    +========================================================+
+    | You MUST read these source files BEFORE rewriting       |
+    | any spec doc. Docs not grounded in source code will     |
+    | be rejected by the GIBBERISH and GROUNDING checks.      |
+    +========================================================+
+
+    [SOURCE] Source Files (1):
+       -> verifier.go (25 KB) [LARGE]
+
+    [TESTS] Test Files (1):
+       -> verifier_test.go (3.1 KB)
+
+    [FAILING] Docs Needing Rewrite (18):
+       X gap-analysis.md (Grade: F, Score: 0) -- LENGTH, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION, ALIGNMENT
+       X north-star.md (Grade: F, Score: 15) -- LENGTH, THIN_SECTION, MISSING_SECTION, MISSING_SECTION, MISSING_SECTION
+       X failure-modes.md (Grade: F, Score: 50) -- LENGTH, GROUNDING, MISSING_SECTION
+       X design-decisions.md (Grade: D, Score: 65) -- LENGTH, MISSING_SECTION
+       X todos.md (Grade: D, Score: 65) -- LENGTH, MISSING_SECTION
+       X wiring.md (Grade: C, Score: 70) -- LENGTH, GROUNDING
+       X data-flow.md (Grade: C, Score: 70) -- LENGTH, GROUNDING
+       X performance-profile.md (Grade: C, Score: 70) -- LENGTH, GROUNDING
+       X configuration.md (Grade: C, Score: 70) -- LENGTH, GROUNDING
+       X current-state.md (Grade: C, Score: 75) -- LENGTH, TRACE
+       X api-contract.md (Grade: C, Score: 75) -- CODE, GROUNDING
+       X README.md (Grade: B, Score: 85) -- LENGTH
+       X safety-model.md (Grade: B, Score: 85) -- LENGTH
+       X test-strategy.md (Grade: B, Score: 85) -- LENGTH
+       X error-taxonomy.md (Grade: B, Score: 85) -- GROUNDING
+       X observability.md (Grade: B, Score: 85) -- LENGTH
+       X dependencies.md (Grade: B, Score: 85) -- GROUNDING
+       X glossary.md (Grade: B, Score: 85) -- LENGTH
+
+    +--------------------------------------------------------+
+    | DIRECTIVE: Read ALL source files listed above, then     |
+    | rewrite ONLY the failing docs using facts from the      |
+    | source code. Reference specific filenames, types,       |
+    | functions, and behaviors. NO word salad.                |
+    +--------------------------------------------------------+
+

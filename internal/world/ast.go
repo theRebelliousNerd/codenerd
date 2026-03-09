@@ -59,7 +59,7 @@ func (p *ASTParser) parseGo(path string) ([]types.Fact, error) {
 	return c.MapFile(path)
 }
 
-// parsePython implements tree-sitter-based parsing for Python with regex fallback
+// parsePython implements tree-sitter-based parsing for Python.
 func (p *ASTParser) parsePython(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -81,7 +81,7 @@ func (p *ASTParser) parsePython(path string) ([]types.Fact, error) {
 	return facts, nil
 }
 
-// parseRust implements tree-sitter-based parsing for Rust with regex fallback
+// parseRust implements tree-sitter-based parsing for Rust.
 func (p *ASTParser) parseRust(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -103,7 +103,7 @@ func (p *ASTParser) parseRust(path string) ([]types.Fact, error) {
 	return facts, nil
 }
 
-// parseTypeScript implements tree-sitter-based parsing for TS/JS with regex fallback
+// parseTypeScript implements tree-sitter-based parsing for TS/JS.
 func (p *ASTParser) parseTypeScript(path string) ([]types.Fact, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {

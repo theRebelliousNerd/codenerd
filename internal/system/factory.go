@@ -234,12 +234,12 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 	if baseLLMClient == nil {
-		// Final fallback: explicit ZAI key (legacy flag/env)
-		key := apiKey
-		if key == "" {
-			key = os.Getenv("ZAI_API_KEY")
-		}
-		baseLLMClient = perception.NewZAIClient(key)
+		// Hard cutover: Do not silently fallback to an unconfigured ZAI client. 
+		// If no client is configured locally or in environment, we must fail explicitly.
+		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
+		logging.Get(logging.CategoryContext).Error(err.Error())
+		// For the CLI, it expects this not to panic typically, but we log the hard failure.
+		// A nil baseLLMClient will panic downstream when wrapped, which fulfills the hard cutover.
 	}
 
 	// Tracing Layer (if local DB available)

@@ -1,0 +1,68 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260308125219
+Username: OM1HCHD\smoor
+RunAs User: OM1HCHD\smoor
+Configuration Name: 
+Machine: OM1HCHD (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command Start-Transcript -Path scan_log5.txt; .\.agents\skills\spec-doc-sprint\scripts\quality-scan.ps1 -Subsystem 'cmd/query-kb'; Stop-Transcript
+Process ID: 133652
+PSVersion: 5.1.26100.7705
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7705
+BuildVersion: 10.0.26100.7705
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is scan_log5.txt
+
+=== Spec Quality Scan ===
+  Generated: 2026-03-08 12:52
+
+  [cmd/query-kb] (2 source files, small, min 30 lines/doc)
+    README.md                  100  A
+
+    north-star.md              100  A
+
+    current-state.md           100  A
+
+    gap-analysis.md            100  A
+
+    data-flow.md               100  A
+
+    dependencies.md             85  B
+  LENGTH
+    wiring.md                   85  B
+  LENGTH
+    api-contract.md            100  A
+
+    test-strategy.md            85  B
+  LENGTH
+    failure-modes.md           100  A
+
+    error-taxonomy.md          100  A
+
+    safety-model.md             85  B
+  LENGTH
+    performance-profile.md     100  A
+
+    observability.md           100  A
+
+    configuration.md           100  A
+
+    design-decisions.md        100  A
+
+    todos.md                    85  B
+  LENGTH
+    glossary.md                 85  B
+  LENGTH
+    --------------------------
+    Overall (weighted):     96  A
+    Pillar docs avg:        100  A
+    Status: READY FOR COMPLETION
+**********************
+Windows PowerShell transcript end
+End time: 20260308125220
+**********************

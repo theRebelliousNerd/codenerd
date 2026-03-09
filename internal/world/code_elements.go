@@ -137,7 +137,7 @@ type CodeElementParser struct {
 	// factory delegates parsing to language-specific parsers
 	factory *ParserFactory
 
-	// projectRoot for repo-anchored refs (legacy support)
+	// projectRoot for repo-anchored refs
 	projectRoot string
 }
 
@@ -161,14 +161,13 @@ func NewCodeElementParserWithRoot(projectRoot string) *CodeElementParser {
 	return NewCodeElementParserWithFactory(factory)
 }
 
-// Factory returns the underlying ParserFactory, or nil if using legacy mode.
+// Factory returns the underlying ParserFactory.
 func (p *CodeElementParser) Factory() *ParserFactory {
 	return p.factory
 }
 
 // ParseFile parses a source file and returns all code elements.
-// If a ParserFactory is configured, it delegates to the appropriate CodeParser.
-// Otherwise, falls back to legacy direct parsing for backward compatibility.
+// It delegates to the appropriate CodeParser via ParserFactory.
 func (p *CodeElementParser) ParseFile(path string) ([]CodeElement, error) {
 	start := time.Now()
 	logging.WorldDebug("CodeElementParser: parsing file: %s", filepath.Base(path))

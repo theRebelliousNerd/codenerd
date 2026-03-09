@@ -1,0 +1,109 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260307220406
+Username: OM1HCHD\smoor
+RunAs User: OM1HCHD\smoor
+Configuration Name: 
+Machine: OM1HCHD (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -Command Start-Transcript -Path scan_log.txt; .\.agents\skills\spec-doc-sprint\scripts\quality-scan.ps1 -Subsystem 'cmd/query-kb'; Stop-Transcript
+Process ID: 35032
+PSVersion: 5.1.26100.7705
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7705
+BuildVersion: 10.0.26100.7705
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Transcript started, output file is scan_log.txt
+
+=== Spec Quality Scan ===
+  Generated: 2026-03-07 22:04
+
+  [cmd/query-kb] (2 source files, small, min 30 lines/doc)
+    README.md                  100  A
+
+    north-star.md               65  D
+  LENGTH, MISSING_SECTION
+    current-state.md           100  A
+
+    gap-analysis.md             85  B
+  LENGTH
+    data-flow.md                 0  F
+  LENGTH, EVASION, GIBBERISH
+    dependencies.md             55  F
+  LENGTH, EVASION, GROUNDING
+    wiring.md                   55  F
+  LENGTH, EVASION, GROUNDING
+    api-contract.md              0  F
+  LENGTH, EVASION, GIBBERISH
+    test-strategy.md             0  F
+  LENGTH, GIBBERISH
+    failure-modes.md            85  B
+  LENGTH
+    error-taxonomy.md           55  F
+  LENGTH, EVASION, GROUNDING
+    safety-model.md             85  B
+  LENGTH
+    performance-profile.md      55  F
+  LENGTH, EVASION, GROUNDING
+    observability.md            85  B
+  EVASION
+    configuration.md            75  C
+  CODE, EVASION
+    design-decisions.md         85  B
+  LENGTH
+    todos.md                    85  B
+  LENGTH
+    glossary.md                 70  C
+  LENGTH, EVASION
+    --------------------------
+    Overall (weighted):     66  D
+    Pillar docs avg:        83  B
+    Status: NOT READY -- needs quality improvements
+
+    +========================================================+
+    |              SOURCE MANDATE (READ FIRST)                |
+    +========================================================+
+    | You MUST read these source files BEFORE rewriting       |
+    | any spec doc. Docs not grounded in source code will     |
+    | be rejected by the GIBBERISH and GROUNDING checks.      |
+    +========================================================+
+
+    [SOURCE] Source Files (2):
+       -> deep_query.go (2 KB)
+       -> main.go (4 KB)
+
+    [TESTS] Test Files (1):
+       -> main_test.go (1.5 KB)
+
+    [FAILING] Docs Needing Rewrite (16):
+       X api-contract.md (Grade: F, Score: 0) -- LENGTH, EVASION, GIBBERISH
+       X test-strategy.md (Grade: F, Score: 0) -- LENGTH, GIBBERISH
+       X data-flow.md (Grade: F, Score: 0) -- LENGTH, EVASION, GIBBERISH
+       X performance-profile.md (Grade: F, Score: 55) -- LENGTH, EVASION, GROUNDING
+       X error-taxonomy.md (Grade: F, Score: 55) -- LENGTH, EVASION, GROUNDING
+       X dependencies.md (Grade: F, Score: 55) -- LENGTH, EVASION, GROUNDING
+       X wiring.md (Grade: F, Score: 55) -- LENGTH, EVASION, GROUNDING
+       X north-star.md (Grade: D, Score: 65) -- LENGTH, MISSING_SECTION
+       X glossary.md (Grade: C, Score: 70) -- LENGTH, EVASION
+       X configuration.md (Grade: C, Score: 75) -- CODE, EVASION
+       X design-decisions.md (Grade: B, Score: 85) -- LENGTH
+       X gap-analysis.md (Grade: B, Score: 85) -- LENGTH
+       X observability.md (Grade: B, Score: 85) -- EVASION
+       X safety-model.md (Grade: B, Score: 85) -- LENGTH
+       X todos.md (Grade: B, Score: 85) -- LENGTH
+       X failure-modes.md (Grade: B, Score: 85) -- LENGTH
+
+    +--------------------------------------------------------+
+    | DIRECTIVE: Read ALL source files listed above, then     |
+    | rewrite ONLY the failing docs using facts from the      |
+    | source code. Reference specific filenames, types,       |
+    | functions, and behaviors. NO word salad.                |
+    +--------------------------------------------------------+
+
+**********************
+Windows PowerShell transcript end
+End time: 20260307220407
+**********************
