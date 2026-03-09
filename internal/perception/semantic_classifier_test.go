@@ -279,3 +279,39 @@ func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
 		t.Error("expected error for dimension mismatch")
 	}
 }
+
+// =============================================================================
+// MISSING TEST COVERAGE (BOUNDARY ANALYSIS & NEGATIVE TESTING)
+// =============================================================================
+
+// TODO: TEST_GAP: Null/Undefined/Empty: Classify with empty string
+// GAP: Empty string or purely whitespace input directly embeds and can cause NaN
+// similarity computation and division by zero.
+// SETUP: Call sc.Classify(ctx, "   ").
+// EXPECTED: Should return early with nil, nil instead of attempting to embed.
+
+// TODO: TEST_GAP: Type Coercion: mergeResults negative cfg.TopK
+// GAP: SemanticConfig{TopK: -5} causes mergeResults to panic when slicing deduped[:maxResults].
+// SETUP: Call sc.SetConfig(SemanticConfig{TopK: -5}) and search.
+// EXPECTED: Should gracefully clamp TopK or return an error during SetConfig.
+
+// TODO: TEST_GAP: User Request Extremes: Massive Input Exhaustion
+// GAP: Classify does not truncate input, sending up to 50MB directly to embedding engine.
+// SETUP: Call sc.Classify(ctx, strings.Repeat("a", 10000000)).
+// EXPECTED: Input should be defensively truncated (e.g. 2048 chars) before embedding.
+
+// TODO: TEST_GAP: State Conflicts: LoadFromKernel Ghost Duplication Memory Leak
+// GAP: Calling EmbeddedCorpusStore.LoadFromKernel repeatedly appends to s.entries without clearing.
+// SETUP: Hydrate embedded store from mock kernel multiple times.
+// EXPECTED: len(s.entries) should remain constant, not multiply by N.
+
+// TODO: TEST_GAP: Type Coercion: Target Loss of MangleAtom Identity
+// GAP: intent_definition Mangle atoms for Target are cast to string by argToString,
+// and asserted back into the kernel as strings, violating Mangle strict typing.
+// SETUP: Kernel returns intent_definition with a MangleAtom Target (e.g. /codebase).
+// EXPECTED: When injected via semantic_match, Target should retain core.MangleAtom type.
+
+// TODO: TEST_GAP: State Conflicts: Semantic Match Accumulation
+// GAP: Semantic matches accumulate in the kernel without retraction, polluting downstream rules.
+// SETUP: Call Classify twice sequentially with different intents.
+// EXPECTED: The previous semantic_match facts must be retracted before asserting new ones.
