@@ -27,6 +27,11 @@ func TestBudgetPriority_String(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Undefined/Empty: Test how TokenBudgetManager.Fit handles slices containing nil *OrderedAtom pointers or atoms with nil PromptAtom pointers to ensure it doesn't panic.
+// TODO: TEST_GAP: Type Coercion/Invalid Data: Test negative TokenCount values in PromptAtoms to ensure they don't cause infinite loops, arithmetic underflow, or bypassing of budget limits.
+// TODO: TEST_GAP: User Request Extremes: Test massive token counts (e.g., math.MaxInt) that could cause integer overflow when summing usedTokens or catTokens.
+// TODO: TEST_GAP: State Conflicts: Test concurrent execution of Fit() alongside SetCategoryBudget(), SetStrategy(), or SetReservedHeadroom() to detect race conditions in map/state access.
+
 func TestNewTokenBudgetManager(t *testing.T) {
 	t.Run("creates manager with defaults", func(t *testing.T) {
 		mgr := NewTokenBudgetManager()
