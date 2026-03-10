@@ -18,12 +18,16 @@ func TestNormalizeWriteSetPaths_SortsAndDedupes(t *testing.T) {
 		"pkg/../pkg/file.go",
 		"pkg/file.go",
 		"./pkg/other.go",
+		"pkg\\other.go",
 	}
 
 	normalized := normalizeWriteSetPaths(workspace, pathsToTest)
 
-	if len(normalized) != 2 {
-		t.Fatalf("expected 2 normalized paths, got %d: %v", len(normalized), normalized)
+	// On Windows, the backslash path resolves to the same element as the forward slash path,
+	// deduplicating to 2 elements. On Linux, \ is a valid filename character, so "pkg\other.go"
+	// is a distinct file, resulting in 3 elements.
+	if len(normalized) < 2 || len(normalized) > 3 {
+		t.Fatalf("expected 2 or 3 normalized paths depending on OS, got %d: %v", len(normalized), normalized)
 	}
 
 	first := normalizeAbsolutePath(workspace, "pkg/file.go")
