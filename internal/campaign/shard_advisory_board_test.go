@@ -407,3 +407,16 @@ func TestIsCriticalAdvisor(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// Boundary Value Analysis & Negative Testing Gaps
+// =============================================================================
+
+// TODO: TEST_GAP: Null/Undefined/Empty: Test SynthesizeVotes with nil or empty responses slice. Verify it defaults to auto-approve without panics.
+// TODO: TEST_GAP: Null/Undefined/Empty: Test buildConsultationContext with empty AdvisoryRequest fields (CampaignID, Goal, Phases, TargetPaths).
+// TODO: TEST_GAP: Type Coercion & Malformed Data: Test parseAdvisoryResponse with a malformed vote string (e.g., "VOTE: MAYBE") and verify fallback logic based on confidence.
+// TODO: TEST_GAP: Type Coercion & Malformed Data: Test SynthesizeVotes with out-of-bounds Confidence values (e.g., -0.5, 1.5) and verify clamp or ignore behavior.
+// TODO: TEST_GAP: User Request Extremes: Test buildConsultationContext with an extremely large number of Phases (e.g., 10,000) to ensure it doesn't OOM or generate an unnecessarily large string.
+// TODO: TEST_GAP: User Request Extremes: Test buildConsultationContext with a RawPlan that truncates exactly in the middle of a multi-byte UTF-8 character.
+// TODO: TEST_GAP: State Conflicts: Test SynthesizeVotes with duplicate AdvisorNames (e.g., two "coder" votes) to verify if it counts both or deduplicates.
+// TODO: TEST_GAP: State Conflicts: Test SynthesizeVotes with conflicting configuration flags (e.g., RequireUnanimous=true but MinApprovalRatio=0.0).
