@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty: DetectGaps called with nil tasks slice vs empty tasks slice vs single task with empty description string.
+// TODO: TEST_GAP: Null/Undefined/Empty: PregenerateTools called with nil gaps slice vs empty gaps slice vs gaps with empty Capability strings.
+// TODO: TEST_GAP: Type Coercion: ToolGap Capability containing invalid shell/Mangle characters (newlines, null bytes, unicode control chars) and how it affects GeneratedTool ID/Name formatting.
+// TODO: TEST_GAP: User Request Extremes: Massive task list (e.g., 100,000 tasks) passed to DetectGaps to verify CPU/memory bounds and timeout enforcement.
+// TODO: TEST_GAP: User Request Extremes: Extremely large task description string (e.g., 50MB) causing OOM during strings.ToLower in analyzeTaskForGaps.
+// TODO: TEST_GAP: User Request Extremes: MaxToolsToGenerate configured to mathematical extremes (0, negative, or math.MaxInt32).
+// TODO: TEST_GAP: State Conflicts: Concurrent execution of DetectGaps and PregenerateTools on the same ToolPregenerator instance (Race conditions on shared config or internal states).
+// TODO: TEST_GAP: State Conflicts: Context cancellation exact timing test during the generation loop in PregenerateTools (ensure partial results are returned correctly without leaking goroutines).
+
 func TestNewToolPregenerator(t *testing.T) {
 	// Test with nil dependencies
 	pregenerator := NewToolPregenerator(nil, nil, nil)
@@ -135,7 +144,7 @@ func TestToolPregenerator_DetectGaps_EmptyTasks(t *testing.T) {
 
 	ctx := context.Background()
 	// DetectGaps takes (ctx, goal, tasks, *IntelligenceReport)
-	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil)
+	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil) // TODO: TEST_GAP: explicitly test with nil tasks slice
 
 	// Should handle gracefully
 	if err != nil {
@@ -150,7 +159,7 @@ func TestToolPregenerator_PregenerateTools_EmptyGaps(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)
 
 	ctx := context.Background()
-	result, err := pregenerator.PregenerateTools(ctx, []ToolGap{})
+	result, err := pregenerator.PregenerateTools(ctx, []ToolGap{}) // TODO: TEST_GAP: explicitly test with nil gaps slice
 
 	if err != nil {
 		t.Errorf("PregenerateTools with empty gaps should not error: %v", err)
