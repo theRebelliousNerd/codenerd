@@ -16,6 +16,14 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 }
 
 func TestConfigFactory_Generate(t *testing.T) {
+	// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior when compilationResult is nil (currently panics due to result.Prompt dereference).
+	// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior with empty intents slice ([]string{}) and nil intents (expect explicit error).
+	// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior when intents contain empty strings (e.g., []string{""}) and if it matches an empty intent atom.
+	// TODO: TEST_GAP: Type Coercion: Verify behavior when tool/policy slices in ConfigAtom contain mixed casing or trailing spaces (e.g., "tool", "Tool ").
+	// TODO: TEST_GAP: Type Coercion: Verify behavior when Priority is negative, math.MinInt, or math.MaxInt (ensure highest priority correctly resolves).
+	// TODO: TEST_GAP: User Request Extremes: Verify CPU/Memory limits and deduplication efficiency when providing a massive array of intents (e.g., 10,000+).
+	// TODO: TEST_GAP: State Conflicts: Add concurrency test verifying map access safety when dynamically calling RegisterAtom while Generate is executing on the default provider.
+
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
 			"/coder": {
