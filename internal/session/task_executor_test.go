@@ -214,3 +214,38 @@ func TestJITExecutor_ExecuteAsync(t *testing.T) {
 		t.Errorf("Expected 'Async result', got '%s'", res)
 	}
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty Inputs
+// 1. Empty `intent` and `task` in `Execute` / `ExecuteWithContext`.
+// 2. Empty `taskID` passed to `GetResult`.
+// 3. Passing a `nil` `context.Context` to `Execute` or `WaitForResult`.
+// 4. Passing a `nil` `sessionCtx` in `executeAsyncInternal`.
+func TestJITExecutor_Execute_NullEmptyInputs(t *testing.T) {
+	// Add test coverage for empty and nil inputs here.
+}
+
+// TODO: TEST_GAP: Type Coercion & Unexpected Formats
+// 1. `intent` without a leading slash, multiple slashes, or missing characters.
+// 2. Massive whitespace payloads for `task`.
+// 3. Binary or malformed UTF-8 in `task` strings.
+func TestJITExecutor_Execute_TypeCoercion(t *testing.T) {
+	// Add test coverage for format manipulation here.
+}
+
+// TODO: TEST_GAP: User Request Extremes and Load
+// 1. Extreme context sizes directly passed to `task`.
+// 2. 10,000+ concurrent rapid-fire `ExecuteAsync` calls (Load/DDoS).
+// 3. Canceled context on `ExecuteAsync` spawn request.
+func TestJITExecutor_Execute_UserRequestExtremes(t *testing.T) {
+	// Add test coverage for execution load and context extreme behaviors here.
+}
+
+// TODO: TEST_GAP: State Conflicts & Race Conditions
+// 1. Concurrent modification of `j.executor.SetSessionContext(sessionCtx)` bleed.
+// 2. Infinite block in `WaitForResult` missing a context timeout.
+// 3. Unbounded map growth memory leak in `j.results` over numerous calls.
+// 4. TOCTOU condition in `GetResult` checking agent state vs result state.
+// 5. Very fast synchronous completion beating the `j.mu.Lock()` map assignment in `ExecuteAsync`.
+func TestJITExecutor_Execute_StateConflicts(t *testing.T) {
+	// Add test coverage for concurrency map races and cache leakages here.
+}
