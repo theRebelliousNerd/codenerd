@@ -642,6 +642,45 @@ func TestAnalyzePrompt(t *testing.T) {
 	})
 }
 
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector A1] TestFinalAssembler_Assemble_NilAtoms: Gracefully handle nil *OrderedAtom pointers in the input slice without panicking.
+// TODO: TEST_GAP: [Vector A2] TestTemplateEngine_Functions_NilContext_AllFunctions: Verify all default template functions gracefully handle a explicitly nil CompilationContext.
+// TODO: TEST_GAP: [Vector A3] TestFinalAssembler_Assemble_EmptyCategoryOrder: Ensure assembling with an empty CategoryOrder slice results in deterministic fallback (sorting unknown categories).
+// TODO: TEST_GAP: [Vector A4] TestAssembleSection_EmptyContent: Provide atoms with Content: "" and verify no bloated separator sequences are joined.
+// TODO: TEST_GAP: [Vector A5] TestTemplateEngine_Functions_NilSlices: Verify safety when slice fields in CompilationContext (e.g., Frameworks) are nil.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion/Invalid Data)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector B1] TestTruncatePrompt_InvalidUTF8Boundary: Supply strings with multi-byte runes and bisect them with maxLen to ensure invalid UTF-8 (replacement characters) are not generated.
+// TODO: TEST_GAP: [Vector B2] TestTemplateEngine_Process_MalformedSyntax: Verify malformed templates like { { language } } or {{language are treated as literal text and ignored.
+// TODO: TEST_GAP: [Vector B3] TestFinalAssembler_Assemble_ControlCharacters: Inject non-printable ASCII characters (\x00, \v) to ensure the assembler completes safely.
+// TODO: TEST_GAP: [Vector B4] TestFinalAssembler_Assemble_MalformedCategoryStrings: Pass atoms with bizarre or markdown-injected category names to assess header formatting impact.
+// TODO: TEST_GAP: [Vector B5] TestMinifyWhitespace_WindowsLineEndings: Supply CRLF (\r\n) content and verify \r is correctly treated as whitespace during minification.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector C: User Request Extremes)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector C1] TestTemplateEngine_Process_NestedTemplates: Verify the single-pass engine does not enter infinite loops when resolving placeholders that themselves contain templates.
+// TODO: TEST_GAP: [Vector C2] TestTruncatePrompt_NoParagraphBreaks_MassiveString: Test fallback hard-slice logic on extremely long strings lacking \n\n delimiters.
+// TODO: TEST_GAP: [Vector C3] TestTruncatePrompt_ExceedsMaxLen_WithWarning: Assert the final string length (including the truncation warning) strictly respects the maxLen budget.
+// TODO: TEST_GAP: [Vector C4] TestFinalAssembler_Assemble_MassiveAtomCount: Benchmark memory allocation overhead when grouping 10,000+ atoms in byCategory.
+// TODO: TEST_GAP: [Vector C5] TestFinalAssembler_SetSeparators_MassiveSize: Verify behavior when enormous strings are set as section or atom separators.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector D1] TestTemplateEngine_ConcurrentRegistration_Race: Detect map panic when te.Process() and te.RegisterFunction() are called concurrently.
+// TODO: TEST_GAP: [Vector D2] TestFinalAssembler_SetCategoryOrder_Concurrency: Detect race conditions or out-of-bounds panics when SetCategoryOrder replaces the slice during Assemble.
+// TODO: TEST_GAP: [Vector D3] TestFinalAssembler_Assemble_ConcurrentSharedContext: Expose the data race caused by InjectAvailableSpecialists(cc, "") mutating the shared CompilationContext during concurrent assembly.
+// TODO: TEST_GAP: [Vector D4] TestTemplateEngine_Process_ContextMutation: Verify default template functions are strictly read-only and do not mutate the CompilationContext.
+
 // Benchmark tests
 
 func BenchmarkAssemble_SmallSet(b *testing.B) {
