@@ -168,6 +168,66 @@ func TestFormatPrioritizedCallersCompact(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] TestGetContext_EmptyFilePath
+// Verify that calling GetContext("") returns a minimal empty context or an error without panicking.
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] TestGetContext_NilKernel
+// Verify that GetContext handles a nil kernel safely, skipping relationship queries without dereferencing nil.
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] TestGetContext_EmptyFileContent
+// Verify that parsing a 0-byte Go file is handled gracefully by the AST parser and formatting logic.
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] TestGetContext_EmptyPackageDirectory
+// Verify behavior when the target file's directory contains no other Go files.
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] TestParsePriorityFacts_EmptyArguments
+// Verify that Mangle facts with empty string arguments (e.g., context_priority_file("", "", 50)) are safely skipped.
+
+// TODO: TEST_GAP: [Type Coercion] TestIntArg_MalformedString
+// Verify fallback behavior of intArg when provided completely unparseable strings.
+
+// TODO: TEST_GAP: [Type Coercion] TestPriorityAtomToInt_WhitespaceAndCase
+// Verify aggressive normalization (trim space, lowercase) of priority atoms (e.g. " /CRITICAL ").
+
+// TODO: TEST_GAP: [Type Coercion] TestFormatNode_MalformedAST
+// Verify formatNode returns safe representations for deeply nested or corrupted ast.Node structures.
+
+// TODO: TEST_GAP: [Type Coercion] TestExtractFunctionBodyRegex_CommentsAndStrings
+// Expose limitations of the regex fallback when non-Go files contain function-like strings or comments.
+
+// TODO: TEST_GAP: [Type Coercion] TestGetContext_UnknownExtension
+// Verify graceful degradation to basic architectural context for unknown file extensions.
+
+// TODO: TEST_GAP: [User Request Extremes] TestBuildGoContext_MassivePackageDir
+// Verify OOM/CPU protection when parsing a directory containing 10,000+ files.
+
+// TODO: TEST_GAP: [User Request Extremes] TestFetchFunctionBody_MassiveFile
+// Verify bounded memory usage (e.g., io.LimitReader) when attempting to read a 50MB+ source file.
+
+// TODO: TEST_GAP: [User Request Extremes] TestExtractLineRange_HugeFunction
+// Ensure correct truncation and warning insertion for functions exceeding maxCallerBodyLines (e.g., 5,000 lines).
+
+// TODO: TEST_GAP: [User Request Extremes] TestQueryRelationships_DeeplyRecursiveGraph
+// Verify protection against unbounded call graph expansion when Mangle returns massive or cyclic code_calls facts.
+
+// TODO: TEST_GAP: [User Request Extremes] TestResolvePrioritizedCallers_MassiveFactCount
+// Verify performance and memory behavior when 5,000+ prioritized callers are provided to the sorter.
+
+// TODO: TEST_GAP: [State Conflicts] TestBuildGoContext_FileDeletedConcurrently (TOCTOU)
+// Verify error handling when a file is deleted from the filesystem just before the parser reads it.
+
+// TODO: TEST_GAP: [State Conflicts] TestResolvePrioritizedCallers_ConcurrentAccess
+// Detect race conditions (e.g., concurrent map read/write) by running the fileContentCache concurrently.
+
+// TODO: TEST_GAP: [State Conflicts] TestBuildWithImpactPriorities_ContextCancellation
+// Ensure massive I/O operations respect ctx.Done() and halt immediately upon context cancellation.
+
+// TODO: TEST_GAP: [State Conflicts] TestParsePriorityFacts_ConflictingFacts
+// Verify deduplication and resolution logic when identical facts have conflicting priorities.
+
+// TODO: TEST_GAP: [State Conflicts] TestGetContext_SynchronousExecution
+// Document the architectural flaw that GetContext cannot be canceled because it doesn't take context.Context.
+
 func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
 	h := &HolographicProvider{}
 

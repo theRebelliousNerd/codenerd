@@ -89,6 +89,11 @@ Docs/Spec/
 # Hidden runtime/config paths
 .nerd/
 
+# Quality Assurance
+!.quality_assurance/
+.quality_assurance/*
+!.quality_assurance/*.md
+
 # Ignore any config.json payload (and derivatives) to prevent secret leakage.
 **/config.json
 **/config.*.json
