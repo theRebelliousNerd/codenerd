@@ -357,8 +357,8 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
 	}
 
-	logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled for ANN search")
-	return nil, fmt.Errorf("sqlite-vec required for semantic search")
+	logging.StoreDebug("Using brute-force cosine similarity search")
+	return s.vectorRecallBruteForce(queryEmbedding, limit)
 }
 
 // VectorRecallSemanticByPaths restricts search to a list of allowed paths (matched via metadata).
@@ -413,8 +413,8 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 		return s.vectorRecallVec(queryEmbedding, limit, allowedPaths, "", nil)
 	}
 
-	logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled for ANN search")
-	return nil, fmt.Errorf("sqlite-vec required for semantic search")
+	logging.StoreDebug("Using brute-force cosine similarity search with path filter")
+	return s.vectorRecallBruteForceByPaths(queryEmbedding, limit, allowedPaths)
 }
 
 // VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
@@ -471,8 +471,8 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 		return s.vectorRecallVec(queryEmbedding, limit, nil, metaKey, metaValue)
 	}
 
-	logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled for ANN search")
-	return nil, fmt.Errorf("sqlite-vec required for semantic search")
+	logging.StoreDebug("Using brute-force cosine similarity search with metadata filter")
+	return s.vectorRecallBruteForceFiltered(queryEmbedding, limit, metaKey, metaValue)
 }
 
 // vectorRecallKeyword is the fallback keyword-based search.
@@ -1267,6 +1267,76 @@ func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int)
 	}
 
 	// Sort by similarity descending
+	slices.SortFunc(candidates, func(a, b candidate) int {
+		return cmp.Compare(b.similarity, a.similarity)
+	})
+
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	results := make([]VectorEntry, len(candidates))
+	for i, c := range candidates {
+		results[i] = c.entry
+		if results[i].Metadata == nil {
+			results[i].Metadata = make(map[string]interface{})
+		}
+		results[i].Metadata["similarity"] = c.similarity
+	}
+
+	return results, nil
+}
+
+// vectorRecallBruteForceByPaths performs brute-force cosine similarity search scoped to allowed paths.
+func (s *LocalStore) vectorRecallBruteForceByPaths(queryEmbedding []float32, limit int, allowedPaths []string) ([]VectorEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	queryStr, args := buildPathFilteredQuery(allowedPaths)
+	rows, err := s.db.Query(queryStr, args...)
+	if err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to query path-filtered vectors: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		entry      VectorEntry
+		similarity float64
+	}
+
+	candidates := make([]candidate, 0, limit*2)
+
+	var embeddingVec []float32
+	for rows.Next() {
+		var entry VectorEntry
+		var embeddingJSON, metaJSON []byte
+
+		if err := rows.Scan(&entry.ID, &entry.Content, &embeddingJSON, &metaJSON, &entry.CreatedAt); err != nil {
+			continue
+		}
+
+		if len(metaJSON) > 0 {
+			json.Unmarshal(metaJSON, &entry.Metadata)
+		}
+
+		var parseErr error
+		embeddingVec, parseErr = fastParseVectorJSON(embeddingJSON, embeddingVec)
+		if parseErr != nil {
+			continue
+		}
+
+		similarity, err := embedding.CosineSimilarity(queryEmbedding, embeddingVec)
+		if err != nil {
+			continue
+		}
+
+		candidates = append(candidates, candidate{
+			entry:      entry,
+			similarity: similarity,
+		})
+	}
+
 	slices.SortFunc(candidates, func(a, b candidate) int {
 		return cmp.Compare(b.similarity, a.similarity)
 	})
