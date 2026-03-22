@@ -1144,6 +1144,7 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
+// TODO: Memory Leak: Evaluate and implement strict cache size limit (LRU or TTL) in clearPromptCache or via a background goroutine to prevent memory explosion during long sessions.
 func (c *JITPromptCompiler) clearPromptCache(reason string) {
 	c.cacheMu.Lock()
 	c.cache = make(map[string]*CompilationResult)
@@ -1379,7 +1380,7 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
 
-// TODO: Ensure active JIT compilations are finished before closing databases.
+// TODO: Concurrency Risk: Add sync.WaitGroup around Compile() and Wait() inside Close() to prevent SQLite 'database is closed' panics during hot-swapping or shutdown.
 
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
