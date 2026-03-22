@@ -1223,6 +1223,8 @@ func extractStringArg(arg interface{}) string {
 		return strconv.FormatInt(int64(v), 10)
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'g', -1, 32)
 	case bool:
 		return strconv.FormatBool(v)
 	case fmt.Stringer:
