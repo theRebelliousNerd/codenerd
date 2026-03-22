@@ -202,12 +202,12 @@ type CompilationContext struct {
 // Note: TokenBudget should be overridden by callers from config.ContextWindow.MaxTokens.
 func NewCompilationContext() *CompilationContext {
 	return &CompilationContext{
-		OperationalMode:     "/active",
-		TokenBudget:         200000, // 200k tokens default - callers should override from config
-		ReservedTokens:      8000,   // Reserve 8k for response
-		ReservedTokensFallbackRatio: 10, // Default 10 fallback ratio
-		SemanticTopK:        20,     // Top 20 semantic results
-		ActivationThreshold: 0.5,    // Default activation threshold
+		OperationalMode:             "/active",
+		TokenBudget:                 200000, // 200k tokens default - callers should override from config
+		ReservedTokens:              8000,   // Reserve 8k for response
+		ReservedTokensFallbackRatio: 10,     // Default 10 fallback ratio
+		SemanticTopK:                20,     // Top 20 semantic results
+		ActivationThreshold:         0.5,    // Default activation threshold
 	}
 }
 
@@ -369,6 +369,7 @@ func (cc *CompilationContext) String() string {
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
 // TODO: Performance: Re-implement using a streaming FactBuilder to reduce slice allocations.
 // TODO: Reliability: Enforce strict type checking and escaping for all context values to prevent injection.
+// TODO: Maintainability: Verify if this logic duplicates `AtomSelector.buildContextFacts`. If so, refactor to share a single source of truth for context fact generation to prevent drift.
 func (cc *CompilationContext) ToContextFacts() []interface{} {
 	// Optimization: Pre-calculate capacity to avoid reallocation
 	// 9 core dimensions + frameworks + max 7 world states

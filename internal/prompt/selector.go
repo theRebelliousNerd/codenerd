@@ -485,6 +485,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
+	// TODO: Performance: Phase 1 (Skeleton) and Phase 2 (Flesh) are independent and can be executed concurrently to reduce total selection time.
 	// =========================================================================
 	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {

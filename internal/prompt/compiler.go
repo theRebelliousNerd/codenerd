@@ -463,6 +463,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
 	// Step 1: Collect all candidate atoms from all sources
+	// TODO: Performance: Execute atom collection (collectAtomsWithStats), kernel injection (collectKernelInjectedAtoms), and knowledge retrieval (collectKnowledgeAtoms) concurrently to reduce total compilation latency.
 	collectStart := time.Now()
 	candidates, sourceBreakdown, err := c.collectAtomsWithStats(ctx, cc)
 	if err != nil {
@@ -612,7 +613,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// Performance: Replaced coarse-grained lock with atomic pointer for high concurrency.
+	// Performance: Uses an atomic pointer instead of coarse-grained locking to avoid blocking other compilations during stats updates.
 	c.lastResult.Store(result)
 
 	// Bug #5 fix: Store result in cache for future reuse
@@ -667,7 +668,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			continue
 		}
 		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
-		// Replace with type assertion switch (string, fmt.Stringer) in a utility function.
+		// Replace with type switches for common primitives to avoid reflection overhead in hot loops.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
