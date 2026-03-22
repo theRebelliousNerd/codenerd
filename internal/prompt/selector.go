@@ -1219,6 +1219,8 @@ func extractStringArg(arg interface{}) string {
 		return strconv.Itoa(v)
 	case int64:
 		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	case bool:
