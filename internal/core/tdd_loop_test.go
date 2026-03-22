@@ -98,6 +98,21 @@ func (m *MockKernel) RetractExactFactsBatch(facts []Fact) error                 
 func (m *MockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
 func (m *MockKernel) UpdateSystemFacts() error                                       { return nil }
 func (m *MockKernel) String() string                                                 { return "MockKernel" }
+func (m *MockKernel) Transaction() types.KernelTransaction                           { return &MockKernelTx{k: m} }
+
+// MockKernelTx implements types.KernelTransaction for testing.
+type MockKernelTx struct {
+	k *MockKernel
+}
+
+func (tx *MockKernelTx) Retract(predicate string) {}
+func (tx *MockKernelTx) RetractFact(fact Fact) {}
+func (tx *MockKernelTx) RetractExactFact(fact Fact) {}
+func (tx *MockKernelTx) RetractPredicateSet(predicates map[string]struct{}) {}
+func (tx *MockKernelTx) Assert(fact Fact) {
+	_ = tx.k.Assert(fact)
+}
+func (tx *MockKernelTx) Commit() error { return nil }
 
 // MockLLM implements LLMClient for testing.
 type MockLLM struct {

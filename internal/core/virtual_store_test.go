@@ -1,5 +1,10 @@
 package core
 
+// TODO: TEST_GAP: Null/Empty Inputs - Verify behavior of RouteAction and parseActionFact when ActionID or Target is missing or empty string.
+// TODO: TEST_GAP: Type Coercion - Verify parseActionFact safely handles incorrect types (e.g., float64, boolean) for ActionID or Type.
+// TODO: TEST_GAP: User Request Extremes - Verify RouteAction with massive JSON payload maps or extremely long strings in Target (OOM/performance checks).
+// TODO: TEST_GAP: State Conflicts - Verify concurrent thread safety of DisableBootGuard toggling while RouteAction is actively processing.
+
 import (
 	"context"
 	"encoding/json"
