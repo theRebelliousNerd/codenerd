@@ -188,3 +188,11 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 		t.Fatal("expected empty config, got nil")
 	}
 }
+
+// TODO: TEST_GAP: Verify Spawner.Spawn() behavior with empty req.Name.
+// TODO: TEST_GAP: Verify Spawner.Spawn() behavior with negative or massive Timeout.
+// TODO: TEST_GAP: Verify Spawner.Spawn() limit enforcement TOCTOU handling with concurrent identical requests.
+// TODO: TEST_GAP: Verify Spawner.SpawnSpecialist() behavior with empty name and malformed path injection (e.g. "../../../etc/passwd").
+// TODO: TEST_GAP: Verify Spawner.GetByName() predictability when multiple active subagents share a name.
+// TODO: TEST_GAP: Verify Spawner.StopAll() concurrent with Spawner.Cleanup() and Spawner.Spawn().
+// TODO: TEST_GAP: Verify Spawner.generateConfig() correctly falls back completely when both JIT compilation attempts fail and returns an empty AgentConfig.
