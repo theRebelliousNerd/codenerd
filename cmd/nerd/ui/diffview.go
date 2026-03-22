@@ -681,7 +681,6 @@ func sliceString(s string, startCol, maxCols int) string {
 
 	return sb.String()
 }
-
 func CreateDiffFromStrings(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	return diff.ComputeDiff(oldPath, newPath, oldContent, newContent)
 }

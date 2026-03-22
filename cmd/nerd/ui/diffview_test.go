@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,4 +74,72 @@ func TestDiffApprovalView_Rendering_Truncation(t *testing.T) {
 	view.ScrollToStart()
 	backToStartView := view.View()
 	assert.Equal(t, initialView, backToStartView, "View content should match initial state after scrolling back")
+}
+
+func TestDiffApprovalViewHorizontalScrolling(t *testing.T) {
+	// Create a view with small width
+	view := NewDiffApprovalView(DefaultStyles(), 10, 10)
+
+	// Create a diff with a very long line
+	longLine := strings.Repeat("a", 50)
+	diff := &FileDiff{
+		OldPath: "old.txt",
+		NewPath: "new.txt",
+		Hunks: []DiffHunk{
+			{
+				OldStart: 1, OldCount: 1,
+				NewStart: 1, NewCount: 1,
+				Lines: []DiffLine{
+					{LineNum: 1, Content: longLine, Type: DiffLineContext},
+				},
+			},
+		},
+	}
+
+	view.AddMutation(&PendingMutation{
+		ID:          "1",
+		Description: "Test",
+		FilePath:    "file.go",
+		Diff:        diff,
+	})
+
+	if view.XOffset != 0 {
+		t.Fatalf("expected initial XOffset 0, got %d", view.XOffset)
+	}
+
+	initialView := view.View()
+
+	// Scroll right
+	view.ScrollRight()
+
+	if view.XOffset != 4 {
+		t.Fatalf("expected XOffset 4 after ScrollRight, got %d", view.XOffset)
+	}
+
+	if scrolledView := view.View(); scrolledView == initialView {
+		t.Fatalf("expected rendered view to change after horizontal scrolling")
+	}
+
+	// Scroll left
+	view.ScrollLeft()
+	if view.XOffset != 0 {
+		t.Fatalf("expected XOffset 0 after ScrollLeft, got %d", view.XOffset)
+	}
+
+	// Scroll right again to test ScrollToStart
+	view.ScrollRight()
+	view.ScrollRight()
+	if view.XOffset != 8 {
+		t.Fatalf("expected XOffset 8 before ScrollToStart, got %d", view.XOffset)
+	}
+
+	// Scroll to start
+	view.ScrollToStart()
+	if view.XOffset != 0 {
+		t.Fatalf("expected XOffset 0 after ScrollToStart, got %d", view.XOffset)
+	}
+
+	if backToStart := view.View(); backToStart != initialView {
+		t.Fatalf("expected rendered view to match initial state after ScrollToStart")
+	}
 }
