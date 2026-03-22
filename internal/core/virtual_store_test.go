@@ -1,5 +1,13 @@
 package core
 
+// TODO: TEST_GAP: Null/Undefined - Nil Context handling in RouteAction
+// TODO: TEST_GAP: Null/Undefined - Empty ActionRequest Fields behavior
+// TODO: TEST_GAP: Type Coercion - Type assertion failures for payload contents
+// TODO: TEST_GAP: User Extremes - Path normalization limits & canonicalization loop
+// TODO: TEST_GAP: User Extremes - Large Payload sizes causing memory exhaustion
+// TODO: TEST_GAP: State Conflicts - Concurrent map reads/writes in mcpClients
+// TODO: TEST_GAP: State Conflicts - Race condition between rebuildPermissionCache and RouteAction
+
 import (
 	"context"
 	"encoding/json"
