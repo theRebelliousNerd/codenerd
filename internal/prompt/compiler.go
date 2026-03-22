@@ -422,6 +422,9 @@ func WithConfigFactory(factory *ConfigFactory) CompilerOption {
 // Compile generates a system prompt for the given context.
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
+	// TODO: Performance: Replace coarse-grained locking with finer-grained locks or RCU pattern.
+	// Currently c.mu protects disparate fields (lastResult, shardDBs), creating unnecessary contention.
+
 	// Legacy timer for backward compatibility
 	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
 	defer timer.Stop()
@@ -634,6 +637,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		return nil, nil
 	}
 
+	// TODO: Performance: Pre-allocate dynamic slice based on kernel query count to avoid reallocation resizing.
+
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
@@ -661,6 +666,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
+		// Replace with type assertion switch (string, fmt.Stringer) in a utility function.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -1253,7 +1260,7 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	c.mu.RLock()
 	db := c.localDB
-	timeout := c.config.VectorSearchTimeout
+	timeout := c.config.KnowledgeSearchTimeout
 	c.mu.RUnlock()
 
 	if timeout <= 0 {
@@ -1275,14 +1282,14 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	searchCtx, cancel := context.WithTimeout(ctx, c.config.KnowledgeSearchTimeout)
+	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Search for semantically relevant knowledge atoms
 	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", c.config.KnowledgeSearchTimeout)
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", timeout)
 		} else {
 			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
 		}
@@ -1418,6 +1425,7 @@ type specialistCacheEntry struct {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
