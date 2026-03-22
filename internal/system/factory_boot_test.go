@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codenerd/internal/config"
@@ -90,5 +91,52 @@ func TestBootCortexWithConfig_Overrides(t *testing.T) {
 
 	if cortex.Workspace != workspace {
 		t.Errorf("Expected workspace '%s', got '%s'", workspace, cortex.Workspace)
+	}
+}
+
+func TestBootCortexWithConfig_NoLLMConfigured(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".nerd"), 0755); err != nil {
+		t.Fatalf("Failed to create .nerd dir: %v", err)
+	}
+
+	t.Chdir(workspace)
+	for _, envVar := range []string{
+		"ANTHROPIC_API_KEY",
+		"OPENAI_API_KEY",
+		"GEMINI_API_KEY",
+		"XAI_API_KEY",
+		"ZAI_API_KEY",
+		"OPENROUTER_API_KEY",
+	} {
+		t.Setenv(envVar, "")
+	}
+
+	userCfg := config.DefaultUserConfig()
+	userCfg.Provider = ""
+	userCfg.APIKey = ""
+	userCfg.AnthropicAPIKey = ""
+	userCfg.OpenAIAPIKey = ""
+	userCfg.GeminiAPIKey = ""
+	userCfg.XAIAPIKey = ""
+	userCfg.ZAIAPIKey = ""
+	userCfg.OpenRouterAPIKey = ""
+	userCfg.Embedding = &config.EmbeddingConfig{Provider: "none"}
+
+	cortex, err := BootCortexWithConfig(context.Background(), BootConfig{
+		Workspace:          workspace,
+		UserConfigOverride: userCfg,
+	})
+	if err != nil {
+		t.Fatalf("expected boot to succeed without LLM for non-LLM commands: %v", err)
+	}
+	defer cortex.Close()
+
+	_, err = cortex.LLMClient.CompleteWithSystem(context.Background(), "system", "user")
+	if err == nil {
+		t.Fatal("expected LLM calls to fail when no LLM client is configured")
+	}
+	if !strings.Contains(err.Error(), "no LLM client configured") {
+		t.Fatalf("unexpected LLM error: %v", err)
 	}
 }

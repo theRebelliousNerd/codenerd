@@ -110,6 +110,22 @@ type Cortex struct {
 	PromptAssembler *articulation.PromptAssembler
 }
 
+type missingLLMClient struct {
+	err error
+}
+
+func (c *missingLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "", c.err
+}
+
+func (c *missingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return "", c.err
+}
+
+func (c *missingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return nil, c.err
+}
+
 // SpawnTask is the unified entry point for task execution.
 // System shards (Type S) are routed to ShardManager for lifecycle management.
 // All other tasks go through TaskExecutor.
@@ -221,6 +237,9 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	if cfg.LLMClientOverride != nil {
 		baseLLMClient = cfg.LLMClientOverride
 	}
+	if baseLLMClient == nil && strings.TrimSpace(apiKey) != "" {
+		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(apiKey))
+	}
 	if baseLLMClient == nil {
 		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
@@ -234,12 +253,12 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 	if baseLLMClient == nil {
-		// Hard cutover: Do not silently fallback to an unconfigured ZAI client. 
-		// If no client is configured locally or in environment, we must fail explicitly.
+		// Hard cutover: Do not silently fallback to an unconfigured ZAI client.
+		// If no client is configured locally or in environment, inject a deterministic
+		// erroring client so non-LLM commands can still boot without later panicking.
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
-		logging.Get(logging.CategoryContext).Error(err.Error())
-		// For the CLI, it expects this not to panic typically, but we log the hard failure.
-		// A nil baseLLMClient will panic downstream when wrapped, which fulfills the hard cutover.
+		logging.Get(logging.CategoryContext).Error("%v", err)
+		baseLLMClient = &missingLLMClient{err: err}
 	}
 
 	// Tracing Layer (if local DB available)
@@ -779,8 +798,6 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 
 	return stored, nil
 }
-
-
 
 // LocalStoreTraceAdapter wraps LocalStore to implement perception.TraceStore.
 // Duplicated from chat/session.go to avoid import cycle or dependency on `chat`.

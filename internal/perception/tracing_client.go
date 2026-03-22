@@ -115,6 +115,10 @@ func (tc *TracingLLMClient) Complete(ctx context.Context, prompt string) (string
 
 // CompleteWithSystem implements LLMClient.CompleteWithSystem with tracing.
 func (tc *TracingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if tc == nil || tc.underlying == nil {
+		return "", fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
 	// Capture current context
 	tc.mu.RLock()
 	shardID := tc.shardID
@@ -190,6 +194,10 @@ func (tc *TracingLLMClient) SchemaCapable() bool {
 
 // CompleteWithSchema implements schema-enforced completion with trace capture.
 func (tc *TracingLLMClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	if tc == nil || tc.underlying == nil {
+		return "", fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
 	// Capture current context
 	tc.mu.RLock()
 	shardID := tc.shardID
@@ -278,6 +286,15 @@ type contextualModelGetter interface {
 // CompleteWithStreaming implements streaming with trace capture.
 // The response is streamed to the caller while also being buffered for persistence.
 func (tc *TracingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	if tc == nil || tc.underlying == nil {
+		contentChan := make(chan string)
+		errorChan := make(chan error, 1)
+		close(contentChan)
+		errorChan <- fmt.Errorf("tracing client has no underlying LLM client")
+		close(errorChan)
+		return contentChan, errorChan
+	}
+
 	// Capture current context
 	tc.mu.RLock()
 	shardID := tc.shardID
@@ -444,6 +461,10 @@ func resolveTraceModel(ctx context.Context, client LLMClient) string {
 
 // CompleteWithTools implements LLMClient.CompleteWithTools with tracing.
 func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+
 	// Capture current context
 	tc.mu.RLock()
 	shardID := tc.shardID

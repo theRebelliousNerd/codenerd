@@ -114,25 +114,6 @@ func (tx *MockKernelTx) Assert(fact Fact) {
 }
 func (tx *MockKernelTx) Commit() error { return nil }
 
-// Add Transaction support for MockKernel
-type MockTransaction struct {
-	k *MockKernel
-}
-
-func (t *MockTransaction) Assert(f types.Fact)           { _ = t.k.Assert(f) }
-func (t *MockTransaction) Retract(p string)              { _ = t.k.Retract(p) }
-func (t *MockTransaction) RetractFact(f types.Fact)      { _ = t.k.RetractFact(f) }
-func (t *MockTransaction) RetractExactFact(f types.Fact) { _ = t.k.RetractFact(f) }
-func (t *MockTransaction) RetractPredicateSet(preds map[string]struct{}) {
-	_ = t.k.RemoveFactsByPredicateSet(preds)
-}
-func (t *MockTransaction) Commit() error { return nil }
-func (t *MockTransaction) Rollback()     {}
-
-func (m *MockKernel) Transaction() types.KernelTransaction {
-	return &MockTransaction{k: m}
-}
-
 // MockLLM implements LLMClient for testing.
 type MockLLM struct {
 	CompleteFunc func(ctx context.Context, prompt string) (string, error)

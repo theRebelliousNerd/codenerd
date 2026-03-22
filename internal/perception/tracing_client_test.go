@@ -327,6 +327,18 @@ func TestTracingLLMClient_CompleteWithSystem_Error(t *testing.T) {
 	}
 }
 
+func TestTracingLLMClient_CompleteWithSystem_NoUnderlying(t *testing.T) {
+	client := NewTracingLLMClient(nil, nil)
+
+	response, err := client.CompleteWithSystem(context.Background(), "system", "user")
+	if err == nil {
+		t.Fatal("expected error for missing underlying client")
+	}
+	if response != "" {
+		t.Errorf("response = %q, want empty response", response)
+	}
+}
+
 func TestTracingLLMClient_CompleteWithTools(t *testing.T) {
 	underlying := &mockTracingLLMClient{response: "tool response"}
 	store := &mockTraceStore{}
