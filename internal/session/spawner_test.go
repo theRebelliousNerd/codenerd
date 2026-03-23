@@ -188,3 +188,5 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 		t.Fatal("expected empty config, got nil")
 	}
 }
+
+// TODO: TEST_GAP: Verify Spawner.Spawn TOCTOU mitigation (Launch 50 concurrent requests against a max limit of 5, assert exactly 5 succeed without redundant Phase 2 JIT compilation).

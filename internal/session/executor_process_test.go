@@ -316,22 +316,23 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Verify Process(ctx, "") handles empty input gracefully (no panic, sensible error/response).
 
-// TODO: TEST_GAP: Verify behavior when JITCompiler returns error (Fallback to baseline prompt?).
 
-// TODO: TEST_GAP: Verify behavior when ConfigFactory returns error (Fallback to empty config?).
 
-// TODO: TEST_GAP: Verify behavior when Transducer returns error.
 
-// TODO: TEST_GAP: Verify MaxToolCalls limit with a mock LLM returning > MaxToolCalls.
 
-// TODO: TEST_GAP: Verify tool timeout enforcement (mock tool sleeping > ToolTimeout).
 
-// TODO: TEST_GAP: Verify panic recovery within executeToolCall (mock tool panicking).
 
-// TODO: TEST_GAP: Verify "Fail Closed" behavior if Kernel is nil but SafetyGate is enabled (Requires code change first).
 
-// TODO: TEST_GAP: Verify handling of ToolCall with nil Args (prevent nil pointer deref).
 
-// TODO: TEST_GAP: Verify Process respects ctx.Done() and halts execution immediately.
+
+// TODO: TEST_GAP: Verify Process(ctx, "") handles empty input gracefully (short-circuit without panic or unnecessary network calls).
+// TODO: TEST_GAP: Verify executor.buildCompilationContext handles malformed intent (e.g. Target: nil, Verb: "") gracefully.
+// TODO: TEST_GAP: Verify executeToolCall safely rejects a tool call with a nil argument map to prevent downstream panics.
+// TODO: TEST_GAP: Verify parseMangleArg correctly differentiates between absolute file paths (e.g. "/etc/passwd") and Mangle Atoms (e.g. "/active").
+// TODO: TEST_GAP: Verify extractTarget does not panic when presented with complex, nested JSON structures for target keys.
+// TODO: TEST_GAP: Verify executor strictly enforces MaxToolCalls across simulated LLM turns.
+// TODO: TEST_GAP: Verify appendToHistory correctly truncates the history slice without index-out-of-bounds errors when adding extreme turns (e.g. 10,001st turn).
+// TODO: TEST_GAP: Verify executeToolCall correctly handles and times out a malfunctioning, blocking tool without hanging the Process loop.
+// TODO: TEST_GAP: Verify the "Fail Closed" security posture when the kernel is unavailable (nil) but config.EnableSafetyGate is true.
+// TODO: TEST_GAP: Verify Piggyback protocol safely truncates massive mangle_updates arrays to prevent database transaction limits.
