@@ -43,3 +43,28 @@ Decl context_reachable(File, HopLevel) bound [/string, /name].
 Decl context_file_priority(File, Priority) bound [/string, /name].
 
 # NERD-EVOLVE-END: context_compilation_schemas_c1_c4
+
+# NERD-EVOLVE-START: context_compilation_schemas_c3
+# Hypothesis: C3 (Observation Masking — replace LLM summarization)
+
+# =============================================================================
+# CC.3: Observation Masking
+# =============================================================================
+
+# turn_age_category(TurnID, Category) - Categorizes turns by age for masking decisions
+# TurnID: string turn identifier (e.g., "turn_1")
+# Category: /recent, /mid, /old, /ancient
+# Asserted by Go from the compressor's turn tracking.
+Decl turn_age_category(TurnID, Category) bound [/string, /name].
+
+# should_mask_observation(TurnID) - Marks turns whose observation content should be masked
+# Masked turns retain intent/focus/action atoms but drop verbose tool output/surface text.
+# Derived from turn_age_category: old and ancient turns are masked.
+Decl should_mask_observation(TurnID) bound [/string].
+
+# should_preserve_reasoning(TurnID) - Marks turns whose reasoning chain must be preserved
+# All turns with any age category are preserved (reasoning is always kept).
+# This is the invariant: we mask observations, never reasoning.
+Decl should_preserve_reasoning(TurnID) bound [/string].
+
+# NERD-EVOLVE-END: context_compilation_schemas_c3

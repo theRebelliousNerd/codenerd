@@ -109,9 +109,10 @@ func TestProcessTurn_CompressionTrigger(t *testing.T) {
 		t.Error("Compression should have triggered")
 	}
 
-	// Verify Summary
-	if !strings.Contains(comp.rollingSummary.Text, "Summarized content") {
-		t.Errorf("Rolling summary expected to contain 'Summarized content', got '%s'", comp.rollingSummary.Text)
+	// C3: Observation masking replaces LLM summarization with atom-based summary.
+	// Verify that compression produced a rolling summary (content varies by turn atoms).
+	if comp.rollingSummary.Text == "" {
+		t.Error("Rolling summary should not be empty after compression")
 	}
 
 	// Verify pruning (Window is 2, so we should have 2 turns left)

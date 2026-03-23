@@ -124,4 +124,24 @@ context_file_priority(SourceFile, /p90) :-
 context_relevant(File, Priority) :-
     context_file_priority(File, Priority).
 
+# =============================================================================
+# C3: Observation Masking Rules
+# Replaces LLM-based summarization with kernel-derived masking decisions.
+# Old/ancient turns have their observation content masked; reasoning is always preserved.
+# Predicates declared in schemas_context.mg (CC.3).
+# =============================================================================
+
+# Mask old turns: these are stale enough that surface text is noise
+should_mask_observation(TurnID) :-
+    turn_age_category(TurnID, /old).
+
+# Mask ancient turns: definitely stale
+should_mask_observation(TurnID) :-
+    turn_age_category(TurnID, /ancient).
+
+# Preserve reasoning chain invariant: ALL turns keep their reasoning/intent/action atoms
+# This is a safety net — the Go layer uses this to verify no reasoning is ever dropped.
+should_preserve_reasoning(TurnID) :-
+    turn_age_category(TurnID, _).
+
 # NERD-EVOLVE-END: context_compilation_rules

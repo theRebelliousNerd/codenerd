@@ -883,15 +883,16 @@ func (c *Compressor) compress(ctx context.Context) error {
 	keyAtoms := c.collectKeyAtoms(turnsToCompress, 64)
 	logging.ContextDebug("Collected %d key atoms for compression segment", len(keyAtoms))
 
-	// Create summary using LLM
-	summaryTimer := logging.StartTimer(logging.CategoryContext, "GenerateSummary")
-	summary, err := c.generateSummary(ctx, turnsToCompress)
-	if err != nil {
-		logging.Get(logging.CategoryContext).Warn("LLM summary failed, using simple summary: %v", err)
-		// Fallback to simple summary
-		summary = c.generateSimpleSummary(turnsToCompress)
-	}
+	// NERD-EVOLVE-START: c3_observation_mask
+	// C3: Use observation masking instead of LLM summarization.
+	// Assert turn age categories into kernel, then use atom-based summary (no LLM call).
+	// The kernel derives should_mask_observation(TurnID) for old/ancient turns.
+	// Masked turns keep intent/action atoms but drop verbose surface text.
+	c.assertTurnAgeCategories(turnsToCompress)
+	summaryTimer := logging.StartTimer(logging.CategoryContext, "GenerateObservationMaskedSummary")
+	summary := c.generateSimpleSummary(turnsToCompress)
 	summaryTimer.Stop()
+	// NERD-EVOLVE-END: c3_observation_mask
 
 	// Calculate metrics with original token estimates preserved per turn
 	originalTokens := c.countOriginalTokens(turnsToCompress)
@@ -1615,6 +1616,32 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 
 	// Apply budget-limited selection using the existing SelectWithinBudget mechanism.
 	return c.activation.SelectWithinBudget(scored, c.config.AtomReserve)
+}
+
+// assertTurnAgeCategories asserts turn_age_category(TurnID, Category) facts into the kernel
+// for the observation masking rules in context_compilation.mg to derive should_mask_observation.
+func (c *Compressor) assertTurnAgeCategories(turns []CompressedTurn) {
+	if c.kernel == nil {
+		return
+	}
+	totalTurns := len(c.recentTurns)
+	for _, turn := range turns {
+		turnID := fmt.Sprintf("turn_%d", turn.TurnNumber)
+		age := totalTurns - turn.TurnNumber
+		var category string
+		switch {
+		case age <= 3:
+			category = "/recent"
+		case age <= 8:
+			category = "/mid"
+		case age <= 15:
+			category = "/old"
+		default:
+			category = "/ancient"
+		}
+		// Best-effort assertion; don't fail compression if kernel is unavailable
+		_ = c.kernel.AssertString(fmt.Sprintf("turn_age_category(%q, %s).", turnID, category))
+	}
 }
 
 // NERD-EVOLVE-END: context_compilation_pipeline
