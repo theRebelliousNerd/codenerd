@@ -8,6 +8,10 @@ import (
 	"codenerd/internal/store"
 	"context"
 	"fmt"
+	// NERD-EVOLVE-START: context_compilation_pipeline
+	"sort"
+	"strconv"
+	// NERD-EVOLVE-END: context_compilation_pipeline
 	"strings"
 	"sync"
 	"time"
@@ -1089,10 +1093,24 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	}
 
 	// 3. Score and filter facts using activation engine
+	// NERD-EVOLVE-START: context_compilation_pipeline
+	// C1+C4: Try kernel-derived context selection first; fall back to Go activation engine.
+	// The kernel derives should_include_context(Fact, Priority) from user_intent,
+	// focus_resolution, modified, dependency_link, and test failure predicates.
 	activationTimer := logging.StartTimer(logging.CategoryContext, "ActivationScoring")
-	scoredFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+	var scoredFacts []ScoredFact
+	if kernelFacts, kernelErr := c.kernel.Query("should_include_context"); kernelErr == nil && len(kernelFacts) > 0 {
+		scoredFacts = c.buildKernelDerivedContext(kernelFacts, allFacts)
+		logging.ContextDebug("C1+C4 kernel context: %d facts selected from %d should_include_context results",
+			len(scoredFacts), len(kernelFacts))
+	} else {
+		// Fallback: Go-side activation engine (original path)
+		scoredFacts = c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
+		logging.ContextDebug("Go activation fallback: %d facts selected (budget: %d tokens)", len(scoredFacts), c.config.AtomReserve)
+	}
 	activationTimer.Stop()
 	logging.ContextDebug("Activation scoring: %d facts selected (budget: %d tokens)", len(scoredFacts), c.config.AtomReserve)
+	// NERD-EVOLVE-END: context_compilation_pipeline
 
 	// 4. Get core facts (constitutional, always included)
 	coreFacts := c.getCoreFacts()
@@ -1499,3 +1517,104 @@ func (c *Compressor) GetHighActivationFactKeys(threshold float64) []string {
 
 	return keys
 }
+
+// NERD-EVOLVE-START: context_compilation_pipeline
+// buildKernelDerivedContext converts kernel-derived should_include_context facts into
+// ScoredFact slices for use by BuildContext().
+//
+// The kernel query returns should_include_context(Fact, Priority) facts where:
+//   - Fact is a string identifier (file path, predicate name, or fact string)
+//   - Priority is a name atom: /p100, /p95, /p90, /p85, /p80, /p70, /p60
+//
+// Steps:
+//  1. Parses priority atoms: /pN -> N (e.g. "/p100" -> 100.0)
+//  2. Builds fact lookup from allFacts by string representation
+//  3. Sorts by priority descending
+//  4. Returns budget-limited ScoredFact slice via SelectWithinBudget
+//
+// Returns nil when no matching facts are found in the kernel's fact store,
+// causing the caller to fall back to the Go activation engine.
+func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts []core.Fact) []ScoredFact {
+	if len(kernelFacts) == 0 {
+		return nil
+	}
+
+	// Build a lookup from string representation to actual Fact object.
+	factLookup := make(map[string]core.Fact, len(allFacts))
+	for _, f := range allFacts {
+		factLookup[f.String()] = f
+	}
+
+	// parsePriority converts /pN atom to numeric score.
+	// "/p100" -> 100.0, "/p95" -> 95.0, etc. Returns 0 on parse failure.
+	parsePriority := func(priorityArg interface{}) float64 {
+		var s string
+		switch v := priorityArg.(type) {
+		case string:
+			s = v
+		default:
+			return 0.0
+		}
+		// Mangle name atom /p100 is stored as the string "/p100"
+		if len(s) > 2 && s[0] == '/' && s[1] == 'p' {
+			if n, err := strconv.Atoi(s[2:]); err == nil {
+				return float64(n)
+			}
+		}
+		return 0.0
+	}
+
+	// Collect (fact string, priority score) pairs from kernel results.
+	type prioritized struct {
+		factStr  string
+		priority float64
+	}
+	pairs := make([]prioritized, 0, len(kernelFacts))
+	for _, kf := range kernelFacts {
+		// should_include_context has arity 2: (Fact, Priority)
+		if len(kf.Args) != 2 {
+			continue
+		}
+		factStr, ok := kf.Args[0].(string)
+		if !ok {
+			continue
+		}
+		priority := parsePriority(kf.Args[1])
+		if priority <= 0 {
+			continue
+		}
+		pairs = append(pairs, prioritized{factStr: factStr, priority: priority})
+	}
+
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	// Sort by priority descending (highest priority facts first).
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].priority > pairs[j].priority
+	})
+
+	// Build ScoredFact list for facts that exist in the kernel's fact store.
+	scored := make([]ScoredFact, 0, len(pairs))
+	for _, p := range pairs {
+		if f, found := factLookup[p.factStr]; found {
+			scored = append(scored, ScoredFact{
+				Fact:  f,
+				Score: p.priority,
+			})
+		}
+		// File path strings (from C4 dependency traversal) may not correspond
+		// to standalone kernel facts; they are skipped here. The file's actual
+		// facts (file_topology, modified) will be included through other rules.
+	}
+
+	if len(scored) == 0 {
+		return nil
+	}
+
+	// Apply budget-limited selection using the existing SelectWithinBudget mechanism.
+	return c.activation.SelectWithinBudget(scored, c.config.AtomReserve)
+}
+
+// NERD-EVOLVE-END: context_compilation_pipeline

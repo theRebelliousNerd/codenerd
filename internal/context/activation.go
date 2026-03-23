@@ -430,6 +430,11 @@ func (s *scoreComponents) Total() float64 {
 	return s.base + s.recency + s.relevance + s.dependency + s.campaign + s.session + s.issue + s.feedback + s.backReference
 }
 
+// NERD-EVOLVE-START: context_scoring_engine
+// Target: Replace 9-component Go heuristic with Mangle-derived context_score(Fact, Score) rules.
+// The kernel already has working_file, dependency_link, symbol_graph facts.
+// C1+C4: ScoreFactsWithKernelOverride uses kernel-derived priorities when available.
+
 // computeScore calculates the activation score for a fact.
 func (ae *ActivationEngine) computeScore(fact core.Fact) scoreComponents {
 	return scoreComponents{
@@ -957,6 +962,56 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 
 	return math.Min(score, 70.0) // Cap at 70
 }
+
+// ScoreFactsWithKernelOverride scores facts using kernel-derived scores as primary
+// source when available, falling back to the Go heuristic for facts not covered.
+//
+// C1+C4 integration: when kernelScores is non-empty (a map of fact string ->
+// priority score derived from should_include_context), those scores take precedence
+// over the 9-component Go heuristic for matching facts. Facts not present in
+// kernelScores receive Go-derived scores as before.
+//
+// Backward compatible: if kernelScores is nil or empty, behaves identically to ScoreFacts.
+func (ae *ActivationEngine) ScoreFactsWithKernelOverride(facts []core.Fact, intent *core.Fact, kernelScores map[string]float64) []ScoredFact {
+	if len(kernelScores) == 0 {
+		return ae.ScoreFacts(facts, intent)
+	}
+
+	// Update focus from facts for Go-side fallback scoring
+	ae.UpdateFocusedPaths(facts)
+
+	scored := make([]ScoredFact, 0, len(facts))
+	for _, fact := range facts {
+		key := factKey(fact)
+		if kScore, ok := kernelScores[key]; ok {
+			// Kernel-derived score takes precedence over Go heuristic
+			scored = append(scored, ScoredFact{
+				Fact:  fact,
+				Score: kScore,
+			})
+		} else {
+			// Go heuristic fallback for facts not covered by kernel derivation
+			components := ae.computeScore(fact)
+			scored = append(scored, ScoredFact{
+				Fact:               fact,
+				Score:              components.Total(),
+				BaseScore:          components.base,
+				RecencyScore:       components.recency,
+				RelevanceScore:     components.relevance,
+				DependencyScore:    components.dependency,
+				CampaignScore:      components.campaign,
+				SessionScore:       components.session,
+				IssueScore:         components.issue,
+				FeedbackScore:      components.feedback,
+				BackReferenceScore: components.backReference,
+			})
+		}
+	}
+
+	return scored
+}
+
+// NERD-EVOLVE-END: context_scoring_engine
 
 // =============================================================================
 // Helper Functions
