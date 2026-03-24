@@ -225,6 +225,37 @@ type AnthropicRequest struct {
 	Stream      bool               `json:"stream,omitempty"`
 }
 
+// NERD-EVOLVE-START: P1P2-prompt-caching
+// AnthropicCacheControl marks a content block as eligible for prompt caching.
+// Supported types: "ephemeral" (5-minute TTL, billed at 1.25x write / 0.1x read).
+type AnthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+// AnthropicSystemCacheBlock is a structured system content block with optional cache_control.
+// Used when the caller wants to cache the system prompt via the Anthropic prompt-caching API.
+// Per the Anthropic API spec, the "system" field accepts either a plain string or an array
+// of these blocks. The anthopicCachedRequest type handles the polymorphism.
+type AnthropicSystemCacheBlock struct {
+	Type         string                 `json:"type"` // always "text"
+	Text         string                 `json:"text"`
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+}
+
+// anthropicCachedRequest is a variant of AnthropicRequest where System is replaced
+// by a structured []AnthropicSystemCacheBlock for prompt caching. It is only used
+// when building the actual HTTP payload — never exposed through public interfaces.
+type anthropicCachedRequest struct {
+	Model       string                      `json:"model"`
+	MaxTokens   int                         `json:"max_tokens"`
+	System      []AnthropicSystemCacheBlock `json:"system,omitempty"`
+	Messages    []AnthropicMessage          `json:"messages"`
+	Tools       []AnthropicTool             `json:"tools,omitempty"`
+	Temperature float64                     `json:"temperature,omitempty"`
+	Stream      bool                        `json:"stream,omitempty"`
+}
+// NERD-EVOLVE-END: P1P2-prompt-caching
+
 // AnthropicResponse represents the API response.
 type AnthropicResponse struct {
 	ID      string                  `json:"id"`

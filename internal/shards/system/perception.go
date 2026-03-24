@@ -97,6 +97,14 @@ type PerceptionFirewallShard struct {
 
 	// Optional learning candidate store (SQLite-backed)
 	candidateStore LearningCandidateStore
+
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// classificationClient, when non-nil, is used for intent classification instead of
+	// the main LLMClient set via SetLLMClient. This allows perception to run on a
+	// cheaper/faster model (e.g. Haiku, Gemini Flash) while main generation uses a
+	// larger model. Falls back to the base LLMClient when nil.
+	classificationClient perception.LLMClient
+	// NERD-EVOLVE-END: P1P2-model-tiering
 }
 
 // NewPerceptionFirewallShard creates a new Perception Firewall shard.
@@ -143,6 +151,20 @@ func (p *PerceptionFirewallShard) SetLearningCandidateStore(store LearningCandid
 	defer p.mu.Unlock()
 	p.candidateStore = store
 }
+
+// NERD-EVOLVE-START: P1P2-model-tiering
+// SetClassificationClient sets a dedicated LLM client for intent classification.
+// When set, perception calls use this client instead of the main LLMClient, enabling
+// model tiering (e.g. faster/cheaper Haiku for classification, Sonnet for generation).
+// Thread-safe; resets the cached transducer so the new client takes effect on next call.
+func (p *PerceptionFirewallShard) SetClassificationClient(client perception.LLMClient) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.classificationClient = client
+	// Reset cached transducer so ensureTransducer picks up the new client.
+	p.transducer = nil
+}
+// NERD-EVOLVE-END: P1P2-model-tiering
 
 // SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.
 // When set and ready, the shard will use JIT-compiled prompts instead of the legacy
@@ -211,7 +233,20 @@ func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
 		return p.transducer
 	}
 
-	t := perception.NewUnderstandingTransducer(guardedPerceptionClient{base: p.BaseSystemShard})
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// When a classification client is available, use it directly for transduction.
+	// This bypasses the cost-guarded wrapper and routes to the tiered (faster) model.
+	// The guardedPerceptionClient is still used when no classification client is set,
+	// preserving existing cost-guard behavior for the fallback path.
+	var transducerClient perception.LLMClient
+	if p.classificationClient != nil {
+		transducerClient = p.classificationClient
+	} else {
+		transducerClient = guardedPerceptionClient{base: p.BaseSystemShard}
+	}
+	// NERD-EVOLVE-END: P1P2-model-tiering
+
+	t := perception.NewUnderstandingTransducer(transducerClient)
 	if p.promptAssembler != nil {
 		t.SetPromptAssembler(p.promptAssembler)
 	}
