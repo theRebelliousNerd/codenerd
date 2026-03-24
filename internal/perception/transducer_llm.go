@@ -36,6 +36,17 @@ type RoutingKernel interface {
 	ValidateField(ctx context.Context, field, value string) bool
 }
 
+// NERD-EVOLVE-START: P3_routing_assertion
+// KernelAsserter is an optional interface implemented by RoutingKernel adapters
+// that support writing derived routing facts back into the Mangle kernel.
+// Type-assert the RoutingKernel to this interface before calling AssertRoutingFact.
+type KernelAsserter interface {
+	AssertRoutingFact(predicate string, args ...interface{}) error
+	RetractRoutingPredicate(predicate string) error
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion
+
 // RoutingMatch represents a routing query result.
 type RoutingMatch struct {
 	Target string
@@ -71,10 +82,11 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
-	// 4. Validate against routing vocabulary
-	// Don't fail - the LLM's understanding is still valuable even if
-	// it uses terms outside our vocabulary. The harness will use defaults.
-	_ = t.validate(ctx, understanding)
+	// NERD-EVOLVE-START: P3_dead_work_elimination
+	// Phase A: validate() was dead work — it made 5 kernel queries whose error
+	// return was always discarded. The LLM understanding is used as-is and the
+	// harness falls back to defaults for any out-of-vocabulary terms.
+	// NERD-EVOLVE-END: P3_dead_work_elimination
 
 	// 5. Derive routing from understanding
 	t.deriveRouting(ctx, understanding)
@@ -328,7 +340,66 @@ func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 	routing.BlockedTools = t.deriveBlockedTools(ctx, u)
 
 	u.Routing = routing
+
+	// NERD-EVOLVE-START: P3_routing_assertion
+	// Phase B: Assert derived routing facts back into the Mangle kernel so that
+	// C1/C4 composition rules (context selection, JIT prompt compilation) can
+	// consume them without a separate query round-trip.
+	if asserter, ok := t.kernel.(KernelAsserter); ok {
+		t.assertRoutingFacts(asserter, u, routing)
+	}
+	// NERD-EVOLVE-END: P3_routing_assertion
 }
+
+// NERD-EVOLVE-START: P3_routing_assertion
+// assertRoutingFacts writes the current turn's understanding and derived routing
+// into the Mangle EDB so downstream rules (JIT selection, context compilation)
+// can derive from them without re-querying.
+//
+// Derivation chain impact:
+//   current_understanding → perception_routing.mg rules → derived_mode (IDB)
+//   llm_suggested_mode    → fallback rule in perception_routing.mg
+//   derived_primary_shard, derived_context_priority, derived_tool_priority →
+//     consumed by context_compilation.mg and jit_selection.mg (C1/C4)
+//
+// Fact budget: 4 fixed facts + |ContextPriorities| + |ToolPriorities| per turn.
+// All are retracted at turn start (see process.go retraction block).
+func (t *LLMTransducer) assertRoutingFacts(asserter KernelAsserter, u *Understanding, routing *Routing) {
+	// current_understanding(SemanticType, ActionType, Domain, ScopeLevel)
+	scopeLevel := u.Scope.Level
+	if scopeLevel == "" {
+		scopeLevel = "function"
+	}
+	_ = asserter.AssertRoutingFact("current_understanding",
+		"/"+u.SemanticType, "/"+u.ActionType, "/"+u.Domain, "/"+scopeLevel)
+
+	// llm_suggested_mode(Mode) — the raw LLM suggestion before Mangle override
+	if u.SuggestedApproach.Mode != "" {
+		_ = asserter.AssertRoutingFact("llm_suggested_mode", "/"+u.SuggestedApproach.Mode)
+	}
+
+	// derived_mode(Mode) — the final harness mode after Mangle derivation
+	if routing.Mode != "" {
+		_ = asserter.AssertRoutingFact("derived_mode", "/"+routing.Mode)
+	}
+
+	// derived_primary_shard(ShardID)
+	if routing.PrimaryShard != "" {
+		_ = asserter.AssertRoutingFact("derived_primary_shard", "/"+routing.PrimaryShard)
+	}
+
+	// derived_context_priority(Category, Priority)
+	for cat, priority := range routing.ContextPriorities {
+		_ = asserter.AssertRoutingFact("derived_context_priority", "/"+cat, priority)
+	}
+
+	// derived_tool_priority(Tool, Priority)
+	for tool, priority := range routing.ToolPriorities {
+		_ = asserter.AssertRoutingFact("derived_tool_priority", "/"+tool, priority)
+	}
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion
 
 // deriveMode determines the harness mode from understanding.
 func (t *LLMTransducer) deriveMode(ctx context.Context, u *Understanding) string {
@@ -710,3 +781,24 @@ func (k *RealKernelRouter) ValidateField(ctx context.Context, field, value strin
 
 	return false
 }
+
+// NERD-EVOLVE-START: P3_routing_assertion
+// AssertRoutingFact implements KernelAsserter. It writes a derived routing fact
+// into the underlying RealKernel EDB so downstream Mangle rules can consume it.
+func (k *RealKernelRouter) AssertRoutingFact(predicate string, args ...interface{}) error {
+	if k.kernel == nil {
+		return nil
+	}
+	return k.kernel.Assert(core.Fact{Predicate: predicate, Args: args})
+}
+
+// RetractRoutingPredicate implements KernelAsserter. It removes all EDB facts
+// with the given predicate, enabling per-turn cleanup.
+func (k *RealKernelRouter) RetractRoutingPredicate(predicate string) error {
+	if k.kernel == nil {
+		return nil
+	}
+	return k.kernel.Retract(predicate)
+}
+
+// NERD-EVOLVE-END: P3_routing_assertion

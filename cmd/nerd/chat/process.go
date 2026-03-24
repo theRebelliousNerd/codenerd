@@ -207,6 +207,20 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("trace_recall_result")
 			_ = m.kernel.Retract("learning_recall_result")
 
+			// NERD-EVOLVE-START: P3_routing_assertion
+			// Retract per-turn perception routing facts so stale values from the
+			// previous turn cannot influence C1/C4 composition in this turn.
+			// These are reasserted by LLMTransducer.assertRoutingFacts() during perception.
+			_ = m.kernel.Retract("current_understanding")
+			_ = m.kernel.Retract("llm_suggested_mode")
+			_ = m.kernel.Retract("candidate_mode")
+			_ = m.kernel.Retract("best_candidate_priority")
+			_ = m.kernel.Retract("derived_mode")
+			_ = m.kernel.Retract("derived_primary_shard")
+			_ = m.kernel.Retract("derived_context_priority")
+			_ = m.kernel.Retract("derived_tool_priority")
+			// NERD-EVOLVE-END: P3_routing_assertion
+
 			// Only assert user_intent ourselves if the PerceptionFirewall shard didn't already do it.
 			if !intentHandledBySystem {
 				// Use a stable ID so the kernel doesn't accumulate historical intents.
