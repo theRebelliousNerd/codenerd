@@ -30,6 +30,12 @@ type UnderstandingTransducer struct {
 	mu                sync.RWMutex
 	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
 	strategicContext  string         // Strategic knowledge about the codebase from /init
+	// NERD-EVOLVE-START: stability_filter
+	rawKernel      *core.RealKernel // Direct kernel reference for stability fact assertions
+	verbHistory    []string         // Rolling window of last 5 action verbs (for stability scoring)
+	lastVerb       string           // The verb from the most recent completed turn
+	msgLenHistory  []int            // Rolling window of last 5 message lengths (for spike detection)
+	// NERD-EVOLVE-END: stability_filter
 }
 
 // NewUnderstandingTransducer creates a transducer using LLM-first classification.
@@ -66,6 +72,10 @@ func (t *UnderstandingTransducer) SetKernel(kernel *core.RealKernel) {
 	if kernel != nil {
 		// Create a routing kernel adapter that uses the RealKernel's Query method
 		t.kernel = NewRealKernelRouter(kernel)
+		// NERD-EVOLVE-START: stability_filter
+		// Also store raw kernel for stability fact assertions
+		t.rawKernel = kernel
+		// NERD-EVOLVE-END: stability_filter
 	}
 }
 
@@ -158,6 +168,130 @@ func isValidUnderstandingPromptContract(prompt string) bool {
 	return true
 }
 
+// NERD-EVOLVE-START: stability_filter
+
+// likelyTopicChange returns true when syntactic signals indicate a probable topic shift.
+// Any single signal firing suppresses the stability bypass, forcing an LLM call.
+func likelyTopicChange(input string, msgLenHistory []int) bool {
+	// Signal 1: Question marks suggest interrogative shift
+	if strings.Contains(input, "?") {
+		return true
+	}
+
+	// Signal 2: Topic-shift keywords in the first 5 words
+	topicShiftKeywords := map[string]bool{
+		"explain": true, "what": true, "how": true, "why": true,
+		"describe": true, "show": true, "tell": true, "help": true,
+	}
+	words := strings.Fields(strings.ToLower(input))
+	limit := 5
+	if len(words) < limit {
+		limit = len(words)
+	}
+	for _, w := range words[:limit] {
+		// Strip punctuation from word end
+		w = strings.TrimRight(w, ".,;:!?")
+		if topicShiftKeywords[w] {
+			return true
+		}
+	}
+
+	// Signal 3: Message length spike (3x rolling average)
+	if len(msgLenHistory) >= 2 {
+		sum := 0
+		for _, l := range msgLenHistory {
+			sum += l
+		}
+		avg := sum / len(msgLenHistory)
+		if avg > 0 && len(input) > avg*3 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// computeStabilityScore computes a 0-100 stability score from the verb history.
+// Score = fraction of consecutive matching pairs in verbHistory.
+// Example: [fix, fix, fix, test, fix] has pairs (fix,fix),(fix,fix),(fix,test),(test,fix) = 2/4 = 0.5 → 50
+func computeStabilityScore(verbHistory []string) int {
+	if len(verbHistory) < 2 {
+		return 0
+	}
+	matches := 0
+	total := len(verbHistory) - 1
+	for i := 0; i < total; i++ {
+		if verbHistory[i] == verbHistory[i+1] {
+			matches++
+		}
+	}
+	return (matches * 100) / total
+}
+
+// assertStabilityFacts asserts per-turn stability facts into the kernel and returns
+// whether the kernel authorized a bypass via llm_call_deferred().
+// verbHist and msgHist are snapshot copies passed by value to avoid locking.
+func (t *UnderstandingTransducer) assertStabilityFacts(input string, prior *Understanding, verbHist []string, msgHist []int) bool {
+	if t.rawKernel == nil {
+		return false
+	}
+
+	stabilityScore := computeStabilityScore(verbHist)
+	topicChange := likelyTopicChange(input, msgHist)
+
+	// Retract previous per-turn stability facts
+	tx := t.rawKernel.Transaction()
+	tx.Retract("intent_stability")
+	tx.Retract("intent_prior")
+	tx.Retract("topic_change_detected")
+	// Note: llm_call_deferred is derived, not asserted — no retract needed
+
+	// Assert current stability score
+	tx.Assert(core.Fact{Predicate: "intent_stability", Args: []interface{}{int64(stabilityScore)}})
+
+	// Assert prior understanding if available
+	if prior != nil {
+		tx.Assert(core.Fact{
+			Predicate: "intent_prior",
+			Args:      []interface{}{"/" + strings.ToLower(prior.SemanticType), "/" + strings.ToLower(prior.ActionType), "/" + strings.ToLower(prior.Domain)},
+		})
+	}
+
+	// Assert topic change signal if detected
+	if topicChange {
+		tx.Assert(core.Fact{Predicate: "topic_change_detected", Args: []interface{}{}})
+	}
+
+	if err := tx.Commit(); err != nil {
+		logging.Perception("[StabilityFilter] kernel tx commit failed: %v", err)
+		return false
+	}
+
+	// Query whether the kernel authorized bypass
+	return t.rawKernel.QueryBool("llm_call_deferred")
+}
+
+// updateVerbHistory appends a verb to the rolling window (max 5 entries).
+func (t *UnderstandingTransducer) updateVerbHistory(verb string) {
+	const maxHistory = 5
+	t.verbHistory = append(t.verbHistory, verb)
+	if len(t.verbHistory) > maxHistory {
+		t.verbHistory = t.verbHistory[len(t.verbHistory)-maxHistory:]
+	}
+	t.lastVerb = verb
+}
+
+// updateMsgLenHistory appends message length to the rolling window (max 5 entries).
+func (t *UnderstandingTransducer) updateMsgLenHistory(input string) {
+	const maxHistory = 5
+	t.msgLenHistory = append(t.msgLenHistory, len(input))
+	if len(t.msgLenHistory) > maxHistory {
+		t.msgLenHistory = t.msgLenHistory[len(t.msgLenHistory)-maxHistory:]
+	}
+}
+
+// NERD-EVOLVE-END: stability_filter
+
 // ParseIntent parses user input into an Intent using LLM-first classification.
 // This is the main entry point implementing the Transducer interface.
 func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string) (Intent, error) {
@@ -168,6 +302,46 @@ func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string)
 // This is the primary method called by the chat loop.
 func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
 	t.initialize(ctx)
+
+	// NERD-EVOLVE-START: stability_filter
+	// Snapshot state under read lock to avoid races during bypass check
+	t.mu.RLock()
+	priorUnderstanding := t.lastUnderstanding
+	lastVerbSnapshot := t.lastVerb
+	verbHistoryCopy := make([]string, len(t.verbHistory))
+	copy(verbHistoryCopy, t.verbHistory)
+	msgLenHistoryCopy := make([]int, len(t.msgLenHistory))
+	copy(msgLenHistoryCopy, t.msgLenHistory)
+	t.mu.RUnlock()
+
+	// Track message length for spike detection (update before bypass check)
+	t.mu.Lock()
+	t.updateMsgLenHistory(input)
+	t.mu.Unlock()
+
+	// Stability bypass: consult kernel to decide if LLM call can be skipped
+	if priorUnderstanding != nil && t.rawKernel != nil {
+		// Pass snapshot copies so assertStabilityFacts reads stable data without locking
+		authorized := t.assertStabilityFacts(input, priorUnderstanding, verbHistoryCopy, msgLenHistoryCopy)
+
+		if authorized {
+			// Bypass: reuse prior understanding — update PrimaryIntent text to current input
+			reused := *priorUnderstanding // shallow copy
+			reused.PrimaryIntent = input
+
+			// Update history with the same verb (bypass assumed same intent)
+			t.mu.Lock()
+			t.updateVerbHistory(lastVerbSnapshot)
+			t.mu.Unlock()
+
+			logging.Perception("[StabilityFilter] bypass authorized (stability=%d%%), reusing prior understanding",
+				computeStabilityScore(verbHistoryCopy))
+
+			intent := t.understandingToIntent(&reused)
+			return intent, nil
+		}
+	}
+	// NERD-EVOLVE-END: stability_filter
 
 	// GAP-006 FIX: Run semantic classification to inject semantic_match facts into kernel
 	// This provides neuro-symbolic grounding even in LLM-first mode
@@ -194,6 +368,10 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	// GAP-018 FIX: Cache understanding for debugging
 	t.mu.Lock()
 	t.lastUnderstanding = understanding
+	// NERD-EVOLVE-START: stability_filter
+	// Update verb history with actual verb from LLM result
+	t.updateVerbHistory(strings.ToLower(strings.TrimSpace(understanding.ActionType)))
+	// NERD-EVOLVE-END: stability_filter
 	t.mu.Unlock()
 
 	// Convert Understanding to Intent for backward compatibility
