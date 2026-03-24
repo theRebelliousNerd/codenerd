@@ -133,6 +133,54 @@ func NewClientFromEnv() (LLMClient, error) {
 	return NewClientFromConfig(config)
 }
 
+// NERD-EVOLVE-START: P1P2-model-tiering
+// NewClassificationClientFromConfig creates a faster/cheaper LLM client for intent
+// classification (P2 model tiering). The returned client uses a high-speed model
+// appropriate for quick classification tasks:
+//   - Anthropic: claude-haiku-4-5 with prompt caching enabled (P1+P2)
+//   - Gemini: gemini-2.0-flash-lite
+//   - OpenAI: gpt-4o-mini
+//   - All others: returns nil (caller should fall back to main LLMClient)
+//
+// When nil is returned, no error is set — the caller should treat nil as
+// "use main client" and not fail.
+func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	// CLI engines do not support model tiering — return nil to use main client.
+	if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
+		return nil, nil
+	}
+
+	switch cfg.Provider {
+	case ProviderAnthropic:
+		// Use Haiku for fast classification. Also enable prompt caching (P1) so that
+		// the static understandingSystemPrompt is cached across calls.
+		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
+		haikuCfg.Model = "claude-haiku-4-5"
+		client := NewAnthropicClientWithConfig(haikuCfg)
+		client.EnableSystemCaching() // P1: cache the static perception system prompt
+		return client, nil
+
+	case ProviderGemini:
+		flashCfg := DefaultGeminiConfig(cfg.APIKey)
+		flashCfg.Model = "gemini-2.0-flash-lite"
+		return NewGeminiClientWithConfig(flashCfg), nil
+
+	case ProviderOpenAI:
+		client := NewOpenAIClient(cfg.APIKey)
+		client.SetModel("gpt-4o-mini")
+		return client, nil
+
+	default:
+		// ZAI, XAI, OpenRouter: no well-known fast tier; fall back to main client.
+		return nil, nil
+	}
+}
+// NERD-EVOLVE-END: P1P2-model-tiering
+
 // NewClientFromConfig creates an LLM client from a provider config.
 // CLI engines (claude-cli, codex-cli) take precedence over API providers when configured.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {

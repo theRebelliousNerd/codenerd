@@ -218,6 +218,9 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	// 3. Initialize LLM client using workspace config/env detection
 	var baseLLMClient perception.LLMClient
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	var providerCfgForClassification *perception.ProviderConfig // captured for classification client
+	// NERD-EVOLVE-END: P1P2-model-tiering
 	if cfg.LLMClientOverride != nil {
 		baseLLMClient = cfg.LLMClientOverride
 	}
@@ -225,6 +228,9 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
 				baseLLMClient = client
+				// NERD-EVOLVE-START: P1P2-model-tiering
+				providerCfgForClassification = providerCfg
+				// NERD-EVOLVE-END: P1P2-model-tiering
 			}
 		}
 	}
@@ -234,7 +240,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 	if baseLLMClient == nil {
-		// Hard cutover: Do not silently fallback to an unconfigured ZAI client. 
+		// Hard cutover: Do not silently fallback to an unconfigured ZAI client.
 		// If no client is configured locally or in environment, we must fail explicitly.
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
 		logging.Get(logging.CategoryContext).Error(err.Error())
@@ -591,6 +597,16 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		JITCompiler:  jitCompiler,
 		JITConfig:    jitCfg,
 	}
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// Build a classification client (Haiku/Flash) for perception tiering.
+	// NewClassificationClientFromConfig returns nil for CLI engines and unknown providers,
+	// in which case the perception shard falls back to the main LLMClient.
+	if providerCfgForClassification != nil {
+		if classClient, classErr := perception.NewClassificationClientFromConfig(providerCfgForClassification); classErr == nil && classClient != nil {
+			regCtx.ClassificationClient = classClient
+		}
+	}
+	// NERD-EVOLVE-END: P1P2-model-tiering
 	shards.RegisterAllShardFactories(shardManager, regCtx)
 
 	// Wire JIT Registrars for future dynamic registration

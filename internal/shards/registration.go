@@ -24,6 +24,14 @@ type RegistryContext struct {
 	Workspace    string
 	JITCompiler  *prompt.JITPromptCompiler
 	JITConfig    config.JITConfig
+	// NERD-EVOLVE-START: P1P2-model-tiering
+	// ClassificationClient, when non-nil, is used by the PerceptionFirewallShard
+	// for intent classification calls instead of the main LLMClient.
+	// This enables routing perception to a faster/cheaper model (e.g. Haiku, Gemini Flash)
+	// while keeping the main generation model for longer, higher-quality responses.
+	// When nil, the perception shard falls back to LLMClient.
+	ClassificationClient perception.LLMClient
+	// NERD-EVOLVE-END: P1P2-model-tiering
 }
 
 // learningStoreAdapter adapts store.LearningStore to core.LearningStore
@@ -168,6 +176,12 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
 		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
 		shard.SetPromptAssembler(createAssembler())
+		// NERD-EVOLVE-START: P1P2-model-tiering
+		// Inject classification client if available (enables model tiering for perception).
+		if ctx.ClassificationClient != nil {
+			shard.SetClassificationClient(ctx.ClassificationClient)
+		}
+		// NERD-EVOLVE-END: P1P2-model-tiering
 		return withJITConfig(shard)
 	})
 
