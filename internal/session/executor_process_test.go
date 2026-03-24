@@ -316,22 +316,28 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Verify Process(ctx, "") handles empty input gracefully (no panic, sensible error/response).
+// TODO: TEST_GAP: Null/Empty: Verify Process(ctx, "") handles empty input gracefully (no panic, sensible error/response).
+// TODO: TEST_GAP: Null/Empty: Verify behavior when LLM returns empty ToolCall Name or ID.
+// TODO: TEST_GAP: Null/Empty: Verify handling of ToolCall with nil Args (prevent nil pointer deref during json.Marshal).
+// TODO: TEST_GAP: Null/Empty: Verify Process behaves correctly when ctx is nil (should it panic or handle gracefully?).
+// TODO: TEST_GAP: Null/Empty: Verify behavior when ConfigFactory or JITCompiler are explicitly nil but called.
+
+// TODO: TEST_GAP: Type Coercion: Verify behavior when LLM provides a tool argument string where a number/object is expected by the modular tool schema.
+// TODO: TEST_GAP: Type Coercion: Verify parseMangleArg behavior with massive integers that overflow Go's int type but might fit in uint64.
+// TODO: TEST_GAP: Type Coercion: Verify extractTarget handles unexpected argument types (e.g., target key exists but value is a boolean/int instead of string).
+
+// TODO: TEST_GAP: User Request Extremes: Verify MaxToolCalls limit with a mock LLM returning > MaxToolCalls (e.g., 10,000 tool calls).
+// TODO: TEST_GAP: User Request Extremes: Verify system behavior when input string is extremely large (e.g., 50MB string, testing memory and execution bounds).
+// TODO: TEST_GAP: User Request Extremes: Verify tool timeout enforcement (mock tool sleeping > ToolTimeout).
+// TODO: TEST_GAP: User Request Extremes: Verify processMangleUpdatesFromEnvelope handles an absurdly large number of mangle_updates gracefully (testing MaxUpdates limit enforcement).
+
+// TODO: TEST_GAP: State Conflicts: Verify TOCTOU handling where a tool is allowed by config but removed from tools.Global() before execution.
+// TODO: TEST_GAP: State Conflicts: Verify thread safety of SetOuroborosRegistry when called concurrently with Process/executeToolCall.
+// TODO: TEST_GAP: State Conflicts: Verify conversationHistory append thread safety under high concurrent load (simultaneous Process calls).
+// TODO: TEST_GAP: State Conflicts: Verify Process respects ctx.Done() and halts execution immediately (preventing resource leaks during context cancellation).
+// TODO: TEST_GAP: State Conflicts: Verify panic recovery within executeToolCall (mock tool panicking, ensuring it does not crash the Executor loop).
+// TODO: TEST_GAP: State Conflicts: Verify "Fail Closed" behavior if Kernel is nil but SafetyGate is enabled.
 
 // TODO: TEST_GAP: Verify behavior when JITCompiler returns error (Fallback to baseline prompt?).
-
 // TODO: TEST_GAP: Verify behavior when ConfigFactory returns error (Fallback to empty config?).
-
 // TODO: TEST_GAP: Verify behavior when Transducer returns error.
-
-// TODO: TEST_GAP: Verify MaxToolCalls limit with a mock LLM returning > MaxToolCalls.
-
-// TODO: TEST_GAP: Verify tool timeout enforcement (mock tool sleeping > ToolTimeout).
-
-// TODO: TEST_GAP: Verify panic recovery within executeToolCall (mock tool panicking).
-
-// TODO: TEST_GAP: Verify "Fail Closed" behavior if Kernel is nil but SafetyGate is enabled (Requires code change first).
-
-// TODO: TEST_GAP: Verify handling of ToolCall with nil Args (prevent nil pointer deref).
-
-// TODO: TEST_GAP: Verify Process respects ctx.Done() and halts execution immediately.
