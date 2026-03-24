@@ -17,6 +17,6 @@ llm_call_deferred() :-
     intent_stability(Score),
     Score > 80,
     intent_prior(_, _, _),
-    ~topic_change_detected().
+    !topic_change_detected().
 
 # NERD-EVOLVE-END: stability_filter
