@@ -498,3 +498,33 @@ func sampleRawPlanJSON(title string) string {
 // TODO: TEST_GAP: TestRefinePlan_TxCommitFail
 // Mock tx.Commit() to return error during atomic rebuild failure.
 // Reverts state, returns error, logs warning.
+
+// TODO: TEST_GAP: TestDecompose_EmptySourcePaths
+// Verify Decompose handles empty req.SourcePaths or SourcePaths containing empty strings gracefully without panics.
+
+// TODO: TEST_GAP: TestDecompose_NilIntelligence
+// Verify Decompose works correctly and skips step 0 when d.intelligence is nil.
+
+// TODO: TEST_GAP: TestDecompose_JSONTypeCoercion
+// Verify LLM returning unexpected JSON types (e.g., phases as an object instead of array, string instead of int) fails safely during json.Unmarshal.
+
+// TODO: TEST_GAP: TestDecompose_MassiveGoal
+// Verify Decompose handles an extremely large goal string (e.g., 100MB) without memory exhaustion or infinite loops.
+
+// TODO: TEST_GAP: TestDecompose_HugeSourcePaths
+// Verify Decompose handles 100,000+ source paths. Check for OS file descriptor limits and performance bottlenecks.
+
+// TODO: TEST_GAP: TestDecompose_DeepNestedJSON
+// Verify JSON unmarshaling in Decompose safely handles a deeply nested JSON object from the LLM (prevent stack overflow).
+
+// TODO: TEST_GAP: TestDecompose_ContextBudgetExceeded
+// Verify Decompose handles edge cases where ContextBudget is extremely small (e.g., 1) or documents exceed the budget massively.
+
+// TODO: TEST_GAP: TestDecompose_ContextCancelledDuringLLM
+// Verify Decompose correctly aborts and returns ctx.Err() if context is cancelled while waiting for the LLM response.
+
+// TODO: TEST_GAP: TestDecompose_FileDeletedDuringIngest
+// Verify ingestSourceDocuments handles a file being deleted from the OS just before reading it, skipping or erroring gracefully.
+
+// TODO: TEST_GAP: TestDecompose_ConcurrentDecompose
+// Verify multiple concurrent calls to Decompose on the same Decomposer instance do not cause race conditions or corrupt the kernel state.
