@@ -9,6 +9,19 @@ import (
 	"codenerd/internal/core"
 )
 
+// TODO: TEST_GAP: Null/Empty Inputs - empty goal string passed to Gather (should not panic LLM tool generation).
+// TODO: TEST_GAP: Null/Empty Inputs - empty or malformed strings in targetPaths (should not result in phantom file lookups).
+// TODO: TEST_GAP: Null/Empty Inputs - mock Mangle engine returning facts with empty string arguments (should not panic parsing).
+// TODO: TEST_GAP: Type Coercion - parseIntArg receiving massive int64 or negative bounds (should not overflow or miscalculate Unix time).
+// TODO: TEST_GAP: Type Coercion - parseAtom receiving non-string/non-atom types like bool or struct (should not pollute maps).
+// TODO: TEST_GAP: Type Coercion - parseFloatArg receiving string-encoded floats (should handle gracefully instead of defaulting to 0.0).
+// TODO: TEST_GAP: User Request Extremes - mock WorldScanner returning 1,000,000 symbols (should not exhaust memory or should enforce limits).
+// TODO: TEST_GAP: User Request Extremes - structurally valid but extremely long strings (>10MB) in report fields passed to FormatForContext (verify strings.Builder performance).
+// TODO: TEST_GAP: User Request Extremes - 10,000 distinct targetPaths passed to gatherKnowledgeGraph (should hit PerSystemTimeout cleanly without zombie routines).
+// TODO: TEST_GAP: State Conflicts - execute Gather under go test -race with mock delays to ensure report map/slice mutations are strictly isolated.
+// TODO: TEST_GAP: State Conflicts - simulate a slow errgroup that consumes 4.99 mins of the 5 min GatherTimeout (verify sequential gatherShardAdvice times out cleanly).
+// TODO: TEST_GAP: State Conflicts - verify cancelled context successfully unblocks all nested CGO/Mangle/SQLite calls (no zombie goroutines).
+
 func TestNewIntelligenceGatherer(t *testing.T) {
 	// Test with nil dependencies (should not panic)
 	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
