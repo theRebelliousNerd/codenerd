@@ -391,3 +391,9 @@ func BinaryInput(ctx context.Context, input string) (string, error) {
 		t.Fatalf("Expected binary input handling to survive, got %+v", result)
 	}
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Battle returns a clean error and does not panic when `tool` is nil.
+// TODO: TEST_GAP: [User Request Extremes] Verify NewThunderdomeWithConfig handles or rejects Timeout=0 and MaxMemoryMB=0; test that Timeout < 1s does not cast to 0 seconds in the generated harness.
+// TODO: TEST_GAP: [User Request Extremes] Verify runAttack does not OOM the host when a tool outputs 1GB of binary data to stdout/stderr. Enforce a LimitReader on the exec.Cmd output pipes.
+// TODO: TEST_GAP: [User Request Extremes] Verify prepareArena aborts and returns an error if go test -c takes longer than a strict internal timeout (e.g., 30s), preventing infinite compilation attacks.
+// TODO: TEST_GAP: [State Conflicts] Verify prepareArena uses a cryptographically secure random identifier (UUID or crypto/rand) to guarantee zero collisions under extreme concurrency, rather than relying solely on UnixNano().
