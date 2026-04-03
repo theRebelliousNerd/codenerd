@@ -9,6 +9,20 @@ import (
 	"codenerd/internal/types"
 )
 
+// TODO: TEST_GAP: Null/Empty Inputs - `PromptContext` with empty string `ShardID` or `ShardType`.
+// TODO: TEST_GAP: Null/Empty Inputs - Facts with empty string arguments (e.g. empty template or context atom).
+// TODO: TEST_GAP: Null/Empty Inputs - Missing Piggyback envelope requirements due to naive `strings.Contains` check.
+
+// TODO: TEST_GAP: Type Coercion - Mangle Atom vs String dissonance in `queryShardTemplate` and `queryContextAtoms`.
+// TODO: TEST_GAP: Type Coercion - Map type assertions failing silently in `mapToPromptContext` (e.g., float64 instead of int for JSON numbers).
+
+// TODO: TEST_GAP: User Request Extremes - Massive Context Injection. Kernel returning 10,000+ context atoms.
+// TODO: TEST_GAP: User Request Extremes - Extremely long strings in `SessionCtx` fields (e.g., a 10MB diagnostic error string).
+
+// TODO: TEST_GAP: State Conflicts - Concurrent mutation of `PromptContext.SessionCtx` while `AssembleSystemPrompt` reads it.
+// TODO: TEST_GAP: State Conflicts - JIT Compiler Race Condition: `SetJITCompiler(nil)` called between `JITReady()` check and `Compile()`.
+// TODO: TEST_GAP: State Conflicts - Conflicting `shard_prompt_base` facts returning non-deterministically due to unordered iteration.
+
 // mockKernel implements KernelQuerier for testing.
 type mockKernel struct {
 	facts map[string][]core.Fact
