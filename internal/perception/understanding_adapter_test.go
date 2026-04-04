@@ -252,3 +252,10 @@ func TestUnderstandingTransducer_UnderstandingToIntent_Nil(t *testing.T) {
 
 // TODO: TEST_GAP: Add concurrency test (TestUnderstandingTransducer_Concurrency) to detect data race on t.lastUnderstanding.
 // Run with -race to confirm.
+// TODO: TEST_GAP: State Conflicts - Add concurrency test simulating multiple rapid calls to ParseIntentWithContext to verify safety of msgLenHistory and verbHistory updates.
+// TODO: TEST_GAP: Null/Empty Inputs - Test ParseIntentWithContext when history slice is nil vs empty (0 length).
+// TODO: TEST_GAP: Null/Empty Inputs - Test understandingToIntent when all Scope fields are empty strings.
+// TODO: TEST_GAP: Type Coercion - Test mapActionToVerb handling extremely long or random unmapped string values to ensure safe fallback to "/explain".
+// TODO: TEST_GAP: User Request Extremes - Test ParseIntentWithContext with massive input string (>10MB) to verify spike detection (updateMsgLenHistory) without OOM.
+// TODO: TEST_GAP: User Request Extremes - Test assertStabilityFacts with empty verbHistory to ensure computeStabilityScore doesn't divide by zero or panic.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when GetLastUnderstanding is called concurrently while ParseIntentWithContext is writing to t.lastUnderstanding.
