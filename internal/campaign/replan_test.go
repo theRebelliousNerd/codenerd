@@ -9,26 +9,33 @@ import (
 )
 
 // TODO: TEST_GAP: Null/Undefined/Empty Input Vectors
-// 1. TestReplan_NilCampaign: Call Replan(ctx, nil, "") and assert it doesn't panic but returns an error.
-// 2. TestReplanForNewRequirement_EmptyRequirement: Call ReplanForNewRequirement(ctx, validCampaign, "") and ensure error handling rejects empty string.
-// 3. TestRefineNextPhase_NilCampaignOrPhase: Ensure RefineNextPhase gracefully returns when campaign or phase is nil.
-// 4. TestReplan_EmptyLLMResponse: Mock the LLM to return `""` or `{}` and verify json unmarshalling fails cleanly without corrupting state.
-// 5. TestReplanner_NilKernel: Verify instantiating NewReplanner with a nil kernel is either rejected or gracefully handled during method calls.
+// - TestReplanner_NilDependencies: Verify that all public methods (Replan, ReplanForNewRequirement, RefineNextPhase) gracefully return ErrNilKernel when the Replanner is instantiated with a nil core.Kernel or nil LLMClient, preventing panics during rollback operations.
+// - TestReplan_EmptyCampaignID: Call Replan with `Campaign{ID: ""}` and verify it returns ErrInvalidCampaignID to prevent asserting empty strings into Mangle atoms.
+// - TestReplan_WhitespaceFailedTaskID: Pass `"   "` as failedTaskID to Replan and verify it is trimmed and treated correctly (either returning an error or defaulting to phase replan) without causing nil pointer dereferences.
+// - TestReplan_EmptyLLMResponse: Mock the LLM to return `{}`, `[]`, `null`, and `""` to verify that `json.Unmarshal` failures or default boolean states (`success: false`) do not corrupt the Go struct state or Mangle DB.
+// - TestReplan_EmptyTaskAttemptError: Feed a Campaign with empty `TaskAttempt.Error` strings to `buildReplanContext` and verify the output formatting remains clean without appending ambiguous context lines.
 
 // TODO: TEST_GAP: Type Coercion & Malformed Data
-// 1. TestReplanForNewRequirement_InvalidEnumTypes: Mock LLM to return invalid strings for enums like `TaskType` (e.g., `"/magic_fix"`) or `TaskPriority` (e.g., `"/super_high"`), and ensure the Replanner falls back to defaults instead of blindly passing invalid values to the kernel.
-// 2. TestRefineNextPhase_MalformedJSON: Pass deeply nested, invalid, or string-escaped JSON outputs from the LLM and assert that the unmarshaling does not cause a panic and the system returns a parsable error for a retry loop.
-// 3. TestRefineNextPhase_InvalidBooleanAndIntegerCoercion: Ensure LLM outputs like `{"success": "true", "phase_order": "0"}` do not trigger fatal parsing failures or crash the campaign progression.
+// - TestReplan_InvalidEnumCoercionToMangle: Mock LLM output with invalid enum strings (e.g., `priority: "URGENT"`). Assert that `normalizeReplanResponse` intercepts these and forces valid defaults before asserting them as Mangle atoms, preventing silent logic failures (0 tuples) in `intent_routing.mg`.
+// - TestReplan_BooleanAndFloatCoercion: Provide `{"success": "true"}` (string) and `{"phase_order": 1.5}` (float) in the LLM payload to ensure `json.Unmarshal` failures prompt a quick retry rather than corrupting execution state.
+// - TestReplan_TruncatedJSONResponse: Mock a token-limit truncation mid-stream (e.g., `{"new_tasks": [{"description": "Write a func`). Assert that the Replanner aborts cleanly and the Kernel transaction rollback is invoked.
+// - TestReplan_HallucinatedTaskID: Return a non-existent task ID (e.g., `/task_test_999`) in the `retry_tasks` array. Verify the system safely skips it or returns a targeted error without panicking on slice bounds out of range.
+// - TestReplan_MangleAtomVsStringDissonance: In Go tests, construct an LLM response with valid string values. After processing, use `store.Read()` to retrieve the raw Mangle facts. Assert that `arg.Type()` explicitly returns `ast.NameType` for Priority, Status, and Type, NOT `ast.StringType`.
 
 // TODO: TEST_GAP: User Request Extremes & System Stress
-// 1. TestContextPager_ExtremeCampaignHistory: Create a mock campaign with 5,000 phases and 100 failed tasks with massive attempt error strings. Assert that `buildReplanContext` truncates or summarizes the text so it does not exceed typical LLM token window limits (e.g., throwing a `TokenLimitExceeded` from the provider).
-// 2. TestReplanner_UnexecutableInvention: Pass an LLM requirement to write code in a non-existent DSL or uninstalled framework. Validate that the system rejects the plan or errors instead of entering an infinite Replan -> Fail loop.
-// 3. TestReplan_PromptInjection: Inject a prompt evasion string (e.g., `"; DROP TABLE; --`) into a mock failed task attempt's error message and assert it is properly delimited and escaped when sent to the LLM via `buildReplanContext`.
+// - TestBuildReplanContext_ExtremeTokenExhaustion: Create a mock Campaign with 50 phases, 200 tasks, and massive error dumps. Assert `buildReplanContext` strictly bounds output length (e.g., `<= maxReplanContextChars`) to prevent HTTP 400 TokenLimitExceeded from the LLM provider.
+// - TestReplan_InfiniteLoopPrevention: Simulate an LLM generating plans for an impossible task. Assert that the Replanner refuses to retry a task whose attempt count exceeds `MaxRetries`, breaking the infinite Replan -> Fail loop.
+// - TestReplan_DeeplyRecursiveDependencies: Mock LLM returning cyclic dependencies (A->B, B->C, C->A). Assert that the Replanner catches this graph cycle before asserting it, or that Mangle's `analysis.Analyze` rejects the transaction.
+// - TestReplan_PromptInjectionInErrors: Inject instruction overrides (e.g., `Ignore previous instructions...`) into `TaskAttempt.Error`. Validate that `buildReplanContext` properly delimits variables (e.g., using `<error>` XML tags) to mitigate injection crossover.
+// - TestReplan_MassiveTaskGeneration: Mock LLM returning 50,000 new tasks. Ensure the Replanner enforces a hard maximum (e.g., 100), rejecting the output to prevent massive Go slice reallocations and SQLite "too many variables" locks.
 
 // TODO: TEST_GAP: State Conflicts & Race Conditions
-// 1. TestConcurrentReplanning_RaceCondition: Spin up 10 goroutines calling `Replan` and `ReplanForNewRequirement` simultaneously on the same `*Campaign` pointer. Run with `-race` to expose the torn write race condition during slice appends, validating the need for a `sync.RWMutex`.
-// 2. TestStateDesync_KernelAssertFailure: Mock the `core.Kernel` to return an error on `Assert()` or `LoadFacts()`. Validate that if the Kernel rejects the update, the `*Campaign` Go struct state is rolled back so the Go engine and Mangle logic engine remain synchronized.
-// 3. TestReplan_MangleFactDuplication: Ensure that when a task's description is updated by the replanner, the previous Mangle fact for that task is explicitly retracted or overwritten, instead of leaving duplicate conflicting facts in the SQLite store.
+// - TestReplan_TornWriteRaceCondition: Spin up 10 goroutines reading `campaign.Phases` and 10 calling `ReplanForNewRequirement`. Run `go test -race` to prove the `sync.Mutex` prevents torn writes during slice appends.
+// - TestReplan_KernelTransactionFailureStateReversibility: Mock `kernel.Transaction()` to return an error midway through asserting tasks. Assert that the Go `*Campaign` struct is completely untouched and reverted to its pre-Replan state.
+// - TestReplan_StaleContextReplanning: Simulate a 15-second LLM delay where `campaign.CompletedTasks` increments in the background. Assert the Replanner detects the state change (via RevisionNumber or counters) and merges safely or aborts.
+// - TestReplan_GhostFactsInKernel: Update a task's priority via the Replanner. Use `core.Kernel` to verify that an explicit retraction of the old fact occurred before the new fact was asserted, preventing Cartesian explosion in Mangle joins.
+// - TestReplan_DuplicateTaskIDsAcrossPhases: Mock the LLM to return `{"task_id": "/task_existing"}` for a new task. Assert that the Replanner forces the generation of a fresh UUID, strictly ignoring hallucinated duplicate IDs.
+// - TestReplan_ConcurrentTaskExecutorCallbacks: Simulate an in-flight task execution while `Replan` skips that same task. Verify that late-arriving results from the skipped task are gracefully dropped and do not resurrect it.
 
 func TestReplanner_RecursionFix(t *testing.T) {
 	// Setup
