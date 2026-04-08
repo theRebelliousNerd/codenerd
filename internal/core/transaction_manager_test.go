@@ -743,6 +743,30 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Empty Inputs.
+// Need tests for:
+// - Begin with empty description
+// - AddEdit with empty FilePath
+// - AddEdit with nil/empty Content for EditTypeCreate/Modify
+// - Calling Prepare/Commit/Abort when no transaction is active (activeTxnID is "")
+
+// TODO: TEST_GAP: State Conflicts / Invalid Transitions.
+// Need tests for:
+// - Calling Begin when a transaction is already active.
+// - Calling AddEdit when transaction Status is not Pending (e.g., after Prepare).
+// - Calling Commit when transaction Status is not Ready (e.g., still Pending or Preparing).
+// - Calling Prepare when transaction is already Ready.
+// - Calling Abort when transaction is already Committed.
+
+// TODO: TEST_GAP: Rollback Resilience and System Errors.
+// Need tests for:
+// - Simulating a file write failure during Commit (e.g., writing to a read-only directory or file) to verify that the rollback() function correctly restores previously written files in the same transaction using the snapshots.
+// - External file modification during a transaction: Simulating a hash mismatch where OldHash doesn't match the current file hash during Prepare.
+
+// TODO: TEST_GAP: Type Coercion / Unknown Values.
+// Need tests for:
+// - AddEdit with an unknown EditType (e.g., EditType("invalid")). Verify it doesn't cause panics during Commit.
+
 // TestTransactionManager_MixedEditTypes tests transactions with create, modify, delete.
 func TestTransactionManager_MixedEditTypes(t *testing.T) {
 	tmpDir := t.TempDir()
