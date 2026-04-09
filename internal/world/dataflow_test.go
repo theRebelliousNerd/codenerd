@@ -1,5 +1,15 @@
 package world
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify that ExtractDataFlow gracefully handles completely empty files (0 bytes) or files with only a package declaration.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify ExtractDataFlowForDirectory handles an empty directory safely without crashing or returning errors.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify ExtractDataFlow handles selector expressions in nil checks (e.g., if a.b == nil) where expr.X is not an *ast.Ident.
+// TODO: TEST_GAP: Type Coercion - Verify that classifyAssignmentType doesn't incorrectly classify 'ok' idioms (e.g., val, ok := map[k]) as 'error' due to its position.
+// TODO: TEST_GAP: Type Coercion - Verify that shadowing 'nil' (nil := 1; if x == nil) does not cause false positive guards_return facts due to string matching.
+// TODO: TEST_GAP: Type Coercion - Verify that array index assignments (e.g., a[0] = 1) aren't silently dropped if they fail *ast.Ident casting.
+// TODO: TEST_GAP: User Request Extremes - Verify ExtractDataFlow has size limits or handles massive auto-generated files (e.g., 250,000+ line Protobuf files) without OOM.
+// TODO: TEST_GAP: User Request Extremes - Verify ExtractDataFlowForDirectory doesn't consume GBs of RAM returning massive slices for repos with 100,000+ files.
+// TODO: TEST_GAP: State Conflicts - Write a concurrency test (run with -race) to verify multiple goroutines calling ExtractDataFlow on the same DataFlowExtractor instance don't corrupt the d.fset field.
+
 import (
 	"codenerd/internal/core"
 	"os"
