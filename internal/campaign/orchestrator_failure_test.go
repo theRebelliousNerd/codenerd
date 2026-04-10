@@ -279,3 +279,10 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify handleTaskFailure behavior when `phase` or `task` pointers are nil, or when the task ID does not exist in the campaign (should not panic, should handle safely).
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify classifyTaskError and handleTaskFailure behavior when `err` is exactly `nil` (should coerce to a default error string or /logic bucket).
+// TODO: TEST_GAP: Type Coercion - Verify computeRetryBackoff handles negative config values (RetryBackoffBase = -1, RetryBackoffMax = -1) by coercing to safe defaults.
+// TODO: TEST_GAP: User Request Extremes - Verify handleTaskFailure with a massive `err.Error()` string (e.g., 50MB of compiler output). Verify it doesn't OOM during `strings.ToLower` or choke the Mangle kernel during `kernel.Assert`.
+// TODO: TEST_GAP: User Request Extremes - Verify infinite recursion protection: manually trigger a failure on a Repro Diagnostic Task and ensure it does not spawn a nested repro task.
+// TODO: TEST_GAP: State Conflicts - Write a concurrency test spawning 50 goroutines calling `handleTaskFailure` simultaneously. Run with `-race` to ensure the unlocked `kernel.Assert` and `updateFailedTaskCount` do not corrupt state.
