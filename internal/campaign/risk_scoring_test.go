@@ -408,3 +408,16 @@ func drainRiskEvents(ch <-chan OrchestratorEvent) map[string]bool {
 		}
 	}
 }
+
+// TODO: TEST_GAP: [Vector A1] TestRiskScoring_CriticalityNorm_EmptyPaths: Provide []string{""}, []string{" "}, and nil paths. Verify no nil pointer dereferences and that criticality score defaults to the expected baseline (10).
+// TODO: TEST_GAP: [Vector A1] TestRiskScoring_DedupeSortedStrings_AllEmpty: Supply a slice of 10,000 empty strings to dedupeSortedStrings and verify it returns a zero-length slice, avoiding allocating a large empty map.
+// TODO: TEST_GAP: [Vector A2] TestBuildCampaignRiskDecision_EmptyIntelligence: Assert that a fully zero-value Intelligence report does not panic and yields the lowest possible safety/capability norms.
+// TODO: TEST_GAP: [Vector A3] TestCampaignMaxComplexity_NilCampaign: Verify campaignMaxComplexity(nil) correctly falls back to "/medium".
+// TODO: TEST_GAP: [Vector B1] TestComplexityToNorm_MalformedStrings: Send strings containing markdown, HTML tags, unicode characters, and null bytes (\x00). Verify strict extraction or safe failure mode.
+// TODO: TEST_GAP: [Vector B2] TestRiskScoring_PathMatchesRiskRoot_DirectoryTraversal: Provide heavily traversed paths and assert they correctly trigger the protected root flag.
+// TODO: TEST_GAP: [Vector B2] TestRiskScoring_PathMatchesRiskRoot_WindowsPaths: Provide paths using \ and assert they are converted or matched correctly against Unix-style protected roots.
+// TODO: TEST_GAP: [Vector C1] TestRiskScoring_DedupeSortedStrings_MassiveDataset: Generate 1,000,000 random file paths. Benchmark the deduplication and sorting. Assert it completes within a reasonable timeout (e.g., < 500ms) without causing OOM.
+// TODO: TEST_GAP: [Vector C2] TestWeightedRiskScore_Extremes: Pass math.MaxInt64, negative values, and math.MinInt64 to weightedRiskScore. Verify that the final clamped score is robustly bounded between 0 and 100.
+// TODO: TEST_GAP: [Vector C3] TestApplyRiskThreshold_ExtremeThresholds: Provide negative thresholds and massive thresholds (> 100). Verify strict upper-bounding to 100.
+// TODO: TEST_GAP: [Vector D1] TestShouldGateTask_ConcurrentMapAccess: Spawn 100 goroutines calling shouldGateTask while concurrently mutating the TaskRiskOverrides map in the orchestrator config. Prove the data race exists and write a failing test to track it.
+// TODO: TEST_GAP: [Vector D2] TestComputeCampaignRiskDecision_ConcurrentCampaignMutation: Continuously append tasks to the Campaign.Phases slice in one goroutine while calculating risk decisions in another. Observe slice bounds out of range panics or data race detector warnings.
