@@ -57,6 +57,8 @@ func TestNewToolGenerator(t *testing.T) {
 }
 
 func TestDetectToolNeed_PatternMatching(t *testing.T) {
+	// TODO: TEST_GAP: Verify DetectToolNeed handles empty strings and null/undefined values efficiently without executing all regex patterns.
+	// TODO: TEST_GAP: Verify DetectToolNeed behavior with massive string inputs (ReDoS protection).
 	client := &MockLLMClient{
 		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
 			return `{"needs_new_tool": true, "tool_name": "test_tool", "purpose": "Test purpose", "input_type": "string", "output_type": "string", "priority": 0.8, "confidence": 0.9, "reasoning": "Test reasoning"}`, nil
@@ -118,6 +120,7 @@ func TestDetectToolNeed_PatternMatching(t *testing.T) {
 }
 
 func TestToolGenerator_GenerateToolCode_JITFallbackDoesNotRecurse(t *testing.T) {
+	// TODO: TEST_GAP: Verify generateToolCodeWithJIT retracts ephemeral facts properly to prevent 'ghost facts' contaminating subsequent tool generations.
 	client := &MockLLMClient{
 		CompleteWithSystemFunc: func(ctx context.Context, system, user string) (string, error) {
 			return "```go\npackage tools\n\nfunc generated() {}\n```", nil
@@ -313,6 +316,7 @@ var x = fmt.Sprintf("test")
 }
 
 func TestValidateCodeAST_DangerousImports(t *testing.T) {
+	// TODO: TEST_GAP: Verify validateCodeAST rejects third-party/unknown imports (safelisting) instead of just checking for 'unsafe' and 'syscall'.
 	tg := NewToolGenerator(&MockLLMClient{}, "/tmp/tools")
 
 	dangerousCode := `package tools
@@ -517,6 +521,8 @@ func TestGetZeroValue(t *testing.T) {
 // =============================================================================
 
 func TestWriteTool(t *testing.T) {
+	// TODO: TEST_GAP: Verify WriteTool concurrent execution handles file locking/race conditions safely.
+	// TODO: TEST_GAP: Verify WriteTool handles extreme length generated file names without OS-level ENAMETOOLONG errors.
 	// Create temp directory
 	tmpDir, err := os.MkdirTemp("", "toolgen-test-*")
 	if err != nil {
@@ -597,6 +603,7 @@ func TestRegisterTool(t *testing.T) {
 // =============================================================================
 
 func TestExtractJSON(t *testing.T) {
+	// TODO: TEST_GAP: Verify JSON unmarshaling in refineToolNeedWithLLM handles LLM type coercion errors gracefully (e.g. string 'true' vs boolean true).
 	tests := []struct {
 		name  string
 		input string
@@ -635,6 +642,7 @@ func TestExtractJSON(t *testing.T) {
 }
 
 func TestExtractCodeBlock(t *testing.T) {
+	// TODO: TEST_GAP: Verify extractCodeBlock handles entirely empty inputs or malformed backticks gracefully without out-of-bounds panics.
 	tests := []struct {
 		name  string
 		input string
