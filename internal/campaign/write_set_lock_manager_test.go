@@ -165,3 +165,17 @@ func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 		t.Fatalf("expected maxActive=1 for shared write_set, got %d", maxActive)
 	}
 }
+
+// TODO: TEST_GAP: Null/Empty: Verify behavior when workspace is an empty string in newWriteSetLockManager (does it allow arbitrary system paths?).
+// TODO: TEST_GAP: Null/Empty: Verify acquire behavior when writeSet contains empty strings, whitespace-only strings, or null characters.
+// TODO: TEST_GAP: Null/Empty: Verify acquire fails safely when taskID is only whitespace.
+// TODO: TEST_GAP: Type Coercion/Formatting: Verify path normalization and boundary checks with complex relative paths (e.g., symlinks pointing outside workspace, paths with null bytes \x00).
+// TODO: TEST_GAP: User Request Extremes: Verify performance and stability when acquiring a write set of 100,000 files (checking for mutex starvation).
+// TODO: TEST_GAP: User Request Extremes: Verify behavior when pollInterval is set to 1ns (does it cause CPU exhaustion?).
+// TODO: TEST_GAP: State Conflicts: Verify that if two concurrent requests use the EXACT SAME taskID, they do not both get granted the lock (Task ID collision breaking mutual exclusion).
+// TODO: TEST_GAP: State Conflicts: Verify behavior if a lease is manually released via manager.releasePaths instead of lease.release(), and then lease.release() is called.
+// TODO: TEST_GAP: User Request Extremes: Verify behavior when path length exceeds OS MAX_PATH limits (e.g., 3000 chars) due to deeply nested generated code structures.
+// TODO: TEST_GAP: State Conflicts: Verify lack of hierarchical locking (Task A locking directory "src/", Task B locking file "src/a.go" - they will not conflict, which might be a bug depending on system design).
+// TODO: TEST_GAP: Null/Empty: Verify acquire behavior when ctx is nil, ensuring it doesn't cause a panic but still respects bounds.
+// TODO: TEST_GAP: Type Coercion: Verify behavior of normalizeAbsolutePath when given bizarre inputs like unprintable Unicode or paths entirely constructed of backslashes.
+// TODO: TEST_GAP: User Request Extremes: Verify Memory/GC pressure when `normalizeWriteSetPaths` is called repeatedly with huge slices (e.g., in a tight polling loop).
