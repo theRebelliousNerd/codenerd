@@ -214,3 +214,14 @@ func TestJITExecutor_ExecuteAsync(t *testing.T) {
 		t.Errorf("Expected 'Async result', got '%s'", res)
 	}
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior when task and intent strings are entirely empty in Execute and ExecuteWithContext.
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior when sessionCtx is a non-nil pointer to an empty struct (&types.SessionContext{}) in ExecuteWithContext.
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify GetResult and WaitForResult gracefully handle empty ("") or whitespace-only taskID values.
+// TODO: TEST_GAP: Type Coercion: Verify behavior when intent strings contain malformed prefixes, multiple slashes, or invalid Unicode characters.
+// TODO: TEST_GAP: User Request Extremes: Verify system stability and memory behavior when the task payload is massive (e.g., 50MB string).
+// TODO: TEST_GAP: User Request Extremes: Verify Spawner handles extreme priority values (math.MinInt, math.MaxInt) gracefully during ExecuteWithContext/ExecuteAsync.
+// TODO: TEST_GAP: User Request Extremes: Verify proper error bubbling when ExecuteAsync exhausts the Spawner's MaxActiveSubagents limit.
+// TODO: TEST_GAP: State Conflicts: Detect data races when ExecuteWithContext is called concurrently by multiple goroutines (due to SetSessionContext being non-thread-safe).
+// TODO: TEST_GAP: State Conflicts: Verify WaitForResult strictly respects context cancellation (ctx.Done()) without leaking goroutines.
+// TODO: TEST_GAP: State Conflicts: Verify thread safety of the internal `results` map when ExecuteAsync, GetResult, and internal callbacks run under heavy concurrency.
