@@ -479,3 +479,18 @@ func BenchmarkExtractPathFromDescription(b *testing.B) {
 		}
 	}
 }
+
+// TODO: TEST_GAP: TestExecuteTask_NilTask
+// Verify that passing a nil task to executeTask does not cause a panic.
+
+// TODO: TEST_GAP: TestExecuteFileTask_EmptyArtifactsAndDescription
+// Verify behavior when Artifacts is empty and target path cannot be extracted from description.
+
+// TODO: TEST_GAP: TestExecuteFileTaskFallback_PathTraversal
+// Verify that path traversal attacks (e.g. ../../) are rejected or sanitized.
+
+// TODO: TEST_GAP: TestExtractCodeBlock_ExtremeSize
+// Verify that extremely large inputs to extractCodeBlock do not cause OOM or timeout.
+
+// TODO: TEST_GAP: TestExecuteToolCreateTask_ContextCancellation
+// Verify that executeToolCreateTask returns immediately upon context cancellation.
