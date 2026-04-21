@@ -23,6 +23,12 @@ func TestConfigFactory_Generate(t *testing.T) {
 	// TODO: TEST_GAP: Type Coercion: Verify behavior when Priority is negative, math.MinInt, or math.MaxInt (ensure highest priority correctly resolves).
 	// TODO: TEST_GAP: User Request Extremes: Verify CPU/Memory limits and deduplication efficiency when providing a massive array of intents (e.g., 10,000+).
 	// TODO: TEST_GAP: State Conflicts: Add concurrency test verifying map access safety when dynamically calling RegisterAtom while Generate is executing on the default provider.
+	// TODO: TEST_GAP: Null/Undefined/Empty: Verify behavior when tools or policies in a returned ConfigAtom are nil.
+	// TODO: TEST_GAP: Type Coercion: Verify deterministic ordering of tools/policies when deduplicating from multiple intents.
+	// TODO: TEST_GAP: User Request Extremes: Verify performance and memory behavior when merging an atom with thousands of tools.
+	// TODO: TEST_GAP: User Request Extremes: Verify stability under recursive ConfigFactory generations.
+	// TODO: TEST_GAP: State Conflicts: Add concurrency tests verifying safe map reads on DefaultConfigAtomProvider across multiple subagents.
+	// TODO: TEST_GAP: State Conflicts: Verify slice copy semantics to prevent aliasing cross-contamination between configurations.
 
 	provider := &MockConfigAtomProvider{
 		atoms: map[string]ConfigAtom{
