@@ -128,6 +128,11 @@ func TestMCPToolStoreServerAndToolLifecycle(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify `SaveServer` handles a completely nil server object, empty ServerID, or empty Endpoints.
+// TODO: TEST_GAP: Type Coercion - Verify `RecordToolUsage` correctly handles negative latency values, or extreme boolean coercions (if applicable from outer API boundaries).
+// TODO: TEST_GAP: User Request Extremes - Verify `SaveTool` handles a tool with 10,000 element embedding arrays, a 50MB InputSchema, or extreme Unicode character strings in descriptions.
+// TODO: TEST_GAP: State Conflicts - Add concurrency tests using `t.Run` and `t.Parallel()` to spam `RecordToolUsage`, `SaveTool`, and `SaveServer` simultaneously to trigger potential race conditions in SQLite interactions.
+
 func newTestStore(t *testing.T) *MCPToolStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "mcp.db")
