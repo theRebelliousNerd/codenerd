@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify Validate behavior when result.Output == "". Should return cleanly without panic.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify validateCommandSpecific behavior when req.Target == "". Should fallback safely.
+// TODO: TEST_GAP: State Conflicts - Verify behavior when context is cancelled (ctx.Done()) before or during Validate. Must return unverified/error, not generic success.
+// TODO: TEST_GAP: Type Coercion - Verify Validate handles string with ANSI color codes (e.g. "\x1b[31merror:\x1b[0m") hiding the failure keywords.
+// TODO: TEST_GAP: Type Coercion - Verify extractContext correctly handles multi-byte UTF-8 runes (e.g., emojis or Shift-JIS) without returning strings containing torn bytes (\uFFFD).
+// TODO: TEST_GAP: Type Coercion - Verify Validate handles output strings containing binary data / null bytes (\x00).
+// TODO: TEST_GAP: User Request Extremes - Verify Validate performance against a massive 50MB output string. Ensure no CPU spikes or OOM crashes due to regex iteration or `extractContext`.
+// TODO: TEST_GAP: State Conflicts - Verify concurrency safety (race condition). Spawn 50 goroutines simultaneously calling Validate and AddFailurePattern on a shared ExecutionValidator.
+// TODO: TEST_GAP: Security/Heuristics - Verify false positives from chained/aliased commands (e.g., req.Target = "echo 'go test' && npm install").
+// TODO: TEST_GAP: ReDoS Vulnerability - Verify `.*` patterns against massive 50 million character lines to ensure linear time execution and no catastrophic backtracking.
+
 func TestExecutionValidator_New(t *testing.T) {
 	v := NewExecutionValidator()
 	if v == nil {
