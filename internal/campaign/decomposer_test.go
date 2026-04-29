@@ -498,3 +498,14 @@ func sampleRawPlanJSON(title string) string {
 // TODO: TEST_GAP: TestRefinePlan_TxCommitFail
 // Mock tx.Commit() to return error during atomic rebuild failure.
 // Reverts state, returns error, logs warning.
+
+// TODO: TEST_GAP: Null/Undefined: Verify DecomposeRequest with empty SourcePaths [""] does not panic or infinitely loop.
+// TODO: TEST_GAP: Null/Undefined: Verify DecomposeRequest with ContextBudget=0 defaults correctly without zero-division errors.
+// TODO: TEST_GAP: Type Coercion: Verify behavior when LLM returns JSON with type mismatches (e.g., string for integer fields).
+// TODO: TEST_GAP: Type Coercion: Verify Mangle fact assertion sanitizes user input containing illegal Mangle characters (e.g., ')', '.').
+// TODO: TEST_GAP: User Extremes: Verify Decompose with a massive 100MB Goal string enforces limits and avoids OOM.
+// TODO: TEST_GAP: User Extremes: Verify cleanJSONResponse handles a massive 50MB malformed string without freezing the CPU.
+// TODO: TEST_GAP: State Conflicts: Verify Data Race conditions on d.lastIntelligence during concurrent Decompose calls.
+// TODO: TEST_GAP: State Conflicts: Verify RefinePlan handles database transaction failures with a clean rollback.
+// TODO: TEST_GAP: State Conflicts: Verify ingestSourceDocuments respects context cancellation immediately (no goroutine leaks).
+// TODO: TEST_GAP: User Extremes: Verify ingestSourceDocuments rejects special infinite files (e.g., /dev/zero) or enforces strict read limits.
