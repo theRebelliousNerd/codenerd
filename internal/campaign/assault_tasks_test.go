@@ -170,3 +170,28 @@ func TestChunkStrings(t *testing.T) {
 type mockKernel struct {
 	*core.RealKernel
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty - TestExecuteAssaultDiscoverTask_NilCampaign: Ensure discover fails gracefully without panics if orchestrator.campaign is nil.
+// TODO: TEST_GAP: Null/Undefined/Empty - TestGetAssaultConfig_NilConfig_ReturnsDefaults: Verify getAssaultConfig returns defaults if campaign.Assault is nil.
+// TODO: TEST_GAP: Null/Undefined/Empty - TestRunCommandStage_EmptyCommand_FailsGracefully: Ensure empty string commands return an error rather than spawning empty shell processes.
+// TODO: TEST_GAP: Null/Undefined/Empty - TestDiscoverGoTargets_EmptyIncludesExcludes_Ignored: Verify discovery handles nil or empty string array configurations safely.
+// TODO: TEST_GAP: Null/Undefined/Empty - TestExecuteAssaultTriageTask_MissingArtifacts_HandlesEmptyLog: Ensure triage works when results.jsonl is empty or entirely missing.
+// TODO: TEST_GAP: Null/Undefined/Empty - TestLLMAssaultRemediationPlan_NilClient_ReturnsEmpty: Ensure a nil llmClient falls back gracefully.
+
+// TODO: TEST_GAP: Type Coercion - TestReadAssaultResults_CorruptedJSONL_SkipsLine: Ensure parsing skips malformed JSON lines rather than failing the whole batch.
+// TODO: TEST_GAP: Type Coercion - TestNewAssaultExecutor_NegativeTimeout_ClampsToDefault: Verify negative timeouts are coerced to a safe default.
+// TODO: TEST_GAP: Type Coercion - TestRunAssaultStage_InvalidStageKind_ReturnsError: Verify invalid stage kind strings trigger a handled error.
+// TODO: TEST_GAP: Type Coercion - TestTargetToDir_PathTraversalAndNullBytes_Sanitized: Verify path inputs are sanitized.
+// TODO: TEST_GAP: Type Coercion - TestAssaultTarget_SpecialCharacters_MangleSafe: Verify directories with special characters don't break Mangle fact generation.
+
+// TODO: TEST_GAP: User Request Extremes - TestDiscoverAssaultTargets_MassiveScaleOOMPrevention: Verify discovery logic scales for 500k file monorepos without OOM.
+// TODO: TEST_GAP: User Request Extremes - TestRunCommandStage_InfiniteStdout_TruncatesCleanly: Verify runaway test outputs are cleanly truncated.
+// TODO: TEST_GAP: User Request Extremes - TestBuildAssaultSummary_TokenLimitEnforcement_MassiveFailures: Verify triage summaries enforce token limits.
+// TODO: TEST_GAP: User Request Extremes - TestChunkStrings_ExtremeBatchSizes_BoundsCheck: Verify chunking handles MaxInt32, 0, and negative numbers.
+// TODO: TEST_GAP: User Request Extremes - TestExecuteAssaultTriage_InfiniteLoopPrevention_MaxCycles: Verify maximum cycle limits are enforced correctly.
+
+// TODO: TEST_GAP: State Conflicts - TestAssaultBatchTask_TargetDeletedMidFlight_GracefulSkip: Ensure missing targets during batch run do not crash execution.
+// TODO: TEST_GAP: State Conflicts - TestAppendJSONL_ConcurrencyStress_NoInterleaving: Run 500 parallel appends to verify atomic JSONL writes under load.
+// TODO: TEST_GAP: State Conflicts - TestLockedWorkspaceFiles_HandlesSharingViolations: Test executor behavior when targeting files locked by Windows OS.
+// TODO: TEST_GAP: State Conflicts - TestExecuteAssaultTriageTask_Idempotency_NoDuplicateTasks: Ensure retrying the triage phase doesn't duplicate remediation tasks.
+// TODO: TEST_GAP: State Conflicts - TestExecuteAssaultBatchTask_ContextCancellation_ImmediateExit: Verify context timeouts exit loops immediately.
