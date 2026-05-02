@@ -4,6 +4,25 @@ import (
 	"testing"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify Query with uninitialized kernel fails safely without panicking.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify QueryAll safely handles k.programInfo == nil without panicking.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify ParseFactString handles empty strings ("") or just a period (".") cleanly.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify LoadFactsFromFile safely ignores empty files without crashing.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify Query fails cleanly when given an empty predicate string.
+
+// TODO: TEST_GAP: Type Coercion - Verify baseTermToValue fallback for unknown Mangle AST primitives.
+// TODO: TEST_GAP: Type Coercion - Verify factMatchesPattern differentiates between String ("alice") and Name Atom (/alice).
+// TODO: TEST_GAP: Type Coercion - Verify Query preserves numeric precision when converting between float64 and integer.
+
+// TODO: TEST_GAP: User Request Extremes - Verify Query handles a pattern with a massive number of arguments (arity > 1000).
+// TODO: TEST_GAP: User Request Extremes - Verify QueryAll can handle huge EDBs (e.g., 1,000,000 facts) without OOM or stall.
+// TODO: TEST_GAP: User Request Extremes - Verify LoadFactsFromFile rejects or safely processes 500MB+ `.mg` files.
+// TODO: TEST_GAP: User Request Extremes - Verify ParseFactString does not stack overflow on deeply nested logical recursion strings.
+
+// TODO: TEST_GAP: State Conflicts - Verify concurrent reads (Query) don't starve write locks (UpdateSystemFacts).
+// TODO: TEST_GAP: State Conflicts - Verify UpdateSystemFacts resolves cleanly when git commands hang (context cancellation).
+// TODO: TEST_GAP: State Conflicts - Verify LoadFactsFromFile handles Time-of-Check to Time-of-Use (TOCTOU) file deletion gracefully.
+
 func TestKernelQuery_Parse(t *testing.T) {
 	k := setupMockKernel(t)
 	k.AppendPolicy("Decl foo(Name).")
