@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -24,9 +25,10 @@ const (
 
 // ShardPageModel defines the state of the Shard Console.
 type ShardPageModel struct {
-	width  int
-	height int
-	table  table.Model
+	width           int
+	height          int
+	table           table.Model
+	detailsViewport viewport.Model
 
 	// Data
 	activeShards   []types.ShardAgent
@@ -34,9 +36,10 @@ type ShardPageModel struct {
 	backpressure   *coreshards.BackpressureStatus
 
 	// Filter state
-	filterInput   textinput.Model
-	filterMode    ShardFilterMode
-	filterFocused bool // Whether filter input is focused
+	filterInput    textinput.Model
+	filterMode     ShardFilterMode
+	filterFocused  bool // Whether filter input is focused
+	detailsFocused bool // Whether details viewport is focused
 
 	// Styles
 	styles Styles
@@ -61,13 +64,18 @@ func NewShardPageModel() ShardPageModel {
 	fi.CharLimit = 50
 	fi.Width = 40
 
+	// Initialize details viewport
+	vp := viewport.New(0, 0)
+	vp.SetContent("Select a shard to see details")
+
 	return ShardPageModel{
-		table:          t,
-		filterInput:    fi,
-		filterMode:     FilterModeAll,
-		filterFocused:  false,
-		filteredShards: make([]types.ShardAgent, 0),
-		styles:         DefaultStyles(),
+		table:           t,
+		detailsViewport: vp,
+		filterInput:     fi,
+		filterMode:      FilterModeAll,
+		filterFocused:   false,
+		filteredShards:  make([]types.ShardAgent, 0),
+		styles:          DefaultStyles(),
 	}
 }
 
@@ -94,8 +102,18 @@ func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
 			}
 			return m, nil
 		case "tab":
-			// Cycle through filter modes
+			// Cycle through filter modes OR focus
 			if !m.filterFocused {
+				m.detailsFocused = !m.detailsFocused
+				if m.detailsFocused {
+					m.table.Blur()
+				} else {
+					m.table.Focus()
+				}
+			}
+		case "m":
+			// Cycle through filter modes
+			if !m.filterFocused && !m.detailsFocused {
 				m.filterMode = (m.filterMode + 1) % 4
 				m.applyFilter()
 			}
@@ -123,10 +141,19 @@ func (m ShardPageModel) Update(msg tea.Msg) (ShardPageModel, tea.Cmd) {
 		cmds = append(cmds, cmd)
 		// Apply filter on each keystroke for live filtering
 		m.applyFilter()
+	} else if m.detailsFocused {
+		m.detailsViewport, cmd = m.detailsViewport.Update(msg)
+		cmds = append(cmds, cmd)
 	} else {
-		// Update table when not filtering
+		// Update table when not filtering or in details
+		oldCursor := m.table.Cursor()
 		m.table, cmd = m.table.Update(msg)
 		cmds = append(cmds, cmd)
+
+		// Update details if cursor moved
+		if m.table.Cursor() != oldCursor {
+			m.updateDetails()
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -190,6 +217,7 @@ func (m *ShardPageModel) updateTableRows() {
 		})
 	}
 	m.table.SetRows(rows)
+	m.updateDetails()
 }
 
 // ClearFilter clears the filter text and resets to show all shards
@@ -205,8 +233,60 @@ func (m *ShardPageModel) SetFilterMode(mode ShardFilterMode) {
 	m.applyFilter()
 }
 
+// updateDetails updates the details viewport based on selection
+func (m *ShardPageModel) updateDetails() {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.filteredShards) {
+		m.detailsViewport.SetContent("No shard selected")
+		return
+	}
+
+	shard := m.filteredShards[idx]
+	m.detailsViewport.SetContent(m.renderShardDetails(shard))
+}
+
+// renderShardDetails renders detailed information for a shard
+func (m *ShardPageModel) renderShardDetails(s types.ShardAgent) string {
+	cfg := s.GetConfig()
+	state := s.GetState()
+
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString(m.styles.Bold.Render("Shard ID: ") + s.GetID() + "\n")
+	sb.WriteString(m.styles.Bold.Render("Type:     ") + string(cfg.Type) + "\n")
+	sb.WriteString(m.styles.Bold.Render("Status:   ") + string(state) + "\n\n")
+
+	// Model Info
+	sb.WriteString(m.styles.Header.Render(" Model Config ") + "\n")
+	sb.WriteString(fmt.Sprintf("Name:       %s\n", cfg.Model.Name))
+	sb.WriteString(fmt.Sprintf("Capability: %s\n\n", cfg.Model.Capability))
+
+	// Permissions
+	sb.WriteString(m.styles.Header.Render(" Permissions ") + "\n")
+	if len(cfg.Permissions) == 0 {
+		sb.WriteString("None\n")
+	} else {
+		for _, p := range cfg.Permissions {
+			sb.WriteString(fmt.Sprintf("• %s\n", p))
+		}
+	}
+	sb.WriteString("\n")
+
+	// Tools
+	sb.WriteString(m.styles.Header.Render(" Tools ") + "\n")
+	if len(cfg.Tools) == 0 {
+		sb.WriteString("None\n")
+	} else {
+		for _, t := range cfg.Tools {
+			sb.WriteString(fmt.Sprintf("• %s\n", t))
+		}
+	}
+
+	return sb.String()
+}
+
 // View renders the page.
-// TODO: Add detailed view for selected shard
 func (m ShardPageModel) View() string {
 	var sb strings.Builder
 
@@ -226,8 +306,39 @@ func (m ShardPageModel) View() string {
 	sb.WriteString(m.renderFilterBar())
 	sb.WriteString("\n\n")
 
-	// Table
-	sb.WriteString(m.styles.Content.Render(m.table.View()))
+	// Main content: Table + Details
+	tableBorder := lipgloss.NormalBorder()
+	if !m.detailsFocused && !m.filterFocused {
+		tableBorder = lipgloss.ThickBorder()
+	}
+	tableView := lipgloss.NewStyle().
+		Border(tableBorder).
+		BorderForeground(func() lipgloss.Color {
+			if !m.detailsFocused && !m.filterFocused {
+				return m.styles.Theme.Primary
+			}
+			return m.styles.Theme.Outline
+		}()).
+		Render(m.table.View())
+
+	detailsBorder := lipgloss.NormalBorder()
+	if m.detailsFocused {
+		detailsBorder = lipgloss.ThickBorder()
+	}
+	detailsView := lipgloss.NewStyle().
+		Border(detailsBorder).
+		BorderForeground(func() lipgloss.Color {
+			if m.detailsFocused {
+				return m.styles.Theme.Primary
+			}
+			return m.styles.Theme.Outline
+		}()).
+		Width(m.detailsViewport.Width).
+		Height(m.detailsViewport.Height).
+		Render(m.detailsViewport.View())
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, tableView, " ", detailsView)
+	sb.WriteString(content)
 
 	// Filter count
 	if len(m.filteredShards) != len(m.activeShards) {
@@ -279,7 +390,7 @@ func (m ShardPageModel) renderFilterBar() string {
 	}
 
 	// Help hint
-	hint := m.styles.Muted.Render("[/] Filter  [Tab] Mode")
+	hint := m.styles.Muted.Render("[/] Filter  [Tab] Focus  [m] Mode")
 	sb.WriteString("  ")
 	sb.WriteString(hint)
 
@@ -290,8 +401,16 @@ func (m ShardPageModel) renderFilterBar() string {
 func (m *ShardPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
-	m.table.SetWidth(w - 4)
-	m.table.SetHeight(h - 6)
+
+	// Calculate widths for split view
+	leftWidth := int(float64(w) * SplitPaneLeftRatio)
+	rightWidth := w - leftWidth - SplitPaneDivider
+
+	m.table.SetWidth(leftWidth - 2)
+	m.table.SetHeight(h - 12)
+
+	m.detailsViewport.Width = rightWidth - 2
+	m.detailsViewport.Height = h - 12
 }
 
 // UpdateContent updates the data.
