@@ -63,6 +63,11 @@ func (m *mockKernel) Reset() {
 func (m *mockKernel) RemoveFactsByPredicateSet(map[string]struct{}) error { return nil }
 func (m *mockKernel) RetractExactFactsBatch([]core.Fact) error            { return nil }
 
+// TODO: TEST_GAP: (Null/Undefined/Empty) Add tests for empty or highly whitespace-padded query strings to ensure they return fast zero-matches or handle gracefully without engine panics.
+// TODO: TEST_GAP: (Type Coercion) Add tests injecting strings instead of Atoms or vice versa during fact assertion to ensure SemanticClassifier gracefully handles mismatched types in Mangle.
+// TODO: TEST_GAP: (User Request Extremes) Add boundary analysis tests simulating frontier-length prompts (e.g., 200k tokens) and extreme vector sizes (e.g., 8192 dims instead of 3072) to test memory safety and latency.
+// TODO: TEST_GAP: (State Conflicts) Add parallel/concurrent classification tests checking for race conditions around the in-memory maps or lock contention during `Classify()`.
+
 func TestDefaultSemanticConfig(t *testing.T) {
 	cfg := DefaultSemanticConfig()
 
