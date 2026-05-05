@@ -28,6 +28,9 @@ import (
 // - Variables (e.g., Atom, X, _) are treated as wildcards.
 // - Constants (name constants like /foo, strings like "bar", numbers) must match.
 func (k *RealKernel) Query(predicate string) ([]Fact, error) {
+	if predicate == "" {
+		return nil, fmt.Errorf("cannot query empty predicate string")
+	}
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
 	logging.KernelDebug("Query: predicate=%s", predicate)
 
@@ -394,6 +397,9 @@ func baseTermToValue(term ast.BaseTerm) interface{} {
 //   - Numbers: 42, 3.14
 func ParseFactString(factStr string) (Fact, error) {
 	// Wrap in a minimal program to allow parsing
+	if strings.TrimSpace(factStr) == "" || strings.TrimSpace(factStr) == "." {
+		return Fact{}, fmt.Errorf("cannot parse empty fact string")
+	}
 	programStr := factStr + "."
 	parsed, err := parse.Unit(strings.NewReader(programStr))
 	if err != nil {

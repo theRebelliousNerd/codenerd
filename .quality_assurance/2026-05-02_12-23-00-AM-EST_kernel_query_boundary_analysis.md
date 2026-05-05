@@ -402,3 +402,19 @@ Mangle might have an internal limit on the length of a string literal. If we que
 ### 19. Context Cancelation During Initialization
 If `UpdateSystemFacts` is called during kernel boot, and the context is immediately canceled by the user pressing Ctrl+C, what state is left behind?
 * **Test:** Pass a canceled context to any system initialization wrappers using `UpdateSystemFacts` and assert the kernel shuts down cleanly.
+
+## Remediation Update - 2026-05-05 14:00 EST
+
+- Status: mostly remediated
+- Run journal path: .quality_assurance/remediation/2026-05-05_13-50-00-EST_patch_kernel_query.md
+- Branch: patch/remediate-kernel_query-20260505-135000
+- Findings remediated: Empty query edge cases, empty parsed fact edgecases, type fallbacks, toctou.
+- Tests added: `TestQuery_UninitializedKernel`, `TestQueryAll_ProgramInfoNil`, `TestParseFactString_Empty`, `TestLoadFactsFromFile_Empty`, `TestQuery_EmptyPredicate`, `TestBaseTermToValue_Fallback`, `TestFactMatchesPattern_StringVsName`, `TestQuery_NumericPrecision`, `TestLoadFactsFromFile_TOCTOU`
+- Production fixes: Return error for empty `predicate` queries. Return error for empty parses in `ParseFactString`.
+- Findings covered already / obsolete / invalid: N/A
+- Deferred findings and why:
+  - Query handle massive number of arguments - deferred due to underlying Mangle execution behavior being unsafe for standard CI testing limits.
+  - QueryAll huge EDBs - huge resource footprint unsafe for unit CI.
+  - LoadFactsFromFile 500MB+ - extreme memory.
+  - ParseFactString nested recursion - stack overflow vulnerability in Mangle.
+  - Concurrent UpdateSystemFacts/Query starvation - inherently flaky under standard test runners.
