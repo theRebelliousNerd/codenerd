@@ -193,8 +193,10 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 // TODO: TEST_GAP: Null/Empty: Verify Spawn behavior when SpawnRequest.Task is empty.
 // TODO: TEST_GAP: Null/Empty: Verify Stop behavior when given an empty ID.
 // TODO: TEST_GAP: Null/Empty: Verify loadSpecialistConfig gracefully handles an empty name.
+// TODO: TEST_GAP: Null/Empty: Verify SpawnSpecialist behavior with empty name and malformed path injection (e.g. "../../../etc/passwd").
 
 // TODO: TEST_GAP: Type Coercion: Verify Spawn behavior when an invalid integer is passed for SubAgentType.
+// TODO: TEST_GAP: Type Coercion: Verify Spawn behavior when negative or massive Timeout values are supplied.
 // TODO: TEST_GAP: Type Coercion: Verify determineAgentName handles unexpected Intent properties.
 
 // TODO: TEST_GAP: User Request Extremes: Verify SpawnSpecialist handles massive config.yaml files.
@@ -203,3 +205,6 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 // TODO: TEST_GAP: State Conflicts: Verify TOCTOU condition where MaxActiveSubagents limit is checked and then another subagent is spawned concurrently.
 // TODO: TEST_GAP: State Conflicts: Verify Stop behavior when Stop is called simultaneously from multiple goroutines for the same agent ID.
 // TODO: TEST_GAP: State Conflicts: Verify thread safety of Cleanup when called concurrently with Spawn/Stop/ListActive.
+// TODO: TEST_GAP: State Conflicts: Verify Spawner.GetByName predictability when multiple active subagents share a name.
+// TODO: TEST_GAP: State Conflicts: Verify StopAll concurrent with Cleanup and Spawn.
+// TODO: TEST_GAP: State Conflicts: Verify generateConfig falls back completely when both JIT compilation attempts fail and returns an empty AgentConfig.

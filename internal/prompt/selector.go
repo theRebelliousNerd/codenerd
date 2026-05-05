@@ -485,6 +485,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
+	// TODO: Performance: Phase 1 (Skeleton) and Phase 2 (Flesh) are independent and can be executed concurrently to reduce total selection time.
 	// =========================================================================
 	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
 	if err != nil {
@@ -537,7 +538,7 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 
 // SelectAtomsLegacy is the original implementation for backwards compatibility.
 // Deprecated: Use SelectAtoms with System 2 bifurcation instead.
-// TODO: Performance: Deprecate and remove this legacy method to reduce maintenance burden.
+// TODO: Technical Debt: Schedule for removal in vNext to reduce maintenance burden and codebase size.
 func (s *AtomSelector) SelectAtomsLegacy(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -1073,6 +1074,8 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
+// TODO: Performance: Replace fmt.Sprintf with a specialized FactBuilder or buffer pool to reduce allocation pressure in hot loops.
+// This function allocates thousands of strings per compilation.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
 	// Pre-allocate facts array to minimize reallocation.
 	facts := make([]interface{}, 0, 15+len(atoms)*15)
@@ -1211,6 +1214,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 }
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
+// TODO: Performance: Eliminate fmt.Sprintf fallback. Use type switches for all primitive types to avoid reflection overhead.
 func extractStringArg(arg interface{}) string {
 	switch v := arg.(type) {
 	case string:
@@ -1219,8 +1223,12 @@ func extractStringArg(arg interface{}) string {
 		return strconv.Itoa(v)
 	case int64:
 		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'g', -1, 32)
 	case bool:
 		return strconv.FormatBool(v)
 	case fmt.Stringer:

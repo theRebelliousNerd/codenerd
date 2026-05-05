@@ -144,8 +144,8 @@ IMPORTANT: Be specific to THIS project, not generic. Extract real insights from 
 		}
 
 		response, err = i.withJITPrompt(ctx, "analysis", prompt, &profile, func(ctx context.Context, p string) (string, error) {
-			res, _, e := i.grounding.CompleteWithGrounding(ctx, p)
-			return res, e
+			resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+			return resp, err
 		})
 
 		// Capture grounding sources
@@ -512,9 +512,9 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 		var response string
 		var err error
 		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
-			response, err = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
-				res, _, e := i.grounding.CompleteWithGrounding(ctx, p)
-				return res, e
+			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
+				resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+				return resp, err
 			})
 			// Capture grounding sources
 			sources := i.grounding.CaptureGroundingSources()
@@ -524,7 +524,7 @@ Be specific and extract only genuinely useful insights. Skip boilerplate.
 				i.mu.Unlock()
 			}
 		} else {
-			response, err = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
+			response, err = i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
 				return i.config.LLMClient.Complete(ctx, p)
 			})
 		}
@@ -619,7 +619,7 @@ Categories: architecture, philosophy, pattern, capability, constraint, integrati
 Focus on high-level architectural decisions, core philosophy, and system boundaries.
 `, doc.Title)
 
-	response, err := i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
+	response, err := i.withJITPrompt(ctx, "kb_agent", prompt, nil, func(ctx context.Context, p string) (string, error) {
 		return i.config.LLMClient.Complete(ctx, p)
 	})
 	if err != nil {
@@ -767,9 +767,9 @@ Respond with JSON matching this structure:
 	var response string
 	if i.grounding != nil && i.grounding.IsGroundingAvailable() {
 		var grErr error
-		response, grErr = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
-			res, _, e := i.grounding.CompleteWithGrounding(ctx, p)
-			return res, e
+		response, grErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
+			resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+			return resp, err
 		})
 		if grErr != nil {
 			return nil, fmt.Errorf("synthesis LLM call failed: %w", grErr)
@@ -783,7 +783,7 @@ Respond with JSON matching this structure:
 		}
 	} else {
 		var llmErr error
-		response, llmErr = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
+		response, llmErr = i.withJITPrompt(ctx, "kb_complete", prompt, nil, func(ctx context.Context, p string) (string, error) {
 			return i.config.LLMClient.Complete(ctx, p)
 		})
 		if llmErr != nil {
@@ -1069,8 +1069,8 @@ Prefer fewer, high-quality documents over including everything.
 		var err error
 		if i.grounding != nil && i.grounding.IsGroundingAvailable() {
 			response, err = i.withJITPrompt(ctx, "analysis", prompt, nil, func(ctx context.Context, p string) (string, error) {
-				res, _, e := i.grounding.CompleteWithGrounding(ctx, p)
-				return res, e
+				resp, _, err := i.grounding.CompleteWithGrounding(ctx, p)
+				return resp, err
 			})
 			// Capture grounding sources
 			sources := i.grounding.CaptureGroundingSources()

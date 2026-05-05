@@ -1,5 +1,11 @@
 package core
 
+// TODO: TEST_GAP: Null/Undefined - Verify RouteAction handles nil contexts and missing/empty ActionID or Target values safely.
+// TODO: TEST_GAP: Type Coercion - Verify parseActionFact safely handles incorrect types (e.g., float64, boolean) for ActionID, Type, and payload contents.
+// TODO: TEST_GAP: User Extremes - Verify path normalization/canonicalization limits and extremely long targets do not bypass safety checks.
+// TODO: TEST_GAP: User Extremes - Verify RouteAction rejects or safely handles massive JSON payload maps without excessive memory growth.
+// TODO: TEST_GAP: State Conflicts - Verify concurrent access to mcpClients, permission cache rebuilds, and DisableBootGuard toggling during active routing is race-free.
+
 import (
 	"context"
 	"encoding/json"

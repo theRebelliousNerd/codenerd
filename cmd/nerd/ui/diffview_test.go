@@ -38,39 +38,64 @@ func TestDiffApprovalView_HorizontalOffset_Logic(t *testing.T) {
 }
 
 func TestDiffApprovalView_Rendering_Truncation(t *testing.T) {
-	// Setup styles to avoid nil pointer dereferences
-	styles := Styles{
-		Theme: Theme{}, // Zero value
-	}
+	view := NewDiffApprovalView(Styles{Theme: Theme{}}, 20, 20)
+	longLine := "0123456789abcdefghijklmnopqrstuvwxyz"
+	line := DiffLine{LineNum: 1, Content: longLine, Type: DiffLineContext}
+	initialRendered := view.renderDiffLine(line, nil)
 
-	view := NewDiffApprovalView(styles, 100, 20)
+	// Scroll right and verify the visible slice changes.
+	view.ScrollRight()
+	assert.Equal(t, 4, view.XOffset)
 
-	// Add a mutation
-	m := &PendingMutation{
-		ID:          "1",
-		Description: "Simple Description",
-		FilePath:    "file.txt",
-		Reason:      "Reason",
-		Approved:    false,
-		Rejected:    false,
-		Diff:        nil, // Will render "(No diff available)"
-	}
-	view.AddMutation(m)
+	scrolledRendered := view.renderDiffLine(line, nil)
+	assert.NotEqual(t, initialRendered, scrolledRendered, "Rendered line should change after scrolling right")
 
-	initialView := view.View()
-	assert.Contains(t, initialView, "Simple Description")
-	assert.Contains(t, initialView, "Mutation")
+	// Scroll back to start and verify the original rendering is restored.
+	view.ScrollToStart()
+	assert.Equal(t, 0, view.XOffset)
+	assert.Equal(t, initialRendered, view.renderDiffLine(line, nil), "Rendered line should match initial state after scrolling back")
+}
 
-	// Scroll Right by 3
+func TestDiffApprovalViewHorizontalScrolling(t *testing.T) {
+	view := NewDiffApprovalView(DefaultStyles(), 10, 10)
+	longLine := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	line := DiffLine{LineNum: 1, Content: longLine, Type: DiffLineContext}
+	initialRendered := view.renderDiffLine(line, nil)
+
+	// Scroll right
 	view.ScrollRight()
 
-	scrolledView := view.View()
+	if view.XOffset != 4 {
+		t.Fatalf("expected XOffset 4 after ScrollRight, got %d", view.XOffset)
+	}
 
-	// Let's check that the view content CHANGED.
-	assert.NotEqual(t, initialView, scrolledView, "View content should change after scrolling right")
+	scrolledRendered := view.renderDiffLine(line, nil)
+	if scrolledRendered == initialRendered {
+		t.Fatalf("expected rendered line to change after horizontal scrolling")
+	}
 
-	// And if we scroll back to start, it should match initial view (mostly, assuming no other side effects)
+	// Scroll left
+	view.ScrollLeft()
+	if view.XOffset != 0 {
+		t.Fatalf("expected XOffset 0 after ScrollLeft, got %d", view.XOffset)
+	}
+	if rendered := view.renderDiffLine(line, nil); rendered != initialRendered {
+		t.Fatalf("expected rendered line to return to the initial slice after ScrollLeft")
+	}
+
+	// Scroll right again to test ScrollToStart
+	view.ScrollRight()
+	view.ScrollRight()
+	if view.XOffset != 8 {
+		t.Fatalf("expected XOffset 8 before ScrollToStart, got %d", view.XOffset)
+	}
+
+	// Scroll to start
 	view.ScrollToStart()
-	backToStartView := view.View()
-	assert.Equal(t, initialView, backToStartView, "View content should match initial state after scrolling back")
+	if view.XOffset != 0 {
+		t.Fatalf("expected XOffset 0 after ScrollToStart, got %d", view.XOffset)
+	}
+	if rendered := view.renderDiffLine(line, nil); rendered != initialRendered {
+		t.Fatalf("expected rendered line to match initial state after ScrollToStart")
+	}
 }

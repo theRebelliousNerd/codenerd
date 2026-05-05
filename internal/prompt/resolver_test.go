@@ -599,6 +599,26 @@ func BenchmarkSortByCategory(b *testing.B) {
 // Scenario: Atom A depends on ["", "B"].
 // Risk: Undefined behavior or silent failure.
 
+// TODO: TEST_GAP: [Vector A3] Verify Resolve behavior with empty/nil DependsOn Arrays.
+// Scenario: Atom A depends on nil slice or []string{}.
+// Risk: Undefined behavior when calculating incoming edges or dependencies.
+
+// TODO: TEST_GAP: [Vector A4] Verify Resolve behavior with missing/empty Atom IDs.
+// Scenario: Atom A has ID: "".
+// Risk: Map collisions or incorrect dropping logic.
+
+// -----------------------------------------------------------------------------
+// Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion / Data Malformation)
+// -----------------------------------------------------------------------------
+
+// TODO: TEST_GAP: [Vector B1] Verify self-dependency handling.
+// Scenario: Atom 'foo' depends on 'Foo' (case-sensitive) or 'foo' depends on 'foo' (case-insensitive).
+// Risk: Incorrect cyclic dependency flagging or silent failure due to string normalization.
+
+// TODO: TEST_GAP: [Vector B2] Verify topological sort handles duplicate incoming edges.
+// Scenario: Atom A depends on ["B", "B"].
+// Risk: Kahn's algorithm double-counts inDegree/outDegree decrements causing incorrect ordering or deadlocks.
+
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
 // -----------------------------------------------------------------------------
@@ -612,6 +632,10 @@ func BenchmarkSortByCategory(b *testing.B) {
 // Current: "dependency cycle detected: processed X of Y atoms".
 // Expected: "dependency cycle detected: A -> B -> A".
 
+// TODO: TEST_GAP: [Vector C3] Verify Performance of Kahn's Algorithm on Massive Number of Atoms.
+// Scenario: Provide a realistic user extreme of e.g. 50,000 atoms.
+// Risk: Repeated sort.Slice in Kahn's algorithm loop could degrade to O(V^2 log V) in worse-cases, causing OOM or multi-minute execution times.
+
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts)
 // -----------------------------------------------------------------------------
@@ -619,3 +643,7 @@ func BenchmarkSortByCategory(b *testing.B) {
 // TODO: TEST_GAP: [Vector D1] Verify SortByCategory determinism with unknown categories.
 // Scenario: Atoms with custom categories "CatA", "CatB", "CatC" (not in AllCategories).
 // Risk: Map iteration randomization causes non-deterministic prompt order.
+
+// TODO: TEST_GAP: [Vector D2] Verify tie-breaker determinism in topological sort.
+// Scenario: Two independent atoms with exactly identical scores, same category, same everything.
+// Risk: Output sort is non-deterministic between executions due to sort.Slice algorithm instability without secondary ID-based sort keys.

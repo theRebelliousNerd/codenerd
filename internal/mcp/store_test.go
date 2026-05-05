@@ -128,10 +128,36 @@ func TestMCPToolStoreServerAndToolLifecycle(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Verify `SaveServer` handles a completely nil server object, empty ServerID, or empty Endpoints.
-// TODO: TEST_GAP: Type Coercion - Verify `RecordToolUsage` correctly handles negative latency values, or extreme boolean coercions (if applicable from outer API boundaries).
-// TODO: TEST_GAP: User Request Extremes - Verify `SaveTool` handles a tool with 10,000 element embedding arrays, a 50MB InputSchema, or extreme Unicode character strings in descriptions.
-// TODO: TEST_GAP: State Conflicts - Add concurrency tests using `t.Run` and `t.Parallel()` to spam `RecordToolUsage`, `SaveTool`, and `SaveServer` simultaneously to trigger potential race conditions in SQLite interactions.
+// TODO: TEST_GAP: Null/Undefined/Empty Inputs
+// 1. `NewMCPToolStore` with an empty string `dbPath`.
+// 2. `SaveServer` with a `nil` MCPServer or a server with empty ID, Endpoint, Protocol.
+// 3. `SaveTool` with a `nil` MCPTool or a tool with empty ToolID, ServerID, Name.
+// 4. `GetServer` and `GetTool` with empty string IDs.
+// 5. `SemanticSearch` with `nil` or empty `queryEmbedding` slice.
+// 6. `RecordToolUsage` with empty `toolID`.
+
+// TODO: TEST_GAP: Type Coercion
+// 1. DB containing invalid JSON strings in fields like `input_schema`, `capabilities`, `categories`.
+//    Verify that `json.Unmarshal` failures do not crash the `GetTool` / `GetServer` methods and either error gracefully or return partial objects.
+// 2. `float32SliceToBytes` and `bytesToFloat32Slice` with byte slices that are not multiples of 4 (e.g., corrupted BLOB data in SQLite).
+// 3. Negative `usage_count` or `avg_latency_ms` data pre-existing in the database (e.g. from manual edits or bug).
+// 4. `cosineSimilarity` behavior when one slice is empty and the other is not (slices of different lengths).
+// 5. `SemanticSearch` with `topK` <= 0.
+
+// TODO: TEST_GAP: User Request Extremes
+// 1. Saving an MCPTool with a massive `Embedding` slice (e.g., 100,000 dimensions). Does it hit SQLite BLOB limits or memory issues during float32 -> byte conversion?
+// 2. Saving 100,000 tools to the same server and querying them.
+// 3. Very large strings (megabytes) for `output_schema` or `input_schema`.
+// 4. `RecordToolUsage` with massive `latencyMs` causing integer overflow in the `avg_latency_ms` moving average calculation `((avg_latency_ms * usage_count) + latencyMs) / (usage_count + 1)`.
+// 5. `SemanticSearch` with an extreme `topK` value (e.g. `math.MaxInt32`).
+// 6. Very long DB paths for `NewMCPToolStore` causing SQLite connection failures.
+
+// TODO: TEST_GAP: State Conflicts
+// 1. Concurrent `SaveTool`, `RecordToolUsage`, and `SemanticSearch` operations on the same tool to verify `sync.RWMutex` combined with SQLite WAL mode handles concurrency safely without `database is locked` errors.
+// 2. Calling `RecordToolUsage` on a `toolID` that does not exist in the DB.
+// 3. Calling `UpdateServerStatus` on a `serverID` that does not exist.
+// 4. Updating a tool's vector embedding concurrently while `SemanticSearch` is iterating over `mcp_tools` (brute force) or `mcp_tool_vec` (vec0).
+// 5. Instantiating multiple `MCPToolStore` instances pointing to the same file concurrently.
 
 func newTestStore(t *testing.T) *MCPToolStore {
 	t.Helper()

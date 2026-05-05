@@ -4,9 +4,14 @@
 # NOTE: All Decl statements are in schemas_browser.mg - do not duplicate here
 
 # CSS-based hiding
+# Support both atom-style keys/values (used by parsed EDB fixtures and some tests)
+# and string-style facts (used by schema-bound runtime fact emission).
 honeypot_css_hidden(Elem) :- css_property(Elem, /display, /none).
+honeypot_css_hidden(Elem) :- css_property(Elem, "display", "none").
 honeypot_css_invisible(Elem) :- css_property(Elem, /visibility, /hidden).
+honeypot_css_invisible(Elem) :- css_property(Elem, "visibility", "hidden").
 honeypot_opacity_hidden(Elem) :- css_property(Elem, /opacity, "0").
+honeypot_opacity_hidden(Elem) :- css_property(Elem, "opacity", "0").
 
 # Position-based hiding (off-screen)
 honeypot_offscreen(Elem) :-
@@ -23,13 +28,16 @@ honeypot_zero_size(Elem) :-
     H < 2.
 
 # ARIA hidden
+honeypot_aria_hidden(Elem) :- attribute(Elem, "aria-hidden", "true").
 honeypot_aria_hidden(Elem) :- attribute(Elem, "aria-hidden", /true).
 
 # Negative tabindex (not keyboard accessible)
 honeypot_no_keyboard(Elem) :- attribute(Elem, /tabindex, "-1").
+honeypot_no_keyboard(Elem) :- attribute(Elem, "tabindex", "-1").
 
 # Pointer events disabled
 honeypot_pointer_events_none(Elem) :- css_property(Elem, /pointerEvents, /none).
+honeypot_pointer_events_none(Elem) :- css_property(Elem, "pointerEvents", "none").
 
 # Suspicious URL patterns
 # NOTE: String matching (fn:contains) is not available in Mangle.

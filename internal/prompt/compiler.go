@@ -422,6 +422,9 @@ func WithConfigFactory(factory *ConfigFactory) CompilerOption {
 // Compile generates a system prompt for the given context.
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
+	// TODO: Performance: Replace coarse-grained locking with finer-grained locks or RCU pattern.
+	// Currently c.mu protects disparate fields (lastResult, shardDBs), creating unnecessary contention.
+
 	// Legacy timer for backward compatibility
 	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
 	defer timer.Stop()
@@ -460,6 +463,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
 	// Step 1: Collect all candidate atoms from all sources
+	// TODO: Performance: Execute atom collection (collectAtomsWithStats), kernel injection (collectKernelInjectedAtoms), and knowledge retrieval (collectKnowledgeAtoms) concurrently to reduce total compilation latency.
 	collectStart := time.Now()
 	candidates, sourceBreakdown, err := c.collectAtomsWithStats(ctx, cc)
 	if err != nil {
@@ -609,7 +613,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 
 	// Update observability state
-	// Performance: Replaced coarse-grained lock with atomic pointer for high concurrency.
+	// Performance: Uses an atomic pointer instead of coarse-grained locking to avoid blocking other compilations during stats updates.
 	c.lastResult.Store(result)
 
 	// Bug #5 fix: Store result in cache for future reuse
@@ -633,6 +637,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 	if c.kernel == nil || cc == nil {
 		return nil, nil
 	}
+
+	// TODO: Performance: Pre-allocate dynamic slice based on kernel query count to avoid reallocation resizing.
 
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
@@ -661,6 +667,8 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
+		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
+		// Replace with type switches for common primitives to avoid reflection overhead in hot loops.
 		factShardID := extractStringArg(fact.Args[0])
 		if !matchesShard(factShardID) {
 			continue
@@ -1144,6 +1152,7 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 	}
 }
 
+// TODO: Memory Leak: Evaluate and implement strict cache size limit (LRU or TTL) in clearPromptCache or via a background goroutine to prevent memory explosion during long sessions.
 func (c *JITPromptCompiler) clearPromptCache(reason string) {
 	c.cacheMu.Lock()
 	c.cache = make(map[string]*CompilationResult)
@@ -1252,7 +1261,7 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
 	c.mu.RLock()
 	db := c.localDB
-	timeout := c.config.VectorSearchTimeout
+	timeout := c.config.KnowledgeSearchTimeout
 	c.mu.RUnlock()
 
 	if timeout <= 0 {
@@ -1274,14 +1283,14 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	// Use a sub-deadline for knowledge atom search to avoid blocking JIT compilation.
 	// If embedding takes too long, we gracefully skip rather than fail the whole compilation.
-	searchCtx, cancel := context.WithTimeout(ctx, c.config.KnowledgeSearchTimeout)
+	searchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Search for semantically relevant knowledge atoms
 	atoms, err := db.SearchKnowledgeAtomsSemantic(searchCtx, query, 5)
 	if err != nil {
 		if searchCtx.Err() != nil {
-			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", c.config.KnowledgeSearchTimeout)
+			logging.Get(logging.CategoryJIT).Warn("Knowledge atom search timed out (%v limit), skipping", timeout)
 		} else {
 			logging.Get(logging.CategoryJIT).Debug("Knowledge atom search failed: %v", err)
 		}
@@ -1379,7 +1388,7 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
 
-// TODO: Ensure active JIT compilations are finished before closing databases.
+// TODO: Concurrency Risk: Add sync.WaitGroup around Compile() and Wait() inside Close() to prevent SQLite 'database is closed' panics during hot-swapping or shutdown.
 
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
@@ -1417,6 +1426,7 @@ type specialistCacheEntry struct {
 }
 
 // InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {

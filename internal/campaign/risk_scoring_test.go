@@ -10,6 +10,19 @@ import (
 	"codenerd/internal/northstar"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty Input Vectors
+// Verify behavior with nil Campaign, nil IntelligenceReport, and empty Phase/Task lists.
+
+// TODO: TEST_GAP: Type Coercion & Malformed Data
+// Verify that complexity normalization (e.g. "CRITICAL", "100") handles malformed labels.
+
+// TODO: TEST_GAP: User Request Extremes & System Stress
+// Verify that deduplicating massive file paths (e.g. 100,000 files) doesn't cause OOM.
+// Verify that riskSnapshotID handles massive file path strings without catastrophic memory allocations before truncation.
+
+// TODO: TEST_GAP: State Conflicts & Race Conditions
+// Verify runRiskPreflight behavior under concurrent configuration updates or campaign state changes.
+
 func TestBuildCampaignRiskDecision_Deterministic(t *testing.T) {
 	c := testRiskCampaign()
 	cfg := OrchestratorConfig{
