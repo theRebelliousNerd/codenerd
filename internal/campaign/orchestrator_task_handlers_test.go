@@ -18,6 +18,18 @@ import (
 // - Empty TaskType
 // - Explicit Shard override (task.Shard != "")
 
+// TODO: TEST_GAP: Null/Empty Inputs - Verify executeGenericTask behavior when task.Description is completely empty (prevent LLM blank prompt panic).
+// TODO: TEST_GAP: Null/Empty Inputs - Verify executeFileTask gracefully handles nil Task.Artifacts and missing paths in description.
+// TODO: TEST_GAP: Null/Empty Inputs - Verify executeTask immediately fails with clear error if Orchestrator.taskExecutor is nil (uninitialized state).
+// TODO: TEST_GAP: Type Coercion - Verify executeFileTask prevents path traversal (e.g., targetPath="../../etc/passwd") before OS operations.
+// TODO: TEST_GAP: Type Coercion - Verify executeFileTaskFallback handles language mismatch (e.g., LLM returns javascript fences for a .go file request).
+// TODO: TEST_GAP: Type Coercion - Verify extractCodeBlock behaves safely with pathological nested fences (e.g., ````go\ncode\n```\n``` `).
+// TODO: TEST_GAP: User Request Extremes - Verify executeTestRunTask truncates massive stdout/stderr (e.g., 10GB logs) to prevent OOM crashes.
+// TODO: TEST_GAP: User Request Extremes - Verify extractCodeBlock regex efficiency against a 50MB string with near-matching code fences to avoid catastrophic backtracking.
+// TODO: TEST_GAP: State Conflicts - Verify executeFileTask handles concurrent modifications or deletions of the target file right before os.Stat checks.
+// TODO: TEST_GAP: State Conflicts - Verify executeToolCreateTask strictly waits for the 'tool_registered' Mangle fact to ensure downstream tasks don't fail due to async tool compilation.
+// TODO: TEST_GAP: State Conflicts - Verify executeTask cleanly cancels underlying JIT Clean Loop executions upon context cancellation without leaking goroutines.
+
 // TODO: TEST_GAP: TestExecuteFileTask_ShardFailure_Fallback
 // Verify that if spawnTask fails (returns error), the system falls back to executeFileTaskFallback.
 // Verify that the fallback mechanism correctly invokes the LLM and writes the file.
