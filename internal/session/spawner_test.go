@@ -203,6 +203,7 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 // TODO: TEST_GAP: User Request Extremes: Verify performance/stability when concurrently spawning 10,000 subagents (checking limit rejection speed).
 
 // TODO: TEST_GAP: State Conflicts: Verify TOCTOU condition where MaxActiveSubagents limit is checked and then another subagent is spawned concurrently.
+// TODO: TEST_GAP: State Conflicts: Verify Spawn TOCTOU mitigation by launching concurrent requests against a low max limit and asserting exactly the limit succeeds.
 // TODO: TEST_GAP: State Conflicts: Verify Stop behavior when Stop is called simultaneously from multiple goroutines for the same agent ID.
 // TODO: TEST_GAP: State Conflicts: Verify thread safety of Cleanup when called concurrently with Spawn/Stop/ListActive.
 // TODO: TEST_GAP: State Conflicts: Verify Spawner.GetByName predictability when multiple active subagents share a name.

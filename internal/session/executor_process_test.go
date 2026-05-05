@@ -321,15 +321,20 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 // TODO: TEST_GAP: Null/Empty: Verify handling of ToolCall with nil Args (prevent nil pointer deref during json.Marshal).
 // TODO: TEST_GAP: Null/Empty: Verify Process behaves correctly when ctx is nil (should it panic or handle gracefully?).
 // TODO: TEST_GAP: Null/Empty: Verify behavior when ConfigFactory or JITCompiler are explicitly nil but called.
+// TODO: TEST_GAP: Null/Empty: Verify executor.buildCompilationContext handles malformed intent (e.g. Target: nil, Verb: "") gracefully.
 
 // TODO: TEST_GAP: Type Coercion: Verify behavior when LLM provides a tool argument string where a number/object is expected by the modular tool schema.
 // TODO: TEST_GAP: Type Coercion: Verify parseMangleArg behavior with massive integers that overflow Go's int type but might fit in uint64.
+// TODO: TEST_GAP: Type Coercion: Verify parseMangleArg differentiates absolute file paths (e.g. "/etc/passwd") from Mangle atoms (e.g. "/active").
 // TODO: TEST_GAP: Type Coercion: Verify extractTarget handles unexpected argument types (e.g., target key exists but value is a boolean/int instead of string).
+// TODO: TEST_GAP: Type Coercion: Verify extractTarget does not panic on complex nested JSON target keys.
 
 // TODO: TEST_GAP: User Request Extremes: Verify MaxToolCalls limit with a mock LLM returning > MaxToolCalls (e.g., 10,000 tool calls).
 // TODO: TEST_GAP: User Request Extremes: Verify system behavior when input string is extremely large (e.g., 50MB string, testing memory and execution bounds).
 // TODO: TEST_GAP: User Request Extremes: Verify tool timeout enforcement (mock tool sleeping > ToolTimeout).
 // TODO: TEST_GAP: User Request Extremes: Verify processMangleUpdatesFromEnvelope handles an absurdly large number of mangle_updates gracefully (testing MaxUpdates limit enforcement).
+// TODO: TEST_GAP: User Request Extremes: Verify Piggyback protocol truncates massive mangle_updates arrays before hitting database transaction limits.
+// TODO: TEST_GAP: User Request Extremes: Verify appendToHistory truncates history without index-out-of-bounds errors after extreme turns.
 
 // TODO: TEST_GAP: State Conflicts: Verify TOCTOU handling where a tool is allowed by config but removed from tools.Global() before execution.
 // TODO: TEST_GAP: State Conflicts: Verify thread safety of SetOuroborosRegistry when called concurrently with Process/executeToolCall.
