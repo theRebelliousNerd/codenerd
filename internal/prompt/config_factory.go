@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"codenerd/internal/jit/config"
 )
@@ -63,6 +64,12 @@ func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 // Generate creates an AgentConfig based on the intents and compilation result.
 // It merges config atoms for all provided intents.
 func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.AgentConfig, error) {
+	if result == nil {
+		return nil, fmt.Errorf("compilation result cannot be nil")
+	}
+	if len(intents) == 0 {
+		return nil, fmt.Errorf("no intents provided")
+	}
 	var finalAtom ConfigAtom
 	found := false
 
@@ -99,6 +106,7 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 // DefaultConfigAtomProvider provides built-in config atoms.
 type DefaultConfigAtomProvider struct {
 	atoms map[string]ConfigAtom
+	mu    sync.RWMutex
 }
 
 // NewDefaultConfigAtomProvider creates a new default config provider.
@@ -256,12 +264,16 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 
 // GetAtom returns the config atom for an intent.
 func (p *DefaultConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	atom, ok := p.atoms[intent]
 	return atom, ok
 }
 
 // RegisterAtom adds or updates a config atom for an intent.
 func (p *DefaultConfigAtomProvider) RegisterAtom(intent string, atom ConfigAtom) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.atoms[intent] = atom
 }
 
