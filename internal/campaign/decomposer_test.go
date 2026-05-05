@@ -502,14 +502,23 @@ func sampleRawPlanJSON(title string) string {
 // TODO: TEST_GAP: TestDecompose_EmptySourcePaths
 // Verify Decompose handles empty req.SourcePaths or SourcePaths containing empty strings gracefully without panics.
 
+// TODO: TEST_GAP: TestDecompose_ZeroContextBudget
+// Verify DecomposeRequest with ContextBudget=0 defaults correctly without zero-division errors.
+
 // TODO: TEST_GAP: TestDecompose_NilIntelligence
 // Verify Decompose works correctly and skips step 0 when d.intelligence is nil.
 
 // TODO: TEST_GAP: TestDecompose_JSONTypeCoercion
 // Verify LLM returning unexpected JSON types (e.g., phases as an object instead of array, string instead of int) fails safely during json.Unmarshal.
 
+// TODO: TEST_GAP: TestDecompose_MangleFactSanitization
+// Verify Mangle fact assertion sanitizes user input containing illegal Mangle characters (e.g., ')', '.').
+
 // TODO: TEST_GAP: TestDecompose_MassiveGoal
 // Verify Decompose handles an extremely large goal string (e.g., 100MB) without memory exhaustion or infinite loops.
+
+// TODO: TEST_GAP: TestCleanJSONResponse_MassiveMalformedInput
+// Verify cleanJSONResponse handles a massive malformed string without freezing the CPU.
 
 // TODO: TEST_GAP: TestDecompose_HugeSourcePaths
 // Verify Decompose handles 100,000+ source paths. Check for OS file descriptor limits and performance bottlenecks.
@@ -525,6 +534,9 @@ func sampleRawPlanJSON(title string) string {
 
 // TODO: TEST_GAP: TestDecompose_FileDeletedDuringIngest
 // Verify ingestSourceDocuments handles a file being deleted from the OS just before reading it, skipping or erroring gracefully.
+
+// TODO: TEST_GAP: TestDecompose_SpecialInfiniteFiles
+// Verify ingestSourceDocuments rejects special infinite files or enforces strict read limits.
 
 // TODO: TEST_GAP: TestDecompose_ConcurrentDecompose
 // Verify multiple concurrent calls to Decompose on the same Decomposer instance do not cause race conditions or corrupt the kernel state.
