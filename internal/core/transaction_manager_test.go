@@ -854,3 +854,13 @@ func TestTransactionManager_MixedEditTypes(t *testing.T) {
 		t.Error("Expected snapshot for deleted file")
 	}
 }
+
+// TODO: TEST_GAP: Null/Empty: Verify Begin behavior when description is an empty string.
+// TODO: TEST_GAP: Null/Empty: Verify AddEdit behavior when edit.FilePath is empty.
+// TODO: TEST_GAP: Null/Empty: Verify Commit behavior when a transaction edit has an empty FilePath.
+// TODO: TEST_GAP: Type Coercion: Verify AddEdit, Prepare, and Commit handling of unknown/invalid EditType values (e.g., casted int 99).
+// TODO: TEST_GAP: User Request Extremes: Verify AddEdit memory usage/behavior when snapshotting a massive file (e.g., 100MB+).
+// TODO: TEST_GAP: User Request Extremes: Verify Prepare behavior when simulating thousands of edits in a single transaction.
+// TODO: TEST_GAP: State Conflicts: Verify AddEdit behavior when the target file changes on disk after snapshot but before Prepare (without OldHash).
+// TODO: TEST_GAP: State Conflicts: Verify Commit failure recovery (rollback) when partial application fails, and what happens if rollback itself fails.
+// TODO: TEST_GAP: State Conflicts: Verify Prepare handles context cancellation cleanly without leaving the transaction stuck in TxnStatusPreparing.
