@@ -194,10 +194,12 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 // TODO: TEST_GAP: Null/Empty: Verify Stop behavior when given an empty ID.
 // TODO: TEST_GAP: Null/Empty: Verify loadSpecialistConfig gracefully handles an empty name.
 // TODO: TEST_GAP: Null/Empty: Verify SpawnSpecialist behavior with empty name and malformed path injection (e.g. "../../../etc/passwd").
+// TODO: TEST_GAP: Null/Empty: Verify Spawn behavior when SpawnRequest.IntentVerb is empty (fallback to "/general").
+// TODO: TEST_GAP: Null/Empty: Verify generateConfig handles SpawnRequest.SessionContext when it is nil without panicking.
 
-// TODO: TEST_GAP: Type Coercion: Verify Spawn behavior when an invalid integer is passed for SubAgentType.
+// TODO: TEST_GAP: Type Coercion: Verify Spawn behavior when an invalid string is passed for SubAgentType.
 // TODO: TEST_GAP: Type Coercion: Verify Spawn behavior when negative or massive Timeout values are supplied.
-// TODO: TEST_GAP: Type Coercion: Verify determineAgentName handles unexpected Intent properties.
+// TODO: TEST_GAP: Type Coercion: Verify determineAgentType normalizes un-prefixed string intents (e.g. "system" to "/system").
 
 // TODO: TEST_GAP: User Request Extremes: Verify SpawnSpecialist handles massive config.yaml files.
 // TODO: TEST_GAP: User Request Extremes: Verify performance/stability when concurrently spawning 10,000 subagents (checking limit rejection speed).
@@ -209,3 +211,7 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 // TODO: TEST_GAP: State Conflicts: Verify Spawner.GetByName predictability when multiple active subagents share a name.
 // TODO: TEST_GAP: State Conflicts: Verify StopAll concurrent with Cleanup and Spawn.
 // TODO: TEST_GAP: State Conflicts: Verify generateConfig falls back completely when both JIT compilation attempts fail and returns an empty AgentConfig.
+// TODO: TEST_GAP: State Conflicts: Verify TOCTOU Thundering Herd during Spawn where multiple threads pass Phase 1 limit check but fail at Phase 5 registration after costly JIT Generation.
+// TODO: TEST_GAP: State Conflicts: Verify determineAgentName respects Kernel intent_routing Mangle assertions instead of hardcoded strings.
+// TODO: TEST_GAP: State Conflicts: Verify Deadlock on recursive spawning (e.g., SubAgent spawning another SubAgent when pool is full).
+// TODO: TEST_GAP: State Conflicts: Verify Goroutine leakage when a spawned SubAgent's context cancellation is ignored by a deadlocked tool.
