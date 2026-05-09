@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty: Check `Validate` behavior in `SyntaxValidator` and `MangleSyntaxValidator` when `ActionRequest` has an empty target path or when `content` read from file is completely empty. Check `validateTOMLSyntax` behavior with empty byte arrays or arrays containing only empty strings.
+// TODO: TEST_GAP: Type Coercion: Check `validateJSONSyntax` and `validateYAMLSyntax` behavior when parsing content containing only numbers, booleans, or null values instead of typical object/array structures. Check how `validateMangleSyntax` behaves with pure integer or boolean strings.
+// TODO: TEST_GAP: User Request Extremes: Check `Validate` performance and memory consumption in `SyntaxValidator` with massive files (e.g., 500MB `.json` or `.go` files) to ensure `os.ReadFile` or `parserFunc` don't OOM or freeze. Check `validateMangleSyntax` with extremely long single-line strings.
+// TODO: TEST_GAP: State Conflicts: Check concurrent execution of `RegisterParser` while `Validate` is actively being called by another goroutine, leading to potential data races on the `parsers` map. Check TOCTOU (Time of Check to Time of Use) file write race condition during the `os.ReadFile` check in `Validate`.
+
 func TestSyntaxValidator_New(t *testing.T) {
 	v := NewSyntaxValidator()
 	if v == nil {
