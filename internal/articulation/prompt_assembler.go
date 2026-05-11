@@ -505,10 +505,40 @@ func (pa *PromptAssembler) queryShardTemplate(shardType string) (string, error) 
 
 // queryContextAtoms queries the kernel for context atoms to inject into this shard.
 // Predicate: injectable_context(ShardID, Atom)
+func (pa *PromptAssembler) getInjectableContextFacts(shardID string) ([]types.Fact, error) {
+	queries := []string{
+		fmt.Sprintf("injectable_context(%q, _)", shardID),
+	}
+	if shardID != "*" {
+		queries = append(queries, "injectable_context(\"*\", _)")
+	}
+	if shardID != "/_all" {
+		queries = append(queries, "injectable_context(\"/_all\", _)")
+	}
+
+	var allFacts []types.Fact
+	var lastErr error
+	for _, q := range queries {
+		facts, err := pa.kernel.Query(q)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		allFacts = append(allFacts, facts...)
+	}
+
+	if allFacts == nil && lastErr != nil {
+		return nil, lastErr
+	}
+	return allFacts, nil
+}
+
+// queryContextAtoms queries the kernel for context atoms to inject into this shard.
+// Predicate: injectable_context(ShardID, Atom)
 func (pa *PromptAssembler) queryContextAtoms(shardID string) ([]string, error) {
 	logging.ArticulationDebug("Querying injectable_context for shard=%s", shardID)
 
-	facts, err := pa.kernel.Query("injectable_context")
+	facts, err := pa.getInjectableContextFacts(shardID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query injectable_context: %w", err)
 	}
@@ -519,17 +549,8 @@ func (pa *PromptAssembler) queryContextAtoms(shardID string) ([]string, error) {
 			continue
 		}
 
-		// Match by shard ID or wildcard
-		factShardID, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		// Accept context for this specific shard or wildcard "*"
-		if factShardID == shardID || factShardID == "*" || factShardID == "/_all" {
-			if atom, ok := fact.Args[1].(string); ok {
-				atoms = append(atoms, atom)
-			}
+		if atom, ok := fact.Args[1].(string); ok {
+			atoms = append(atoms, atom)
 		}
 	}
 
@@ -1212,9 +1233,8 @@ func (pa *PromptAssembler) BuildContextSection(shardID string) (string, error) {
 }
 
 // queryAndFormatContext queries injectable_context and formats it for prompt injection.
-// TODO: Querying all facts might be slow for large stores. Consider optimized queries.
 func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
-	facts, err := pa.kernel.Query("injectable_context")
+	facts, err := pa.getInjectableContextFacts(shardID)
 	if err != nil {
 		logging.ArticulationDebug("Failed to query injectable_context: %v", err)
 		return ""
@@ -1226,16 +1246,8 @@ func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
 			continue
 		}
 
-		factShardID, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		// Match this shard or wildcard
-		if factShardID == shardID || factShardID == "*" || factShardID == "/_all" {
-			if atom, ok := fact.Args[1].(string); ok {
-				atoms = append(atoms, atom)
-			}
+		if atom, ok := fact.Args[1].(string); ok {
+			atoms = append(atoms, atom)
 		}
 	}
 
@@ -1257,7 +1269,8 @@ func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
 
 // queryAndFormatSpecialistKnowledge queries specialist_knowledge and formats it.
 func (pa *PromptAssembler) queryAndFormatSpecialistKnowledge(shardID string) string {
-	facts, err := pa.kernel.Query("specialist_knowledge")
+	q := fmt.Sprintf("specialist_knowledge(%q, _, _)", shardID)
+	facts, err := pa.kernel.Query(q)
 	if err != nil {
 		logging.ArticulationDebug("Failed to query specialist_knowledge: %v", err)
 		return ""
@@ -1269,17 +1282,10 @@ func (pa *PromptAssembler) queryAndFormatSpecialistKnowledge(shardID string) str
 			continue
 		}
 
-		factShardID, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
-		if factShardID == shardID {
-			topic, _ := fact.Args[1].(string)
-			content, _ := fact.Args[2].(string)
-			if topic != "" && content != "" {
-				blocks = append(blocks, fmt.Sprintf("## %s\n%s", topic, content))
-			}
+		topic, _ := fact.Args[1].(string)
+		content, _ := fact.Args[2].(string)
+		if topic != "" && content != "" {
+			blocks = append(blocks, fmt.Sprintf("## %s\n%s", topic, content))
 		}
 	}
 
