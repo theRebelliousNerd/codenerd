@@ -427,10 +427,6 @@ func TestExtractLineRange(t *testing.T) {
 }
 
 func TestFindFunctionEnd(t *testing.T) {
-	// TODO: TEST_GAP: Python Docstrings and Complex Syntax
-	// The current brace counting logic may fail on Python multi-line strings (""" ... """)
-	// if they contain braces. It treats " as a single-line string delimiter.
-	// We need a test case with Python docstrings containing braces to verify this failure mode.
 
 	h := &HolographicProvider{}
 
@@ -530,6 +526,8 @@ func TestFindFunctionEnd(t *testing.T) {
 				"    \"\"\"",
 				"    return",
 				"}",
+				"    # trailing 1",
+				"    # trailing 2",
 			},
 			startIdx: 0,
 			want:     6,
@@ -543,6 +541,8 @@ func TestFindFunctionEnd(t *testing.T) {
 				"    '''",
 				"    return",
 				"}",
+				"    # trailing 1",
+				"    # trailing 2",
 			},
 			startIdx: 0,
 			want:     5,
@@ -557,9 +557,56 @@ func TestFindFunctionEnd(t *testing.T) {
 				"    \"\"\"",
 				"    return",
 				"}",
+				"    # trailing 1",
+				"    # trailing 2",
 			},
 			startIdx: 0,
 			want:     6,
+		},
+		{
+			name: "python_docstring_unbalanced_open_brace",
+			lines: []string{
+				"def foo(): {",
+				"    \"\"\"",
+				"    unbalanced open {",
+				"    \"\"\"",
+				"    return",
+				"}",
+				"    # trailing 1",
+				"    # trailing 2",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+		{
+			name: "python_docstring_unbalanced_close_brace",
+			lines: []string{
+				"def foo(): {",
+				"    \"\"\"",
+				"    unbalanced close }",
+				"    \"\"\"",
+				"    return",
+				"}",
+				"    # trailing 1",
+				"    # trailing 2",
+			},
+			startIdx: 0,
+			want:     5,
+		},
+		{
+			name: "python_single_quote_docstring_unbalanced",
+			lines: []string{
+				"def bar(): {",
+				"    '''",
+				"    {",
+				"    '''",
+				"    return",
+				"}",
+				"    # trailing 1",
+				"    # trailing 2",
+			},
+			startIdx: 0,
+			want:     5,
 		},
 	}
 
