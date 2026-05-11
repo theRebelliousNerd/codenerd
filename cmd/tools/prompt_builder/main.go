@@ -536,14 +536,6 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 	}
 	defer insertAtomStmt.Close()
 
-	insertTagStmt, err := tx.Prepare(`
-		INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare tag insert statement: %w", err)
-	}
-	defer insertTagStmt.Close()
-
 	// Check if vec_prompt_atoms exists
 	var vecAvailable bool
 	row := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='vec_prompt_atoms'")
@@ -608,6 +600,9 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			}
 		}
 
+		var tagArgs []interface{}
+		var tagPlaceholders []string
+
 		// Store each atom
 		for j, atom := range batch {
 			var embeddingBlob []byte
@@ -641,64 +636,52 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			}
 
 			// Context tags (normalized, matches runtime loader).
-			insertTags := func(dim string, values []string) error {
+			addTags := func(dim string, values []string) {
 				for _, v := range values {
 					if strings.TrimSpace(v) == "" {
 						continue
 					}
-					if _, err := insertTagStmt.Exec(atom.ID, dim, v); err != nil {
-						return err
-					}
+					tagPlaceholders = append(tagPlaceholders, "(?, ?, ?)")
+					tagArgs = append(tagArgs, atom.ID, dim, v)
 				}
-				return nil
 			}
 
-			if err := insertTags("mode", atom.OperationalModes); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("phase", atom.CampaignPhases); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("layer", atom.BuildLayers); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("init_phase", atom.InitPhases); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("northstar_phase", atom.NorthstarPhases); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("ouroboros_stage", atom.OuroborosStages); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("intent", atom.IntentVerbs); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("shard", atom.ShardTypes); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("lang", atom.Languages); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("framework", atom.Frameworks); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("state", atom.WorldStates); err != nil {
-				return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-			}
-
-			if err := insertTags("depends_on", atom.DependsOn); err != nil {
-				return fmt.Errorf("failed to insert depends_on tags for atom %s: %w", atom.ID, err)
-			}
-			if err := insertTags("conflicts_with", atom.ConflictsWith); err != nil {
-				return fmt.Errorf("failed to insert conflicts_with tags for atom %s: %w", atom.ID, err)
-			}
+			addTags("mode", atom.OperationalModes)
+			addTags("phase", atom.CampaignPhases)
+			addTags("layer", atom.BuildLayers)
+			addTags("init_phase", atom.InitPhases)
+			addTags("northstar_phase", atom.NorthstarPhases)
+			addTags("ouroboros_stage", atom.OuroborosStages)
+			addTags("intent", atom.IntentVerbs)
+			addTags("shard", atom.ShardTypes)
+			addTags("lang", atom.Languages)
+			addTags("framework", atom.Frameworks)
+			addTags("state", atom.WorldStates)
+			addTags("depends_on", atom.DependsOn)
+			addTags("conflicts_with", atom.ConflictsWith)
 
 			// Also insert into vec_prompt_atoms if available
 			if vecAvailable && vecStmt != nil && embeddingBlob != nil {
 				if _, err := vecStmt.Exec(embeddingBlob, atom.ID, atom.Category, atom.Priority); err != nil {
 					fmt.Printf("  WARNING: Failed to insert into vec_prompt_atoms: %v\n", err)
 				}
+			}
+		}
+
+		// Execute bulk tag inserts in chunks (SQLite limit is 32766 params, we use 3 per row)
+		chunkSize := 500
+		for k := 0; k < len(tagArgs); k += chunkSize * 3 {
+			endK := k + chunkSize*3
+			if endK > len(tagArgs) {
+				endK = len(tagArgs)
+			}
+
+			chunkArgs := tagArgs[k:endK]
+			chunkPlaceholders := tagPlaceholders[k/3 : endK/3]
+
+			query := "INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES " + strings.Join(chunkPlaceholders, ", ")
+			if _, err := tx.Exec(query, chunkArgs...); err != nil {
+				return fmt.Errorf("failed to bulk insert tags: %w", err)
 			}
 		}
 
