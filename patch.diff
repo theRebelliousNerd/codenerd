@@ -1,0 +1,13 @@
+--- internal/perception/claude_cli_client.go
++++ internal/perception/claude_cli_client.go
+@@ -539,8 +539,8 @@
+ }
+
+ // CompleteWithTools sends a prompt with tool definitions.
+-// TODO: Implement proper Claude CLI function calling - for now falls back to simple completion.
++// Claude CLI is used as a backend here; tools are requested via Piggyback Protocol.
+ func (c *ClaudeCodeCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
+-	// Fallback: Use simple completion without tools
++	// Execute simple completion, Piggyback++ extracts tool_requests later.
+	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	if err != nil {

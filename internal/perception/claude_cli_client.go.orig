@@ -539,9 +539,9 @@ func (c *ClaudeCodeCLIClient) GetMaxTurns() int {
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// Claude CLI is used as a backend here; tools are requested via Piggyback Protocol.
+// TODO: Implement proper Claude CLI function calling - for now falls back to simple completion.
 func (c *ClaudeCodeCLIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
-	// Execute simple completion, Piggyback++ extracts tool_requests later.
+	// Fallback: Use simple completion without tools
 	text, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
