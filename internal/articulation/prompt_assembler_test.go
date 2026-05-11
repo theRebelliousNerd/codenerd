@@ -2,10 +2,9 @@ package articulation
 
 import (
 	"context"
-	"testing"
 	"strings"
+	"testing"
 
-	"codenerd/internal/core"
 	"codenerd/internal/types"
 )
 
@@ -25,21 +24,49 @@ import (
 
 // mockKernel implements KernelQuerier for testing.
 type mockKernel struct {
-	facts map[string][]core.Fact
+	facts map[string][]types.Fact
 }
 
 func newMockKernel() *mockKernel {
 	return &mockKernel{
-		facts: make(map[string][]core.Fact),
+		facts: make(map[string][]types.Fact),
 	}
 }
 
-func (m *mockKernel) Query(predicate string) ([]core.Fact, error) {
-	return m.facts[predicate], nil
+func (m *mockKernel) Query(query string) ([]types.Fact, error) {
+	predicate := query
+	var arg0 string
+	if idx := strings.Index(query, "("); idx > 0 {
+		predicate = query[:idx]
+		// extract the first arg if it's a string, e.g. "my-shard" or "/_all"
+		argsStr := query[idx+1 : len(query)-1]
+		parts := strings.Split(argsStr, ",")
+		if len(parts) > 0 {
+			arg0 = strings.TrimSpace(parts[0])
+			if strings.HasPrefix(arg0, "\"") && strings.HasSuffix(arg0, "\"") {
+				arg0 = arg0[1 : len(arg0)-1]
+			}
+		}
+	}
+
+	allFacts := m.facts[predicate]
+	if arg0 == "" || arg0 == "_" {
+		return allFacts, nil
+	}
+
+	var filtered []types.Fact
+	for _, f := range allFacts {
+		if len(f.Args) > 0 {
+			if s, ok := f.Args[0].(string); ok && s == arg0 {
+				filtered = append(filtered, f)
+			}
+		}
+	}
+	return filtered, nil
 }
 
 func (m *mockKernel) addFact(predicate string, args ...interface{}) {
-	m.facts[predicate] = append(m.facts[predicate], core.Fact{
+	m.facts[predicate] = append(m.facts[predicate], types.Fact{
 		Predicate: predicate,
 		Args:      args,
 	})
