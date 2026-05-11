@@ -8,6 +8,7 @@ import (
 )
 
 // mockKernelQuerier implements codedom.KernelQuerier for testing.
+
 type mockKernelQuerier struct {
 	facts map[string][]codedom.FactData
 }
@@ -15,6 +16,32 @@ type mockKernelQuerier struct {
 func newMockKernel() *mockKernelQuerier {
 	return &mockKernelQuerier{
 		facts: make(map[string][]codedom.FactData),
+	}
+}
+
+func TestNewTestDependencyBuilder(t *testing.T) {
+	kernel := newMockKernel()
+	projectRoot := "/test/project"
+
+	builder := NewTestDependencyBuilder(kernel, projectRoot)
+
+	if builder == nil {
+		t.Fatalf("Expected non-nil builder, got nil")
+	}
+	if builder.kernel != kernel {
+		t.Errorf("Expected kernel to be %v, got %v", kernel, builder.kernel)
+	}
+	if builder.projectRoot != projectRoot {
+		t.Errorf("Expected projectRoot to be %s, got %s", projectRoot, builder.projectRoot)
+	}
+	if builder.testFiles == nil {
+		t.Errorf("Expected testFiles map to be initialized")
+	}
+	if builder.testFuncs == nil {
+		t.Errorf("Expected testFuncs map to be initialized")
+	}
+	if builder.dependencies == nil {
+		t.Errorf("Expected dependencies map to be initialized")
 	}
 }
 
