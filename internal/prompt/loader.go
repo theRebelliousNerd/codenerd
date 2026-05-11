@@ -379,7 +379,52 @@ func (l *AtomLoader) StoreAtom(ctx context.Context, db *sql.DB, atom *PromptAtom
 
 // ReplaceAtoms stores the provided prompt atoms transactionally after pruning the
 // existing prompt atom set in the target database.
+// ReplaceAtoms stores the provided prompt atoms transactionally after pruning the
+// existing prompt atom set in the target database.
 func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*PromptAtom) error {
+	// 1. Process Embeddings BEFORE starting the transaction
+	// This prevents holding open database transactions while waiting on network I/O
+	var embeddings [][]float32
+	var taskType string
+
+	if l.embeddingEngine != nil && len(atoms) > 0 {
+		textsToEmbed := make([]string, len(atoms))
+		for i, atom := range atoms {
+			text := atom.Description
+			if text == "" {
+				text = atom.Content
+			}
+			textsToEmbed[i] = text
+		}
+
+		taskType = embedding.SelectTaskType(embedding.ContentTypePromptAtom, false)
+		var err error
+
+		if batchAware, ok := l.embeddingEngine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+			embeddings, err = batchAware.EmbedBatchWithTask(ctx, textsToEmbed, taskType)
+		} else if taskAware, ok := l.embeddingEngine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			embeddings = make([][]float32, len(textsToEmbed))
+			for i, text := range textsToEmbed {
+				vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
+				if embedErr != nil {
+					logging.Get(logging.CategoryStore).Warn("Failed to embed atom %d: %v", i, embedErr)
+				} else {
+					embeddings[i] = vec
+				}
+			}
+		} else {
+			embeddings, err = l.embeddingEngine.EmbedBatch(ctx, textsToEmbed)
+		}
+
+		if err != nil {
+			logging.Get(logging.CategoryStore).Warn("Failed to generate batch embeddings: %v", err)
+			embeddings = make([][]float32, len(atoms)) // Fallback to empty embeddings
+		}
+	} else {
+		embeddings = make([][]float32, len(atoms))
+	}
+
+	// 2. Start Transaction
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -393,10 +438,114 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 		return fmt.Errorf("clear atoms failed: %w", err)
 	}
 
-	for _, atom := range atoms {
-		if err := l.storeAtomTx(ctx, tx, atom); err != nil {
+	// 3. Batch Insert using SQLite Multi-row Insert (Chunking)
+	if len(atoms) == 0 {
+		return tx.Commit()
+	}
+
+	// SQLite maximum variables per query is 32766, but 999 is safer for older versions.
+	// We have 15 columns per atom insert. So max chunk size is 999 / 15 = 66
+	chunkSize := 60
+	for i := 0; i < len(atoms); i += chunkSize {
+		end := i + chunkSize
+		if end > len(atoms) {
+			end = len(atoms)
+		}
+		chunk := atoms[i:end]
+		chunkEmbeds := embeddings[i:end]
+
+		// Build the query
+		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, priority, is_mandatory, is_exclusive, embedding, embedding_task) VALUES "
+		var vals []interface{}
+		var placeholders []string
+
+		for j, atom := range chunk {
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+
+			var embeddingBlob []byte
+			if len(chunkEmbeds[j]) > 0 {
+				embeddingBlob = encodeFloat32Slice(chunkEmbeds[j])
+			}
+
+			var etask *string
+			if len(embeddingBlob) > 0 && taskType != "" {
+				etask = &taskType
+			}
+
+			vals = append(vals,
+				atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
+				nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
+				string(atom.Category), nullableString(atom.Subcategory),
+				atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+				embeddingBlob, etask,
+			)
+		}
+
+		query += strings.Join(placeholders, ",")
+
+		if _, err := tx.ExecContext(ctx, query, vals...); err != nil {
+			return fmt.Errorf("batch insert chunk failed: %w", err)
+		}
+	}
+
+	// 4. Batch Insert Context Tags
+	// We will chunk tags insertion similarly. Tag table has 3 columns (atom_id, dimension, tag)
+	// Max chunk size = 999 / 3 = 333
+	tagChunkSize := 300
+	var tagVals []interface{}
+	var tagPlaceholders []string
+
+	flushTags := func() error {
+		if len(tagVals) == 0 {
+			return nil
+		}
+		query := "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES " + strings.Join(tagPlaceholders, ",")
+		if _, err := tx.ExecContext(ctx, query, tagVals...); err != nil {
 			return err
 		}
+		tagVals = tagVals[:0]
+		tagPlaceholders = tagPlaceholders[:0]
+		return nil
+	}
+
+	for _, atom := range atoms {
+		// Helper to queue tag
+		queueTag := func(dim, tag string) error {
+			tagVals = append(tagVals, atom.ID, dim, tag)
+			tagPlaceholders = append(tagPlaceholders, "(?, ?, ?)")
+
+			if len(tagPlaceholders) >= tagChunkSize {
+				return flushTags()
+			}
+			return nil
+		}
+
+		addTags := func(dim string, values []string) error {
+			for _, val := range values {
+				if err := queueTag(dim, val); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
+		if err := addTags("mode", atom.OperationalModes); err != nil { return err }
+		if err := addTags("phase", atom.CampaignPhases); err != nil { return err }
+		if err := addTags("layer", atom.BuildLayers); err != nil { return err }
+		if err := addTags("init_phase", atom.InitPhases); err != nil { return err }
+		if err := addTags("northstar_phase", atom.NorthstarPhases); err != nil { return err }
+		if err := addTags("ouroboros_stage", atom.OuroborosStages); err != nil { return err }
+		if err := addTags("intent", atom.IntentVerbs); err != nil { return err }
+		if err := addTags("shard", atom.ShardTypes); err != nil { return err }
+		if err := addTags("lang", atom.Languages); err != nil { return err }
+		if err := addTags("framework", atom.Frameworks); err != nil { return err }
+		if err := addTags("state", atom.WorldStates); err != nil { return err }
+		if err := addTags("depends_on", atom.DependsOn); err != nil { return err }
+		if err := addTags("conflicts_with", atom.ConflictsWith); err != nil { return err }
+	}
+
+	if err := flushTags(); err != nil {
+		return fmt.Errorf("batch insert tags failed: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
