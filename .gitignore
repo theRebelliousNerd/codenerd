@@ -107,3 +107,6 @@ config.json
 *.sqlite-journal
 *.sqlite3-journal
 *.backup_*
+!.quality_assurance/remediation/
+.quality_assurance/remediation/*
+!.quality_assurance/remediation/*.md
