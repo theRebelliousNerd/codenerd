@@ -232,9 +232,9 @@ func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
 	h := &HolographicProvider{}
 
 	tests := []struct {
-		name  string
-		atom  string
-		want  int
+		name string
+		atom string
+		want int
 	}{
 		{name: "critical", atom: "/critical", want: 100},
 		{name: "high", atom: "/high", want: 80},
@@ -252,8 +252,8 @@ func TestHolographicProviderPriorityAtomToInt(t *testing.T) {
 		{name: "whitespace_padded", atom: "  high  ", want: 50}, // whitespace not trimmed currently
 		{name: "numeric_string_100", atom: "100", want: 50},     // numeric strings return default
 		{name: "numeric_string_0", atom: "0", want: 50},         // numeric strings return default
-		{name: "malformed_slashes", atom: "//high", want: 50},    // double slash not handled
-		{name: "malformed_path", atom: "/super/high", want: 50},  // path-like atom not handled
+		{name: "malformed_slashes", atom: "//high", want: 50},   // double slash not handled
+		{name: "malformed_path", atom: "/super/high", want: 50}, // path-like atom not handled
 	}
 
 	for _, tt := range tests {
@@ -290,10 +290,6 @@ func TestHolographicProviderStringArg(t *testing.T) {
 }
 
 func TestHolographicProviderIntArg(t *testing.T) {
-	// TODO: TEST_GAP: Numeric String Handling
-	// Verify that intArg correctly handles numeric strings (e.g., "80") which might be returned
-	// by Mangle if the type system isn't strictly enforced. Currently it might default to 50.
-
 	h := &HolographicProvider{}
 
 	tests := []struct {
@@ -307,6 +303,9 @@ func TestHolographicProviderIntArg(t *testing.T) {
 		{name: "float64", arg: float64(75.9), defaultVal: 0, want: 75},
 		{name: "string_high", arg: "/high", defaultVal: 0, want: 80},
 		{name: "unknown_type", arg: struct{}{}, defaultVal: 50, want: 50},
+		{name: "numeric_string", arg: "80", defaultVal: 50, want: 80},
+		{name: "negative_numeric_string", arg: "-10", defaultVal: 50, want: -10},
+		{name: "invalid_numeric_string", arg: "80x", defaultVal: 50, want: 50},
 	}
 
 	for _, tt := range tests {
