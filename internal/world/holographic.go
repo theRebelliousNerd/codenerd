@@ -732,9 +732,10 @@ func (ctx *HolographicContext) FormatSignaturesCompact() string {
 	return sb.String()
 }
 
+var todoPattern = regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX|BUG):?`)
+
 // CountTODOs counts TODO/FIXME comments in file content.
 func CountTODOs(content string) int {
-	todoPattern := regexp.MustCompile(`(?i)(TODO|FIXME|HACK|XXX|BUG):?`)
 	matches := todoPattern.FindAllString(content, -1)
 	return len(matches)
 }
