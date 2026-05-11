@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -97,7 +98,7 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
 	// TODO: TEST_GAP: State Conflicts - Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
-	// TODO: TEST_GAP: State Conflicts - Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
+
 	err := cp.ActivatePhase(ctx, phase)
 	if err != nil {
 		t.Fatalf("ActivatePhase failed: %v", err)
@@ -408,5 +409,73 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+// ThreadSafeMockKernel is a wrapper around MockKernel to allow concurrent access in tests.
+type ThreadSafeMockKernel struct {
+	MockKernel
+	mu sync.Mutex
+}
+
+func (m *ThreadSafeMockKernel) Query(predicate string) ([]core.Fact, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.MockKernel.Query(predicate)
+}
+
+func (m *ThreadSafeMockKernel) AssertBatch(facts []core.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.MockKernel.AssertBatch(facts)
+}
+
+func (m *ThreadSafeMockKernel) Assert(fact core.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.MockKernel.Assert(fact)
+}
+
+func TestActivatePhase_Concurrent(t *testing.T) {
+	kernel := &ThreadSafeMockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	ctx := context.Background()
+
+	phase := &Phase{
+		ID:   "test-phase",
+		Name: "Test Phase",
+		Tasks: []Task{
+			{Description: "Task 1", Artifacts: []TaskArtifact{{Path: "file1.go"}}},
+			{Description: "Task 2", Artifacts: []TaskArtifact{{Path: "file2.go"}}},
+		},
+	}
+
+	var wg sync.WaitGroup
+	// Run 10 goroutines concurrently calling ActivatePhase
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := cp.ActivatePhase(ctx, phase)
+			if err != nil {
+				t.Errorf("ActivatePhase failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Verify usedTokens is correctly computed without race condition corruption
+	used, total, _ := cp.GetUsage()
+
+	// Phase base estimate is 100
+	// 2 tasks * 50 tokens = 100
+	// 2 artifacts * 20 tokens = 40
+	// Total estimate = 240
+	expectedUsed := 240
+	if used != expectedUsed {
+		t.Errorf("Expected usedTokens %d, got %d", expectedUsed, used)
+	}
+	if total != 100000 {
+		t.Errorf("Expected total budget 100000, got %d", total)
 	}
 }

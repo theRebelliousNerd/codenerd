@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type ContextPager struct {
 	prefetchReserve int // Upcoming task hints
 
 	// Tracking
+	mu         sync.RWMutex
 	usedTokens int
 }
 
@@ -56,6 +58,8 @@ func NewContextPager(kernel core.Kernel, llmClient perception.LLMClient, initial
 
 // SetBudget updates the total token budget.
 func (cp *ContextPager) SetBudget(tokens int) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
 	logging.Campaign("Setting context budget: %d tokens", tokens)
 	cp.totalBudget = tokens
 	// Recalculate reserves
@@ -70,6 +74,8 @@ func (cp *ContextPager) SetBudget(tokens int) {
 
 // GetUsage returns current context usage stats.
 func (cp *ContextPager) GetUsage() (used, total int, utilization float64) {
+	cp.mu.RLock()
+	defer cp.mu.RUnlock()
 	utilization = float64(cp.usedTokens) / float64(cp.totalBudget)
 	logging.CampaignDebug("Context usage: %d/%d tokens (%.1f%%)", cp.usedTokens, cp.totalBudget, utilization*100)
 	return cp.usedTokens, cp.totalBudget, utilization
@@ -177,9 +183,11 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
 
 	// 5. Update usage estimate
+	cp.mu.Lock()
 	cp.usedTokens = cp.estimatePhaseTokens(phase)
 	logging.Campaign("Phase context activated: %s (estimated tokens=%d, utilization=%.1f%%)",
 		phase.Name, cp.usedTokens, float64(cp.usedTokens)/float64(cp.totalBudget)*100)
+	cp.mu.Unlock()
 
 	return nil
 }
