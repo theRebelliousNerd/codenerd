@@ -94,7 +94,6 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
-	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
 	// TODO: TEST_GAP: State Conflicts - Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
 	// TODO: TEST_GAP: State Conflicts - Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
@@ -408,5 +407,56 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	// Create a phase with 1 task containing 100,000 artifacts
+	numArtifacts := 100000
+	artifacts := make([]TaskArtifact, numArtifacts)
+	for i := 0; i < numArtifacts; i++ {
+		artifacts[i] = TaskArtifact{Path: fmt.Sprintf("src/file_%d.go", i)}
+	}
+
+	phase := &Phase{
+		ID:             "extreme_phase",
+		Name:           "Extreme Artifact Phase",
+		ContextProfile: "profile1",
+		Tasks: []Task{
+			{
+				ID:        "task1",
+				Artifacts: artifacts,
+			},
+		},
+	}
+
+	// This should run without timing out and correctly assert all facts
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed: %v", err)
+	}
+
+	// Verify that the facts were asserted.
+	// ActivatePhase asserts:
+	// - focus patterns for the default profile (which has 1 pattern: "**/*")
+	// - 100,000 phase_context_atom facts for the artifacts
+	// - 5 activation facts to suppress irrelevant schemas
+	// So we expect 1 + 100000 + 5 = 100006 facts in total.
+
+	// We count specifically the phase_context_atom facts to be robust
+	artifactFactCount := 0
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" {
+			artifactFactCount++
+		}
+	}
+
+	if artifactFactCount != numArtifacts {
+		t.Errorf("Expected %d artifact facts to be asserted, got %d", numArtifacts, artifactFactCount)
 	}
 }
