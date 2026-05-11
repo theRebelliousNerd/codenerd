@@ -207,3 +207,17 @@ func TestLazyLoading(t *testing.T) {
 		t.Errorf("Lazy load failed, results: %v", res.Bindings)
 	}
 }
+
+// TestNewKnowledgeGraph validates the instantiation of KnowledgeGraph.
+func TestNewKnowledgeGraph(t *testing.T) {
+	kg := NewKnowledgeGraph()
+	if kg == nil {
+		t.Fatal("NewKnowledgeGraph returned nil")
+	}
+	if kg.store == nil {
+		t.Error("Expected KnowledgeGraph.store to be initialized, got nil")
+	}
+	if kg.isFrozen {
+		t.Error("Expected KnowledgeGraph.isFrozen to be false by default")
+	}
+}
