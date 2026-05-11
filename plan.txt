@@ -1,0 +1,12 @@
+1. In `internal/campaign/context_pager_test.go`, create a new test `TestActivatePhase_MalformedPhaseID`.
+2. Inside `TestActivatePhase_MalformedPhaseID`:
+    a. Initialize `kernel := &MockKernel{}` and `cp := NewContextPager(kernel, &MockLLMClient{}, 100000)`.
+    b. Create a `Phase` with `ID: "malformed id !@#$%\n^&*()"` and some dummy `Name` and `Tasks` with `Artifacts` so that `phase_context_atom` facts are created in the kernel.
+    c. Call `err := cp.ActivatePhase(context.Background(), phase)`.
+    d. Check `if err != nil`.
+    e. Iterate over `kernel.Facts` to find `phase_context_atom` facts.
+    f. Assert that `len(kernel.Facts)` contains the malformed ID exactly as passed. Because `phase.ID` is used directly in `ActivatePhase`, `f.Args[0]` (the first argument to `phase_context_atom`) should match the malformed ID exactly.
+3. Remove the `// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates` comment.
+4. Run `go test -v ./internal/campaign/... -run TestActivatePhase_MalformedPhaseID` to verify it passes.
+5. Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+6. Submit the changes.

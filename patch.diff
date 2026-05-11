@@ -1,0 +1,58 @@
+--- internal/campaign/context_pager_test.go
++++ internal/campaign/context_pager_test.go
+@@ -92,7 +92,6 @@
+	// TODO: TEST_GAP: Null/Empty - ActivatePhase with nil phase (should handle gracefully)
+	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
+	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
+-	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
+	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
+	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
+	// TODO: TEST_GAP: User Request Extremes - ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
+@@ -166,6 +165,47 @@
+	}
+ }
+
++func TestActivatePhase_MalformedPhaseID(t *testing.T) {
++	kernel := &MockKernel{}
++	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
++	ctx := context.Background()
++
++	malformedID := "invalid phase id !@#$%\n^&*()"
++	phase := &Phase{
++		ID:   malformedID,
++		Name: "Test Phase",
++		Tasks: []Task{
++			{
++				ID: "task1",
++				Artifacts: []TaskArtifact{
++					{Path: "src/main.go"},
++				},
++			},
++		},
++	}
++
++	err := cp.ActivatePhase(ctx, phase)
++	if err != nil {
++		t.Fatalf("ActivatePhase failed: %v", err)
++	}
++
++	// Verify that the fact was correctly asserted with the malformed ID
++	found := false
++	for _, f := range kernel.Facts {
++		if f.Predicate == "phase_context_atom" && len(f.Args) > 0 {
++			arg0 := fmt.Sprintf("%v", f.Args[0])
++			if arg0 == malformedID {
++				found = true
++				break
++			}
++		}
++	}
++
++	if !found {
++		t.Error("Expected phase_context_atom fact to be asserted with the exact malformed ID")
++	}
++}
++
+ func TestCompressPhase(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{
