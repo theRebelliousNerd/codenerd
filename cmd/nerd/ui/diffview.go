@@ -8,7 +8,10 @@ import (
 
 	"codenerd/internal/diff"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 )
@@ -29,6 +32,59 @@ const (
 	DiffLineHeader  = diff.LineHeader
 )
 
+// DiffKeyMap defines the key bindings for the DiffApprovalView
+type DiffKeyMap struct {
+	Approve          key.Binding
+	Reject           key.Binding
+	ApproveAll       key.Binding
+	NextMutation     key.Binding
+	PrevMutation     key.Binding
+	NextHunk         key.Binding
+	PrevHunk         key.Binding
+	ToggleWarnings   key.Binding
+	ToggleWhitespace key.Binding
+	ToggleWordDiff   key.Binding
+	ScrollLeft       key.Binding
+	ScrollRight      key.Binding
+	ScrollToStart    key.Binding
+	Quit             key.Binding
+}
+
+// ShortHelp returns keybindings to be shown in the mini help view.
+func (k DiffKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Approve, k.Reject, k.ApproveAll, k.NextMutation, k.PrevMutation, k.Quit}
+}
+
+// FullHelp returns keybindings for the expanded help view.
+func (k DiffKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Approve, k.Reject, k.ApproveAll},
+		{k.NextMutation, k.PrevMutation, k.NextHunk, k.PrevHunk},
+		{k.ToggleWarnings, k.ToggleWhitespace, k.ToggleWordDiff},
+		{k.ScrollLeft, k.ScrollRight, k.ScrollToStart, k.Quit},
+	}
+}
+
+// DefaultDiffKeyMap returns the default keybindings.
+func DefaultDiffKeyMap() DiffKeyMap {
+	return DiffKeyMap{
+		Approve:          key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "Approve")),
+		Reject:           key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "Reject")),
+		ApproveAll:       key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "Approve All")),
+		NextMutation:     key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "Next")),
+		PrevMutation:     key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "Prev")),
+		NextHunk:         key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "Next Hunk")),
+		PrevHunk:         key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "Prev Hunk")),
+		ToggleWarnings:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "Warnings")),
+		ToggleWhitespace: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "Whitespace")),
+		ToggleWordDiff:   key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "Word Diff")),
+		ScrollLeft:       key.NewBinding(key.WithKeys("ctrl+left"), key.WithHelp("ctrl+←", "Scroll Left")),
+		ScrollRight:      key.NewBinding(key.WithKeys("ctrl+right"), key.WithHelp("ctrl+→", "Scroll Right")),
+		ScrollToStart:    key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "Scroll to Start")),
+		Quit:             key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q/ctrl+c", "Close")),
+	}
+}
+
 // PendingMutation represents a mutation awaiting approval
 type PendingMutation struct {
 	ID          string
@@ -43,7 +99,6 @@ type PendingMutation struct {
 }
 
 // DiffApprovalView handles interactive diff approval
-// TODO: IMPROVEMENT: Refactor state management to use a state machine or cleaner model transition logic.
 type DiffApprovalView struct {
 	Styles       Styles
 	Viewport     viewport.Model
@@ -59,6 +114,8 @@ type DiffApprovalView struct {
 	WordLevelDiff    bool // Enable word-level diffing for changed lines
 	diffEngine       *diff.Engine
 	XOffset          int // Horizontal scroll offset (columns)
+	keys             DiffKeyMap
+	help             help.Model
 }
 
 // ApprovalMode represents the current approval state
@@ -76,6 +133,7 @@ const (
 func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 	vp := viewport.New(ViewportWidth(width), ViewportHeight(height))
 	vp.SetContent("")
+	h := help.New()
 
 	return DiffApprovalView{
 		Styles:           styles,
@@ -90,6 +148,8 @@ func NewDiffApprovalView(styles Styles, width, height int) DiffApprovalView {
 		ApprovalMode:     ModeReview,
 		WordLevelDiff:    true, // Enable word-level diffing by default
 		diffEngine:       diff.NewEngine(),
+		keys:             DefaultDiffKeyMap(),
+		help:             h,
 	}
 }
 
@@ -99,6 +159,54 @@ func (d *DiffApprovalView) SetSize(width, height int) {
 	d.Height = height
 	d.Viewport.Width = ViewportWidth(width)
 	d.Viewport.Height = ViewportHeight(height)
+}
+
+// Init initializes the component
+func (d *DiffApprovalView) Init() tea.Cmd {
+	return nil
+}
+
+// Update handles messages and state transitions
+func (d *DiffApprovalView) Update(msg tea.Msg) (DiffApprovalView, tea.Cmd) {
+	var cmds []tea.Cmd
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, d.keys.Approve):
+			d.ApproveCurrent()
+		case key.Matches(msg, d.keys.Reject):
+			d.RejectCurrent("")
+		case key.Matches(msg, d.keys.ApproveAll):
+			d.ApproveAll()
+		case key.Matches(msg, d.keys.NextMutation):
+			d.NextMutation()
+		case key.Matches(msg, d.keys.PrevMutation):
+			d.PrevMutation()
+		case key.Matches(msg, d.keys.NextHunk):
+			d.NextHunk()
+		case key.Matches(msg, d.keys.PrevHunk):
+			d.PrevHunk()
+		case key.Matches(msg, d.keys.ToggleWarnings):
+			d.ToggleWarnings()
+		case key.Matches(msg, d.keys.ToggleWhitespace):
+			d.ToggleIgnoreWhitespace()
+		case key.Matches(msg, d.keys.ToggleWordDiff):
+			d.ToggleWordLevelDiff()
+		case key.Matches(msg, d.keys.ScrollLeft):
+			d.ScrollLeft()
+		case key.Matches(msg, d.keys.ScrollRight):
+			d.ScrollRight()
+		case key.Matches(msg, d.keys.ScrollToStart):
+			d.ScrollToStart()
+		}
+	}
+
+	d.Viewport, cmd = d.Viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return *d, tea.Batch(cmds...)
 }
 
 // AddMutation adds a pending mutation for approval
@@ -595,8 +703,6 @@ func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs
 }
 
 // renderControls renders the approval controls
-// TODO: IMPROVEMENT: Use `key.Binding` for customizable keyboard controls instead of hardcoded strings.
-// TODO: IMPROVEMENT: Use `bubbles/help` for the help view to ensure consistency.
 func (d *DiffApprovalView) renderControls() string {
 	controlStyle := lipgloss.NewStyle().
 		Foreground(d.Styles.Theme.OnSurfaceMuted).
@@ -609,10 +715,10 @@ func (d *DiffApprovalView) renderControls() string {
 	if d.IgnoreWhitespace {
 		wsStatus = "ON"
 	}
-	controls := fmt.Sprintf(
-		"Controls: [y] Approve  [n] Reject  [a] Approve All  [←/→] Prev/Next  [↑/↓] Prev/Next Hunk  [w] Warnings  [s] Whitespace(%s)  [d] Word Diff  [q] Close",
-		wsStatus,
-	)
+
+	// Prepend whitespace status to the help view dynamically, or you can just show it.
+	helpView := d.help.View(d.keys)
+	controls := fmt.Sprintf("Whitespace: %s | %s", wsStatus, helpView)
 
 	return controlStyle.Render(controls)
 }
