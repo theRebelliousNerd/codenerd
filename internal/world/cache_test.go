@@ -225,19 +225,20 @@ func TestFileCache_SaveWriteError(t *testing.T) {
 	tempDir := t.TempDir()
 	cache := NewFileCache(tempDir)
 
-	// Create the directory but make it read-only, so writing the file fails
-	dir := filepath.Join(tempDir, "readonly_dir")
-	if err := os.MkdirAll(dir, 0555); err != nil {
-		t.Fatalf("Failed to create readonly dir: %v", err)
+	// Create a directory at the exact path we want to write to, which will cause os.WriteFile to fail
+	dir := filepath.Join(tempDir, "some_dir")
+	targetFile := filepath.Join(dir, "manifest.json")
+	if err := os.MkdirAll(targetFile, 0755); err != nil {
+		t.Fatalf("Failed to create dir at target file path: %v", err)
 	}
 
-	cache.path = filepath.Join(dir, "manifest.json")
+	cache.path = targetFile
 	cache.Dirty = true
 	cache.Entries["test"] = CacheEntry{Hash: "test"}
 
 	err := cache.Save()
 	if err == nil {
-		t.Error("Expected Save to fail when directory is read-only")
+		t.Error("Expected Save to fail when target path is a directory")
 	}
 }
 
