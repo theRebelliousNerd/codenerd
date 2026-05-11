@@ -534,19 +534,19 @@ func BenchmarkWorldStates(b *testing.B) {
 
 func BenchmarkCompilationContextClone(b *testing.B) {
 	cc := &CompilationContext{
-		OperationalMode:   "/active",
-		CampaignPhase:     "/planning",
-		CampaignID:        "campaign-123",
-		ShardType:         "/coder",
-		Language:          "/go",
-		Frameworks:        []string{"/bubbletea", "/lipgloss", "/gin"},
-		FailingTestCount:  5,
-		DiagnosticCount:   3,
-		IsLargeRefactor:   true,
-		TokenBudget:       100000,
-		ReservedTokens:    8000,
-		SemanticQuery:     "test query for benchmarking",
-		SemanticTopK:      30,
+		OperationalMode:  "/active",
+		CampaignPhase:    "/planning",
+		CampaignID:       "campaign-123",
+		ShardType:        "/coder",
+		Language:         "/go",
+		Frameworks:       []string{"/bubbletea", "/lipgloss", "/gin"},
+		FailingTestCount: 5,
+		DiagnosticCount:  3,
+		IsLargeRefactor:  true,
+		TokenBudget:      100000,
+		ReservedTokens:   8000,
+		SemanticQuery:    "test query for benchmarking",
+		SemanticTopK:     30,
 	}
 
 	b.ResetTimer()

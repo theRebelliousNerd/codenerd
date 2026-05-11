@@ -28,12 +28,12 @@ var verbSynonyms = map[string][]string{
 
 // targetSynonyms expands target types into related terminology.
 var targetSynonyms = map[string][]string{
-	"api":       {"api", "endpoint", "rest", "graphql", "grpc", "route"},
-	"database":  {"database", "db", "sql", "nosql", "query", "schema", "model"},
-	"ui":        {"ui", "frontend", "component", "view", "interface"},
-	"backend":   {"backend", "server", "service", "handler", "controller"},
-	"auth":      {"auth", "authentication", "authorization", "login", "jwt", "session"},
-	"security":  {"security", "vulnerability", "safe", "protect", "encrypt"},
+	"api":      {"api", "endpoint", "rest", "graphql", "grpc", "route"},
+	"database": {"database", "db", "sql", "nosql", "query", "schema", "model"},
+	"ui":       {"ui", "frontend", "component", "view", "interface"},
+	"backend":  {"backend", "server", "service", "handler", "controller"},
+	"auth":     {"auth", "authentication", "authorization", "login", "jwt", "session"},
+	"security": {"security", "vulnerability", "safe", "protect", "encrypt"},
 }
 
 // languageSynonyms provides alternative names or related terms for programming languages.

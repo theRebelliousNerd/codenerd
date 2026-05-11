@@ -139,8 +139,8 @@ func TestPredicateSelector_Select(t *testing.T) {
 		}
 
 		assert.Contains(t, names, "core_fact")
-		assert.Contains(t, names, "permitted") // Safety is always included
-		assert.Contains(t, names, "next_action") // Routing is always included
+		assert.Contains(t, names, "permitted")      // Safety is always included
+		assert.Contains(t, names, "next_action")    // Routing is always included
 		assert.NotContains(t, names, "code_change") // Specific to coder
 	})
 
@@ -209,9 +209,15 @@ func TestPredicateSelector_Select(t *testing.T) {
 		var coreIdx, safetyIdx, shardIdx int = -1, -1, -1
 
 		for i, p := range preds {
-			if p.Name == "core_fact" { coreIdx = i }
-			if p.Name == "permitted" { safetyIdx = i }
-			if p.Name == "code_change" { shardIdx = i }
+			if p.Name == "core_fact" {
+				coreIdx = i
+			}
+			if p.Name == "permitted" {
+				safetyIdx = i
+			}
+			if p.Name == "code_change" {
+				shardIdx = i
+			}
 		}
 
 		assert.True(t, coreIdx < safetyIdx, "Core should be before Safety")
