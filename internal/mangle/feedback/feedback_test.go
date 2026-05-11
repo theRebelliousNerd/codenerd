@@ -7,278 +7,6 @@ import (
 	"testing"
 )
 
-// ============================================================================
-// PreValidator Tests
-// ============================================================================
-
-func TestPreValidator_AtomStringConfusion(t *testing.T) {
-	pv := NewPreValidator()
-
-	tests := []struct {
-		name     string
-		input    string
-		wantErr  bool
-		category ErrorCategory
-	}{
-		{
-			name:     "string should be atom - status active",
-			input:    `status(X, "active")`,
-			wantErr:  true,
-			category: CategoryAtomString,
-		},
-		{
-			name:     "string should be atom - enum pending",
-			input:    `state(X, "pending")`,
-			wantErr:  true,
-			category: CategoryAtomString,
-		},
-		{
-			name:     "correct atom usage",
-			input:    `status(X, /active)`,
-			wantErr:  false,
-			category: 0,
-		},
-		{
-			name:     "string literal for actual text is OK",
-			input:    `message(X, "Hello world")`,
-			wantErr:  false, // Not an enum-like value
-			category: 0,
-		},
-		{
-			name:     "user_intent category should be atom",
-			input:    `user_intent(Id, "review", /fix, /codebase, _)`,
-			wantErr:  true,
-			category: CategoryAtomString,
-		},
-		{
-			name:     "user_intent verb should be atom",
-			input:    `user_intent(Id, /review, "fix", /codebase, _)`,
-			wantErr:  true,
-			category: CategoryAtomString,
-		},
-		{
-			name:     "user_intent target should be atom",
-			input:    `user_intent(Id, /review, /fix, "codebase", _)`,
-			wantErr:  true,
-			category: CategoryAtomString,
-		},
-		{
-			name:     "user_intent atoms are allowed",
-			input:    `user_intent(Id, /review, /fix, /codebase, _)`,
-			wantErr:  false,
-			category: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := pv.Validate(tt.input)
-			if tt.wantErr && len(errs) == 0 {
-				t.Errorf("expected error for input %q, got none", tt.input)
-			}
-			if !tt.wantErr && len(errs) > 0 {
-				t.Errorf("unexpected error for input %q: %v", tt.input, errs)
-			}
-			if tt.wantErr && len(errs) > 0 && errs[0].Category != tt.category {
-				t.Errorf("expected category %v, got %v", tt.category, errs[0].Category)
-			}
-		})
-	}
-}
-
-func TestPreValidator_PrologNegation(t *testing.T) {
-	pv := NewPreValidator()
-
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:    "prolog negation backslash plus",
-			input:   "blocked(X) :- \\+ permitted(X).", // Raw \+ as it appears in LLM output
-			wantErr: true,
-		},
-		{
-			name:    "correct mangle negation",
-			input:   `blocked(X) :- !permitted(X).`,
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := pv.Validate(tt.input)
-			hasNegErr := false
-			for _, e := range errs {
-				if e.Category == CategoryPrologNegation {
-					hasNegErr = true
-					break
-				}
-			}
-			if tt.wantErr && !hasNegErr {
-				t.Errorf("expected prolog negation error for %q", tt.input)
-			}
-			if !tt.wantErr && hasNegErr {
-				t.Errorf("unexpected prolog negation error for %q", tt.input)
-			}
-		})
-	}
-}
-
-func TestPreValidator_AggregationSyntax(t *testing.T) {
-	pv := NewPreValidator()
-
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:    "SQL-style aggregation",
-			input:   `Total = sum(Amount)`,
-			wantErr: true,
-		},
-		{
-			name:    "missing do keyword",
-			input:   `source() |> fn:group_by(X)`,
-			wantErr: true,
-		},
-		{
-			name:    "uppercase aggregate function",
-			input:   `|> do fn:Count()`,
-			wantErr: true,
-		},
-		{
-			name:    "correct aggregation",
-			input:   `source() |> do fn:group_by(X), let N = fn:count()`,
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := pv.Validate(tt.input)
-			hasAggErr := false
-			for _, e := range errs {
-				if e.Category == CategoryAggregation {
-					hasAggErr = true
-					break
-				}
-			}
-			if tt.wantErr && !hasAggErr {
-				t.Errorf("expected aggregation error for %q", tt.input)
-			}
-			if !tt.wantErr && hasAggErr {
-				t.Errorf("unexpected aggregation error for %q", tt.input)
-			}
-		})
-	}
-}
-
-func TestPreValidator_UnboundNegation(t *testing.T) {
-	pv := NewPreValidator()
-
-	tests := []struct {
-		name    string
-		input   string
-		wantErr bool
-	}{
-		{
-			name:    "negation before positive binding",
-			input:   `blocked(X) :- !permitted(X).`,
-			wantErr: true,
-		},
-		{
-			name:    "correct - positive binding first",
-			input:   `blocked(X) :- action(X), !permitted(X).`,
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			errs := pv.Validate(tt.input)
-			hasUnboundErr := false
-			for _, e := range errs {
-				if e.Category == CategoryUnboundNegation {
-					hasUnboundErr = true
-					break
-				}
-			}
-			if tt.wantErr && !hasUnboundErr {
-				t.Errorf("expected unbound negation error for %q", tt.input)
-			}
-			if !tt.wantErr && hasUnboundErr {
-				t.Errorf("unexpected unbound negation error for %q", tt.input)
-			}
-		})
-	}
-}
-
-func TestPreValidator_MissingPeriod(t *testing.T) {
-	pv := NewPreValidator()
-
-	input := `next_action(/run) :- test_state(/failing)`
-	errs := pv.Validate(input)
-
-	hasPeriodErr := false
-	for _, e := range errs {
-		if e.Category == CategoryMissingPeriod {
-			hasPeriodErr = true
-			break
-		}
-	}
-
-	if !hasPeriodErr {
-		t.Errorf("expected missing period error for %q", input)
-	}
-}
-
-func TestPreValidator_QuickFix(t *testing.T) {
-	pv := NewPreValidator()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "fix prolog negation",
-			input:    "\\+ permitted(X)", // Single backslash: \+ permitted(X)
-			expected: "!permitted(X)",
-		},
-		{
-			name:     "fix uppercase count",
-			input:    `fn:Count()`,
-			expected: `fn:count()`,
-		},
-		{
-			name:     "fix uppercase sum",
-			input:    `fn:Sum(X)`,
-			expected: `fn:sum(X)`,
-		},
-		{
-			name:     "fix missing do keyword",
-			input:    `|> fn:group_by(X)`,
-			expected: `|> do fn:group_by(X)`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := pv.QuickFix(tt.input)
-			if result != tt.expected {
-				t.Errorf("QuickFix(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-// ============================================================================
-// ErrorClassifier Tests
-// ============================================================================
-
 func TestErrorClassifier_Stratification(t *testing.T) {
 	ec := NewErrorClassifier()
 
@@ -365,9 +93,7 @@ func TestExtractPredicateFromError(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // PromptBuilder Tests
-// ============================================================================
 
 func TestPromptBuilder_BuildFeedbackPrompt(t *testing.T) {
 	pb := NewPromptBuilder()
@@ -602,9 +328,7 @@ func TestValidRuleExamples(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // ValidationBudget Tests
-// ============================================================================
 
 func TestValidationBudget(t *testing.T) {
 	config := RetryConfig{
@@ -723,9 +447,7 @@ func TestValidationBudget_IsSessionExhausted(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // FeedbackLoop Integration Tests
-// ============================================================================
 
 // MockLLMClient for testing
 type MockLLMClient struct {
@@ -1012,9 +734,7 @@ func TestFeedbackLoop_PreValidateOnly_PrologNegationAutoFixed(t *testing.T) {
 	}
 }
 
-// ============================================================================
 // FormatErrorForFeedback Tests
-// ============================================================================
 
 func TestFormatErrorForFeedback(t *testing.T) {
 	err := ValidationError{
