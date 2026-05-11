@@ -492,36 +492,74 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		return fmt.Errorf("clear tags failed: %w", err)
 	}
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
-	if err != nil {
-		return err
+	// Calculate total number of context tags
+	totalTags := 0
+	for _, values := range tags {
+		totalTags += len(values)
 	}
-	defer stmt.Close()
+	totalTags += len(atom.DependsOn) + len(atom.ConflictsWith)
 
-	for dim, values := range tags {
-		for _, tag := range values {
-			if _, err := stmt.ExecContext(ctx, atom.ID, dim, tag); err != nil {
-				return fmt.Errorf("insert tag failed: %w", err)
+	if totalTags > 0 {
+		// Process in batches to avoid SQLite variable limit (typically 32766)
+		const batchSize = 1000
+
+		var valueStrings []string
+		var valueArgs []interface{}
+
+		flushBatch := func() error {
+			if len(valueStrings) == 0 {
+				return nil
+			}
+			query := fmt.Sprintf("INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES %s", strings.Join(valueStrings, ","))
+			if _, err := tx.ExecContext(ctx, query, valueArgs...); err != nil {
+				return err
+			}
+			valueStrings = valueStrings[:0]
+			valueArgs = valueArgs[:0]
+			return nil
+		}
+
+		for dim, values := range tags {
+			for _, tag := range values {
+				valueStrings = append(valueStrings, "(?, ?, ?)")
+				valueArgs = append(valueArgs, atom.ID, dim, tag)
+				if len(valueStrings) >= batchSize {
+					if err := flushBatch(); err != nil {
+						return fmt.Errorf("insert tag batch failed: %w", err)
+					}
+				}
 			}
 		}
-	}
 
-	// Handling DependsOn and ConflictsWith as tags or separate tables?
-	// The User Plan mentioned "atom_requires", "atom_conflicts" predicates.
-	// But in DB, where do they go?
-	// I should add them to `atom_context_tags` with dim='depends_on' / 'conflicts_with'?
-	// OR create separate link tables `atom_dependencies`, `atom_conflicts`.
-	// For simplicity, let's use `atom_context_tags` with reserved dimensions.
-	// This works for simple ID references.
-	// TODO: Architecture: Migrate `depends_on` and `conflicts_with` to explicit relational tables (`atom_dependencies`, `atom_conflicts`) with foreign key constraints to ensure referential integrity.
-	for _, dep := range atom.DependsOn {
-		if _, err := stmt.ExecContext(ctx, atom.ID, "depends_on", dep); err != nil {
-			return fmt.Errorf("insert dep failed: %w", err)
+		// Handling DependsOn and ConflictsWith as tags or separate tables?
+		// The User Plan mentioned "atom_requires", "atom_conflicts" predicates.
+		// But in DB, where do they go?
+		// I should add them to `atom_context_tags` with dim='depends_on' / 'conflicts_with'?
+		// OR create separate link tables `atom_dependencies`, `atom_conflicts`.
+		// For simplicity, let's use `atom_context_tags` with reserved dimensions.
+		// This works for simple ID references.
+		// TODO: Architecture: Migrate `depends_on` and `conflicts_with` to explicit relational tables (`atom_dependencies`, `atom_conflicts`) with foreign key constraints to ensure referential integrity.
+		for _, dep := range atom.DependsOn {
+			valueStrings = append(valueStrings, "(?, ?, ?)")
+			valueArgs = append(valueArgs, atom.ID, "depends_on", dep)
+			if len(valueStrings) >= batchSize {
+				if err := flushBatch(); err != nil {
+					return fmt.Errorf("insert dep batch failed: %w", err)
+				}
+			}
 		}
-	}
-	for _, conf := range atom.ConflictsWith {
-		if _, err := stmt.ExecContext(ctx, atom.ID, "conflicts_with", conf); err != nil {
-			return fmt.Errorf("insert conflict failed: %w", err)
+		for _, conf := range atom.ConflictsWith {
+			valueStrings = append(valueStrings, "(?, ?, ?)")
+			valueArgs = append(valueArgs, atom.ID, "conflicts_with", conf)
+			if len(valueStrings) >= batchSize {
+				if err := flushBatch(); err != nil {
+					return fmt.Errorf("insert conflict batch failed: %w", err)
+				}
+			}
+		}
+
+		if err := flushBatch(); err != nil {
+			return fmt.Errorf("insert tag final batch failed: %w", err)
 		}
 	}
 
