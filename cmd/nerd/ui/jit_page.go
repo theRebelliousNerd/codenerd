@@ -3,8 +3,9 @@ package ui
 import (
 	"codenerd/internal/prompt"
 	"fmt"
-	"sort"
 	"github.com/atotto/clipboard"
+	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -44,7 +45,9 @@ func (i atomItem) Title() string { return i.atom.ID }
 func (i atomItem) Description() string {
 	return fmt.Sprintf("[%s] Prio:%d Tokens:%d", i.atom.Category, i.atom.Priority, i.atom.TokenCount)
 }
-func (i atomItem) FilterValue() string { return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content }
+func (i atomItem) FilterValue() string {
+	return i.atom.ID + " " + string(i.atom.Category) + " " + i.atom.Content
+}
 
 // NewJITPageModel creates a new JIT inspector page.
 func NewJITPageModel() JITPageModel {
@@ -140,11 +143,9 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// renderAtomContent formats the atom for display using lipgloss.JoinVertical
+// renderAtomContent formats the atom for display using strings.Builder
 // TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
-	// TODO: Performance: Utilize strings.Builder with pre-calculated capacity instead of multiple string concatenations to render large atom contents, preventing UI thread frame drops.
-	// TODO: Consider using strings.Builder or a more efficient rendering method for large content.
 	headerStyle := m.styles.Header
 	infoStyle := m.styles.Info
 	mutedStyle := m.styles.Muted
@@ -161,14 +162,22 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 
 	separator := mutedStyle.Render("--- Content ---")
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		info,
-		mandatoryStatus,
-		separator,
-		atom.Content,
-	)
+	capacity := len(header) + len(info) + len(mandatoryStatus) + len(separator) + len(atom.Content) + 4 // 4 for newlines
+
+	var b strings.Builder
+	b.Grow(capacity)
+
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(info)
+	b.WriteString("\n")
+	b.WriteString(mandatoryStatus)
+	b.WriteString("\n")
+	b.WriteString(separator)
+	b.WriteString("\n")
+	b.WriteString(atom.Content)
+
+	return b.String()
 }
 
 // View renders the page.
@@ -233,7 +242,7 @@ func (m *JITPageModel) SetSize(w, h int) {
 	viewPaneWidth := w - listPaneWidth
 
 	// Inner sizes
-	m.list.SetSize(listPaneWidth - chromeW, paneH)
+	m.list.SetSize(listPaneWidth-chromeW, paneH)
 	m.viewport.Width = viewPaneWidth - chromeW
 	m.viewport.Height = paneH
 }
