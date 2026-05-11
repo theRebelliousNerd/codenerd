@@ -684,3 +684,29 @@ func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
 // TODO: TEST_GAP: Verify behavior when file is deleted between os.Stat and os.ReadFile.
 // TODO: TEST_GAP: Verify behavior with extremely large files (OOM protection check).
 // TODO: TEST_GAP: Verify behavior when SamplePoints is negative (should default or be ignored).
+// TODO: TEST_GAP: Verify behavior when `ActionEditFile` handles missing content keys gracefully.
+// TODO: TEST_GAP: Verify `ActionEditFile` logic with missing content keys but alternative valid keys gracefully.
+// TODO: TEST_GAP: Verify behavior with a modification time in the future.
+// TODO: TEST_GAP: Verify payload content as a `[]byte`.
+// TODO: TEST_GAP: Verify file deletion between first read and second read.
+// TODO: TEST_GAP: Verify edge cases with exact buffer sizes.
+// TODO: TEST_GAP: Verify `ActionFSWrite` handles payload correctly.
+// TODO: TEST_GAP: Verify if double read sleep creates an unintended memory lock state.
+// TODO: TEST_GAP: Verify `ActionEditFile` fallback to strings for payload content.
+// TODO: TEST_GAP: See if weird json mapping affects content key retrieval.
+// TODO: TEST_GAP: Trigger context cancel specifically during the time.Sleep block.
+// TODO: TEST_GAP: Provide a file without read permissions and check error output on Unix.
+// TODO: TEST_GAP: Try validation with an empty payload map rather than nil.
+// TODO: TEST_GAP: Attempt to use a root directory as target path.
+// TODO: TEST_GAP: Process a file just under size max but with RequireDoubleRead false.
+// TODO: TEST_GAP: Ensure non string maps correctly fail the write block type check.
+// TODO: TEST_GAP: Edit action handles non string correctly.
+// TODO: TEST_GAP: Verify the error response format when hashes don't match.
+// TODO: TEST_GAP: Ensure the size details are captured properly on error.
+// TODO: TEST_GAP: Test missing content key on FSWrite action type.
+// TODO: TEST_GAP: Confirm the details dictionary for stale files.
+// TODO: TEST_GAP: File path points to a symlink that points to a directory.
+// TODO: TEST_GAP: Path is symlink to a valid file.
+// TODO: TEST_GAP: File path has trailing slash.
+// TODO: TEST_GAP: File path contains null byte.
+// TODO: TEST_GAP: Run validation in multiple goroutines on the same file.
