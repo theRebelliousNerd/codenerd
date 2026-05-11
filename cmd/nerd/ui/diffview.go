@@ -300,10 +300,10 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 	statusColor := d.Styles.Theme.OnSurfaceMuted
 	if m.Approved {
 		status = "✅ APPROVED"
-		statusColor = Success
+		statusColor = d.Styles.Theme.Success
 	} else if m.Rejected {
 		status = "❌ REJECTED"
-		statusColor = Destructive
+		statusColor = d.Styles.Theme.Destructive
 	}
 
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor).Bold(true)
@@ -322,10 +322,10 @@ func (d *DiffApprovalView) renderHeader(m *PendingMutation) string {
 // renderWarnings renders safety warnings
 func (d *DiffApprovalView) renderWarnings(warnings []string) string {
 	warningStyle := lipgloss.NewStyle().
-		Foreground(Warning).
+		Foreground(d.Styles.Theme.Warning).
 		Bold(true).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(Warning).
+		BorderForeground(d.Styles.Theme.Warning).
 		Padding(0, 1).
 		Width(WarningBoxWidth(d.Width))
 
