@@ -74,3 +74,109 @@ func TestTracker_ContextHelpers(t *testing.T) {
 		t.Fatalf("FromContext mismatch")
 	}
 }
+
+func TestNewTracker_Success(t *testing.T) {
+	ws := t.TempDir()
+	tracker, err := NewTracker(ws)
+	if err != nil {
+		t.Fatalf("NewTracker failed: %v", err)
+	}
+
+	if tracker == nil {
+		t.Fatalf("tracker is nil")
+	}
+
+	// Ensure maps are initialized
+	if tracker.data.Aggregate.ByProvider == nil {
+		t.Errorf("ByProvider map not initialized")
+	}
+	if tracker.data.Aggregate.ByModel == nil {
+		t.Errorf("ByModel map not initialized")
+	}
+	if tracker.data.Aggregate.ByShardType == nil {
+		t.Errorf("ByShardType map not initialized")
+	}
+	if tracker.data.Aggregate.ByOperation == nil {
+		t.Errorf("ByOperation map not initialized")
+	}
+	if tracker.data.Aggregate.BySession == nil {
+		t.Errorf("BySession map not initialized")
+	}
+
+	// Ensure .nerd dir exists
+	nerdDir := filepath.Join(ws, ".nerd")
+	info, err := os.Stat(nerdDir)
+	if err != nil {
+		t.Errorf(".nerd dir not created: %v", err)
+	} else if !info.IsDir() {
+		t.Errorf(".nerd is not a directory")
+	}
+}
+
+func TestNewTracker_MkdirError(t *testing.T) {
+	ws := t.TempDir()
+	nerdPath := filepath.Join(ws, ".nerd")
+
+	// Create a file where the directory should be to force MkdirAll to fail
+	if err := os.WriteFile(nerdPath, []byte("not a dir"), 0644); err != nil {
+		t.Fatalf("failed to create blocking file: %v", err)
+	}
+
+	tracker, err := NewTracker(ws)
+	if err == nil {
+		t.Errorf("expected error when MkdirAll fails, got nil")
+	}
+	if tracker != nil {
+		t.Errorf("expected nil tracker on error, got %v", tracker)
+	}
+}
+
+func TestNewTracker_LoadsExistingData(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := filepath.Join(ws, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0755); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	existingData := []byte(`{"version":"1.0","aggregate":{"total_project":{"input":100,"output":50,"total":150}}}`)
+	if err := os.WriteFile(filepath.Join(nerdDir, "usage.json"), existingData, 0644); err != nil {
+		t.Fatalf("failed to write existing data: %v", err)
+	}
+
+	tracker, err := NewTracker(ws)
+	if err != nil {
+		t.Fatalf("NewTracker failed: %v", err)
+	}
+
+	if tracker.data.Aggregate.TotalProject.Input != 100 {
+		t.Errorf("expected input to be 100, got %d", tracker.data.Aggregate.TotalProject.Input)
+	}
+}
+
+func TestNewTracker_CorruptData(t *testing.T) {
+	ws := t.TempDir()
+	nerdDir := filepath.Join(ws, ".nerd")
+	if err := os.MkdirAll(nerdDir, 0755); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	// Write invalid JSON
+	if err := os.WriteFile(filepath.Join(nerdDir, "usage.json"), []byte("{bad-json"), 0644); err != nil {
+		t.Fatalf("failed to write corrupt data: %v", err)
+	}
+
+	// NewTracker should swallow the json parse error and return a valid empty tracker
+	tracker, err := NewTracker(ws)
+	if err != nil {
+		t.Fatalf("NewTracker failed on corrupt data, expected it to swallow error: %v", err)
+	}
+
+	if tracker == nil {
+		t.Fatalf("tracker is nil")
+	}
+
+	// Should still have maps initialized
+	if tracker.data.Aggregate.ByProvider == nil {
+		t.Errorf("ByProvider map not initialized after corrupt data load")
+	}
+}
