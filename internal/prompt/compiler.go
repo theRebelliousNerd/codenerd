@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/store"
+	"golang.org/x/sync/errgroup"
 )
 
 // Fact represents a logic fact (predicate + args).
@@ -462,28 +463,9 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	logging.Get(logging.CategoryJIT).Info("Compiling prompt (cache MISS): %s (hash=%s, misses=%d)",
 		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
-	// Step 1: Collect all candidate atoms from all sources
-	// TODO: Performance: Execute atom collection (collectAtomsWithStats), kernel injection (collectKernelInjectedAtoms), and knowledge retrieval (collectKnowledgeAtoms) concurrently to reduce total compilation latency.
-	collectStart := time.Now()
-	candidates, sourceBreakdown, err := c.collectAtomsWithStats(ctx, cc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect atoms: %w", err)
-	}
-	stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
-	stats.AtomsCandidates = len(candidates)
-	stats.EmbeddedAtoms = sourceBreakdown.embedded
-	stats.ProjectAtoms = sourceBreakdown.project
-	stats.ShardAtoms = sourceBreakdown.shard
-	stats.EvolvedAtoms = sourceBreakdown.evolved
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
-		len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
-		sourceBreakdown.evolved, stats.CollectAtomsMs,
-	)
-
-	// Step 1.5: Assert context facts to kernel for Mangle-based selection
-	// This enables policy.mg Section 45/46 rules to boost atoms matching current context
+	// Step 1: Assert context facts to kernel for Mangle-based selection
+	// We do this first so that context is available for kernel injection and Mangle-based selection.
+	// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
 	if c.kernel != nil {
 		contextFacts := cc.ToContextFacts()
 		if len(contextFacts) > 0 {
@@ -505,25 +487,70 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		}
 	}
 
-	// Step 1.6: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
-	// These are ephemeral atoms derived from runtime logic and should be treated as mandatory flesh.
-	dynamicAtoms, dynErr := c.collectKernelInjectedAtoms(cc)
-	if dynErr != nil {
-		logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
-	} else if len(dynamicAtoms) > 0 {
+	// Step 1.5: Collect all candidate atoms from all sources concurrently
+	collectStart := time.Now()
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	var candidates []*PromptAtom
+	var sourceBreakdown sourceBreakdown
+
+	var dynamicAtoms []*PromptAtom
+	var knowledgeAtoms []*PromptAtom
+
+	// 1.5a: Collect static/selected atoms
+	g.Go(func() error {
+		var err error
+		candidates, sourceBreakdown, err = c.collectAtomsWithStats(gCtx, cc)
+		if err != nil {
+			return fmt.Errorf("failed to collect atoms: %w", err)
+		}
+		return nil
+	})
+
+	// 1.5b: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
+	g.Go(func() error {
+		var dynErr error
+		dynamicAtoms, dynErr = c.collectKernelInjectedAtoms(cc)
+		if dynErr != nil {
+			logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
+		}
+		return nil // Non-fatal
+	})
+
+	// 1.5c: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
+	g.Go(func() error {
+		knowledgeAtoms = c.collectKnowledgeAtoms(gCtx, cc)
+		return nil // Non-fatal
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Merge concurrent results
+	if len(dynamicAtoms) > 0 {
 		candidates = append(candidates, dynamicAtoms...)
-		stats.AtomsCandidates = len(candidates)
 		logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
 	}
 
-	// Step 1.7: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
-	// These are knowledge atoms from documentation ingestion that match the current context.
-	knowledgeAtoms := c.collectKnowledgeAtoms(ctx, cc)
 	if len(knowledgeAtoms) > 0 {
 		candidates = append(candidates, knowledgeAtoms...)
-		stats.AtomsCandidates = len(candidates)
 		logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
 	}
+
+	stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
+	stats.AtomsCandidates = len(candidates)
+	stats.EmbeddedAtoms = sourceBreakdown.embedded
+	stats.ProjectAtoms = sourceBreakdown.project
+	stats.ShardAtoms = sourceBreakdown.shard
+	stats.EvolvedAtoms = sourceBreakdown.evolved
+
+	logging.Get(logging.CategoryJIT).Debug(
+		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
+		len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
+		sourceBreakdown.evolved, stats.CollectAtomsMs,
+	)
 
 	// Step 2: Select atoms based on context (Mangle rules + vector search)
 	selectStart := time.Now()
