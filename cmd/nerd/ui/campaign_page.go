@@ -23,6 +23,7 @@ const (
 type CampaignPageModel struct {
 	width    int
 	height   int
+	layout   LayoutConfig
 	viewport viewport.Model
 	progress progress.Model
 
@@ -53,6 +54,7 @@ func NewCampaignPageModel() CampaignPageModel {
 		styles:      DefaultStyles(),
 		width:       80,
 		height:      20,
+		layout:      NewLayoutConfig(80, 20),
 		renderCache: NewCachedRender(nil), // Use default shared cache
 	}
 }
@@ -102,14 +104,13 @@ func (m CampaignPageModel) View() string {
 }
 
 // SetSize updates the size of the viewport.
-// TODO: Improve view resizing logic to avoid fragile calculations (e.g., `w - 4`). Use layout constants or dynamic measurement.
-// TODO: IMPROVEMENT: Add logic to hide less important columns/info on small screens.
 func (m *CampaignPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+	m.layout = NewLayoutConfig(w, h)
 	m.viewport.Width = w
 	m.viewport.Height = h
-	m.progress.Width = w - 4 // Padding
+	m.progress.Width = ViewportWidth(w)
 	// Invalidate cache on resize
 	if m.renderCache != nil {
 		m.renderCache.Invalidate()
@@ -147,6 +148,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		m.viewport.YOffset,
 		m.width,
 		m.height,
+		m.layout.IsCompact,
 	}
 
 	render := func() string {
@@ -238,12 +240,21 @@ func (m *CampaignPageModel) renderHeader(camp *campaign.Campaign) string {
 
 // renderMetrics renders the campaign metrics grid
 func (m *CampaignPageModel) renderMetrics(camp *campaign.Campaign) string {
-	metrics := fmt.Sprintf(
-		"Context Budget: %.1f%%  |  Learnings: %d  |  Replans: %d",
-		camp.ContextUtilization*100,
-		len(camp.Learnings),
-		camp.RevisionNumber,
-	)
+	var metrics string
+	if m.layout.IsCompact {
+		metrics = fmt.Sprintf(
+			"Learnings: %d  |  Replans: %d",
+			len(camp.Learnings),
+			camp.RevisionNumber,
+		)
+	} else {
+		metrics = fmt.Sprintf(
+			"Context Budget: %.1f%%  |  Learnings: %d  |  Replans: %d",
+			camp.ContextUtilization*100,
+			len(camp.Learnings),
+			camp.RevisionNumber,
+		)
+	}
 	return m.styles.Info.Render(metrics) + "\n\n"
 }
 
@@ -329,10 +340,19 @@ func (m *CampaignPageModel) renderTask(t *campaign.Task) string {
 
 	// Truncate long descriptions
 	desc := t.Description
-	if len(desc) > 55 {
-		desc = desc[:52] + "..."
+
+	var taskLine string
+	if m.layout.IsCompact {
+		if len(desc) > 35 {
+			desc = desc[:32] + "..."
+		}
+		taskLine = fmt.Sprintf("   %s %-35s", taskIcon, desc)
+	} else {
+		if len(desc) > 55 {
+			desc = desc[:52] + "..."
+		}
+		taskLine = fmt.Sprintf("   %s %-55s [%s]", taskIcon, desc, t.Type)
 	}
 
-	taskLine := fmt.Sprintf("   %s %-55s [%s]", taskIcon, desc, t.Type)
 	return taskStyle.Render(taskLine) + "\n"
 }
