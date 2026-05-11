@@ -10,6 +10,50 @@ import (
 )
 
 // TestDifferentialEngine_Stratification validates that predicates are assigned to correct strata.
+
+// TestNewDifferentialEngine validates the instantiation of DifferentialEngine
+func TestNewDifferentialEngine(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Test 1: Error when base engine has no program/schema loaded
+	baseEngineNoSchema, _ := NewEngine(cfg, nil)
+	_, err := NewDifferentialEngine(baseEngineNoSchema)
+	if err == nil {
+		t.Errorf("Expected error when creating DifferentialEngine without loaded schema, got nil")
+	} else if err.Error() != "base engine must have a loaded schema/program" {
+		t.Errorf("Expected 'base engine must have a loaded schema/program' error, got %v", err)
+	}
+
+	// Test 2: Success when base engine has program/schema loaded
+	baseEngineWithSchema, _ := NewEngine(cfg, nil)
+	schema := "Decl a(Name). Decl b(Name). a(X) :- b(X)."
+	err = baseEngineWithSchema.LoadSchemaString(schema)
+	if err != nil {
+		t.Fatalf("Failed to load schema: %v", err)
+	}
+
+	diffEngine, err := NewDifferentialEngine(baseEngineWithSchema)
+	if err != nil {
+		t.Fatalf("Failed to create differential engine: %v", err)
+	}
+
+	// Verify state initialization
+	if diffEngine.baseEngine != baseEngineWithSchema {
+		t.Errorf("Expected baseEngine to be set correctly")
+	}
+	if diffEngine.config != baseEngineWithSchema.config {
+		t.Errorf("Expected config to be set correctly")
+	}
+	if diffEngine.programInfo != baseEngineWithSchema.programInfo {
+		t.Errorf("Expected programInfo to be set correctly")
+	}
+	if diffEngine.predStratum == nil {
+		t.Errorf("Expected predStratum to be initialized")
+	}
+	if diffEngine.strataRules == nil {
+		t.Errorf("Expected strataRules to be initialized")
+	}
+}
 func TestDifferentialEngine_Stratification(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = true
