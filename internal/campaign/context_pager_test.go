@@ -199,7 +199,6 @@ func TestCompressPhase(t *testing.T) {
 
 	// Run Compression
 	// TODO: TEST_GAP: Null/Empty - CompressPhase with nil phase or a phase with 0 tasks
-	// TODO: TEST_GAP: Null/Empty - CompressPhase with empty accomplishments list (ensure fallback formatting works gracefully)
 	// TODO: TEST_GAP: User Request Extremes - CompressPhase with massive 'accomplishments' output (10MB+) to ensure no OOM or LLM client failure
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
 	if err != nil {
@@ -408,5 +407,50 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestCompressPhase_EmptyAccomplishments(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			return "Should not be called", nil
+		},
+	}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phaseID := "phase_empty"
+	phase := &Phase{
+		ID:   phaseID,
+		Name: "Empty Phase",
+		Tasks: []Task{
+			{
+				ID:          "task_pending",
+				Description: "Not done yet",
+				Status:      TaskPending,
+				Artifacts: []TaskArtifact{
+					{Path: "code.go"},
+				},
+			},
+		},
+	}
+
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_atom",
+		Args:      []interface{}{phaseID, "some_atom", 100},
+	})
+
+	summary, count, _, err := cp.CompressPhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("CompressPhase failed: %v", err)
+	}
+
+	expectedSummary := "Phase 'Empty Phase' completed with no recorded accomplishments."
+	if summary != expectedSummary {
+		t.Errorf("Unexpected summary: got %q, want %q", summary, expectedSummary)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 original atom, got %d", count)
 	}
 }
