@@ -303,6 +303,14 @@ func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string)
 func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
 	t.initialize(ctx)
 
+	if strings.TrimSpace(input) == "" {
+		return Intent{
+			Verb:     "/explain",
+			Category: "/query",
+			Response: "Input is empty",
+		}, nil
+	}
+
 	// NERD-EVOLVE-START: stability_filter
 	// Snapshot state under read lock to avoid races during bypass check
 	t.mu.RLock()

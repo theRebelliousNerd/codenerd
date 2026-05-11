@@ -67,7 +67,6 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 	tr := NewUnderstandingTransducer(mockClient)
 
 	// TODO: TEST_GAP_EXTREME_01: Add test for extremely large input string (e.g., 50MB) to ensure truncation logic is active and memory is not exhausted before hitting LLM.
-	// TODO: TEST_GAP_NULL_02: Add test for empty string input `""` and ensure it fast-fails to an `/explain` intent without calling the LLM client.
 	// TODO: TEST_GAP_NULL_03: Add test asserting identical prompt building behavior for `nil` history vs `[]ConversationTurn{}`.
 
 	// Call ParseIntentWithContext
@@ -91,6 +90,34 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 	}
 	if intent.Confidence != 0.9 {
 		t.Errorf("Expected Confidence 0.9, got %v", intent.Confidence)
+	}
+}
+
+func TestUnderstandingTransducer_ParseIntent_EmptyString(t *testing.T) {
+	mockClient := &mockLLMClientUT{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			t.Fatal("LLM client should not be called for empty string input")
+			return "", nil
+		},
+	}
+
+	tr := NewUnderstandingTransducer(mockClient)
+
+	// Call ParseIntentWithContext with empty string
+	intent, err := tr.ParseIntentWithContext(context.Background(), "", nil)
+	if err != nil {
+		t.Fatalf("ParseIntentWithContext failed: %v", err)
+	}
+
+	// Verify the parsed intent is the fallback intent
+	if intent.Verb != "/explain" {
+		t.Errorf("Expected Verb /explain, got %s", intent.Verb)
+	}
+	if intent.Category != "/query" {
+		t.Errorf("Expected Category /query, got %s", intent.Category)
+	}
+	if intent.Response != "Input is empty" {
+		t.Errorf("Expected Response 'Input is empty', got %s", intent.Response)
 	}
 }
 
