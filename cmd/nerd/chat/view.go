@@ -213,13 +213,13 @@ func (m Model) renderErrorPanel() string {
 
 	header := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ui.Destructive).
+		Foreground(m.styles.Theme.Destructive).
 		Render("Error") +
 		m.styles.Muted.Render("  Alt+E: scroll  Alt+Shift+E: hide")
 
 	panelStyle := lipgloss.NewStyle().
 		Border(border).
-		BorderForeground(ui.Destructive).
+		BorderForeground(m.styles.Theme.Destructive).
 		Padding(0, 1).
 		Width(m.viewport.Width).
 		MaxWidth(m.viewport.Width)

@@ -12,46 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color palette based on codeNERD brand guidelines
-// TODO: Refactor these global variables into a structured theme definition or configuration to avoid global state.
-// TODO: IMPROVEMENT: Refactor global variables to use a Singleton or Dependency Injection pattern for better testability and isolation.
-// TODO: Add support for high-contrast accessibility mode in the color palette.
-// TODO: Extract color palette to configuration file (JSON/YAML) to allow user themes.
-var (
-	// Light Mode Colors (Default)
-	LightBackground = lipgloss.Color("#f4f5f6") // hsl(200, 7%, 96%)
-	LightForeground = lipgloss.Color("#101F38") // Dark Blue - hsl(220, 58%, 14%)
-	LightPrimary    = lipgloss.Color("#101F38") // Dark Blue
-	LightAccent     = lipgloss.Color("#8BC34A") // Lime Green - hsl(88, 50%, 60%)
-	LightSecondary  = lipgloss.Color("#e1e4e8") // hsl(220, 15%, 90%)
-	LightMuted      = lipgloss.Color("#d6dae0") // hsl(220, 15%, 85%)
-	LightBorder     = lipgloss.Color("#dce0e5") // hsl(220, 15%, 88%)
-	LightCard       = lipgloss.Color("#ffffff") // White
-
-	// Dark Mode Colors
-	DarkBackground = lipgloss.Color("#141d2b") // hsl(220, 58%, 10%)
-	DarkForeground = lipgloss.Color("#f2f2f2") // hsl(0, 0%, 95%)
-	DarkPrimary    = lipgloss.Color("#8BC34A") // Lime Green (flipped)
-	DarkAccent     = lipgloss.Color("#101F38") // Dark Blue (flipped)
-	DarkSecondary  = lipgloss.Color("#1e2a3d") // Darker blue
-	DarkMuted      = lipgloss.Color("#2a3850") // Muted dark
-	DarkBorder     = lipgloss.Color("#2a3850") // Border dark
-	DarkCard       = lipgloss.Color("#1a2536") // Card dark - hsl(220, 50%, 15%)
-
-	// Semantic Colors (same in both modes)
-	Destructive = lipgloss.Color("#e53935") // Red - hsl(0, 84.2%, 60.2%)
-	Success     = lipgloss.Color("#8BC34A") // Lime Green
-	Warning     = lipgloss.Color("#FFC107") // Yellow
-	Info        = lipgloss.Color("#2196F3") // Blue
-
-	// Chart Colors
-	Chart1 = lipgloss.Color("#e57373") // Orange hsl(12, 76%, 61%)
-	Chart2 = lipgloss.Color("#4db6ac") // Teal hsl(173, 58%, 39%)
-	Chart3 = lipgloss.Color("#29434e") // Dark Blue hsl(197, 37%, 24%)
-	Chart4 = lipgloss.Color("#ffd54f") // Yellow hsl(43, 74%, 66%)
-	Chart5 = lipgloss.Color("#ff8a65") // Orange-Red hsl(27, 87%, 67%)
-)
-
 // Theme holds the current color scheme
 // TODO: Create Theme interface for easier testing and swapping of themes.
 type Theme struct {
@@ -79,6 +39,18 @@ type Theme struct {
 	// Outlines/Borders
 	Outline        lipgloss.Color
 	OnSurfaceMuted lipgloss.Color
+	// Semantic Colors
+	Destructive lipgloss.Color
+	Success     lipgloss.Color
+	Warning     lipgloss.Color
+	Info        lipgloss.Color
+
+	// Chart Colors
+	Chart1 lipgloss.Color
+	Chart2 lipgloss.Color
+	Chart3 lipgloss.Color
+	Chart4 lipgloss.Color
+	Chart5 lipgloss.Color
 }
 
 // Renderer returns a lipgloss.Renderer initialized with the theme's settings.
@@ -96,18 +68,27 @@ func (t Theme) Renderer(w io.Writer) *lipgloss.Renderer {
 func LightTheme() Theme {
 	return Theme{
 		IsDark:         false,
-		Background:     LightBackground,
-		OnBackground:   LightForeground,
-		Surface:        LightCard,
-		OnSurface:      LightForeground,
-		Primary:        LightPrimary,
+		Background:     lipgloss.Color("#f4f5f6"),
+		OnBackground:   lipgloss.Color("#101F38"),
+		Surface:        lipgloss.Color("#ffffff"),
+		OnSurface:      lipgloss.Color("#101F38"),
+		Primary:        lipgloss.Color("#101F38"),
 		OnPrimary:      lipgloss.Color("#ffffff"),
-		Secondary:      LightAccent,
+		Secondary:      lipgloss.Color("#8BC34A"),
 		OnSecondary:    lipgloss.Color("#ffffff"),
-		Container:      LightSecondary,
-		OnContainer:    LightPrimary,
-		Outline:        LightBorder,
-		OnSurfaceMuted: LightMuted,
+		Container:      lipgloss.Color("#e1e4e8"),
+		OnContainer:    lipgloss.Color("#101F38"),
+		Outline:        lipgloss.Color("#dce0e5"),
+		OnSurfaceMuted: lipgloss.Color("#d6dae0"),
+		Destructive:    lipgloss.Color("#e53935"),
+		Success:        lipgloss.Color("#8BC34A"),
+		Warning:        lipgloss.Color("#FFC107"),
+		Info:           lipgloss.Color("#2196F3"),
+		Chart1:         lipgloss.Color("#e57373"),
+		Chart2:         lipgloss.Color("#4db6ac"),
+		Chart3:         lipgloss.Color("#29434e"),
+		Chart4:         lipgloss.Color("#ffd54f"),
+		Chart5:         lipgloss.Color("#ff8a65"),
 	}
 }
 
@@ -115,18 +96,27 @@ func LightTheme() Theme {
 func DarkTheme() Theme {
 	return Theme{
 		IsDark:         true,
-		Background:     DarkBackground,
-		OnBackground:   DarkForeground,
-		Surface:        DarkCard,
-		OnSurface:      DarkForeground,
-		Primary:        DarkPrimary,
+		Background:     lipgloss.Color("#141d2b"),
+		OnBackground:   lipgloss.Color("#f2f2f2"),
+		Surface:        lipgloss.Color("#1a2536"),
+		OnSurface:      lipgloss.Color("#f2f2f2"),
+		Primary:        lipgloss.Color("#8BC34A"),
 		OnPrimary:      lipgloss.Color("#101F38"),
-		Secondary:      DarkAccent,
+		Secondary:      lipgloss.Color("#101F38"),
 		OnSecondary:    lipgloss.Color("#ffffff"),
-		Container:      DarkSecondary,
-		OnContainer:    DarkPrimary,
-		Outline:        DarkBorder,
-		OnSurfaceMuted: DarkMuted,
+		Container:      lipgloss.Color("#1e2a3d"),
+		OnContainer:    lipgloss.Color("#8BC34A"),
+		Outline:        lipgloss.Color("#2a3850"),
+		OnSurfaceMuted: lipgloss.Color("#2a3850"),
+		Destructive:    lipgloss.Color("#e53935"),
+		Success:        lipgloss.Color("#8BC34A"),
+		Warning:        lipgloss.Color("#FFC107"),
+		Info:           lipgloss.Color("#2196F3"),
+		Chart1:         lipgloss.Color("#e57373"),
+		Chart2:         lipgloss.Color("#4db6ac"),
+		Chart3:         lipgloss.Color("#29434e"),
+		Chart4:         lipgloss.Color("#ffd54f"),
+		Chart5:         lipgloss.Color("#ff8a65"),
 	}
 }
 
@@ -275,19 +265,19 @@ func NewStyles(theme Theme) Styles {
 
 		// Status styles
 		Success: lipgloss.NewStyle().
-			Foreground(Success).
+			Foreground(theme.Success).
 			Bold(true),
 
 		Error: lipgloss.NewStyle().
-			Foreground(Destructive).
+			Foreground(theme.Destructive).
 			Bold(true),
 
 		Warning: lipgloss.NewStyle().
-			Foreground(Warning).
+			Foreground(theme.Warning).
 			Bold(true),
 
 		Info: lipgloss.NewStyle().
-			Foreground(Info),
+			Foreground(theme.Info),
 
 		// Code styles
 		CodeBlock: lipgloss.NewStyle().

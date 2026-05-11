@@ -176,7 +176,7 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 		predStyle:  lipgloss.NewStyle().Foreground(styles.Theme.Primary).Bold(true),
 		argsStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurface),
 		ruleStyle:  lipgloss.NewStyle().Foreground(styles.Theme.OnSurfaceMuted).Italic(true),
-		activStyle: lipgloss.NewStyle().Foreground(Success),
+		activStyle: lipgloss.NewStyle().Foreground(styles.Theme.Success),
 		// Initialize render cache
 		renderCache:  NewCachedRender(DefaultRenderCache),
 		traceVersion: 0,
@@ -464,7 +464,7 @@ func (p *LogicPane) renderContentUncached() string {
 	// Add filter status if filters are active
 	if p.HasActiveFilters() {
 		filterStyle := lipgloss.NewStyle().
-			Foreground(Warning).
+			Foreground(p.Styles.Theme.Warning).
 			Bold(true)
 		sections = append(sections, "", filterStyle.Render("🔍 "+p.GetFilterStatus()))
 	}
