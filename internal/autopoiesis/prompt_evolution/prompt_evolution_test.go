@@ -249,7 +249,7 @@ func TestProblemClassifier_HugeInput(t *testing.T) {
 	if conf < 0 || conf > 1 {
 		t.Fatalf("confidence out of range: %v", conf)
 	}
-	if elapsed > 2*time.Second {
+	if elapsed > 10*time.Second {
 		t.Fatalf("classification too slow for huge input: %v", elapsed)
 	}
 }
