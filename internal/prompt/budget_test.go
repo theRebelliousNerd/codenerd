@@ -27,7 +27,6 @@ func TestBudgetPriority_String(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Test how TokenBudgetManager.Fit handles slices containing nil *OrderedAtom pointers or atoms with nil PromptAtom pointers to ensure it doesn't panic.
 // TODO: TEST_GAP: Type Coercion/Invalid Data: Test negative TokenCount values in PromptAtoms to ensure they don't cause infinite loops, arithmetic underflow, or bypassing of budget limits.
 // TODO: TEST_GAP: User Request Extremes: Test massive token counts (e.g., math.MaxInt) that could cause integer overflow when summing usedTokens or catTokens.
 // TODO: TEST_GAP: State Conflicts: Test concurrent execution of Fit() alongside SetCategoryBudget(), SetStrategy(), or SetReservedHeadroom() to detect race conditions in map/state access.
@@ -45,25 +44,25 @@ func TestNewTokenBudgetManager(t *testing.T) {
 	t.Run("has default budgets for all categories", func(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 
-			expectedCategories := []AtomCategory{
-				CategorySafety,
-				CategoryIdentity,
-				CategoryProtocol,
-				CategoryMethodology,
-				CategoryCapability,
-				CategoryHallucination,
-				CategoryLanguage,
-				CategoryFramework,
-				CategoryDomain,
-				CategoryContext,
-				CategoryCampaign,
-				CategoryInit,
-				CategoryNorthstar,
-				CategoryOuroboros,
-				CategoryAutopoiesis,
-				CategoryEval,
-				CategoryExemplar,
-			}
+		expectedCategories := []AtomCategory{
+			CategorySafety,
+			CategoryIdentity,
+			CategoryProtocol,
+			CategoryMethodology,
+			CategoryCapability,
+			CategoryHallucination,
+			CategoryLanguage,
+			CategoryFramework,
+			CategoryDomain,
+			CategoryContext,
+			CategoryCampaign,
+			CategoryInit,
+			CategoryNorthstar,
+			CategoryOuroboros,
+			CategoryAutopoiesis,
+			CategoryEval,
+			CategoryExemplar,
+		}
 
 		for _, cat := range expectedCategories {
 			_, exists := mgr.budgets[cat]
@@ -496,4 +495,31 @@ func BenchmarkGenerateReport(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		mgr.GenerateReport(atoms, 10000)
 	}
+}
+
+func TestTokenBudgetManager_Fit_InvalidData(t *testing.T) {
+	manager := NewTokenBudgetManager()
+
+	atoms := []*OrderedAtom{
+		nil, // Nil OrderedAtom pointer
+		{
+			Atom:  nil, // Nil PromptAtom pointer
+			Score: 1.0,
+		},
+		{
+			Atom: &PromptAtom{
+				Category:   CategoryCapability, // using a known category
+				TokenCount: -10,                // Negative TokenCount
+			},
+			Score: 0.8,
+		},
+	}
+
+	// Make sure total budget > reserved headroom (500)
+	fitted, err := manager.Fit(atoms, 1000)
+	require.NoError(t, err)
+
+	// Ensure no nil pointers were appended and negative token counts were defaulted to 0
+	assert.Len(t, fitted, 1)
+	assert.Equal(t, 0, fitted[0].Atom.TokenCount)
 }

@@ -322,7 +322,7 @@ func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
 // Fit selects atoms that fit within the total budget.
 // Implements the core budget allocation algorithm with polymorphism (Standard -> Concise -> Min).
 func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*OrderedAtom, error) {
-	// TODO: Reliability: Validate that atom.TokenCount is >= 0 before budgeting to prevent integer underflow or infinite loop scenarios from corrupted database entries.
+
 	timer := logging.StartTimer(logging.CategoryContext, "TokenBudgetManager.Fit")
 	defer timer.Stop()
 
@@ -338,8 +338,16 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 	// We'll work with a copy of the slice to avoid modifying the input order permanently
 	// (though modifying it might be safe, a copy is safer and cleaner).
-	sortedAtoms := make([]*OrderedAtom, len(atoms))
-	copy(sortedAtoms, atoms)
+	sortedAtoms := make([]*OrderedAtom, 0, len(atoms))
+	for _, atom := range atoms {
+		if atom == nil || atom.Atom == nil {
+			continue
+		}
+		if atom.Atom.TokenCount < 0 {
+			atom.Atom.TokenCount = 0
+		}
+		sortedAtoms = append(sortedAtoms, atom)
+	}
 
 	// Sort atoms: Priority -> Category -> Score
 	// Use a helper closure to get priority safely
