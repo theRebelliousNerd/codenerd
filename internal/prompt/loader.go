@@ -937,15 +937,61 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 	}
 	defer tx.Rollback()
 
-	// Prepare statements for efficiency
-	atomStmt, err := tx.PrepareContext(ctx, `
+	chunkSize := 50
+	for i := 0; i < len(atoms); i += chunkSize {
+		end := i + chunkSize
+		if end > len(atoms) {
+			end = len(atoms)
+		}
+
+		chunkAtoms := atoms[i:end]
+		chunkEmbeddings := embeddings[i:end]
+
+		if err := storeAtomsChunk(ctx, tx, chunkAtoms, chunkEmbeddings, taskType); err != nil {
+			return fmt.Errorf("failed to store chunk of atoms: %w", err)
+		}
+
+		// Log progress
+		logging.Get(logging.CategoryStore).Debug("Stored %d/%d atoms", end, len(atoms))
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embeddings [][]float32, taskType string) error {
+	if len(atoms) == 0 {
+		return nil
+	}
+
+	// 1. Bulk insert/update atoms
+	placeholders := make([]string, 0, len(atoms))
+	args := make([]interface{}, 0, len(atoms)*16)
+
+	for i, atom := range atoms {
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+		embeddingBlob := encodeFloat32Slice(embeddings[i])
+
+		args = append(args,
+			atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
+			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
+			string(atom.Category), nullableString(atom.Subcategory),
+			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
+			embeddingBlob, nullableString(taskType), "embedded",
+		)
+	}
+
+	query := `
 		INSERT INTO prompt_atoms (
 			atom_id, version, content, token_count, content_hash,
 			description, content_concise, content_min,
 			category, subcategory,
 			priority, is_mandatory, is_exclusive,
 			embedding, embedding_task, source_file
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES ` + strings.Join(placeholders, ", ") + `
 		ON CONFLICT(atom_id) DO UPDATE SET
 			version = excluded.version,
 			content = excluded.content,
@@ -961,116 +1007,85 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 			is_exclusive = excluded.is_exclusive,
 			embedding = excluded.embedding,
 			embedding_task = excluded.embedding_task,
-			source_file = excluded.source_file`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare atom statement: %w", err)
-	}
-	defer atomStmt.Close()
+			source_file = excluded.source_file`
 
-	deleteTagsStmt, err := tx.PrepareContext(ctx, "DELETE FROM atom_context_tags WHERE atom_id = ?")
-	if err != nil {
-		return fmt.Errorf("failed to prepare delete tags statement: %w", err)
-	}
-	defer deleteTagsStmt.Close()
-
-	insertTagStmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert tag statement: %w", err)
-	}
-	defer insertTagStmt.Close()
-
-	// Process each atom
-	for i, atom := range atoms {
-		embeddingBlob := encodeFloat32Slice(embeddings[i])
-
-		// Insert/update atom
-		_, err := atomStmt.ExecContext(ctx,
-			atom.ID, atom.Version, atom.Content, atom.TokenCount, atom.ContentHash,
-			nullableString(atom.Description), nullableString(atom.ContentConcise), nullableString(atom.ContentMin),
-			string(atom.Category), nullableString(atom.Subcategory),
-			atom.Priority, atom.IsMandatory, nullableString(atom.IsExclusive),
-			embeddingBlob, nullableString(taskType), "embedded",
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert atom %s: %w", atom.ID, err)
-		}
-
-		// Clear existing tags
-		if _, err := deleteTagsStmt.ExecContext(ctx, atom.ID); err != nil {
-			return fmt.Errorf("failed to clear tags for atom %s: %w", atom.ID, err)
-		}
-
-		// Insert context tags
-		if err := insertContextTags(ctx, insertTagStmt, atom); err != nil {
-			return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
-		}
-
-		// Log progress every 50 atoms
-		if (i+1)%50 == 0 || i == len(atoms)-1 {
-			logging.Get(logging.CategoryStore).Debug("Stored %d/%d atoms", i+1, len(atoms))
-		}
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("failed to execute atom batch insert: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	// 2. Bulk delete context tags
+	deletePlaceholders := make([]string, 0, len(atoms))
+	deleteArgs := make([]interface{}, 0, len(atoms))
+	for _, atom := range atoms {
+		deletePlaceholders = append(deletePlaceholders, "?")
+		deleteArgs = append(deleteArgs, atom.ID)
 	}
 
-	return nil
+	deleteQuery := fmt.Sprintf("DELETE FROM atom_context_tags WHERE atom_id IN (%s)", strings.Join(deletePlaceholders, ", "))
+	if _, err := tx.ExecContext(ctx, deleteQuery, deleteArgs...); err != nil {
+		return fmt.Errorf("failed to clear tags for atom chunk: %w", err)
+	}
+
+	// 3. Bulk insert context tags
+	return insertContextTagsBatch(ctx, tx, atoms)
 }
 
-// insertContextTags inserts all context tags for an atom.
-func insertContextTags(ctx context.Context, stmt *sql.Stmt, atom *PromptAtom) error {
-	// Helper to insert tags for a dimension
-	insertDim := func(dimension string, values []string) error {
-		for _, tag := range values {
-			if _, err := stmt.ExecContext(ctx, atom.ID, dimension, tag); err != nil {
-				return err
+// insertContextTagsBatch inserts context tags for multiple atoms in batches.
+func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom) error {
+	type tagEntry struct {
+		atomID    string
+		dimension string
+		tag       string
+	}
+
+	var allTags []tagEntry
+
+	for _, atom := range atoms {
+		addDim := func(dimension string, values []string) {
+			for _, v := range values {
+				allTags = append(allTags, tagEntry{atom.ID, dimension, v})
 			}
 		}
+		addDim("mode", atom.OperationalModes)
+		addDim("phase", atom.CampaignPhases)
+		addDim("layer", atom.BuildLayers)
+		addDim("init_phase", atom.InitPhases)
+		addDim("northstar_phase", atom.NorthstarPhases)
+		addDim("ouroboros_stage", atom.OuroborosStages)
+		addDim("intent", atom.IntentVerbs)
+		addDim("shard", atom.ShardTypes)
+		addDim("lang", atom.Languages)
+		addDim("framework", atom.Frameworks)
+		addDim("state", atom.WorldStates)
+		addDim("depends_on", atom.DependsOn)
+		addDim("conflicts_with", atom.ConflictsWith)
+	}
+
+	if len(allTags) == 0 {
 		return nil
 	}
 
-	// Insert all dimension tags
-	if err := insertDim("mode", atom.OperationalModes); err != nil {
-		return err
-	}
-	if err := insertDim("phase", atom.CampaignPhases); err != nil {
-		return err
-	}
-	if err := insertDim("layer", atom.BuildLayers); err != nil {
-		return err
-	}
-	if err := insertDim("init_phase", atom.InitPhases); err != nil {
-		return err
-	}
-	if err := insertDim("northstar_phase", atom.NorthstarPhases); err != nil {
-		return err
-	}
-	if err := insertDim("ouroboros_stage", atom.OuroborosStages); err != nil {
-		return err
-	}
-	if err := insertDim("intent", atom.IntentVerbs); err != nil {
-		return err
-	}
-	if err := insertDim("shard", atom.ShardTypes); err != nil {
-		return err
-	}
-	if err := insertDim("lang", atom.Languages); err != nil {
-		return err
-	}
-	if err := insertDim("framework", atom.Frameworks); err != nil {
-		return err
-	}
-	if err := insertDim("state", atom.WorldStates); err != nil {
-		return err
-	}
+	// SQLite limits parameters, so we chunk tags too (999 limit / 3 fields = 333 max tags per batch)
+	tagChunkSize := 300
+	for i := 0; i < len(allTags); i += tagChunkSize {
+		end := i + tagChunkSize
+		if end > len(allTags) {
+			end = len(allTags)
+		}
 
-	// Insert dependency and conflict tags
-	if err := insertDim("depends_on", atom.DependsOn); err != nil {
-		return err
-	}
-	if err := insertDim("conflicts_with", atom.ConflictsWith); err != nil {
-		return err
+		chunk := allTags[i:end]
+		placeholders := make([]string, 0, len(chunk))
+		args := make([]interface{}, 0, len(chunk)*3)
+
+		for _, t := range chunk {
+			placeholders = append(placeholders, "(?, ?, ?)")
+			args = append(args, t.atomID, t.dimension, t.tag)
+		}
+
+		query := "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES " + strings.Join(placeholders, ", ")
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return err
+		}
 	}
 
 	return nil
