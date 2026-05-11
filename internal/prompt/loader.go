@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -216,36 +217,57 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 
 // ParseYAML parses a YAML file containing prompt atom definitions.
 func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
+	defer file.Close()
 
-	// TODO: SCALABILITY: Use a streaming YAML decoder here.
-	// Loading the entire file into memory (data) and then unmarshalling into a large slice (rawAtoms)
-	// causes double memory usage and can OOM on very large atom files.
-	// A streaming decoder would process atoms one by one.
-
-	// Parse as array of atoms
-	var rawAtoms []yamlAtomDefinition
-	if err := yaml.Unmarshal(data, &rawAtoms); err != nil {
-		// Try parsing as single atom
-		var single yamlAtomDefinition
-		if singleErr := yaml.Unmarshal(data, &single); singleErr != nil {
-			return nil, fmt.Errorf("failed to parse YAML: %w", err)
-		}
-		rawAtoms = []yamlAtomDefinition{single}
-	}
-
-	// Convert to PromptAtom structs
+	decoder := yaml.NewDecoder(file)
 	var atoms []*PromptAtom
-	for _, raw := range rawAtoms {
-		atom, err := l.convertYAMLAtom(raw, path)
-		if err != nil {
-			logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
-			continue
+
+	for {
+		var node yaml.Node
+		err := decoder.Decode(&node)
+		if err == io.EOF {
+			break
 		}
-		atoms = append(atoms, atom)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode YAML in %s: %w", path, err)
+		}
+
+		if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+			contentNode := node.Content[0]
+			if contentNode.Kind == yaml.SequenceNode {
+				for _, itemNode := range contentNode.Content {
+					var raw yamlAtomDefinition
+					if err := itemNode.Decode(&raw); err != nil {
+						logging.Get(logging.CategoryStore).Error("Skipping invalid atom sequence item in %s: %v", path, err)
+						continue
+					}
+					atom, err := l.convertYAMLAtom(raw, path)
+					if err != nil {
+						logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
+						continue
+					}
+					atoms = append(atoms, atom)
+				}
+			} else if contentNode.Kind == yaml.MappingNode {
+				var raw yamlAtomDefinition
+				if err := contentNode.Decode(&raw); err != nil {
+					logging.Get(logging.CategoryStore).Error("Skipping invalid atom mapping in %s: %v", path, err)
+					continue
+				}
+				atom, err := l.convertYAMLAtom(raw, path)
+				if err != nil {
+					logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
+					continue
+				}
+				atoms = append(atoms, atom)
+			} else {
+				return nil, fmt.Errorf("unexpected yaml node kind in %s: %v", path, contentNode.Kind)
+			}
+		}
 	}
 
 	return atoms, nil
