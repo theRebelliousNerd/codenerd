@@ -413,28 +413,62 @@ func BackfillContentHashes(db *sql.DB) (int, error) {
 
 	updated := 0
 	skipped := 0
+
+	// Read all data into memory first to avoid holding the read lock (rows)
+	// while opening a write transaction (tx), which can fail or deadlock in SQLite.
+	type atomRecord struct {
+		id      int64
+		concept string
+		content string
+	}
+	var records []atomRecord
 	for rows.Next() {
-		var id int64
-		var concept, content string
-		if err := rows.Scan(&id, &concept, &content); err != nil {
+		var r atomRecord
+		if err := rows.Scan(&r.id, &r.concept, &r.content); err != nil {
 			skipped++
 			continue
 		}
-
-		hash := ComputeContentHash(concept, content)
-
-		updateQuery := "UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?"
-		if _, err := db.Exec(updateQuery, hash, id); err != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", id, err)
-			skipped++
-			continue
-		}
-		updated++
+		records = append(records, r)
 	}
 
+	// Close rows explicitly before starting the transaction
 	if err := rows.Err(); err != nil {
 		logging.Get(logging.CategoryStore).Error("Error iterating atoms during backfill: %v", err)
-		return updated, fmt.Errorf("error iterating atoms: %w", err)
+		return 0, fmt.Errorf("error iterating atoms: %w", err)
+	}
+	rows.Close()
+
+	if len(records) > 0 {
+		tx, err := db.Begin()
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to begin transaction for hash backfill: %v", err)
+			return 0, fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback() // Safe to call if committed
+
+		updateQuery := "UPDATE knowledge_atoms SET content_hash = ? WHERE id = ?"
+		stmt, err := tx.Prepare(updateQuery)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to prepare statement for hash backfill: %v", err)
+			return 0, fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, r := range records {
+			hash := ComputeContentHash(r.concept, r.content)
+
+			if _, err := stmt.Exec(hash, r.id); err != nil {
+				logging.Get(logging.CategoryStore).Warn("Failed to update hash for atom %d: %v", r.id, err)
+				skipped++
+				continue
+			}
+			updated++
+		}
+
+		if err := tx.Commit(); err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to commit transaction for hash backfill: %v", err)
+			return updated, fmt.Errorf("failed to commit transaction: %w", err)
+		}
 	}
 
 	logging.Store("Backfilled content hashes: updated=%d, skipped=%d", updated, skipped)
