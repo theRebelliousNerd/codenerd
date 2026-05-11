@@ -222,8 +222,30 @@ func TestCompressPhase(t *testing.T) {
 		Args:      []interface{}{phaseID, "some_atom", 100},
 	})
 
+	// TEST_GAP: Null/Empty - CompressPhase with nil phase
+	nilSummary, nilCount, _, err := cp.CompressPhase(ctx, nil)
+	if err != nil {
+		t.Fatalf("CompressPhase failed with nil phase: %v", err)
+	}
+	if nilSummary != "" || nilCount != 0 {
+		t.Errorf("CompressPhase with nil phase returned unexpected results: summary=%s, count=%d", nilSummary, nilCount)
+	}
+
+	// TEST_GAP: Null/Empty - CompressPhase with a phase with 0 tasks
+	emptyPhase := &Phase{
+		ID:    "empty1",
+		Name:  "Empty Phase",
+		Tasks: []Task{},
+	}
+	emptySummary, emptyCount, _, err := cp.CompressPhase(ctx, emptyPhase)
+	if err != nil {
+		t.Fatalf("CompressPhase failed with empty phase: %v", err)
+	}
+	if !strings.Contains(emptySummary, "no recorded accomplishments") || emptyCount != 0 {
+		t.Errorf("CompressPhase with empty phase returned unexpected results: summary=%s, count=%d", emptySummary, emptyCount)
+	}
+
 	// Run Compression
-	// TODO: TEST_GAP: Null/Empty - CompressPhase with nil phase or a phase with 0 tasks
 	// TODO: TEST_GAP: Null/Empty - CompressPhase with empty accomplishments list (ensure fallback formatting works gracefully)
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
 	if err != nil {
