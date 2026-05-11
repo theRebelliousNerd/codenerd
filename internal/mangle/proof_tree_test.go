@@ -128,3 +128,30 @@ func containsNormalized(s, substr string) bool {
 	// Simple helper to ignore minor whitespace differences if needed
 	return strings.Contains(s, substr)
 }
+
+func TestNewProofTreeTracer(t *testing.T) {
+	// Create a dummy engine
+	engine := &Engine{} // We don't need a fully initialized engine for this
+
+	tracer := NewProofTreeTracer(engine)
+
+	if tracer == nil {
+		t.Fatalf("NewProofTreeTracer returned nil")
+	}
+
+	if tracer.engine != engine {
+		t.Errorf("Expected engine to be set correctly")
+	}
+
+	if tracer.traces == nil {
+		t.Errorf("Expected traces map to be initialized, but it was nil")
+	}
+
+	if tracer.maxCache != 100 {
+		t.Errorf("Expected maxCache to be 100, got %d", tracer.maxCache)
+	}
+
+	if tracer.ruleIndex == nil {
+		t.Errorf("Expected ruleIndex map to be initialized, but it was nil")
+	}
+}
