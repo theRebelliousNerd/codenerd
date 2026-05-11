@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewContextPager(t *testing.T) {
@@ -94,7 +95,6 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
-	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
 	// TODO: TEST_GAP: State Conflicts - Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
 	// TODO: TEST_GAP: State Conflicts - Concurrent Access: Run ActivatePhase in parallel goroutines to check for race conditions on cp.usedTokens
@@ -408,5 +408,56 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+
+	// Create 100,000 artifacts
+	numArtifacts := 100000
+	artifacts := make([]TaskArtifact, numArtifacts)
+	for i := 0; i < numArtifacts; i++ {
+		artifacts[i] = TaskArtifact{
+			Path: fmt.Sprintf("file_%d.txt", i),
+		}
+	}
+
+	phase := &Phase{
+		ID:   "extreme_phase",
+		Name: "Extreme Artifacts Phase",
+		Tasks: []Task{
+			{
+				ID:        "extreme_task",
+				Artifacts: artifacts,
+			},
+		},
+	}
+
+	// Use a short timeout to verify it does not hang
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed or timed out: %v", err)
+	}
+
+	// Verify that the mocked kernel received the assertions.
+	// We expect 100,000 phase_context_atom facts to be added.
+	artifactFactCount := 0
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" && len(f.Args) > 1 {
+			// Extracting the phase ID to verify it matches.
+			if f.Args[0] == "extreme_phase" {
+				artifactFactCount++
+			}
+		}
+	}
+
+	if artifactFactCount != numArtifacts {
+		t.Errorf("Expected %d artifact facts, but found %d", numArtifacts, artifactFactCount)
 	}
 }
