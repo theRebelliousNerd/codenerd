@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // CompilationContext holds all dimensions for prompt atom selection.
@@ -369,136 +370,14 @@ func (cc *CompilationContext) String() string {
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
 // TODO: Performance: Re-implement using a streaming FactBuilder to reduce slice allocations.
 // TODO: Reliability: Enforce strict type checking and escaping for all context values to prevent injection.
-// TODO: Maintainability: Verify if this logic duplicates `AtomSelector.buildContextFacts`. If so, refactor to share a single source of truth for context fact generation to prevent drift.
+
 func (cc *CompilationContext) ToContextFacts() []interface{} {
-	// Optimization: Pre-calculate capacity to avoid reallocation
-	// 9 core dimensions + frameworks + max 7 world states
-	// This over-allocates slightly if world states are few, but avoids resizing and eliminates
-	// the intermediate WorldStates() slice allocation completely.
-	capacity := 9 + len(cc.Frameworks) + 7
-	facts := make([]interface{}, 0, capacity)
-
-	// Helper to add compile_context facts for non-empty values.
-	// Format: compile_context(/dimension, /value). or compile_context(/dimension, "string").
-	// Optimization: Inlined to avoid closure overhead and use direct append.
-	// We check for / prefix to distinguish atoms from strings.
-
-	if val := cc.OperationalMode; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/operational_mode, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/operational_mode, \""+val+"\").")
-		}
-	}
-
-	if val := cc.CampaignPhase; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/campaign_phase, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/campaign_phase, \""+val+"\").")
-		}
-	}
-
-	if val := cc.BuildLayer; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/build_layer, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/build_layer, \""+val+"\").")
-		}
-	}
-
-	if val := cc.InitPhase; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/init_phase, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/init_phase, \""+val+"\").")
-		}
-	}
-
-	if val := cc.NorthstarPhase; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/northstar_phase, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/northstar_phase, \""+val+"\").")
-		}
-	}
-
-	if val := cc.OuroborosStage; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/ouroboros_stage, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/ouroboros_stage, \""+val+"\").")
-		}
-	}
-
-	if val := cc.IntentVerb; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/intent_verb, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/intent_verb, \""+val+"\").")
-		}
-	}
-
-	if val := cc.ShardType; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/shard_type, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/shard_type, \""+val+"\").")
-		}
-	}
-
-	if val := cc.Language; val != "" {
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/language, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/language, \""+val+"\").")
-		}
-	}
-
-	// Multi-value dimensions
-	for _, val := range cc.Frameworks {
-		if val == "" {
-			continue
-		}
-		if len(val) > 0 && val[0] == '/' {
-			facts = append(facts, "compile_context(/framework, "+val+").")
-		} else {
-			facts = append(facts, "compile_context(/framework, \""+val+"\").")
-		}
-	}
-
-	// World States - Inlined from WorldStates() to avoid slice allocation
-	// Optimization: Use constant strings since world states are known constants.
-
-	if cc.FailingTestCount > 0 {
-		facts = append(facts, "compile_context(/world_state, \"failing_tests\").")
-	}
-
-	if cc.DiagnosticCount > 0 {
-		facts = append(facts, "compile_context(/world_state, \"diagnostics\").")
-	}
-
-	if cc.IsLargeRefactor {
-		facts = append(facts, "compile_context(/world_state, \"large_refactor\").")
-	}
-
-	if cc.HasSecurityIssues {
-		facts = append(facts, "compile_context(/world_state, \"security_issues\").")
-	}
-
-	if cc.HasNewFiles {
-		facts = append(facts, "compile_context(/world_state, \"new_files\").")
-	}
-
-	if cc.IsHighChurn {
-		facts = append(facts, "compile_context(/world_state, \"high_churn\").")
-	}
-
-	if cc.HasReflectionHits {
-		facts = append(facts, "compile_context(/world_state, \"reflection_hits\").")
-	}
-
-	return facts
+	return cc.GenerateFacts(FactStyle{
+		Predicate:  "compile_context",
+		UseShort:   false,
+		ForceAtoms: false,
+		AddDot:     true,
+	})
 }
 
 // ContextDimension represents a single dimension of context.
@@ -639,4 +518,147 @@ func (cc *CompilationContext) Hash() string {
 	// Hash the content
 	hash := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(hash[:])
+}
+
+// FactStyle defines the formatting strategy for context facts.
+type FactStyle struct {
+	Predicate  string
+	UseShort   bool
+	ForceAtoms bool
+	AddDot     bool
+}
+
+// GenerateFacts generates Mangle facts representing this context according to the specified style.
+func (cc *CompilationContext) GenerateFacts(style FactStyle) []interface{} {
+	capacity := 9 + len(cc.Frameworks) + 7
+	facts := make([]interface{}, 0, capacity)
+
+	add := func(longDim, shortDim, val string) {
+		if val == "" {
+			return
+		}
+
+		dim := longDim
+		if style.UseShort {
+			dim = shortDim
+		}
+
+		// Dimension is always an atom
+		if !strings.HasPrefix(dim, "/") {
+			dim = "/" + dim
+		}
+		dim = mangleNormalizeNameConst(dim)
+		if dim == "" {
+			return
+		}
+
+		var formattedVal string
+		if style.ForceAtoms {
+			if !strings.HasPrefix(val, "/") {
+				val = "/" + val
+			}
+			formattedVal = mangleNormalizeNameConst(val)
+		} else {
+			if len(val) > 0 && val[0] == '/' {
+				formattedVal = mangleNormalizeNameConst(val)
+			} else {
+				// Quote as string
+				formattedVal = fmt.Sprintf("%q", val)
+			}
+		}
+
+		if formattedVal == "" {
+			return
+		}
+
+		factStr := fmt.Sprintf("%s(%s, %s)", style.Predicate, dim, formattedVal)
+		if style.AddDot {
+			factStr += "."
+		}
+		facts = append(facts, factStr)
+	}
+
+	add("operational_mode", "mode", cc.OperationalMode)
+	add("campaign_phase", "phase", cc.CampaignPhase)
+	add("build_layer", "layer", cc.BuildLayer)
+	add("init_phase", "init_phase", cc.InitPhase)
+	add("northstar_phase", "northstar_phase", cc.NorthstarPhase)
+	add("ouroboros_stage", "ouroboros_stage", cc.OuroborosStage)
+	add("intent_verb", "intent", cc.IntentVerb)
+	add("shard_type", "shard", cc.ShardType)
+	add("language", "lang", cc.Language)
+
+	for _, fw := range cc.Frameworks {
+		add("framework", "framework", fw)
+	}
+
+	if cc.FailingTestCount > 0 {
+		add("world_state", "state", "failing_tests")
+	}
+	if cc.DiagnosticCount > 0 {
+		add("world_state", "state", "diagnostics")
+	}
+	if cc.IsLargeRefactor {
+		add("world_state", "state", "large_refactor")
+	}
+	if cc.HasSecurityIssues {
+		add("world_state", "state", "security_issues")
+	}
+	if cc.HasNewFiles {
+		add("world_state", "state", "new_files")
+	}
+	if cc.IsHighChurn {
+		add("world_state", "state", "high_churn")
+	}
+	if cc.HasReflectionHits {
+		add("world_state", "state", "reflection_hits")
+	}
+
+	return facts
+}
+
+func mangleNormalizeNameConst(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if !strings.HasPrefix(s, "/") {
+		s = "/" + s
+	}
+	s = strings.ToLower(s)
+
+	// Mangle constant syntax: '/' CONSTANT_CHAR+ ('/' CONSTANT_CHAR+)* where
+	// CONSTANT_CHAR is [A-Za-z0-9._-~%]. We normalize unknown characters to '_'
+	// and drop empty segments to avoid invalid constants like '//'.
+	parts := strings.Split(s, "/")
+	var cleaned []string
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		var b strings.Builder
+		b.Grow(len(p))
+		for i := 0; i < len(p); i++ {
+			c := p[i]
+			switch {
+			case c >= 'a' && c <= 'z':
+				b.WriteByte(c)
+			case c >= '0' && c <= '9':
+				b.WriteByte(c)
+			case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
+				b.WriteByte(c)
+			default:
+				b.WriteByte('_')
+			}
+		}
+		seg := strings.Trim(b.String(), "_")
+		if seg == "" {
+			continue
+		}
+		cleaned = append(cleaned, seg)
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	return "/" + strings.Join(cleaned, "/")
 }

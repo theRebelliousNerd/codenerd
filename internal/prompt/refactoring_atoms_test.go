@@ -34,20 +34,20 @@ func TestRefactoringAtoms(t *testing.T) {
 			t.Errorf("Atom %s has wrong category: got %s, want %s", id, atom.Category, CategoryMethodology)
 		}
 
-        // Check language specific fields
-        if len(atom.Languages) == 0 {
-             t.Errorf("Atom %s has no languages defined", id)
-        }
+		// Check language specific fields
+		if len(atom.Languages) == 0 {
+			t.Errorf("Atom %s has no languages defined", id)
+		}
 
-        foundGo := false
-        for _, lang := range atom.Languages {
-            if lang == "/go" || lang == "/golang" {
-                foundGo = true
-                break
-            }
-        }
-        if !foundGo {
-             t.Errorf("Atom %s should have /go or /golang language", id)
-        }
+		foundGo := false
+		for _, lang := range atom.Languages {
+			if lang == "/go" || lang == "/golang" {
+				foundGo = true
+				break
+			}
+		}
+		if !foundGo {
+			t.Errorf("Atom %s should have /go or /golang language", id)
+		}
 	}
 }

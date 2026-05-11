@@ -45,25 +45,25 @@ func TestNewTokenBudgetManager(t *testing.T) {
 	t.Run("has default budgets for all categories", func(t *testing.T) {
 		mgr := NewTokenBudgetManager()
 
-			expectedCategories := []AtomCategory{
-				CategorySafety,
-				CategoryIdentity,
-				CategoryProtocol,
-				CategoryMethodology,
-				CategoryCapability,
-				CategoryHallucination,
-				CategoryLanguage,
-				CategoryFramework,
-				CategoryDomain,
-				CategoryContext,
-				CategoryCampaign,
-				CategoryInit,
-				CategoryNorthstar,
-				CategoryOuroboros,
-				CategoryAutopoiesis,
-				CategoryEval,
-				CategoryExemplar,
-			}
+		expectedCategories := []AtomCategory{
+			CategorySafety,
+			CategoryIdentity,
+			CategoryProtocol,
+			CategoryMethodology,
+			CategoryCapability,
+			CategoryHallucination,
+			CategoryLanguage,
+			CategoryFramework,
+			CategoryDomain,
+			CategoryContext,
+			CategoryCampaign,
+			CategoryInit,
+			CategoryNorthstar,
+			CategoryOuroboros,
+			CategoryAutopoiesis,
+			CategoryEval,
+			CategoryExemplar,
+		}
 
 		for _, cat := range expectedCategories {
 			_, exists := mgr.budgets[cat]

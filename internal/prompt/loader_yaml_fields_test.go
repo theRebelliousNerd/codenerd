@@ -41,4 +41,3 @@ func TestAtomLoader_ParseYAML_LoadsDescriptionAndVariants(t *testing.T) {
 	require.Equal(t, "concise content", atom.ContentConcise)
 	require.Equal(t, "min content", atom.ContentMin)
 }
-

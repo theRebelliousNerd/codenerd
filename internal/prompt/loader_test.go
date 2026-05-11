@@ -134,12 +134,12 @@ func TestLoadAgentPromptsUnifiedStorage(t *testing.T) {
 
 // mockEmbeddingEngine is a test double for embedding.EmbeddingEngine.
 type mockEmbeddingEngine struct {
-	dimensions    int
-	embedCount    int
-	batchCount    int
-	shouldFail    bool
-	failOnBatch   bool
-	returnedVecs  [][]float32
+	dimensions   int
+	embedCount   int
+	batchCount   int
+	shouldFail   bool
+	failOnBatch  bool
+	returnedVecs [][]float32
 }
 
 func newMockEmbeddingEngine(dims int) *mockEmbeddingEngine {

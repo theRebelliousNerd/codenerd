@@ -117,52 +117,6 @@ func mangleQuoteString(s string) string {
 	return sb.String()
 }
 
-func mangleNormalizeNameConst(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if !strings.HasPrefix(s, "/") {
-		s = "/" + s
-	}
-	s = strings.ToLower(s)
-
-	// Mangle constant syntax: '/' CONSTANT_CHAR+ ('/' CONSTANT_CHAR+)* where
-	// CONSTANT_CHAR is [A-Za-z0-9._-~%]. We normalize unknown characters to '_'
-	// and drop empty segments to avoid invalid constants like '//'.
-	parts := strings.Split(s, "/")
-	var cleaned []string
-	for _, p := range parts {
-		if p == "" {
-			continue
-		}
-		var b strings.Builder
-		b.Grow(len(p))
-		for i := 0; i < len(p); i++ {
-			c := p[i]
-			switch {
-			case c >= 'a' && c <= 'z':
-				b.WriteByte(c)
-			case c >= '0' && c <= '9':
-				b.WriteByte(c)
-			case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
-				b.WriteByte(c)
-			default:
-				b.WriteByte('_')
-			}
-		}
-		seg := strings.Trim(b.String(), "_")
-		if seg == "" {
-			continue
-		}
-		cleaned = append(cleaned, seg)
-	}
-	if len(cleaned) == 0 {
-		return ""
-	}
-	return "/" + strings.Join(cleaned, "/")
-}
-
 func mangleMandatoryLimits(cc *CompilationContext) (int, int) {
 	tokenCap := mangleMandatoryTokenCap
 	atomCap := mangleMandatoryAtomCap
@@ -1077,43 +1031,17 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 // TODO: Performance: Replace fmt.Sprintf with a specialized FactBuilder or buffer pool to reduce allocation pressure in hot loops.
 // This function allocates thousands of strings per compilation.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
-	// Pre-allocate facts array to minimize reallocation.
-	facts := make([]interface{}, 0, 15+len(atoms)*15)
+	// Generate base context facts using the unified generator
+	baseFacts := cc.GenerateFacts(FactStyle{
+		Predicate:  "current_context",
+		UseShort:   true,
+		ForceAtoms: true,
+		AddDot:     false,
+	})
 
-	// Context Facts - dimension names must be Mangle constants (start with /)
-	addContextFact := func(dim, val string) {
-		if val != "" {
-			// Ensure dimension has leading /
-			if !strings.HasPrefix(dim, "/") {
-				dim = "/" + dim
-			}
-			// Ensure value has leading / for Mangle constants
-			if !strings.HasPrefix(val, "/") {
-				val = "/" + val
-			}
-			dim = mangleNormalizeNameConst(dim)
-			val = mangleNormalizeNameConst(val)
-			if dim == "" || val == "" {
-				return
-			}
-			facts = append(facts, "current_context("+dim+", "+val+")")
-		}
-	}
-	addContextFact("mode", cc.OperationalMode)
-	addContextFact("phase", cc.CampaignPhase)
-	addContextFact("layer", cc.BuildLayer)
-	addContextFact("init_phase", cc.InitPhase)
-	addContextFact("northstar_phase", cc.NorthstarPhase)
-	addContextFact("ouroboros_stage", cc.OuroborosStage)
-	addContextFact("intent", cc.IntentVerb)
-	addContextFact("shard", cc.ShardType)
-	addContextFact("lang", cc.Language)
-	for _, fw := range cc.Frameworks {
-		addContextFact("framework", fw)
-	}
-	for _, ws := range cc.WorldStates() {
-		addContextFact("state", ws)
-	}
+	// Pre-allocate facts array to minimize reallocation for candidate facts.
+	facts := make([]interface{}, 0, len(baseFacts)+len(atoms)*15)
+	facts = append(facts, baseFacts...)
 
 	// Candidate Facts
 	for _, atom := range atoms {

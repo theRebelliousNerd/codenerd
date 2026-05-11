@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 // Example test to demonstrate loader functionality (not meant to run as part of test suite)
