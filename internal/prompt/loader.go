@@ -583,25 +583,6 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		}
 	}
 
-	// Helper to collect tags
-	tags := make(map[string][]string)
-	addTags := func(dim string, values []string) {
-		if len(values) > 0 {
-			tags[dim] = values
-		}
-	}
-	addTags("mode", atom.OperationalModes)
-	addTags("phase", atom.CampaignPhases)
-	addTags("layer", atom.BuildLayers)
-	addTags("init_phase", atom.InitPhases)
-	addTags("northstar_phase", atom.NorthstarPhases)
-	addTags("ouroboros_stage", atom.OuroborosStages)
-	addTags("intent", atom.IntentVerbs)
-	addTags("shard", atom.ShardTypes)
-	addTags("lang", atom.Languages)
-	addTags("framework", atom.Frameworks)
-	addTags("state", atom.WorldStates)
-
 	// 1. Upsert Atom (Base Fields Only)
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO prompt_atoms (
@@ -641,39 +622,9 @@ func (l *AtomLoader) storeAtomTx(ctx context.Context, tx *sql.Tx, atom *PromptAt
 		return fmt.Errorf("clear tags failed: %w", err)
 	}
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
-	if err != nil {
-		return err
+	if err := insertContextTags(ctx, tx, atom); err != nil {
+		return fmt.Errorf("failed to insert context tags: %w", err)
 	}
-	defer stmt.Close()
-
-	for dim, values := range tags {
-		for _, tag := range values {
-			if _, err := stmt.ExecContext(ctx, atom.ID, dim, tag); err != nil {
-				return fmt.Errorf("insert tag failed: %w", err)
-			}
-		}
-	}
-
-	// Handling DependsOn and ConflictsWith as tags or separate tables?
-	// The User Plan mentioned "atom_requires", "atom_conflicts" predicates.
-	// But in DB, where do they go?
-	// I should add them to `atom_context_tags` with dim='depends_on' / 'conflicts_with'?
-	// OR create separate link tables `atom_dependencies`, `atom_conflicts`.
-	// For simplicity, let's use `atom_context_tags` with reserved dimensions.
-	// This works for simple ID references.
-	// TODO: Architecture: Migrate `depends_on` and `conflicts_with` to explicit relational tables (`atom_dependencies`, `atom_conflicts`) with foreign key constraints to ensure referential integrity.
-	for _, dep := range atom.DependsOn {
-		if _, err := stmt.ExecContext(ctx, atom.ID, "depends_on", dep); err != nil {
-			return fmt.Errorf("insert dep failed: %w", err)
-		}
-	}
-	for _, conf := range atom.ConflictsWith {
-		if _, err := stmt.ExecContext(ctx, atom.ID, "conflicts_with", conf); err != nil {
-			return fmt.Errorf("insert conflict failed: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -1122,12 +1073,6 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 	}
 	defer deleteTagsStmt.Close()
 
-	insertTagStmt, err := tx.PrepareContext(ctx, "INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert tag statement: %w", err)
-	}
-	defer insertTagStmt.Close()
-
 	// Process each atom
 	for i, atom := range atoms {
 		embeddingBlob := encodeFloat32Slice(embeddings[i])
@@ -1150,7 +1095,7 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 		}
 
 		// Insert context tags
-		if err := insertContextTags(ctx, insertTagStmt, atom); err != nil {
+		if err := insertContextTags(ctx, tx, atom); err != nil {
 			return fmt.Errorf("failed to insert tags for atom %s: %w", atom.ID, err)
 		}
 
@@ -1167,59 +1112,74 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 	return nil
 }
 
-// insertContextTags inserts all context tags for an atom.
-func insertContextTags(ctx context.Context, stmt *sql.Stmt, atom *PromptAtom) error {
-	// Helper to insert tags for a dimension
-	insertDim := func(dimension string, values []string) error {
-		for _, tag := range values {
-			if _, err := stmt.ExecContext(ctx, atom.ID, dimension, tag); err != nil {
-				return err
-			}
-		}
+// Execer defines an interface for executing SQL statements.
+type Execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// insertContextTags inserts all context tags for an atom in a batch.
+func insertContextTags(ctx context.Context, execer Execer, atom *PromptAtom) error {
+	totalTags := len(atom.OperationalModes) + len(atom.CampaignPhases) +
+		len(atom.BuildLayers) + len(atom.InitPhases) + len(atom.NorthstarPhases) +
+		len(atom.OuroborosStages) + len(atom.IntentVerbs) + len(atom.ShardTypes) +
+		len(atom.Languages) + len(atom.Frameworks) + len(atom.WorldStates) +
+		len(atom.DependsOn) + len(atom.ConflictsWith)
+
+	if totalTags == 0 {
 		return nil
 	}
 
-	// Insert all dimension tags
-	if err := insertDim("mode", atom.OperationalModes); err != nil {
-		return err
-	}
-	if err := insertDim("phase", atom.CampaignPhases); err != nil {
-		return err
-	}
-	if err := insertDim("layer", atom.BuildLayers); err != nil {
-		return err
-	}
-	if err := insertDim("init_phase", atom.InitPhases); err != nil {
-		return err
-	}
-	if err := insertDim("northstar_phase", atom.NorthstarPhases); err != nil {
-		return err
-	}
-	if err := insertDim("ouroboros_stage", atom.OuroborosStages); err != nil {
-		return err
-	}
-	if err := insertDim("intent", atom.IntentVerbs); err != nil {
-		return err
-	}
-	if err := insertDim("shard", atom.ShardTypes); err != nil {
-		return err
-	}
-	if err := insertDim("lang", atom.Languages); err != nil {
-		return err
-	}
-	if err := insertDim("framework", atom.Frameworks); err != nil {
-		return err
-	}
-	if err := insertDim("state", atom.WorldStates); err != nil {
-		return err
+	const maxVars = 999
+	const varsPerRecord = 3
+	const maxRecordsPerBatch = maxVars / varsPerRecord
+
+	buildQuery := func(numRecords int) string {
+		var sb strings.Builder
+		sb.Grow(65 + numRecords*10)
+		sb.WriteString("INSERT INTO atom_context_tags (atom_id, dimension, tag) VALUES ")
+		for i := 0; i < numRecords; i++ {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?, ?, ?)")
+		}
+		return sb.String()
 	}
 
-	// Insert dependency and conflict tags
-	if err := insertDim("depends_on", atom.DependsOn); err != nil {
-		return err
+	valueArgs := make([]interface{}, 0, totalTags*3)
+	addDim := func(dimension string, values []string) {
+		for _, tag := range values {
+			valueArgs = append(valueArgs, atom.ID, dimension, tag)
+		}
 	}
-	if err := insertDim("conflicts_with", atom.ConflictsWith); err != nil {
-		return err
+
+	addDim("mode", atom.OperationalModes)
+	addDim("phase", atom.CampaignPhases)
+	addDim("layer", atom.BuildLayers)
+	addDim("init_phase", atom.InitPhases)
+	addDim("northstar_phase", atom.NorthstarPhases)
+	addDim("ouroboros_stage", atom.OuroborosStages)
+	addDim("intent", atom.IntentVerbs)
+	addDim("shard", atom.ShardTypes)
+	addDim("lang", atom.Languages)
+	addDim("framework", atom.Frameworks)
+	addDim("state", atom.WorldStates)
+	addDim("depends_on", atom.DependsOn)
+	addDim("conflicts_with", atom.ConflictsWith)
+
+	for i := 0; i < totalTags; i += maxRecordsPerBatch {
+		end := i + maxRecordsPerBatch
+		if end > totalTags {
+			end = totalTags
+		}
+
+		batchSize := end - i
+		batchArgs := valueArgs[i*varsPerRecord : end*varsPerRecord]
+
+		query := buildQuery(batchSize)
+		if _, err := execer.ExecContext(ctx, query, batchArgs...); err != nil {
+			return err
+		}
 	}
 
 	return nil
