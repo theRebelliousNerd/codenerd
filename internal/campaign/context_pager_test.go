@@ -91,7 +91,6 @@ func TestActivatePhase(t *testing.T) {
 	// 2. Activate Phase
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with nil phase (should handle gracefully)
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
-	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
@@ -408,5 +407,39 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phase := &Phase{
+		ID:             "phase_nil_artifacts",
+		Name:           "Test Phase Nil Artifacts",
+		ContextProfile: "profile1",
+		Tasks: []Task{
+			{
+				ID: "task1",
+				Artifacts: nil,
+			},
+		},
+	}
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed when tasks have nil artifacts: %v", err)
+	}
+
+	// Verify it processed correctly. No artifact-based atoms should be generated.
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" {
+			arg1 := fmt.Sprintf("%v", f.Args[1])
+			if strings.Contains(arg1, "file_topology") {
+				t.Errorf("Did not expect file_topology facts for nil artifacts, got: %v", f)
+			}
+		}
 	}
 }
