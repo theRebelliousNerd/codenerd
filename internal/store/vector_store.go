@@ -922,25 +922,61 @@ func (s *LocalStore) ReembedAllVectors(ctx context.Context) error {
 		}
 
 		// Update database
+		tx, err := s.db.Begin()
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to start transaction: %v", err)
+			return fmt.Errorf("failed to start transaction: %w", err)
+		}
+
+		updateStmt, err := tx.Prepare("UPDATE vectors SET embedding = ? WHERE id = ?")
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to prepare update stmt: %w", err)
+		}
+
+		var insertVecStmt *sql.Stmt
+		if s.vectorExt {
+			insertVecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)")
+			if err != nil {
+				updateStmt.Close()
+				tx.Rollback()
+				return fmt.Errorf("failed to prepare vec_index stmt: %w", err)
+			}
+		}
+
 		for j, v := range batch {
 			embeddingJSON, _ := json.Marshal(embeddings[j])
-			_, err := s.db.Exec(
-				"UPDATE vectors SET embedding = ? WHERE id = ?",
-				string(embeddingJSON), v.id,
-			)
+			_, err := updateStmt.Exec(string(embeddingJSON), v.id)
 			if err != nil {
+				updateStmt.Close()
+				if insertVecStmt != nil {
+					insertVecStmt.Close()
+				}
+				tx.Rollback()
 				logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
 				return fmt.Errorf("failed to update vector %d: %w", v.id, err)
 			}
 			// Keep sqlite-vec index in sync when available.
 			if s.vectorExt {
 				vecBlob := encodeFloat32Slice(embeddings[j])
-				_, _ = s.db.Exec(
-					"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
-					v.id, vecBlob, v.content, v.metadata,
-				)
+				_, err = insertVecStmt.Exec(v.id, vecBlob, v.content, v.metadata)
+				if err != nil {
+					updateStmt.Close()
+					insertVecStmt.Close()
+					tx.Rollback()
+					return fmt.Errorf("failed to update vec_index for vector %d: %w", v.id, err)
+				}
 			}
 			totalEmbedded++
+		}
+
+		updateStmt.Close()
+		if insertVecStmt != nil {
+			insertVecStmt.Close()
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
 	}
 
@@ -1071,27 +1107,63 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 			}
 		}
 
+		tx, err := s.db.Begin()
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to start transaction: %v", err)
+			return totalEmbedded, fmt.Errorf("failed to start transaction: %w", err)
+		}
+
+		updateStmt, err := tx.Prepare("UPDATE vectors SET embedding = ? WHERE id = ?")
+		if err != nil {
+			tx.Rollback()
+			return totalEmbedded, fmt.Errorf("failed to prepare update stmt: %w", err)
+		}
+
+		var insertVecStmt *sql.Stmt
+		if s.vectorExt {
+			insertVecStmt, err = tx.Prepare("INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)")
+			if err != nil {
+				updateStmt.Close()
+				tx.Rollback()
+				return totalEmbedded, fmt.Errorf("failed to prepare vec_index stmt: %w", err)
+			}
+		}
+
 		for j, v := range batch {
 			if j >= len(embeddings) || embeddings[j] == nil || len(embeddings[j]) == 0 {
 				continue
 			}
 			embeddingJSON, _ := json.Marshal(embeddings[j])
-			_, err := s.db.Exec(
-				"UPDATE vectors SET embedding = ? WHERE id = ?",
-				string(embeddingJSON), v.id,
-			)
+			_, err := updateStmt.Exec(string(embeddingJSON), v.id)
 			if err != nil {
+				updateStmt.Close()
+				if insertVecStmt != nil {
+					insertVecStmt.Close()
+				}
+				tx.Rollback()
 				logging.Get(logging.CategoryStore).Error("Failed to update vector %d: %v", v.id, err)
 				return totalEmbedded, fmt.Errorf("failed to update vector %d: %w", v.id, err)
 			}
 			if s.vectorExt {
 				vecBlob := encodeFloat32Slice(embeddings[j])
-				_, _ = s.db.Exec(
-					"INSERT OR REPLACE INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)",
-					vecBlob, v.content, v.metadata,
-				)
+				_, err = insertVecStmt.Exec(vecBlob, v.content, v.metadata)
+				if err != nil {
+					updateStmt.Close()
+					insertVecStmt.Close()
+					tx.Rollback()
+					return totalEmbedded, fmt.Errorf("failed to update vec_index for vector %d: %w", v.id, err)
+				}
 			}
 			totalEmbedded++
+		}
+
+		updateStmt.Close()
+		if insertVecStmt != nil {
+			insertVecStmt.Close()
+		}
+
+		if err := tx.Commit(); err != nil {
+			return totalEmbedded, fmt.Errorf("failed to commit transaction: %w", err)
 		}
 	}
 
