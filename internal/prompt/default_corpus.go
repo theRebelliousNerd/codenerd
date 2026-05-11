@@ -78,22 +78,20 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, "INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES (?, ?, ?)")
-	if err != nil {
-		return fmt.Errorf("prepare tag insert: %w", err)
+	type tagRow struct {
+		atomID string
+		dim    string
+		tag    string
 	}
-	defer stmt.Close()
+	var allTags []tagRow
 
-	insertTags := func(atomID, dim string, values []string) error {
+	insertTags := func(atomID, dim string, values []string) {
 		for _, v := range values {
 			if strings.TrimSpace(v) == "" {
 				continue
 			}
-			if _, err := stmt.ExecContext(ctx, atomID, dim, v); err != nil {
-				return err
-			}
+			allTags = append(allTags, tagRow{atomID: atomID, dim: dim, tag: v})
 		}
-		return nil
 	}
 
 	for _, atom := range atoms {
@@ -104,45 +102,43 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 			continue
 		}
 
-		if err := insertTags(atom.ID, "mode", atom.OperationalModes); err != nil {
-			return fmt.Errorf("insert tags (mode) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "phase", atom.CampaignPhases); err != nil {
-			return fmt.Errorf("insert tags (phase) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "layer", atom.BuildLayers); err != nil {
-			return fmt.Errorf("insert tags (layer) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "init_phase", atom.InitPhases); err != nil {
-			return fmt.Errorf("insert tags (init_phase) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "northstar_phase", atom.NorthstarPhases); err != nil {
-			return fmt.Errorf("insert tags (northstar_phase) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "ouroboros_stage", atom.OuroborosStages); err != nil {
-			return fmt.Errorf("insert tags (ouroboros_stage) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "intent", atom.IntentVerbs); err != nil {
-			return fmt.Errorf("insert tags (intent) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "shard", atom.ShardTypes); err != nil {
-			return fmt.Errorf("insert tags (shard) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "lang", atom.Languages); err != nil {
-			return fmt.Errorf("insert tags (lang) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "framework", atom.Frameworks); err != nil {
-			return fmt.Errorf("insert tags (framework) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "state", atom.WorldStates); err != nil {
-			return fmt.Errorf("insert tags (state) for %s: %w", atom.ID, err)
-		}
+		insertTags(atom.ID, "mode", atom.OperationalModes)
+		insertTags(atom.ID, "phase", atom.CampaignPhases)
+		insertTags(atom.ID, "layer", atom.BuildLayers)
+		insertTags(atom.ID, "init_phase", atom.InitPhases)
+		insertTags(atom.ID, "northstar_phase", atom.NorthstarPhases)
+		insertTags(atom.ID, "ouroboros_stage", atom.OuroborosStages)
+		insertTags(atom.ID, "intent", atom.IntentVerbs)
+		insertTags(atom.ID, "shard", atom.ShardTypes)
+		insertTags(atom.ID, "lang", atom.Languages)
+		insertTags(atom.ID, "framework", atom.Frameworks)
+		insertTags(atom.ID, "state", atom.WorldStates)
+		insertTags(atom.ID, "depends_on", atom.DependsOn)
+		insertTags(atom.ID, "conflicts_with", atom.ConflictsWith)
+	}
 
-		if err := insertTags(atom.ID, "depends_on", atom.DependsOn); err != nil {
-			return fmt.Errorf("insert tags (depends_on) for %s: %w", atom.ID, err)
-		}
-		if err := insertTags(atom.ID, "conflicts_with", atom.ConflictsWith); err != nil {
-			return fmt.Errorf("insert tags (conflicts_with) for %s: %w", atom.ID, err)
+	if len(allTags) > 0 {
+		const chunkSize = 300 // Safe chunk size for SQLite parameter limits (300 * 3 = 900 params)
+		for i := 0; i < len(allTags); i += chunkSize {
+			end := i + chunkSize
+			if end > len(allTags) {
+				end = len(allTags)
+			}
+			chunk := allTags[i:end]
+
+			query := "INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES "
+			args := make([]interface{}, 0, len(chunk)*3)
+			placeholders := make([]string, len(chunk))
+
+			for j, row := range chunk {
+				placeholders[j] = "(?, ?, ?)"
+				args = append(args, row.atomID, row.dim, row.tag)
+			}
+			query += strings.Join(placeholders, ", ")
+
+			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+				return fmt.Errorf("batch insert tags: %w", err)
+			}
 		}
 	}
 
