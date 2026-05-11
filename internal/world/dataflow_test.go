@@ -612,3 +612,13 @@ func TestDataFlowExtractor_DeepNesting(t *testing.T) {
 		t.Error("Expected facts from deep function")
 	}
 }
+
+func TestNewDataFlowExtractor(t *testing.T) {
+	extractor := NewDataFlowExtractor()
+	if extractor == nil {
+		t.Fatal("Expected NewDataFlowExtractor() to return non-nil DataFlowExtractor")
+	}
+	if extractor.fset == nil {
+		t.Error("Expected DataFlowExtractor.fset to be initialized")
+	}
+}
