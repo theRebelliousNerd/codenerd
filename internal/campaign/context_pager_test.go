@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"codenerd/internal/types"
 	"testing"
 )
 
@@ -67,7 +68,7 @@ func TestActivatePhase(t *testing.T) {
 	// Inject scoped docs fact
 	// Predicate: phase_context_scope(Layer, Doc)
 	// Phase Name: "Test Phase" -> Normalized: "test_phase"
-	// TODO: TEST_GAP: Type Coercion - scopedDocsForPhase when kernel returns non-string arguments (int, bool, nil) or Mangle Atoms instead of strings.
+
 	// TODO: TEST_GAP: Performance/Extremes - scopedDocsForPhase with 1,000,000 phase_context_scope facts to check linear scan performance.
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
@@ -408,5 +409,95 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestScopedDocsForPhase_TypeCoercion(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+
+	// Inject scoped docs facts with non-string arguments
+	// 1. Int as phase, string as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{123, "doc_int.md"},
+	})
+
+	// 2. Bool as phase, string as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{true, "doc_bool.md"},
+	})
+
+	// 3. String as phase, int as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{"test_phase", 456},
+	})
+
+	// 4. String as phase, bool as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{"test_phase", false},
+	})
+
+	// 5. String as phase, nil as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{"test_phase", nil},
+	})
+
+	// 6. Mangle Atom as phase, Mangle Atom as doc
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_scope",
+		Args:      []interface{}{types.MangleAtom("/atom_phase"), types.MangleAtom("/atom_doc")},
+	})
+
+	// Test 1: Int as phase
+	// ExtractString(123) -> "123", normalizeLayerName("123") -> "123"
+	docs := cp.scopedDocsForPhase("123")
+	if len(docs) != 1 || docs[0] != "doc_int.md" {
+		t.Errorf("Expected [\"doc_int.md\"], got %v", docs)
+	}
+
+	// Test 2: Bool as phase
+	// ExtractString(true) -> "/true", normalizeLayerName("/true") -> "_true"
+	docs = cp.scopedDocsForPhase("/true")
+	if len(docs) != 1 || docs[0] != "doc_bool.md" {
+		t.Errorf("Expected [\"doc_bool.md\"], got %v", docs)
+	}
+
+	// Test 3: String as phase, mixed doc types
+	// "test_phase" normalizes to "test_phase"
+	// 456 -> "456"
+	// false -> "/false"
+	// nil -> "" (should be skipped)
+	docs = cp.scopedDocsForPhase("test_phase")
+
+	// We expect 2 docs because nil is skipped
+	if len(docs) != 2 {
+		t.Errorf("Expected 2 docs for test_phase, got %d: %v", len(docs), docs)
+	} else {
+		// Check for presence, order may vary if we used map iteration but here facts are linear
+		expectedDocs := map[string]bool{"456": false, "/false": false}
+		for _, d := range docs {
+			if _, ok := expectedDocs[d]; ok {
+				expectedDocs[d] = true
+			} else {
+				t.Errorf("Unexpected doc found: %s", d)
+			}
+		}
+		for k, v := range expectedDocs {
+			if !v {
+				t.Errorf("Expected doc missing: %s", k)
+			}
+		}
+	}
+
+	// Test 4: Mangle Atom as phase
+	// ExtractString(/atom_phase) -> "/atom_phase", normalizeLayerName("/atom_phase") -> "_atom_phase"
+	docs = cp.scopedDocsForPhase("/atom_phase")
+	if len(docs) != 1 || docs[0] != "/atom_doc" {
+		t.Errorf("Expected [\"/atom_doc\"], got %v", docs)
 	}
 }
