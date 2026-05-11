@@ -89,7 +89,7 @@ func TestActivatePhase(t *testing.T) {
 	}
 
 	// 2. Activate Phase
-	// TODO: TEST_GAP: Null/Empty - ActivatePhase with nil phase (should handle gracefully)
+
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
@@ -408,5 +408,26 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 	if len(prof.RequiredSchemas) != 1 || prof.RequiredSchemas[0] != "schema1 schema2" {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
+	}
+}
+
+func TestActivatePhase_NilPhase(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	err := cp.ActivatePhase(ctx, nil)
+	if err != nil {
+		t.Fatalf("ActivatePhase with nil phase failed: %v", err)
+	}
+
+	used, _, _ := cp.GetUsage()
+	if used != 0 {
+		t.Errorf("Expected 0 used tokens, got %d", used)
+	}
+
+	if len(kernel.Facts) != 0 {
+		t.Errorf("Expected 0 facts asserted, got %d", len(kernel.Facts))
 	}
 }
