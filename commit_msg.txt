@@ -1,0 +1,5 @@
+🧪 Improve testing coverage for NewFileScope
+
+🎯 What: Created a test file internal/world/scope_test.go to cover NewFileScope in internal/world/scope.go.
+📊 Coverage: Successfully initialized properties inside NewFileScope were verified against their zero values, or specifically asserted on their lengths in some edge cases.
+✨ Result: Test code handles empty and normal initialization state accurately without breaking.
