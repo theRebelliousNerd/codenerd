@@ -1444,3 +1444,39 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 // Objective: Verify that internal query construction truncates these inputs to prevent
 // memory spikes or downstream errors in Vector Search / Embedding APIs.
 // Criticality: Low (DoS Protection)
+
+func TestCompiler_MissingSpecialistRegistry(t *testing.T) {
+	// Setup empty compilation context
+	cc := NewCompilationContext().WithTokenBudget(10000, 1000)
+
+	// Since we can't easily mock the os.Stat inside the method,
+	// we just ensure that calling Compile with a missing registry doesn't panic.
+	compiler, err := NewJITPromptCompiler()
+	require.NoError(t, err)
+
+	_, err = compiler.Compile(context.Background(), cc)
+	// It should succeed or fail for a different reason, but not panic
+	// We just want to ensure it degraded gracefully.
+	assert.NoError(t, err)
+}
+
+func TestCompiler_ExtremeTokenBudget(t *testing.T) {
+	compiler, err := NewJITPromptCompiler()
+	require.NoError(t, err)
+
+	t.Run("zero budget", func(t *testing.T) {
+		cc := NewCompilationContext().WithTokenBudget(0, 0)
+		_, err := compiler.Compile(context.Background(), cc)
+		// Should handle zero budget safely (division by zero guard)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid compilation context")
+	})
+
+	t.Run("negative budget", func(t *testing.T) {
+		cc := NewCompilationContext().WithTokenBudget(-1000, 0)
+		_, err := compiler.Compile(context.Background(), cc)
+		// Should handle negative budget safely
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid compilation context")
+	})
+}

@@ -140,7 +140,26 @@ func (r *DependencyResolver) topologicalSort(
 
 	// Process queue
 	result := make([]*ScoredAtom, 0, len(atoms))
-	for len(queue) > 0 {
+	for len(queue) > 0 || len(result) < len(atoms) {
+		if len(queue) == 0 {
+			// Cycle detected! Break cycle deterministically by picking the remaining node with highest score
+			var bestNode *ScoredAtom
+			for _, sa := range atoms {
+				if inDegree[sa.Atom.ID] > 0 {
+					if bestNode == nil || sa.Combined > bestNode.Combined {
+						bestNode = sa
+					}
+				}
+			}
+			if bestNode != nil {
+				logging.Get(logging.CategoryContext).Warn("Dependency cycle detected, breaking cycle at atom: %s", bestNode.Atom.ID)
+				inDegree[bestNode.Atom.ID] = 0
+				queue = append(queue, bestNode)
+			} else {
+				break
+			}
+		}
+
 		// Pop front
 		current := queue[0]
 		queue = queue[1:]
@@ -161,14 +180,6 @@ func (r *DependencyResolver) topologicalSort(
 			}
 			return queue[i].Combined > queue[j].Combined
 		})
-	}
-
-	// Check for cycles
-	if len(result) != len(atoms) {
-		return nil, fmt.Errorf(
-			"dependency cycle detected: processed %d of %d atoms",
-			len(result), len(atoms),
-		)
 	}
 
 	return result, nil
@@ -265,8 +276,12 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 
 	var cyclePath []string
 
-	var dfs func(node string) bool
-	dfs = func(node string) bool {
+	var dfs func(node string, depth int) bool
+	dfs = func(node string, depth int) bool {
+		if depth > 1000 {
+			logging.Get(logging.CategoryContext).Warn("DetectCycles: max recursion depth (1000) exceeded at node %s", node)
+			return false // Abort this path safely to prevent stack overflow
+		}
 		color[node] = gray
 
 		for _, neighbor := range graph[node] {
@@ -286,7 +301,7 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 
 			if color[neighbor] == white {
 				parent[neighbor] = node
-				if dfs(neighbor) {
+				if dfs(neighbor, depth+1) {
 					return true
 				}
 			}
@@ -301,7 +316,7 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 			continue
 		}
 		if color[atom.ID] == white {
-			if dfs(atom.ID) {
+			if dfs(atom.ID, 0) {
 				return cyclePath
 			}
 		}

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"codenerd/internal/core/shards"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
@@ -147,6 +149,10 @@ type CompilationStats struct {
 
 // String returns a human-readable summary of the compilation stats.
 func (s *CompilationStats) String() string {
+	var util float64
+	if s.TokenBudget > 0 {
+		util = s.BudgetUtilization * 100
+	}
 	return fmt.Sprintf(
 		"JIT[%s] %dms | atoms=%d (skel=%d flesh=%d) | tokens=%d/%d (%.1f%%) | vector=%dms | cache=%v",
 		s.ShardID,
@@ -156,7 +162,7 @@ func (s *CompilationStats) String() string {
 		s.FleshAtoms,
 		s.TokensUsed,
 		s.TokenBudget,
-		s.BudgetUtilization*100,
+		util,
 		s.VectorQueryMs,
 		s.CacheHit,
 	)
@@ -273,7 +279,8 @@ type JITPromptCompiler struct {
 	lastResult atomic.Pointer[CompilationResult]
 
 	// Concurrency control
-	mu sync.RWMutex
+	mu           sync.RWMutex
+	compileGroup singleflight.Group
 
 	// Configuration
 	config CompilerConfig
@@ -463,20 +470,22 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		return cached, nil
 	}
 	c.cacheMu.Unlock()
-	atomic.AddInt64(&c.cacheMiss, 1)
+	// Singleflight to prevent Thundering Herd
+	v, err, shared := c.compileGroup.Do(cacheKey, func() (interface{}, error) {
+		atomic.AddInt64(&c.cacheMiss, 1)
 
-	// Start comprehensive timing after validation
-	compileStart := time.Now()
-	stats := &CompilationStats{
-		ShardID:         cc.ShardID,
-		OperationalMode: cc.OperationalMode,
-		IntentVerb:      cc.IntentVerb,
-	}
+		// Start comprehensive timing after validation
+		compileStart := time.Now()
+		stats := &CompilationStats{
+			ShardID:         cc.ShardID,
+			OperationalMode: cc.OperationalMode,
+			IntentVerb:      cc.IntentVerb,
+		}
 
-	logging.Get(logging.CategoryJIT).Info("Compiling prompt (cache MISS): %s (hash=%s, misses=%d)",
-		cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
+		logging.Get(logging.CategoryJIT).Info("Compiling prompt (cache MISS): %s (hash=%s, misses=%d)",
+			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
-	// Step 1: Assert context facts to kernel for Mangle-based selection
+		// Step 1: Assert context facts to kernel for Mangle-based selection
 	// We do this first so that context is available for kernel injection and Mangle-based selection.
 	// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
 	if c.kernel != nil {
@@ -684,7 +693,18 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		c.logCompilationManifest(stats, result)
 	}
 
-	return result, nil
+		return result, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	res := v.(*CompilationResult)
+	if shared {
+		logging.Get(logging.CategoryJIT).Info("Prompt compilation joined via singleflight for hash=%s", cacheKey[:8])
+	}
+	return res, nil
 }
 
 // collectKernelInjectedAtoms queries runtime context predicates and turns them into ephemeral PromptAtoms.
@@ -725,13 +745,13 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		}
 		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
 		// Replace with type switches for common primitives to avoid reflection overhead in hot loops.
-		factShardID := extractStringArg(fact.Args[0])
-		if !matchesShard(factShardID) {
+		factShardID, err := extractStringArg(fact.Args[0])
+		if err != nil || !matchesShard(factShardID) {
 			continue
 		}
 		if atom, ok := fact.Args[1].(string); ok && strings.TrimSpace(atom) != "" {
 			ctxAtoms = append(ctxAtoms, atom)
-		} else if atomStr := extractStringArg(fact.Args[1]); strings.TrimSpace(atomStr) != "" {
+		} else if atomStr, err := extractStringArg(fact.Args[1]); err == nil && strings.TrimSpace(atomStr) != "" {
 			ctxAtoms = append(ctxAtoms, atomStr)
 		}
 	}
@@ -764,13 +784,13 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			if len(fact.Args) < 3 {
 				continue
 			}
-			factShardID := extractStringArg(fact.Args[0])
-			if !matchesShard(factShardID) {
+			factShardID, err := extractStringArg(fact.Args[0])
+			if err != nil || !matchesShard(factShardID) {
 				continue
 			}
-			topic := extractStringArg(fact.Args[1])
-			body := extractStringArg(fact.Args[2])
-			if strings.TrimSpace(topic) != "" && strings.TrimSpace(body) != "" {
+			topic, err1 := extractStringArg(fact.Args[1])
+			body, err2 := extractStringArg(fact.Args[2])
+			if err1 == nil && err2 == nil && strings.TrimSpace(topic) != "" && strings.TrimSpace(body) != "" {
 				blocks = append(blocks, block{topic: topic, content: body})
 			}
 		}
@@ -911,6 +931,10 @@ func (c *JITPromptCompiler) buildResultWithStats(
 
 	if budget > 0 {
 		result.BudgetUsed = float64(result.TotalTokens) / float64(budget)
+	} else if budget <= 0 && result.TotalTokens > 0 {
+		result.BudgetUsed = 1.0 // Over budget when budget is <= 0 and we have tokens
+	} else {
+		result.BudgetUsed = 0.0
 	}
 
 	result.CompilationTimeMs = stats.Duration.Milliseconds()
@@ -1104,12 +1128,13 @@ func (c *JITPromptCompiler) loadAtomsFromDB(ctx context.Context, db *sql.DB) ([]
 	defer timer.Stop()
 
 	// 1. Load Base Atoms and Context Tags combined via LEFT JOIN
+	// Added LIMIT 10000 to prevent memory exhaustion from massive atom corpus
 	query := `
 		SELECT a.atom_id, a.version, a.content, a.token_count, a.content_hash,
 		       a.description, a.content_concise, a.content_min,
 		       a.category, a.subcategory, a.priority, a.is_mandatory, a.is_exclusive, a.created_at,
 		       t.dimension, t.tag
-		FROM prompt_atoms a
+		FROM (SELECT * FROM prompt_atoms LIMIT 10000) a
 		LEFT JOIN atom_context_tags t ON a.atom_id = t.atom_id
 	`
 
@@ -1501,11 +1526,37 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 
 	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
 
-	// Check file existence and mod time
 	stat, err := os.Stat(registryPath)
 	if err != nil {
-		// Graceful degradation - no specialists available
-		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
+		// Graceful degradation - no custom specialists available, but we'll still add core shards
+		data := []byte("{}")
+		
+		// Parse the agent registry (which is empty)
+		var registry struct {
+			Agents []struct {
+				Name        string `json:"name"`
+				Type        string `json:"type"`
+				Status      string `json:"status"`
+				Description string `json:"description"`
+				Topics      string `json:"topics"`
+			} `json:"agents"`
+		}
+		_ = json.Unmarshal(data, &registry)
+		
+		var specialists []string
+		// Add core shards as implicit specialists (from centralized definitions)
+		for name, desc := range shards.CoreShardDescriptions {
+			specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
+		}
+		
+		var result string
+		if len(specialists) == 0 {
+			result = "No specialists available. Use **researcher** for general knowledge gathering."
+		} else {
+			result = strings.Join(specialists, "\n")
+		}
+		
+		ctx.AvailableSpecialists = result
 		return nil
 	}
 
@@ -1525,8 +1576,8 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
 		// Should be rare since Stat succeeded, but possible
-		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
-		return nil
+		logging.Get(logging.CategoryJIT).Warn("Failed to read agents.json: %v", err)
+		data = []byte("{}") // Proceed with empty registry to inject core shards
 	}
 
 	// Parse the agent registry
@@ -1541,8 +1592,7 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	}
 	if err := json.Unmarshal(data, &registry); err != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to parse agents.json: %v", err)
-		ctx.AvailableSpecialists = "- **researcher**: Deep web research and documentation gathering\n- **reviewer**: Code review and analysis"
-		return nil
+		// Proceed anyway to at least inject core shards
 	}
 
 	// Build specialist descriptions

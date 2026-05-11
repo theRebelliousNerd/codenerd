@@ -625,11 +625,17 @@ func mangleNormalizeNameConst(s string) string {
 	if !strings.HasPrefix(s, "/") {
 		s = "/" + s
 	}
-	s = strings.ToLower(s)
 
-	// Mangle constant syntax: '/' CONSTANT_CHAR+ ('/' CONSTANT_CHAR+)* where
-	// CONSTANT_CHAR is [A-Za-z0-9._-~%]. We normalize unknown characters to '_'
-	// and drop empty segments to avoid invalid constants like '//'.
+	// If it contains spaces or single quotes, we MUST single-quote the entire atom to be safe
+	// e.g., `/coder shard` -> `'/coder shard'`
+	// We also need to escape single quotes inside if any.
+	if strings.ContainsAny(s, " '\"\t\n\r") {
+		escaped := strings.ReplaceAll(s, "'", "\\'")
+		return "'" + escaped + "'"
+	}
+
+	s = strings.ToLower(s)
+	// Normal parsing for valid unquoted atoms
 	parts := strings.Split(s, "/")
 	var cleaned []string
 	for _, p := range parts {

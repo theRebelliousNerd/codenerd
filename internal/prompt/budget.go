@@ -391,7 +391,9 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	// Select atoms
 	result := make([]*OrderedAtom, 0, len(atoms))
 	unselected := make([]*OrderedAtom, 0, len(atoms))
-	usedTokens := 0
+	var usedTokens int64 = 0
+	const maxAtomsLimit = 5000
+	var atomsIncluded int = 0
 
 	// Helper to get token count for a mode
 	getTokenCount := func(atom *PromptAtom, mode string) int {
@@ -435,11 +437,16 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			allocation = 0
 		}
 
-		catTokens := 0
+		var catTokens int64 = 0
 		for k := start; k < end; k++ {
+			if atomsIncluded >= maxAtomsLimit {
+				unselected = append(unselected, sortedAtoms[k])
+				continue
+			}
+
 			oa := sortedAtoms[k]
 			mode := "standard"
-			tokens := getTokenCount(oa.Atom, mode)
+			tokens := int64(getTokenCount(oa.Atom, mode))
 
 			// Mandatory atoms: strict inclusion if configured?
 			// If hasAlloc is false, it means category is not in budget map.
@@ -456,27 +463,30 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				result = append(result, oa)
 				catTokens += tokens
 				usedTokens += tokens
+				atomsIncluded++
 				continue
 			}
 
 			// Try Standard
-			if catTokens+tokens <= allocation {
+			if catTokens+tokens <= int64(allocation) {
 				oa.RenderMode = mode
 				result = append(result, oa)
 				catTokens += tokens
 				usedTokens += tokens
+				atomsIncluded++
 				continue
 			}
 
 			// Try Concise
 			if oa.Atom.ContentConcise != "" {
 				mode = "concise"
-				tokens = getTokenCount(oa.Atom, mode)
-				if catTokens+tokens <= allocation {
+				tokens = int64(getTokenCount(oa.Atom, mode))
+				if catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
 					catTokens += tokens
 					usedTokens += tokens
+					atomsIncluded++
 					continue
 				}
 			}
@@ -484,12 +494,13 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			// Try Min
 			if oa.Atom.ContentMin != "" {
 				mode = "min"
-				tokens = getTokenCount(oa.Atom, mode)
-				if catTokens+tokens <= allocation {
+				tokens = int64(getTokenCount(oa.Atom, mode))
+				if catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
 					catTokens += tokens
 					usedTokens += tokens
+					atomsIncluded++
 					continue
 				}
 			}
@@ -507,7 +518,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	}
 
 	// Second pass: fill remaining budget with best remaining atoms
-	remaining := availableBudget - usedTokens
+	var remaining int64 = int64(availableBudget) - usedTokens
 	if remaining > 0 && len(unselected) > 0 {
 		// Sort unselected by Score descending
 		sort.Slice(unselected, func(i, j int) bool {
@@ -515,33 +526,43 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 		})
 
 		for _, oa := range unselected {
+			if atomsIncluded >= maxAtomsLimit {
+				break
+			}
+
 			// Try Standard
-			tokens := getTokenCount(oa.Atom, "standard")
+			tokens := int64(getTokenCount(oa.Atom, "standard"))
 			if tokens <= remaining {
 				oa.RenderMode = "standard"
 				result = append(result, oa)
 				remaining -= tokens
+				atomsIncluded++
+				usedTokens += tokens
 				continue
 			}
 
 			// Try Concise
 			if oa.Atom.ContentConcise != "" {
-				tokens = getTokenCount(oa.Atom, "concise")
+				tokens = int64(getTokenCount(oa.Atom, "concise"))
 				if tokens <= remaining {
 					oa.RenderMode = "concise"
 					result = append(result, oa)
 					remaining -= tokens
+					atomsIncluded++
+					usedTokens += tokens
 					continue
 				}
 			}
 
 			// Try Min
 			if oa.Atom.ContentMin != "" {
-				tokens = getTokenCount(oa.Atom, "min")
+				tokens = int64(getTokenCount(oa.Atom, "min"))
 				if tokens <= remaining {
 					oa.RenderMode = "min"
 					result = append(result, oa)
 					remaining -= tokens
+					atomsIncluded++
+					usedTokens += tokens
 					continue
 				}
 			}
@@ -550,7 +571,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 	logging.Get(logging.CategoryContext).Debug(
 		"Fitted %d atoms within budget of %d tokens (used %d)",
-		len(result), totalBudget, availableBudget-remaining,
+		len(result), totalBudget, usedTokens,
 	)
 
 	return result, nil

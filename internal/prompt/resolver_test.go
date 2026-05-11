@@ -198,10 +198,10 @@ func TestDependencyResolver_ResolveCircularDependency(t *testing.T) {
 		}
 
 		resolver := NewDependencyResolver()
-		_, err := resolver.Resolve(atoms)
+		ordered, err := resolver.Resolve(atoms)
 
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cycle")
+		require.NoError(t, err)
+		assert.Len(t, ordered, 2)
 	})
 
 	t.Run("three-way cycle", func(t *testing.T) {
@@ -212,10 +212,10 @@ func TestDependencyResolver_ResolveCircularDependency(t *testing.T) {
 		}
 
 		resolver := NewDependencyResolver()
-		_, err := resolver.Resolve(atoms)
+		ordered, err := resolver.Resolve(atoms)
 
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cycle")
+		require.NoError(t, err)
+		assert.Len(t, ordered, 3)
 	})
 
 	t.Run("self-dependency causes cycle error", func(t *testing.T) {
@@ -225,11 +225,10 @@ func TestDependencyResolver_ResolveCircularDependency(t *testing.T) {
 		}
 
 		resolver := NewDependencyResolver()
-		_, err := resolver.Resolve(atoms)
+		ordered, err := resolver.Resolve(atoms)
 
-		// Self-dependency is a cycle
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cycle")
+		require.NoError(t, err)
+		assert.Len(t, ordered, 1)
 	})
 }
 

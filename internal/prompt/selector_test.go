@@ -807,3 +807,33 @@ func BenchmarkMergeAtoms(b *testing.B) {
 		_ = selector.mergeAtoms(skeleton, flesh)
 	}
 }
+
+func TestAtomSelector_ExtractStringArg_UnknownTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   interface{}
+		want    string
+		wantErr bool
+	}{
+		{"string", "hello", "hello", false},
+		{"int", 42, "42", false},
+		{"float64", 3.14, "3.14", false},
+		{"bool", true, "true", false},
+		{"nil", nil, "", false},
+		{"unsupported struct", struct{ X int }{1}, "", true},
+		{"unsupported slice", []int{1, 2, 3}, "", true},
+		{"unsupported map", map[string]string{"a": "b"}, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := extractStringArg(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}

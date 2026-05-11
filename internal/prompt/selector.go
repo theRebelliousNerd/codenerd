@@ -637,8 +637,12 @@ func (s *AtomSelector) SelectAtomsLegacy(
 			continue
 		}
 
-		atomID := extractStringArg(fact.Args[0])
-		source := extractStringArg(fact.Args[2])
+		atomID, err1 := extractStringArg(fact.Args[0])
+		source, err2 := extractStringArg(fact.Args[2])
+		if err1 != nil || err2 != nil {
+			logging.Get(logging.CategoryContext).Warn("SelectAtomsLegacy: Skipping invalid fact args: %v, %v", err1, err2)
+			continue
+		}
 
 		if atom, exists := atomMap[atomID]; exists {
 			atom = applyMandatoryOverride(atom, forcedMandatory)
@@ -782,8 +786,12 @@ func (s *AtomSelector) loadSkeletonAtoms(
 			continue
 		}
 
-		atomID := extractStringArg(fact.Args[0])
-		source := extractStringArg(fact.Args[2])
+		atomID, err1 := extractStringArg(fact.Args[0])
+		source, err2 := extractStringArg(fact.Args[2])
+		if err1 != nil || err2 != nil {
+			logging.Get(logging.CategoryContext).Warn("loadSkeletonAtoms: Skipping invalid fact args: %v, %v", err1, err2)
+			continue
+		}
 
 		// Only include skeleton category atoms from results
 		atom, exists := atomMap[atomID]
@@ -903,8 +911,12 @@ func (s *AtomSelector) loadFleshAtoms(
 			continue
 		}
 
-		atomID := extractStringArg(fact.Args[0])
-		source := extractStringArg(fact.Args[2])
+		atomID, err1 := extractStringArg(fact.Args[0])
+		source, err2 := extractStringArg(fact.Args[2])
+		if err1 != nil || err2 != nil {
+			logging.Get(logging.CategoryContext).Warn("loadFleshAtoms: Skipping invalid fact args: %v, %v", err1, err2)
+			continue
+		}
 
 		// Only include flesh category atoms from results
 		atom, exists := atomMap[atomID]
@@ -1142,46 +1154,47 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 }
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
-func extractStringArg(arg interface{}) string {
+// Returns an error if the argument is of an unsupported or complex type.
+func extractStringArg(arg interface{}) (string, error) {
 	if arg == nil {
-		return ""
+		return "", nil
 	}
 	switch v := arg.(type) {
 	case string:
-		return v
+		return v, nil
 	case int:
-		return strconv.Itoa(v)
+		return strconv.Itoa(v), nil
 	case int8:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(v), 10), nil
 	case int16:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(v), 10), nil
 	case int32:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(v), 10), nil
 	case int64:
-		return strconv.FormatInt(v, 10)
+		return strconv.FormatInt(v, 10), nil
 	case uint:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(v), 10), nil
 	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(v), 10), nil
 	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(v), 10), nil
 	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(v), 10), nil
 	case uint64:
-		return strconv.FormatUint(v, 10)
+		return strconv.FormatUint(v, 10), nil
 	case float32:
-		return strconv.FormatFloat(float64(v), 'g', -1, 32)
+		return strconv.FormatFloat(float64(v), 'g', -1, 32), nil
 	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64)
+		return strconv.FormatFloat(v, 'g', -1, 64), nil
 	case bool:
-		return strconv.FormatBool(v)
+		return strconv.FormatBool(v), nil
 	case []byte:
-		return string(v)
+		return string(v), nil
 	case error:
-		return v.Error()
+		return v.Error(), nil
 	case fmt.Stringer:
-		return v.String()
+		return v.String(), nil
 	default:
-		return fmt.Sprintf("%v", v)
+		return "", fmt.Errorf("unsupported type for string extraction: %T", v)
 	}
 }
