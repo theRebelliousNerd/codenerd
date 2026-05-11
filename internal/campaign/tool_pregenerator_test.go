@@ -143,8 +143,18 @@ func TestToolPregenerator_DetectGaps_EmptyTasks(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)
 
 	ctx := context.Background()
+
+	// Test explicitly with nil tasks slice
+	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", nil, nil)
+	if err != nil {
+		t.Errorf("DetectGaps with nil tasks should not error: %v", err)
+	}
+	if gaps == nil {
+		t.Fatal("DetectGaps should return non-nil slice for nil tasks")
+	}
+
 	// DetectGaps takes (ctx, goal, tasks, *IntelligenceReport)
-	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil) // TODO: TEST_GAP: explicitly test with nil tasks slice
+	gaps, err = pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil)
 
 	// Should handle gracefully
 	if err != nil {
