@@ -252,7 +252,7 @@ func HashContent(content string) string {
 
 // NewPromptAtom creates a new PromptAtom with computed fields.
 func NewPromptAtom(id string, category AtomCategory, content string) *PromptAtom {
-	return &PromptAtom{
+	atom := &PromptAtom{
 		ID:          id,
 		Version:     1,
 		Category:    category,
@@ -261,12 +261,36 @@ func NewPromptAtom(id string, category AtomCategory, content string) *PromptAtom
 		ContentHash: HashContent(content),
 		CreatedAt:   time.Now(),
 	}
+	atom.NormalizeSelectors()
+	return atom
+}
+
+// NormalizeSelectors normalizes all selector dimensions by removing leading slashes.
+// This is pre-computed to optimize MatchesContext performance.
+func (a *PromptAtom) NormalizeSelectors() {
+	normalizeList(a.OperationalModes)
+	normalizeList(a.CampaignPhases)
+	normalizeList(a.BuildLayers)
+	normalizeList(a.InitPhases)
+	normalizeList(a.NorthstarPhases)
+	normalizeList(a.OuroborosStages)
+	normalizeList(a.IntentVerbs)
+	normalizeList(a.ShardTypes)
+	normalizeList(a.Languages)
+	normalizeList(a.Frameworks)
+}
+
+func normalizeList(list []string) {
+	for i, v := range list {
+		if len(v) > 0 && v[0] == '/' {
+			list[i] = v[1:]
+		}
+	}
 }
 
 // MatchesContext checks if this atom should be included for the given context.
 // Returns true if the atom matches ALL non-empty selector dimensions.
 // Empty selector lists are treated as "match any".
-// TODO: Performance: Optimize selector matching by pre-computing normalized values or using bitmasks for enum-like dimensions.
 func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 	if cc == nil {
 		return true
@@ -316,7 +340,11 @@ func (a *PromptAtom) MatchesContext(cc *CompilationContext) bool {
 		found := false
 		for _, af := range a.Frameworks {
 			for _, cf := range cc.Frameworks {
-				if af == cf {
+				ncf := cf
+				if len(cf) > 0 && cf[0] == '/' {
+					ncf = cf[1:]
+				}
+				if af == ncf || af == cf {
 					found = true
 					break
 				}
@@ -370,6 +398,7 @@ func hasWorldState(cc *CompilationContext, state string) bool {
 }
 
 // matchSelector checks if a value matches a selector list.
+// Assumes the selector list is already normalized (leading slashes removed).
 // Empty selector list means "match any". Empty value matches empty list only.
 func matchSelector(selector []string, value string) bool {
 	if len(selector) == 0 {
@@ -379,26 +408,13 @@ func matchSelector(selector []string, value string) bool {
 		return false // Has constraint but no value = no match
 	}
 
-	// Pre-calculate normalized value
 	normalizedValue := value
 	if len(value) > 0 && value[0] == '/' {
 		normalizedValue = value[1:]
 	}
 
 	for _, s := range selector {
-		// Check exact match
-		if s == value {
-			return true
-		}
-
-		// Check normalized match
-		// Manual trim prefix optimization to avoid strings.TrimPrefix overhead
-		normalizedS := s
-		if len(s) > 0 && s[0] == '/' {
-			normalizedS = s[1:]
-		}
-
-		if normalizedS == normalizedValue {
+		if s == normalizedValue || s == value {
 			return true
 		}
 	}

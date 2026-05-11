@@ -399,6 +399,9 @@ func TestAtomSelector_FallbackFleshSelection(t *testing.T) {
 		cc := NewCompilationContext().WithOperationalMode("/active")
 		vectorScores := map[string]float64{}
 
+		atoms[0].NormalizeSelectors()
+		atoms[1].NormalizeSelectors()
+
 		result := selector.fallbackFleshSelection(atoms, vectorScores, cc, nil)
 
 		// Only "match" should be selected

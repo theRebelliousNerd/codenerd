@@ -363,6 +363,7 @@ func TestPromptAtom_MatchesContext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.atom.NormalizeSelectors()
 			result := tt.atom.MatchesContext(tt.context)
 			assert.Equal(t, tt.expectMatch, result)
 		})
@@ -653,30 +654,30 @@ func TestAllCategories(t *testing.T) {
 	categories := AllCategories()
 
 	t.Run("returns all expected categories", func(t *testing.T) {
-			expected := []AtomCategory{
-				CategoryIdentity,
-				CategoryProtocol,
-				CategorySafety,
-				CategoryMethodology,
-				CategoryCapability,
-				CategoryHallucination,
-				CategoryLanguage,
-				CategoryFramework,
-				CategoryDomain,
-				CategoryCampaign,
-				CategoryInit,
-				CategoryNorthstar,
-				CategoryOuroboros,
-				CategoryAutopoiesis,
-				CategoryContext,
-				CategoryExemplar,
-				CategoryReviewer,
-				CategoryEval,
-				CategoryKnowledge,
-				CategoryBuildLayer,
-				CategoryIntent,
-				CategoryWorldState,
-			}
+		expected := []AtomCategory{
+			CategoryIdentity,
+			CategoryProtocol,
+			CategorySafety,
+			CategoryMethodology,
+			CategoryCapability,
+			CategoryHallucination,
+			CategoryLanguage,
+			CategoryFramework,
+			CategoryDomain,
+			CategoryCampaign,
+			CategoryInit,
+			CategoryNorthstar,
+			CategoryOuroboros,
+			CategoryAutopoiesis,
+			CategoryContext,
+			CategoryExemplar,
+			CategoryReviewer,
+			CategoryEval,
+			CategoryKnowledge,
+			CategoryBuildLayer,
+			CategoryIntent,
+			CategoryWorldState,
+		}
 
 		assert.ElementsMatch(t, expected, categories)
 	})
@@ -778,6 +779,7 @@ func TestMatchSelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			normalizeList(tt.selector)
 			result := matchSelector(tt.selector, tt.value)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -827,6 +829,7 @@ func BenchmarkMatchesContext(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
+		atom.NormalizeSelectors()
 		atom.MatchesContext(cc)
 	}
 }
