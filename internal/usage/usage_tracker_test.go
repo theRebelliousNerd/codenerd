@@ -74,3 +74,64 @@ func TestTracker_ContextHelpers(t *testing.T) {
 		t.Fatalf("FromContext mismatch")
 	}
 }
+
+func TestNewTracker(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker failed: %v", err)
+		}
+		if tracker == nil {
+			t.Fatalf("tracker is nil")
+		}
+
+		expectedPath := filepath.Join(ws, ".nerd", "usage.json")
+		if tracker.filePath != expectedPath {
+			t.Errorf("got filePath %q, want %q", tracker.filePath, expectedPath)
+		}
+
+		// Ensure .nerd directory was created
+		info, err := os.Stat(filepath.Join(ws, ".nerd"))
+		if err != nil {
+			t.Errorf("failed to stat .nerd dir: %v", err)
+		} else if !info.IsDir() {
+			t.Errorf(".nerd is not a directory")
+		}
+
+		// Verify maps are initialized
+		if tracker.data.Aggregate.ByProvider == nil {
+			t.Errorf("ByProvider map not initialized")
+		}
+		if tracker.data.Aggregate.ByModel == nil {
+			t.Errorf("ByModel map not initialized")
+		}
+		if tracker.data.Aggregate.ByShardType == nil {
+			t.Errorf("ByShardType map not initialized")
+		}
+		if tracker.data.Aggregate.ByOperation == nil {
+			t.Errorf("ByOperation map not initialized")
+		}
+		if tracker.data.Aggregate.BySession == nil {
+			t.Errorf("BySession map not initialized")
+		}
+	})
+
+	t.Run("FailureMkdirAll", func(t *testing.T) {
+		ws := t.TempDir()
+
+		// Create a file named .nerd so MkdirAll fails
+		err := os.WriteFile(filepath.Join(ws, ".nerd"), []byte("not a dir"), 0644)
+		if err != nil {
+			t.Fatalf("failed to write dummy .nerd file: %v", err)
+		}
+
+		tracker, err := NewTracker(ws)
+		if err == nil {
+			t.Fatalf("expected error when MkdirAll fails, got nil")
+		}
+		if tracker != nil {
+			t.Fatalf("expected nil tracker, got %v", tracker)
+		}
+	})
+}
