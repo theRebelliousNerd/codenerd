@@ -90,7 +90,6 @@ func TestActivatePhase(t *testing.T) {
 
 	// 2. Activate Phase
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with nil phase (should handle gracefully)
-	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
@@ -163,6 +162,31 @@ func TestActivatePhase(t *testing.T) {
 	if !vectorSuppressed {
 		t.Error("Expected suppression of vector_recall schema")
 	}
+}
+
+func TestActivatePhase_NilTasks(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	// Setup phase with nil Tasks slice
+	phase := &Phase{
+		ID:             "phase_nil_tasks",
+		Name:           "Phase with Nil Tasks",
+		ContextProfile: "default", // will fallback to default profile
+		Tasks:          nil,
+	}
+
+	// Call ActivatePhase
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed to handle nil Tasks slice gracefully: %v", err)
+	}
+
+	// Since tasks is nil, artifactCount should be 0, and no phase_context_atom assertions for artifacts should happen.
+	// The code handles nil slices in range loops automatically in Go.
+	// Just reaching here without a panic and err == nil is considered a pass for this specific null/empty case.
 }
 
 func TestCompressPhase(t *testing.T) {
