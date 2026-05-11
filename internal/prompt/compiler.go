@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"container/list"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -230,6 +231,13 @@ type CompilationResult struct {
 // JITPromptCompiler compiles optimal system prompts from atomic fragments.
 // It combines rule-based selection (Mangle) with semantic search (vectors)
 // to select the most relevant prompt atoms for a given context.
+
+// promptCacheEntry holds a cached compilation result and its key.
+type promptCacheEntry struct {
+	key    string
+	result *CompilationResult
+}
+
 type JITPromptCompiler struct {
 	// Embedded corpus (baked-in atoms)
 	embeddedCorpus *EmbeddedCorpus
@@ -253,11 +261,12 @@ type JITPromptCompiler struct {
 	assembler *FinalAssembler
 
 	// Bug #5 fix: Prompt cache to prevent recompilation spam
-	// TODO: Reliability: Implement an LRU eviction policy or a hard size limit for this cache to prevent unbounded memory growth (OOM) in long-running sessions.
-	cache     map[string]*CompilationResult
-	cacheMu   sync.RWMutex
-	cacheHits int64
-	cacheMiss int64
+	cache      map[string]*list.Element
+	cacheList  *list.List
+	cacheLimit int
+	cacheMu    sync.Mutex
+	cacheHits  int64
+	cacheMiss  int64
 
 	// Observability
 	lastResult atomic.Pointer[CompilationResult]
@@ -328,13 +337,15 @@ func NewJITPromptCompiler(opts ...CompilerOption) (*JITPromptCompiler, error) {
 	config := DefaultCompilerConfig()
 
 	compiler := &JITPromptCompiler{
-		shardDBs:  make(map[string]*sql.DB),
-		config:    config,
-		selector:  NewAtomSelector(),
-		resolver:  NewDependencyResolver(),
-		budgetMgr: NewTokenBudgetManager(),
-		assembler: NewFinalAssembler(),
-		cache:     make(map[string]*CompilationResult), // Bug #5 fix: Initialize prompt cache
+		shardDBs:   make(map[string]*sql.DB),
+		config:     config,
+		selector:   NewAtomSelector(),
+		resolver:   NewDependencyResolver(),
+		budgetMgr:  NewTokenBudgetManager(),
+		assembler:  NewFinalAssembler(),
+		cache:      make(map[string]*list.Element),
+		cacheList:  list.New(),
+		cacheLimit: 100, // Hard size limit for LRU cache
 	}
 
 	// Apply options
@@ -440,15 +451,17 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Bug #5 fix: Check cache before compilation
 	cacheKey := cc.Hash()
-	c.cacheMu.RLock()
-	if cached, ok := c.cache[cacheKey]; ok {
-		c.cacheMu.RUnlock()
+	c.cacheMu.Lock()
+	if elem, ok := c.cache[cacheKey]; ok {
+		c.cacheList.MoveToFront(elem)
+		cached := elem.Value.(*promptCacheEntry).result
+		c.cacheMu.Unlock()
 		atomic.AddInt64(&c.cacheHits, 1)
 		logging.Get(logging.CategoryJIT).Info("Prompt cache HIT for %s (hash=%s, hits=%d)",
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheHits))
 		return cached, nil
 	}
-	c.cacheMu.RUnlock()
+	c.cacheMu.Unlock()
 	atomic.AddInt64(&c.cacheMiss, 1)
 
 	// Start comprehensive timing after validation
@@ -618,7 +631,23 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 	// Bug #5 fix: Store result in cache for future reuse
 	c.cacheMu.Lock()
-	c.cache[cacheKey] = result
+	if elem, ok := c.cache[cacheKey]; ok {
+		c.cacheList.MoveToFront(elem)
+		elem.Value.(*promptCacheEntry).result = result
+	} else {
+		entry := &promptCacheEntry{key: cacheKey, result: result}
+		elem := c.cacheList.PushFront(entry)
+		c.cache[cacheKey] = elem
+
+		if c.cacheList.Len() > c.cacheLimit {
+			oldElem := c.cacheList.Back()
+			if oldElem != nil {
+				c.cacheList.Remove(oldElem)
+				oldEntry := oldElem.Value.(*promptCacheEntry)
+				delete(c.cache, oldEntry.key)
+			}
+		}
+	}
 	c.cacheMu.Unlock()
 	logging.Get(logging.CategoryJIT).Debug("Stored compiled prompt in cache (hash=%s)", cacheKey[:8])
 
@@ -1155,7 +1184,8 @@ func (c *JITPromptCompiler) appendTag(atom *PromptAtom, dim, tag string) {
 // TODO: Memory Leak: Evaluate and implement strict cache size limit (LRU or TTL) in clearPromptCache or via a background goroutine to prevent memory explosion during long sessions.
 func (c *JITPromptCompiler) clearPromptCache(reason string) {
 	c.cacheMu.Lock()
-	c.cache = make(map[string]*CompilationResult)
+	c.cache = make(map[string]*list.Element)
+	c.cacheList.Init()
 	c.cacheMu.Unlock()
 
 	atomic.StoreInt64(&c.cacheHits, 0)
