@@ -638,7 +638,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		return nil, nil
 	}
 
-	// TODO: Performance: Pre-allocate dynamic slice based on kernel query count to avoid reallocation resizing.
 
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
@@ -1302,7 +1301,7 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 	}
 
 	// Convert to ephemeral PromptAtoms
-	var result []*PromptAtom
+	result := make([]*PromptAtom, 0, len(atoms))
 	for _, atom := range atoms {
 		// Format content with concept context
 		content := atom.Content
