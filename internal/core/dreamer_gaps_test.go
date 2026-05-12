@@ -1,0 +1,468 @@
+package core
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+)
+
+// ============================================================================
+// Remediation for dreamer_test.go TEST_GAP markers (20 gaps total).
+// QA: 2026-04-15_dreamer_boundary_analysis.md
+// ============================================================================
+
+// ---------- Null/Undefined ----------
+
+// TestDreamerGap_NilContext verifies SimulateAction with nil context.
+func TestDreamerGap_NilContext(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: "test.go",
+	}
+
+	// SimulateAction upgrades nil context to context.Background()
+	result := d.SimulateAction(nil, req)
+	if result.ActionID == "" {
+		t.Error("Expected ActionID to be set even with nil context")
+	}
+}
+
+// TestDreamerGap_NilKernel verifies SimulateAction when kernel is nil (fail-closed).
+func TestDreamerGap_NilKernel(t *testing.T) {
+	d := NewDreamer(nil) // nil kernel
+
+	ctx := context.Background()
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: "test.go",
+	}
+
+	result := d.SimulateAction(ctx, req)
+
+	// Should fail-closed: Unsafe=true
+	if !result.Unsafe {
+		t.Error("Expected fail-closed (Unsafe=true) when kernel is nil, got safe")
+	}
+	if result.Reason == "" {
+		t.Error("Expected reason for nil kernel failure")
+	}
+}
+
+// TestDreamerGap_EmptyActionRequestFields verifies behavior with empty Type/Target.
+func TestDreamerGap_EmptyActionRequestFields(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Empty Type
+	result := d.SimulateAction(ctx, ActionRequest{Type: "", Target: "file.go"})
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with empty Type")
+	}
+
+	// Empty Target
+	result = d.SimulateAction(ctx, ActionRequest{Type: ActionReadFile, Target: ""})
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with empty Target")
+	}
+
+	// Both empty
+	result = d.SimulateAction(ctx, ActionRequest{})
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with zero-value ActionRequest")
+	}
+}
+
+// ---------- Type Coercion ----------
+
+// TestDreamerGap_MangleAtomVsStringMismatch verifies that projected facts
+// use MangleAtom for Mangle atoms (not raw strings).
+func TestDreamerGap_MangleAtomVsStringMismatch(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	req := ActionRequest{
+		Type:   ActionDeleteFile,
+		Target: "internal/core/test.go",
+	}
+
+	result := d.SimulateAction(ctx, req)
+
+	// Check that projected_action uses MangleAtom for the type
+	for _, f := range result.ProjectedFacts {
+		if f.Predicate == "projected_action" && len(f.Args) >= 2 {
+			typeArg := f.Args[1]
+			if _, ok := typeArg.(MangleAtom); !ok {
+				t.Errorf("projected_action type arg should be MangleAtom, got %T: %v", typeArg, typeArg)
+			}
+		}
+	}
+}
+
+// TestDreamerGap_ComplexTypesInPayload verifies behavior when Payload contains
+// complex Go types that can't be cleanly converted to Mangle.
+func TestDreamerGap_ComplexTypesInPayload(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	req := ActionRequest{
+		Type:   ActionExecCmd,
+		Target: "echo hello",
+		Payload: map[string]interface{}{
+			"nested_map":   map[string]interface{}{"key": "val"},
+			"slice":        []string{"a", "b", "c"},
+			"nil_value":    nil,
+			"int_value":    42,
+			"string_value": "normal",
+		},
+	}
+
+	// Should not panic
+	result := d.SimulateAction(ctx, req)
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with complex payload")
+	}
+}
+
+// TestDreamerGap_AtomVsStringDissonance verifies that ActionRequest.Type is
+// converted to a Mangle atom (not a string) in projected facts.
+func TestDreamerGap_AtomVsStringDissonance(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: "file.go",
+	}
+
+	result := d.SimulateAction(ctx, req)
+
+	// Find projected_action and verify the type arg
+	for _, f := range result.ProjectedFacts {
+		if f.Predicate == "projected_action" && len(f.Args) >= 2 {
+			typeArg := f.Args[1]
+			atom, ok := typeArg.(MangleAtom)
+			if !ok {
+				t.Errorf("Expected MangleAtom for action type, got %T: %v", typeArg, typeArg)
+				continue
+			}
+			// Should start with / (Mangle atom prefix)
+			if !strings.HasPrefix(string(atom), "/") {
+				t.Errorf("MangleAtom should start with /, got: %s", atom)
+			}
+		}
+	}
+}
+
+// ---------- User Extremes ----------
+
+// TestDreamerGap_MassivePathLength verifies behavior with a 1MB target path.
+func TestDreamerGap_MassivePathLength(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping massive path test in short mode")
+	}
+
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	massivePath := strings.Repeat("a/", 500000) + "file.go" // ~1MB path
+
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: massivePath,
+	}
+
+	// Should not panic or OOM
+	result := d.SimulateAction(ctx, req)
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with massive path")
+	}
+}
+
+// TestDreamerGap_DeeplyNestedPaths verifies behavior with deeply nested paths.
+func TestDreamerGap_DeeplyNestedPaths(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Build a 200-segment path
+	segments := make([]string, 200)
+	for i := range segments {
+		segments[i] = fmt.Sprintf("dir_%d", i)
+	}
+	deepPath := strings.Join(segments, "/") + "/file.go"
+
+	req := ActionRequest{
+		Type:   ActionReadFile,
+		Target: deepPath,
+	}
+
+	result := d.SimulateAction(ctx, req)
+	if result.ActionID == "" {
+		t.Error("Expected ActionID even with deeply nested path")
+	}
+}
+
+// ---------- Performance ----------
+
+// TestDreamerGap_PerformanceFullTableScan documents the O(N) query cost.
+func TestDreamerGap_PerformanceFullTableScan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+
+	d, k := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Load 1000 code_defines facts to stress the full table scan
+	for i := 0; i < 1000; i++ {
+		k.AssertWithoutEval(Fact{
+			Predicate: "code_defines",
+			Args: []interface{}{
+				fmt.Sprintf("file_%d.go", i),
+				fmt.Sprintf("Symbol_%d", i),
+				"function",
+				int64(1),
+				int64(50),
+			},
+		})
+	}
+	k.Evaluate()
+
+	req := ActionRequest{
+		Type:   ActionDeleteFile,
+		Target: "file_500.go",
+	}
+
+	// Should complete without hanging
+	result := d.SimulateAction(ctx, req)
+	if result.ActionID == "" {
+		t.Error("Expected ActionID after performance test")
+	}
+	t.Logf("Performance: ProjectedFacts=%d, Unsafe=%v", len(result.ProjectedFacts), result.Unsafe)
+}
+
+// TestDreamerGap_KernelCloneCost documents the cost of kernel cloning.
+func TestDreamerGap_KernelCloneCost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping clone cost test in short mode")
+	}
+
+	d, k := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Load many facts
+	for i := 0; i < 500; i++ {
+		k.AssertWithoutEval(Fact{
+			Predicate: "code_defines",
+			Args: []interface{}{
+				fmt.Sprintf("file_%d.go", i),
+				fmt.Sprintf("Func_%d", i),
+				"function",
+				int64(1),
+				int64(10),
+			},
+		})
+	}
+	k.Evaluate()
+
+	// Run 10 simulations to measure clone cost
+	for i := 0; i < 10; i++ {
+		result := d.SimulateAction(ctx, ActionRequest{
+			Type:   ActionReadFile,
+			Target: fmt.Sprintf("file_%d.go", i),
+		})
+		if result.ActionID == "" {
+			t.Fatalf("Iteration %d: expected ActionID", i)
+		}
+	}
+}
+
+// ---------- Security ----------
+
+// TestDreamerGap_PathTraversalBypass verifies criticalPrefix with path traversal.
+func TestDreamerGap_PathTraversalBypass(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantHit  bool
+	}{
+		{"direct internal/core", "internal/core/kernel.go", true},
+		{"traversal bypass", "something/../internal/core/kernel.go", true},
+		{"double slash (KNOWN GAP: not normalized)", "internal//core/kernel.go", false}, // BUG: criticalPrefix doesn't normalize paths
+		{".git direct", ".git/config", true},
+		{"unicode safe", "internalⓐcore/kernel.go", false}, // not a real path
+		{"case variant", "Internal/Core/kernel.go", false},  // case-sensitive
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := criticalPrefix(tt.path)
+			gotHit := got != ""
+			if gotHit != tt.wantHit {
+				t.Errorf("criticalPrefix(%q) = %q, wantHit=%v, gotHit=%v",
+					tt.path, got, tt.wantHit, gotHit)
+			}
+		})
+	}
+}
+
+// TestDreamerGap_SecurityShellFeatures verifies isDangerousCommand catches
+// indirect execution and shell features.
+func TestDreamerGap_SecurityShellFeatures(t *testing.T) {
+	tests := []struct {
+		name     string
+		cmd      string
+		expected bool
+	}{
+		{"eval base64", "eval $(echo cm0gLXJmIC8= | base64 -d)", false}, // Not directly caught by current patterns
+		{"python exec", "python -c 'import os; os.remove(\"/\")'", false}, // Not caught
+		{"safe command", "go test ./...", false},
+
+		// These ARE caught by the existing patterns
+		{"rm -rf direct", "rm -rf /", true},
+		{"mkfs pattern", "mkfs.ext4 /dev/sda1", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDangerousCommand(tt.cmd)
+			if got != tt.expected {
+				t.Errorf("isDangerousCommand(%q) = %v, want %v", tt.cmd, got, tt.expected)
+			}
+		})
+	}
+
+	t.Log("KNOWN GAP: isDangerousCommand uses pattern matching, not semantic analysis. " +
+		"Indirect execution (eval, python -c, base64) can bypass detection.")
+}
+
+// ---------- Resource Exhaustion ----------
+
+// TestDreamerGap_UnboundedDreamCache documents the unbounded growth of DreamCache.
+func TestDreamerGap_UnboundedDreamCache(t *testing.T) {
+	cache := NewDreamCache()
+
+	// Store 10000 results to verify no panic
+	const count = 10000
+	for i := 0; i < count; i++ {
+		cache.Store(DreamResult{
+			ActionID: fmt.Sprintf("action_%d", i),
+			Unsafe:   i%2 == 0,
+			Reason:   fmt.Sprintf("reason_%d", i),
+		})
+	}
+
+	// Verify we can still retrieve
+	result, ok := cache.Get("action_5000")
+	if !ok {
+		t.Error("Expected cache hit for action_5000")
+	}
+	if !result.Unsafe {
+		t.Error("Expected action_5000 to be unsafe (even index)")
+	}
+
+	t.Logf("KNOWN GAP: DreamCache grows indefinitely. %d entries stored with no eviction policy.", count)
+}
+
+// ---------- Fragile Defaults ----------
+
+// TestDreamerGap_UnknownActionTypes verifies projectEffects behavior with unknown types.
+func TestDreamerGap_UnknownActionTypes(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Use a custom action type not in the switch statement
+	req := ActionRequest{
+		Type:   ActionType("custom_unknown_action"),
+		Target: "file.go",
+	}
+
+	result := d.SimulateAction(ctx, req)
+
+	// Should still get the base projected_action fact
+	if len(result.ProjectedFacts) == 0 {
+		t.Error("Expected at least projected_action fact for unknown action type")
+	}
+
+	// Verify the base projected_action exists
+	foundAction := false
+	for _, f := range result.ProjectedFacts {
+		if f.Predicate == "projected_action" {
+			foundAction = true
+			break
+		}
+	}
+	if !foundAction {
+		t.Error("Expected projected_action fact for unknown action type")
+	}
+
+	t.Log("KNOWN: Unknown action types produce only the base projected_action fact (no special projections).")
+}
+
+// ---------- Reliability ----------
+
+// TestDreamerGap_PanicSafety verifies AssertWithoutEval doesn't panic on malformed inputs.
+func TestDreamerGap_PanicSafety(t *testing.T) {
+	d, _ := setupTestDreamer(t)
+	ctx := context.Background()
+
+	// Test with various edge-case ActionRequests
+	edgeCases := []ActionRequest{
+		{Type: ActionDeleteFile, Target: "\x00\x01\x02"}, // binary chars
+		{Type: ActionExecCmd, Target: strings.Repeat("a", 100000)},
+		{Type: ActionWriteFile, Target: ""},
+		{Type: "", Target: ""},
+	}
+
+	for i, req := range edgeCases {
+		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
+			// Should not panic
+			result := d.SimulateAction(ctx, req)
+			if result.ActionID == "" {
+				t.Error("Expected ActionID even for edge case")
+			}
+		})
+	}
+}
+
+// ---------- Concurrency ----------
+
+// TestDreamerGap_ConcurrentSetKernelVsSimulate verifies thread safety of
+// SetKernel vs SimulateAction.
+func TestDreamerGap_ConcurrentSetKernelVsSimulate(t *testing.T) {
+	d, k := setupTestDreamer(t)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+
+	// Concurrent readers
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				_ = d.SimulateAction(ctx, ActionRequest{
+					Type:   ActionReadFile,
+					Target: "file.go",
+				})
+			}
+		}()
+	}
+
+	// Concurrent writer
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				d.SetKernel(k) // Re-set to same kernel
+			}
+		}()
+	}
+
+	wg.Wait()
+	// No panics or data races should occur (run with -race)
+}

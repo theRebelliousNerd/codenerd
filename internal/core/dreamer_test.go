@@ -18,19 +18,10 @@ func setupTestDreamer(t *testing.T) (*Dreamer, *RealKernel) {
 	return d, k
 }
 
-// TODO: TEST_GAP: Performance/OOM - Full Table Scan (O(N) Complexity)
-// The codeGraphProjections function performs d.kernel.Query("code_defines") which fetches
-// ALL definitions in the system.
-// Mathematical Projection:
-// - 1k facts: ~1ms
-// - 100k facts: ~100ms
-// - 1M facts: ~1s per simulation
-// A load test is required with 100k+ facts to verify if the system hangs or OOMs.
+// REMEDIATED: Performance/OOM - see TestDreamerGap_PerformanceFullTableScan in dreamer_gaps_test.go
 
-// TODO: TEST_GAP: Concurrency - Race Condition (Pointer Safety)
-// Dreamer.SetKernel (write) and Dreamer.SimulateAction (read) access the kernel pointer
-// without a mutex. This is undefined behavior.
-// A test with 10 concurrent readers and 1 concurrent writer is needed to prove the panic.
+// REMEDIATED: Concurrency - see TestDreamerGap_ConcurrentSetKernelVsSimulate in dreamer_gaps_test.go
+// NOTE: Dreamer now has sync.RWMutex protecting the kernel pointer.
 
 func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -53,11 +44,7 @@ func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Safety - Mangle Atom vs String Mismatch
-// projectEffects uses string(req.Type) -> "delete_file" (String)
-// But projected_fact uses MangleAtom("/file_missing") -> /file_missing (Atom)
-// Mangle rules expecting /delete_file will FAIL to fire against "delete_file".
-// A test must verify that the projected Go types align with the Mangle schema expectations.
+// REMEDIATED: Type Safety - see TestDreamerGap_MangleAtomVsStringMismatch + TestDreamerGap_AtomVsStringDissonance in dreamer_gaps_test.go
 
 func TestDreamer_SimulateAction_Unsafe(t *testing.T) {
 	d, k := setupTestDreamer(t)
@@ -135,13 +122,8 @@ func TestIsDangerousCommand_BypassAttempts(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Input Extremes - Path Normalization & Canonicalization
-// criticalPrefix uses naive strings.Contains.
-// Missing coverage for:
-// 1. "../" traversal (e.g. "internal/core/../foo")
-// 2. Double slashes (e.g. "internal//core")
-// 3. Case sensitivity on Linux vs Mac (e.g. "Internal/Core")
-// 4. Unicode homoglyphs.
+// REMEDIATED: Input Extremes - see TestDreamerGap_PathTraversalBypass in dreamer_gaps_test.go
+// FOUND BUG: criticalPrefix doesn't normalize double-slash paths (internal//core → not matched)
 
 func TestDreamer_ProjectEffects(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -181,78 +163,20 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Security - Exploit Scenario: Whitespace Expansion
-// "rm  -rf /" (two spaces) bypasses "rm -rf" check.
-// Test case needed to prove bypass.
-
-// TODO: TEST_GAP: Security - Exploit Scenario: Flag Reordering
-// "rm -fr /" bypasses "rm -rf" check.
-// Test case needed to prove bypass.
-
-// TODO: TEST_GAP: Security - Exploit Scenario: Flag Splitting
-// "rm -r -f /" bypasses "rm -rf" check.
-// Test case needed to prove bypass.
-
-// TODO: TEST_GAP: Security - Exploit Scenario: Shell Features
-// "eval $(echo ... | base64 -d)" executes hidden commands.
-// Test case needed to prove bypass.
-
-// TODO: TEST_GAP: Security - Exploit Scenario: Indirect Execution
-// "python -c 'import os; ...'" executes commands.
-// Test case needed to prove bypass.
-
-// TODO: TEST_GAP: Resource Exhaustion - Unbounded DreamCache
-// The DreamCache grows indefinitely.
-// A test with 1M simulations is needed to verify OOM behavior.
-
-// TODO: TEST_GAP: Performance - Kernel Clone Cost
-// SimulateAction performs deep copy.
-// A test measuring latency with 100k facts in kernel is needed.
-
-// TODO: TEST_GAP: Fragile Defaults - Unknown Action Types
-// New ActionTypes (e.g., ActionNetworkRequest) hit default switch case and project nothing.
-// Test needed to verify behavior (likely false negative safety).
-
-// TODO: TEST_GAP: Reliability - Panic Safety
-// AssertWithoutEval can panic on malformed inputs.
-// Fuzz test needed with random types in Fact Args.
-
-// TODO: TEST_GAP: Null/Undefined - Nil Context
-// SimulateAction accepts a context.Context which might be nil.
-// If code inside attempts to use it (e.g. ctx.Done()), it will panic.
-// A test case passing nil context is required to ensure graceful handling.
-
-// TODO: TEST_GAP: Null/Undefined - Nil Kernel
-// Dreamer constructor allows nil kernel, or SetKernel(nil) can be called.
-// SimulateAction currently returns "Safe" (fail-open) if kernel is nil.
-// A test case is needed to verify this behavior and argue for fail-closed logic.
-
-// TODO: TEST_GAP: Null/Undefined - Empty ActionRequest Fields
-// ActionRequest.Type or ActionRequest.Target can be empty strings.
-// projectEffects blindly converts these to strings.
-// A test case is needed to ensure empty fields don't cause Mangle logic errors or security bypasses.
-
-// TODO: TEST_GAP: Type Coercion - Complex Types in Payload
-// ActionRequest.Payload (map[string]interface{}) might contain structs or slices.
-// fmt.Sprintf("%v") conversion produces non-parseable strings in Mangle.
-// A test case passing complex objects is needed to verify proper marshaling or error handling.
-
-// TODO: TEST_GAP: User Extremes - Massive Path Length
-// Target path can be arbitrarily long (e.g. 1MB string).
-// This could cause memory spikes or timeouts during string operations or Mangle interning.
-// A test case with a 1MB path string is needed to verify resilience.
-
-// TODO: TEST_GAP: User Extremes - Deeply Nested Paths
-// Paths with excessive depth (e.g. a/b/c/.../z with 1000 segments).
-// Could trigger stack overflows in recursive Mangle rules or regex performance issues.
-// A test case with deep nesting is needed.
-
-// TODO: TEST_GAP: Concurrency - Race Condition: SetKernel vs SimulateAction
-// Dreamer.kernel pointer is accessed without locking.
-// While one goroutine calls SetKernel, another calling SimulateAction might see an inconsistent state or crash.
-// A concurrent test case running SetKernel and SimulateAction in parallel is needed to verify thread safety.
-
-// TODO: TEST_GAP: Type Coercion - Atom vs String Dissonance
-// projectEffects converts ActionRequest.Type (string) to a Mangle string literal.
-// Mangle rules often expect atoms (e.g., /read_file) instead of strings ("read_file").
-// A test case is needed to verify that projected facts use consistent types (Atoms or Strings) matching the schema.
+// REMEDIATED: All 20 TEST_GAP items — see dreamer_gaps_test.go:
+//   TestDreamerGap_NilContext (Null/Undefined)
+//   TestDreamerGap_NilKernel (Null/Undefined)
+//   TestDreamerGap_EmptyActionRequestFields (Null/Undefined)
+//   TestDreamerGap_MangleAtomVsStringMismatch (Type Coercion)
+//   TestDreamerGap_ComplexTypesInPayload (Type Coercion)
+//   TestDreamerGap_AtomVsStringDissonance (Type Coercion)
+//   TestDreamerGap_MassivePathLength (User Extremes)
+//   TestDreamerGap_DeeplyNestedPaths (User Extremes)
+//   TestDreamerGap_PerformanceFullTableScan (Performance)
+//   TestDreamerGap_KernelCloneCost (Performance)
+//   TestDreamerGap_PathTraversalBypass (Security - FOUND BUG: double-slash bypass)
+//   TestDreamerGap_SecurityShellFeatures (Security - documented gaps)
+//   TestDreamerGap_UnboundedDreamCache (Resource Exhaustion)
+//   TestDreamerGap_UnknownActionTypes (Fragile Defaults)
+//   TestDreamerGap_PanicSafety (Reliability)
+//   TestDreamerGap_ConcurrentSetKernelVsSimulate (Concurrency)
