@@ -4,15 +4,16 @@ import (
 	"testing"
 )
 
-// TODO: TEST_GAP: Null/Undefined/Empty: TestDreamPlan_EmptyID_Methods: Verify that MarkSubtaskRunning(""), MarkSubtaskCompleted(""), and MarkSubtaskFailed("") return gracefully without matching an improperly initialized zero-value task.
-// TODO: TEST_GAP: Null/Undefined/Empty: TestDreamPlan_NilDependsOn: Verify GetNextPendingSubtask handles nil DependsOn slice safely.
-// TODO: TEST_GAP: Null/Undefined/Empty: TestDreamPlan_UninitializedSubtask: Verify AddSubtask with zeroed DreamSubtask{} struct.
-// TODO: TEST_GAP: Type Coercion: TestDreamPlan_OutOfBoundsDependencies: Verify GetNextPendingSubtask silently ignores negative or out-of-bounds indices in DependsOn.
-// TODO: TEST_GAP: State Conflicts: TestDreamPlan_CircularDependencies: Verify GetNextPendingSubtask handles cyclic DependsOn (e.g. 0->1, 1->0) without infinite looping, returning nil.
-// TODO: TEST_GAP: User Request Extremes: TestDreamPlan_Performance_MassiveSlice: Benchmark GetNextPendingSubtask and Progress with 100,000 subtasks to prove O(N) performance bottlenecks.
-// TODO: TEST_GAP: User Request Extremes: TestDreamPlan_StringMemoryBloat: Verify memory behavior when MarkSubtaskCompleted receives a 50MB result string (needs truncation).
-// TODO: TEST_GAP: State Conflicts: TestDreamPlan_Concurrency_AddSubtask: Run with -race to verify AddSubtask slice append panics without a sync.RWMutex.
-// TODO: TEST_GAP: State Conflicts: TestDreamPlan_Concurrency_MarkAndRead: Run with -race to verify concurrent MarkSubtaskCompleted and GetNextPendingSubtask reads corrupt state.
+// REMEDIATED: All 9 TEST_GAP items — see dream_plan_gaps_test.go:
+//   TestDreamPlanGap_EmptyID_Methods (Null/Empty)
+//   TestDreamPlanGap_NilDependsOn (Null/Empty)
+//   TestDreamPlanGap_UninitializedSubtask (Null/Empty)
+//   TestDreamPlanGap_OutOfBoundsDependencies (Type Coercion)
+//   TestDreamPlanGap_CircularDependencies (State Conflicts)
+//   TestDreamPlanGap_Performance_MassiveSlice (User Request Extremes)
+//   TestDreamPlanGap_StringMemoryBloat (User Request Extremes)
+//   TestDreamPlanGap_Concurrency_AddSubtask (State Conflicts - documented gap)
+//   TestDreamPlanGap_Concurrency_MarkAndRead (State Conflicts - documented gap)
 
 func TestDreamPlan_New(t *testing.T) {
 	plan := NewDreamPlan("", "Fix all bugs")

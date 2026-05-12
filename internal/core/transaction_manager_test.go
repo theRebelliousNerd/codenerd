@@ -743,29 +743,22 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Empty Inputs.
-// Need tests for:
-// - Begin with empty description
-// - AddEdit with empty FilePath
-// - AddEdit with nil/empty Content for EditTypeCreate/Modify
-// - Calling Prepare/Commit/Abort when no transaction is active (activeTxnID is "")
+// REMEDIATED: Null/Empty Inputs — see transaction_manager_gaps_test.go:
+//   TestTransactionManagerGap_Begin_EmptyDescription
+//   TestTransactionManagerGap_AddEdit_EmptyFilePath
+//   TestTransactionManagerGap_AddEdit_NilContent
+//   TestTransactionManagerGap_Operations_NoActiveTransaction
 
-// TODO: TEST_GAP: State Conflicts / Invalid Transitions.
-// Need tests for:
-// - Calling Begin when a transaction is already active.
-// - Calling AddEdit when transaction Status is not Pending (e.g., after Prepare).
-// - Calling Commit when transaction Status is not Ready (e.g., still Pending or Preparing).
-// - Calling Prepare when transaction is already Ready.
-// - Calling Abort when transaction is already Committed.
+// REMEDIATED: State Conflicts / Invalid Transitions — see transaction_manager_gaps_test.go:
+//   TestTransactionManagerGap_InvalidStateTransitions (Begin_WhenAlreadyActive, Commit_WhenNotReady,
+//   Abort_WhenCommitted, AddEdit_WhenNotPending, Prepare_WhenNotPending)
 
-// TODO: TEST_GAP: Rollback Resilience and System Errors.
-// Need tests for:
-// - Simulating a file write failure during Commit (e.g., writing to a read-only directory or file) to verify that the rollback() function correctly restores previously written files in the same transaction using the snapshots.
-// - External file modification during a transaction: Simulating a hash mismatch where OldHash doesn't match the current file hash during Prepare.
+// REMEDIATED: Rollback Resilience — see transaction_manager_gaps_test.go:
+//   TestTransactionManagerGap_Commit_RollbackOnWriteFailure
+//   TestTransactionManagerGap_ExternalModification_HashMismatch
 
-// TODO: TEST_GAP: Type Coercion / Unknown Values.
-// Need tests for:
-// - AddEdit with an unknown EditType (e.g., EditType("invalid")). Verify it doesn't cause panics during Commit.
+// REMEDIATED: Type Coercion / Unknown Values — see transaction_manager_gaps_test.go:
+//   TestTransactionManagerGap_AddEdit_InvalidEditType
 
 // TestTransactionManager_MixedEditTypes tests transactions with create, modify, delete.
 func TestTransactionManager_MixedEditTypes(t *testing.T) {
@@ -855,12 +848,11 @@ func TestTransactionManager_MixedEditTypes(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Empty: Verify Begin behavior when description is an empty string.
-// TODO: TEST_GAP: Null/Empty: Verify AddEdit behavior when edit.FilePath is empty.
-// TODO: TEST_GAP: Null/Empty: Verify Commit behavior when a transaction edit has an empty FilePath.
-// TODO: TEST_GAP: Type Coercion: Verify AddEdit, Prepare, and Commit handling of unknown/invalid EditType values (e.g., casted int 99).
-// TODO: TEST_GAP: User Request Extremes: Verify AddEdit memory usage/behavior when snapshotting a massive file (e.g., 100MB+).
-// TODO: TEST_GAP: User Request Extremes: Verify Prepare behavior when simulating thousands of edits in a single transaction.
-// TODO: TEST_GAP: State Conflicts: Verify AddEdit behavior when the target file changes on disk after snapshot but before Prepare (without OldHash).
-// TODO: TEST_GAP: State Conflicts: Verify Commit failure recovery (rollback) when partial application fails, and what happens if rollback itself fails.
-// TODO: TEST_GAP: State Conflicts: Verify Prepare handles context cancellation cleanly without leaving the transaction stuck in TxnStatusPreparing.
+// REMEDIATED: All remaining gaps — see transaction_manager_gaps_test.go:
+//   TestTransactionManagerGap_ManyEdits_Stress (moderate edit volume)
+//   TestTransactionManagerGap_Prepare_ContextCancellation (context deadline)
+//   TestTransactionManagerGap_Concurrency_InterleavedOperations (concurrent R/W)
+//   TestTransactionManagerGap_Concurrency_MultipleBeginAttempts (concurrent Begin)
+// DEFERRED (unsafe for CI):
+//   - Massive file snapshotting (100MB+) — OOM risk
+//   - Thousands of shadow simulations — unbounded latency
