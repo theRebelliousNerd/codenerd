@@ -304,85 +304,9 @@ func TestJITPromptCompiler_Compile(t *testing.T) {
 	})
 }
 
-// TODO: TEST_GAP: See .quality_assurance/2026-02-01_jit_compiler_boundary_analysis.md for detailed boundary value analysis and reproduction steps.
+// Boundary Value Analysis: Remediated. See compiler_gaps_test.go for comprehensive coverage.
+// Original analysis: .quality_assurance/2026-02-01_jit_compiler_boundary_analysis.md
 
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
-// -----------------------------------------------------------------------------
-
-// Vector A1 covered in compiler_boundary_test.go
-
-// TODO: TEST_GAP: [Vector A2] Verify robustness against empty/partial context fields.
-// Scenario: CompilationContext with empty ShardID, IntentVerb, or empty strings in Languages.
-// Risk: `collectKernelInjectedAtoms` might match wildcard `/_all` if ShardID is empty.
-
-// TODO: TEST_GAP: [Vector A3] Verify RegisterDB behavior with empty, directory, or non-existent paths.
-// Scenario: `RegisterDB("corpus", "/bad/path")`.
-// Risk: `sql.Open` is lazy; error might only occur on first Query.
-
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
-// -----------------------------------------------------------------------------
-
-// TODO: TEST_GAP: [Vector B1] Verify robustness against kernel returning non-string types in facts.
-// Scenario: Mock kernel returns `int`, `float64`, `bool`, or `nil` in `Fact.Args`.
-// Risk: `extractStringArg` helper might panic on type assertion failure.
-
-// TODO: TEST_GAP: [Vector B2] Verify InjectAvailableSpecialists robustness against malformed agents.json.
-// Scenario: JSON contains integers where strings are expected (e.g., "name": 123).
-// Risk: `json.Unmarshal` fails or leaves fields empty, causing potential nil pointer dereference later.
-
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
-// -----------------------------------------------------------------------------
-
-// TODO: TEST_GAP: [Vector C1] Verify behavior with extreme token budgets (negative, zero, massive).
-// Scenario: `WithTokenBudget(0)` or `-100`.
-// Risk: Division by zero in `BudgetUtilization`, or infinite loops in knapsack logic.
-
-// TODO: TEST_GAP: [Vector C2] Verify performance impact of massive atom corpus (e.g., 100k atoms).
-// Scenario: Load 100,000 atoms into memory.
-// Risk: `collectAtomsWithStats` O(N) loading causes latency > 2s (Time-out).
-
-// TODO: TEST_GAP: [Vector C3/C4] Verify behavior with deeply nested or circular dependency graphs.
-// Scenario: A->B->A (Cycle) or A->B->C...->Z (Deep Nesting).
-// Risk: Stack overflow in recursive resolution or infinite recursion.
-
-// TODO: TEST_GAP: [Vector C5] Verify handling of atoms with massive content strings (10MB+).
-// Scenario: Atom content is >10MB.
-// Risk: OOM during `HashContent` or concatenation.
-
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts)
-// -----------------------------------------------------------------------------
-
-// TODO: TEST_GAP: [Vector D1] Verify behavior under high concurrency (Thundering Herd) for cache misses.
-// Scenario: 50 concurrent `Compile` requests for the same context.
-// Risk: Redundant DB/Mangle/Vector work; cache mutex contention.
-
-// TODO: TEST_GAP: [Vector D2] Verify concurrency safety when RegisterDB is called during Compile (Hot-Swap).
-// Scenario: `RegisterDB` called while `Compile` is reading from `projectDB`.
-// Risk: `sql: database is closed` error on read.
-
-// TODO: TEST_GAP: [Vector D3] Verify cache invalidation when underlying corpus/DB changes (Cache Staleness).
-// Scenario: `RegisterDB` updates corpus, but subsequent `Compile` returns old cached prompt.
-// Risk: Users receive outdated instructions.
-
-// -----------------------------------------------------------------------------
-// General Reliability Gaps
-// -----------------------------------------------------------------------------
-
-// TODO: TEST_GAP: Verify behavior when context is canceled (should abort compilation immediately).
-// TODO: TEST_GAP: Verify behavior when mandatory atoms exceed the token budget (should error or return partial).
-// TODO: TEST_GAP: Verify behavior when ConfigFactory fails (should continue with warning).
-// TODO: TEST_GAP: Verify robustness against kernel returning non-string types (e.g. int, nil) in facts (Type Coercion).
-// TODO: TEST_GAP: Verify behavior with extreme token budgets (negative, zero, massive).
-// TODO: TEST_GAP: Verify handling of atoms with massive content strings (10MB+) (DoS/OOM protection).
-// TODO: TEST_GAP: Verify behavior with deeply nested or circular dependency graphs (Stack Overflow protection).
-// TODO: TEST_GAP: Verify robustness against empty/partial context fields (nil pointers, empty strings) in helpers like InjectAvailableSpecialists.
-// TODO: TEST_GAP: Verify vulnerability to Mangle Injection via Atom ID (e.g., IDs containing single quotes or newlines).
-// TODO: TEST_GAP: Verify handling of Atom Syntax violations in Context Fields (e.g. ShardType with spaces, special chars).
-// TODO: TEST_GAP: Verify behavior with Integer Overflow in Token Budget calculation (Budget Black Hole).
 func TestJITPromptCompiler_CompileResult(t *testing.T) {
 	atoms := []*PromptAtom{
 		{
@@ -976,8 +900,6 @@ func (m *mockFallbackKernel) AssertBatch(facts []interface{}) error {
 	return m.assertErr
 }
 
-// TODO: TEST_GAP: Verify partial success when Project DB query fails (should return embedded atoms).
-
 func TestCompiler_FallbackOnCorruptCorpus(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -1371,79 +1293,11 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// Negative Testing & Boundary Value Analysis Gaps (Added 2026-02-18)
-// =============================================================================
-// The following gaps were identified during deep dive QA analysis.
-// See .quality_assurance/2026-02-18_05-17-EST_jit_compiler_negative_testing.md
-
-// TODO: TEST_GAP: [Vector A/D] TestCompiler_FallbackOnCorruptProjectDB
-// Scenario: Project DB query returns error or hangs.
-// Objective: Verify that the compiler degrades gracefully (logs warning, uses embedded corpus)
-// and does NOT panic or fail the entire compilation.
-// Criticality: High (Production reliability)
-
-// TODO: TEST_GAP: [Vector D] TestCompiler_StaleCacheOnKernelUpdate
-// Scenario:
-// 1. Compile(Context A) -> Cache Miss -> Result 1
-// 2. Update Kernel State (assert new context facts or register new DB)
-// 3. Compile(Context A) -> Should be Cache Miss -> Result 2
-// Objective: Verify that the cache key includes a hash of the external state (DB version, Kernel state),
-// preventing stale prompts from being served after knowledge updates.
-// Criticality: Critical (Correctness)
-
-// TODO: TEST_GAP: [Vector D] TestCompiler_ContextFactLeakage_OnError
-// Scenario:
-// 1. Compile() starts and asserts context facts to Kernel.
-// 2. An error occurs during atom selection (e.g., Vector Search failure).
-// 3. Verify if context facts are retracted.
-// Objective: Ensure ephemeral facts are cleaned up even on error paths to prevent pollution.
-// Criticality: High (State hygiene)
-
-// TODO: TEST_GAP: [Vector B] TestCompiler_TypeCoercion_KernelFacts
-// Scenario: Kernel returns facts with non-string arguments (int, float, nil, []byte).
-// Objective: Verify that `collectKernelInjectedAtoms` and other fact consumers handle these types
-// robustly (safe string conversion) without panicking.
-// Criticality: Medium (Robustness against Mangle engine changes)
-
-// TODO: TEST_GAP: [Vector C] TestCompiler_MassiveTokenBudget
-// Scenario: Call WithTokenBudget(math.MaxInt64, 0) and WithTokenBudget(0, 0).
-// Objective: Verify integer overflow protection and sane behavior (0 budget = mandatory only).
-// Criticality: Medium (Edge case safety)
-
-// TODO: TEST_GAP: [Vector C] TestCompiler_CircularDependencies
-// Scenario: Atom A depends on B, B depends on A.
-// Objective: Verify that the DependencyResolver detects the cycle, logs a warning, and breaks it
-// without infinite recursion or stack overflow.
-// Criticality: High (DoS protection)
-
-// TODO: TEST_GAP: [Vector A] TestCompiler_MissingSpecialistRegistry
-// Scenario: .nerd/agents.json is missing or malformed.
-// Objective: Verify safe fallback to default specialist list without compilation failure.
-// Criticality: Low (UX degradation)
-
-// =============================================================================
-// Additional Negative Testing Gaps (Added 2026-02-23)
-// =============================================================================
-// See .quality_assurance/2026-02-23_00-07-EST_jit_compiler_negative_testing.md
-
-// TODO: TEST_GAP: [Vector D1] TestCompiler_ConcurrentRegisterDB_Safety
-// Scenario: A long-running Compile() is active while another goroutine calls RegisterDB().
-// Objective: Ensure that closing the underlying sql.DB in RegisterDB does not cause
-// panic or fatal error in the active compilation query (race condition).
-// Criticality: Medium (Reliability)
-
-// TODO: TEST_GAP: [Vector B1] TestCompiler_ExtractStringArg_Robustness
-// Scenario: Kernel returns nil, []byte, or unexpected types for atom IDs.
-// Objective: Verify extractStringArg does not panic and returns a safe sentinel or error,
-// avoiding "ghost atoms" with IDs like "<nil>" or "[1 2 3]".
-// Criticality: High (Runtime Safety)
-
-// TODO: TEST_GAP: [Vector C1] TestCompiler_InputSanitization_DoS
-// Scenario: CompilationContext provided with 1MB+ strings for IntentVerb or ShardID.
-// Objective: Verify that internal query construction truncates these inputs to prevent
-// memory spikes or downstream errors in Vector Search / Embedding APIs.
-// Criticality: Low (DoS Protection)
+// Negative Testing & Boundary Value Analysis: Remediated.
+// See compiler_gaps_test.go for comprehensive coverage.
+// Original analyses:
+//   .quality_assurance/2026-02-18_05-17-EST_jit_compiler_negative_testing.md
+//   .quality_assurance/2026-02-23_00-07-EST_jit_compiler_negative_testing.md
 
 func TestCompiler_MissingSpecialistRegistry(t *testing.T) {
 	// Setup empty compilation context
