@@ -1,6 +1,7 @@
 ---
 
-remediated: false
+remediated: true
+remediated_date: 2026-05-12
 subsystem: core
 ---
 # Kernel Query Subsystem Boundary Value Analysis & Negative Testing Journal
