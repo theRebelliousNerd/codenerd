@@ -1,6 +1,8 @@
 package core
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"strings"
 	"testing"
@@ -281,3 +283,5 @@ func TestTDDLoop_Escalation(t *testing.T) {
 		t.Errorf("Expected Escalate after max retries, got %s", action)
 	}
 }
+
+func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"os"
 	"path/filepath"
@@ -344,3 +346,5 @@ func TestComputeWriteSetLockRetryDelay_BoundedAndContextAware(t *testing.T) {
 		t.Fatalf("expected canceled context to yield zero retry delay, got %v", delay)
 	}
 }
+
+func (m *safeKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

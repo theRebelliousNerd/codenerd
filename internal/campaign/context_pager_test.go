@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"codenerd/internal/core"
 	"context"
 	"fmt"
@@ -410,3 +412,5 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 		t.Errorf("Expected [\"schema1 schema2\"], got %q", prof.RequiredSchemas)
 	}
 }
+
+func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

@@ -3,6 +3,8 @@
 package chat
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
@@ -1864,4 +1866,8 @@ func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt
 
 func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+}
+
+func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
+	return a.kernel.GetProgramInfo()
 }

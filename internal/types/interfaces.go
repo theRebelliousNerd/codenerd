@@ -1,6 +1,8 @@
 package types
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 )
 
@@ -15,6 +17,9 @@ type Kernel interface {
 	RetractFact(fact Fact) error
 	// UpdateSystemFacts updates system facts (time, etc.)
 	UpdateSystemFacts() error
+
+	// GetProgramInfo returns the analyzed program info
+	GetProgramInfo() *analysis.ProgramInfo
 
 	// Power-user features for advanced kernel control
 	// Reset clears all facts while keeping schemas and policies

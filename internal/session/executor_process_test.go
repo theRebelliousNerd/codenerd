@@ -1,6 +1,8 @@
 package session
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"errors"
 	"testing"
@@ -346,3 +348,5 @@ func TestExecutor_Process_SessionContext(t *testing.T) {
 // TODO: TEST_GAP: Verify behavior when JITCompiler returns error (Fallback to baseline prompt?).
 // TODO: TEST_GAP: Verify behavior when ConfigFactory returns error (Fallback to empty config?).
 // TODO: TEST_GAP: Verify behavior when Transducer returns error.
+
+func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

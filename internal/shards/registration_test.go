@@ -1,6 +1,8 @@
 package shards
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"testing"
 
@@ -119,3 +121,5 @@ func checkProfile(t *testing.T, sm *coreshards.ShardManager, name string, expect
 		t.Errorf("Profile %q type = %v, want %v", name, profile.Type, expectedType)
 	}
 }
+
+func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

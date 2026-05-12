@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/google/mangle/analysis"
 	"fmt"
 	"os"
 	"strings"
@@ -442,4 +443,11 @@ func checkSyntax(ruleText string) error {
 		return fmt.Errorf("%s", errStr)
 	}
 	return nil
+}
+
+// GetProgramInfo returns the current ProgramInfo for the kernel.
+func (k *RealKernel) GetProgramInfo() *analysis.ProgramInfo {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.programInfo
 }

@@ -7,6 +7,8 @@ package core
 // TODO: TEST_GAP: State Conflicts - Verify concurrent access to mcpClients, permission cache rebuilds, and DisableBootGuard toggling during active routing is race-free.
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"encoding/json"
 	"os"
@@ -519,3 +521,5 @@ func TestFilterCallerEnv_Empty(t *testing.T) {
 		t.Error("empty input should return nil")
 	}
 }
+
+func (k *stubKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

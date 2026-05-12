@@ -1,6 +1,8 @@
 package perception
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"testing"
 
@@ -320,3 +322,5 @@ func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
 // GAP: Semantic matches accumulate in the kernel without retraction, polluting downstream rules.
 // SETUP: Call Classify twice sequentially with different intents.
 // EXPECTED: The previous semantic_match facts must be retracted before asserting new ones.
+
+func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
