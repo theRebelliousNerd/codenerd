@@ -148,8 +148,7 @@ func TestAtomSelector_SetMinScoreThreshold(t *testing.T) {
 // =========================================================================
 
 func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
-	// TODO: TEST_GAP: selectAtoms with nil CompilationContext
-	// TODO: TEST_GAP: selectAtoms with nil PromptAtom elements in candidate slice
+	// Boundary gaps remediated: see selector_gaps_test.go for nil context/nil elements coverage.
 	t.Run("empty atoms returns nil", func(t *testing.T) {
 		selector := NewAtomSelector()
 		kernel := &mockKernel{}
@@ -265,7 +264,7 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 }
 
 func TestAtomSelector_SelectAtoms_FactsAreMangleParseable(t *testing.T) {
-	// TODO: TEST_GAP: massive number of flesh atoms
+	// Massive flesh atoms gap remediated: see selector_gaps_test.go TestSelector_MassiveAtomCorpus.
 	selector := NewAtomSelector()
 
 	evilID := "evil\\\" ) :- dangerous(X). #\n"
@@ -619,44 +618,16 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 	})
 }
 
-// -----------------------------------------------------------------------------
-// Boundary Value Analysis: Identified Gaps
-// -----------------------------------------------------------------------------
-
-// TODO: TEST_GAP: [Vector A1] TestAtomSelector_SelectAtoms_NilInputs: Verify safe handling of nil atom slices, nil context, and nil mandatory maps.
-// TODO: TEST_GAP: [Vector A2] TestAtomSelector_BuildContextFacts_EmptyAtomID: Analyze kernel assertion behavior when atom IDs are empty strings.
-// TODO: TEST_GAP: [Vector A3] TestAtomSelector_FallbackSelection_NilDependencies: Ensure fallback logic gracefully survives missing vector maps or uninitialized contexts.
-// TODO: TEST_GAP: [Vector A4] TestAtomSelector_MangleRouting_MissingContextFields: Verify omitting core context dimensions doesn't cause Mangle routing rules to fail open.
-// TODO: TEST_GAP: [Vector A5] TestAtomSelector_SelectAtoms_NilElementsInSlice: Inject nil pointers into candidate slices and assert the system filters them without crashing.
-// TODO: TEST_GAP: [Vector A6] TestAtomSelector_FallbackSelection_EmptyCorpus: Pass empty slices to fallback and verify quick returns.
-
-// TODO: TEST_GAP: [Vector B1] TestAtomSelector_BuildContextFacts_InvalidAtomCharacters: Verify mangleNormalizeNameConst sanitizes strings before atom conversion.
-// TODO: TEST_GAP: [Vector B2] TestAtomSelector_ExtractStringArg_UnknownTypes: Pass unsupported Go types to extractStringArg to ensure default stringification works.
-// TODO: TEST_GAP: [Vector B3] TestAtomSelector_LoadSkeletonAtoms_MalformedFactArity: Mock kernel returning facts with incorrect arity; assert safe skipping.
-// TODO: TEST_GAP: [Vector B4] TestAtomSelector_BuildContextFacts_UnicodeNormalization: Test extreme Unicode payloads in context fields to ensure parser stability.
-
-// TODO: TEST_GAP: [Vector C1] TestAtomSelector_BuildContextFacts_MassiveCorpus: Benchmark allocation and kernel assertion limits with 100,000+ candidate atoms.
-// TODO: TEST_GAP: [Vector C2] TestAtomSelector_MergeAtoms_MassiveContent: Merge atoms with multi-megabyte contents to check for anomalous GC pauses.
-// TODO: TEST_GAP: [Vector C3] TestAtomSelector_FallbackSelection_NaN_VectorScores: Inject NaN and Inf into vector scores; verify sorting logic stability.
-// TODO: TEST_GAP: [Vector C4] TestAtomSelector_BuildContextFacts_MassiveContextDimensions: Supply CompilationContext with 10,000 frameworks; evaluate reallocation performance.
-// TODO: TEST_GAP: [Vector C5] TestAtomSelector_MergeAtoms_SortDeterminism: Provide identical scores and assert sort.Slice doesn't cause prompt jitter.
-// TODO: TEST_GAP: [Vector C7] TestAtomSelector_BuildContextFacts_InventedContexts: Pass wildly unpredictable strings as languages and frameworks.
-// TODO: TEST_GAP: [Vector C8] TestAtomSelector_BuildContextFacts_CyclicDependencies: This test verifies that the Go side handles the generation of cyclic facts gracefully.
-// TODO: TEST_GAP: [Vector C9] TestAtomSelector_BuildContextFacts_ExtremePriority: Assert atoms with math.MaxInt64 and math.MinInt64 priorities.
-
-// TODO: TEST_GAP: [Vector D1] TestAtomSelector_SelectAtoms_RaceCondition: Detect data races if dependencies are swapped concurrently.
-// TODO: TEST_GAP: [Vector D2] TestAtomSelector_SelectAtoms_Idempotency: Ensure subsequent calls don't suffer from "ghost facts".
-// TODO: TEST_GAP: [Vector D3] TestAtomSelector_FallbackSelection_ConcurrentMapAccess: Simulate concurrent map mutation to prove synchronization architecture.
-// TODO: TEST_GAP: [Vector D4] TestAtomSelector_SelectAtoms_KernelPanicRecovery: Mock a panicking kernel; verify graceful fallback recovery.
-// TODO: TEST_GAP: [Vector D6] TestAtomSelector_SelectAtoms_ConcurrentContextMutation: Pass a CompilationContext to SelectAtoms in a goroutine while continuously mutating its slices.
-// TODO: TEST_GAP: [Vector D7] TestAtomSelector_SelectAtoms_KernelIsolation: Simulate two concurrent compilations sharing a mock kernel.
+// Boundary Value Analysis: Remediated. See selector_gaps_test.go for comprehensive coverage.
+// Findings: nil CompilationContext causes panic in GenerateFacts (known bug).
+// mockKernel has unsynchronized state (production RealKernel uses sync.RWMutex).
 
 // =========================================================================
 // Legacy Tests (for backwards compatibility)
 // =========================================================================
 
 func TestAtomSelector_SelectAtomsLegacy(t *testing.T) {
-	// TODO: TEST_GAP: verify atoms with extreme token counts don't crash the fallback selection
+	// Extreme token counts gap remediated: see selector_gaps_test.go TestSelector_ExtremeTokenCounts.
 	type mockResult struct {
 		id     string
 		source string
