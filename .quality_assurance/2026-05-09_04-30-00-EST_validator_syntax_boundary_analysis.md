@@ -1,6 +1,8 @@
 ---
+
 remediated: true
 remediated_date: 2026-05-12
+subsystem: core
 ---
 # Boundary Value Analysis and Negative Testing Journal
 

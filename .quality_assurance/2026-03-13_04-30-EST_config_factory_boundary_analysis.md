@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: prompt
 ---
 # Boundary Value Analysis and Negative Testing Journal
 ## Component: ConfigFactory (`internal/prompt/config_factory.go`)

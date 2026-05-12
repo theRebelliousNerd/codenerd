@@ -1,6 +1,8 @@
 ---
+
 remediated: true
 remediated_date: 2026-05-12
+subsystem: perception
 ---
 # Semantic Classifier Subsystem - Boundary Value Analysis & Negative Testing Journal
 

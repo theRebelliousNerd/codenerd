@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: perception
 ---
 # Deep Dive Analysis of Perception Layer Transducers: UnderstandingTransducer
 Date: 2026-04-04 04:16 EST

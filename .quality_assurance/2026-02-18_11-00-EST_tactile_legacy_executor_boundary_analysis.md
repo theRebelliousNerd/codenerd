@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: tactile
 ---
 # QA Journal Entry: Legacy SafeExecutor Boundary Analysis
 **Date:** 2026-02-18 11:00 EST

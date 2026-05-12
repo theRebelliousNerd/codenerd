@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: autopoiesis
 ---
 # Quality Assurance Journal: Thunderdome Execution Boundary Analysis
 

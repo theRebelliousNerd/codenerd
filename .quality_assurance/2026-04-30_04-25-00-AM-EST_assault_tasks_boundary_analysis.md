@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: campaign
 ---
 # Quality Assurance Journal: Assault Tasks Boundary Value Analysis and Negative Testing
 

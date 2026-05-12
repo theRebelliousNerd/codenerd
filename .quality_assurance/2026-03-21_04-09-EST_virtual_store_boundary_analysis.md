@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: core
 ---
 # QA Automation Engineer Journal: Boundary Value Analysis and Negative Testing
 ## Subsystem: VirtualStore (`internal/core/virtual_store.go`)

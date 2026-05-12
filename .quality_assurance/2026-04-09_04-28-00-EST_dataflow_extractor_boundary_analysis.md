@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: world
 ---
 # QA Journal: Boundary Value Analysis & Negative Testing
 ## Subsystem: World / DataFlowExtractor (`internal/world/dataflow.go`)

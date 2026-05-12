@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: autopoiesis
 ---
 # Deep Dive Analysis of Autopoiesis Ouroboros Loop: The Self-Creating Toolchain
 Date: 2026-02-14 00:05 EST

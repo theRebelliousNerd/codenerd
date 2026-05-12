@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: prompt
 ---
 # Prompt Assembler Subsystem - Boundary Value Analysis & Negative Testing Journal
 **Date/Time:** 2026-04-03 04:28:41 EST

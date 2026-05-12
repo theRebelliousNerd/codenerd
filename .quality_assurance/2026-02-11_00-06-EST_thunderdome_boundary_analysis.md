@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: autopoiesis
 ---
 # Thunderdome: Adversarial Co-Evolution Boundary Analysis
 **Date:** 2026-02-11 00:06 EST

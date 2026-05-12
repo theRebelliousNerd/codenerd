@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: campaign
 ---
 # QA Journal Entry: Campaign Orchestrator Task Handlers Boundary Analysis
 **Date:** 2026-02-18 10:00 EST

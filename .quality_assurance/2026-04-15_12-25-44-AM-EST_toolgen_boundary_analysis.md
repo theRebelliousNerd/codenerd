@@ -1,6 +1,8 @@
 ---
+
 remediated: true
 remediated_date: 2026-05-12
+subsystem: autopoiesis
 ---
 # Quality Assurance Journal: Boundary Value Analysis & Negative Testing
 ## Subsystem: ToolGenerator (Autopoiesis / Ouroboros Loop)

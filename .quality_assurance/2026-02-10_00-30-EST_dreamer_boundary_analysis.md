@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: core
 ---
 # QA Automation Engineer Journal Entry: Dreamer Subsystem Boundary Value Analysis
 # Date: 2026-02-10

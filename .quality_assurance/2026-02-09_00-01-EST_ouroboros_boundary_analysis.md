@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: autopoiesis
 ---
 # Quality Assurance Journal: Ouroboros Loop Boundary Analysis
 **Date:** 2026-02-09

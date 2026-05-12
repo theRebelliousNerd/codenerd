@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: articulation
 ---
 # Articulation Subsystem Boundary Value Analysis
 

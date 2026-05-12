@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: campaign
 ---
 # WriteSet Lock Manager Subsystem - Boundary Value Analysis & Negative Testing Journal
 **Date:** 2026-04-15 11:12:09 PM EST

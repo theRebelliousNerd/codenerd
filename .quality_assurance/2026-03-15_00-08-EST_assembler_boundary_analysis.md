@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: prompt
 ---
 # Boundary Value Analysis and Negative Testing: JIT Prompt Compiler FinalAssembler
 **Date:** 2026-03-15 00:08:00 EST

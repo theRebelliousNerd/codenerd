@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: session
 ---
 # Session Memory Compression Subsystem Quality Assurance Journal
 **Date:** March 4, 2026

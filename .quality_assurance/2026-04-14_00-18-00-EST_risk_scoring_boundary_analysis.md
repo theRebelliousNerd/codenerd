@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: campaign
 ---
 # Risk Scoring Subsystem Boundary Value Analysis and Negative Testing Journal
 **Date:** 2026-04-14_00-18-00-EST

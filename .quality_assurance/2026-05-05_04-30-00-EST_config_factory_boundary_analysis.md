@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: prompt
 ---
 # QA Journal: ConfigFactory Boundary Value Analysis and Negative Testing
 

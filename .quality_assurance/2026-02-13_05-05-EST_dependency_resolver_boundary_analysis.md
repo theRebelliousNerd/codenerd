@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: core
 ---
 # QA Journal: Boundary Value Analysis of Dependency Resolver
 # Date: 2026-02-13 05:05 EST

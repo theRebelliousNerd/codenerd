@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: campaign
 ---
 # Orchestrator Failure Subsystem - Boundary Value Analysis & Negative Testing Journal
 **Date:** 2026-04-10 04:34:12 EST

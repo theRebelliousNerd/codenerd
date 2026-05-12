@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: core
 ---
 # APIScheduler Boundary Value Analysis and Negative Testing Journal
 **Date:** 2026-05-03

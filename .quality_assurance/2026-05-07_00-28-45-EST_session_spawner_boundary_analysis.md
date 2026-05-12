@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: session
 ---
 # Boundary Value Analysis and Negative Testing Journal
 **Date/Time:** 2026-05-07 00:28:45 EST

@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: perception
 ---
 # Boundary Value Analysis and Negative Testing Journal
 ## Subsystem: SemanticClassifier (internal/perception/semantic_classifier.go)

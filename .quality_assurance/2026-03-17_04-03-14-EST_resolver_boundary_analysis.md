@@ -1,5 +1,7 @@
 ---
+
 remediated: false
+subsystem: prompt
 ---
 # JIT Prompt Compiler DependencyResolver Test Boundary Analysis
 Date: 2026-03-17 04:03:14 EST
