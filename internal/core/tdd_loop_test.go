@@ -155,6 +155,15 @@ func SetupTDDLoop(t *testing.T) (*TDDLoop, *MockExecutor, *MockKernel, *MockLLM)
 	return tdd, mockExec, mockKernel, mockLLM
 }
 
+// TODO: TEST_GAP: [Null/Empty] Test behavior when `tdd.diagnostics` is entirely empty or nil, but state indicates error. Does `analyzeRootCause` gracefully handle no diagnostics, or does it panic?
+// TODO: TEST_GAP: [Null/Empty] Test behavior when `parseLLMPatch` returns zero patches. Does `applyPatch` handle an empty patch array gracefully without entering an infinite applying state?
+// TODO: TEST_GAP: [Type Coercion] Test the impact of unexpected types within Mangle kernel asserts, e.g., if a diagnostic line number is a string instead of an int. Does it cause silent failure in the rules?
+// TODO: TEST_GAP: [Type Coercion] What happens if `virtualStore.RouteAction` returns an unexpected type or format that `parseTestOutput` cannot handle (e.g. JSON output from a test runner instead of plain text)?
+// TODO: TEST_GAP: [User Request Extremes] Test `parseTestOutput` with an extremely large log file (e.g. 50MB of raw test output with thousands of failures). Does the regex parsing cause excessive memory allocation or CPU starvation?
+// TODO: TEST_GAP: [User Request Extremes] What happens if the `hypothesis` generated is exceptionally long (e.g. 100,000 words)? Does the LLM patch generation prompt exceed token limits and crash?
+// TODO: TEST_GAP: [State Conflicts] Test concurrent execution of `Run()` or concurrent calls to `InjectPatch()` / `SetHypothesis()`. Does the `mu.Lock()` properly protect all state transitions and slices without deadlocks?
+// TODO: TEST_GAP: [State Conflicts] Simulate a race condition where the TDD state is changed externally (e.g. by a kernel callback) while `generatePatch` is waiting on the LLM response. Does the system handle the state invalidation correctly upon return?
+
 func TestTDDLoop_NextAction_Idle(t *testing.T) {
 	tdd, _, _, _ := SetupTDDLoop(t)
 	if action := tdd.NextAction(); action != TDDActionRunTests {
