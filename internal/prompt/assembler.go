@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"codenerd/internal/logging"
 )
@@ -15,6 +16,8 @@ import (
 // 3. Token counting verification
 // 4. Dynamic context injection
 type FinalAssembler struct {
+	mu sync.RWMutex
+
 	// categoryOrder defines the sequence of categories in the final prompt
 	categoryOrder []AtomCategory
 
@@ -69,16 +72,22 @@ func defaultCategoryOrder() []AtomCategory {
 
 // SetCategoryOrder sets a custom category ordering.
 func (a *FinalAssembler) SetCategoryOrder(order []AtomCategory) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.categoryOrder = order
 }
 
 // SetSectionHeaders controls whether section headers are added.
 func (a *FinalAssembler) SetSectionHeaders(enabled bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.addSectionHeaders = enabled
 }
 
 // SetSeparators configures the separators between sections and atoms.
 func (a *FinalAssembler) SetSeparators(section, atom string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.sectionSeparator = section
 	a.atomSeparator = atom
 }
@@ -91,6 +100,15 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 	if len(atoms) == 0 {
 		return "", nil
 	}
+
+	// Snapshot config under read lock to avoid races with concurrent Set* calls
+	a.mu.RLock()
+	categoryOrder := make([]AtomCategory, len(a.categoryOrder))
+	copy(categoryOrder, a.categoryOrder)
+	addSectionHeaders := a.addSectionHeaders
+	sectionSeparator := a.sectionSeparator
+	atomSeparator := a.atomSeparator
+	a.mu.RUnlock()
 
 	if cc != nil && strings.TrimSpace(cc.AvailableSpecialists) == "" {
 		if err := InjectAvailableSpecialists(cc, ""); err != nil {
@@ -112,15 +130,21 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 		})
 	}
 
+	// Build a set for fast category membership check
+	catOrderSet := make(map[AtomCategory]struct{}, len(categoryOrder))
+	for _, c := range categoryOrder {
+		catOrderSet[c] = struct{}{}
+	}
+
 	// Build the prompt in category order
 	var sections []string
-	for _, cat := range a.categoryOrder {
+	for _, cat := range categoryOrder {
 		atomsInCat, exists := byCategory[cat]
 		if !exists || len(atomsInCat) == 0 {
 			continue
 		}
 
-		section, err := a.assembleSection(cat, atomsInCat, cc)
+		section, err := a.assembleSectionWith(cat, atomsInCat, cc, addSectionHeaders, atomSeparator)
 		if err != nil {
 			return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
 		}
@@ -132,11 +156,11 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 
 	// Handle any categories not in the standard order
 	for cat, atomsInCat := range byCategory {
-		if a.categoryInOrder(cat) {
+		if _, inOrder := catOrderSet[cat]; inOrder {
 			continue // Already processed
 		}
 
-		section, err := a.assembleSection(cat, atomsInCat, cc)
+		section, err := a.assembleSectionWith(cat, atomsInCat, cc, addSectionHeaders, atomSeparator)
 		if err != nil {
 			return "", fmt.Errorf("failed to assemble section %s: %w", cat, err)
 		}
@@ -147,7 +171,7 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 	}
 
 	// Join sections
-	prompt := strings.Join(sections, a.sectionSeparator)
+	prompt := strings.Join(sections, sectionSeparator)
 
 	// Apply final template processing
 	if cc != nil {
@@ -163,10 +187,27 @@ func (a *FinalAssembler) Assemble(atoms []*OrderedAtom, cc *CompilationContext) 
 }
 
 // assembleSection builds the content for a single category section.
+// Uses struct fields directly — only safe when called under lock or single-threaded.
 func (a *FinalAssembler) assembleSection(
 	category AtomCategory,
 	atoms []*OrderedAtom,
 	cc *CompilationContext,
+) (string, error) {
+	a.mu.RLock()
+	headers := a.addSectionHeaders
+	sep := a.atomSeparator
+	a.mu.RUnlock()
+	return a.assembleSectionWith(category, atoms, cc, headers, sep)
+}
+
+// assembleSectionWith builds the content for a single category section
+// using explicitly provided config to avoid concurrent struct field reads.
+func (a *FinalAssembler) assembleSectionWith(
+	category AtomCategory,
+	atoms []*OrderedAtom,
+	cc *CompilationContext,
+	addHeaders bool,
+	atomSep string,
 ) (string, error) {
 	if len(atoms) == 0 {
 		return "", nil
@@ -175,7 +216,7 @@ func (a *FinalAssembler) assembleSection(
 	var parts []string
 
 	// Add section header if enabled
-	if a.addSectionHeaders {
+	if addHeaders {
 		header := categoryHeader(category)
 		if header != "" {
 			parts = append(parts, header)
@@ -194,7 +235,7 @@ func (a *FinalAssembler) assembleSection(
 		parts = append(parts, content)
 	}
 
-	return strings.Join(parts, a.atomSeparator), nil
+	return strings.Join(parts, atomSep), nil
 }
 
 // categoryInOrder checks if a category is in the standard order.
@@ -239,6 +280,7 @@ func categoryHeader(cat AtomCategory) string {
 // TemplateEngine handles dynamic content injection in prompts.
 // Supports simple {{variable}} substitution from CompilationContext.
 type TemplateEngine struct {
+	mu sync.RWMutex
 	// Custom functions for template processing
 	functions map[string]TemplateFunc
 }
@@ -343,6 +385,8 @@ func (te *TemplateEngine) registerDefaults() {
 
 // RegisterFunction adds a custom template function.
 func (te *TemplateEngine) RegisterFunction(name string, fn TemplateFunc) {
+	te.mu.Lock()
+	defer te.mu.Unlock()
 	te.functions[name] = fn
 }
 
@@ -352,10 +396,18 @@ func (te *TemplateEngine) Process(content string, cc *CompilationContext) string
 		return content // Fast path: no templates
 	}
 
+	te.mu.RLock()
+	// Snapshot function map under lock to avoid holding it during execution
+	funcs := make(map[string]TemplateFunc, len(te.functions))
+	for k, v := range te.functions {
+		funcs[k] = v
+	}
+	te.mu.RUnlock()
+
 	result := content
 
 	// Process each registered function
-	for name, fn := range te.functions {
+	for name, fn := range funcs {
 		placeholder := "{{" + name + "}}"
 		if strings.Contains(result, placeholder) {
 			result = strings.ReplaceAll(result, placeholder, fn(cc))
