@@ -18,10 +18,7 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	return atom, ok
 }
 
-// TODO: TEST_GAP: Verify behavior when tools or policies in a returned ConfigAtom are nil.
-// TODO: TEST_GAP: Verify deterministic ordering of tools/policies when deduplicating from multiple intents.
-// TODO: TEST_GAP: Verify stability under recursive ConfigFactory generations.
-// TODO: TEST_GAP: Verify slice copy semantics to prevent aliasing cross-contamination between configurations.
+
 
 func TestConfigFactory_Generate(t *testing.T) {
 

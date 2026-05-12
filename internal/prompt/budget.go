@@ -3,6 +3,7 @@ package prompt
 import (
 	"fmt"
 	"sort"
+	"sync"
 
 	"codenerd/internal/logging"
 )
@@ -73,6 +74,7 @@ type CategoryBudget struct {
 // 3. High-scored atoms within categories are preferred
 // 4. Remaining budget is distributed to lower priorities
 type TokenBudgetManager struct {
+	mu      sync.RWMutex
 	budgets map[AtomCategory]CategoryBudget
 
 	// Allocation strategy
@@ -306,16 +308,22 @@ func (m *TokenBudgetManager) setDefaultBudgets() {
 
 // SetCategoryBudget configures the budget for a specific category.
 func (m *TokenBudgetManager) SetCategoryBudget(budget CategoryBudget) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.budgets[budget.Category] = budget
 }
 
 // SetStrategy sets the allocation strategy.
 func (m *TokenBudgetManager) SetStrategy(strategy AllocationStrategy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.strategy = strategy
 }
 
 // SetReservedHeadroom sets the buffer tokens to keep as reserve.
 func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.reservedHeadroom = tokens
 }
 
@@ -325,6 +333,9 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 	timer := logging.StartTimer(logging.CategoryContext, "TokenBudgetManager.Fit")
 	defer timer.Stop()
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
 	if len(atoms) == 0 {
 		return nil, nil
