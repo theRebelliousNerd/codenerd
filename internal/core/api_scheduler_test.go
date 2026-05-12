@@ -486,5 +486,8 @@ func TestNoDoubleLimiting(t *testing.T) {
 //   TestAPISchedulerGap_CheckpointMassivePayload (Resource Exhaustion)
 //   TestAPISchedulerGap_Race_RegisterUnregister (Concurrency)
 //   TestAPISchedulerGap_Race_ContextCancelVsSlotAcquire (TOCTOU)
-// KNOWN: Streaming-specific gaps (nil channels, rapid cancel deadlock) require streaming mock infra.
-// KNOWN: GlobalConfig mid-flight modification is architecturally prevented by sync.Once.
+//   TestAPISchedulerGap_Streaming_NonStreamingClient (Interface Assertion)
+//   TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying (Nil Channels)
+//   TestAPISchedulerGap_Streaming_RapidCancel (Goroutine Leak)
+//   TestAPISchedulerGap_GlobalConfig_SyncOnce (sync.Once guard)
+

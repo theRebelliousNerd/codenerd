@@ -35,8 +35,22 @@ func TestSyntaxValidator_EmptyContent(t *testing.T) {
 	res := ActionResult{Success: true}
 	
 	vr := v.Validate(context.Background(), req, res)
-	if !vr.Verified {
-		t.Errorf("Empty go file should be syntactically valid or handled gracefully, got error: %v", vr.Error)
+	// An empty .go file is genuinely syntactically invalid (missing package declaration).
+	// The validator is correct to reject it.
+	if vr.Verified {
+		t.Error("Empty go file should be syntactically invalid (missing package declaration)")
+	}
+	if vr.Error == "" {
+		t.Error("Expected an error message for empty Go file")
+	}
+
+	// But a minimal valid Go file should pass
+	validPath := filepath.Join(tmpDir, "valid.go")
+	os.WriteFile(validPath, []byte("package main\n"), 0644)
+	reqValid := ActionRequest{Type: ActionWriteFile, Target: validPath}
+	vrValid := v.Validate(context.Background(), reqValid, res)
+	if !vrValid.Verified {
+		t.Errorf("Minimal valid Go file should pass syntax validation, got error: %v", vrValid.Error)
 	}
 }
 

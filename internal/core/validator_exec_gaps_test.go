@@ -13,8 +13,23 @@ func TestExecutionValidator_EmptyOutput(t *testing.T) {
 	req := ActionRequest{Type: ActionExecCmd, Target: ""}
 	res := ActionResult{Success: false, Output: ""}
 	vr := v.Validate(context.Background(), req, res)
-	if !vr.Verified || vr.Confidence != 0.9 {
-		t.Errorf("Expected valid default on empty, got %v", vr)
+	// When Success is false, the validator correctly returns Verified: false
+	// with confidence 1.0 and the "command reported failure" error.
+	if vr.Verified {
+		t.Error("Expected Verified=false when result.Success is false")
+	}
+	if vr.Confidence != 1.0 {
+		t.Errorf("Expected Confidence=1.0 for explicit failure, got %v", vr.Confidence)
+	}
+	if vr.Method != ValidationMethodOutputScan {
+		t.Errorf("Expected Method=output_scan, got %v", vr.Method)
+	}
+
+	// Also test with Success: true and empty output — should pass (no failure patterns)
+	resOK := ActionResult{Success: true, Output: ""}
+	vrOK := v.Validate(context.Background(), req, resOK)
+	if !vrOK.Verified {
+		t.Errorf("Expected Verified=true for successful command with empty output, got error: %v", vrOK.Error)
 	}
 }
 

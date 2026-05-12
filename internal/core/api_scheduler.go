@@ -722,8 +722,9 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 		defer close(contentChan)
 		defer close(errorChan)
 
-		contentClosed := false
-		errClosed := false
+		// Nil channels block forever on receive in Go. Treat them as immediately closed.
+		contentClosed := underContent == nil
+		errClosed := underErr == nil
 		var firstErr error
 
 		for !(contentClosed && errClosed) {
@@ -732,7 +733,10 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 				if firstErr == nil {
 					firstErr = ctx.Err()
 				}
-				// Keep draining until channels close so upstream goroutines can exit cleanly.
+				// Context cancelled — stop forwarding immediately.
+				// The upstream goroutine is responsible for its own cleanup.
+				contentClosed = true
+				errClosed = true
 			case chunk, ok := <-underContent:
 				if !ok {
 					contentClosed = true
@@ -744,6 +748,8 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 					if firstErr == nil {
 						firstErr = ctx.Err()
 					}
+					contentClosed = true
+					errClosed = true
 				}
 			case err, ok := <-underErr:
 				if !ok {

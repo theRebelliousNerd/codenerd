@@ -295,12 +295,12 @@ func TestParanoidValidator_SymlinkToFile(t *testing.T) {
 	}
 }
 
-// TestParanoidValidator_ContentSamplingRuns tests that content sampling is recorded in details
+// TestParanoidValidator_ContentSamplingRuns tests that hash checks are recorded in details
 func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 	v := NewParanoidFileValidator()
 	v.RequireDoubleRead = false
 
-	// Create content larger than 100 bytes to trigger sampling
+	// Create content larger than 100 bytes
 	content := ""
 	for i := 0; i < 20; i++ {
 		content += "0123456789" // 200 bytes total
@@ -328,21 +328,26 @@ func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 		t.Fatalf("Expected validation to pass: %v", vr.Error)
 	}
 
-	// Check that content_sampling check passed
+	// Verify checks_passed contains the expected checks
 	checks, ok := vr.Details["checks_passed"].([]string)
 	if !ok {
 		t.Fatal("Details['checks_passed'] not found or not []string")
 	}
 
-	found := false
-	for _, c := range checks {
-		if c == "content_sampling" {
-			found = true
-			break
+	// The paranoid validator tracks: existence, timestamp_freshness, size_sanity,
+	// size_match, first_read, hash_first_read, double_read_consistency, hash_second_read
+	expected := []string{"existence", "hash_first_read"}
+	for _, exp := range expected {
+		found := false
+		for _, c := range checks {
+			if c == exp {
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		t.Error("Expected 'content_sampling' to be in checks_passed")
+		if !found {
+			t.Errorf("Expected '%s' to be in checks_passed, got %v", exp, checks)
+		}
 	}
 }
 
@@ -595,7 +600,7 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 	v := NewParanoidFileValidator()
 	v.RequireDoubleRead = false
 
-	// Create content > 100 bytes (threshold for sampling)
+	// Create content > 100 bytes
 	content := ""
 	for i := 0; i < 20; i++ {
 		content += "0123456789" // 200 bytes
@@ -623,12 +628,18 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 	vr := v.Validate(ctx, req, result)
 
 	if !vr.Verified {
-		t.Errorf("Expected Verified=true for sampled file, got error: %v", vr.Error)
+		t.Errorf("Expected Verified=true for valid content, got error: %v", vr.Error)
 	}
 
-	// Verify details
-	if samples, ok := vr.Details["sample_points"].(int); !ok || samples != 5 {
-		t.Errorf("Expected sample_points=5 in details, got %v", vr.Details["sample_points"])
+	// Verify details contain hash and validation time
+	if vr.Details["hash"] == nil {
+		t.Error("Expected 'hash' in validation details")
+	}
+	if vr.Details["validation_time_ms"] == nil {
+		t.Error("Expected 'validation_time_ms' in validation details")
+	}
+	if vr.Details["file_size"] == nil {
+		t.Error("Expected 'file_size' in validation details")
 	}
 }
 

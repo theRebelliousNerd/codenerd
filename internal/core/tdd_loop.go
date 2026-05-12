@@ -646,60 +646,85 @@ func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
 	
 	scanner := bufio.NewScanner(strings.NewReader(output))
-	// Max line length up to 10MB to avoid ErrTooLong on minified files or large JSON
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 10*1024*1024)
+	// Only upgrade buffer for large outputs to avoid unnecessary allocation
+	if len(output) > 64*1024 {
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, 10*1024*1024)
+	}
+
+	// Truncate raw output stored per diagnostic to avoid O(n*m) memory
+	// where n = diagnostics and m = output size. Keep first 500 chars for context.
+	rawSnippet := output
+	if len(rawSnippet) > 500 {
+		rawSnippet = rawSnippet[:500] + "... [truncated]"
+	}
 
 	var lastRustError *Diagnostic
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		// Fast-path: skip lines that can't possibly match any pattern.
+		// strings.Contains is ~100x faster than regex on non-matching lines.
+		hasGoFail := strings.Contains(line, "--- FAIL:")
+		hasGoSuffix := strings.Contains(line, ".go:")
+		hasPyFile := strings.Contains(line, "File \"")
+		hasRustErr := strings.Contains(line, "error[")
+		hasRustLoc := lastRustError != nil && strings.Contains(line, "-->")
+
 		// Go Test Fail
-		if matches := goFailRegex.FindStringSubmatch(line); len(matches) > 1 {
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity:  "error",
-				Message:   line,
-				RawOutput: output,
-			})
+		if hasGoFail {
+			if matches := goFailRegex.FindStringSubmatch(line); len(matches) > 1 {
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity:  "error",
+					Message:   line,
+					RawOutput: rawSnippet,
+				})
+			}
 		}
 
 		// Go Compile Error
-		if matches := goErrorRegex.FindStringSubmatch(line); len(matches) > 4 {
-			lineNum := 0
-			colNum := 0
-			fmt.Sscanf(matches[2], "%d", &lineNum)
-			fmt.Sscanf(matches[3], "%d", &colNum)
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: "error",
-				FilePath: matches[1],
-				Line:     lineNum,
-				Column:   colNum,
-				Message:  matches[4],
-			})
+		if hasGoSuffix {
+			if matches := goErrorRegex.FindStringSubmatch(line); len(matches) > 4 {
+				lineNum := 0
+				colNum := 0
+				fmt.Sscanf(matches[2], "%d", &lineNum)
+				fmt.Sscanf(matches[3], "%d", &colNum)
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity: "error",
+					FilePath: matches[1],
+					Line:     lineNum,
+					Column:   colNum,
+					Message:  matches[4],
+				})
+			}
 		}
 
 		// Python Traceback
-		if matches := pyErrorRegex.FindStringSubmatch(line); len(matches) > 3 {
-			lineNum := 0
-			fmt.Sscanf(matches[2], "%d", &lineNum)
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: "error",
-				FilePath: matches[1],
-				Line:     lineNum,
-				Message:  "Python error in " + matches[3],
-			})
+		if hasPyFile {
+			if matches := pyErrorRegex.FindStringSubmatch(line); len(matches) > 3 {
+				lineNum := 0
+				fmt.Sscanf(matches[2], "%d", &lineNum)
+				diagnostics = append(diagnostics, Diagnostic{
+					Severity: "error",
+					FilePath: matches[1],
+					Line:     lineNum,
+					Message:  "Python error in " + matches[3],
+				})
+			}
 		}
 
 		// Rust Error
-		if matches := rustErrorRegex.FindStringSubmatch(line); len(matches) > 2 {
-			lastRustError = &Diagnostic{
-				Severity: "error",
-				Code:     matches[1],
-				Message:  matches[2],
+		if hasRustErr {
+			if matches := rustErrorRegex.FindStringSubmatch(line); len(matches) > 2 {
+				lastRustError = &Diagnostic{
+					Severity: "error",
+					Code:     matches[1],
+					Message:  matches[2],
+				}
 			}
 		}
-		if lastRustError != nil {
+		if hasRustLoc {
 			if matches := rustLocRegex.FindStringSubmatch(line); len(matches) > 3 {
 				lineNum := 0
 				colNum := 0

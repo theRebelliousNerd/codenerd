@@ -355,3 +355,196 @@ func TestAPISchedulerGap_DurationOverflow(t *testing.T) {
 	}
 	scheduler.ReleaseAPISlot("test")
 }
+
+// ---------- Streaming Gaps ----------
+
+// mockStreamingClient implements llmStreamingChannels for streaming tests.
+type mockStreamingClient struct {
+	mockLLMClient
+	streamFunc func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error)
+}
+
+func (m *mockStreamingClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	if m.streamFunc != nil {
+		return m.streamFunc(ctx, systemPrompt, userPrompt, enableThinking)
+	}
+	// Default: return immediately-closed channels
+	content := make(chan string)
+	errCh := make(chan error)
+	close(content)
+	close(errCh)
+	return content, errCh
+}
+
+// TestAPISchedulerGap_Streaming_NonStreamingClient tests streaming on a client that doesn't support it.
+func TestAPISchedulerGap_Streaming_NonStreamingClient(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	// mockLLMClient does NOT implement llmStreamingChannels
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    &mockLLMClient{},
+	}
+
+	ctx := context.Background()
+	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+
+	// Content channel should be closed immediately
+	_, ok := <-contentCh
+	if ok {
+		t.Error("Expected content channel to be closed for non-streaming client")
+	}
+
+	// Error channel should contain ErrStreamingNotSupported
+	err, ok := <-errCh
+	if !ok {
+		t.Fatal("Expected error channel to have an error before closing")
+	}
+	if err != ErrStreamingNotSupported {
+		t.Errorf("Expected ErrStreamingNotSupported, got: %v", err)
+	}
+}
+
+// TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying tests when the underlying
+// streamer returns nil channels (edge case).
+// FIX VERIFIED: The forwarding goroutine now treats nil channels as immediately closed,
+// so it exits cleanly, closes output channels, and releases the API slot.
+func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error) {
+			return nil, nil
+		},
+	}
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    mock,
+	}
+
+	ctx := context.Background()
+	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+
+	// With the fix, nil channels are treated as immediately closed.
+	// The forwarding goroutine should exit cleanly and close output channels.
+
+	// Content channel should be closed (drain it)
+	for range contentCh {
+		t.Error("Expected no content from nil underlying channel")
+	}
+
+	// Error channel should be closed (drain it)
+	for range errCh {
+		// No error expected — nil channels just mean empty stream
+	}
+
+	// Verify slot was released by acquiring it again
+	slotCtx, slotCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer slotCancel()
+	err := scheduler.AcquireAPISlot(slotCtx, "test")
+	if err != nil {
+		t.Fatalf("Slot was leaked after nil-channel streaming: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+}
+
+
+// TestAPISchedulerGap_Streaming_RapidCancel tests that the forwarding goroutine
+// doesn't leak when context is cancelled while the underlying stream is active.
+func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
+	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
+	scheduler.RegisterShard("test", "test")
+
+	// Underlying stream that sends data slowly
+	mock := &mockStreamingClient{
+		streamFunc: func(ctx context.Context, sys, usr string, think bool) (<-chan string, <-chan error) {
+			content := make(chan string)
+			errCh := make(chan error)
+			go func() {
+				defer close(content)
+				defer close(errCh)
+				for i := 0; i < 100; i++ {
+					select {
+					case content <- fmt.Sprintf("chunk_%d", i):
+						time.Sleep(10 * time.Millisecond)
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+			return content, errCh
+		},
+	}
+
+	call := &ScheduledLLMCall{
+		Scheduler: scheduler,
+		ShardID:   "test",
+		Client:    mock,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
+
+	// Read a few chunks then cancel rapidly
+	chunkCount := 0
+	for chunk := range contentCh {
+		chunkCount++
+		_ = chunk
+		if chunkCount >= 3 {
+			cancel()
+			break
+		}
+	}
+
+	// Drain remaining to avoid goroutine leak
+	for range contentCh {
+	}
+	for range errCh {
+	}
+
+	// Verify slot was released by acquiring it again
+	freshCtx, freshCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer freshCancel()
+	err := scheduler.AcquireAPISlot(freshCtx, "test")
+	if err != nil {
+		t.Fatalf("Slot was leaked after rapid cancel: %v", err)
+	}
+	scheduler.ReleaseAPISlot("test")
+
+	t.Logf("Rapid cancel: read %d chunks before cancellation, slot released cleanly", chunkCount)
+}
+
+// TestAPISchedulerGap_GlobalConfig_SyncOnce tests that ConfigureGlobalAPIScheduler
+// is ignored after GetAPIScheduler has been called (sync.Once semantics).
+func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
+	// NOTE: This test operates on package-level globals. The sync.Once means
+	// GetAPIScheduler() will only initialize once per process. After that,
+	// ConfigureGlobalAPIScheduler is a no-op. We can verify the no-op path.
+	scheduler := GetAPIScheduler()
+	if scheduler == nil {
+		t.Fatal("GetAPIScheduler returned nil")
+	}
+
+	originalMax := scheduler.config.MaxConcurrentAPICalls
+
+	// Attempt to reconfigure — should be ignored because sync.Once already fired
+	ConfigureGlobalAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: originalMax + 100, // Try to change it
+		SlotAcquireTimeout:   99 * time.Second,
+	})
+
+	// Get again — should be same instance
+	scheduler2 := GetAPIScheduler()
+	if scheduler2 != scheduler {
+		t.Error("GetAPIScheduler returned different instance after reconfigure attempt")
+	}
+	if scheduler2.config.MaxConcurrentAPICalls != originalMax {
+		t.Errorf("Config was modified despite sync.Once guard: expected %d, got %d",
+			originalMax, scheduler2.config.MaxConcurrentAPICalls)
+	}
+}
