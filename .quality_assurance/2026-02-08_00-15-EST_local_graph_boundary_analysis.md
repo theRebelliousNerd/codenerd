@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: Boundary Value Analysis of Knowledge Graph (Shard C)
 
 **Date:** 2026-02-08

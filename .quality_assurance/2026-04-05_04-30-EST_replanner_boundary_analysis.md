@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Replanner Subsystem: Boundary Value Analysis and Negative Testing Journal
 **Date:** 2026-04-05 04:30:00 EST
 **Component:** `Replanner` (`internal/campaign/replan.go`, `internal/campaign/replan_test.go`)

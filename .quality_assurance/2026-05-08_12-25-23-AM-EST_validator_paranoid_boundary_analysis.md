@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Boundary Value Analysis and Negative Testing Journal
 ## Component: ParanoidFileValidator (`internal/core/validator_paranoid.go`)
 ## Date: 2026-05-08 12:25:23 AM EST

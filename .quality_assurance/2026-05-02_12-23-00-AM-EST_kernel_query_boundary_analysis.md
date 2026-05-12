@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Kernel Query Subsystem Boundary Value Analysis & Negative Testing Journal
 **Date:** 2026-05-02_12-23-00-AM-EST
 **Target Subsystem:** `internal/core/kernel_query.go`

@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # VirtualStore Boundary Value Analysis and Negative Testing Journal
 
 **Date:** 2026-04-28

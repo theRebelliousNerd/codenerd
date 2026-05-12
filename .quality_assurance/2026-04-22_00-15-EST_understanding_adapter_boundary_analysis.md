@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Quality Assurance Journal: Boundary Value Analysis and Negative Testing
 ## Subsystem: Perception Transducer (Understanding Adapter)
 **Date:** April 22, 2026

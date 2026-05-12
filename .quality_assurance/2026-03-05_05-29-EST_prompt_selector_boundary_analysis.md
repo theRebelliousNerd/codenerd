@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing: internal/prompt/selector.go
 
 ## 1. Executive Summary

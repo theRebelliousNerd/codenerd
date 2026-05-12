@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Quality Assurance Journal: Boundary Value Analysis & Negative Testing
 ## Subsystem: ExecutionValidator (internal/core/validator_exec.go)
 ## Date: 2026-04-27 04:14:58 AM EST

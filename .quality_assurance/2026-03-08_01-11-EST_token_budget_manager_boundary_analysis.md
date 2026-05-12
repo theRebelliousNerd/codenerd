@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Quality Assurance Journal
 **Date/Time:** 2026-03-08 01:11:39 EST
 **Subsystem:** JIT Prompt Compiler - Token Budget Manager (`internal/prompt/budget.go`)

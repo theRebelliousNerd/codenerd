@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA NEGATIVE TESTING GAPS: MCP Tool Analyzer Subsystem
 **Date**: 2026-03-27_04-22-EST
 **Component**: `internal/mcp/analyzer.go`

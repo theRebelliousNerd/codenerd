@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Deep Dive Analysis of Perception Layer Transducers: UnderstandingTransducer & LLMTransducer
 Date: 2026-02-12 00:05 EST
 Author: QA Automation Engineer (Jules)

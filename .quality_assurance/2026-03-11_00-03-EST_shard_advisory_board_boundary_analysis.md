@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Shard Advisory Board Boundary Value Analysis and Negative Testing Journal
 
 ## Metadata

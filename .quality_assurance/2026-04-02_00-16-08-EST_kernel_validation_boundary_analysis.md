@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Boundary Value Analysis & Negative Testing: Kernel Validation Subsystem
 
 **Date & Time:** 2026-04-02_00-16-08-EST

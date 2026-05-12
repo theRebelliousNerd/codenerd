@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis & Negative Testing Journal
 ## Subsystem: Campaign Orchestrator Task Handlers (`internal/campaign/orchestrator_task_handlers.go`)
 **Date/Time:** 2026-03-31 12:00 EST

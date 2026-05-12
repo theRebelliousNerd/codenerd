@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Quality Assurance Journal: Assault Tasks Boundary Value Analysis and Negative Testing
 
 **Date:** April 30, 2026

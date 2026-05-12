@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Campaign Replanner - Boundary Value Analysis & Negative Testing
 
 Date: 2026-03-02 05:07 EST

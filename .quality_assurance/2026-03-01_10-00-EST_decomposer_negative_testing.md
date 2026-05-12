@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal Entry: Campaign Decomposer Boundary Analysis
 **Date:** 2026-02-28 00:18 EST
 **Author:** Jules (QA Automation Engineer)

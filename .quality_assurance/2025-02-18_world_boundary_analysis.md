@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: Deep Boundary Value Analysis of Holographic World Model
 
 **Date:** 2025-02-18 09:30 EST

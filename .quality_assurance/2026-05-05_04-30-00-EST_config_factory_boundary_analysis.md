@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: ConfigFactory Boundary Value Analysis and Negative Testing
 
 **Date:** 2026-05-05 04:30:00 EST

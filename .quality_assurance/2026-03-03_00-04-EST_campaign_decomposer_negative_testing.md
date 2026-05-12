@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Campaign Decomposer - Boundary Value Analysis & Negative Testing
 
 Date: 2026-03-03 00:04 EST

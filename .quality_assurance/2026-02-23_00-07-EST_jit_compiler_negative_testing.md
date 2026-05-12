@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: JIT Prompt Compiler - Negative Testing & Boundary Analysis
 # Date: 2026-02-23 00:07 EST
 # Author: QA Automation Engineer (Jules)

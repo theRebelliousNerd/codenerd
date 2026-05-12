@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Boundary Value Analysis and Negative Testing Journal
 
 **Date:** 2026-05-09 04:30:00 EST

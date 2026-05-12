@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # ConfigFactory Boundary Value Analysis and Negative Testing
 
 ## Subsystem: ConfigFactory (`internal/prompt/config_factory.go`)

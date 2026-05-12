@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing Journal
 ## Component: ConfigFactory (`internal/prompt/config_factory.go`)
 ## Date: 2026-03-13 04:30 EST

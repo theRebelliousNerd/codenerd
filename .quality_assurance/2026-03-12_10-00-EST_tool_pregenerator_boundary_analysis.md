@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Boundary Value Analysis and Negative Testing: Tool Pregenerator Subsystem
 
 **Date:** 2026-03-12

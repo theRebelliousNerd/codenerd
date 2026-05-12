@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Risk Scoring Subsystem Boundary Value Analysis and Negative Testing Journal
 **Date:** 2026-04-14_00-18-00-EST
 **Subsystem:** Campaign Risk Scoring (`internal/campaign/risk_scoring.go`, `internal/campaign/risk_scoring_test.go`)

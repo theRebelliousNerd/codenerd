@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Decomposer Boundary Value Analysis & Negative Testing Journal
 
 ## System Overview

@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing: JIT Prompt Compiler FinalAssembler
 **Date:** 2026-03-15 00:08:00 EST
 **Subsystem:** Prompt Assembler (`internal/prompt/assembler.go`, `internal/prompt/assembler_test.go`)

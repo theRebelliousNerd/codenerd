@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: Boundary Value Analysis of JIT Prompt Compiler
 **Date:** 2026-01-29 05:00 EST
 **Author:** Jules (QA Automation Engineer)

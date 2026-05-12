@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal Entry: Campaign Orchestrator Task Handlers Boundary Analysis
 **Date:** 2026-02-18 10:00 EST
 **Author:** Jules (QA Automation Engineer)

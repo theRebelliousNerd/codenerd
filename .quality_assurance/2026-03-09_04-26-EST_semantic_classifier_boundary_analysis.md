@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing Journal
 ## Subsystem: SemanticClassifier (internal/perception/semantic_classifier.go)
 **Date:** 2026-03-09_04-26-EST

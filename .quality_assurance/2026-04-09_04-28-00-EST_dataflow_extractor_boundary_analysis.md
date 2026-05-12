@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Journal: Boundary Value Analysis & Negative Testing
 ## Subsystem: World / DataFlowExtractor (`internal/world/dataflow.go`)
 **Date & Time**: 2026-04-09 04:28:00 EST

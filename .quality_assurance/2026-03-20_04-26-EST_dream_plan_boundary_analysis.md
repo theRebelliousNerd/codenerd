@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # QA Automation Journal: Boundary Value Analysis & Negative Testing
 **Date:** March 20, 2026
 **Time:** 04:26 AM EST

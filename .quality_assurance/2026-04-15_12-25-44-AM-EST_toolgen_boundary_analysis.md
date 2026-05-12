@@ -1,3 +1,7 @@
+---
+remediated: true
+remediated_date: 2026-05-12
+---
 # Quality Assurance Journal: Boundary Value Analysis & Negative Testing
 ## Subsystem: ToolGenerator (Autopoiesis / Ouroboros Loop)
 **Date:** April 15, 2026

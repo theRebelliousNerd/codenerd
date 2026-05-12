@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing: Semantic Compressor
 
 **Date:** 2026-05-06 00:03:20 EST

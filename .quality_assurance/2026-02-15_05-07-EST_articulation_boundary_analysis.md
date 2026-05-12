@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Articulation Subsystem Boundary Value Analysis
 
 **Date:** 2026-02-15

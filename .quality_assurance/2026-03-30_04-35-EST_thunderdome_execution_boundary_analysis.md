@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Quality Assurance Journal: Thunderdome Execution Boundary Analysis
 
 **Date:** 2026-03-30

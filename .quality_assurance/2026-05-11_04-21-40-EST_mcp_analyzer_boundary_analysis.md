@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # MCP Analyzer Boundary Value Analysis & Negative Testing Report
 
 **Date:** May 11, 2026, 04:21:40 EST

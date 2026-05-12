@@ -1,3 +1,6 @@
+---
+remediated: false
+---
 # Boundary Value Analysis and Negative Testing: Context Pager
 
 ## System Under Test: `internal/campaign/context_pager.go`
