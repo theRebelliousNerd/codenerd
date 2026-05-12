@@ -2,6 +2,9 @@ package perception
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 
 	"codenerd/internal/core"
@@ -9,15 +12,21 @@ import (
 
 // mockKernel implements core.Kernel for testing.
 type mockKernel struct {
-	assertedFacts []core.Fact
+	mu                  sync.Mutex
+	assertedFacts       []core.Fact
+	retractedPredicates []string
 }
 
 func (m *mockKernel) LoadFacts(facts []core.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.assertedFacts = append(m.assertedFacts, facts...)
 	return nil
 }
 
 func (m *mockKernel) Query(predicate string) ([]core.Fact, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var results []core.Fact
 	for _, f := range m.assertedFacts {
 		if f.Predicate == predicate {
@@ -32,16 +41,23 @@ func (m *mockKernel) QueryAll() (map[string][]core.Fact, error) {
 }
 
 func (m *mockKernel) Assert(fact core.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.assertedFacts = append(m.assertedFacts, fact)
 	return nil
 }
 
 func (m *mockKernel) AssertBatch(facts []core.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.assertedFacts = append(m.assertedFacts, facts...)
 	return nil
 }
 
 func (m *mockKernel) Retract(predicate string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retractedPredicates = append(m.retractedPredicates, predicate)
 	return nil
 }
 
@@ -57,7 +73,10 @@ func (m *mockKernel) AppendPolicy(policy string) {
 }
 
 func (m *mockKernel) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.assertedFacts = nil
+	m.retractedPredicates = nil
 }
 
 func (m *mockKernel) RemoveFactsByPredicateSet(map[string]struct{}) error { return nil }
@@ -289,34 +308,132 @@ func TestLearnedCorpusStore_Add_DimensionMismatch(t *testing.T) {
 // MISSING TEST COVERAGE (BOUNDARY ANALYSIS & NEGATIVE TESTING)
 // =============================================================================
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Classify with empty string
-// GAP: Empty string or purely whitespace input directly embeds and can cause NaN
-// similarity computation and division by zero.
-// SETUP: Call sc.Classify(ctx, "   ").
-// EXPECTED: Should return early with nil, nil instead of attempting to embed.
+// TEST_GAP: Null/Undefined/Empty: Classify with empty string
+func TestSemanticClassifier_EmptyInput(t *testing.T) {
+	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, nil)
+	matches, err := sc.Classify(context.Background(), "   ")
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if matches != nil {
+		t.Errorf("Expected nil matches for empty string, got %v", matches)
+	}
+}
 
-// TODO: TEST_GAP: Type Coercion: mergeResults negative cfg.TopK
-// GAP: SemanticConfig{TopK: -5} causes mergeResults to panic when slicing deduped[:maxResults].
-// SETUP: Call sc.SetConfig(SemanticConfig{TopK: -5}) and search.
-// EXPECTED: Should gracefully clamp TopK or return an error during SetConfig.
+// TEST_GAP: Type Coercion: mergeResults negative cfg.TopK
+func TestSemanticClassifier_NegativeTopK(t *testing.T) {
+	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, nil)
+	cfg := DefaultSemanticConfig()
+	cfg.TopK = -5
+	sc.SetConfig(cfg)
+	// should not panic
+	merged := sc.mergeResults([]SemanticMatch{{TextContent: "a", Similarity: 0.9}}, []SemanticMatch{{TextContent: "b", Similarity: 0.8}}, cfg)
+	if len(merged) != 2 {
+		t.Errorf("Expected 2 results, got %d", len(merged))
+	}
+}
 
-// TODO: TEST_GAP: User Request Extremes: Massive Input Exhaustion
-// GAP: Classify does not truncate input, sending up to 50MB directly to embedding engine.
-// SETUP: Call sc.Classify(ctx, strings.Repeat("a", 10000000)).
-// EXPECTED: Input should be defensively truncated (e.g. 2048 chars) before embedding.
+type mockEmbedEngine struct {
+	mu        sync.Mutex
+	lastInput string
+}
+func (m *mockEmbedEngine) Name() string { return "mock" }
+func (m *mockEmbedEngine) Dimensions() int { return 3072 }
+func (m *mockEmbedEngine) Embed(ctx context.Context, text string) ([]float32, error) {
+	m.mu.Lock()
+	m.lastInput = text
+	m.mu.Unlock()
+	return make([]float32, 3072), nil
+}
+func (m *mockEmbedEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) { return nil, nil }
 
-// TODO: TEST_GAP: State Conflicts: LoadFromKernel Ghost Duplication Memory Leak
-// GAP: Calling EmbeddedCorpusStore.LoadFromKernel repeatedly appends to s.entries without clearing.
-// SETUP: Hydrate embedded store from mock kernel multiple times.
-// EXPECTED: len(s.entries) should remain constant, not multiply by N.
+// TEST_GAP: User Request Extremes: Massive Input Exhaustion
+func TestSemanticClassifier_MassiveInput(t *testing.T) {
+	engine := &mockEmbedEngine{}
+	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, engine)
+	
+	massiveInput := strings.Repeat("A", 100000)
+	_, _ = sc.ClassifyWithoutInjection(context.Background(), massiveInput)
+	
+	if len(engine.lastInput) > 40000 {
+		t.Errorf("Input was not truncated, length is %d", len(engine.lastInput))
+	}
+}
 
-// TODO: TEST_GAP: Type Coercion: Target Loss of MangleAtom Identity
-// GAP: intent_definition Mangle atoms for Target are cast to string by argToString,
-// and asserted back into the kernel as strings, violating Mangle strict typing.
-// SETUP: Kernel returns intent_definition with a MangleAtom Target (e.g. /codebase).
-// EXPECTED: When injected via semantic_match, Target should retain core.MangleAtom type.
+// TEST_GAP: State Conflicts: LoadFromKernel Ghost Duplication Memory Leak
+func TestEmbeddedCorpusStore_GhostDuplication(t *testing.T) {
+	store, _ := NewEmbeddedCorpusStore(3072)
+	kernel := &mockKernel{
+		assertedFacts: []core.Fact{
+			{Args: []interface{}{"phrase", "/verb"}},
+		},
+	}
+	engine := &mockEmbedEngine{}
+	
+	_ = store.LoadFromKernel(context.Background(), kernel, engine)
+	count1 := len(store.entries)
+	_ = store.LoadFromKernel(context.Background(), kernel, engine)
+	count2 := len(store.entries)
+	
+	if count1 != count2 {
+		t.Errorf("Expected entries to not duplicate, got %d and %d", count1, count2)
+	}
+}
 
-// TODO: TEST_GAP: State Conflicts: Semantic Match Accumulation
-// GAP: Semantic matches accumulate in the kernel without retraction, polluting downstream rules.
-// SETUP: Call Classify twice sequentially with different intents.
-// EXPECTED: The previous semantic_match facts must be retracted before asserting new ones.
+// TEST_GAP: Type Coercion: Target Loss of MangleAtom Identity
+func TestSemanticClassifier_TargetMangleAtom(t *testing.T) {
+	kernel := &mockKernel{}
+	sc := NewSemanticClassifier(kernel, nil, nil, nil)
+	
+	matches := []SemanticMatch{
+		{TextContent: "do", Verb: "/fix", Target: "/codebase", Similarity: 0.8},
+	}
+	sc.injectFacts("test", matches)
+	
+	if len(kernel.assertedFacts) == 0 {
+		t.Fatal("No facts asserted")
+	}
+	fact := kernel.assertedFacts[0]
+	targetArg := fact.Args[3]
+	if _, ok := targetArg.(core.MangleAtom); !ok {
+		t.Errorf("Expected core.MangleAtom for target starting with '/', got %T", targetArg)
+	}
+}
+
+// TEST_GAP: State Conflicts: Semantic Match Accumulation
+func TestSemanticClassifier_StatePollution(t *testing.T) {
+	kernel := &mockKernel{}
+	sc := NewSemanticClassifier(kernel, nil, nil, nil)
+	
+	matches := []SemanticMatch{
+		{TextContent: "do", Verb: "/fix", Similarity: 0.8},
+	}
+	sc.injectFacts("test", matches)
+	
+	found := false
+	for _, p := range kernel.retractedPredicates {
+		if p == "semantic_match" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected 'semantic_match' to be retracted, got %v", kernel.retractedPredicates)
+	}
+}
+
+// TEST_GAP: State Conflicts: Concurrency lock testing
+func TestSemanticClassifier_Concurrency(t *testing.T) {
+	store, _ := NewEmbeddedCorpusStore(3072)
+	sc := NewSemanticClassifier(&mockKernel{}, store, nil, &mockEmbedEngine{})
+	
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			sc.Classify(context.Background(), fmt.Sprintf("test %d", id))
+		}(i)
+	}
+	wg.Wait()
+}

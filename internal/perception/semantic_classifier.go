@@ -18,7 +18,9 @@ package perception
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"sync"
 
 	"codenerd/internal/config"
@@ -241,6 +243,10 @@ func (sc *SemanticClassifier) SetConfig(cfg SemanticConfig) {
 // Classify performs semantic classification and injects facts into kernel.
 // Returns the merged matches for debugging/logging.
 func (sc *SemanticClassifier) Classify(ctx context.Context, input string) ([]SemanticMatch, error) {
+	if len(strings.TrimSpace(input)) == 0 {
+		return nil, nil
+	}
+
 	timer := logging.StartTimer(logging.CategoryPerception, "SemanticClassifier.Classify")
 	defer timer.Stop()
 
@@ -261,6 +267,15 @@ func (sc *SemanticClassifier) Classify(ctx context.Context, input string) ([]Sem
 // ClassifyWithoutInjection performs classification without kernel injection.
 // Useful for testing or preview mode.
 func (sc *SemanticClassifier) ClassifyWithoutInjection(ctx context.Context, input string) ([]SemanticMatch, error) {
+	if len(strings.TrimSpace(input)) == 0 {
+		return nil, nil
+	}
+
+	const maxClassifyBytes = 32768
+	if len(input) > maxClassifyBytes {
+		input = input[:maxClassifyBytes] + "... [Input truncated]"
+	}
+
 	timer := logging.StartTimer(logging.CategoryPerception, "SemanticClassifier.ClassifyWithoutInjection")
 	defer timer.Stop()
 
@@ -396,6 +411,9 @@ func (sc *SemanticClassifier) mergeResults(embedded, learned []SemanticMatch, cf
 	}
 
 	// Limit to 2x TopK
+	if cfg.TopK < 0 {
+		cfg.TopK = 5
+	}
 	maxResults := cfg.TopK * 2
 	if len(deduped) > maxResults {
 		deduped = deduped[:maxResults]
@@ -437,19 +455,32 @@ func (sc *SemanticClassifier) injectFacts(input string, matches []SemanticMatch)
 		return
 	}
 
+	// Prevent state accumulation from previous turns
+	_ = kernel.Retract("semantic_match")
+
 	facts := make([]core.Fact, 0, len(matches))
 	for _, match := range matches {
+		var targetArg interface{} = match.Target
+		if strings.HasPrefix(match.Target, "/") {
+			targetArg = core.MangleAtom(match.Target)
+		}
+
+		sim := match.Similarity
+		if math.IsNaN(sim) {
+			sim = 0
+		}
+		simInt := int64(math.Max(0, math.Min(100, sim*100)))
+
 		// semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
-		// Note: Similarity is scaled to 0-100 integer for Mangle compatibility
 		facts = append(facts, core.Fact{
 			Predicate: "semantic_match",
 			Args: []interface{}{
 				input,
 				match.TextContent,
 				core.MangleAtom(match.Verb),
-				match.Target,
+				targetArg,
 				int64(match.Rank),
-				int64(match.Similarity * 100), // 0-100 scale
+				simInt,
 			},
 		})
 	}
@@ -577,6 +608,12 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	if s == nil || kernel == nil || engine == nil {
 		return nil
 	}
+
+	// Prevent ghost duplication
+	s.mu.Lock()
+	s.entries = make([]CorpusEntry, 0)
+	s.embeddings = make(map[string][]float32)
+	s.mu.Unlock()
 
 	facts, err := kernel.Query("intent_definition")
 	if err != nil {

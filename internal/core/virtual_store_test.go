@@ -1,10 +1,5 @@
 package core
 
-// TODO: TEST_GAP: Null/Undefined - Verify RouteAction handles nil contexts and missing/empty ActionID or Target values safely.
-// TODO: TEST_GAP: Type Coercion - Verify parseActionFact safely handles incorrect types (e.g., float64, boolean) for ActionID, Type, and payload contents.
-// TODO: TEST_GAP: User Extremes - Verify path normalization/canonicalization limits and extremely long targets do not bypass safety checks.
-// TODO: TEST_GAP: User Extremes - Verify RouteAction rejects or safely handles massive JSON payload maps without excessive memory growth.
-// TODO: TEST_GAP: State Conflicts - Verify concurrent access to mcpClients, permission cache rebuilds, and DisableBootGuard toggling during active routing is race-free.
 
 import (
 	"context"
@@ -380,36 +375,21 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 // Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Vector A1] Verify parseActionFact handles action.Args == nil gracefully without panicking.
-// TODO: TEST_GAP: [Vector A2] Verify RouteAction with req.Target == "" for shell commands behaves deterministically.
-// TODO: TEST_GAP: [Vector A3] Verify timeoutSecondsFromActionRequest handles missing or empty keys gracefully.
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Vector B1] Verify timeoutSecondsFromActionRequest behavior with NaN and Inf float payload values.
-// TODO: TEST_GAP: [Vector B2] Verify parseActionFact behavior when ActionType is an unexpected Mangle AST node instead of a string.
-// TODO: TEST_GAP: [Vector B3] Verify JSON payload integer/float coercion doesn't break strictly typed handlers.
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Vector C1] Verify ActionExecCmd gracefully truncates stdout payloads exceeding 100MB to prevent OOM.
-// TODO: TEST_GAP: [Vector C2] Verify GlobTool handles massive directory structures or circular symlinks with context cancellation.
-// TODO: TEST_GAP: [Vector C3] Verify maybePruneActionLogs performance when execution_result fact count is > 1,000,000.
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts & Concurrency)
 // -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: [Vector D1] Verify concurrent RouteAction calls and SetToolExecutor do not trigger deadlocks.
-// TODO: TEST_GAP: [Vector D2] Verify concurrent executions of maybePruneActionLogs (race condition in debounce logic).
-// TODO: TEST_GAP: [Vector D3] Verify TOCTOU vulnerabilities on file writes via the raw os.WriteFile fallback.
-// TODO: TEST_GAP: [Vector D4] Verify Context cancellation propagates to spawned child processes correctly, preventing zombies.
-// TODO: TEST_GAP: [Vector D5] Verify filterCallerEnv rejects extremely long PATH strings to prevent buffer issues in the executor.
-// TODO: TEST_GAP: [Vector D6] Verify cross-platform path behavior is asserted correctly in tests.
 
 // =============================================================================
 // PRE-CHAOS HARDENING TESTS (Phase 4)

@@ -22,8 +22,7 @@ func (k *RealKernel) ValidateLearnedRule(ruleText string) error {
 	defer k.mu.RUnlock()
 
 	if k.schemaValidator == nil {
-		// Validator not initialized - allow (defensive)
-		return nil
+		return fmt.Errorf("schema validator uninitialized")
 	}
 
 	return k.schemaValidator.ValidateLearnedRule(ruleText)
@@ -36,7 +35,7 @@ func (k *RealKernel) ValidateLearnedRules(rules []string) []error {
 	defer k.mu.RUnlock()
 
 	if k.schemaValidator == nil {
-		return nil
+		return []error{fmt.Errorf("schema validator uninitialized")}
 	}
 
 	return k.schemaValidator.ValidateRules(rules)
@@ -48,7 +47,7 @@ func (k *RealKernel) ValidateLearnedProgram(programText string) error {
 	defer k.mu.RUnlock()
 
 	if k.schemaValidator == nil {
-		return nil
+		return fmt.Errorf("schema validator uninitialized")
 	}
 
 	return k.schemaValidator.ValidateProgram(programText)
@@ -200,12 +199,16 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 	if result.stats.InvalidRules > 0 && heal {
 		logging.Kernel("Self-healing: commented out %d invalid learned rules", result.stats.InvalidRules)
 
-		// Persist healed rules back to disk if we have a file path
+		// Persist healed rules back to disk atomically if we have a file path
 		if filePath != "" {
-			if err := os.WriteFile(filePath, []byte(result.healedText), 0644); err != nil {
-				logging.Get(logging.CategoryKernel).Error("Self-healing: failed to persist healed rules to %s: %v", filePath, err)
+			tmpPath := filePath + ".tmp"
+			if err := os.WriteFile(tmpPath, []byte(result.healedText), 0644); err != nil {
+				logging.Get(logging.CategoryKernel).Error("Self-healing: failed to write temp file %s: %v", tmpPath, err)
+			} else if err := os.Rename(tmpPath, filePath); err != nil {
+				os.Remove(tmpPath) // cleanup
+				logging.Get(logging.CategoryKernel).Error("Self-healing: failed to rename temp file to %s: %v", filePath, err)
 			} else {
-				logging.Kernel("Self-healing: persisted healed rules to %s", filePath)
+				logging.Kernel("Self-healing: persisted healed rules atomically to %s", filePath)
 			}
 		}
 	}
@@ -246,6 +249,8 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 	if len(parts) == 2 {
 		body := strings.TrimSpace(parts[1])
 		bodyLower := strings.ToLower(body)
+		bodyNoSpace := strings.ReplaceAll(bodyLower, " ", "")
+		bodyNoSpace = strings.ReplaceAll(bodyNoSpace, "\t", "")
 
 		// === UBIQUITOUS PREDICATES ===
 		// These predicates are always present or nearly always true
@@ -260,9 +265,9 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 		}
 
 		for _, pred := range ubiquitousPredicates {
-			if strings.Contains(body, pred) {
+			if strings.Contains(bodyNoSpace, strings.ToLower(pred)) {
 				// Single-predicate body with ubiquitous fact = infinite loop
-				predCount := strings.Count(body, "(")
+				predCount := strings.Count(bodyNoSpace, "(")
 				if predCount <= 1 {
 					return fmt.Sprintf("infinite loop risk: next_action depends solely on ubiquitous predicate '%s'", strings.TrimSuffix(pred, "("))
 				}

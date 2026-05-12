@@ -81,6 +81,15 @@ func (t *UnderstandingTransducer) SetKernel(kernel *core.RealKernel) {
 
 // initialize lazily creates the LLMTransducer with the classification prompt.
 func (t *UnderstandingTransducer) initialize(ctx context.Context) {
+	t.mu.RLock()
+	if t.llmTransducer != nil {
+		t.mu.RUnlock()
+		return
+	}
+	t.mu.RUnlock()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.llmTransducer != nil {
 		return
 	}
@@ -228,6 +237,24 @@ func computeStabilityScore(verbHistory []string) int {
 	return (matches * 100) / total
 }
 
+// sanitizeAtomString safely prepares an atom string by lowering and replacing invalid characters.
+func sanitizeAtomString(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var sb strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			sb.WriteRune(r)
+		} else if r == ' ' || r == '-' {
+			sb.WriteRune('_')
+		}
+	}
+	res := sb.String()
+	if res == "" {
+		return "unknown"
+	}
+	return res
+}
+
 // assertStabilityFacts asserts per-turn stability facts into the kernel and returns
 // whether the kernel authorized a bypass via llm_call_deferred().
 // verbHist and msgHist are snapshot copies passed by value to avoid locking.
@@ -253,7 +280,11 @@ func (t *UnderstandingTransducer) assertStabilityFacts(input string, prior *Unde
 	if prior != nil {
 		tx.Assert(core.Fact{
 			Predicate: "intent_prior",
-			Args:      []interface{}{"/" + strings.ToLower(prior.SemanticType), "/" + strings.ToLower(prior.ActionType), "/" + strings.ToLower(prior.Domain)},
+			Args: []interface{}{
+				"/" + sanitizeAtomString(prior.SemanticType),
+				"/" + sanitizeAtomString(prior.ActionType),
+				"/" + sanitizeAtomString(prior.Domain),
+			},
 		})
 	}
 
@@ -309,6 +340,12 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 			Category: "/query",
 			Response: "Input is empty",
 		}, nil
+	}
+
+	// Truncate extremely large input to prevent OOM/Payload Too Large
+	const maxInputLength = 50000
+	if len(input) > maxInputLength {
+		input = input[:maxInputLength] + "... [Input truncated due to length]"
 	}
 
 	// NERD-EVOLVE-START: stability_filter
@@ -370,7 +407,12 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	sessionCtx := types.GetSessionContext(ctx)
 	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, t.strategicContext)
 	if err != nil {
-		return Intent{}, fmt.Errorf("LLM classification failed: %w", err)
+		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %v", err)
+		return Intent{
+			Verb:     "/explain",
+			Category: "/query",
+			Response: fmt.Sprintf("I had trouble understanding that: %v", err),
+		}, nil
 	}
 
 	// GAP-018 FIX: Cache understanding for debugging

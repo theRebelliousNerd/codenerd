@@ -207,11 +207,15 @@ func (p *ToolPregenerator) PregenerateTools(ctx context.Context, gaps []ToolGap)
 		toGenerate = append(toGenerate, gap)
 	}
 
-	// Limit to max tools
-	if len(toGenerate) > p.config.MaxToolsToGenerate {
-		logging.Campaign("Limiting tool generation from %d to %d", len(toGenerate), p.config.MaxToolsToGenerate)
+	// Limit to max tools (clamp negative values to 0)
+	maxTools := p.config.MaxToolsToGenerate
+	if maxTools < 0 {
+		maxTools = 0
+	}
+	if len(toGenerate) > maxTools {
+		logging.Campaign("Limiting tool generation from %d to %d", len(toGenerate), maxTools)
 		// Keep highest priority gaps
-		toGenerate = toGenerate[:p.config.MaxToolsToGenerate]
+		toGenerate = toGenerate[:maxTools]
 	}
 
 	// Generate each tool
@@ -475,8 +479,19 @@ func (p *ToolPregenerator) generateTool(ctx context.Context, gap ToolGap) (*Gene
 	ctx, cancel := context.WithTimeout(ctx, p.config.GenerationTimeout)
 	defer cancel()
 
+	// Sanitize capability for safe ID construction (strip newlines, null bytes, control chars)
+	safeCap := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' || r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, gap.Capability)
+	if len(safeCap) > 64 {
+		safeCap = safeCap[:64]
+	}
+
 	tool := &GeneratedTool{
-		ID:          fmt.Sprintf("gen-%s-%d", gap.Capability, time.Now().Unix()),
+		ID:          fmt.Sprintf("gen-%s-%d", safeCap, time.Now().Unix()),
 		Name:        gap.Capability,
 		Purpose:     gap.Description,
 		GeneratedAt: time.Now(),

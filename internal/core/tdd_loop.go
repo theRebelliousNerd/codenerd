@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"regexp"
@@ -438,7 +439,6 @@ func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
 // generatePatch creates a patch to fix the issue using LLM.
 func (t *TDDLoop) generatePatch(ctx context.Context) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if t.llmClient == nil {
 		// Fallback for no LLM
@@ -452,13 +452,20 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 			}
 		}
 		t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{"patch_count": 1})
+		t.mu.Unlock()
 		return nil
+	}
+
+	// Truncate hypothesis to prevent token limits on extreme inputs
+	hypothesis := t.hypothesis
+	if len(hypothesis) > 10000 {
+		hypothesis = hypothesis[:10000] + "... (truncated)"
 	}
 
 	// Construct prompt for LLM
 	var sb strings.Builder
 	sb.WriteString("You are an expert software engineer fixing a bug.\n\n")
-	sb.WriteString("Hypothesis: " + t.hypothesis + "\n\n")
+	sb.WriteString("Hypothesis: " + hypothesis + "\n\n")
 	sb.WriteString("Diagnostics:\n")
 	for i, d := range t.diagnostics {
 		if i >= 5 {
@@ -472,6 +479,9 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 	sb.WriteString("NEW:\n<new_code>\n")
 	sb.WriteString("RATIONALE: <explanation>\n")
 
+	// Release lock during slow network I/O
+	t.mu.Unlock()
+
 	// Call LLM
 	resp, err := t.llmClient.Complete(ctx, sb.String())
 	if err != nil {
@@ -479,7 +489,18 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 	}
 
 	// Parse LLM response
-	t.patches = t.parseLLMPatch(resp)
+	patches := t.parseLLMPatch(resp)
+
+	// Re-acquire lock to mutate state
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Verify state hasn't changed dramatically while we were unlocked
+	if t.state != TDDStateGenerating {
+		return fmt.Errorf("TDD loop state changed from Generating to %s during LLM call, aborting patch application", t.state)
+	}
+
+	t.patches = patches
 
 	t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{
 		"patch_count": len(t.patches),
@@ -623,11 +644,17 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 // parseTestOutput parses test output into diagnostics.
 func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
-	lines := strings.Split(output, "\n")
+	
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	// Max line length up to 10MB to avoid ErrTooLong on minified files or large JSON
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	var lastRustError *Diagnostic
 
-	for _, line := range lines {
+	for scanner.Scan() {
+		line := scanner.Text()
+
 		// Go Test Fail
 		if matches := goFailRegex.FindStringSubmatch(line); len(matches) > 1 {
 			diagnostics = append(diagnostics, Diagnostic{

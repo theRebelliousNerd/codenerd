@@ -6,7 +6,9 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -357,10 +359,18 @@ func (g *IntelligenceGatherer) Gather(ctx context.Context, goal string, targetPa
 
 	// Use errgroup for parallel gathering with controlled concurrency
 	var mu sync.Mutex
+	var errorCount int
+	const maxGatherErrors = 100
 	addError := func(err string) {
 		mu.Lock()
-		report.GatheringErrors = append(report.GatheringErrors, err)
-		mu.Unlock()
+		defer mu.Unlock()
+		if errorCount < maxGatherErrors {
+			report.GatheringErrors = append(report.GatheringErrors, err)
+			errorCount++
+		} else if errorCount == maxGatherErrors {
+			report.GatheringErrors = append(report.GatheringErrors, fmt.Sprintf("... and further errors suppressed (limit %d reached)", maxGatherErrors))
+			errorCount++
+		}
 	}
 
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -665,6 +675,14 @@ func (g *IntelligenceGatherer) gatherKnowledgeGraph(ctx context.Context, report 
 
 	// Query for entities related to target paths
 	for _, path := range paths {
+		// Check context cancellation inside the loop to bail early on large path sets
+		if err := ctx.Err(); err != nil {
+			addError(fmt.Sprintf("Knowledge graph gathering cancelled mid-loop: %v", err))
+			break
+		}
+		if strings.TrimSpace(path) == "" {
+			continue // skip empty/whitespace paths
+		}
 		links, err := g.localStore.QueryLinks(path, "both")
 		if err != nil {
 			addError(fmt.Sprintf("Knowledge graph query failed for %s: %v", path, err))
@@ -1065,8 +1083,21 @@ func (g *IntelligenceGatherer) parseIntArg(arg interface{}) int {
 	case int:
 		return v
 	case int64:
+		// Bounds check to prevent platform-dependent overflow on 32-bit
+		if v > math.MaxInt32 {
+			return math.MaxInt32
+		}
+		if v < math.MinInt32 {
+			return math.MinInt32
+		}
 		return int(v)
 	case float64:
+		if v > float64(math.MaxInt32) {
+			return math.MaxInt32
+		}
+		if v < float64(math.MinInt32) {
+			return math.MinInt32
+		}
 		return int(v)
 	default:
 		return 0
@@ -1081,6 +1112,14 @@ func (g *IntelligenceGatherer) parseFloatArg(arg interface{}) float64 {
 		return float64(v)
 	case int:
 		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		// Handle string-encoded floats from Mangle (e.g., "0.95")
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+		return 0.0
 	default:
 		return 0.0
 	}
@@ -1168,6 +1207,14 @@ func (g *IntelligenceGatherer) truncateAdvice(advice string, maxLen int) string 
 	return advice[:maxLen] + "..."
 }
 
+// truncateField truncates a string to maxLen for safe context injection.
+func truncateField(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 // =============================================================================
 // FORMATTING FOR LLM CONTEXT
 // =============================================================================
@@ -1236,7 +1283,7 @@ func (r *IntelligenceReport) FormatForContext() string {
 				sb.WriteString(fmt.Sprintf("... and %d more tools\n", len(r.MCPToolsAvailable)-10))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("- `%s`: %s\n", t.Name, t.Description))
+			sb.WriteString(fmt.Sprintf("- `%s`: %s\n", t.Name, truncateField(t.Description, 2048)))
 		}
 		sb.WriteString("\n")
 	}
@@ -1252,7 +1299,7 @@ func (r *IntelligenceReport) FormatForContext() string {
 
 	// Expert Advice
 	if r.AdvisorySummary != "" {
-		sb.WriteString(r.AdvisorySummary)
+		sb.WriteString(truncateField(r.AdvisorySummary, 8192))
 		sb.WriteString("\n")
 	}
 

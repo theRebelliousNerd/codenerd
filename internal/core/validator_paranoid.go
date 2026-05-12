@@ -3,11 +3,11 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"time"
 )
@@ -15,37 +15,24 @@ import (
 // ParanoidFileValidator performs redundant, multi-method validation to eliminate false positives.
 // It requires ALL of the following to pass:
 // 1. File exists and is readable
-// 2. Content hash matches (SHA-256)
-// 3. File modification timestamp is fresh (within validation window)
-// 4. Double-read consistency (read twice, both match)
+// 2. Content hash matches (SHA-256 via streaming)
+// 3. File modification timestamp is fresh (within validation window and not negative)
+// 4. Double-read consistency (hash twice, both match)
 // 5. Size sanity check (non-zero, reasonable size)
-// 6. Content sampling (for large files, verify multiple points)
 type ParanoidFileValidator struct {
-	// MaxStaleSeconds - how old can the file be before we consider it stale
-	// Default: 30 seconds (should be recent after action)
-	MaxStaleSeconds int
-
-	// RequireDoubleRead - require two sequential reads to match
+	MaxStaleSeconds   int
 	RequireDoubleRead bool
-
-	// MinFileSizeBytes - reject empty or suspiciously small files
-	MinFileSizeBytes int64
-
-	// MaxFileSizeBytes - reject unreasonably large files (potential corruption)
-	MaxFileSizeBytes int64
-
-	// SamplePoints - for large files, how many random points to verify
-	SamplePoints int
+	MinFileSizeBytes  int64
+	MaxFileSizeBytes  int64
 }
 
 // NewParanoidFileValidator creates a paranoid validator with sensible defaults.
 func NewParanoidFileValidator() *ParanoidFileValidator {
 	return &ParanoidFileValidator{
-		MaxStaleSeconds:   30,  // File must be modified within 30s
-		RequireDoubleRead: true, // Always double-read for consistency
-		MinFileSizeBytes:  0,    // Allow empty files (will fail if expected content exists)
-		MaxFileSizeBytes:  100 * 1024 * 1024, // 100MB max
-		SamplePoints:      5,    // Check 5 random points in large files
+		MaxStaleSeconds:   30,
+		RequireDoubleRead: true,
+		MinFileSizeBytes:  0,
+		MaxFileSizeBytes:  100 * 1024 * 1024,
 	}
 }
 
@@ -54,6 +41,19 @@ func (v *ParanoidFileValidator) CanValidate(actionType ActionType) bool {
 	return actionType == ActionWriteFile ||
 		actionType == ActionFSWrite ||
 		actionType == ActionEditFile
+}
+
+// contextReader wraps an io.Reader to check context cancellation on every Read
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr *contextReader) Read(p []byte) (n int, err error) {
+	if err := cr.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cr.r.Read(p)
 }
 
 // Validate performs exhaustive validation with zero tolerance for ambiguity.
@@ -81,21 +81,20 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	// Get expected content from payload
-	expectedContent, hasExpected := req.Payload["content"].(string)
-	if !hasExpected {
-		// For edits, we might have old/new instead
+	var expectedContent string
+	if content, ok := req.Payload["content"]; ok {
+		expectedContent = fmt.Sprint(content)
+	} else if efs, ok := req.Payload["expected_final_state"]; ok {
+		expectedContent = fmt.Sprint(efs)
+	} else {
 		if req.Type == ActionEditFile {
-			// We can't do paranoid validation without expected content
-			// Fall through to other validators
 			return ValidationResult{
 				Verified:   true,
-				Confidence: 0.0, // Defer to other validators
+				Confidence: 0.0,
 				Method:     "paranoid_validation_skipped",
-				Details:    map[string]interface{}{"reason": "no expected content for edit operation"},
+				Details:    map[string]interface{}{"reason": "no expected content or final state for edit operation"},
 			}
 		}
-		// For writes, we should have content
 		return ValidationResult{
 			Verified:   false,
 			Confidence: 1.0,
@@ -114,9 +113,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file does not exist or cannot stat: %v", err),
-			Details: map[string]interface{}{
-				"check_failed": "existence",
-			},
+			Details:    map[string]interface{}{"check_failed": "existence"},
 		}
 	}
 
@@ -126,15 +123,26 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      "path is a directory, not a file",
-			Details: map[string]interface{}{
-				"check_failed": "directory_check",
-			},
+			Details:    map[string]interface{}{"check_failed": "directory_check"},
 		}
 	}
 
-	// CHECK 2: Timestamp freshness (file was modified recently)
+	// CHECK 2: Timestamp freshness
 	modTime := info.ModTime()
 	age := time.Since(modTime).Seconds()
+	if age < 0 {
+		return ValidationResult{
+			Verified:   false,
+			Confidence: 1.0,
+			Method:     "paranoid_validation",
+			Error:      fmt.Sprintf("file modification time is in the future (negative age): %.1fs", age),
+			Details: map[string]interface{}{
+				"check_failed": "timestamp_freshness",
+				"age_seconds":  age,
+				"modified_at":  modTime.Format(time.RFC3339),
+			},
+		}
+	}
 	if age > float64(v.MaxStaleSeconds) {
 		return ValidationResult{
 			Verified:   false,
@@ -142,10 +150,10 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file modification time is stale: %.1fs old (max: %ds)", age, v.MaxStaleSeconds),
 			Details: map[string]interface{}{
-				"check_failed":   "timestamp_freshness",
-				"age_seconds":    age,
-				"max_age":        v.MaxStaleSeconds,
-				"modified_at":    modTime.Format(time.RFC3339),
+				"check_failed": "timestamp_freshness",
+				"age_seconds":  age,
+				"max_age":      v.MaxStaleSeconds,
+				"modified_at":  modTime.Format(time.RFC3339),
 			},
 		}
 	}
@@ -195,25 +203,46 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		}
 	}
 
-	// CHECK 4: First read
-	firstRead, err := os.ReadFile(path)
+	// Helper for CHECK 4 & 5
+	hashFile := func(attempt string) (string, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+
+		h := sha256.New()
+		cr := &contextReader{ctx: ctx, r: f}
+		if _, err := io.Copy(h, cr); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(h.Sum(nil)), nil
+	}
+
+	sum := sha256.Sum256(expectedBytes)
+	expectedHash := hex.EncodeToString(sum[:])
+
+	// CHECK 4: First read & hash
+	firstHashStr, err := hashFile("first")
 	if err != nil {
+		if ctx.Err() != nil {
+			return ValidationResult{
+				Verified:   false,
+				Confidence: 1.0,
+				Method:     "paranoid_validation",
+				Error:      "context cancelled during first read",
+			}
+		}
 		return ValidationResult{
 			Verified:   false,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("cannot read file (first attempt): %v", err),
-			Details: map[string]interface{}{
-				"check_failed": "first_read",
-			},
+			Details:    map[string]interface{}{"check_failed": "first_read"},
 		}
 	}
 
-	// CHECK 5: Hash comparison (first read)
-	firstHash := sha256.Sum256(firstRead)
-	expectedHash := sha256.Sum256(expectedBytes)
-
-	if firstHash != expectedHash {
+	if firstHashStr != expectedHash {
 		return ValidationResult{
 			Verified:   false,
 			Confidence: 1.0,
@@ -221,52 +250,50 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Error:      "content hash mismatch (first read)",
 			Details: map[string]interface{}{
 				"check_failed":  "hash_first_read",
-				"expected_hash": hex.EncodeToString(expectedHash[:]),
-				"actual_hash":   hex.EncodeToString(firstHash[:]),
-				"size_match":    len(firstRead) == len(expectedBytes),
+				"expected_hash": expectedHash,
+				"actual_hash":   firstHashStr,
 			},
 		}
 	}
 
-	// CHECK 6: Double-read consistency (detect race conditions, NFS issues, etc.)
+	// CHECK 5: Double-read consistency
 	if v.RequireDoubleRead {
-		// Small delay to catch race conditions
 		time.Sleep(50 * time.Millisecond)
 
-		secondRead, err := os.ReadFile(path)
+		secondHashStr, err := hashFile("second")
 		if err != nil {
+			if ctx.Err() != nil {
+				return ValidationResult{
+					Verified:   false,
+					Confidence: 1.0,
+					Method:     "paranoid_validation",
+					Error:      "context cancelled during second read",
+				}
+			}
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 1.0,
 				Method:     "paranoid_validation",
 				Error:      fmt.Sprintf("cannot read file (second attempt): %v", err),
-				Details: map[string]interface{}{
-					"check_failed": "second_read",
-				},
+				Details:    map[string]interface{}{"check_failed": "second_read"},
 			}
 		}
 
-		// Both reads must be identical
-		if !bytes.Equal(firstRead, secondRead) {
-			secondHash := sha256.Sum256(secondRead)
+		if firstHashStr != secondHashStr {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 1.0,
 				Method:     "paranoid_validation",
 				Error:      "double-read inconsistency detected (file changed between reads)",
 				Details: map[string]interface{}{
-					"check_failed":    "double_read_consistency",
-					"first_read_len":  len(firstRead),
-					"second_read_len": len(secondRead),
-					"first_hash":      hex.EncodeToString(firstHash[:8]),
-					"second_hash":     hex.EncodeToString(secondHash[:8]),
+					"check_failed": "double_read_consistency",
+					"first_hash":   firstHashStr[:16],
+					"second_hash":  secondHashStr[:16],
 				},
 			}
 		}
 
-		// Second read must also match expected
-		secondHash := sha256.Sum256(secondRead)
-		if secondHash != expectedHash {
+		if secondHashStr != expectedHash {
 			return ValidationResult{
 				Verified:   false,
 				Confidence: 1.0,
@@ -274,48 +301,17 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				Error:      "content hash mismatch (second read)",
 				Details: map[string]interface{}{
 					"check_failed":  "hash_second_read",
-					"expected_hash": hex.EncodeToString(expectedHash[:]),
-					"actual_hash":   hex.EncodeToString(secondHash[:]),
+					"expected_hash": expectedHash,
+					"actual_hash":   secondHashStr,
 				},
 			}
 		}
 	}
 
-	// CHECK 7: Content sampling (for paranoia - verify random points)
-	if v.SamplePoints > 0 && len(firstRead) > 100 {
-		sampleSize := len(firstRead) / v.SamplePoints
-		for i := 0; i < v.SamplePoints; i++ {
-			offset := i * sampleSize
-			if offset >= len(firstRead) || offset >= len(expectedBytes) {
-				break
-			}
-			endOffset := offset + min(32, len(firstRead)-offset)
-			if endOffset > len(expectedBytes) {
-				endOffset = len(expectedBytes)
-			}
-
-			if !bytes.Equal(firstRead[offset:endOffset], expectedBytes[offset:endOffset]) {
-				return ValidationResult{
-					Verified:   false,
-					Confidence: 1.0,
-					Method:     "paranoid_validation",
-					Error:      fmt.Sprintf("content sampling mismatch at offset %d", offset),
-					Details: map[string]interface{}{
-						"check_failed":   "content_sampling",
-						"sample_offset":  offset,
-						"sample_point":   i + 1,
-						"total_samples":  v.SamplePoints,
-					},
-				}
-			}
-		}
-	}
-
-	// ALL CHECKS PASSED
 	duration := time.Since(startTime)
 	return ValidationResult{
 		Verified:   true,
-		Confidence: 1.0, // Maximum confidence - all redundant checks passed
+		Confidence: 1.0,
 		Method:     "paranoid_validation",
 		Details: map[string]interface{}{
 			"checks_passed": []string{
@@ -327,13 +323,11 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				"hash_first_read",
 				"double_read_consistency",
 				"hash_second_read",
-				"content_sampling",
 			},
-			"file_size":         fileSize,
-			"age_seconds":       age,
-			"hash":              hex.EncodeToString(firstHash[:8]),
+			"file_size":          fileSize,
+			"age_seconds":        age,
+			"hash":               firstHashStr[:16],
 			"validation_time_ms": duration.Milliseconds(),
-			"sample_points":     v.SamplePoints,
 		},
 	}
 }
@@ -344,15 +338,6 @@ func (v *ParanoidFileValidator) Name() string {
 }
 
 // Priority returns the validator priority.
-// Paranoid validator runs LAST (highest priority number) as a final check.
 func (v *ParanoidFileValidator) Priority() int {
 	return 100
-}
-
-// min returns the minimum of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -3,7 +3,9 @@ package core
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
@@ -155,15 +157,6 @@ func SetupTDDLoop(t *testing.T) (*TDDLoop, *MockExecutor, *MockKernel, *MockLLM)
 	return tdd, mockExec, mockKernel, mockLLM
 }
 
-// TODO: TEST_GAP: [Null/Empty] Test behavior when `tdd.diagnostics` is entirely empty or nil, but state indicates error. Does `analyzeRootCause` gracefully handle no diagnostics, or does it panic?
-// TODO: TEST_GAP: [Null/Empty] Test behavior when `parseLLMPatch` returns zero patches. Does `applyPatch` handle an empty patch array gracefully without entering an infinite applying state?
-// TODO: TEST_GAP: [Type Coercion] Test the impact of unexpected types within Mangle kernel asserts, e.g., if a diagnostic line number is a string instead of an int. Does it cause silent failure in the rules?
-// TODO: TEST_GAP: [Type Coercion] What happens if `virtualStore.RouteAction` returns an unexpected type or format that `parseTestOutput` cannot handle (e.g. JSON output from a test runner instead of plain text)?
-// TODO: TEST_GAP: [User Request Extremes] Test `parseTestOutput` with an extremely large log file (e.g. 50MB of raw test output with thousands of failures). Does the regex parsing cause excessive memory allocation or CPU starvation?
-// TODO: TEST_GAP: [User Request Extremes] What happens if the `hypothesis` generated is exceptionally long (e.g. 100,000 words)? Does the LLM patch generation prompt exceed token limits and crash?
-// TODO: TEST_GAP: [State Conflicts] Test concurrent execution of `Run()` or concurrent calls to `InjectPatch()` / `SetHypothesis()`. Does the `mu.Lock()` properly protect all state transitions and slices without deadlocks?
-// TODO: TEST_GAP: [State Conflicts] Simulate a race condition where the TDD state is changed externally (e.g. by a kernel callback) while `generatePatch` is waiting on the LLM response. Does the system handle the state invalidation correctly upon return?
-
 func TestTDDLoop_NextAction_Idle(t *testing.T) {
 	tdd, _, _, _ := SetupTDDLoop(t)
 	if action := tdd.NextAction(); action != TDDActionRunTests {
@@ -288,5 +281,216 @@ func TestTDDLoop_Escalation(t *testing.T) {
 
 	if action := tdd.NextAction(); action != TDDActionEscalate {
 		t.Errorf("Expected Escalate after max retries, got %s", action)
+	}
+}
+
+// =============================================================================
+// NEGATIVE AND BOUNDARY TESTS
+// =============================================================================
+
+// 1. [Null/Empty] Diagnostics: analyzeRootCause handles empty diagnostics
+func TestTDDLoop_AnalyzeRootCause_EmptyDiagnostics(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	tdd.state = TDDStateAnalyzing
+	tdd.diagnostics = []Diagnostic{}
+
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if tdd.GetState() != TDDStateGenerating {
+		t.Errorf("Expected state Generating, got %s", tdd.GetState())
+	}
+	if tdd.hypothesis != "unknown error - no diagnostics available" {
+		t.Errorf("Expected default hypothesis, got %q", tdd.hypothesis)
+	}
+}
+
+// 2. [Null/Empty] Zero Patches: applyPatch skips applying safely
+func TestTDDLoop_ApplyPatch_ZeroPatches(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	tdd.state = TDDStateApplying
+	tdd.patches = []Patch{}
+
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if tdd.GetState() != TDDStateCompiling {
+		t.Errorf("Expected state Compiling, got %s", tdd.GetState())
+	}
+}
+
+// 3. [Type Coercion] Mangle Kernel Types: ToFacts works smoothly
+func TestTDDLoop_ToFacts_MangleTypes(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	tdd.state = TDDStateFailing
+	tdd.retryCount = 2
+	tdd.maxRetries = 3
+
+	facts := tdd.ToFacts()
+	
+	// Basic validation that facts are structured correctly
+	if len(facts) < 3 {
+		t.Fatalf("Expected at least 3 facts, got %d", len(facts))
+	}
+	
+	hasTestState := false
+	hasRetryCount := false
+	for _, f := range facts {
+		if f.Predicate == "test_state" && f.Args[0] == "/failing" {
+			hasTestState = true
+		}
+		if f.Predicate == "retry_count" {
+			if count, ok := f.Args[0].(int64); ok && count == 2 {
+				hasRetryCount = true
+			}
+		}
+	}
+	
+	if !hasTestState || !hasRetryCount {
+		t.Errorf("Facts did not contain properly coerced state and retry_count")
+	}
+}
+
+// 4. [Type Coercion] Test Output Formats: JSON safely handled
+func TestTDDLoop_ParseTestOutput_JSON(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	
+	jsonOutput := `{"errors": [{"file": "main.go", "line": 10, "msg": "syntax error"}]}`
+	diagnostics := tdd.parseTestOutput(jsonOutput)
+	
+	// Should gracefully return 0 diagnostics since it doesn't match standard regex, not panic
+	if len(diagnostics) != 0 {
+		t.Errorf("Expected 0 diagnostics for JSON, got %d", len(diagnostics))
+	}
+}
+
+// 5. [User Request Extremes] Large Log File: streaming parsing
+func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
+	tdd, _, _, _ := SetupTDDLoop(t)
+	
+	// Construct a massive 10MB string
+	var sb strings.Builder
+	line := "some standard output log that is not an error\n"
+	for i := 0; i < 200000; i++ { // approx 10MB
+		sb.WriteString(line)
+	}
+	sb.WriteString("--- FAIL: TestLarge (0.00s)\n")
+	
+	output := sb.String()
+	
+	// Should not OOM or take excessively long due to bufio.Scanner
+	start := time.Now()
+	diagnostics := tdd.parseTestOutput(output)
+	elapsed := time.Since(start)
+	
+	if elapsed > 10*time.Second {
+		t.Errorf("Parsing large output took too long: %v", elapsed)
+	}
+	
+	if len(diagnostics) != 1 {
+		t.Errorf("Expected 1 diagnostic, got %d", len(diagnostics))
+	}
+}
+
+// 6. [User Request Extremes] Long Hypothesis: Truncation
+func TestTDDLoop_GeneratePatch_LongHypothesis(t *testing.T) {
+	tdd, _, _, mockLLM := SetupTDDLoop(t)
+	tdd.state = TDDStateGenerating
+	
+	var receivedPrompt string
+	mockLLM.CompleteFunc = func(ctx context.Context, prompt string) (string, error) {
+		receivedPrompt = prompt
+		return "FILE: a.go\nOLD:\n\nNEW:\n\nRATIONALE: r", nil
+	}
+	
+	// Create a 50,000 char hypothesis
+	tdd.hypothesis = strings.Repeat("A", 50000)
+	
+	if err := tdd.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	
+	// The prompt should contain truncated hypothesis
+	if len(receivedPrompt) > 20000 {
+		t.Errorf("Prompt is too large (%d bytes), hypothesis was not truncated", len(receivedPrompt))
+	}
+	if !strings.Contains(receivedPrompt, "... (truncated)") {
+		t.Errorf("Prompt missing truncation marker")
+	}
+}
+
+// 7. [State Conflicts] Concurrent Execution
+func TestTDDLoop_Concurrent_Locks(t *testing.T) {
+	tdd, mockExec, _, _ := SetupTDDLoop(t)
+	
+	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		return &tactile.ExecutionResult{ExitCode: 0, Stdout: "OK"}, nil
+	}
+
+	var wg sync.WaitGroup
+	
+	// Spam GetState, InjectPatch, Run concurrently
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			tdd.GetState()
+			if idx%2 == 0 {
+				tdd.InjectPatch(Patch{FilePath: "a.go"})
+			} else {
+				_ = tdd.Run(context.Background())
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	// If it doesn't deadlock or panic, it passes.
+}
+
+// 8. [State Conflicts] External State Change during generation
+func TestTDDLoop_ExternalStateChange_MidGeneration(t *testing.T) {
+	tdd, _, _, mockLLM := SetupTDDLoop(t)
+	tdd.state = TDDStateGenerating
+
+	// Make LLM complete artificially slow to allow concurrent state change
+	syncCh := make(chan struct{})
+	mockLLM.CompleteFunc = func(ctx context.Context, prompt string) (string, error) {
+		// Signal that we are inside LLM call
+		close(syncCh)
+		// Sleep a bit to let other goroutine mutate state
+		time.Sleep(50 * time.Millisecond)
+		return "FILE: a.go\nOLD:\n\nNEW:\n\nRATIONALE: r", nil
+	}
+
+	var runErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runErr = tdd.Run(context.Background())
+	}()
+
+	// Wait until generatePatch drops the lock and calls LLM
+	<-syncCh
+
+	// Mutate state externally (e.g. Cancelled by Guardian)
+	tdd.mu.Lock()
+	tdd.state = TDDStateIdle
+	tdd.mu.Unlock()
+
+	wg.Wait()
+
+	// tdd.Run should have noticed state change and returned an error
+	if runErr == nil {
+		t.Errorf("Expected error aborting patch application due to state change")
+	} else if !strings.Contains(runErr.Error(), "state changed") {
+		t.Errorf("Expected 'state changed' error, got: %v", runErr)
+	}
+	
+	// Patches should not have been applied
+	if len(tdd.patches) > 0 {
+		t.Errorf("Expected no patches applied, got %d", len(tdd.patches))
 	}
 }

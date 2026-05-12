@@ -114,6 +114,12 @@ func (tg *ToolGenerator) DetectToolNeed(ctx context.Context, input string, faile
 		}, nil
 	}
 
+	// If LLM refinement says no tool needed, respect that decision
+	if need == nil {
+		logging.AutopoiesisDebug("LLM refinement concluded no tool is needed")
+		return nil, nil
+	}
+
 	logging.Autopoiesis("Tool need refined: name=%s, confidence=%.2f", need.Name, need.Confidence)
 	return need, nil
 }

@@ -2,13 +2,18 @@
 package core
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,6 +21,7 @@ import (
 // SyntaxValidator verifies that code files have valid syntax after edits.
 // Supports Go, JSON, YAML, and can be extended for other languages via Tree-sitter.
 type SyntaxValidator struct {
+	mu sync.RWMutex
 	// parsers maps file extensions to parser functions
 	parsers map[string]func([]byte) error
 }
@@ -38,6 +44,8 @@ func NewSyntaxValidator() *SyntaxValidator {
 
 // RegisterParser adds a custom parser for a file extension.
 func (v *SyntaxValidator) RegisterParser(ext string, parserFunc func([]byte) error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	v.parsers[ext] = parserFunc
 }
 
@@ -73,7 +81,9 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 	}
 
 	ext := strings.ToLower(filepath.Ext(path))
+	v.mu.RLock()
 	parserFunc, ok := v.parsers[ext]
+	v.mu.RUnlock()
 	if !ok {
 		// No parser for this file type - skip validation
 		return ValidationResult{
@@ -84,8 +94,19 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 		}
 	}
 
-	// Read the file
-	content, err := os.ReadFile(path)
+	// Read the file with 5MB limit
+	f, err := os.Open(path)
+	if err != nil {
+		return ValidationResult{
+			Verified:   false,
+			Confidence: 0.9,
+			Method:     ValidationMethodSyntax,
+			Error:      "cannot open file for syntax check: " + err.Error(),
+		}
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(io.LimitReader(f, 5*1024*1024))
 	if err != nil {
 		return ValidationResult{
 			Verified:   false,
@@ -137,23 +158,46 @@ func validateGoSyntax(content []byte) error {
 // validateJSONSyntax parses JSON content.
 func validateJSONSyntax(content []byte) error {
 	var v interface{}
-	return json.Unmarshal(content, &v)
+	if err := json.Unmarshal(content, &v); err != nil {
+		return err
+	}
+	switch v.(type) {
+	case map[string]interface{}, []interface{}:
+		return nil
+	default:
+		return fmt.Errorf("JSON root must be an object or array, got %T", v)
+	}
 }
 
 // validateYAMLSyntax parses YAML content.
 func validateYAMLSyntax(content []byte) error {
 	var v interface{}
-	return yaml.Unmarshal(content, &v)
+	if err := yaml.Unmarshal(content, &v); err != nil {
+		return err
+	}
+	switch v.(type) {
+	case map[string]interface{}, []interface{}:
+		return nil
+	default:
+		return fmt.Errorf("YAML root must be an object or array, got %T", v)
+	}
 }
 
 // validateTOMLSyntax provides basic TOML syntax checking.
 func validateTOMLSyntax(content []byte) error {
-	lines := strings.Split(string(content), "\n")
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	
+	// Set custom buffer to handle long lines up to 5MB
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 5*1024*1024)
+
 	inArray := false
 	inMultilineString := false
+	i := 0
 
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
+	for scanner.Scan() {
+		i++
+		line := strings.TrimSpace(scanner.Text())
 
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -176,7 +220,7 @@ func validateTOMLSyntax(content []byte) error {
 
 		if strings.HasPrefix(line, "[[") {
 			if !strings.HasSuffix(line, "]]") {
-				return &tomlSyntaxError{line: i + 1, msg: "unclosed array table"}
+				return &tomlSyntaxError{line: i, msg: "unclosed array table"}
 			}
 			inArray = true
 			continue
@@ -184,15 +228,19 @@ func validateTOMLSyntax(content []byte) error {
 
 		if strings.HasPrefix(line, "[") {
 			if !strings.HasSuffix(line, "]") {
-				return &tomlSyntaxError{line: i + 1, msg: "unclosed table header"}
+				return &tomlSyntaxError{line: i, msg: "unclosed table header"}
 			}
 			inArray = false
 			continue
 		}
 
 		if !strings.Contains(line, "=") && !inArray {
-			return &tomlSyntaxError{line: i + 1, msg: "invalid line: missing '='"}
+			return &tomlSyntaxError{line: i, msg: "invalid line: missing '='"}
 		}
+	}
+	
+	if err := scanner.Err(); err != nil {
+		return err
 	}
 
 	return nil
@@ -324,12 +372,17 @@ func itoaValidator(n int) string {
 	}
 	result := ""
 	negative := n < 0
+	
+	var un uint
 	if negative {
-		n = -n
+		un = ^uint(n) + 1 // Safely compute absolute value for MinInt
+	} else {
+		un = uint(n)
 	}
-	for n > 0 {
-		result = string(rune('0'+n%10)) + result
-		n /= 10
+
+	for un > 0 {
+		result = string(rune('0'+un%10)) + result
+		un /= 10
 	}
 	if negative {
 		result = "-" + result

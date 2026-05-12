@@ -4,11 +4,39 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"sync"
 )
+
+// ANSI escape code regex
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(str string) string {
+	return ansiRegex.ReplaceAllString(str, "")
+}
+
+func truncateOutputForRegex(output string) string {
+	const maxSize = 100 * 1024 // 100k characters
+	const chunk = 50 * 1024
+
+	// fast path
+	if len(output) <= maxSize {
+		return output
+	}
+
+	runes := []rune(output)
+	if len(runes) <= maxSize {
+		return output
+	}
+
+	head := string(runes[:chunk])
+	tail := string(runes[len(runes)-chunk:])
+	return head + "\n... [TRUNCATED MASSIVE OUTPUT] ...\n" + tail
+}
 
 // ExecutionValidator verifies that shell commands executed successfully
 // by analyzing output for failure patterns, even when exit code is 0.
 type ExecutionValidator struct {
+	mu sync.RWMutex
 	// failurePatterns are regex patterns that indicate failure
 	failurePatterns []*regexp.Regexp
 	// successPatterns are patterns that indicate success (optional confirmation)
@@ -71,6 +99,8 @@ func (v *ExecutionValidator) AddFailurePattern(pattern string) error {
 	if err != nil {
 		return err
 	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	v.failurePatterns = append(v.failurePatterns, re)
 	return nil
 }
@@ -87,6 +117,15 @@ func (v *ExecutionValidator) CanValidate(actionType ActionType) bool {
 
 // Validate scans command output for failure patterns.
 func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, result ActionResult) ValidationResult {
+	if err := ctx.Err(); err != nil {
+		return ValidationResult{
+			Verified:   false,
+			Confidence: 1.0,
+			Method:     ValidationMethodOutputScan,
+			Error:      "validation cancelled: " + err.Error(),
+		}
+	}
+
 	// If action already reported failure, trust that
 	if !result.Success {
 		return ValidationResult{
@@ -97,10 +136,15 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 		}
 	}
 
-	output := result.Output
+	output := stripANSI(result.Output)
+	output = truncateOutputForRegex(output)
+
+	v.mu.RLock()
+	patterns := v.failurePatterns
+	v.mu.RUnlock()
 
 	// Check for failure patterns in output
-	for _, pattern := range v.failurePatterns {
+	for _, pattern := range patterns {
 		if pattern.MatchString(output) {
 			match := pattern.FindString(output)
 			// Extract context around the match
@@ -140,10 +184,15 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 // validateCommandSpecific performs additional validation based on command type.
 func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req ActionRequest, result ActionResult) *ValidationResult {
 	if err := ctx.Err(); err != nil {
-		return nil
+		return &ValidationResult{
+			Verified:   false,
+			Confidence: 1.0,
+			Method:     ValidationMethodOutputScan,
+			Error:      "validation cancelled: " + err.Error(),
+		}
 	}
 	command := req.Target
-	output := result.Output
+	output := stripANSI(result.Output)
 
 	// Go build specific checks
 	if strings.Contains(command, "go build") || strings.Contains(command, "go vet") {
@@ -232,21 +281,27 @@ func extractContext(text, match string, contextChars int) string {
 		return match
 	}
 
-	start := idx - contextChars
+	runes := []rune(text)
+	matchRunes := []rune(match)
+
+	// Convert byte index to rune index
+	startRuneIdx := len([]rune(text[:idx]))
+
+	start := startRuneIdx - contextChars
 	if start < 0 {
 		start = 0
 	}
 
-	end := idx + len(match) + contextChars
-	if end > len(text) {
-		end = len(text)
+	end := startRuneIdx + len(matchRunes) + contextChars
+	if end > len(runes) {
+		end = len(runes)
 	}
 
-	result := text[start:end]
+	result := string(runes[start:end])
 	if start > 0 {
 		result = "..." + result
 	}
-	if end < len(text) {
+	if end < len(runes) {
 		result = result + "..."
 	}
 

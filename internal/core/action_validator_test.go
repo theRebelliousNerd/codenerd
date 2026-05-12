@@ -379,13 +379,3 @@ func TestValidationResult_ToFacts(t *testing.T) {
 	})
 }
 
-// TODO: TEST_GAP: Null/Empty: Verify behavior when Register() is called with a nil validator (should it panic or handle gracefully?).
-// TODO: TEST_GAP: Null/Empty: Verify ValidateAll, FirstFailure, HighestConfidence, Aggregate handle nil or empty results slices correctly.
-// TODO: TEST_GAP: Null/Empty: Verify ValidationResult.ToFacts() handles empty ActionID, ActionType, or Method gracefully.
-// TODO: TEST_GAP: Type Coercion: Verify HighestConfidence behavior when confidence scores are NaN, +Inf, or -Inf.
-// TODO: TEST_GAP: Type Coercion: Verify ValidationResult.ToFacts() handles Confidence < 0.0 or > 1.0 (clamping logic or expected integer bounds for Mangle).
-// TODO: TEST_GAP: User Request Extremes: Verify system behavior and performance when thousands of validators are registered and matching a single ActionType.
-// TODO: TEST_GAP: User Request Extremes: Verify Validate() behavior with an extremely large ValidationResult.Details map (impact on Mangle ToFacts serialization).
-// TODO: TEST_GAP: State Conflicts: Verify thread safety of Register() being called concurrently with Validate() under high load (testing the byType cache invalidation).
-// TODO: TEST_GAP: State Conflicts: Verify sorting stability when multiple validators are registered with the exact same Priority.
-// TODO: TEST_GAP: State Conflicts: Verify caching behavior and read-write lock contention in getValidatorsForType during concurrent cache misses.

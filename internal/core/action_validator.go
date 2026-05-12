@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -91,6 +92,9 @@ func NewValidatorRegistry() *ValidatorRegistry {
 // Register adds a validator to the registry.
 // Validators are sorted by priority (lower priority runs first).
 func (r *ValidatorRegistry) Register(v ActionValidator) {
+	if v == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -170,8 +174,11 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 		default:
 		}
 
+		valCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		start := time.Now()
-		vr := v.Validate(ctx, req, result)
+		vr := v.Validate(valCtx, req, result)
+		cancel()
+
 		vr.Duration = time.Since(start)
 		vr.Timestamp = time.Now()
 
@@ -221,7 +228,8 @@ func HighestConfidence(results []ValidationResult) *ValidationResult {
 	}
 	highest := &results[0]
 	for i := 1; i < len(results); i++ {
-		if results[i].Confidence > highest.Confidence {
+		// If current highest is NaN, or the new one is larger, update highest
+		if math.IsNaN(highest.Confidence) || results[i].Confidence > highest.Confidence {
 			highest = &results[i]
 		}
 	}
@@ -254,6 +262,16 @@ type AggregateResult struct {
 
 // Aggregate combines multiple validation results into a summary.
 func Aggregate(results []ValidationResult) AggregateResult {
+	if len(results) == 0 {
+		return AggregateResult{
+			AllVerified:       true,
+			HighestConfidence: 0.0,
+			LowestConfidence:  0.0,
+			ValidatorCount:    0,
+			Results:           results,
+		}
+	}
+
 	agg := AggregateResult{
 		AllVerified:       true,
 		HighestConfidence: 0.0,
@@ -285,15 +303,35 @@ func Aggregate(results []ValidationResult) AggregateResult {
 func (vr *ValidationResult) ToFacts() []Fact {
 	facts := make([]Fact, 0, 2)
 
+	confidence := vr.Confidence
+	if math.IsNaN(confidence) || math.IsInf(confidence, 0) {
+		confidence = 0.0
+	}
+	if confidence < 0.0 {
+		confidence = 0.0
+	} else if confidence > 1.0 {
+		confidence = 1.0
+	}
+
+	actionTypeStr := string(vr.ActionType)
+	if len(actionTypeStr) > 256 {
+		actionTypeStr = actionTypeStr[:256]
+	}
+
+	errorStr := vr.Error
+	if len(errorStr) > 1024 {
+		errorStr = errorStr[:1024]
+	}
+
 	if vr.Verified {
 		// action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "action_verified",
 			Args: []interface{}{
 				vr.ActionID,
-				string(vr.ActionType),
+				actionTypeStr,
 				vr.Method,
-				int64(vr.Confidence * 100), // Scale 0.0-1.0 → 0-100 integer per schema
+				int64(confidence * 100), // Scale 0.0-1.0 → 0-100 integer per schema
 				vr.Timestamp.Unix(),
 			},
 		})
@@ -306,12 +344,15 @@ func (vr *ValidationResult) ToFacts() []Fact {
 				detailsStr += fmt.Sprintf("%s=%v;", k, v)
 			}
 		}
+		if len(detailsStr) > 1024 {
+			detailsStr = detailsStr[:1024]
+		}
 		facts = append(facts, Fact{
 			Predicate: "action_validation_failed",
 			Args: []interface{}{
 				vr.ActionID,
-				string(vr.ActionType),
-				vr.Error,
+				actionTypeStr,
+				errorStr,
 				detailsStr,
 				vr.Timestamp.Unix(),
 			},
