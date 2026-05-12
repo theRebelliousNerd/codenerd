@@ -4,14 +4,15 @@ import (
 	"testing"
 )
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Test how ValidateLearnedRules handles nil or empty slices to ensure no panics.
-// TODO: TEST_GAP: Null/Undefined/Empty: Test fail-open behavior where ValidateLearnedRule returns nil if schemaValidator is nil.
-// TODO: TEST_GAP: Type Coercion: Test checkSyntax with extremely long lines (>1MB) to check for buffer exhaustion or OOM.
-// TODO: TEST_GAP: Type Coercion: Test checkSyntax with invalid UTF-8 or binary null bytes to see how Mangle lexer reacts.
-// TODO: TEST_GAP: User Request Extremes: Test checkInfiniteLoopRisk bypass with whitespace (e.g. `current_time ( T )`).
-// TODO: TEST_GAP: User Request Extremes: Test validateLearnedRulesContent with 100,000 rules to verify performance scaling.
-// TODO: TEST_GAP: State Conflicts: Test concurrent execution of SetSchemas while multiple threads call ValidateLearnedRule.
-// TODO: TEST_GAP: State Conflicts: Test TOCTOU race condition in validateLearnedRulesContent file writing if the file is modified concurrently.
+// REMEDIATED: All 8 TEST_GAP items — see kernel_validation_gaps_test.go:
+//   TestKernelValidationGap_ValidateLearnedRules_NilEmpty (Null/Empty)
+//   TestKernelValidationGap_ValidateLearnedRule_SchemaValidatorNil (Null/Empty)
+//   TestKernelValidationGap_CheckSyntax_LongLine (Type Coercion)
+//   TestKernelValidationGap_CheckSyntax_InvalidUTF8 (Type Coercion)
+//   TestKernelValidationGap_InfiniteLoopRisk_WhitespaceBypass (User Extremes)
+//   TestKernelValidationGap_ValidateLearnedRulesContent_ManyRules (User Extremes)
+//   TestKernelValidationGap_Concurrency_SetSchemasWhileValidate (State Conflicts)
+//   TestKernelValidationGap_TOCTOU_ValidateLearnedRulesContent (State Conflicts)
 
 func TestKernelValidation_Schema(t *testing.T) {
 	k := setupMockKernel(t)

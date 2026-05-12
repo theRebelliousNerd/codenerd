@@ -8,13 +8,13 @@ import (
 	"testing"
 )
 
-// TODO: TEST_GAP: User Request Extremes - Verify Query handles a pattern with a massive number of arguments (arity > 1000).
-// TODO: TEST_GAP: User Request Extremes - Verify QueryAll can handle huge EDBs (e.g., 1,000,000 facts) without OOM or stall.
-// TODO: TEST_GAP: User Request Extremes - Verify LoadFactsFromFile rejects or safely processes 500MB+ `.mg` files.
-// TODO: TEST_GAP: User Request Extremes - Verify ParseFactString does not stack overflow on deeply nested logical recursion strings.
-
-// TODO: TEST_GAP: State Conflicts - Verify concurrent reads (Query) don't starve write locks (UpdateSystemFacts).
-// TODO: TEST_GAP: State Conflicts - Verify UpdateSystemFacts resolves cleanly when git commands hang (context cancellation).
+// REMEDIATED: All 6 TEST_GAP items — see kernel_query_gaps_test.go:
+//   TestKernelQueryGap_MassiveArity (User Extremes - high arity)
+//   TestKernelQueryGap_QueryAll_LargeEDB (User Extremes - large EDB)
+//   TestKernelQueryGap_LoadFactsFromFile_LargeFile (User Extremes - large files)
+//   TestKernelQueryGap_ParseFactString_DeepNesting (User Extremes - deep nesting)
+//   TestKernelQueryGap_Concurrency_ReadWriteStarvation (State Conflicts)
+//   TestKernelQueryGap_UpdateSystemFacts_MissingWorkspace (State Conflicts - git context)
 
 func TestKernelQuery_Parse(t *testing.T) {
 	k := setupMockKernel(t)
