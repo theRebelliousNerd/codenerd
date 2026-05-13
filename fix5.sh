@@ -1,0 +1,8 @@
+sed -i 's/tools.Global().Register("mock_tool", func(ctx context.Context, args map\[string\]interface{}) (\*tools.ToolResult, error) {/tools.Global().Register(\&tools.Tool{Name: "mock_tool", Execute: func(ctx context.Context, args map\[string\]interface{}) (string, error) {/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/return \&tools.ToolResult{Result: "data"}, nil/return "data", nil/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/tools.Global().Register("blocking_tool", func(ctx context.Context, args map\[string\]interface{}) (\*tools.ToolResult, error) {/tools.Global().Register(\&tools.Tool{Name: "blocking_tool", Execute: func(ctx context.Context, args map\[string\]interface{}) (string, error) {/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/return nil, ctx.Err()/return "", ctx.Err()/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/return \&tools.ToolResult{Result: "too late"}, nil/return "too late", nil/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/tools.Global().Register("huge_tool", func(ctx context.Context, args map\[string\]interface{}) (\*tools.ToolResult, error) {/tools.Global().Register(\&tools.Tool{Name: "huge_tool", Execute: func(ctx context.Context, args map\[string\]interface{}) (string, error) {/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i 's/return \&tools.ToolResult{Result: hugeData}, nil/return hugeData, nil/g' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go
+sed -i '/return hugeData, nil/a })' tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go

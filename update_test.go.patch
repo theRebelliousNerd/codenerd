@@ -1,0 +1,76 @@
+--- tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go	2024-05-13 12:00:00.000000000 -0400
++++ tests/e2e/SessionExecutor_VirtualStore_Kernel_integration_test.go	2024-05-13 12:00:00.000000000 -0400
+@@ -23,37 +23,45 @@
+ type mockKernel struct {
+	mu           sync.RWMutex
+-	facts        []string
+-	queryResults map[string][]string
++	facts        []types.Fact
++	queryResults map[string][]types.Fact
+	shouldPanic  bool
+ }
+
+ func newMockKernel() *mockKernel {
+	return &mockKernel{
+-		facts:        make([]string, 0),
+-		queryResults: make(map[string][]string),
++		facts:        make([]types.Fact, 0),
++		queryResults: make(map[string][]types.Fact),
+	}
+ }
+
+-func (m *mockKernel) Assert(fact string) error {
++func (m *mockKernel) Assert(fact types.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.shouldPanic {
+		panic("mock kernel panic")
+	}
+	m.facts = append(m.facts, fact)
+	return nil
+ }
+
+-func (m *mockKernel) Retract(fact string) error {
++func (m *mockKernel) RetractFact(fact types.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+-	newFacts := []string{}
++	newFacts := []types.Fact{}
+	for _, f := range m.facts {
+-		if f != fact {
++		if f.Predicate != fact.Predicate {
+			newFacts = append(newFacts, f)
+		}
+	}
+	m.facts = newFacts
+	return nil
+ }
+
+-func (m *mockKernel) Query(query string, args ...interface{}) ([]string, error) {
++func (m *mockKernel) Query(query string) ([]types.Fact, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	baseQuery := strings.Split(query, "(")[0]
+@@ -64,15 +72,20 @@
+	if res, ok := m.queryResults[query]; ok {
+		return res, nil
+	}
+-	return []string{}, nil
++	return []types.Fact{}, nil
+ }
+
+-func (m *mockKernel) LoadFacts(facts []string) error {
++func (m *mockKernel) LoadFacts(facts []types.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.facts = append(m.facts, facts...)
+	return nil
+ }
++func (m *mockKernel) AssertBatch(facts []types.Fact) error { return nil }
++func (m *mockKernel) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
++func (m *mockKernel) Retract(predicate string) error { return nil }
++func (m *mockKernel) UpdateSystemFacts() error { return nil }
++func (m *mockKernel) Reset() {}
++func (m *mockKernel) AppendPolicy(policy string) {}
++func (m *mockKernel) RetractExactFactsBatch(facts []types.Fact) error { return nil }
++func (m *mockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
