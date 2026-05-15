@@ -834,3 +834,15 @@ func TestLearningStore_SaveLoad(t *testing.T) {
 		t.Errorf("AverageQuality = %f, want 0.85", learning.AverageQuality)
 	}
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning gracefully handles or returns an error when `feedback` is nil.
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `toolName` is empty (e.g., "").
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `patterns` is nil.
+// TODO: TEST_GAP: Null/Undefined/Empty: Verify NewLearningStore behavior when initialized with an empty `storePath`.
+// TODO: TEST_GAP: Type Coercion: Verify `AverageQuality` does not permanently become NaN if `Score` is NaN.
+// TODO: TEST_GAP: Type Coercion: Verify behavior of system when `ExecutionFeedback.Duration` is set to negative duration.
+// TODO: TEST_GAP: Type Coercion: Verify `GenerateMangleFacts` handles strings with malformed characters (`"`, `\n`, `\0`) properly for Mangle syntax.
+// TODO: TEST_GAP: User Request Extremes: Verify `buildRefinementPrompt` safely handles massive context injections (e.g., 50MB `OriginalCode`).
+// TODO: TEST_GAP: User Request Extremes: Verify system performance when `req.Feedback` or `AntiPatterns` grows to massive arrays (thousands of elements).
+// TODO: TEST_GAP: State Conflicts: Data Race where `GetAllLearnings` returns a pointer to a map value that `RecordLearning` modifies concurrently.
+// TODO: TEST_GAP: State Conflicts: TOCTOU in `ls.save()` holding the lock during slow synchronous file I/O operations.
