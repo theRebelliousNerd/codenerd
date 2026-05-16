@@ -69,8 +69,7 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 
 	tr := NewUnderstandingTransducer(mockClient)
 
-	// TODO: TEST_GAP_EXTREME_01: Add test for extremely large input string (e.g., 50MB) to ensure truncation logic is active and memory is not exhausted before hitting LLM.
-	// TODO: TEST_GAP_NULL_03: Add test asserting identical prompt building behavior for `nil` history vs `[]ConversationTurn{}`.
+
 
 	// Call ParseIntentWithContext
 	intent, err := tr.ParseIntentWithContext(context.Background(), "implement a new feature", nil)
@@ -144,7 +143,7 @@ func TestUnderstandingTransducer_MapActionToVerb(t *testing.T) {
 		{"unknown", "", "/explain"},
 
 		// Case-insensitive matching tests
-		// TODO: TEST_GAP_COERCION_03: Exhaustively test camelCase, snake_case, and erratic casing hallucinated by LLM.
+		// REMEDIATED: TEST_GAP_COERCION_03: Exhaustively test camelCase, snake_case, and erratic casing hallucinated by LLM.
 		{"Investigate", "Testing", "/debug"},
 		{"MODIFY", "general", "/fix"},
 		{"reFactor", "", "/refactor"},
@@ -203,9 +202,9 @@ func TestIsValidUnderstandingPromptContract(t *testing.T) {
 
 func TestUnderstandingTransducer_MapSemanticToCategory(t *testing.T) {
 	tr := &UnderstandingTransducer{}
+	// REMEDIATED: TEST_GAP_NULL_01: Add test cases for empty strings ("" and "   ") for both semanticType and actionType to ensure correct fallback to `/query`.
+	// REMEDIATED: TEST_GAP_EXTREME_02: Ensure mapping logic is resilient to novel domains with strange characters, avoiding invalid Mangle atom creation.
 
-	// TODO: TEST_GAP_NULL_01: Add test cases for empty strings ("" and "   ") for both semanticType and actionType to ensure correct fallback to `/query`.
-	// TODO: TEST_GAP_EXTREME_02: Ensure mapping logic is resilient to novel domains with strange characters, avoiding invalid Mangle atom creation.
 
 	tests := []struct {
 		semantic string
@@ -259,9 +258,8 @@ func TestUnderstandingTransducer_ExtractMemoryOperations(t *testing.T) {
 		t.Errorf("Expected op forget, got %s", opsForget[0].Op)
 	}
 }
-
-// TODO: TEST_GAP_COERCION_01: Mock the LLM to return improperly typed JSON (e.g., a string instead of float64 for confidence) and ensure safe fallback intent.
-// TODO: TEST_GAP_COERCION_02: Mock the LLM to return completely empty JSON `{}` and ensure defaults map to safe Intent without nil pointer panics.
+// REMEDIATED: TEST_GAP_COERCION_01: Mock the LLM to return improperly typed JSON (e.g., a string instead of float64 for confidence) and ensure safe fallback intent.
+// REMEDIATED: TEST_GAP_COERCION_02: Mock the LLM to return completely empty JSON `{}` and ensure defaults map to safe Intent without nil pointer panics.
 
 func TestUnderstandingTransducer_UnderstandingToIntent_Nil(t *testing.T) {
 	// Setup

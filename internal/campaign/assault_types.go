@@ -85,6 +85,8 @@ func (c AssaultConfig) Normalize() AssaultConfig {
 	}
 	if out.Cycles <= 0 {
 		out.Cycles = DefaultAssaultConfig().Cycles
+	} else if out.Cycles > 10 {
+		out.Cycles = 10
 	}
 	if out.DefaultTimeoutSeconds <= 0 {
 		out.DefaultTimeoutSeconds = DefaultAssaultConfig().DefaultTimeoutSeconds

@@ -87,11 +87,7 @@ func TestGuardian_SetLLMClient(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// INITIALIZATION TESTS
-// =============================================================================
 
-// TODO: TEST_GAP: State Conflicts: Simulate concurrent calls to Initialize() and check if guardian.vision or guardian.state become inconsistent.
 func TestGuardian_Initialize_Concurrent(t *testing.T) {
 	t.Parallel()
 	store := newTestStore(t)

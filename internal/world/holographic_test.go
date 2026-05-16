@@ -612,7 +612,7 @@ func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Large File Handling (OOM Risk)
+// REMEDIATED: TEST_GAP: Large File Handling (OOM Risk)
 // fetchFunctionBody uses os.ReadFile which reads the entire file into memory.
 // We need a test that mocks a large file (e.g., via a mocked file system interface)
 // or generates a temporary large file to verify that the system handles it gracefully

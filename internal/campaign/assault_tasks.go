@@ -244,6 +244,10 @@ func (o *Orchestrator) executeAssaultBatchTask(ctx context.Context, task *Task) 
 			}
 			for _, stage := range cfg.Stages {
 				for attempt := 1; attempt <= stage.Repeat; attempt++ {
+					if err := ctx.Err(); err != nil {
+						return nil, err
+					}
+
 					key := assaultResultKey(cycle, stage.Kind, attempt, target)
 					if completed[key] {
 						skipped++
@@ -368,6 +372,11 @@ func (o *Orchestrator) runCommandStage(
 	args []string,
 	logPath string,
 ) (bool, stageOutcome) {
+	if strings.TrimSpace(binary) == "" {
+		writeTextFileBestEffort(logPath, "empty command\n")
+		return false, stageOutcome{ExitCode: 1, Error: "empty command"}
+	}
+
 	cmd := tactile.Command{
 		Binary:           binary,
 		Arguments:        args,
@@ -416,7 +425,11 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 
 	files, err := os.ReadDir(resultsDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read assault results dir %s: %w", resultsDir, err)
+		if os.IsNotExist(err) {
+			files = []os.DirEntry{} // Proceed with no files
+		} else {
+			return nil, fmt.Errorf("failed to read assault results dir %s: %w", resultsDir, err)
+		}
 	}
 
 	total := 0
@@ -854,9 +867,12 @@ func findArtifactPath(task *Task, artifactType string) (string, bool) {
 
 func targetToDir(target string) string {
 	target = strings.TrimSpace(target)
+	target = strings.ReplaceAll(target, "\x00", "")
+	target = strings.ReplaceAll(target, "..", "")
+	target = filepath.ToSlash(filepath.Clean(target))
 	target = strings.TrimPrefix(target, "./")
 	target = strings.TrimSuffix(target, "/...")
-	if target == "" {
+	if target == "" || target == "." || target == "/" {
 		return "."
 	}
 	return target
@@ -868,6 +884,9 @@ func writeTextFileBestEffort(path, content string) {
 }
 
 func newAssaultExecutor(workspace string, maxOutputBytes int64, defaultTimeout time.Duration) tactile.Executor {
+	if defaultTimeout <= 0 {
+		defaultTimeout = 15 * time.Minute
+	}
 	cfg := tactile.DefaultExecutorConfig()
 	cfg.DefaultWorkingDir = workspace
 	cfg.MaxOutputBytes = maxOutputBytes
