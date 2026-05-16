@@ -107,6 +107,11 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 
 	logging.Campaign("Activating context for phase: %s", phase.Name)
 
+	estimatedTokens := cp.estimatePhaseTokens(phase)
+	if estimatedTokens > cp.totalBudget {
+		return fmt.Errorf("phase %q estimated token usage (%d) exceeds total budget (%d)", phase.Name, estimatedTokens, cp.totalBudget)
+	}
+
 	// 1. Get context profile for this phase
 	profile, err := cp.getContextProfile(phase.ContextProfile)
 	if err != nil {

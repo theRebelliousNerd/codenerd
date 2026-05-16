@@ -95,7 +95,7 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
-	// TODO: TEST_GAP: User Request Extremes - ActivatePhase when estimatePhaseTokens > totalBudget (should likely error or warn)
+
 	// TODO: TEST_GAP: State Conflicts - Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
 
 	err := cp.ActivatePhase(ctx, phase)
@@ -591,5 +591,34 @@ func TestActivatePhase_Concurrent(t *testing.T) {
 	}
 	if total != 100000 {
 		t.Errorf("Expected total budget 100000, got %d", total)
+	}
+}
+
+func TestActivatePhase_ExtremeBudget(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100) // Very small budget
+	ctx := context.Background()
+
+	// estimatePhaseTokens = 100 + len(Tasks)*(50 + len(Artifacts)*20)
+	// With 1 task and 2 artifacts: 100 + 1 * (50 + 40) = 190
+	phase := &Phase{
+		ID:   "phase_huge",
+		Name: "Huge Phase",
+		Tasks: []Task{
+			{
+				ID:          "task1",
+				Description: "Write a lot of code",
+				Artifacts: []TaskArtifact{
+					{Path: "file1.go"},
+					{Path: "file2.go"},
+				},
+			},
+		},
+	}
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err == nil || !strings.Contains(err.Error(), "exceeds total budget") {
+		t.Errorf("Expected ActivatePhase to fail with budget error, got: %v", err)
 	}
 }
