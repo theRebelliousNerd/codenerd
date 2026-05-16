@@ -281,6 +281,7 @@ type JITPromptCompiler struct {
 	// Concurrency control
 	mu           sync.RWMutex
 	compileGroup singleflight.Group
+	wg           sync.WaitGroup
 
 	// Configuration
 	config CompilerConfig
@@ -443,6 +444,9 @@ func WithConfigFactory(factory *ConfigFactory) CompilerOption {
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
 	// TODO: Performance: Replace coarse-grained locking with finer-grained locks or RCU pattern.
 	// Currently c.mu protects disparate fields (lastResult, shardDBs), creating unnecessary contention.
+
+	c.wg.Add(1)
+	defer c.wg.Done()
 
 	// Legacy timer for backward compatibility
 	timer := logging.StartTimer(logging.CategoryJIT, "JITPromptCompiler.Compile")
@@ -1469,10 +1473,9 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 	return c.kernel.AssertBatch(toInterfaceSlice(facts))
 }
 
-// TODO: Concurrency Risk: Add sync.WaitGroup around Compile() and Wait() inside Close() to prevent SQLite 'database is closed' panics during hot-swapping or shutdown.
-
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
+	c.wg.Wait()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
