@@ -409,14 +409,97 @@ func TestIsCriticalAdvisor(t *testing.T) {
 }
 
 // =============================================================================
-// Boundary Value Analysis & Negative Testing Gaps
-// =============================================================================
+// -----------------------------------------------------------------------------
+// Marathon 21: Shard Advisory Board Gaps
+// -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Test SynthesizeVotes with nil or empty responses slice. Verify it defaults to auto-approve without panics.
-// TODO: TEST_GAP: Null/Undefined/Empty: Test buildConsultationContext with empty AdvisoryRequest fields (CampaignID, Goal, Phases, TargetPaths).
-// TODO: TEST_GAP: Type Coercion & Malformed Data: Test parseAdvisoryResponse with a malformed vote string (e.g., "VOTE: MAYBE") and verify fallback logic based on confidence.
-// TODO: TEST_GAP: Type Coercion & Malformed Data: Test SynthesizeVotes with out-of-bounds Confidence values (e.g., -0.5, 1.5) and verify clamp or ignore behavior.
-// TODO: TEST_GAP: User Request Extremes: Test buildConsultationContext with an extremely large number of Phases (e.g., 10,000) to ensure it doesn't OOM or generate an unnecessarily large string.
-// TODO: TEST_GAP: User Request Extremes: Test buildConsultationContext with a RawPlan that truncates exactly in the middle of a multi-byte UTF-8 character.
-// TODO: TEST_GAP: State Conflicts: Test SynthesizeVotes with duplicate AdvisorNames (e.g., two "coder" votes) to verify if it counts both or deduplicates.
-// TODO: TEST_GAP: State Conflicts: Test SynthesizeVotes with conflicting configuration flags (e.g., RequireUnanimous=true but MinApprovalRatio=0.0).
+func TestShardAdvisoryBoard_NullEmptyInputs(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	
+	// nil responses
+	synthesis := board.SynthesizeVotes(nil)
+	if !synthesis.Approved {
+		t.Errorf("Expected nil responses to be approved")
+	}
+
+	// empty context fields
+	req := AdvisoryRequest{}
+	ctxStr := board.buildConsultationContext(req)
+	if !strings.Contains(ctxStr, "**Campaign ID:** ") {
+		t.Errorf("Expected context to handle empty fields safely")
+	}
+}
+
+func TestShardAdvisoryBoard_TypeCoercion(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	
+	// Malformed vote string
+	cr := ConsultationResponse{FromSpec: "coder", Advice: "VOTE: MAYBE\nREASONING: Not sure", Confidence: 0.8}
+	resp := board.parseAdvisoryResponse(cr)
+	// >0.7 confidence defaults to Approve
+	if resp.Vote != VoteApprove {
+		t.Errorf("Expected VoteApprove for unparsable vote with high confidence, got %v", resp.Vote)
+	}
+
+	// Out-of-bounds confidence (-0.5, 1.5)
+	responses := []AdvisoryResponse{
+		{AdvisorName: "tester", Vote: VoteApprove, Confidence: -0.5},
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 1.5},
+	}
+	synthesis := board.SynthesizeVotes(responses)
+	if synthesis.ApprovalRatio != 1.0 {
+		t.Errorf("Expected only valid votes to count (negative is ignored, >1.0 is counted as >Min)")
+	}
+}
+
+func TestShardAdvisoryBoard_UserExtremes(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	
+	// Massive phases array
+	var massivePhases []AdvisoryPhase
+	for i := 0; i < 10000; i++ {
+		massivePhases = append(massivePhases, AdvisoryPhase{Name: "Phase"})
+	}
+	req1 := AdvisoryRequest{Phases: massivePhases}
+	ctx1 := board.buildConsultationContext(req1)
+	if len(ctx1) > 50000 {
+		t.Errorf("Context string too large: %d chars", len(ctx1))
+	}
+	if !strings.Contains(ctx1, "more phases") {
+		t.Errorf("Expected truncation message for massive phases")
+	}
+
+	// RawPlan truncated exactly in middle of multi-byte UTF-8
+	req2 := AdvisoryRequest{RawPlan: strings.Repeat("a", 2999) + "🚀"}
+	ctx2 := board.buildConsultationContext(req2)
+	// It should correctly parse runes without breaking UTF8
+	if strings.Contains(ctx2, "\ufffd") {
+		t.Errorf("Found replacement character, UTF-8 was corrupted")
+	}
+}
+
+func TestShardAdvisoryBoard_StateConflicts(t *testing.T) {
+	board := NewShardAdvisoryBoard(nil)
+	
+	// Duplicate AdvisorNames (it currently counts both, which we just verify)
+	responses := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "bad"},
+		{AdvisorName: "coder", Vote: VoteReject, Confidence: 0.9, Reasoning: "worse"},
+	}
+	synthesis := board.SynthesizeVotes(responses)
+	if len(synthesis.BlockingConcerns) != 2 {
+		t.Errorf("Expected 2 blocking concerns from duplicates, got %d", len(synthesis.BlockingConcerns))
+	}
+
+	// Conflicting config (RequireUnanimous=true but MinApprovalRatio=0.0)
+	board.config.RequireUnanimous = true
+	board.config.MinApprovalRatio = 0.0
+	res := []AdvisoryResponse{
+		{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9},
+		{AdvisorName: "tester", Vote: VoteReject, Confidence: 0.9},
+	}
+	s := board.SynthesizeVotes(res)
+	if s.Approved {
+		t.Errorf("Expected RequireUnanimous to override MinApprovalRatio=0.0")
+	}
+}

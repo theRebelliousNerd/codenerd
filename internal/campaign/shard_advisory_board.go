@@ -338,6 +338,10 @@ func (b *ShardAdvisoryBoard) buildConsultationContext(req AdvisoryRequest) strin
 	if len(req.Phases) > 0 {
 		sb.WriteString("### Proposed Phases\n")
 		for i, phase := range req.Phases {
+			if i >= 50 {
+				sb.WriteString(fmt.Sprintf("... and %d more phases\n", len(req.Phases)-50))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("%d. **%s**: %s (%d tasks)\n",
 				i+1, phase.Name, phase.Description, phase.TaskCount))
 		}
@@ -373,10 +377,11 @@ func (b *ShardAdvisoryBoard) buildConsultationContext(req AdvisoryRequest) strin
 
 	if req.RawPlan != "" {
 		sb.WriteString("### Raw Plan\n```\n")
-		// Truncate if too long
+		// Truncate if too long (using runes to avoid breaking UTF-8)
 		plan := req.RawPlan
-		if len(plan) > 3000 {
-			plan = plan[:3000] + "\n... (truncated)"
+		runes := []rune(plan)
+		if len(runes) > 3000 {
+			plan = string(runes[:3000]) + "\n... (truncated)"
 		}
 		sb.WriteString(plan)
 		sb.WriteString("\n```\n")

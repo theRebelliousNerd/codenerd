@@ -111,6 +111,11 @@ type ReplanResult struct {
 	AddedTasks    []Task
 	RemovedTasks  []string
 	ModifiedTasks []Task
+	ModifiedDependencies []struct {
+		TaskID     string
+		RemoveDeps []string
+		AddDeps    []string
+	}
 	NewPhases     []Phase
 }
 
@@ -152,9 +157,13 @@ func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID
 	if campaign == nil {
 		return ErrNilCampaign
 	}
+	if strings.TrimSpace(campaign.ID) == "" {
+		return fmt.Errorf("invalid campaign ID")
+	}
 	if r.kernel == nil {
 		return ErrNilKernel
 	}
+	failedTaskID = strings.TrimSpace(failedTaskID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -202,7 +211,11 @@ func (r *Replanner) Replan(ctx context.Context, campaign *Campaign, failedTaskID
 		return fmt.Errorf("failed to reload campaign: %w", err)
 	}
 
-	*campaign = *workingCampaign
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
 
 	return nil
 }
@@ -334,7 +347,11 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 		logging.Get(logging.CategoryCampaign).Warn("ReplanForNewRequirement: failed to assert replan_trigger: %v", err)
 	}
 
-	*campaign = *workingCampaign
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
 
 	return nil
 }
@@ -446,8 +463,8 @@ Return JSON only:
 			Action      string `json:"action"`
 		}
 		if arrErr := json.Unmarshal([]byte(resp), &tasksOnly); arrErr != nil {
-			logging.Get(logging.CategoryCampaign).Error("RefineNextPhase: failed to parse refinement response as object or array: object_err=%v, array_err=%v, response=%s", err, arrErr, resp[:min(500, len(resp))])
-			return fmt.Errorf("failed to parse refinement response: %w (also tried array: %v)", err, arrErr)
+			logging.Get(logging.CategoryCampaign).Error("RefineNextPhase: failed to parse refinement response as object or array: object_err=%v, array_err=%v, response=%s", err, arrErr, resp)
+			return fmt.Errorf("failed to parse refinement response: %w", err)
 		}
 		// Successfully parsed as array - convert to expected format
 		changes.Tasks = tasksOnly
@@ -470,6 +487,21 @@ Return JSON only:
 			newID := t.TaskID
 			if newID == "" {
 				newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
+			} else {
+				// Ensure uniqueness
+				for idIdx := 1; ; idIdx++ {
+					exists := false
+					for _, existing := range workingNextPhase.Tasks {
+						if existing.ID == newID {
+							exists = true
+							break
+						}
+					}
+					if !exists {
+						break
+					}
+					newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
+				}
 			}
 			task := Task{
 				ID:          newID,
@@ -502,6 +534,21 @@ Return JSON only:
 				newID := t.TaskID
 				if newID == "" {
 					newID = fmt.Sprintf("/task_%s_%d_%d", campaignSlug(campaign.ID), workingNextPhase.Order, len(workingNextPhase.Tasks))
+				} else {
+					// Ensure uniqueness
+					for idIdx := 1; ; idIdx++ {
+						exists := false
+						for _, existing := range workingNextPhase.Tasks {
+							if existing.ID == newID {
+								exists = true
+								break
+							}
+						}
+						if !exists {
+							break
+						}
+						newID = fmt.Sprintf("%s_%d", t.TaskID, idIdx)
+					}
 				}
 				workingNextPhase.Tasks = append(workingNextPhase.Tasks, Task{
 					ID:          newID,
@@ -539,7 +586,11 @@ Return JSON only:
 		return err
 	}
 
-	*campaign = *workingCampaign
+	campaign.Phases = workingCampaign.Phases
+	campaign.RevisionNumber = workingCampaign.RevisionNumber
+	campaign.LastRevision = workingCampaign.LastRevision
+	campaign.TotalTasks = workingCampaign.TotalTasks
+	campaign.CompletedTasks = workingCampaign.CompletedTasks
 
 	return nil
 }
@@ -790,6 +841,18 @@ Output JSON:
 		})
 	}
 
+	for _, mod := range parsed.ModifyDependencies {
+		result.ModifiedDependencies = append(result.ModifiedDependencies, struct {
+			TaskID     string
+			RemoveDeps []string
+			AddDeps    []string
+		}{
+			TaskID:     mod.TaskID,
+			RemoveDeps: mod.RemoveDeps,
+			AddDeps:    mod.AddDeps,
+		})
+	}
+
 	return result, nil
 }
 
@@ -800,6 +863,10 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 	}
 	if fixes == nil {
 		return nil
+	}
+
+	if len(fixes.AddedTasks) > 100 {
+		return fmt.Errorf("replan exceeds maximum allowed tasks (100): proposed %d", len(fixes.AddedTasks))
 	}
 
 	// 1. Skip tasks
@@ -843,6 +910,89 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 		}
 	}
 
+	// 4. Modify dependencies
+	for _, mod := range fixes.ModifiedDependencies {
+		for i := range campaign.Phases {
+			for j := range campaign.Phases[i].Tasks {
+				if campaign.Phases[i].Tasks[j].ID == mod.TaskID {
+					// Remove deps
+					if len(mod.RemoveDeps) > 0 {
+						var newDeps []string
+						for _, dep := range campaign.Phases[i].Tasks[j].DependsOn {
+							keep := true
+							for _, rm := range mod.RemoveDeps {
+								if dep == rm {
+									keep = false
+									break
+								}
+							}
+							if keep {
+								newDeps = append(newDeps, dep)
+							}
+						}
+						campaign.Phases[i].Tasks[j].DependsOn = newDeps
+					}
+					// Add deps
+					for _, add := range mod.AddDeps {
+						exists := false
+						for _, dep := range campaign.Phases[i].Tasks[j].DependsOn {
+							if dep == add {
+								exists = true
+								break
+							}
+						}
+						if !exists {
+							campaign.Phases[i].Tasks[j].DependsOn = append(campaign.Phases[i].Tasks[j].DependsOn, add)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// 5. Cycle check
+	if err := checkCampaignCycles(campaign); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkCampaignCycles(campaign *Campaign) error {
+	// Simple DFS cycle detection
+	adj := make(map[string][]string)
+	for _, p := range campaign.Phases {
+		for _, t := range p.Tasks {
+			adj[t.ID] = t.DependsOn
+		}
+	}
+
+	visited := make(map[string]int) // 0=unvisited, 1=visiting, 2=visited
+	var dfs func(node string) error
+	dfs = func(node string) error {
+		visited[node] = 1
+		for _, dep := range adj[node] {
+			if visited[dep] == 1 {
+				return fmt.Errorf("circular dependency detected involving %s and %s", node, dep)
+			}
+			if visited[dep] == 0 {
+				if err := dfs(dep); err != nil {
+					return err
+				}
+			}
+		}
+		visited[node] = 2
+		return nil
+	}
+
+	for node := range adj {
+		if visited[node] == 0 {
+			if err := dfs(node); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

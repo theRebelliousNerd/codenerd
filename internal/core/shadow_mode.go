@@ -97,6 +97,11 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	if sm.activeSimID != "" {
+		// Check if it timed out or is abandoned, but for safety, return error
+		return nil, fmt.Errorf("a simulation is already active: %s", sm.activeSimID)
+	}
+
 	// Create unique simulation ID
 	simID := fmt.Sprintf("sim_%d", time.Now().UnixNano())
 
@@ -387,6 +392,7 @@ func (sm *ShadowMode) CommitSimulation(ctx context.Context) error {
 		}
 	}
 
+	delete(sm.simulations, sm.activeSimID)
 	sm.activeSimID = ""
 	sm.shadowKernel = nil
 
@@ -408,6 +414,7 @@ func (sm *ShadowMode) AbortSimulation(reason string) {
 		sim.ErrorMessage = reason
 	}
 
+	delete(sm.simulations, sm.activeSimID)
 	sm.activeSimID = ""
 	sm.shadowKernel = nil
 }

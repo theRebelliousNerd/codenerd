@@ -209,8 +209,8 @@ func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
 	_, exists := shadow.simulations[sim.ID]
 	shadow.mu.RUnlock()
 
-	if !exists {
-		t.Error("Simulation map is clearing memory, but architecture states it doesn't. Has this been fixed?")
+	if exists {
+		t.Error("Simulation map is NOT clearing memory, causing a leak.")
 	}
 }
 

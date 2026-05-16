@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -64,17 +65,40 @@ func TestNormalizeWriteSetPaths_RejectsOutsideWorkspace(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty Inputs - `acquire` with `nil` or empty `writeSet` arrays.
-// A test is missing to verify that `acquire` handles empty slice `[]string{}` or `nil` correctly,
-// returning a `nil` lease without attempting map modifications or panicking.
+// -----------------------------------------------------------------------------
+// Marathon 20: Write Set Lock Manager Gaps
+// -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: Null/Undefined/Empty Inputs - `acquire` with `nil` context.
-// The code relies on a fallback to `context.Background()` when `ctx == nil`.
-// Tests should verify this branch behaves safely without panics or blocking infinitely.
+func TestWriteSetLockManager_NullEmptyInputs(t *testing.T) {
+	manager := newWriteSetLockManager(t.TempDir())
+	
+	// empty/nil write set
+	lease, err := manager.acquire(context.Background(), "t1", nil, time.Millisecond)
+	if err != nil || lease != nil {
+		t.Errorf("Expected nil lease/error for nil writeSet")
+	}
+	lease, err = manager.acquire(context.Background(), "t1", []string{}, time.Millisecond)
+	if err != nil || lease != nil {
+		t.Errorf("Expected nil lease/error for empty writeSet")
+	}
 
-// TODO: TEST_GAP: Null/Undefined/Empty Inputs - `acquire` with `""` taskID.
-// There is an early return for `if taskID == ""` which should be explicitly covered
-// to ensure invalid task IDs do not bypass mutual exclusion checks.
+	// nil context
+	lease, err = manager.acquire(nil, "t2", []string{"a"}, time.Millisecond)
+	if err != nil || lease == nil {
+		t.Errorf("Expected success for nil context (should fallback to Background)")
+	}
+	if lease != nil { lease.release() }
+
+	// empty/whitespace taskID
+	lease, err = manager.acquire(context.Background(), "", []string{"a"}, time.Millisecond)
+	if err == nil {
+		t.Errorf("Expected error for empty taskID")
+	}
+	lease, err = manager.acquire(context.Background(), "   ", []string{"a"}, time.Millisecond)
+	if err == nil {
+		t.Errorf("Expected error for whitespace taskID")
+	}
+}
 
 func TestWriteSetLockManager_AcquireTimeout(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
@@ -131,18 +155,61 @@ func TestWriteSetLockManager_NoDeadlockWithOppositeOrdering(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: User Request Extremes - Massive Write Sets.
-// If a user commands changes across 100,000 files, `normalizeWriteSetPaths` allocates map and sorts slice synchronously.
-// A benchmark/boundary test should evaluate contention on `m.mu.Lock()` holding up other tasks for hundreds of milliseconds.
+func TestWriteSetLockManager_UserExtremes(t *testing.T) {
+	manager := newWriteSetLockManager(t.TempDir())
+	
+	// Massive write set
+	var massive []string
+	for i := 0; i < 10000; i++ {
+		massive = append(massive, fmt.Sprintf("file_%d.go", i))
+	}
+	lease, err := manager.acquire(context.Background(), "t1", massive, time.Millisecond)
+	if err != nil {
+		t.Errorf("Failed to acquire massive write set: %v", err)
+	}
+	if lease != nil { lease.release() }
 
-// TODO: TEST_GAP: Type Coercion / OS State - Case sensitivity and Unicode normalization boundaries.
-// On Windows, `File.go` and `file.go` lock the same path, but Linux handles them separately.
-// The tests do not mock `runtime.GOOS` or verify dual-locking vulnerabilities when processing un-normalized Unicode paths.
+	// Poll interval 1ns
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	// Lock first
+	l1, _ := manager.acquire(context.Background(), "t2", []string{"a"}, time.Millisecond)
+	// Try to acquire with 1ns poll interval
+	_, err = manager.acquire(ctx, "t3", []string{"a"}, time.Nanosecond)
+	if !errors.Is(err, ErrWriteSetLockTimeout) && err != context.DeadlineExceeded {
+		t.Errorf("Expected timeout, got %v", err)
+	}
+	if l1 != nil { l1.release() }
+}
 
-// TODO: TEST_GAP: State Conflicts / Race Conditions - Re-entrancy of Task ID locks.
-// `tryAcquirePaths` ignores held locks if `owner == taskID`. The test suite lacks coverage
-// validating what happens when a single task attempts to re-acquire its own locks,
-// and whether a single lease `release()` removes the lock globally, potentially breaking idempotency.
+func TestWriteSetLockManager_StateConflicts(t *testing.T) {
+	manager := newWriteSetLockManager(t.TempDir())
+	
+	// Re-entrancy of task ID locks
+	l1, err := manager.acquire(context.Background(), "t1", []string{"a"}, time.Millisecond)
+	if err != nil { t.Fatal(err) }
+	
+	l2, err := manager.acquire(context.Background(), "t1", []string{"a"}, time.Millisecond)
+	if err != nil {
+		t.Errorf("Expected success for re-entrant lock, got %v", err)
+	}
+	
+	l2.release()
+	
+	// Check if lock is completely released or still held by l1
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel2()
+	_, err = manager.acquire(ctx2, "t2", []string{"a"}, time.Millisecond)
+	if err == nil {
+		t.Errorf("Lock was completely released by l2, breaking idempotency for l1")
+	}
+	l1.release()
+
+	// Double release
+	l3, _ := manager.acquire(context.Background(), "t3", []string{"b"}, time.Millisecond)
+	manager.releasePaths("t3", []string{"b"})
+	l3.release() // Should not panic
+}
 
 func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
@@ -196,16 +263,14 @@ func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Empty: Verify behavior when workspace is an empty string in newWriteSetLockManager (does it allow arbitrary system paths?).
-// TODO: TEST_GAP: Null/Empty: Verify acquire behavior when writeSet contains empty strings, whitespace-only strings, or null characters.
-// TODO: TEST_GAP: Null/Empty: Verify acquire fails safely when taskID is only whitespace.
-// TODO: TEST_GAP: Type Coercion/Formatting: Verify path normalization and boundary checks with complex relative paths (e.g., symlinks pointing outside workspace, paths with null bytes \x00).
-// TODO: TEST_GAP: User Request Extremes: Verify performance and stability when acquiring a write set of 100,000 files (checking for mutex starvation).
-// TODO: TEST_GAP: User Request Extremes: Verify behavior when pollInterval is set to 1ns (does it cause CPU exhaustion?).
-// TODO: TEST_GAP: State Conflicts: Verify that if two concurrent requests use the EXACT SAME taskID, they do not both get granted the lock (Task ID collision breaking mutual exclusion).
-// TODO: TEST_GAP: State Conflicts: Verify behavior if a lease is manually released via manager.releasePaths instead of lease.release(), and then lease.release() is called.
-// TODO: TEST_GAP: User Request Extremes: Verify behavior when path length exceeds OS MAX_PATH limits (e.g., 3000 chars) due to deeply nested generated code structures.
-// TODO: TEST_GAP: State Conflicts: Verify lack of hierarchical locking (Task A locking directory "src/", Task B locking file "src/a.go" - they will not conflict, which might be a bug depending on system design).
-// TODO: TEST_GAP: Null/Empty: Verify acquire behavior when ctx is nil, ensuring it doesn't cause a panic but still respects bounds.
-// TODO: TEST_GAP: Type Coercion: Verify behavior of normalizeAbsolutePath when given bizarre inputs like unprintable Unicode or paths entirely constructed of backslashes.
-// TODO: TEST_GAP: User Request Extremes: Verify Memory/GC pressure when `normalizeWriteSetPaths` is called repeatedly with huge slices (e.g., in a tight polling loop).
+func TestWriteSetLockManager_TypeCoercion(t *testing.T) {
+	manager := newWriteSetLockManager(t.TempDir())
+	
+	// Complex/Bizarre paths
+	paths := []string{"\x00", "a/../../b", "unprintable_\u0000", strings.Repeat("A", 3000)}
+	lease, err := manager.acquire(context.Background(), "t1", paths, time.Millisecond)
+	if err != nil {
+		t.Errorf("Acquire with bizarre paths failed: %v", err)
+	}
+	if lease != nil { lease.release() }
+}

@@ -30,6 +30,9 @@ func (o *Orchestrator) spawnTask(ctx context.Context, intent string, task string
 
 // executeTask executes a single task.
 func (o *Orchestrator) executeTask(ctx context.Context, task *Task) (any, error) {
+	if task == nil {
+		return nil, fmt.Errorf("task cannot be nil")
+	}
 	logging.CampaignDebug("Executing task %s with type %s, shard=%s", task.ID, task.Type, task.Shard)
 
 	// Update task status
@@ -187,6 +190,13 @@ func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, 
 		logging.CampaignDebug("Extracted target path from description: %s", targetPath)
 	}
 
+	// Path traversal guard
+	cleanPath := filepath.Clean(targetPath)
+	if strings.HasPrefix(cleanPath, "..") || strings.HasPrefix(cleanPath, "/") || strings.HasPrefix(cleanPath, "\\") {
+		return nil, fmt.Errorf("path traversal attempt blocked for path: %s", targetPath)
+	}
+	targetPath = cleanPath
+
 	prompt := fmt.Sprintf(`Generate the following file:
 Task: %s
 Target Path: %s
@@ -276,6 +286,10 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		output := ""
 		if res != nil {
 			output = res.Output()
+			// Truncate massive output to avoid OOM
+			if len(output) > 1024*1024 { // 1MB limit
+				output = output[:1024*1024] + "\n... (output truncated)"
+			}
 		}
 		if execErr != nil {
 			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
@@ -602,6 +616,9 @@ func applyCampaignRefFailurePolicy(policy CampaignRefFailurePolicy, learnedFacts
 
 // executeGenericTask runs a generic task via shard delegation.
 func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any, error) {
+	if task.Description == "" {
+		return nil, fmt.Errorf("task description cannot be empty")
+	}
 	logging.CampaignDebug("Executing generic task %s via coder shard", task.ID)
 	result, err := o.spawnTask(ctx, "/fix", task.Description)
 	if err != nil {

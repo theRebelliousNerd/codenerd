@@ -446,10 +446,106 @@ func TestPruneIrrelevant(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: State Conflicts - Test Reset Failure: Mock kernel.Retract failure and verify "ghost facts" persist, simulating transaction commit errors
-// TODO: TEST_GAP: Null/Empty - ContextPager created with a nil LLMClient; calling CompressPhase should handle gracefully rather than panic
-// TODO: TEST_GAP: Type Coercion - Context Profile IDs that are extremely long strings or non-UTF8 binary data
-// TODO: TEST_GAP: State Conflicts - ContextPager.GetUsage called concurrently with SetBudget or ActivatePhase
+// -----------------------------------------------------------------------------
+// Marathon 23: Context Pager Gaps
+// -----------------------------------------------------------------------------
+
+func TestContextPager_ResetFailure(t *testing.T) {
+	kernel := &MockKernel{RetractErr: fmt.Errorf("transaction commit failed")}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+
+	kernel.Assert(core.Fact{Predicate: "activation", Args: []interface{}{"file1.go", 100}})
+
+	// Should not panic, but log an error and continue
+	cp.ResetPhaseContext()
+
+	// Ghost facts persist
+	if len(kernel.Facts) != 1 {
+		t.Errorf("Expected ghost facts to persist, got %d", len(kernel.Facts))
+	}
+}
+
+func TestContextPager_NilLLMClient(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, nil, 100000)
+
+	phase := &Phase{
+		ID:   "phase1",
+		Name: "Phase",
+		Tasks: []Task{{ID: "task1", Status: TaskCompleted, Description: "done"}},
+	}
+	
+	summary, _, _, err := cp.CompressPhase(context.Background(), phase)
+	if err != nil {
+		t.Fatalf("Expected graceful handling, got error: %v", err)
+	}
+	if summary == "" || strings.Contains(summary, "panic") {
+		t.Errorf("Expected fallback summary, got %q", summary)
+	}
+}
+
+func TestContextPager_MalformedProfileID(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+
+	// Extremely long ID
+	longID := strings.Repeat("A", 10000)
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{longID, "schema1", "", ""},
+	})
+
+	prof, err := cp.getContextProfile(longID)
+	if err != nil {
+		t.Fatalf("Failed to handle long profile ID: %v", err)
+	}
+	if prof.RequiredSchemas[0] != "schema1" {
+		t.Errorf("Expected schema1, got %v", prof.RequiredSchemas)
+	}
+	
+	// Non-UTF8
+	binaryID := string([]byte{0xff, 0xfe, 0xfd})
+	kernel.Assert(core.Fact{
+		Predicate: "context_profile",
+		Args:      []interface{}{binaryID, "schema2", "", ""},
+	})
+
+	prof2, err := cp.getContextProfile(binaryID)
+	if err != nil {
+		t.Fatalf("Failed to handle binary profile ID: %v", err)
+	}
+	if prof2.RequiredSchemas[0] != "schema2" {
+		t.Errorf("Expected schema2, got %v", prof2.RequiredSchemas)
+	}
+}
+
+func TestContextPager_GetUsageConcurrent(t *testing.T) {
+	kernel := &ThreadSafeMockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	
+	phase := &Phase{
+		ID:   "test-phase",
+		Name: "Test Phase",
+		Tasks: []Task{{Description: "Task 1", Artifacts: []TaskArtifact{{Path: "file1.go"}}}},
+	}
+
+	var wg sync.WaitGroup
+	// Concurrently SetBudget, ActivatePhase, and GetUsage
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%3 == 0 {
+				cp.SetBudget(50000)
+			} else if i%3 == 1 {
+				_ = cp.ActivatePhase(context.Background(), phase)
+			} else {
+				_, _, _ = cp.GetUsage()
+			}
+		}(i)
+	}
+	wg.Wait()
+}
 
 func TestGetContextProfile_Malformed(t *testing.T) {
 	kernel := &MockKernel{}

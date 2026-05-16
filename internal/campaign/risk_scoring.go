@@ -726,10 +726,10 @@ func (o *Orchestrator) emitRiskAudit(eventType, message string, data map[string]
 
 func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
 	o.mu.RLock()
+	defer o.mu.RUnlock()
 	c := o.campaign
 	cfg := o.config
 	gates := o.riskGateState
-	o.mu.RUnlock()
 	if c == nil {
 		return nil
 	}
@@ -739,9 +739,9 @@ func (o *Orchestrator) computeCampaignRiskDecision() *CampaignRiskDecision {
 
 func (o *Orchestrator) shouldGateTask(taskID string) bool {
 	o.mu.RLock()
+	defer o.mu.RUnlock()
 	decision := o.riskDecision
 	cfg := o.config
-	o.mu.RUnlock()
 
 	// Task-level overrides have highest precedence.
 	if cfg.TaskRiskOverrides != nil {

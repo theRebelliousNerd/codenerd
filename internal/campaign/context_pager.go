@@ -107,9 +107,13 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 
 	logging.Campaign("Activating context for phase: %s", phase.Name)
 
+	cp.mu.RLock()
+	budget := cp.totalBudget
+	cp.mu.RUnlock()
+
 	estimatedTokens := cp.estimatePhaseTokens(phase)
-	if estimatedTokens > cp.totalBudget {
-		return fmt.Errorf("phase %q estimated token usage (%d) exceeds total budget (%d)", phase.Name, estimatedTokens, cp.totalBudget)
+	if estimatedTokens > budget {
+		return fmt.Errorf("phase %q estimated token usage (%d) exceeds total budget (%d)", phase.Name, estimatedTokens, budget)
 	}
 
 	// 1. Get context profile for this phase
@@ -249,7 +253,13 @@ Completed Tasks:
 
 Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 
-		resp, err := cp.llmClient.Complete(ctx, prompt)
+		var resp string
+		var err error
+		if cp.llmClient != nil {
+			resp, err = cp.llmClient.Complete(ctx, prompt)
+		} else {
+			err = fmt.Errorf("LLM client is nil")
+		}
 		if err != nil {
 			logging.CampaignDebug("LLM summary failed, using fallback: %v", err)
 			// Fallback to simple summary

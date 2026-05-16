@@ -101,6 +101,25 @@ func (m *MockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 }
 func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
 
+type MockKernelTx struct {
+	k *MockKernel
+}
+func (tx *MockKernelTx) Retract(predicate string) {}
+func (tx *MockKernelTx) RetractFact(fact core.Fact) {}
+func (tx *MockKernelTx) RetractExactFact(fact core.Fact) {}
+func (tx *MockKernelTx) RetractPredicateSet(predicates map[string]struct{}) {}
+func (tx *MockKernelTx) Assert(fact core.Fact) {}
+func (tx *MockKernelTx) Commit() error {
+	if tx.k.AssertErr != nil {
+		return tx.k.AssertErr
+	}
+	return tx.k.RetractErr
+}
+
+func (m *MockKernel) Transaction() types.KernelTransaction {
+	return &MockKernelTx{k: m}
+}
+
 // --- MockTransducer ---
 
 type MockTransducer struct {

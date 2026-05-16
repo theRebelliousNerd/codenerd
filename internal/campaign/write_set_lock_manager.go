@@ -16,19 +16,24 @@ const defaultWriteSetLockPollInterval = 10 * time.Millisecond
 
 var ErrWriteSetLockTimeout = errors.New("write_set lock acquisition timed out")
 
+type ownerState struct {
+	taskID string
+	count  int
+}
+
 // writeSetLockManager coordinates deterministic file-level write locks.
 // Paths are normalized to absolute canonical form and sorted before acquisition.
 type writeSetLockManager struct {
 	workspace string
 
 	mu     sync.Mutex
-	owners map[string]string // normalized absolute path -> taskID
+	owners map[string]*ownerState // normalized absolute path -> ownerState
 }
 
 func newWriteSetLockManager(workspace string) *writeSetLockManager {
 	return &writeSetLockManager{
 		workspace: workspace,
-		owners:    make(map[string]string),
+		owners:    make(map[string]*ownerState),
 	}
 }
 
@@ -65,7 +70,7 @@ func (m *writeSetLockManager) acquire(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if taskID == "" {
+	if strings.TrimSpace(taskID) == "" {
 		return nil, fmt.Errorf("write_set lock acquisition requires non-empty task id")
 	}
 
@@ -106,14 +111,18 @@ func (m *writeSetLockManager) tryAcquirePaths(taskID string, paths []string) boo
 	defer m.mu.Unlock()
 
 	for _, p := range paths {
-		owner, held := m.owners[p]
-		if held && owner != taskID {
+		state, held := m.owners[p]
+		if held && state.taskID != taskID {
 			return false
 		}
 	}
 
 	for _, p := range paths {
-		m.owners[p] = taskID
+		if state, held := m.owners[p]; held {
+			state.count++
+		} else {
+			m.owners[p] = &ownerState{taskID: taskID, count: 1}
+		}
 	}
 	return true
 }
@@ -123,8 +132,11 @@ func (m *writeSetLockManager) releasePaths(taskID string, paths []string) {
 	defer m.mu.Unlock()
 
 	for _, p := range paths {
-		if owner, held := m.owners[p]; held && owner == taskID {
-			delete(m.owners, p)
+		if state, held := m.owners[p]; held && state.taskID == taskID {
+			state.count--
+			if state.count <= 0 {
+				delete(m.owners, p)
+			}
 		}
 	}
 }
@@ -158,6 +170,10 @@ func normalizeWriteSetPaths(workspace string, writeSet []string) []string {
 func normalizeAbsolutePath(workspace, rawPath string) string {
 	path := strings.TrimSpace(rawPath)
 	if path == "" {
+		return ""
+	}
+	// Filter out null bytes or unprintable bizarre strings
+	if strings.ContainsRune(path, '\x00') {
 		return ""
 	}
 
