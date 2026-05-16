@@ -645,3 +645,48 @@ func TestActivatePhase_NilPhase(t *testing.T) {
 		t.Errorf("Expected 0 facts asserted, got %d", len(kernel.Facts))
 	}
 }
+
+func TestCompressPhase_EmptyAccomplishments(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			return "Should not be called", nil
+		},
+	}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phaseID := "phase_empty"
+	phase := &Phase{
+		ID:   phaseID,
+		Name: "Empty Phase",
+		Tasks: []Task{
+			{
+				ID:          "task_pending",
+				Description: "Not done yet",
+				Status:      TaskPending,
+				Artifacts: []TaskArtifact{
+					{Path: "code.go"},
+				},
+			},
+		},
+	}
+
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_atom",
+		Args:      []interface{}{phaseID, "some_atom", 100},
+	})
+
+	summary, count, _, err := cp.CompressPhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("CompressPhase failed: %v", err)
+	}
+
+	expectedSummary := "Phase 'Empty Phase' completed with no recorded accomplishments."
+	if summary != expectedSummary {
+		t.Errorf("Unexpected summary: got %q, want %q", summary, expectedSummary)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 original atom, got %d", count)
+	}
+}
