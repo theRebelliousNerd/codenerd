@@ -902,3 +902,54 @@ func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 		t.Errorf("Linear scan took too long: %v (expected < 5s)", elapsed)
 	}
 }
+
+func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	// Create a phase with 100,000 artifacts
+	numArtifacts := 100000
+	artifacts := make([]TaskArtifact, numArtifacts)
+	for i := 0; i < numArtifacts; i++ {
+		artifacts[i] = TaskArtifact{Path: fmt.Sprintf("src/file_%d.go", i)}
+	}
+
+	phase := &Phase{
+		ID:             "extreme_phase",
+		Name:           "Extreme Artifact Phase",
+		ContextProfile: "profile1",
+		Tasks: []Task{
+			{
+				ID:        "task1",
+				Artifacts: artifacts,
+			},
+		},
+	}
+
+	// This should run without timing out and correctly assert all facts
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed: %v", err)
+	}
+
+	// Verify that the facts were asserted.
+	// ActivatePhase asserts:
+	// - focus patterns for the default profile (which has 1 pattern: "**/*")
+	// - 100,000 phase_context_atom facts for the artifacts
+	// - 5 activation facts to suppress irrelevant schemas
+	// So we expect 1 + 100000 + 5 = 100006 facts in total.
+
+	// We count specifically the phase_context_atom facts to be robust
+	artifactFactCount := 0
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" {
+			artifactFactCount++
+		}
+	}
+
+	if artifactFactCount != numArtifacts {
+		t.Errorf("Expected %d artifact facts to be asserted, got %d", numArtifacts, artifactFactCount)
+	}
+}
