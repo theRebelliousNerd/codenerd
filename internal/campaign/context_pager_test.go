@@ -848,3 +848,57 @@ func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+
+	numFacts := 1000000
+	kernel.Facts = make([]core.Fact, 0, numFacts+2)
+
+	// Pre-populate with a large number of irrelevant facts
+	for i := 0; i < numFacts; i++ {
+		kernel.Facts = append(kernel.Facts, core.Fact{
+			Predicate: "phase_context_scope",
+			Args:      []interface{}{"other_phase", "irrelevant_doc.md"},
+		})
+	}
+
+	// Add the expected facts for our target phase
+	targetPhase := "target_phase"
+	expectedDocs := []string{"doc1.md", "doc2.md"}
+	for _, doc := range expectedDocs {
+		kernel.Facts = append(kernel.Facts, core.Fact{
+			Predicate: "phase_context_scope",
+			Args:      []interface{}{targetPhase, doc},
+		})
+	}
+
+	start := time.Now()
+	docs := cp.scopedDocsForPhase(targetPhase)
+	elapsed := time.Since(start)
+
+	if len(docs) != len(expectedDocs) {
+		t.Errorf("Expected %d docs, got %d", len(expectedDocs), len(docs))
+	}
+
+	// Verify the correct docs were returned
+	for _, expected := range expectedDocs {
+		found := false
+		for _, doc := range docs {
+			if doc == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected doc %s not found in result", expected)
+		}
+	}
+
+	// Performance assertion: check if it completes within 5 seconds.
+	// Normally this should take less than 100ms.
+	if elapsed > 5*time.Second {
+		t.Errorf("Linear scan took too long: %v (expected < 5s)", elapsed)
+	}
+}
