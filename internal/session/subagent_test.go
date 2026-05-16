@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,7 +177,111 @@ func TestSubAgent_ContextCancellation(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty: What happens if CompressMemory is called with threshold 0?
-// TODO: TEST_GAP: State Conflicts: CompressMemory acquires s.mu but then blocks on s.compressor.Compress(ctx). If the LLM call takes 30s, the entire SubAgent is blocked from reporting state or metrics.
-// TODO: TEST_GAP: User Request Extremes: What happens if the generated summary from compression is massively large (hallucination)? It defeats the purpose of compression and wastes tokens.
-// TODO: TEST_GAP: Type Coercion: Summary is pushed back with role "assistant" and prefix [MEMORY SUMMARY]. Will this break tool parsers expecting structured output from "assistant"?
+// -----------------------------------------------------------------------------
+// Marathon 14: SubAgent Gap Implementations
+// -----------------------------------------------------------------------------
+
+type mockCompressor struct {
+	summary string
+	err     error
+	delay   time.Duration
+}
+
+func (m *mockCompressor) Compress(ctx context.Context, turns []perception.ConversationTurn) (string, error) {
+	if m.delay > 0 {
+		select {
+		case <-time.After(m.delay):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	return m.summary, m.err
+}
+
+func TestSubAgent_CompressMemory_ThresholdZero(t *testing.T) {
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	
+	// Add 5 turns
+	for i := 0; i < 5; i++ {
+		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
+	}
+
+	agent.SetCompressor(&mockCompressor{summary: "compressed"})
+	
+	// Gap 1: Threshold 0 (Should default to 10 and do nothing, or if default is <5, it should compress)
+	// We made it default to 10, so with 5 turns it should do nothing.
+	err := agent.CompressMemory(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	if len(agent.conversationHistory) != 5 {
+		t.Errorf("Expected 5 turns, got %d. Threshold 0 should have defaulted to 10.", len(agent.conversationHistory))
+	}
+}
+
+func TestSubAgent_CompressMemory_StateConflicts_NoBlock(t *testing.T) {
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	
+	for i := 0; i < 15; i++ {
+		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
+	}
+
+	// Gap 2: Compressor blocks for 100ms
+	agent.SetCompressor(&mockCompressor{summary: "compressed", delay: 100 * time.Millisecond})
+	
+	done := make(chan bool)
+	go func() {
+		_ = agent.CompressMemory(context.Background(), 10)
+		done <- true
+	}()
+
+	// Wait a tiny bit to ensure compression started
+	time.Sleep(10 * time.Millisecond)
+
+	// Try to get state while it's compressing. If mu is held, this will block and take > 100ms.
+	start := time.Now()
+	_ = agent.GetState()
+	dur := time.Since(start)
+
+	if dur > 50*time.Millisecond {
+		t.Errorf("GetState blocked for %v, lock was not released during compression!", dur)
+	}
+
+	<-done
+}
+
+func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	
+	for i := 0; i < 15; i++ {
+		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
+	}
+
+	// Gap 3: Massive 5MB summary
+	massiveSummary := strings.Repeat("A", 5*1024*1024)
+	agent.SetCompressor(&mockCompressor{summary: massiveSummary})
+	
+	_ = agent.CompressMemory(context.Background(), 10)
+
+	// Summary should be truncated to 4096 + "..."
+	summaryTurn := agent.conversationHistory[0]
+	if len(summaryTurn.Content) > 5000 {
+		t.Errorf("Summary was not truncated! Length: %d", len(summaryTurn.Content))
+	}
+	
+	// Gap 4: Type Coercion. Role is "assistant".
+	if summaryTurn.Role != "assistant" {
+		t.Errorf("Expected role 'assistant', got '%s'", summaryTurn.Role)
+	}
+	if !strings.HasPrefix(summaryTurn.Content, "[MEMORY SUMMARY]") {
+		t.Errorf("Expected prefix '[MEMORY SUMMARY]', got '%s'", summaryTurn.Content[:min(20, len(summaryTurn.Content))])
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

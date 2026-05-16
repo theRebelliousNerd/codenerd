@@ -332,14 +332,19 @@ type SubAgentMetrics struct {
 // CompressMemory compresses the conversation history if it exceeds threshold.
 func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	if threshold <= 0 {
+		threshold = 10 // Sensible default if 0 is passed
+	}
 
 	if len(s.conversationHistory) <= threshold {
+		s.mu.Unlock()
 		return nil
 	}
 
 	if s.compressor == nil {
 		// No compressor configured
+		s.mu.Unlock()
 		return nil
 	}
 
@@ -365,14 +370,27 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	// Slice and dice
 	toCompress := s.conversationHistory[:splitIndex]
 	recentTurns := s.conversationHistory[splitIndex:]
+	
+	// Release lock during LLM operation!
+	s.mu.Unlock()
 
 	// Run compression
 	summary, err := s.compressor.Compress(ctx, toCompress)
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed: %v", s.config.Name, err)
 		// Fallback: simple trim to threshold
 		s.conversationHistory = s.conversationHistory[len(s.conversationHistory)-threshold:]
 		return nil
+	}
+
+	// Truncate massive hallucinated summaries
+	const maxSummaryLen = 4096
+	if len(summary) > maxSummaryLen {
+		summary = summary[:maxSummaryLen] + "..."
 	}
 
 	// Create summary turn

@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-// TODO: TEST_GAP: Null/Undefined - Verify behavior of Analyze() when LLM returns empty string/nil (should fall back gracefully to analyzeWithoutLLM).
-// TODO: TEST_GAP: Type Coercion - Verify extractJSON() behavior with unbalanced braces, truncated JSON strings, or massive 10MB strings.
-// TODO: TEST_GAP: Type Coercion - Verify parseAnalysisResponse() with valid JSON structure but incorrect data types (e.g. strings instead of ints for ShardAffinities).
-// TODO: TEST_GAP: User Request Extremes - Verify behavior when tools have massive input/output schemas (token limits and json.Indent performance).
-// TODO: TEST_GAP: User Request Extremes - Verify normalizeCapabilities with extreme whitespace and duplicate slashes like [" / r e a d ", "///write", ""].
-// TODO: TEST_GAP: State Conflicts - Verify behavior of Analyze() when context is canceled (should NOT fall back to analyzeWithoutLLM, but return context error).
+// MCP Analyzer Tests
 
 func TestExtractJSONFromCodeBlock(t *testing.T) {
 	payload := `{"categories":["filesystem"],"capabilities":["/read"],"domain":"/go","shard_affinities":{"coder":50},"use_cases":["read"],"condensed":"read file"}`

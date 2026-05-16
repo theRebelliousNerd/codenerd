@@ -7,11 +7,13 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"github.com/google/mangle/analysis"
+	"sync"
 )
 
 // --- MockKernel ---
 
 type MockKernel struct {
+	mu             sync.Mutex
 	Facts          []core.Fact
 	LoadFactsErr   error
 	QueryErr       error
@@ -25,7 +27,9 @@ func (m *MockKernel) LoadFacts(facts []core.Fact) error {
 	if m.LoadFactsErr != nil {
 		return m.LoadFactsErr
 	}
+	m.mu.Lock()
 	m.Facts = append(m.Facts, facts...)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -34,19 +38,23 @@ func (m *MockKernel) Query(predicate string) ([]core.Fact, error) {
 		return nil, m.QueryErr
 	}
 	var results []core.Fact
+	m.mu.Lock()
 	for _, f := range m.Facts {
 		if f.Predicate == predicate {
 			results = append(results, f)
 		}
 	}
+	m.mu.Unlock()
 	return results, nil
 }
 
 func (m *MockKernel) QueryAll() (map[string][]core.Fact, error) {
 	results := make(map[string][]core.Fact)
+	m.mu.Lock()
 	for _, f := range m.Facts {
 		results[f.Predicate] = append(results[f.Predicate], f)
 	}
+	m.mu.Unlock()
 	return results, nil
 }
 
@@ -54,7 +62,9 @@ func (m *MockKernel) Assert(fact core.Fact) error {
 	if m.AssertErr != nil {
 		return m.AssertErr
 	}
+	m.mu.Lock()
 	m.Facts = append(m.Facts, fact)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -62,7 +72,9 @@ func (m *MockKernel) AssertBatch(facts []core.Fact) error {
 	if m.AssertBatchErr != nil {
 		return m.AssertBatchErr
 	}
+	m.mu.Lock()
 	m.Facts = append(m.Facts, facts...)
+	m.mu.Unlock()
 	return nil
 }
 

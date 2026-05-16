@@ -30,23 +30,68 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 
 	logging.SessionDebug("Compressing %d turns via SemanticCompressor", len(turns))
 
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("context cancelled before compression: %w", err)
+	}
+
 	var sb strings.Builder
+	estimatedSize := len(turns) * 100
+	if estimatedSize > 10*1024*1024 {
+		estimatedSize = 10 * 1024 * 1024 // Cap initial allocation
+	}
+	sb.Grow(estimatedSize)
+	
+	const maxTokens = 64000 // approx chars limit
+	totalChars := 0
+
 	for _, turn := range turns {
-		role := "Assistant"
-		if turn.Role == "user" {
-			role = "User"
+		if strings.TrimSpace(turn.Content) == "" {
+			continue // Skip empty turns (Gap 1)
 		}
-		sb.WriteString(fmt.Sprintf("%s: %s\n", role, turn.Content))
+		
+		role := "Assistant"
+		switch strings.ToLower(turn.Role) {
+		case "user":
+			role = "User"
+		case "tool":
+			role = "Tool"
+		case "system":
+			role = "System"
+		case "":
+			role = "Assistant" // Default for empty
+		}
+		
+		// Clean content (Gap 8 - basic unprintable cleanup)
+		content := strings.Map(func(r rune) rune {
+			if r < 32 && r != '\n' && r != '\t' && r != '\r' {
+				return -1
+			}
+			return r
+		}, turn.Content)
+		
+		line := fmt.Sprintf("<turn role=\"%s\">\n%s\n</turn>\n", role, content)
+		
+		if totalChars+len(line) > maxTokens {
+			sb.WriteString("\n[... CONVERSATION TRUNCATED DUE TO LENGTH ...]\n")
+			break
+		}
+		sb.WriteString(line)
+		totalChars += len(line)
+	}
+
+	if sb.Len() == 0 {
+		return "", nil
 	}
 
 	prompt := fmt.Sprintf(`Summarize the following conversation history into a concise context string.
 Retain key decisions, facts, user preferences, and the current state of the task.
 Discard small talk and redundant clarifications.
 
-Conversation:
+<conversation>
 %s
+</conversation>
 
-Summary:`, sb.String())
+Please provide only the summary text without any surrounding formatting.`, sb.String())
 
 	// Use a system prompt to enforce the role
 	systemPrompt := "You are a context compressor. Your job is to summarize conversation history to retain memory for an AI agent."

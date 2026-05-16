@@ -20,7 +20,15 @@ const (
 
 // handleTaskFailure handles task execution failure.
 func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task *Task, err error) {
-	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, err)
+	if task == nil {
+		logging.Get(logging.CategoryCampaign).Warn("Handling task failure: <nil task> - %v", err)
+		return
+	}
+	errStr := "unknown error"
+	if err != nil {
+		errStr = err.Error()
+	}
+	logging.Get(logging.CategoryCampaign).Warn("Handling task failure: %s - %v", task.ID, errStr)
 
 	errorType := classifyTaskError(err)
 	phaseID := ""
@@ -55,10 +63,10 @@ taskSearch:
 					Number:    attemptNum,
 					Outcome:   "/failure",
 					Timestamp: attemptedAt,
-					Error:     err.Error(),
+					Error:     errStr,
 				},
 			)
-			o.campaign.Phases[i].Tasks[j].LastError = err.Error()
+			o.campaign.Phases[i].Tasks[j].LastError = errStr
 			phaseID = o.campaign.Phases[i].ID
 
 			maxRetries := o.config.MaxRetries
@@ -76,7 +84,7 @@ taskSearch:
 				// Record in kernel
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "task_error",
-					Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), err.Error()},
+					Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), errStr},
 				})
 			} else {
 				// Backoff before retrying to avoid tight failure loops.
@@ -108,7 +116,7 @@ taskSearch:
 	// Record error taxonomy + retry window for policy/debugging.
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "task_error",
-		Args:      []interface{}{task.ID, errorType, err.Error()},
+		Args:      []interface{}{task.ID, errorType, errStr},
 	})
 	if logicEscalated {
 		_ = o.kernel.Assert(core.Fact{
@@ -136,7 +144,7 @@ taskSearch:
 		})
 	}
 
-	o.emitEvent("task_failed", phaseID, task.ID, err.Error(), nil)
+	o.emitEvent("task_failed", phaseID, task.ID, errStr, nil)
 	if logicEscalated {
 		o.emitEvent("logic_failure_escalated", phaseID, task.ID, "Deterministic logic escalation triggered", map[string]interface{}{
 			"reason":                logicEscalationReason,

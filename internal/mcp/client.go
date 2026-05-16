@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -91,6 +92,10 @@ func (m *MCPClientManager) ConnectAll(ctx context.Context) error {
 
 // Connect establishes connection to a specific MCP server.
 func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
+	if serverID == "" {
+		return fmt.Errorf("server ID cannot be empty")
+	}
+
 	m.mu.Lock()
 	cfg, ok := m.config[serverID]
 	if !ok {
@@ -241,6 +246,9 @@ func (m *MCPClientManager) DiscoverTools(ctx context.Context, serverID string) e
 	if err != nil {
 		return fmt.Errorf("failed to list tools: %w", err)
 	}
+	if len(schemas) == 0 {
+		return nil
+	}
 
 	logging.Get(logging.CategoryTools).Info("Discovered %d tools from %s", len(schemas), serverID)
 
@@ -331,6 +339,15 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 
 // CallTool invokes a tool on an MCP server.
 func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map[string]interface{}) (*MCPCallResult, error) {
+	if args == nil {
+		args = make(map[string]interface{})
+	}
+
+	// Ensure args are serializable to prevent transport panic/error later
+	if _, err := json.Marshal(args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err)
+	}
+
 	// Parse tool ID to get server and tool name
 	serverID, toolName := parseToolID(toolID)
 	if serverID == "" {
@@ -405,18 +422,20 @@ func (m *MCPClientManager) ListTools(ctx context.Context) ([]MCPToolSchema, erro
 	_ = ctx
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	schemas := make([]MCPToolSchema, 0)
+	var allTools []*MCPTool
 	for _, conn := range m.servers {
-		for _, tool := range conn.Tools {
-			schemas = append(schemas, MCPToolSchema{
-				Name:         tool.Name,
-				Description:  tool.Description,
-				InputSchema:  tool.InputSchema,
-				OutputSchema: tool.OutputSchema,
-			})
-		}
+		allTools = append(allTools, conn.Tools...)
+	}
+	m.mu.RUnlock()
+
+	schemas := make([]MCPToolSchema, 0, len(allTools))
+	for _, tool := range allTools {
+		schemas = append(schemas, MCPToolSchema{
+			Name:         tool.Name,
+			Description:  tool.Description,
+			InputSchema:  tool.InputSchema,
+			OutputSchema: tool.OutputSchema,
+		})
 	}
 
 	if len(schemas) == 0 {

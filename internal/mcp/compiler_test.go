@@ -1,6 +1,9 @@
 package mcp
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestFallbackSelectAssignsRenderModes(t *testing.T) {
 	compiler := &JITToolCompiler{config: DefaultToolSelectionConfig()}
@@ -115,8 +118,151 @@ func TestFitBudgetDemotesTools(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined - Verify behavior when 'allTools' contains nil pointers to prevent panic in buildToolSet.
-// TODO: TEST_GAP: State Conflicts - Verify behavior when multiple tools share the same ToolID (last-write-wins vs error).
-// TODO: TEST_GAP: Type Coercion/Robustness - Verify case-insensitive handling of RenderMode strings from Mangle (e.g. "FULL").
-// TODO: TEST_GAP: User Request Extremes - Verify behavior with 0 or negative TokenBudget (should probably error or return empty safely).
-// TODO: TEST_GAP: Performance - Benchmark fitBudget with 10,000 tools to ensure O(N) complexity holds.
+// -----------------------------------------------------------------------------
+// Marathon 16: MCP Compiler Gap Implementations
+// -----------------------------------------------------------------------------
+
+func TestBuildToolSet_NilPointers(t *testing.T) {
+	compiler := &JITToolCompiler{config: DefaultToolSelectionConfig()}
+
+	// Gap 1: allTools contains nil pointers
+	tools := []*MCPTool{
+		{ToolID: "t1", Name: "Tool1", Condensed: "c1", ServerID: "s1"},
+		nil,
+		{ToolID: "t2", Name: "Tool2", Condensed: "c2", ServerID: "s1"},
+		nil,
+	}
+	selected := []SelectedTool{
+		{ToolID: "t1", RenderMode: RenderModeFull},
+		{ToolID: "t2", RenderMode: RenderModeMinimal},
+	}
+
+	stats := &ToolCompilationStats{}
+	set := compiler.buildToolSet(tools, selected, stats)
+
+	if len(set.FullTools) != 1 || len(set.MinimalTools) != 1 {
+		t.Fatalf("unexpected tool set sizes: full=%d minimal=%d", len(set.FullTools), len(set.MinimalTools))
+	}
+}
+
+func TestBuildToolSet_StateConflicts_DuplicateID(t *testing.T) {
+	compiler := &JITToolCompiler{config: DefaultToolSelectionConfig()}
+
+	// Gap 2: Duplicate ToolIDs (last-write-wins)
+	tools := []*MCPTool{
+		{ToolID: "t1", Name: "Tool1-First", Condensed: "c1", ServerID: "s1"},
+		{ToolID: "t1", Name: "Tool1-Last", Condensed: "c2", ServerID: "s1"},
+	}
+	selected := []SelectedTool{
+		{ToolID: "t1", RenderMode: RenderModeFull},
+	}
+
+	stats := &ToolCompilationStats{}
+	set := compiler.buildToolSet(tools, selected, stats)
+
+	if len(set.FullTools) != 1 {
+		t.Fatalf("expected 1 full tool")
+	}
+	if set.FullTools[0].Name != "Tool1-Last" {
+		t.Fatalf("Expected last-write-wins (Tool1-Last), got %s", set.FullTools[0].Name)
+	}
+}
+
+type mockKernelWithMangle struct {
+	results []map[string]interface{}
+}
+
+func (m *mockKernelWithMangle) Assert(fact string) error { return nil }
+func (m *mockKernelWithMangle) Retract(fact string) error { return nil }
+func (m *mockKernelWithMangle) Query(query string) ([]map[string]interface{}, error) {
+	return m.results, nil
+}
+
+func TestMangleSelect_TypeCoercion_CaseInsensitive(t *testing.T) {
+	compiler := &JITToolCompiler{
+		kernel: &mockKernelWithMangle{
+			results: []map[string]interface{}{
+				{"ToolID": "t1", "RenderMode": "FULL"},
+				{"ToolID": "t2", "RenderMode": "/CONDENSED"},
+			},
+		},
+	}
+
+	// Gap 3: Case insensitive render modes
+	selected, err := compiler.mangleSelect(context.Background(), ToolCompilationContext{ShardType: "coder"})
+	if err != nil {
+		t.Fatalf("mangleSelect failed: %v", err)
+	}
+
+	if len(selected) != 2 {
+		t.Fatalf("expected 2 selected tools")
+	}
+
+	if selected[0].RenderMode != RenderModeFull {
+		t.Errorf("expected FULL to be parsed as RenderModeFull, got %v", selected[0].RenderMode)
+	}
+	if selected[1].RenderMode != RenderModeCondensed {
+		t.Errorf("expected /CONDENSED to be parsed as RenderModeCondensed, got %v", selected[1].RenderMode)
+	}
+}
+
+type mockEmptyStore struct{}
+func (m *mockEmptyStore) GetAllTools(ctx context.Context) ([]*MCPTool, error) {
+	return []*MCPTool{{ToolID: "t1"}}, nil
+}
+func (m *mockEmptyStore) SemanticSearch(ctx context.Context, embed []float32, limit int) ([]ToolSearchResult, error) {
+	return nil, nil
+}
+
+func TestCompile_UserRequestExtremes_NegativeBudget(t *testing.T) {
+	store, err := NewMCPToolStore("file::memory:?cache=shared", nil)
+	if err != nil {
+		t.Fatalf("failed to init store: %v", err)
+	}
+	defer store.Close()
+	
+	// Create a client for the store
+	// For testing, just inject the tools
+	
+	compiler := &JITToolCompiler{
+		config: ToolSelectionConfig{TokenBudget: 500},
+		store:  store,
+	}
+
+	// Gap 4: Negative TokenBudget should be coerced to config.TokenBudget
+	tcc := ToolCompilationContext{
+		TokenBudget: -1000,
+	}
+
+	// We don't have tools in store, but the stats should reflect the coerced budget.
+	// We'll just verify that the context was coerced in the logic.
+	// A trick is to call Compile with empty store and check stats.TokenBudget.
+	
+	set, err := compiler.Compile(context.Background(), tcc)
+	if err != nil {
+		t.Fatalf("Compile failed: %v", err)
+	}
+
+	if set.Stats.TokenBudget != 500 {
+		t.Errorf("Expected token budget to be coerced to 500, got %d", set.Stats.TokenBudget)
+	}
+}
+
+func BenchmarkFitBudget_10000Tools(b *testing.B) {
+	compiler := &JITToolCompiler{
+		config: ToolSelectionConfig{
+			MaxFullTools:      10,
+			MaxCondensedTools: 20,
+		},
+	}
+
+	// Gap 5: Benchmark performance
+	for i := 0; i < b.N; i++ {
+		result := &CompiledToolSet{}
+		for j := 0; j < 10000; j++ {
+			result.FullTools = append(result.FullTools, MCPTool{})
+		}
+		stats := &ToolCompilationStats{}
+		compiler.fitBudget(result, 500, stats)
+	}
+}

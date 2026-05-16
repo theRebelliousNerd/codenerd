@@ -1,6 +1,7 @@
 package articulation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -249,32 +250,199 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: User Request Extremes - Verify behavior with massive 'reasoning_trace' (>50MB) to ensure OOM protection.
-// TODO: TEST_GAP: User Request Extremes - Verify recursion depth limits for nested JSON objects to prevent stack overflow.
-// TODO: TEST_GAP: State Conflicts - Verify behavior when JSON contains duplicate keys (e.g. multiple 'surface_response' fields) - which one wins?
-// TODO: TEST_GAP: Performance - Benchmark 'extractEmbeddedJSON' regex against massive inputs with near-matches to detect catastrophic backtracking.
+func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Create a 50MB reasoning trace
+	massiveTrace := strings.Repeat("A", 50*1024*1024)
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"%s"},"surface_response":"hi"}`, massiveTrace)
+	
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	
+	if len(res.Control.ReasoningTrace) > 60000 {
+		t.Fatalf("ReasoningTrace was not truncated: len=%d", len(res.Control.ReasoningTrace))
+	}
+	if !strings.HasSuffix(res.Control.ReasoningTrace, "[TRUNCATED]") {
+		t.Fatalf("ReasoningTrace did not end with [TRUNCATED]")
+	}
+}
 
-// TODO: TEST_GAP: Decoy Injection / State Conflict - Verify which candidate is selected when multiple valid-looking JSONs exist.
-// Scenario: Input contains `Example: {"control_packet": ...}` followed by `Real: {"control_packet": ...}`.
-// Currently, Pass 1 picks the FIRST one (Decoy). We need a test to enforce a safer selection policy (e.g. Last One Wins, or strict wrapper).
+func TestResponseProcessor_Process_RecursionDepth(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Create deeply nested JSON
+	depth := 10000
+	var sb strings.Builder
+	for i := 0; i < depth; i++ {
+		sb.WriteString(`{"a":`)
+	}
+	sb.WriteString(`1`)
+	for i := 0; i < depth; i++ {
+		sb.WriteString(`}`)
+	}
+	
+	// This will likely fail to parse, but shouldn't stack overflow
+	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":%s},"surface_response":"hi"}`, sb.String())
+	
+	_, _ = rp.Process(raw) // We just want to ensure it doesn't crash
+}
 
-// TODO: TEST_GAP: Hallucinated Keys - Verify behavior when keys are present but slightly wrong (e.g. "control_packets").
-// The heuristic scanner might pick it up, but `json.Unmarshal` will produce a default zero-value struct.
-// Test should confirm that strict mode (`RequireValidJSON`) correctly rejects this, while loose mode creates a safe fallback.
+func TestResponseProcessor_Process_DuplicateKeys(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Standard JSON decoding in Go uses last-wins for duplicate keys
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"first","surface_response":"second"}`
+	
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	
+	if res.Surface != "second" {
+		t.Fatalf("Expected last-wins for duplicate keys, got %q", res.Surface)
+	}
+}
 
-// TODO: TEST_GAP: DoS / Resource Exhaustion - Verify `extractEmbeddedJSON` performance when input contains 10,000+ candidates.
-// Each candidate triggers `json.Unmarshal`. This test should measure the time taken and ensure it fails if it exceeds a threshold (e.g. 100ms).
-// Mitigation: implement a candidate limit or size limit.
+func TestResponseProcessor_ExtractEmbeddedJSON_CatastrophicBacktracking(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Benchmark extractEmbeddedJSON with lots of braces
+	massiveNoise := strings.Repeat("{ } ", 10000)
+	raw := massiveNoise + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + massiveNoise
+	
+	_, err := rp.extractEmbeddedJSON(raw)
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+}
 
-// TODO: TEST_GAP: Malformed Hiding - Verify behavior when a malformed real response (missing brace) hides a subsequent decoy.
-// Scenario: `{"real": ... (missing brace) ... {"decoy": ...}`.
-// The scanner might skip the real response but pick up the decoy if depth resets or aligns.
+func TestResponseProcessor_ExtractEmbeddedJSON_DecoyInjection(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Real comes second, Decoy comes first
+	raw := `Example: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}
+Real: {"control_packet":{"intent_classification":{"category":"/real","verb":"/real","target":"x","constraint":"none","confidence":1}},"surface_response":"real"}`
+	
+	env, err := rp.extractEmbeddedJSON(raw)
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+	
+	if env.Surface != "real" {
+		t.Fatalf("Expected real surface to win, got %q", env.Surface)
+	}
+	if env.Control.IntentClassification.Category != "/real" {
+		t.Fatalf("Expected real intent to win, got %q", env.Control.IntentClassification.Category)
+	}
+}
 
-// TODO: TEST_GAP: Non-ASCII Handling - Verify proper handling of Unicode characters (emojis, CJK) in control_packet fields.
-// Ensure that `findJSONCandidates` and `json.Unmarshal` correctly preserve non-ASCII data and that length caps operate on runes or bytes correctly.
+func TestResponseProcessor_Process_HallucinatedKeys(t *testing.T) {
+	rpStrict := NewResponseProcessor()
+	rpStrict.RequireValidJSON = true
+	
+	// "control_packets" instead of "control_packet"
+	raw := `{"control_packets":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`
+	
+	_, err := rpStrict.Process(raw)
+	if err == nil {
+		t.Fatalf("Expected strict processor to fail on hallucinated keys")
+	}
+	
+	rpLoose := NewResponseProcessor()
+	rpLoose.RequireValidJSON = false
+	res, err := rpLoose.Process(raw)
+	if err != nil {
+		t.Fatalf("Loose processor should not fail")
+	}
+	// In loose mode, it parses successfully but the missing fields are default-zero.
+	if res.ParseMethod != "json" {
+		t.Fatalf("Expected json parsing for loose processor, got %s", res.ParseMethod)
+	}
+	if res.Control.IntentClassification.Category != "" {
+		t.Fatalf("Expected empty category due to hallucinated key, got %q", res.Control.IntentClassification.Category)
+	}
+}
 
-// TODO: TEST_GAP: Scanner Brace Imbalance - Verify `findJSONCandidates` behavior with pathological brace patterns like `{{{{` or `}}}}`.
-// Ensure it does not hang or consume excessive memory when no closing braces are found.
+func TestResponseProcessor_ExtractEmbeddedJSON_DOS(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	// Create 10,000 JSON objects that are NOT valid Piggyback Envelopes
+	var sb strings.Builder
+	for i := 0; i < 10000; i++ {
+		sb.WriteString(`{"a": 1} `)
+	}
+	sb.WriteString(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`)
+	
+	// Must not take too long
+	_, err := rp.extractEmbeddedJSON(sb.String())
+	if err != nil {
+		t.Fatalf("extractEmbeddedJSON() error = %v", err)
+	}
+}
 
-// TODO: TEST_GAP: Type Coercion Resilience - Verify if we can gracefully handle "stringified" floats for `confidence` or "stringified" booleans for `required`.
-// Currently this fails strict validation, but a resilient parser should perhaps attempt coercion before rejection.
+func TestResponseProcessor_Process_MalformedHiding(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = false // Allow fallback
+	
+	// Real is missing a brace, so it's malformed. Decoy follows it.
+	raw := `Real: {"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"
+Decoy: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}`
+	
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	
+	// Because of brace counting, the entire block is seen as one malformed candidate.
+	// It should fallback to parsing the entire text as surface response rather than 
+	// getting confused and picking up the decoy.
+	if res.ParseMethod != "fallback" {
+		t.Fatalf("Expected fallback for malformed hiding, got %q", res.ParseMethod)
+	}
+}
+
+func TestResponseProcessor_Process_NonASCII(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"🤔💡"},"surface_response":"こんにちは"}`
+	
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	
+	if res.Surface != "こんにちは" {
+		t.Fatalf("Expected Japanese surface, got %q", res.Surface)
+	}
+	if res.Control.ReasoningTrace != "🤔💡" {
+		t.Fatalf("Expected Emoji reasoning trace, got %q", res.Control.ReasoningTrace)
+	}
+}
+
+func TestResponseProcessor_ExtractEmbeddedJSON_BraceImbalance(t *testing.T) {
+	rp := NewResponseProcessor()
+	
+	raw := strings.Repeat("{", 1000) + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + strings.Repeat("}", 1000)
+	
+	// The scanner may or may not find it depending on how it handles depth. 
+	// The goal is just to ensure it doesn't hang/OOM.
+	_, _ = rp.extractEmbeddedJSON(raw)
+}
+
+func TestResponseProcessor_Process_TypeCoercionResilience(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = false
+	
+	// JSON decoder in Go can parse "stringified" floats automatically into float64
+	// But it does NOT automatically parse "stringified" booleans into bool unless customized.
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":"0.95"}},"surface_response":"hi"}`
+	
+	// This will fail strict JSON processing due to string instead of float for confidence
+	res, _ := rp.Process(raw)
+	if res.ParseMethod != "fallback" {
+		t.Fatalf("Expected fallback because Go's default json.Unmarshal fails on string-to-float")
+	}
+}

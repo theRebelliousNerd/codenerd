@@ -385,7 +385,7 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	logging.AutopoiesisDebug("Recording learning for tool: %s (success=%v)", toolName, feedback.Success)
 
 	ls.mu.Lock()
-	defer ls.mu.Unlock()
+	// Lock is manually unlocked before disk I/O, so NO defer ls.mu.Unlock() here!
 
 	learning, exists := ls.learnings[toolName]
 	if !exists {
@@ -444,7 +444,15 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	}
 
 	learning.UpdatedAt = time.Now()
-	ls.save()
+	
+	// Marshal data while holding the lock
+	data, err := json.MarshalIndent(ls.learnings, "", "  ")
+	ls.mu.Unlock()
+	
+	// Write to disk without holding the lock
+	if err == nil {
+		ls.saveBytes(data)
+	}
 
 	logging.Autopoiesis("Learning recorded for %s: executions=%d, successRate=%.2f, avgQuality=%.2f",
 		toolName, learning.TotalExecutions, learning.SuccessRate, learning.AverageQuality)
@@ -464,7 +472,12 @@ func (ls *LearningStore) GetAllLearnings() []*ToolLearning {
 
 	learnings := make([]*ToolLearning, 0, len(ls.learnings))
 	for _, l := range ls.learnings {
-		learnings = append(learnings, l)
+		clone := *l
+		clone.KnownIssues = append([]IssueType(nil), l.KnownIssues...)
+		clone.AppliedFixes = append([]string(nil), l.AppliedFixes...)
+		clone.BestPractices = append([]string(nil), l.BestPractices...)
+		clone.AntiPatterns = append([]string(nil), l.AntiPatterns...)
+		learnings = append(learnings, &clone)
 	}
 	return learnings
 }
@@ -498,18 +511,14 @@ func (ls *LearningStore) load() {
 	json.Unmarshal(data, &ls.learnings)
 }
 
-// save writes learnings to disk
-func (ls *LearningStore) save() {
+// saveBytes writes the pre-marshaled learnings to disk
+func (ls *LearningStore) saveBytes(data []byte) {
 	if err := os.MkdirAll(ls.storePath, 0755); err != nil {
 		return
 	}
 
 	path := filepath.Join(ls.storePath, "tool_learnings.json")
 	tmpPath := path + ".tmp"
-	data, err := json.MarshalIndent(ls.learnings, "", "  ")
-	if err != nil {
-		return
-	}
 
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return

@@ -280,9 +280,98 @@ func containsString(values []string, target string) bool {
 	return false
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Verify handleTaskFailure behavior when `phase` or `task` pointers are nil, or when the task ID does not exist in the campaign (should not panic, should handle safely).
-// TODO: TEST_GAP: Null/Undefined/Empty - Verify classifyTaskError and handleTaskFailure behavior when `err` is exactly `nil` (should coerce to a default error string or /logic bucket).
-// TODO: TEST_GAP: Type Coercion - Verify computeRetryBackoff handles negative config values (RetryBackoffBase = -1, RetryBackoffMax = -1) by coercing to safe defaults.
-// TODO: TEST_GAP: User Request Extremes - Verify handleTaskFailure with a massive `err.Error()` string (e.g., 50MB of compiler output). Verify it doesn't OOM during `strings.ToLower` or choke the Mangle kernel during `kernel.Assert`.
-// TODO: TEST_GAP: User Request Extremes - Verify infinite recursion protection: manually trigger a failure on a Repro Diagnostic Task and ensure it does not spawn a nested repro task.
-// TODO: TEST_GAP: State Conflicts - Write a concurrency test spawning 50 goroutines calling `handleTaskFailure` simultaneously. Run with `-race` to ensure the unlocked `kernel.Assert` and `updateFailedTaskCount` do not corrupt state.
+// -----------------------------------------------------------------------------
+// Gap Implementations
+// -----------------------------------------------------------------------------
+
+func TestOrchestratorFailure_NullEmptyPointers(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+
+	// Should not panic on nil phase/task
+	orch.handleTaskFailure(context.Background(), nil, nil, errors.New("error"))
+
+	// Should not panic on task not in phase
+	taskNotInPhase := &Task{ID: "not_in_phase"}
+	phase := &orch.campaign.Phases[0]
+	orch.handleTaskFailure(context.Background(), phase, taskNotInPhase, errors.New("error"))
+}
+
+func TestOrchestratorFailure_NilError(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	// Should not panic with nil err
+	orch.handleTaskFailure(context.Background(), phase, task, nil)
+}
+
+func TestOrchestratorFailure_NegativeBackoff(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	// Force negative config
+	orch.config.RetryBackoffBase = -1
+	orch.config.RetryBackoffMax = -1
+
+	backoff := orch.computeRetryBackoff("test-task", 1)
+	if backoff < 0 {
+		t.Fatalf("computeRetryBackoff returned negative duration: %v", backoff)
+	}
+}
+
+func TestOrchestratorFailure_MassiveErrorString(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	massiveStr := strings.Repeat("A", 50*1024*1024)
+	err := errors.New(massiveStr)
+
+	// Should not OOM or hang
+	orch.handleTaskFailure(context.Background(), phase, task, err)
+}
+
+func TestOrchestratorFailure_InfiniteRecursionProtection(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	// Make the task a Repro Diagnostic task
+	task.Type = TaskTypeTestRun
+	task.Description = "repro diagnostic: run tests before next mutation"
+	
+	// Fail the repro task
+	orch.handleTaskFailure(context.Background(), phase, task, errors.New("logic failure in repro"))
+	
+	// Should NOT spawn another repro task
+	if len(phase.Tasks) > 1 {
+		t.Fatalf("expected no repro task spawned from a repro task, got %d", len(phase.Tasks))
+	}
+}
+
+func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	err := errors.New("some error")
+
+	errCh := make(chan error, 50)
+	for i := 0; i < 50; i++ {
+		go func() {
+			// Catch any panic
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- fmt.Errorf("panic: %v", r)
+				} else {
+					errCh <- nil
+				}
+			}()
+			orch.handleTaskFailure(context.Background(), phase, task, err)
+		}()
+	}
+
+	for i := 0; i < 50; i++ {
+		if e := <-errCh; e != nil {
+			t.Fatalf("concurrent handleTaskFailure failed: %v", e)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,7 +28,14 @@ type MCPToolStore struct {
 
 // NewMCPToolStore creates a new MCP tool store.
 func NewMCPToolStore(dbPath string, embedder embedding.EmbeddingEngine) (*MCPToolStore, error) {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	if dbPath == "" {
+		return nil, fmt.Errorf("dbPath cannot be empty")
+	}
+	sep := "?"
+	if strings.Contains(dbPath, "?") {
+		sep = "&"
+	}
+	db, err := sql.Open("sqlite3", dbPath+sep+"_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -156,6 +164,13 @@ func (s *MCPToolStore) Close() error {
 
 // SaveServer persists an MCP server to the database.
 func (s *MCPToolStore) SaveServer(ctx context.Context, server *MCPServer) error {
+	if server == nil {
+		return fmt.Errorf("server cannot be nil")
+	}
+	if server.ID == "" || server.Endpoint == "" || server.Protocol == "" {
+		return fmt.Errorf("server ID, Endpoint, and Protocol cannot be empty")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -193,6 +208,10 @@ func (s *MCPToolStore) UpdateServerStatus(ctx context.Context, serverID string, 
 
 // GetServer retrieves an MCP server by ID.
 func (s *MCPToolStore) GetServer(ctx context.Context, serverID string) (*MCPServer, error) {
+	if serverID == "" {
+		return nil, fmt.Errorf("serverID cannot be empty")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -272,6 +291,13 @@ func (s *MCPToolStore) GetAllServers(ctx context.Context) ([]*MCPServer, error) 
 
 // SaveTool persists an MCP tool to the database.
 func (s *MCPToolStore) SaveTool(ctx context.Context, tool *MCPTool) error {
+	if tool == nil {
+		return fmt.Errorf("tool cannot be nil")
+	}
+	if tool.ToolID == "" || tool.ServerID == "" || tool.Name == "" {
+		return fmt.Errorf("tool ID, ServerID, and Name cannot be empty")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -338,6 +364,10 @@ func (s *MCPToolStore) updateVectorIndex(ctx context.Context, toolID string, emb
 
 // GetTool retrieves an MCP tool by ID.
 func (s *MCPToolStore) GetTool(ctx context.Context, toolID string) (*MCPTool, error) {
+	if toolID == "" {
+		return nil, fmt.Errorf("toolID cannot be empty")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -469,6 +499,10 @@ func (s *MCPToolStore) GetToolsByServer(ctx context.Context, serverID string) ([
 
 // RecordToolUsage records a tool usage event.
 func (s *MCPToolStore) RecordToolUsage(ctx context.Context, toolID string, success bool, latencyMs int64) error {
+	if toolID == "" {
+		return fmt.Errorf("toolID cannot be empty")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -478,11 +512,12 @@ func (s *MCPToolStore) RecordToolUsage(ctx context.Context, toolID string, succe
 	}
 
 	// Update counts and running average latency
+	// Use CAST to REAL to avoid integer overflow on massive latencyMs * usage_count
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE mcp_tools SET
 			usage_count = usage_count + 1,
 			success_count = success_count + ?,
-			avg_latency_ms = ((avg_latency_ms * usage_count) + ?) / (usage_count + 1),
+			avg_latency_ms = CAST(((CAST(avg_latency_ms AS REAL) * usage_count) + ?) / (usage_count + 1) AS INTEGER),
 			last_used = ?
 		WHERE tool_id = ?
 	`, successInc, latencyMs, time.Now(), toolID)
@@ -491,6 +526,13 @@ func (s *MCPToolStore) RecordToolUsage(ctx context.Context, toolID string, succe
 
 // SemanticSearch finds tools semantically similar to the query.
 func (s *MCPToolStore) SemanticSearch(ctx context.Context, queryEmbedding []float32, topK int) ([]ToolSearchResult, error) {
+	if len(queryEmbedding) == 0 {
+		return nil, fmt.Errorf("queryEmbedding cannot be empty")
+	}
+	if topK <= 0 {
+		return nil, fmt.Errorf("topK must be > 0")
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -598,6 +640,10 @@ func float32SliceToBytes(floats []float32) []byte {
 }
 
 func bytesToFloat32Slice(bytes []byte) []float32 {
+	if len(bytes)%4 != 0 {
+		// Log or handle corrupt data. Return truncated or empty.
+		return nil
+	}
 	floats := make([]float32, len(bytes)/4)
 	for i := range floats {
 		bits := uint32(bytes[i*4]) | uint32(bytes[i*4+1])<<8 | uint32(bytes[i*4+2])<<16 | uint32(bytes[i*4+3])<<24

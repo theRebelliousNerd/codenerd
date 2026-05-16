@@ -15,6 +15,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -172,6 +173,16 @@ type ExecutionResult struct {
 func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult, error) {
 	start := time.Now()
 	logging.Session("Processing input: %d chars", len(input))
+
+	if strings.TrimSpace(input) == "" {
+		return nil, errors.New("empty input provided")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context error before processing: %w", err)
+	}
 
 	result := &ExecutionResult{}
 

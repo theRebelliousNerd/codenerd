@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -128,36 +129,166 @@ func TestMCPToolStoreServerAndToolLifecycle(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty Inputs
-// 1. `NewMCPToolStore` with an empty string `dbPath`.
-// 2. `SaveServer` with a `nil` MCPServer or a server with empty ID, Endpoint, Protocol.
-// 3. `SaveTool` with a `nil` MCPTool or a tool with empty ToolID, ServerID, Name.
-// 4. `GetServer` and `GetTool` with empty string IDs.
-// 5. `SemanticSearch` with `nil` or empty `queryEmbedding` slice.
-// 6. `RecordToolUsage` with empty `toolID`.
+// -----------------------------------------------------------------------------
+// Marathon 18: MCP Store Test Gaps
+// -----------------------------------------------------------------------------
 
-// TODO: TEST_GAP: Type Coercion
-// 1. DB containing invalid JSON strings in fields like `input_schema`, `capabilities`, `categories`.
-//    Verify that `json.Unmarshal` failures do not crash the `GetTool` / `GetServer` methods and either error gracefully or return partial objects.
-// 2. `float32SliceToBytes` and `bytesToFloat32Slice` with byte slices that are not multiples of 4 (e.g., corrupted BLOB data in SQLite).
-// 3. Negative `usage_count` or `avg_latency_ms` data pre-existing in the database (e.g. from manual edits or bug).
-// 4. `cosineSimilarity` behavior when one slice is empty and the other is not (slices of different lengths).
-// 5. `SemanticSearch` with `topK` <= 0.
+func TestStore_NullEmptyInputs(t *testing.T) {
+	ctx := context.Background()
+	_, err := NewMCPToolStore("", nil)
+	if err == nil {
+		t.Error("Expected error with empty dbPath")
+	}
 
-// TODO: TEST_GAP: User Request Extremes
-// 1. Saving an MCPTool with a massive `Embedding` slice (e.g., 100,000 dimensions). Does it hit SQLite BLOB limits or memory issues during float32 -> byte conversion?
-// 2. Saving 100,000 tools to the same server and querying them.
-// 3. Very large strings (megabytes) for `output_schema` or `input_schema`.
-// 4. `RecordToolUsage` with massive `latencyMs` causing integer overflow in the `avg_latency_ms` moving average calculation `((avg_latency_ms * usage_count) + latencyMs) / (usage_count + 1)`.
-// 5. `SemanticSearch` with an extreme `topK` value (e.g. `math.MaxInt32`).
-// 6. Very long DB paths for `NewMCPToolStore` causing SQLite connection failures.
+	store := newTestStore(t)
 
-// TODO: TEST_GAP: State Conflicts
-// 1. Concurrent `SaveTool`, `RecordToolUsage`, and `SemanticSearch` operations on the same tool to verify `sync.RWMutex` combined with SQLite WAL mode handles concurrency safely without `database is locked` errors.
-// 2. Calling `RecordToolUsage` on a `toolID` that does not exist in the DB.
-// 3. Calling `UpdateServerStatus` on a `serverID` that does not exist.
-// 4. Updating a tool's vector embedding concurrently while `SemanticSearch` is iterating over `mcp_tools` (brute force) or `mcp_tool_vec` (vec0).
-// 5. Instantiating multiple `MCPToolStore` instances pointing to the same file concurrently.
+	err = store.SaveServer(ctx, nil)
+	if err == nil {
+		t.Error("Expected error with nil server")
+	}
+	err = store.SaveServer(ctx, &MCPServer{})
+	if err == nil {
+		t.Error("Expected error with empty server")
+	}
+
+	err = store.SaveTool(ctx, nil)
+	if err == nil {
+		t.Error("Expected error with nil tool")
+	}
+	err = store.SaveTool(ctx, &MCPTool{})
+	if err == nil {
+		t.Error("Expected error with empty tool")
+	}
+
+	_, err = store.GetServer(ctx, "")
+	if err == nil {
+		t.Error("Expected error with empty serverID")
+	}
+
+	_, err = store.GetTool(ctx, "")
+	if err == nil {
+		t.Error("Expected error with empty toolID")
+	}
+
+	_, err = store.SemanticSearch(ctx, nil, 10)
+	if err == nil {
+		t.Error("Expected error with nil queryEmbedding")
+	}
+	_, err = store.SemanticSearch(ctx, []float32{}, 10)
+	if err == nil {
+		t.Error("Expected error with empty queryEmbedding")
+	}
+
+	err = store.RecordToolUsage(ctx, "", true, 100)
+	if err == nil {
+		t.Error("Expected error with empty toolID")
+	}
+}
+
+func TestStore_TypeCoercion(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+
+	// Direct DB injection of invalid JSON
+	store.SaveServer(ctx, &MCPServer{ID: "s1", Endpoint: "e", Protocol: "p"})
+	_, err := store.db.Exec(`UPDATE mcp_servers SET capabilities = 'INVALID' WHERE server_id = 's1'`)
+	if err != nil {
+		t.Fatalf("Failed to inject bad JSON: %v", err)
+	}
+
+	server, err := store.GetServer(ctx, "s1")
+	if err != nil {
+		t.Errorf("GetServer failed on invalid JSON: %v", err)
+	}
+	if len(server.Capabilities) != 0 {
+		t.Errorf("Expected empty capabilities due to unmarshal failure, got %v", server.Capabilities)
+	}
+
+	// Corrupt vector data
+	store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1", Embedding: []float32{1, 2}})
+	_, err = store.db.Exec(`UPDATE mcp_tools SET embedding = x'00' WHERE tool_id = 't1'`)
+	if err != nil {
+		t.Fatalf("Failed to inject bad blob: %v", err)
+	}
+	
+	tool, err := store.GetTool(ctx, "t1")
+	if err != nil {
+		t.Errorf("GetTool failed on corrupt blob: %v", err)
+	}
+	if len(tool.Embedding) != 0 {
+		t.Errorf("Expected empty embedding, got %v", tool.Embedding)
+	}
+
+	// Cosine similarity length mismatch
+	sim := cosineSimilarity([]float32{1, 0}, []float32{1, 0, 0})
+	if sim != 0 {
+		t.Errorf("Expected 0 similarity on mismatched length, got %f", sim)
+	}
+
+	// Semantic search with topK <= 0
+	_, err = store.SemanticSearch(ctx, []float32{1, 0}, 0)
+	if err == nil {
+		t.Errorf("Expected error with topK <= 0")
+	}
+}
+
+func TestStore_UserRequestExtremes(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	store.SaveServer(ctx, &MCPServer{ID: "s1", Endpoint: "e", Protocol: "p"})
+
+	// Massive latency overflow test
+	store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1"})
+	store.RecordToolUsage(ctx, "t1", true, 9223372036854775807) // Max Int64
+	store.RecordToolUsage(ctx, "t1", true, 9223372036854775807) 
+	
+	tool, err := store.GetTool(ctx, "t1")
+	if err != nil {
+		t.Errorf("GetTool failed: %v", err)
+	}
+	if tool.AvgLatencyMs < 0 {
+		t.Errorf("Average latency overflowed: %d", tool.AvgLatencyMs)
+	}
+}
+
+func TestStore_StateConflicts(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	store.SaveServer(ctx, &MCPServer{ID: "s1", Endpoint: "e", Protocol: "p"})
+	store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1", Embedding: []float32{1, 2}})
+
+	// Concurrent SaveTool, RecordToolUsage, SemanticSearch
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1", Embedding: []float32{1, 2}})
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = store.RecordToolUsage(ctx, "t1", true, 100)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = store.SemanticSearch(ctx, []float32{1, 2}, 10)
+		}()
+	}
+	wg.Wait()
+
+	// Update non-existent IDs
+	err := store.RecordToolUsage(ctx, "non-existent", true, 100)
+	if err != nil {
+		t.Errorf("Did not expect error on non-existent RecordToolUsage, got %v", err)
+	}
+
+	err = store.UpdateServerStatus(ctx, "non-existent", ServerStatusConnected)
+	if err != nil {
+		t.Errorf("Did not expect error on non-existent UpdateServerStatus, got %v", err)
+	}
+}
 
 func newTestStore(t *testing.T) *MCPToolStore {
 	t.Helper()

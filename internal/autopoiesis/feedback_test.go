@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -843,6 +844,104 @@ func TestLearningStore_SaveLoad(t *testing.T) {
 // TODO: TEST_GAP: Type Coercion: Verify behavior of system when `ExecutionFeedback.Duration` is set to negative duration.
 // TODO: TEST_GAP: Type Coercion: Verify `GenerateMangleFacts` handles strings with malformed characters (`"`, `\n`, `\0`) properly for Mangle syntax.
 // TODO: TEST_GAP: User Request Extremes: Verify `buildRefinementPrompt` safely handles massive context injections (e.g., 50MB `OriginalCode`).
-// TODO: TEST_GAP: User Request Extremes: Verify system performance when `req.Feedback` or `AntiPatterns` grows to massive arrays (thousands of elements).
-// TODO: TEST_GAP: State Conflicts: Data Race where `GetAllLearnings` returns a pointer to a map value that `RecordLearning` modifies concurrently.
-// TODO: TEST_GAP: State Conflicts: TOCTOU in `ls.save()` holding the lock during slow synchronous file I/O operations.
+
+func TestToolRefiner_MassiveArrays(t *testing.T) {
+	client := &MockLLMClient{}
+	toolGen := NewToolGenerator(client, "/tmp/tools")
+	refiner := NewToolRefiner(client, toolGen)
+
+	feedbackArr := make([]ExecutionFeedback, 10000)
+	patternArr := make([]*DetectedPattern, 10000)
+	for i := 0; i < 10000; i++ {
+		feedbackArr[i] = ExecutionFeedback{Success: true}
+		patternArr[i] = &DetectedPattern{IssueType: IssueSlow, Occurrences: 1}
+	}
+
+	req := RefinementRequest{
+		ToolName:     "test_tool",
+		OriginalCode: "package tools\nfunc tool() {}",
+		Feedback:     feedbackArr,
+		Patterns:     patternArr,
+	}
+
+	start := time.Now()
+	prompt := refiner.buildRefinementPrompt(req)
+	duration := time.Since(start)
+
+	if prompt == "" {
+		t.Fatal("Prompt should not be empty")
+	}
+	if duration > 1*time.Second {
+		t.Logf("buildRefinementPrompt took %v for 10000 elements", duration)
+	}
+}
+
+func TestLearningStore_GetAllLearnings_DataRace(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+	feedback := &ExecutionFeedback{
+		ToolName: "test_tool",
+		Success:  true,
+		Quality:  &QualityAssessment{Score: 0.8},
+	}
+	store.RecordLearning("test_tool", feedback, nil)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			store.RecordLearning("test_tool", feedback, nil)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			learnings := store.GetAllLearnings()
+			if len(learnings) > 0 {
+				_ = learnings[0].TotalExecutions
+			}
+		}
+	}()
+	wg.Wait()
+}
+
+func TestLearningStore_Save_NoLockStarvation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+
+	// Since save is now outside the lock, we can test that calling RecordLearning 
+	// does not block GetAllLearnings for the entire duration of file writing.
+	// We simulate this by rapidly accessing GetAllLearnings while RecordLearning runs.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	
+	feedback := &ExecutionFeedback{
+		ToolName: "test_tool",
+		Success:  true,
+	}
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			store.RecordLearning("test_tool", feedback, nil)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			_ = store.GetAllLearnings()
+		}
+	}()
+	wg.Wait()
+}

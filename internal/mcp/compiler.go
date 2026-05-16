@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"codenerd/internal/embedding"
@@ -48,7 +49,7 @@ func (c *JITToolCompiler) Compile(ctx context.Context, tcc ToolCompilationContex
 		TokenBudget: tcc.TokenBudget,
 	}
 
-	if tcc.TokenBudget == 0 {
+	if tcc.TokenBudget <= 0 {
 		tcc.TokenBudget = c.config.TokenBudget
 		stats.TokenBudget = tcc.TokenBudget
 	}
@@ -181,7 +182,7 @@ func (c *JITToolCompiler) mangleSelect(ctx context.Context, tcc ToolCompilationC
 		renderModeRaw, _ := r["RenderMode"].(string)
 
 		var renderMode RenderMode
-		switch renderModeRaw {
+		switch strings.ToLower(renderModeRaw) {
 		case "/full", "full":
 			renderMode = RenderModeFull
 		case "/condensed", "condensed":
@@ -273,7 +274,9 @@ func (c *JITToolCompiler) buildToolSet(allTools []*MCPTool, selected []SelectedT
 	// Build tool ID to tool map
 	toolMap := make(map[string]*MCPTool)
 	for _, t := range allTools {
-		toolMap[t.ToolID] = t
+		if t != nil {
+			toolMap[t.ToolID] = t // Last write wins if there are duplicates
+		}
 	}
 
 	result := &CompiledToolSet{}
