@@ -1044,6 +1044,47 @@ func TestScopedDocsForPhase_TypeCoercion(t *testing.T) {
 	}
 }
 
+func TestActivatePhase_MalformedPhaseID(t *testing.T) {
+	kernel := &MockKernel{}
+	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
+	ctx := context.Background()
+
+	malformedID := "invalid phase id !@#$%\n^&*()"
+	phase := &Phase{
+		ID:   malformedID,
+		Name: "Test Phase",
+		Tasks: []Task{
+			{
+				ID: "task1",
+				Artifacts: []TaskArtifact{
+					{Path: "src/main.go"},
+				},
+			},
+		},
+	}
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed: %v", err)
+	}
+
+	// Verify that the fact was correctly asserted with the malformed ID
+	found := false
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" && len(f.Args) > 0 {
+			arg0 := fmt.Sprintf("%v", f.Args[0])
+			if arg0 == malformedID {
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		t.Error("Expected phase_context_atom fact to be asserted with the exact malformed ID")
+	}
+}
+
 func TestActivatePhase_DoubleActivation(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
