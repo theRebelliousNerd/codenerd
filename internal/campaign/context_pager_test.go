@@ -953,3 +953,70 @@ func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
 		t.Errorf("Expected %d artifact facts to be asserted, got %d", numArtifacts, artifactFactCount)
 	}
 }
+
+func TestActivatePhase_DoubleActivation(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	// 1. Setup Phase and Context Profile
+	profileID := "profile1"
+	profile := ContextProfile{
+		ID:              profileID,
+		RequiredSchemas: []string{"schema1", "schema2"},
+		RequiredTools:   []string{"tool1"},
+		FocusPatterns:   []string{"*.go", "*.md"},
+	}
+	// Inject profile fact into kernel
+	kernel.Assert(profile.ToFacts()[0])
+
+	phase := &Phase{
+		ID:             "phase1",
+		Name:           "Test Phase",
+		ContextProfile: profileID,
+		Tasks: []Task{
+			{
+				ID: "task1",
+				Artifacts: []TaskArtifact{
+					{Path: "src/main.go"},
+				},
+			},
+		},
+	}
+
+	// 2. Activate Phase for the first time
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("First ActivatePhase failed: %v", err)
+	}
+	usedTokensFirstRun := cp.usedTokens
+
+	// 3. Activate Phase again (Double Activation)
+	err = cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("Second ActivatePhase failed: %v", err)
+	}
+
+	// 4. Verify Idempotency
+	if cp.usedTokens != usedTokensFirstRun {
+		t.Errorf("Expected usedTokens to be idempotent, got %d on first run and %d on second run", usedTokensFirstRun, cp.usedTokens)
+	}
+
+	// Although MockKernel appends facts, we verify that the scores themselves are idempotent
+	// (i.e. they are always exactly what they should be, and there's no accumulated scores like 240 instead of 120).
+	for _, f := range kernel.Facts {
+		if f.Predicate == "activation" && len(f.Args) > 1 {
+			scoreStr := fmt.Sprintf("%v", f.Args[1])
+			if scoreStr != "120" && scoreStr != "-100" && scoreStr != "-200" {
+				t.Errorf("Found unexpected accumulated or malformed activation score: %s for args %v", scoreStr, f.Args[0])
+			}
+		}
+		if f.Predicate == "phase_context_atom" && len(f.Args) > 2 {
+			scoreStr := fmt.Sprintf("%v", f.Args[2])
+			if scoreStr != "120" && scoreStr != "100" {
+				t.Errorf("Found unexpected accumulated or malformed phase_context_atom score: %s for args %v", scoreStr, f.Args[1])
+			}
+		}
+	}
+}
