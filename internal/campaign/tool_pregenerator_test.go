@@ -132,24 +132,13 @@ func TestGeneratedTool_Fields(t *testing.T) {
 	}
 }
 
+
 func TestToolPregenerator_DetectGaps_EmptyTasks(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)
 
 	ctx := context.Background()
+	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil)
 
-	// Test explicitly with nil tasks slice
-	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", nil, nil)
-	if err != nil {
-		t.Errorf("DetectGaps with nil tasks should not error: %v", err)
-	}
-	if gaps == nil {
-		t.Fatal("DetectGaps should return non-nil slice for nil tasks")
-	}
-
-	// DetectGaps takes (ctx, goal, tasks, *IntelligenceReport)
-	gaps, err = pregenerator.DetectGaps(ctx, "Test goal", []TaskInfo{}, nil)
-
-	// Should handle gracefully
 	if err != nil {
 		t.Errorf("DetectGaps with empty tasks should not error: %v", err)
 	}
@@ -157,6 +146,21 @@ func TestToolPregenerator_DetectGaps_EmptyTasks(t *testing.T) {
 		t.Fatal("DetectGaps should return non-nil slice")
 	}
 }
+
+func TestToolPregenerator_DetectGaps_NilTasks(t *testing.T) {
+	pregenerator := NewToolPregenerator(nil, nil, nil)
+
+	ctx := context.Background()
+	gaps, err := pregenerator.DetectGaps(ctx, "Test goal", nil, nil)
+
+	if err != nil {
+		t.Errorf("DetectGaps with nil tasks should not error: %v", err)
+	}
+	if gaps == nil {
+		t.Fatal("DetectGaps should return non-nil slice")
+	}
+}
+
 
 func TestToolPregenerator_PregenerateTools_EmptyGaps(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)
@@ -172,6 +176,23 @@ func TestToolPregenerator_PregenerateTools_EmptyGaps(t *testing.T) {
 	}
 	if len(result.ToolsGenerated) != 0 {
 		t.Errorf("expected 0 tools for empty gaps, got %d", len(result.ToolsGenerated))
+	}
+}
+
+func TestToolPregenerator_PregenerateTools_NilGaps(t *testing.T) {
+	pregenerator := NewToolPregenerator(nil, nil, nil)
+
+	ctx := context.Background()
+	result, err := pregenerator.PregenerateTools(ctx, nil)
+
+	if err != nil {
+		t.Errorf("PregenerateTools with nil gaps should not error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("PregenerateTools should return non-nil result")
+	}
+	if len(result.ToolsGenerated) != 0 {
+		t.Errorf("expected 0 tools for nil gaps, got %d", len(result.ToolsGenerated))
 	}
 }
 
