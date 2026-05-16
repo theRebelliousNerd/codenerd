@@ -135,3 +135,29 @@ func TestNewTracker(t *testing.T) {
 		}
 	})
 }
+
+func TestNewContext(t *testing.T) {
+	ws := t.TempDir()
+	tracker, err := NewTracker(ws)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	ctx := context.Background()
+	newCtx := NewContext(ctx, tracker)
+
+	// Verify that the context now contains the tracker
+	val := newCtx.Value(contextKey{})
+	if val == nil {
+		t.Fatalf("NewContext did not embed the tracker in the context")
+	}
+
+	retrievedTracker, ok := val.(*Tracker)
+	if !ok {
+		t.Fatalf("Embedded value is not of type *Tracker")
+	}
+
+	if retrievedTracker != tracker {
+		t.Fatalf("Embedded tracker does not match the original tracker")
+	}
+}
