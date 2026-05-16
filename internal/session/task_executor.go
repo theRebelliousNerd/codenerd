@@ -151,13 +151,18 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, t
 
 	taskID := agent.GetID()
 
-	// Track the task for result retrieval
+	// Track the task for result retrieval BEFORE starting execution
+	// This prevents a TOCTOU race where a very fast execution completes and
+	// caches its true result before ExecuteAsync initializes it to false.
 	j.mu.Lock()
 	j.results[taskID] = &TaskResult{
 		TaskID:    taskID,
 		Completed: false,
 	}
 	j.mu.Unlock()
+
+	// Start execution in background
+	go agent.Run(context.Background(), task)
 
 	return taskID, nil
 }
@@ -208,6 +213,10 @@ func (j *JITExecutor) GetResult(taskID string) (string, bool, error) {
 
 // WaitForResult blocks until the async task completes.
 func (j *JITExecutor) WaitForResult(ctx context.Context, taskID string) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("context is nil")
+	}
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -217,6 +226,9 @@ func (j *JITExecutor) WaitForResult(ctx context.Context, taskID string) (string,
 			return "", ctx.Err()
 		case <-ticker.C:
 			result, done, err := j.GetResult(taskID)
+			if err != nil && !done {
+				return "", err
+			}
 			if done {
 				return result, err
 			}

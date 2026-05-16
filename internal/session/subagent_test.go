@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"testing"
+	"time"
 
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -109,6 +110,70 @@ func TestSubAgent_MemoryCompression(t *testing.T) {
 	// Verify history was compressed (1 summary + 0 turns if all compressed?)
 	// Logic depends on implementation.
 	// Assuming it replaces old turns with summary.
+}
+
+// -----------------------------------------------------------------------------
+// QA NEGATIVE TESTING
+// -----------------------------------------------------------------------------
+
+func TestSubAgent_DoubleKill(t *testing.T) {
+	mockLLM := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(5 * time.Second):
+				return "Done", nil
+			}
+		},
+	}
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	go agent.Run(ctx, "task")
+	time.Sleep(50 * time.Millisecond) // Let it start
+	
+	agent.Stop()
+	agent.Stop() // Double Stop
+	
+	agent.Wait()
+	
+	// Ensure it didn't panic and the state is failed (due to context cancellation via Stop)
+	if agent.GetState() != SubAgentStateFailed {
+		t.Errorf("Expected Failed state, got %v", agent.GetState())
+	}
+}
+
+func TestSubAgent_ContextCancellation(t *testing.T) {
+	mockLLM := &MockLLMClient{
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(5 * time.Second):
+				return "Done", nil
+			}
+		},
+	}
+	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	go agent.Run(ctx, "task")
+	
+	// Wait a bit to ensure it started
+	time.Sleep(50 * time.Millisecond)
+	
+	// Cancel the context, which should abort the LLM call and fail the agent
+	cancel()
+	
+	agent.Wait()
+	
+	if agent.GetState() != SubAgentStateFailed {
+		t.Errorf("Expected Failed state due to context cancellation, got %v", agent.GetState())
+	}
 }
 
 // TODO: TEST_GAP: Null/Undefined/Empty: What happens if CompressMemory is called with threshold 0?

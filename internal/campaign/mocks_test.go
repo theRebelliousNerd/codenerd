@@ -18,6 +18,7 @@ type MockKernel struct {
 	AssertErr      error
 	RetractErr     error
 	RetractFactErr error
+	AssertBatchErr error
 }
 
 func (m *MockKernel) LoadFacts(facts []core.Fact) error {
@@ -58,6 +59,9 @@ func (m *MockKernel) Assert(fact core.Fact) error {
 }
 
 func (m *MockKernel) AssertBatch(facts []core.Fact) error {
+	if m.AssertBatchErr != nil {
+		return m.AssertBatchErr
+	}
 	m.Facts = append(m.Facts, facts...)
 	return nil
 }

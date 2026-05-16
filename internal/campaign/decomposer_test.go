@@ -6,8 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mockLLMClient implements perception.LLMClient for testing.
@@ -470,73 +473,478 @@ func sampleRawPlanJSON(title string) string {
 }`, title)
 }
 
-// TODO: TEST_GAP: TestDecompose_LLMTotalFailure
-// Mock LLMClient.Complete to return an error or timeout.
-// Verify Decompose returns a wrapped error and cleans up.
+func TestDecompose_LLMTotalFailure(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return "", errors.New("simulated LLM timeout")
+		},
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			return "", errors.New("simulated LLM timeout")
+		},
+	}, t.TempDir())
 
-// TODO: TEST_GAP: TestDecompose_EmptyGoal
-// Verify Decompose handles an empty goal gracefully (error or fallback plan).
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Valid goal",
+		CampaignType: CampaignTypeCustom,
+	})
+	if err == nil {
+		t.Fatal("expected error from LLM failure")
+	}
+	if !strings.Contains(err.Error(), "simulated LLM timeout") && !strings.Contains(err.Error(), "failed to propose plan") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
-// TODO: TEST_GAP: TestCleanJSONResponse_EdgeCases
-// Test cleanJSONResponse with:
-// - Markdown containing text before and after the ```json block.
-// - Raw JSON without markdown fences but with trailing garbage.
-// - Nested JSON objects and arrays.
+// TestDecompose_EmptyGoal is already covered by TestDecompose_EmptyGoal_ReturnsError.
 
-// TODO: TEST_GAP: TestValidatePlan_CircularDependency
-// Mock Kernel.Query("validation_error") to return a circular dependency issue.
-// Verify validatePlan correctly parses the issue into the PlanValidationIssue slice.
+func TestCleanJSONResponse_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Markdown with text before and after",
+			input:    "Here is the plan:\n```json\n{\"foo\":\"bar\"}\n```\nHope it helps!",
+			expected: "{\"foo\":\"bar\"}",
+		},
+		{
+			name:     "Raw JSON with trailing garbage",
+			input:    "{\"foo\": \"bar\"} \n trailing garbage",
+			expected: "{\"foo\": \"bar\"}",
+		},
+		{
+			name:     "Nested JSON objects and arrays",
+			input:    "```json\n{\"foo\": [{\"bar\": 1}]}\n```",
+			expected: "{\"foo\": [{\"bar\": 1}]}",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cleanJSONResponse(tc.input)
+			if got != tc.expected {
+				t.Errorf("cleanJSONResponse(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
 
-// TODO: TEST_GAP: TestRefinePlan_Success
-// Provide a RawPlan and a list of issues. Mock LLM to return a corrected plan.
-// Verify the refined plan is returned.
+func TestValidatePlan_CircularDependency(t *testing.T) {
+	mockKernel := &MockKernel{
+		Facts: []core.Fact{
+			{
+				Predicate: "validation_error",
+				Args: []interface{}{
+					"/campaign_test",
+					"circular_dependency",
+					"Task A depends on Task B, which depends on Task A",
+				},
+			},
+		},
+	}
+	d := &Decomposer{kernel: mockKernel}
+	issues := d.validatePlan("/campaign_test")
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	if issues[0].IssueType != "circular_dependency" {
+		t.Errorf("expected circular_dependency, got %s", issues[0].IssueType)
+	}
+}
 
-// TODO: TEST_GAP: TestIngestSourceDocuments_Cancellation
-// Create a directory with dummy files. Pass a context that cancels after a few files are processed.
-// Verify the function returns early with context.Canceled.
+func TestRefinePlan_Success(t *testing.T) {
+	client := &mockLLMClient{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			return sampleRawPlanJSON("Refined Plan"), nil
+		},
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Refined Plan"), nil
+		},
+	}
+	d := &Decomposer{
+		llmClient:      client,
+		promptProvider: NewStaticPromptProvider(),
+	}
+	
+	originalPlan := &RawPlan{Title: "Original Plan"}
+	issues := []PlanValidationIssue{
+		{IssueType: "circular_dependency", Description: "Task 1 depends on Task 2, and Task 2 depends on Task 1"},
+	}
+	
+	refined, err := d.refinePlan(context.Background(), originalPlan, issues)
+	if err != nil {
+		t.Fatalf("refinePlan failed: %v", err)
+	}
+	if refined == nil {
+		t.Fatal("refined plan is nil")
+	}
+	if refined.Title != "Refined Plan" {
+		t.Errorf("expected 'Refined Plan', got %q", refined.Title)
+	}
+}
 
-// TODO: TEST_GAP: TestRefinePlan_TxCommitFail
-// Mock tx.Commit() to return error during atomic rebuild failure.
-// Reverts state, returns error, logs warning.
+func TestIngestSourceDocuments_Cancellation(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+	
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "f1.txt"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(dir, "f2.txt"), []byte("data"), 0644)
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-// TODO: TEST_GAP: TestDecompose_EmptySourcePaths
-// Verify Decompose handles empty req.SourcePaths or SourcePaths containing empty strings gracefully without panics.
+	docs, meta, err := d.ingestSourceDocuments(ctx, "/campaign_test", []string{dir})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if len(docs) > 0 || len(meta) > 0 {
+		t.Errorf("expected 0 docs/meta, got %d/%d", len(docs), len(meta))
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_ZeroContextBudget
-// Verify DecomposeRequest with ContextBudget=0 defaults correctly without zero-division errors.
+func TestRefinePlan_TxCommitFail(t *testing.T) {
+	client := &mockLLMClient{
+		completeFunc: func(ctx context.Context, prompt string) (string, error) {
+			if strings.Contains(prompt, "fix the plan") || strings.Contains(prompt, "fix these issues") {
+				return sampleRawPlanJSON("Refined Plan"), nil
+			}
+			return sampleRawPlanJSON("Original Plan"), nil
+		},
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			if strings.Contains(systemPrompt, "fix the plan") {
+				return sampleRawPlanJSON("Refined Plan"), nil
+			}
+			return sampleRawPlanJSON("Original Plan"), nil
+		},
+	}
+	
+	mockKernel := &MockKernel{
+		Facts: []core.Fact{
+			{
+				Predicate: "validation_error",
+				Args: []interface{}{"/campaign_test", "circular_dependency", "Task 1 depends on 2, 2 on 1"},
+			},
+		},
+		AssertErr: errors.New("simulated tx commit fail"),
+	}
+	
+	d := NewDecomposer(mockKernel, client, t.TempDir())
 
-// TODO: TEST_GAP: TestDecompose_NilIntelligence
-// Verify Decompose works correctly and skips step 0 when d.intelligence is nil.
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Test tx commit fail",
+		CampaignType: CampaignTypeCustom,
+	})
+	
+	if err == nil {
+		t.Fatal("expected error from commit fail")
+	}
+	if !strings.Contains(err.Error(), "simulated tx commit fail") {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_JSONTypeCoercion
-// Verify LLM returning unexpected JSON types (e.g., phases as an object instead of array, string instead of int) fails safely during json.Unmarshal.
+func TestDecompose_EmptySourcePaths(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Empty Source Plan"), nil
+		},
+	}, t.TempDir())
 
-// TODO: TEST_GAP: TestDecompose_MangleFactSanitization
-// Verify Mangle fact assertion sanitizes user input containing illegal Mangle characters (e.g., ')', '.').
+	res, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "No sources",
+		CampaignType: CampaignTypeCustom,
+		SourcePaths:  []string{"", "   "},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.SourceDocs) != 0 {
+		t.Errorf("expected 0 source docs, got %d", len(res.SourceDocs))
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_MassiveGoal
-// Verify Decompose handles an extremely large goal string (e.g., 100MB) without memory exhaustion or infinite loops.
+func TestDecompose_ZeroContextBudget(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Zero Budget Plan"), nil
+		},
+	}, t.TempDir())
 
-// TODO: TEST_GAP: TestCleanJSONResponse_MassiveMalformedInput
-// Verify cleanJSONResponse handles a massive malformed string without freezing the CPU.
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:          "Zero budget",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_HugeSourcePaths
-// Verify Decompose handles 100,000+ source paths. Check for OS file descriptor limits and performance bottlenecks.
+func TestDecompose_NilIntelligence(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Nil Intel Plan"), nil
+		},
+	}, t.TempDir())
+	
+	d.SetIntelligenceGatherer(nil)
 
-// TODO: TEST_GAP: TestDecompose_DeepNestedJSON
-// Verify JSON unmarshaling in Decompose safely handles a deeply nested JSON object from the LLM (prevent stack overflow).
+	res, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Nil intelligence",
+		CampaignType: CampaignTypeCustom,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Campaign == nil {
+		t.Fatal("expected campaign to be created")
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_ContextBudgetExceeded
-// Verify Decompose handles edge cases where ContextBudget is extremely small (e.g., 1) or documents exceed the budget massively.
+func TestDecompose_JSONTypeCoercion(t *testing.T) {
+	client := &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return `{"title":"bad types","phases":{"not_an_array": true}}`, nil
+		},
+	}
+	d := NewDecomposer(&MockKernel{}, client, t.TempDir())
 
-// TODO: TEST_GAP: TestDecompose_ContextCancelledDuringLLM
-// Verify Decompose correctly aborts and returns ctx.Err() if context is cancelled while waiting for the LLM response.
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Test type coercion",
+		CampaignType: CampaignTypeCustom,
+	})
+	if err == nil {
+		t.Fatal("expected parse failure error")
+	}
+	if !strings.Contains(err.Error(), "failed to parse plan JSON") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
-// TODO: TEST_GAP: TestDecompose_FileDeletedDuringIngest
-// Verify ingestSourceDocuments handles a file being deleted from the OS just before reading it, skipping or erroring gracefully.
+func TestDecompose_MangleFactSanitization(t *testing.T) {
+	mockKernel := &MockKernel{}
+	d := NewDecomposer(mockKernel, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Plan"), nil
+		},
+	}, t.TempDir())
 
-// TODO: TEST_GAP: TestDecompose_SpecialInfiniteFiles
-// Verify ingestSourceDocuments rejects special infinite files or enforces strict read limits.
+	goalWithIllegalChars := "Fix bugs ) . \" \\ ' , ! [] {}"
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         goalWithIllegalChars,
+		CampaignType: CampaignTypeCustom,
+	})
+	
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-// TODO: TEST_GAP: TestDecompose_ConcurrentDecompose
-// Verify multiple concurrent calls to Decompose on the same Decomposer instance do not cause race conditions or corrupt the kernel state.
+	var found bool
+	for _, f := range mockKernel.Facts {
+		if f.Predicate == "campaign_goal" {
+			found = true
+			if f.Args[1] != goalWithIllegalChars {
+				t.Errorf("expected goal %q, got %v", goalWithIllegalChars, f.Args[1])
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected campaign_goal fact to be asserted")
+	}
+}
+
+func TestDecompose_MassiveGoal(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Massive Goal Plan"), nil
+		},
+	}, t.TempDir())
+
+	massiveGoal := strings.Repeat("A", 10*1024*1024)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := d.Decompose(ctx, DecomposeRequest{
+		Goal:         massiveGoal,
+		CampaignType: CampaignTypeCustom,
+	})
+	
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCleanJSONResponse_MassiveMalformedInput(t *testing.T) {
+	input := strings.Repeat("{", 100000) + strings.Repeat("[", 100000) + "no closing brackets"
+	
+	done := make(chan struct{})
+	go func() {
+		cleanJSONResponse(input)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("cleanJSONResponse took too long on massive malformed input, likely O(N^2) or infinite loop")
+	}
+}
+
+func TestDecompose_HugeSourcePaths(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Huge Paths Plan"), nil
+		},
+	}, t.TempDir())
+
+	paths := make([]string, 10000)
+	for i := 0; i < 10000; i++ {
+		paths[i] = fmt.Sprintf("nonexistent_file_%d.txt", i)
+	}
+
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Huge paths test",
+		CampaignType: CampaignTypeCustom,
+		SourcePaths:  paths,
+	})
+	
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDecompose_DeepNestedJSON(t *testing.T) {
+	var sb strings.Builder
+	depth := 1000
+	for i := 0; i < depth; i++ {
+		sb.WriteString(`{"a":`)
+	}
+	sb.WriteString(`"value"`)
+	for i := 0; i < depth; i++ {
+		sb.WriteString(`}`)
+	}
+	
+	client := &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sb.String(), nil
+		},
+	}
+	d := NewDecomposer(&MockKernel{}, client, t.TempDir())
+
+	_, _ = d.Decompose(context.Background(), DecomposeRequest{
+		Goal:         "Test deep JSON",
+		CampaignType: CampaignTypeCustom,
+	})
+	
+	// The test's main goal is to prevent stack overflow. 
+	// If it completes without panicking, the test succeeds.
+	// It may return nil or a validation error, but we don't care about the specific error.
+}
+
+func TestDecompose_ContextBudgetExceeded(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Small Budget Plan"), nil
+		},
+	}, t.TempDir())
+
+	_, err := d.Decompose(context.Background(), DecomposeRequest{
+		Goal:          "Small budget",
+		CampaignType:  CampaignTypeCustom,
+		ContextBudget: 1, 
+	})
+	
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDecompose_ContextCancelledDuringLLM(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(c context.Context, systemPrompt, userPrompt string) (string, error) {
+			cancel() 
+			<-c.Done()
+			return "", c.Err()
+		},
+	}, t.TempDir())
+
+	_, err := d.Decompose(ctx, DecomposeRequest{
+		Goal:         "Test context cancellation",
+		CampaignType: CampaignTypeCustom,
+	})
+	
+	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestDecompose_FileDeletedDuringIngest(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Plan"), nil
+		},
+	}, t.TempDir())
+
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "temp.txt")
+	os.WriteFile(filePath, []byte("data"), 0644)
+
+	os.Remove(filePath)
+	
+	docs, meta := d.readDocumentsFromPath(filePath, "campaign1")
+	if len(docs) != 0 || len(meta) != 0 {
+		t.Errorf("expected 0 docs and meta for deleted file, got %d and %d", len(docs), len(meta))
+	}
+}
+
+func TestDecompose_SpecialInfiniteFiles(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{}, t.TempDir())
+
+	meta := []FileMetadata{
+		{
+			Path:      "huge_file.bin",
+			SizeBytes: 10 * 1024 * 1024 * 1024,
+		},
+	}
+
+	processed := d.classifyDocuments(context.Background(), meta)
+	if len(processed) != 1 {
+		t.Fatalf("expected 1 metadata entry, got %d", len(processed))
+	}
+	
+	if processed[0].Layer != "/scaffold" {
+		t.Errorf("expected /scaffold for oversized file, got %s", processed[0].Layer)
+	}
+}
+
+func TestDecompose_ConcurrentDecompose(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			time.Sleep(10 * time.Millisecond) 
+			return sampleRawPlanJSON("Concurrent Plan"), nil
+		},
+	}, t.TempDir())
+
+	count := 10
+	errCh := make(chan error, count)
+	
+	for i := 0; i < count; i++ {
+		go func(id int) {
+			_, err := d.Decompose(context.Background(), DecomposeRequest{
+				Goal:         fmt.Sprintf("Concurrent goal %d", id),
+				CampaignType: CampaignTypeCustom,
+			})
+			errCh <- err
+		}(i)
+	}
+
+	for i := 0; i < count; i++ {
+		err := <-errCh
+		if err != nil {
+			t.Errorf("concurrent decompose failed: %v", err)
+		}
+	}
+}

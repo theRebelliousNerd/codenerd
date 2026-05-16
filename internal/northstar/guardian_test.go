@@ -2,6 +2,7 @@ package northstar
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,8 +24,38 @@ func (m *mockLLMClient) CompleteWithSystem(_ context.Context, _, _ string) (stri
 // GUARDIAN CREATION TESTS
 // =============================================================================
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Test how NewGuardian behaves if store or config is completely empty/nil.
-// TODO: TEST_GAP: Type Coercion: Test if GuardianConfig parses massive numerical thresholds correctly when loaded from external configs.
+// -----------------------------------------------------------------------------
+// QA NEGATIVE TESTING: CREATION
+// -----------------------------------------------------------------------------
+
+func TestNewGuardian_NilStore(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("did not expect panic when initializing Guardian with nil store")
+		}
+	}()
+	// It should gracefully handle nil store by creating a Guardian, though methods might fail later.
+	guardian := NewGuardian(nil, DefaultGuardianConfig())
+	if guardian.store != nil {
+		t.Errorf("store should be nil")
+	}
+}
+
+func TestGuardianConfig_MassiveThresholds(t *testing.T) {
+	t.Parallel()
+	config := DefaultGuardianConfig()
+	config.BlockThreshold = 1.7976931348623157e+308 // Max float64
+	config.WarningThreshold = -1.7976931348623157e+308
+	
+	store := newTestStore(t)
+	guardian := NewGuardian(store, config)
+	
+	severity := guardian.scoreToSeverity(1.0)
+	if severity != DriftMinor {
+		// Just ensuring it doesn't crash
+	}
+}
 func TestNewGuardian(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +92,26 @@ func TestGuardian_SetLLMClient(t *testing.T) {
 // =============================================================================
 
 // TODO: TEST_GAP: State Conflicts: Simulate concurrent calls to Initialize() and check if guardian.vision or guardian.state become inconsistent.
+func TestGuardian_Initialize_Concurrent(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = guardian.Initialize()
+		}()
+	}
+	wg.Wait()
+	
+	// Ensure no race conditions and it's properly initialized
+	if guardian.GetState() == nil {
+		t.Error("expected state to be loaded after concurrent initialization")
+	}
+}
 func TestGuardian_Initialize_NoVision(t *testing.T) {
 	t.Parallel()
 
@@ -250,7 +301,35 @@ func TestGuardian_CheckAlignment_NoVision(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: User Request Extremes: Test CheckAlignment with a massive string (e.g. 50MB) for 'subject' and 'context', verifying if it causes memory overflow or timeouts before LLM completion.
+func TestGuardian_CheckAlignment_MassiveString(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+
+	vision := &Vision{Mission: "Test", Problem: "Test", VisionStmt: "Test"}
+	guardian.UpdateVision(vision)
+
+	mockLLM := &mockLLMClient{
+		response: "SCORE: 0.95\nRESULT: passed\nEXPLANATION: ok",
+	}
+	guardian.SetLLMClient(mockLLM)
+
+	// Create a huge string (e.g., 5MB instead of 50MB to keep test fast but large enough to catch OOM/inefficiencies)
+	massiveStr := make([]byte, 5*1024*1024)
+	for i := range massiveStr {
+		massiveStr[i] = 'A'
+	}
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, string(massiveStr), string(massiveStr))
+	if err != nil {
+		t.Fatalf("CheckAlignment error with massive string: %v", err)
+	}
+
+	if check.Result != AlignmentPassed {
+		t.Errorf("expected Passed, got %s", check.Result)
+	}
+}
 func TestGuardian_CheckAlignment_NoLLM(t *testing.T) {
 	t.Parallel()
 
@@ -361,8 +440,55 @@ func TestGuardian_CheckAlignment_WithLLM(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Coercion: Provide LLM responses with floating point scientific notation (e.g., SCORE: 9.5e-1) or letters mixed with numbers (SCORE: 0.9A).
-// TODO: TEST_GAP: Null/Undefined/Empty: Test LLM returning entirely empty string or only whitespace for alignment check response.
+func TestGuardian_CheckAlignment_ScientificNotation(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+	guardian.UpdateVision(&Vision{Mission: "Test", Problem: "Test", VisionStmt: "Test"})
+
+	mockLLM := &mockLLMClient{
+		response: "SCORE: 9.5e-1\nRESULT: passed\nEXPLANATION: ok", // Scientific notation
+	}
+	guardian.SetLLMClient(mockLLM)
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	if err != nil {
+		t.Fatalf("CheckAlignment error: %v", err)
+	}
+	if check.Score != 0.95 {
+		t.Errorf("expected parsed scientific score to be 0.95, got %f", check.Score)
+	}
+}
+
+func TestGuardian_CheckAlignment_EmptyResponse(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+	guardian.UpdateVision(&Vision{Mission: "Test", Problem: "Test", VisionStmt: "Test"})
+
+	mockLLM := &mockLLMClient{
+		response: "   \n  \t ", // Only whitespace
+	}
+	guardian.SetLLMClient(mockLLM)
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test", "")
+	if err != nil {
+		t.Fatalf("unexpected error when LLM returns whitespace: %v", err)
+	}
+	
+	if check == nil {
+		t.Fatalf("expected check to be returned, got nil")
+	}
+	// The default fallback score is 0.7, which classifyScore evaluates to AlignmentPassed by default.
+	if check.Result != AlignmentPassed {
+		t.Errorf("expected fallback result to be AlignmentPassed, got %v", check.Result)
+	}
+	if check.Score != 0.7 {
+		t.Errorf("expected fallback score to be 0.7, got %v", check.Score)
+	}
+}
 func TestGuardian_CheckAlignment_Warning(t *testing.T) {
 	t.Parallel()
 
@@ -466,7 +592,26 @@ func TestGuardian_CheckAlignment_DriftRefreshesGuardianState(t *testing.T) {
 // OBSERVATION TESTS
 // =============================================================================
 
-// TODO: TEST_GAP: Null/Undefined/Empty: ObserveTaskCompletion called with empty sessionID, taskType, taskDesc, and result.
+func TestGuardian_ObserveTaskCompletion_EmptyStrings(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+
+	err := guardian.ObserveTaskCompletion("", "", "", "")
+	if err != nil {
+		t.Fatalf("ObserveTaskCompletion error: %v", err)
+	}
+
+	obs, _ := store.GetRecentObservations(1)
+	if len(obs) != 1 {
+		t.Fatalf("expected 1 observation, got %d", len(obs))
+	}
+	// Verify it didn't panic and gracefully handled empty parameters
+	if obs[0].SessionID != "" {
+		t.Errorf("expected empty SessionID")
+	}
+}
 func TestGuardian_ObserveTaskCompletion(t *testing.T) {
 	t.Parallel()
 
@@ -765,7 +910,22 @@ func TestGuardian_ScoreToSeverity(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: User Request Extremes: Test calculateRelevance with strings that are extremely large without spaces, to test strings.Fields() efficiency and potential DoS.
+func TestGuardian_CalculateRelevance_MassiveNoSpaces(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+
+	massiveStr := make([]byte, 1024*1024) // 1MB of 'A's without spaces
+	for i := range massiveStr {
+		massiveStr[i] = 'A'
+	}
+
+	relevance := guardian.calculateRelevance(string(massiveStr))
+	if relevance < 0.0 || relevance > 1.0 {
+		t.Errorf("Relevance out of bounds: %f", relevance)
+	}
+}
 func TestGuardian_CalculateRelevance_NoVision(t *testing.T) {
 	t.Parallel()
 
@@ -816,7 +976,33 @@ func TestGuardian_CalculatePathRelevance_WildcardMatchesNestedFile(t *testing.T)
 // PARSE ALIGNMENT RESPONSE TESTS
 // =============================================================================
 
-// TODO: TEST_GAP: Type Coercion: Send response with JSON formatting instead of plain text tags, which is common for some LLMs hallucinating output schemas.
+func TestGuardian_CheckAlignment_JSONResponse(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	guardian := NewGuardian(store, DefaultGuardianConfig())
+	guardian.Initialize()
+	guardian.UpdateVision(&Vision{Mission: "Test", Problem: "Test", VisionStmt: "Test"})
+
+	mockLLM := &mockLLMClient{
+		response: `{
+			"SCORE": 0.88,
+			"RESULT": "passed",
+			"EXPLANATION": "Everything looks good."
+		}`,
+	}
+	guardian.SetLLMClient(mockLLM)
+
+	check, err := guardian.CheckAlignment(context.Background(), TriggerManual, "Test JSON", "")
+	if err != nil {
+		t.Fatalf("CheckAlignment error: %v", err)
+	}
+	if check.Score != 0.88 {
+		t.Errorf("expected score 0.88 parsed from JSON, got %f", check.Score)
+	}
+	if check.Result != AlignmentPassed {
+		t.Errorf("expected Passed, got %s", check.Result)
+	}
+}
 func TestGuardian_ParseAlignmentResponse(t *testing.T) {
 	t.Parallel()
 

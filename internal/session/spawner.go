@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/jit/config"
@@ -17,6 +18,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+var spawnerCounter uint64
 
 // Spawner manages JIT-driven subagent creation and lifecycle.
 // It replaces the old ShardFactory pattern with dynamic, config-driven spawning.
@@ -119,7 +122,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 3: Build subagent configuration
 	subCfg := SubAgentConfig{
-		ID:             fmt.Sprintf("%s-%d", req.Name, time.Now().UnixNano()),
+		ID:             fmt.Sprintf("%s-%d-%d", req.Name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
 		Name:           req.Name,
 		Type:           req.Type,
 		AgentConfig:    agentConfig,
@@ -198,7 +201,7 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 
 	// Build config
 	subCfg := SubAgentConfig{
-		ID:          fmt.Sprintf("%s-%d", name, time.Now().UnixNano()),
+		ID:          fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
 		Name:        name,
 		Type:        SubAgentTypePersistent, // Specialists are persistent
 		AgentConfig: agentConfig,

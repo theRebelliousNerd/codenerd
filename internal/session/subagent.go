@@ -83,10 +83,12 @@ type SubAgentConfig struct {
 	SessionContext *types.SessionContext
 }
 
+var subagentCounter uint64
+
 // DefaultSubAgentConfig returns sensible defaults.
 func DefaultSubAgentConfig(name string) SubAgentConfig {
 	return SubAgentConfig{
-		ID:       fmt.Sprintf("%s-%d", name, time.Now().UnixNano()),
+		ID:       fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&subagentCounter, 1)),
 		Name:     name,
 		Type:     SubAgentTypeEphemeral,
 		Timeout:  30 * time.Minute,

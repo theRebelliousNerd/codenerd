@@ -270,6 +270,8 @@ func (g *Guardian) parseAlignmentResponse(response string, check *AlignmentCheck
 	lines := strings.Split(response, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		line = strings.ReplaceAll(line, "\"", "")
+		line = strings.TrimSuffix(line, ",")
 
 		if strings.HasPrefix(line, "SCORE:") {
 			var score float64

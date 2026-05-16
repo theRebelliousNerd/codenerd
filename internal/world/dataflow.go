@@ -25,15 +25,11 @@ import (
 //   - Function call arguments
 //   - Same-scope relationships for dominance analysis
 type DataFlowExtractor struct {
-	fset *token.FileSet
 }
 
-// NewDataFlowExtractor creates a new DataFlowExtractor for program slicing analysis.
 func NewDataFlowExtractor() *DataFlowExtractor {
 	logging.WorldDebug("Creating new DataFlowExtractor")
-	return &DataFlowExtractor{
-		fset: token.NewFileSet(),
-	}
+	return &DataFlowExtractor{}
 }
 
 // ExtractDataFlow parses a Go file and extracts data flow facts using program slicing.
@@ -47,9 +43,15 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 		return nil, nil
 	}
 
+	info, statErr := os.Stat(path)
+	if statErr == nil && info.Size() > 5*1024*1024 { // 5MB limit
+		logging.Get(logging.CategoryWorld).Warn("DataFlowExtractor: skipping huge file: %s (%d bytes)", path, info.Size())
+		return nil, nil
+	}
+
 	// Parse with full AST (need bodies for data flow analysis)
-	d.fset = token.NewFileSet()
-	node, err := parser.ParseFile(d.fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: parse failed: %s - %v", path, err)
 		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
@@ -57,7 +59,7 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 
 	var facts []core.Fact
 	ctx := &extractionContext{
-		fset:  d.fset,
+		fset:  fset,
 		path:  path,
 		facts: &facts,
 	}
@@ -164,20 +166,30 @@ func (ctx *extractionContext) extractAssignment(stmt *ast.AssignStmt) {
 
 	// Handle each LHS variable
 	for i, lhs := range stmt.Lhs {
-		ident, ok := lhs.(*ast.Ident)
-		if !ok {
-			continue
+		var varName string
+		switch l := lhs.(type) {
+		case *ast.Ident:
+			varName = l.Name
+		case *ast.IndexExpr:
+			if ident, ok := l.X.(*ast.Ident); ok {
+				varName = ident.Name + "[]"
+			}
+		case *ast.SelectorExpr:
+			if ident, ok := l.X.(*ast.Ident); ok {
+				varName = ident.Name + "." + l.Sel.Name
+			}
 		}
-		varName := ident.Name
 
 		// Skip blank identifier
-		if varName == "_" {
+		if varName == "" || varName == "_" {
 			continue
 		}
 
 		// Determine the type classification from RHS
 		var typeClass string
-		if i < len(stmt.Rhs) {
+		if varName == "ok" {
+			typeClass = "boolean"
+		} else if i < len(stmt.Rhs) {
 			typeClass = ctx.classifyAssignmentType(stmt.Rhs[i], i, len(stmt.Lhs))
 		} else if len(stmt.Rhs) == 1 {
 			// Multiple LHS, single RHS (e.g., x, err := foo())
@@ -421,13 +433,25 @@ func (ctx *extractionContext) isErrorCheck(expr *ast.BinaryExpr) bool {
 
 // extractComparedVariable extracts the variable name from a comparison expression.
 func (ctx *extractionContext) extractComparedVariable(expr *ast.BinaryExpr) string {
-	// Try X side (excluding nil)
-	if ident, ok := expr.X.(*ast.Ident); ok && ident.Name != "nil" {
-		return ident.Name
+	extractName := func(node ast.Node) string {
+		switch n := node.(type) {
+		case *ast.Ident:
+			if n.Name != "nil" {
+				return n.Name
+			}
+		case *ast.SelectorExpr:
+			if ident, ok := n.X.(*ast.Ident); ok {
+				return ident.Name + "." + n.Sel.Name
+			}
+		}
+		return ""
 	}
-	// Try Y side (excluding nil)
-	if ident, ok := expr.Y.(*ast.Ident); ok && ident.Name != "nil" {
-		return ident.Name
+
+	if name := extractName(expr.X); name != "" {
+		return name
+	}
+	if name := extractName(expr.Y); name != "" {
+		return name
 	}
 	return ""
 }
@@ -583,6 +607,10 @@ func (d *DataFlowExtractor) ExtractDataFlowForDirectory(dir string) ([]core.Fact
 
 		// Skip hidden directories and vendor
 		if info.IsDir() {
+			if fileCount >= 10000 {
+				logging.Get(logging.CategoryWorld).Warn("DataFlowExtractor: directory limit reached, stopping")
+				return filepath.SkipDir
+			}
 			name := info.Name()
 			if strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" {
 				return filepath.SkipDir

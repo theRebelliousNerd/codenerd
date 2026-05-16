@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"codenerd/internal/articulation"
@@ -16,6 +17,7 @@ import (
 
 // MockKernel implements types.Kernel for testing.
 type MockKernel struct {
+	mu           sync.RWMutex
 	facts        []types.Fact
 	asserts      []types.Fact // Track assertions for verification
 	AssertError  error
@@ -24,6 +26,8 @@ type MockKernel struct {
 }
 
 func (m *MockKernel) LoadFacts(facts []types.Fact) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.facts = append(m.facts, facts...)
 	return nil
 }
@@ -32,6 +36,8 @@ func (m *MockKernel) Query(predicate string) ([]types.Fact, error) {
 	if m.QueryError != nil {
 		return nil, m.QueryError
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var results []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate == predicate {
@@ -49,6 +55,8 @@ func (m *MockKernel) Assert(fact types.Fact) error {
 	if m.AssertError != nil {
 		return m.AssertError
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.facts = append(m.facts, fact)
 	m.asserts = append(m.asserts, fact)
 	return nil
@@ -58,6 +66,8 @@ func (m *MockKernel) AssertBatch(facts []types.Fact) error {
 	if m.AssertError != nil {
 		return m.AssertError
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.facts = append(m.facts, facts...)
 	return nil
 }
@@ -66,6 +76,8 @@ func (m *MockKernel) Retract(predicate string) error {
 	if m.RetractError != nil {
 		return m.RetractError
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var newFacts []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate != predicate {
@@ -80,6 +92,8 @@ func (m *MockKernel) RetractFact(fact types.Fact) error {
 	if m.RetractError != nil {
 		return m.RetractError
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var newFacts []types.Fact
 	for _, f := range m.facts {
 		if f.Predicate != fact.Predicate {
