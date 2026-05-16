@@ -91,6 +91,7 @@ func TestActivatePhase(t *testing.T) {
 
 	// 2. Activate Phase
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with nil phase (should handle gracefully)
+	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
@@ -526,6 +527,7 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 // ThreadSafeMockKernel is a wrapper around MockKernel to allow concurrent access in tests.
 type ThreadSafeMockKernel struct {
 	MockKernel
@@ -620,5 +622,26 @@ func TestActivatePhase_ExtremeBudget(t *testing.T) {
 	err := cp.ActivatePhase(ctx, phase)
 	if err == nil || !strings.Contains(err.Error(), "exceeds total budget") {
 		t.Errorf("Expected ActivatePhase to fail with budget error, got: %v", err)
+	}
+}
+
+func TestActivatePhase_NilPhase(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	err := cp.ActivatePhase(ctx, nil)
+	if err != nil {
+		t.Fatalf("ActivatePhase with nil phase failed: %v", err)
+	}
+
+	used, _, _ := cp.GetUsage()
+	if used != 0 {
+		t.Errorf("Expected 0 used tokens, got %d", used)
+	}
+
+	if len(kernel.Facts) != 0 {
+		t.Errorf("Expected 0 facts asserted, got %d", len(kernel.Facts))
 	}
 }
