@@ -2,6 +2,8 @@ package core
 
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"encoding/json"
 	"os"
@@ -499,3 +501,5 @@ func TestFilterCallerEnv_Empty(t *testing.T) {
 		t.Error("empty input should return nil")
 	}
 }
+
+func (k *stubKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }

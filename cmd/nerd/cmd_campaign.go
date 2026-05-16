@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
@@ -1015,4 +1017,8 @@ func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx conte
 	}
 
 	return converted, nil
+}
+
+func (a *campaignKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
+	return a.kernel.GetProgramInfo()
 }

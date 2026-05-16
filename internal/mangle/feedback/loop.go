@@ -1,6 +1,7 @@
 package feedback
 
 import (
+	"github.com/google/mangle/analysis"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -89,9 +90,10 @@ func (fl *FeedbackLoop) SetSynthMode(mode SynthMode, options synth.Options) {
 	fl.synthOptions = options
 }
 
-// UpdateSchema refreshes the sanitizer's schema knowledge for atom interning.
-func (fl *FeedbackLoop) UpdateSchema(schema string) error {
-	return fl.sanitizer.UpdateSchema(schema)
+// UpdateFromProgramInfo refreshes the sanitizer's predicate/type map from parsed ProgramInfo.
+// This is preferred over UpdateSchema when analysis.ProgramInfo is available.
+func (fl *FeedbackLoop) UpdateFromProgramInfo(info *analysis.ProgramInfo) {
+	fl.sanitizer.UpdateFromProgramInfo(info)
 }
 
 // GenerateResult holds the outcome of a generation attempt.

@@ -1,6 +1,8 @@
 package system
 
 import (
+	"github.com/google/mangle/analysis"
+
 	"context"
 	"os"
 	"path/filepath"
@@ -140,3 +142,5 @@ func TestBootCortexWithConfig_NoLLMConfigured(t *testing.T) {
 		t.Fatalf("unexpected LLM error: %v", err)
 	}
 }
+
+func (m *MockSystemKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
