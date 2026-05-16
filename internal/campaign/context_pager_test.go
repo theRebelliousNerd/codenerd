@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewContextPager(t *testing.T) {
@@ -94,7 +95,6 @@ func TestActivatePhase(t *testing.T) {
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing nil Tasks slice
 	// TODO: TEST_GAP: Null/Empty - ActivatePhase with phase containing Tasks with nil Artifacts
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with malformed Phase IDs (spaces, special chars) injected into predicates
-	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 10,000+ tasks to verify performance and memory stability
 	// TODO: TEST_GAP: User Request Extremes - ActivatePhase with 100,000+ artifacts to check for timeouts in boosting loop
 
 	// TODO: TEST_GAP: State Conflicts - Double Activation: Call ActivatePhase twice and verify idempotency of activation scores
@@ -527,7 +527,6 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // ThreadSafeMockKernel is a wrapper around MockKernel to allow concurrent access in tests.
 type ThreadSafeMockKernel struct {
 	MockKernel
@@ -688,5 +687,64 @@ func TestCompressPhase_EmptyAccomplishments(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("Expected 1 original atom, got %d", count)
+	}
+}
+
+func TestActivatePhase_ExtremeTaskCount(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 1000000)
+
+	// Set a reasonable timeout for 10k tasks
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	profileID := "extreme_profile"
+	profile := ContextProfile{
+		ID:              profileID,
+		RequiredSchemas: []string{"schema1"},
+		RequiredTools:   []string{"tool1"},
+		FocusPatterns:   []string{"*.go"},
+	}
+	kernel.Assert(profile.ToFacts()[0])
+
+	phase := &Phase{
+		ID:             "huge_phase",
+		Name:           "Performance Test Phase",
+		ContextProfile: profileID,
+	}
+
+	taskCount := 10000
+	phase.Tasks = make([]Task, taskCount)
+	for i := 0; i < taskCount; i++ {
+		phase.Tasks[i] = Task{
+			ID: fmt.Sprintf("task_%d", i),
+			Artifacts: []TaskArtifact{
+				{Path: fmt.Sprintf("src/file_%d.go", i)},
+			},
+		}
+	}
+
+	start := time.Now()
+	err := cp.ActivatePhase(ctx, phase)
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("ActivatePhase failed on large input: %v", err)
+	}
+
+	t.Logf("ActivatePhase with %d tasks took %v", taskCount, duration)
+
+	// Verify assertions
+	var artifactCount int
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" {
+			artifactCount++
+		}
+	}
+
+	// 10000 artifacts pushed.
+	if artifactCount != taskCount {
+		t.Errorf("Expected %d artifact context atoms, got %d", taskCount, artifactCount)
 	}
 }
