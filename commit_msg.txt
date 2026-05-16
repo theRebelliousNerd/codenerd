@@ -1,5 +1,0 @@
-🧪 Add tests for RepairLoop in grammar.go
-
-🎯 What: Created tests for the previously untested RepairLoop in grammar.go, including NewRepairLoop(), ValidateAndRepair(), and UpdateFromProgramInfo().
-📊 Coverage: Covered the happy path (all valid atoms), error generation (invalid atoms trigger repairs), defaults checking (nil checks and standard config verification), and logic updating mock representations of analysis.ProgramInfo.
-✨ Result: Improved safety by asserting the default behavior and correctness of Grammar-Constrained Decoding components.
