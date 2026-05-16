@@ -2,6 +2,18 @@
 
 package mcp_test
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify Connect behavior with an empty serverID (""). Should it return an error or gracefully fail?
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify CallTool behavior when the args map is nil or empty for a tool that requires arguments.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify DiscoverTools behavior when the server returns an empty list of tools or nil tools.
+// TODO: TEST_GAP: Null/Undefined/Empty - Verify ConnectAll when the config map is nil or empty.
+// TODO: TEST_GAP: Type Coercion - Verify processToolSchema behavior when the server returns invalid data types in the JSONSchema (e.g. string for a required field instead of boolean).
+// TODO: TEST_GAP: Type Coercion - Verify CallTool when args contain deeply nested unsupported types (e.g. function pointers, channels) that cannot be serialized.
+// TODO: TEST_GAP: User Request Extremes - Verify ListTools behavior when a server exposes 10,000+ tools. Does it lock the mutex for too long?
+// TODO: TEST_GAP: User Request Extremes - Verify Connect behavior with extremely long timeouts or massive payload responses during initialization.
+// TODO: TEST_GAP: State Conflicts - Verify concurrent Connect and Disconnect calls for the same serverID to ensure proper mutex locking and no leaked connections.
+// TODO: TEST_GAP: State Conflicts - Verify CallTool behavior when called exactly while the server is being disconnected in another goroutine.
+// TODO: TEST_GAP: State Conflicts - Verify updateServerStatus behavior when called concurrently with Disconnect.
+
 import (
 	"context"
 	"encoding/json"
