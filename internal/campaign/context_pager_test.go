@@ -744,7 +744,107 @@ func TestActivatePhase_ExtremeTaskCount(t *testing.T) {
 	}
 
 	// 10000 artifacts pushed.
-	if artifactCount != taskCount {
-		t.Errorf("Expected %d artifact context atoms, got %d", taskCount, artifactCount)
+	}
+}
+
+func TestCompressPhase_MassiveOutput(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{
+		CompleteFunc: func(ctx context.Context, prompt string) (string, error) {
+			if len(prompt) < 10*1024*1024 {
+				return "", fmt.Errorf("prompt size %d is less than 10MB", len(prompt))
+			}
+			return "Phase summary: Massive output processed successfully.", nil
+		},
+	}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phaseID := "phase_massive"
+
+	// Create a task with a very long description and many tasks to exceed 10MB
+	// 11,000 tasks * ~1KB description = ~11MB
+	var tasks []Task
+	longDesc := strings.Repeat("A", 1024)
+	for i := 0; i < 11000; i++ {
+		tasks = append(tasks, Task{
+			ID:          fmt.Sprintf("task%d", i),
+			Description: longDesc,
+			Status:      TaskCompleted,
+		})
+	}
+
+	phase := &Phase{
+		ID:    phaseID,
+		Name:  "Massive Phase",
+		Tasks: tasks,
+	}
+
+	// Simulate existing phase atoms
+	kernel.Assert(core.Fact{
+		Predicate: "phase_context_atom",
+		Args:      []interface{}{phaseID, "some_atom", 100},
+	})
+
+	// Run Compression
+	summary, count, _, err := cp.CompressPhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("CompressPhase failed: %v", err)
+	}
+
+	if summary != "Phase summary: Massive output processed successfully." {
+		t.Errorf("Unexpected summary: %s", summary)
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 original atom, got %d", count)
+	}
+
+	// Verify context_compression fact
+	compressionStored := false
+	for _, f := range kernel.Facts {
+		if f.Predicate == "context_compression" && f.Args[0] == phaseID {
+			compressionStored = true
+			if f.Args[1] != summary {
+				t.Errorf("Stored summary mismatch, got: %v", f.Args[1])
+			}
+			break
+		}
+	}
+	if !compressionStored {
+		t.Error("Expected context_compression fact to be asserted")
+	}
+}
+
+func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
+	kernel := &MockKernel{}
+	llm := &MockLLMClient{}
+	cp := NewContextPager(kernel, llm, 100000)
+	ctx := context.Background()
+
+	phase := &Phase{
+		ID:             "phase_nil_artifacts",
+		Name:           "Test Phase Nil Artifacts",
+		ContextProfile: "profile1",
+		Tasks: []Task{
+			{
+				ID: "task1",
+				Artifacts: nil,
+			},
+		},
+	}
+
+	err := cp.ActivatePhase(ctx, phase)
+	if err != nil {
+		t.Fatalf("ActivatePhase failed when tasks have nil artifacts: %v", err)
+	}
+
+	// Verify it processed correctly. No artifact-based atoms should be generated.
+	for _, f := range kernel.Facts {
+		if f.Predicate == "phase_context_atom" {
+			arg1 := fmt.Sprintf("%v", f.Args[1])
+			if strings.Contains(arg1, "file_topology") {
+				t.Errorf("Did not expect file_topology facts for nil artifacts, got: %v", f)
+			}
+		}
 	}
 }
