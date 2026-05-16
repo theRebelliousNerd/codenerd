@@ -113,6 +113,9 @@ func (tx *MockKernelTx) Commit() error {
 	if tx.k.AssertErr != nil {
 		return tx.k.AssertErr
 	}
+	if tx.k.LoadFactsErr != nil {
+		return tx.k.LoadFactsErr
+	}
 	return tx.k.RetractErr
 }
 

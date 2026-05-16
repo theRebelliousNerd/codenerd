@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TODO: TEST_GAP: Null/Empty
+// REMEDIATED: TEST_GAP: Null/Empty
 func TestShadowMode_EmptyDescription(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -22,7 +22,7 @@ func TestShadowMode_EmptyDescription(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Empty
+// REMEDIATED: TEST_GAP: Null/Empty
 func TestShadowMode_EmptyActionDetails(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -47,7 +47,7 @@ func TestShadowMode_EmptyActionDetails(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Coercion / Data Malformation
+// REMEDIATED: TEST_GAP: Type Coercion / Data Malformation
 func TestShadowMode_InvalidActionType(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -71,7 +71,7 @@ func TestShadowMode_InvalidActionType(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Coercion / Data Malformation
+// REMEDIATED: TEST_GAP: Type Coercion / Data Malformation
 func TestShadowMode_MalformedTarget(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -95,7 +95,7 @@ func TestShadowMode_MalformedTarget(t *testing.T) {
 	// The assertion should not panic the shadow kernel.
 }
 
-// TODO: TEST_GAP: User Request Extremes
+// REMEDIATED: TEST_GAP: User Request Extremes
 func TestShadowMode_MassiveSimulationVolume(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -121,7 +121,7 @@ func TestShadowMode_MassiveSimulationVolume(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: State Conflicts
+// REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -160,7 +160,7 @@ func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: State Conflicts
+// REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -195,7 +195,7 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 	t.Logf("Concurrent WhatIf Results: %d successes, %d failures", successes, failures)
 }
 
-// TODO: TEST_GAP: User Request Extremes
+// REMEDIATED: TEST_GAP: User Request Extremes
 func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -214,7 +214,7 @@ func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: State Conflicts
+// REMEDIATED: TEST_GAP: State Conflicts
 func TestShadowMode_SimulateAfterAbort(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)

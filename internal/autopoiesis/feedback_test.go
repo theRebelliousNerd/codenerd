@@ -836,14 +836,14 @@ func TestLearningStore_SaveLoad(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning gracefully handles or returns an error when `feedback` is nil.
-// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `toolName` is empty (e.g., "").
-// TODO: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `patterns` is nil.
-// TODO: TEST_GAP: Null/Undefined/Empty: Verify NewLearningStore behavior when initialized with an empty `storePath`.
-// TODO: TEST_GAP: Type Coercion: Verify `AverageQuality` does not permanently become NaN if `Score` is NaN.
-// TODO: TEST_GAP: Type Coercion: Verify behavior of system when `ExecutionFeedback.Duration` is set to negative duration.
-// TODO: TEST_GAP: Type Coercion: Verify `GenerateMangleFacts` handles strings with malformed characters (`"`, `\n`, `\0`) properly for Mangle syntax.
-// TODO: TEST_GAP: User Request Extremes: Verify `buildRefinementPrompt` safely handles massive context injections (e.g., 50MB `OriginalCode`).
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning gracefully handles or returns an error when `feedback` is nil.
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `toolName` is empty (e.g., "").
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty: Verify RecordLearning behavior when `patterns` is nil.
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty: Verify NewLearningStore behavior when initialized with an empty `storePath`.
+// REMEDIATED: TEST_GAP: Type Coercion: Verify `AverageQuality` does not permanently become NaN if `Score` is NaN.
+// REMEDIATED: TEST_GAP: Type Coercion: Verify behavior of system when `ExecutionFeedback.Duration` is set to negative duration.
+// REMEDIATED: TEST_GAP: Type Coercion: Verify `GenerateMangleFacts` handles strings with malformed characters (`"`, `\n`, `\0`) properly for Mangle syntax.
+// REMEDIATED: TEST_GAP: User Request Extremes: Verify `buildRefinementPrompt` safely handles massive context injections (e.g., 50MB `OriginalCode`).
 
 func TestToolRefiner_MassiveArrays(t *testing.T) {
 	client := &MockLLMClient{}

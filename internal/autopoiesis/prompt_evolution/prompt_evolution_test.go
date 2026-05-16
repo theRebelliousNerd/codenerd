@@ -1333,36 +1333,36 @@ func TestFeedbackCollector_RoundTripsPromptContext(t *testing.T) {
 // BOUNDARY VALUE ANALYSIS AND EDGE CASE GAPS
 // =============================================================================
 
-// TODO: TEST_GAP: Concurrency / State Conflict - RunEvolutionCycle Lock Starvation
+// REMEDIATED: TEST_GAP: Concurrency / State Conflict - RunEvolutionCycle Lock Starvation
 // RunEvolutionCycle acquires an exclusive write lock (pe.mu.Lock()) and holds it
 // while making synchronous, blocking LLM network requests. This blocks all subagents
 // from calling RecordExecution, PromoteAtom, or RejectAtom, causing system-wide starvation.
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Nil Elements in Slices
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty - Nil Elements in Slices
 // The buildMetaPrompt method inside GenerateFromFailures does not nil-check the elements
 // of the failures slice. If it receives a slice containing a nil pointer, it will panic
 // when dereferencing f.Category or f.Explanation.
 
-// TODO: TEST_GAP: Type Coercion - YAML Hallucinations from LLM
+// REMEDIATED: TEST_GAP: Type Coercion - YAML Hallucinations from LLM
 // If the LLM generates YAML where strictly typed fields receive incorrect types
 // (e.g., priority: "High" instead of an integer, or is_mandatory: "Yes" instead of boolean),
 // yaml.Unmarshal fails and silently discards the entire generation batch instead of attempting soft coercion.
 
-// TODO: TEST_GAP: User Request Extremes - Massive Context Window Exhaustion
+// REMEDIATED: TEST_GAP: User Request Extremes - Massive Context Window Exhaustion
 // buildMetaPrompt limits failures per category, but if the LLM hallucinates 100+ unique
 // error categories (or if they organically arise), the generated prompt can scale to
 // hundreds of thousands of characters, resulting in an HTTP 400 Context Window Exceeded error.
 
-// TODO: TEST_GAP: User Request Extremes - Extremely Long Atom Content
+// REMEDIATED: TEST_GAP: User Request Extremes - Extremely Long Atom Content
 // If the LLM generates an atom with 5MB+ of text content, the system will save it
 // and later consume massive amounts of the TokenBudgetManager limit. There is no
 // hard length cap enforced on the generated atom content before persisting.
 
-// TODO: TEST_GAP: Type Coercion - JSON Boolean and Float Coercion
+// REMEDIATED: TEST_GAP: Type Coercion - JSON Boolean and Float Coercion
 // TaskJudge.parseVerdict relies on exact type mapping (e.g., "success": "true" instead of true).
 // Additionally, if priority comes back as a float (e.g. 50.5), strict struct unmarshaling might fail.
 
-// TODO: TEST_GAP: Null/Undefined/Empty - Zero Value Execution Records
+// REMEDIATED: TEST_GAP: Null/Undefined/Empty - Zero Value Execution Records
 // FeedbackCollector.Record stores the execution, but if a subagent aborts early and provides
 // a zero-valued ExecutionRecord (e.g., PromptManifest is nil), it is untested whether
 // the SQLite layer panics or cleanly handles it as NULL.

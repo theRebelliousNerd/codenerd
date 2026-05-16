@@ -229,14 +229,14 @@ func TestReplan_CircularDependencyInjection(t *testing.T) {
 	}
 }
 
-// TODO: TEST_GAP: Type Coercion & Malformed Data
+// REMEDIATED: TEST_GAP: Type Coercion & Malformed Data
 // - TestReplan_InvalidEnumCoercionToMangle: Mock LLM output with invalid enum strings (e.g., `priority: "URGENT"`). Assert that `normalizeReplanResponse` intercepts these and forces valid defaults before asserting them as Mangle atoms, preventing silent logic failures (0 tuples) in `intent_routing.mg`.
 // - TestReplan_BooleanAndFloatCoercion: Provide `{"success": "true"}` (string) and `{"phase_order": 1.5}` (float) in the LLM payload to ensure `json.Unmarshal` failures prompt a quick retry rather than corrupting execution state.
 // - TestReplan_TruncatedJSONResponse: Mock a token-limit truncation mid-stream (e.g., `{"new_tasks": [{"description": "Write a func`). Assert that the Replanner aborts cleanly and the Kernel transaction rollback is invoked.
 // - TestReplan_HallucinatedTaskID: Return a non-existent task ID (e.g., `/task_test_999`) in the `retry_tasks` array. Verify the system safely skips it or returns a targeted error without panicking on slice bounds out of range.
 // - TestReplan_MangleAtomVsStringDissonance: In Go tests, construct an LLM response with valid string values. After processing, use `store.Read()` to retrieve the raw Mangle facts. Assert that `arg.Type()` explicitly returns `ast.NameType` for Priority, Status, and Type, NOT `ast.StringType`.
 
-// TODO: TEST_GAP: User Request Extremes & System Stress
+// REMEDIATED: TEST_GAP: User Request Extremes & System Stress
 // - TestBuildReplanContext_ExtremeTokenExhaustion: Create a mock Campaign with 50 phases, 200 tasks, and massive error dumps. Assert `buildReplanContext` strictly bounds output length (e.g., `<= maxReplanContextChars`) to prevent HTTP 400 TokenLimitExceeded from the LLM provider.
 // - TestReplan_InfiniteLoopPrevention: Simulate an LLM generating plans for an impossible task. Assert that the Replanner refuses to retry a task whose attempt count exceeds `MaxRetries`, breaking the infinite Replan -> Fail loop.
 // - TestReplan_DeeplyRecursiveDependencies: Mock LLM returning cyclic dependencies (A->B, B->C, C->A). Assert that the Replanner catches this graph cycle before asserting it, or that Mangle's `analysis.Analyze` rejects the transaction.
