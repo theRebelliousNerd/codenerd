@@ -62,6 +62,16 @@ func TestExtractKeywords_NormalizesBackslashPaths(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Empty Inputs: TestExtractKeywords_EmptyString - Verify behavior with "" and whitespace-only strings.
+// TODO: TEST_GAP: Malformed Output: TestParseRipgrepOutput_MalformedColons - Verify handling of Windows paths (C:\repo\file.go) and ignored fmt.Sscanf errors.
+// TODO: TEST_GAP: Concurrency: TestKeywordHitCache_Concurrency - Verify race conditions during simultaneous Get, Set, and evictOldest.
+// TODO: TEST_GAP: Resource Limits: TestSparseRetriever_HugeOutput - Verify memory safety when ripgrep returns millions of lines (OOM prevention).
+// TODO: TEST_GAP: Context Cancellation: TestSparseRetriever_ContextTimeout - Verify process is cleanly killed without leaking goroutines when timeout occurs.
+// TODO: TEST_GAP: Extreme Length: TestExtractKeywords_ReDoS - Verify regex performance on 100kb strings without spaces.
+// TODO: TEST_GAP: Null Byte Injection: TestExtractKeywords_NullBytes - Verify safe handling of \x00 in user input.
+// TODO: TEST_GAP: Empty WorkDir: TestSparseRetriever_EmptyWorkDir - Verify initialization and command execution safety when workDir is "".
+// TODO: TEST_GAP: Case Sensitivity: TestRankFiles_CaseInsensitiveWeights - Verify keyword weighting works regardless of casing differences between extraction and ripgrep output.
+
 func TestKeywordHitCache_TTLAndEviction(t *testing.T) {
 	hits := []KeywordHit{{FilePath: "a.go", Keyword: "k", Line: 1}}
 
