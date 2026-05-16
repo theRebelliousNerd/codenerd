@@ -15,8 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 	"sync"
+	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -513,7 +513,6 @@ func processData(data []byte) {}
 		t.Errorf("Expected at least 2 function scope facts (LoadConfig and processData), got %d", summary.FunctionScopeFacts)
 	}
 }
-
 
 func TestDataFlowExtractor_RaceCondition(t *testing.T) {
 	// Verifies that ExtractDataFlow handles file modifications during execution gracefully.

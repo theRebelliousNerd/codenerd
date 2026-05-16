@@ -372,27 +372,27 @@ func TestMax(t *testing.T) {
 
 func TestAppendUnique(t *testing.T) {
 	tests := []struct {
-		name   string
-		slice  []string
-		item   string
+		name    string
+		slice   []string
+		item    string
 		wantLen int
 	}{
 		{
-			name:   "add new item",
-			slice:  []string{"a", "b"},
-			item:   "c",
+			name:    "add new item",
+			slice:   []string{"a", "b"},
+			item:    "c",
 			wantLen: 3,
 		},
 		{
-			name:   "add duplicate",
-			slice:  []string{"a", "b", "c"},
-			item:   "b",
+			name:    "add duplicate",
+			slice:   []string{"a", "b", "c"},
+			item:    "b",
 			wantLen: 3,
 		},
 		{
-			name:   "add to empty",
-			slice:  []string{},
-			item:   "a",
+			name:    "add to empty",
+			slice:   []string{},
+			item:    "a",
 			wantLen: 1,
 		},
 	}

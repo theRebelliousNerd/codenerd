@@ -62,12 +62,12 @@ type PerformanceExpectations struct {
 	TimeoutDuration     time.Duration `json:"timeout_duration"`      // When to give up
 
 	// Resource expectations
-	MaxMemoryMB      int64   `json:"max_memory_mb,omitempty"`
-	ExpectedAPIcalls int     `json:"expected_api_calls,omitempty"` // Expected number of external calls
-	MaxRetries       int     `json:"max_retries"`                  // How many retries are acceptable
+	MaxMemoryMB      int64 `json:"max_memory_mb,omitempty"`
+	ExpectedAPIcalls int   `json:"expected_api_calls,omitempty"` // Expected number of external calls
+	MaxRetries       int   `json:"max_retries"`                  // How many retries are acceptable
 
 	// Scaling behavior
-	ScalesWithInputSize bool    `json:"scales_with_input_size"` // Duration scales with input?
+	ScalesWithInputSize bool    `json:"scales_with_input_size"`   // Duration scales with input?
 	ScalingFactor       float64 `json:"scaling_factor,omitempty"` // ms per unit of input size
 }
 
@@ -79,14 +79,14 @@ type OutputExpectations struct {
 	ExpectedTypicalSize int `json:"expected_typical_size"` // Normal output size
 
 	// Content expectations
-	ExpectedFormat string   `json:"expected_format"`               // json, text, csv, etc.
-	RequiredFields []string `json:"required_fields,omitempty"`     // Fields that must be present
-	MustContain    []string `json:"must_contain,omitempty"`        // Strings that must appear
-	MustNotContain []string `json:"must_not_contain,omitempty"`    // Strings that indicate failure
+	ExpectedFormat string   `json:"expected_format"`            // json, text, csv, etc.
+	RequiredFields []string `json:"required_fields,omitempty"`  // Fields that must be present
+	MustContain    []string `json:"must_contain,omitempty"`     // Strings that must appear
+	MustNotContain []string `json:"must_not_contain,omitempty"` // Strings that indicate failure
 
 	// Pagination expectations
-	ExpectsPagination bool `json:"expects_pagination"`            // Should we paginate?
-	ExpectedPages     int  `json:"expected_pages,omitempty"`      // How many pages expected
+	ExpectsPagination bool `json:"expects_pagination"`       // Should we paginate?
+	ExpectedPages     int  `json:"expected_pages,omitempty"` // How many pages expected
 
 	// Completeness criteria
 	CompletenessCheck string `json:"completeness_check,omitempty"` // How to verify completeness
@@ -113,10 +113,10 @@ const (
 
 // CachingConfig defines caching behavior
 type CachingConfig struct {
-	Cacheable     bool          `json:"cacheable"`                   // Can results be cached?
-	CacheDuration time.Duration `json:"cache_duration"`              // How long to cache
-	CacheKey      string        `json:"cache_key"`                   // What makes cache key unique
-	InvalidateOn  []string      `json:"invalidate_on,omitempty"`     // Events that invalidate cache
+	Cacheable     bool          `json:"cacheable"`               // Can results be cached?
+	CacheDuration time.Duration `json:"cache_duration"`          // How long to cache
+	CacheKey      string        `json:"cache_key"`               // What makes cache key unique
+	InvalidateOn  []string      `json:"invalidate_on,omitempty"` // Events that invalidate cache
 }
 
 // CustomDimension allows tool-specific quality metrics

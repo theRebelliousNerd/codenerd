@@ -126,16 +126,24 @@ func checkPermittedRepro(t *testing.T, eng *mangle.Engine, actionID string, shou
 
 	found := false
 	for _, f := range facts {
-		if len(f.Args) < 3 { continue }
+		if len(f.Args) < 3 {
+			continue
+		}
 
 		act, ok := f.Args[0].(string)
-		if !ok || (act != "/exec_cmd" && act != "exec_cmd") { continue }
+		if !ok || (act != "/exec_cmd" && act != "exec_cmd") {
+			continue
+		}
 
 		tgt, ok := f.Args[1].(string)
-		if !ok || tgt != target { continue }
+		if !ok || tgt != target {
+			continue
+		}
 
 		pay, ok := f.Args[2].(string)
-		if !ok || pay != payload { continue }
+		if !ok || pay != payload {
+			continue
+		}
 
 		found = true
 		break

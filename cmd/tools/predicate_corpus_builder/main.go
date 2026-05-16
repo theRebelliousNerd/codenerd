@@ -52,9 +52,9 @@ type PredicateEntry struct {
 
 // ArgumentDef represents a single argument of a predicate.
 type ArgumentDef struct {
-	Position       int
-	Name           string
-	Type           string // "atom", "string", "number", "list", "map", "any"
+	Position        int
+	Name            string
+	Type            string // "atom", "string", "number", "list", "map", "any"
 	IsBoundRequired bool
 }
 

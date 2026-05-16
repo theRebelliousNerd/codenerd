@@ -49,7 +49,6 @@ func TestSemanticCompressor_Compress_Empty(t *testing.T) {
 	}
 }
 
-
 // TODO: TEST_GAP: Null/Undefined/Empty: Gap 1 - What happens if turns contains items where turn.Content is empty?
 // TODO: TEST_GAP: Null/Undefined/Empty: Gap 2 - What happens if turn.Role is empty? (Coerced to "Assistant")
 // TODO: TEST_GAP: Null/Undefined/Empty: Gap 3 - What if the LLM client drops the system prompt?

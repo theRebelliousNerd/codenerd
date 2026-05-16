@@ -26,14 +26,14 @@ const (
 
 // UserMetrics tracks interaction statistics for journey transitions.
 type UserMetrics struct {
-	SessionsCount         int     `json:"sessions_count"`
-	CommandsExecuted      int     `json:"commands_executed"`
-	ClarificationsNeeded  int     `json:"clarifications_needed"`
-	HelpRequests          int     `json:"help_requests"`
-	SuccessfulTasks       int     `json:"successful_tasks"`
-	ErrorsEncountered     int     `json:"errors_encountered"`
-	LastSession           string  `json:"last_session,omitempty"`
-	ClarificationRate     float64 `json:"clarification_rate,omitempty"` // Computed
+	SessionsCount        int     `json:"sessions_count"`
+	CommandsExecuted     int     `json:"commands_executed"`
+	ClarificationsNeeded int     `json:"clarifications_needed"`
+	HelpRequests         int     `json:"help_requests"`
+	SuccessfulTasks      int     `json:"successful_tasks"`
+	ErrorsEncountered    int     `json:"errors_encountered"`
+	LastSession          string  `json:"last_session,omitempty"`
+	ClarificationRate    float64 `json:"clarification_rate,omitempty"` // Computed
 }
 
 // ShouldTransition checks if user metrics warrant a state transition.

@@ -25,16 +25,16 @@ func NewCompressionVisualizer(writer io.Writer, verbose bool) *CompressionVisual
 
 // CompressionEvent captures a single compression event.
 type CompressionEvent struct {
-	Timestamp    time.Time
-	TurnNumber   int
-	Speaker      string // "user" or "assistant"
+	Timestamp  time.Time
+	TurnNumber int
+	Speaker    string // "user" or "assistant"
 
 	// Original Content
 	OriginalText   string
 	OriginalTokens int
 
 	// Compressed Output
-	CompressedFacts []core.Fact
+	CompressedFacts  []core.Fact
 	CompressedTokens int
 
 	// Metadata Extracted
@@ -45,9 +45,9 @@ type CompressionEvent struct {
 	ReferencesBack    *int // Turn number referenced
 
 	// Compression Stats
-	CompressionRatio  float64
+	CompressionRatio   float64
 	CompressionLatency time.Duration
-	LossyElements     []string // Things that were discarded
+	LossyElements      []string // Things that were discarded
 }
 
 // VisualizeCompression shows a side-by-side before/after view.
@@ -157,13 +157,13 @@ func (v *CompressionVisualizer) VisualizeCompression(event *CompressionEvent) {
 
 // CompressionSummary shows aggregate compression stats across a session.
 type CompressionSummary struct {
-	TotalTurns        int
-	TotalOriginalTokens int
+	TotalTurns            int
+	TotalOriginalTokens   int
 	TotalCompressedTokens int
-	AverageRatio      float64
-	BestRatio         float64
-	WorstRatio        float64
-	TotalTimeSaved    time.Duration
+	AverageRatio          float64
+	BestRatio             float64
+	WorstRatio            float64
+	TotalTimeSaved        time.Duration
 
 	// Per-Speaker Stats
 	UserCompressionRatio      float64

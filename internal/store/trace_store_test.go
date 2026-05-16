@@ -394,17 +394,17 @@ func TestTraceStore_CleanupOldTraces(t *testing.T) {
 
 	// Insert recent trace normally
 	recentTrace := &ReasoningTrace{
-		ID:           "trace_recent",
-		ShardType:    "coder",
-		ShardID:      "shard_002",
-		SessionID:    "session_001",
+		ID:            "trace_recent",
+		ShardType:     "coder",
+		ShardID:       "shard_002",
+		SessionID:     "session_001",
 		ShardCategory: "ephemeral",
-		SystemPrompt: "test",
-		UserPrompt:   "test",
-		Response:     "test",
-		Success:      true,
-		DurationMs:   1000,
-		CreatedAt:    time.Now(),
+		SystemPrompt:  "test",
+		UserPrompt:    "test",
+		Response:      "test",
+		Success:       true,
+		DurationMs:    1000,
+		CreatedAt:     time.Now(),
 	}
 	traceStore.StoreReasoningTrace(recentTrace)
 

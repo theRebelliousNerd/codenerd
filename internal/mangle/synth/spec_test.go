@@ -98,8 +98,8 @@ func TestSpecErrorError(t *testing.T) {
 			wantMsg: "general error occurred",
 		},
 		{
-			name: "with empty struct",
-			err:  SpecError{},
+			name:    "with empty struct",
+			err:     SpecError{},
 			wantMsg: "",
 		},
 	}

@@ -186,7 +186,7 @@ func validateYAMLSyntax(content []byte) error {
 // validateTOMLSyntax provides basic TOML syntax checking.
 func validateTOMLSyntax(content []byte) error {
 	scanner := bufio.NewScanner(bytes.NewReader(content))
-	
+
 	// Set custom buffer to handle long lines up to 5MB
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 5*1024*1024)
@@ -238,7 +238,7 @@ func validateTOMLSyntax(content []byte) error {
 			return &tomlSyntaxError{line: i, msg: "invalid line: missing '='"}
 		}
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func itoaValidator(n int) string {
 	}
 	result := ""
 	negative := n < 0
-	
+
 	var un uint
 	if negative {
 		un = ^uint(n) + 1 // Safely compute absolute value for MinInt

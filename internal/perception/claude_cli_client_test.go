@@ -10,10 +10,10 @@ import (
 
 func TestNewClaudeCodeCLIClient(t *testing.T) {
 	tests := []struct {
-		name          string
-		cfg           *config.ClaudeCLIConfig
-		wantModel     string
-		wantTimeout   time.Duration
+		name        string
+		cfg         *config.ClaudeCLIConfig
+		wantModel   string
+		wantTimeout time.Duration
 	}{
 		{
 			name:        "nil config uses defaults",
@@ -87,10 +87,10 @@ func TestClaudeCodeCLIClient_parseResponse(t *testing.T) {
 	client := NewClaudeCodeCLIClient(nil)
 
 	tests := []struct {
-		name       string
-		data       []byte
-		want       string
-		wantErr    bool
+		name          string
+		data          []byte
+		want          string
+		wantErr       bool
 		wantRateLimit bool
 	}{
 		{
@@ -225,9 +225,9 @@ func TestClaudeCodeCLIClient_parseResponse(t *testing.T) {
 
 func TestRateLimitError(t *testing.T) {
 	tests := []struct {
-		name       string
-		err        *RateLimitError
-		wantMsg    string
+		name    string
+		err     *RateLimitError
+		wantMsg string
 	}{
 		{
 			name: "with retry after",

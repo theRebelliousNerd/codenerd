@@ -216,13 +216,13 @@ func (a *ToolAnalyzer) parseAnalysisResponse(response string, schema MCPToolSche
 
 	// Validate and normalize
 	analysis := &ToolAnalysis{
-		ToolID:       schema.Name,
-		Categories:   normalizeCategories(result.Categories),
-		Capabilities: normalizeCapabilities(result.Capabilities),
-		Domain:       normalizeDomain(result.Domain),
+		ToolID:          schema.Name,
+		Categories:      normalizeCategories(result.Categories),
+		Capabilities:    normalizeCapabilities(result.Capabilities),
+		Domain:          normalizeDomain(result.Domain),
 		ShardAffinities: normalizeAffinities(result.ShardAffinities),
-		UseCases:     result.UseCases,
-		Condensed:    truncateDescription(result.Condensed, 80),
+		UseCases:        result.UseCases,
+		Condensed:       truncateDescription(result.Condensed, 80),
 	}
 
 	// Fallback for empty condensed

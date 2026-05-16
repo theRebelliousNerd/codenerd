@@ -435,4 +435,3 @@ func (p *CodeElementParser) parseMangleFile(path string) ([]CodeElement, error) 
 
 	return elements, nil
 }
-

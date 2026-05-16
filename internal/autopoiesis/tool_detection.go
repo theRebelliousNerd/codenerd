@@ -12,14 +12,14 @@ import (
 
 // ToolNeed represents a detected need for a new tool
 type ToolNeed struct {
-	Name        string   // Proposed tool name
-	Purpose     string   // What the tool should do
-	InputType   string   // Expected input type
-	OutputType  string   // Expected output type
-	Triggers    []string // What user inputs suggest this need
-	Priority    float64  // How urgently this is needed (0.0 - 1.0)
-	Confidence  float64  // How confident we are this is a real need
-	Reasoning   string   // Why we think this tool is needed
+	Name       string   // Proposed tool name
+	Purpose    string   // What the tool should do
+	InputType  string   // Expected input type
+	OutputType string   // Expected output type
+	Triggers   []string // What user inputs suggest this need
+	Priority   float64  // How urgently this is needed (0.0 - 1.0)
+	Confidence float64  // How confident we are this is a real need
+	Reasoning  string   // Why we think this tool is needed
 }
 
 // Tool need detection patterns

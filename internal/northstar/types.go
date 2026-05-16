@@ -17,16 +17,16 @@ import (
 
 // Vision represents the complete project vision definition.
 type Vision struct {
-	Mission      string       `json:"mission"`
-	Problem      string       `json:"problem"`
-	VisionStmt   string       `json:"vision_statement"`
-	Personas     []Persona    `json:"personas"`
-	Capabilities []Capability `json:"capabilities"`
-	Risks        []Risk       `json:"risks"`
+	Mission      string        `json:"mission"`
+	Problem      string        `json:"problem"`
+	VisionStmt   string        `json:"vision_statement"`
+	Personas     []Persona     `json:"personas"`
+	Capabilities []Capability  `json:"capabilities"`
+	Risks        []Risk        `json:"risks"`
 	Requirements []Requirement `json:"requirements"`
-	Constraints  []string     `json:"constraints"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
+	Constraints  []string      `json:"constraints"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 }
 
 // Persona represents a user persona with their pain points and needs.
@@ -56,7 +56,7 @@ type Risk struct {
 // Requirement represents a formal requirement.
 type Requirement struct {
 	ID          string `json:"id"`
-	Type        string `json:"type"`     // "functional", "non_functional", "constraint"
+	Type        string `json:"type"` // "functional", "non_functional", "constraint"
 	Description string `json:"description"`
 	Priority    string `json:"priority"` // "must_have", "should_have", "nice_to_have"
 }
@@ -67,15 +67,15 @@ type Requirement struct {
 
 // Observation represents something Northstar noticed during a session.
 type Observation struct {
-	ID          string            `json:"id"`
-	SessionID   string            `json:"session_id"`
-	Timestamp   time.Time         `json:"timestamp"`
-	Type        ObservationType   `json:"type"`
-	Subject     string            `json:"subject"`     // What was observed (file, task, decision)
-	Content     string            `json:"content"`     // The observation itself
-	Relevance   float64           `json:"relevance"`   // 0.0-1.0 relevance to vision
-	Tags        []string          `json:"tags"`
-	Metadata    map[string]string `json:"metadata"`
+	ID        string            `json:"id"`
+	SessionID string            `json:"session_id"`
+	Timestamp time.Time         `json:"timestamp"`
+	Type      ObservationType   `json:"type"`
+	Subject   string            `json:"subject"`   // What was observed (file, task, decision)
+	Content   string            `json:"content"`   // The observation itself
+	Relevance float64           `json:"relevance"` // 0.0-1.0 relevance to vision
+	Tags      []string          `json:"tags"`
+	Metadata  map[string]string `json:"metadata"`
 }
 
 // ObservationType categorizes observations.
@@ -100,8 +100,8 @@ type AlignmentCheck struct {
 	ID          string           `json:"id"`
 	Timestamp   time.Time        `json:"timestamp"`
 	Trigger     AlignmentTrigger `json:"trigger"`
-	Subject     string           `json:"subject"`     // What was checked
-	Context     string           `json:"context"`     // Additional context
+	Subject     string           `json:"subject"` // What was checked
+	Context     string           `json:"context"` // Additional context
 	Result      AlignmentResult  `json:"result"`
 	Score       float64          `json:"score"`       // 0.0-1.0 alignment score
 	Explanation string           `json:"explanation"` // LLM explanation
@@ -126,11 +126,11 @@ const (
 type AlignmentResult string
 
 const (
-	AlignmentPassed   AlignmentResult = "passed"   // Fully aligned
-	AlignmentWarning  AlignmentResult = "warning"  // Minor drift detected
-	AlignmentFailed   AlignmentResult = "failed"   // Significant drift
-	AlignmentBlocked  AlignmentResult = "blocked"  // Cannot proceed without fix
-	AlignmentSkipped  AlignmentResult = "skipped"  // Check skipped (no vision defined)
+	AlignmentPassed  AlignmentResult = "passed"  // Fully aligned
+	AlignmentWarning AlignmentResult = "warning" // Minor drift detected
+	AlignmentFailed  AlignmentResult = "failed"  // Significant drift
+	AlignmentBlocked AlignmentResult = "blocked" // Cannot proceed without fix
+	AlignmentSkipped AlignmentResult = "skipped" // Check skipped (no vision defined)
 )
 
 // =============================================================================
@@ -142,9 +142,9 @@ type DriftEvent struct {
 	ID           string        `json:"id"`
 	Timestamp    time.Time     `json:"timestamp"`
 	Severity     DriftSeverity `json:"severity"`
-	Category     string        `json:"category"`     // Which aspect drifted
+	Category     string        `json:"category"` // Which aspect drifted
 	Description  string        `json:"description"`
-	Evidence     []string      `json:"evidence"`     // What indicates drift
+	Evidence     []string      `json:"evidence"`      // What indicates drift
 	RelatedCheck string        `json:"related_check"` // AlignmentCheck ID
 	Resolved     bool          `json:"resolved"`
 	ResolvedAt   *time.Time    `json:"resolved_at,omitempty"`
@@ -214,10 +214,10 @@ func DefaultGuardianConfig() GuardianConfig {
 
 // GuardianState tracks the current state of the Northstar Guardian.
 type GuardianState struct {
-	VisionDefined    bool      `json:"vision_defined"`
-	LastCheck        time.Time `json:"last_check"`
-	TasksSinceCheck  int       `json:"tasks_since_check"`
-	ActiveDriftCount int       `json:"active_drift_count"`
-	OverallAlignment float64   `json:"overall_alignment"` // Running average
-	SessionObservations int    `json:"session_observations"`
+	VisionDefined       bool      `json:"vision_defined"`
+	LastCheck           time.Time `json:"last_check"`
+	TasksSinceCheck     int       `json:"tasks_since_check"`
+	ActiveDriftCount    int       `json:"active_drift_count"`
+	OverallAlignment    float64   `json:"overall_alignment"` // Running average
+	SessionObservations int       `json:"session_observations"`
 }

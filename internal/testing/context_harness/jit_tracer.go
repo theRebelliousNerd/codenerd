@@ -24,16 +24,16 @@ func NewJITTracer(writer io.Writer, verbose bool) *JITTracer {
 
 // CompilationSnapshot captures a JIT compilation event.
 type CompilationSnapshot struct {
-	Timestamp      time.Time
-	TurnNumber     int
-	ShardType      string
+	Timestamp       time.Time
+	TurnNumber      int
+	ShardType       string
 	OperationalMode string // /debugging, /dream, etc.
-	CampaignPhase  string
-	Language       string
-	Framework      string
+	CampaignPhase   string
+	Language        string
+	Framework       string
 
 	// Compilation Context
-	TokenBudget    int
+	TokenBudget       int
 	ContextDimensions []string // List of active context dimensions
 
 	// Atom Selection
@@ -43,10 +43,10 @@ type CompilationSnapshot struct {
 	RejectedAtoms       []CompiledAtom
 
 	// Budget Allocation
-	SystemAtomTokens   int
-	ContextAtomTokens  int
-	SpecialistTokens   int
-	DynamicTokens      int
+	SystemAtomTokens  int
+	ContextAtomTokens int
+	SpecialistTokens  int
+	DynamicTokens     int
 
 	// Compilation Stats
 	CompilationLatency time.Duration
@@ -56,12 +56,12 @@ type CompilationSnapshot struct {
 
 // CompiledAtom represents a prompt atom in the compilation process.
 type CompiledAtom struct {
-	ID           string
-	Category     string
-	FilePath     string
-	Content      string
-	Tokens       int
-	Priority     int
+	ID              string
+	Category        string
+	FilePath        string
+	Content         string
+	Tokens          int
+	Priority        int
 	SelectionReason string // Why it was selected (or rejected)
 
 	// Context Selectors (metadata that determines when this atom is active)

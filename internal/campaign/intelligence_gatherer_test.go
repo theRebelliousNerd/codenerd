@@ -9,8 +9,6 @@ import (
 	"codenerd/internal/core"
 )
 
-
-
 func TestNewIntelligenceGatherer(t *testing.T) {
 	// Test with nil dependencies (should not panic)
 	gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
@@ -181,7 +179,7 @@ func TestIntelligenceReport_FormatForContext(t *testing.T) {
 		MCPToolsAvailable: []MCPToolInfo{
 			{Name: "test_tool", Description: "A test tool"},
 		},
-		UncoveredPaths: []string{"uncovered.go"},
+		UncoveredPaths:    []string{"uncovered.go"},
 		ArchitectureHints: []string{"Standard Go project"},
 	}
 

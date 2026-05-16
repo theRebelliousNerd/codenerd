@@ -43,13 +43,13 @@ const (
 // EnvironmentConfig configures Python environment behavior.
 type EnvironmentConfig struct {
 	// Container settings
-	BaseImage      string        `json:"base_image"`       // Docker image (e.g., python:3.10)
-	PythonVersion  string        `json:"python_version"`   // e.g., "3.10"
-	MemoryLimit    int64         `json:"memory_limit"`     // Bytes
-	CPULimit       float64       `json:"cpu_limit"`        // CPUs
-	NetworkEnabled bool          `json:"network_enabled"`  // For pip install
-	TestTimeout    time.Duration `json:"test_timeout"`     // Per-test timeout
-	SetupTimeout   time.Duration `json:"setup_timeout"`    // Total setup timeout
+	BaseImage      string        `json:"base_image"`      // Docker image (e.g., python:3.10)
+	PythonVersion  string        `json:"python_version"`  // e.g., "3.10"
+	MemoryLimit    int64         `json:"memory_limit"`    // Bytes
+	CPULimit       float64       `json:"cpu_limit"`       // CPUs
+	NetworkEnabled bool          `json:"network_enabled"` // For pip install
+	TestTimeout    time.Duration `json:"test_timeout"`    // Per-test timeout
+	SetupTimeout   time.Duration `json:"setup_timeout"`   // Total setup timeout
 
 	// Paths
 	WorkspaceDir string `json:"workspace_dir"` // Inside container
@@ -82,11 +82,11 @@ func DefaultConfig() EnvironmentConfig {
 
 // ProjectInfo describes a Python project to set up.
 type ProjectInfo struct {
-	Name       string `json:"name"`        // Project name
-	GitURL     string `json:"git_url"`     // Git clone URL
-	Commit     string `json:"commit"`      // Specific commit to checkout (optional)
-	Branch     string `json:"branch"`      // Branch to checkout (optional)
-	LocalPath  string `json:"local_path"`  // Local path to mount (alternative to git)
+	Name       string   `json:"name"`        // Project name
+	GitURL     string   `json:"git_url"`     // Git clone URL
+	Commit     string   `json:"commit"`      // Specific commit to checkout (optional)
+	Branch     string   `json:"branch"`      // Branch to checkout (optional)
+	LocalPath  string   `json:"local_path"`  // Local path to mount (alternative to git)
 	SetupSteps []string `json:"setup_steps"` // Custom setup commands (optional)
 }
 

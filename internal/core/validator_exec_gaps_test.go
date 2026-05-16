@@ -48,7 +48,7 @@ func TestExecutionValidator_ANSI_Strip(t *testing.T) {
 func TestExecutionValidator_MassiveOutput(t *testing.T) {
 	v := NewExecutionValidator()
 	req := ActionRequest{Type: ActionExecCmd, Target: "test"}
-	
+
 	hugeOutput := strings.Repeat("A", 10*1024*1024) + "fatal: failed" // 10MB
 	res := ActionResult{Success: false, Output: hugeOutput}
 	vr := v.Validate(context.Background(), req, res)
@@ -84,7 +84,7 @@ func TestExecutionValidator_ConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			// Use simple string to avoid format dependency
-			v.AddFailurePattern("testpattern_concurrent") 
+			v.AddFailurePattern("testpattern_concurrent")
 		}(i)
 	}
 	wg.Wait()

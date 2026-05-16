@@ -644,7 +644,7 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 // parseTestOutput parses test output into diagnostics.
 func (t *TDDLoop) parseTestOutput(output string) []Diagnostic {
 	diagnostics := make([]Diagnostic, 0)
-	
+
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	// Only upgrade buffer for large outputs to avoid unnecessary allocation
 	if len(output) > 64*1024 {

@@ -3,8 +3,8 @@ package prompt
 import (
 	"context"
 	"database/sql"
-	"testing"
 	"fmt"
+	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -44,11 +44,11 @@ func BenchmarkHydrateAtomContextTags(b *testing.B) {
 		}
 
 		atoms[i] = &PromptAtom{
-			ID: id,
+			ID:               id,
 			OperationalModes: []string{"mode1", "mode2"},
-			CampaignPhases: []string{"phase1", "phase2"},
-			BuildLayers: []string{"layer1", "layer2"},
-			IntentVerbs: []string{"intent1", "intent2"},
+			CampaignPhases:   []string{"phase1", "phase2"},
+			BuildLayers:      []string{"layer1", "layer2"},
+			IntentVerbs:      []string{"intent1", "intent2"},
 		}
 	}
 

@@ -226,7 +226,6 @@ func main() {
 	}
 }
 
-
 // TestCodeElementParser_WithFactory tests polyglot mode.
 func TestCodeElementParser_WithFactory(t *testing.T) {
 	tmpDir := t.TempDir()

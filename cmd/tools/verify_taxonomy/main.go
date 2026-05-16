@@ -35,7 +35,7 @@ func main() {
 		},
 		{
 			Input:    "fix the security bug in auth.go",
-			Expected: "/security", 
+			Expected: "/security",
 			Why:      "Hybrid: 'fix' (Coder) vs 'security' (Reviewer). Mangle inference should boost /security context.",
 		},
 		{
@@ -63,11 +63,11 @@ func main() {
 
 		// Fallback check: logic might prioritize /fix for "fix security bug" depending on exact weights.
 		// Let's see what happens. If it fails, we tune inference.mg.
-		
+
 		fmt.Printf("    Result: %s [%s] (Conf: %.2f) -> Shard: %s\n", verb, cat, conf, shard)
 		fmt.Printf("    Status: %s\n", status)
 	}
-	
+
 	fmt.Println("\n==================================================")
 	fmt.Println("   VERIFICATION COMPLETE")
 	fmt.Println("==================================================")

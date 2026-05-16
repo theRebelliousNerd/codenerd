@@ -285,16 +285,16 @@ func TestDreamerGap_KernelCloneCost(t *testing.T) {
 // TestDreamerGap_PathTraversalBypass verifies criticalPrefix with path traversal.
 func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 	tests := []struct {
-		name     string
-		path     string
-		wantHit  bool
+		name    string
+		path    string
+		wantHit bool
 	}{
 		{"direct internal/core", "internal/core/kernel.go", true},
 		{"traversal bypass", "something/../internal/core/kernel.go", true},
 		{"double slash (KNOWN GAP: not normalized)", "internal//core/kernel.go", false}, // BUG: criticalPrefix doesn't normalize paths
 		{".git direct", ".git/config", true},
 		{"unicode safe", "internalⓐcore/kernel.go", false}, // not a real path
-		{"case variant", "Internal/Core/kernel.go", false},  // case-sensitive
+		{"case variant", "Internal/Core/kernel.go", false}, // case-sensitive
 	}
 
 	for _, tt := range tests {
@@ -317,7 +317,7 @@ func TestDreamerGap_SecurityShellFeatures(t *testing.T) {
 		cmd      string
 		expected bool
 	}{
-		{"eval base64", "eval $(echo cm0gLXJmIC8= | base64 -d)", false}, // Not directly caught by current patterns
+		{"eval base64", "eval $(echo cm0gLXJmIC8= | base64 -d)", false},   // Not directly caught by current patterns
 		{"python exec", "python -c 'import os; os.remove(\"/\")'", false}, // Not caught
 		{"safe command", "go test ./...", false},
 

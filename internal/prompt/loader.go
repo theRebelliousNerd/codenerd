@@ -551,19 +551,45 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 			return nil
 		}
 
-		if err := addTags("mode", atom.OperationalModes); err != nil { return err }
-		if err := addTags("phase", atom.CampaignPhases); err != nil { return err }
-		if err := addTags("layer", atom.BuildLayers); err != nil { return err }
-		if err := addTags("init_phase", atom.InitPhases); err != nil { return err }
-		if err := addTags("northstar_phase", atom.NorthstarPhases); err != nil { return err }
-		if err := addTags("ouroboros_stage", atom.OuroborosStages); err != nil { return err }
-		if err := addTags("intent", atom.IntentVerbs); err != nil { return err }
-		if err := addTags("shard", atom.ShardTypes); err != nil { return err }
-		if err := addTags("lang", atom.Languages); err != nil { return err }
-		if err := addTags("framework", atom.Frameworks); err != nil { return err }
-		if err := addTags("state", atom.WorldStates); err != nil { return err }
-		if err := addTags("depends_on", atom.DependsOn); err != nil { return err }
-		if err := addTags("conflicts_with", atom.ConflictsWith); err != nil { return err }
+		if err := addTags("mode", atom.OperationalModes); err != nil {
+			return err
+		}
+		if err := addTags("phase", atom.CampaignPhases); err != nil {
+			return err
+		}
+		if err := addTags("layer", atom.BuildLayers); err != nil {
+			return err
+		}
+		if err := addTags("init_phase", atom.InitPhases); err != nil {
+			return err
+		}
+		if err := addTags("northstar_phase", atom.NorthstarPhases); err != nil {
+			return err
+		}
+		if err := addTags("ouroboros_stage", atom.OuroborosStages); err != nil {
+			return err
+		}
+		if err := addTags("intent", atom.IntentVerbs); err != nil {
+			return err
+		}
+		if err := addTags("shard", atom.ShardTypes); err != nil {
+			return err
+		}
+		if err := addTags("lang", atom.Languages); err != nil {
+			return err
+		}
+		if err := addTags("framework", atom.Frameworks); err != nil {
+			return err
+		}
+		if err := addTags("state", atom.WorldStates); err != nil {
+			return err
+		}
+		if err := addTags("depends_on", atom.DependsOn); err != nil {
+			return err
+		}
+		if err := addTags("conflicts_with", atom.ConflictsWith); err != nil {
+			return err
+		}
 	}
 
 	if err := flushTags(); err != nil {

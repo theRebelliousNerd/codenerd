@@ -55,7 +55,6 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
 	}
 
-
 	var facts []core.Fact
 	ctx := &extractionContext{
 		fset:  d.fset,
@@ -621,17 +620,17 @@ func (d *DataFlowExtractor) ExtractDataFlowForDirectory(dir string) ([]core.Fact
 
 // DataFlowSummary provides aggregated statistics about extracted data flow.
 type DataFlowSummary struct {
-	TotalFacts           int
-	AssignmentsFacts     int
-	NullableAssignments  int
-	ErrorAssignments     int
-	GuardsBlockFacts     int
-	GuardsReturnFacts    int
-	ErrorCheckedFacts    int
-	UsesFacts            int
-	CallArgFacts         int
-	FunctionScopeFacts   int
-	GuardDominatesFacts  int
+	TotalFacts          int
+	AssignmentsFacts    int
+	NullableAssignments int
+	ErrorAssignments    int
+	GuardsBlockFacts    int
+	GuardsReturnFacts   int
+	ErrorCheckedFacts   int
+	UsesFacts           int
+	CallArgFacts        int
+	FunctionScopeFacts  int
+	GuardDominatesFacts int
 }
 
 // SummarizeDataFlow analyzes extracted facts and returns a summary.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/rand"
 	"path/filepath"
 	"testing"
-	"math/rand"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -59,12 +59,12 @@ func BenchmarkStoreAtomsWithEmbeddings(b *testing.B) {
 
 	for i := 0; i < numAtoms; i++ {
 		atoms[i] = &PromptAtom{
-			ID:          fmt.Sprintf("atom_%d", i),
-			Version:     1,
-			Content:     fmt.Sprintf("This is the content for atom %d.", i),
-			TokenCount:  rand.Intn(100),
-			ContentHash: fmt.Sprintf("hash_%d", i),
-			Category:    AtomCategory("test"),
+			ID:               fmt.Sprintf("atom_%d", i),
+			Version:          1,
+			Content:          fmt.Sprintf("This is the content for atom %d.", i),
+			TokenCount:       rand.Intn(100),
+			ContentHash:      fmt.Sprintf("hash_%d", i),
+			Category:         AtomCategory("test"),
 			OperationalModes: []string{"active", "debugging"},
 		}
 

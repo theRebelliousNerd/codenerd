@@ -36,11 +36,11 @@ type DataFlowCache struct {
 
 // CacheDataFlowEntry represents cached data flow facts for a single file.
 type CacheDataFlowEntry struct {
-	FilePath  string             `json:"file_path"`
-	FileHash  string             `json:"file_hash"` // SHA256 of file content
-	Facts     []SerializedFact   `json:"facts"`     // Cached data flow facts (JSON-safe)
-	Timestamp time.Time          `json:"timestamp"`
-	Version   int                `json:"version"` // Cache format version
+	FilePath  string           `json:"file_path"`
+	FileHash  string           `json:"file_hash"` // SHA256 of file content
+	Facts     []SerializedFact `json:"facts"`     // Cached data flow facts (JSON-safe)
+	Timestamp time.Time        `json:"timestamp"`
+	Version   int              `json:"version"` // Cache format version
 }
 
 // SerializedFact is a JSON-serializable representation of core.Fact.
@@ -48,8 +48,8 @@ type CacheDataFlowEntry struct {
 // round-trip correctly through JSON (e.g., int64 becomes float64).
 // This struct preserves type information explicitly.
 type SerializedFact struct {
-	Predicate string           `json:"predicate"`
-	Args      []SerializedArg  `json:"args"`
+	Predicate string          `json:"predicate"`
+	Args      []SerializedArg `json:"args"`
 }
 
 // SerializedArg preserves the type of each argument through JSON serialization.
@@ -388,10 +388,10 @@ func (c *DataFlowCache) Stats() CacheStats {
 	c.mu.RUnlock()
 
 	return CacheStats{
-		Hits:       c.hits.Load(),
-		Misses:     c.misses.Load(),
-		Entries:    entryCount,
-		Dirty:      dirtyCount,
+		Hits:    c.hits.Load(),
+		Misses:  c.misses.Load(),
+		Entries: entryCount,
+		Dirty:   dirtyCount,
 	}
 }
 

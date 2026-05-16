@@ -15,13 +15,13 @@ const (
 	SplitPaneDivider    = 1
 
 	// Panel borders and spacing
-	PanelBorderWidth  = 2
-	PanelPaddingH     = 1
-	PanelPaddingV     = 0
-	PanelMargin       = 1
-	ContentIndent     = 2
-	ListIndent        = 4
-	NestedIndent      = 2
+	PanelBorderWidth = 2
+	PanelPaddingH    = 1
+	PanelPaddingV    = 0
+	PanelMargin      = 1
+	ContentIndent    = 2
+	ListIndent       = 4
+	NestedIndent     = 2
 
 	// Table dimensions
 	TablePadding      = 2
@@ -30,12 +30,12 @@ const (
 	TableRowHeight    = 1
 
 	// Control areas
-	ControlsHeight      = 3
-	HeaderHeight        = 4
-	FooterHeight        = 2
-	StatusBarHeight     = 1
-	TabBarHeight        = 2
-	HelpPaneHeight      = 3
+	ControlsHeight  = 3
+	HeaderHeight    = 4
+	FooterHeight    = 2
+	StatusBarHeight = 1
+	TabBarHeight    = 2
+	HelpPaneHeight  = 3
 
 	// Responsive breakpoints
 	MinimumTerminalWidth  = 80

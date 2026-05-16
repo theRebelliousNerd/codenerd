@@ -254,6 +254,7 @@ type anthropicCachedRequest struct {
 	Temperature float64                     `json:"temperature,omitempty"`
 	Stream      bool                        `json:"stream,omitempty"`
 }
+
 // NERD-EVOLVE-END: P1P2-prompt-caching
 
 // AnthropicResponse represents the API response.

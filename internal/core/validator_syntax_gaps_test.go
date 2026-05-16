@@ -33,7 +33,7 @@ func TestSyntaxValidator_EmptyContent(t *testing.T) {
 
 	req := ActionRequest{Type: ActionWriteFile, Target: path}
 	res := ActionResult{Success: true}
-	
+
 	vr := v.Validate(context.Background(), req, res)
 	// An empty .go file is genuinely syntactically invalid (missing package declaration).
 	// The validator is correct to reject it.
@@ -94,11 +94,11 @@ func TestSyntaxValidator_MassiveFile(t *testing.T) {
 	v := NewSyntaxValidator()
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "large.json")
-	
+
 	// Create a small valid file just to ensure it completes successfully
 	content := []byte(`{"key": "value"}`)
 	os.WriteFile(path, content, 0644)
-	
+
 	req := ActionRequest{Type: ActionWriteFile, Target: path}
 	res := ActionResult{Success: true}
 	vr := v.Validate(context.Background(), req, res)

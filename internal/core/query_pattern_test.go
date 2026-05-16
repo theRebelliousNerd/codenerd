@@ -8,9 +8,9 @@ import (
 
 func TestKernelQueryPatternFiltering(t *testing.T) {
 	k := &RealKernel{
-		facts:      make([]Fact, 0),
-		factIndex:  make(map[string]struct{}),
-		store:      factstore.NewSimpleInMemoryStore(),
+		facts:       make([]Fact, 0),
+		factIndex:   make(map[string]struct{}),
+		store:       factstore.NewSimpleInMemoryStore(),
 		policyDirty: true,
 	}
 
@@ -73,4 +73,3 @@ Decl name_probe(A).
 		t.Fatalf("QueryBool(probe(\"missing\", _)) got true, want false")
 	}
 }
-

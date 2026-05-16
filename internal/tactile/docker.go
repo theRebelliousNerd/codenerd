@@ -106,7 +106,7 @@ func (e *DockerExecutor) Capabilities() ExecutorCapabilities {
 	return ExecutorCapabilities{
 		Name:                     "docker",
 		Platform:                 runtime.GOOS,
-		SupportsResourceLimits:   true, // Docker has full resource limit support
+		SupportsResourceLimits:   true,  // Docker has full resource limit support
 		SupportsResourceUsage:    false, // Would need docker stats parsing
 		SupportedSandboxModes:    modes,
 		SupportsNetworkIsolation: true,

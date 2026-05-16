@@ -130,11 +130,10 @@ func (p *ASTParser) parseTypeScript(path string) ([]types.Fact, error) {
 	if parseErr != nil || len(facts) == 0 {
 		return nil, fmt.Errorf("tree-sitter parsing failed or returned empty for TS/JS: %s - %w", filepath.Base(path), parseErr)
 	}
-	
+
 	logging.WorldDebug("Tree-sitter succeeded for TS/JS: %s (%d facts)", filepath.Base(path), len(facts))
 	return facts, nil
 }
-
 
 // Close releases resources held by the AST parser
 func (p *ASTParser) Close() {

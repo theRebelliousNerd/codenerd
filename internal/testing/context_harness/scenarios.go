@@ -4,21 +4,21 @@ package context_harness
 func GetScenario(name string) *Scenario {
 	scenarios := map[string]*Scenario{
 		// Mock scenarios (fast, for CI)
-		"debugging-marathon":      DebuggingMarathonScenario(),
-		"feature-implementation":  FeatureImplementationScenario(),
-		"refactoring-campaign":    RefactoringCampaignScenario(),
-		"research-and-build":      ResearchAndBuildScenario(),
-		"tdd-loop":                TDDLoopScenario(),
-		"campaign-execution":      CampaignExecutionScenario(),
-		"shard-collaboration":     ShardCollaborationScenario(),
-		"mangle-policy-debug":     ManglePolicyDebugScenario(),
+		"debugging-marathon":     DebuggingMarathonScenario(),
+		"feature-implementation": FeatureImplementationScenario(),
+		"refactoring-campaign":   RefactoringCampaignScenario(),
+		"research-and-build":     ResearchAndBuildScenario(),
+		"tdd-loop":               TDDLoopScenario(),
+		"campaign-execution":     CampaignExecutionScenario(),
+		"shard-collaboration":    ShardCollaborationScenario(),
+		"mangle-policy-debug":    ManglePolicyDebugScenario(),
 		// Integration scenarios (requires --mode=real)
-		"campaign-phase-transition":  CampaignPhaseTransitionScenario(),
-		"swebench-issue-resolution":  SWEBenchIssueResolutionScenario(),
-		"token-budget-overflow":      TokenBudgetOverflowScenario(),
-		"dependency-spreading":       DependencySpreadingScenario(),
-		"verb-specific-boosting":     VerbSpecificBoostingScenario(),
-		"ephemeral-filtering":        EphemeralFilteringScenario(),
+		"campaign-phase-transition": CampaignPhaseTransitionScenario(),
+		"swebench-issue-resolution": SWEBenchIssueResolutionScenario(),
+		"token-budget-overflow":     TokenBudgetOverflowScenario(),
+		"dependency-spreading":      DependencySpreadingScenario(),
+		"verb-specific-boosting":    VerbSpecificBoostingScenario(),
+		"ephemeral-filtering":       EphemeralFilteringScenario(),
 	}
 
 	return scenarios[name]
@@ -179,8 +179,8 @@ func DebuggingMarathonScenario() *Scenario {
 				// File refs require different query patterns to retrieve
 				MustRetrieve: []string{"turn_0_error_message", "turn_0_topic"},
 				ShouldAvoid:  []string{},
-				MinRecall:    0.5,  // At least 1 of 2 critical facts (error msg or topic)
-				MinPrecision: 0.1,  // Precision is secondary - recall matters for debugging
+				MinRecall:    0.5, // At least 1 of 2 critical facts (error msg or topic)
+				MinPrecision: 0.1, // Precision is secondary - recall matters for debugging
 				Description:  "Should recall original error after 45 turns",
 			},
 			{
@@ -195,10 +195,10 @@ func DebuggingMarathonScenario() *Scenario {
 			},
 		},
 		ExpectedMetrics: Metrics{
-			CompressionRatio:      0.5,  // Expect ~2x enrichment per-turn (ratio < 1 = semantic expansion)
-			AvgRetrievalRecall:    0.5,  // 50% minimum recall - we want relevant context
-			AvgRetrievalPrec:      0.1,  // Precision is secondary - some noise is acceptable
-			AvgF1Score:            0.2,  // Balanced score with recall priority
+			CompressionRatio:      0.5, // Expect ~2x enrichment per-turn (ratio < 1 = semantic expansion)
+			AvgRetrievalRecall:    0.5, // 50% minimum recall - we want relevant context
+			AvgRetrievalPrec:      0.1, // Precision is secondary - some noise is acceptable
+			AvgF1Score:            0.2, // Balanced score with recall priority
 			TokenBudgetViolations: 0,
 		},
 	}

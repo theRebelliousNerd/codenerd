@@ -1,6 +1,5 @@
 package core
 
-
 import (
 	"github.com/google/mangle/analysis"
 
@@ -377,21 +376,17 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 // Boundary Value Analysis: Identified Gaps (Vector A: Null/Undefined/Empty)
 // -----------------------------------------------------------------------------
 
-
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector B: Type Coercion)
 // -----------------------------------------------------------------------------
-
 
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector C: User Extremes)
 // -----------------------------------------------------------------------------
 
-
 // -----------------------------------------------------------------------------
 // Boundary Value Analysis: Identified Gaps (Vector D: State Conflicts & Concurrency)
 // -----------------------------------------------------------------------------
-
 
 // =============================================================================
 // PRE-CHAOS HARDENING TESTS (Phase 4)

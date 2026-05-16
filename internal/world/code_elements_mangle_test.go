@@ -61,4 +61,3 @@ ancestor(X, Y) :-
 		t.Fatalf("expected rule element")
 	}
 }
-

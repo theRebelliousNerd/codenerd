@@ -72,8 +72,8 @@ func TestAPISchedulerGap_AcquireSlot_NilContext(t *testing.T) {
 // TestAPISchedulerGap_NegativeConcurrency verifies zero/negative MaxConcurrentAPICalls.
 func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 	tests := []struct {
-		name     string
-		maxConc  int
+		name    string
+		maxConc int
 	}{
 		{"zero", 0},
 		{"negative", -5},
@@ -91,7 +91,7 @@ func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 
 			scheduler := NewAPIScheduler(APISchedulerConfig{
 				MaxConcurrentAPICalls: tt.maxConc,
-				SlotAcquireTimeout:   5 * time.Second,
+				SlotAcquireTimeout:    5 * time.Second,
 			})
 			if scheduler != nil {
 				t.Logf("NewAPIScheduler(%d) created successfully (channel size=%d)", tt.maxConc, tt.maxConc)
@@ -104,7 +104,7 @@ func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 func TestAPISchedulerGap_ZeroTimeout(t *testing.T) {
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
-		SlotAcquireTimeout:   0, // Zero timeout
+		SlotAcquireTimeout:    0, // Zero timeout
 	})
 	scheduler.RegisterShard("s1", "test")
 	scheduler.RegisterShard("s2", "test")
@@ -222,7 +222,7 @@ func TestAPISchedulerGap_Race_RegisterUnregister(t *testing.T) {
 func TestAPISchedulerGap_Race_ContextCancelVsSlotAcquire(t *testing.T) {
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 1,
-		SlotAcquireTimeout:   5 * time.Second,
+		SlotAcquireTimeout:    5 * time.Second,
 	})
 
 	scheduler.RegisterShard("holder", "test")
@@ -267,7 +267,7 @@ func TestAPISchedulerGap_ExtremeLoad_ManyShards(t *testing.T) {
 	const numShards = 100
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 3,
-		SlotAcquireTimeout:   30 * time.Second,
+		SlotAcquireTimeout:    30 * time.Second,
 	})
 
 	for i := 0; i < numShards; i++ {
@@ -343,7 +343,7 @@ func TestAPISchedulerGap_DurationOverflow(t *testing.T) {
 	// Very large timeout — should not cause overflow or panic
 	scheduler := NewAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: 2,
-		SlotAcquireTimeout:   time.Duration(1<<62 - 1), // Near-max Duration
+		SlotAcquireTimeout:    time.Duration(1<<62 - 1), // Near-max Duration
 	})
 
 	scheduler.RegisterShard("test", "test")
@@ -453,7 +453,6 @@ func TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying(t *testing.T) {
 	scheduler.ReleaseAPISlot("test")
 }
 
-
 // TestAPISchedulerGap_Streaming_RapidCancel tests that the forwarding goroutine
 // doesn't leak when context is cancelled while the underlying stream is active.
 func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
@@ -535,7 +534,7 @@ func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
 	// Attempt to reconfigure — should be ignored because sync.Once already fired
 	ConfigureGlobalAPIScheduler(APISchedulerConfig{
 		MaxConcurrentAPICalls: originalMax + 100, // Try to change it
-		SlotAcquireTimeout:   99 * time.Second,
+		SlotAcquireTimeout:    99 * time.Second,
 	})
 
 	// Get again — should be same instance

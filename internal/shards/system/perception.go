@@ -164,6 +164,7 @@ func (p *PerceptionFirewallShard) SetClassificationClient(client perception.LLMC
 	// Reset cached transducer so ensureTransducer picks up the new client.
 	p.transducer = nil
 }
+
 // NERD-EVOLVE-END: P1P2-model-tiering
 
 // SetPromptAssembler sets the JIT prompt assembler for dynamic prompt generation.

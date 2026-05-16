@@ -44,10 +44,10 @@ func (c *ReflectionConfig) UnmarshalJSON(data []byte) error {
 // DefaultReflectionConfig returns sensible defaults for reflection recall.
 func DefaultReflectionConfig() ReflectionConfig {
 	return ReflectionConfig{
-		Enabled:              true,
-		TopK:                 5,
-		MinScore:             0.70,
-		RecencyHalfLifeDays:  14,
-		BacklogWatermark:     300,
+		Enabled:             true,
+		TopK:                5,
+		MinScore:            0.70,
+		RecencyHalfLifeDays: 14,
+		BacklogWatermark:    300,
 	}
 }

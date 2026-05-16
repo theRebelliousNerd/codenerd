@@ -82,9 +82,10 @@ type dummyValidator struct {
 	priority int
 	sleep    time.Duration
 }
+
 func (d *dummyValidator) CanValidate(t ActionType) bool { return true }
-func (d *dummyValidator) Name() string { return "dummy" }
-func (d *dummyValidator) Priority() int { return d.priority }
+func (d *dummyValidator) Name() string                  { return "dummy" }
+func (d *dummyValidator) Priority() int                 { return d.priority }
 func (d *dummyValidator) Validate(ctx context.Context, req ActionRequest, res ActionResult) ValidationResult {
 	if d.sleep > 0 {
 		time.Sleep(d.sleep)
@@ -136,7 +137,7 @@ func TestActionValidator_ConcurrentRegister(t *testing.T) {
 			defer wg.Done()
 			r.Register(&dummyValidator{priority: idx})
 		}(i)
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

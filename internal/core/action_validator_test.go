@@ -36,8 +36,8 @@ func (m *mockValidator) Validate(ctx context.Context, req ActionRequest, result 
 	}
 }
 
-func (m *mockValidator) Name() string     { return m.name }
-func (m *mockValidator) Priority() int    { return m.priority }
+func (m *mockValidator) Name() string  { return m.name }
+func (m *mockValidator) Priority() int { return m.priority }
 
 func TestValidatorRegistry_Register(t *testing.T) {
 	r := NewValidatorRegistry()
@@ -378,4 +378,3 @@ func TestValidationResult_ToFacts(t *testing.T) {
 		}
 	})
 }
-

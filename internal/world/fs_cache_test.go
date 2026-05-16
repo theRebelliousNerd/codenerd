@@ -26,12 +26,12 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 	// /.secret/key.pem (Hidden - Blocked by default)
 
 	files := map[string]bool{ // path -> expected visibility
-		"main.go":                    true,
-		".github/workflows/ci.yml":   true,
-		".vscode/settings.json":      true,
-		".git/config":                false,
-		".nerd/cache/manifest.json":  false,
-		".secret/key.pem":            false,
+		"main.go":                   true,
+		".github/workflows/ci.yml":  true,
+		".vscode/settings.json":     true,
+		".git/config":               false,
+		".nerd/cache/manifest.json": false,
+		".secret/key.pem":           false,
 	}
 
 	for path, _ := range files {
@@ -214,7 +214,7 @@ func TestScanDirectory_BlindSpotFix(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(tmpDir, ".github"), 0755)
 	os.WriteFile(filepath.Join(tmpDir, ".github/ci.yml"), []byte("data"), 0644)
-	
+
 	os.MkdirAll(filepath.Join(tmpDir, ".git"), 0755)
 	os.WriteFile(filepath.Join(tmpDir, ".git/config"), []byte("data"), 0644)
 

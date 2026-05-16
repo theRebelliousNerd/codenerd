@@ -54,12 +54,12 @@ func (d *Debouncer) Immediate(fn func()) {
 
 // ResizeDebouncer is a specialized debouncer for window resize events
 type ResizeDebouncer struct {
-	debouncer    *Debouncer
-	lastWidth    int
-	lastHeight   int
+	debouncer     *Debouncer
+	lastWidth     int
+	lastHeight    int
 	pendingWidth  int
 	pendingHeight int
-	mu           sync.Mutex
+	mu            sync.Mutex
 }
 
 // NewResizeDebouncer creates a debouncer optimized for resize events

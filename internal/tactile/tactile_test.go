@@ -403,7 +403,6 @@ func TestResourceUsage_TotalCPUTimeMs(t *testing.T) {
 	}
 }
 
-
 func TestExecutorConfig_Merge(t *testing.T) {
 	config := DefaultExecutorConfig()
 	config.DefaultWorkingDir = "/default"
@@ -736,4 +735,3 @@ func TestRetryExecutor(t *testing.T) {
 		t.Errorf("Expected success")
 	}
 }
-

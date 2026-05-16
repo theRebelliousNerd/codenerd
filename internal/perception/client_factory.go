@@ -179,6 +179,7 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		return nil, nil
 	}
 }
+
 // NERD-EVOLVE-END: P1P2-model-tiering
 
 // NewClientFromConfig creates an LLM client from a provider config.

@@ -46,5 +46,3 @@ func toTypesFacts(worldFacts []Fact) []types.Fact {
 	}
 	return res
 }
-
-

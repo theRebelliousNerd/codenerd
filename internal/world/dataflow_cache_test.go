@@ -379,29 +379,29 @@ func TestDataFlowCache_Store(t *testing.T) {
 
 func TestCacheStats_HitRate(t *testing.T) {
 	tests := []struct {
-		name   string
-		stats  CacheStats
-		want   float64
+		name  string
+		stats CacheStats
+		want  float64
 	}{
 		{
-			name:   "no lookups",
-			stats:  CacheStats{Hits: 0, Misses: 0},
-			want:   0,
+			name:  "no lookups",
+			stats: CacheStats{Hits: 0, Misses: 0},
+			want:  0,
 		},
 		{
-			name:   "all hits",
-			stats:  CacheStats{Hits: 10, Misses: 0},
-			want:   100,
+			name:  "all hits",
+			stats: CacheStats{Hits: 10, Misses: 0},
+			want:  100,
 		},
 		{
-			name:   "all misses",
-			stats:  CacheStats{Hits: 0, Misses: 10},
-			want:   0,
+			name:  "all misses",
+			stats: CacheStats{Hits: 0, Misses: 10},
+			want:  0,
 		},
 		{
-			name:   "50% hit rate",
-			stats:  CacheStats{Hits: 5, Misses: 5},
-			want:   50,
+			name:  "50% hit rate",
+			stats: CacheStats{Hits: 5, Misses: 5},
+			want:  50,
 		},
 	}
 

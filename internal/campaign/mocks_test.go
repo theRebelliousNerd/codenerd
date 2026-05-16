@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 	"context"
+	"github.com/google/mangle/analysis"
 )
 
 // --- MockKernel ---
@@ -82,6 +83,7 @@ func (m *MockKernel) RetractExactFactsBatch(facts []core.Fact) error { return ni
 func (m *MockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
 	return nil
 }
+func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
 
 // --- MockTransducer ---
 

@@ -3,8 +3,8 @@ package context_harness
 import (
 	"context"
 
-	"codenerd/internal/core"
 	internalcontext "codenerd/internal/context"
+	"codenerd/internal/core"
 )
 
 // ContextEngine defines the interface for context compression and retrieval.

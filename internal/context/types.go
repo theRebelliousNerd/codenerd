@@ -45,9 +45,9 @@ func DefaultConfig() CompressorConfig {
 	return CompressorConfig{
 		// 200k context window budget (callers should override from config.ContextWindow.MaxTokens)
 		TotalBudget:    200000,
-		CoreReserve:    10000, // 5% - constitutional facts
-		AtomReserve:    60000, // 30% - high-activation atoms
-		HistoryReserve: 30000, // 15% - compressed history
+		CoreReserve:    10000,  // 5% - constitutional facts
+		AtomReserve:    60000,  // 30% - high-activation atoms
+		HistoryReserve: 30000,  // 15% - compressed history
 		WorkingReserve: 100000, // 50% - working memory
 
 		// Keep last 5 turns fully
@@ -139,8 +139,8 @@ func NewConfigWithBudget(totalBudget int) CompressorConfig {
 
 	cfg := DefaultConfig()
 	cfg.TotalBudget = totalBudget
-	cfg.CoreReserve = totalBudget * 5 / 100    // 5%
-	cfg.AtomReserve = totalBudget * 30 / 100   // 30%
+	cfg.CoreReserve = totalBudget * 5 / 100     // 5%
+	cfg.AtomReserve = totalBudget * 30 / 100    // 30%
 	cfg.HistoryReserve = totalBudget * 15 / 100 // 15%
 	cfg.WorkingReserve = totalBudget * 50 / 100 // 50%
 	return cfg

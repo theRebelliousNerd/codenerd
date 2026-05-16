@@ -19,12 +19,12 @@ type Harness struct {
 	contextEngine ContextEngine
 
 	// Observability components (optional)
-	promptInspector   *PromptInspector
-	jitTracer         *JITTracer
-	activationTracer  *ActivationTracer
-	compressionViz    *CompressionVisualizer
-	piggybackTracer   *PiggybackTracer
-	feedbackTracer    *FeedbackTracer
+	promptInspector  *PromptInspector
+	jitTracer        *JITTracer
+	activationTracer *ActivationTracer
+	compressionViz   *CompressionVisualizer
+	piggybackTracer  *PiggybackTracer
+	feedbackTracer   *FeedbackTracer
 }
 
 // NewHarness creates a new test harness.

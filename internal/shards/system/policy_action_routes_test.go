@@ -25,4 +25,3 @@ func TestDefaultRouterConfig_RoutesPolicyMappedActions(t *testing.T) {
 		}
 	}
 }
-

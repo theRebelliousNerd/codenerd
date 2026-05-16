@@ -13,9 +13,9 @@ type IntegrationsConfig struct {
 // MCPServerIntegration configures a single MCP server integration.
 type MCPServerIntegration struct {
 	Enabled           bool   `yaml:"enabled" json:"enabled,omitempty"`
-	Protocol          string `yaml:"protocol" json:"protocol,omitempty"`           // http, stdio, sse
+	Protocol          string `yaml:"protocol" json:"protocol,omitempty"` // http, stdio, sse
 	BaseURL           string `yaml:"base_url" json:"base_url,omitempty"`
-	Timeout           string `yaml:"timeout" json:"timeout,omitempty"`             // e.g., "30s", "2m"
+	Timeout           string `yaml:"timeout" json:"timeout,omitempty"` // e.g., "30s", "2m"
 	AutoConnect       bool   `yaml:"auto_connect" json:"auto_connect,omitempty"`
 	AutoDiscoverTools bool   `yaml:"auto_discover_tools" json:"auto_discover_tools,omitempty"`
 }

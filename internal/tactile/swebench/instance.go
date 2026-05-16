@@ -282,18 +282,18 @@ func (r *EvaluationResult) countPassed(results map[string]TestResult) int {
 func (i *Instance) PythonVersionHints() []string {
 	// Known Python versions for SWE-bench Lite repos
 	repoVersions := map[string][]string{
-		"django/django":              {"3.9", "3.10", "3.11"},
-		"pallets/flask":              {"3.8", "3.9", "3.10"},
-		"psf/requests":               {"3.8", "3.9", "3.10"},
-		"matplotlib/matplotlib":      {"3.9", "3.10", "3.11"},
-		"sympy/sympy":                {"3.9", "3.10", "3.11"},
-		"scikit-learn/scikit-learn":  {"3.9", "3.10", "3.11"},
-		"astropy/astropy":            {"3.9", "3.10", "3.11"},
-		"sphinx-doc/sphinx":          {"3.9", "3.10", "3.11"},
-		"pylint-dev/pylint":          {"3.8", "3.9", "3.10"},
-		"pydata/xarray":              {"3.9", "3.10", "3.11"},
-		"pydicom/pydicom":            {"3.8", "3.9", "3.10"},
-		"pytest-dev/pytest":          {"3.8", "3.9", "3.10", "3.11"},
+		"django/django":             {"3.9", "3.10", "3.11"},
+		"pallets/flask":             {"3.8", "3.9", "3.10"},
+		"psf/requests":              {"3.8", "3.9", "3.10"},
+		"matplotlib/matplotlib":     {"3.9", "3.10", "3.11"},
+		"sympy/sympy":               {"3.9", "3.10", "3.11"},
+		"scikit-learn/scikit-learn": {"3.9", "3.10", "3.11"},
+		"astropy/astropy":           {"3.9", "3.10", "3.11"},
+		"sphinx-doc/sphinx":         {"3.9", "3.10", "3.11"},
+		"pylint-dev/pylint":         {"3.8", "3.9", "3.10"},
+		"pydata/xarray":             {"3.9", "3.10", "3.11"},
+		"pydicom/pydicom":           {"3.8", "3.9", "3.10"},
+		"pytest-dev/pytest":         {"3.8", "3.9", "3.10", "3.11"},
 	}
 
 	if versions, ok := repoVersions[i.Repo]; ok {

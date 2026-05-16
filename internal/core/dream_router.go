@@ -36,11 +36,11 @@ type ColdStoreSaver interface {
 // ToolNeed represents a capability gap identified by Dream State.
 // Sent to Ouroboros for potential tool generation.
 type ToolNeed struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Priority    float64   `json:"priority"`
-	SourceDream string    `json:"source_dream"`
-	SourceShard string    `json:"source_shard"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description"`
+	Priority     float64   `json:"priority"`
+	SourceDream  string    `json:"source_dream"`
+	SourceShard  string    `json:"source_shard"`
 	IdentifiedAt time.Time `json:"identified_at"`
 }
 
@@ -182,11 +182,11 @@ func (r *DreamRouter) routeToolNeed(l *DreamLearning) RouteResult {
 	// Queue for Ouroboros if channel available
 	if r.ouroborosQ != nil {
 		need := ToolNeed{
-			Name:        toolName,
-			Description: l.Content,
-			Priority:    l.Confidence * l.Novelty, // Combined score
-			SourceDream: l.Hypothetical,
-			SourceShard: l.SourceShard,
+			Name:         toolName,
+			Description:  l.Content,
+			Priority:     l.Confidence * l.Novelty, // Combined score
+			SourceDream:  l.Hypothetical,
+			SourceShard:  l.SourceShard,
 			IdentifiedAt: l.ExtractedAt,
 		}
 

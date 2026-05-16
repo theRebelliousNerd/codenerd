@@ -83,10 +83,10 @@ func TestGetPriority(t *testing.T) {
 	defer corpus.Close()
 
 	tests := []struct {
-		name     string
-		pred     string
-		minPrio  int
-		maxPrio  int
+		name    string
+		pred    string
+		minPrio int
+		maxPrio int
 	}{
 		{"user_intent high priority", "user_intent", 90, 100},
 		{"unknown predicate default", "nonexistent_predicate_xyz", 50, 50},

@@ -57,10 +57,10 @@ func TestShardAdvisoryBoard_WithConfig(t *testing.T) {
 	board := NewShardAdvisoryBoard(nil)
 
 	customConfig := AdvisoryConfig{
-		ConsultTimeout:     5 * time.Minute,
-		MinApprovalRatio:   0.75,
-		RequireUnanimous:   true,
-		EnabledAdvisors:    []string{"coder"},
+		ConsultTimeout:   5 * time.Minute,
+		MinApprovalRatio: 0.75,
+		RequireUnanimous: true,
+		EnabledAdvisors:  []string{"coder"},
 	}
 
 	result := board.WithConfig(customConfig)
@@ -307,11 +307,11 @@ func TestIncorporateFeedback_WithFeedback(t *testing.T) {
 
 func TestAdvisorySynthesis_FormatForContext(t *testing.T) {
 	synthesis := &AdvisorySynthesis{
-		Approved:       true,
-		ApprovalRatio:  0.75,
+		Approved:          true,
+		ApprovalRatio:     0.75,
 		OverallConfidence: 0.85,
-		Summary:        "3 approve, 1 reject",
-		Recommendation: "PROCEED WITH CAUTION",
+		Summary:           "3 approve, 1 reject",
+		Recommendation:    "PROCEED WITH CAUTION",
 		Responses: []AdvisoryResponse{
 			{AdvisorName: "coder", Vote: VoteApprove, Confidence: 0.9, Reasoning: "LGTM"},
 		},
@@ -395,8 +395,8 @@ func TestIsCriticalAdvisor(t *testing.T) {
 		{"tester", true},
 		{"reviewer", false},
 		{"researcher", false},
-		{"Coder", true},   // Case insensitive
-		{"TESTER", true},  // Case insensitive
+		{"Coder", true},  // Case insensitive
+		{"TESTER", true}, // Case insensitive
 		{"unknown", false},
 	}
 

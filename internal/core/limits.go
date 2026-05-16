@@ -45,9 +45,9 @@ type LimitsEnforcer struct {
 	sessionStart time.Time
 
 	// Callbacks for violation handling
-	onMemoryViolation  func(usedMB, limitMB int)
-	onSessionTimeout   func(elapsed, limit time.Duration)
-	onShardViolation   func(active, limit int)
+	onMemoryViolation func(usedMB, limitMB int)
+	onSessionTimeout  func(elapsed, limit time.Duration)
+	onShardViolation  func(active, limit int)
 }
 
 // NewLimitsEnforcer creates a new enforcer with the given config.
@@ -331,15 +331,15 @@ func (le *LimitsEnforcer) CheckAll(activeShards int) error {
 // GetStatus returns a summary of current limit utilization.
 func (le *LimitsEnforcer) GetStatus() map[string]interface{} {
 	return map[string]interface{}{
-		"memory_mb":             le.GetMemoryUsage(),
-		"memory_limit_mb":       le.config.MaxTotalMemoryMB,
-		"memory_utilization":    le.GetMemoryUtilization(),
-		"session_elapsed":       le.GetSessionDuration().String(),
-		"session_limit":         time.Duration(le.config.MaxSessionDurationMin) * time.Minute,
-		"session_remaining":     le.RemainingSessionTime().String(),
-		"session_utilization":   le.GetSessionUtilization(),
-		"shard_limit":           le.config.MaxConcurrentShards,
-		"max_facts_in_kernel":   le.config.MaxFactsInKernel,
-		"max_derived_facts":     le.config.MaxDerivedFactsLimit,
+		"memory_mb":           le.GetMemoryUsage(),
+		"memory_limit_mb":     le.config.MaxTotalMemoryMB,
+		"memory_utilization":  le.GetMemoryUtilization(),
+		"session_elapsed":     le.GetSessionDuration().String(),
+		"session_limit":       time.Duration(le.config.MaxSessionDurationMin) * time.Minute,
+		"session_remaining":   le.RemainingSessionTime().String(),
+		"session_utilization": le.GetSessionUtilization(),
+		"shard_limit":         le.config.MaxConcurrentShards,
+		"max_facts_in_kernel": le.config.MaxFactsInKernel,
+		"max_derived_facts":   le.config.MaxDerivedFactsLimit,
 	}
 }

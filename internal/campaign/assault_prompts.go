@@ -53,4 +53,3 @@ Failure modes to avoid:
 - Do not claim you opened files. Use artifact paths.
 - Do not propose vague tasks like "fix bugs"; tasks must name targets/stages or point to logs.
 `
-

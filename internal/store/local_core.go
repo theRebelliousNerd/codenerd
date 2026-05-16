@@ -330,7 +330,7 @@ func (s *LocalStore) initialize() error {
 
 	// Prompt Atoms (for Universal JIT Prompt Compiler)
 	// NOTE: Table creation WITHOUT indexes - indexes created after migrations
-		// Knowledge Atoms (for Type 3 Agents)
+	// Knowledge Atoms (for Type 3 Agents)
 	knowledgeAtomsTable := `
 		CREATE TABLE IF NOT EXISTS knowledge_atoms (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -457,7 +457,6 @@ func (s *LocalStore) initialize() error {
 	if _, err := s.db.Exec(knowledgeAtomsIndex); err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to create knowledge atoms index: %v", err)
 	}
-
 
 	// Run schema migrations for existing databases (adds missing columns like last_accessed, description)
 	if err := RunMigrations(s.db); err != nil {

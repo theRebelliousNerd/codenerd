@@ -507,5 +507,3 @@ func TestSelector_KernelIsolation(t *testing.T) {
 
 	wg.Wait()
 }
-
-

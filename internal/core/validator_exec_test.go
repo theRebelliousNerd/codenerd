@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestExecutionValidator_New(t *testing.T) {
 	v := NewExecutionValidator()
 	if v == nil {
@@ -134,10 +133,10 @@ func TestExecutionValidator_CommandSpecific(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name      string
-		cmd       string
-		output    string
-		shouldErr bool
+		name          string
+		cmd           string
+		output        string
+		shouldErr     bool
 		errorContains string
 	}{
 		// Go Build
@@ -148,17 +147,17 @@ func TestExecutionValidator_CommandSpecific(t *testing.T) {
 			shouldErr: false,
 		},
 		{
-			name:      "Go build cannot find package",
-			cmd:       "go build .",
-			output:    "main.go:3:8: cannot find package",
-			shouldErr: true,
+			name:          "Go build cannot find package",
+			cmd:           "go build .",
+			output:        "main.go:3:8: cannot find package",
+			shouldErr:     true,
 			errorContains: "failure pattern detected", // Matches "cannot find" general pattern
 		},
 		{
-			name:      "Go vet undefined",
-			cmd:       "go vet .",
-			output:    "main.go:5:2: undefined: Foo",
-			shouldErr: true,
+			name:          "Go vet undefined",
+			cmd:           "go vet .",
+			output:        "main.go:5:2: undefined: Foo",
+			shouldErr:     true,
 			errorContains: "Go compilation error",
 		},
 
@@ -170,37 +169,37 @@ func TestExecutionValidator_CommandSpecific(t *testing.T) {
 			shouldErr: false,
 		},
 		{
-			name:      "Go test fail",
-			cmd:       "go test ./...",
-			output:    "--- FAIL: TestFoo (0.00s)\nFAIL\nFAIL\tgithub.com/foo/bar\t0.002s",
-			shouldErr: true,
+			name:          "Go test fail",
+			cmd:           "go test ./...",
+			output:        "--- FAIL: TestFoo (0.00s)\nFAIL\nFAIL\tgithub.com/foo/bar\t0.002s",
+			shouldErr:     true,
 			errorContains: "Go test failure",
 		},
 
 		// NPM
 		{
-			name:      "NPM error",
-			cmd:       "npm install",
-			output:    "npm ERR! code E404",
-			shouldErr: true,
+			name:          "NPM error",
+			cmd:           "npm install",
+			output:        "npm ERR! code E404",
+			shouldErr:     true,
 			errorContains: "npm/yarn error",
 		},
 
 		// Python
 		{
-			name:      "Python traceback",
-			cmd:       "python script.py",
-			output:    "Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\nNameError: name 'x' is not defined",
-			shouldErr: true,
+			name:          "Python traceback",
+			cmd:           "python script.py",
+			output:        "Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\nNameError: name 'x' is not defined",
+			shouldErr:     true,
 			errorContains: "failure pattern detected", // Matches "traceback" general pattern
 		},
 
 		// Git
 		{
-			name:      "Git conflict",
-			cmd:       "git merge feature",
-			output:    "CONFLICT (content): Merge conflict in file.txt",
-			shouldErr: true,
+			name:          "Git conflict",
+			cmd:           "git merge feature",
+			output:        "CONFLICT (content): Merge conflict in file.txt",
+			shouldErr:     true,
 			errorContains: "Git error",
 		},
 	}

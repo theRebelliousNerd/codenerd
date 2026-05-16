@@ -60,7 +60,7 @@ func CampaignPhaseTransitionScenario() *Scenario {
 				MinPrecision: 0.5,
 				Description:  "Verify Phase 1 context still retrievable after phase transition",
 				ValidateActivation: &ActivationValidation{
-					FactPattern:    "campaign_phase.*implementation",
+					FactPattern:      "campaign_phase.*implementation",
 					MinCampaignBoost: 20,
 				},
 			},
@@ -112,7 +112,7 @@ func SWEBenchIssueResolutionScenario() *Scenario {
 				MinPrecision: 0.5,
 				Description:  "Verify tier 1 files get +50 boost",
 				ValidateActivation: &ActivationValidation{
-					FactPattern: "turn_references_file.*query.py",
+					FactPattern:   "turn_references_file.*query.py",
 					MinIssueBoost: 30,
 				},
 			},
@@ -138,8 +138,8 @@ func TokenBudgetOverflowScenario() *Scenario {
 			Message: msg,
 			Intent:  "implement",
 			Metadata: TurnMetadata{
-				Topics:          []string{"coding", "implementation"},
-				FilesReferenced: []string{"main.go", "handler.go", "service.go"},
+				Topics:            []string{"coding", "implementation"},
+				FilesReferenced:   []string{"main.go", "handler.go", "service.go"},
 				SymbolsReferenced: []string{"HandleRequest", "ProcessData", "ValidateInput"},
 			},
 		}
@@ -350,10 +350,10 @@ func ContextFeedbackLearningScenario() *Scenario {
 	// Phase 2: Verify learned scores affect activation (turns 20-39)
 	for i := 20; i < 40; i++ {
 		turns[i] = Turn{
-			TurnID:                  i,
-			Speaker:                 "user",
-			Message:                 "Continue with the auth implementation",
-			Intent:                  "implement",
+			TurnID:  i,
+			Speaker: "user",
+			Message: "Continue with the auth implementation",
+			Intent:  "implement",
 			Metadata: TurnMetadata{
 				Topics:                  []string{"implementation", "auth"},
 				FilesReferenced:         []string{"auth/handler.go"},

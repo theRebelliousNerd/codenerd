@@ -29,4 +29,3 @@ func extractMangleSymbolFacts(path string, content string) []core.Fact {
 	}
 	return facts
 }
-

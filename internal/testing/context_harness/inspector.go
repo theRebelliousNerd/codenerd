@@ -12,9 +12,9 @@ import (
 
 // PromptInspector intercepts and logs prompts sent to the LLM.
 type PromptInspector struct {
-	writer      io.Writer
-	turnNumber  int
-	verbose     bool
+	writer     io.Writer
+	turnNumber int
+	verbose    bool
 
 	// Tracking
 	totalPromptsInspected int
@@ -32,26 +32,26 @@ func NewPromptInspector(writer io.Writer, verbose bool) *PromptInspector {
 
 // PromptSnapshot captures the state of a prompt before it's sent to the LLM.
 type PromptSnapshot struct {
-	TurnNumber      int
-	Timestamp       time.Time
-	Model           string
-	TokenCount      int
-	TokenBudget     int
-	BudgetUtilized  float64 // Percentage
+	TurnNumber     int
+	Timestamp      time.Time
+	Model          string
+	TokenCount     int
+	TokenBudget    int
+	BudgetUtilized float64 // Percentage
 
 	// JIT Compilation
-	TotalAtomsAvailable   int
-	SelectedAtoms         []PromptAtom
+	TotalAtomsAvailable int
+	SelectedAtoms       []PromptAtom
 
 	// Spreading Activation
-	TotalFactsAvailable   int
-	SelectedFacts         []ActivatedFact
-	PrunedFacts           []ActivatedFact
+	TotalFactsAvailable int
+	SelectedFacts       []ActivatedFact
+	PrunedFacts         []ActivatedFact
 
 	// Prompt Components
-	SystemPrompt   string
-	UserMessage    string
-	FullPrompt     string
+	SystemPrompt string
+	UserMessage  string
+	FullPrompt   string
 }
 
 // PromptAtom represents a JIT prompt atom that was selected.
@@ -232,14 +232,14 @@ type ResponseSnapshot struct {
 	ResponseLatency time.Duration
 
 	// Piggyback Protocol
-	SurfaceText    string
-	ControlPacket  *ControlPacket
+	SurfaceText   string
+	ControlPacket *ControlPacket
 
 	// Kernel State Changes
-	StateBefore    []core.Fact
-	StateAfter     []core.Fact
-	AddedFacts     []core.Fact
-	RemovedFacts   []core.Fact
+	StateBefore  []core.Fact
+	StateAfter   []core.Fact
+	AddedFacts   []core.Fact
+	RemovedFacts []core.Fact
 }
 
 // ControlPacket represents the hidden control channel in Piggyback protocol.

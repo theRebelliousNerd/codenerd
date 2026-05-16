@@ -1,4 +1,5 @@
 //go:build integration
+
 package shell_test
 
 import (

@@ -315,38 +315,38 @@ func TestPreValidator_ValidateGlobal(t *testing.T) {
 		category ErrorCategory
 	}{
 		{
-			name: "multi-line rule complete",
-			input: "rule(X) :-\n    cond(X).",
+			name:    "multi-line rule complete",
+			input:   "rule(X) :-\n    cond(X).",
 			wantErr: false,
 		},
 		{
-			name: "multi-line rule interrupted by EOF",
-			input: "rule(X) :- a\n    cond(X)",
-			wantErr: true,
+			name:     "multi-line rule interrupted by EOF",
+			input:    "rule(X) :- a\n    cond(X)",
+			wantErr:  true,
 			category: CategoryMissingPeriod,
 		},
 		{
-			name: "multi-line rule interrupted by space",
-			input: "rule(X) :- a\n    \n    cond(X).", // Empty line breaks the lookahead
-			wantErr: true,
+			name:     "multi-line rule interrupted by space",
+			input:    "rule(X) :- a\n    \n    cond(X).", // Empty line breaks the lookahead
+			wantErr:  true,
 			category: CategoryMissingPeriod, // Will trigger missing period because it thinks the first line is incomplete
 		},
 		{
-			name: "multi-line rule interrupted by comment",
-			input: "rule(X) :- a\n    # comment\n    cond(X).",
-			wantErr: true, // Will trigger missing period on line 1 because comment breaks lookahead
+			name:     "multi-line rule interrupted by comment",
+			input:    "rule(X) :- a\n    # comment\n    cond(X).",
+			wantErr:  true, // Will trigger missing period on line 1 because comment breaks lookahead
 			category: CategoryMissingPeriod,
 		},
 		{
-			name: "unbalanced parentheses - extra open",
-			input: "rule(X :- cond(X).",
-			wantErr: true,
+			name:     "unbalanced parentheses - extra open",
+			input:    "rule(X :- cond(X).",
+			wantErr:  true,
 			category: CategorySyntax,
 		},
 		{
-			name: "unbalanced parentheses - extra close",
-			input: "rule(X) :- cond(X)).",
-			wantErr: true,
+			name:     "unbalanced parentheses - extra close",
+			input:    "rule(X) :- cond(X)).",
+			wantErr:  true,
 			category: CategorySyntax,
 		},
 	}

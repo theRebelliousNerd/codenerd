@@ -64,13 +64,13 @@ func (c *JITConfig) UnmarshalJSON(data []byte) error {
 // Note: TokenBudget should be overridden from config.ContextWindow.MaxTokens if available.
 func DefaultJITConfig() JITConfig {
 	return JITConfig{
-		Enabled:         true,
-		FallbackEnabled: true,
-		TokenBudget:     200000, // 200k tokens default
-		ReservedTokens:  8000,
+		Enabled:                     true,
+		FallbackEnabled:             true,
+		TokenBudget:                 200000, // 200k tokens default
+		ReservedTokens:              8000,
 		ReservedTokensFallbackRatio: 10,
-		DebugMode:       false,
-		TraceLLMIO:      false,
-		SemanticTopK:    20,
+		DebugMode:                   false,
+		TraceLLMIO:                  false,
+		SemanticTopK:                20,
 	}
 }

@@ -31,10 +31,10 @@ type UnderstandingTransducer struct {
 	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
 	strategicContext  string         // Strategic knowledge about the codebase from /init
 	// NERD-EVOLVE-START: stability_filter
-	rawKernel      *core.RealKernel // Direct kernel reference for stability fact assertions
-	verbHistory    []string         // Rolling window of last 5 action verbs (for stability scoring)
-	lastVerb       string           // The verb from the most recent completed turn
-	msgLenHistory  []int            // Rolling window of last 5 message lengths (for spike detection)
+	rawKernel     *core.RealKernel // Direct kernel reference for stability fact assertions
+	verbHistory   []string         // Rolling window of last 5 action verbs (for stability scoring)
+	lastVerb      string           // The verb from the most recent completed turn
+	msgLenHistory []int            // Rolling window of last 5 message lengths (for spike detection)
 	// NERD-EVOLVE-END: stability_filter
 }
 

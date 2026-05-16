@@ -26,9 +26,9 @@ func TestCleanupEdgeCases(t *testing.T) {
 	// 2. Test Exact Budget (No deletion needed)
 	// Insert one session with 1 hour runtime
 	_, err = ts.db.Exec(`INSERT INTO tool_executions (call_id, session_id, tool_name, result, success, duration_ms, result_size, session_runtime_ms, created_at) VALUES ('1', 's1', 't1', 'res', 1, 100, 100, 3600000, ?)`, time.Now())
-    if err != nil {
-        t.Fatalf("Insert failed: %v", err)
-    }
+	if err != nil {
+		t.Fatalf("Insert failed: %v", err)
+	}
 
 	stats, err = ts.CleanupByRuntimeBudget(1.0) // Budget matches usage
 	if err != nil {
@@ -47,36 +47,36 @@ func TestCleanupEdgeCases(t *testing.T) {
 		t.Errorf("Expected 1 deletion, got %d", stats.ExecutionsDeleted)
 	}
 
-    // Verify store is empty
-    var count int
-    ts.db.QueryRow("SELECT COUNT(*) FROM tool_executions").Scan(&count)
-    if count != 0 {
-        t.Errorf("Store should be empty, got %d rows", count)
-    }
+	// Verify store is empty
+	var count int
+	ts.db.QueryRow("SELECT COUNT(*) FROM tool_executions").Scan(&count)
+	if count != 0 {
+		t.Errorf("Store should be empty, got %d rows", count)
+	}
 
-    // 4. Test Large Batch Deletion (Batch size edge case)
-    // Batch size is 500. Let's insert 550 sessions.
-    tx, _ := ts.db.Begin()
-    stmt, _ := tx.Prepare(`INSERT INTO tool_executions (call_id, session_id, tool_name, result, success, duration_ms, result_size, session_runtime_ms, created_at) VALUES (?, ?, 't1', 'res', 1, 100, 100, 3600000, ?)`) // 1hr runtime
+	// 4. Test Large Batch Deletion (Batch size edge case)
+	// Batch size is 500. Let's insert 550 sessions.
+	tx, _ := ts.db.Begin()
+	stmt, _ := tx.Prepare(`INSERT INTO tool_executions (call_id, session_id, tool_name, result, success, duration_ms, result_size, session_runtime_ms, created_at) VALUES (?, ?, 't1', 'res', 1, 100, 100, 3600000, ?)`) // 1hr runtime
 
-    startTime := time.Now().Add(-10 * time.Hour)
-    for i := 0; i < 550; i++ {
-        _, err := stmt.Exec(fmt.Sprintf("call-%d", i), fmt.Sprintf("sess-%d", i), startTime.Add(time.Duration(i)*time.Second))
-        if err != nil {
-             t.Fatalf("Batch insert failed: %v", err)
-        }
-    }
-    tx.Commit()
+	startTime := time.Now().Add(-10 * time.Hour)
+	for i := 0; i < 550; i++ {
+		_, err := stmt.Exec(fmt.Sprintf("call-%d", i), fmt.Sprintf("sess-%d", i), startTime.Add(time.Duration(i)*time.Second))
+		if err != nil {
+			t.Fatalf("Batch insert failed: %v", err)
+		}
+	}
+	tx.Commit()
 
-    // Total runtime: 550 * 1 = 550 hours.
-    // Set budget to 0.
-    stats, err = ts.CleanupByRuntimeBudget(0.0)
-    if err != nil {
-        t.Errorf("Cleanup large batch failed: %v", err)
-    }
-    if stats.ExecutionsDeleted != 550 {
-        t.Errorf("Expected 550 deletions, got %d", stats.ExecutionsDeleted)
-    }
+	// Total runtime: 550 * 1 = 550 hours.
+	// Set budget to 0.
+	stats, err = ts.CleanupByRuntimeBudget(0.0)
+	if err != nil {
+		t.Errorf("Cleanup large batch failed: %v", err)
+	}
+	if stats.ExecutionsDeleted != 550 {
+		t.Errorf("Expected 550 deletions, got %d", stats.ExecutionsDeleted)
+	}
 }
 
 func BenchmarkCleanupByRuntimeBudget(b *testing.B) {
@@ -87,45 +87,45 @@ func BenchmarkCleanupByRuntimeBudget(b *testing.B) {
 	}
 	defer ts.Close()
 
-    // Parameters
+	// Parameters
 	numSessions := 200
 	executionsPerSession := 20
 
-    b.ResetTimer()
+	b.ResetTimer()
 
-    for n := 0; n < b.N; n++ {
-        b.StopTimer()
-        // Repopulate DB
-        ts.db.Exec("DELETE FROM tool_executions")
-        tx, _ := ts.db.Begin()
-        stmt, _ := tx.Prepare(`
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		// Repopulate DB
+		ts.db.Exec("DELETE FROM tool_executions")
+		tx, _ := ts.db.Begin()
+		stmt, _ := tx.Prepare(`
             INSERT INTO tool_executions
             (call_id, session_id, tool_name, result, success, duration_ms, result_size, session_runtime_ms, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
 
-        startTime := time.Now().Add(-24 * time.Hour)
-        for i := 0; i < numSessions; i++ {
-            sessionID := fmt.Sprintf("session-%d-%d", n, i) // Unique per benchmark iteration
-            sessionStart := startTime.Add(time.Duration(i) * time.Minute)
-            for j := 0; j < executionsPerSession; j++ {
-                callID := fmt.Sprintf("%s-%d", sessionID, j)
-                runtimeMs := int64((j + 1) * 1000)
-                created := sessionStart.Add(time.Duration(j) * time.Second)
-                _, err := stmt.Exec(callID, sessionID, "bench-tool", "res", 1, 100, 100, runtimeMs, created)
-                if err != nil {
-                    b.Fatalf("Insert failed: %v", err)
-                }
-            }
-        }
-        stmt.Close()
-        tx.Commit()
+		startTime := time.Now().Add(-24 * time.Hour)
+		for i := 0; i < numSessions; i++ {
+			sessionID := fmt.Sprintf("session-%d-%d", n, i) // Unique per benchmark iteration
+			sessionStart := startTime.Add(time.Duration(i) * time.Minute)
+			for j := 0; j < executionsPerSession; j++ {
+				callID := fmt.Sprintf("%s-%d", sessionID, j)
+				runtimeMs := int64((j + 1) * 1000)
+				created := sessionStart.Add(time.Duration(j) * time.Second)
+				_, err := stmt.Exec(callID, sessionID, "bench-tool", "res", 1, 100, 100, runtimeMs, created)
+				if err != nil {
+					b.Fatalf("Insert failed: %v", err)
+				}
+			}
+		}
+		stmt.Close()
+		tx.Commit()
 
-        b.StartTimer()
-        // Target 0.5 hours (initial ~1.1 hours)
-        _, err := ts.CleanupByRuntimeBudget(0.5)
-        if err != nil {
-            b.Fatalf("Cleanup failed: %v", err)
-        }
-    }
+		b.StartTimer()
+		// Target 0.5 hours (initial ~1.1 hours)
+		_, err := ts.CleanupByRuntimeBudget(0.5)
+		if err != nil {
+			b.Fatalf("Cleanup failed: %v", err)
+		}
+	}
 }

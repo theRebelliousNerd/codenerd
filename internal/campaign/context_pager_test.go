@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"strings"
@@ -744,9 +745,10 @@ func TestActivatePhase_ExtremeTaskCount(t *testing.T) {
 	}
 
 	// 10000 artifacts pushed.
+	if artifactCount != 10000 {
+		t.Errorf("Expected 10000 artifacts, got %d", artifactCount)
 	}
 }
-
 func TestCompressPhase_MassiveOutput(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{
@@ -827,7 +829,7 @@ func TestActivatePhase_TasksWithNilArtifacts(t *testing.T) {
 		ContextProfile: "profile1",
 		Tasks: []Task{
 			{
-				ID: "task1",
+				ID:        "task1",
 				Artifacts: nil,
 			},
 		},
@@ -906,7 +908,7 @@ func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
-	cp := NewContextPager(kernel, llm, 100000)
+	cp := NewContextPager(kernel, llm, 3000000)
 	ctx := context.Background()
 
 	// Create a phase with 100,000 artifacts

@@ -12,10 +12,10 @@ import (
 
 // MigrationResult contains information about a preferences migration.
 type MigrationResult struct {
-	WasMigrated    bool
-	FromVersion    string
-	ToVersion      string
-	PreservedData  []string // List of data that was preserved
+	WasMigrated     bool
+	FromVersion     string
+	ToVersion       string
+	PreservedData   []string // List of data that was preserved
 	DefaultsApplied []string // List of defaults that were applied
 }
 

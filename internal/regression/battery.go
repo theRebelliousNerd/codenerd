@@ -134,4 +134,3 @@ func runShell(ctx context.Context, command string, workdir string) (string, erro
 func DefaultBatteryPath(workspace string) string {
 	return filepath.Join(workspace, ".nerd", "regression", "battery.yaml")
 }
-

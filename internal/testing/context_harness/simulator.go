@@ -17,20 +17,20 @@ type SessionSimulator struct {
 	metrics *MetricsCollector
 
 	// Observability components (optional)
-	promptInspector   *PromptInspector
-	jitTracer         *JITTracer
-	activationTracer  *ActivationTracer
-	compressionViz    *CompressionVisualizer
-	piggybackTracer   *PiggybackTracer
-	feedbackTracer    *FeedbackTracer
+	promptInspector  *PromptInspector
+	jitTracer        *JITTracer
+	activationTracer *ActivationTracer
+	compressionViz   *CompressionVisualizer
+	piggybackTracer  *PiggybackTracer
+	feedbackTracer   *FeedbackTracer
 
 	// Engine integration (mock or real)
 	contextEngine ContextEngine
 
 	// Live LLM mode state
-	lastUserMessage string       // Track last user message for live LLM generation
-	lastUserIntent  string       // Track intent for live LLM generation
-	allFacts        []core.Fact  // Accumulated facts for context
+	lastUserMessage string      // Track last user message for live LLM generation
+	lastUserIntent  string      // Track intent for live LLM generation
+	allFacts        []core.Fact // Accumulated facts for context
 }
 
 // NewSessionSimulator creates a new session simulator.
@@ -473,29 +473,29 @@ func (s *SessionSimulator) calculateRetrievalMetrics(retrievedFacts []core.Fact,
 		}
 	}
 
-		// Calculate recall: what % of ground truth was retrieved
-		relevantRetrieved := 0
-		for gt := range groundTruth {
-			if retrieved[gt] {
-				relevantRetrieved++
-			}
+	// Calculate recall: what % of ground truth was retrieved
+	relevantRetrieved := 0
+	for gt := range groundTruth {
+		if retrieved[gt] {
+			relevantRetrieved++
 		}
-		recall = float64(relevantRetrieved) / float64(len(groundTruth))
+	}
+	recall = float64(relevantRetrieved) / float64(len(groundTruth))
 
-		// Calculate precision: what % of retrieved was relevant
-		if len(retrieved) > 0 {
-			precision = float64(relevantRetrieved) / float64(len(retrieved))
-		} else {
-			precision = 0.0
-		}
+	// Calculate precision: what % of retrieved was relevant
+	if len(retrieved) > 0 {
+		precision = float64(relevantRetrieved) / float64(len(retrieved))
+	} else {
+		precision = 0.0
+	}
 
-		// In mock mode, apply a floor when no facts were retrieved to avoid
-		// penalizing placeholder retrieval during simulation runs.
-		if s.config.Mode != RealMode && len(retrieved) == 0 {
-			return 0.5, 0.5
-		}
+	// In mock mode, apply a floor when no facts were retrieved to avoid
+	// penalizing placeholder retrieval during simulation runs.
+	if s.config.Mode != RealMode && len(retrieved) == 0 {
+		return 0.5, 0.5
+	}
 
-		return precision, recall
+	return precision, recall
 }
 
 // validateCheckpoint tests retrieval accuracy at a checkpoint.
@@ -732,11 +732,11 @@ func fuzzyFactMatch(required, retrieved string) bool {
 
 	// Common semantic matches
 	semanticMatches := map[string][]string{
-		"error":       {"error_message", "turn_error", "panic"},
-		"stack":       {"stack_trace", "stacktrace"},
-		"file":        {"references_file", "file_context"},
-		"solution":    {"implement", "fix", "patch"},
-		"test":        {"test_failure", "assertion", "test_result"},
+		"error":        {"error_message", "turn_error", "panic"},
+		"stack":        {"stack_trace", "stacktrace"},
+		"file":         {"references_file", "file_context"},
+		"solution":     {"implement", "fix", "patch"},
+		"test":         {"test_failure", "assertion", "test_result"},
 		"conversation": {"conversation_turn"},
 	}
 

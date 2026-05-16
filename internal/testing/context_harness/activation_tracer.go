@@ -26,15 +26,15 @@ func NewActivationTracer(writer io.Writer, verbose bool) *ActivationTracer {
 
 // ActivationSnapshot captures spreading activation state.
 type ActivationSnapshot struct {
-	Timestamp    time.Time
-	TurnNumber   int
-	Query        string // User's current query/intent
-	TokenBudget  int
+	Timestamp   time.Time
+	TurnNumber  int
+	Query       string // User's current query/intent
+	TokenBudget int
 
 	// Activation State
-	TotalFacts      int
-	ActivatedFacts  []FactActivation
-	PrunedFacts     []FactActivation
+	TotalFacts     int
+	ActivatedFacts []FactActivation
+	PrunedFacts    []FactActivation
 
 	// Activation Context
 	CampaignContext *CampaignContext
@@ -58,13 +58,13 @@ type FactActivation struct {
 	Selected bool
 
 	// Score Breakdown (8 components that sum to final score)
-	RecencyScore     float64
-	RelevanceScore   float64
-	DependencyScore  float64
-	CampaignScore    float64
-	IssueScore       float64
-	SessionScore     float64
-	FeedbackScore    float64 // NEW: Learned predicate usefulness (-20 to +20)
+	RecencyScore    float64
+	RelevanceScore  float64
+	DependencyScore float64
+	CampaignScore   float64
+	IssueScore      float64
+	SessionScore    float64
+	FeedbackScore   float64 // NEW: Learned predicate usefulness (-20 to +20)
 
 	// Explanation
 	Reason string // Human-readable explanation of score
@@ -72,9 +72,9 @@ type FactActivation struct {
 
 // CampaignContext for campaign-aware activation.
 type CampaignContext struct {
-	CampaignID   string
-	CurrentPhase string
-	PhaseGoals   []string
+	CampaignID    string
+	CurrentPhase  string
+	PhaseGoals    []string
 	RelevantFiles []string
 }
 
@@ -88,18 +88,18 @@ type IssueContext struct {
 
 // SessionContext for session-aware activation.
 type SessionContext struct {
-	SessionID      string
-	StartTime      time.Time
-	TurnsSoFar     int
-	RecentTopics   []string
+	SessionID    string
+	StartTime    time.Time
+	TurnsSoFar   int
+	RecentTopics []string
 }
 
 // DependencyEdge represents a dependency relationship.
 type DependencyEdge struct {
-	From       string // Fact ID
-	To         string // Fact ID
-	Type       string // "imports", "calls", "references", etc.
-	Weight     float64
+	From          string // Fact ID
+	To            string // Fact ID
+	Type          string // "imports", "calls", "references", etc.
+	Weight        float64
 	Bidirectional bool
 }
 

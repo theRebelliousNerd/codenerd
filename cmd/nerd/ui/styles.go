@@ -3,8 +3,8 @@
 package ui
 
 import (
-	"io"
 	_ "embed"
+	"io"
 	"os"
 	"strconv"
 	"strings"

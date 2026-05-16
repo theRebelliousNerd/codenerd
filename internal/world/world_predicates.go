@@ -35,4 +35,3 @@ func WorldPredicateSet() map[string]struct{} {
 	}
 	return m
 }
-

@@ -1,12 +1,12 @@
 package feedback
 
 import (
-	"github.com/google/mangle/analysis"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/google/mangle/analysis"
 	"strings"
 	"time"
 

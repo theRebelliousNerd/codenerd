@@ -13,12 +13,12 @@ import (
 
 // TraceRecallHit represents a semantic recall hit for a trace descriptor.
 type TraceRecallHit struct {
-	TraceID   string
-	Score     float64
-	Summary   string
-	Outcome   string
-	ShardType string
-	CreatedAt time.Time
+	TraceID          string
+	Score            float64
+	Summary          string
+	Outcome          string
+	ShardType        string
+	CreatedAt        time.Time
 	EmbeddingModelID string
 	EmbeddingDim     int
 	EmbeddingTask    string
@@ -26,12 +26,12 @@ type TraceRecallHit struct {
 
 // LearningRecallHit represents a semantic recall hit for a learning handle.
 type LearningRecallHit struct {
-	LearningID int64
-	Score      float64
-	Predicate  string
-	Summary    string
-	ShardType  string
-	LearnedAt  time.Time
+	LearningID       int64
+	Score            float64
+	Predicate        string
+	Summary          string
+	ShardType        string
+	LearnedAt        time.Time
 	EmbeddingModelID string
 	EmbeddingDim     int
 	EmbeddingTask    string
@@ -82,7 +82,7 @@ func (s *LocalStore) RecallTracesLexical(query string, limit int) ([]TraceRecall
 		conditions = append(conditions, "LOWER(summary_descriptor) LIKE ?")
 		args = append(args, "%"+strings.ToLower(kw)+"%")
 	}
-		querySQL := fmt.Sprintf(`
+	querySQL := fmt.Sprintf(`
 			SELECT id, COALESCE(summary_descriptor, ''), shard_type, success, created_at,
 			       COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
 			FROM reasoning_traces
@@ -230,8 +230,6 @@ func (s *LocalStore) recallTraceVec(query []float32, limit int) ([]TraceRecallHi
 	return hits, nil
 }
 
-
-
 func (ls *LearningStore) recallLearningsInShard(query []float32, shardType string, limit int) ([]LearningRecallHit, error) {
 	db, err := ls.getDB(shardType)
 	if err != nil {
@@ -252,11 +250,11 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 			defer rows.Close()
 			var hits []LearningRecallHit
 			for rows.Next() {
-					var hit LearningRecallHit
-					var distance sql.NullFloat64
-					if err := rows.Scan(&hit.LearningID, &hit.Summary, &hit.Predicate, &hit.ShardType, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask, &distance); err != nil {
-						continue
-					}
+				var hit LearningRecallHit
+				var distance sql.NullFloat64
+				if err := rows.Scan(&hit.LearningID, &hit.Summary, &hit.Predicate, &hit.ShardType, &hit.LearnedAt, &hit.EmbeddingModelID, &hit.EmbeddingDim, &hit.EmbeddingTask, &distance); err != nil {
+					continue
+				}
 				if distance.Valid {
 					hit.Score = clampScore(1 - distance.Float64)
 				}
@@ -284,7 +282,7 @@ func (ls *LearningStore) recallLearningsLexicalInShard(shardType string, keyword
 		conditions = append(conditions, "LOWER(semantic_handle) LIKE ?")
 		args = append(args, "%"+strings.ToLower(kw)+"%")
 	}
-		querySQL := fmt.Sprintf(`
+	querySQL := fmt.Sprintf(`
 			SELECT id, shard_type, fact_predicate, COALESCE(semantic_handle, ''), learned_at,
 			       COALESCE(embedding_model_id, ''), COALESCE(embedding_dim, 0), COALESCE(embedding_task, '')
 			FROM learnings

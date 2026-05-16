@@ -36,19 +36,19 @@ const (
 
 // PersistentContainer represents a long-running container instance.
 type PersistentContainer struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Image         string            `json:"image"`
-	State         ContainerState    `json:"state"`
-	CreatedAt     time.Time         `json:"created_at"`
-	LastExecAt    time.Time         `json:"last_exec_at"`
-	WorkingDir    string            `json:"working_dir"`
-	Environment   []string          `json:"environment"`
-	Mounts        []ContainerMount  `json:"mounts"`
-	HealthChecks  int               `json:"health_checks"`
-	ExecCount     int               `json:"exec_count"`
-	Labels        map[string]string `json:"labels"`
-	LastError     string            `json:"last_error,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Image        string            `json:"image"`
+	State        ContainerState    `json:"state"`
+	CreatedAt    time.Time         `json:"created_at"`
+	LastExecAt   time.Time         `json:"last_exec_at"`
+	WorkingDir   string            `json:"working_dir"`
+	Environment  []string          `json:"environment"`
+	Mounts       []ContainerMount  `json:"mounts"`
+	HealthChecks int               `json:"health_checks"`
+	ExecCount    int               `json:"exec_count"`
+	Labels       map[string]string `json:"labels"`
+	LastError    string            `json:"last_error,omitempty"`
 }
 
 // ContainerMount defines a volume mount for the container.
@@ -90,7 +90,7 @@ func DefaultContainerPoolConfig() ContainerPoolConfig {
 		HealthCheckInterval: 1 * time.Minute,
 		DefaultImage:        "python:3.11-slim",
 		DefaultMemoryLimit:  2 * 1024 * 1024 * 1024, // 2GB
-		DefaultCPULimit:     2.0,                     // 2 CPUs
+		DefaultCPULimit:     2.0,                    // 2 CPUs
 		CleanupOnError:      true,
 		EnableSnapshots:     true,
 		SnapshotDir:         ".nerd/snapshots",
@@ -99,17 +99,17 @@ func DefaultContainerPoolConfig() ContainerPoolConfig {
 
 // ContainerCreateOptions specifies options for creating a new container.
 type ContainerCreateOptions struct {
-	Name         string
-	Image        string
-	WorkingDir   string
-	Environment  []string
-	Mounts       []ContainerMount
-	MemoryLimit  int64
-	CPULimit     float64
-	NetworkMode  string
-	Labels       map[string]string
-	Entrypoint   []string // Override entrypoint to keep container running
-	Command      []string // Initial command (default: sleep infinity)
+	Name        string
+	Image       string
+	WorkingDir  string
+	Environment []string
+	Mounts      []ContainerMount
+	MemoryLimit int64
+	CPULimit    float64
+	NetworkMode string
+	Labels      map[string]string
+	Entrypoint  []string // Override entrypoint to keep container running
+	Command     []string // Initial command (default: sleep infinity)
 }
 
 // ContainerExecOptions specifies options for executing a command in a container.

@@ -3,9 +3,9 @@
 package e2e_test
 
 import (
-	"fmt"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -16,8 +16,8 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
-	"codenerd/internal/types"
 	"codenerd/internal/tools"
+	"codenerd/internal/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -94,14 +94,12 @@ func (m *mockVirtualStore) ExecuteTool(ctx context.Context, call types.ToolCall)
 	return "success", nil
 }
 
-
-
-
-func (m *mockVirtualStore) ReadFile(path string) ([]string, error) { return nil, nil }
+func (m *mockVirtualStore) ReadFile(path string) ([]string, error)        { return nil, nil }
 func (m *mockVirtualStore) WriteFile(path string, content []string) error { return nil }
-func (m *mockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) { return "", "", nil }
+func (m *mockVirtualStore) Exec(ctx context.Context, cmd string, env []string) (string, string, error) {
+	return "", "", nil
+}
 func (m *mockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
-
 
 // mockLLMClient implements types.LLMClient
 type mockLLMClient struct {
@@ -126,7 +124,6 @@ type mockJITCompiler struct{}
 func (m *mockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
 	return &prompt.CompilationResult{
 		Prompt: "Mock Prompt",
-
 	}, nil
 }
 
@@ -236,8 +233,8 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 			Text: "I need more info",
 			ToolCalls: []types.ToolCall{
 				{
-					ID:   "call_1",
-					Name: "mock_tool",
+					ID:    "call_1",
+					Name:  "mock_tool",
 					Input: map[string]interface{}{},
 				},
 			},
@@ -274,8 +271,8 @@ func TestE2E_TemporalFailure_ToolBlocksIndefinitely(t *testing.T) {
 			Text: "executing tool",
 			ToolCalls: []types.ToolCall{
 				{
-					ID:   "call_1",
-					Name: "blocking_tool",
+					ID:    "call_1",
+					Name:  "blocking_tool",
 					Input: map[string]interface{}{},
 				},
 			},
@@ -367,8 +364,8 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 			Text: "fetching data",
 			ToolCalls: []types.ToolCall{
 				{
-					ID:   "call_1",
-					Name: "huge_tool",
+					ID:    "call_1",
+					Name:  "huge_tool",
 					Input: map[string]interface{}{},
 				},
 			},
@@ -378,7 +375,7 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 	hugeData := strings.Repeat("A", 50*1024*1024)
 	tools.Global().Register(&tools.Tool{Name: "huge_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
 		return hugeData, nil
-}})
+	}})
 
 	cfg := session.DefaultExecutorConfig()
 	cfg.MaxToolCalls = 2
@@ -445,18 +442,28 @@ func TestE2E_Recovery_InvalidPiggybackThenSuccess(t *testing.T) {
 		t.Errorf("Unexpected response: %v", res.Response)
 	}
 }
-func (m *mockKernel) RetractFact(fact types.Fact) error { return m.Retract(fact.Predicate) }
-func (m *mockKernel) AssertBatch(facts []types.Fact) error { return nil }
-func (m *mockKernel) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
-func (m *mockKernel) UpdateSystemFacts() error { return nil }
-func (m *mockKernel) Reset() {}
-func (m *mockKernel) AppendPolicy(policy string) {}
-func (m *mockKernel) RetractExactFactsBatch(facts []types.Fact) error { return nil }
+func (m *mockKernel) RetractFact(fact types.Fact) error                              { return m.Retract(fact.Predicate) }
+func (m *mockKernel) AssertBatch(facts []types.Fact) error                           { return nil }
+func (m *mockKernel) QueryAll() (map[string][]types.Fact, error)                     { return nil, nil }
+func (m *mockKernel) UpdateSystemFacts() error                                       { return nil }
+func (m *mockKernel) Reset()                                                         {}
+func (m *mockKernel) AppendPolicy(policy string)                                     {}
+func (m *mockKernel) RetractExactFactsBatch(facts []types.Fact) error                { return nil }
 func (m *mockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
-func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) { return "mock", nil }
-func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) { return "mock", nil }
-func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) { return m.intent, m.err }
-func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) { return m.intent, nil, m.err }
-func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, candidates []string) (perception.FocusResolution, error) { return perception.FocusResolution{}, nil }
+func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return "mock", nil
+}
+func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	return "mock", nil
+}
+func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+	return m.intent, m.err
+}
+func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+	return m.intent, nil, m.err
+}
+func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, candidates []string) (perception.FocusResolution, error) {
+	return perception.FocusResolution{}, nil
+}
 func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *mockTransducer) SetStrategicContext(context string) {}
+func (m *mockTransducer) SetStrategicContext(context string)                  {}

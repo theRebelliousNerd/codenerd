@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-
-
 func TestNewToolPregenerator(t *testing.T) {
 	// Test with nil dependencies
 	pregenerator := NewToolPregenerator(nil, nil, nil)
@@ -132,7 +130,6 @@ func TestGeneratedTool_Fields(t *testing.T) {
 	}
 }
 
-
 func TestToolPregenerator_DetectGaps_EmptyTasks(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)
 
@@ -160,7 +157,6 @@ func TestToolPregenerator_DetectGaps_NilTasks(t *testing.T) {
 		t.Fatal("DetectGaps should return non-nil slice")
 	}
 }
-
 
 func TestToolPregenerator_PregenerateTools_EmptyGaps(t *testing.T) {
 	pregenerator := NewToolPregenerator(nil, nil, nil)

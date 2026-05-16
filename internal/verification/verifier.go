@@ -534,7 +534,6 @@ func (v *TaskVerifier) storeVerification(
 	}
 }
 
-
 // basicQualityCheck performs simple pattern matching for quality violations.
 func (v *TaskVerifier) basicQualityCheck(result string) *VerificationResult {
 	violations := []QualityViolation{}

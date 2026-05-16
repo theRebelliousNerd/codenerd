@@ -376,7 +376,7 @@ func TestUnderstandingTransducer_Concurrency(t *testing.T) {
 		},
 	}
 	tr := &UnderstandingTransducer{client: mockClient}
-	
+
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)

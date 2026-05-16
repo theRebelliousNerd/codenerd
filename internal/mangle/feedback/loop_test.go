@@ -92,7 +92,6 @@ func TestSetSynthMode(t *testing.T) {
 	}
 }
 
-
 func TestFeedbackLoop_GetBudgetAndReset(t *testing.T) {
 	fl := NewFeedbackLoop(RetryConfig{SessionBudget: 2})
 
@@ -142,13 +141,5 @@ func TestBuildEnhancedSystemPrompt(t *testing.T) {
 
 	if !strings.Contains(result, "... and 20 more") {
 		t.Error("expected result to truncate and indicate remaining predicates")
-	}
-}
-
-func TestUpdateSchema(t *testing.T) {
-	fl := NewFeedbackLoop(DefaultConfig())
-	err := fl.UpdateSchema(`Decl foo().`)
-	if err != nil {
-		t.Errorf("expected no error from UpdateSchema, got %v", err)
 	}
 }

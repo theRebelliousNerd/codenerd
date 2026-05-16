@@ -1,8 +1,8 @@
 package mangle_test
 
 import (
-	"testing"
 	"github.com/google/mangle/parse"
+	"testing"
 )
 
 func FuzzParseAtom(f *testing.F) {

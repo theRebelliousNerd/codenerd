@@ -687,4 +687,3 @@ func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
 		t.Errorf("Expected check_failed to be 'content_sampling' or 'hash_first_read', got %v", failedCheck)
 	}
 }
-

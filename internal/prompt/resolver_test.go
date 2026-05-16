@@ -585,5 +585,3 @@ func BenchmarkSortByCategory(b *testing.B) {
 		resolver.SortByCategory(atoms)
 	}
 }
-
-

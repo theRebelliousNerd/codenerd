@@ -1,4 +1,5 @@
 //go:build integration
+
 package store_test
 
 import (
@@ -10,8 +11,8 @@ import (
 	"testing"
 
 	"codenerd/internal/store"
-	"github.com/stretchr/testify/suite"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/suite"
 )
 
 type ColdStorageSuite struct {

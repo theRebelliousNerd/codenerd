@@ -73,6 +73,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/build"
@@ -1500,7 +1501,7 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 		return result.Output, fmt.Errorf("tool error: %s", result.Error)
 	}
 
-	rt.ExecuteCount++
+	atomic.AddInt64(&rt.ExecuteCount, 1)
 	return result.Output, nil
 }
 

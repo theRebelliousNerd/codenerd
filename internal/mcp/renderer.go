@@ -153,10 +153,10 @@ func (r *ToolRenderer) RenderCompact(tools *CompiledToolSet) string {
 // RenderJSON renders the tool set as JSON for structured output.
 func (r *ToolRenderer) RenderJSON(tools *CompiledToolSet) (string, error) {
 	output := struct {
-		PrimaryTools   []ToolJSONEntry   `json:"primary_tools"`
-		SecondaryTools []ToolJSONEntry   `json:"secondary_tools"`
-		AdditionalTools []string         `json:"additional_tools"`
-		Stats          ToolCompilationStats `json:"stats"`
+		PrimaryTools    []ToolJSONEntry      `json:"primary_tools"`
+		SecondaryTools  []ToolJSONEntry      `json:"secondary_tools"`
+		AdditionalTools []string             `json:"additional_tools"`
+		Stats           ToolCompilationStats `json:"stats"`
 	}{
 		PrimaryTools:    make([]ToolJSONEntry, 0, len(tools.FullTools)),
 		SecondaryTools:  make([]ToolJSONEntry, 0, len(tools.CondensedTools)),

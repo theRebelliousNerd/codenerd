@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
+	"github.com/google/mangle/analysis"
 )
 
 // mockKernel implements core.Kernel for testing.
@@ -15,6 +16,10 @@ type mockKernel struct {
 	mu                  sync.Mutex
 	assertedFacts       []core.Fact
 	retractedPredicates []string
+}
+
+func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo {
+	return nil
 }
 
 func (m *mockKernel) LoadFacts(facts []core.Fact) error {
@@ -337,7 +342,8 @@ type mockEmbedEngine struct {
 	mu        sync.Mutex
 	lastInput string
 }
-func (m *mockEmbedEngine) Name() string { return "mock" }
+
+func (m *mockEmbedEngine) Name() string    { return "mock" }
 func (m *mockEmbedEngine) Dimensions() int { return 3072 }
 func (m *mockEmbedEngine) Embed(ctx context.Context, text string) ([]float32, error) {
 	m.mu.Lock()
@@ -345,16 +351,18 @@ func (m *mockEmbedEngine) Embed(ctx context.Context, text string) ([]float32, er
 	m.mu.Unlock()
 	return make([]float32, 3072), nil
 }
-func (m *mockEmbedEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) { return nil, nil }
+func (m *mockEmbedEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	return nil, nil
+}
 
 // TEST_GAP: User Request Extremes: Massive Input Exhaustion
 func TestSemanticClassifier_MassiveInput(t *testing.T) {
 	engine := &mockEmbedEngine{}
 	sc := NewSemanticClassifier(&mockKernel{}, nil, nil, engine)
-	
+
 	massiveInput := strings.Repeat("A", 100000)
 	_, _ = sc.ClassifyWithoutInjection(context.Background(), massiveInput)
-	
+
 	if len(engine.lastInput) > 40000 {
 		t.Errorf("Input was not truncated, length is %d", len(engine.lastInput))
 	}
@@ -369,12 +377,12 @@ func TestEmbeddedCorpusStore_GhostDuplication(t *testing.T) {
 		},
 	}
 	engine := &mockEmbedEngine{}
-	
+
 	_ = store.LoadFromKernel(context.Background(), kernel, engine)
 	count1 := len(store.entries)
 	_ = store.LoadFromKernel(context.Background(), kernel, engine)
 	count2 := len(store.entries)
-	
+
 	if count1 != count2 {
 		t.Errorf("Expected entries to not duplicate, got %d and %d", count1, count2)
 	}
@@ -384,12 +392,12 @@ func TestEmbeddedCorpusStore_GhostDuplication(t *testing.T) {
 func TestSemanticClassifier_TargetMangleAtom(t *testing.T) {
 	kernel := &mockKernel{}
 	sc := NewSemanticClassifier(kernel, nil, nil, nil)
-	
+
 	matches := []SemanticMatch{
 		{TextContent: "do", Verb: "/fix", Target: "/codebase", Similarity: 0.8},
 	}
 	sc.injectFacts("test", matches)
-	
+
 	if len(kernel.assertedFacts) == 0 {
 		t.Fatal("No facts asserted")
 	}
@@ -404,12 +412,12 @@ func TestSemanticClassifier_TargetMangleAtom(t *testing.T) {
 func TestSemanticClassifier_StatePollution(t *testing.T) {
 	kernel := &mockKernel{}
 	sc := NewSemanticClassifier(kernel, nil, nil, nil)
-	
+
 	matches := []SemanticMatch{
 		{TextContent: "do", Verb: "/fix", Similarity: 0.8},
 	}
 	sc.injectFacts("test", matches)
-	
+
 	found := false
 	for _, p := range kernel.retractedPredicates {
 		if p == "semantic_match" {
@@ -426,7 +434,7 @@ func TestSemanticClassifier_StatePollution(t *testing.T) {
 func TestSemanticClassifier_Concurrency(t *testing.T) {
 	store, _ := NewEmbeddedCorpusStore(3072)
 	sc := NewSemanticClassifier(&mockKernel{}, store, nil, &mockEmbedEngine{})
-	
+
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)

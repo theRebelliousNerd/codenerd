@@ -239,15 +239,15 @@ func (f *ExecutorFactory) CreateFromConfig(sandboxMode SandboxMode) (Executor, e
 type PooledExecutor struct {
 	mu sync.RWMutex
 
-	factory  *ExecutorFactory
-	pool     chan Executor
-	maxSize  int
-	config   ExecutorConfig
+	factory *ExecutorFactory
+	pool    chan Executor
+	maxSize int
+	config  ExecutorConfig
 
 	// stats
-	created   int
-	borrowed  int
-	returned  int
+	created  int
+	borrowed int
+	returned int
 }
 
 // NewPooledExecutor creates a new pooled executor.

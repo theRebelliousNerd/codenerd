@@ -50,8 +50,6 @@ func (s *LocalStore) StoreKnowledgeAtom(concept, content string, confidence floa
 
 	logging.StoreDebug("Storing knowledge atom: concept=%s content_len=%d confidence=%.2f", concept, len(content), confidence)
 
-
-
 	// Compute content hash for deduplication
 	contentHash := ComputeContentHash(concept, content)
 

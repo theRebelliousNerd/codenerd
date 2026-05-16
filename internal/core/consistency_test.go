@@ -36,7 +36,7 @@ func TestKernelConcurrency(t *testing.T) {
 					Predicate: "concurrent_test",
 					Args:      []interface{}{fmt.Sprintf("worker_%d", id), j},
 				}
-				// Use AssertBatch to avoid race condition in logging.Audit() 
+				// Use AssertBatch to avoid race condition in logging.Audit()
 				// which occurs in Assert() outside the lock. AssertBatch does it inside.
 				if err := kernel.AssertBatch([]Fact{fact}); err != nil {
 					t.Errorf("AssertBatch failed: %v", err)
@@ -145,7 +145,7 @@ func TestKernelIdempotencyUnderLoad(t *testing.T) {
 	}
 }
 
-// TestSplitBrainScenarios simulates a divergence where multiple sources try to 
+// TestSplitBrainScenarios simulates a divergence where multiple sources try to
 // assert conflicting state, and verifies that the kernel resolves it (last write wins or both exist).
 // Mangle allows multiple facts, so "conflict" here implies presence of multiple facts.
 func TestSplitBrainScenarios(t *testing.T) {
@@ -179,7 +179,7 @@ func TestSplitBrainScenarios(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query failed: %v", err)
 	}
-	
+
 	if len(results) != 2 {
 		t.Errorf("Expected 2 conflicting facts to be stored, got %d", len(results))
 	}

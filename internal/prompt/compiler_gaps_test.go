@@ -107,11 +107,11 @@ func TestCompiler_KernelNonStringFacts(t *testing.T) {
 	// Return facts with non-string types
 	kernel := &mockKernel{
 		facts: []interface{}{
-			Fact{Predicate: "selected_atom", Args: []interface{}{42, "skeleton", 1.0}},          // int ID
-			Fact{Predicate: "selected_atom", Args: []interface{}{nil, "skeleton", 1.0}},         // nil ID
-			Fact{Predicate: "selected_atom", Args: []interface{}{true, "skeleton", 1.0}},        // bool ID
+			Fact{Predicate: "selected_atom", Args: []interface{}{42, "skeleton", 1.0}},           // int ID
+			Fact{Predicate: "selected_atom", Args: []interface{}{nil, "skeleton", 1.0}},          // nil ID
+			Fact{Predicate: "selected_atom", Args: []interface{}{true, "skeleton", 1.0}},         // bool ID
 			Fact{Predicate: "selected_atom", Args: []interface{}{"identity", "skeleton", "bad"}}, // non-float score
-			Fact{Predicate: "selected_atom", Args: []interface{}{"identity", 42, 1.0}},          // non-string source
+			Fact{Predicate: "selected_atom", Args: []interface{}{"identity", 42, 1.0}},           // non-string source
 		},
 	}
 

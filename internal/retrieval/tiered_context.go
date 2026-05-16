@@ -26,9 +26,9 @@ import (
 // Tier 3 (20%): Import neighbors of Tier 1-2 files
 // Tier 4 (10%): Semantic expansion (vector similarity - requires embedding)
 type TieredContextBuilder struct {
-	retriever   *SparseRetriever
-	workDir     string
-	mu          sync.RWMutex
+	retriever *SparseRetriever
+	workDir   string
+	mu        sync.RWMutex
 
 	// Budget allocation (percentages)
 	tier1Budget float64
@@ -102,20 +102,20 @@ func NewTieredContextBuilder(cfg *TieredContextConfig) *TieredContextBuilder {
 
 // ContextFile represents a file selected for context injection.
 type ContextFile struct {
-	FilePath       string   `json:"file_path"`
-	Tier           int      `json:"tier"`
-	RelevanceScore float64  `json:"relevance_score"`
-	SelectionReason string  `json:"selection_reason"`
-	Keywords       []string `json:"keywords,omitempty"`
-	ImportedBy     []string `json:"imported_by,omitempty"`
-	Content        string   `json:"content,omitempty"` // Populated on demand
+	FilePath        string   `json:"file_path"`
+	Tier            int      `json:"tier"`
+	RelevanceScore  float64  `json:"relevance_score"`
+	SelectionReason string   `json:"selection_reason"`
+	Keywords        []string `json:"keywords,omitempty"`
+	ImportedBy      []string `json:"imported_by,omitempty"`
+	Content         string   `json:"content,omitempty"` // Populated on demand
 }
 
 // TieredContext represents the complete context built from all tiers.
 type TieredContext struct {
-	IssueText string        `json:"issue_text"`
+	IssueText string         `json:"issue_text"`
 	Keywords  *IssueKeywords `json:"keywords"`
-	Files     []ContextFile `json:"files"`
+	Files     []ContextFile  `json:"files"`
 
 	// Statistics
 	Tier1Count int `json:"tier1_count"`
@@ -204,9 +204,9 @@ func (b *TieredContextBuilder) extractMentionedFiles(ctx context.Context, keywor
 		addedFiles[foundPath] = true
 
 		files = append(files, ContextFile{
-			FilePath:       foundPath,
-			Tier:           1,
-			RelevanceScore: 1.0,
+			FilePath:        foundPath,
+			Tier:            1,
+			RelevanceScore:  1.0,
 			SelectionReason: fmt.Sprintf("Explicitly mentioned in issue: %s", mentioned),
 		})
 	}
@@ -281,11 +281,11 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 		addedFiles[candidate.FilePath] = true
 
 		files = append(files, ContextFile{
-			FilePath:       candidate.FilePath,
-			Tier:           2,
-			RelevanceScore: candidate.RelevanceScore,
+			FilePath:        candidate.FilePath,
+			Tier:            2,
+			RelevanceScore:  candidate.RelevanceScore,
 			SelectionReason: fmt.Sprintf("Matches %d keywords: %s", candidate.UniqueKeywords, strings.Join(candidate.Keywords, ", ")),
-			Keywords:       candidate.Keywords,
+			Keywords:        candidate.Keywords,
 		})
 	}
 
@@ -301,11 +301,11 @@ func (b *TieredContextBuilder) searchKeywordFiles(ctx context.Context, keywords 
 		addedFiles[candidate.FilePath] = true
 
 		files = append(files, ContextFile{
-			FilePath:       candidate.FilePath,
-			Tier:           2,
-			RelevanceScore: candidate.RelevanceScore,
+			FilePath:        candidate.FilePath,
+			Tier:            2,
+			RelevanceScore:  candidate.RelevanceScore,
 			SelectionReason: fmt.Sprintf("Matches %d keywords: %s", candidate.UniqueKeywords, strings.Join(candidate.Keywords, ", ")),
-			Keywords:       candidate.Keywords,
+			Keywords:        candidate.Keywords,
 		})
 	}
 
@@ -344,11 +344,11 @@ func (b *TieredContextBuilder) expandImportGraph(ctx context.Context, existingFi
 			addedFiles[resolvedPath] = true
 
 			newFiles = append(newFiles, ContextFile{
-				FilePath:       resolvedPath,
-				Tier:           3,
-				RelevanceScore: 0.5,
+				FilePath:        resolvedPath,
+				Tier:            3,
+				RelevanceScore:  0.5,
 				SelectionReason: fmt.Sprintf("Imported by: %s", filepath.Base(file.FilePath)),
-				ImportedBy:     []string{file.FilePath},
+				ImportedBy:      []string{file.FilePath},
 			})
 		}
 	}
@@ -445,9 +445,9 @@ func (b *TieredContextBuilder) semanticExpansion(ctx context.Context, issueText 
 			addedFiles[defFile] = true
 
 			files = append(files, ContextFile{
-				FilePath:       defFile,
-				Tier:           4,
-				RelevanceScore: 0.3,
+				FilePath:        defFile,
+				Tier:            4,
+				RelevanceScore:  0.3,
 				SelectionReason: fmt.Sprintf("May define symbol: %s", symbol),
 			})
 		}

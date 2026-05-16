@@ -116,9 +116,9 @@ func DefaultContextWindowConfig() ContextWindowConfig {
 		AtomReservePercent:     30,
 		HistoryReservePercent:  15,
 		WorkingReservePercent:  50,
-		OutputReserve:          8000,  // 8k output tokens
-		ThinkingReserve:        0,     // Disabled by default
-		ToolUseBuffer:          4000,  // 4k for tool cycles
+		OutputReserve:          8000, // 8k output tokens
+		ThinkingReserve:        0,    // Disabled by default
+		ToolUseBuffer:          4000, // 4k for tool cycles
 		RecentTurnWindow:       5,
 		CompressionThreshold:   0.60,
 		TargetCompressionRatio: 100.0,

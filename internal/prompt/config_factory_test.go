@@ -18,8 +18,6 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	return atom, ok
 }
 
-
-
 func TestConfigFactory_Generate(t *testing.T) {
 
 	provider := &MockConfigAtomProvider{

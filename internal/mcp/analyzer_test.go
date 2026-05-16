@@ -259,7 +259,7 @@ func TestAnalyzer_UserRequestExtremes_MassiveSchema(t *testing.T) {
 	rawJSON, _ := json.Marshal(massiveMap)
 
 	schema := MCPToolSchema{
-		Name: "massive",
+		Name:        "massive",
 		InputSchema: rawJSON,
 	}
 

@@ -37,18 +37,18 @@ func NewYaegiExecutor() *YaegiExecutor {
 	return &YaegiExecutor{
 		allowedPackages: map[string]bool{
 			// Safe stdlib packages
-			"strings":  true,
-			"strconv":  true,
-			"fmt":      true,
-			"math":     true,
-			"regexp":   true,
-			"encoding/json": true,
+			"strings":         true,
+			"strconv":         true,
+			"fmt":             true,
+			"math":            true,
+			"regexp":          true,
+			"encoding/json":   true,
 			"encoding/base64": true,
-			"time":     true,
-			"sort":     true,
-			"bytes":    true,
-			"path":     true,
-			"path/filepath": true,
+			"time":            true,
+			"sort":            true,
+			"bytes":           true,
+			"path":            true,
+			"path/filepath":   true,
 
 			// EXPLICITLY BLOCKED (unsafe packages):
 			// "os" - filesystem access
@@ -204,22 +204,22 @@ func (ye *YaegiExecutor) getAllowedPackages() []string {
 type ToolExecutionMode int
 
 const (
-	ExecuteCompiled ToolExecutionMode = iota // Default: compile with go build
-	ExecuteInterpreted                       // Bug #16 Fix: use Yaegi interpreter
+	ExecuteCompiled    ToolExecutionMode = iota // Default: compile with go build
+	ExecuteInterpreted                          // Bug #16 Fix: use Yaegi interpreter
 )
 
 // ToolExecutionConfig holds configuration for tool execution strategy.
 type ToolExecutionConfig struct {
-	Mode            ToolExecutionMode
+	Mode             ToolExecutionMode
 	AllowCompilation bool // Allow fallback to compilation if interpretation fails
-	Timeout         int  // Execution timeout in seconds
+	Timeout          int  // Execution timeout in seconds
 }
 
 // DefaultSafeExecutionConfig returns a safe configuration using Yaegi.
 func DefaultSafeExecutionConfig() ToolExecutionConfig {
 	return ToolExecutionConfig{
-		Mode:            ExecuteInterpreted, // Use interpreter by default
-		AllowCompilation: false,             // Strict: no compilation fallback
-		Timeout:         5,                  // 5 second timeout
+		Mode:             ExecuteInterpreted, // Use interpreter by default
+		AllowCompilation: false,              // Strict: no compilation fallback
+		Timeout:          5,                  // 5 second timeout
 	}
 }

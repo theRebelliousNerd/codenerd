@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-
 func TestSyntaxValidator_New(t *testing.T) {
 	v := NewSyntaxValidator()
 	if v == nil {

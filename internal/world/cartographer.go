@@ -99,7 +99,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			end := fset.Position(x.End()).Line
 
 			// New Holographic Atom
-		facts = append(facts, core.Fact{
+			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
 				Args: []interface{}{
 					path,
@@ -125,7 +125,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			}
 
 			// New Holographic Atom
-		facts = append(facts, core.Fact{
+			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
 				Args: []interface{}{
 					path,

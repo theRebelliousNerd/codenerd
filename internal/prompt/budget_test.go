@@ -27,8 +27,6 @@ func TestBudgetPriority_String(t *testing.T) {
 	}
 }
 
-
-
 func TestNewTokenBudgetManager(t *testing.T) {
 	t.Run("creates manager with defaults", func(t *testing.T) {
 		mgr := NewTokenBudgetManager()

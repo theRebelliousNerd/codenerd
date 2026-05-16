@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"codenerd/internal/articulation"
+	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
-	"codenerd/internal/types"
-	"codenerd/internal/jit/config"
 	"codenerd/internal/tools"
-    "codenerd/internal/articulation"
+	"codenerd/internal/types"
 )
 
 // --- Mocks ---
@@ -27,7 +27,7 @@ type mockTransducer struct {
 }
 
 func (m *mockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
-    return perception.Intent{Category: m.intentToReturn}, nil
+	return perception.Intent{Category: m.intentToReturn}, nil
 }
 
 func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
@@ -42,11 +42,11 @@ func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input strin
 }
 
 func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
-    return perception.Intent{Category: m.intentToReturn}, nil, nil
+	return perception.Intent{Category: m.intentToReturn}, nil, nil
 }
 
 func (m *mockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
-    return perception.FocusResolution{}, nil
+	return perception.FocusResolution{}, nil
 }
 
 func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
@@ -101,10 +101,10 @@ type mockLLMClient struct {
 }
 
 func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
-    return "", fmt.Errorf("not implemented")
+	return "", fmt.Errorf("not implemented")
 }
 func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-    return "", fmt.Errorf("not implemented")
+	return "", fmt.Errorf("not implemented")
 }
 
 func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, toolDefs []types.ToolDefinition) (*types.LLMToolResponse, error) {
@@ -138,18 +138,18 @@ func setupExecutor(t *testing.T, tr *mockTransducer, jc *mockJITCompiler, cf *mo
 	t.Helper()
 
 	tools.Global().Register(&tools.Tool{
-        Name: "dummy_tool",
-        Execute: func(ctx context.Context, args map[string]any) (string, error) {
-            return "dummy result", nil
-        },
-    })
+		Name: "dummy_tool",
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return "dummy result", nil
+		},
+	})
 	tools.Global().Register(&tools.Tool{
-        Name: "hanging_tool",
-        Execute: func(ctx context.Context, args map[string]any) (string, error) {
-            <-ctx.Done()
-            return "", ctx.Err()
-        },
-    })
+		Name: "hanging_tool",
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	})
 
 	t.Cleanup(func() {})
 
@@ -437,7 +437,7 @@ func TestE2E_SessionExecutor_PartialPipelineFailure(t *testing.T) {
 
 	defer func() {
 		if r := recover(); r != nil {
-            t.Logf("Executor panicked on ConfigFactory panic: %v", r)
+			t.Logf("Executor panicked on ConfigFactory panic: %v", r)
 		}
 	}()
 
@@ -458,7 +458,7 @@ func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
-    start := time.Now()
+	start := time.Now()
 	_, err := exec.Process(context.Background(), "quick question")
 	duration := time.Since(start)
 
@@ -466,9 +466,9 @@ func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-    if duration > 1 * time.Second {
-        t.Errorf("Process took too long, possible blocking: %v", duration)
-    }
+	if duration > 1*time.Second {
+		t.Errorf("Process took too long, possible blocking: %v", duration)
+	}
 }
 
 // TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully tests resilience to empty outputs.
@@ -487,9 +487,9 @@ func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-    if res.Response != "" {
-        t.Errorf("Expected empty response, got: %s", res.Response)
-    }
+	if res.Response != "" {
+		t.Errorf("Expected empty response, got: %s", res.Response)
+	}
 }
 
 // TestE2E_SessionExecutor_LargePayload_Truncation checks memory safety.
@@ -503,7 +503,7 @@ func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
-    largeInput := strings.Repeat("A", 10*1024*1024)
+	largeInput := strings.Repeat("A", 10*1024*1024)
 	_, err := exec.Process(context.Background(), largeInput)
 
 	if err != nil {
@@ -518,14 +518,14 @@ func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
 	tr := &mockTransducer{intentToReturn: "/coder"}
 	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
 	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
-        Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
-    }}
+		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
+	}}
 	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{
-        Text: "Calling with bad args",
-        ToolCalls: []types.ToolCall{
-            {ID: "call_1", Name: "dummy_tool", Input: map[string]interface{}{"bad": make(chan int)}},
-        },
-    }}
+		Text: "Calling with bad args",
+		ToolCalls: []types.ToolCall{
+			{ID: "call_1", Name: "dummy_tool", Input: map[string]interface{}{"bad": make(chan int)}},
+		},
+	}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "test bad args")
@@ -534,9 +534,9 @@ func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-    if res.Response != "Calling with bad args" {
-        t.Errorf("Expected fallback response text, got: %s", res.Response)
-    }
+	if res.Response != "Calling with bad args" {
+		t.Errorf("Expected fallback response text, got: %s", res.Response)
+	}
 }
 
 // TestE2E_SessionExecutor_ConfigMutation_Immutable tests that tools can't mutate config.
@@ -546,17 +546,19 @@ func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 	tr := &mockTransducer{intentToReturn: "/coder"}
 	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
 	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
-        Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
-    }}
+		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
+	}}
 	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	_, err := exec.Process(context.Background(), "turn 1")
-    if err != nil { t.Fatalf("Err: %v", err) }
+	if err != nil {
+		t.Fatalf("Err: %v", err)
+	}
 
-    if len(cf.configToReturn.Tools.AllowedTools) != 1 {
-        t.Errorf("Config was unexpectedly mutated!")
-    }
+	if len(cf.configToReturn.Tools.AllowedTools) != 1 {
+		t.Errorf("Config was unexpectedly mutated!")
+	}
 }
 
 // TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure tests pipeline resilience

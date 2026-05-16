@@ -37,9 +37,9 @@ func NewHarness(
 ) *Harness {
 	// Convert SWE-bench instance to general project info
 	project := &python.ProjectInfo{
-		Name:    instance.RepoName(),
-		GitURL:  instance.GitURL(),
-		Commit:  instance.BaseCommit,
+		Name:   instance.RepoName(),
+		GitURL: instance.GitURL(),
+		Commit: instance.BaseCommit,
 	}
 
 	// Override image if instance specifies one

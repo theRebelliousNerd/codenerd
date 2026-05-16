@@ -306,8 +306,6 @@ func (s *LearnedCorpusStore) searchVec(queryBlob []byte, topK int) ([]SemanticMa
 	return matches, rows.Err()
 }
 
-
-
 // GetAllPatterns returns all stored learned patterns (for persistence/export).
 func (s *LearnedCorpusStore) GetAllPatterns() ([]LearnedPattern, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.GetAllPatterns")
@@ -562,5 +560,3 @@ func (s *LearnedCorpusStore) Close() error {
 	logging.Store("Learned corpus store closed")
 	return nil
 }
-
-

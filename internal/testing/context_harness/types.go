@@ -27,11 +27,11 @@ const (
 
 // Scenario represents a complete test scenario for the context system.
 type Scenario struct {
-	ScenarioID  string // kebab-case identifier (e.g., "debugging-marathon")
-	Name        string // Human-readable name (e.g., "Debugging Marathon")
-	Description string
-	Turns       []Turn
-	Checkpoints []Checkpoint
+	ScenarioID      string // kebab-case identifier (e.g., "debugging-marathon")
+	Name            string // Human-readable name (e.g., "Debugging Marathon")
+	Description     string
+	Turns           []Turn
+	Checkpoints     []Checkpoint
 	ExpectedMetrics Metrics
 
 	// Engine configuration (new for dual-mode support)
@@ -57,12 +57,12 @@ type Turn struct {
 
 // TurnMetadata contains rich context about the turn.
 type TurnMetadata struct {
-	FilesReferenced []string
-	SymbolsReferenced []string
-	ErrorMessages   []string
-	Topics          []string
+	FilesReferenced         []string
+	SymbolsReferenced       []string
+	ErrorMessages           []string
+	Topics                  []string
 	IsQuestionReferringBack bool // "What was the original error?"
-	ReferencesBackToTurn    *int  // nil if not referencing back
+	ReferencesBackToTurn    *int // nil if not referencing back
 }
 
 // Checkpoint defines validation points in the scenario.
@@ -76,9 +76,9 @@ type Checkpoint struct {
 	Description  string
 
 	// Advanced validation for integration scenarios (optional)
-	ValidateActivation   *ActivationValidation   // Verify 8-component scoring (including feedback)
-	ValidateCompression  *CompressionCheckpoint  // Verify compression behavior
-	ValidateFeedback     *FeedbackValidation     // Verify feedback learning behavior
+	ValidateActivation  *ActivationValidation  // Verify 8-component scoring (including feedback)
+	ValidateCompression *CompressionCheckpoint // Verify compression behavior
+	ValidateFeedback    *FeedbackValidation    // Verify feedback learning behavior
 }
 
 // FeedbackValidation validates context feedback learning at a checkpoint.
@@ -112,24 +112,24 @@ type Metrics struct {
 	// short user messages are expanded into structured Mangle facts with
 	// extracted topics, file references, error messages, and back-references.
 	// True compression happens over session lifetime via fact decay/pruning.
-	CompressionRatio float64
-	AvgRetrievalPrec   float64
-	AvgRetrievalRecall float64
-	AvgF1Score         float64
+	CompressionRatio      float64
+	AvgRetrievalPrec      float64
+	AvgRetrievalRecall    float64
+	AvgF1Score            float64
 	TokenBudgetViolations int
 	AvgCompressionLatency time.Duration
 	AvgRetrievalLatency   time.Duration
-	PeakMemoryMB       float64
-	QualityDegradation float64 // 0.0 = no degradation, 1.0 = complete failure
+	PeakMemoryMB          float64
+	QualityDegradation    float64 // 0.0 = no degradation, 1.0 = complete failure
 }
 
 // TestResult captures the outcome of running a scenario.
 type TestResult struct {
-	Scenario        *Scenario
-	ActualMetrics   Metrics
+	Scenario          *Scenario
+	ActualMetrics     Metrics
 	CheckpointResults []CheckpointResult
-	Passed          bool
-	FailureReasons  []string
+	Passed            bool
+	FailureReasons    []string
 }
 
 // CheckpointResult captures the outcome of a single checkpoint.
@@ -147,10 +147,10 @@ type CheckpointResult struct {
 
 // SimulatorConfig configures the session simulator.
 type SimulatorConfig struct {
-	MaxTurns       int
-	TokenBudget    int
+	MaxTurns           int
+	TokenBudget        int
 	CompressionEnabled bool
-	PagingEnabled  bool
+	PagingEnabled      bool
 	VectorStoreEnabled bool
 
 	// Engine mode selection

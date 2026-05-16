@@ -33,7 +33,7 @@ func BenchmarkDreamer_SimulateAction_LargeGraph(b *testing.B) {
 			sym := fmt.Sprintf("sym_%d_%d", i, j)
 			k.AssertWithoutEval(Fact{
 				Predicate: "code_defines",
-				Args: []interface{}{file, sym},
+				Args:      []interface{}{file, sym},
 			})
 		}
 	}
@@ -51,7 +51,7 @@ func BenchmarkDreamer_SimulateAction_LargeGraph(b *testing.B) {
 
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_calls",
-			Args: []interface{}{caller, targetSym},
+			Args:      []interface{}{caller, targetSym},
 		})
 	}
 
@@ -61,7 +61,7 @@ func BenchmarkDreamer_SimulateAction_LargeGraph(b *testing.B) {
 		callee := fmt.Sprintf("sym_%d_%d", (i+1)%100, (i+1)%100)
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_calls",
-			Args: []interface{}{caller, callee},
+			Args:      []interface{}{caller, callee},
 		})
 	}
 

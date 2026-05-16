@@ -490,212 +490,212 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 			cc.String(), cacheKey[:8], atomic.LoadInt64(&c.cacheMiss))
 
 		// Step 1: Assert context facts to kernel for Mangle-based selection
-	// We do this first so that context is available for kernel injection and Mangle-based selection.
-	// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
-	if c.kernel != nil {
-		contextFacts := cc.ToContextFacts()
-		if len(contextFacts) > 0 {
-			if err := c.kernel.AssertBatch(contextFacts); err != nil {
-				logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
-				// Non-fatal - continue without context-based boosting
-			} else {
-				logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
-				// Defer retraction immediately — ensures cleanup even if later steps fail.
-				// This prevents stale compile_context facts from poisoning subsequent compilations.
-				if retracter, ok := c.kernel.(KernelRetracter); ok {
-					defer func() {
-						if retractErr := retracter.Retract("compile_context"); retractErr != nil {
-							logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", retractErr)
-						}
-					}()
+		// We do this first so that context is available for kernel injection and Mangle-based selection.
+		// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
+		if c.kernel != nil {
+			contextFacts := cc.ToContextFacts()
+			if len(contextFacts) > 0 {
+				if err := c.kernel.AssertBatch(contextFacts); err != nil {
+					logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
+					// Non-fatal - continue without context-based boosting
+				} else {
+					logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
+					// Defer retraction immediately — ensures cleanup even if later steps fail.
+					// This prevents stale compile_context facts from poisoning subsequent compilations.
+					if retracter, ok := c.kernel.(KernelRetracter); ok {
+						defer func() {
+							if retractErr := retracter.Retract("compile_context"); retractErr != nil {
+								logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", retractErr)
+							}
+						}()
+					}
 				}
 			}
 		}
-	}
 
-	// Step 1.5: Collect all candidate atoms from all sources concurrently
-	collectStart := time.Now()
+		// Step 1.5: Collect all candidate atoms from all sources concurrently
+		collectStart := time.Now()
 
-	g, gCtx := errgroup.WithContext(ctx)
+		g, gCtx := errgroup.WithContext(ctx)
 
-	var candidates []*PromptAtom
-	var sourceBreakdown sourceBreakdown
+		var candidates []*PromptAtom
+		var sourceBreakdown sourceBreakdown
 
-	var dynamicAtoms []*PromptAtom
-	var knowledgeAtoms []*PromptAtom
+		var dynamicAtoms []*PromptAtom
+		var knowledgeAtoms []*PromptAtom
 
-	// 1.5a: Collect static/selected atoms
-	g.Go(func() error {
-		var err error
-		candidates, sourceBreakdown, err = c.collectAtomsWithStats(gCtx, cc)
-		if err != nil {
-			return fmt.Errorf("failed to collect atoms: %w", err)
-		}
-		return nil
-	})
-
-	// 1.5b: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
-	g.Go(func() error {
-		var dynErr error
-		dynamicAtoms, dynErr = c.collectKernelInjectedAtoms(cc)
-		if dynErr != nil {
-			logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
-		}
-		return nil // Non-fatal
-	})
-
-	// 1.5c: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
-	g.Go(func() error {
-		knowledgeAtoms = c.collectKnowledgeAtoms(gCtx, cc)
-		return nil // Non-fatal
-	})
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	// Merge concurrent results
-	if len(dynamicAtoms) > 0 {
-		candidates = append(candidates, dynamicAtoms...)
-		logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
-	}
-
-	if len(knowledgeAtoms) > 0 {
-		candidates = append(candidates, knowledgeAtoms...)
-		logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
-	}
-
-	stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
-	stats.AtomsCandidates = len(candidates)
-	stats.EmbeddedAtoms = sourceBreakdown.embedded
-	stats.ProjectAtoms = sourceBreakdown.project
-	stats.ShardAtoms = sourceBreakdown.shard
-	stats.EvolvedAtoms = sourceBreakdown.evolved
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
-		len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
-		sourceBreakdown.evolved, stats.CollectAtomsMs,
-	)
-
-	// Step 2: Select atoms based on context (Mangle rules + vector search)
-	selectStart := time.Now()
-	scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select atoms: %w", err)
-	}
-	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
-	stats.VectorQueryMs = vectorMs
-
-	// NOTE: compile_context retraction is now handled by defer (see Step 1.5 above).
-	// This ensures cleanup even if SelectAtomsWithTiming fails.
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Selected %d atoms after scoring in %dms (vector=%dms)",
-		len(scored), stats.SelectAtomsMs, stats.VectorQueryMs,
-	)
-
-	// Step 3: Resolve dependencies and handle conflicts
-	resolveStart := time.Now()
-	ordered, err := c.resolver.Resolve(scored)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
-	}
-	stats.ResolveDepsMs = time.Since(resolveStart).Milliseconds()
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Resolved to %d ordered atoms in %dms",
-		len(ordered), stats.ResolveDepsMs,
-	)
-
-	// Step 4: Fit within token budget
-	fitStart := time.Now()
-	budget := cc.AvailableTokens()
-	if budget <= 0 {
-		budget = c.config.DefaultTokenBudget
-	}
-	stats.TokenBudget = budget
-
-	fitted, err := c.budgetMgr.Fit(ordered, budget)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fit budget: %w", err)
-	}
-	stats.FitBudgetMs = time.Since(fitStart).Milliseconds()
-
-	logging.Get(logging.CategoryJIT).Debug(
-		"Fitted %d atoms within budget of %d tokens in %dms",
-		len(fitted), budget, stats.FitBudgetMs,
-	)
-
-	// Step 5: Assemble final prompt
-	assembleStart := time.Now()
-	prompt, err := c.assembler.Assemble(fitted, cc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to assemble prompt: %w", err)
-	}
-	stats.AssembleMs = time.Since(assembleStart).Milliseconds()
-
-	// Finalize timing
-	stats.Duration = time.Since(compileStart)
-
-	// Build result with comprehensive stats
-	result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
-	if result.Manifest != nil {
-		result.Manifest.ContextHash = cacheKey
-	}
-
-	// Step 6: Generate Agent Config if factory is present
-	if c.configFactory != nil {
-		intents := []string{}
-		if cc.IntentVerb != "" {
-			intents = append(intents, cc.IntentVerb)
-		}
-		if cc.ShardType != "" {
-			intents = append(intents, cc.ShardType)
-		}
-
-		if len(intents) > 0 {
-			agentCfg, err := c.configFactory.Generate(ctx, result, intents...)
+		// 1.5a: Collect static/selected atoms
+		g.Go(func() error {
+			var err error
+			candidates, sourceBreakdown, err = c.collectAtomsWithStats(gCtx, cc)
 			if err != nil {
-				logging.Get(logging.CategoryJIT).Warn("Failed to generate agent config: %v", err)
-			} else {
-				result.AgentConfig = agentCfg
-				logging.Get(logging.CategoryJIT).Debug("Generated JIT Agent Config for intents: %v", intents)
+				return fmt.Errorf("failed to collect atoms: %w", err)
+			}
+			return nil
+		})
+
+		// 1.5b: Collect dynamic kernel-injected atoms (injectable_context, specialist_knowledge)
+		g.Go(func() error {
+			var dynErr error
+			dynamicAtoms, dynErr = c.collectKernelInjectedAtoms(cc)
+			if dynErr != nil {
+				logging.Get(logging.CategoryJIT).Warn("Failed to collect kernel-injected atoms: %v", dynErr)
+			}
+			return nil // Non-fatal
+		})
+
+		// 1.5c: Collect semantic knowledge atoms (Semantic Knowledge Bridge)
+		g.Go(func() error {
+			knowledgeAtoms = c.collectKnowledgeAtoms(gCtx, cc)
+			return nil // Non-fatal
+		})
+
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+
+		// Merge concurrent results
+		if len(dynamicAtoms) > 0 {
+			candidates = append(candidates, dynamicAtoms...)
+			logging.Get(logging.CategoryJIT).Debug("Appended %d kernel-injected atoms to candidates", len(dynamicAtoms))
+		}
+
+		if len(knowledgeAtoms) > 0 {
+			candidates = append(candidates, knowledgeAtoms...)
+			logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
+		}
+
+		stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
+		stats.AtomsCandidates = len(candidates)
+		stats.EmbeddedAtoms = sourceBreakdown.embedded
+		stats.ProjectAtoms = sourceBreakdown.project
+		stats.ShardAtoms = sourceBreakdown.shard
+		stats.EvolvedAtoms = sourceBreakdown.evolved
+
+		logging.Get(logging.CategoryJIT).Debug(
+			"Collected %d candidate atoms (embedded=%d, project=%d, shard=%d, evolved=%d) in %dms",
+			len(candidates), sourceBreakdown.embedded, sourceBreakdown.project, sourceBreakdown.shard,
+			sourceBreakdown.evolved, stats.CollectAtomsMs,
+		)
+
+		// Step 2: Select atoms based on context (Mangle rules + vector search)
+		selectStart := time.Now()
+		scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to select atoms: %w", err)
+		}
+		stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
+		stats.VectorQueryMs = vectorMs
+
+		// NOTE: compile_context retraction is now handled by defer (see Step 1.5 above).
+		// This ensures cleanup even if SelectAtomsWithTiming fails.
+
+		logging.Get(logging.CategoryJIT).Debug(
+			"Selected %d atoms after scoring in %dms (vector=%dms)",
+			len(scored), stats.SelectAtomsMs, stats.VectorQueryMs,
+		)
+
+		// Step 3: Resolve dependencies and handle conflicts
+		resolveStart := time.Now()
+		ordered, err := c.resolver.Resolve(scored)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve dependencies: %w", err)
+		}
+		stats.ResolveDepsMs = time.Since(resolveStart).Milliseconds()
+
+		logging.Get(logging.CategoryJIT).Debug(
+			"Resolved to %d ordered atoms in %dms",
+			len(ordered), stats.ResolveDepsMs,
+		)
+
+		// Step 4: Fit within token budget
+		fitStart := time.Now()
+		budget := cc.AvailableTokens()
+		if budget <= 0 {
+			budget = c.config.DefaultTokenBudget
+		}
+		stats.TokenBudget = budget
+
+		fitted, err := c.budgetMgr.Fit(ordered, budget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fit budget: %w", err)
+		}
+		stats.FitBudgetMs = time.Since(fitStart).Milliseconds()
+
+		logging.Get(logging.CategoryJIT).Debug(
+			"Fitted %d atoms within budget of %d tokens in %dms",
+			len(fitted), budget, stats.FitBudgetMs,
+		)
+
+		// Step 5: Assemble final prompt
+		assembleStart := time.Now()
+		prompt, err := c.assembler.Assemble(fitted, cc)
+		if err != nil {
+			return nil, fmt.Errorf("failed to assemble prompt: %w", err)
+		}
+		stats.AssembleMs = time.Since(assembleStart).Milliseconds()
+
+		// Finalize timing
+		stats.Duration = time.Since(compileStart)
+
+		// Build result with comprehensive stats
+		result := c.buildResultWithStats(candidates, scored, fitted, prompt, budget, stats)
+		if result.Manifest != nil {
+			result.Manifest.ContextHash = cacheKey
+		}
+
+		// Step 6: Generate Agent Config if factory is present
+		if c.configFactory != nil {
+			intents := []string{}
+			if cc.IntentVerb != "" {
+				intents = append(intents, cc.IntentVerb)
+			}
+			if cc.ShardType != "" {
+				intents = append(intents, cc.ShardType)
+			}
+
+			if len(intents) > 0 {
+				agentCfg, err := c.configFactory.Generate(ctx, result, intents...)
+				if err != nil {
+					logging.Get(logging.CategoryJIT).Warn("Failed to generate agent config: %v", err)
+				} else {
+					result.AgentConfig = agentCfg
+					logging.Get(logging.CategoryJIT).Debug("Generated JIT Agent Config for intents: %v", intents)
+				}
 			}
 		}
-	}
 
-	// Update observability state
-	// Performance: Uses an atomic pointer instead of coarse-grained locking to avoid blocking other compilations during stats updates.
-	c.lastResult.Store(result)
+		// Update observability state
+		// Performance: Uses an atomic pointer instead of coarse-grained locking to avoid blocking other compilations during stats updates.
+		c.lastResult.Store(result)
 
-	// Bug #5 fix: Store result in cache for future reuse
-	c.cacheMu.Lock()
-	if elem, ok := c.cache[cacheKey]; ok {
-		c.cacheList.MoveToFront(elem)
-		elem.Value.(*promptCacheEntry).result = result
-	} else {
-		entry := &promptCacheEntry{key: cacheKey, result: result}
-		elem := c.cacheList.PushFront(entry)
-		c.cache[cacheKey] = elem
+		// Bug #5 fix: Store result in cache for future reuse
+		c.cacheMu.Lock()
+		if elem, ok := c.cache[cacheKey]; ok {
+			c.cacheList.MoveToFront(elem)
+			elem.Value.(*promptCacheEntry).result = result
+		} else {
+			entry := &promptCacheEntry{key: cacheKey, result: result}
+			elem := c.cacheList.PushFront(entry)
+			c.cache[cacheKey] = elem
 
-		if c.cacheList.Len() > c.cacheLimit {
-			oldElem := c.cacheList.Back()
-			if oldElem != nil {
-				c.cacheList.Remove(oldElem)
-				oldEntry := oldElem.Value.(*promptCacheEntry)
-				delete(c.cache, oldEntry.key)
+			if c.cacheList.Len() > c.cacheLimit {
+				oldElem := c.cacheList.Back()
+				if oldElem != nil {
+					c.cacheList.Remove(oldElem)
+					oldEntry := oldElem.Value.(*promptCacheEntry)
+					delete(c.cache, oldEntry.key)
+				}
 			}
 		}
-	}
-	c.cacheMu.Unlock()
-	logging.Get(logging.CategoryJIT).Debug("Stored compiled prompt in cache (hash=%s)", cacheKey[:8])
+		c.cacheMu.Unlock()
+		logging.Get(logging.CategoryJIT).Debug("Stored compiled prompt in cache (hash=%s)", cacheKey[:8])
 
-	// Log comprehensive stats using JIT category
-	c.logCompilationStats(stats, result)
-	if c.config.DebugMode {
-		c.logCompilationManifest(stats, result)
-	}
+		// Log comprehensive stats using JIT category
+		c.logCompilationStats(stats, result)
+		if c.config.DebugMode {
+			c.logCompilationManifest(stats, result)
+		}
 
 		return result, nil
 	})
@@ -717,7 +717,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 	if c.kernel == nil || cc == nil {
 		return nil, nil
 	}
-
 
 	matchesShard := func(raw string) bool {
 		raw = strings.TrimSpace(raw)
@@ -1532,7 +1531,7 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	if err != nil {
 		// Graceful degradation - no custom specialists available, but we'll still add core shards
 		data := []byte("{}")
-		
+
 		// Parse the agent registry (which is empty)
 		var registry struct {
 			Agents []struct {
@@ -1544,20 +1543,20 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 			} `json:"agents"`
 		}
 		_ = json.Unmarshal(data, &registry)
-		
+
 		var specialists []string
 		// Add core shards as implicit specialists (from centralized definitions)
 		for name, desc := range shards.CoreShardDescriptions {
 			specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
 		}
-		
+
 		var result string
 		if len(specialists) == 0 {
 			result = "No specialists available. Use **researcher** for general knowledge gathering."
 		} else {
 			result = strings.Join(specialists, "\n")
 		}
-		
+
 		ctx.AvailableSpecialists = result
 		return nil
 	}

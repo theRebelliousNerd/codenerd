@@ -47,4 +47,3 @@ q(X) :- p(X).
 		t.Fatalf("expected file_in_scope language /mangle")
 	}
 }
-

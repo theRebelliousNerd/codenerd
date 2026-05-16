@@ -128,11 +128,11 @@ func getBaseGoEnv() []string {
 		"GOROOT",
 		"GOCACHE",
 		"GOMODCACHE",
-		"GOFLAGS",     // Allow global build tags/flags to propagate
-		"HOME",        // Required on Unix
-		"USERPROFILE", // Required on Windows
+		"GOFLAGS",      // Allow global build tags/flags to propagate
+		"HOME",         // Required on Unix
+		"USERPROFILE",  // Required on Windows
 		"LOCALAPPDATA", // Required for GOCACHE default on Windows
-		"TEMP",        // Required for go build temp files
+		"TEMP",         // Required for go build temp files
 		"TMP",
 		"TMPDIR",
 	}

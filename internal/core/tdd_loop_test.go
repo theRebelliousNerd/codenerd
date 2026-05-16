@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
+	"github.com/google/mangle/analysis"
 )
 
 // =============================================================================
@@ -101,6 +102,7 @@ func (m *MockKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 func (m *MockKernel) UpdateSystemFacts() error                                       { return nil }
 func (m *MockKernel) String() string                                                 { return "MockKernel" }
 func (m *MockKernel) Transaction() types.KernelTransaction                           { return &MockKernelTx{k: m} }
+func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo                          { return nil }
 
 // MockKernelTx implements types.KernelTransaction for testing.
 type MockKernelTx struct {
@@ -329,12 +331,12 @@ func TestTDDLoop_ToFacts_MangleTypes(t *testing.T) {
 	tdd.maxRetries = 3
 
 	facts := tdd.ToFacts()
-	
+
 	// Basic validation that facts are structured correctly
 	if len(facts) < 3 {
 		t.Fatalf("Expected at least 3 facts, got %d", len(facts))
 	}
-	
+
 	hasTestState := false
 	hasRetryCount := false
 	for _, f := range facts {
@@ -347,7 +349,7 @@ func TestTDDLoop_ToFacts_MangleTypes(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if !hasTestState || !hasRetryCount {
 		t.Errorf("Facts did not contain properly coerced state and retry_count")
 	}
@@ -356,10 +358,10 @@ func TestTDDLoop_ToFacts_MangleTypes(t *testing.T) {
 // 4. [Type Coercion] Test Output Formats: JSON safely handled
 func TestTDDLoop_ParseTestOutput_JSON(t *testing.T) {
 	tdd, _, _, _ := SetupTDDLoop(t)
-	
+
 	jsonOutput := `{"errors": [{"file": "main.go", "line": 10, "msg": "syntax error"}]}`
 	diagnostics := tdd.parseTestOutput(jsonOutput)
-	
+
 	// Should gracefully return 0 diagnostics since it doesn't match standard regex, not panic
 	if len(diagnostics) != 0 {
 		t.Errorf("Expected 0 diagnostics for JSON, got %d", len(diagnostics))
@@ -369,7 +371,7 @@ func TestTDDLoop_ParseTestOutput_JSON(t *testing.T) {
 // 5. [User Request Extremes] Large Log File: streaming parsing
 func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 	tdd, _, _, _ := SetupTDDLoop(t)
-	
+
 	// Construct a massive 10MB string
 	var sb strings.Builder
 	line := "some standard output log that is not an error\n"
@@ -377,18 +379,18 @@ func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 		sb.WriteString(line)
 	}
 	sb.WriteString("--- FAIL: TestLarge (0.00s)\n")
-	
+
 	output := sb.String()
-	
+
 	// Should not OOM or take excessively long due to bufio.Scanner
 	start := time.Now()
 	diagnostics := tdd.parseTestOutput(output)
 	elapsed := time.Since(start)
-	
+
 	if elapsed > 10*time.Second {
 		t.Errorf("Parsing large output took too long: %v", elapsed)
 	}
-	
+
 	if len(diagnostics) != 1 {
 		t.Errorf("Expected 1 diagnostic, got %d", len(diagnostics))
 	}
@@ -398,20 +400,20 @@ func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 func TestTDDLoop_GeneratePatch_LongHypothesis(t *testing.T) {
 	tdd, _, _, mockLLM := SetupTDDLoop(t)
 	tdd.state = TDDStateGenerating
-	
+
 	var receivedPrompt string
 	mockLLM.CompleteFunc = func(ctx context.Context, prompt string) (string, error) {
 		receivedPrompt = prompt
 		return "FILE: a.go\nOLD:\n\nNEW:\n\nRATIONALE: r", nil
 	}
-	
+
 	// Create a 50,000 char hypothesis
 	tdd.hypothesis = strings.Repeat("A", 50000)
-	
+
 	if err := tdd.Run(context.Background()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	
+
 	// The prompt should contain truncated hypothesis
 	if len(receivedPrompt) > 20000 {
 		t.Errorf("Prompt is too large (%d bytes), hypothesis was not truncated", len(receivedPrompt))
@@ -424,13 +426,13 @@ func TestTDDLoop_GeneratePatch_LongHypothesis(t *testing.T) {
 // 7. [State Conflicts] Concurrent Execution
 func TestTDDLoop_Concurrent_Locks(t *testing.T) {
 	tdd, mockExec, _, _ := SetupTDDLoop(t)
-	
+
 	mockExec.ExecuteFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 		return &tactile.ExecutionResult{ExitCode: 0, Stdout: "OK"}, nil
 	}
 
 	var wg sync.WaitGroup
-	
+
 	// Spam GetState, InjectPatch, Run concurrently
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
@@ -444,7 +446,7 @@ func TestTDDLoop_Concurrent_Locks(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	// If it doesn't deadlock or panic, it passes.
 }
@@ -488,7 +490,7 @@ func TestTDDLoop_ExternalStateChange_MidGeneration(t *testing.T) {
 	} else if !strings.Contains(runErr.Error(), "state changed") {
 		t.Errorf("Expected 'state changed' error, got: %v", runErr)
 	}
-	
+
 	// Patches should not have been applied
 	if len(tdd.patches) > 0 {
 		t.Errorf("Expected no patches applied, got %d", len(tdd.patches))

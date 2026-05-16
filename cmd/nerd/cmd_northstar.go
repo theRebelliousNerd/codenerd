@@ -411,9 +411,9 @@ var northstarStatsCmd = &cobra.Command{
 
 // NorthstarState mirrors the NorthstarWizardState from chat package
 type NorthstarState struct {
-	Mission        string           `json:"Mission"`
-	Problem        string           `json:"Problem"`
-	Vision         string           `json:"Vision"`
+	Mission        string                 `json:"Mission"`
+	Problem        string                 `json:"Problem"`
+	Vision         string                 `json:"Vision"`
 	Personas       []NorthstarPersona     `json:"Personas"`
 	Capabilities   []NorthstarCapability  `json:"Capabilities"`
 	Risks          []NorthstarRisk        `json:"Risks"`

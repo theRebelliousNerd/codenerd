@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	schemaV1Once            sync.Once
-	schemaV1JSON            string
+	schemaV1Once             sync.Once
+	schemaV1JSON             string
 	schemaV1SingleClauseOnce sync.Once
 	schemaV1SingleClauseJSON string
 )
@@ -76,7 +76,7 @@ func buildSchema(singleClause bool) map[string]interface{} {
 	}, "clauses")
 
 	return schemaObject(map[string]interface{}{
-		"format": schemaEnum(FormatV1),
+		"format":  schemaEnum(FormatV1),
 		"program": program,
 	}, "format", "program")
 }

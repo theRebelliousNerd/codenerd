@@ -160,16 +160,16 @@ type ToolSummary struct {
 
 // ToolCompilationStats tracks JIT compilation performance.
 type ToolCompilationStats struct {
-	Duration        time.Duration `json:"duration"`
-	TotalTools      int           `json:"total_tools"`
-	SelectedTools   int           `json:"selected_tools"`
-	SkeletonTools   int           `json:"skeleton_tools"`
-	FleshTools      int           `json:"flesh_tools"`
-	VectorQueryMs   int64         `json:"vector_query_ms"`
-	MangleQueryMs   int64         `json:"mangle_query_ms"`
-	TokensUsed      int           `json:"tokens_used"`
-	TokenBudget     int           `json:"token_budget"`
-	CacheHit        bool          `json:"cache_hit"`
+	Duration      time.Duration `json:"duration"`
+	TotalTools    int           `json:"total_tools"`
+	SelectedTools int           `json:"selected_tools"`
+	SkeletonTools int           `json:"skeleton_tools"`
+	FleshTools    int           `json:"flesh_tools"`
+	VectorQueryMs int64         `json:"vector_query_ms"`
+	MangleQueryMs int64         `json:"mangle_query_ms"`
+	TokensUsed    int           `json:"tokens_used"`
+	TokenBudget   int           `json:"token_budget"`
+	CacheHit      bool          `json:"cache_hit"`
 }
 
 // ToolSelectionConfig holds thresholds and weights for tool selection.

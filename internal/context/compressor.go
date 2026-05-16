@@ -233,11 +233,11 @@ func (c *Compressor) refreshActivationContextsLocked() {
 	}
 	if issueID == "" {
 		if issues := getFacts("issue_context"); len(issues) > 0 {
-		issueID, _ = issues[len(issues)-1].Args[0].(string)
-		source = "issue_tracker"
+			issueID, _ = issues[len(issues)-1].Args[0].(string)
+			source = "issue_tracker"
 		} else if kws := getFacts("issue_keyword"); len(kws) > 0 {
-		issueID, _ = kws[len(kws)-1].Args[0].(string)
-		source = "issue_tracker"
+			issueID, _ = kws[len(kws)-1].Args[0].(string)
+			source = "issue_tracker"
 		}
 	}
 

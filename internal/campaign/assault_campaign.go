@@ -174,4 +174,3 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 
 	return c
 }
-

@@ -34,9 +34,9 @@ type EnhancedEditValidator struct {
 // NewEnhancedEditValidator creates an enhanced edit validator.
 func NewEnhancedEditValidator() *EnhancedEditValidator {
 	return &EnhancedEditValidator{
-		VerifyContext:     3,     // Check 3 lines before/after for corruption
-		RequireExactMatch: true,  // Exact byte match required
-		MaxStaleSeconds:   30,    // Must be modified within 30s
+		VerifyContext:     3,    // Check 3 lines before/after for corruption
+		RequireExactMatch: true, // Exact byte match required
+		MaxStaleSeconds:   30,   // Must be modified within 30s
 	}
 }
 
@@ -296,12 +296,12 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 				"structure_integrity",
 				"singularity_check",
 			},
-			"old_removed":            oldContent != "",
-			"new_present":            newContent != "",
-			"new_occurrence_count":   newCount,
-			"multiple_occurrences":   multipleOccurrences,
-			"age_seconds":            age,
-			"file_size":              len(actualBytes),
+			"old_removed":          oldContent != "",
+			"new_present":          newContent != "",
+			"new_occurrence_count": newCount,
+			"multiple_occurrences": multipleOccurrences,
+			"age_seconds":          age,
+			"file_size":            len(actualBytes),
 		},
 	}
 }

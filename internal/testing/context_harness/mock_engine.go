@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"codenerd/internal/core"
 	internalcontext "codenerd/internal/context"
+	"codenerd/internal/core"
 )
 
 // scoredFact represents a fact with an activation score for sorting.

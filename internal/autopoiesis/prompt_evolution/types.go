@@ -231,10 +231,10 @@ type GeneratedAtom struct {
 	Atom *prompt.PromptAtom `json:"atom"`
 
 	// Origin
-	Source     string   `json:"source"`      // "failure_analysis", "strategy_refinement"
-	SourceIDs  []string `json:"source_ids"`  // Which failures/strategies triggered this
-	ShardType  string   `json:"shard_type"`  // Which shard type it's for
-	ProblemType string  `json:"problem_type"` // Which problem type it addresses
+	Source      string   `json:"source"`       // "failure_analysis", "strategy_refinement"
+	SourceIDs   []string `json:"source_ids"`   // Which failures/strategies triggered this
+	ShardType   string   `json:"shard_type"`   // Which shard type it's for
+	ProblemType string   `json:"problem_type"` // Which problem type it addresses
 
 	// Confidence
 	Confidence float64 `json:"confidence"` // 0.0-1.0
@@ -265,7 +265,7 @@ func (ga *GeneratedAtom) ShouldPromote(threshold float64) bool {
 
 // EvolutionResult summarizes what happened during an evolution cycle.
 type EvolutionResult struct {
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time     `json:"timestamp"`
 	Duration  time.Duration `json:"duration"`
 
 	// Input
@@ -273,11 +273,11 @@ type EvolutionResult struct {
 	GroupsProcessed  int `json:"groups_processed"`
 
 	// Output
-	AtomsGenerated     int      `json:"atoms_generated"`
-	AtomIDs            []string `json:"atom_ids,omitempty"`
-	StrategiesCreated  int      `json:"strategies_created"`
-	StrategiesRefined  int      `json:"strategies_refined"`
-	AtomsPromoted      int      `json:"atoms_promoted"`
+	AtomsGenerated    int      `json:"atoms_generated"`
+	AtomIDs           []string `json:"atom_ids,omitempty"`
+	StrategiesCreated int      `json:"strategies_created"`
+	StrategiesRefined int      `json:"strategies_refined"`
+	AtomsPromoted     int      `json:"atoms_promoted"`
 
 	// Errors
 	Errors []string `json:"errors,omitempty"`
@@ -300,7 +300,7 @@ type EvolutionStats struct {
 	AtomsRejected       int `json:"atoms_rejected"`
 
 	// Strategy Counts
-	TotalStrategies   int     `json:"total_strategies"`
+	TotalStrategies        int     `json:"total_strategies"`
 	AvgStrategySuccessRate float64 `json:"avg_strategy_success_rate"`
 
 	// Feedback
@@ -309,6 +309,6 @@ type EvolutionStats struct {
 	OverallSuccessRate      float64 `json:"overall_success_rate"`
 
 	// Timing
-	LastEvolutionAt   time.Time `json:"last_evolution_at"`
-	AvgCycleDuration  time.Duration `json:"avg_cycle_duration"`
+	LastEvolutionAt  time.Time     `json:"last_evolution_at"`
+	AvgCycleDuration time.Duration `json:"avg_cycle_duration"`
 }

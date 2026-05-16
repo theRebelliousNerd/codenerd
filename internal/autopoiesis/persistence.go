@@ -309,15 +309,15 @@ JSON only:`, input, result.NeedsPersistent, result.Reasons)
 
 // AgentSpec defines the specification for creating a persistent agent
 type AgentSpec struct {
-	Name          string            // Unique agent name
-	Type          string            // Agent type (code_reviewer, monitor, etc.)
-	Purpose       string            // Human-readable purpose
-	SystemPrompt  string            // System prompt for the agent
-	Triggers      []TriggerSpec     // What triggers the agent
-	LearningStore string            // Path to learning storage
-	Schedule      ScheduleSpec      // When to run
-	Outputs       []string          // Where to send outputs
-	Memory        MemorySpec        // Memory configuration
+	Name          string        // Unique agent name
+	Type          string        // Agent type (code_reviewer, monitor, etc.)
+	Purpose       string        // Human-readable purpose
+	SystemPrompt  string        // System prompt for the agent
+	Triggers      []TriggerSpec // What triggers the agent
+	LearningStore string        // Path to learning storage
+	Schedule      ScheduleSpec  // When to run
+	Outputs       []string      // Where to send outputs
+	Memory        MemorySpec    // Memory configuration
 }
 
 // TriggerSpec defines what triggers an agent
@@ -329,22 +329,22 @@ type TriggerSpec struct {
 
 // ScheduleSpec defines when an agent runs
 type ScheduleSpec struct {
-	Type       string // "continuous", "event", "scheduled"
-	Expression string // Cron expression for scheduled
+	Type       string   // "continuous", "event", "scheduled"
+	Expression string   // Cron expression for scheduled
 	Events     []string // Events for event-based
 }
 
 // MemorySpec defines agent memory configuration
 type MemorySpec struct {
-	Enabled      bool   // Whether memory is enabled
-	StoragePath  string // Where to store memories
-	RetentionDays int   // How long to keep memories
+	Enabled       bool   // Whether memory is enabled
+	StoragePath   string // Where to store memories
+	RetentionDays int    // How long to keep memories
 }
 
 // AgentCreator creates persistent agents
 type AgentCreator struct {
-	client      LLMClient
-	agentsDir   string // Directory for agent definitions
+	client    LLMClient
+	agentsDir string // Directory for agent definitions
 }
 
 // NewAgentCreator creates a new agent creator

@@ -1,4 +1,5 @@
 //go:build integration
+
 package store_test
 
 import (

@@ -32,8 +32,6 @@ type TaskDelegator interface {
 	Execute(ctx context.Context, intent string, task string) (string, error)
 }
 
-
-
 // One-time imports
 var _ = types.ShardConfig{}
 

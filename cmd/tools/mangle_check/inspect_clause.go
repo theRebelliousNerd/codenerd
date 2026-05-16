@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"github.com/google/mangle/ast"
+	"reflect"
 )
 
 func main() {
@@ -13,4 +13,3 @@ func main() {
 		fmt.Printf("Field: %s\n", t.Field(i).Name)
 	}
 }
-

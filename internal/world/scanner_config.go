@@ -104,4 +104,3 @@ func isIgnoredRel(rel, name string, patterns []string) bool {
 	}
 	return false
 }
-

@@ -32,13 +32,13 @@ type ValidationResult struct {
 
 // ValidationSummary holds the overall validation results.
 type ValidationSummary struct {
-	TotalDBs      int                          `json:"total_dbs"`
-	ValidDBs      int                          `json:"valid_dbs"`
-	InvalidDBs    int                          `json:"invalid_dbs"`
-	Results       map[string]*ValidationResult `json:"results"`
-	BackupFiles   []string                     `json:"backup_files,omitempty"`
-	OverallValid  bool                         `json:"overall_valid"`
-	Errors        []string                     `json:"errors,omitempty"`
+	TotalDBs     int                          `json:"total_dbs"`
+	ValidDBs     int                          `json:"valid_dbs"`
+	InvalidDBs   int                          `json:"invalid_dbs"`
+	Results      map[string]*ValidationResult `json:"results"`
+	BackupFiles  []string                     `json:"backup_files,omitempty"`
+	OverallValid bool                         `json:"overall_valid"`
+	Errors       []string                     `json:"errors,omitempty"`
 }
 
 // RequiredTables lists the tables that must exist in a valid agent KB.

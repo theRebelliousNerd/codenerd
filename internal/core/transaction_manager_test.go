@@ -359,11 +359,11 @@ func TestTransactionManager_ToFacts(t *testing.T) {
 // TestShadowValidationResult_Fields tests ShadowValidationResult structure.
 func TestShadowValidationResult_Fields(t *testing.T) {
 	result := &ShadowValidationResult{
-		IsValid:       true,
-		ParseErrors:   []ParseError{{FilePath: "test.go", Line: 1, Column: 0, Message: "error"}},
-		SafetyBlocks:  []SafetyBlock{{Ref: "ref", Reason: "reason", Rule: "rule"}},
-		Warnings:      []string{"warning"},
-		AffectedRefs:  []string{"ref1", "ref2"},
+		IsValid:      true,
+		ParseErrors:  []ParseError{{FilePath: "test.go", Line: 1, Column: 0, Message: "error"}},
+		SafetyBlocks: []SafetyBlock{{Ref: "ref", Reason: "reason", Rule: "rule"}},
+		Warnings:     []string{"warning"},
+		AffectedRefs: []string{"ref1", "ref2"},
 	}
 
 	if !result.IsValid {

@@ -24,7 +24,7 @@ const (
 // AssaultStage defines one per-target action performed during the assault sweep.
 type AssaultStage struct {
 	Kind AssaultStageKind `json:"kind"`
-	Name string          `json:"name"`
+	Name string           `json:"name"`
 
 	// Command is used only when Kind == /command. It may include "{{target}}".
 	Command string `json:"command,omitempty"`
@@ -42,9 +42,9 @@ type AssaultConfig struct {
 	// Optional path prefixes to skip (workspace-relative).
 	Exclude []string `json:"exclude,omitempty"`
 
-	BatchSize             int           `json:"batch_size,omitempty"`
-	Cycles                int           `json:"cycles,omitempty"`
-	DefaultTimeoutSeconds int           `json:"default_timeout_seconds,omitempty"`
+	BatchSize             int            `json:"batch_size,omitempty"`
+	Cycles                int            `json:"cycles,omitempty"`
+	DefaultTimeoutSeconds int            `json:"default_timeout_seconds,omitempty"`
 	Stages                []AssaultStage `json:"stages,omitempty"`
 
 	// Limit for per-command captured output (also used for on-disk logs).
@@ -60,18 +60,18 @@ type AssaultConfig struct {
 
 func DefaultAssaultConfig() AssaultConfig {
 	return AssaultConfig{
-		Scope:                AssaultScopeSubsystem,
-		BatchSize:            10,
-		Cycles:               1,
+		Scope:                 AssaultScopeSubsystem,
+		BatchSize:             10,
+		Cycles:                1,
 		DefaultTimeoutSeconds: 900, // 15 minutes
 		Stages: []AssaultStage{
 			{Kind: AssaultStageGoTest, Name: "go test", Repeat: 1},
 			{Kind: AssaultStageNemesisReview, Name: "nemesis review", Repeat: 1},
 		},
-		LogMaxBytes:          2 * 1024 * 1024, // 2MB
-		EnableNemesis:        true,
-		MaxRemediationTasks:  25,
-		ContextBudget:        200000, // 200k tokens default - caller should override from config
+		LogMaxBytes:         2 * 1024 * 1024, // 2MB
+		EnableNemesis:       true,
+		MaxRemediationTasks: 25,
+		ContextBudget:       200000, // 200k tokens default - caller should override from config
 	}
 }
 
@@ -112,4 +112,3 @@ func (c AssaultConfig) Normalize() AssaultConfig {
 	}
 	return out
 }
-

@@ -283,13 +283,13 @@ func QuickExplain(predicate string, args []interface{}) string {
 
 // OperationSummary holds summary data for a completed operation.
 type OperationSummary struct {
-	Operation     string        // What operation was performed
-	Duration      string        // How long it took
-	FilesAffected []string      // Files that were modified/read
-	RulesApplied  []string      // Mangle rules that were triggered
-	Outcome       string        // Success/failure/partial
-	Details       string        // Additional details
-	NextSteps     []string      // Suggested follow-up actions
+	Operation     string   // What operation was performed
+	Duration      string   // How long it took
+	FilesAffected []string // Files that were modified/read
+	RulesApplied  []string // Mangle rules that were triggered
+	Outcome       string   // Success/failure/partial
+	Details       string   // Additional details
+	NextSteps     []string // Suggested follow-up actions
 }
 
 // FormatOperationSummary formats an operation summary for display.

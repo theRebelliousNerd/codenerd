@@ -27,4 +27,3 @@ func runGoFmtFiles(ctx context.Context, ws string, files []string) error {
 	}
 	return nil
 }
-

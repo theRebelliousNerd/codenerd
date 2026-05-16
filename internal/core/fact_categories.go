@@ -48,34 +48,34 @@ var EphemeralPredicates = map[string]bool{
 	"action_executed": true,
 
 	// Session-specific state
-	"session_active":    true,
-	"current_turn":      true,
-	"turn_context":      true,
-	"active_shard":      true,
-	"shard_executing":   true,
-	"subagent_active":   true,
-	"subagent_task":     true,
-	"subagent_result":   true,
+	"session_active":  true,
+	"current_turn":    true,
+	"turn_context":    true,
+	"active_shard":    true,
+	"shard_executing": true,
+	"subagent_active": true,
+	"subagent_task":   true,
+	"subagent_result": true,
 
 	// Transient reasoning state
-	"hypothesis_active":  true,
-	"verification_state": true,
-	"clarification_need": true,
-	"user_input_string":  true,
-	"intent_unknown":     true,
-	"intent_unmapped":    true,
-	"no_action_reason":   true,
-	"learning_candidate": true,
-	"learning_candidate_fact": true,
+	"hypothesis_active":        true,
+	"verification_state":       true,
+	"clarification_need":       true,
+	"user_input_string":        true,
+	"intent_unknown":           true,
+	"intent_unmapped":          true,
+	"no_action_reason":         true,
+	"learning_candidate":       true,
+	"learning_candidate_fact":  true,
 	"learning_candidate_count": true,
 	"clarification_question":   true,
 	"clarification_option":     true,
 	"ooda_timeout":             true,
 
 	// Tool execution state
-	"tool_invoked":   true,
-	"tool_result":    true,
-	"tool_pending":   true,
+	"tool_invoked": true,
+	"tool_result":  true,
+	"tool_pending": true,
 
 	// Dream mode ephemeral state
 	"dream_hypothesis":  true,
@@ -87,29 +87,29 @@ var EphemeralPredicates = map[string]bool{
 	"campaign_turn":         true,
 
 	// Activation state (spreading activation is recomputed each session)
-	"activation_score":     true,
-	"context_priority":     true,
-	"selected_context":     true,
+	"activation_score": true,
+	"context_priority": true,
+	"selected_context": true,
 }
 
 // DerivedPredicates lists predicates that are computed by Mangle rules.
 // These should never be stored, only derived at runtime.
 var DerivedPredicates = map[string]bool{
 	// Safety derivations
-	"permitted":       true,
-	"blocked":         true,
-	"safe_action":     true,
-	"unsafe_action":   true,
+	"permitted":     true,
+	"blocked":       true,
+	"safe_action":   true,
+	"unsafe_action": true,
 
 	// Context derivations
-	"context_atom":        true,
-	"relevant_fact":       true,
-	"activation_spread":   true,
+	"context_atom":      true,
+	"relevant_fact":     true,
+	"activation_spread": true,
 
 	// Action routing
-	"route_to_tool":      true,
-	"route_to_shard":     true,
-	"action_type":        true,
+	"route_to_tool":                true,
+	"route_to_shard":               true,
+	"action_type":                  true,
 	"learning_confirmation_needed": true,
 	"learning_confirmation_active": true,
 
@@ -118,8 +118,8 @@ var DerivedPredicates = map[string]bool{
 	"detected_framework": true,
 
 	// Policy decisions
-	"policy_allows":      true,
-	"policy_denies":      true,
+	"policy_allows": true,
+	"policy_denies": true,
 }
 
 // IsEphemeral returns true if the predicate should not be loaded from disk.

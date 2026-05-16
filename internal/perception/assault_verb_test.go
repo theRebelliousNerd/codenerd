@@ -11,4 +11,3 @@ func TestMatchVerbFromCorpus_Assault(t *testing.T) {
 		t.Fatalf("expected /assault, got %q", verb)
 	}
 }
-

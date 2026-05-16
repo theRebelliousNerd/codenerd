@@ -20,19 +20,19 @@ const (
 // DreamPlan represents a full execution plan extracted from dream consultations.
 // It maps the high-level intent into concrete, executable subtasks.
 type DreamPlan struct {
-	ID               string            `json:"id"`
-	Hypothetical     string            `json:"hypothetical"` // Original user "dream" query
-	RiskLevel        string            `json:"risk_level"`   // low, medium, high, critical
-	Subtasks         []DreamSubtask    `json:"subtasks"`
-	Status           DreamPlanStatus   `json:"status"`
-	CreatedAt        time.Time         `json:"created_at"`
-	ApprovedAt       *time.Time        `json:"approved_at,omitempty"`
-	CompletedAt      *time.Time        `json:"completed_at,omitempty"`
-	CompletedSteps   int               `json:"completed_steps"`
-	FailedSteps      int               `json:"failed_steps"`
-	ConsultedShards  []string          `json:"consulted_shards"`
-	RequiredTools    []string          `json:"required_tools"`
-	PendingQuestions []string          `json:"pending_questions"`
+	ID               string          `json:"id"`
+	Hypothetical     string          `json:"hypothetical"` // Original user "dream" query
+	RiskLevel        string          `json:"risk_level"`   // low, medium, high, critical
+	Subtasks         []DreamSubtask  `json:"subtasks"`
+	Status           DreamPlanStatus `json:"status"`
+	CreatedAt        time.Time       `json:"created_at"`
+	ApprovedAt       *time.Time      `json:"approved_at,omitempty"`
+	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
+	CompletedSteps   int             `json:"completed_steps"`
+	FailedSteps      int             `json:"failed_steps"`
+	ConsultedShards  []string        `json:"consulted_shards"`
+	RequiredTools    []string        `json:"required_tools"`
+	PendingQuestions []string        `json:"pending_questions"`
 }
 
 // DreamSubtask is a single step in a dream plan.

@@ -25,9 +25,9 @@ func NewFeedbackTracer(writer io.Writer, verbose bool) *FeedbackTracer {
 
 // FeedbackSnapshot captures a context feedback event.
 type FeedbackSnapshot struct {
-	Timestamp   time.Time
-	TurnNumber  int
-	IntentVerb  string
+	Timestamp  time.Time
+	TurnNumber int
+	IntentVerb string
 
 	// Feedback from LLM
 	OverallUsefulness float64  // 0.0-1.0
@@ -39,19 +39,19 @@ type FeedbackSnapshot struct {
 	ActivePredicates []PredicateFeedbackState
 
 	// Historical learning state
-	LearnedPredicates []PredicateFeedbackState
+	LearnedPredicates    []PredicateFeedbackState
 	TotalFeedbackSamples int
 }
 
 // PredicateFeedbackState represents the learned state of a predicate.
 type PredicateFeedbackState struct {
-	Predicate     string
-	HelpfulCount  int
-	NoiseCount    int
-	TotalMentions int
+	Predicate       string
+	HelpfulCount    int
+	NoiseCount      int
+	TotalMentions   int
 	UsefulnessScore float64 // -1.0 to +1.0
 	ScoreComponent  float64 // Contribution to activation score (-20 to +20)
-	LastUpdated   time.Time
+	LastUpdated     time.Time
 }
 
 // TraceFeedback logs a context feedback event.

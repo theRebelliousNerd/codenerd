@@ -1,4 +1,5 @@
 //go:build integration
+
 package core
 
 import (
@@ -116,8 +117,8 @@ func (s *FileValidatorIntegrationSuite) TestFileWriteValidator_NoExpectedContent
 	s.Require().NoError(err)
 
 	req := ActionRequest{
-		Type:   ActionWriteFile,
-		Target: filePath,
+		Type:    ActionWriteFile,
+		Target:  filePath,
 		Payload: map[string]interface{}{}, // No content expectation
 	}
 	result := ActionResult{

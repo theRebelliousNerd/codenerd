@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"codenerd/internal/core"
 	internalcontext "codenerd/internal/context"
+	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 )
@@ -257,7 +257,6 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 
 	return result, nil
 }
-
 
 // GetCompressionStats returns original and compressed token counts.
 func (e *RealIntegrationEngine) GetCompressionStats() (originalTokens, compressedTokens int) {

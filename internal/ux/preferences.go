@@ -63,8 +63,8 @@ type TelemetryPrefs struct {
 
 // LearnedPatterns stores user corrections and preferences.
 type LearnedPatterns struct {
-	IntentCorrections  []IntentCorrection       `json:"intent_corrections,omitempty"`
-	CommandPreferences map[string]CommandPrefs  `json:"command_preferences,omitempty"`
+	IntentCorrections  []IntentCorrection      `json:"intent_corrections,omitempty"`
+	CommandPreferences map[string]CommandPrefs `json:"command_preferences,omitempty"`
 }
 
 // IntentCorrection records when the user corrected a parse.
