@@ -21,16 +21,16 @@ import (
 
 // --- Mocks ---
 
-type mockTransducer struct {
+type sclMockTransducer struct {
 	intentToReturn string
 	delay          time.Duration
 }
 
-func (m *mockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
+func (m *sclMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
 	return perception.Intent{Category: m.intentToReturn}, nil
 }
 
-func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+func (m *sclMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
 	if m.delay > 0 {
 		select {
 		case <-time.After(m.delay):
@@ -41,30 +41,30 @@ func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input strin
 	return perception.Intent{Category: m.intentToReturn}, nil
 }
 
-func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+func (m *sclMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
 	return perception.Intent{Category: m.intentToReturn}, nil, nil
 }
 
-func (m *mockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
+func (m *sclMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
 
-func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
+func (m *sclMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
 
-func (m *mockTransducer) SetStrategicContext(context string) {}
+func (m *sclMockTransducer) SetStrategicContext(context string) {}
 
-func (m *mockTransducer) GetContext() string {
+func (m *sclMockTransducer) GetContext() string {
 	return "mock_context"
 }
 
-type mockJITCompiler struct {
+type sclMockJITCompiler struct {
 	promptToReturn *prompt.CompilationResult
 	errToReturn    error
 	delay          time.Duration
 	panicMode      bool
 }
 
-func (m *mockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+func (m *sclMockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
 	if m.panicMode {
 		panic("mock compiler panic")
 	}
@@ -78,20 +78,20 @@ func (m *mockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 	return m.promptToReturn, m.errToReturn
 }
 
-type mockConfigFactory struct {
+type sclMockConfigFactory struct {
 	configToReturn *config.AgentConfig
 	errToReturn    error
 	panicMode      bool
 }
 
-func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *sclMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
 	if m.panicMode {
 		panic("mock config factory panic")
 	}
 	return m.configToReturn, m.errToReturn
 }
 
-type mockLLMClient struct {
+type sclMockLLMClient struct {
 	responseToReturn *types.LLMToolResponse
 	errToReturn      error
 	delay            time.Duration
@@ -100,14 +100,14 @@ type mockLLMClient struct {
 	infiniteLoopMode bool
 }
 
-func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+func (m *sclMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
-func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+func (m *sclMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 	return "", fmt.Errorf("not implemented")
 }
 
-func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, toolDefs []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (m *sclMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, toolDefs []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
 	m.invocations++
 	m.mu.Unlock()
@@ -134,7 +134,7 @@ func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, use
 
 // --- Setup Helpers ---
 
-func setupExecutor(t *testing.T, tr *mockTransducer, jc *mockJITCompiler, cf *mockConfigFactory, lc *mockLLMClient) *session.Executor {
+func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, cf *sclMockConfigFactory, lc *sclMockLLMClient) *session.Executor {
 	t.Helper()
 
 	tools.Global().Register(&tools.Tool{
@@ -160,10 +160,10 @@ func setupExecutor(t *testing.T, tr *mockTransducer, jc *mockJITCompiler, cf *mo
 // --- Smoke Tests ---
 
 func TestE2E_SessionExecutor_Smoke_PipelineCompletes(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Smoke test response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Smoke test response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "Hello")
@@ -182,10 +182,10 @@ func TestE2E_SessionExecutor_Smoke_PipelineCompletes(t *testing.T) {
 // --- Contract Violation Tests ---
 
 func TestE2E_SessionExecutor_TransducerEmptyIntent_GracefulFallback(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: ""}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Handled empty intent"}}
+	tr := &sclMockTransducer{intentToReturn: ""}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Handled empty intent"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	_, err := exec.Process(context.Background(), "do something")
@@ -196,10 +196,10 @@ func TestE2E_SessionExecutor_TransducerEmptyIntent_GracefulFallback(t *testing.T
 }
 
 func TestE2E_SessionExecutor_JITCompilerHangs_ContextTimeout(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{delay: 10 * time.Second}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{delay: 10 * time.Second}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -214,16 +214,16 @@ func TestE2E_SessionExecutor_JITCompilerHangs_ContextTimeout(t *testing.T) {
 }
 
 func TestE2E_SessionExecutor_LLMHallucinatesUnconfiguredTool_Blocks(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
 
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
 		Tools: config.ToolSet{
 			AllowedTools: []string{"dummy_tool"},
 		},
 	}}
 
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
 		Text: "Calling nuke_db",
 		ToolCalls: []types.ToolCall{
 			{ID: "call_1", Name: "nuke_db", Input: map[string]interface{}{}},
@@ -243,10 +243,10 @@ func TestE2E_SessionExecutor_LLMHallucinatesUnconfiguredTool_Blocks(t *testing.T
 }
 
 func TestE2E_SessionExecutor_JITCompilerFails_FallsBackToBaseline(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{errToReturn: fmt.Errorf("JIT failure")}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Baseline response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{errToReturn: fmt.Errorf("JIT failure")}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Baseline response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "Hello")
@@ -260,10 +260,10 @@ func TestE2E_SessionExecutor_JITCompilerFails_FallsBackToBaseline(t *testing.T) 
 }
 
 func TestE2E_SessionExecutor_ConfigFactoryFails_FallsBackToEmptyConfig(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{errToReturn: fmt.Errorf("Config failure")}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Empty config response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{errToReturn: fmt.Errorf("Config failure")}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Empty config response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "Hello")
@@ -283,10 +283,10 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 		t.Skip("Skipping concurrent test in short mode")
 	}
 
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "concurrent response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "concurrent response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -310,11 +310,11 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 }
 
 func TestE2E_SessionExecutor_ContextCancellation_MidFlight_NoStateLeak(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
 
-	lc := &mockLLMClient{delay: 10 * time.Second}
+	lc := &sclMockLLMClient{delay: 10 * time.Second}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -343,12 +343,12 @@ func TestE2E_SessionExecutor_ContextCancellation_MidFlight_NoStateLeak(t *testin
 // --- Resource Exhaustion & Temporal Tests ---
 
 func TestE2E_SessionExecutor_InfiniteToolLoop_MaxToolCalls(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
 		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
 	}}
-	lc := &mockLLMClient{infiniteLoopMode: true}
+	lc := &sclMockLLMClient{infiniteLoopMode: true}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -364,12 +364,12 @@ func TestE2E_SessionExecutor_InfiniteToolLoop_MaxToolCalls(t *testing.T) {
 }
 
 func TestE2E_SessionExecutor_ToolExecutionHangs_TimeoutEnforced(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
 		Tools: config.ToolSet{AllowedTools: []string{"hanging_tool"}},
 	}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
 		Text: "Called hanging tool",
 		ToolCalls: []types.ToolCall{
 			{ID: "call_1", Name: "hanging_tool", Input: map[string]interface{}{}},
@@ -391,10 +391,10 @@ func TestE2E_SessionExecutor_ToolExecutionHangs_TimeoutEnforced(t *testing.T) {
 // --- Pipeline Integrity Tests ---
 
 func TestE2E_SessionExecutor_MultiTurnAccumulation_NoLeak(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -428,10 +428,10 @@ func TestE2E_SessionExecutor_MultiTurnAccumulation_NoLeak(t *testing.T) {
 // CONTRACT: Executor can tolerate partial config failure.
 // FAILURE: ConfigFactory panics. Expected: Executor recovers, uses empty config.
 func TestE2E_SessionExecutor_PartialPipelineFailure(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{panicMode: true}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "handled panic"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{panicMode: true}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "handled panic"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -451,10 +451,10 @@ func TestE2E_SessionExecutor_PartialPipelineFailure(t *testing.T) {
 // CONTRACT: Asynchronous learning via taxonomy must not block the critical path.
 // FAILURE: Taxonomy queue blocks (simulated by fast response). Expected: Fast overall duration.
 func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "fast response"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "fast response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -475,10 +475,10 @@ func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
 // CONTRACT: Executor can handle edge cases where LLM returns nothing.
 // FAILURE: LLM returns empty string and no tools. Expected: No panic, handles gracefully.
 func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: ""}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: ""}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "empty me")
@@ -496,10 +496,10 @@ func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
 // CONTRACT: Extremely large inputs/outputs don't crash the history manager.
 // FAILURE: User sends 10MB string. Expected: Process succeeds without OOM.
 func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "handled"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "handled"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 
@@ -515,12 +515,12 @@ func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
 // CONTRACT: Malformed tool arguments don't crash the executor.
 // FAILURE: LLM returns malformed JSON arguments for a valid tool. Expected: Tool error, process continues.
 func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
 		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
 	}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
 		Text: "Calling with bad args",
 		ToolCalls: []types.ToolCall{
 			{ID: "call_1", Name: "dummy_tool", Input: map[string]interface{}{"bad": make(chan int)}},
@@ -543,12 +543,12 @@ func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
 // CONTRACT: Tool execution should not be able to poison the agent config for subsequent turns.
 // FAILURE: (Conceptual) Tool modifies state. Expected: Subsequent calls use pure config.
 func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
 		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
 	}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn"}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	_, err := exec.Process(context.Background(), "turn 1")
@@ -565,10 +565,10 @@ func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 // CONTRACT: The pipeline must never crash if a subsystem fails.
 // FAILURE: The Transducer returns valid intent but JIT compilation fails entirely. Expected: Recovery.
 func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{errToReturn: fmt.Errorf("JIT totally failed")}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Survived the crash"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{errToReturn: fmt.Errorf("JIT totally failed")}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Survived the crash"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	res, err := exec.Process(context.Background(), "do a flip")
@@ -587,10 +587,10 @@ func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.
 // a known vulnerability where malformed format strings in logging can crash the system.
 // We just verify it executes fully.
 func TestE2E_SessionExecutor_LoggingPanic_Recovery(t *testing.T) {
-	tr := &mockTransducer{intentToReturn: "/coder"}
-	jc := &mockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &mockConfigFactory{configToReturn: &config.AgentConfig{}}
-	lc := &mockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Logging is safe"}}
+	tr := &sclMockTransducer{intentToReturn: "/coder"}
+	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
+	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Logging is safe"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
 	_, err := exec.Process(context.Background(), "test logging %s %v %x")

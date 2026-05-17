@@ -23,17 +23,17 @@ import (
 // MOCKS & HELPERS (Minimal as required)
 // =============================================================================
 
-type mockLLMClient struct {
+type sekMockLLMClient struct {
 	responses []string
 	idx       int
 	mu        sync.Mutex
 	delay     time.Duration
 }
 
-func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
+func (m *sekMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
 	return m.CompleteWithSystem(ctx, "", prompt)
 }
-func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userInput string) (string, error) {
+func (m *sekMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userInput string) (string, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -51,7 +51,7 @@ func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 	return "mock response", nil
 }
 
-func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+func (m *sekMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userInput string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.delay > 0 {
@@ -68,25 +68,25 @@ func (m *mockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, use
 	return &types.LLMToolResponse{Text: "mock response"}, nil
 }
 
-type mockTransducer struct{}
+type sekMockTransducer struct{}
 
-func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
+func (m *sekMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {
 	intent, err := m.ParseIntentWithContext(ctx, input, history)
 	return intent, nil, err
 }
 
-func (m *mockTransducer) SetStrategicContext(context string)                         {}
-func (m *mockTransducer) SetPromptAssembler(assembler *articulation.PromptAssembler) {}
+func (m *sekMockTransducer) SetStrategicContext(context string)                         {}
+func (m *sekMockTransducer) SetPromptAssembler(assembler *articulation.PromptAssembler) {}
 
-func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, history []string) (perception.FocusResolution, error) {
+func (m *sekMockTransducer) ResolveFocus(ctx context.Context, input string, history []string) (perception.FocusResolution, error) {
 
 	return perception.FocusResolution{}, nil
 }
-func (m *mockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
+func (m *sekMockTransducer) ParseIntent(ctx context.Context, input string) (perception.Intent, error) {
 
 	return m.ParseIntentWithContext(ctx, input, nil)
 }
-func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+func (m *sekMockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
 
 	return perception.Intent{Verb: "test", Target: "e2e"}, nil
 }
@@ -100,8 +100,8 @@ func setupE2EEnvironment(t *testing.T) (*core.RealKernel, *session.Executor) {
 	}
 
 	virtualStore := core.NewVirtualStore(nil)
-	llm := &mockLLMClient{}
-	transducer := &mockTransducer{}
+	llm := &sekMockLLMClient{}
+	transducer := &sekMockTransducer{}
 
 	cfg := session.DefaultExecutorConfig()
 	cfg.EnableSafetyGate = true
@@ -213,7 +213,7 @@ func TestE2E_SessionKernel_ContractViolation_NilKernelPanic(t *testing.T) {
 	cfg := session.DefaultExecutorConfig()
 	cfg.EnableSafetyGate = true
 	// Executor with nil kernel
-	executor := session.NewExecutor(nil, nil, &mockLLMClient{}, nil, nil, &mockTransducer{})
+	executor := session.NewExecutor(nil, nil, &sekMockLLMClient{}, nil, nil, &sekMockTransducer{})
 
 	// We expect this to fail gracefully (fail closed) rather than panic.
 	// Since Process will eventually try to check safety...
@@ -437,11 +437,11 @@ func TestE2E_SessionKernel_Temporal_SlowLLM_SessionTimeout(t *testing.T) {
 	kernel, _ := core.NewRealKernel()
 	virtualStore := core.NewVirtualStore(nil)
 
-	llm := &mockLLMClient{delay: 3 * time.Second} // Slower than tool timeout
+	llm := &sekMockLLMClient{delay: 3 * time.Second} // Slower than tool timeout
 	cfg := session.DefaultExecutorConfig()
 	cfg.ToolTimeout = 1 * time.Second // Tight timeout
 
-	executor := session.NewExecutor(kernel, virtualStore, llm, nil, nil, &mockTransducer{})
+	executor := session.NewExecutor(kernel, virtualStore, llm, nil, nil, &sekMockTransducer{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -718,8 +718,8 @@ func TestE2E_SessionKernel_InvalidConfigRejection(t *testing.T) {
 	// to Executor, but safety gate is required.
 	kernel, _ := core.NewRealKernel()
 	_ = core.NewVirtualStore(nil)
-	llm := &mockLLMClient{}
-	transducer := &mockTransducer{}
+	llm := &sekMockLLMClient{}
+	transducer := &sekMockTransducer{}
 
 	// Create with config that has impossible constraints
 	cfg := session.DefaultExecutorConfig()
