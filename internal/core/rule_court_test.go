@@ -89,3 +89,13 @@ func TestRuleCourt_RatifyAskUserVeto(t *testing.T) {
 		t.Logf("Got expected ask_user veto: %v", err)
 	}
 }
+
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify RatifyRule handles a nil kernel parameter gracefully without panicking.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify RatifyRule rejects rules that consist entirely of zero-width spaces or non-breaking spaces, not just standard whitespace.
+// TODO: TEST_GAP: [Type Coercion] Verify RatifyRule handles rules with null bytes (\x00) or invalid UTF-8 sequences as syntax errors rather than crashing the parser.
+// TODO: TEST_GAP: [Type Coercion] Verify RatifyRule rejects rules that reference undeclared schemas or types, propagating the error from sandbox.Evaluate().
+// TODO: TEST_GAP: [User Request Extremes] Verify RatifyRule correctly handles an enormous rule string (e.g., 10MB) without OOMing or hanging indefinitely.
+// TODO: TEST_GAP: [User Request Extremes] Verify sandbox.Evaluate() enforces a strict context timeout to prevent infinite derivation loops in recursive logic.
+// TODO: TEST_GAP: [State Conflicts] Verify RatifyRule correctly identifies and vetoes rules even under heavy concurrency during GetFactsSnapshot.
+// TODO: TEST_GAP: [State Conflicts] Verify the "ask_user" safety hatch isn't triggered as a false positive for safe logic (e.g., a rule containing the substring "ask_user_id").
