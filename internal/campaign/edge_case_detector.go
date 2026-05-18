@@ -6,6 +6,7 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -271,6 +272,13 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 		if fileInfo, exists := intel.FileTopology[path]; exists {
 			decision.Exists = true
 			decision.Language = fileInfo.Language
+		}
+	}
+
+	// Double check file existence with the filesystem
+	if decision.Exists {
+		if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
+			decision.Exists = false
 		}
 	}
 
@@ -815,10 +823,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
 // golang/typescript-style suffixes (`_types`, `_helpers`) which could be invalid syntax.
-
-// TODO: Missing Edge Case - State Conflicts: Race condition between `intel` and actual filesystem.
-// Files marked `Exists: true` in intelligence might have been deleted. Should verify
-// against `os.Stat(path)` to prevent invalid `ActionExtend` or `ActionModularize` commands.
 
 // TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
 // `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
