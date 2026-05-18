@@ -4,8 +4,10 @@
 package campaign
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -274,6 +276,15 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 		}
 	}
 
+	// Verify actual filesystem state to handle empty IntelligenceReport or race conditions.
+	// This ensures we don't incorrectly recommend ActionCreate for an existing file,
+	// or ActionExtend for a file that was just deleted.
+	if _, err := os.Stat(path); err == nil {
+		decision.Exists = true
+	} else if os.IsNotExist(err) {
+		decision.Exists = false
+	}
+
 	// If file doesn't exist, recommend creation
 	if !decision.Exists {
 		decision.RecommendedAction = ActionCreate
@@ -295,34 +306,51 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 
 // gatherMetrics populates decision metrics from intelligence data.
 func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport) {
-	if intel == nil {
-		return
-	}
+	if intel != nil {
+		// Get churn rate from git history
+		for _, hotspot := range intel.GitChurnHotspots {
+			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
+				decision.ChurnRate = hotspot.ChurnRate
+				break
+			}
+		}
 
-	// Get churn rate from git history
-	for _, hotspot := range intel.GitChurnHotspots {
-		if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
-			decision.ChurnRate = hotspot.ChurnRate
-			break
+		// Count symbols in file
+		symbolCount := 0
+		for _, symbol := range intel.SymbolGraph {
+			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
+				symbolCount++
+			}
+		}
+		// Estimate line count from symbol density
+		decision.LineCount = symbolCount * 25 // Rough estimate
+
+		// Check for test file
+		if strings.HasSuffix(path, "_test.go") {
+			decision.HasTests = true
+		} else {
+			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
+			_, decision.HasTests = intel.FileTopology[testPath]
 		}
 	}
 
-	// Count symbols in file
-	symbolCount := 0
-	for _, symbol := range intel.SymbolGraph {
-		if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
-			symbolCount++
+	// Fallback line count if we couldn't get it from symbols
+	if decision.LineCount == 0 && decision.Exists {
+		if content, err := os.ReadFile(path); err == nil {
+			decision.LineCount = bytes.Count(content, []byte("\n"))
 		}
 	}
-	// Estimate line count from symbol density
-	decision.LineCount = symbolCount * 25 // Rough estimate
 
-	// Check for test file
-	if strings.HasSuffix(path, "_test.go") {
-		decision.HasTests = true
-	} else {
-		testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
-		_, decision.HasTests = intel.FileTopology[testPath]
+	// Fallback has tests
+	if !decision.HasTests {
+		if strings.HasSuffix(path, "_test.go") {
+			decision.HasTests = true
+		} else {
+			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
+			if _, err := os.Stat(testPath); err == nil {
+				decision.HasTests = true
+			}
+		}
 	}
 
 	// Query kernel for dependencies
@@ -803,10 +831,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
 // AnalyzeFiles should filter or reject `""` paths before processing them.
 // detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
-// If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
-// to incorrect Action decisions.
 
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
