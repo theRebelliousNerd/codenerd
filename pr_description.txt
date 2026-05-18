@@ -1,7 +1,0 @@
-🔒 Fix command injection vulnerability in RunCommandTool
-
-🎯 **What:** The `RunCommandTool` (`internal/tools/shell/execute.go`) was executing shell commands unsafely via `exec.CommandContext(ctx, "sh", "-c", command)` and `cmd /C`, which exposed the system to significant command injection vulnerabilities.
-
-⚠️ **Risk:** Arbitrary command injection. If a malicious user or hallucinating AI passed unescaped input to this tool, they could execute arbitrary shell commands on the host machine. The blast radius of this is complete host execution compromise.
-
-🛡️ **Solution:** Replaced native shell execution with `github.com/kballard/go-shellquote`. This module safely parses the shell command string into an arguments array, allowing it to be executed natively using `exec.CommandContext` without touching the vulnerable OS interpreters. Also updated the test cases to ensure the tools run efficiently without regressions using this secure pattern.
