@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -392,8 +393,18 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	return s.configFactory.Generate(ctx, compileResult, intentVerb)
 }
 
+// maxSpecialistConfigSize is the maximum allowed size for a specialist config YAML file.
+// Prevents DoS via oversized configs that cause the YAML parser to consume excessive CPU/memory.
+const maxSpecialistConfigSize = 1 << 20 // 1MB
+
 // loadSpecialistConfig loads a specialist's config from the filesystem.
 func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*config.AgentConfig, error) {
+	// Guard against path traversal: reject names containing ".." or path separators.
+	// Without this, a name like "../../etc/passwd" would escape .nerd/agents/.
+	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
+		return nil, fmt.Errorf("invalid specialist name %q: contains path traversal characters", name)
+	}
+
 	// Try to load from .nerd/agents/{name}/config.yaml
 	configPath := filepath.Join(".nerd", "agents", name, "config.yaml")
 	logging.SessionDebug("Loading specialist config for: %s from %s", name, configPath)
@@ -408,6 +419,12 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 		data, err = os.ReadFile(configPath)
 	}
 	if err == nil {
+		// Reject oversized configs to prevent YAML parser DoS
+		if len(data) > maxSpecialistConfigSize {
+			return nil, fmt.Errorf("specialist config for %q exceeds maximum size (%d > %d bytes)",
+				name, len(data), maxSpecialistConfigSize)
+		}
+
 		var cfg config.AgentConfig
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse specialist config at %s: %w", configPath, err)
