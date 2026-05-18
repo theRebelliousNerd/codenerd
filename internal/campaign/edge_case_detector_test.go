@@ -307,10 +307,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
 // Expected behavior: Should default to ActionCreate gracefully.
 
-// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
-// Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
-// Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
-// or cause ActionRefactorFirst permanently.
 
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.

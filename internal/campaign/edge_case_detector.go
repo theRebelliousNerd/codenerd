@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -583,8 +584,14 @@ func (d *EdgeCaseDetector) parseNumber(arg interface{}) (float64, bool) {
 	case int64:
 		return float64(v), true
 	case float32:
+		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
+			return 0, false
+		}
 		return float64(v), true
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
 		return v, true
 	default:
 		return 0, false
@@ -807,10 +814,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
 // If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
 // to incorrect Action decisions.
-
-// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
-// Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
-// trigger ActionRefactorFirst or create panics on math operations.
 
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
