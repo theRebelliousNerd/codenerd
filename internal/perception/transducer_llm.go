@@ -357,10 +357,11 @@ func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 // can derive from them without re-querying.
 //
 // Derivation chain impact:
-//   current_understanding → perception_routing.mg rules → derived_mode (IDB)
-//   llm_suggested_mode    → fallback rule in perception_routing.mg
-//   derived_primary_shard, derived_context_priority, derived_tool_priority →
-//     consumed by context_compilation.mg and jit_selection.mg (C1/C4)
+//
+//	current_understanding → perception_routing.mg rules → derived_mode (IDB)
+//	llm_suggested_mode    → fallback rule in perception_routing.mg
+//	derived_primary_shard, derived_context_priority, derived_tool_priority →
+//	  consumed by context_compilation.mg and jit_selection.mg (C1/C4)
 //
 // Fact budget: 4 fixed facts + |ContextPriorities| + |ToolPriorities| per turn.
 // All are retracted at turn start (see process.go retraction block).
@@ -454,7 +455,14 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 	var primaryScore int
 	var supporting []string
 
-	for shard, score := range shardScores {
+	keys := make([]string, 0, len(shardScores))
+	for k := range shardScores {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, shard := range keys {
+		score := shardScores[shard]
 		if score > primaryScore {
 			if primary != "" {
 				supporting = append(supporting, primary)
@@ -462,6 +470,8 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 			primary = shard
 			primaryScore = score
 		} else if score > 50 { // Threshold for supporting
+			supporting = append(supporting, shard)
+		} else if score == primaryScore && score > 0 { // For ties <= 50
 			supporting = append(supporting, shard)
 		}
 	}
