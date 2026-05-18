@@ -303,9 +303,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: The system should not panic; `detectLanguage` should return "unknown";
 // `matchesPath` behavior with empty strings must be defined and validated.
 
-// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty (but not nil).
-// Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
-// Expected behavior: Should default to ActionCreate gracefully.
 
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
@@ -329,3 +326,26 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_EmptyIntelligenceReport(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	ctx := context.Background()
+	intel := &IntelligenceReport{
+		FileTopology:     map[string]FileInfo{},
+		GitChurnHotspots: []ChurnHotspot{},
+	}
+
+	decisions, err := detector.AnalyzeFiles(ctx, []string{"new_file.go"}, intel)
+	if err != nil {
+		t.Fatalf("AnalyzeFiles failed: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("expected 1 decision, got %d", len(decisions))
+	}
+
+	if decisions[0].RecommendedAction != ActionCreate {
+		t.Errorf("expected RecommendedAction to default to ActionCreate, got %v", decisions[0].RecommendedAction)
+	}
+}

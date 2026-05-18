@@ -804,9 +804,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // AnalyzeFiles should filter or reject `""` paths before processing them.
 // detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
 
-// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
-// If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
-// to incorrect Action decisions.
 
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
