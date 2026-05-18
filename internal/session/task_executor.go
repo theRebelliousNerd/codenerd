@@ -144,6 +144,9 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, t
 		SessionContext: sessionCtx,
 	}
 
+	// Spawner.Spawn() creates the agent AND starts it via `go agent.Run(ctx, req.Task)`.
+	// We must NOT call agent.Run() again here — that would create duplicate execution
+	// (double LLM calls, double tool invocations, cancellation bypass).
 	agent, err := j.spawner.Spawn(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("failed to spawn subagent: %w", err)
@@ -160,9 +163,6 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, t
 		Completed: false,
 	}
 	j.mu.Unlock()
-
-	// Start execution in background
-	go agent.Run(context.Background(), task)
 
 	return taskID, nil
 }
@@ -223,6 +223,16 @@ func (j *JITExecutor) WaitForResult(ctx context.Context, taskID string) (string,
 	for {
 		select {
 		case <-ctx.Done():
+			// Reap the subagent to prevent zombie processes burning LLM tokens.
+			// Without this, the agent continues running even though nobody is
+			// waiting for its result.
+			if j.spawner != nil {
+				if err := j.spawner.Stop(taskID); err != nil {
+					logging.SessionDebug("WaitForResult: failed to stop subagent %s on cancellation: %v", taskID, err)
+				} else {
+					logging.Session("WaitForResult: stopped subagent %s on context cancellation", taskID)
+				}
+			}
 			return "", ctx.Err()
 		case <-ticker.C:
 			result, done, err := j.GetResult(taskID)
