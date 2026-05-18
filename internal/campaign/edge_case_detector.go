@@ -293,6 +293,15 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 		}
 	}
 
+	// Verify against actual filesystem to avoid state conflicts
+	if decision.Exists {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			decision.Exists = false
+		}
+	} else if _, err := os.Stat(path); err == nil {
+		decision.Exists = true
+	}
+
 	// If file doesn't exist, recommend creation
 	if !decision.Exists {
 		decision.RecommendedAction = ActionCreate

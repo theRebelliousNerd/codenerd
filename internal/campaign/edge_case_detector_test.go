@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -316,11 +317,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
 // Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
 
-// TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
-// The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
-// Expected behavior: Currently the detector relies on potentially stale state; a test should highlight
-// this discrepancy and a fix should query the actual filesystem (`os.Stat`) if possible.
-
 // TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
 // Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
 // Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
@@ -363,16 +359,13 @@ func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
 func TestEdgeCaseDetector_AnalyzeFiles_ContextCancellation(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
 
-	// Create an already canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// It should cancel quickly
 	decisions, err := detector.AnalyzeFiles(ctx, []string{"foo.go", "bar.go"}, nil)
 	if err != context.Canceled {
 		t.Errorf("Expected context.Canceled error, got: %v", err)
 	}
-	// It might process 0 or a subset depending on how quickly cancel is caught in the loop
 	if len(decisions) == len([]string{"foo.go", "bar.go"}) {
 		t.Errorf("Expected fewer decisions due to cancellation, got %d", len(decisions))
 	}
@@ -383,10 +376,57 @@ func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
 	ctx := context.Background()
 
 	decision := &FileDecision{}
-	// Calling gatherMetrics with intel == nil should not panic and should still populate test file status
 	detector.gatherMetrics(ctx, decision, "foo_test.go", nil)
 
 	if !decision.HasTests {
 		t.Errorf("Expected HasTests=true since path has _test.go suffix, even with nil intelligence")
+	}
+}
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file exists in intel but not on disk.
+func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	path := "non_existent_file_test.go"
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{
+			path: {Language: "go"},
+		},
+	}
+
+	decision := detector.analyzeFile(context.Background(), path, intel)
+
+	if decision.Exists {
+		t.Errorf("Expected decision.Exists to be false since file is not on disk")
+	}
+	if decision.RecommendedAction != ActionCreate {
+		t.Errorf("Expected ActionCreate, got %s", decision.RecommendedAction)
+	}
+}
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file does not exist in intel but exists on disk.
+func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	tmpFile, err := os.CreateTemp("", "testfile_*.go")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	path := tmpFile.Name()
+
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{},
+	}
+
+	decision := detector.analyzeFile(context.Background(), path, intel)
+
+	if !decision.Exists {
+		t.Errorf("Expected decision.Exists to be true since file is on disk")
+	}
+	if decision.RecommendedAction == ActionCreate {
+		t.Errorf("Expected an action other than ActionCreate")
 	}
 }
