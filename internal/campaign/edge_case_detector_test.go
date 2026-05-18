@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"math"
 	"time"
 )
 
@@ -326,6 +327,19 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
 // Test should define boundaries of acceptable latency.
 
-// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
-// Test determineAction with `LineCount = math.MaxInt32`.
-// Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+func TestEdgeCaseDetector_DetermineAction_MaxLineCount(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	decision := FileDecision{
+		LineCount: math.MaxInt32,
+	}
+
+	action, reasoning := detector.determineAction(decision)
+
+	if action != ActionModularize {
+		t.Errorf("expected %v, got %v", ActionModularize, action)
+	}
+
+	if reasoning == "" {
+		t.Errorf("expected reasoning to not be empty")
+	}
+}
