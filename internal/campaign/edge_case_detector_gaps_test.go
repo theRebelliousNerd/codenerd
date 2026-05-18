@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 )
 
 // ============================================================================
@@ -18,7 +17,7 @@ import (
 // TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext (Vector 1: Empty/Nil Contexts)
 func TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -37,7 +36,7 @@ func TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext(t *testing.T) {
 // TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence (Vector 1: Empty Intel)
 func TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
-	
+
 	// Initialized but empty intelligence report
 	intel := &IntelligenceReport{
 		FileTopology:     make(map[string]FileInfo),
@@ -79,13 +78,13 @@ func TestEdgeCaseDetectorGap_TypeCoercion(t *testing.T) {
 
 	// Test NaN
 	nanVal, ok := detector.parseNumber(math.NaN())
-	if !ok || !math.IsNaN(nanVal) {
+	if ok || nanVal != 0 {
 		t.Errorf("parseNumber failed to handle NaN")
 	}
 
 	// Test Inf
 	infVal, ok := detector.parseNumber(math.Inf(1))
-	if !ok || !math.IsInf(infVal, 1) {
+	if ok || infVal != 0 {
 		t.Errorf("parseNumber failed to handle Inf")
 	}
 
@@ -124,7 +123,7 @@ func TestEdgeCaseDetectorGap_ImpactScoreBounds(t *testing.T) {
 	decision := FileDecision{
 		Dependents: []string{}, // length 0
 	}
-	
+
 	// Simulate queryDependencies impact calculation
 	decision.ImpactScore = len(decision.Dependents)
 	if decision.ImpactScore < 0 {
@@ -142,7 +141,7 @@ func TestEdgeCaseDetectorGap_FormatForContext_Limits(t *testing.T) {
 	}
 
 	output := analysis.FormatForContext()
-	
+
 	// Should truncate and show "and X more"
 	if !strings.Contains(output, "and 4990 more") {
 		t.Errorf("Expected truncation message 'and 4990 more', output was: %s", output)
@@ -173,7 +172,7 @@ func TestEdgeCaseDetectorGap_GodFile(t *testing.T) {
 // TestEdgeCaseDetectorGap_Concurrency (Vector 4: Concurrency Safety)
 func TestEdgeCaseDetectorGap_Concurrency(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
-	
+
 	// Run 10 goroutines calling AnalyzeFiles with the same detector to check for race conditions
 	done := make(chan bool)
 	for i := 0; i < 10; i++ {

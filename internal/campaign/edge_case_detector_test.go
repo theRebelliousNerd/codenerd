@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -307,11 +308,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
 // Expected behavior: Should default to ActionCreate gracefully.
 
-// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
-// Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
-// Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
-// or cause ActionRefactorFirst permanently.
-
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
 // Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
@@ -329,3 +325,33 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_ParseNumber(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected float64
+		ok       bool
+	}{
+		{"Valid int", 42, 42.0, true},
+		{"Valid float64", 3.14, 3.14, true},
+		{"NaN", math.NaN(), 0, false},
+		{"Positive Infinity", math.Inf(1), 0, false},
+		{"Negative Infinity", math.Inf(-1), 0, false},
+		{"Invalid type", "not a number", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, ok := detector.parseNumber(tt.input)
+			if ok != tt.ok {
+				t.Errorf("parseNumber() ok = %v, want %v", ok, tt.ok)
+			}
+			if ok && result != tt.expected {
+				t.Errorf("parseNumber() result = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
