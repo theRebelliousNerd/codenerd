@@ -567,7 +567,32 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 
 	for _, table := range tables {
 		var count int64
-		err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+		var query string
+		switch table {
+		case "vectors":
+			query = "SELECT COUNT(*) FROM vectors"
+		case "knowledge_graph":
+			query = "SELECT COUNT(*) FROM knowledge_graph"
+		case "cold_storage":
+			query = "SELECT COUNT(*) FROM cold_storage"
+		case "activation_log":
+			query = "SELECT COUNT(*) FROM activation_log"
+		case "session_history":
+			query = "SELECT COUNT(*) FROM session_history"
+		case "compressed_states":
+			query = "SELECT COUNT(*) FROM compressed_states"
+		case "knowledge_atoms":
+			query = "SELECT COUNT(*) FROM knowledge_atoms"
+		case "world_files":
+			query = "SELECT COUNT(*) FROM world_files"
+		case "world_facts":
+			query = "SELECT COUNT(*) FROM world_facts"
+		case "learning_candidates":
+			query = "SELECT COUNT(*) FROM learning_candidates"
+		default:
+			continue
+		}
+		err := s.db.QueryRow(query).Scan(&count)
 		if err != nil {
 			logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
 			continue
