@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/yaml.v3"
 )
+
+var identifierRegexp = regexp.MustCompile("[^a-zA-Z0-9_]+")
 
 // AtomLoader handles runtime loading and persistence of prompt atoms.
 type AtomLoader struct {
@@ -192,8 +195,10 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 		rows.Close()
 
 		if !exists {
-			// Column missing, add it
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN %s TEXT", col)); err != nil {
+			// Column missing, add it safely
+			// Sanitize the column name to prevent SQL injection in DDL statement
+			safeCol := sanitizeIdentifier(col)
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN \"%s\" TEXT", safeCol)); err != nil {
 				logging.Get(logging.CategoryStore).Warn("Failed to add column %s: %v", col, err)
 			} else {
 				logging.Get(logging.CategoryStore).Info("Added missing column %s to prompt_atoms", col)
@@ -1237,4 +1242,10 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 	}
 
 	return nil
+}
+
+// sanitizeIdentifier ensures column names only contain safe characters
+// to prevent SQL injection in DDL statements where parameterized queries cannot be used.
+func sanitizeIdentifier(s string) string {
+	return identifierRegexp.ReplaceAllString(s, "")
 }
