@@ -172,7 +172,8 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		// Try Git Bash first
 		bashPath := findBashWindows()
 		if bashPath != "" {
-			cmd = execCommandContext(ctx, bashPath, "-c", script)
+			cmd = execCommandContext(ctx, bashPath)
+			cmd.Stdin = strings.NewReader(script)
 		} else {
 			// Fall back to cmd with basic interpretation
 			return executeRunCommand(ctx, map[string]any{
@@ -182,7 +183,8 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			})
 		}
 	} else {
-		cmd = execCommandContext(ctx, "bash", "-c", script)
+		cmd = execCommandContext(ctx, "bash")
+		cmd.Stdin = strings.NewReader(script)
 	}
 
 	if wd, ok := args["working_dir"].(string); ok && wd != "" {
