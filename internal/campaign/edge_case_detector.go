@@ -167,6 +167,9 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	decisions := make([]FileDecision, 0, len(paths))
 
 	for _, path := range paths {
+		if path == "" {
+			continue // Skip empty paths
+		}
 		select {
 		case <-ctx.Done():
 			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
@@ -290,7 +293,7 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 	}
 
 	// Gather metrics from intelligence report
-	d.gatherMetrics(&decision, path, intel)
+	d.gatherMetrics(ctx, &decision, path, intel)
 
 	// Apply decision logic
 	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
@@ -302,53 +305,66 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 }
 
 // gatherMetrics populates decision metrics from intelligence data.
-func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport) {
-	if intel == nil {
+func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport) {
+	if err := ctx.Err(); err != nil {
 		return
 	}
 
-	// Get churn rate from git history
-	for _, hotspot := range intel.GitChurnHotspots {
-		if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
-			decision.ChurnRate = hotspot.ChurnRate
-			break
+	if intel != nil {
+		// Get churn rate from git history
+		for _, hotspot := range intel.GitChurnHotspots {
+			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
+				decision.ChurnRate = hotspot.ChurnRate
+				break
+			}
+		}
+
+		// Count symbols in file
+		symbolCount := 0
+		for _, symbol := range intel.SymbolGraph {
+			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
+				symbolCount++
+			}
+		}
+		// Estimate line count from symbol density
+		decision.LineCount = symbolCount * 25 // Rough estimate
+
+		// Check for test file
+		if !strings.HasSuffix(path, "_test.go") {
+			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
+			_, decision.HasTests = intel.FileTopology[testPath]
 		}
 	}
 
-	// Count symbols in file
-	symbolCount := 0
-	for _, symbol := range intel.SymbolGraph {
-		if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
-			symbolCount++
-		}
-	}
-	// Estimate line count from symbol density
-	decision.LineCount = symbolCount * 25 // Rough estimate
-
-	// Check for test file
 	if strings.HasSuffix(path, "_test.go") {
 		decision.HasTests = true
-	} else {
-		testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
-		_, decision.HasTests = intel.FileTopology[testPath]
 	}
 
 	// Query kernel for dependencies
 	if d.kernel != nil {
-		d.queryDependencies(decision, path)
-		d.queryComplexity(decision, path)
+		d.queryDependencies(ctx, decision, path)
+		d.queryComplexity(ctx, decision, path)
 	}
 }
 
 // queryDependencies gets file dependencies from the kernel.
-func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string) {
+func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
 	// Query dependency_link for dependencies
 	facts, err := d.kernel.Query("dependency_link")
 	if err != nil {
 		return
 	}
 
-	for _, fact := range facts {
+	for i, fact := range facts {
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+		}
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			imported := d.parseArg(fact.Args[2])
@@ -367,7 +383,11 @@ func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string
 }
 
 // queryComplexity estimates complexity from kernel facts.
-func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) {
+func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDecision, path string) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
 	// Query for complexity-related facts
 	facts, err := d.kernel.Query("cyclomatic_complexity")
 	if err != nil {
@@ -378,7 +398,12 @@ func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) 
 		maxComplexity float64
 		hasComplexity bool
 	)
-	for _, fact := range facts {
+	for i, fact := range facts {
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+		}
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			if d.matchesPath(file, path) {
@@ -549,6 +574,9 @@ func (d *EdgeCaseDetector) actionPriority(action FileAction) int {
 
 // detectLanguage determines the language from file extension.
 func (d *EdgeCaseDetector) detectLanguage(path string) string {
+	if path == "" {
+		return "unknown"
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	langMap := map[string]string{
 		".go":   "go",
@@ -566,6 +594,9 @@ func (d *EdgeCaseDetector) detectLanguage(path string) string {
 }
 
 func (d *EdgeCaseDetector) matchesPath(candidate, path string) bool {
+	if candidate == "" || path == "" {
+		return false
+	}
 	if candidate == path {
 		return true
 	}
@@ -803,18 +834,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 
 	return tasks
 }
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: Context cancellation behavior.
-// analyzeFile should aggressively verify ctx.Err() before executing heavy operations,
-// potentially mid-query, to prevent leaking goroutines or excessive delay.
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
-// AnalyzeFiles should filter or reject `""` paths before processing them.
-// detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
-// If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
-// to incorrect Action decisions.
 
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
