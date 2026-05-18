@@ -312,9 +312,18 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
 // or cause ActionRefactorFirst permanently.
 
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
-// Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
+func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
+	d := NewEdgeCaseDetector(nil, nil)
+
+	extensions := []string{".zig", ".mojo", ".xyz"}
+	for _, ext := range extensions {
+		path := "test_file" + ext
+		lang := d.detectLanguage(path)
+		if lang != "unknown" {
+			t.Errorf("Expected language for %s to be 'unknown', got %s", path, lang)
+		}
+	}
+}
 
 // TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
 // The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
