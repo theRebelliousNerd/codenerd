@@ -577,3 +577,46 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestSanitizeIdentifier(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "clean alphanumeric",
+			input:    "description",
+			expected: "description",
+		},
+		{
+			name:     "with underscores",
+			input:    "content_concise",
+			expected: "content_concise",
+		},
+		{
+			name:     "with SQL injection attempt",
+			input:    "content_min\"; DROP TABLE prompt_atoms; --",
+			expected: "content_minDROPTABLEprompt_atoms",
+		},
+		{
+			name:     "with spaces",
+			input:    "col name",
+			expected: "colname",
+		},
+		{
+			name:     "with special chars",
+			input:    "col@name#123",
+			expected: "colname123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeIdentifier(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
