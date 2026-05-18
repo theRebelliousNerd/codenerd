@@ -329,3 +329,64 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	// Should skip the empty path and return no decisions
+	decisions, err := detector.AnalyzeFiles(ctx, []string{""}, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeFiles failed: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Errorf("Expected 0 decisions for empty path, got %d", len(decisions))
+	}
+
+	// matchesPath
+	if detector.matchesPath("", "foo.go") {
+		t.Errorf("matchesPath should return false if candidate is empty")
+	}
+	if detector.matchesPath("foo.go", "") {
+		t.Errorf("matchesPath should return false if path is empty")
+	}
+	if detector.matchesPath("", "") {
+		t.Errorf("matchesPath should return false if both are empty")
+	}
+
+	// detectLanguage
+	if lang := detector.detectLanguage(""); lang != "unknown" {
+		t.Errorf("Expected unknown language for empty path, got %s", lang)
+	}
+}
+
+func TestEdgeCaseDetector_AnalyzeFiles_ContextCancellation(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	// Create an already canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// It should cancel quickly
+	decisions, err := detector.AnalyzeFiles(ctx, []string{"foo.go", "bar.go"}, nil)
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got: %v", err)
+	}
+	// It might process 0 or a subset depending on how quickly cancel is caught in the loop
+	if len(decisions) == len([]string{"foo.go", "bar.go"}) {
+		t.Errorf("Expected fewer decisions due to cancellation, got %d", len(decisions))
+	}
+}
+
+func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	decision := &FileDecision{}
+	// Calling gatherMetrics with intel == nil should not panic and should still populate test file status
+	detector.gatherMetrics(ctx, decision, "foo_test.go", nil)
+
+	if !decision.HasTests {
+		t.Errorf("Expected HasTests=true since path has _test.go suffix, even with nil intelligence")
+	}
+}
