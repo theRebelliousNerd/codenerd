@@ -1113,26 +1113,32 @@ func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string)
 	}
 
 	// Common function patterns
+	escapedName := regexp.QuoteMeta(funcName)
 	patterns := []string{
 		// Go: func Name(...)
-		fmt.Sprintf(`(?m)^func\s+(\([^)]*\)\s+)?%s\s*\(`, regexp.QuoteMeta(funcName)),
+		`^func\s+(\([^)]*\)\s+)?` + escapedName + `\s*\(`,
 		// Python: def name(...)
-		fmt.Sprintf(`(?m)^def\s+%s\s*\(`, regexp.QuoteMeta(funcName)),
+		`^def\s+` + escapedName + `\s*\(`,
 		// JavaScript/TypeScript: function name(...) or name(...) =>
-		fmt.Sprintf(`(?m)(function\s+%s|%s\s*[:=]\s*(async\s+)?(\([^)]*\)|[^=])\s*=>)`,
-			regexp.QuoteMeta(funcName), regexp.QuoteMeta(funcName)),
+		`(function\s+` + escapedName + `|` + escapedName + `\s*[:=]\s*(async\s+)?(\([^)]*\)|[^=])\s*=>)`,
 		// Java/C#: modifier type name(...)
-		fmt.Sprintf(`(?m)(public|private|protected)?\s*\w+\s+%s\s*\(`, regexp.QuoteMeta(funcName)),
+		`(public|private|protected)?\s*\w+\s+` + escapedName + `\s*\(`,
+	}
+
+	var compiled []*regexp.Regexp
+	for _, pattern := range patterns {
+		if re, err := regexp.Compile(pattern); err == nil {
+			compiled = append(compiled, re)
+		}
 	}
 
 	lines := strings.Split(content, "\n")
-	for _, pattern := range patterns {
-		re, err := regexp.Compile(pattern)
-		if err != nil {
+	for i, line := range lines {
+		// Fast path: skip lines that don't contain the function name
+		if !strings.Contains(line, funcName) {
 			continue
 		}
-
-		for i, line := range lines {
+		for _, re := range compiled {
 			if re.MatchString(line) {
 				endLine := h.findFunctionEnd(lines, i)
 				return h.extractLineRange(content, i+1, endLine+1)
