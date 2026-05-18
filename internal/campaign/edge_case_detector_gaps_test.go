@@ -58,18 +58,15 @@ func TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence(t *testing.T) {
 }
 
 // TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
+// TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
 func TestEdgeCaseDetectorGap_EmptyPathString(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
 
 	paths := []string{""}
 	decisions, _ := detector.AnalyzeFiles(context.Background(), paths, nil)
 
-	if len(decisions) != 1 {
-		t.Fatalf("Expected 1 decision, got %d", len(decisions))
-	}
-
-	if decisions[0].Language != "unknown" {
-		t.Errorf("Expected unknown language for empty path, got %s", decisions[0].Language)
+	if len(decisions) != 0 {
+		t.Fatalf("Expected 0 decisions for empty path, got %d", len(decisions))
 	}
 }
 

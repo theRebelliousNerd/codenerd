@@ -298,10 +298,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test what happens when AnalyzeFiles is called with an already canceled context.
 // Expected behavior: Should return immediately with a ctx.Err() and empty decisions.
 
-// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
-// Test what happens when `paths` contains `""`.
-// Expected behavior: The system should not panic; `detectLanguage` should return "unknown";
-// `matchesPath` behavior with empty strings must be defined and validated.
 
 // TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty (but not nil).
 // Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
@@ -329,3 +325,36 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_EmptyStringInPaths(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	// AnalyzeFiles takes (ctx, paths, *IntelligenceReport)
+	decisions, err := detector.AnalyzeFiles(ctx, []string{"", "valid/path.go", ""}, nil)
+
+	if err != nil {
+		t.Errorf("AnalyzeFiles with empty paths should not error: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Errorf("expected 1 decision for valid path, got %d", len(decisions))
+	} else if decisions[0].Path != "valid/path.go" {
+		t.Errorf("expected decision path to be 'valid/path.go', got '%s'", decisions[0].Path)
+	}
+
+	// test detectLanguage empty string
+	if lang := detector.detectLanguage(""); lang != "unknown" {
+		t.Errorf("detectLanguage(\"\") expected 'unknown', got '%s'", lang)
+	}
+
+	// test matchesPath empty string
+	if match := detector.matchesPath("", "path/to/file.go"); match {
+		t.Errorf("matchesPath(\"\", \"path/to/file.go\") should be false")
+	}
+	if match := detector.matchesPath("candidate.go", ""); match {
+		t.Errorf("matchesPath(\"candidate.go\", \"\") should be false")
+	}
+	if match := detector.matchesPath("", ""); !match {
+		t.Errorf("matchesPath(\"\", \"\") should be true")
+	}
+}
