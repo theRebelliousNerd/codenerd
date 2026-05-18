@@ -166,6 +166,10 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	decisions := make([]FileDecision, 0, len(paths))
 
 	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
 			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
@@ -799,10 +803,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Null/Undefined/Empty: Context cancellation behavior.
 // analyzeFile should aggressively verify ctx.Err() before executing heavy operations,
 // potentially mid-query, to prevent leaking goroutines or excessive delay.
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
-// AnalyzeFiles should filter or reject `""` paths before processing them.
-// detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
 
 // TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
 // If an empty IntelligenceReport is passed, missing dependencies or metrics could lead

@@ -64,12 +64,9 @@ func TestEdgeCaseDetectorGap_EmptyPathString(t *testing.T) {
 	paths := []string{""}
 	decisions, _ := detector.AnalyzeFiles(context.Background(), paths, nil)
 
-	if len(decisions) != 1 {
-		t.Fatalf("Expected 1 decision, got %d", len(decisions))
-	}
-
-	if decisions[0].Language != "unknown" {
-		t.Errorf("Expected unknown language for empty path, got %s", decisions[0].Language)
+	// Since we fixed the bug, empty paths are filtered out.
+	if len(decisions) != 0 {
+		t.Fatalf("Expected 0 decisions for empty path, got %d", len(decisions))
 	}
 }
 

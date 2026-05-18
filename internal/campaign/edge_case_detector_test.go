@@ -329,3 +329,35 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	// Mix of valid and empty paths
+	paths := []string{"valid1.go", "", "   ", "valid2.go"}
+
+	decisions, err := detector.AnalyzeFiles(ctx, paths, nil)
+
+	if err != nil {
+		t.Fatalf("AnalyzeFiles failed: %v", err)
+	}
+
+	// We expect decisions only for "valid1.go" and "valid2.go"
+	if len(decisions) != 2 {
+		t.Fatalf("Expected 2 decisions for 2 valid paths, got %d", len(decisions))
+	}
+
+	// Verify the decisions are actually for the valid paths
+	pathsFound := make(map[string]bool)
+	for _, dec := range decisions {
+		pathsFound[dec.Path] = true
+	}
+
+	if !pathsFound["valid1.go"] {
+		t.Errorf("Expected decision for 'valid1.go', but not found")
+	}
+	if !pathsFound["valid2.go"] {
+		t.Errorf("Expected decision for 'valid2.go', but not found")
+	}
+}
