@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -272,6 +273,44 @@ func TestEdgeCaseDetector_DetermineAction_Logic(t *testing.T) {
 	}
 }
 
+func TestEdgeCaseDetector_AnalyzeFile_DeletedOnDisk(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx := context.Background()
+
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", "test_deleted_*.go")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	path := tmpFile.Name()
+	tmpFile.Close()
+
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{
+			path: {Path: path, Language: "go", LineCount: 100},
+		},
+	}
+
+	// 1. File exists on disk and in intel
+	decision1 := detector.analyzeFile(ctx, path, intel)
+	if !decision1.Exists {
+		t.Error("Expected file to exist")
+	}
+
+	// 2. File deleted on disk, but still in intel
+	err = os.Remove(path)
+	if err != nil {
+		t.Fatalf("Failed to remove temp file: %v", err)
+	}
+
+	decision2 := detector.analyzeFile(ctx, path, intel)
+	if decision2.Exists {
+		t.Error("Expected file to not exist due to os.Stat check after deletion")
+	}
+	if decision2.RecommendedAction != ActionCreate {
+		t.Errorf("Expected ActionCreate for deleted file, got %v", decision2.RecommendedAction)
+	}
+}
 func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 	analysis := &EdgeCaseAnalysis{
 		TotalFiles:      6,
@@ -315,11 +354,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
 // Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
-
-// TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
-// The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
-// Expected behavior: Currently the detector relies on potentially stale state; a test should highlight
-// this discrepancy and a fix should query the actual filesystem (`os.Stat`) if possible.
 
 // TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
 // Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
