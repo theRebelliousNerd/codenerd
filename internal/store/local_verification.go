@@ -2,7 +2,6 @@ package store
 
 import (
 	"codenerd/internal/logging"
-	"database/sql"
 	"fmt"
 	"reflect"
 	"time"
@@ -262,10 +261,4 @@ func (s *LocalStore) UpdateTraceQuality(traceID string, score float64, notes []s
 // GetTraceStats returns statistics about reasoning traces.
 func (s *LocalStore) GetTraceStats() (map[string]interface{}, error) {
 	return s.traceStore.GetTraceStats()
-}
-
-// scanTraces is deprecated - functionality moved to TraceStore.
-// Kept for backward compatibility with any external code that might call it.
-func (s *LocalStore) scanTraces(rows *sql.Rows) ([]ReasoningTrace, error) {
-	return s.traceStore.scanTraces(rows)
 }
