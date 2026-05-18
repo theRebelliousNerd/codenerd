@@ -472,7 +472,14 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 	var primaryScore int
 	var supporting []string
 
-	for shard, score := range shardScores {
+	keys := make([]string, 0, len(shardScores))
+	for k := range shardScores {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, shard := range keys {
+		score := shardScores[shard]
 		if score > primaryScore {
 			if primary != "" {
 				supporting = append(supporting, primary)
@@ -480,6 +487,8 @@ func (t *LLMTransducer) deriveShards(ctx context.Context, u *Understanding) (str
 			primary = shard
 			primaryScore = score
 		} else if score > 50 { // Threshold for supporting
+			supporting = append(supporting, shard)
+		} else if score == primaryScore && score > 0 { // For ties <= 50
 			supporting = append(supporting, shard)
 		}
 	}
