@@ -271,10 +271,18 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 	}
 
 	// Check if file exists (from intelligence report)
-	if intel != nil && len(intel.FileTopology) > 0 {
+	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
 		if fileInfo, exists := intel.FileTopology[path]; exists {
 			decision.Exists = true
 			decision.Language = fileInfo.Language
+		}
+	} else {
+		// Fallback to checking the file system directly if intel is missing or empty
+		if _, err := os.Stat(path); err == nil {
+			decision.Exists = true
+		}
+		if intel == nil || intel.IsEmpty() {
+			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
 		}
 	}
 
@@ -307,6 +315,9 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 // gatherMetrics populates decision metrics from intelligence data.
 func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport) {
 	if err := ctx.Err(); err != nil {
+		return
+	}
+	if intel == nil || intel.IsEmpty() {
 		return
 	}
 
@@ -525,6 +536,10 @@ func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestio
 
 // addWarnings adds contextual warnings to the decision.
 func (d *EdgeCaseDetector) addWarnings(decision *FileDecision, intel *IntelligenceReport) {
+	if intel != nil && intel.IsEmpty() {
+		// Only warnings about missing intelligence are relevant, skip others
+		return
+	}
 	// Chesterton's Fence warning
 	if decision.ChurnRate >= d.config.HighChurnRate {
 		decision.Warnings = append(decision.Warnings,
