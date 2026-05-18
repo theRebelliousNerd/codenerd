@@ -256,10 +256,17 @@ func (m Model) renderHeader() string {
 		status,
 	)
 
+	// Clamp header and workspace to terminal width to prevent overflow
+	maxW := m.width
+	if maxW < 1 {
+		maxW = 1
+	}
+	headerStyle := lipgloss.NewStyle().MaxWidth(maxW)
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		headerLine,
-		workspace,
+		headerStyle.Render(headerLine),
+		headerStyle.Render(workspace),
 		m.styles.RenderDivider(m.width),
 	)
 }
@@ -336,8 +343,13 @@ func (m Model) renderFooter() string {
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
 		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator, timestamp, hotkeys))
+	maxW := m.width
+	if maxW < 1 {
+		maxW = 1
+	}
 	return lipgloss.NewStyle().
 		MarginTop(1).
+		MaxWidth(maxW).
 		Render(help)
 }
 
