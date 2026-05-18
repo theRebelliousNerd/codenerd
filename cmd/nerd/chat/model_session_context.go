@@ -920,14 +920,14 @@ func (m *Model) queryColdMemory(sessionCtx *types.SessionContext) {
 		for _, fact := range facts {
 			if fact.Priority >= 5 { // Only high-priority facts
 				// Format as knowledge atom
-				argsStr := ""
+				var sb strings.Builder
 				for i, arg := range fact.Args {
 					if i > 0 {
-						argsStr += ", "
+						sb.WriteString(", ")
 					}
-					argsStr += fmt.Sprintf("%v", arg)
+					fmt.Fprintf(&sb, "%v", arg)
 				}
-				atom := fmt.Sprintf("[cold:%s] %s", fact.Predicate, argsStr)
+				atom := fmt.Sprintf("[cold:%s] %s", fact.Predicate, sb.String())
 				sessionCtx.KnowledgeAtoms = append(sessionCtx.KnowledgeAtoms, atom)
 			}
 		}
