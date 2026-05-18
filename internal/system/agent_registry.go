@@ -228,9 +228,9 @@ func countAgentAtoms(dbPath string) (int, error) {
 	}
 	defer db.Close()
 
-	for _, table := range []string{"knowledge_atoms", "prompt_atoms"} {
+	for _, query := range []string{"SELECT COUNT(*) FROM knowledge_atoms", "SELECT COUNT(*) FROM prompt_atoms"} {
 		var count int
-		err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+		err := db.QueryRow(query).Scan(&count)
 		if err == nil {
 			return count, nil
 		}
