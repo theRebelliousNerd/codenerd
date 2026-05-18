@@ -786,6 +786,12 @@ func TestMatchSelector(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Boundary Value - Nil context matching. The `MatchesContext` method is tested with a `nil` context explicitly, but further combinations of nil embedded pointers inside the atom/context are not explored.
+// TODO: TEST_GAP: Extreme Input - Exceedingly large strings for token estimation/hashing should be evaluated for performance cliffs.
+// TODO: TEST_GAP: Boundary Value - Empty vs Missing Slices. Test how `Clone()` handles nil slices compared to initialized empty slices.
+// TODO: TEST_GAP: State Conflict - Concurrency behavior. Mutating an atom while concurrently reading fields/hashes to ensure no race conditions if atoms are accidentally shared.
+// TODO: TEST_GAP: Type Coercion / Formatting - Extremely malformed slice contents (e.g. invalid string escapes, unprintable runes) passed to `matchSelector` or `NormalizeSelectors`.
+
 // Benchmark tests
 
 func BenchmarkEstimateTokens(b *testing.B) {
