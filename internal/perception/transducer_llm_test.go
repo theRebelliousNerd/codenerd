@@ -317,10 +317,28 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 // INPUT: `[{"intent": "fix"}]`
 // EXPECTED: Should either return the array string or handle it gracefully. Currently returns empty string.
 
-// TODO: TestExtractJSON_NonObject
-// GAP: extractJSON ignores valid JSON that isn't an object.
-// INPUT: `"just a string"` or `123` or `true`
-// EXPECTED: Should clarify if strict object requirement is intentional.
+func TestExtractJSON_NonObject(t *testing.T) {
+	// GAP: extractJSON ignores valid JSON that isn't an object.
+	// EXPECTED: strict object requirement is intentional, should return empty string.
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"String", `"just a string"`},
+		{"Integer", `123`},
+		{"Boolean", `true`},
+		{"Null", `null`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractCleanJSON(tt.input)
+			if got != "" {
+				t.Errorf("ExtractCleanJSON(%q) = %q, want empty string", tt.input, got)
+			}
+		})
+	}
+}
 
 // TODO: TestDeriveRouting_Ambiguity
 // GAP: deriveRouting uses non-deterministic map iteration for tie-breaking equal scores.
