@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+	"github.com/google/mangle/analysis"
 )
 
 // ---------------------------------------------------------------------------
@@ -467,3 +468,4 @@ func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, candida
 }
 func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
 func (m *mockTransducer) SetStrategicContext(context string)                  {}
+func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
