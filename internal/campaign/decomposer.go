@@ -1475,15 +1475,7 @@ func parseRawPlanResponse(resp string) (*RawPlan, error) {
 }
 
 // llmProposePlan asks LLM to propose a plan structure using retrieved context.
-func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) (*RawPlan, error) {
-	timer := logging.StartTimer(logging.CategoryCampaign, "llmProposePlan")
-	defer timer.Stop()
-
-	logging.Campaign("Requesting LLM plan proposal")
-	logging.CampaignDebug("Context: files=%d, requirements=%d, hints=%d",
-		len(files), len(requirements), len(req.UserHints))
-
-	// Build context
+func (d *Decomposer) buildPlanProposalContext(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) string {
 	var contextBuilder strings.Builder
 
 	// Add goal
@@ -1574,31 +1566,10 @@ func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req 
 		}
 	}
 
-	// Get Planner prompt (JIT or static)
-	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID)
-	if err != nil {
-		logging.CampaignDebug("Failed to get Planner prompt, using fallback: %v", err)
-		plannerPrompt = PlannerLogic
-	}
-
-	// System prompt with JSON enforcement.
-	systemPrompt := `You are a Campaign Planner. Output only a valid JSON object representing the campaign plan.
-
-CRITICAL: Your response MUST be valid JSON matching this schema:
-{
-  "title": "Campaign Title",
-  "confidence": 0.9,
-  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}]
+	return contextBuilder.String()
 }
 
-Do NOT use markdown. Do NOT include text outside the JSON object.`
-
-	userPrompt := fmt.Sprintf(`%s
-
-%s
-
-Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
-
+func (d *Decomposer) executePlanProposalWithRetry(ctx context.Context, req DecomposeRequest, contextPreview string, userPrompt string, systemPrompt string) (*RawPlan, error) {
 	logging.CampaignDebug("Sending plan proposal request to LLM (prompt length=%d)", len(userPrompt))
 
 	resp, llmErr := d.completePlanWithSchemaOrFallback(ctx, systemPrompt, userPrompt)
@@ -1621,7 +1592,6 @@ Output the JSON plan now:`, plannerPrompt, contextBuilder.String())
 
 		// Retry with stronger enforcement
 		logging.Campaign("Retrying plan proposal with JSON enforcement")
-		contextPreview := contextBuilder.String()
 		if len(contextPreview) > 2000 {
 			contextPreview = contextPreview[:2000]
 		}
@@ -1653,6 +1623,44 @@ Output ONLY the JSON:`, req.Goal, contextPreview)
 	}
 
 	return d.normalizeRawPlanFromLLM(plan, req)
+}
+
+func (d *Decomposer) llmProposePlan(ctx context.Context, campaignID string, req DecomposeRequest, kbPath string, files []FileMetadata, requirements []Requirement) (*RawPlan, error) {
+	timer := logging.StartTimer(logging.CategoryCampaign, "llmProposePlan")
+	defer timer.Stop()
+
+	logging.Campaign("Requesting LLM plan proposal")
+	logging.CampaignDebug("Context: files=%d, requirements=%d, hints=%d",
+		len(files), len(requirements), len(req.UserHints))
+
+	contextStr := d.buildPlanProposalContext(ctx, campaignID, req, kbPath, files, requirements)
+
+	// Get Planner prompt (JIT or static)
+	plannerPrompt, err := d.promptProvider.GetPrompt(ctx, RolePlanner, campaignID)
+	if err != nil {
+		logging.CampaignDebug("Failed to get Planner prompt, using fallback: %v", err)
+		plannerPrompt = PlannerLogic
+	}
+
+	// System prompt with JSON enforcement.
+	systemPrompt := `You are a Campaign Planner. Output only a valid JSON object representing the campaign plan.
+
+CRITICAL: Your response MUST be valid JSON matching this schema:
+{
+  "title": "Campaign Title",
+  "confidence": 0.9,
+  "phases": [{"name": "Phase 1", "order": 0, "category": "/scaffold", "description": "...", "tasks": [...]}]
+}
+
+Do NOT use markdown. Do NOT include text outside the JSON object.`
+
+	userPrompt := fmt.Sprintf(`%s
+
+%s
+
+Output the JSON plan now:`, plannerPrompt, contextStr)
+
+	return d.executePlanProposalWithRetry(ctx, req, contextStr, userPrompt, systemPrompt)
 }
 
 func (d *Decomposer) normalizeRawPlanFromLLM(plan *RawPlan, req DecomposeRequest) (*RawPlan, error) {
