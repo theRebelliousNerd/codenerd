@@ -5,6 +5,7 @@ package campaign
 
 import (
 	"context"
+	"os"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -267,10 +268,18 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 	}
 
 	// Check if file exists (from intelligence report)
-	if intel != nil && len(intel.FileTopology) > 0 {
+	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
 		if fileInfo, exists := intel.FileTopology[path]; exists {
 			decision.Exists = true
 			decision.Language = fileInfo.Language
+		}
+	} else {
+		// Fallback to checking the file system directly if intel is missing or empty
+		if _, err := os.Stat(path); err == nil {
+			decision.Exists = true
+		}
+		if intel == nil || intel.IsEmpty() {
+			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
 		}
 	}
 
@@ -295,7 +304,7 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 
 // gatherMetrics populates decision metrics from intelligence data.
 func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport) {
-	if intel == nil {
+	if intel == nil || intel.IsEmpty() {
 		return
 	}
 
@@ -492,6 +501,10 @@ func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestio
 
 // addWarnings adds contextual warnings to the decision.
 func (d *EdgeCaseDetector) addWarnings(decision *FileDecision, intel *IntelligenceReport) {
+	if intel != nil && intel.IsEmpty() {
+		// Only warnings about missing intelligence are relevant, skip others
+		return
+	}
 	// Chesterton's Fence warning
 	if decision.ChurnRate >= d.config.HighChurnRate {
 		decision.Warnings = append(decision.Warnings,
@@ -803,10 +816,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
 // AnalyzeFiles should filter or reject `""` paths before processing them.
 // detectLanguage, matchesPath, and other file utilities behavior on `""` should be explicit.
-
-// TODO: Missing Edge Case - Null/Undefined/Empty: IntelligenceReport fields are empty.
-// If an empty IntelligenceReport is passed, missing dependencies or metrics could lead
-// to incorrect Action decisions.
 
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently

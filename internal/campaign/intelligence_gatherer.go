@@ -206,6 +206,17 @@ type IntelligenceReport struct {
 	GatheringErrors []string `json:"gathering_errors"`
 }
 
+// IsEmpty returns true if the intelligence report has no meaningful data.
+func (i *IntelligenceReport) IsEmpty() bool {
+	if i == nil {
+		return true
+	}
+	return len(i.FileTopology) == 0 &&
+		len(i.SymbolGraph) == 0 &&
+		len(i.WorldFacts) == 0 &&
+		len(i.GitChurnHotspots) == 0
+}
+
 // Supporting types for IntelligenceReport
 
 // FileInfo represents file topology information.
