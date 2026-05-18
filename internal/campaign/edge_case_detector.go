@@ -464,27 +464,36 @@ func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestio
 	ext := filepath.Ext(decision.Path)
 	dir := filepath.Dir(decision.Path)
 
-	// Generic split suggestions based on common patterns
-	patterns := []struct {
-		suffix string
-		desc   string
-	}{
-		{"_types", "Type definitions and interfaces"},
-		{"_helpers", "Helper functions and utilities"},
-		{"_handlers", "Request/response handlers"},
-		{"_validation", "Validation logic"},
-		{"_persistence", "Database/storage operations"},
-	}
-
-	// Suggest at most 3 splits
-	for i, p := range patterns {
-		if i >= 3 {
-			break
+	if decision.Language == "unknown" {
+		for i := 1; i <= 3; i++ {
+			suggestions = append(suggestions, SplitSuggestion{
+				NewFileName: filepath.Join(dir, fmt.Sprintf("%s_part%d%s", baseName, i, ext)),
+				Reason:      fmt.Sprintf("Split part %d", i),
+			})
 		}
-		suggestions = append(suggestions, SplitSuggestion{
-			NewFileName: filepath.Join(dir, baseName+p.suffix+ext),
-			Reason:      p.desc,
-		})
+	} else {
+		// Generic split suggestions based on common patterns
+		patterns := []struct {
+			suffix string
+			desc   string
+		}{
+			{"_types", "Type definitions and interfaces"},
+			{"_helpers", "Helper functions and utilities"},
+			{"_handlers", "Request/response handlers"},
+			{"_validation", "Validation logic"},
+			{"_persistence", "Database/storage operations"},
+		}
+
+		// Suggest at most 3 splits
+		for i, p := range patterns {
+			if i >= 3 {
+				break
+			}
+			suggestions = append(suggestions, SplitSuggestion{
+				NewFileName: filepath.Join(dir, baseName+p.suffix+ext),
+				Reason:      p.desc,
+			})
+		}
 	}
 
 	return suggestions
@@ -811,10 +820,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
 // trigger ActionRefactorFirst or create panics on math operations.
-
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
-// golang/typescript-style suffixes (`_types`, `_helpers`) which could be invalid syntax.
 
 // TODO: Missing Edge Case - State Conflicts: Race condition between `intel` and actual filesystem.
 // Files marked `Exists: true` in intelligence might have been deleted. Should verify
