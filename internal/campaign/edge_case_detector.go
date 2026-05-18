@@ -166,6 +166,10 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	decisions := make([]FileDecision, 0, len(paths))
 
 	for _, path := range paths {
+		if path == "" {
+			decisions = append(decisions, FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Empty path", Language: "unknown"})
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
@@ -282,7 +286,9 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 	}
 
 	// Gather metrics from intelligence report
-	d.gatherMetrics(&decision, path, intel)
+	if err := d.gatherMetrics(ctx, &decision, path, intel); err != nil {
+		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
+	}
 
 	// Apply decision logic
 	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
@@ -294,9 +300,13 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 }
 
 // gatherMetrics populates decision metrics from intelligence data.
-func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport) {
+func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport) error {
 	if intel == nil {
-		return
+		return nil
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Get churn rate from git history
@@ -327,20 +337,31 @@ func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, in
 
 	// Query kernel for dependencies
 	if d.kernel != nil {
-		d.queryDependencies(decision, path)
-		d.queryComplexity(decision, path)
+		if err := d.queryDependencies(ctx, decision, path); err != nil {
+			return err
+		}
+		if err := d.queryComplexity(ctx, decision, path); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // queryDependencies gets file dependencies from the kernel.
-func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string) {
+func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Query dependency_link for dependencies
 	facts, err := d.kernel.Query("dependency_link")
 	if err != nil {
-		return
+		return nil
 	}
 
 	for _, fact := range facts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			imported := d.parseArg(fact.Args[2])
@@ -356,14 +377,18 @@ func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string
 
 	// Calculate impact score based on dependents
 	decision.ImpactScore = len(decision.Dependents)
+	return nil
 }
 
 // queryComplexity estimates complexity from kernel facts.
-func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) {
+func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDecision, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Query for complexity-related facts
 	facts, err := d.kernel.Query("cyclomatic_complexity")
 	if err != nil {
-		return
+		return nil
 	}
 
 	var (
@@ -371,6 +396,9 @@ func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) 
 		hasComplexity bool
 	)
 	for _, fact := range facts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			if d.matchesPath(file, path) {
@@ -391,6 +419,7 @@ func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) 
 		// Rough heuristic: 1 complexity point per 50 lines
 		decision.Complexity = float64(decision.LineCount) / 50.0
 	}
+	return nil
 }
 
 // determineAction decides what action to take based on gathered metrics.
