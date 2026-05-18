@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -307,10 +308,24 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test with `IntelligenceReport{FileTopology: map[string]FileInfo{}, GitChurnHotspots: []GitChurn{}}`.
 // Expected behavior: Should default to ActionCreate gracefully.
 
-// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
-// Test passing a float64 representing math.NaN() or math.Inf(1) to parseNumber.
-// Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
-// or cause ActionRefactorFirst permanently.
+func TestEdgeCaseDetector_ParseNumber_AnomalousFloat(t *testing.T) {
+	d := NewEdgeCaseDetector(nil, nil)
+
+	// Test NaN
+	if _, ok := d.parseNumber(math.NaN()); ok {
+		t.Error("parseNumber should return false for NaN")
+	}
+
+	// Test +Inf
+	if _, ok := d.parseNumber(math.Inf(1)); ok {
+		t.Error("parseNumber should return false for +Inf")
+	}
+
+	// Test -Inf
+	if _, ok := d.parseNumber(math.Inf(-1)); ok {
+		t.Error("parseNumber should return false for -Inf")
+	}
+}
 
 // TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.

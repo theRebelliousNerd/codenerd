@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"math"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -585,6 +586,9 @@ func (d *EdgeCaseDetector) parseNumber(arg interface{}) (float64, bool) {
 	case float32:
 		return float64(v), true
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, false
+		}
 		return v, true
 	default:
 		return 0, false
