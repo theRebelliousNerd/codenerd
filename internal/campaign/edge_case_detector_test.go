@@ -1,7 +1,9 @@
 package campaign
 
 import (
+	"codenerd/internal/core"
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -326,6 +328,36 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
 // Test should define boundaries of acceptable latency.
 
-// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
-// Test determineAction with `LineCount = math.MaxInt32`.
-// Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+func TestEdgeCaseDetector_DetermineAction_ExtremeValues(t *testing.T) {
+	// Create an EdgeCaseDetector with default thresholds
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	// Simulate extremely large file
+	decision := FileDecision{
+		Path:      "test/massive_file.go",
+		Exists:    true,
+		LineCount: math.MaxInt32,
+	}
+
+	action, reason := detector.determineAction(decision)
+
+	if action != ActionModularize {
+		t.Errorf("expected ActionModularize, got %v", action)
+	}
+
+	if !strings.Contains(reason, "File has 2147483647 lines") {
+		t.Errorf("expected reason to contain actual line count, got %s", reason)
+	}
+
+	// Verify that heuristic calculations properly cap line count
+	// Create a detector with a RealKernel that returns empty facts
+	realKernel, _ := core.NewRealKernel()
+	detector.kernel = realKernel
+
+	detector.queryComplexity(&decision, "test/massive_file.go")
+
+	// Complexity should be capped by the 1,000,000 line count bound (1M / 50 = 20,000)
+	if decision.Complexity != 20000.0 {
+		t.Errorf("expected complexity to be capped at 20000.0, got %v", decision.Complexity)
+	}
+}

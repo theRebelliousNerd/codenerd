@@ -6,6 +6,7 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -315,7 +316,19 @@ func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, in
 		}
 	}
 	// Estimate line count from symbol density
-	decision.LineCount = symbolCount * 25 // Rough estimate
+	maxSafeSymbolCount := math.MaxInt32 / 25
+
+	if symbolCount > maxSafeSymbolCount {
+		decision.LineCount = 1_000_000
+	} else {
+		decision.LineCount = symbolCount * 25 // Rough estimate
+	}
+
+	if decision.LineCount < 0 {
+		decision.LineCount = 0
+	} else if decision.LineCount > 1_000_000 {
+		decision.LineCount = 1_000_000
+	}
 
 	// Check for test file
 	if strings.HasSuffix(path, "_test.go") {
@@ -389,7 +402,11 @@ func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) 
 		decision.Complexity = maxComplexity
 	} else if decision.LineCount > 0 {
 		// Rough heuristic: 1 complexity point per 50 lines
-		decision.Complexity = float64(decision.LineCount) / 50.0
+		safeLineCount := decision.LineCount
+		if safeLineCount > 1_000_000 {
+			safeLineCount = 1_000_000
+		}
+		decision.Complexity = float64(safeLineCount) / 50.0
 	}
 }
 
@@ -824,6 +841,3 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
 // For campaigns on large repos, this becomes O(N * M) and hangs the orchestrator.
 // Need to parallelize AnalyzeFiles or parameterize kernel queries.
-
-// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
-// `LineCount` bounds checking should prevent `float64` precision or overflow issues
