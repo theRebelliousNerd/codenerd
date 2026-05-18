@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -454,8 +455,35 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("tool '%s' not found. Run 'nerd tool list' to see available tools", toolName)
 		}
 
+		// SECURITY FIX: Prevent command injection and path traversal
+		// Ensure the binary is executed from the .nerd/tools/.compiled directory
+		ws := workspace
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+		expectedDir := filepath.Join(ws, ".nerd", "tools", ".compiled")
+
+		absExpectedDir, err := filepath.Abs(expectedDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve expected tools directory: %w", err)
+		}
+
+		absBinaryPath, err := filepath.Abs(binaryPath)
+		if err != nil {
+			return fmt.Errorf("failed to resolve binary path: %w", err)
+		}
+
+		relPath, err := filepath.Rel(absExpectedDir, absBinaryPath)
+		if err != nil || strings.HasPrefix(relPath, "..") || relPath == ".." || filepath.IsAbs(relPath) {
+			return fmt.Errorf("security error: binary path '%s' is outside expected directory '%s'", binaryPath, expectedDir)
+		}
+
+		if _, err := os.Stat(absBinaryPath); os.IsNotExist(err) {
+			return fmt.Errorf("tool binary not found at '%s'", absBinaryPath)
+		}
+
 		// Execute tool binary directly
-		toolCmd := exec.CommandContext(ctx, binaryPath)
+		toolCmd := exec.CommandContext(ctx, absBinaryPath)
 		if toolInput != "" {
 			toolCmd.Stdin = strings.NewReader(toolInput)
 		}
