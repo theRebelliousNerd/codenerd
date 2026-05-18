@@ -464,6 +464,17 @@ func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestio
 	ext := filepath.Ext(decision.Path)
 	dir := filepath.Dir(decision.Path)
 
+	lang := d.detectLanguage(decision.Path)
+	if lang == "unknown" {
+		for i := 1; i <= 3; i++ {
+			suggestions = append(suggestions, SplitSuggestion{
+				NewFileName: filepath.Join(dir, fmt.Sprintf("%s_part%d%s", baseName, i, ext)),
+				Reason:      fmt.Sprintf("Part %d of large file", i),
+			})
+		}
+		return suggestions
+	}
+
 	// Generic split suggestions based on common patterns
 	patterns := []struct {
 		suffix string
@@ -811,10 +822,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
 // Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
 // trigger ActionRefactorFirst or create panics on math operations.
-
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
-// golang/typescript-style suffixes (`_types`, `_helpers`) which could be invalid syntax.
 
 // TODO: Missing Edge Case - State Conflicts: Race condition between `intel` and actual filesystem.
 // Files marked `Exists: true` in intelligence might have been deleted. Should verify
