@@ -1,6 +1,7 @@
 package transparency
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -69,5 +70,21 @@ func TestShardExecutionDurations(t *testing.T) {
 	}
 	if exec.PhaseDuration() <= 0 {
 		t.Fatalf("expected phase duration to be positive")
+	}
+}
+
+func BenchmarkFormatExecutionSummary(b *testing.B) {
+	observer := NewShardObserver()
+	observer.Enable()
+
+	// Add a few dummy executions
+	for i := 0; i < 50; i++ {
+		observer.StartExecution(fmt.Sprintf("shard-%d", i), "coder", "task")
+		observer.UpdatePhase(fmt.Sprintf("shard-%d", i), PhaseAnalyzing, "analysis")
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = observer.FormatExecutionSummary()
 	}
 }

@@ -2,6 +2,7 @@ package transparency
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -300,12 +301,5 @@ func (o *ShardObserver) FormatExecutionSummary() string {
 		lines = append(lines, exec.StatusLine())
 	}
 
-	result := ""
-	for i, line := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += line
-	}
-	return result
+	return strings.Join(lines, "\n")
 }
