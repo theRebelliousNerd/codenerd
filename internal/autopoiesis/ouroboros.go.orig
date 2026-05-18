@@ -1294,7 +1294,7 @@ type ToolOutput struct {
 
 func main() {
 	var input string
-	
+
 	// Check for pipe input
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
@@ -1316,14 +1316,14 @@ func main() {
 	// Execute
 	ctx := context.Background()
 	// Assume output is string for now, tool logic handles types
-	// We pass input string directly. 
+	// We pass input string directly.
 	// Limitation: The generated function might expect a struct or int.
 	// But our prompt asks for string input usually.
 	// If it's not string, this wrapper is too simple.
 	// For Ouroboros v1, we enforce string input/output interface.
-	
+
 	res, err := %s(ctx, input)
-	
+
 	output := ToolOutput{}
 	if err != nil {
 		output.Error = err.Error()
@@ -1334,7 +1334,7 @@ func main() {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(output)
-	
+
 	if err != nil {
 		os.Exit(1)
 	}
@@ -1466,14 +1466,9 @@ func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 
 // Execute runs the tool with the given input
 func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error) {
-	cleanPath := filepath.Clean(rt.BinaryPath)
-	if !filepath.IsAbs(cleanPath) {
-		return "", fmt.Errorf("tool binary path must be absolute for security: %s", cleanPath)
-	}
-
 	// Verify binary still exists
-	if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("tool binary not found: %s", cleanPath)
+	if _, err := os.Stat(rt.BinaryPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("tool binary not found: %s", rt.BinaryPath)
 	}
 
 	// Prepare input
@@ -1483,7 +1478,7 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 	}
 
 	// Execute the tool binary
-	cmd := exec.CommandContext(ctx, cleanPath)
+	cmd := exec.CommandContext(ctx, rt.BinaryPath)
 	cmd.Stdin = strings.NewReader(string(inputJSON))
 	cmd.Env = toolExecutionEnv()
 
