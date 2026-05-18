@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -316,11 +317,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
 // Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
 
-// TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
-// The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
-// Expected behavior: Currently the detector relies on potentially stale state; a test should highlight
-// this discrepancy and a fix should query the actual filesystem (`os.Stat`) if possible.
-
 // TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
 // Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
 // Expected behavior: The serial O(N) iteration over facts per file causes an O(N * M) performance cliff.
@@ -329,3 +325,58 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file exists in intel but not on disk.
+func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	// Create a mock intelligence report where the file exists
+	path := "non_existent_file_test.go"
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{
+			path: {Language: "go"},
+		},
+	}
+
+	// But since it doesn't actually exist on disk, analyzeFile should handle it
+	decision := detector.analyzeFile(context.Background(), path, intel)
+
+	// The detector should realize it's deleted and suggest ActionCreate
+	if decision.Exists {
+		t.Errorf("Expected decision.Exists to be false since file is not on disk")
+	}
+	if decision.RecommendedAction != ActionCreate {
+		t.Errorf("Expected ActionCreate, got %s", decision.RecommendedAction)
+	}
+}
+
+// REMEDIATED: TEST_GAP: State Conflicts: Race condition where file does not exist in intel but exists on disk.
+func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", "testfile_*.go")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	path := tmpFile.Name()
+
+	// Create a mock intelligence report where the file does NOT exist
+	intel := &IntelligenceReport{
+		FileTopology: map[string]FileInfo{},
+	}
+
+	// But since it does actually exist on disk, analyzeFile should handle it
+	decision := detector.analyzeFile(context.Background(), path, intel)
+
+	// The detector should realize it's created and NOT suggest ActionCreate
+	if !decision.Exists {
+		t.Errorf("Expected decision.Exists to be true since file is on disk")
+	}
+	if decision.RecommendedAction == ActionCreate {
+		t.Errorf("Expected an action other than ActionCreate")
+	}
+}
