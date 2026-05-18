@@ -243,14 +243,7 @@ func runWhy(cmd *cobra.Command, args []string) error {
 }
 
 func joinArgs(args []string) string {
-	result := ""
-	for i, arg := range args {
-		if i > 0 {
-			result += " "
-		}
-		result += arg
-	}
-	return result
+	return strings.Join(args, " ")
 }
 
 // sanitizeFactForMangle sanitizes fact arguments to be Mangle-parser friendly.
