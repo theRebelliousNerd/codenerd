@@ -161,3 +161,139 @@ func TestNewContext(t *testing.T) {
 		t.Fatalf("Embedded tracker does not match the original tracker")
 	}
 }
+
+func TestTracker_Load(t *testing.T) {
+	t.Run("FileNotExist", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker: %v", err)
+		}
+		tracker.filePath = filepath.Join(ws, "nonexistent.json")
+
+		err = tracker.Load()
+		if err != nil {
+			t.Errorf("expected no error for nonexistent file, got %v", err)
+		}
+	})
+
+	t.Run("ReadError", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker: %v", err)
+		}
+
+		// Create a directory where a file is expected to cause a read error
+		dirPath := filepath.Join(ws, "dir_instead_of_file")
+		if err := os.Mkdir(dirPath, 0755); err != nil {
+			t.Fatalf("Mkdir: %v", err)
+		}
+		tracker.filePath = dirPath
+
+		err = tracker.Load()
+		if err == nil {
+			t.Errorf("expected read error, got nil")
+		}
+	})
+
+	t.Run("JSONUnmarshalError", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker: %v", err)
+		}
+
+		filePath := filepath.Join(ws, "bad.json")
+		if err := os.WriteFile(filePath, []byte("invalid json"), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		tracker.filePath = filePath
+
+		err = tracker.Load()
+		if err == nil {
+			t.Errorf("expected unmarshal error, got nil")
+		}
+	})
+
+	t.Run("PartialDataMapInitialization", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker: %v", err)
+		}
+
+		// Write partial json (missing maps)
+		filePath := filepath.Join(ws, "partial.json")
+		if err := os.WriteFile(filePath, []byte(`{"version": "1.0", "aggregate": {"total_project": {"input": 10, "output": 20}}}`), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		tracker.filePath = filePath
+
+		// Unset maps to ensure Load initializes them
+		tracker.data.Aggregate.ByProvider = nil
+		tracker.data.Aggregate.ByModel = nil
+		tracker.data.Aggregate.ByShardType = nil
+		tracker.data.Aggregate.ByOperation = nil
+		tracker.data.Aggregate.BySession = nil
+
+		err = tracker.Load()
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+
+		if tracker.data.Aggregate.ByProvider == nil {
+			t.Errorf("ByProvider map not initialized")
+		}
+		if tracker.data.Aggregate.ByModel == nil {
+			t.Errorf("ByModel map not initialized")
+		}
+		if tracker.data.Aggregate.ByShardType == nil {
+			t.Errorf("ByShardType map not initialized")
+		}
+		if tracker.data.Aggregate.ByOperation == nil {
+			t.Errorf("ByOperation map not initialized")
+		}
+		if tracker.data.Aggregate.BySession == nil {
+			t.Errorf("BySession map not initialized")
+		}
+
+		if tracker.data.Aggregate.TotalProject.Input != 10 || tracker.data.Aggregate.TotalProject.Output != 20 {
+			t.Errorf("TotalProject mismatch, got %+v", tracker.data.Aggregate.TotalProject)
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		ws := t.TempDir()
+		tracker, err := NewTracker(ws)
+		if err != nil {
+			t.Fatalf("NewTracker: %v", err)
+		}
+
+		// Write full json
+		filePath := filepath.Join(ws, "full.json")
+		fullJSON := `{
+			"version": "1.0",
+			"aggregate": {
+				"total_project": {"input": 100, "output": 50, "total": 150},
+				"by_provider": {"test-provider": {"input": 100, "output": 50, "total": 150}}
+			}
+		}`
+		if err := os.WriteFile(filePath, []byte(fullJSON), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		tracker.filePath = filePath
+
+		err = tracker.Load()
+		if err != nil {
+			t.Fatalf("Load error: %v", err)
+		}
+
+		if tracker.data.Aggregate.TotalProject.Total != 150 {
+			t.Errorf("TotalProject mismatch")
+		}
+		if val, ok := tracker.data.Aggregate.ByProvider["test-provider"]; !ok || val.Total != 150 {
+			t.Errorf("ByProvider mismatch")
+		}
+	})
+}
