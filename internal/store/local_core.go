@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"path/filepath"
 	"sync"
 )
@@ -565,14 +566,38 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates"}
 
-	for _, table := range tables {
-		var count int64
-		err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
-		if err != nil {
-			logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
-			continue
+	// Prepare a single query using UNION ALL to avoid N+1 queries.
+	var queryBuilder strings.Builder
+	for i, table := range tables {
+		if i > 0 {
+			queryBuilder.WriteString(" UNION ALL ")
 		}
-		stats[table] = count
+		queryBuilder.WriteString(fmt.Sprintf("SELECT '%s' as tbl, COUNT(*) as cnt FROM %s", table, table))
+	}
+
+	rows, err := s.db.Query(queryBuilder.String())
+	if err != nil {
+		logging.StoreDebug("Batch count query failed (tables may not exist): %v", err)
+		// Fallback to individual queries if batch query fails (e.g., table missing)
+		for _, table := range tables {
+			var count int64
+			err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+			if err != nil {
+				logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
+				continue
+			}
+			stats[table] = count
+		}
+		return stats, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var table string
+		var count int64
+		if err := rows.Scan(&table, &count); err == nil {
+			stats[table] = count
+		}
 	}
 
 	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
