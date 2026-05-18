@@ -1,6 +1,8 @@
 package campaign
 
 import (
+	"github.com/kballard/go-shellquote"
+
 	"bufio"
 	"context"
 	"crypto/sha256"
@@ -9,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -355,7 +356,11 @@ func (o *Orchestrator) runAssaultStage(
 
 	case AssaultStageCommand:
 		cmdLine := strings.ReplaceAll(stage.Command, "{{target}}", target)
-		bin, args := shellForCommand(cmdLine)
+		bin, args, err := shellForCommand(cmdLine)
+		if err != nil {
+			writeTextFileBestEffort(logPath, fmt.Sprintf("invalid command template: %v\n", err))
+			return false, stageOutcome{ExitCode: 2, Error: "invalid command"}
+		}
 		return o.runCommandStage(ctx, exec, stage, bin, args, logPath)
 
 	default:
@@ -900,11 +905,15 @@ func newAssaultExecutor(workspace string, maxOutputBytes int64, defaultTimeout t
 	return tactile.NewDirectExecutorWithConfig(cfg)
 }
 
-func shellForCommand(cmdLine string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		return "powershell", []string{"-NoProfile", "-Command", cmdLine}
+func shellForCommand(cmdLine string) (string, []string, error) {
+	args, err := shellquote.Split(cmdLine)
+	if err != nil {
+		return "", nil, err
 	}
-	return "bash", []string{"-c", cmdLine}
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("empty command")
+	}
+	return args[0], args[1:], nil
 }
 
 func (o *Orchestrator) discoverAssaultTargets(ctx context.Context, cfg AssaultConfig) ([]string, error) {
