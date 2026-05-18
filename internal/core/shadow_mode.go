@@ -105,17 +105,11 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	// Create unique simulation ID
 	simID := fmt.Sprintf("sim_%d", time.Now().UnixNano())
 
-	// Create shadow kernel as a copy of parent state
-	shadowKernel, err := NewRealKernel()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create shadow kernel: %w", err)
-	}
-	shadowKernel.SetSchemas(sm.parentKernel.GetSchemas())
-	shadowKernel.SetPolicy(sm.parentKernel.GetPolicy())
-
-	// Copy parent facts to shadow (thread-safe snapshot)
-	parentFacts := sm.parentKernel.GetFactsSnapshot()
-	shadowKernel.LoadFacts(parentFacts)
+	// Create shadow kernel as a deep copy of parent state.
+	// Clone() properly copies facts, cachedAtoms, factIndex, programInfo,
+	// strata, and predToStratum — all of which are required for the shadow
+	// kernel to function correctly.
+	shadowKernel := sm.parentKernel.Clone()
 
 	sm.shadowKernel = shadowKernel
 
