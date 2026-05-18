@@ -434,9 +434,48 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 		paths = collectCampaignRiskPaths(c)
 	}
 	paths = dedupeSortedStrings(paths)
+	inputs := buildRiskInputSnapshot(c, paths, intel)
+	metrics := calculateRiskMetrics(c, paths, inputs)
 
-	reportInputs := deriveRiskInputSnapshotFromReport(intel)
-	inputs := reportInputs
+	score := weightedRiskScore(
+		metrics.criticality,
+		metrics.churn,
+		metrics.coverageGap,
+		metrics.centrality,
+		metrics.complexityNorm,
+		metrics.safetyNorm,
+		metrics.capabilityNorm,
+		metrics.errorNorm,
+	)
+
+	threshold := clampRiskThreshold(cfg.RiskGateThreshold)
+	gated, tieBreak := applyRiskThreshold(score, threshold, inputs, gates)
+
+	overrideGated, overrideLevel := determineRiskOverrideLevel(cfg)
+	gated = applyRiskOverride(gated, overrideGated)
+
+	return &CampaignRiskDecision{
+		Score:         score,
+		Threshold:     threshold,
+		Gated:         gated,
+		TieBreak:      tieBreak,
+		SnapshotID:    riskSnapshotID(c, paths),
+		OverrideLevel: overrideLevel,
+
+		Criticality: metrics.criticality,
+		Churn:       metrics.churn,
+		CoverageGap: metrics.coverageGap,
+		Centrality:  metrics.centrality,
+		Inputs:      inputs,
+
+		AdvisoryGateEnabled:  gates.Advisory,
+		EdgeGateEnabled:      gates.Edge,
+		NorthstarGateEnabled: gates.Northstar,
+	}
+}
+
+func buildRiskInputSnapshot(c *Campaign, paths []string, intel *IntelligenceReport) RiskInputSnapshot {
+	inputs := deriveRiskInputSnapshotFromReport(intel)
 	inputs.CapturedAt = time.Now().UTC()
 	inputs.TargetPathCount = len(paths)
 	inputs.TotalPhases = len(c.Phases)
@@ -446,7 +485,21 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 	if intel == nil {
 		inputs.Source = "campaign_only"
 	}
+	return inputs
+}
 
+type riskMetrics struct {
+	criticality    int
+	churn          int
+	coverageGap    int
+	centrality     int
+	complexityNorm int
+	safetyNorm     int
+	capabilityNorm int
+	errorNorm      int
+}
+
+func calculateRiskMetrics(c *Campaign, paths []string, inputs RiskInputSnapshot) riskMetrics {
 	criticality := criticalityNorm(paths)
 	churnBase := percentileNorm(len(paths), []int{1, 3, 5, 8, 13, 21, 34, 55, 89})
 	churnIntel := clampInt(inputs.HighChurnFiles*10, 0, 100)
@@ -461,59 +514,35 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 	capabilityNorm := clampInt(inputs.ToolGaps*12+inputs.MissingCapabilities*10, 0, 100)
 	errorNorm := clampInt(inputs.GatheringErrors*20, 0, 100)
 
-	score := weightedRiskScore(
-		criticality,
-		churn,
-		coverageGap,
-		centrality,
-		complexityNorm,
-		safetyNorm,
-		capabilityNorm,
-		errorNorm,
-	)
+	return riskMetrics{criticality, churn, coverageGap, centrality, complexityNorm, safetyNorm, capabilityNorm, errorNorm}
+}
 
-	threshold := clampRiskThreshold(cfg.RiskGateThreshold)
-	gated, tieBreak := applyRiskThreshold(score, threshold, inputs, gates)
-	overrideLevel := "score_threshold"
-
+func determineRiskOverrideLevel(cfg OrchestratorConfig) (*bool, string) {
 	mode := normalizeRiskGateMode(cfg.RiskGateMode)
 	switch mode {
 	case RiskGateModeForceBlock:
-		gated = true
-		overrideLevel = "mode_force_block"
+		b := true
+		return &b, "mode_force_block"
 	case RiskGateModeForceAllow:
-		gated = false
-		overrideLevel = "mode_force_allow"
+		b := false
+		return &b, "mode_force_allow"
 	default:
 		if cfg.CampaignRiskOverride != nil {
-			gated = *cfg.CampaignRiskOverride
-			overrideLevel = "campaign_override"
+			return cfg.CampaignRiskOverride, "campaign_override"
 		} else if !cfg.GlobalRiskGate {
-			gated = false
-			overrideLevel = "global_override_disabled"
+			b := false
+			return &b, "global_override_disabled"
 		}
 	}
-
-	return &CampaignRiskDecision{
-		Score:         score,
-		Threshold:     threshold,
-		Gated:         gated,
-		TieBreak:      tieBreak,
-		SnapshotID:    riskSnapshotID(c, paths),
-		OverrideLevel: overrideLevel,
-
-		Criticality: criticality,
-		Churn:       churn,
-		CoverageGap: coverageGap,
-		Centrality:  centrality,
-		Inputs:      inputs,
-
-		AdvisoryGateEnabled:  gates.Advisory,
-		EdgeGateEnabled:      gates.Edge,
-		NorthstarGateEnabled: gates.Northstar,
-	}
+	return nil, "score_threshold"
 }
 
+func applyRiskOverride(gated bool, overrideGated *bool) bool {
+	if overrideGated != nil {
+		return *overrideGated
+	}
+	return gated
+}
 func applyRiskThreshold(score, threshold int, inputs RiskInputSnapshot, gates riskGateResolved) (bool, string) {
 	if score > threshold {
 		return true, "above_threshold"
