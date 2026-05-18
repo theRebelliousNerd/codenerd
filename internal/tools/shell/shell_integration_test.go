@@ -43,13 +43,22 @@ func (s *ShellIntegrationSuite) TestRunCommandTool_Integration() {
 	s.Contains(err.Error(), "command failed")
 
 	// 3. Environment Variables
-	// We echo an environment variable to verify it was passed
+	// We print an environment variable using printenv or a simple command
 	result, err = tool.Execute(s.ctx, map[string]any{
-		"command": "echo $TEST_ENV_VAR",
+		"command": "sh -c 'echo $TEST_ENV_VAR'",
 		"env": map[string]any{
 			"TEST_ENV_VAR": "secret_value",
 		},
 	})
+	if err != nil {
+		// Fallback for Windows
+		result, err = tool.Execute(s.ctx, map[string]any{
+			"command": "cmd /c echo %TEST_ENV_VAR%",
+			"env": map[string]any{
+				"TEST_ENV_VAR": "secret_value",
+			},
+		})
+	}
 	s.Require().NoError(err)
 	s.Contains(result, "secret_value")
 
@@ -130,7 +139,12 @@ func (s *ShellIntegrationSuite) TestGitOperationTool_Integration() {
 
 	// Configure git user for commit
 	_, err = runCmd.Execute(s.ctx, map[string]any{
-		"command":     "git config user.email 'test@example.com' && git config user.name 'Test User'",
+		"command":     "git config user.email 'test@example.com'",
+		"working_dir": repoDir,
+	})
+	s.Require().NoError(err)
+	_, err = runCmd.Execute(s.ctx, map[string]any{
+		"command":     "git config user.name 'Test User'",
 		"working_dir": repoDir,
 	})
 	s.Require().NoError(err)

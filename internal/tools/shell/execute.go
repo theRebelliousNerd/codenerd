@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kballard/go-shellquote"
+
 	"codenerd/internal/logging"
 	"codenerd/internal/tools"
 )
@@ -71,12 +73,21 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 
 	logging.VirtualStoreDebug("run_command: cmd=%s, dir=%s, timeout=%ds", command, workingDir, timeout)
 
-	// Create command based on OS
+	// Parse command safely using shellquote to prevent command injection
+	// The run_command tool is for single commands; use the bash tool for scripts
+	parsedArgs, err := shellquote.Split(command)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse command: %w", err)
+	}
+	if len(parsedArgs) == 0 {
+		return "", fmt.Errorf("empty command after parsing")
+	}
+
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = execCommandContext(ctx, "cmd", "/C", command)
+	if len(parsedArgs) == 1 {
+		cmd = execCommandContext(ctx, parsedArgs[0])
 	} else {
-		cmd = execCommandContext(ctx, "sh", "-c", command)
+		cmd = execCommandContext(ctx, parsedArgs[0], parsedArgs[1:]...)
 	}
 
 	if workingDir != "" {
@@ -104,7 +115,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	runErr := cmd.Run()
 
 	output := stdout.String()
 	if stderr.Len() > 0 {
@@ -119,12 +130,12 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		output = output[:50000] + "\n...[truncated]"
 	}
 
-	if err != nil {
+	if runErr != nil {
 		if execCtx.Err() == context.DeadlineExceeded {
 			return output, fmt.Errorf("command timed out after %d seconds", timeout)
 		}
-		logging.VirtualStore("run_command failed: %s (%v)", command, err)
-		return output, fmt.Errorf("command failed: %w\nOutput:\n%s", err, output)
+		logging.VirtualStore("run_command failed: %s (%v)", command, runErr)
+		return output, fmt.Errorf("command failed: %w\nOutput:\n%s", runErr, output)
 	}
 
 	logging.VirtualStore("run_command completed: %s (%d bytes output)", command, len(output))
