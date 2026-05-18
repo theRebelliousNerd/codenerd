@@ -312,10 +312,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
 // or cause ActionRefactorFirst permanently.
 
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
-// Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
-
 // TODO: Missing Edge Case - State Conflicts: Race condition where file exists in intel but not on disk.
 // The file is marked as `Exists: true` based on `intel.FileTopology`, but what if it was deleted?
 // Expected behavior: Currently the detector relies on potentially stale state; a test should highlight
@@ -329,3 +325,28 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestSuggestSplits_UnknownExtension(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+
+	decision := FileDecision{
+		Path:      "some/path/file.xyz",
+		Language:  "unknown",
+		LineCount: 2000,
+	}
+
+	suggestions := detector.suggestSplits(decision)
+
+	if len(suggestions) == 0 {
+		t.Fatal("expected suggestions, got none")
+	}
+
+	for _, s := range suggestions {
+		if strings.Contains(s.NewFileName, "_types") || strings.Contains(s.NewFileName, "_helpers") {
+			t.Errorf("expected generic split name for unknown language, got %s", s.NewFileName)
+		}
+		if !strings.Contains(s.NewFileName, "_part") {
+			t.Errorf("expected '_part' in split name for unknown language, got %s", s.NewFileName)
+		}
+	}
+}
