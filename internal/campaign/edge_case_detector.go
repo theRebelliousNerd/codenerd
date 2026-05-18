@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/core"
@@ -92,6 +93,12 @@ type SplitSuggestion struct {
 	Reason      string   `json:"reason"`
 }
 
+// kernelFacts caches kernel facts to avoid O(N*M) query costs
+type kernelFacts struct {
+	dependencies []core.Fact
+	complexities []core.Fact
+}
+
 // EdgeCaseDetector analyzes files to determine appropriate actions.
 type EdgeCaseDetector struct {
 	kernel  *core.RealKernel
@@ -160,21 +167,57 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeFiles")
 	defer timer.Stop()
 
-	ctx, cancel := context.WithTimeout(ctx, d.config.AnalysisTimeout*time.Duration(len(paths)))
+	// Prevent immediate timeout if paths is empty
+	timeoutDuration := d.config.AnalysisTimeout * time.Duration(len(paths))
+	if len(paths) == 0 {
+		timeoutDuration = d.config.AnalysisTimeout // at least one unit of time
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeoutDuration)
 	defer cancel()
 
+	// Pre-fetch facts to avoid O(N*M) performance penalty
+	var kFacts kernelFacts
+	if d.kernel != nil {
+		kFacts.dependencies, _ = d.kernel.Query("dependency_link")
+		kFacts.complexities, _ = d.kernel.Query("cyclomatic_complexity")
+	}
+
 	decisions := make([]FileDecision, 0, len(paths))
+	decisionCh := make(chan FileDecision, len(paths))
+
+	// Run in parallel with a bounded number of workers
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
 
 	for _, path := range paths {
-		select {
-		case <-ctx.Done():
-			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
-			return decisions, ctx.Err()
-		default:
-		}
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		decision := d.analyzeFile(ctx, path, intelligence)
-		decisions = append(decisions, decision)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				decisionCh <- d.analyzeFile(ctx, p, intelligence, &kFacts)
+			}
+		}(path)
+	}
+
+	// Wait for all workers in a separate goroutine
+	go func() {
+		wg.Wait()
+		close(decisionCh)
+	}()
+
+	for dec := range decisionCh {
+		decisions = append(decisions, dec)
+	}
+
+	if ctx.Err() != nil {
+		logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
+		return decisions, ctx.Err()
 	}
 
 	// Sort by priority: refactor_first > modularize > create > extend > skip
@@ -252,7 +295,7 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 }
 
 // analyzeFile performs analysis on a single file.
-func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport) FileDecision {
+func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport, kFacts *kernelFacts) FileDecision {
 	// Check for context cancellation
 	if err := ctx.Err(); err != nil {
 		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
@@ -282,7 +325,7 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 	}
 
 	// Gather metrics from intelligence report
-	d.gatherMetrics(&decision, path, intel)
+	d.gatherMetrics(&decision, path, intel, kFacts)
 
 	// Apply decision logic
 	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
@@ -294,7 +337,7 @@ func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *
 }
 
 // gatherMetrics populates decision metrics from intelligence data.
-func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport) {
+func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, intel *IntelligenceReport, kFacts *kernelFacts) {
 	if intel == nil {
 		return
 	}
@@ -327,20 +370,14 @@ func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, in
 
 	// Query kernel for dependencies
 	if d.kernel != nil {
-		d.queryDependencies(decision, path)
-		d.queryComplexity(decision, path)
+		d.queryDependencies(decision, path, kFacts)
+		d.queryComplexity(decision, path, kFacts)
 	}
 }
 
 // queryDependencies gets file dependencies from the kernel.
-func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string) {
-	// Query dependency_link for dependencies
-	facts, err := d.kernel.Query("dependency_link")
-	if err != nil {
-		return
-	}
-
-	for _, fact := range facts {
+func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string, kFacts *kernelFacts) {
+	for _, fact := range kFacts.dependencies {
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			imported := d.parseArg(fact.Args[2])
@@ -359,18 +396,12 @@ func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string
 }
 
 // queryComplexity estimates complexity from kernel facts.
-func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) {
-	// Query for complexity-related facts
-	facts, err := d.kernel.Query("cyclomatic_complexity")
-	if err != nil {
-		return
-	}
-
+func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string, kFacts *kernelFacts) {
 	var (
 		maxComplexity float64
 		hasComplexity bool
 	)
-	for _, fact := range facts {
+	for _, fact := range kFacts.complexities {
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
 			if d.matchesPath(file, path) {
@@ -819,11 +850,6 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // TODO: Missing Edge Case - State Conflicts: Race condition between `intel` and actual filesystem.
 // Files marked `Exists: true` in intelligence might have been deleted. Should verify
 // against `os.Stat(path)` to prevent invalid `ActionExtend` or `ActionModularize` commands.
-
-// TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
-// `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
-// For campaigns on large repos, this becomes O(N * M) and hangs the orchestrator.
-// Need to parallelize AnalyzeFiles or parameterize kernel queries.
 
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // `LineCount` bounds checking should prevent `float64` precision or overflow issues
