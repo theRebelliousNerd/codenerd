@@ -99,6 +99,28 @@ func setupE2EEnvironment(t *testing.T) (*core.RealKernel, *session.Executor) {
 		t.Fatalf("Failed to create real kernel: %v", err)
 	}
 
+	testSchemas := `
+Decl p(X) bound [/any].
+Decl not_p(X) bound [/any].
+Decl test_flag(X) bound [/any].
+Decl concurrent_data(X) bound [/any].
+Decl shared_state(X) bound [/any].
+Decl pending_action(X, Y) bound [/any, /any].
+Decl bulk_fact(X) bound [/any].
+Decl huge_payload(X) bound [/any].
+Decl churn(X) bound [/any].
+Decl valid1(X) bound [/any].
+Decl valid2(X) bound [/any].
+Decl chain(X, Y) bound [/any, /any].
+Decl edge(X, Y) bound [/any, /any].
+Decl valid(X) bound [/any].
+Decl context_focus(X) bound [/any].
+`
+	kernel.AppendPolicy(testSchemas)
+	if err := kernel.Evaluate(); err != nil {
+		t.Fatalf("Failed to evaluate test schemas: %v", err)
+	}
+
 	virtualStore := core.NewVirtualStore(nil)
 	llm := &sekMockLLMClient{}
 	transducer := &sekMockTransducer{}

@@ -104,6 +104,29 @@ func (m *sclMockLLMClient) Complete(ctx context.Context, prompt string) (string,
 	return "", fmt.Errorf("not implemented")
 }
 func (m *sclMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	m.mu.Lock()
+	m.invocations++
+	m.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	if m.delay > 0 {
+		select {
+		case <-time.After(m.delay):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	if m.errToReturn != nil {
+		return "", m.errToReturn
+	}
+
+	if m.responseToReturn != nil {
+		return m.responseToReturn.Text, nil
+	}
 	return "", fmt.Errorf("not implemented")
 }
 
@@ -111,6 +134,10 @@ func (m *sclMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	m.mu.Lock()
 	m.invocations++
 	m.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	if m.delay > 0 {
 		select {

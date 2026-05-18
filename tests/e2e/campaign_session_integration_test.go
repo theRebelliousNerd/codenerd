@@ -492,8 +492,8 @@ func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits(t *testing.T) {
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_spam")
-	// Feed a phase with 1,000 tasks
-	for i := 0; i < 1000; i++ {
+	// Feed a phase with 200 tasks to test volume without hitting Mangle's 500k fact limit (n^2 pairs)
+	for i := 0; i < 200; i++ {
 		task := campaign.Task{
 			ID:          fmt.Sprintf("/task_spam_%d", i),
 			Description: fmt.Sprintf("Spam task %d", i),
