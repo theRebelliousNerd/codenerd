@@ -294,10 +294,6 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 	}
 }
 
-// TODO: Missing Edge Case - Null/Undefined/Empty: Context cancellation behavior.
-// Test what happens when AnalyzeFiles is called with an already canceled context.
-// Expected behavior: Should return immediately with a ctx.Err() and empty decisions.
-
 // TODO: Missing Edge Case - Null/Undefined/Empty: Empty string in paths slice.
 // Test what happens when `paths` contains `""`.
 // Expected behavior: The system should not panic; `detectLanguage` should return "unknown";
@@ -328,4 +324,22 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 
 // TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
 // Test determineAction with `LineCount = math.MaxInt32`.
-// Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
+
+func TestEdgeCaseDetector_AnalyzeFiles_CanceledContext(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	paths := []string{"file1.go", "file2.go"}
+	decisions, err := detector.AnalyzeFiles(ctx, paths, nil)
+
+	if err == nil {
+		t.Errorf("expected error from canceled context, got nil")
+	}
+	if err != context.DeadlineExceeded && err != context.Canceled {
+		t.Errorf("expected context error, got %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Errorf("expected empty decisions, got %d", len(decisions))
+	}
+}
