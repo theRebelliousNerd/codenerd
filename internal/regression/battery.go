@@ -111,10 +111,12 @@ func runShell(ctx context.Context, command string, workdir string) (string, erro
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+		cmd = exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", "-")
 	} else {
-		cmd = exec.CommandContext(ctx, "bash", "-lc", command)
+		cmd = exec.CommandContext(ctx, "bash", "-l")
 	}
+
+	cmd.Stdin = strings.NewReader(command)
 
 	if workdir != "" {
 		cmd.Dir = workdir
