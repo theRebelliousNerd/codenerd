@@ -662,11 +662,10 @@ func TestFeedbackLoop_AutoRepair(t *testing.T) {
 	if !result.AutoFixed {
 		t.Error("expected AutoFixed to be true")
 	}
-	// Verify the fixed rule contains properly cased function
-	if !strings.Contains(result.Rule, "fn:count()") {
-		t.Errorf("expected rule to contain fn:count(), got %q", result.Rule)
+	// Verify the fixed rule matches expected output
+	if strings.TrimSpace(result.Rule) != fixedRule {
+		t.Errorf("expected rule to be %q, got %q", fixedRule, result.Rule)
 	}
-	_ = fixedRule // suppress unused warning
 }
 
 func TestFeedbackLoop_ValidateOnly(t *testing.T) {
