@@ -315,7 +315,7 @@ func applyPatchResult(workspace, patch string) string {
 	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err == nil {
 		_ = os.WriteFile(tmpPath, []byte(fullPatch), 0644)
 	}
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Content -Path '"+filepath.Join(workspace, ".nerd", "patch.ps1")+"' -Value $args[0]", fullPatch)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Content -Path $args[0] -Value $args[1]", filepath.Join(workspace, ".nerd", "patch.ps1"), fullPatch)
 	_ = cmd.Run()
 	if err := runApplyPatch(fullPatch); err != nil {
 		return fmt.Sprintf("Patch failed: %v", err)
