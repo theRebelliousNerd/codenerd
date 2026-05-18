@@ -833,3 +833,25 @@ func Bad(ctx context.Context, input string) (string, error) {
 		t.Fatalf("expected strict sandbox safety check to fail, got safe report")
 	}
 }
+
+func TestRuntimeTool_Execute_PathTraversal(t *testing.T) {
+	// Attempt to use a relative path that searches PATH or tries traversal
+	rt := &RuntimeTool{
+		Name:       "bad_tool",
+		BinaryPath: "bash",
+	}
+
+	_, err := rt.Execute(context.Background(), "test")
+	if err == nil {
+		t.Fatal("Expected error when using relative binary path, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "absolute for security") {
+		t.Errorf("Expected absolute path security error, got: %v", err)
+	}
+
+	// Attempt path traversal with absolute path but it should be clean?
+	// Note: filepath.Clean and filepath.IsAbs will allow absolute paths with .. if they resolve to an absolute path,
+	// but since our fix guarantees it evaluates as absolute and we check os.Stat, it limits arbitrary execution from PATH or CWD.
+	// We're specifically testing the relative path fix here.
+}
