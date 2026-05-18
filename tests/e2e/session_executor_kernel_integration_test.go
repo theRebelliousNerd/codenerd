@@ -38,7 +38,12 @@ func (m *sekMockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.delay > 0 {
-		time.Sleep(m.delay)
+		select {
+		case <-time.After(m.delay):
+			// delay completed
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 	if ctx.Err() != nil {
 		return "", ctx.Err()

@@ -179,7 +179,8 @@ func setupTestExecutor(t *testing.T) (*session.Executor, *mockKernel, *mockLLMCl
 // ---------------------------------------------------------------------------
 
 func TestE2E_ContractViolation_TransducerUnknownIntent(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, kernel, llm := setupTestExecutor(t)
 
 	trans := &mockTransducer{
@@ -205,7 +206,8 @@ func TestE2E_ContractViolation_TransducerUnknownIntent(t *testing.T) {
 }
 
 func TestE2E_ContractViolation_LLMReturnsMalformedPiggyback(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	llm.piggyback = true
@@ -226,7 +228,8 @@ func TestE2E_ContractViolation_LLMReturnsMalformedPiggyback(t *testing.T) {
 }
 
 func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	cfg := session.DefaultExecutorConfig()
@@ -272,7 +275,8 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestE2E_TemporalFailure_ToolBlocksIndefinitely(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
@@ -315,7 +319,8 @@ func TestE2E_TemporalFailure_ToolBlocksIndefinitely(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestE2E_StateCorruption_ConcurrentSessionInteraction(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
@@ -355,7 +360,8 @@ func TestE2E_StateCorruption_ConcurrentSessionInteraction(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	turnCount := 0
@@ -401,7 +407,8 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestE2E_CascadingFailure_KernelPanics(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, kernel, _ := setupTestExecutor(t)
 
 	kernel.shouldPanic = true
@@ -420,7 +427,8 @@ func TestE2E_CascadingFailure_KernelPanics(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestE2E_Recovery_InvalidPiggybackThenSuccess(t *testing.T) {
-	t.Parallel()
+	// NOTE: t.Parallel() removed — each test creates a full kernel (~5s),
+	// and PAUSE blocks these tests from running when sequential tests exceed timeout.
 	exec, _, llm := setupTestExecutor(t)
 
 	llm.piggyback = true
