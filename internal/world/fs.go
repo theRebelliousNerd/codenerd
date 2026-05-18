@@ -325,7 +325,6 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				content, err := os.ReadFile(path)
 				if err == nil {
 					parseStart := time.Now()
-					var parseErr error
 					switch lang {
 					case "go":
 						if facts, parseErr := parser.ParseGo(path, content); parseErr == nil {
@@ -367,7 +366,6 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 							logging.Get(logging.CategoryWorld).Warn("TypeScript parse failed: %s - %v", path, parseErr)
 						}
 					}
-					_ = parseErr // Suppress unused warning
 				} else {
 					logging.Get(logging.CategoryWorld).Warn("Failed to read file for parsing: %s - %v", path, err)
 				}
