@@ -14,6 +14,7 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/google/mangle v0.4.1-0.20260211131615-299701686e7a
 	github.com/google/uuid v1.6.0
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/sergi/go-diff v1.4.0
