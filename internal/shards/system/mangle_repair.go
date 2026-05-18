@@ -20,6 +20,8 @@ import (
 	"codenerd/internal/types"
 )
 
+var negPatternGlobal = regexp.MustCompile(`not\s+([a-z_][a-z0-9_]*)\s*\(\s*([A-Z][A-Za-z0-9_]*)`)
+
 // MangleRepairShard validates and repairs Mangle rules before persistence.
 // It acts as a gatekeeper ensuring no invalid rules enter the learned.mg file.
 //
@@ -481,6 +483,10 @@ func (m *MangleRepairShard) extractPredicatesFromRule(rule string) []string {
 	return predicates
 }
 
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
 // checkSafety performs basic safety checks on a rule.
 func (m *MangleRepairShard) checkSafety(rule string) []string {
 	var errors []string
@@ -491,16 +497,54 @@ func (m *MangleRepairShard) checkSafety(rule string) []string {
 	// Check for common issues
 	if strings.Contains(rule, "not ") {
 		// Check if negated variables might be unbound
-		negPattern := regexp.MustCompile(`not\s+([a-z_][a-z0-9_]*)\s*\(\s*([A-Z][A-Za-z0-9_]*)`)
-		if matches := negPattern.FindAllStringSubmatch(rule, -1); len(matches) > 0 {
+		if matches := negPatternGlobal.FindAllStringSubmatch(rule, -1); len(matches) > 0 {
 			// This is a heuristic - full safety check requires proper analysis
+			ruleBeforeNot := strings.Split(rule, "not ")[0]
+
 			for _, match := range matches {
 				if len(match) > 2 {
 					variable := match[2]
-					// Check if variable appears in a positive atom before negation
-					positivePattern := regexp.MustCompile(`[a-z_][a-z0-9_]*\s*\([^)]*\b` + variable + `\b`)
-					ruleBeforeNot := strings.Split(rule, "not ")[0]
-					if !positivePattern.MatchString(ruleBeforeNot) {
+					found := false
+					idx := strings.Index(ruleBeforeNot, variable)
+					varLen := len(variable)
+					textLen := len(ruleBeforeNot)
+
+					for idx != -1 {
+						isStartBoundary := idx == 0 || !isIdentChar(ruleBeforeNot[idx-1])
+						isEndBoundary := idx+varLen == textLen || !isIdentChar(ruleBeforeNot[idx+varLen])
+
+						if isStartBoundary && isEndBoundary {
+							inParen := false
+							for i := idx - 1; i >= 0; i-- {
+								if ruleBeforeNot[i] == ')' {
+									break
+								}
+								if ruleBeforeNot[i] == '(' {
+									j := i - 1
+									for j >= 0 && (ruleBeforeNot[j] == ' ' || ruleBeforeNot[j] == '	') {
+										j--
+									}
+									if j >= 0 && isIdentChar(ruleBeforeNot[j]) {
+										inParen = true
+									}
+									break
+								}
+							}
+
+							if inParen {
+								found = true
+								break
+							}
+						}
+
+						nextIdx := strings.Index(ruleBeforeNot[idx+varLen:], variable)
+						if nextIdx == -1 {
+							break
+						}
+						idx += varLen + nextIdx
+					}
+
+					if !found {
 						errors = append(errors, fmt.Sprintf("potentially unbound variable %s in negation", variable))
 					}
 				}
