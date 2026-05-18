@@ -36,6 +36,7 @@ import (
 	"codenerd/internal/usage"
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -47,12 +48,17 @@ import (
 // =============================================================================
 
 func (m Model) processInput(input string) tea.Cmd {
-	return func() tea.Msg {
+	return func() (result tea.Msg) {
 		// Panic recovery: this closure runs as a fire-and-forget goroutine in the
 		// Bubbletea runtime. An unrecovered panic here kills the entire process.
+		// We use a named return so the deferred recover can set the return value
+		// to an errorMsg, ensuring the UI returns to idle state instead of
+		// hanging with isLoading=true.
 		defer func() {
 			if r := recover(); r != nil {
-				logging.API("PANIC in processInput (recovered): %v", r)
+				stack := debug.Stack()
+				logging.API("PANIC in processInput (recovered): %v\n%s", r, stack)
+				result = errorMsg(fmt.Errorf("internal error (recovered panic): %v", r))
 			}
 		}()
 
@@ -647,10 +653,14 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 3. STATE UPDATE (Kernel)
 		// user_intent was asserted earlier; now refresh system facts and shard facts.
 		// Fix Bug #7: Update system facts (Time, etc.)
-		if err := m.kernel.UpdateSystemFacts(); err != nil {
-			return errorMsg(fmt.Errorf("system facts update error: %w", err))
+		if m.kernel != nil {
+			if err := m.kernel.UpdateSystemFacts(); err != nil {
+				return errorMsg(fmt.Errorf("system facts update error: %w", err))
+			}
+			if m.shardMgr != nil {
+				_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
+			}
 		}
-		_ = m.kernel.LoadFacts(m.shardMgr.ToFacts())
 		// Hydrate learned facts from knowledge.db so logic can use persisted context
 		if m.virtualStore != nil {
 			if _, err := m.virtualStore.HydrateLearnings(ctx); err != nil {
@@ -663,7 +673,10 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 4. DECISION & ACTION (Kernel -> Executor)
 		// Query for actions derived from the intent
-		actions, _ := m.kernel.Query("next_action")
+		var actions []core.Fact
+		if m.kernel != nil {
+			actions, _ = m.kernel.Query("next_action")
+		}
 
 		// Execute Info-Gathering Actions (Pre-Articulation)
 		// This implements the OODA "Act" phase for info retrieval
@@ -741,7 +754,9 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// Feed execution results back into kernel for re-evaluation
 		if len(executionResults) > 0 {
-			_ = m.kernel.LoadFacts(executionResults)
+			if m.kernel != nil {
+				_ = m.kernel.LoadFacts(executionResults)
+			}
 			// Re-query context to inject (now that we have new facts)
 		}
 
@@ -751,10 +766,16 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 5. CONTEXT SELECTION (Spreading Activation)
-		contextFacts, _ := m.kernel.Query("context_to_inject")
+		var contextFacts []core.Fact
+		if m.kernel != nil {
+			contextFacts, _ = m.kernel.Query("context_to_inject")
+		}
 
 		// 6. ARTICULATION (Response Generation)
-		systemPrompts, _ := m.kernel.Query("final_system_prompt")
+		var systemPrompts []core.Fact
+		if m.kernel != nil {
+			systemPrompts, _ = m.kernel.Query("final_system_prompt")
+		}
 		systemPrompt := ""
 		if len(systemPrompts) > 0 && len(systemPrompts[0].Args) > 0 {
 			systemPrompt = types.ExtractString(systemPrompts[0].Args[0])

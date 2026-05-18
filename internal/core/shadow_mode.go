@@ -113,8 +113,8 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	shadowKernel.SetSchemas(sm.parentKernel.GetSchemas())
 	shadowKernel.SetPolicy(sm.parentKernel.GetPolicy())
 
-	// Copy parent facts to shadow
-	parentFacts := sm.parentKernel.facts
+	// Copy parent facts to shadow (thread-safe snapshot)
+	parentFacts := sm.parentKernel.GetFactsSnapshot()
 	shadowKernel.LoadFacts(parentFacts)
 
 	sm.shadowKernel = shadowKernel
