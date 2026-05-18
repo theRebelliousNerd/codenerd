@@ -218,15 +218,16 @@ func normalizeLLMFields(u *Understanding) {
 func ExtractCleanJSON(response string) string {
 	// We need to tolerate:
 	// - pre/postamble text
-	// - nested objects
-	// - braces inside JSON strings
+	// - nested objects/arrays
+	// - braces/brackets inside JSON strings
 	//
-	// Strategy: forward scan with string/escape tracking; record every balanced {...} span,
-	// including nested ones; return the last valid JSON object.
+	// Strategy: forward scan with string/escape tracking; record every balanced {...} or [...] span,
+	// including nested ones; return the last valid JSON object/array.
 	var (
 		inString   bool
 		escapeNext bool
 		stack      []int
+		bracket    []byte
 		candidates []string
 	)
 
@@ -250,15 +251,31 @@ func ExtractCleanJSON(response string) string {
 		switch b {
 		case '"':
 			inString = true
-		case '{':
+		case '{', '[':
 			stack = append(stack, i)
+			bracket = append(bracket, b)
 		case '}':
-			if len(stack) == 0 {
-				continue
+			for len(stack) > 0 {
+				start := stack[len(stack)-1]
+				typ := bracket[len(bracket)-1]
+				stack = stack[:len(stack)-1]
+				bracket = bracket[:len(bracket)-1]
+				if typ == '{' {
+					candidates = append(candidates, response[start:i+1])
+					break
+				}
 			}
-			start := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			candidates = append(candidates, response[start:i+1])
+		case ']':
+			for len(stack) > 0 {
+				start := stack[len(stack)-1]
+				typ := bracket[len(bracket)-1]
+				stack = stack[:len(stack)-1]
+				bracket = bracket[:len(bracket)-1]
+				if typ == '[' {
+					candidates = append(candidates, response[start:i+1])
+					break
+				}
+			}
 		}
 	}
 
@@ -357,10 +374,11 @@ func (t *LLMTransducer) deriveRouting(ctx context.Context, u *Understanding) {
 // can derive from them without re-querying.
 //
 // Derivation chain impact:
-//   current_understanding → perception_routing.mg rules → derived_mode (IDB)
-//   llm_suggested_mode    → fallback rule in perception_routing.mg
-//   derived_primary_shard, derived_context_priority, derived_tool_priority →
-//     consumed by context_compilation.mg and jit_selection.mg (C1/C4)
+//
+//	current_understanding → perception_routing.mg rules → derived_mode (IDB)
+//	llm_suggested_mode    → fallback rule in perception_routing.mg
+//	derived_primary_shard, derived_context_priority, derived_tool_priority →
+//	  consumed by context_compilation.mg and jit_selection.mg (C1/C4)
 //
 // Fact budget: 4 fixed facts + |ContextPriorities| + |ToolPriorities| per turn.
 // All are retracted at turn start (see process.go retraction block).

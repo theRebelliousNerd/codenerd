@@ -71,6 +71,31 @@ func TestExtractJSON(t *testing.T) {
 			input:    `{"a": "{"}`,
 			expected: `{"a": "{"}`,
 		},
+		{
+			name:     "Array JSON",
+			input:    `[{"intent": "fix"}]`,
+			expected: `[{"intent": "fix"}]`,
+		},
+		{
+			name:     "Array JSON with text",
+			input:    `Here is the array: [{"intent": "fix"}]`,
+			expected: `[{"intent": "fix"}]`,
+		},
+		{
+			name:     "Non-Object JSON String",
+			input:    `"just a string"`,
+			expected: ``,
+		},
+		{
+			name:     "Non-Object JSON Number",
+			input:    `123`,
+			expected: ``,
+		},
+		{
+			name:     "Non-Object JSON Boolean",
+			input:    `true`,
+			expected: ``,
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,13 +337,13 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 // MISSING TEST COVERAGE (BOUNDARY ANALYSIS)
 // =============================================================================
 
-// TODO: TestExtractJSON_Array
-// GAP: extractJSON ignores JSON arrays `[...]`.
+// DONE: TestExtractJSON_Array
+// GAP FIXED: extractJSON now handles JSON arrays correctly.
 // INPUT: `[{"intent": "fix"}]`
 // EXPECTED: Should either return the array string or handle it gracefully. Currently returns empty string.
 
-// TODO: TestExtractJSON_NonObject
-// GAP: extractJSON ignores valid JSON that isn't an object.
+// DONE: TestExtractJSON_NonObject
+// GAP FIXED: Non-object JSON strings, numbers, and booleans are correctly ignored (handled).
 // INPUT: `"just a string"` or `123` or `true`
 // EXPECTED: Should clarify if strict object requirement is intentional.
 
