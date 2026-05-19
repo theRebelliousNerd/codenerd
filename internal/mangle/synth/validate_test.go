@@ -5,490 +5,863 @@ import (
 	"testing"
 )
 
-func TestValidateSpec_Format(t *testing.T) {
-	err := ValidateSpec(Spec{Format: "wrong"}, DefaultOptions())
-	if err == nil || !strings.Contains(err.Error(), "expected") {
-		t.Errorf("Expected format error, got %v", err)
+func TestValidateSpec(t *testing.T) {
+	opts := DefaultOptions()
+	tests := []struct {
+		name    string
+		spec    Spec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name: "invalid format",
+			spec: Spec{
+				Format: "invalid_format",
+			},
+			wantErr: true,
+			errStr:  "format: expected \"mangle_synth_v1\"",
+		},
+		{
+			name: "valid format, invalid program (empty)",
+			spec: Spec{
+				Format: FormatV1,
+			},
+			wantErr: true,
+			errStr:  "program: program must contain at least one clause or declaration",
+		},
+		{
+			name: "valid spec",
+			spec: Spec{
+				Format: FormatV1,
+				Program: ProgramSpec{
+					Clauses: []ClauseSpec{
+						{
+							Head: AtomSpec{
+								Pred: "test",
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSpec(tt.spec, opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("ValidateSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
-func TestValidateProgramSpec_Empty(t *testing.T) {
-	err := validateProgramSpec(ProgramSpec{}, DefaultOptions())
-	if err == nil || !strings.Contains(err.Error(), "contain at least one") {
-		t.Errorf("Expected error for empty program, got %v", err)
+func TestValidateProgramSpec(t *testing.T) {
+	tests := []struct {
+		name    string
+		program ProgramSpec
+		options Options
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "empty program",
+			program: ProgramSpec{},
+			options: DefaultOptions(),
+			wantErr: true,
+			errStr:  "program must contain at least one clause or declaration",
+		},
+		{
+			name: "package not allowed",
+			program: ProgramSpec{
+				Package: &PackageSpec{Name: "pkg"},
+			},
+			options: Options{AllowPackage: false},
+			wantErr: true,
+			errStr:  "package declarations are not allowed",
+		},
+		{
+			name: "use not allowed",
+			program: ProgramSpec{
+				Use: []UseSpec{{Name: "use"}},
+			},
+			options: Options{AllowUse: false},
+			wantErr: true,
+			errStr:  "use declarations are not allowed",
+		},
+		{
+			name: "decl not allowed",
+			program: ProgramSpec{
+				Decls: []DeclSpec{{Atom: AtomSpec{Pred: "decl"}}},
+			},
+			options: Options{AllowDecls: false},
+			wantErr: true,
+			errStr:  "decl declarations are not allowed",
+		},
+		{
+			name: "require single clause, got 0",
+			program: ProgramSpec{
+				Decls: []DeclSpec{{Atom: AtomSpec{Pred: "decl"}}}, // At least one decl so not empty
+			},
+			options: Options{RequireSingleClause: true, AllowDecls: true},
+			wantErr: true,
+			errStr:  "expected exactly one clause",
+		},
+		{
+			name: "require single clause, got 2",
+			program: ProgramSpec{
+				Clauses: []ClauseSpec{
+					{Head: AtomSpec{Pred: "c1"}},
+					{Head: AtomSpec{Pred: "c2"}},
+				},
+			},
+			options: Options{RequireSingleClause: true},
+			wantErr: true,
+			errStr:  "expected exactly one clause",
+		},
+		{
+			name: "invalid package name",
+			program: ProgramSpec{
+				Package: &PackageSpec{Name: ""},
+			},
+			options: Options{AllowPackage: true},
+			wantErr: true,
+			errStr:  "package name is required",
+		},
+		{
+			name: "invalid use name",
+			program: ProgramSpec{
+				Use: []UseSpec{{Name: ""}},
+			},
+			options: Options{AllowUse: true},
+			wantErr: true,
+			errStr:  "use name is required",
+		},
+		{
+			name: "invalid decl",
+			program: ProgramSpec{
+				Decls: []DeclSpec{{Atom: AtomSpec{Pred: ""}}},
+			},
+			options: Options{AllowDecls: true},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "invalid clause",
+			program: ProgramSpec{
+				Clauses: []ClauseSpec{{Head: AtomSpec{Pred: ""}}},
+			},
+			options: DefaultOptions(),
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "valid program",
+			program: ProgramSpec{
+				Package: &PackageSpec{Name: "pkg"},
+				Use:     []UseSpec{{Name: "use_pkg"}},
+				Decls:   []DeclSpec{{Atom: AtomSpec{Pred: "decl_pred"}}},
+				Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "clause_pred"}}},
+			},
+			options: Options{AllowPackage: true, AllowUse: true, AllowDecls: true},
+			wantErr: false,
+		},
 	}
-}
 
-func TestValidateProgramSpec_Options(t *testing.T) {
-	// Program requires at least one clause or decl, etc., so add a dummy clause to bypass empty error
-	baseProgram := func() ProgramSpec {
-		return ProgramSpec{Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "p"}}}}
-	}
-
-	opts := Options{} // all false
-
-	// Test AllowPackage
-	p1 := baseProgram()
-	p1.Package = &PackageSpec{Name: "foo"}
-	err := validateProgramSpec(p1, opts)
-	if err == nil || !strings.Contains(err.Error(), "package declarations are not allowed") {
-		t.Errorf("Expected error for AllowPackage=false, got %v", err)
-	}
-
-	// Test AllowUse
-	p2 := baseProgram()
-	p2.Use = []UseSpec{{Name: "bar"}}
-	err = validateProgramSpec(p2, opts)
-	if err == nil || !strings.Contains(err.Error(), "use declarations are not allowed") {
-		t.Errorf("Expected error for AllowUse=false, got %v", err)
-	}
-
-	// Test AllowDecls
-	p3 := baseProgram()
-	p3.Decls = []DeclSpec{{Atom: AtomSpec{Pred: "p"}}}
-	err = validateProgramSpec(p3, opts)
-	if err == nil || !strings.Contains(err.Error(), "decl declarations are not allowed") {
-		t.Errorf("Expected error for AllowDecls=false, got %v", err)
-	}
-
-	// Test RequireSingleClause
-	opts.RequireSingleClause = true
-	p4 := baseProgram()
-	p4.Clauses = append(p4.Clauses, ClauseSpec{Head: AtomSpec{Pred: "q"}})
-	err = validateProgramSpec(p4, opts)
-	if err == nil || !strings.Contains(err.Error(), "expected exactly one clause") {
-		t.Errorf("Expected error for RequireSingleClause, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateProgramSpec(tt.program, tt.options)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateProgramSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateProgramSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidatePackageSpec(t *testing.T) {
-	err := validatePackageSpec(PackageSpec{Name: ""}, "path")
-	if err == nil || !strings.Contains(err.Error(), "package name is required") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		spec    PackageSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "empty name",
+			spec:    PackageSpec{Name: "  "},
+			wantErr: true,
+			errStr:  "package name is required",
+		},
+		{
+			name:    "invalid name token",
+			spec:    PackageSpec{Name: "123invalid"},
+			wantErr: true,
+			errStr:  "package name must be a valid NAME token",
+		},
+		{
+			name: "invalid atom",
+			spec: PackageSpec{
+				Name:  "valid",
+				Atoms: []AtomSpec{{Pred: ""}},
+			},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "valid",
+			spec: PackageSpec{
+				Name:  "valid.pkg",
+				Atoms: []AtomSpec{{Pred: "pred"}},
+			},
+			wantErr: false,
+		},
 	}
 
-	err = validatePackageSpec(PackageSpec{Name: "Invalid Name"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "valid NAME token") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validatePackageSpec(PackageSpec{Name: "valid", Atoms: []AtomSpec{{Pred: ""}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePackageSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validatePackageSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validatePackageSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateUseSpec(t *testing.T) {
-	err := validateUseSpec(UseSpec{Name: ""}, "path")
-	if err == nil || !strings.Contains(err.Error(), "use name is required") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		spec    UseSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "empty name",
+			spec:    UseSpec{Name: "  "},
+			wantErr: true,
+			errStr:  "use name is required",
+		},
+		{
+			name:    "invalid name token",
+			spec:    UseSpec{Name: "123invalid"},
+			wantErr: true,
+			errStr:  "use name must be a valid NAME token",
+		},
+		{
+			name: "invalid atom",
+			spec: UseSpec{
+				Name:  "valid",
+				Atoms: []AtomSpec{{Pred: ""}},
+			},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "valid",
+			spec: UseSpec{
+				Name:  "valid.pkg",
+				Atoms: []AtomSpec{{Pred: "pred"}},
+			},
+			wantErr: false,
+		},
 	}
 
-	err = validateUseSpec(UseSpec{Name: "Invalid Name"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "valid NAME token") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateUseSpec(UseSpec{Name: "valid", Atoms: []AtomSpec{{Pred: ""}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUseSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateUseSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateUseSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateDeclSpec(t *testing.T) {
-	// Invalid Atom
-	err := validateDeclSpec(DeclSpec{Atom: AtomSpec{Pred: ""}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		spec    DeclSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "invalid atom",
+			spec:    DeclSpec{Atom: AtomSpec{Pred: ""}},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "invalid descr",
+			spec: DeclSpec{
+				Atom:  AtomSpec{Pred: "valid"},
+				Descr: []AtomSpec{{Pred: ""}},
+			},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "empty bound terms",
+			spec: DeclSpec{
+				Atom:   AtomSpec{Pred: "valid"},
+				Bounds: []BoundSpec{{Terms: nil}},
+			},
+			wantErr: true,
+			errStr:  "bound terms are required",
+		},
+		{
+			name: "invalid bound term",
+			spec: DeclSpec{
+				Atom:   AtomSpec{Pred: "valid"},
+				Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "invalid"}}}},
+			},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name: "invalid inclusion",
+			spec: DeclSpec{
+				Atom:      AtomSpec{Pred: "valid"},
+				Inclusion: []AtomSpec{{Pred: ""}},
+			},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "valid",
+			spec: DeclSpec{
+				Atom:  AtomSpec{Pred: "valid"},
+				Descr: []AtomSpec{{Pred: "descr"}},
+				Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "var", Value: "A"}}}},
+				Inclusion: []AtomSpec{{Pred: "incl"}},
+			},
+			wantErr: false,
+		},
 	}
 
-	// Invalid Descr
-	err = validateDeclSpec(DeclSpec{Atom: AtomSpec{Pred: "p"}, Descr: []AtomSpec{{Pred: ""}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// Bounds
-	err = validateDeclSpec(DeclSpec{Atom: AtomSpec{Pred: "p"}, Bounds: []BoundSpec{{Terms: nil}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "bound terms are required") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateDeclSpec(DeclSpec{Atom: AtomSpec{Pred: "p"}, Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "invalid"}}}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// Inclusion
-	err = validateDeclSpec(DeclSpec{Atom: AtomSpec{Pred: "p"}, Inclusion: []AtomSpec{{Pred: ""}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateDeclSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateDeclSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateDeclSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateClauseSpec(t *testing.T) {
-	// Invalid Head
-	err := validateClauseSpec(ClauseSpec{Head: AtomSpec{Pred: ""}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		spec    ClauseSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "invalid head atom",
+			spec:    ClauseSpec{Head: AtomSpec{Pred: ""}},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name: "invalid body term",
+			spec: ClauseSpec{
+				Head: AtomSpec{Pred: "valid"},
+				Body: []TermSpec{{Kind: "invalid"}},
+			},
+			wantErr: true,
+			errStr:  "term kind must be",
+		},
+		{
+			name: "empty transform statements",
+			spec: ClauseSpec{
+				Head:      AtomSpec{Pred: "valid"},
+				Transform: &TransformSpec{Statements: nil},
+			},
+			wantErr: true,
+			errStr:  "transform statements are required",
+		},
+		{
+			name: "invalid transform statement",
+			spec: ClauseSpec{
+				Head: AtomSpec{Pred: "valid"},
+				Transform: &TransformSpec{
+					Statements: []TransformStmtSpec{{Kind: "invalid"}},
+				},
+			},
+			wantErr: true,
+			errStr:  "transform kind must be",
+		},
+		{
+			name: "valid",
+			spec: ClauseSpec{
+				Head: AtomSpec{Pred: "valid"},
+				Body: []TermSpec{{Kind: "atom", Atom: &AtomSpec{Pred: "body_pred"}}},
+				Transform: &TransformSpec{
+					Statements: []TransformStmtSpec{
+						{Kind: "do", Fn: ExprSpec{Kind: "apply", Function: "fn:foo"}},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
-	// Invalid Body
-	err = validateClauseSpec(ClauseSpec{Head: AtomSpec{Pred: "p"}, Body: []TermSpec{{Kind: "invalid"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "term kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// Transform Statement errors
-	err = validateClauseSpec(ClauseSpec{Head: AtomSpec{Pred: "p"}, Transform: &TransformSpec{Statements: nil}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "transform statements are required") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateClauseSpec(ClauseSpec{Head: AtomSpec{Pred: "p"}, Transform: &TransformSpec{Statements: []TransformStmtSpec{{Kind: "invalid"}}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "transform kind must be") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateClauseSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateClauseSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateClauseSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateTransformStmt(t *testing.T) {
-	err := validateTransformStmt(TransformStmtSpec{Kind: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "transform kind must be") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		stmt    TransformStmtSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "invalid kind",
+			stmt:    TransformStmtSpec{Kind: "invalid", Fn: ExprSpec{Kind: "apply", Function: "fn:foo"}},
+			wantErr: true,
+			errStr:  "transform kind must be \"do\" or \"let\"",
+		},
+		{
+			name:    "let without valid var",
+			stmt:    TransformStmtSpec{Kind: "let", Var: "invalidVar", Fn: ExprSpec{Kind: "apply", Function: "fn:foo"}},
+			wantErr: true,
+			errStr:  "let transforms require a valid variable name",
+		},
+		{
+			name:    "invalid fn expr",
+			stmt:    TransformStmtSpec{Kind: "do", Fn: ExprSpec{Kind: "invalid"}},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "fn is not apply",
+			stmt:    TransformStmtSpec{Kind: "do", Fn: ExprSpec{Kind: "var", Value: "A"}},
+			wantErr: true,
+			errStr:  "transform function must be an apply expression",
+		},
+		{
+			name:    "valid do",
+			stmt:    TransformStmtSpec{Kind: "do", Fn: ExprSpec{Kind: "apply", Function: "fn:foo"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid let",
+			stmt:    TransformStmtSpec{Kind: "let", Var: "A", Fn: ExprSpec{Kind: "apply", Function: "fn:foo"}},
+			wantErr: false,
+		},
 	}
 
-	err = validateTransformStmt(TransformStmtSpec{Kind: "let", Var: ""}, "path")
-	if err == nil || !strings.Contains(err.Error(), "let transforms require a valid variable name") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateTransformStmt(TransformStmtSpec{Kind: "do", Fn: ExprSpec{Kind: "invalid"}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateTransformStmt(TransformStmtSpec{Kind: "do", Fn: ExprSpec{Kind: "string"}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "transform function must be an apply expression") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTransformStmt(tt.stmt, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateTransformStmt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateTransformStmt() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateTermSpec(t *testing.T) {
-	// Atom
-	err := validateTermSpec(TermSpec{Kind: "atom", Atom: nil}, "path")
-	if err == nil || !strings.Contains(err.Error(), "atom term requires atom") {
-		t.Errorf("Expected error, got %v", err)
+	validExpr := &ExprSpec{Kind: "var", Value: "A"}
+	tests := []struct {
+		name    string
+		spec    TermSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "invalid kind",
+			spec:    TermSpec{Kind: "invalid"},
+			wantErr: true,
+			errStr:  "term kind must be atom, not, eq, neq, or cmp",
+		},
+		{
+			name:    "atom term missing atom",
+			spec:    TermSpec{Kind: "atom", Atom: nil},
+			wantErr: true,
+			errStr:  "atom term requires atom",
+		},
+		{
+			name:    "atom term invalid atom",
+			spec:    TermSpec{Kind: "atom", Atom: &AtomSpec{Pred: ""}},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name:    "not term missing atom",
+			spec:    TermSpec{Kind: "not", Atom: nil},
+			wantErr: true,
+			errStr:  "negated term requires atom",
+		},
+		{
+			name:    "eq missing left",
+			spec:    TermSpec{Kind: "eq", Right: validExpr},
+			wantErr: true,
+			errStr:  "comparison requires left and right",
+		},
+		{
+			name:    "neq missing right",
+			spec:    TermSpec{Kind: "neq", Left: validExpr},
+			wantErr: true,
+			errStr:  "comparison requires left and right",
+		},
+		{
+			name:    "eq invalid left",
+			spec:    TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "invalid"}, Right: validExpr},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "cmp missing left",
+			spec:    TermSpec{Kind: "cmp", Right: validExpr},
+			wantErr: true,
+			errStr:  "comparison requires left and right",
+		},
+		{
+			name:    "cmp invalid op",
+			spec:    TermSpec{Kind: "cmp", Left: validExpr, Right: validExpr, Op: "invalid"},
+			wantErr: true,
+			errStr:  "cmp op must be lt, le, gt, or ge",
+		},
+		{
+			name:    "cmp valid",
+			spec:    TermSpec{Kind: "cmp", Left: validExpr, Right: validExpr, Op: "le"},
+			wantErr: false,
+		},
 	}
 
-	// Not
-	err = validateTermSpec(TermSpec{Kind: "not", Atom: nil}, "path")
-	if err == nil || !strings.Contains(err.Error(), "negated term requires atom") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "not", Atom: &AtomSpec{Pred: ""}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// Eq/Neq
-	err = validateTermSpec(TermSpec{Kind: "eq", Left: nil}, "path")
-	if err == nil || !strings.Contains(err.Error(), "comparison requires left and right") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "invalid"}, Right: &ExprSpec{Kind: "string"}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "string"}, Right: &ExprSpec{Kind: "invalid"}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// Cmp
-	err = validateTermSpec(TermSpec{Kind: "cmp", Left: nil}, "path")
-	if err == nil || !strings.Contains(err.Error(), "comparison requires left and right") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "cmp", Left: &ExprSpec{Kind: "string"}, Right: &ExprSpec{Kind: "string"}, Op: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "cmp op must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "cmp", Left: &ExprSpec{Kind: "invalid"}, Right: &ExprSpec{Kind: "string"}, Op: "lt"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "cmp", Left: &ExprSpec{Kind: "string"}, Right: &ExprSpec{Kind: "invalid"}, Op: "lt"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateTermSpec(TermSpec{Kind: "cmp", Left: &ExprSpec{Kind: "string"}, Right: &ExprSpec{Kind: "string"}, Op: "lt"}, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	// Invalid Kind
-	err = validateTermSpec(TermSpec{Kind: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "term kind must be") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTermSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateTermSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateTermSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateAtomSpec(t *testing.T) {
-	err := validateAtomSpec(AtomSpec{Pred: ""}, "path")
-	if err == nil || !strings.Contains(err.Error(), "predicate is required") {
-		t.Errorf("Expected error, got %v", err)
+	tests := []struct {
+		name    string
+		spec    AtomSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "empty predicate",
+			spec:    AtomSpec{Pred: ""},
+			wantErr: true,
+			errStr:  "predicate is required",
+		},
+		{
+			name:    "fn prefix",
+			spec:    AtomSpec{Pred: "fn:foo"},
+			wantErr: true,
+			errStr:  "predicate must not start with \"fn:\"",
+		},
+		{
+			name:    "invalid name token",
+			spec:    AtomSpec{Pred: "123invalid"},
+			wantErr: true,
+			errStr:  "predicate must be a valid NAME token",
+		},
+		{
+			name:    "invalid args",
+			spec:    AtomSpec{Pred: "valid", Args: []ExprSpec{{Kind: "invalid"}}},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "valid",
+			spec:    AtomSpec{Pred: "valid_pred", Args: []ExprSpec{{Kind: "var", Value: "A"}}},
+			wantErr: false,
+		},
 	}
 
-	err = validateAtomSpec(AtomSpec{Pred: "fn:foo"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "must not start with \"fn:\"") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateAtomSpec(AtomSpec{Pred: "Invalid_Pattern"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "must be a valid NAME token") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	err = validateAtomSpec(AtomSpec{Pred: "valid", Args: []ExprSpec{{Kind: "invalid"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAtomSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateAtomSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateAtomSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateExprSpec(t *testing.T) {
-	// var
-	err := validateExprSpec(ExprSpec{Kind: "var", Value: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "variable must be '_' or start with uppercase") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "var", Value: "V!@#"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "variable must be '_' or start with uppercase") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "var", Value: "_"}, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	three := 3
+	two := 2
+	f := 3.14
+
+	tests := []struct {
+		name    string
+		spec    ExprSpec
+		wantErr bool
+		errStr  string
+	}{
+		{
+			name:    "invalid kind",
+			spec:    ExprSpec{Kind: "invalid"},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "var invalid",
+			spec:    ExprSpec{Kind: "var", Value: "invalidVar"},
+			wantErr: true,
+			errStr:  "variable must be '_' or start with uppercase letter",
+		},
+		{
+			name:    "var valid",
+			spec:    ExprSpec{Kind: "var", Value: "Var"},
+			wantErr: false,
+		},
+		{
+			name:    "name invalid",
+			spec:    ExprSpec{Kind: "name", Value: "invalid"},
+			wantErr: true,
+			errStr:  "name constant must start with '/'",
+		},
+		{
+			name:    "name valid",
+			spec:    ExprSpec{Kind: "name", Value: "/valid"},
+			wantErr: false,
+		},
+		{
+			name:    "string",
+			spec:    ExprSpec{Kind: "string"},
+			wantErr: false,
+		},
+		{
+			name:    "bytes",
+			spec:    ExprSpec{Kind: "bytes"},
+			wantErr: false,
+		},
+		{
+			name:    "number json.Number invalid",
+			spec:    ExprSpec{Kind: "number", Number: "abc"},
+			wantErr: true,
+			errStr:  "number must be an integer",
+		},
+		{
+			name:    "number json.Number valid",
+			spec:    ExprSpec{Kind: "number", Number: "123"},
+			wantErr: false,
+		},
+		{
+			name:    "number value invalid",
+			spec:    ExprSpec{Kind: "number", Value: "abc"},
+			wantErr: true,
+			errStr:  "number value must be an integer",
+		},
+		{
+			name:    "number value valid",
+			spec:    ExprSpec{Kind: "number", Value: "123"},
+			wantErr: false,
+		},
+		{
+			name:    "number missing both",
+			spec:    ExprSpec{Kind: "number"},
+			wantErr: true,
+			errStr:  "number requires number or value",
+		},
+		{
+			name:    "float value invalid",
+			spec:    ExprSpec{Kind: "float", Value: "abc"},
+			wantErr: true,
+			errStr:  "float value must be numeric",
+		},
+		{
+			name:    "float value valid",
+			spec:    ExprSpec{Kind: "float", Value: "3.14"},
+			wantErr: false,
+		},
+		{
+			name:    "float literal valid",
+			spec:    ExprSpec{Kind: "float", Float: &f},
+			wantErr: false,
+		},
+		{
+			name:    "float missing both",
+			spec:    ExprSpec{Kind: "float"},
+			wantErr: true,
+			errStr:  "float requires float or value",
+		},
+		{
+			name:    "apply missing function",
+			spec:    ExprSpec{Kind: "apply", Function: ""},
+			wantErr: true,
+			errStr:  "apply function name is required",
+		},
+		{
+			name:    "apply bad function prefix",
+			spec:    ExprSpec{Kind: "apply", Function: "foo"},
+			wantErr: true,
+			errStr:  "apply function must start with \"fn:\"",
+		},
+		{
+			name:    "apply invalid args",
+			spec:    ExprSpec{Kind: "apply", Function: "fn:foo", Args: []ExprSpec{{Kind: "invalid"}}},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "apply arity mismatch",
+			spec:    ExprSpec{Kind: "apply", Function: "fn:foo", Arity: &three, Args: []ExprSpec{{Kind: "var", Value: "A"}}},
+			wantErr: true,
+			errStr:  "arity 3 does not match args length 1",
+		},
+		{
+			name:    "apply valid",
+			spec:    ExprSpec{Kind: "apply", Function: "fn:foo", Args: []ExprSpec{{Kind: "var", Value: "A"}}},
+			wantErr: false,
+		},
+		{
+			name:    "list invalid args",
+			spec:    ExprSpec{Kind: "list", Args: []ExprSpec{{Kind: "invalid"}}},
+			wantErr: true,
+			errStr:  "expr kind must be",
+		},
+		{
+			name:    "map odd args length",
+			spec:    ExprSpec{Kind: "map", Args: []ExprSpec{{Kind: "var", Value: "A"}}},
+			wantErr: true,
+			errStr:  "map/struct require even number of args",
+		},
+		{
+			name:    "struct arity mismatch",
+			spec:    ExprSpec{Kind: "struct", Arity: &two, Args: []ExprSpec{}},
+			wantErr: true,
+			errStr:  "arity 2 does not match args length 0",
+		},
+		{
+			name:    "struct valid",
+			spec:    ExprSpec{Kind: "struct", Args: []ExprSpec{{Kind: "var", Value: "A"}, {Kind: "var", Value: "B"}}},
+			wantErr: false,
+		},
 	}
 
-	// name
-	err = validateExprSpec(ExprSpec{Kind: "name", Value: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "name constant must start with '/'") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// number
-	err = validateExprSpec(ExprSpec{Kind: "number", Value: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "number value must be an integer") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "number"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "number requires number or value") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// float
-	err = validateExprSpec(ExprSpec{Kind: "float", Value: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "float value must be numeric") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "float"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "float requires float or value") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// apply
-	err = validateExprSpec(ExprSpec{Kind: "apply", Function: ""}, "path")
-	if err == nil || !strings.Contains(err.Error(), "apply function name is required") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "apply", Function: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "apply function must start with \"fn:\"") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	arity := 2
-	err = validateExprSpec(ExprSpec{Kind: "apply", Function: "fn:foo", Arity: &arity, Args: []ExprSpec{{Kind: "string"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "does not match args length") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "apply", Function: "fn:foo", Args: []ExprSpec{{Kind: "invalid"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// map / struct / list
-	err = validateExprSpec(ExprSpec{Kind: "map", Arity: &arity, Args: []ExprSpec{{Kind: "string"}, {Kind: "string"}, {Kind: "string"}, {Kind: "string"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "does not match args length") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "map", Args: []ExprSpec{{Kind: "string"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "require even number of args") {
-		t.Errorf("Expected error, got %v", err)
-	}
-	err = validateExprSpec(ExprSpec{Kind: "map", Args: []ExprSpec{{Kind: "invalid"}, {Kind: "string"}}}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
-	}
-
-	// invalid
-	err = validateExprSpec(ExprSpec{Kind: "invalid"}, "path")
-	if err == nil || !strings.Contains(err.Error(), "expr kind must be") {
-		t.Errorf("Expected error, got %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateExprSpec(tt.spec, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateExprSpec() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errStr != "" && !strings.Contains(err.Error(), tt.errStr) {
+				t.Errorf("validateExprSpec() error = %v, want substring %q", err, tt.errStr)
+			}
+		})
 	}
 }
 
 func TestValidateArity(t *testing.T) {
-	// Nil arity
-	err := validateArity(nil, 0, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	three := 3
+	negOne := -1
+
+	tests := []struct {
+		name    string
+		arity   *int
+		argLen  int
+		wantErr bool
+	}{
+		{
+			name:    "nil arity",
+			arity:   nil,
+			argLen:  5,
+			wantErr: false,
+		},
+		{
+			name:    "arity -1",
+			arity:   &negOne,
+			argLen:  5,
+			wantErr: false,
+		},
+		{
+			name:    "match",
+			arity:   &three,
+			argLen:  3,
+			wantErr: false,
+		},
+		{
+			name:    "mismatch",
+			arity:   &three,
+			argLen:  2,
+			wantErr: true,
+		},
 	}
 
-	// -1 arity
-	arityAny := -1
-	err = validateArity(&arityAny, 5, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	// match
-	arityMatch := 2
-	err = validateArity(&arityMatch, 2, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	// mismatch
-	err = validateArity(&arityMatch, 3, "path")
-	if err == nil || !strings.Contains(err.Error(), "does not match args length") {
-		t.Errorf("Expected error, got %v", err)
-	}
-}
-
-func TestValidateFloat(t *testing.T) {
-	var f float64 = 1.0
-	err := validateFloat(ExprSpec{Float: &f}, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	err = validateFloat(ExprSpec{Value: "1.0"}, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-}
-
-func TestValidateNumber(t *testing.T) {
-	err := validateNumber(ExprSpec{Value: "10"}, "path")
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateArity(tt.arity, tt.argLen, "path")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateArity() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
 func TestIsValidVariable(t *testing.T) {
-	valid := []string{"_", "A", "Var", "VAR", "Var1", "Var_1", "Z"}
-	invalid := []string{"", "a", "var", "1Var", "V@r", "V-ar"}
-
-	for _, v := range valid {
-		if !isValidVariable(v) {
-			t.Errorf("Expected %q to be a valid variable", v)
-		}
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"underscore", "_", true},
+		{"empty", "", false},
+		{"lowercase start", "aVariable", false},
+		{"number start", "1Variable", false},
+		{"valid single char", "A", true},
+		{"valid multi char", "Variable123_", true},
+		{"invalid char inside", "Var!able", false},
 	}
 
-	for _, v := range invalid {
-		if isValidVariable(v) {
-			t.Errorf("Expected %q to be an invalid variable", v)
-		}
-	}
-}
-
-func TestValidateSpec_HappyPath(t *testing.T) {
-	spec := Spec{
-		Format: FormatV1,
-		Program: ProgramSpec{
-			Clauses: []ClauseSpec{
-				{
-					Head: AtomSpec{
-						Pred: "p",
-						Args: []ExprSpec{
-							{Kind: "var", Value: "X"},
-						},
-					},
-					Body: []TermSpec{
-						{
-							Kind: "atom",
-							Atom: &AtomSpec{
-								Pred: "q",
-								Args: []ExprSpec{
-									{Kind: "var", Value: "X"},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	err := ValidateSpec(spec, DefaultOptions())
-	if err != nil {
-		t.Errorf("Expected nil error for happy path, got: %v", err)
-	}
-}
-
-func TestValidateProgramSpec_HappyPath(t *testing.T) {
-	program := ProgramSpec{
-		Package: &PackageSpec{
-			Name: "my_package",
-			Atoms: []AtomSpec{
-				{
-					Pred: "p",
-				},
-			},
-		},
-		Use: []UseSpec{
-			{
-				Name: "other_package",
-			},
-		},
-		Decls: []DeclSpec{
-			{
-				Atom: AtomSpec{
-					Pred: "q",
-				},
-				Bounds: []BoundSpec{
-					{
-						Terms: []ExprSpec{
-							{Kind: "var", Value: "X"},
-						},
-					},
-				},
-			},
-		},
-		Clauses: []ClauseSpec{
-			{
-				Head: AtomSpec{
-					Pred: "p",
-					Args: []ExprSpec{
-						{Kind: "var", Value: "X"},
-					},
-				},
-				Body: []TermSpec{
-					{
-						Kind: "atom",
-						Atom: &AtomSpec{
-							Pred: "q",
-							Args: []ExprSpec{
-								{Kind: "var", Value: "X"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	err := validateProgramSpec(program, DefaultOptions())
-	if err != nil {
-		t.Errorf("Expected nil error for happy path, got: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isValidVariable(tt.value); got != tt.want {
+				t.Errorf("isValidVariable(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }
