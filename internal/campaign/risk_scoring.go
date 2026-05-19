@@ -434,14 +434,25 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 		paths = collectCampaignRiskPaths(c)
 	}
 	paths = dedupeSortedStrings(paths)
-
 	inputs := buildRiskInputSnapshot(c, paths, intel)
+	metrics := calculateRiskMetrics(c, paths, inputs)
 
-	criticality, churn, coverageGap, centrality, score := calculateCampaignRiskScore(c, paths, inputs)
+	score := weightedRiskScore(
+		metrics.criticality,
+		metrics.churn,
+		metrics.coverageGap,
+		metrics.centrality,
+		metrics.complexityNorm,
+		metrics.safetyNorm,
+		metrics.capabilityNorm,
+		metrics.errorNorm,
+	)
 
 	threshold := clampRiskThreshold(cfg.RiskGateThreshold)
 	gated, tieBreak := applyRiskThreshold(score, threshold, inputs, gates)
-	gated, overrideLevel := evaluateCampaignRiskOverride(cfg, gated)
+
+	overrideGated, overrideLevel := determineRiskOverrideLevel(cfg)
+	gated = applyRiskOverride(gated, overrideGated)
 
 	return &CampaignRiskDecision{
 		Score:         score,
@@ -451,10 +462,10 @@ func buildCampaignRiskDecision(c *Campaign, cfg OrchestratorConfig, gates riskGa
 		SnapshotID:    riskSnapshotID(c, paths),
 		OverrideLevel: overrideLevel,
 
-		Criticality: criticality,
-		Churn:       churn,
-		CoverageGap: coverageGap,
-		Centrality:  centrality,
+		Criticality: metrics.criticality,
+		Churn:       metrics.churn,
+		CoverageGap: metrics.coverageGap,
+		Centrality:  metrics.centrality,
 		Inputs:      inputs,
 
 		AdvisoryGateEnabled:  gates.Advisory,
@@ -477,23 +488,61 @@ func buildRiskInputSnapshot(c *Campaign, paths []string, intel *IntelligenceRepo
 	return inputs
 }
 
-func evaluateCampaignRiskOverride(cfg OrchestratorConfig, gated bool) (bool, string) {
+type riskMetrics struct {
+	criticality    int
+	churn          int
+	coverageGap    int
+	centrality     int
+	complexityNorm int
+	safetyNorm     int
+	capabilityNorm int
+	errorNorm      int
+}
+
+func calculateRiskMetrics(c *Campaign, paths []string, inputs RiskInputSnapshot) riskMetrics {
+	criticality := criticalityNorm(paths)
+	churnBase := percentileNorm(len(paths), []int{1, 3, 5, 8, 13, 21, 34, 55, 89})
+	churnIntel := clampInt(inputs.HighChurnFiles*10, 0, 100)
+	churn := clampInt(int(math.Round(0.7*float64(churnBase)+0.3*float64(churnIntel))), 0, 100)
+
+	coverageBase := clampInt(100-coverageFromPlan(c), 0, 100)
+	coverageGap := clampInt(coverageBase+clampInt(inputs.UncoveredPaths*4, 0, 24), 0, 100)
+
+	centrality := percentileNorm(len(c.Phases)+len(paths), []int{1, 2, 3, 5, 8, 13, 21, 34, 55})
+	complexityNorm := complexityToNorm(inputs.MaxComplexity)
+	safetyNorm := clampInt(inputs.SafetyWarnings*18+inputs.BlockedActions*22, 0, 100)
+	capabilityNorm := clampInt(inputs.ToolGaps*12+inputs.MissingCapabilities*10, 0, 100)
+	errorNorm := clampInt(inputs.GatheringErrors*20, 0, 100)
+
+	return riskMetrics{criticality, churn, coverageGap, centrality, complexityNorm, safetyNorm, capabilityNorm, errorNorm}
+}
+
+func determineRiskOverrideLevel(cfg OrchestratorConfig) (*bool, string) {
 	mode := normalizeRiskGateMode(cfg.RiskGateMode)
 	switch mode {
 	case RiskGateModeForceBlock:
-		return true, "mode_force_block"
+		b := true
+		return &b, "mode_force_block"
 	case RiskGateModeForceAllow:
-		return false, "mode_force_allow"
+		b := false
+		return &b, "mode_force_allow"
 	default:
 		if cfg.CampaignRiskOverride != nil {
-			return *cfg.CampaignRiskOverride, "campaign_override"
+			return cfg.CampaignRiskOverride, "campaign_override"
 		} else if !cfg.GlobalRiskGate {
-			return false, "global_override_disabled"
+			b := false
+			return &b, "global_override_disabled"
 		}
 	}
-	return gated, "score_threshold"
+	return nil, "score_threshold"
 }
 
+func applyRiskOverride(gated bool, overrideGated *bool) bool {
+	if overrideGated != nil {
+		return *overrideGated
+	}
+	return gated
+}
 func applyRiskThreshold(score, threshold int, inputs RiskInputSnapshot, gates riskGateResolved) (bool, string) {
 	if score > threshold {
 		return true, "above_threshold"
@@ -999,33 +1048,4 @@ func clampInt(v, minV, maxV int) int {
 		return maxV
 	}
 	return v
-}
-
-func calculateCampaignRiskScore(c *Campaign, paths []string, inputs RiskInputSnapshot) (int, int, int, int, int) {
-	criticality := criticalityNorm(paths)
-	churnBase := percentileNorm(len(paths), []int{1, 3, 5, 8, 13, 21, 34, 55, 89})
-	churnIntel := clampInt(inputs.HighChurnFiles*10, 0, 100)
-	churn := clampInt(int(math.Round(0.7*float64(churnBase)+0.3*float64(churnIntel))), 0, 100)
-
-	coverageBase := clampInt(100-coverageFromPlan(c), 0, 100)
-	coverageGap := clampInt(coverageBase+clampInt(inputs.UncoveredPaths*4, 0, 24), 0, 100)
-
-	centrality := percentileNorm(len(c.Phases)+len(paths), []int{1, 2, 3, 5, 8, 13, 21, 34, 55})
-	complexityNorm := complexityToNorm(inputs.MaxComplexity)
-	safetyNorm := clampInt(inputs.SafetyWarnings*18+inputs.BlockedActions*22, 0, 100)
-	capabilityNorm := clampInt(inputs.ToolGaps*12+inputs.MissingCapabilities*10, 0, 100)
-	errorNorm := clampInt(inputs.GatheringErrors*20, 0, 100)
-
-	score := weightedRiskScore(
-		criticality,
-		churn,
-		coverageGap,
-		centrality,
-		complexityNorm,
-		safetyNorm,
-		capabilityNorm,
-		errorNorm,
-	)
-
-	return criticality, churn, coverageGap, centrality, score
 }
