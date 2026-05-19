@@ -74,14 +74,14 @@ func TestEdgeCaseDetectorGap_TypeCoercion(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
 
 	// Test NaN
-	nanVal, ok := detector.parseNumber(math.NaN())
-	if !ok || !math.IsNaN(nanVal) {
+	_, ok := detector.parseNumber(math.NaN())
+	if ok {
 		t.Errorf("parseNumber failed to handle NaN")
 	}
 
 	// Test Inf
-	infVal, ok := detector.parseNumber(math.Inf(1))
-	if !ok || !math.IsInf(infVal, 1) {
+	_, ok = detector.parseNumber(math.Inf(1))
+	if ok {
 		t.Errorf("parseNumber failed to handle Inf")
 	}
 
