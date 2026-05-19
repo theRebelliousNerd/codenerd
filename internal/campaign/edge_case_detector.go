@@ -6,6 +6,7 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -161,24 +162,62 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeFiles")
 	defer timer.Stop()
 
+	// Pre-query and cache facts from the kernel once to avoid O(N*M) performance cliff
+	var cache *cachedFacts
+	if d.kernel != nil {
+		cache = d.precacheFacts(ctx)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, d.config.AnalysisTimeout*time.Duration(len(paths)))
 	defer cancel()
 
-	decisions := make([]FileDecision, 0, len(paths))
-
-	for _, path := range paths {
-		if path == "" {
-			continue // Skip empty paths
+	// Filter out empty paths first
+	validPaths := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p != "" {
+			validPaths = append(validPaths, p)
 		}
+	}
+
+	if len(validPaths) == 0 {
+		return []FileDecision{}, nil
+	}
+
+	// 8-worker goroutine pool for high-concurrency safety and fast processing
+	numWorkers := 8
+	if len(validPaths) < numWorkers {
+		numWorkers = len(validPaths)
+	}
+
+	taskChan := make(chan string, len(validPaths))
+	resChan := make(chan FileDecision, len(validPaths))
+
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			for path := range taskChan {
+				decision := d.analyzeFileWithCache(ctx, path, intelligence, cache)
+				resChan <- decision
+			}
+		}()
+	}
+
+	// Send tasks
+	for _, path := range validPaths {
+		taskChan <- path
+	}
+	close(taskChan)
+
+	// Collect results
+	decisions := make([]FileDecision, 0, len(validPaths))
+	for i := 0; i < len(validPaths); i++ {
 		select {
 		case <-ctx.Done():
-			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout", len(decisions), len(paths))
+			logging.Campaign("Edge case analysis interrupted: %d/%d files analyzed before timeout/cancellation", len(decisions), len(validPaths))
 			return decisions, ctx.Err()
-		default:
+		case dec := <-resChan:
+			decisions = append(decisions, dec)
 		}
-
-		decision := d.analyzeFile(ctx, path, intelligence)
-		decisions = append(decisions, decision)
 	}
 
 	// Sort by priority: refactor_first > modularize > create > extend > skip
@@ -257,114 +296,12 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 
 // analyzeFile performs analysis on a single file.
 func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport) FileDecision {
-	// Check for context cancellation
-	if err := ctx.Err(); err != nil {
-		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
-	}
-	decision := FileDecision{
-		Path:         path,
-		Language:     d.detectLanguage(path),
-		Confidence:   0.8, // Default confidence
-		Dependencies: []string{},
-		Dependents:   []string{},
-		Warnings:     []string{},
-	}
-
-	// Check if file exists (from intelligence report)
-	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
-		if fileInfo, exists := intel.FileTopology[path]; exists {
-			decision.Exists = true
-			decision.Language = fileInfo.Language
-		}
-	} else {
-		// Fallback to checking the file system directly if intel is missing or empty
-		if _, err := os.Stat(path); err == nil {
-			decision.Exists = true
-		}
-		if intel == nil || intel.IsEmpty() {
-			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
-		}
-	}
-
-	// Double check file existence with the filesystem
-	if decision.Exists {
-		if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
-			decision.Exists = false
-		}
-	}
-
-	// Verify against actual filesystem to avoid state conflicts
-	if decision.Exists {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			decision.Exists = false
-		}
-	} else if _, err := os.Stat(path); err == nil {
-		decision.Exists = true
-	}
-
-	// If file doesn't exist, recommend creation
-	if !decision.Exists {
-		decision.RecommendedAction = ActionCreate
-		decision.Reasoning = "File does not exist - creation required"
-		return decision
-	}
-
-	// Gather metrics from intelligence report
-	d.gatherMetrics(ctx, &decision, path, intel)
-
-	// Apply decision logic
-	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
-
-	// Add warnings for edge cases
-	d.addWarnings(&decision, intel)
-
-	return decision
+	return d.analyzeFileWithCache(ctx, path, intel, nil)
 }
 
 // gatherMetrics populates decision metrics from intelligence data.
 func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport) {
-	if err := ctx.Err(); err != nil {
-		return
-	}
-	if intel == nil || intel.IsEmpty() {
-		return
-	}
-
-	if intel != nil {
-		// Get churn rate from git history
-		for _, hotspot := range intel.GitChurnHotspots {
-			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
-				decision.ChurnRate = hotspot.ChurnRate
-				break
-			}
-		}
-
-		// Count symbols in file
-		symbolCount := 0
-		for _, symbol := range intel.SymbolGraph {
-			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
-				symbolCount++
-			}
-		}
-		// Estimate line count from symbol density
-		decision.LineCount = symbolCount * 25 // Rough estimate
-
-		// Check for test file
-		if !strings.HasSuffix(path, "_test.go") {
-			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
-			_, decision.HasTests = intel.FileTopology[testPath]
-		}
-	}
-
-	if strings.HasSuffix(path, "_test.go") {
-		decision.HasTests = true
-	}
-
-	// Query kernel for dependencies
-	if d.kernel != nil {
-		d.queryDependencies(ctx, decision, path)
-		d.queryComplexity(ctx, decision, path)
-	}
+	d.gatherMetricsWithCache(ctx, decision, path, intel, nil)
 }
 
 // queryDependencies gets file dependencies from the kernel.
@@ -517,16 +454,32 @@ func (d *EdgeCaseDetector) suggestSplits(decision FileDecision) []SplitSuggestio
 	ext := filepath.Ext(decision.Path)
 	dir := filepath.Dir(decision.Path)
 
-	// Generic split suggestions based on common patterns
-	patterns := []struct {
+	// Agnostic suffix split patterns
+	var patterns []struct {
 		suffix string
 		desc   string
-	}{
-		{"_types", "Type definitions and interfaces"},
-		{"_helpers", "Helper functions and utilities"},
-		{"_handlers", "Request/response handlers"},
-		{"_validation", "Validation logic"},
-		{"_persistence", "Database/storage operations"},
+	}
+
+	lang := d.detectLanguage(decision.Path)
+	if lang == "go" || lang == "typescript" || lang == "javascript" {
+		patterns = []struct {
+			suffix string
+			desc   string
+		}{
+			{"_types", "Type definitions and interfaces"},
+			{"_helpers", "Helper functions and utilities"},
+			{"_handlers", "Request/response handlers"},
+		}
+	} else {
+		// Generic language-agnostic splits to prevent invalid syntax naming suggestions
+		patterns = []struct {
+			suffix string
+			desc   string
+		}{
+			{"_core", "Core implementation and logic"},
+			{"_utils", "Utility and helper functions"},
+			{"_part2", "Secondary logic partition"},
+		}
 	}
 
 	// Suggest at most 3 splits
@@ -859,18 +812,222 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 	return tasks
 }
 
-// TODO: Missing Edge Case - Type Coercion: parseNumber handling NaN and +Inf.
-// Check if Mangle returns NaN/Inf for floats; complexity logic might permanently
-// trigger ActionRefactorFirst or create panics on math operations.
+// cachedFacts holds pre-queried and indexed facts to avoid N+1 query overhead.
+type cachedFacts struct {
+	dependencies map[string][]string
+	dependents   map[string][]string
+	complexity   map[string]float64
+}
 
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// For `.xyz` or unrecognized file extensions, suggestSplits appends hardcoded
-// golang/typescript-style suffixes (`_types`, `_helpers`) which could be invalid syntax.
+// precacheFacts queries kernel facts once and indexes them for fast lookup.
+func (d *EdgeCaseDetector) precacheFacts(ctx context.Context) *cachedFacts {
+	cache := &cachedFacts{
+		dependencies: make(map[string][]string),
+		dependents:   make(map[string][]string),
+		complexity:   make(map[string]float64),
+	}
 
-// TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
-// `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
-// For campaigns on large repos, this becomes O(N * M) and hangs the orchestrator.
-// Need to parallelize AnalyzeFiles or parameterize kernel queries.
+	// Query dependency_link
+	depFacts, err := d.kernel.Query("dependency_link")
+	if err == nil {
+		for _, fact := range depFacts {
+			if len(fact.Args) >= 3 {
+				file := d.parseArg(fact.Args[0])
+				callee := d.parseArg(fact.Args[1])
+				imported := d.parseArg(fact.Args[2])
 
-// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
-// `LineCount` bounds checking should prevent `float64` precision or overflow issues
+				fileBase := filepath.Base(file)
+				calleeBase := filepath.Base(callee)
+				importedBase := filepath.Base(imported)
+
+				// dependencies mapping
+				cache.dependencies[file] = append(cache.dependencies[file], imported)
+				if fileBase != file {
+					cache.dependencies[fileBase] = append(cache.dependencies[fileBase], imported)
+				}
+
+				// dependents mapping
+				cache.dependents[callee] = append(cache.dependents[callee], file)
+				if calleeBase != callee {
+					cache.dependents[calleeBase] = append(cache.dependents[calleeBase], file)
+				}
+				cache.dependents[imported] = append(cache.dependents[imported], file)
+				if importedBase != imported {
+					cache.dependents[importedBase] = append(cache.dependents[importedBase], file)
+				}
+			}
+		}
+	}
+
+	// Query cyclomatic_complexity
+	compFacts, err := d.kernel.Query("cyclomatic_complexity")
+	if err == nil {
+		for _, fact := range compFacts {
+			if len(fact.Args) >= 3 {
+				file := d.parseArg(fact.Args[0])
+				fileBase := filepath.Base(file)
+				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
+					// Keep max complexity
+					if current, exists := cache.complexity[file]; !exists || complexity > current {
+						cache.complexity[file] = complexity
+					}
+					if fileBase != file {
+						if current, exists := cache.complexity[fileBase]; !exists || complexity > current {
+							cache.complexity[fileBase] = complexity
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return cache
+}
+
+// analyzeFileWithCache performs analysis on a single file, using precached facts if available.
+func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string, intel *IntelligenceReport, cache *cachedFacts) FileDecision {
+	if err := ctx.Err(); err != nil {
+		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
+	}
+	decision := FileDecision{
+		Path:         path,
+		Language:     d.detectLanguage(path),
+		Confidence:   0.8, // Default confidence
+		Dependencies: []string{},
+		Dependents:   []string{},
+		Warnings:     []string{},
+	}
+
+	// Check if file exists (from intelligence report)
+	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
+		if fileInfo, exists := intel.FileTopology[path]; exists {
+			decision.Exists = true
+			decision.Language = fileInfo.Language
+		}
+	} else {
+		// Fallback to checking the file system directly if intel is missing or empty
+		if _, err := os.Stat(path); err == nil {
+			decision.Exists = true
+		}
+		if intel == nil || intel.IsEmpty() {
+			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
+		}
+	}
+
+	// Double check file existence with the filesystem to prevent race conditions
+	if decision.Exists {
+		if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
+			decision.Exists = false
+		}
+	}
+
+	// Verify against actual filesystem to avoid state conflicts
+	if decision.Exists {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			decision.Exists = false
+		}
+	} else if _, err := os.Stat(path); err == nil {
+		decision.Exists = true
+	}
+
+	// If file doesn't exist, recommend creation
+	if !decision.Exists {
+		decision.RecommendedAction = ActionCreate
+		decision.Reasoning = "File does not exist - creation required"
+		return decision
+	}
+
+	// Gather metrics from intelligence report and cache
+	d.gatherMetricsWithCache(ctx, &decision, path, intel, cache)
+
+	// Clamp LineCount to avoid float64 precision issues or overflow
+	if decision.LineCount < 0 {
+		decision.LineCount = 0
+	} else if decision.LineCount > 1000000 {
+		decision.LineCount = 1000000
+	}
+    
+    // Robustness: handle NaN/Inf complexity
+    if math.IsNaN(decision.Complexity) || math.IsInf(decision.Complexity, 0) {
+        decision.Complexity = 0
+    }
+
+	// Apply decision logic
+	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)
+
+	// Add warnings for edge cases
+	d.addWarnings(&decision, intel)
+
+	return decision
+}
+
+// gatherMetricsWithCache populates decision metrics from intelligence data and caches.
+func (d *EdgeCaseDetector) gatherMetricsWithCache(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport, cache *cachedFacts) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	if intel != nil {
+		// Get churn rate from git history
+		for _, hotspot := range intel.GitChurnHotspots {
+			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
+				decision.ChurnRate = hotspot.ChurnRate
+				break
+			}
+		}
+
+		// Count symbols in file
+		symbolCount := 0
+		for _, symbol := range intel.SymbolGraph {
+			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
+				symbolCount++
+			}
+		}
+		// Estimate line count from symbol density
+		decision.LineCount = symbolCount * 25 // Rough estimate
+
+		// Check for test file
+		if !strings.HasSuffix(path, "_test.go") {
+			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
+			_, decision.HasTests = intel.FileTopology[testPath]
+		}
+	}
+
+	if strings.HasSuffix(path, "_test.go") {
+		decision.HasTests = true
+	}
+
+	// Query dependencies & complexity (either using cache or direct query)
+	if cache != nil {
+		pathBase := filepath.Base(path)
+
+		// Dependencies
+		if deps, ok := cache.dependencies[path]; ok {
+			decision.Dependencies = append(decision.Dependencies, deps...)
+		} else if deps, ok := cache.dependencies[pathBase]; ok {
+			decision.Dependencies = append(decision.Dependencies, deps...)
+		}
+		decision.Dependencies = dedupeSortedStrings(decision.Dependencies)
+
+		// Dependents
+		if deps, ok := cache.dependents[path]; ok {
+			decision.Dependents = append(decision.Dependents, deps...)
+		} else if deps, ok := cache.dependents[pathBase]; ok {
+			decision.Dependents = append(decision.Dependents, deps...)
+		}
+		decision.Dependents = dedupeSortedStrings(decision.Dependents)
+		decision.ImpactScore = len(decision.Dependents)
+
+		// Complexity
+		if comp, ok := cache.complexity[path]; ok {
+			decision.Complexity = comp
+		} else if comp, ok := cache.complexity[pathBase]; ok {
+			decision.Complexity = comp
+		} else if decision.LineCount > 0 {
+			decision.Complexity = float64(decision.LineCount) / 50.0
+		}
+	} else if d.kernel != nil {
+		// Fallback to direct queries
+		d.queryDependencies(ctx, decision, path)
+		d.queryComplexity(ctx, decision, path)
+	}
+}
