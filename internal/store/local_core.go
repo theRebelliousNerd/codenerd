@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"path/filepath"
 	"sync"
 )
@@ -565,39 +566,38 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 	stats := make(map[string]int64)
 	tables := []string{"vectors", "knowledge_graph", "cold_storage", "activation_log", "session_history", "compressed_states", "knowledge_atoms", "world_files", "world_facts", "learning_candidates"}
 
-	for _, table := range tables {
+	// Prepare a single query using UNION ALL to avoid N+1 queries.
+	var queryBuilder strings.Builder
+	for i, table := range tables {
+		if i > 0 {
+			queryBuilder.WriteString(" UNION ALL ")
+		}
+		queryBuilder.WriteString(fmt.Sprintf("SELECT '%s' as tbl, COUNT(*) as cnt FROM %s", table, table))
+	}
+
+	rows, err := s.db.Query(queryBuilder.String())
+	if err != nil {
+		logging.StoreDebug("Batch count query failed (tables may not exist): %v", err)
+		// Fallback to individual queries if batch query fails (e.g., table missing)
+		for _, table := range tables {
+			var count int64
+			err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+			if err != nil {
+				logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
+				continue
+			}
+			stats[table] = count
+		}
+		return stats, nil
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var table string
 		var count int64
-		var query string
-		switch table {
-		case "vectors":
-			query = "SELECT COUNT(*) FROM vectors"
-		case "knowledge_graph":
-			query = "SELECT COUNT(*) FROM knowledge_graph"
-		case "cold_storage":
-			query = "SELECT COUNT(*) FROM cold_storage"
-		case "activation_log":
-			query = "SELECT COUNT(*) FROM activation_log"
-		case "session_history":
-			query = "SELECT COUNT(*) FROM session_history"
-		case "compressed_states":
-			query = "SELECT COUNT(*) FROM compressed_states"
-		case "knowledge_atoms":
-			query = "SELECT COUNT(*) FROM knowledge_atoms"
-		case "world_files":
-			query = "SELECT COUNT(*) FROM world_files"
-		case "world_facts":
-			query = "SELECT COUNT(*) FROM world_facts"
-		case "learning_candidates":
-			query = "SELECT COUNT(*) FROM learning_candidates"
-		default:
-			continue
+		if err := rows.Scan(&table, &count); err == nil {
+			stats[table] = count
 		}
-		err := s.db.QueryRow(query).Scan(&count)
-		if err != nil {
-			logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
-			continue
-		}
-		stats[table] = count
 	}
 
 	logging.StoreDebug("Database stats computed: tables=%d", len(stats))
