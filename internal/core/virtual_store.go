@@ -546,15 +546,9 @@ func (v *VirtualStore) SetToolExecutor(executor ToolExecutor) {
 	v.toolExecutor = executor
 
 	logging.VirtualStoreDebug("ToolExecutor attached for Ouroboros tool execution")
-
-	// Sync tools from executor to registry
-	if v.toolRegistry != nil && executor != nil {
-		if err := v.toolRegistry.SyncFromOuroboros(executor); err != nil {
-			logging.Get(logging.CategoryVirtualStore).Warn("Failed to sync tools from Ouroboros: %v", err)
-		} else {
-			logging.VirtualStoreDebug("Tools synced from Ouroboros executor to registry")
-		}
-	}
+	// NOTE: Tool sync is intentionally NOT done here. It is handled by
+	// HydrateToolsFromDisk() during boot to avoid a duplicate
+	// SyncFromOuroboros pass that wastes ~36s of Mangle evaluation.
 }
 
 // GetToolExecutor returns the current tool executor.

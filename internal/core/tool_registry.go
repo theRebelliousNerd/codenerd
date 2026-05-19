@@ -92,7 +92,7 @@ func (tr *ToolRegistry) RegisterTool(name, command, shardAffinity string) error 
 
 	tr.tools[name] = tool
 
-	// Inject facts into kernel
+	// Inject facts into kernel (single tool, immediate evaluate)
 	if err := tr.injectToolFacts(tool); err != nil {
 		logging.ToolsError("RegisterTool: failed to inject facts for %s: %v", name, err)
 		return err
@@ -237,13 +237,9 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 	return nil
 }
 
-// injectToolFacts injects tool registration facts into the kernel
-func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
-	if tr.kernel == nil {
-		return nil // No kernel configured, skip fact injection
-	}
-
-	// Inject registration facts
+// collectToolFacts returns the kernel facts for a tool WITHOUT asserting them.
+// Use this when batching facts across multiple tools to avoid per-tool evaluation.
+func collectToolFacts(tool *Tool) []Fact {
 	facts := []Fact{
 		{
 			Predicate: "registered_tool",
@@ -262,7 +258,6 @@ func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
 		})
 	}
 
-	// Inject capability facts
 	for _, cap := range tool.Capabilities {
 		facts = append(facts, Fact{
 			Predicate: "tool_capability",
@@ -270,18 +265,23 @@ func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
 		})
 	}
 
-	// Assert all facts
-	for _, fact := range facts {
-		if err := tr.kernel.Assert(fact); err != nil {
-			return fmt.Errorf("failed to inject fact %v: %w", fact, err)
-		}
+	return facts
+}
+
+// injectToolFacts injects tool registration facts into the kernel.
+// Each Assert triggers a Mangle fixpoint evaluation — use collectToolFacts + AssertBatch
+// for bulk registration to avoid O(N) evaluations.
+func (tr *ToolRegistry) injectToolFacts(tool *Tool) error {
+	if tr.kernel == nil {
+		return nil // No kernel configured, skip fact injection
 	}
 
-	return nil
+	facts := collectToolFacts(tool)
+	return tr.kernel.AssertBatch(facts)
 }
 
 // SyncFromOuroboros synchronizes tools from an Ouroboros registry.
-// Continues syncing even if individual tools fail, collecting all errors.
+// Collects all tool facts into a single batch and evaluates once.
 func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 	if toolExecutor == nil {
 		logging.ToolsDebug("SyncFromOuroboros: no tool executor provided, skipping")
@@ -290,33 +290,45 @@ func (tr *ToolRegistry) SyncFromOuroboros(toolExecutor ToolExecutor) error {
 
 	tools := toolExecutor.ListTools()
 	logging.ToolsDebug("SyncFromOuroboros: syncing %d tools from Ouroboros", len(tools))
-	var errs []error
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
 	syncedCount := 0
 
 	for _, toolInfo := range tools {
 		tool := &Tool{
 			Name:          toolInfo.Name,
 			Command:       toolInfo.BinaryPath,
-			ShardAffinity: "/all", // Default affinity
+			ShardAffinity: "/all",
 			Description:   toolInfo.Description,
 			Hash:          toolInfo.Hash,
 			RegisteredAt:  toolInfo.RegisteredAt,
 			ExecuteCount:  toolInfo.ExecuteCount,
 		}
 
-		if err := tr.RegisterToolWithInfo(tool); err != nil {
-			logging.ToolsWarn("SyncFromOuroboros: failed to sync tool %s: %v", tool.Name, err)
-			errs = append(errs, fmt.Errorf("tool %s: %w", tool.Name, err))
-		} else {
-			syncedCount++
+		if tool.Name == "" {
+			continue
+		}
+		if tool.RegisteredAt.IsZero() {
+			tool.RegisteredAt = time.Now()
+		}
+
+		tr.tools[tool.Name] = tool
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		syncedCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("SyncFromOuroboros: batch assert failed for %d facts: %v", len(allFacts), err)
+			return fmt.Errorf("batch assert failed: %w", err)
 		}
 	}
 
-	if len(errs) > 0 {
-		logging.ToolsError("SyncFromOuroboros: synced %d tools, %d failed", syncedCount, len(errs))
-		return fmt.Errorf("synced %d tools, %d failed: %v", syncedCount, len(errs), errs)
-	}
-	logging.Tools("SyncFromOuroboros: successfully synced %d tools from Ouroboros", syncedCount)
+	logging.Tools("SyncFromOuroboros: synced %d tools (%d facts, 1 evaluation)", syncedCount, len(allFacts))
 	return nil
 }
 
@@ -328,14 +340,18 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			logging.ToolsDebug("RestoreFromDisk: directory %s does not exist, skipping", compiledDir)
-			return nil // Directory doesn't exist yet, that's okay
+			return nil
 		}
 		logging.ToolsError("RestoreFromDisk: failed to read directory %s: %v", compiledDir, err)
 		return fmt.Errorf("failed to read compiled tools directory: %w", err)
 	}
 
-	var errs []error
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
 	restoredCount := 0
+	now := time.Now()
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -343,7 +359,6 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		}
 
 		name := entry.Name()
-		// Strip extension
 		if ext := filepath.Ext(name); ext == ".exe" {
 			name = name[:len(name)-len(ext)]
 		}
@@ -353,24 +368,25 @@ func (tr *ToolRegistry) RestoreFromDisk(compiledDir string) error {
 		tool := &Tool{
 			Name:          name,
 			Command:       binaryPath,
-			ShardAffinity: "/all", // Default affinity
+			ShardAffinity: "/all",
 			Description:   "Restored from disk",
-			RegisteredAt:  time.Now(),
+			RegisteredAt:  now,
 		}
 
-		if err := tr.RegisterToolWithInfo(tool); err != nil {
-			logging.ToolsWarn("RestoreFromDisk: failed to restore tool %s: %v", name, err)
-			errs = append(errs, fmt.Errorf("tool %s: %w", name, err))
-		} else {
-			restoredCount++
+		tr.tools[tool.Name] = tool
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		restoredCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("RestoreFromDisk: batch assert failed: %v", err)
+			return fmt.Errorf("batch assert failed: %w", err)
 		}
 	}
 
-	if len(errs) > 0 {
-		logging.ToolsError("RestoreFromDisk: restored %d tools, %d failed from %s", restoredCount, len(errs), compiledDir)
-		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
-	}
-	logging.Tools("RestoreFromDisk: successfully restored %d tools from %s", restoredCount, compiledDir)
+	logging.Tools("RestoreFromDisk: restored %d tools (%d facts, 1 evaluation) from %s", restoredCount, len(allFacts), compiledDir)
 	return nil
 }
 
@@ -389,16 +405,19 @@ type StaticToolDef struct {
 // Continues restoring even if individual tools fail, collecting all errors.
 func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 	logging.ToolsDebug("RestoreFromStaticDefs: restoring %d static tool definitions", len(defs))
-	var errs []error
+
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+
+	var allFacts []Fact
 	restoredCount := 0
+	now := time.Now()
 
 	for _, def := range defs {
-		// Normalize shard affinity to Mangle name constant format
 		affinity := def.ShardAffinity
 		if affinity == "" {
 			affinity = "/all"
 		} else if !strings.HasPrefix(affinity, "/") {
-			// Convert "CoderShard" -> "/codershard"
 			affinity = "/" + strings.ToLower(strings.TrimSuffix(affinity, "Shard"))
 		}
 
@@ -407,23 +426,28 @@ func (tr *ToolRegistry) RestoreFromStaticDefs(defs []StaticToolDef) error {
 			Command:       def.Command,
 			ShardAffinity: affinity,
 			Description:   def.Description,
-			Capabilities:  []string{def.Category}, // Category becomes capability
-			RegisteredAt:  time.Now(),
+			Capabilities:  []string{def.Category},
+			RegisteredAt:  now,
 		}
 
-		if err := tr.RegisterToolWithInfo(tool); err != nil {
-			logging.ToolsWarn("RestoreFromStaticDefs: failed to restore tool %s: %v", def.Name, err)
-			errs = append(errs, fmt.Errorf("tool %s: %w", def.Name, err))
-		} else {
-			restoredCount++
+		if tool.Name == "" {
+			continue
+		}
+
+		tr.tools[tool.Name] = tool
+		allFacts = append(allFacts, collectToolFacts(tool)...)
+		restoredCount++
+	}
+
+	// Single batch assert — one Mangle evaluation for all tools
+	if tr.kernel != nil && len(allFacts) > 0 {
+		if err := tr.kernel.AssertBatch(allFacts); err != nil {
+			logging.ToolsError("RestoreFromStaticDefs: batch assert failed: %v", err)
+			return fmt.Errorf("batch assert failed: %w", err)
 		}
 	}
 
-	if len(errs) > 0 {
-		logging.ToolsError("RestoreFromStaticDefs: restored %d tools, %d failed", restoredCount, len(errs))
-		return fmt.Errorf("restored %d tools, %d failed: %v", restoredCount, len(errs), errs)
-	}
-	logging.Tools("RestoreFromStaticDefs: successfully restored %d tools from static definitions", restoredCount)
+	logging.Tools("RestoreFromStaticDefs: restored %d tools (%d facts, 1 evaluation)", restoredCount, len(allFacts))
 	return nil
 }
 

@@ -2,7 +2,9 @@ package sync
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +62,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	}
 
 	syncedCount := 0
+	skippedCount := 0
 	s.discoveredAgents = make([]DiscoveredAgent, 0)
 
 	for _, entry := range entries {
@@ -76,9 +79,9 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 			continue
 		}
 
-		if err := s.syncAgent(ctx, agentID, yamlPath); err != nil {
+		skipped, err := s.syncAgent(ctx, agentID, yamlPath)
+		if err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to sync agent %s: %v", agentID, err)
-			// Continue with other agents? Yes.
 			continue
 		}
 
@@ -88,10 +91,14 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 			ID:     agentID,
 			DBPath: dbPath,
 		})
-		syncedCount++
+		if skipped {
+			skippedCount++
+		} else {
+			syncedCount++
+		}
 	}
 
-	logging.Get(logging.CategoryStore).Info("Synced %d user agents to shard databases", syncedCount)
+	logging.Get(logging.CategoryStore).Info("Agent sync: %d synced, %d skipped (unchanged)", syncedCount, skippedCount)
 	return nil
 }
 
@@ -102,37 +109,84 @@ func (s *AgentSynchronizer) GetDiscoveredAgents() []DiscoveredAgent {
 }
 
 // syncAgent syncs a single agent's atoms to its shard database.
-func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlPath string) error {
-	// 1. Parse YAML to Atoms
-	// We use the exposed ParseYAML method from AtomLoader
-	atoms, err := s.atomLoader.ParseYAML(yamlPath)
+// Returns (skipped, error) where skipped=true means the YAML hasn't changed since last sync.
+func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlPath string) (bool, error) {
+	// 1. Read YAML and compute content hash
+	yamlContent, err := os.ReadFile(yamlPath)
 	if err != nil {
-		return fmt.Errorf("parse error: %w", err)
+		return false, fmt.Errorf("read YAML failed: %w", err)
 	}
-
-	if len(atoms) == 0 {
-		return nil // Nothing to sync
-	}
+	hash := sha256.Sum256(yamlContent)
+	contentHash := hex.EncodeToString(hash[:])
 
 	// 2. Open Shard Database
 	dbPath := filepath.Join(s.shardsDir, fmt.Sprintf("%s_knowledge.db", strings.ToLower(agentID)))
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return fmt.Errorf("db open failed: %w", err)
+		return false, fmt.Errorf("db open failed: %w", err)
 	}
 	defer db.Close()
 
-	// 3. Ensure Table Schema
+	// 3. Ensure Table Schema (including sync metadata)
 	if err := s.atomLoader.EnsureSchema(ctx, db); err != nil {
-		return fmt.Errorf("schema init failed: %w", err)
+		return false, fmt.Errorf("schema init failed: %w", err)
+	}
+	if err := ensureSyncMetadataTable(db); err != nil {
+		return false, fmt.Errorf("sync metadata schema failed: %w", err)
 	}
 
-	// 4. Replace prompt atom set transactionally to avoid stale partial state.
+	// 4. Check if YAML has changed since last sync
+	if storedHash, err := getLastSyncHash(db, agentID); err == nil && storedHash == contentHash {
+		logging.Get(logging.CategoryStore).Debug("Agent %s: YAML unchanged (hash=%s), skipping re-embed", agentID, contentHash[:12])
+		return true, nil
+	}
+
+	// 5. Parse YAML to Atoms
+	atoms, err := s.atomLoader.ParseYAML(yamlPath)
+	if err != nil {
+		return false, fmt.Errorf("parse error: %w", err)
+	}
+
+	if len(atoms) == 0 {
+		return false, nil // Nothing to sync
+	}
+
+	// 6. Replace prompt atom set transactionally to avoid stale partial state.
 	if err := s.atomLoader.ReplaceAtoms(ctx, db, atoms); err != nil {
-		return fmt.Errorf("replace atoms failed: %w", err)
+		return false, fmt.Errorf("replace atoms failed: %w", err)
 	}
-	count := len(atoms)
 
-	logging.Get(logging.CategoryStore).Debug("Agent %s: stored %d atoms in %s", agentID, count, dbPath)
-	return nil
+	// 7. Store the content hash for next boot
+	if err := setLastSyncHash(db, agentID, contentHash); err != nil {
+		logging.Get(logging.CategoryStore).Warn("Agent %s: failed to store sync hash: %v", agentID, err)
+		// Non-fatal — next boot will just re-sync
+	}
+
+	logging.Get(logging.CategoryStore).Debug("Agent %s: synced %d atoms to %s (hash=%s)", agentID, len(atoms), dbPath, contentHash[:12])
+	return false, nil
 }
+
+// ensureSyncMetadataTable creates the sync_metadata table if it doesn't exist.
+func ensureSyncMetadataTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS sync_metadata (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	return err
+}
+
+// getLastSyncHash retrieves the last-synced content hash for an agent.
+func getLastSyncHash(db *sql.DB, agentID string) (string, error) {
+	var hash string
+	err := db.QueryRow(`SELECT value FROM sync_metadata WHERE key = ?`, "yaml_hash_"+agentID).Scan(&hash)
+	return hash, err
+}
+
+// setLastSyncHash stores the content hash after a successful sync.
+func setLastSyncHash(db *sql.DB, agentID string, hash string) error {
+	_, err := db.Exec(`INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+		"yaml_hash_"+agentID, hash)
+	return err
+}
+
