@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/core"
@@ -332,9 +333,20 @@ func (t *UnderstandingTransducer) ParseIntent(ctx context.Context, input string)
 // ParseIntentWithContext parses user input with conversation history.
 // This is the primary method called by the chat loop.
 func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, input string, history []ConversationTurn) (Intent, error) {
+	pipelineStart := time.Now()
+	truncatedInput := input
+	if len(truncatedInput) > 80 {
+		truncatedInput = truncatedInput[:80] + "..."
+	}
+	logging.Perception("[ParseIntentWithContext] START input=%q len=%d historyTurns=%d",
+		truncatedInput, len(input), len(history))
+
+	initStart := time.Now()
 	t.initialize(ctx)
+	logging.Perception("[ParseIntentWithContext] initialized: %dms", time.Since(initStart).Milliseconds())
 
 	if strings.TrimSpace(input) == "" {
+		logging.Perception("[ParseIntentWithContext] empty input, returning /explain fallback")
 		return Intent{
 			Verb:     "/explain",
 			Category: "/query",
@@ -346,10 +358,12 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	const maxInputLength = 50000
 	if len(input) > maxInputLength {
 		input = input[:maxInputLength] + "... [Input truncated due to length]"
+		logging.Perception("[ParseIntentWithContext] input truncated from %d to %d", len(input), maxInputLength)
 	}
 
 	// NERD-EVOLVE-START: stability_filter
 	// Snapshot state under read lock to avoid races during bypass check
+	stabilityStart := time.Now()
 	t.mu.RLock()
 	priorUnderstanding := t.lastUnderstanding
 	lastVerbSnapshot := t.lastVerb
@@ -379,34 +393,49 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 			t.updateVerbHistory(lastVerbSnapshot)
 			t.mu.Unlock()
 
-			logging.Perception("[StabilityFilter] bypass authorized (stability=%d%%), reusing prior understanding",
-				computeStabilityScore(verbHistoryCopy))
+			logging.Perception("[StabilityFilter] bypass authorized (stability=%d%%), reusing prior understanding, took %dms",
+				computeStabilityScore(verbHistoryCopy), time.Since(stabilityStart).Milliseconds())
 
 			intent := t.understandingToIntent(&reused)
+			logging.Perception("[ParseIntentWithContext] COMPLETE (stability bypass): %dms total → verb=%s target=%s",
+				time.Since(pipelineStart).Milliseconds(), intent.Verb, intent.Target)
 			return intent, nil
 		}
 	}
+	logging.Perception("[ParseIntentWithContext] stability filter: %dms (no bypass)", time.Since(stabilityStart).Milliseconds())
 	// NERD-EVOLVE-END: stability_filter
 
 	// GAP-006 FIX: Run semantic classification to inject semantic_match facts into kernel
 	// This provides neuro-symbolic grounding even in LLM-first mode
 	var semanticMatches []SemanticMatch
+	semanticStart := time.Now()
 	if SharedSemanticClassifier != nil {
+		logging.Perception("[ParseIntentWithContext] running semantic classification...")
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
 			// Graceful degradation - log but continue with LLM-only classification
 			// Semantic classification is optional enhancement, not required
 			_ = matches // matches already injected into kernel by Classify()
+			logging.Perception("[ParseIntentWithContext] semantic classification failed: %v (%dms)",
+				err, time.Since(semanticStart).Milliseconds())
 		} else {
 			semanticMatches = matches
+			logging.Perception("[ParseIntentWithContext] semantic classification: %dms (%d matches)",
+				time.Since(semanticStart).Milliseconds(), len(semanticMatches))
 		}
 		// Note: semantic_match facts are automatically asserted by Classify()
+	} else {
+		logging.Perception("[ParseIntentWithContext] semantic classifier not available, skipping")
 	}
 
 	// Get Understanding from LLM
+	llmStart := time.Now()
+	logging.Perception("[ParseIntentWithContext] calling LLMTransducer.Understand...")
 	sessionCtx := types.GetSessionContext(ctx)
 	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, t.strategicContext)
 	if err != nil {
+		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: %v",
+			time.Since(llmStart).Milliseconds(), err)
 		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %v", err)
 		return Intent{
 			Verb:     "/explain",
@@ -414,8 +443,10 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 			Response: fmt.Sprintf("I had trouble understanding that: %v", err),
 		}, nil
 	}
+	logging.Perception("[ParseIntentWithContext] LLM understanding: %dms", time.Since(llmStart).Milliseconds())
 
 	// GAP-018 FIX: Cache understanding for debugging
+	cacheStart := time.Now()
 	t.mu.Lock()
 	t.lastUnderstanding = understanding
 	// NERD-EVOLVE-START: stability_filter
@@ -426,6 +457,15 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// Convert Understanding to Intent for backward compatibility
 	intent := t.understandingToIntent(understanding)
+	logging.Perception("[ParseIntentWithContext] intent conversion: %dms → verb=%s category=%s target=%s confidence=%.2f",
+		time.Since(cacheStart).Milliseconds(), intent.Verb, intent.Category, intent.Target, intent.Confidence)
+
+	logging.Perception("[ParseIntentWithContext] COMPLETE: %dms total (init=%dms stability=%dms semantic=%dms llm=%dms)",
+		time.Since(pipelineStart).Milliseconds(),
+		time.Since(initStart).Milliseconds(),
+		time.Since(stabilityStart).Milliseconds(),
+		time.Since(semanticStart).Milliseconds(),
+		time.Since(llmStart).Milliseconds())
 
 	return intent, nil
 }

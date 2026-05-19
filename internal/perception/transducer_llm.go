@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -65,22 +66,43 @@ func NewLLMTransducer(client LLMClient, kernel RoutingKernel, prompt string) *LL
 // Understand uses the LLM to interpret user intent.
 // This is the primary (and only) classification path.
 func (t *LLMTransducer) Understand(ctx context.Context, input string, history []ConversationTurn, semanticMatches []SemanticMatch, sessionCtx *types.SessionContext, strategicContext string) (*Understanding, error) {
+	understandStart := time.Now()
+	truncatedInput := input
+	if len(truncatedInput) > 80 {
+		truncatedInput = truncatedInput[:80] + "..."
+	}
+	logging.Perception("[Understand] START input=%q historyTurns=%d semanticMatches=%d",
+		truncatedInput, len(history), len(semanticMatches))
+
 	// 1. Build the prompt with conversation history and new contexts
+	promptStart := time.Now()
 	fullPrompt := t.BuildPrompt(input, history, semanticMatches, sessionCtx, strategicContext)
+	logging.Perception("[Understand] prompt built: %dms (%d chars, system=%d chars)",
+		time.Since(promptStart).Milliseconds(), len(fullPrompt), len(t.prompt))
 
 	// 2. Call LLM for classification
+	llmStart := time.Now()
+	logging.Perception("[Understand] calling LLM API...")
 	response, err := t.client.CompleteWithSystem(ctx, t.prompt, fullPrompt)
+	llmDuration := time.Since(llmStart)
 	if err != nil {
+		logging.Perception("[Understand] LLM FAILED after %dms: %v", llmDuration.Milliseconds(), err)
 		return nil, fmt.Errorf("LLM classification failed: %w", err)
 	}
-	// Log the raw response for debugging
+	logging.Perception("[Understand] LLM responded: %dms (%d chars)",
+		llmDuration.Milliseconds(), len(response))
 	logging.PerceptionDebug("Raw LLM Response: %s", response)
 
 	// 3. Parse the response
+	parseStart := time.Now()
 	understanding, err := t.parseResponse(response)
 	if err != nil {
+		logging.Perception("[Understand] parse FAILED after %dms: %v", time.Since(parseStart).Milliseconds(), err)
 		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
+	logging.Perception("[Understand] parsed: %dms → semantic=%s action=%s domain=%s confidence=%.2f",
+		time.Since(parseStart).Milliseconds(),
+		understanding.SemanticType, understanding.ActionType, understanding.Domain, understanding.Confidence)
 
 	// NERD-EVOLVE-START: P3_dead_work_elimination
 	// Phase A: validate() was dead work — it made 5 kernel queries whose error
@@ -89,7 +111,17 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 	// NERD-EVOLVE-END: P3_dead_work_elimination
 
 	// 5. Derive routing from understanding
+	routeStart := time.Now()
 	t.deriveRouting(ctx, understanding)
+	logging.Perception("[Understand] routing derived: %dms → mode=%s shard=%s",
+		time.Since(routeStart).Milliseconds(),
+		understanding.Routing.Mode, understanding.Routing.PrimaryShard)
+
+	logging.Perception("[Understand] COMPLETE: %dms total (prompt=%dms llm=%dms parse+route=%dms)",
+		time.Since(understandStart).Milliseconds(),
+		time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(),
+		llmDuration.Milliseconds(),
+		time.Since(parseStart).Milliseconds())
 
 	return understanding, nil
 }

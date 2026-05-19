@@ -81,7 +81,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		defer cancel()
 
+		oodaStart := time.Now()
 		trimmed := strings.TrimSpace(input)
+		logging.Routing("[processInput] OODA START input=%q", truncateSummary(trimmed, 80))
 
 		// If we are waiting for clarifier answers for a future launch, just accumulate the answers.
 		if m.launchClarifyPending && trimmed != "" && !strings.HasPrefix(trimmed, "/") {
@@ -111,14 +113,20 @@ func (m Model) processInput(input string) tea.Cmd {
 		// =====================================================================
 		// Check if this is a follow-up question about the last shard result.
 		// This must happen BEFORE perception to inject proper context.
+		followUpStart := time.Now()
 		isFollowUp, followUpType := detectFollowUpQuestion(input, m.lastShardResult)
 		if isFollowUp && m.lastShardResult != nil {
+			logging.Routing("[processInput] follow-up detected (%s): %dms, bypassing perception",
+				followUpType, time.Since(followUpStart).Milliseconds())
 			// Handle follow-up directly with conversation context
 			return m.handleFollowUpQuestion(ctx, input, followUpType)
 		}
+		logging.Routing("[processInput] follow-up check: %dms (not a follow-up)", time.Since(followUpStart).Milliseconds())
 
 		// 1. PERCEPTION (Transducer) - with conversation history for context
+		perceptionStart := time.Now()
 		m.ReportStatus("Perception: parsing intent...")
+		logging.Routing("[processInput] PERCEPTION phase starting")
 
 		// Disable boot guards on first user interaction.
 		// This signals that the system is ready for normal operation and allows
@@ -178,6 +186,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			warnings = append(warnings, "Perception response was empty; falling back to articulation")
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
+		logging.Routing("[processInput] PERCEPTION complete: %dms → verb=%s category=%s target=%q confidence=%.2f (system_shard=%v)",
+			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
+			truncateSummary(intent.Target, 60), intent.Confidence, intentHandledBySystem)
 
 		// Glass Box: Emit perception event
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -277,6 +288,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			// This enables the activation engine and JIT compiler to be campaign-aware.
 			m.seedCampaignFacts()
 		}
+		logging.Routing("[processInput] ORIENT (kernel assertions): %dms", time.Since(perceptionStart).Milliseconds())
 
 		if reflection := m.performReflection(ctx, input, intent); reflection != nil {
 			m.lastReflection = reflection
@@ -307,6 +319,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 1.3.2 DREAM STATE: Multi-agent simulation/learning mode
 		// When user asks "what if", "imagine", "hypothetically" - consult all shards without executing
 		if intent.Verb == "/dream" {
+			logging.Routing("[processInput] DECIDE: dream mode, total so far %dms", time.Since(oodaStart).Milliseconds())
 			m.ReportStatus("Dream: consulting shards...")
 			return m.handleDreamState(ctx, intent, input)
 		}
@@ -320,7 +333,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
+		logging.Routing("[processInput] DECIDE phase starting at %dms", time.Since(oodaStart).Milliseconds())
 		if m.shouldAutoClarify(&intent, input) {
+			logging.Routing("[processInput] DECIDE: auto-clarify triggered")
 			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				surface := m.appendSystemSummary(
@@ -353,6 +368,8 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
 		if m.shouldClarifyIntent(&intent, input) {
+			logging.Routing("[processInput] DECIDE: fallback clarification triggered (verb=%s target=%s confidence=%.2f)",
+				intent.Verb, intent.Target, intent.Confidence)
 			m.ReportStatus("Clarifier: resolving ambiguity...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				return clarificationMsg{
@@ -403,6 +420,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		if shardType != "" && intent.Confidence >= 0.5 {
+			logging.Routing("[processInput] ACT: delegating to shard=%s at %dms", shardType, time.Since(oodaStart).Milliseconds())
 			if m.needsWorkspaceScanForDelegation(intent) && !workspaceScanned {
 				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
 			}
@@ -594,6 +612,8 @@ func (m Model) processInput(input string) tea.Cmd {
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
 		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
+			logging.Routing("[processInput] ACT: direct conversational response (verb=%s), OODA total %dms",
+				intent.Verb, time.Since(oodaStart).Milliseconds())
 			// Glass Box: Emit direct response path
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
@@ -646,6 +666,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 2. CONTEXT LOADING (Scanner)
 		// Load workspace facts only if intent requires it (optimization).
 		// Use incremental scan to avoid reparsing unchanged repos.
+		logging.Routing("[processInput] context loading phase at %dms", time.Since(oodaStart).Milliseconds())
 		if !workspaceScanned {
 			workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
 		}
