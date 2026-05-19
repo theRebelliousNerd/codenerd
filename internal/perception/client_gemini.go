@@ -78,12 +78,12 @@ type geminiToolCall struct {
 }
 
 // DefaultGeminiConfig returns sensible defaults.
-// Uses gemini-3-flash-preview - 1M context, 64K output, Gemini 3 thinking by default.
+// Uses gemini-3.1-flash-lite - fast, cost-effective model for coding tasks.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
 		APIKey:          apiKey,
 		BaseURL:         "https://generativelanguage.googleapis.com/v1beta",
-		Model:           "gemini-3-flash-preview",
+		Model:           "gemini-3.1-flash-lite",
 		Timeout:         10 * time.Minute, // Large context models need extended timeout
 		MaxOutputTokens: 65536,
 		EnableThinking:  true,
