@@ -17,8 +17,14 @@ package perception
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -29,6 +35,7 @@ import (
 	"codenerd/internal/logging"
 	storepkg "codenerd/internal/store"
 
+	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -67,11 +74,15 @@ type SemanticMatch struct {
 
 // EmbeddedCorpusStore provides access to the baked-in intent corpus.
 // This store is read-only and loaded from the embedded database at startup.
+// An optional SQLite cache (cacheDB) persists embeddings between boots so
+// that static intent_definition texts are not re-embedded on every startup.
 type EmbeddedCorpusStore struct {
 	mu         sync.RWMutex
 	embeddings map[string][]float32 // TextContent -> embedding vector
 	entries    []CorpusEntry        // All corpus entries
 	dimensions int                  // Embedding dimensions
+	cachePath  string               // Path to SQLite cache DB (empty = no cache)
+	cacheDB    *sql.DB              // SQLite connection for embedding cache
 }
 
 // LearnedCorpusStore provides access to dynamically learned patterns.
@@ -198,8 +209,18 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 
 	logging.PerceptionDebug("Embedding engine created: %s (dimensions=%d)", embedEngine.Name(), embedEngine.Dimensions())
 
-	// Initialize embedded corpus store
-	embeddedStore, err := NewEmbeddedCorpusStore(embedEngine.Dimensions())
+	// Initialize embedded corpus store with optional cache
+	var cachePath string
+	if SharedTaxonomy != nil && SharedTaxonomy.HasWorkspace() {
+		cachePath = SharedTaxonomy.nerdPath("intent_embeddings.db")
+	}
+
+	var embeddedStore *EmbeddedCorpusStore
+	if cachePath != "" {
+		embeddedStore, err = NewEmbeddedCorpusStoreWithCache(embedEngine.Dimensions(), cachePath)
+	} else {
+		embeddedStore, err = NewEmbeddedCorpusStore(embedEngine.Dimensions())
+	}
 	if err != nil {
 		logging.Get(logging.CategoryPerception).Warn("Failed to load embedded corpus: %v", err)
 		embeddedStore = nil
@@ -566,6 +587,12 @@ func (sc *SemanticClassifier) Close() error {
 
 	var errs []error
 
+	if sc.embeddedStore != nil {
+		if err := sc.embeddedStore.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close embedded store cache: %w", err))
+		}
+	}
+
 	if sc.learnedStore != nil {
 		if err := sc.learnedStore.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close learned store: %w", err))
@@ -601,9 +628,140 @@ func NewEmbeddedCorpusStore(dimensions int) (*EmbeddedCorpusStore, error) {
 	return store, nil
 }
 
+// NewEmbeddedCorpusStoreWithCache creates an EmbeddedCorpusStore backed by a SQLite cache.
+// The cache persists embeddings between boots so that static intent_definition texts
+// are not re-embedded on every startup. If cachePath is empty, behaves identically
+// to NewEmbeddedCorpusStore (no cache).
+func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*EmbeddedCorpusStore, error) {
+	timer := logging.StartTimer(logging.CategoryPerception, "NewEmbeddedCorpusStoreWithCache")
+	defer timer.Stop()
+
+	logging.Perception("Loading embedded corpus store with cache (dimensions=%d, cache=%s)", dimensions, cachePath)
+
+	store := &EmbeddedCorpusStore{
+		embeddings: make(map[string][]float32),
+		entries:    make([]CorpusEntry, 0),
+		dimensions: dimensions,
+		cachePath:  cachePath,
+	}
+
+	if cachePath != "" {
+		// Ensure parent directory exists
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+			logging.Get(logging.CategoryEmbedding).Warn("Failed to create cache directory: %v (cache disabled)", err)
+			return store, nil
+		}
+
+		db, err := sql.Open("sqlite3", cachePath+"?_journal_mode=WAL")
+		if err != nil {
+			logging.Get(logging.CategoryEmbedding).Warn("Failed to open embedding cache DB: %v (cache disabled)", err)
+			return store, nil
+		}
+
+		// Create cache table
+		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS embedding_cache (
+			text_hash   TEXT NOT NULL,
+			model_name  TEXT NOT NULL,
+			embedding   BLOB NOT NULL,
+			dimensions  INTEGER NOT NULL,
+			created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (text_hash, model_name)
+		)`)
+		if err != nil {
+			db.Close()
+			logging.Get(logging.CategoryEmbedding).Warn("Failed to create cache table: %v (cache disabled)", err)
+			return store, nil
+		}
+
+		store.cacheDB = db
+		logging.PerceptionDebug("Embedded corpus cache DB opened: %s", cachePath)
+	}
+
+	return store, nil
+}
+
+// Close releases the cache DB connection if one is open.
+func (s *EmbeddedCorpusStore) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cacheDB != nil {
+		logging.PerceptionDebug("Closing embedded corpus cache DB")
+		err := s.cacheDB.Close()
+		s.cacheDB = nil
+		return err
+	}
+	return nil
+}
+
+// hashText returns the hex-encoded SHA-256 hash of the given text.
+func hashText(text string) string {
+	h := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(h[:])
+}
+
+// float32ToBytes converts a []float32 to a []byte for BLOB storage.
+func float32ToBytes(vec []float32) []byte {
+	buf := make([]byte, len(vec)*4)
+	for i, v := range vec {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+	}
+	return buf
+}
+
+// bytesToFloat32 converts a []byte BLOB back to []float32.
+func bytesToFloat32(buf []byte) []float32 {
+	if len(buf)%4 != 0 {
+		return nil
+	}
+	vec := make([]float32, len(buf)/4)
+	for i := range vec {
+		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(buf[i*4:]))
+	}
+	return vec
+}
+
+// cacheGet retrieves a cached embedding by text hash and model name.
+// Returns nil if not found or on error.
+func (s *EmbeddedCorpusStore) cacheGet(textHash, modelName string) []float32 {
+	if s.cacheDB == nil {
+		return nil
+	}
+	var blob []byte
+	err := s.cacheDB.QueryRow(
+		"SELECT embedding FROM embedding_cache WHERE text_hash = ? AND model_name = ?",
+		textHash, modelName,
+	).Scan(&blob)
+	if err != nil {
+		return nil
+	}
+	return bytesToFloat32(blob)
+}
+
+// cachePut stores an embedding in the cache.
+func (s *EmbeddedCorpusStore) cachePut(textHash, modelName string, vec []float32) {
+	if s.cacheDB == nil {
+		return
+	}
+	blob := float32ToBytes(vec)
+	_, err := s.cacheDB.Exec(
+		"INSERT OR REPLACE INTO embedding_cache (text_hash, model_name, embedding, dimensions) VALUES (?, ?, ?, ?)",
+		textHash, modelName, blob, len(vec),
+	)
+	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Warn("Failed to cache embedding: %v", err)
+	}
+}
+
 // LoadFromKernel hydrates the embedded corpus from intent_definition facts in the kernel.
 // This preserves the split-brain architecture: Mangle stores canonical patterns as data,
 // while semantic matching uses embeddings over those patterns.
+//
+// When a SQLite cache is configured, embeddings are looked up by content hash + model
+// name before falling back to the embedding engine. Only cache misses require API calls.
 func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Kernel, engine embedding.EmbeddingEngine) error {
 	if s == nil || kernel == nil || engine == nil {
 		return nil
@@ -651,35 +809,81 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 		return nil
 	}
 
-	taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
-	var embeds [][]float32
-	if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
-		embeds, err = batchAware.EmbedBatchWithTask(ctx, texts, taskType)
-	} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
-		embeds = make([][]float32, len(texts))
+	// ─── Cache-aware embedding resolution ───────────────────────────────
+	modelName := engine.Name()
+	allEmbeds := make([][]float32, len(texts))
+	var missTexts []string
+	var missIndices []int
+	hits := 0
+
+	if s.cacheDB != nil {
 		for i, text := range texts {
-			vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
-			if embedErr != nil {
-				continue
+			h := hashText(text)
+			if cached := s.cacheGet(h, modelName); cached != nil && len(cached) == s.dimensions {
+				allEmbeds[i] = cached
+				hits++
+			} else {
+				missTexts = append(missTexts, text)
+				missIndices = append(missIndices, i)
 			}
-			embeds[i] = vec
 		}
 	} else {
-		embeds, err = engine.EmbedBatch(ctx, texts)
-	}
-	if err != nil {
-		return err
+		// No cache — all texts are misses
+		missTexts = texts
+		missIndices = make([]int, len(texts))
+		for i := range texts {
+			missIndices[i] = i
+		}
 	}
 
+	misses := len(missTexts)
+	logging.Get(logging.CategoryEmbedding).Info("EmbeddedCorpusStore cache: %d hits, %d misses", hits, misses)
+
+	// Embed cache misses
+	if len(missTexts) > 0 {
+		taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
+		var missEmbeds [][]float32
+		if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+			missEmbeds, err = batchAware.EmbedBatchWithTask(ctx, missTexts, taskType)
+		} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+			missEmbeds = make([][]float32, len(missTexts))
+			for i, text := range missTexts {
+				vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
+				if embedErr != nil {
+					continue
+				}
+				missEmbeds[i] = vec
+			}
+		} else {
+			missEmbeds, err = engine.EmbedBatch(ctx, missTexts)
+		}
+		if err != nil {
+			return err
+		}
+
+		// Scatter miss results back and write to cache
+		for j, idx := range missIndices {
+			if j >= len(missEmbeds) {
+				break
+			}
+			vec := missEmbeds[j]
+			allEmbeds[idx] = vec
+			if vec != nil && s.cacheDB != nil {
+				s.cachePut(hashText(missTexts[j]), modelName, vec)
+			}
+		}
+	}
+
+	// ─── Populate in-memory store ────────────────────────────────────────
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	added := 0
 	for i, entry := range entries {
-		if i >= len(embeds) {
+		if i >= len(allEmbeds) {
 			break
 		}
-		vec := embeds[i]
+		vec := allEmbeds[i]
 		if len(vec) != s.dimensions {
 			continue
 		}

@@ -3,11 +3,14 @@ package perception
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"codenerd/internal/core"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/google/mangle/analysis"
 )
 
@@ -444,4 +447,311 @@ func TestSemanticClassifier_Concurrency(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// =============================================================================
+// EMBEDDING CACHE TESTS
+// =============================================================================
+
+func TestFloat32ByteRoundTrip(t *testing.T) {
+	original := []float32{1.0, -0.5, 0.0, 3.14, 1e-7}
+	blob := float32ToBytes(original)
+	recovered := bytesToFloat32(blob)
+
+	if len(recovered) != len(original) {
+		t.Fatalf("length mismatch: expected %d, got %d", len(original), len(recovered))
+	}
+	for i, v := range original {
+		if recovered[i] != v {
+			t.Errorf("index %d: expected %f, got %f", i, v, recovered[i])
+		}
+	}
+}
+
+func TestBytesToFloat32_InvalidLength(t *testing.T) {
+	result := bytesToFloat32([]byte{0x01, 0x02, 0x03})
+	if result != nil {
+		t.Errorf("expected nil for non-aligned byte slice, got %v", result)
+	}
+}
+
+func TestHashText_Deterministic(t *testing.T) {
+	h1 := hashText("review my code for bugs")
+	h2 := hashText("review my code for bugs")
+	h3 := hashText("fix the authentication bug")
+
+	if h1 != h2 {
+		t.Errorf("same input produced different hashes: %s vs %s", h1, h2)
+	}
+	if h1 == h3 {
+		t.Error("different inputs produced the same hash")
+	}
+	if len(h1) != 64 { // SHA-256 hex = 64 chars
+		t.Errorf("expected 64 char hex hash, got %d", len(h1))
+	}
+}
+
+func TestNewEmbeddedCorpusStoreWithCache_CreatesDB(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_cache.db")
+
+	store, err := NewEmbeddedCorpusStoreWithCache(768, dbPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer store.Close()
+
+	if store.cacheDB == nil {
+		t.Fatal("expected cacheDB to be non-nil")
+	}
+	if store.cachePath != dbPath {
+		t.Errorf("expected cachePath=%s, got %s", dbPath, store.cachePath)
+	}
+	if store.dimensions != 768 {
+		t.Errorf("expected dimensions=768, got %d", store.dimensions)
+	}
+
+	// Verify the file was created
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Error("cache DB file was not created")
+	}
+}
+
+func TestNewEmbeddedCorpusStoreWithCache_EmptyPath(t *testing.T) {
+	store, err := NewEmbeddedCorpusStoreWithCache(768, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer store.Close()
+
+	if store.cacheDB != nil {
+		t.Error("expected cacheDB to be nil for empty path")
+	}
+}
+
+// mockBatchEmbedEngine tracks calls and returns deterministic embeddings.
+type mockBatchEmbedEngine struct {
+	mu        sync.Mutex
+	callCount int
+	lastBatch []string
+	dims      int
+}
+
+func (m *mockBatchEmbedEngine) Name() string    { return "mock-batch" }
+func (m *mockBatchEmbedEngine) Dimensions() int { return m.dims }
+func (m *mockBatchEmbedEngine) Embed(ctx context.Context, text string) ([]float32, error) {
+	vec := make([]float32, m.dims)
+	for i := range vec {
+		vec[i] = float32(len(text)%10) * 0.1
+	}
+	return vec, nil
+}
+func (m *mockBatchEmbedEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	m.mu.Lock()
+	m.callCount++
+	m.lastBatch = texts
+	m.mu.Unlock()
+
+	result := make([][]float32, len(texts))
+	for i, text := range texts {
+		vec := make([]float32, m.dims)
+		for j := range vec {
+			vec[j] = float32(len(text)%10+i) * 0.01
+		}
+		result[i] = vec
+	}
+	return result, nil
+}
+
+func TestLoadFromKernel_WithCache_FirstBoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_cache.db")
+
+	store, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	engine := &mockBatchEmbedEngine{dims: 4}
+
+	kernel := &mockKernel{
+		assertedFacts: []core.Fact{
+			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
+			{Predicate: "intent_definition", Args: []interface{}{"run tests", "/test", ""}},
+		},
+	}
+
+	err = store.LoadFromKernel(context.Background(), kernel, engine)
+	if err != nil {
+		t.Fatalf("LoadFromKernel failed: %v", err)
+	}
+
+	// First boot: all misses, so EmbedBatch should have been called
+	if engine.callCount != 1 {
+		t.Errorf("expected 1 EmbedBatch call on first boot, got %d", engine.callCount)
+	}
+	if len(store.entries) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(store.entries))
+	}
+	if len(store.embeddings) != 3 {
+		t.Errorf("expected 3 embeddings, got %d", len(store.embeddings))
+	}
+}
+
+func TestLoadFromKernel_WithCache_SecondBoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_cache.db")
+
+	engine := &mockBatchEmbedEngine{dims: 4}
+
+	kernel := &mockKernel{
+		assertedFacts: []core.Fact{
+			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
+		},
+	}
+
+	// First boot: populate cache
+	store1, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	err = store1.LoadFromKernel(context.Background(), kernel, engine)
+	if err != nil {
+		t.Fatalf("first LoadFromKernel failed: %v", err)
+	}
+	store1.Close()
+
+	if engine.callCount != 1 {
+		t.Fatalf("expected 1 call on first boot, got %d", engine.callCount)
+	}
+
+	// Second boot: same texts, should be all cache hits
+	store2, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store2.Close()
+
+	err = store2.LoadFromKernel(context.Background(), kernel, engine)
+	if err != nil {
+		t.Fatalf("second LoadFromKernel failed: %v", err)
+	}
+
+	// Should NOT have called EmbedBatch again
+	if engine.callCount != 1 {
+		t.Errorf("expected no additional EmbedBatch calls on second boot, total calls: %d", engine.callCount)
+	}
+	if len(store2.entries) != 2 {
+		t.Errorf("expected 2 entries on second boot, got %d", len(store2.entries))
+	}
+}
+
+func TestLoadFromKernel_WithCache_PartialHit(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_cache.db")
+
+	engine := &mockBatchEmbedEngine{dims: 4}
+
+	// First boot: cache "review code" only
+	kernel1 := &mockKernel{
+		assertedFacts: []core.Fact{
+			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
+		},
+	}
+	store1, _ := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	store1.LoadFromKernel(context.Background(), kernel1, engine)
+	store1.Close()
+	if engine.callCount != 1 {
+		t.Fatalf("expected 1 call, got %d", engine.callCount)
+	}
+
+	// Second boot: add new text "fix bug" (partial miss)
+	kernel2 := &mockKernel{
+		assertedFacts: []core.Fact{
+			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
+		},
+	}
+	store2, _ := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	defer store2.Close()
+
+	store2.LoadFromKernel(context.Background(), kernel2, engine)
+
+	// Should have called EmbedBatch for the 1 miss only
+	if engine.callCount != 2 {
+		t.Errorf("expected 2 total EmbedBatch calls (1 for miss), got %d", engine.callCount)
+	}
+	engine.mu.Lock()
+	if len(engine.lastBatch) != 1 || engine.lastBatch[0] != "fix bug" {
+		t.Errorf("expected last batch to contain only 'fix bug', got %v", engine.lastBatch)
+	}
+	engine.mu.Unlock()
+
+	if len(store2.entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(store2.entries))
+	}
+}
+
+func TestEmbeddedCorpusStore_Close_NilSafe(t *testing.T) {
+	var store *EmbeddedCorpusStore
+	if err := store.Close(); err != nil {
+		t.Errorf("Close on nil store should return nil, got %v", err)
+	}
+}
+
+func TestEmbeddedCorpusStore_Close_NoCacheDB(t *testing.T) {
+	store, _ := NewEmbeddedCorpusStore(768)
+	if err := store.Close(); err != nil {
+		t.Errorf("Close without cacheDB should return nil, got %v", err)
+	}
+}
+
+func TestLoadFromKernel_NilInputs(t *testing.T) {
+	store, _ := NewEmbeddedCorpusStoreWithCache(4, "")
+
+	// All nil inputs should return nil error
+	if err := store.LoadFromKernel(context.Background(), nil, nil); err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestCacheGetPut_RoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_cache.db")
+
+	store, _ := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	defer store.Close()
+
+	testHash := hashText("hello world")
+	testVec := []float32{0.1, 0.2, 0.3, 0.4}
+
+	// Should return nil before put
+	if got := store.cacheGet(testHash, "test-model"); got != nil {
+		t.Errorf("expected nil before put, got %v", got)
+	}
+
+	// Put
+	store.cachePut(testHash, "test-model", testVec)
+
+	// Get
+	got := store.cacheGet(testHash, "test-model")
+	if got == nil {
+		t.Fatal("expected non-nil after put")
+	}
+	if len(got) != len(testVec) {
+		t.Fatalf("length mismatch: expected %d, got %d", len(testVec), len(got))
+	}
+	for i, v := range testVec {
+		if got[i] != v {
+			t.Errorf("index %d: expected %f, got %f", i, v, got[i])
+		}
+	}
+
+	// Different model name should miss
+	if got := store.cacheGet(testHash, "other-model"); got != nil {
+		t.Errorf("expected nil for different model, got %v", got)
+	}
 }
