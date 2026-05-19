@@ -65,6 +65,7 @@ type RealKernel struct {
 	virtualStore      *VirtualStore          // Virtual predicate source for query_* handlers
 	derivedFactLimit  int                    // Configurable limit for derived facts (0 = use default)
 	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
+	simulateCommitErr error                  // TEST ONLY: Simulates a transaction commit failure
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

@@ -298,6 +298,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		predicateCorpus:   k.predicateCorpus,   // Share corpus (read-only)
 		repairInterceptor: k.repairInterceptor, // Share interceptor
 		virtualStore:      k.virtualStore,
+		simulateCommitErr: k.simulateCommitErr,
 	}
 
 	// Deep copy facts and cached atoms

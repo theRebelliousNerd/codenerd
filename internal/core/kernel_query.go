@@ -37,7 +37,7 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	k.mu.RLock()
 
 	// Lazy evaluation: if facts changed since last evaluate, do it now
-	if k.factsDirty {
+	for k.factsDirty {
 		k.mu.RUnlock()
 		k.mu.Lock()
 		// Double-check after lock upgrade (another goroutine may have evaluated)
@@ -213,7 +213,7 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	k.mu.RLock()
 
 	// Lazy evaluation: if facts changed since last evaluate, do it now
-	if k.factsDirty {
+	for k.factsDirty {
 		k.mu.RUnlock()
 		k.mu.Lock()
 		if k.factsDirty {
@@ -302,7 +302,7 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	k.mu.RLock()
 
 	// Lazy evaluation: if facts changed since last evaluate, do it now
-	if k.factsDirty {
+	for k.factsDirty {
 		k.mu.RUnlock()
 		k.mu.Lock()
 		if k.factsDirty {

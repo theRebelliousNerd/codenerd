@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/logging"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/google/mangle/analysis"
 )
+
+var _ types.KernelTransactor = (*CortexKernel)(nil)
+var _ types.KernelTransaction = (*CortexTransaction)(nil)
 
 // =============================================================================
 // CORTEX KERNEL — Hierarchical Kernel Hub
@@ -106,21 +110,13 @@ func (c *CortexKernel) routeToShard(predicate string) *KernelShard {
 
 	if domain, ok := c.predicateOwner[barePred]; ok {
 		if shard, ok := c.shards[domain]; ok {
-			c.mu.RUnlock()
-			c.mu.Lock()
-			c.routeHitCount++
-			c.mu.Unlock()
-			c.mu.RLock()
+			atomic.AddInt64(&c.routeHitCount, 1)
 			return shard
 		}
 	}
 
 	// Route miss — use cortex shard
-	c.mu.RUnlock()
-	c.mu.Lock()
-	c.routeMissCount++
-	c.mu.Unlock()
-	c.mu.RLock()
+	atomic.AddInt64(&c.routeMissCount, 1)
 
 	if shard, ok := c.shards[c.cortexDomain]; ok {
 		return shard
@@ -342,23 +338,34 @@ func (c *CortexKernel) AppendPolicy(policy string) {
 // CORTEX TRANSACTION — Batched Multi-Shard Mutations
 // =============================================================================
 
+type retractType int
+
+const (
+	retractAll retractType = iota
+	retractFirstArg
+	retractExact
+	retractPredSet
+)
+
+type retractOp struct {
+	opType    retractType
+	predicate string
+	fact      types.Fact
+	predSet   map[string]struct{}
+}
+
 // CortexTransaction batches mutations across shards and commits atomically.
 type CortexTransaction struct {
-	cortex  *CortexKernel
-	asserts []types.Fact
+	cortex   *CortexKernel
+	asserts  []types.Fact
 	retracts []retractOp
 }
 
-type retractOp struct {
-	predicate string
-	fact      *types.Fact // nil means retract all of predicate
-}
-
 // Transaction creates a new batched transaction across all shards.
-func (c *CortexKernel) Transaction() *CortexTransaction {
+func (c *CortexKernel) Transaction() types.KernelTransaction {
 	return &CortexTransaction{
-		cortex:  c,
-		asserts: make([]types.Fact, 0, 32),
+		cortex:   c,
+		asserts:  make([]types.Fact, 0, 32),
 		retracts: make([]retractOp, 0, 16),
 	}
 }
@@ -370,12 +377,22 @@ func (t *CortexTransaction) Assert(fact types.Fact) {
 
 // Retract queues a predicate retraction (all facts of that predicate).
 func (t *CortexTransaction) Retract(predicate string) {
-	t.retracts = append(t.retracts, retractOp{predicate: predicate})
+	t.retracts = append(t.retracts, retractOp{opType: retractAll, predicate: predicate})
 }
 
-// RetractFact queues an exact fact retraction.
+// RetractFact queues a retraction for facts matching predicate + first argument.
 func (t *CortexTransaction) RetractFact(fact types.Fact) {
-	t.retracts = append(t.retracts, retractOp{predicate: fact.Predicate, fact: &fact})
+	t.retracts = append(t.retracts, retractOp{opType: retractFirstArg, predicate: fact.Predicate, fact: fact})
+}
+
+// RetractExactFact queues an exact fact retraction.
+func (t *CortexTransaction) RetractExactFact(fact types.Fact) {
+	t.retracts = append(t.retracts, retractOp{opType: retractExact, predicate: fact.Predicate, fact: fact})
+}
+
+// RetractPredicateSet queues a retraction for all facts with predicates in the set.
+func (t *CortexTransaction) RetractPredicateSet(predicates map[string]struct{}) {
+	t.retracts = append(t.retracts, retractOp{opType: retractPredSet, predSet: predicates})
 }
 
 // Commit executes all queued operations, routing each to the correct shard.
@@ -404,9 +421,26 @@ func (t *CortexTransaction) Commit() error {
 	}
 
 	for _, r := range t.retracts {
-		ops := getOps(r.predicate)
-		if ops != nil {
-			ops.retracts = append(ops.retracts, r)
+		if r.opType == retractPredSet {
+			// Find all shards that own any predicate in this set
+			shardsToRoute := make(map[string]struct{})
+			for pred := range r.predSet {
+				shard := t.cortex.routeToShard(pred)
+				if shard != nil {
+					shardsToRoute[shard.Domain()] = struct{}{}
+				}
+			}
+			for domain := range shardsToRoute {
+				if perShard[domain] == nil {
+					perShard[domain] = &shardOps{}
+				}
+				perShard[domain].retracts = append(perShard[domain].retracts, r)
+			}
+		} else {
+			ops := getOps(r.predicate)
+			if ops != nil {
+				ops.retracts = append(ops.retracts, r)
+			}
 		}
 	}
 	for _, a := range t.asserts {
@@ -425,10 +459,25 @@ func (t *CortexTransaction) Commit() error {
 
 		tx := shard.kernel.Transaction()
 		for _, r := range ops.retracts {
-			if r.fact != nil {
-				tx.RetractFact(*r.fact)
-			} else {
+			switch r.opType {
+			case retractAll:
 				tx.Retract(r.predicate)
+			case retractFirstArg:
+				tx.RetractFact(r.fact)
+			case retractExact:
+				tx.RetractExactFact(r.fact)
+			case retractPredSet:
+				// Filter the predicate set to only include predicates owned by this shard
+				subSet := make(map[string]struct{})
+				for pred := range r.predSet {
+					s := t.cortex.routeToShard(pred)
+					if s != nil && s.Domain() == domain {
+						subSet[pred] = struct{}{}
+					}
+				}
+				if len(subSet) > 0 {
+					tx.RetractPredicateSet(subSet)
+				}
 			}
 		}
 		for _, a := range ops.asserts {

@@ -815,6 +815,10 @@ func (tx *KernelTransaction) Commit() error {
 	tx.committed = true
 
 	k := tx.kernel
+	if k.simulateCommitErr != nil {
+		return k.simulateCommitErr
+	}
+
 	k.mu.Lock()
 	defer k.mu.Unlock()
 

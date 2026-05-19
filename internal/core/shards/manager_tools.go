@@ -193,7 +193,17 @@ func (sm *ShardManager) sortToolsByPriority(tools []types.ToolInfo, shardType st
 		if len(fact.Args) >= 3 {
 			factShardType, _ := fact.Args[0].(string)
 			toolName, _ := fact.Args[1].(string)
-			score, _ := fact.Args[2].(float64)
+			var score float64
+			switch val := fact.Args[2].(type) {
+			case float64:
+				score = val
+			case float32:
+				score = float64(val)
+			case int64:
+				score = float64(val)
+			case int:
+				score = float64(val)
+			}
 			if factShardType == shardAtom {
 				scores[toolName] = score
 			}
@@ -250,4 +260,14 @@ func estimateTokens(s string) int {
 // DisableExecutiveBootGuard prevents the executive policy shard from running at boot.
 func (sm *ShardManager) DisableExecutiveBootGuard() {
 	sm.DisableSystemShard("executive_policy")
+}
+
+// QueryRelevantTools exposes queryRelevantTools for testing and external access.
+func (sm *ShardManager) QueryRelevantTools(query ToolRelevanceQuery) []types.ToolInfo {
+	return sm.queryRelevantTools(query)
+}
+
+// AssertToolRoutingContext exposes assertToolRoutingContext for testing and external access.
+func (sm *ShardManager) AssertToolRoutingContext(query ToolRelevanceQuery) {
+	sm.assertToolRoutingContext(query)
 }
