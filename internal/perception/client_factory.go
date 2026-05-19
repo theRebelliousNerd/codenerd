@@ -134,13 +134,14 @@ func NewClientFromEnv() (LLMClient, error) {
 }
 
 // NERD-EVOLVE-START: P1P2-model-tiering
-// NewClassificationClientFromConfig creates a faster/cheaper LLM client for intent
-// classification (P2 model tiering). The returned client uses a high-speed model
-// appropriate for quick classification tasks:
-//   - Anthropic: claude-haiku-4-5 with prompt caching enabled (P1+P2)
-//   - Gemini: gemini-2.0-flash-lite
-//   - OpenAI: gpt-4o-mini
-//   - All others: returns nil (caller should fall back to main LLMClient)
+// NewClassificationClientFromConfig creates an LLM client for intent
+// classification (P2 model tiering). The model is determined by:
+//  1. cfg.Model — the user's configured model from config.json (preferred)
+//  2. Per-provider defaults if no model is configured:
+//     - Anthropic: claude-haiku-4-5 with prompt caching enabled (P1+P2)
+//     - Gemini: gemini-3.1-flash-lite
+//     - OpenAI: gpt-4o-mini
+//  3. All others: returns nil (caller should fall back to main LLMClient)
 //
 // When nil is returned, no error is set — the caller should treat nil as
 // "use main client" and not fail.
@@ -156,22 +157,35 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 
 	switch cfg.Provider {
 	case ProviderAnthropic:
-		// Use Haiku for fast classification. Also enable prompt caching (P1) so that
-		// the static understandingSystemPrompt is cached across calls.
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
-		haikuCfg.Model = "claude-haiku-4-5"
+		if cfg.Model != "" {
+			haikuCfg.Model = cfg.Model
+		} else {
+			haikuCfg.Model = "claude-haiku-4-5"
+		}
 		client := NewAnthropicClientWithConfig(haikuCfg)
 		client.EnableSystemCaching() // P1: cache the static perception system prompt
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=anthropic model=%s (configured=%v)", haikuCfg.Model, cfg.Model != "")
 		return client, nil
 
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
-		flashCfg.Model = "gemini-2.0-flash-lite"
+		if cfg.Model != "" {
+			flashCfg.Model = cfg.Model
+		} else {
+			flashCfg.Model = "gemini-3.1-flash-lite"
+		}
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=gemini model=%s (configured=%v)", flashCfg.Model, cfg.Model != "")
 		return NewGeminiClientWithConfig(flashCfg), nil
 
 	case ProviderOpenAI:
 		client := NewOpenAIClient(cfg.APIKey)
-		client.SetModel("gpt-4o-mini")
+		if cfg.Model != "" {
+			client.SetModel(cfg.Model)
+		} else {
+			client.SetModel("gpt-4o-mini")
+		}
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", cfg.Model, cfg.Model != "")
 		return client, nil
 
 	default:
