@@ -344,6 +344,37 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 // INPUT: `[{"intent": "fix"}]`
 // EXPECTED: Should either return the array string or handle it gracefully. Currently returns empty string.
 
+func TestExtractJSON_EmptyAndWhitespace(t *testing.T) {
+	// TODO: TEST_GAP: ExtractCleanJSON with empty string and pure whitespace.
+	// EXPECTED: Should return an empty string and not panic.
+}
+
+func TestExtractJSON_MismatchedBrackets(t *testing.T) {
+	// TODO: TEST_GAP: ExtractCleanJSON with mismatched brackets (e.g., `[{]}`).
+	// EXPECTED: Should ignore the mismatched block and return empty string or valid json if present elsewhere.
+}
+
+func TestExtractJSON_DeepNesting(t *testing.T) {
+	// TODO: TEST_GAP: ExtractCleanJSON with extreme deep nesting (e.g., 10,000 levels).
+	// EXPECTED: Should not panic with OOM and handle gracefully.
+}
+
+func TestParseResponse_TypeCoercion(t *testing.T) {
+	// TODO: TEST_GAP: parseResponse with JSON containing wrong types (e.g., "semantic_type": 123).
+	// EXPECTED: json.Unmarshal should fail gracefully and return an error without panicking.
+}
+
+func TestDeriveRouting_NegativeWeights(t *testing.T) {
+	// TODO: TEST_GAP: deriveRouting and deriveShards with negative weights from the kernel.
+	// EXPECTED: Should handle negative weights correctly, potentially prioritizing 0 or positive weights.
+}
+
+func TestTransducer_Concurrency(t *testing.T) {
+	// TODO: TEST_GAP: Concurrent calls to Understand on the same LLMTransducer instance.
+	// EXPECTED: No race conditions or panics.
+}
+
+
 func TestExtractJSON_NonObject(t *testing.T) {
 	// GAP: extractJSON ignores valid JSON that isn't an object.
 	// EXPECTED: strict object requirement is intentional, should return empty string.
