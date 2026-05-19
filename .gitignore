@@ -19,6 +19,7 @@
 # Hidden/system files and folders (including all dot folders)
 .*
 !.gitignore
+!.nerd/
 !.agents/
 .agents/*
 !.agents/skills/
@@ -86,8 +87,10 @@ Docs/Spec/
 /tools/
 /data/traces/
 
-# Hidden runtime/config paths
-.nerd/
+# Hidden runtime/config paths — ignore contents, not the dir itself,
+# so we can negate .nerd/logs/ for diagnostic tracking.
+.nerd/*
+!.nerd/logs/
 
 # Ignore any config.json payload (and derivatives) to prevent secret leakage.
 **/config.json
