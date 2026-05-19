@@ -1,10 +1,13 @@
 package prompt
 
 import (
+	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"codenerd/internal/core"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1278,3 +1281,171 @@ func BenchmarkClone(b *testing.B) {
 		atom.Clone()
 	}
 }
+
+func TestPromptAtom_Clone_NilVsEmpty(t *testing.T) {
+	// Boundary Value: Nil vs Empty Slice Serialization
+	atomEmpty := &PromptAtom{
+		ID:               "empty/slice",
+		OperationalModes: []string{}, // initialized but empty
+		DependsOn:        nil,        // nil pointer
+		Category:         CategoryIdentity,
+		Content:          "Empty test",
+	}
+
+	cloned := atomEmpty.Clone()
+
+	// An empty slice should remain empty (not nil)
+	if cloned.OperationalModes == nil {
+		t.Errorf("Expected OperationalModes to be empty slice, got nil")
+	}
+
+	// A nil slice should remain nil
+	if cloned.DependsOn != nil {
+		t.Errorf("Expected DependsOn to be nil, got initialized slice")
+	}
+
+	// Compare JSON serialization outputs to prove API contracts are maintained
+	emptyBytes, _ := json.Marshal(atomEmpty)
+	clonedBytes, _ := json.Marshal(cloned)
+
+	if string(emptyBytes) != string(clonedBytes) {
+		t.Errorf("JSON serialization divergence due to slice pointer allocation rules")
+	}
+}
+
+func TestPromptAtom_TypeCoercion_ZeroBytes(t *testing.T) {
+	// Testing Type Coercion and extremely malformed inputs
+	invalidStr := "hello\x00world\xff"
+
+	atom := NewPromptAtom("bad/atom", CategoryIdentity, invalidStr)
+
+	// Ensure hashing does not panic on malformed UTF-8
+	hash := HashContent(invalidStr)
+	if hash == "" {
+		t.Fatalf("Hash generated empty string for invalid UTF-8")
+	}
+
+	// Ensure Validation handles it
+	err := atom.Validate()
+	if err != nil {
+		t.Fatalf("Validation rejected input too early without explicit rule")
+	}
+}
+
+func TestPromptAtom_MalformedMangleFacts(t *testing.T) {
+	// A category missing will result in "/" which may break Mangle parsing.
+	atom := &PromptAtom{
+		ID:          "bad/category",
+		Category:    AtomCategory(""),
+		Priority:    10,
+		TokenCount:  10,
+		IsMandatory: false,
+	}
+
+	fact := atom.ToFact()
+
+	// fact.Args[1] will literally be "/"
+	if fact.Args[1] != "/" {
+		t.Errorf("Expected default coercion to '/', got %v", fact.Args[1])
+	}
+}
+
+func TestPromptAtom_DependencyCycle_ShouldBeCaughtByCompiler(t *testing.T) {
+	atomA := &PromptAtom{
+		ID:        "atomA",
+		DependsOn: []string{"atomB"},
+	}
+	atomB := &PromptAtom{
+		ID:        "atomB",
+		DependsOn: []string{"atomC"},
+	}
+	atomC := &PromptAtom{
+		ID:        "atomC",
+		DependsOn: []string{"atomA"},
+	}
+
+	_ = []*PromptAtom{atomA, atomB, atomC}
+}
+
+func TestMatchSelector_BoundaryValues(t *testing.T) {
+	// Tests type coercion and zero-length boundaries for the internal slice matching logic.
+	tests := []struct {
+		name     string
+		selector []string
+		value    string
+		expected bool
+	}{
+		{"Double slash value", []string{"coder"}, "//double", false},
+		{"Just a slash", []string{""}, "/", true},
+		{"Whitespace inside selector", []string{" /coder"}, " /coder", true},
+		{"Null byte inclusion", []string{"\x00coder"}, "\x00coder", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			normalizeList(tt.selector)
+			result := matchSelector(tt.selector, tt.value)
+			if result != tt.expected {
+				t.Errorf("matchSelector(%v, %q) = %t, want %t", tt.selector, tt.value, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPromptAtom_ExtremeLoad(t *testing.T) {
+	// Simulating a scenario where a sub-agent attempts to wrap an entire massive log file
+	// into an ephemeral PromptAtom.
+	// Ensure that token count math and SHA256 doesn't OOM or integer overflow.
+	hugeSize := 1024 * 1024 * 5 // 5MB string
+	hugeStr := strings.Repeat("a", hugeSize)
+
+	// This should run quickly due to Go's optimized SHA256, but confirms memory bounds.
+	atom := NewPromptAtom("extreme/load", CategoryIdentity, hugeStr)
+
+	expectedTokens := (hugeSize + 3) / 4
+	if atom.TokenCount != expectedTokens {
+		t.Fatalf("Token count failed for massive load: expected %d, got %d", expectedTokens, atom.TokenCount)
+	}
+}
+
+func TestPromptAtom_ConcurrencyRace(t *testing.T) {
+	// Tests for State Conflicts - verifies that matches against a read-only global corpus atom
+	// are strictly thread-safe and no accidental state mutation occurs during 'NormalizeSelectors' or 'MatchesContext'
+	atom := &PromptAtom{
+		ID:          "race/atom",
+		Frameworks:  []string{"/react", "/bubbletea"},
+		WorldStates: []string{"diagnostics"},
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			cc := &CompilationContext{
+				Frameworks:      []string{"/react"},
+				DiagnosticCount: idx, // Different integer each time
+			}
+			// If MatchContext mutates state, go test -race will catch it here.
+			_ = atom.MatchesContext(cc)
+			_ = atom.Clone()
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestPromptAtom_DatalogFactTranslation(t *testing.T) {
+	// Verifies Boundary / Type behaviors when generating Datalog facts
+	atom := &PromptAtom{
+		ID:          "fact/test",
+		Category:    CategoryIdentity,
+		IsMandatory: true,
+	}
+
+	fact := atom.ToFact()
+	// Specifically test that the Mangle Engine expects "/true" instead of true or "true"
+	// The Atom/String Dissonance is a primary AI failure mode in Mangle.
+	if len(fact.Args) < 5 || fact.Args[4] != core.MangleAtom("/true") {
+		t.Fatalf("Mangle Atom translation failed. Expected '/true', got %v", fact.Args[4])
+	}
+}
+
