@@ -309,9 +309,18 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // Expected behavior: If Mangle returns an anomalous float, complexity should not become infinite
 // or cause ActionRefactorFirst permanently.
 
-// TODO: Missing Edge Case - User Request Extremes: Unknown file extensions.
-// Test `detectLanguage` with an esoteric extension like `.zig` or `.mojo` or `.xyz`.
-// Expected behavior: Should return "unknown" and suggestions must still be logically sound without crashing.
+func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
+	d := NewEdgeCaseDetector(nil, nil)
+
+	extensions := []string{".zig", ".mojo", ".xyz"}
+	for _, ext := range extensions {
+		path := "test_file" + ext
+		lang := d.detectLanguage(path)
+		if lang != "unknown" {
+			t.Errorf("Expected language for %s to be 'unknown', got %s", path, lang)
+		}
+	}
+}
 
 // TODO: Missing Edge Case - Performance Vector: Massive volume of facts in kernel.
 // Test `queryDependencies` and `queryComplexity` against a mock kernel returning 100,000 facts.
