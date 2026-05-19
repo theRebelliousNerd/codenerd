@@ -77,9 +77,7 @@ type LLMToolResponse struct {
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thought_signature,omitempty"`
-	// ThinkingTokens tracks tokens used for reasoning (for budget monitoring)
-	// Deprecated: Use Usage.ThinkingTokens instead
-	ThinkingTokens int `json:"thinking_tokens,omitempty"`
+
 
 	// Grounding metadata (from Google Search / URL Context)
 	// GroundingSources lists URLs used to ground the response

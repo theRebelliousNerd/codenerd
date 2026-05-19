@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/logging"
 	"codenerd/internal/usage"
 	"context"
 	"encoding/json"
@@ -262,7 +263,7 @@ func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
 		return
 	}
 	campaignID := fmt.Sprintf("campaign_%d", time.Now().UnixNano())
-	_ = m.kernel.Assert(core.Fact{
+	if err := m.kernel.Assert(core.Fact{
 		Predicate: "campaign_intent_capture",
 		Args: []interface{}{
 			campaignID,
@@ -271,7 +272,9 @@ func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
 			"hands_free",
 			"{}",
 		},
-	})
+	}); err != nil {
+		logging.Kernel("[campaign] failed to assert campaign intent: %v", err)
+	}
 }
 
 // resumeCampaign continues execution of a paused campaign

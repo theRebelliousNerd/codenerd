@@ -207,10 +207,14 @@ func (k *RealKernel) evaluate() error {
 	return nil
 }
 
-// rebuild is kept for backward compatibility - now delegates to evaluate().
+// rebuild invalidates cached atoms and marks the kernel for lazy re-evaluation.
+// Callers should not expect the store to be up-to-date after this call;
+// the next Query/QueryAll will trigger evaluate() on demand.
 func (k *RealKernel) rebuild() error {
-	logging.KernelDebug("rebuild: delegating to evaluate()")
-	return k.evaluate()
+	logging.KernelDebug("rebuild: invalidating cached atoms, marking factsDirty")
+	k.cachedAtoms = nil
+	k.factsDirty = true
+	return nil
 }
 
 // IsInitialized returns true if the kernel has been initialized.
@@ -277,6 +281,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		manglePath:        k.manglePath,
 		workspaceRoot:     k.workspaceRoot,
 		policyDirty:       k.policyDirty,
+		factsDirty:        k.factsDirty,
 		userLearnedPath:   k.userLearnedPath,
 		predicateCorpus:   k.predicateCorpus,   // Share corpus (read-only)
 		repairInterceptor: k.repairInterceptor, // Share interceptor

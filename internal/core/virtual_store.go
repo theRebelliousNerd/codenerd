@@ -945,8 +945,6 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// Kernel-level permission gate (default deny if kernel says not permitted)
 	if v.kernel != nil {
-		// Refresh permission cache in case policy/facts changed since last action.
-		// Note: Cache is deprecated for fine-grained permissions, direct query used.
 
 		permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
 		if !permitted {

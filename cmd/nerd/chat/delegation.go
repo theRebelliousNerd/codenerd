@@ -590,7 +590,9 @@ func (m Model) spawnSimpleShard(ctx context.Context, shardType, task string, sta
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
 	facts := m.shardMgr.ResultToFacts(shardID, shardType, task, result, err)
 	if m.kernel != nil && len(facts) > 0 {
-		_ = m.kernel.LoadFacts(facts)
+		if err := m.kernel.LoadFacts(facts); err != nil {
+			logging.Routing("[delegation] failed to load shard facts: %v", err)
+		}
 	}
 
 	// Record execution for prompt evolution learning
@@ -710,7 +712,9 @@ func (m Model) executeAdvisoryMode(ctx context.Context, verb, shardType, task, t
 
 	// Inject facts
 	if m.kernel != nil && len(facts) > 0 {
-		_ = m.kernel.LoadFacts(facts)
+		if err := m.kernel.LoadFacts(facts); err != nil {
+			logging.Routing("[delegation] failed to load advisory facts: %v", err)
+		}
 	}
 
 	// Record execution for prompt evolution learning
@@ -797,7 +801,9 @@ func (m Model) executeAdvisoryWithCritiqueMode(ctx context.Context, verb, shardT
 
 	// Inject facts
 	if m.kernel != nil && len(facts) > 0 {
-		_ = m.kernel.LoadFacts(facts)
+		if err := m.kernel.LoadFacts(facts); err != nil {
+			logging.Routing("[delegation] failed to load critique facts: %v", err)
+		}
 	}
 
 	// Record execution for prompt evolution learning
@@ -862,7 +868,9 @@ Do NOT just advise - implement the solution.`,
 
 	// Inject facts
 	if m.kernel != nil && len(facts) > 0 {
-		_ = m.kernel.LoadFacts(facts)
+		if err := m.kernel.LoadFacts(facts); err != nil {
+			logging.Routing("[delegation] failed to load specialist facts: %v", err)
+		}
 	}
 
 	// Record execution for prompt evolution learning
@@ -1023,7 +1031,9 @@ func (m Model) formatParallelResults(verb, shardType, task, target string, resul
 	sb.WriteString(fmt.Sprintf("**Participants**: %s\n", strings.Join(participants, ", ")))
 
 	if m.kernel != nil && len(allFacts) > 0 {
-		_ = m.kernel.LoadFacts(allFacts)
+		if err := m.kernel.LoadFacts(allFacts); err != nil {
+			logging.Routing("[delegation] failed to load parallel facts: %v", err)
+		}
 	}
 
 	m.ReportStatus(fmt.Sprintf("%s + specialists complete", shardType))

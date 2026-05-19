@@ -38,6 +38,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/transparency"
 
@@ -73,7 +74,9 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			m.isInterrupted = false
 			// Clear interrupt fact from kernel
 			if m.kernel != nil {
-				_ = m.kernel.Retract("interrupt_requested")
+				if err := m.kernel.Retract("interrupt_requested"); err != nil {
+					logging.Kernel("[commands] failed to retract interrupt_requested: %v", err)
+				}
 			}
 			m.statusMessage = fmt.Sprintf("[%d/%d] %s", m.continuationStep, m.continuationTotal, next.Description)
 			m.textarea.Reset()
@@ -792,7 +795,9 @@ Press **Enter** to begin...`,
 					cfg = config.DefaultUserConfig()
 				}
 				cfg.Theme = theme
-				_ = cfg.Save(config.DefaultUserConfigPath())
+				if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+					logging.Routing("[commands] failed to save config: %v", err)
+				}
 				// Apply theme
 				if theme == "dark" {
 					m.styles = ui.NewStyles(ui.DarkTheme())

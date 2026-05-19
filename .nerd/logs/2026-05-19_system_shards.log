@@ -1,62 +1,150 @@
-2026/05/19 14:58:06.370706 [INFO] [ConstitutionGate] Initializing constitution gate shard (SAFETY-CRITICAL)
-2026/05/19 14:58:06.370706 [INFO] [BaseSystemShard] Creating shard: id=constitution_gate, mode=auto
-2026/05/19 14:58:06.371214 [DEBUG] [ConstitutionGate] Config: strict_mode=true, escalate_on_ambiguity=true, allowed_domains=5, dangerous_patterns=8
-2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] Parent kernel attached
-2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] VirtualStore attached
-2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] PromptAssembler attached
-2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] Parent kernel attached
-2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] VirtualStore attached
-2026/05/19 14:58:10.306939 [INFO] [ConstitutionGate] Starting safety enforcement loop
-2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] State transition: idle -> running
-2026/05/19 14:58:17.054711 [INFO] [PerceptionFirewall] Initializing perception firewall shard
-2026/05/19 14:58:17.054711 [INFO] [BaseSystemShard] Creating shard: id=perception_firewall, mode=auto
-2026/05/19 14:58:17.054711 [DEBUG] [PerceptionFirewall] Config: confidence_threshold=0.85, ambiguity_threshold=0.70, queue_size=100
-2026/05/19 14:58:17.054711 [DEBUG] [perception_firewall] Parent kernel attached
-2026/05/19 14:58:17.054711 [DEBUG] [perception_firewall] VirtualStore attached
-2026/05/19 14:58:22.364166 [DEBUG] [perception_firewall] Learning store attached, loading patterns...
-2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 0 success patterns
-2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 1 failure patterns
-2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 0 correction patterns
-2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loading learned patterns completed in 9.8691ms
-2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] PromptAssembler attached
-2026/05/19 14:58:22.374581 [INFO] [PerceptionFirewall] PromptAssembler attached (JIT ready: true)
-2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] Parent kernel attached
-2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] VirtualStore attached
-2026/05/19 14:58:26.363734 [INFO] [PerceptionFirewall] Starting continuous parsing loop
-2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] State transition: idle -> running
-2026/05/19 14:58:32.904411 [INFO] [MangleRepair] Initializing mangle repair shard
-2026/05/19 14:58:32.904411 [INFO] [BaseSystemShard] Creating shard: id=mangle_repair, mode=auto
-2026/05/19 14:58:32.904411 [DEBUG] [mangle_repair] Parent kernel attached
-2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PromptAssembler attached
-2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PredicateCorpus attached
-2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PredicateSelector initialized
-2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] Parent kernel attached
-2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] VirtualStore attached
-2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] State transition: idle -> running
-2026/05/19 14:58:48.128237 [DEBUG] [MangleRepair] Ignoring system_start task
-2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] State transition: running -> completed
-2026/05/19 14:58:48.128237 [DEBUG] [MangleRepair] Execute completed in 0s
-2026/05/19 14:58:54.944726 [INFO] [ExecutivePolicy] Initializing executive policy shard
-2026/05/19 14:58:54.944726 [INFO] [BaseSystemShard] Creating shard: id=executive_policy, mode=auto
-2026/05/19 14:58:54.944726 [DEBUG] [ExecutivePolicy] Config: tick_interval=100ms, strict_barriers=true, max_actions=5
-2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] Parent kernel attached
-2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] VirtualStore attached
-2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] PromptAssembler attached
-2026/05/19 14:59:01.556894 [DEBUG] [executive_policy] Parent kernel attached
-2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] VirtualStore attached
-2026/05/19 14:59:01.557437 [INFO] [ExecutivePolicy] Starting OODA decision loop
-2026/05/19 14:59:01.557437 [DEBUG] [ExecutivePolicy] FeedbackLoop validation budget reset at session start
-2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] State transition: idle -> running
-2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] GlassBox event bus attached
-2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] ToolEventBus attached
-2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] ToolStore attached
-2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] GlassBox event bus attached
-2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] ToolEventBus attached
-2026/05/19 14:59:01.557437 [DEBUG] [ExecutivePolicy] Clearing stale intent facts from previous sessions
-2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] ToolStore attached
-2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] GlassBox event bus attached
-2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] ToolEventBus attached
-2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] ToolStore attached
-2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] GlassBox event bus attached
-2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] ToolEventBus attached
-2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] ToolStore attached
+2026/05/19 15:33:47.316214 [INFO] [ConstitutionGate] Initializing constitution gate shard (SAFETY-CRITICAL)
+2026/05/19 15:33:47.316214 [INFO] [BaseSystemShard] Creating shard: id=constitution_gate, mode=auto
+2026/05/19 15:33:47.316214 [DEBUG] [ConstitutionGate] Config: strict_mode=true, escalate_on_ambiguity=true, allowed_domains=5, dangerous_patterns=8
+2026/05/19 15:33:47.316214 [DEBUG] [constitution_gate] Parent kernel attached
+2026/05/19 15:33:47.316214 [DEBUG] [constitution_gate] VirtualStore attached
+2026/05/19 15:33:47.316214 [DEBUG] [constitution_gate] PromptAssembler attached
+2026/05/19 15:33:50.006372 [DEBUG] [constitution_gate] Parent kernel attached
+2026/05/19 15:33:50.006372 [DEBUG] [constitution_gate] VirtualStore attached
+2026/05/19 15:33:50.006888 [INFO] [ConstitutionGate] Starting safety enforcement loop
+2026/05/19 15:33:50.006888 [DEBUG] [constitution_gate] State transition: idle -> running
+2026/05/19 15:33:51.410733 [INFO] [PerceptionFirewall] Initializing perception firewall shard
+2026/05/19 15:33:51.410733 [INFO] [BaseSystemShard] Creating shard: id=perception_firewall, mode=auto
+2026/05/19 15:33:51.411245 [DEBUG] [PerceptionFirewall] Config: confidence_threshold=0.85, ambiguity_threshold=0.70, queue_size=100
+2026/05/19 15:33:51.411245 [DEBUG] [perception_firewall] Parent kernel attached
+2026/05/19 15:33:51.411245 [DEBUG] [perception_firewall] VirtualStore attached
+2026/05/19 15:33:51.411245 [DEBUG] [perception_firewall] Learning store attached, loading patterns...
+2026/05/19 15:33:51.418822 [DEBUG] [perception_firewall] Loaded 0 success patterns
+2026/05/19 15:33:51.418822 [DEBUG] [perception_firewall] Loaded 1 failure patterns
+2026/05/19 15:33:51.418822 [DEBUG] [perception_firewall] Loaded 0 correction patterns
+2026/05/19 15:33:51.418822 [DEBUG] [perception_firewall] Loading learned patterns completed in 7.5768ms
+2026/05/19 15:33:51.418822 [DEBUG] [perception_firewall] PromptAssembler attached
+2026/05/19 15:33:51.418822 [INFO] [PerceptionFirewall] PromptAssembler attached (JIT ready: true)
+2026/05/19 15:33:55.358247 [DEBUG] [perception_firewall] Parent kernel attached
+2026/05/19 15:33:55.358247 [DEBUG] [perception_firewall] VirtualStore attached
+2026/05/19 15:33:55.358247 [INFO] [PerceptionFirewall] Starting continuous parsing loop
+2026/05/19 15:33:55.358247 [DEBUG] [perception_firewall] State transition: idle -> running
+2026/05/19 15:34:00.471732 [INFO] [MangleRepair] Initializing mangle repair shard
+2026/05/19 15:34:00.471732 [INFO] [BaseSystemShard] Creating shard: id=mangle_repair, mode=auto
+2026/05/19 15:34:00.471732 [DEBUG] [mangle_repair] Parent kernel attached
+2026/05/19 15:34:00.471732 [INFO] [MangleRepair] PromptAssembler attached
+2026/05/19 15:34:00.471732 [INFO] [MangleRepair] PredicateCorpus attached
+2026/05/19 15:34:00.471732 [INFO] [MangleRepair] PredicateSelector initialized
+2026/05/19 15:34:09.604945 [DEBUG] [mangle_repair] Parent kernel attached
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] VirtualStore attached
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] State transition: idle -> running
+2026/05/19 15:34:10.885203 [DEBUG] [MangleRepair] Ignoring system_start task
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] State transition: running -> completed
+2026/05/19 15:34:10.885203 [DEBUG] [MangleRepair] Execute completed in 0s
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] GlassBox event bus attached
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] ToolEventBus attached
+2026/05/19 15:34:10.885203 [DEBUG] [mangle_repair] ToolStore attached
+2026/05/19 15:34:10.885203 [DEBUG] [constitution_gate] GlassBox event bus attached
+2026/05/19 15:34:10.885203 [DEBUG] [constitution_gate] ToolEventBus attached
+2026/05/19 15:34:10.885203 [DEBUG] [constitution_gate] ToolStore attached
+2026/05/19 15:34:10.885203 [DEBUG] [perception_firewall] GlassBox event bus attached
+2026/05/19 15:34:10.885203 [DEBUG] [perception_firewall] ToolEventBus attached
+2026/05/19 15:34:10.885203 [DEBUG] [perception_firewall] ToolStore attached
+2026/05/19 15:34:21.128280 [INFO] [ExecutivePolicy] Initializing executive policy shard
+2026/05/19 15:34:21.128280 [INFO] [BaseSystemShard] Creating shard: id=executive_policy, mode=auto
+2026/05/19 15:34:21.128280 [DEBUG] [ExecutivePolicy] Config: tick_interval=100ms, strict_barriers=true, max_actions=5
+2026/05/19 15:34:21.129285 [DEBUG] [executive_policy] Parent kernel attached
+2026/05/19 15:34:21.129285 [DEBUG] [executive_policy] VirtualStore attached
+2026/05/19 15:34:21.129285 [DEBUG] [executive_policy] PromptAssembler attached
+2026/05/19 15:34:30.083770 [DEBUG] [executive_policy] Parent kernel attached
+2026/05/19 15:34:30.083770 [DEBUG] [executive_policy] VirtualStore attached
+2026/05/19 15:34:30.083770 [INFO] [ExecutivePolicy] Starting OODA decision loop
+2026/05/19 15:34:30.083770 [DEBUG] [ExecutivePolicy] FeedbackLoop validation budget reset at session start
+2026/05/19 15:34:30.083770 [DEBUG] [executive_policy] State transition: idle -> running
+2026/05/19 15:34:30.083770 [DEBUG] [ExecutivePolicy] Clearing stale intent facts from previous sessions
+2026/05/19 15:37:24.712067 [WARN] [PerceptionFirewall] Ambiguous intent detected: confidence=0.40
+2026/05/19 15:37:34.397916 [DEBUG] [PerceptionFirewall] Target resolution: raw=session, resolved=C:\CodeProjects\codeNERD\internal\session\spawner_test.go, confidence=70
+2026/05/19 15:37:45.750139 [INFO] [PerceptionFirewall] Intent processed: id=/current_intent, verb=/converse
+2026/05/19 15:37:45.750139 [DEBUG] [PerceptionFirewall] Perceive completed in 1m15.793948s
+2026/05/19 15:37:52.152051 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:38:08.438069 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:38:25.823669 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:38:50.654557 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:39:13.186752 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:39:35.275862 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:40:04.249870 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:40:35.198781 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:40:59.828187 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:41:21.454180 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:41:45.322877 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:42:12.081537 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:42:40.821595 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:43:06.003347 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:43:31.552821 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:43:54.352779 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:44:20.642110 [DEBUG] [PerceptionFirewall] Target resolution: raw=capabilities, resolved=C:\CodeProjects\codeNERD\internal\world\reviewer_capabilities_test.go, confidence=70
+2026/05/19 15:44:22.345832 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 1 actions until user interaction
+2026/05/19 15:44:29.960503 [INFO] [PerceptionFirewall] Intent processed: id=/current_intent, verb=/explain
+2026/05/19 15:44:29.960503 [DEBUG] [PerceptionFirewall] Perceive completed in 37.0088422s
+2026/05/19 15:44:29.960503 [INFO] [ExecutivePolicy] Strategy change detected, new strategies: 1
+2026/05/19 15:44:29.960503 [DEBUG] [ExecutivePolicy] Strategy activated: /breadth_first_survey
+2026/05/19 15:44:44.936914 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:44:59.844744 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:45:25.335546 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:45:54.137716 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:46:23.187446 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:46:53.277549 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:47:22.357525 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:47:50.635567 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:48:20.499929 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:48:47.948335 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:49:21.145528 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:49:50.223423 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:50:19.585446 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:50:46.797330 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:51:12.230727 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:51:37.467772 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:52:03.269245 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:52:34.072555 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:53:01.790014 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:53:29.574088 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:53:55.291834 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:54:20.849231 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:54:48.516241 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:55:16.097013 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:55:46.693693 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:56:15.107612 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:56:42.243755 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:57:09.826904 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:57:37.243176 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:58:02.118409 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:58:27.701807 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:58:54.533706 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:59:17.163751 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 15:59:43.537509 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:00:12.327419 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:00:38.307452 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:01:06.628484 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:01:29.494440 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:02:02.958348 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:02:34.215187 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:03:01.869663 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:03:31.419535 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:03:58.551833 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:04:24.313627 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:04:58.664436 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:05:39.913243 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:06:10.716066 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:06:42.089526 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:07:21.548847 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:08:04.823052 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:08:30.752918 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:09:05.556537 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:09:33.390281 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:10:14.352720 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:10:47.584594 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:11:42.735351 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:12:16.055302 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:12:51.057473 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:13:28.283696 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:14:02.185815 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:14:36.837528 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:15:18.673142 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:15:52.642887 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:16:27.413452 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction
+2026/05/19 16:17:04.978692 [DEBUG] [ExecutivePolicy] Boot guard active: suppressing 2 actions until user interaction

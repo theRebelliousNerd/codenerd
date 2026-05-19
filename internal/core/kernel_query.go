@@ -35,6 +35,23 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	logging.KernelDebug("Query: predicate=%s", predicate)
 
 	k.mu.RLock()
+
+	// Lazy evaluation: if facts changed since last evaluate, do it now
+	if k.factsDirty {
+		k.mu.RUnlock()
+		k.mu.Lock()
+		// Double-check after lock upgrade (another goroutine may have evaluated)
+		if k.factsDirty {
+			logging.Kernel("kernel.lazy_evaluate triggered by Query | factsDirty=true")
+			if err := k.evaluate(); err != nil {
+				k.mu.Unlock()
+				return nil, fmt.Errorf("lazy evaluation failed: %w", err)
+			}
+			k.factsDirty = false
+		}
+		k.mu.Unlock()
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -194,6 +211,22 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	logging.KernelDebug("QueryCallback: predicate=%s", predicate)
 
 	k.mu.RLock()
+
+	// Lazy evaluation: if facts changed since last evaluate, do it now
+	if k.factsDirty {
+		k.mu.RUnlock()
+		k.mu.Lock()
+		if k.factsDirty {
+			logging.Kernel("kernel.lazy_evaluate triggered by QueryCallback | factsDirty=true")
+			if err := k.evaluate(); err != nil {
+				k.mu.Unlock()
+				return fmt.Errorf("lazy evaluation failed: %w", err)
+			}
+			k.factsDirty = false
+		}
+		k.mu.Unlock()
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -267,6 +300,22 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	logging.KernelDebug("QueryAll: retrieving all derived facts")
 
 	k.mu.RLock()
+
+	// Lazy evaluation: if facts changed since last evaluate, do it now
+	if k.factsDirty {
+		k.mu.RUnlock()
+		k.mu.Lock()
+		if k.factsDirty {
+			logging.Kernel("kernel.lazy_evaluate triggered by QueryAll | factsDirty=true")
+			if err := k.evaluate(); err != nil {
+				k.mu.Unlock()
+				return nil, fmt.Errorf("lazy evaluation failed: %w", err)
+			}
+			k.factsDirty = false
+		}
+		k.mu.Unlock()
+		k.mu.RLock()
+	}
 	defer k.mu.RUnlock()
 
 	if !k.initialized {

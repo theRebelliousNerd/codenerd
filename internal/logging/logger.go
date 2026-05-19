@@ -61,6 +61,7 @@ const (
 // to avoid circular imports
 type loggingConfig struct {
 	DebugMode  bool            `json:"debug_mode"`
+	TraceLLMIO bool            `json:"trace_llm_io"` // Dump full LLM prompt/response to llm_io log
 	Categories map[string]bool `json:"categories"`
 	Level      string          `json:"level"`
 	JSONFormat bool            `json:"json_format"` // Output structured JSON for Mangle parsing

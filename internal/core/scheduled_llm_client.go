@@ -35,8 +35,23 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 	// Always release the slot when done
 	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
 
+	// LLM I/O tracing: log the prompt before the call
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID, "", prompt, nil, model, 0)
+
 	// Make the actual LLM call
-	return c.Client.Complete(ctx, prompt)
+	start := time.Now()
+	result, err := c.Client.Complete(ctx, prompt)
+	duration := time.Since(start)
+
+	// LLM I/O tracing: log the response or error
+	if err != nil {
+		logging.LogLLMError(c.ShardID, err, duration)
+	} else {
+		logging.LogLLMResponse(c.ShardID, result, duration, len(result)/4)
+	}
+
+	return result, err
 }
 
 // CompleteWithSystem makes an LLM call with system prompt and cooperative scheduling.
@@ -50,8 +65,23 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	// Always release the slot when done
 	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
 
+	// LLM I/O tracing: log the full prompt package before the call
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
+
 	// Make the actual LLM call
-	return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	start := time.Now()
+	result, err := c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	duration := time.Since(start)
+
+	// LLM I/O tracing: log the response or error
+	if err != nil {
+		logging.LogLLMError(c.ShardID, err, duration)
+	} else {
+		logging.LogLLMResponse(c.ShardID, result, duration, len(result)/4)
+	}
+
+	return result, err
 }
 
 // CompleteWithSchema makes a scheduled LLM call with response schema enforcement.
@@ -64,11 +94,28 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 	// Always release the slot when done
 	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
 
+	// LLM I/O tracing: log the full prompt package before the call
+	model := c.GetModel()
+	schemaNote := fmt.Sprintf("[SCHEMA-CONSTRAINED, schema=%d chars]", len(jsonSchema))
+	logging.LogLLMRequest(c.ShardID+"-schema", systemPrompt, userPrompt+"\n"+schemaNote, nil, model, 0)
+
 	// Make the actual LLM call
-	if sc, ok := AsSchemaCapable(c.Client); ok {
-		return sc.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+	start := time.Now()
+	sc, ok := AsSchemaCapable(c.Client)
+	if !ok {
+		return "", ErrSchemaNotSupported
 	}
-	return "", ErrSchemaNotSupported
+	result, err := sc.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+	duration := time.Since(start)
+
+	// LLM I/O tracing: log the response or error
+	if err != nil {
+		logging.LogLLMError(c.ShardID+"-schema", err, duration)
+	} else {
+		logging.LogLLMResponse(c.ShardID+"-schema", result, duration, len(result)/4)
+	}
+
+	return result, err
 }
 
 // CompleteWithTools makes an LLM call with tools and cooperative scheduling.

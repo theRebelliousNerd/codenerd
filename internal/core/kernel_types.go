@@ -58,6 +58,7 @@ type RealKernel struct {
 	manglePath        string                 // Path to mangle files directory
 	workspaceRoot     string                 // Explicit workspace root (for .nerd paths)
 	policyDirty       bool                   // True when schemas/policy changed and need reparse
+	factsDirty        bool                   // True when EDB facts changed and need re-evaluation (lazy eval)
 	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
 	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence

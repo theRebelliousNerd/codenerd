@@ -1,55 +1,40 @@
-2026/05/19 14:57:57.070014 [INFO] Creating new FileScope for project: C:\CodeProjects\codeNERD
-2026/05/19 14:57:57.070014 [DEBUG] Creating ParserFactory with project root: C:\CodeProjects\codeNERD
-2026/05/19 14:57:57.070014 [DEBUG] ParserFactory: registering go parser for extension .go
-2026/05/19 14:57:57.070014 [DEBUG] ParserFactory: registering mg parser for extension .mg
-2026/05/19 14:57:57.070014 [DEBUG] ParserFactory: registering mg parser for extension .dl
-2026/05/19 14:57:57.070014 [DEBUG] ParserFactory: registering mg parser for extension .mangle
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering py parser for extension .py
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering py parser for extension .pyw
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .ts
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .tsx
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .js
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .jsx
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .mjs
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering ts parser for extension .cjs
-2026/05/19 14:57:57.070566 [DEBUG] ParserFactory: registering rs parser for extension .rs
-2026/05/19 14:57:57.070566 [DEBUG] DefaultParserFactory: registered 13 parsers for [.jsx .cjs .rs .dl .mangle .tsx .js .mjs .go .mg .py .pyw .ts]
-2026/05/19 14:57:57.070566 [DEBUG] Creating new Cartographer with MultiLangDataFlowExtractor
-2026/05/19 14:57:57.070566 [DEBUG] Creating new MultiLangDataFlowExtractor
-2026/05/19 14:57:57.070566 [DEBUG] Creating new DataFlowExtractor
-2026/05/19 14:58:00.872418 [DEBUG] Creating new filesystem Scanner
-2026/05/19 15:01:58.485427 [INFO] Starting incremental workspace scan: C:\CodeProjects\codeNERD
-2026/05/19 15:01:58.485427 [DEBUG] Creating FileCache at: C:\CodeProjects\codeNERD\.nerd\cache\manifest.json
-2026/05/19 15:01:58.492930 [DEBUG] FileCache loaded with 2280 entries
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for perception_regression_test.go: fe201da18fce1ac1 (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for .gitignore: bb69aa01cb73b186 (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for understanding_adapter.go: 768d0eb7d4e428d2 (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for transducer_llm.go: 9c979fadcb47f5ae (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for helpers.go: 052e2df6dd4ec0fb (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for process.go: b33c6b03d4f69f25 (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Hash calculated for process_dream.go: 608c6b294632c248 (took 505.9µs)
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser in pool
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] Creating new TreeSitterParser
-2026/05/19 15:01:58.524277 [DEBUG] TreeSitter: parsing Go file: transducer_llm.go (32242 bytes)
-2026/05/19 15:01:58.524277 [DEBUG] TreeSitter: parsing Go file: process.go (51726 bytes)
-2026/05/19 15:01:58.524277 [DEBUG] TreeSitter: parsing Go file: process_dream.go (45340 bytes)
-2026/05/19 15:01:58.524277 [DEBUG] TreeSitter: parsing Go file: understanding_adapter.go (33137 bytes)
-2026/05/19 15:01:58.524277 [DEBUG] TreeSitter: parsing Go file: helpers.go (61437 bytes)
-2026/05/19 15:01:58.542149 [DEBUG] TreeSitter: Go parsed understanding_adapter.go - 24 facts in 17.8726ms
-2026/05/19 15:01:58.550326 [DEBUG] TreeSitter: Go parsed transducer_llm.go - 31 facts in 26.0497ms
-2026/05/19 15:01:58.563183 [DEBUG] TreeSitter: Go parsed process.go - 6 facts in 38.9064ms
-2026/05/19 15:01:58.569831 [DEBUG] TreeSitter: Go parsed process_dream.go - 39 facts in 45.5547ms
-2026/05/19 15:01:58.576781 [DEBUG] TreeSitter: Go parsed helpers.go - 47 facts in 52.5047ms
-2026/05/19 15:01:58.633177 [DEBUG] Hash calculated for nerd.exe: 3d1ce28b9caae231 (took 109.4066ms)
-2026/05/19 15:01:58.633177 [DEBUG] FileCache: saving 2281 entries to disk
-2026/05/19 15:01:58.639320 [INFO] FileCache saved: 2281 entries
+2026/05/19 15:33:44.499135 [INFO] Creating new FileScope for project: C:\CodeProjects\codeNERD
+2026/05/19 15:33:44.499135 [DEBUG] Creating ParserFactory with project root: C:\CodeProjects\codeNERD
+2026/05/19 15:33:44.499135 [DEBUG] ParserFactory: registering go parser for extension .go
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering mg parser for extension .mg
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering mg parser for extension .dl
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering mg parser for extension .mangle
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering py parser for extension .py
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering py parser for extension .pyw
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .ts
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .tsx
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .js
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .jsx
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .mjs
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering ts parser for extension .cjs
+2026/05/19 15:33:44.499663 [DEBUG] ParserFactory: registering rs parser for extension .rs
+2026/05/19 15:33:44.499663 [DEBUG] DefaultParserFactory: registered 13 parsers for [.pyw .ts .tsx .js .jsx .cjs .rs .go .mg .dl .mangle .py .mjs]
+2026/05/19 15:33:44.499663 [DEBUG] Creating new Cartographer with MultiLangDataFlowExtractor
+2026/05/19 15:33:44.499663 [DEBUG] Creating new MultiLangDataFlowExtractor
+2026/05/19 15:33:44.499663 [DEBUG] Creating new DataFlowExtractor
+2026/05/19 15:33:45.994789 [DEBUG] Creating new filesystem Scanner
+2026/05/19 15:34:38.224653 [INFO] Starting incremental workspace scan: C:\CodeProjects\codeNERD
+2026/05/19 15:34:38.224653 [DEBUG] Creating FileCache at: C:\CodeProjects\codeNERD\.nerd\cache\manifest.json
+2026/05/19 15:34:38.228787 [DEBUG] FileCache loaded with 2281 entries
+2026/05/19 15:34:38.249577 [DEBUG] Hash calculated for client_gemini.go: b6eea6ce5dc9532b (took 0s)
+2026/05/19 15:34:38.249577 [DEBUG] Hash calculated for client_factory.go: ec84ef033895837f (took 0s)
+2026/05/19 15:34:38.249577 [DEBUG] Creating new TreeSitterParser in pool
+2026/05/19 15:34:38.249577 [DEBUG] Creating new TreeSitterParser
+2026/05/19 15:34:38.249577 [DEBUG] Creating new TreeSitterParser in pool
+2026/05/19 15:34:38.249577 [DEBUG] Creating new TreeSitterParser
+2026/05/19 15:34:38.250082 [DEBUG] TreeSitter: parsing Go file: client_factory.go (8986 bytes)
+2026/05/19 15:34:38.250082 [DEBUG] TreeSitter: parsing Go file: client_gemini.go (47431 bytes)
+2026/05/19 15:34:38.253933 [DEBUG] TreeSitter: Go parsed client_factory.go - 7 facts in 3.8514ms
+2026/05/19 15:34:38.273040 [DEBUG] TreeSitter: Go parsed client_gemini.go - 39 facts in 22.9583ms
+2026/05/19 15:34:38.344736 [DEBUG] Hash calculated for nerd.exe: 07d98cf56e79e288 (took 95.159ms)
+2026/05/19 15:34:38.344736 [DEBUG] FileCache: saving 2281 entries to disk
+2026/05/19 15:34:38.349360 [INFO] FileCache saved: 2281 entries
+2026/05/19 15:45:05.471919 [INFO] Starting incremental workspace scan: C:\CodeProjects\codeNERD
+2026/05/19 15:45:05.471919 [DEBUG] Creating FileCache at: C:\CodeProjects\codeNERD\.nerd\cache\manifest.json
+2026/05/19 15:45:05.479430 [DEBUG] FileCache loaded with 2281 entries
+2026/05/19 15:45:05.499412 [DEBUG] FileCache: no changes to save

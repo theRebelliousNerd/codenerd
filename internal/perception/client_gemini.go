@@ -1130,9 +1130,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 	if c.lastThoughtSignature != "" {
 		result.ThoughtSignature = c.lastThoughtSignature
 	}
-	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
-	}
+
 
 	// Map usage metadata
 	result.Usage = types.UsageMetadata{
@@ -1355,9 +1353,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 	if c.lastThoughtSignature != "" {
 		result.ThoughtSignature = c.lastThoughtSignature
 	}
-	if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-		result.ThinkingTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
-	}
+
 
 	// Map usage metadata
 	result.Usage = types.UsageMetadata{

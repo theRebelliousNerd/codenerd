@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
@@ -313,10 +314,14 @@ func applyPatchResult(workspace, patch string) string {
 	}
 	tmpPath := filepath.Join(workspace, ".nerd", "last_patch.txt")
 	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err == nil {
-		_ = os.WriteFile(tmpPath, []byte(fullPatch), 0644)
+	if err := os.WriteFile(tmpPath, []byte(fullPatch), 0644); err != nil {
+			logging.Routing("[helpers] failed to write patch file: %v", err)
+		}
 	}
 	cmd := exec.Command("powershell", "-NoProfile", "-Command", "Set-Content -Path $args[0] -Value $args[1]", filepath.Join(workspace, ".nerd", "patch.ps1"), fullPatch)
-	_ = cmd.Run()
+	if err := cmd.Run(); err != nil {
+		logging.Routing("[helpers] failed to run patch command: %v", err)
+	}
 	if err := runApplyPatch(fullPatch); err != nil {
 		return fmt.Sprintf("Patch failed: %v", err)
 	}
@@ -621,7 +626,9 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			if m.scanner != nil {
 				res, scanErr := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
 				if scanErr == nil && res != nil && !res.Unchanged {
-					_ = world.ApplyIncrementalResult(m.kernel, res)
+				if err := world.ApplyIncrementalResult(m.kernel, res); err != nil {
+					logging.Routing("[helpers] failed to apply incremental result: %v", err)
+				}
 				}
 			}
 		}
@@ -680,7 +687,9 @@ func (m Model) runScan(deep bool) tea.Cmd {
 
 		// Persist delta facts to knowledge DB and KG links
 		if m.virtualStore != nil && res != nil && len(res.NewFacts) > 0 {
-			_ = m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5)
+			if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 5); err != nil {
+				logging.Routing("[helpers] failed to persist facts to knowledge: %v", err)
+			}
 			for _, f := range res.NewFacts {
 				switch f.Predicate {
 				case "dependency_link":
@@ -691,13 +700,17 @@ func (m Model) runScan(deep bool) tea.Cmd {
 						if len(f.Args) >= 3 {
 							rel = "depends_on:" + types.ExtractString(f.Args[2])
 						}
-						_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
+						if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"}); err != nil {
+							logging.Routing("[helpers] failed to persist dependency link: %v", err)
+						}
 					}
 				case "symbol_graph":
 					if len(f.Args) >= 4 {
 						sid := types.ExtractString(f.Args[0])
 						file := types.ExtractString(f.Args[3])
-						_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
+						if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"}); err != nil {
+							logging.Routing("[helpers] failed to persist symbol link: %v", err)
+						}
 					}
 				}
 			}
@@ -706,12 +719,16 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		// Reload profile facts if present
 		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
 		if _, statErr := os.Stat(factsPath); statErr == nil {
-			_ = m.kernel.LoadFactsFromFile(factsPath)
+		if err := m.kernel.LoadFactsFromFile(factsPath); err != nil {
+			logging.Kernel("[helpers] failed to load profile facts from file: %v", err)
+		}
 		}
 
 		// Optional deep scan (on-demand)
 		if deep {
-			_ = m.ensureDeepWorldFacts()
+			if err := m.ensureDeepWorldFacts(); err != nil {
+				logging.Routing("[helpers] failed to ensure deep world facts: %v", err)
+			}
 		}
 
 		m.ReportStatus("Scan complete")
@@ -852,14 +869,18 @@ func (m *Model) ensureDeepWorldFacts() error {
 	}
 
 	if len(res.RetractFacts) > 0 {
-		_ = m.kernel.RetractExactFactsBatch(res.RetractFacts)
+		if err := m.kernel.RetractExactFactsBatch(res.RetractFacts); err != nil {
+			logging.Kernel("[helpers] failed to retract facts batch: %v", err)
+		}
 	}
 	if loadErr := m.kernel.LoadFacts(res.NewFacts); loadErr != nil {
 		return loadErr
 	}
 
 	if m.virtualStore != nil {
-		_ = m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 6)
+		if err := m.virtualStore.PersistFactsToKnowledge(res.NewFacts, "fact", 6); err != nil {
+			logging.Routing("[helpers] failed to persist deep facts to knowledge: %v", err)
+		}
 		for _, f := range res.NewFacts {
 			switch f.Predicate {
 			case "dependency_link":
@@ -870,7 +891,7 @@ func (m *Model) ensureDeepWorldFacts() error {
 					if len(f.Args) >= 3 {
 						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
-					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"})
+				_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"})
 				}
 			case "symbol_graph":
 				if len(f.Args) >= 4 {

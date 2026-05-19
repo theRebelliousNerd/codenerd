@@ -23,11 +23,6 @@ type ProviderConfig struct {
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
 }
 
-// DefaultConfigPath returns the default path to .nerd/config.json.
-// Deprecated: Use config.DefaultUserConfigPath() instead.
-func DefaultConfigPath() string {
-	return config.DefaultUserConfigPath()
-}
 
 // LoadConfigJSON loads provider configuration from a JSON config file.
 // This now delegates to the unified config.LoadUserConfig().
@@ -83,7 +78,7 @@ func DetectProvider() (*ProviderConfig, error) {
 	logging.PerceptionDebug("DetectProvider: checking config and environment")
 
 	// First, try to load from .nerd/config.json
-	configPath := DefaultConfigPath()
+	configPath := config.DefaultUserConfigPath()
 	if cfg, err := LoadConfigJSON(configPath); err == nil {
 		// CLI engines don't need API keys (subscription-based)
 		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
