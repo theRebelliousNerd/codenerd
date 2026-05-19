@@ -387,25 +387,6 @@ func (v *VirtualStore) getDreamer() *Dreamer {
 	return v.dreamer
 }
 
-// SimulateActionWithDreamer runs speculative dream analysis on an action.
-// This is OPT-IN - call this explicitly when you want precognition safety checks.
-// Returns (safe, reason) - if safe is false, the action would be blocked.
-// NOTE: Currently unused. Intended for future wiring into the action execution pipeline for precognitive safety checks.
-// Future work: Verify if precognition/dreaming should be enabled by default.
-func (v *VirtualStore) SimulateActionWithDreamer(ctx context.Context, req ActionRequest) (bool, string) {
-	dreamer := v.getDreamer()
-	if dreamer == nil {
-		return true, "" // No dreamer available, allow action
-	}
-
-	dream := dreamer.SimulateAction(ctx, req)
-	if dream.Unsafe {
-		logging.VirtualStore("Dreamer flagged action as unsafe: %s - %s", req.Type, dream.Reason)
-		return false, dream.Reason
-	}
-	return true, ""
-}
-
 // Get resolves virtual predicates for the Mangle kernel on demand.
 func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 	switch query.Predicate.Symbol {
@@ -957,7 +938,6 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// NOTE: Speculative dreaming (precognition) is OPT-IN only.
 	// It was previously auto-invoked here but caused unwanted startup activity.
-	// Use SimulateActionWithDreamer() explicitly when dream state analysis is needed.
 
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {
