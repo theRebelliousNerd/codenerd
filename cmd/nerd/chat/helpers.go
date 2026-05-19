@@ -891,13 +891,17 @@ func (m *Model) ensureDeepWorldFacts() error {
 					if len(f.Args) >= 3 {
 						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
-				_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"})
+					if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"}); err != nil {
+						logging.Routing("[helpers] failed to persist deep dependency link: %v", err)
+					}
 				}
 			case "symbol_graph":
 				if len(f.Args) >= 4 {
 					sid := types.ExtractString(f.Args[0])
 					file := types.ExtractString(f.Args[3])
-					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-deep"})
+					if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-deep"}); err != nil {
+						logging.Routing("[helpers] failed to persist deep symbol link: %v", err)
+					}
 				}
 			}
 		}
@@ -929,18 +933,26 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 			}
 
 			ft := buildFileTopologyFact(path, info)
-			_ = m.kernel.LoadFacts([]core.Fact{ft})
+			if err := m.kernel.LoadFacts([]core.Fact{ft}); err != nil {
+				logging.Kernel("[helpers] failed to load file topology fact: %v", err)
+			}
 			if m.virtualStore != nil {
-				_ = m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5)
+				if err := m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5); err != nil {
+					logging.Routing("[helpers] failed to persist file topology: %v", err)
+				}
 			}
 			totalFacts++
 
 			astFacts, parseErr := parser.Parse(path)
 			if parseErr == nil && len(astFacts) > 0 {
-				_ = m.kernel.LoadFacts(astFacts)
+				if err := m.kernel.LoadFacts(astFacts); err != nil {
+					logging.Kernel("[helpers] failed to load AST facts: %v", err)
+				}
 				totalFacts += len(astFacts)
 				if m.virtualStore != nil {
-					_ = m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6)
+					if err := m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6); err != nil {
+						logging.Routing("[helpers] failed to persist AST facts: %v", err)
+					}
 					for _, f := range astFacts {
 						switch f.Predicate {
 						case "dependency_link":
@@ -951,13 +963,17 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 								if len(f.Args) >= 3 {
 									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
-								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-path"})
+								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-path"}); err != nil {
+									logging.Routing("[helpers] failed to persist path dependency link: %v", err)
+								}
 							}
 						case "symbol_graph":
 							if len(f.Args) >= 4 {
 								sid := types.ExtractString(f.Args[0])
 								file := types.ExtractString(f.Args[3])
-								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-path"})
+								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-path"}); err != nil {
+									logging.Routing("[helpers] failed to persist path symbol link: %v", err)
+								}
 							}
 						}
 					}
@@ -995,7 +1011,7 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 		dirCount := 0
 		factCount := 0
 
-		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkDirErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return nil
 			}
@@ -1017,18 +1033,26 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 			}
 
 			ft := buildFileTopologyFact(path, info)
-			_ = m.kernel.LoadFacts([]core.Fact{ft})
+			if err := m.kernel.LoadFacts([]core.Fact{ft}); err != nil {
+				logging.Kernel("[helpers] failed to load dir file topology fact: %v", err)
+			}
 			if m.virtualStore != nil {
-				_ = m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5)
+				if err := m.virtualStore.PersistFactsToKnowledge([]core.Fact{ft}, "fact", 5); err != nil {
+					logging.Routing("[helpers] failed to persist dir file topology: %v", err)
+				}
 			}
 			factCount++
 
 			astFacts, parseErr := parser.Parse(path)
 			if parseErr == nil && len(astFacts) > 0 {
-				_ = m.kernel.LoadFacts(astFacts)
+				if err := m.kernel.LoadFacts(astFacts); err != nil {
+					logging.Kernel("[helpers] failed to load dir AST facts: %v", err)
+				}
 				factCount += len(astFacts)
 				if m.virtualStore != nil {
-					_ = m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6)
+					if err := m.virtualStore.PersistFactsToKnowledge(astFacts, "fact", 6); err != nil {
+						logging.Routing("[helpers] failed to persist dir AST facts: %v", err)
+					}
 					for _, f := range astFacts {
 						switch f.Predicate {
 						case "dependency_link":
@@ -1039,20 +1063,26 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 								if len(f.Args) >= 3 {
 									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
-								_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-dir"})
+								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-dir"}); err != nil {
+									logging.Routing("[helpers] failed to persist dir dependency link: %v", err)
+								}
 							}
 						case "symbol_graph":
 							if len(f.Args) >= 4 {
 								sid := types.ExtractString(f.Args[0])
 								file := types.ExtractString(f.Args[3])
-								_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-dir"})
+								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-dir"}); err != nil {
+									logging.Routing("[helpers] failed to persist dir symbol link: %v", err)
+								}
 							}
 						}
 					}
 				}
 			}
 			return nil
-		})
+		}); walkDirErr != nil {
+			logging.Routing("[helpers] directory walk error: %v", walkDirErr)
+		}
 
 		m.ReportStatus("Scan complete")
 		return scanCompleteMsg{
