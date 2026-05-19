@@ -83,3 +83,51 @@ func TestLLMClient_ErrorConstants(t *testing.T) {
 		t.Errorf("Unexpected ErrSchemaNotSupported message: %s", ErrSchemaNotSupported.Error())
 	}
 }
+
+func (m *mockSchemaBasicClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}
+
+func (m *mockSchemaCapableClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}
+
+func (m *mockDynamicSchemaTestClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}

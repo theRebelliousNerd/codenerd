@@ -153,8 +153,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case streamStartMsg:
+		m.isStreaming = true
+		m.currentStream = ""
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, tea.Batch(waitForStream(msg.streamChan), waitForResult(msg.resultChan, msg.errChan))
+
+	case streamChunkMsg:
+		if m.isStreaming {
+			m.currentStream += msg.chunk
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+		}
+		return m, waitForStream(msg.sub)
+
+	case streamEndMsg:
+		m.isStreaming = false
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, nil
+
+	case cmdMsg:
+		return m, msg.cmd
+
 	case assistantMsg:
 		m.isLoading = false
+		m.isStreaming = false
+		m.currentStream = ""
 		m.turnCount++
 
 		// Apply any state updates carried by the message

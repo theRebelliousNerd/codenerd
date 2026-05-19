@@ -225,62 +225,7 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 		}
 	}
 
-	// 3. Fallback to best regex score if Mangle didn't decide
-	if len(candidates) > 0 {
-		// Candidates are not sorted by score in getRegexCandidates, find max
-		bestScore := 0.0
-		var bestCand VerbEntry
 
-		// Re-implementing the scoring loop here for the fallback
-		// We iterate over the pre-filtered candidates for efficiency
-		lower := strings.ToLower(input)
-		for _, entry := range candidates {
-			score := 0.0
-			// Re-evaluate match type for scoring
-			// Check patterns (highest weight)
-			patternMatched := false
-			for _, pattern := range entry.Patterns {
-				if pattern.MatchString(lower) {
-					score += 50.0 + float64(entry.Priority)/10.0
-					patternMatched = true
-					break
-				}
-			}
-			// Check synonyms (lower weight)
-			if !patternMatched {
-				for _, synonym := range entry.Synonyms {
-					if strings.Contains(lower, synonym) {
-						synLen := float64(len(synonym))
-						score += 20.0 + synLen/2.0 + float64(entry.Priority)/20.0
-						break
-					}
-				}
-			}
-
-			// Apply priority bonus
-			score += float64(entry.Priority) / 50.0
-
-			if score > bestScore {
-				bestScore = score
-				bestCand = entry
-			}
-		}
-
-		// Normalize confidence
-		confidence = bestScore / 100.0
-		if confidence > 1.0 {
-			confidence = 1.0
-		}
-		if confidence < 0.3 {
-			confidence = 0.3 // Minimum baseline
-		}
-
-		// Return the best candidate found
-		if bestScore > 0 {
-			logging.Perception("Regex fallback matched verb %s (category: %s, confidence: %.2f)", bestCand.Verb, bestCand.Category, confidence)
-			return bestCand.Verb, bestCand.Category, confidence, bestCand.ShardType
-		}
-	}
 
 	logging.Get(logging.CategoryPerception).Warn("No verb match found for input, defaulting to /explain")
 	return "/explain", "/query", 0.3, ""

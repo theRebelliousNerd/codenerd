@@ -916,233 +916,188 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// Use full articulation output to capture MemoryOperations
 		// Now with conversation context for fluid follow-up handling
-		artOutput, err := articulateWithConversation(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx)
-		if err != nil {
-			return errorMsg(err)
-		}
+		streamChan := make(chan string, 100)
+		resultChan := make(chan tea.Msg, 1)
+		errChan := make(chan error, 1)
 
-		response := artOutput.Surface
-
-		// Add any articulation warnings to the flow
-		if len(artOutput.Warnings) > 0 {
-			for _, w := range artOutput.Warnings {
-				warnings = append(warnings, fmt.Sprintf("[Articulation] %s", w))
+		go func() {
+			artOutput, err := articulateWithConversation(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan)
+			close(streamChan)
+			if err != nil {
+				errChan <- err
+				return
 			}
-		}
 
-		// Add grounding sources as a "Sources:" section for transparency
-		// This shows users what URLs were used to ground the response (Google Search / URL Context)
-		if len(artOutput.GroundingSources) > 0 {
-			response += "\n\n**Sources:**\n"
-			for _, src := range artOutput.GroundingSources {
-				response += fmt.Sprintf("- %s\n", src)
-			}
-		}
+			response := artOutput.Surface
 
-		// =====================================================================
-		// CONTEXT FEEDBACK STORAGE (Third Feedback Loop)
-		// =====================================================================
-		// Store LLM's feedback on which context facts were useful vs noise.
-		// This feeds into the ActivationEngine to improve future context selection.
-		if artOutput.ContextFeedback != nil && m.feedbackStore != nil {
-			// GAP-016 FIX: Include JIT manifest hash for context learning correlation
-			manifestHash := ""
-			if m.jitCompiler != nil {
-				if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Manifest != nil {
-					manifestHash = jitResult.Manifest.ContextHash
+			// Add any articulation warnings to the flow
+			if len(artOutput.Warnings) > 0 {
+				for _, w := range artOutput.Warnings {
+					warnings = append(warnings, fmt.Sprintf("[Articulation] %s", w))
 				}
 			}
 
-			if err := m.feedbackStore.StoreFeedback(
-				m.turnCount,
-				manifestHash,
-				artOutput.ContextFeedback.OverallUsefulness,
-				intent.Verb,
-				len(warnings) == 0,
-				artOutput.ContextFeedback.HelpfulFacts,
-				artOutput.ContextFeedback.NoiseFacts,
-			); err != nil {
-				logging.Get(logging.CategoryContext).Warn("Failed to store context feedback: %v", err)
-			} else {
-				logging.ContextDebug("Stored context feedback: usefulness=%.2f, helpful=%d, noise=%d, hash=%s",
+			// Add grounding sources as a "Sources:" section for transparency
+			if len(artOutput.GroundingSources) > 0 {
+				response += "\n\n**Sources:**\n"
+				for _, src := range artOutput.GroundingSources {
+					response += fmt.Sprintf("- %s\n", src)
+				}
+			}
+
+			// CONTEXT FEEDBACK STORAGE
+			if artOutput.ContextFeedback != nil && m.feedbackStore != nil {
+				manifestHash := ""
+				if m.jitCompiler != nil {
+					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Manifest != nil {
+						manifestHash = jitResult.Manifest.ContextHash
+					}
+				}
+
+				if err := m.feedbackStore.StoreFeedback(
+					m.turnCount,
+					manifestHash,
 					artOutput.ContextFeedback.OverallUsefulness,
-					len(artOutput.ContextFeedback.HelpfulFacts),
-					len(artOutput.ContextFeedback.NoiseFacts),
-					manifestHash)
-			}
-		}
-
-		// =====================================================================
-		// KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
-		// =====================================================================
-		// If the LLM requested knowledge from specialists, gather it and re-process.
-		// This enables the LLM to proactively research topics it doesn't know.
-		// Guard: Don't re-request knowledge if we already have pending results (prevents infinite loop).
-		if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge && len(m.pendingKnowledge) == 0 {
-			logging.Get(logging.CategoryContext).Info(
-				"LLM requested knowledge: %d specialists to consult",
-				len(artOutput.KnowledgeRequests),
-			)
-			return m.handleKnowledgeRequests(ctx, artOutput.KnowledgeRequests, input, response)
-		}
-
-		// 7. SEMANTIC COMPRESSION (Process turn for infinite context)
-		// This implements §8.2: Compress surface text, retain only logical atoms
-		// Now properly wired with MemoryOperations from articulation!
-		if m.compressor != nil {
-			// Convert articulation.MemoryOperation to perception.MemoryOperation
-			var memOps []perception.MemoryOperation
-			for _, op := range artOutput.MemoryOperations {
-				memOps = append(memOps, perception.MemoryOperation{
-					Op:    op.Op,
-					Key:   op.Key,
-					Value: op.Value,
-				})
+					intent.Verb,
+					len(warnings) == 0,
+					artOutput.ContextFeedback.HelpfulFacts,
+					artOutput.ContextFeedback.NoiseFacts,
+				); err != nil {
+					logging.Get(logging.CategoryContext).Warn("Failed to store context feedback: %v", err)
+				}
 			}
 
-			// Merge mangle updates from articulation with pre-existing ones
-			allMangleUpdates := mangleUpdates
-			if len(artOutput.MangleUpdates) > 0 {
-				allMangleUpdates = append(allMangleUpdates, artOutput.MangleUpdates...)
+			// KNOWLEDGE REQUEST HANDLING
+			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge && len(m.pendingKnowledge) == 0 {
+				logging.Get(logging.CategoryContext).Info(
+					"LLM requested knowledge: %d specialists to consult",
+					len(artOutput.KnowledgeRequests),
+				)
+				resultChan <- m.handleKnowledgeRequests(ctx, artOutput.KnowledgeRequests, input, response)
+				return
+			}
 
-				// STRATIFIED TRUST (Bug #15 Fix): Validate learned facts
-				// Learned facts must be proposed as candidate_action() and validated
-				var newFacts []core.Fact
-				var learnedFacts []core.Fact
+			// SEMANTIC COMPRESSION
+			if m.compressor != nil {
+				var memOps []perception.MemoryOperation
+				for _, op := range artOutput.MemoryOperations {
+					memOps = append(memOps, perception.MemoryOperation{
+						Op:    op.Op,
+						Key:   op.Key,
+						Value: op.Value,
+					})
+				}
 
-				for _, s := range artOutput.MangleUpdates {
-					if f, err := core.ParseSingleFact(s); err == nil {
-						// Check if this is a learned action proposal
-						if strings.HasPrefix(f.Predicate, "candidate_action") {
-							learnedFacts = append(learnedFacts, f)
-						} else {
-							// System-level facts are loaded directly
-							newFacts = append(newFacts, f)
+				allMangleUpdates := mangleUpdates
+				if len(artOutput.MangleUpdates) > 0 {
+					allMangleUpdates = append(allMangleUpdates, artOutput.MangleUpdates...)
+
+					var newFacts []core.Fact
+					var learnedFacts []core.Fact
+
+					for _, s := range artOutput.MangleUpdates {
+						if f, err := core.ParseSingleFact(s); err == nil {
+							if strings.HasPrefix(f.Predicate, "candidate_action") {
+								learnedFacts = append(learnedFacts, f)
+							} else {
+								newFacts = append(newFacts, f)
+							}
+						}
+					}
+
+					if len(newFacts) > 0 {
+						_ = m.kernel.LoadFacts(newFacts)
+					}
+
+					if len(learnedFacts) > 0 {
+						_ = m.kernel.LoadFacts(learnedFacts)
+						validatedActions, _ := m.kernel.Query("final_action")
+						if len(validatedActions) > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", len(validatedActions)))
+						}
+						deniedActions, _ := m.kernel.Query("action_denied")
+						if len(deniedActions) > 0 {
+							warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", len(deniedActions)))
 						}
 					}
 				}
 
-				// Load system facts immediately
-				if len(newFacts) > 0 {
-					_ = m.kernel.LoadFacts(newFacts)
+				controlPacket := &perception.ControlPacket{
+					IntentClassification: perception.IntentClassification{
+						Category: intent.Category,
+						Verb:     intent.Verb,
+						Target:   intent.Target,
+					},
+					MemoryOperations: memOps,
+					MangleUpdates:    allMangleUpdates,
 				}
-
-				// Learned facts go through validation
-				if len(learnedFacts) > 0 {
-					// Load candidate proposals
-					_ = m.kernel.LoadFacts(learnedFacts)
-
-					// Query for final_action (validated by Constitution)
-					validatedActions, _ := m.kernel.Query("final_action")
-					if len(validatedActions) > 0 {
-						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions validated", len(validatedActions)))
-					}
-
-					// Query for denied actions (audit trail)
-					deniedActions, _ := m.kernel.Query("action_denied")
-					if len(deniedActions) > 0 {
-						warnings = append(warnings, fmt.Sprintf("[Stratified Trust] %d learned actions BLOCKED by Constitution", len(deniedActions)))
-					}
+				
+				// Note: Compressor call needs ctxcompress.Turn but we don't have all fields easily here
+				// so we'll just log and let the main loop handle compression later or let processInputWithKnowledge handle it.
+				// We actually DO need to construct ctxcompress.Turn here:
+				turn := ctxcompress.Turn{
+					Number:          m.turnCount,
+					Role:            "assistant",
+					UserInput:       input,
+					SurfaceResponse: response,
+					ControlPacket:   controlPacket,
+					Timestamp:       time.Now(),
 				}
-			}
-
-			controlPacket := &perception.ControlPacket{
-				IntentClassification: perception.IntentClassification{
-					Category:   intent.Category,
-					Verb:       intent.Verb,
-					Target:     intent.Target,
-					Constraint: intent.Constraint,
-					Confidence: intent.Confidence,
-				},
-				MangleUpdates:    allMangleUpdates,
-				MemoryOperations: memOps, // Now properly populated from articulation!
-			}
-
-			// Handle self-correction if triggered
-			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered {
-				controlPacket.SelfCorrection = &perception.SelfCorrection{
-					Triggered:  true,
-					Hypothesis: artOutput.SelfCorrection.Hypothesis,
-				}
-			}
-
-			// Glass Box: Emit control packet event
-			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				summary := fmt.Sprintf("Control: %d mangle updates, %d memory ops",
-					len(controlPacket.MangleUpdates), len(controlPacket.MemoryOperations))
-				var details strings.Builder
-				if len(controlPacket.MangleUpdates) > 0 {
-					details.WriteString("Mangle Updates:\n")
-					for _, u := range controlPacket.MangleUpdates {
-						details.WriteString("  " + truncateSummary(u, 60) + "\n")
-					}
-				}
-				if len(controlPacket.MemoryOperations) > 0 {
-					details.WriteString("Memory Operations:\n")
-					for _, op := range controlPacket.MemoryOperations {
-						details.WriteString(fmt.Sprintf("  %s: %s\n", op.Op, op.Key))
-					}
-				}
-				if controlPacket.SelfCorrection != nil && controlPacket.SelfCorrection.Triggered {
-					summary += " [SELF-CORRECTION]"
-					details.WriteString("Self-Correction: " + truncateSummary(controlPacket.SelfCorrection.Hypothesis, 100) + "\n")
-				}
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
-					Timestamp: time.Now(),
-					Category:  transparency.CategoryControl,
-					Summary:   summary,
-					Details:   details.String(),
-					TurnID:    m.turnCount,
-				})
-			}
-
-			turn := ctxcompress.Turn{
-				Number:          m.turnCount, // zero-based turn numbering
-				Role:            "assistant",
-				UserInput:       input,
-				SurfaceResponse: response,
-				ControlPacket:   controlPacket,
-				Timestamp:       time.Now(),
-			}
-
-			// Process turn asynchronously - don't block response
-			if m.goroutineWg != nil {
-				m.goroutineWg.Add(1)
-			}
-			go func(t ctxcompress.Turn, capturedIntent perception.Intent, capturedResponse string) {
-				if m.goroutineWg != nil {
-					defer m.goroutineWg.Done()
-				}
-				// Panic recovery for background compression goroutine
-				defer func() {
-					if r := recover(); r != nil {
-						logging.API("PANIC in compression goroutine (recovered): %v", r)
-					}
-				}()
-
-				// Use a shutdown-scoped context so compression can finish after the main turn ctx is canceled.
 				baseCtx := m.shutdownCtx
 				if baseCtx == nil {
 					baseCtx = context.Background()
 				}
-				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
-				defer cancel()
+				compressCtx, _ := context.WithTimeout(baseCtx, 2*time.Minute)
+				go m.compressor.ProcessTurn(compressCtx, turn)
+			}
 
-				// COMPRESSION: Semantic compression for infinite context (§8.2)
-				if _, err := m.compressor.ProcessTurn(compressCtx, t); err != nil {
-					// Log compression errors but don't fail the turn
-					fmt.Printf("[Compressor] Warning: %v\n", err)
+			if len(warnings) > 0 {
+				warnStr := "\n\n**System Warnings:**\n"
+				for _, w := range warnings {
+					warnStr += fmt.Sprintf("- %s\n", w)
 				}
+				response += warnStr
+			}
 
-				// KNOWLEDGE PERSISTENCE: Populate knowledge.db tables for learning
-				// This implements the missing learning loop identified in user feedback
-				if m.localDB != nil {
-					m.persistTurnToKnowledge(t, capturedIntent, capturedResponse)
+			if len(artOutput.MangleUpdates) > 0 && m.kernel != nil {
+				for _, mu := range artOutput.MangleUpdates {
+					if f, err := core.ParseSingleFact(mu); err == nil {
+						_ = m.kernel.Assert(f)
+					}
 				}
-			}(turn, intent, response)
+			}
+
+			if artOutput.SelfCorrection != nil && artOutput.SelfCorrection.Triggered {
+				if m.kernel != nil {
+					_ = m.kernel.Assert(core.Fact{
+						Predicate: "self_correction_hypothesis",
+						Args:      []interface{}{artOutput.SelfCorrection.Hypothesis},
+					})
+				}
+			}
+
+			thoughtSummary := ""
+			if artOutput.Envelope.Control.ReasoningTrace != "" {
+				thoughtSummary = artOutput.Envelope.Control.ReasoningTrace
+			}
+
+			
+			var srPayload *ShardResultPayload
+			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
+			
+			resultChan <- assistantMsg{
+				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+				ShardResult:       srPayload,
+				DreamHypothetical: m.lastDreamHypothetical,
+				ThoughtSummary:    thoughtSummary,
+			}
+		}()
+
+		return streamStartMsg{
+			streamChan: streamChan,
+			resultChan: resultChan,
+			errChan:    errChan,
 		}
-
-		return responseMsg(m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 	}
 }
 

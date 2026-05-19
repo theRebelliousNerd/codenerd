@@ -312,15 +312,54 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	if cfg.KernelOverride != nil {
 		kernel = cfg.KernelOverride
 	} else {
-		realKernel, err := core.NewRealKernelWithWorkspace(workspace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create kernel: %w", err)
+		cortex := core.NewCortexKernel("cortex")
+
+		shardConfigs := []core.KernelShardConfig{
+			{
+				Domain: "routing",
+				OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"},
+			},
+			{
+				Domain: "world",
+				OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"},
+			},
+			{
+				Domain: "tools",
+				OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"},
+			},
+			{
+				Domain: "policy",
+				OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"},
+			},
+			{
+				Domain: "campaign",
+				OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"},
+			},
+			{
+				Domain: "prompts",
+				OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"},
+			},
+			{
+				Domain: "cortex",
+				OwnedPredicates: []string{}, // Catch-all
+			},
 		}
-		// Force initial evaluation to boot the Mangle engine (even with 0 facts)
-		if err := realKernel.Evaluate(); err != nil {
-			return nil, fmt.Errorf("failed to boot kernel: %w", err)
+
+		for _, scfg := range shardConfigs {
+			scfg.WorkspaceRoot = workspace
+			shard, err := core.NewKernelShard(scfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
+			}
+			if err := cortex.RegisterShard(shard); err != nil {
+				return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
+			}
 		}
-		kernel = realKernel
+
+		if err := cortex.Evaluate(); err != nil {
+			return nil, fmt.Errorf("failed to boot cortex kernel: %w", err)
+		}
+		kernel = cortex
 	}
 	// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
 	if err := perception.InitPerceptionLayer(kernel, appCfg); err != nil {
@@ -1187,4 +1226,27 @@ func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt,
 
 func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 	return a.kernel.GetProgramInfo()
+}
+
+func (m *missingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	errChan := make(chan error, 1)
+	errChan <- fmt.Errorf("no LLM client configured")
+	close(errChan)
+	return nil, errChan
+}
+
+func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := s.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
 }

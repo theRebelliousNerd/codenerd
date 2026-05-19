@@ -160,6 +160,15 @@ func (n *noopLLM) CompleteWithTools(ctx context.Context, systemPrompt, userPromp
 	return &types.LLMToolResponse{Text: "ok", StopReason: "end_turn"}, nil
 }
 
+func (n *noopLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	ch <- "ok"
+	close(ch)
+	errCh := make(chan error)
+	close(errCh)
+	return ch, errCh
+}
+
 type gatingTaskExecutor struct {
 	execute func(ctx context.Context, intent string, task string) (string, error)
 }

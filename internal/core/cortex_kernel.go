@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -504,16 +505,60 @@ func (c *CortexKernel) EvaluateAll() (time.Duration, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	start := time.Now()
-	for domain, shard := range c.shards {
-		if shard.IsDirty() {
-			if err := shard.Evaluate(); err != nil {
-				return time.Since(start), fmt.Errorf("[cortex] shard '%s' evaluation failed: %w", domain, err)
-			}
+	var totalTime time.Duration
+	for _, shard := range c.shards {
+		start := time.Now()
+		if err := shard.kernel.Evaluate(); err != nil {
+			return totalTime, fmt.Errorf("shard %s evaluate failed: %w", shard.Domain(), err)
 		}
+		totalTime += time.Since(start)
 	}
-	elapsed := time.Since(start)
+	return totalTime, nil
+}
 
-	logging.Kernel("[cortex] EvaluateAll: %d shards, total=%v", len(c.shards), elapsed)
-	return elapsed, nil
+// =============================================================================
+// SYSTEM KERNEL INTERFACE SUPPORT
+// =============================================================================
+
+// Evaluate fulfills the SystemKernel interface by evaluating all shards.
+func (c *CortexKernel) Evaluate() error {
+	_, err := c.EvaluateAll()
+	return err
+}
+
+// LoadFactsFromFile parses facts from a Mangle file and asserts them to the correct shards.
+func (c *CortexKernel) LoadFactsFromFile(path string) error {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	
+	parsedFacts, err := ParseFactsFromString(string(bytes))
+	if err != nil {
+		return err
+	}
+	
+	// Convert core.Fact to types.Fact since Cortex uses types.Fact
+	var typeFacts []types.Fact
+	for _, f := range parsedFacts {
+		typeFacts = append(typeFacts, types.Fact{
+			Predicate: f.Predicate,
+			Args:      f.Args,
+		})
+	}
+	
+	return c.LoadFacts(typeFacts)
+}
+
+// ConsumeBootPrompts collects all PROMPT directives from all underlying shards.
+func (c *CortexKernel) ConsumeBootPrompts() []HybridPrompt {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var allPrompts []HybridPrompt
+	for _, shard := range c.shards {
+		prompts := shard.kernel.ConsumeBootPrompts()
+		allPrompts = append(allPrompts, prompts...)
+	}
+	return allPrompts
 }

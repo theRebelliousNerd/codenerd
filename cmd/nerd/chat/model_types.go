@@ -164,6 +164,10 @@ type Model struct {
 	focusError        bool
 	showSystemActions bool
 
+	// Streaming UI state
+	isStreaming   bool
+	currentStream string
+
 	// Usage Page
 	usagePage ui.UsagePageModel
 
@@ -542,6 +546,19 @@ type (
 		DreamHypothetical string
 		ThoughtSummary    string
 	}
+
+	// Streaming messages
+	streamStartMsg struct {
+		streamChan chan string
+		resultChan chan tea.Msg
+		errChan    chan error
+	}
+	streamChunkMsg struct {
+		chunk string
+		sub   chan string
+	}
+	streamEndMsg   struct{}
+	cmdMsg         struct{ cmd tea.Cmd }
 
 	// Memory sampling message
 	memUsageMsg struct {

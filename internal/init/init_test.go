@@ -83,3 +83,19 @@ func TestInitializer_Initialize_Basic(t *testing.T) {
 		t.Error("knowledge.db not created")
 	}
 }
+
+func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}

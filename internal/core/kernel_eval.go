@@ -62,6 +62,18 @@ func (k *RealKernel) rebuildProgram() error {
 	logging.KernelDebug("rebuildProgram: parsed %d clauses", len(parsed.Clauses))
 
 	// Analyze
+	if count := strings.Count(programStr, "Decl permitted("); count > 1 {
+		fmt.Printf("DEBUG: Found %d 'Decl permitted(' in programStr!\n", count)
+		lines := strings.Split(programStr, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "Decl permitted(") {
+				start := i - 2
+				if start < 0 { start = 0 }
+				fmt.Printf("MATCH AT LINE %d:\n%s\n", i, strings.Join(lines[start:i+1], "\n"))
+			}
+		}
+	}
+
 	analyzeTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.analyze")
 	programInfo, err := analysis.AnalyzeOneUnit(parsed, nil)
 	if err != nil {

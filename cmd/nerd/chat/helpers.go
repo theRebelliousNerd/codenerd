@@ -31,6 +31,31 @@ import (
 )
 
 // =============================================================================
+// STREAMING HELPERS
+// =============================================================================
+
+func waitForStream(sub chan string) tea.Cmd {
+	return func() tea.Msg {
+		chunk, ok := <-sub
+		if !ok {
+			return streamEndMsg{}
+		}
+		return streamChunkMsg{chunk: chunk, sub: sub}
+	}
+}
+
+func waitForResult(res chan tea.Msg, errChan chan error) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case msg := <-res:
+			return msg
+		case err := <-errChan:
+			return errorMsg(err)
+		}
+	}
+}
+
+// =============================================================================
 // ARTICULATION HELPERS
 // =============================================================================
 
@@ -97,12 +122,12 @@ type ConversationContext struct {
 // This enhanced version properly extracts all control packet data for the compressor.
 func articulateWithContextFull(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (*ArticulationOutput, error) {
 	// Use the new version with nil conversation context for backward compatibility
-	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil)
+	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil, nil)
 }
 
 // articulateWithConversation performs articulation with full conversation context.
 // This is the new entry point that enables fluid conversational follow-ups.
-func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext) (*ArticulationOutput, error) {
+func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string) (*ArticulationOutput, error) {
 	var sb strings.Builder
 
 	if systemPrompt != "" {
@@ -239,7 +264,55 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	sb.WriteString("- store_vector: Store for semantic search\n\n")
 	sb.WriteString("Use only the context facts above. Do not invent filesystem access or knowledge not present in the facts. Output JSON only.")
 
-	raw, err := client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+
+	// Log the full prompt package for transparency
+	logging.Get(logging.CategorySession).Debug("================ FULL PROMPT PACKAGE ================\nSystem:\n%s\n\nUser:\n%s\n==================================================", systemPrompt, sb.String())
+
+	var raw string
+	var err error
+
+	if streamChan != nil {
+		// Use streaming completion
+		chunkChan, errChan := client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), false)
+		parser := articulation.NewStreamParser()
+		var fullBuilder strings.Builder
+
+		for {
+			select {
+			case chunk, ok := <-chunkChan:
+				if !ok {
+					chunkChan = nil
+				} else {
+					fullBuilder.WriteString(chunk)
+					surfaceChunk := parser.ProcessChunk(chunk)
+					if surfaceChunk != "" {
+						streamChan <- surfaceChunk
+					}
+				}
+			case streamErr, ok := <-errChan:
+				if !ok {
+					errChan = nil
+				} else if streamErr != nil {
+					err = streamErr
+					break
+				}
+			case <-ctx.Done():
+				err = ctx.Err()
+				break
+			}
+
+			if chunkChan == nil && errChan == nil {
+				break // stream finished successfully
+			}
+			if err != nil {
+				break
+			}
+		}
+		raw = fullBuilder.String()
+	} else {
+		raw, err = client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("articulation failed: %w", err)
 	}
@@ -1501,7 +1574,7 @@ func isConversationalIntent(intent perception.Intent) bool {
 	// so the LLM can emit knowledge_requests for unknown topics.
 	if intent.Verb == "/explain" {
 		target := strings.ToLower(intent.Target)
-		return target == "" || target == "none" || target == "capabilities" || target == "session"
+		return target == "capabilities" || target == "session"
 	}
 
 	return false

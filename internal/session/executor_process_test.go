@@ -821,3 +821,19 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 }
 
 func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
+
+func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}

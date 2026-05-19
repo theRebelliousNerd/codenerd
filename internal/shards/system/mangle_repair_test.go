@@ -245,3 +245,19 @@ func TestMangleRepairShard_UsesSchemaCapableClient(t *testing.T) {
 		t.Fatalf("Expected CompleteWithSystem to be skipped when schema is supported")
 	}
 }
+
+func (m *schemaCapableLLMMock) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}

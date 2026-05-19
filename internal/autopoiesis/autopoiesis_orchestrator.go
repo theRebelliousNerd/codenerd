@@ -348,3 +348,25 @@ func (o *Orchestrator) CompileTool(ctx context.Context, toolName string) (*Runti
 
 	return nil, fmt.Errorf("tool compiled successfully but not found in registry")
 }
+
+
+func (w *llmClientWrapper) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	// Fallback to synchronous for now in autopoiesis orchestrator
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		
+		res, err := w.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	
+	return contentChan, errorChan
+}
+

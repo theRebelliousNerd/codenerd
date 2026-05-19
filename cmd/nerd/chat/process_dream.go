@@ -669,7 +669,7 @@ func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool
 	}
 
 	shardType := perception.GetShardTypeForVerb(intent.Verb)
-	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff" || intent.Verb == "/git" || intent.Verb == "/build"
+	actionable := shardType != "" || intent.Verb == "/read" || intent.Verb == "/search" || intent.Verb == "/run" || intent.Verb == "/test" || intent.Verb == "/diff" || intent.Verb == "/git" || intent.Verb == "/build" || intent.Verb == "/fix" || intent.Verb == "/refactor" || intent.Verb == "/review" || intent.Verb == "/generate" || intent.Verb == "/create"
 
 	if !actionable {
 		return false

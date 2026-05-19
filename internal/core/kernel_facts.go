@@ -501,15 +501,15 @@ func (k *RealKernel) Retract(predicate string) error {
 	newAtomsLen := 0
 
 	// Filter facts and atoms in parallel
-	hasCachedAtoms := len(k.cachedAtoms) > 0
+	hasCachedAtoms := len(k.cachedAtoms) == prevCount && prevCount > 0
 	for i, f := range k.facts {
 		if f.Predicate != predicate {
 			k.facts[newFactsLen] = f
-			if hasCachedAtoms && i < len(k.cachedAtoms) {
+			if hasCachedAtoms {
 				k.cachedAtoms[newAtomsLen] = k.cachedAtoms[i]
+				newAtomsLen++
 			}
 			newFactsLen++
-			newAtomsLen++
 		} else {
 			retractedCount++
 		}
@@ -523,13 +523,15 @@ func (k *RealKernel) Retract(predicate string) error {
 	// Zero tail to release references for GC.
 	for i := newFactsLen; i < prevCount; i++ {
 		k.facts[i] = Fact{}
-		if hasCachedAtoms && i < len(k.cachedAtoms) {
+		if hasCachedAtoms {
 			k.cachedAtoms[i] = ast.Atom{} // Zero value for ast.Atom
 		}
 	}
 	k.facts = k.facts[:newFactsLen]
 	if hasCachedAtoms {
 		k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
+	} else {
+		k.cachedAtoms = nil
 	}
 
 	// OPTIMIZATION: Incremental index update instead of full rebuild

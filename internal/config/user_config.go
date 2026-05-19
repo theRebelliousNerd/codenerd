@@ -697,10 +697,11 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 		return cfg
 	}
 	return LoggingConfig{
-		Level:     "info",
-		Format:    "text",
-		File:      "codenerd.log",
-		DebugMode: false, // Production mode by default
+		Level:      "info",
+		Format:     "text",
+		File:       "codenerd.log",
+		DebugMode:  false, // Production mode by default
+		TraceLLMIO: true,
 	}
 }
 

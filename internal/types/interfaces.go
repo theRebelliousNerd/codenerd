@@ -36,6 +36,8 @@ type Kernel interface {
 type LLMClient interface {
 	Complete(ctx context.Context, prompt string) (string, error)
 	CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+	// CompleteWithStreaming sends a request with streaming enabled.
+	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
 	// CompleteWithTools sends a prompt with tool definitions and returns response with tool calls.
 	// This enables agentic behavior where the LLM can invoke tools to complete tasks.
 	CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error)

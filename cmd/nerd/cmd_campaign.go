@@ -1022,3 +1022,19 @@ func (a *campaignConsultationProviderAdapter) RequestBatchConsultation(ctx conte
 func (a *campaignKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 	return a.kernel.GetProgramInfo()
 }
+
+func (a *campaignLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}

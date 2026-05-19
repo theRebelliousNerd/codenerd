@@ -12,9 +12,10 @@ import (
 
 // MockLLMClient for testing
 type mockLLMClient struct {
-	completeFunc func(ctx context.Context, prompt string) (string, error)
-	delay        time.Duration
-	callCount    int32
+	completeFunc          func(ctx context.Context, prompt string) (string, error)
+	delay                 time.Duration
+	callCount             int32
+	StreamingNotSupported bool
 }
 
 func (m *mockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -490,3 +491,5 @@ func TestNoDoubleLimiting(t *testing.T) {
 //   TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying (Nil Channels)
 //   TestAPISchedulerGap_Streaming_RapidCancel (Goroutine Leak)
 //   TestAPISchedulerGap_GlobalConfig_SyncOnce (sync.Once guard)
+
+

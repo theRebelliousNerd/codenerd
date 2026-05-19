@@ -381,11 +381,11 @@ func TestAPISchedulerGap_Streaming_NonStreamingClient(t *testing.T) {
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("test", "test")
 
-	// mockLLMClient does NOT implement llmStreamingChannels
+	// mockLLMClient does NOT implement streaming
 	call := &ScheduledLLMCall{
 		Scheduler: scheduler,
 		ShardID:   "test",
-		Client:    &mockLLMClient{},
+		Client:    &mockLLMClient{StreamingNotSupported: true},
 	}
 
 	ctx := context.Background()
@@ -546,4 +546,26 @@ func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
 		t.Errorf("Config was modified despite sync.Once guard: expected %d, got %d",
 			originalMax, scheduler2.config.MaxConcurrentAPICalls)
 	}
+}
+
+func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	if m.StreamingNotSupported {
+		close(contentChan)
+		errorChan <- ErrStreamingNotSupported
+		close(errorChan)
+		return contentChan, errorChan
+	}
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
 }

@@ -70,7 +70,7 @@ func DefaultJITConfig() JITConfig {
 		ReservedTokens:              8000,
 		ReservedTokensFallbackRatio: 10,
 		DebugMode:                   false,
-		TraceLLMIO:                  false,
+		TraceLLMIO:                  true,
 		SemanticTopK:                20,
 	}
 }

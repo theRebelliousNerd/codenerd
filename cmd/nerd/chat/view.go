@@ -127,6 +127,15 @@ func (m Model) renderSingleMessage(msg Message) string {
 		rendered.WriteString("\n")
 	}
 
+	// Render active stream if present
+	if m.isStreaming && m.currentStream != "" {
+		rendered.WriteString("\n**nerd:**\n")
+		rendered.WriteString("\n")
+		markdownRendered := m.safeRenderMarkdown(m.currentStream + " █") // Add cursor block
+		rendered.WriteString(markdownRendered)
+		rendered.WriteString("\n")
+	}
+
 	return rendered.String()
 }
 

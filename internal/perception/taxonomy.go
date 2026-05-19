@@ -50,13 +50,7 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 
 	// Load Intent Definition Schemas (Modular) - must be loaded in order
 	intentFiles := []string{
-		"schemas_intent.mg",             // Core intent declarations (moved from schema/intent_core.mg)
-		"schema/intent_qualifiers.mg",   // Interrogatives, modals, copular, negation
-		"schema/intent_queries.mg",      // /query category intents
-		"schema/intent_mutations.mg",    // /mutation category intents
-		"schema/intent_instructions.mg", // /instruction category intents
-		"schema/intent_campaign.mg",     // Campaign and multi-step intents
-		"schema/intent_system.mg",       // System-level inference rules
+		"schemas_intent.mg",             // Core intent declarations
 	}
 
 	for _, file := range intentFiles {

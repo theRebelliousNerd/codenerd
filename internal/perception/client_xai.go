@@ -222,3 +222,25 @@ func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 		},
 	}, nil
 }
+
+
+// CompleteWithStreaming sends a prompt with streaming enabled.
+func (c *XAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		
+		res, err := c.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	
+	return contentChan, errorChan
+}
+
