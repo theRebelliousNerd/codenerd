@@ -8,8 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"codenerd/internal/campaign"
+	"codenerd/internal/transparency"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -568,3 +570,424 @@ func TestE2E_TUI_StateTransition_ResizeAcrossStateChanges(t *testing.T) {
 		t.Error("After clearing all states, should show Ready")
 	}
 }
+
+// =============================================================================
+// HELPERS — safe update with panic recovery + frame check
+// =============================================================================
+
+// safeUpdate feeds a message through Update with panic recovery. Returns
+// the updated model. Fails the test on panic.
+func safeUpdate(t *testing.T, m Model, msg tea.Msg) Model {
+	t.Helper()
+	var updated tea.Model
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("PANIC in Update(%T): %v", msg, r)
+			}
+		}()
+		updated, _ = m.Update(msg)
+	}()
+	return updated.(Model)
+}
+
+// assertFrameAfterUpdate runs a frame check at 80×24 after a state mutation.
+func assertFrameAfterUpdate(t *testing.T, m Model) Model {
+	t.Helper()
+	m, probe := renderFrame(t, m, 80, 24)
+	assertFrameSane(t, m, probe)
+	return m
+}
+
+// =============================================================================
+// TEST 6: Input State Machine — handleSubmit branching
+// =============================================================================
+
+func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
+
+	// --- normal typing → enter ---
+	t.Run("normal_submit", func(t *testing.T) {
+		m := NewTestModel()
+		m, _ = renderFrame(t, m, 80, 24) // initialize ready
+		histBefore := len(m.history)
+
+		m.textarea.SetValue("explain the kernel")
+		submitted, cmd := m.handleSubmit()
+		m = submitted.(Model)
+
+		// User message appended exactly once
+		if len(m.history) != histBefore+1 {
+			t.Errorf("expected 1 new message, got %d", len(m.history)-histBefore)
+		}
+		if m.history[len(m.history)-1].Role != "user" {
+			t.Errorf("last message role=%q, want user", m.history[len(m.history)-1].Role)
+		}
+		// textarea cleared
+		if m.textarea.Value() != "" {
+			t.Errorf("textarea not cleared: %q", m.textarea.Value())
+		}
+		// loading state set + cmd returned
+		if !m.isLoading {
+			t.Error("isLoading should be true after normal submit")
+		}
+		if cmd == nil {
+			t.Error("cmd should be non-nil for normal submit")
+		}
+	})
+
+	// --- empty enter → no message, no cmd ---
+	t.Run("empty_enter_no_subtasks", func(t *testing.T) {
+		m := NewTestModel()
+		histBefore := len(m.history)
+
+		m.textarea.SetValue("")
+		submitted, cmd := m.handleSubmit()
+		m = submitted.(Model)
+
+		if len(m.history) != histBefore {
+			t.Error("empty enter should not add a message")
+		}
+		if cmd != nil {
+			t.Error("empty enter should return nil cmd")
+		}
+		if m.isLoading {
+			t.Error("empty enter should not set loading")
+		}
+	})
+
+	// --- empty enter with pendingSubtasks → confirmContinueMsg ---
+	t.Run("empty_enter_with_subtasks", func(t *testing.T) {
+		m := NewTestModel()
+		m.pendingSubtasks = []Subtask{
+			{ShardType: "tester", Description: "run tests"},
+		}
+
+		m.textarea.SetValue("")
+		submitted, cmd := m.handleSubmit()
+		m = submitted.(Model)
+
+		if cmd == nil {
+			t.Fatal("empty enter with subtasks should return a cmd")
+		}
+		// Execute the cmd — should produce confirmContinueMsg
+		msg := cmd()
+		if _, ok := msg.(confirmContinueMsg); !ok {
+			t.Errorf("expected confirmContinueMsg, got %T", msg)
+		}
+	})
+
+	// --- slash command → no perception, no loading ---
+	t.Run("slash_help", func(t *testing.T) {
+		m := NewTestModel()
+		m, _ = renderFrame(t, m, 80, 24)
+
+		m.textarea.SetValue("/help")
+		submitted, _ := m.handleSubmit()
+		m = submitted.(Model)
+
+		// Slash commands should NOT set isLoading (they are synchronous)
+		// /help returns immediately
+		if m.isLoading {
+			t.Error("/help should not set isLoading")
+		}
+	})
+
+	// --- patch mode accumulation ---
+	t.Run("patch_mode_accumulation", func(t *testing.T) {
+		m := NewTestModel()
+		m.awaitingPatch = true
+		m.textarea.Placeholder = "Enter patch lines (--END-- to finish)..."
+
+		// Accumulate lines
+		m.textarea.SetValue("line 1")
+		submitted, cmd := m.handleSubmit()
+		m = submitted.(Model)
+		if cmd != nil {
+			t.Error("patch line should return nil cmd")
+		}
+		if len(m.pendingPatchLines) != 1 {
+			t.Errorf("expected 1 pending patch line, got %d", len(m.pendingPatchLines))
+		}
+		if m.textarea.Value() != "" {
+			t.Error("textarea should be cleared after patch line")
+		}
+		// Still in patch mode
+		if !m.awaitingPatch {
+			t.Error("should still be in patch mode")
+		}
+		// NO user message added for patch lines
+		userMsgCount := 0
+		for _, msg := range m.history {
+			if msg.Role == "user" {
+				userMsgCount++
+			}
+		}
+		if userMsgCount != 0 {
+			t.Error("patch lines should NOT become user chat messages")
+		}
+
+		// Send --END-- to finish
+		m.textarea.SetValue("--END--")
+		submitted, cmd = m.handleSubmit()
+		m = submitted.(Model)
+		if m.awaitingPatch {
+			t.Error("should exit patch mode after --END--")
+		}
+	})
+
+	// --- clarification mode ---
+	t.Run("clarification_submit", func(t *testing.T) {
+		m := NewTestModel()
+		m.awaitingClarification = true
+		m.clarificationState = &ClarificationState{
+			Question: "Which file?",
+			Options:  []string{"a.go", "b.go"},
+		}
+
+		histBefore := len(m.history)
+		m.textarea.SetValue("1")
+		submitted, _ := m.handleSubmit()
+		m = submitted.(Model)
+
+		// User message added
+		if len(m.history) <= histBefore {
+			t.Error("clarification answer should add user message")
+		}
+	})
+}
+
+// =============================================================================
+// TEST 7: Async Message Storm — no state contradictions
+// =============================================================================
+
+func TestE2E_TUI_AsyncMessageStorm_NoStateContradictions(t *testing.T) {
+	m := NewTestModel()
+	m, _ = renderFrame(t, m, 80, 24)
+
+	// Define a sequence of async messages that arrive in a nasty interleaving
+	asyncMessages := []struct {
+		name string
+		msg  tea.Msg
+	}{
+		{"statusMsg", statusMsg("Scanning workspace...")},
+		{"windowResize", tea.WindowSizeMsg{Width: 120, Height: 40}},
+		{"assistantMsg", assistantMsg{Surface: "Here is the analysis."}},
+		{"errorMsg", errorMsg(errors.New("connection reset"))},
+		{"windowResize_small", tea.WindowSizeMsg{Width: 40, Height: 10}},
+		{"responseMsg", responseMsg("Direct response from shard.")},
+		{"glassBoxEvent", glassBoxEventMsg(transparency.GlassBoxEvent{
+			Category: transparency.CategoryKernel,
+			Summary:  "Asserted 12 facts",
+		})},
+		{"continuationInit", continuationInitMsg{
+			completedSurface: "Step 1 complete",
+			totalSteps:       3,
+			next: continueMsg{
+				subtaskID:   "step2",
+				description: "step 2",
+				shardType:   "tester",
+			},
+		}},
+		{"windowResize_normal", tea.WindowSizeMsg{Width: 80, Height: 24}},
+		{"continuationDone", continuationDoneMsg{
+			stepCount: 3,
+			summary:   "All 3 steps completed",
+		}},
+		{"memUsage", memUsageMsg{Alloc: 50 * 1024 * 1024, Sys: 100 * 1024 * 1024}},
+		{"scanComplete", scanCompleteMsg{
+			fileCount: 42,
+			factCount: 200,
+			duration:  2 * time.Second,
+		}},
+	}
+
+	for _, am := range asyncMessages {
+		t.Run(am.name, func(t *testing.T) {
+			m = safeUpdate(t, m, am.msg)
+
+			// Frame must be sane after every async message
+			m = assertFrameAfterUpdate(t, m)
+
+			// State consistency checks
+			view := m.View()
+
+			// If not loading, STOP should not be visible
+			if !m.isLoading && strings.Contains(view, "STOP") && m.viewMode == ChatView {
+				t.Errorf("after %s: not loading but STOP visible", am.name)
+			}
+
+			// If error is set and shown, error panel should be present
+			if m.err != nil && m.showError && m.width >= 40 {
+				if !strings.Contains(view, "Error") {
+					t.Errorf("after %s: error set but not visible", am.name)
+				}
+			}
+		})
+	}
+
+	// Run the same messages in REVERSE order to catch order-dependent bugs
+	t.Run("reverse_order", func(t *testing.T) {
+		m2 := NewTestModel()
+		m2, _ = renderFrame(t, m2, 80, 24)
+
+		for i := len(asyncMessages) - 1; i >= 0; i-- {
+			am := asyncMessages[i]
+			m2 = safeUpdate(t, m2, am.msg)
+			m2 = assertFrameAfterUpdate(t, m2)
+		}
+	})
+}
+
+// =============================================================================
+// TEST 8: Boss Fight — full chaos script
+// =============================================================================
+
+func TestE2E_TUI_BossFight_FrameFuzzer(t *testing.T) {
+	m := NewTestModel()
+
+	// Step 1: Initial resize
+	m, _ = renderFrame(t, m, 80, 24)
+
+	// Step 2: Type and submit "hi"
+	m.textarea.SetValue("hi")
+	submitted, _ := m.handleSubmit()
+	m = submitted.(Model)
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 3: Simulate assistant response
+	m = safeUpdate(t, m, assistantMsg{Surface: "Hello! How can I help?"})
+	m = assertFrameAfterUpdate(t, m)
+	if m.isLoading {
+		t.Error("after assistantMsg, should not be loading")
+	}
+
+	// Step 4: Tiny resize
+	m, _ = renderFrame(t, m, 20, 5)
+
+	// Step 5: Large resize
+	m, _ = renderFrame(t, m, 160, 40)
+
+	// Step 6: Huge markdown message
+	hugeMd := "# Big Response\n\n" + strings.Repeat("- bullet point\n", 500)
+	m = safeUpdate(t, m, assistantMsg{Surface: hugeMd})
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 7: Tool event
+	m = safeUpdate(t, m, toolEventMsg(transparency.ToolEvent{
+		ToolName: "shell",
+		Result:   "go test ./... PASS",
+		Success:  true,
+		Duration: 3 * time.Second,
+	}))
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 8: Glass box event
+	m = safeUpdate(t, m, glassBoxEventMsg(transparency.GlassBoxEvent{
+		Category: transparency.CategoryPerception,
+		Summary:  "Parsed intent: /explain",
+	}))
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 9: Error
+	m = safeUpdate(t, m, errorMsg(errors.New("LLM timeout after 30s")))
+	m = assertFrameAfterUpdate(t, m)
+	if m.err == nil {
+		t.Error("err should be set after errorMsg")
+	}
+
+	// Step 10: Focus error panel
+	m.focusError = true
+	m.showError = true
+	m.refreshErrorViewport()
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 11: Hide error
+	m.showError = false
+	m.focusError = false
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 12: Clarification
+	m = safeUpdate(t, m, clarificationMsg{
+		Question: "Did you mean file A or file B?",
+		Options:  []string{"A", "B"},
+		Context:  "ambiguous target",
+	})
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 13: Answer clarification
+	m.textarea.SetValue("A")
+	submitted, _ = m.handleSubmit()
+	m = submitted.(Model)
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 14: Continuation init
+	m = safeUpdate(t, m, continuationInitMsg{
+		completedSurface: "Phase 1 done",
+		totalSteps:       5,
+		next: continueMsg{
+			subtaskID:   "step2",
+			description: "Run tests",
+			shardType:   "tester",
+		},
+	})
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 15: Continuation done
+	m = safeUpdate(t, m, continuationDoneMsg{
+		stepCount: 5,
+		summary:   "All phases completed",
+	})
+	m = assertFrameAfterUpdate(t, m)
+	if len(m.pendingSubtasks) != 0 {
+		t.Errorf("after continuationDone, pendingSubtasks should be empty, got %d", len(m.pendingSubtasks))
+	}
+
+	// Step 16: Campaign lifecycle
+	m.showCampaignPanel = true
+	m.activeCampaign = &campaign.Campaign{
+		Goal:           "Refactor auth",
+		TotalTasks:     10,
+		CompletedTasks: 5,
+	}
+	m = assertFrameAfterUpdate(t, m)
+
+	m = safeUpdate(t, m, campaignCompletedMsg(&campaign.Campaign{
+		Goal:           "Refactor auth",
+		TotalTasks:     10,
+		CompletedTasks: 10,
+	}))
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 17: Slash /clear
+	m.textarea.SetValue("/clear")
+	submitted, _ = m.handleSubmit()
+	m = submitted.(Model)
+	m = assertFrameAfterUpdate(t, m)
+
+	// Step 18: Normal message after all chaos
+	m.textarea.SetValue("everything still works?")
+	submitted, cmd := m.handleSubmit()
+	m = submitted.(Model)
+	m = assertFrameAfterUpdate(t, m)
+	if cmd == nil {
+		t.Error("final normal submit should return a cmd")
+	}
+	if !m.isLoading {
+		t.Error("final normal submit should set isLoading")
+	}
+
+	// Final: standard resize + full frame check
+	m, probe := renderFrame(t, m, 80, 24)
+	assertFrameSane(t, m, probe)
+
+	// Global invariant: known viewMode
+	validModes := map[ViewMode]bool{
+		ChatView: true, ListView: true, FilePickerView: true,
+		UsageView: true, CampaignPage: true, PromptInspector: true,
+		AutopoiesisPage: true, ShardPage: true,
+	}
+	if !validModes[m.viewMode] {
+		t.Errorf("unknown viewMode: %d", m.viewMode)
+	}
+}
+
