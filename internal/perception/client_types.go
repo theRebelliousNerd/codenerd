@@ -598,7 +598,9 @@ var OpenRouterModels = []string{
 	"openai/o1-preview",
 	"openai/o1-mini",
 	// Google
+	"google/gemini-3.1-flash-lite",
 	"google/gemini-3-flash-preview",
+	"google/gemini-3.1-pro-preview",
 	"google/gemini-3-pro-preview",
 	// Meta
 	"meta-llama/llama-3.1-405b-instruct",

@@ -36,6 +36,7 @@ import (
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
 	"codenerd/internal/config"
+	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/perception"
 	"codenerd/internal/transparency"
@@ -122,6 +123,89 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 				Content: "No kernel attached - nothing to reset.",
 				Time:    time.Now(),
 			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/model":
+		cfg := m.Config
+		if cfg == nil {
+			cfg = config.DefaultUserConfig()
+		}
+		activeProvider, _ := cfg.GetActiveProvider()
+		available := ProviderModels[activeProvider]
+
+		if len(parts) < 2 {
+			currentModel := cfg.Model
+			if currentModel == "" {
+				currentModel = getModelRecursive(m.client)
+			}
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("Active LLM provider: **%s**\n", activeProvider))
+			sb.WriteString(fmt.Sprintf("Current active model: **%s**\n\n", currentModel))
+			sb.WriteString("Available models for this provider:\n")
+			for _, mName := range available {
+				if mName == currentModel {
+					sb.WriteString(fmt.Sprintf("- **%s** (currently active)\n", mName))
+				} else {
+					sb.WriteString(fmt.Sprintf("- `%s`\n", mName))
+				}
+			}
+			sb.WriteString("\nTo change model, run: `/model <model-name>`")
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: sb.String(),
+				Time:    time.Now(),
+			})
+		} else {
+			newModel := parts[1]
+			// Validate model
+			valid := false
+			for _, mName := range available {
+				if mName == newModel {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				// Also support matching without provider prefix for openrouter
+				if activeProvider == "openrouter" {
+					for _, mName := range available {
+						if strings.HasSuffix(mName, "/"+newModel) || mName == newModel {
+							newModel = mName
+							valid = true
+							break
+						}
+					}
+				}
+			}
+			if !valid {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Error: `%s` is not a recognized model for provider `%s`.\nUse `/model` to see list of valid models.", newModel, activeProvider),
+					Time:    time.Now(),
+				})
+			} else {
+				cfg.Model = newModel
+				if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Error saving config: %s", err.Error()),
+						Time:    time.Now(),
+					})
+				} else {
+					m.Config = cfg
+					// Set the model on the active client if possible
+					setModelRecursive(m.client, newModel)
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("✓ Switched active model for **%s** to: **%s**", activeProvider, newModel),
+						Time:    time.Now(),
+					})
+				}
+			}
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
@@ -726,6 +810,87 @@ Press **Enter** to begin...`,
 					Content: "Invalid theme. Use 'light' or 'dark'.",
 					Time:    time.Now(),
 				})
+			}
+		} else if parts[1] == "model" {
+			cfg := m.Config
+			if cfg == nil {
+				cfg = config.DefaultUserConfig()
+			}
+			activeProvider, _ := cfg.GetActiveProvider()
+			available := ProviderModels[activeProvider]
+
+			if len(parts) == 2 {
+				// Show current model and available models
+				currentModel := cfg.Model
+				if currentModel == "" {
+					currentModel = getModelRecursive(m.client)
+				}
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("Active LLM provider: **%s**\n", activeProvider))
+				sb.WriteString(fmt.Sprintf("Current active model: **%s**\n\n", currentModel))
+				sb.WriteString("Available models for this provider:\n")
+				for _, mName := range available {
+					if mName == currentModel {
+						sb.WriteString(fmt.Sprintf("- **%s** (currently active)\n", mName))
+					} else {
+						sb.WriteString(fmt.Sprintf("- `%s`\n", mName))
+					}
+				}
+				sb.WriteString("\nTo change model, run: `/config model <model-name>`\n")
+				sb.WriteString("Or run `/model <model-name>` to switch instantly.")
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: sb.String(),
+					Time:    time.Now(),
+				})
+			} else {
+				// Set model
+				newModel := parts[2]
+				// Validate model
+				valid := false
+				for _, mName := range available {
+					if mName == newModel {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					// Also support matching without provider prefix for openrouter
+					if activeProvider == "openrouter" {
+						for _, mName := range available {
+							if strings.HasSuffix(mName, "/"+newModel) || mName == newModel {
+								newModel = mName
+								valid = true
+								break
+							}
+						}
+					}
+				}
+				if !valid {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Error: `%s` is not a recognized model for provider `%s`.\nUse `/config model` to see list of valid models.", newModel, activeProvider),
+						Time:    time.Now(),
+					})
+				} else {
+					cfg.Model = newModel
+					if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+						m = m.addMessage(Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Error saving config: %s", err.Error()),
+							Time:    time.Now(),
+						})
+					} else {
+						m.Config = cfg
+						// Set the model on the active client if possible
+						setModelRecursive(m.client, newModel)
+						m = m.addMessage(Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("✓ Active model for **%s** set to: **%s**", activeProvider, newModel),
+							Time:    time.Now(),
+						})
+					}
+				}
 			}
 		} else if parts[1] == "engine" {
 			// Engine configuration for CLI backends
@@ -2205,4 +2370,35 @@ You have an existing Northstar definition. What would you like to do?
 		m.textarea.Reset()
 		return m, nil
 	}
+}
+
+func setModelRecursive(client perception.LLMClient, model string) {
+	if client == nil {
+		return
+	}
+	if setter, ok := client.(interface{ SetModel(string) }); ok {
+		setter.SetModel(model)
+	}
+	if sched, ok := client.(*core.ScheduledLLMCall); ok {
+		setModelRecursive(sched.Client, model)
+	}
+	if tc, ok := client.(*perception.TracingLLMClient); ok {
+		setModelRecursive(tc.GetUnderlying(), model)
+	}
+}
+
+func getModelRecursive(client perception.LLMClient) string {
+	if client == nil {
+		return ""
+	}
+	if getter, ok := client.(interface{ GetModel() string }); ok {
+		return getter.GetModel()
+	}
+	if sched, ok := client.(*core.ScheduledLLMCall); ok {
+		return getModelRecursive(sched.Client)
+	}
+	if tc, ok := client.(*perception.TracingLLMClient); ok {
+		return getModelRecursive(tc.GetUnderlying())
+	}
+	return ""
 }

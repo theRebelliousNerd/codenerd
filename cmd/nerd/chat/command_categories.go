@@ -461,7 +461,14 @@ var CommandRegistry = []CommandInfo{
 	{
 		Name:        "/config",
 		Description: "Configure codeNERD",
-		Usage:       "/config [wizard|show|set-key|set-theme|engine]",
+		Usage:       "/config [wizard|show|set-key|set-theme|engine|model]",
+		Category:    CategorySystem,
+		ShowInHelp:  true,
+	},
+	{
+		Name:        "/model",
+		Description: "Toggle/Switch active LLM model",
+		Usage:       "/model [model-name]",
 		Category:    CategorySystem,
 		ShowInHelp:  true,
 	},

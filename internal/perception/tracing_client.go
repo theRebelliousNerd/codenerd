@@ -447,6 +447,25 @@ func (tc *TracingLLMClient) GetUnderlying() LLMClient {
 	return tc.underlying
 }
 
+// SetModel changes the model used for completions on the underlying client.
+func (tc *TracingLLMClient) SetModel(model string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	if setter, ok := tc.underlying.(interface{ SetModel(string) }); ok {
+		setter.SetModel(model)
+	}
+}
+
+// GetModel returns the model of the underlying client.
+func (tc *TracingLLMClient) GetModel() string {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	if getter, ok := tc.underlying.(interface{ GetModel() string }); ok {
+		return getter.GetModel()
+	}
+	return ""
+}
+
 func resolveTraceModel(ctx context.Context, client LLMClient) string {
 	if resolver, ok := client.(contextualModelGetter); ok {
 		if model := strings.TrimSpace(resolver.ModelForContext(ctx)); model != "" {

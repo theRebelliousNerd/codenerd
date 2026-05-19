@@ -443,3 +443,18 @@ func NewScheduledLLMCall(shardID string, client LLMClient) *ScheduledLLMCall {
 	}
 }
 
+// SetModel changes the model used for completions on the underlying client.
+func (c *ScheduledLLMCall) SetModel(model string) {
+	if setter, ok := c.Client.(interface{ SetModel(string) }); ok {
+		setter.SetModel(model)
+	}
+}
+
+// GetModel returns the model of the underlying client.
+func (c *ScheduledLLMCall) GetModel() string {
+	if getter, ok := c.Client.(interface{ GetModel() string }); ok {
+		return getter.GetModel()
+	}
+	return ""
+}
+

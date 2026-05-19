@@ -813,3 +813,73 @@ func TestKeyMsg_CtrlX_StopsLoading(t *testing.T) {
 		t.Error("Expected isInterrupted to be true")
 	}
 }
+
+func TestCommand_Model(t *testing.T) {
+	t.Parallel()
+	m := NewTestModel()
+	m.Config.Provider = "gemini"
+	m.Config.GeminiAPIKey = "mock-key"
+
+	// Running `/model` without arguments should display the current and available models.
+	newModel, _ := m.handleCommand("/model")
+	result := newModel.(Model)
+
+	if len(result.history) == 0 {
+		t.Error("Expected model information in history")
+		return
+	}
+
+	last := result.history[len(result.history)-1]
+	if !strings.Contains(last.Content, "Active LLM provider") {
+		t.Errorf("Expected 'Active LLM provider' in history, got: %s", last.Content)
+	}
+
+	// Switching to a valid model
+	newModel2, _ := m.handleCommand("/model gemini-3.1-flash-lite")
+	result2 := newModel2.(Model)
+
+	if len(result2.history) == 0 {
+		t.Error("Expected switch message in history")
+		return
+	}
+
+	last2 := result2.history[len(result2.history)-1]
+	if !strings.Contains(last2.Content, "Switched active model") {
+		t.Errorf("Expected confirmation message, got: %s", last2.Content)
+	}
+}
+
+func TestCommand_ConfigModel(t *testing.T) {
+	t.Parallel()
+	m := NewTestModel()
+	m.Config.Provider = "gemini"
+	m.Config.GeminiAPIKey = "mock-key"
+
+	// Show model configuration
+	newModel, _ := m.handleCommand("/config model")
+	result := newModel.(Model)
+
+	if len(result.history) == 0 {
+		t.Error("Expected config model details in history")
+		return
+	}
+
+	last := result.history[len(result.history)-1]
+	if !strings.Contains(last.Content, "Active LLM provider") {
+		t.Errorf("Expected 'Active LLM provider' in config show, got: %s", last.Content)
+	}
+
+	// Change model via config
+	newModel2, _ := m.handleCommand("/config model gemini-3.1-flash-lite")
+	result2 := newModel2.(Model)
+
+	if len(result2.history) == 0 {
+		t.Error("Expected response in history")
+		return
+	}
+
+	last2 := result2.history[len(result2.history)-1]
+	if !strings.Contains(last2.Content, "Active model for") {
+		t.Errorf("Expected confirmation message, got: %s", last2.Content)
+	}
+}
