@@ -380,6 +380,9 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// Stability bypass: consult kernel to decide if LLM call can be skipped
 	if priorUnderstanding != nil && t.rawKernel != nil {
+		stabilityScore := computeStabilityScore(verbHistoryCopy)
+		logging.Perception("[StabilityFilter] checking: priorAction=%s priorDomain=%s lastVerb=%q verbHistory=%v stabilityScore=%d%% msgLenHistory=%v",
+			priorUnderstanding.ActionType, priorUnderstanding.Domain, lastVerbSnapshot, verbHistoryCopy, stabilityScore, msgLenHistoryCopy)
 		// Pass snapshot copies so assertStabilityFacts reads stable data without locking
 		authorized := t.assertStabilityFacts(input, priorUnderstanding, verbHistoryCopy, msgLenHistoryCopy)
 
@@ -393,16 +396,25 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 			t.updateVerbHistory(lastVerbSnapshot)
 			t.mu.Unlock()
 
-			logging.Perception("[StabilityFilter] bypass authorized (stability=%d%%), reusing prior understanding, took %dms",
-				computeStabilityScore(verbHistoryCopy), time.Since(stabilityStart).Milliseconds())
+			logging.Perception("[StabilityFilter] BYPASS AUTHORIZED: stability=%d%% | reusing prior={action=%s domain=%s shard=%s confidence=%.2f} | saved 1 LLM call (%dms)",
+				stabilityScore, priorUnderstanding.ActionType, priorUnderstanding.Domain,
+				priorUnderstanding.SuggestedApproach.PrimaryShard, priorUnderstanding.Confidence,
+				time.Since(stabilityStart).Milliseconds())
 
 			intent := t.understandingToIntent(&reused)
-			logging.Perception("[ParseIntentWithContext] COMPLETE (stability bypass): %dms total → verb=%s target=%s",
-				time.Since(pipelineStart).Milliseconds(), intent.Verb, intent.Target)
+			logging.Perception("[ParseIntentWithContext] COMPLETE (stability bypass): %dms total | verb=%s category=%s target=%q confidence=%.2f",
+				time.Since(pipelineStart).Milliseconds(), intent.Verb, intent.Category, intent.Target, intent.Confidence)
 			return intent, nil
 		}
+		logging.Perception("[StabilityFilter] NO BYPASS: stability=%d%% (kernel denied or score too low) | will call LLM (%dms spent checking)",
+			stabilityScore, time.Since(stabilityStart).Milliseconds())
+	} else {
+		bypassReason := "no prior understanding"
+		if t.rawKernel == nil {
+			bypassReason = "no kernel"
+		}
+		logging.Perception("[StabilityFilter] SKIP: %s (first turn or no kernel) | will call LLM", bypassReason)
 	}
-	logging.Perception("[ParseIntentWithContext] stability filter: %dms (no bypass)", time.Since(stabilityStart).Milliseconds())
 	// NERD-EVOLVE-END: stability_filter
 
 	// GAP-006 FIX: Run semantic classification to inject semantic_match facts into kernel
@@ -410,27 +422,36 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 	var semanticMatches []SemanticMatch
 	semanticStart := time.Now()
 	if SharedSemanticClassifier != nil {
-		logging.Perception("[ParseIntentWithContext] running semantic classification...")
+		logging.Perception("[ParseIntentWithContext] running semantic classification (embedding lookup)...")
 		matches, err := SharedSemanticClassifier.Classify(ctx, input)
 		if err != nil {
 			// Graceful degradation - log but continue with LLM-only classification
 			// Semantic classification is optional enhancement, not required
 			_ = matches // matches already injected into kernel by Classify()
-			logging.Perception("[ParseIntentWithContext] semantic classification failed: %v (%dms)",
+			logging.Perception("[ParseIntentWithContext] semantic classification FAILED: %v (%dms) | continuing with LLM-only",
 				err, time.Since(semanticStart).Milliseconds())
 		} else {
 			semanticMatches = matches
-			logging.Perception("[ParseIntentWithContext] semantic classification: %dms (%d matches)",
+			// Log match details so we can see if embedding retrieval is finding useful exemplars
+			for i, sm := range semanticMatches {
+				if i < 3 { // top 3 only
+					logging.Perception("[ParseIntentWithContext] semantic match[%d]: sim=%.3f verb=%s target=%q text=%q",
+						i, sm.Similarity, sm.Verb, sm.Target, truncateForLog(sm.TextContent, 60))
+				}
+			}
+			logging.Perception("[ParseIntentWithContext] semantic classification: %dms | %d matches (above-threshold for prompt injection)",
 				time.Since(semanticStart).Milliseconds(), len(semanticMatches))
 		}
 		// Note: semantic_match facts are automatically asserted by Classify()
 	} else {
-		logging.Perception("[ParseIntentWithContext] semantic classifier not available, skipping")
+		logging.Perception("[ParseIntentWithContext] semantic classifier not initialized (SharedSemanticClassifier=nil) | no embedding lookup")
 	}
 
 	// Get Understanding from LLM
 	llmStart := time.Now()
-	logging.Perception("[ParseIntentWithContext] calling LLMTransducer.Understand...")
+	hasStrategicCtx := len(t.strategicContext) > 0
+	logging.Perception("[ParseIntentWithContext] calling LLMTransducer.Understand (hasStrategicContext=%v, strategicLen=%d)...",
+		hasStrategicCtx, len(t.strategicContext))
 	sessionCtx := types.GetSessionContext(ctx)
 	understanding, err := t.llmTransducer.Understand(ctx, input, history, semanticMatches, sessionCtx, t.strategicContext)
 	if err != nil {
@@ -457,15 +478,31 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 
 	// Convert Understanding to Intent for backward compatibility
 	intent := t.understandingToIntent(understanding)
-	logging.Perception("[ParseIntentWithContext] intent conversion: %dms → verb=%s category=%s target=%s confidence=%.2f",
-		time.Since(cacheStart).Milliseconds(), intent.Verb, intent.Category, intent.Target, intent.Confidence)
+	hasSurface := len(intent.Response) > 0
+	surfacePreview := intent.Response
+	if len(surfacePreview) > 100 {
+		surfacePreview = surfacePreview[:100] + "..."
+	}
+	logging.Perception("[ParseIntentWithContext] intent conversion: %dms | mapping: action=%q→verb=%s semantic=%q→category=%s | target=%q confidence=%.2f hasSurface=%v surfacePreview=%q",
+		time.Since(cacheStart).Milliseconds(),
+		understanding.ActionType, intent.Verb,
+		understanding.SemanticType, intent.Category,
+		intent.Target, intent.Confidence,
+		hasSurface, surfacePreview)
 
-	logging.Perception("[ParseIntentWithContext] COMPLETE: %dms total (init=%dms stability=%dms semantic=%dms llm=%dms)",
+	llmDurationMs := time.Since(llmStart).Milliseconds()
+	semanticDurationMs := time.Since(semanticStart).Milliseconds() - llmDurationMs
+	if semanticDurationMs < 0 {
+		semanticDurationMs = 0
+	}
+	logging.Perception("[ParseIntentWithContext] COMPLETE: %dms total | init=%dms stability=%dms semantic=%dms llm=%dms convert=%dms | result: %s%s → %q (%.0f%%)",
 		time.Since(pipelineStart).Milliseconds(),
 		time.Since(initStart).Milliseconds(),
 		time.Since(stabilityStart).Milliseconds(),
-		time.Since(semanticStart).Milliseconds(),
-		time.Since(llmStart).Milliseconds())
+		semanticDurationMs,
+		llmDurationMs,
+		time.Since(cacheStart).Milliseconds(),
+		intent.Category, intent.Verb, intent.Target, intent.Confidence*100)
 
 	return intent, nil
 }

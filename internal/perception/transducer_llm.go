@@ -71,38 +71,92 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 	if len(truncatedInput) > 80 {
 		truncatedInput = truncatedInput[:80] + "..."
 	}
-	logging.Perception("[Understand] START input=%q historyTurns=%d semanticMatches=%d",
-		truncatedInput, len(history), len(semanticMatches))
+
+	// Log client type for diagnosis (which model/engine is handling this?)
+	clientType := fmt.Sprintf("%T", t.client)
+	thinkingInfo := "thinking=off"
+	if tp, ok := t.client.(ThinkingProvider); ok && tp.IsThinkingEnabled() {
+		thinkingInfo = fmt.Sprintf("thinking=on(level=%s)", tp.GetThinkingLevel())
+	}
+	hasKernel := t.kernel != nil
+	logging.Perception("[Understand] START input=%q len=%d historyTurns=%d semanticMatches=%d client=%s %s hasKernel=%v",
+		truncatedInput, len(input), len(history), len(semanticMatches), clientType, thinkingInfo, hasKernel)
 
 	// 1. Build the prompt with conversation history and new contexts
 	promptStart := time.Now()
 	fullPrompt := t.BuildPrompt(input, history, semanticMatches, sessionCtx, strategicContext)
-	logging.Perception("[Understand] prompt built: %dms (%d chars, system=%d chars)",
-		time.Since(promptStart).Milliseconds(), len(fullPrompt), len(t.prompt))
+	// Estimate token counts (rough: 1 token ≈ 4 chars)
+	systemTokenEst := len(t.prompt) / 4
+	userTokenEst := len(fullPrompt) / 4
+	totalTokenEst := systemTokenEst + userTokenEst
+	// Log prompt composition breakdown
+	historyChars := 0
+	for _, h := range history {
+		historyChars += len(h.Content)
+	}
+	semanticChars := 0
+	for _, sm := range semanticMatches {
+		semanticChars += len(sm.TextContent) + len(sm.Verb) + len(sm.Target)
+	}
+	ambientChars := 0
+	if sessionCtx != nil && sessionCtx.Ambient != nil {
+		ambientChars = len(sessionCtx.Ambient.ActiveFile) + len(sessionCtx.Ambient.SelectedText)
+	}
+	logging.Perception("[Understand] prompt built: %dms | system=%d chars (~%d tok) | user=%d chars (~%d tok) | total ~%d tok | breakdown: input=%d history=%d semantic=%d ambient=%d strategic=%d",
+		time.Since(promptStart).Milliseconds(),
+		len(t.prompt), systemTokenEst,
+		len(fullPrompt), userTokenEst,
+		totalTokenEst,
+		len(input), historyChars, semanticChars, ambientChars, len(strategicContext))
 
 	// 2. Call LLM for classification
 	llmStart := time.Now()
-	logging.Perception("[Understand] calling LLM API...")
+	logging.Perception("[Understand] calling LLM CompleteWithSystem (~%d tok)...", totalTokenEst)
 	response, err := t.client.CompleteWithSystem(ctx, t.prompt, fullPrompt)
 	llmDuration := time.Since(llmStart)
 	if err != nil {
-		logging.Perception("[Understand] LLM FAILED after %dms: %v", llmDuration.Milliseconds(), err)
+		logging.Perception("[Understand] LLM FAILED after %dms: %v | was sending ~%d tokens to %s",
+			llmDuration.Milliseconds(), err, totalTokenEst, clientType)
 		return nil, fmt.Errorf("LLM classification failed: %w", err)
 	}
-	logging.Perception("[Understand] LLM responded: %dms (%d chars)",
-		llmDuration.Milliseconds(), len(response))
+	// Extract thinking metrics if available (need full types.ThinkingProvider for post-call metrics)
+	thinkingLog := ""
+	if tp, ok := t.client.(types.ThinkingProvider); ok && tp.IsThinkingEnabled() {
+		thinkingTokens := tp.GetLastThinkingTokens()
+		thoughtSummary := tp.GetLastThoughtSummary()
+		if len(thoughtSummary) > 200 {
+			thoughtSummary = thoughtSummary[:200] + "..."
+		}
+		thinkingLog = fmt.Sprintf(" thinkingTokens=%d thoughtPreview=%q", thinkingTokens, thoughtSummary)
+	}
+	logging.Perception("[Understand] LLM responded: %dms | responseLen=%d chars (~%d tok)%s",
+		llmDuration.Milliseconds(), len(response), len(response)/4, thinkingLog)
 	logging.PerceptionDebug("Raw LLM Response: %s", response)
 
 	// 3. Parse the response
 	parseStart := time.Now()
 	understanding, err := t.parseResponse(response)
 	if err != nil {
-		logging.Perception("[Understand] parse FAILED after %dms: %v", time.Since(parseStart).Milliseconds(), err)
+		// Log the actual response that failed to parse so we can diagnose format issues
+		respPreview := response
+		if len(respPreview) > 500 {
+			respPreview = respPreview[:500] + "..."
+		}
+		logging.Perception("[Understand] parse FAILED after %dms: %v | responsePreview=%q",
+			time.Since(parseStart).Milliseconds(), err, respPreview)
 		return nil, fmt.Errorf("failed to parse LLM response: %w", err)
 	}
-	logging.Perception("[Understand] parsed: %dms → semantic=%s action=%s domain=%s confidence=%.2f",
+	// Log the full understanding - every field matters for debugging
+	logging.Perception("[Understand] parsed: %dms | intent=%q semantic=%s action=%s domain=%s confidence=%.2f | scope={level=%s target=%q file=%q symbol=%q} | signals={question=%v hypothetical=%v multi_step=%v negated=%v confirm=%v urgency=%s} | constraints=%v | suggested={mode=%s shard=%s support=%v tools=%v context=%v}",
 		time.Since(parseStart).Milliseconds(),
-		understanding.SemanticType, understanding.ActionType, understanding.Domain, understanding.Confidence)
+		understanding.PrimaryIntent, understanding.SemanticType, understanding.ActionType, understanding.Domain, understanding.Confidence,
+		understanding.Scope.Level, understanding.Scope.Target, understanding.Scope.File, understanding.Scope.Symbol,
+		understanding.Signals.IsQuestion, understanding.Signals.IsHypothetical, understanding.Signals.IsMultiStep,
+		understanding.Signals.IsNegated, understanding.Signals.RequiresConfirmation, understanding.Signals.Urgency,
+		understanding.UserConstraints,
+		understanding.SuggestedApproach.Mode, understanding.SuggestedApproach.PrimaryShard,
+		understanding.SuggestedApproach.SupportingShards, understanding.SuggestedApproach.ToolsNeeded,
+		understanding.SuggestedApproach.ContextNeeded)
 
 	// NERD-EVOLVE-START: P3_dead_work_elimination
 	// Phase A: validate() was dead work — it made 5 kernel queries whose error
@@ -113,17 +167,35 @@ func (t *LLMTransducer) Understand(ctx context.Context, input string, history []
 	// 5. Derive routing from understanding
 	routeStart := time.Now()
 	t.deriveRouting(ctx, understanding)
-	logging.Perception("[Understand] routing derived: %dms → mode=%s shard=%s",
+	var supportingShards string
+	if understanding.Routing != nil {
+		supportingShards = fmt.Sprintf("%v", understanding.Routing.SupportingShards)
+	}
+	logging.Perception("[Understand] routing derived: %dms | mode=%s primaryShard=%s supportingShards=%s | llmSuggestedMode=%s (overridden=%v)",
 		time.Since(routeStart).Milliseconds(),
-		understanding.Routing.Mode, understanding.Routing.PrimaryShard)
+		understanding.Routing.Mode, understanding.Routing.PrimaryShard, supportingShards,
+		understanding.SuggestedApproach.Mode, understanding.Routing.Mode != understanding.SuggestedApproach.Mode)
 
-	logging.Perception("[Understand] COMPLETE: %dms total (prompt=%dms llm=%dms parse+route=%dms)",
+	logging.Perception("[Understand] COMPLETE: %dms total | prompt=%dms llm=%dms parse=%dms route=%dms | bottleneck=%s",
 		time.Since(understandStart).Milliseconds(),
 		time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(),
 		llmDuration.Milliseconds(),
-		time.Since(parseStart).Milliseconds())
+		time.Since(parseStart).Milliseconds(),
+		time.Since(routeStart).Milliseconds(),
+		identifyBottleneck(time.Since(promptStart).Milliseconds()-llmDuration.Milliseconds(), llmDuration.Milliseconds(), time.Since(parseStart).Milliseconds()))
 
 	return understanding, nil
+}
+
+// identifyBottleneck returns a human-readable label for which phase is the slowest.
+func identifyBottleneck(promptMs, llmMs, parseRouteMs int64) string {
+	if llmMs >= promptMs && llmMs >= parseRouteMs {
+		return fmt.Sprintf("LLM_API(%dms)", llmMs)
+	}
+	if promptMs >= llmMs && promptMs >= parseRouteMs {
+		return fmt.Sprintf("PROMPT_BUILD(%dms)", promptMs)
+	}
+	return fmt.Sprintf("PARSE_ROUTE(%dms)", parseRouteMs)
 }
 
 // BuildPrompt constructs the user prompt with conversation history, learned semantic matches,

@@ -83,7 +83,14 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		oodaStart := time.Now()
 		trimmed := strings.TrimSpace(input)
-		logging.Routing("[processInput] OODA START input=%q", truncateSummary(trimmed, 80))
+		// Log rich system state at OODA entry so we can diagnose slow turns
+		transducerType := fmt.Sprintf("%T", m.transducer)
+		clientType := fmt.Sprintf("%T", m.client)
+		historyLen := len(m.history)
+		hasKernel := m.kernel != nil
+		hasCampaign := m.activeCampaign != nil
+		logging.Routing("[processInput] OODA START input=%q len=%d | transducer=%s client=%s historyLen=%d hasKernel=%v hasCampaign=%v turnCount=%d",
+			truncateSummary(trimmed, 80), len(trimmed), transducerType, clientType, historyLen, hasKernel, hasCampaign, m.turnCount)
 
 		// If we are waiting for clarifier answers for a future launch, just accumulate the answers.
 		if m.launchClarifyPending && trimmed != "" && !strings.HasPrefix(trimmed, "/") {
@@ -186,9 +193,16 @@ func (m Model) processInput(input string) tea.Cmd {
 			warnings = append(warnings, "Perception response was empty; falling back to articulation")
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
-		logging.Routing("[processInput] PERCEPTION complete: %dms → verb=%s category=%s target=%q confidence=%.2f (system_shard=%v)",
+		// Log rich perception result with routing-actionable data
+		shardType := perception.GetShardTypeForVerb(intent.Verb)
+		willDelegate := shardType != "" && intent.Confidence >= 0.5
+		willConverse := shardType == "" && intent.Response != "" && isConversationalIntent(intent)
+		willArticulate := !willDelegate && !willConverse
+		logging.Routing("[processInput] PERCEPTION complete: %dms | verb=%s category=%s target=%q confidence=%.2f | routing: shardType=%s willDelegate=%v willConverse=%v willArticulate=%v system_shard=%v | response_len=%d ambiguity=%v",
 			time.Since(perceptionStart).Milliseconds(), intent.Verb, intent.Category,
-			truncateSummary(intent.Target, 60), intent.Confidence, intentHandledBySystem)
+			truncateSummary(intent.Target, 60), intent.Confidence,
+			shardType, willDelegate, willConverse, willArticulate, intentHandledBySystem,
+			len(intent.Response), intent.Ambiguity)
 
 		// Glass Box: Emit perception event
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -368,8 +382,8 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
 		if m.shouldClarifyIntent(&intent, input) {
-			logging.Routing("[processInput] DECIDE: fallback clarification triggered (verb=%s target=%s confidence=%.2f)",
-				intent.Verb, intent.Target, intent.Confidence)
+			logging.Routing("[processInput] DECIDE: fallback clarification triggered | verb=%s target=%q confidence=%.2f isConversational=%v | REASON: actionable intent with low confidence or missing target",
+				intent.Verb, intent.Target, intent.Confidence, isConversationalIntent(intent))
 			m.ReportStatus("Clarifier: resolving ambiguity...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
 				return clarificationMsg{
@@ -398,7 +412,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 1.6 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
 		// This implements automatic shard spawning from natural language
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
-		shardType := perception.GetShardTypeForVerb(intent.Verb)
+		shardType = perception.GetShardTypeForVerb(intent.Verb)
 
 		// Glass Box: Emit routing decision
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -420,8 +434,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		if shardType != "" && intent.Confidence >= 0.5 {
-			logging.Routing("[processInput] ACT: delegating to shard=%s at %dms", shardType, time.Since(oodaStart).Milliseconds())
-			if m.needsWorkspaceScanForDelegation(intent) && !workspaceScanned {
+			needsWsScan := m.needsWorkspaceScanForDelegation(intent)
+			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",
+				shardType, intent.Verb, intent.Target, intent.Confidence, needsWsScan, workspaceScanned, time.Since(oodaStart).Milliseconds())
+			if needsWsScan && !workspaceScanned {
 				workspaceScanned = m.loadWorkspaceFacts(ctx, intent, &warnings)
 			}
 			m.ReportStatus(fmt.Sprintf("Act: delegating to %s...", shardType))
@@ -612,8 +628,12 @@ func (m Model) processInput(input string) tea.Cmd {
 		// directly. This handles greetings, capability questions, and general queries
 		// without requiring a second articulation LLM call.
 		if shardType == "" && intent.Response != "" && isConversationalIntent(intent) {
-			logging.Routing("[processInput] ACT: direct conversational response (verb=%s), OODA total %dms",
-				intent.Verb, time.Since(oodaStart).Milliseconds())
+			respPreview := intent.Response
+			if len(respPreview) > 120 {
+				respPreview = respPreview[:120] + "..."
+			}
+			logging.Routing("[processInput] ACT: direct conversational response | verb=%s responseLen=%d | preview=%q | OODA total=%dms (no articulation needed)",
+				intent.Verb, len(intent.Response), respPreview, time.Since(oodaStart).Milliseconds())
 			// Glass Box: Emit direct response path
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
