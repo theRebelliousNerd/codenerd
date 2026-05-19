@@ -58,6 +58,7 @@ func TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence(t *testing.T) {
 }
 
 // TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
+// TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
 func TestEdgeCaseDetectorGap_EmptyPathString(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
 
