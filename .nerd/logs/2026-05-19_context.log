@@ -1,0 +1,36 @@
+2026/05/19 14:58:00.844765 [INFO] Registered project corpus: C:\CodeProjects\codeNERD\.nerd\prompts\corpus.db
+2026/05/19 14:58:00.844765 [INFO] JITPromptCompiler initialized
+2026/05/19 14:58:00.861841 [INFO] Registered user agent 'bubbleteaexpert' with JIT compiler
+2026/05/19 14:58:00.862373 [INFO] Registered user agent 'cobraexpert' with JIT compiler
+2026/05/19 14:58:00.864876 [INFO] Registered user agent 'goexpert' with JIT compiler
+2026/05/19 14:58:00.866409 [INFO] Registered user agent 'mangleexpert' with JIT compiler
+2026/05/19 14:58:00.868028 [INFO] Registered user agent 'rodexpert' with JIT compiler
+2026/05/19 14:58:00.870323 [INFO] Registered user agent 'securityauditor' with JIT compiler
+2026/05/19 14:58:00.871884 [INFO] Registered user agent 'testarchitect' with JIT compiler
+2026/05/19 14:58:00.871884 [INFO] Registered 7 user-defined agents
+2026/05/19 14:58:00.873029 [INFO] Compressor initialized with params: budget=1048576 tokens, threshold=80%, window=24 turns, target_ratio=100.0:1
+2026/05/19 14:58:00.873029 [DEBUG] Token allocation: core=5% (52428), atoms=25% (262144), history=20% (209715), working=50% (524288)
+2026/05/19 15:01:48.685144 [INFO] Resetting compressor state
+2026/05/19 15:01:48.685144 [INFO] Compressor reset complete, new session: session_1779217308
+2026/05/19 15:01:58.310807 [DEBUG] GetHighActivationFacts: 16029 input facts, budget=262144 tokens
+2026/05/19 15:01:58.310807 [DEBUG] Scoring 16029 facts with intent: <none>
+2026/05/19 15:01:58.458847 [DEBUG] Activation scoring: top_score=80.0, above_threshold=16029/16029
+2026/05/19 15:01:58.458847 [DEBUG] ScoreFacts completed in 148.0396ms
+2026/05/19 15:01:58.459868 [DEBUG] FilterByThreshold: 16029 input, 16029 passed (≥30.0), 0 pruned
+2026/05/19 15:01:58.461884 [DEBUG] FilterByThreshold: 16029 input, 16029 passed (≥30.0), 0 pruned
+2026/05/19 15:01:58.467441 [DEBUG] SelectWithinBudget: 16029 input → 16029 above threshold (30.0) → 4921 selected (262141/262144 tokens)
+2026/05/19 15:01:58.467441 [DEBUG] GetHighActivationFacts: selected 4921 high-activation facts
+2026/05/19 15:01:58.467441 [DEBUG] GetHighActivationFacts completed in 156.6338ms
+2026/05/19 15:01:58.484704 [DEBUG] Budget recalculated: core=48, atoms=237626, history=0, recent=0, working=0 (total=237674)
+2026/05/19 15:01:58.484704 [DEBUG] RecalcBudget completed in 9.7989194s
+2026/05/19 15:02:13.504096 [DEBUG] Getting compressed state for persistence
+2026/05/19 15:02:17.093135 [DEBUG] GetHighActivationFacts: 16224 input facts, budget=262144 tokens
+2026/05/19 15:02:17.093135 [DEBUG] Scoring 16224 facts with intent: <none>
+2026/05/19 15:02:17.259541 [DEBUG] Activation scoring: top_score=80.0, above_threshold=16224/16224
+2026/05/19 15:02:17.259541 [DEBUG] ScoreFacts completed in 166.4053ms
+2026/05/19 15:02:17.261333 [DEBUG] FilterByThreshold: 16224 input, 16224 passed (≥30.0), 0 pruned
+2026/05/19 15:02:17.263373 [DEBUG] FilterByThreshold: 16224 input, 16224 passed (≥30.0), 0 pruned
+2026/05/19 15:02:17.268541 [DEBUG] SelectWithinBudget: 16224 input → 16224 above threshold (30.0) → 4918 selected (262138/262144 tokens)
+2026/05/19 15:02:17.268541 [DEBUG] GetHighActivationFacts: selected 4918 high-activation facts
+2026/05/19 15:02:17.268541 [DEBUG] GetHighActivationFacts completed in 175.4054ms
+2026/05/19 15:02:17.268541 [DEBUG] State: turn=0, recent=0, segments=0, hot_facts=4918

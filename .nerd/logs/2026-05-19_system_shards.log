@@ -1,0 +1,62 @@
+2026/05/19 14:58:06.370706 [INFO] [ConstitutionGate] Initializing constitution gate shard (SAFETY-CRITICAL)
+2026/05/19 14:58:06.370706 [INFO] [BaseSystemShard] Creating shard: id=constitution_gate, mode=auto
+2026/05/19 14:58:06.371214 [DEBUG] [ConstitutionGate] Config: strict_mode=true, escalate_on_ambiguity=true, allowed_domains=5, dangerous_patterns=8
+2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] Parent kernel attached
+2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] VirtualStore attached
+2026/05/19 14:58:06.371214 [DEBUG] [constitution_gate] PromptAssembler attached
+2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] Parent kernel attached
+2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] VirtualStore attached
+2026/05/19 14:58:10.306939 [INFO] [ConstitutionGate] Starting safety enforcement loop
+2026/05/19 14:58:10.306939 [DEBUG] [constitution_gate] State transition: idle -> running
+2026/05/19 14:58:17.054711 [INFO] [PerceptionFirewall] Initializing perception firewall shard
+2026/05/19 14:58:17.054711 [INFO] [BaseSystemShard] Creating shard: id=perception_firewall, mode=auto
+2026/05/19 14:58:17.054711 [DEBUG] [PerceptionFirewall] Config: confidence_threshold=0.85, ambiguity_threshold=0.70, queue_size=100
+2026/05/19 14:58:17.054711 [DEBUG] [perception_firewall] Parent kernel attached
+2026/05/19 14:58:17.054711 [DEBUG] [perception_firewall] VirtualStore attached
+2026/05/19 14:58:22.364166 [DEBUG] [perception_firewall] Learning store attached, loading patterns...
+2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 0 success patterns
+2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 1 failure patterns
+2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loaded 0 correction patterns
+2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] Loading learned patterns completed in 9.8691ms
+2026/05/19 14:58:22.374035 [DEBUG] [perception_firewall] PromptAssembler attached
+2026/05/19 14:58:22.374581 [INFO] [PerceptionFirewall] PromptAssembler attached (JIT ready: true)
+2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] Parent kernel attached
+2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] VirtualStore attached
+2026/05/19 14:58:26.363734 [INFO] [PerceptionFirewall] Starting continuous parsing loop
+2026/05/19 14:58:26.363734 [DEBUG] [perception_firewall] State transition: idle -> running
+2026/05/19 14:58:32.904411 [INFO] [MangleRepair] Initializing mangle repair shard
+2026/05/19 14:58:32.904411 [INFO] [BaseSystemShard] Creating shard: id=mangle_repair, mode=auto
+2026/05/19 14:58:32.904411 [DEBUG] [mangle_repair] Parent kernel attached
+2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PromptAssembler attached
+2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PredicateCorpus attached
+2026/05/19 14:58:32.904411 [INFO] [MangleRepair] PredicateSelector initialized
+2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] Parent kernel attached
+2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] VirtualStore attached
+2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] State transition: idle -> running
+2026/05/19 14:58:48.128237 [DEBUG] [MangleRepair] Ignoring system_start task
+2026/05/19 14:58:48.128237 [DEBUG] [mangle_repair] State transition: running -> completed
+2026/05/19 14:58:48.128237 [DEBUG] [MangleRepair] Execute completed in 0s
+2026/05/19 14:58:54.944726 [INFO] [ExecutivePolicy] Initializing executive policy shard
+2026/05/19 14:58:54.944726 [INFO] [BaseSystemShard] Creating shard: id=executive_policy, mode=auto
+2026/05/19 14:58:54.944726 [DEBUG] [ExecutivePolicy] Config: tick_interval=100ms, strict_barriers=true, max_actions=5
+2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] Parent kernel attached
+2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] VirtualStore attached
+2026/05/19 14:58:54.944726 [DEBUG] [executive_policy] PromptAssembler attached
+2026/05/19 14:59:01.556894 [DEBUG] [executive_policy] Parent kernel attached
+2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] VirtualStore attached
+2026/05/19 14:59:01.557437 [INFO] [ExecutivePolicy] Starting OODA decision loop
+2026/05/19 14:59:01.557437 [DEBUG] [ExecutivePolicy] FeedbackLoop validation budget reset at session start
+2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] State transition: idle -> running
+2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] GlassBox event bus attached
+2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] ToolEventBus attached
+2026/05/19 14:59:01.557437 [DEBUG] [mangle_repair] ToolStore attached
+2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] GlassBox event bus attached
+2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] ToolEventBus attached
+2026/05/19 14:59:01.557437 [DEBUG] [ExecutivePolicy] Clearing stale intent facts from previous sessions
+2026/05/19 14:59:01.557437 [DEBUG] [executive_policy] ToolStore attached
+2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] GlassBox event bus attached
+2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] ToolEventBus attached
+2026/05/19 14:59:01.557437 [DEBUG] [constitution_gate] ToolStore attached
+2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] GlassBox event bus attached
+2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] ToolEventBus attached
+2026/05/19 14:59:01.557437 [DEBUG] [perception_firewall] ToolStore attached

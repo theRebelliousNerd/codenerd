@@ -1,0 +1,22 @@
+2026/05/19 14:57:39.738324 [INFO] === codeNERD Logging System Initialized ===
+2026/05/19 14:57:39.738847 [INFO] Workspace: C:\CodeProjects\codeNERD
+2026/05/19 14:57:39.738847 [INFO] Logs directory: C:\CodeProjects\codeNERD\.nerd\logs
+2026/05/19 14:57:39.738847 [INFO] Debug mode: true
+2026/05/19 14:57:39.738847 [INFO] Log level: debug
+2026/05/19 14:57:39.738847 [INFO] All categories enabled (no category filter)
+2026/05/19 14:57:39.738847 [INFO] Loading config... (0.0s)
+2026/05/19 14:57:39.739368 [INFO] Initializing sparse retriever... (0.0s)
+2026/05/19 14:57:39.739368 [INFO] Booting shared backend... (0.0s)
+2026/05/19 14:58:00.873029 [INFO] Initializing context compressor... (21.1s)
+2026/05/19 14:58:00.874107 [INFO] Initializing context feedback store... (21.1s)
+2026/05/19 14:58:00.881354 [INFO] Starting autopoiesis listener... (21.1s)
+2026/05/19 14:58:22.365677 [INFO] Initializing task verifier... (42.6s)
+2026/05/19 14:58:22.365677 [INFO] Initializing ToolStore... (42.6s)
+2026/05/19 14:59:01.557437 [INFO] Initializing Prompt Evolution... (81.8s)
+2026/05/19 14:59:01.575168 [INFO] Hydrating tools from .nerd/tools/... (81.8s)
+2026/05/19 15:01:42.037561 [INFO] Hydrating session state... (242.3s)
+2026/05/19 15:01:48.671304 [INFO] Starting Mangle watcher... (248.9s)
+2026/05/19 15:01:48.674570 [INFO] Setting up observers... (248.9s)
+2026/05/19 15:01:48.684019 [INFO] Setting up consultation protocol... (248.9s)
+2026/05/19 15:02:17.333282 [DEBUG] LLM health check: provider=gemini model=gemini-3.1-flash-lite project=codeNERD
+2026/05/19 15:02:21.509254 [DEBUG] LLM health check succeeded: provider=gemini model=gemini-3.1-flash-lite response_len=1313

@@ -1,0 +1,22 @@
+2026/05/19 14:57:39.825291 [INFO] [Transducer] Using GeminiThinkingTransducer (thinking mode enabled, level=high)
+2026/05/19 14:57:40.022144 [INFO] Initializing perception layer components
+2026/05/19 14:57:40.022144 [DEBUG] Embedding config: provider=genai
+2026/05/19 14:57:40.022144 [INFO] Initializing shared SemanticClassifier
+2026/05/19 14:57:40.022144 [INFO] Initializing SemanticClassifier from config
+2026/05/19 14:57:40.023150 [DEBUG] Embedding engine created: genai:gemini-embedding-001 (dimensions=3072)
+2026/05/19 14:57:40.023150 [INFO] Loading embedded corpus store (dimensions=3072)
+2026/05/19 14:57:40.023150 [DEBUG] Embedded corpus store initialized (entries=0)
+2026/05/19 14:57:40.023150 [DEBUG] NewEmbeddedCorpusStore completed in 0s
+2026/05/19 14:57:50.490122 [DEBUG] Hydrated embedded intent corpus from kernel: added=779
+2026/05/19 14:57:50.490122 [INFO] Loading learned corpus store (dimensions=3072)
+2026/05/19 14:57:50.498679 [DEBUG] Learned corpus store initialized with DB backend (path=C:\CodeProjects\codeNERD\.nerd\learned_patterns.db)
+2026/05/19 14:57:50.498679 [DEBUG] NewLearnedCorpusStore completed in 8.557ms
+2026/05/19 14:57:50.498679 [INFO] SemanticClassifier initialized successfully (embedded=true, learned=true)
+2026/05/19 14:57:50.498679 [DEBUG] NewSemanticClassifierFromConfig completed in 10.4765347s
+2026/05/19 14:57:50.498679 [INFO] Shared SemanticClassifier initialized successfully
+2026/05/19 14:57:50.498679 [INFO] SemanticClassifier initialized successfully
+2026/05/19 14:57:50.498679 [INFO] Perception layer initialization complete
+2026/05/19 14:57:50.498679 [DEBUG] InitPerceptionLayer completed in 10.4765347s
+2026/05/19 15:02:17.333823 [DEBUG] [Gemini] CompleteWithSystem: model=gemini-3.1-flash-lite system_len=502 user_len=149
+2026/05/19 15:02:21.508237 [DEBUG] [Gemini] CompleteWithSystem: thinking_len=1141 thoughtSummary=0 chars
+2026/05/19 15:02:21.508237 [INFO] [Gemini] CompleteWithSystem: completed in 4.174414s response_len=1313 thinking_tokens=578 thinking_chars=1141 grounding_sources=0

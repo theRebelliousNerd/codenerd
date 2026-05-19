@@ -1,0 +1,4 @@
+2026/05/19 15:01:48.685144 [INFO] Creating DreamLearningCollector
+2026/05/19 15:01:48.685144 [INFO] Creating DreamRouter
+2026/05/19 15:01:48.685144 [DEBUG] DreamRouter: Ouroboros queue connected
+2026/05/19 15:01:48.685144 [INFO] Creating DreamPlanManager

@@ -1,0 +1,476 @@
+2026/05/19 14:57:57.071626 [INFO] Initializing Autopoiesis Orchestrator
+2026/05/19 14:57:57.071626 [DEBUG] Config: ToolsDir=C:\CodeProjects\codeNERD\.nerd\tools, AgentsDir=C:\CodeProjects\codeNERD\.nerd\agents, MinConfidence=0.60
+2026/05/19 14:57:57.071626 [DEBUG] Target: OS=windows, Arch=amd64
+2026/05/19 14:57:57.071626 [DEBUG] Creating ToolGenerator
+2026/05/19 14:57:57.071626 [DEBUG] Creating ToolGenerator: toolsDir=C:\CodeProjects\codeNERD\.nerd\tools
+2026/05/19 14:57:57.071626 [DEBUG] Creating ProfileStore: C:\CodeProjects\codeNERD\.nerd\tools\.profiles
+2026/05/19 14:57:57.072187 [DEBUG] Creating subsystems: ComplexityAnalyzer, PersistenceAnalyzer, AgentCreator
+2026/05/19 14:57:57.072187 [INFO] Initializing Ouroboros Loop
+2026/05/19 14:57:57.072187 [DEBUG] Config: ToolsDir=C:\CodeProjects\codeNERD\.nerd\tools, CompiledDir=C:\CodeProjects\codeNERD\.nerd\tools\.compiled, WorkspaceRoot=C:\CodeProjects\codeNERD
+2026/05/19 14:57:57.072187 [DEBUG] Initializing Mangle engine for state machine
+2026/05/19 14:57:57.072187 [DEBUG] Mangle engine initialized successfully
+2026/05/19 14:57:57.072187 [DEBUG] Creating ToolGenerator: toolsDir=C:\CodeProjects\codeNERD\.nerd\tools
+2026/05/19 14:57:57.072187 [DEBUG] Creating SafetyChecker: AllowFileSystem=true, AllowNetworking=false, AllowExec=true
+2026/05/19 14:57:57.072187 [INFO] SafetyChecker initialized with 27 allowed packages
+2026/05/19 14:57:57.072187 [DEBUG] Allowed packages: [bufio bytes context encoding/base64 encoding/hex encoding/json errors fmt io io/ioutil log math math/big net/url os os/exec path path/filepath regexp sort strconv strings sync sync/atomic time unicode unicode/utf8]
+2026/05/19 14:57:57.072187 [INFO] Initializing Adversarial Co-Evolution components (Thunderdome enabled)
+2026/05/19 14:57:57.072187 [INFO] Creating PanicMaker with config: maxAttacks=5, resourceAttacks=true, concurrencyAttacks=true
+2026/05/19 14:57:57.072187 [INFO] Initializing Thunderdome: timeout=5s, maxMemory=100MB, parallel=1
+2026/05/19 14:57:57.072729 [DEBUG] Restoring tool registry from disk
+2026/05/19 14:57:57.084680 [INFO] Restored 5 tools from registry
+2026/05/19 14:57:57.084680 [DEBUG] Loading state machine rules from embedded core
+2026/05/19 14:57:57.084680 [WARN] Failed to get embedded state.mg: open defaults/state.mg: file does not exist. Operating in open-loop mode
+2026/05/19 14:57:57.084680 [INFO] Ouroboros Loop initialized: TargetOS=windows, TargetArch=amd64
+2026/05/19 14:57:57.084680 [DEBUG] NewOuroborosLoop completed in 12.4934ms
+2026/05/19 14:57:57.084680 [DEBUG] Creating PatternDetector
+2026/05/19 14:57:57.084680 [DEBUG] Creating ToolRefiner
+2026/05/19 14:57:57.084680 [DEBUG] Creating LearningStore: path=C:\CodeProjects\codeNERD\.nerd\tools\.learnings
+2026/05/19 14:57:57.084680 [INFO] LearningStore initialized with 5 existing learnings
+2026/05/19 14:57:57.086297 [INFO] Gemini grounding enabled for autopoiesis (Google Search active)
+2026/05/19 14:57:57.086297 [DEBUG] Gemini thinking mode active for autopoiesis (level=high)
+2026/05/19 14:57:57.086297 [INFO] ToolGenerator: Injected learnings context (258 bytes)
+2026/05/19 14:57:57.086297 [INFO] ToolGenerator: Injected learnings context (258 bytes)
+2026/05/19 14:57:57.086297 [INFO] Autopoiesis Orchestrator initialized successfully
+2026/05/19 14:57:57.086297 [DEBUG] NewOrchestrator completed in 15.2049ms
+2026/05/19 14:57:57.086297 [INFO] Syncing 5 existing tools to kernel
+2026/05/19 14:57:58.497417 [DEBUG] Kernel sync complete: 5 tools registered
+2026/05/19 14:58:00.845294 [INFO] JIT prompt compilation enabled for ToolGenerator
+2026/05/19 14:58:00.845294 [INFO] JIT prompt compilation enabled for ToolRefiner
+2026/05/19 14:58:00.845294 [INFO] JIT prompt compiler attached to autopoiesis orchestrator
+2026/05/19 14:58:00.881354 [INFO] Starting kernel delegation listener (poll interval: 2s)
+2026/05/19 14:58:02.881846 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:03.646572 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:04.881669 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:05.042389 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:06.881751 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:07.673493 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:08.881673 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:08.982188 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:10.881661 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:11.643320 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:12.881759 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:12.986962 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:14.881559 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:15.739773 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:16.881411 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:17.054711 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:18.881886 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:19.758165 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:20.881454 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:21.071393 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:22.881633 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:23.699908 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:24.881454 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:25.044369 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:26.881808 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:27.659718 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:28.881766 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:28.990001 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:30.881784 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:31.581904 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:32.881415 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:32.904411 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:34.881757 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:35.713003 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:36.881895 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:37.059164 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:38.881692 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:39.751058 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:40.882358 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:41.076119 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:42.881474 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:43.927330 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:44.881810 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:45.363116 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:46.881684 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:48.128237 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:48.881704 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:49.561862 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:50.881672 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:50.910708 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:52.881679 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:53.589341 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:54.881743 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:54.944726 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:56.881596 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:57.601837 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:58:58.881778 [DEBUG] Processing kernel delegations
+2026/05/19 14:58:58.912489 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:00.881442 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:01.557437 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:01.565458 [INFO] FeedbackCollector initialized: path=C:\CodeProjects\codeNERD\.nerd\prompts\evolution.db, recorded=0, failures=0
+2026/05/19 14:59:01.574105 [INFO] StrategyStore initialized: path=C:\CodeProjects\codeNERD\.nerd\prompts\strategies.db
+2026/05/19 14:59:01.574650 [INFO] Default strategies seeded: 6 strategies
+2026/05/19 14:59:01.574650 [DEBUG] Creating TaskJudge with model: gemini-3-pro
+2026/05/19 14:59:01.575168 [INFO] Loaded 0 evolved atoms from disk
+2026/05/19 14:59:01.575168 [INFO] PromptEvolver initialized: dir=C:\CodeProjects\codeNERD\.nerd, config=&{MinFailuresForEvolution:3 EvolutionInterval:10m0s MaxAtomsPerEvolution:3 ConfidenceThreshold:0.7 AutoPromote:true EnableStrategies:true StrategyRefineThreshold:10 JudgeModel:gemini-3-pro}
+2026/05/19 14:59:02.881604 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:02.910373 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:04.881881 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:05.722054 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:06.881697 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:07.095704 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:08.881694 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:09.726714 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:10.881939 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:11.054407 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:12.881446 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:13.745846 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:14.881643 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:15.071413 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:16.881596 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:17.777027 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:18.881923 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:19.273981 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:20.881451 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:20.904076 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:22.881685 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:24.059795 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:24.881689 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:25.649786 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:26.881626 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:27.343436 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:28.881912 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:28.953469 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:30.881543 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:31.651052 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:32.881849 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:33.011608 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:34.881698 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:35.838345 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:36.881513 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:37.184712 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:38.881550 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:39.877649 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:40.881676 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:41.228602 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:42.881939 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:43.974923 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:44.881578 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:45.333978 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:46.881452 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:48.096884 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:48.881723 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:49.621153 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:50.881473 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:51.004611 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:52.881632 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:53.656681 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:54.881756 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:54.956052 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:56.881511 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:57.745047 [DEBUG] Found 0 delegate_task facts
+2026/05/19 14:59:58.881883 [DEBUG] Processing kernel delegations
+2026/05/19 14:59:59.203069 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:00.881859 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:02.024229 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:02.881513 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:03.523785 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:04.881888 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:04.917889 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:06.881842 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:07.924450 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:08.881747 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:09.321793 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:10.881820 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:12.046479 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:12.882158 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:13.477306 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:14.885053 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:16.260785 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:16.881477 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:17.688259 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:18.881857 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:19.100358 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:20.881586 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:21.953137 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:22.881653 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:23.395843 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:24.881587 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:26.112624 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:26.881731 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:27.497114 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:28.881768 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:30.232218 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:30.881555 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:31.640300 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:32.881846 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:34.531040 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:34.881698 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:35.942502 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:36.881464 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:37.394015 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:38.881814 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:40.166052 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:40.881506 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:41.548069 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:42.881435 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:42.924753 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:44.881686 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:45.772648 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:46.881489 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:47.128406 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:48.882428 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:49.982549 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:50.881673 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:51.369419 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:52.881672 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:54.108232 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:54.881400 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:55.531958 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:56.881897 [DEBUG] Processing kernel delegations
+2026/05/19 15:00:56.905124 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:00:58.881825 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:01.029617 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:01.029617 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:02.425282 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:02.881706 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:03.847775 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:04.881466 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:05.304959 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:06.881535 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:08.135418 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:08.881457 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:09.502115 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:10.881494 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:10.943323 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:12.881601 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:13.815518 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:14.881702 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:15.190860 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:16.881800 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:18.044850 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:18.881905 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:19.470935 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:20.881657 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:22.245485 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:22.881440 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:23.642333 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:24.881419 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:24.978410 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:26.881430 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:27.665271 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:28.881813 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:29.093821 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:30.881863 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:32.206219 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:32.881389 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:34.088542 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:34.881586 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:37.338373 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:37.338373 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:38.818766 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:38.881488 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:40.346661 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:40.881908 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:42.037561 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:42.881633 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:43.831785 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:44.881729 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:45.417266 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:46.881649 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:46.963606 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:48.881540 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:50.388409 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:50.881847 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:51.994498 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:52.881778 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:53.520153 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:54.881622 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:55.127480 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:56.881937 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:58.236661 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:01:58.881555 [DEBUG] Processing kernel delegations
+2026/05/19 15:01:59.914980 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:00.881815 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:01.489471 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:02.881574 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:03.115790 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:04.881445 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:04.902512 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:06.881764 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:08.328088 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:08.881527 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:10.006376 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:10.881568 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:11.729448 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:12.881665 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:13.501041 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:14.884721 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:15.354048 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:16.881638 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:17.093135 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:18.881717 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:20.136067 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:20.881388 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:21.524127 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:22.881854 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:22.883952 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:24.881536 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:25.716461 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:26.881666 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:27.275616 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:28.881410 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:29.977980 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:30.881418 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:31.313758 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:32.881638 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:34.238884 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:34.881684 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:35.699573 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:36.881610 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:37.121119 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:38.881445 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:39.921120 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:40.881420 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:41.261251 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:42.881574 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:44.134081 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:44.881814 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:45.493075 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:46.881891 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:48.258601 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:48.881884 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:49.693135 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:50.881491 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:51.081218 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:52.881726 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:53.797970 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:54.881655 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:55.163235 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:56.881490 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:57.916559 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:02:58.881761 [DEBUG] Processing kernel delegations
+2026/05/19 15:02:59.262985 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:00.881733 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:01.901683 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:02.881489 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:03.221064 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:04.881587 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:05.928299 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:06.881671 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:07.494330 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:08.881601 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:09.047312 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:10.882252 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:12.068811 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:12.881523 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:13.632523 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:14.881672 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:15.172422 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:16.882032 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:18.253821 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:18.881510 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:19.814494 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:20.881524 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:21.378952 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:22.881949 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:24.391794 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:24.881588 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:25.913801 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:26.881498 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:27.442525 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:28.881734 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:29.019837 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:30.881680 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:32.091634 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:32.881676 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:33.638000 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:34.881490 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:35.236173 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:36.881698 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:38.401678 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:38.881455 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:39.949786 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:40.881458 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:41.557349 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:42.881579 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:43.103292 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:44.881885 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:46.265407 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:46.881552 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:47.815616 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:48.881581 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:49.502025 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:50.881769 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:51.086278 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:52.881870 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:54.137200 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:54.881892 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:55.640286 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:56.881887 [DEBUG] Processing kernel delegations
+2026/05/19 15:03:57.126972 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:03:58.881564 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:00.193068 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:00.881462 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:01.725733 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:02.881816 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:03.290537 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:04.881716 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:04.891441 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:06.881573 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:08.125652 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:08.881494 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:09.670780 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:10.885098 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:11.212083 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:12.881751 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:14.287504 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:14.881594 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:15.764028 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:16.881540 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:17.219171 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:18.881566 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:20.303044 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:20.881441 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:21.851574 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:22.881882 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:23.400596 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:24.881446 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:26.363509 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:26.881572 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:27.817428 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:28.881438 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:29.355966 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:30.881509 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:32.394124 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:32.881879 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:33.959634 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:34.881579 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:35.570795 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:36.881829 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:37.325204 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:38.881691 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:40.483923 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:40.881811 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:41.839683 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:42.881757 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:43.157199 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:44.881694 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:47.361851 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:47.361851 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:48.784593 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:48.881702 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:50.219753 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:50.882706 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:51.579866 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:52.881674 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:54.142729 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:54.881722 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:55.477240 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:56.881848 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:58.060575 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:04:58.881697 [DEBUG] Processing kernel delegations
+2026/05/19 15:04:59.381416 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:00.881780 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:02.001985 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:02.881702 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:03.377994 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:04.881801 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:06.025420 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:06.881636 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:07.363440 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:08.881670 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:09.965421 [DEBUG] Found 0 delegate_task facts
+2026/05/19 15:05:10.881373 [DEBUG] Processing kernel delegations
+2026/05/19 15:05:11.368655 [DEBUG] Found 0 delegate_task facts

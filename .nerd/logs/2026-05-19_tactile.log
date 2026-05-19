@@ -1,0 +1,12 @@
+2026/05/19 14:57:52.055299 [DEBUG] Creating new DirectExecutor with default config
+2026/05/19 14:57:52.055299 [DEBUG] Creating DirectExecutor with config: timeout=30s, maxOutput=10485760 bytes
+2026/05/19 14:57:52.056351 [INFO] Initializing CompositeExecutor
+2026/05/19 14:57:52.056351 [DEBUG] Registering DirectExecutor for sandbox mode: none
+2026/05/19 14:57:52.056351 [DEBUG] Creating DirectExecutor with config: timeout=30s, maxOutput=10485760 bytes
+2026/05/19 14:57:52.056351 [DEBUG] Creating new DockerExecutor with default config
+2026/05/19 14:57:52.056351 [DEBUG] Creating DockerExecutor with custom config
+2026/05/19 14:57:52.056351 [DEBUG] Detecting Docker availability
+2026/05/19 14:57:52.062594 [DEBUG] Docker binary found: C:\Program Files\Docker\Docker\resources\bin\docker.exe
+2026/05/19 14:57:57.067330 [WARN] Docker found but not responsive: exit status 1
+2026/05/19 14:57:57.067330 [DEBUG] Docker not available, skipping DockerExecutor registration
+2026/05/19 14:57:57.067330 [INFO] CompositeExecutor initialized with 1 executors

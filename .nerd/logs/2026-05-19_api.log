@@ -1,0 +1,2 @@
+2026/05/19 15:02:17.333823 [INFO] LLM call started: shard= type= prompt_len=149
+2026/05/19 15:02:21.509254 [INFO] LLM call completed: shard= duration=4.1749555s response_len=1313

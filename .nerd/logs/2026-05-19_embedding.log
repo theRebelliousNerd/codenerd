@@ -1,0 +1,112 @@
+2026/05/19 14:57:40.023150 [INFO] Creating embedding engine with provider=genai
+2026/05/19 14:57:40.023150 [DEBUG] Engine config: provider=genai, ollama_endpoint=http://localhost:11434, ollama_model=nomic-embed-text, genai_model=gemini-embedding-001, task_type=RETRIEVAL_QUERY
+2026/05/19 14:57:40.023150 [INFO] Initializing GenAI embedding engine: model=gemini-embedding-001, task_type=RETRIEVAL_QUERY
+2026/05/19 14:57:40.023150 [INFO] Creating GenAI embedding engine
+2026/05/19 14:57:40.023150 [DEBUG] GenAI API key provided (length=39)
+2026/05/19 14:57:40.023150 [INFO] Initializing GenAI client: model=gemini-embedding-001, task_type=RETRIEVAL_QUERY
+2026/05/19 14:57:40.023150 [INFO] GenAI client created successfully in 0s
+2026/05/19 14:57:40.023150 [DEBUG] NewGenAIEngine completed in 0s
+2026/05/19 14:57:40.023150 [INFO] Embedding engine created successfully: name=genai:gemini-embedding-001, dimensions=3072
+2026/05/19 14:57:40.023150 [DEBUG] NewEngine completed in 1.0053ms
+2026/05/19 14:57:40.023150 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 14:57:40.023150 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:40.023150 [INFO] GenAI.EmbedBatch: starting native batch embed for 779 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:40.023150 [DEBUG] GenAI.EmbedBatch: total input size=21209 chars across 779 texts
+2026/05/19 14:57:40.023150 [INFO] GenAI.EmbedBatch: chunking 779 texts into 8 batches of up to 100 items
+2026/05/19 14:57:40.023150 [DEBUG] GenAI.EmbedBatch: processing batch 1/8 with 100 texts (indices 0-99)
+2026/05/19 14:57:40.023150 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:41.480949 [DEBUG] GenAI.embedBatchChunk: API response received in 1.4577997s, got 100 embeddings
+2026/05/19 14:57:41.480949 [DEBUG] GenAI.EmbedBatch: processing batch 2/8 with 100 texts (indices 100-199)
+2026/05/19 14:57:41.480949 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:42.795482 [DEBUG] GenAI.embedBatchChunk: API response received in 1.314533s, got 100 embeddings
+2026/05/19 14:57:42.795482 [DEBUG] GenAI.EmbedBatch: processing batch 3/8 with 100 texts (indices 200-299)
+2026/05/19 14:57:42.795482 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:44.082645 [DEBUG] GenAI.embedBatchChunk: API response received in 1.287163s, got 100 embeddings
+2026/05/19 14:57:44.083655 [DEBUG] GenAI.EmbedBatch: processing batch 4/8 with 100 texts (indices 300-399)
+2026/05/19 14:57:44.083655 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:45.329094 [DEBUG] GenAI.embedBatchChunk: API response received in 1.2454386s, got 100 embeddings
+2026/05/19 14:57:45.329094 [DEBUG] GenAI.EmbedBatch: processing batch 5/8 with 100 texts (indices 400-499)
+2026/05/19 14:57:45.330098 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:46.685846 [DEBUG] GenAI.embedBatchChunk: API response received in 1.355748s, got 100 embeddings
+2026/05/19 14:57:46.685846 [DEBUG] GenAI.EmbedBatch: processing batch 6/8 with 100 texts (indices 500-599)
+2026/05/19 14:57:46.685846 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:48.084313 [DEBUG] GenAI.embedBatchChunk: API response received in 1.3984667s, got 100 embeddings
+2026/05/19 14:57:48.084858 [DEBUG] GenAI.EmbedBatch: processing batch 7/8 with 100 texts (indices 600-699)
+2026/05/19 14:57:48.084858 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 100 contents
+2026/05/19 14:57:49.473476 [DEBUG] GenAI.embedBatchChunk: API response received in 1.388618s, got 100 embeddings
+2026/05/19 14:57:49.473476 [DEBUG] GenAI.EmbedBatch: processing batch 8/8 with 79 texts (indices 700-778)
+2026/05/19 14:57:49.473476 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 79 contents
+2026/05/19 14:57:50.489117 [DEBUG] GenAI.embedBatchChunk: API response received in 1.0156413s, got 79 embeddings
+2026/05/19 14:57:50.489117 [INFO] GenAI.EmbedBatch: completed successfully, processed 779 texts in 8 batches, dimensions=3072
+2026/05/19 14:57:50.489117 [DEBUG] GenAI.EmbedBatch completed in 10.4659677s
+2026/05/19 14:57:58.497417 [INFO] Creating embedding engine with provider=genai
+2026/05/19 14:57:58.497417 [DEBUG] Engine config: provider=genai, ollama_endpoint=http://localhost:11434, ollama_model=nomic-embed-text, genai_model=gemini-embedding-001, task_type=SEMANTIC_SIMILARITY
+2026/05/19 14:57:58.497417 [INFO] Initializing GenAI embedding engine: model=gemini-embedding-001, task_type=SEMANTIC_SIMILARITY
+2026/05/19 14:57:58.497417 [INFO] Creating GenAI embedding engine
+2026/05/19 14:57:58.497417 [DEBUG] GenAI API key provided (length=39)
+2026/05/19 14:57:58.497417 [INFO] Initializing GenAI client: model=gemini-embedding-001, task_type=SEMANTIC_SIMILARITY
+2026/05/19 14:57:58.497417 [INFO] GenAI client created successfully in 0s
+2026/05/19 14:57:58.497417 [DEBUG] NewGenAIEngine completed in 0s
+2026/05/19 14:57:58.497417 [INFO] Embedding engine created successfully: name=genai:gemini-embedding-001, dimensions=3072
+2026/05/19 14:57:58.497417 [DEBUG] NewEngine completed in 0s
+2026/05/19 14:57:58.507693 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:57:58.507693 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:58.507693 [INFO] GenAI.EmbedBatch: starting native batch embed for 4 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:58.507693 [DEBUG] GenAI.EmbedBatch: total input size=2681 chars across 4 texts
+2026/05/19 14:57:58.507693 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 4 contents
+2026/05/19 14:57:58.794516 [DEBUG] GenAI.embedBatchChunk: API response received in 286.8236ms, got 4 embeddings
+2026/05/19 14:57:58.794516 [DEBUG] GenAI.EmbedBatch completed in 286.8236ms
+2026/05/19 14:57:58.808269 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:57:58.808269 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:58.808269 [INFO] GenAI.EmbedBatch: starting native batch embed for 4 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:58.808269 [DEBUG] GenAI.EmbedBatch: total input size=2677 chars across 4 texts
+2026/05/19 14:57:58.808269 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 4 contents
+2026/05/19 14:57:59.102933 [DEBUG] GenAI.embedBatchChunk: API response received in 294.6646ms, got 4 embeddings
+2026/05/19 14:57:59.102933 [DEBUG] GenAI.EmbedBatch completed in 294.6646ms
+2026/05/19 14:57:59.117401 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:57:59.117401 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:59.117401 [INFO] GenAI.EmbedBatch: starting native batch embed for 5 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:59.117401 [DEBUG] GenAI.EmbedBatch: total input size=3207 chars across 5 texts
+2026/05/19 14:57:59.117401 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 5 contents
+2026/05/19 14:57:59.512521 [DEBUG] GenAI.embedBatchChunk: API response received in 395.1199ms, got 5 embeddings
+2026/05/19 14:57:59.512521 [DEBUG] GenAI.EmbedBatch completed in 395.1199ms
+2026/05/19 14:57:59.529222 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:57:59.529222 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:59.529222 [INFO] GenAI.EmbedBatch: starting native batch embed for 5 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:59.529222 [DEBUG] GenAI.EmbedBatch: total input size=3143 chars across 5 texts
+2026/05/19 14:57:59.529222 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 5 contents
+2026/05/19 14:57:59.836573 [DEBUG] GenAI.embedBatchChunk: API response received in 307.3514ms, got 5 embeddings
+2026/05/19 14:57:59.836573 [DEBUG] GenAI.EmbedBatch completed in 307.3514ms
+2026/05/19 14:57:59.854980 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:57:59.854980 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:57:59.854980 [INFO] GenAI.EmbedBatch: starting native batch embed for 5 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:57:59.854980 [DEBUG] GenAI.EmbedBatch: total input size=3228 chars across 5 texts
+2026/05/19 14:57:59.854980 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 5 contents
+2026/05/19 14:58:00.142172 [DEBUG] GenAI.embedBatchChunk: API response received in 287.1924ms, got 5 embeddings
+2026/05/19 14:58:00.142172 [DEBUG] GenAI.EmbedBatch completed in 287.1924ms
+2026/05/19 14:58:00.157926 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:58:00.157926 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:58:00.157926 [INFO] GenAI.EmbedBatch: starting native batch embed for 5 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:58:00.157926 [DEBUG] GenAI.EmbedBatch: total input size=3378 chars across 5 texts
+2026/05/19 14:58:00.157926 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 5 contents
+2026/05/19 14:58:00.472159 [DEBUG] GenAI.embedBatchChunk: API response received in 314.2326ms, got 5 embeddings
+2026/05/19 14:58:00.472159 [DEBUG] GenAI.EmbedBatch completed in 314.2326ms
+2026/05/19 14:58:00.489334 [DEBUG] SelectTaskType: content_type=prompt_atom, is_query=false
+2026/05/19 14:58:00.489334 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 14:58:00.489334 [INFO] GenAI.EmbedBatch: starting native batch embed for 5 texts (task_type=RETRIEVAL_DOCUMENT)
+2026/05/19 14:58:00.489334 [DEBUG] GenAI.EmbedBatch: total input size=3294 chars across 5 texts
+2026/05/19 14:58:00.489334 [DEBUG] GenAI.embedBatchChunk: calling EmbedContent API with 5 contents
+2026/05/19 14:58:00.780753 [DEBUG] GenAI.embedBatchChunk: API response received in 291.4192ms, got 5 embeddings
+2026/05/19 14:58:00.780753 [DEBUG] GenAI.EmbedBatch completed in 291.4192ms
+2026/05/19 15:01:48.685144 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:01:48.685144 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 15:02:33.684888 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:02:33.684888 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 15:03:18.685046 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:03:18.685046 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 15:04:03.684633 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:04:03.684633 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 15:04:48.685031 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:04:48.685031 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT
+2026/05/19 15:05:33.684744 [DEBUG] SelectTaskType: content_type=knowledge_atom, is_query=false
+2026/05/19 15:05:33.684744 [DEBUG] SelectTaskType: selected task_type=RETRIEVAL_DOCUMENT

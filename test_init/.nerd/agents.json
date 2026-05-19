@@ -1,0 +1,26 @@
+{
+  "version": "1.5.0",
+  "created_at": "2026-03-03T21:13:48.1784228-05:00",
+  "agents": [
+    {
+      "name": "SecurityAuditor",
+      "type": "persistent",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\test_init\\.nerd\\shards\\securityauditor_knowledge.db",
+      "kb_size": 27,
+      "created_at": "2026-03-03T21:13:40.1519967-05:00",
+      "status": "ready",
+      "quality_score": 80,
+      "quality_rating": "Good"
+    },
+    {
+      "name": "TestArchitect",
+      "type": "persistent",
+      "knowledge_path": "C:\\CodeProjects\\codeNERD\\test_init\\.nerd\\shards\\testarchitect_knowledge.db",
+      "kb_size": 27,
+      "created_at": "2026-03-03T21:13:40.1606443-05:00",
+      "status": "ready",
+      "quality_score": 80,
+      "quality_rating": "Good"
+    }
+  ]
+}

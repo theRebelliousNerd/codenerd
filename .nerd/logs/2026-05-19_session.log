@@ -1,0 +1,7 @@
+2026/05/19 14:58:00.872418 [INFO] Creating new Executor
+2026/05/19 14:58:00.872418 [INFO] Creating Spawner (max active: 10)
+2026/05/19 14:58:00.872418 [INFO] JITExecutor wired in BootCortex
+2026/05/19 14:58:00.872418 [INFO] Ouroboros registry configured with 0 tools
+2026/05/19 15:01:48.616051 [INFO] Starting fresh session: session-1779217308616051000
+2026/05/19 15:02:13.502052 [INFO] saveSessionState: saving session session-1779217308616051000 with 4 messages, turnCount=0
+2026/05/19 15:02:13.504096 [INFO] Successfully saved 4 messages to session-1779217308616051000.json

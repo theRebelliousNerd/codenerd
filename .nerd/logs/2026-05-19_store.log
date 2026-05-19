@@ -1,0 +1,2054 @@
+2026/05/19 14:57:39.740970 [INFO] Initializing LocalStore at path: C:\CodeProjects\codeNERD\.nerd\knowledge.db
+2026/05/19 14:57:39.740970 [DEBUG] Created directory: C:\CodeProjects\codeNERD\.nerd
+2026/05/19 14:57:39.751795 [DEBUG] Opened SQLite database connection
+2026/05/19 14:57:39.752351 [INFO] Running schema migrations (24 pending)
+2026/05/19 14:57:39.752351 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 14:57:39.752351 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 14:57:39.752351 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: knowledge_atoms.source
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: knowledge_atoms.tags
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 14:57:39.752912 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.semantic_handle
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.handle_version
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.handle_hash
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.embedding
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.embedding_model_id
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.embedding_dim
+2026/05/19 14:57:39.752912 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 14:57:39.752912 [DEBUG] Table missing, skipping migration: learnings.embedding_task
+2026/05/19 14:57:39.752912 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 14:57:39.752912 [DEBUG] RunMigrations completed in 561.4µs
+2026/05/19 14:57:39.753968 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.753968 [DEBUG] Column exists: reasoning_traces.shard_type (type=TEXT)
+2026/05/19 14:57:39.753968 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.753968 [DEBUG] Column exists: reasoning_traces.session_id (type=TEXT)
+2026/05/19 14:57:39.753968 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.753968 [DEBUG] Column exists: reasoning_traces.shard_id (type=TEXT)
+2026/05/19 14:57:39.753968 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.753968 [DEBUG] Column exists: reasoning_traces.success (type=BOOLEAN)
+2026/05/19 14:57:39.753968 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.754485 [DEBUG] Column exists: reasoning_traces.created_at (type=DATETIME)
+2026/05/19 14:57:39.754485 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.754485 [DEBUG] Column exists: reasoning_traces.shard_category (type=TEXT)
+2026/05/19 14:57:39.754485 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.754485 [DEBUG] Column exists: reasoning_traces.descriptor_hash (type=TEXT)
+2026/05/19 14:57:39.808548 [DEBUG] Database schema initialized successfully
+2026/05/19 14:57:39.809746 [INFO] sqlite-vec extension detected and enabled
+2026/05/19 14:57:39.809746 [DEBUG] Initializing TraceStore at path: C:\CodeProjects\codeNERD\.nerd\knowledge.db
+2026/05/19 14:57:39.809746 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.809746 [DEBUG] Column exists: reasoning_traces.shard_type (type=TEXT)
+2026/05/19 14:57:39.809746 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.809746 [DEBUG] Column exists: reasoning_traces.session_id (type=TEXT)
+2026/05/19 14:57:39.810286 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.810286 [DEBUG] Column exists: reasoning_traces.shard_id (type=TEXT)
+2026/05/19 14:57:39.810286 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.810286 [DEBUG] Column exists: reasoning_traces.success (type=BOOLEAN)
+2026/05/19 14:57:39.810286 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.810286 [DEBUG] Column exists: reasoning_traces.created_at (type=DATETIME)
+2026/05/19 14:57:39.810286 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.810286 [DEBUG] Column exists: reasoning_traces.shard_category (type=TEXT)
+2026/05/19 14:57:39.810286 [DEBUG] Table reasoning_traces exists: true
+2026/05/19 14:57:39.810821 [DEBUG] Column exists: reasoning_traces.descriptor_hash (type=TEXT)
+2026/05/19 14:57:39.810821 [INFO] TraceStore initialized for self-learning persistence
+2026/05/19 14:57:39.810821 [DEBUG] TraceStore initialized for self-learning
+2026/05/19 14:57:39.810821 [DEBUG] All atoms have content_hash, no backfill needed
+2026/05/19 14:57:39.810821 [DEBUG] ensureContentHashes completed in 0s
+2026/05/19 14:57:39.810821 [INFO] LocalStore initialization complete (RAM, Vector, Graph, Cold tiers ready)
+2026/05/19 14:57:39.810821 [DEBUG] NewLocalStore completed in 70.3877ms
+2026/05/19 14:57:39.810821 [DEBUG] Loading all facts from cold storage (type filter="taxonomy")
+2026/05/19 14:57:39.815674 [DEBUG] Loaded 351 total facts from cold storage
+2026/05/19 14:57:39.815674 [DEBUG] LoadAllFacts completed in 4.8532ms
+2026/05/19 14:57:39.815674 [DEBUG] Loading all facts from cold storage (type filter="taxonomy")
+2026/05/19 14:57:39.820948 [DEBUG] Loaded 351 total facts from cold storage
+2026/05/19 14:57:39.820948 [DEBUG] LoadAllFacts completed in 5.2737ms
+2026/05/19 14:57:39.824753 [INFO] Initializing LearningStore at path: C:\CodeProjects\codeNERD\.nerd\shards
+2026/05/19 14:57:39.824753 [INFO] LearningStore initialized for Autopoiesis persistence
+2026/05/19 14:57:50.490122 [INFO] Initializing learned corpus store at: C:\CodeProjects\codeNERD\.nerd\learned_patterns.db
+2026/05/19 14:57:50.498679 [DEBUG] Initializing learned corpus schema
+2026/05/19 14:57:50.498679 [DEBUG] sqlite-vec table created with 3072 dimensions
+2026/05/19 14:57:50.498679 [DEBUG] Learned corpus schema initialized
+2026/05/19 14:57:50.498679 [DEBUG] LearnedCorpusStore.initializeSchema completed in 0s
+2026/05/19 14:57:50.498679 [INFO] Learned corpus store initialized successfully
+2026/05/19 14:57:50.498679 [DEBUG] NewLearnedCorpusStore completed in 8.557ms
+2026/05/19 14:57:50.609574 [DEBUG] LoadAllWorldFacts completed in 110.8951ms
+2026/05/19 14:57:58.497417 [INFO] Setting embedding engine: genai:gemini-embedding-001 (dimensions=3072)
+2026/05/19 14:57:58.497417 [DEBUG] Initializing sqlite-vec index with 3072 dimensions
+2026/05/19 14:57:58.497417 [INFO] sqlite-vec index initialized successfully (dimensions=3072)
+2026/05/19 14:57:58.497417 [INFO] Spawning background goroutine for vector index backfill
+2026/05/19 14:57:58.497417 [INFO] Background vector index backfill starting (dim=3072)
+2026/05/19 14:57:58.497417 [DEBUG] Starting backfill of existing embeddings into sqlite-vec index
+2026/05/19 14:57:58.733136 [INFO] Backfilling 966 embeddings into sqlite-vec index (batched transaction)
+2026/05/19 14:57:58.739825 [INFO] Backfill complete: migrated=0, skipped=0
+2026/05/19 14:57:58.739825 [INFO] Background vector index backfill completed
+2026/05/19 14:57:58.798223 [DEBUG] Agent bubbleteaexpert: stored 4 atoms in C:\CodeProjects\codeNERD\.nerd\shards\bubbleteaexpert_knowledge.db
+2026/05/19 14:57:59.106656 [DEBUG] Agent cobraexpert: stored 4 atoms in C:\CodeProjects\codeNERD\.nerd\shards\cobraexpert_knowledge.db
+2026/05/19 14:57:59.516324 [DEBUG] Agent goexpert: stored 5 atoms in C:\CodeProjects\codeNERD\.nerd\shards\goexpert_knowledge.db
+2026/05/19 14:57:59.841012 [DEBUG] Agent mangleexpert: stored 5 atoms in C:\CodeProjects\codeNERD\.nerd\shards\mangleexpert_knowledge.db
+2026/05/19 14:58:00.146555 [DEBUG] Agent rodexpert: stored 5 atoms in C:\CodeProjects\codeNERD\.nerd\shards\rodexpert_knowledge.db
+2026/05/19 14:58:00.476523 [DEBUG] Agent securityauditor: stored 5 atoms in C:\CodeProjects\codeNERD\.nerd\shards\securityauditor_knowledge.db
+2026/05/19 14:58:00.784982 [DEBUG] Agent testarchitect: stored 5 atoms in C:\CodeProjects\codeNERD\.nerd\shards\testarchitect_knowledge.db
+2026/05/19 14:58:00.788154 [INFO] Synced 7 user agents to shard databases
+2026/05/19 14:58:00.788154 [DEBUG] AgentSynchronizer.SyncAll completed in 2.2907365s
+2026/05/19 14:58:00.788154 [INFO] Loading embedded prompt corpus
+2026/05/19 14:58:00.833985 [INFO] Loaded 886 atoms from embedded corpus
+2026/05/19 14:58:00.833985 [DEBUG] LoadEmbeddedCorpus completed in 45.8314ms
+2026/05/19 14:58:00.861841 [INFO] Registered agent DB with JIT compiler: bubbleteaexpert -> C:\CodeProjects\codeNERD\.nerd\shards\bubbleteaexpert_knowledge.db
+2026/05/19 14:58:00.862373 [INFO] Registered agent DB with JIT compiler: cobraexpert -> C:\CodeProjects\codeNERD\.nerd\shards\cobraexpert_knowledge.db
+2026/05/19 14:58:00.864876 [INFO] Registered agent DB with JIT compiler: goexpert -> C:\CodeProjects\codeNERD\.nerd\shards\goexpert_knowledge.db
+2026/05/19 14:58:00.866409 [INFO] Registered agent DB with JIT compiler: mangleexpert -> C:\CodeProjects\codeNERD\.nerd\shards\mangleexpert_knowledge.db
+2026/05/19 14:58:00.868028 [INFO] Registered agent DB with JIT compiler: rodexpert -> C:\CodeProjects\codeNERD\.nerd\shards\rodexpert_knowledge.db
+2026/05/19 14:58:00.870323 [INFO] Registered agent DB with JIT compiler: securityauditor -> C:\CodeProjects\codeNERD\.nerd\shards\securityauditor_knowledge.db
+2026/05/19 14:58:00.871884 [INFO] Registered agent DB with JIT compiler: testarchitect -> C:\CodeProjects\codeNERD\.nerd\shards\testarchitect_knowledge.db
+2026/05/19 14:58:22.364166 [DEBUG] Opening learning database for shard=perception_firewall at C:\CodeProjects\codeNERD\.nerd\shards\perception_firewall_learnings.db
+2026/05/19 14:58:22.365677 [DEBUG] Initializing ToolStore at path: C:\CodeProjects\codeNERD\.nerd\tools.db
+2026/05/19 14:58:22.372594 [INFO] ToolStore initialized at C:\CodeProjects\codeNERD\.nerd\tools.db
+2026/05/19 14:58:22.372594 [INFO] Running schema migrations (24 pending)
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 14:58:22.373602 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 14:58:22.373602 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 14:58:22.373602 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 14:58:22.373602 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 14:58:22.374035 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 14:58:22.374035 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 14:58:22.374035 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 14:58:22.374035 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 14:58:22.374035 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 14:58:22.374035 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 14:58:22.374035 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 14:58:22.374035 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 14:58:22.374035 [DEBUG] RunMigrations completed in 1.4412ms
+2026/05/19 14:58:22.374035 [DEBUG] Table learnings exists: true
+2026/05/19 14:58:22.374035 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 14:58:22.374035 [DEBUG] Learning database ready for shard=perception_firewall
+2026/05/19 14:58:22.374035 [DEBUG] Loading learnings by predicate: shard=perception_firewall predicate=success_pattern
+2026/05/19 14:58:22.374035 [DEBUG] Loaded 0 learnings for predicate=success_pattern
+2026/05/19 14:58:22.374035 [DEBUG] LearningStore.LoadByPredicate completed in 9.8691ms
+2026/05/19 14:58:22.374035 [DEBUG] Loading learnings by predicate: shard=perception_firewall predicate=failure_pattern
+2026/05/19 14:58:22.374035 [DEBUG] Loaded 1 learnings for predicate=failure_pattern
+2026/05/19 14:58:22.374035 [DEBUG] LearningStore.LoadByPredicate completed in 0s
+2026/05/19 14:58:22.374035 [DEBUG] Loading learnings by predicate: shard=perception_firewall predicate=correction_pattern
+2026/05/19 14:58:22.374035 [DEBUG] Loaded 0 learnings for predicate=correction_pattern
+2026/05/19 14:58:22.374035 [DEBUG] LearningStore.LoadByPredicate completed in 0s
+2026/05/19 14:58:34.317853 [DEBUG] Computing vector store statistics
+2026/05/19 14:58:34.322463 [DEBUG] Vector stats: total=966, with_embeddings=966, engine=genai:gemini-embedding-001
+2026/05/19 14:58:34.322463 [DEBUG] GetVectorStats completed in 4.61ms
+2026/05/19 14:58:34.358081 [DEBUG] CountVectorsByMetadata completed in 34.6021ms
+2026/05/19 15:01:48.685144 [DEBUG] LoadLatestCompressedState completed in 0s
+2026/05/19 15:01:48.685784 [DEBUG] Opening learning database for shard=coder at C:\CodeProjects\codeNERD\.nerd\shards\coder_learnings.db
+2026/05/19 15:01:48.694496 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.694496 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.694496 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.694496 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.694496 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.694496 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.695029 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.695029 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.695029 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.695029 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.695029 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.695029 [DEBUG] RunMigrations completed in 532.8µs
+2026/05/19 15:01:48.695029 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.695029 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.695029 [DEBUG] Learning database ready for shard=coder
+2026/05/19 15:01:48.695549 [DEBUG] ListLearningEmbeddingCandidates completed in 520µs
+2026/05/19 15:01:48.695549 [DEBUG] Opening learning database for shard=coder_memory at C:\CodeProjects\codeNERD\.nerd\shards\coder_memory_learnings.db
+2026/05/19 15:01:48.703689 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.704213 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.704213 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.704213 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.704213 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.704213 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.704213 [DEBUG] RunMigrations completed in 523.4µs
+2026/05/19 15:01:48.704797 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.704797 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.704797 [DEBUG] Learning database ready for shard=coder_memory
+2026/05/19 15:01:48.704797 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:01:48.704797 [DEBUG] Opening learning database for shard=executive at C:\CodeProjects\codeNERD\.nerd\shards\executive_learnings.db
+2026/05/19 15:01:48.712991 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.712991 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.712991 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.712991 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.713544 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.713544 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.713544 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.713544 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.713544 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.713544 [DEBUG] RunMigrations completed in 553.4µs
+2026/05/19 15:01:48.713544 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.713544 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.713544 [DEBUG] Learning database ready for shard=executive
+2026/05/19 15:01:48.714103 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:01:48.714636 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:01:48.714636 [DEBUG] Opening learning database for shard=researcher at C:\CodeProjects\codeNERD\.nerd\shards\researcher_learnings.db
+2026/05/19 15:01:48.721876 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.721876 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.721876 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.721876 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.721876 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.721876 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.721876 [DEBUG] RunMigrations completed in 0s
+2026/05/19 15:01:48.721876 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.721876 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.721876 [DEBUG] Learning database ready for shard=researcher
+2026/05/19 15:01:48.723627 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:01:48.723627 [DEBUG] Opening learning database for shard=reviewer at C:\CodeProjects\codeNERD\.nerd\shards\reviewer_learnings.db
+2026/05/19 15:01:48.732271 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.732271 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.732271 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.732271 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.732271 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.732271 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.732271 [DEBUG] RunMigrations completed in 0s
+2026/05/19 15:01:48.733277 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.733277 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.733277 [DEBUG] Learning database ready for shard=reviewer
+2026/05/19 15:01:48.733783 [DEBUG] ListLearningEmbeddingCandidates completed in 506.1µs
+2026/05/19 15:01:48.733783 [DEBUG] Opening learning database for shard=tester at C:\CodeProjects\codeNERD\.nerd\shards\tester_learnings.db
+2026/05/19 15:01:48.741364 [INFO] Running schema migrations (24 pending)
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: cold_storage.last_accessed
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: cold_storage.last_accessed
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: cold_storage.access_count
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: cold_storage.access_count
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: archived_facts.last_accessed
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: archived_facts.last_accessed
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: archived_facts.access_count
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: archived_facts.access_count
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: knowledge_atoms.source
+2026/05/19 15:01:48.741887 [DEBUG] Table missing, skipping migration: knowledge_atoms.source
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: knowledge_atoms.tags
+2026/05/19 15:01:48.741887 [DEBUG] Table missing, skipping migration: knowledge_atoms.tags
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: prompt_atoms.description
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: prompt_atoms.description
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: prompt_atoms.content_concise
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: prompt_atoms.content_concise
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: prompt_atoms.content_min
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: prompt_atoms.content_min
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: prompt_atoms.source_file
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: prompt_atoms.source_file
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.summary_descriptor
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_version
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.descriptor_hash
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.embedding
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.embedding
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_model_id
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_dim
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: reasoning_traces.embedding_task
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: reasoning_traces.embedding_task
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.semantic_handle
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.semantic_handle
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.handle_version
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.handle_version
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.handle_hash
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.handle_hash
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.embedding
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.embedding
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.embedding_model_id
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.embedding_model_id
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.embedding_dim
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.embedding_dim
+2026/05/19 15:01:48.741887 [DEBUG] Checking migration: learnings.embedding_task
+2026/05/19 15:01:48.741887 [DEBUG] Column already exists, skipping: learnings.embedding_task
+2026/05/19 15:01:48.741887 [INFO] Schema migrations complete: applied=0, skipped=24
+2026/05/19 15:01:48.741887 [DEBUG] RunMigrations completed in 523.2µs
+2026/05/19 15:01:48.741887 [DEBUG] Table learnings exists: true
+2026/05/19 15:01:48.742434 [DEBUG] Column exists: learnings.handle_hash (type=TEXT)
+2026/05/19 15:01:48.742434 [DEBUG] Learning database ready for shard=tester
+2026/05/19 15:01:48.742434 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:01:58.521260 [DEBUG] LoadWorldFactsForFile completed in 507µs
+2026/05/19 15:01:58.521764 [DEBUG] LoadWorldFactsForFile completed in 504.7µs
+2026/05/19 15:01:58.521764 [DEBUG] LoadWorldFactsForFile completed in 0s
+2026/05/19 15:01:58.522771 [DEBUG] LoadWorldFactsForFile completed in 1.0072ms
+2026/05/19 15:01:58.523771 [DEBUG] LoadWorldFactsForFile completed in 999.2µs
+2026/05/19 15:01:58.523771 [DEBUG] LoadWorldFactsForFile completed in 0s
+2026/05/19 15:01:58.523771 [DEBUG] LoadWorldFactsForFile completed in 0s
+2026/05/19 15:01:58.524277 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.524277 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.524277 [DEBUG] ReplaceWorldFactsForFile completed in 0s
+2026/05/19 15:01:58.524277 [DEBUG] ReplaceWorldFactsForFile completed in 0s
+2026/05/19 15:01:58.542655 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.544681 [DEBUG] ReplaceWorldFactsForFile completed in 2.0261ms
+2026/05/19 15:01:58.550852 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.552492 [DEBUG] ReplaceWorldFactsForFile completed in 1.0797ms
+2026/05/19 15:01:58.564873 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.565391 [DEBUG] ReplaceWorldFactsForFile completed in 518.3µs
+2026/05/19 15:01:58.571960 [DEBUG] UpsertWorldFile completed in 543.5µs
+2026/05/19 15:01:58.573561 [DEBUG] ReplaceWorldFactsForFile completed in 1.6013ms
+2026/05/19 15:01:58.578906 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.580668 [DEBUG] ReplaceWorldFactsForFile completed in 1.7621ms
+2026/05/19 15:01:58.633177 [DEBUG] UpsertWorldFile completed in 0s
+2026/05/19 15:01:58.633177 [DEBUG] ReplaceWorldFactsForFile completed in 0s
+2026/05/19 15:02:08.328088 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 531.6µs
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.328620 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.328620 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.328620 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.329641 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.329641 [DEBUG] StoreFact completed in 1.0214ms
+2026/05/19 15:02:08.329641 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.355641 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.355641 [DEBUG] StoreFact completed in 25.9998ms
+2026/05/19 15:02:08.355641 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357256 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357256 [DEBUG] StoreFact completed in 1.6148ms
+2026/05/19 15:02:08.357256 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357256 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357256 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357256 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357256 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357256 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357256 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357256 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357256 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357256 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357256 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357256 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357256 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357806 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357806 [DEBUG] StoreFact completed in 550.4µs
+2026/05/19 15:02:08.357806 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357806 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357806 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357806 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357806 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357806 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.357806 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.357806 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.357806 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358339 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358339 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358339 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358339 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358339 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358339 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358339 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358339 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358339 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358339 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358339 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358893 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358893 [DEBUG] StoreFact completed in 554.3µs
+2026/05/19 15:02:08.358893 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358893 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358893 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358893 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358893 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358893 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358893 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358893 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358893 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358893 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.358893 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.358893 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.358893 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359420 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359420 [DEBUG] StoreFact completed in 527.1µs
+2026/05/19 15:02:08.359420 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359420 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359420 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.359420 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359420 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359420 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.359420 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359947 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359947 [DEBUG] StoreFact completed in 527µs
+2026/05/19 15:02:08.359947 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359947 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359947 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.359947 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.359947 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.359947 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.359947 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.360480 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.360480 [DEBUG] StoreFact completed in 532.7µs
+2026/05/19 15:02:08.360480 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.360480 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.360480 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.360480 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.360480 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.360480 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.360480 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361004 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361004 [DEBUG] StoreFact completed in 523.9µs
+2026/05/19 15:02:08.361004 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361004 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361004 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.361004 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361004 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361004 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.361004 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361557 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361557 [DEBUG] StoreFact completed in 553.4µs
+2026/05/19 15:02:08.361557 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361557 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361557 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.361557 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.361557 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.361557 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.361557 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362108 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362108 [DEBUG] StoreFact completed in 551.1µs
+2026/05/19 15:02:08.362108 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362108 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362108 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.362108 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362108 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362108 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.362108 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362637 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362637 [DEBUG] StoreFact completed in 528.9µs
+2026/05/19 15:02:08.362637 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362637 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362637 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.362637 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.362637 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.362637 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.362637 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363179 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363179 [DEBUG] StoreFact completed in 542µs
+2026/05/19 15:02:08.363179 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363179 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363179 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363179 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363179 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363179 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363179 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363179 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363179 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363765 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363765 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363765 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363765 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363765 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363765 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363765 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363765 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363765 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363765 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.363765 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.363765 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.363765 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364319 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364319 [DEBUG] StoreFact completed in 554.4µs
+2026/05/19 15:02:08.364319 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364319 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364319 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364319 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364319 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364319 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364319 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364319 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364319 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364319 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364854 [DEBUG] StoreFact completed in 534.9µs
+2026/05/19 15:02:08.364854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.364854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.364854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.364854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365387 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365387 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365387 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365387 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365387 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365387 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365387 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365387 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365387 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365387 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365387 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365920 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365920 [DEBUG] StoreFact completed in 533.2µs
+2026/05/19 15:02:08.365920 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365920 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365920 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365920 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365920 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365920 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365920 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365920 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365920 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365920 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.365920 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.365920 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.365920 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366466 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366466 [DEBUG] StoreFact completed in 545.6µs
+2026/05/19 15:02:08.366466 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366466 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366466 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366466 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366466 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366466 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366466 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366466 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366466 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366466 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366466 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366466 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366466 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366996 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366996 [DEBUG] StoreFact completed in 529.6µs
+2026/05/19 15:02:08.366996 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366996 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366996 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366996 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366996 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366996 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366996 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.366996 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.366996 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.366996 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.367526 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.367526 [DEBUG] StoreFact completed in 530µs
+2026/05/19 15:02:08.367526 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.367526 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.367526 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.367526 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.367526 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.367526 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.367526 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.367526 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.367526 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.367526 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368045 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368045 [DEBUG] StoreFact completed in 519.8µs
+2026/05/19 15:02:08.368045 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368045 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368045 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368045 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368045 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368045 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368045 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368045 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368045 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368045 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 526.4µs
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.368572 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.368572 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.368572 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.369576 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.369576 [DEBUG] StoreFact completed in 1.0039ms
+2026/05/19 15:02:08.369576 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.369576 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.369576 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.369576 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.369576 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.369576 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.369576 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.369576 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.369576 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.369576 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.369576 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.369576 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.369576 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370079 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370079 [DEBUG] StoreFact completed in 503.6µs
+2026/05/19 15:02:08.370079 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370079 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370079 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370079 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370079 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370079 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370079 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370079 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370079 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370079 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370079 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370079 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370079 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370606 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370606 [DEBUG] StoreFact completed in 526.7µs
+2026/05/19 15:02:08.370606 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370606 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370606 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370606 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370606 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370606 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370606 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370606 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370606 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.370606 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.370606 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.370606 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371114 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371114 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371114 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371114 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371114 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371114 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371114 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371114 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371114 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371114 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371114 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371114 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371114 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371114 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371114 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371648 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371648 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371648 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371648 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371648 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371648 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371648 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371648 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371648 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371648 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371648 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.371648 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.371648 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.371648 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 540.5µs
+2026/05/19 15:02:08.372189 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372189 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372189 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372189 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372189 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372189 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372189 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372189 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372189 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372189 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372189 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.372710 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.372710 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.372710 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.373714 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.373714 [DEBUG] StoreFact completed in 1.004ms
+2026/05/19 15:02:08.373714 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.373714 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.373714 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.373714 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.373714 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.373714 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.373714 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.373714 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.373714 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.373714 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.373714 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.373714 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.373714 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374229 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374229 [DEBUG] StoreFact completed in 514.6µs
+2026/05/19 15:02:08.374229 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374229 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374229 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374229 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374229 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374229 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374229 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374229 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374229 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374229 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374753 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374753 [DEBUG] StoreFact completed in 524.2µs
+2026/05/19 15:02:08.374753 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374753 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374753 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374753 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374753 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374753 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374753 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374753 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374753 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.374753 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.374753 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.374753 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375315 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375315 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375315 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375315 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375315 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375315 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375315 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375315 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375315 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375315 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375315 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375315 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375315 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375854 [DEBUG] StoreFact completed in 538.9µs
+2026/05/19 15:02:08.375854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.375854 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.375854 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.375854 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376406 [DEBUG] StoreFact completed in 552.1µs
+2026/05/19 15:02:08.376406 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376406 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376406 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376406 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376406 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376954 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376954 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376954 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376954 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376954 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376954 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376954 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376954 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.376954 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.376954 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.376954 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.377488 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.377488 [DEBUG] StoreFact completed in 533.5µs
+2026/05/19 15:02:08.377488 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.377488 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.377488 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.377488 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.377488 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.377488 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.377488 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.377488 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 546µs
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.378034 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.378034 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.378034 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.378034 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.378034 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.378034 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.378034 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 1.0058ms
+2026/05/19 15:02:08.379039 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.379039 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.379039 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.379039 [DEBUG] Storing fact to cold storage: directory/2 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.379039 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.379039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.379039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.380039 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.380039 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.380039 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.380039 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.380694 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.380694 [DEBUG] StoreFact completed in 654.6µs
+2026/05/19 15:02:08.381284 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.381284 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.381284 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.381284 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.381284 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.381284 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.381836 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.381836 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.381836 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.381836 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.381836 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.381836 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.381836 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382406 [DEBUG] StoreFact completed in 569.7µs
+2026/05/19 15:02:08.382406 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382406 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382406 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382406 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382406 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382406 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382406 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382930 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382930 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382930 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382930 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.382930 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.382930 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.382930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.383497 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.383497 [DEBUG] StoreFact completed in 566.8µs
+2026/05/19 15:02:08.383497 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.383497 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.383497 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.383497 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.383497 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.383497 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.383497 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384056 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384056 [DEBUG] StoreFact completed in 558.4µs
+2026/05/19 15:02:08.384056 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384056 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384056 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.384056 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384056 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384056 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.384056 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384603 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384603 [DEBUG] StoreFact completed in 547.6µs
+2026/05/19 15:02:08.384603 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384603 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384603 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.384603 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.384603 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.384603 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.384603 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.385148 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.385148 [DEBUG] StoreFact completed in 545.2µs
+2026/05/19 15:02:08.385148 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.385148 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.385148 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.385148 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.385148 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.385148 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.385689 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.385689 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.385689 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.385689 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.385689 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.385689 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.385689 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.386240 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.386240 [DEBUG] StoreFact completed in 551.3µs
+2026/05/19 15:02:08.386240 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.386240 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.386240 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.386240 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.386791 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.386791 [DEBUG] StoreFact completed in 550.8µs
+2026/05/19 15:02:08.386791 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.386791 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.386791 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.386791 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.386791 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.386791 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.386791 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.387447 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.387447 [DEBUG] StoreFact completed in 655.3µs
+2026/05/19 15:02:08.387447 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.387447 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.387447 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.387447 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.387447 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.387447 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.387447 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.388006 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.388006 [DEBUG] StoreFact completed in 559.8µs
+2026/05/19 15:02:08.388006 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.388006 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.388006 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.388006 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.388006 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.388006 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.388565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.388565 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.388565 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.388565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.388565 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.388565 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.388565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.389091 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.389091 [DEBUG] StoreFact completed in 525.6µs
+2026/05/19 15:02:08.389091 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.389091 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.389091 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.389091 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.389091 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.389091 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.389091 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.389608 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.389608 [DEBUG] StoreFact completed in 516.8µs
+2026/05/19 15:02:08.389608 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.389608 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.389608 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.389608 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.398327 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.398327 [DEBUG] StoreFact completed in 8.7188ms
+2026/05/19 15:02:08.398327 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.399369 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.399369 [DEBUG] StoreFact completed in 1.0423ms
+2026/05/19 15:02:08.399369 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.399369 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.399369 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.399369 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.399897 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.399897 [DEBUG] StoreFact completed in 528.6µs
+2026/05/19 15:02:08.399897 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.399897 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.399897 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.399897 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.400434 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.400434 [DEBUG] StoreFact completed in 537µs
+2026/05/19 15:02:08.400434 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.400434 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.400434 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.400434 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.400434 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.400434 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.400434 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.400952 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.400952 [DEBUG] StoreFact completed in 517.7µs
+2026/05/19 15:02:08.400952 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.400952 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.400952 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.400952 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.401478 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.401478 [DEBUG] StoreFact completed in 526.2µs
+2026/05/19 15:02:08.401478 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.401478 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.401478 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.401478 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.401478 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.401478 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.401478 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.401478 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.401478 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.402049 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.402049 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.402049 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.402049 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.402049 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.402049 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.402049 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.402565 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.402565 [DEBUG] StoreFact completed in 515.9µs
+2026/05/19 15:02:08.402565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.402565 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.402565 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.402565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.402565 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.402565 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.402565 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.403093 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.403093 [DEBUG] StoreFact completed in 528.3µs
+2026/05/19 15:02:08.403093 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.403619 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.403619 [DEBUG] StoreFact completed in 525.8µs
+2026/05/19 15:02:08.403619 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.403619 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.403619 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.403619 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.404131 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.404131 [DEBUG] StoreFact completed in 511.9µs
+2026/05/19 15:02:08.404131 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.404131 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.404131 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.404131 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.404131 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.404131 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.404131 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.404131 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.404131 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.404131 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.404131 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405137 [DEBUG] StoreFact completed in 1.0059ms
+2026/05/19 15:02:08.405137 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.405137 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405137 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.405137 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.405137 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405137 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.405137 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.405641 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405641 [DEBUG] StoreFact completed in 504.2µs
+2026/05/19 15:02:08.405641 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.405641 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405641 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.405641 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.405641 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.405641 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.405641 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.406168 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.406168 [DEBUG] StoreFact completed in 526.9µs
+2026/05/19 15:02:08.406168 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.406168 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.406168 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.406168 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.406685 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.406685 [DEBUG] StoreFact completed in 517.1µs
+2026/05/19 15:02:08.406685 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.406685 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.406685 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.406685 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.406685 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.406685 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.406685 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.407225 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.407225 [DEBUG] StoreFact completed in 540.5µs
+2026/05/19 15:02:08.407225 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.407225 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.407225 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.407225 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.407772 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.407772 [DEBUG] StoreFact completed in 546.9µs
+2026/05/19 15:02:08.407772 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.407772 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.407772 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.407772 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.407772 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.407772 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.407772 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.408323 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.408323 [DEBUG] StoreFact completed in 550.4µs
+2026/05/19 15:02:08.408323 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.408323 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.408323 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.408323 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.408323 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.408323 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.408860 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.408860 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.408860 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.408860 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.408860 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.408860 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.408860 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409384 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409384 [DEBUG] StoreFact completed in 524.1µs
+2026/05/19 15:02:08.409384 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409384 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409384 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.409384 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409384 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409384 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.409384 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409911 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409911 [DEBUG] StoreFact completed in 526.6µs
+2026/05/19 15:02:08.409911 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409911 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409911 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.409911 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.409911 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.409911 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.409911 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.410542 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.410542 [DEBUG] StoreFact completed in 631.3µs
+2026/05/19 15:02:08.410542 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.410542 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.410542 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.410542 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.410542 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.411129 [DEBUG] StoreFact completed in 587µs
+2026/05/19 15:02:08.411129 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.411129 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.411129 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.411129 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.411129 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.411129 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.411129 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.411670 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.411670 [DEBUG] StoreFact completed in 540.3µs
+2026/05/19 15:02:08.411670 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.411670 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.411670 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.411670 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.412212 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.412212 [DEBUG] StoreFact completed in 542.8µs
+2026/05/19 15:02:08.412212 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.412212 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.412212 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.412212 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.412745 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.412745 [DEBUG] StoreFact completed in 533µs
+2026/05/19 15:02:08.412745 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.412745 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.412745 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.412745 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.413356 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.413356 [DEBUG] StoreFact completed in 610.6µs
+2026/05/19 15:02:08.413356 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.413356 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.413356 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.413356 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.413356 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.413356 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.413356 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.413957 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.413957 [DEBUG] StoreFact completed in 601.4µs
+2026/05/19 15:02:08.413957 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.413957 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.413957 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.413957 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.414519 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.414519 [DEBUG] StoreFact completed in 562µs
+2026/05/19 15:02:08.414519 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.415075 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.415075 [DEBUG] StoreFact completed in 555.5µs
+2026/05/19 15:02:08.415075 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.415075 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.415075 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.415075 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.415624 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.415624 [DEBUG] StoreFact completed in 549.3µs
+2026/05/19 15:02:08.415624 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.415624 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.415624 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.415624 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.415624 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.415624 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.415624 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416172 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416172 [DEBUG] StoreFact completed in 548.3µs
+2026/05/19 15:02:08.416172 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416172 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416172 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.416172 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416727 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416727 [DEBUG] StoreFact completed in 554.5µs
+2026/05/19 15:02:08.416727 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416727 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416727 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.416727 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416727 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416727 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.416727 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416727 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416727 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.416727 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.416727 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.416727 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.416727 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.417747 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.417747 [DEBUG] StoreFact completed in 1.0203ms
+2026/05/19 15:02:08.417747 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.417747 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.417747 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.417747 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418304 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418304 [DEBUG] StoreFact completed in 556.6µs
+2026/05/19 15:02:08.418304 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418304 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418304 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.418304 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418304 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418304 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.418304 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418852 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418852 [DEBUG] StoreFact completed in 548.5µs
+2026/05/19 15:02:08.418852 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418852 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418852 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.418852 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.418852 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.418852 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.418852 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.419380 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.419380 [DEBUG] StoreFact completed in 527.9µs
+2026/05/19 15:02:08.419380 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.419380 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.419380 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.419380 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.419380 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.419380 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.419380 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.419932 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.419932 [DEBUG] StoreFact completed in 552.1µs
+2026/05/19 15:02:08.419932 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.419932 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.419932 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.419932 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.420458 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.420458 [DEBUG] StoreFact completed in 525.3µs
+2026/05/19 15:02:08.420458 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.420458 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.420458 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.420458 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.420458 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.420458 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.420983 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.420983 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.420983 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.420983 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.420983 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.420983 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.420983 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.421537 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.421537 [DEBUG] StoreFact completed in 554.3µs
+2026/05/19 15:02:08.421537 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.431336 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.431336 [DEBUG] StoreFact completed in 9.799ms
+2026/05/19 15:02:08.431336 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.434390 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.434390 [DEBUG] StoreFact completed in 3.0534ms
+2026/05/19 15:02:08.434930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.434930 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.434930 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.434930 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.435468 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.435468 [DEBUG] StoreFact completed in 537.7µs
+2026/05/19 15:02:08.435468 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.435468 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.435468 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.435468 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.436032 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.436032 [DEBUG] StoreFact completed in 564.1µs
+2026/05/19 15:02:08.436032 [DEBUG] Storing fact to cold storage: symbol_graph/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.436032 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.436032 [DEBUG] StoreFact completed in 0s
+2026/05/19 15:02:08.436032 [DEBUG] Storing fact to cold storage: file_topology/5 args (type=fact, priority=5)
+2026/05/19 15:02:08.436560 [DEBUG] Fact stored successfully in cold storage
+2026/05/19 15:02:08.436560 [DEBUG] StoreFact completed in 528.6µs
+2026/05/19 15:02:08.436560 [DEBUG] Storing graph link: interface:ThinkingProvider -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.438153 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.438153 [DEBUG] StoreLink completed in 1.5925ms
+2026/05/19 15:02:08.438153 [DEBUG] Storing graph link: struct:UnderstandingTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.438692 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.438692 [DEBUG] StoreLink completed in 539.6µs
+2026/05/19 15:02:08.439211 [DEBUG] Storing graph link: func:NewUnderstandingTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.439746 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.439746 [DEBUG] StoreLink completed in 534.9µs
+2026/05/19 15:02:08.440286 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).SetPromptAssembler -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.440840 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.440840 [DEBUG] StoreLink completed in 553.7µs
+2026/05/19 15:02:08.440840 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).SetStrategicContext -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.440840 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.440840 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.441442 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).SetKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.441442 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.441442 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.441442 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).initialize -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.441442 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.441442 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.442001 [DEBUG] Storing graph link: func:getUnderstandingPrompt -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.442556 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.442556 [DEBUG] StoreLink completed in 554.4µs
+2026/05/19 15:02:08.442556 [DEBUG] Storing graph link: func:isValidUnderstandingPromptContract -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443109 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.443109 [DEBUG] StoreLink completed in 552.9µs
+2026/05/19 15:02:08.443109 [DEBUG] Storing graph link: func:likelyTopicChange -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443109 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.443109 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.443109 [DEBUG] Storing graph link: func:computeStabilityScore -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443653 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.443653 [DEBUG] StoreLink completed in 544.7µs
+2026/05/19 15:02:08.443653 [DEBUG] Storing graph link: func:sanitizeAtomString -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.444184 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.444184 [DEBUG] StoreLink completed in 530.7µs
+2026/05/19 15:02:08.444749 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).assertStabilityFacts -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445375 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.445375 [DEBUG] StoreLink completed in 626.9µs
+2026/05/19 15:02:08.445375 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).updateVerbHistory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445375 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.445375 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.445375 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).updateMsgLenHistory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445903 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.445903 [DEBUG] StoreLink completed in 527.6µs
+2026/05/19 15:02:08.445903 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).ParseIntent -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445903 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.445903 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.445903 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).ParseIntentWithContext -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.446474 [DEBUG] StoreLink completed in 571.4µs
+2026/05/19 15:02:08.446474 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).understandingToIntent -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.446474 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.446474 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).mapActionToVerb -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.446474 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.446474 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).mapSemanticToCategory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447015 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.447015 [DEBUG] StoreLink completed in 540.8µs
+2026/05/19 15:02:08.447015 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).extractMemoryOperations -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447015 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.447015 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.447015 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).ResolveFocus -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447570 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.447570 [DEBUG] StoreLink completed in 554.8µs
+2026/05/19 15:02:08.447570 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).ParseIntentWithGCD -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447570 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.447570 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.447570 [DEBUG] Storing graph link: method:(t *UnderstandingTransducer).GetLastUnderstanding -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.448103 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.448103 [DEBUG] StoreLink completed in 533.2µs
+2026/05/19 15:02:08.448103 [DEBUG] Storing graph link: struct:LLMTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.449185 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.449185 [DEBUG] StoreLink completed in 1.0814ms
+2026/05/19 15:02:08.449185 [DEBUG] Storing graph link: interface:RoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.449711 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.449711 [DEBUG] StoreLink completed in 526.7µs
+2026/05/19 15:02:08.449711 [DEBUG] Storing graph link: interface:KernelAsserter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.450260 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.450260 [DEBUG] StoreLink completed in 548.9µs
+2026/05/19 15:02:08.450260 [DEBUG] Storing graph link: struct:RoutingMatch -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.450858 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.450858 [DEBUG] StoreLink completed in 597.4µs
+2026/05/19 15:02:08.450858 [DEBUG] Storing graph link: func:NewLLMTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.451380 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.451380 [DEBUG] StoreLink completed in 522.5µs
+2026/05/19 15:02:08.451380 [DEBUG] Storing graph link: method:(t *LLMTransducer).Understand -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.451913 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.451913 [DEBUG] StoreLink completed in 532.5µs
+2026/05/19 15:02:08.451913 [DEBUG] Storing graph link: func:identifyBottleneck -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.452458 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.452458 [DEBUG] StoreLink completed in 545.6µs
+2026/05/19 15:02:08.452458 [DEBUG] Storing graph link: method:(t *LLMTransducer).BuildPrompt -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453010 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.453010 [DEBUG] StoreLink completed in 552µs
+2026/05/19 15:02:08.453010 [DEBUG] Storing graph link: method:(t *LLMTransducer).parseResponse -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453010 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.453010 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.453010 [DEBUG] Storing graph link: func:normalizeLLMFields -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453571 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.453571 [DEBUG] StoreLink completed in 561.1µs
+2026/05/19 15:02:08.453571 [DEBUG] Storing graph link: func:ExtractCleanJSON -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453571 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.453571 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.453571 [DEBUG] Storing graph link: method:(t *LLMTransducer).validate -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454087 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.454087 [DEBUG] StoreLink completed in 515.5µs
+2026/05/19 15:02:08.454087 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454087 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.454087 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.454087 [DEBUG] Storing graph link: method:(t *LLMTransducer).assertRoutingFacts -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454087 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.454087 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.454642 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveMode -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454642 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.454642 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.454642 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveShards -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454642 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.454642 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.454642 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveContextPriorities -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.455189 [DEBUG] StoreLink completed in 547.1µs
+2026/05/19 15:02:08.455189 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveToolPriorities -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.455189 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.455189 [DEBUG] Storing graph link: method:(t *LLMTransducer).deriveBlockedTools -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.455189 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.455740 [DEBUG] Storing graph link: struct:Turn -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455740 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.455740 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.455740 [DEBUG] Storing graph link: struct:MangleRoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.456252 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.456252 [DEBUG] StoreLink completed in 512.1µs
+2026/05/19 15:02:08.456252 [DEBUG] Storing graph link: func:NewMangleRoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.456895 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.456895 [DEBUG] StoreLink completed in 643.2µs
+2026/05/19 15:02:08.456895 [DEBUG] Storing graph link: method:(k *MangleRoutingKernel).QueryRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.457999 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.457999 [DEBUG] StoreLink completed in 1.1037ms
+2026/05/19 15:02:08.457999 [DEBUG] Storing graph link: method:(k *MangleRoutingKernel).ValidateField -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.457999 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.457999 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.457999 [DEBUG] Storing graph link: func:max -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.458520 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.458520 [DEBUG] StoreLink completed in 520.8µs
+2026/05/19 15:02:08.458520 [DEBUG] Storing graph link: struct:RealKernelRouter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.459055 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.459055 [DEBUG] StoreLink completed in 535.5µs
+2026/05/19 15:02:08.459055 [DEBUG] Storing graph link: func:NewRealKernelRouter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.459577 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.459577 [DEBUG] StoreLink completed in 522.2µs
+2026/05/19 15:02:08.459577 [DEBUG] Storing graph link: method:(k *RealKernelRouter).QueryRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460102 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.460102 [DEBUG] StoreLink completed in 524.6µs
+2026/05/19 15:02:08.460102 [DEBUG] Storing graph link: method:(k *RealKernelRouter).ValidateField -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.460655 [DEBUG] StoreLink completed in 552.7µs
+2026/05/19 15:02:08.460655 [DEBUG] Storing graph link: method:(k *RealKernelRouter).AssertRoutingFact -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.460655 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.460655 [DEBUG] Storing graph link: method:(k *RealKernelRouter).RetractRoutingPredicate -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.460655 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.460655 [DEBUG] Storing graph link: method:(m Model).processInput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462294 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.462294 [DEBUG] StoreLink completed in 1.6391ms
+2026/05/19 15:02:08.462294 [DEBUG] Storing graph link: interface:perceiver -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462808 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.462808 [DEBUG] StoreLink completed in 514.8µs
+2026/05/19 15:02:08.462808 [DEBUG] Storing graph link: method:(m Model).processInputWithKnowledge -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462808 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.462808 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.462808 [DEBUG] Storing graph link: method:(m *Model).seedIssueFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463363 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.463363 [DEBUG] StoreLink completed in 554.7µs
+2026/05/19 15:02:08.463363 [DEBUG] Storing graph link: method:(m *Model).seedCampaignFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463363 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.463363 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.463887 [DEBUG] Storing graph link: method:(m Model).runClarifierShard -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463887 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.463887 [DEBUG] StoreLink completed in 523.6µs
+2026/05/19 15:02:08.463887 [DEBUG] Storing graph link: struct:DreamConsultation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.465500 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.465500 [DEBUG] StoreLink completed in 1.6129ms
+2026/05/19 15:02:08.465500 [DEBUG] Storing graph link: func:containsWord -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.465500 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.465500 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.465500 [DEBUG] Storing graph link: func:isShardRelevantToTopic -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.466571 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.466571 [DEBUG] StoreLink completed in 1.071ms
+2026/05/19 15:02:08.466571 [DEBUG] Storing graph link: method:(m Model).handleDreamState -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.466571 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.466571 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.466571 [DEBUG] Storing graph link: struct:shardPriority -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.467097 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.467097 [DEBUG] StoreLink completed in 526.5µs
+2026/05/19 15:02:08.467097 [DEBUG] Storing graph link: func:formatDreamStateResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.467656 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.467656 [DEBUG] StoreLink completed in 559µs
+2026/05/19 15:02:08.467656 [DEBUG] Storing graph link: func:extractToolMentions -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.468199 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.468199 [DEBUG] StoreLink completed in 542.7µs
+2026/05/19 15:02:08.468199 [DEBUG] Storing graph link: func:extractConcerns -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.468735 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.468735 [DEBUG] StoreLink completed in 535.9µs
+2026/05/19 15:02:08.468735 [DEBUG] Storing graph link: method:(m Model).shouldAutoClarify -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469255 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.469255 [DEBUG] StoreLink completed in 519.8µs
+2026/05/19 15:02:08.469255 [DEBUG] Storing graph link: method:(m Model).shouldClarifyFromKernel -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469814 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.469814 [DEBUG] StoreLink completed in 559.2µs
+2026/05/19 15:02:08.469814 [DEBUG] Storing graph link: method:(m Model).shouldClarifyIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469814 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.469814 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.469814 [DEBUG] Storing graph link: method:(m Model).needsWorkspaceScanForDelegation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470363 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.470363 [DEBUG] StoreLink completed in 549.6µs
+2026/05/19 15:02:08.470363 [DEBUG] Storing graph link: method:(m Model).loadWorkspaceFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470363 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.470363 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.470363 [DEBUG] Storing graph link: struct:systemExecutionResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470889 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.470889 [DEBUG] StoreLink completed in 526µs
+2026/05/19 15:02:08.470889 [DEBUG] Storing graph link: method:(m Model).handleSystemDelegations -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470889 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.470889 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.470889 [DEBUG] Storing graph link: func:shouldWaitForSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.471437 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.471437 [DEBUG] StoreLink completed in 547.7µs
+2026/05/19 15:02:08.471437 [DEBUG] Storing graph link: method:(m Model).buildResponseFromExecutions -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.472122 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.472122 [DEBUG] StoreLink completed in 684.9µs
+2026/05/19 15:02:08.472122 [DEBUG] Storing graph link: method:(m Model).executeDelegateTaskFallback -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.472683 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.472683 [DEBUG] StoreLink completed in 561.5µs
+2026/05/19 15:02:08.472683 [DEBUG] Storing graph link: method:(m Model).buildShardResultPayload -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473235 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.473235 [DEBUG] StoreLink completed in 551.6µs
+2026/05/19 15:02:08.473235 [DEBUG] Storing graph link: method:(m Model).formatDelegationOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473235 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.473235 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.473235 [DEBUG] Storing graph link: method:(m Model).buildShardInterpretationPrompt -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.473767 [DEBUG] StoreLink completed in 532µs
+2026/05/19 15:02:08.473767 [DEBUG] Storing graph link: method:(m Model).interpretShardOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.473767 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.473767 [DEBUG] Storing graph link: method:(m Model).formatInterpretedResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.473767 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.473767 [DEBUG] Storing graph link: func:parseExecutionResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.474315 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.474315 [DEBUG] StoreLink completed in 547.7µs
+2026/05/19 15:02:08.474315 [DEBUG] Storing graph link: func:parseBool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.474843 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.474843 [DEBUG] StoreLink completed in 528.1µs
+2026/05/19 15:02:08.474843 [DEBUG] Storing graph link: func:nextActionName -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475393 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.475393 [DEBUG] StoreLink completed in 549.7µs
+2026/05/19 15:02:08.475393 [DEBUG] Storing graph link: func:normalizeActionType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475393 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.475393 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.475393 [DEBUG] Storing graph link: func:actionTypeToShardType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475918 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.475918 [DEBUG] StoreLink completed in 525.5µs
+2026/05/19 15:02:08.475918 [DEBUG] Storing graph link: func:parseDelegateFact -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475918 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.475918 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.475918 [DEBUG] Storing graph link: func:normalizeShardType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.476467 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.476467 [DEBUG] StoreLink completed in 549µs
+2026/05/19 15:02:08.476467 [DEBUG] Storing graph link: method:(m Model).collectTraceShardTypes -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.477014 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.477014 [DEBUG] StoreLink completed in 547.3µs
+2026/05/19 15:02:08.477014 [DEBUG] Storing graph link: func:resolveDelegateTask -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.477577 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.477577 [DEBUG] StoreLink completed in 562.7µs
+2026/05/19 15:02:08.477577 [DEBUG] Storing graph link: func:defaultVerbForShard -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478098 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.478098 [DEBUG] StoreLink completed in 520.6µs
+2026/05/19 15:02:08.478098 [DEBUG] Storing graph link: method:(m Model).collectSystemSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478633 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.478633 [DEBUG] StoreLink completed in 535.8µs
+2026/05/19 15:02:08.478633 [DEBUG] Storing graph link: method:(m Model).waitForSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478633 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.478633 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.479203 [DEBUG] Storing graph link: method:(m Model).diffFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479203 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.479203 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.479203 [DEBUG] Storing graph link: func:formatSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479203 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.479203 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.479732 [DEBUG] Storing graph link: method:(m Model).appendSystemSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479732 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.479732 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.479732 [DEBUG] Storing graph link: method:(m Model).executeMultiStepTask -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.496056 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.496056 [DEBUG] StoreLink completed in 16.3248ms
+2026/05/19 15:02:08.496593 [DEBUG] Storing graph link: func:formatResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.498243 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.498243 [DEBUG] StoreLink completed in 1.6501ms
+2026/05/19 15:02:08.498243 [DEBUG] Storing graph link: func:payloadForArticulation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.498802 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.498802 [DEBUG] StoreLink completed in 558.3µs
+2026/05/19 15:02:08.498802 [DEBUG] Storing graph link: struct:ArticulationOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499333 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.499333 [DEBUG] StoreLink completed in 531.4µs
+2026/05/19 15:02:08.499333 [DEBUG] Storing graph link: func:articulateWithContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499853 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.499853 [DEBUG] StoreLink completed in 519.8µs
+2026/05/19 15:02:08.499853 [DEBUG] Storing graph link: struct:ConversationContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499853 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.499853 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.499853 [DEBUG] Storing graph link: func:articulateWithContextFull -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500391 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.500391 [DEBUG] StoreLink completed in 537.7µs
+2026/05/19 15:02:08.500391 [DEBUG] Storing graph link: func:articulateWithConversation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500391 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.500391 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.500391 [DEBUG] Storing graph link: func:appendFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500927 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.500927 [DEBUG] StoreLink completed in 536.1µs
+2026/05/19 15:02:08.500927 [DEBUG] Storing graph link: func:applyPatchResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500927 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.500927 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.500927 [DEBUG] Storing graph link: func:runApplyPatch -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.501464 [DEBUG] StoreLink completed in 537.3µs
+2026/05/19 15:02:08.501464 [DEBUG] Storing graph link: func:resolvePath -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.501464 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.501464 [DEBUG] Storing graph link: func:readFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.501464 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.501464 [DEBUG] Storing graph link: func:countFileLines -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.501464 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.502471 [DEBUG] Storing graph link: method:(m *Model).handleStatsIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.502471 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.502471 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.502471 [DEBUG] Storing graph link: func:writeFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.502978 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.502978 [DEBUG] StoreLink completed in 507µs
+2026/05/19 15:02:08.502978 [DEBUG] Storing graph link: func:makeDir -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.503505 [DEBUG] StoreLink completed in 526.4µs
+2026/05/19 15:02:08.503505 [DEBUG] Storing graph link: func:searchInFiles -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.503505 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.503505 [DEBUG] Storing graph link: method:(m Model).runInitialization -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.503505 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.503505 [DEBUG] Storing graph link: struct:scanCompleteMsg -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.503505 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.503505 [DEBUG] Storing graph link: method:(m Model).runScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505018 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.505018 [DEBUG] StoreLink completed in 1.5132ms
+2026/05/19 15:02:08.505018 [DEBUG] Storing graph link: struct:docRefreshCompleteMsg -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505545 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.505545 [DEBUG] StoreLink completed in 527.5µs
+2026/05/19 15:02:08.505545 [DEBUG] Storing graph link: method:(m Model).runDocRefresh -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505545 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.505545 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.505545 [DEBUG] Storing graph link: method:(m *Model).ensureDeepWorldFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506075 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.506075 [DEBUG] StoreLink completed in 529.1µs
+2026/05/19 15:02:08.506075 [DEBUG] Storing graph link: method:(m Model).runPartialScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506075 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.506075 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.506604 [DEBUG] Storing graph link: method:(m Model).runDirScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506604 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.506604 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.506604 [DEBUG] Storing graph link: func:buildFileTopologyFact -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507122 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.507122 [DEBUG] StoreLink completed in 518.6µs
+2026/05/19 15:02:08.507122 [DEBUG] Storing graph link: func:detectLanguage -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507661 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.507661 [DEBUG] StoreLink completed in 538.5µs
+2026/05/19 15:02:08.507661 [DEBUG] Storing graph link: func:isTestFile -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507661 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.507661 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.507661 [DEBUG] Storing graph link: struct:learningStoreAdapter -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508200 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.508200 [DEBUG] StoreLink completed in 539.6µs
+2026/05/19 15:02:08.508200 [DEBUG] Storing graph link: method:(a *learningStoreAdapter).Save -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508739 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.508739 [DEBUG] StoreLink completed in 538.7µs
+2026/05/19 15:02:08.508739 [DEBUG] Storing graph link: method:(a *learningStoreAdapter).Load -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508739 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.508739 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.508739 [DEBUG] Storing graph link: method:(a *learningStoreAdapter).DecayConfidence -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509271 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.509271 [DEBUG] StoreLink completed in 531.6µs
+2026/05/19 15:02:08.509271 [DEBUG] Storing graph link: method:(a *learningStoreAdapter).LoadByPredicate -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509271 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.509271 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.509271 [DEBUG] Storing graph link: method:(a *learningStoreAdapter).Close -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.509800 [DEBUG] StoreLink completed in 529.7µs
+2026/05/19 15:02:08.509800 [DEBUG] Storing graph link: method:(m Model).renderInitComplete -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.509800 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.509800 [DEBUG] Storing graph link: method:(m Model).renderWorkspaceSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.509800 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.509800 [DEBUG] Storing graph link: method:(m Model).getDefinedProfiles -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510333 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.510333 [DEBUG] StoreLink completed in 532.9µs
+2026/05/19 15:02:08.510333 [DEBUG] Storing graph link: method:(m Model).loadType3Agents -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510333 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.510861 [DEBUG] StoreLink completed in 528µs
+2026/05/19 15:02:08.510861 [DEBUG] Storing graph link: func:isConversationalIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510861 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.510861 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.510861 [DEBUG] Storing graph link: method:(m Model).renderToolList -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.511413 [DEBUG] StoreLink completed in 551.3µs
+2026/05/19 15:02:08.511413 [DEBUG] Storing graph link: method:(m Model).renderToolInfo -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.511413 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.511413 [DEBUG] Storing graph link: method:(m Model).runTool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.511413 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.511413 [DEBUG] Storing graph link: method:(m Model).generateTool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511971 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.511971 [DEBUG] StoreLink completed in 558.3µs
+2026/05/19 15:02:08.511971 [DEBUG] Storing graph link: func:formatVerifiedResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511971 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.511971 [DEBUG] StoreLink completed in 0s
+2026/05/19 15:02:08.511971 [DEBUG] Storing graph link: func:formatVerificationEscalation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.512523 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.512523 [DEBUG] StoreLink completed in 552.5µs
+2026/05/19 15:02:08.512523 [DEBUG] Storing graph link: func:truncateForContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.513046 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.513046 [DEBUG] StoreLink completed in 522.8µs
+2026/05/19 15:02:08.513046 [DEBUG] Storing graph link: method:(m Model).renderJITStatus -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.513046 [DEBUG] Graph link stored successfully
+2026/05/19 15:02:08.513578 [DEBUG] StoreLink completed in 531.9µs
+2026/05/19 15:02:17.329348 [DEBUG] Stored compressed state: session=session-1779217308616051000 turn=0 ratio=1.0
+2026/05/19 15:02:17.329348 [DEBUG] StoreCompressedState completed in 29.6717ms
+2026/05/19 15:02:33.685412 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:02:33.685412 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:02:33.686425 [DEBUG] ListLearningEmbeddingCandidates completed in 1.0131ms
+2026/05/19 15:02:33.686425 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:02:33.686425 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:02:33.686425 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:02:33.686425 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:03:18.685553 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:03:18.685553 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:03:18.686562 [DEBUG] ListLearningEmbeddingCandidates completed in 1.0087ms
+2026/05/19 15:03:18.686562 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:03:18.686562 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:03:18.687561 [DEBUG] ListLearningEmbeddingCandidates completed in 999.2µs
+2026/05/19 15:03:18.687561 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:03.685703 [DEBUG] ListLearningEmbeddingCandidates completed in 1.0694ms
+2026/05/19 15:04:03.685703 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:03.685703 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:03.686705 [DEBUG] ListLearningEmbeddingCandidates completed in 1.0019ms
+2026/05/19 15:04:03.686705 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:03.686705 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:03.686705 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.685538 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.685538 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.685538 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.685538 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.687057 [DEBUG] ListLearningEmbeddingCandidates completed in 1.5193ms
+2026/05/19 15:04:48.687057 [DEBUG] ListLearningEmbeddingCandidates completed in 0s
+2026/05/19 15:04:48.687586 [DEBUG] ListLearningEmbeddingCandidates completed in 528.8µs

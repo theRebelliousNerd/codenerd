@@ -1,0 +1,483 @@
+2026/05/19 14:57:52.055825 [INFO] Initializing VirtualStore with workingDir=C:\CodeProjects\codeNERD
+2026/05/19 14:57:52.055825 [DEBUG] Config: allowedEnvVars=[PATH HOME GOPATH GOROOT], allowedBinaries=22
+2026/05/19 14:57:52.056351 [DEBUG] Initializing modern executor with audit logging
+2026/05/19 14:57:57.067330 [DEBUG] Modern executor initialized, audit logging enabled
+2026/05/19 14:57:57.067330 [DEBUG] Initializing post-action validator registry
+2026/05/19 14:57:57.067330 [DEBUG] Validator registry initialized with 13 validators
+2026/05/19 14:57:57.067330 [INFO] VirtualStore initialized successfully
+2026/05/19 14:57:57.067851 [DEBUG] NewVirtualStoreWithConfig completed in 5.0120257s
+2026/05/19 14:57:57.067851 [INFO] Kernel attached to VirtualStore
+2026/05/19 14:57:57.067851 [INFO] Permission cache built: 93 safe_action entries
+2026/05/19 14:57:57.067851 [DEBUG] Tool registry kernel reference updated
+2026/05/19 14:57:57.067851 [INFO] Boot guard disabled: action routing now enabled
+2026/05/19 14:57:57.067851 [DEBUG] LocalDB (knowledge.db) attached for memory store queries
+2026/05/19 14:57:57.067851 [DEBUG] LearningStore attached for autopoiesis persistence
+2026/05/19 14:57:57.067851 [INFO] Hydrating modular tools
+2026/05/19 14:57:57.070014 [INFO] Modular tools hydrated: 35 tools in registry, 35 tools in global
+2026/05/19 14:57:57.070014 [DEBUG] HydrateModularTools completed in 2.1637ms
+2026/05/19 14:57:57.070566 [DEBUG] CodeScope attached for Code DOM operations
+2026/05/19 14:57:57.070566 [DEBUG] FileEditor attached for line-based file operations
+2026/05/19 14:57:57.071092 [DEBUG] ShardManager attached to VirtualStore
+2026/05/19 14:57:57.172593 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:57:58.497417 [DEBUG] ToolGenerator attached for Ouroboros tool generation
+2026/05/19 14:58:00.872418 [DEBUG] TaskDelegator attached to VirtualStore
+2026/05/19 14:58:00.881354 [DEBUG] ToolExecutor attached for Ouroboros tool execution
+2026/05/19 14:58:00.884396 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:02.250038 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:03.649089 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:05.044904 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:06.376226 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:07.681493 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:08.990269 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:10.309505 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:11.648614 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:13.027833 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:14.421577 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:15.742414 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:17.058857 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:18.393545 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:19.761270 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:21.074439 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:22.364166 [DEBUG] Tools synced from Ouroboros executor to registry
+2026/05/19 14:58:22.364166 [DEBUG] ToolGenerator attached for Ouroboros tool generation
+2026/05/19 14:58:22.367836 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:23.703434 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:25.047419 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:26.367750 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:27.695735 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:28.994037 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:30.283810 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:31.585446 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:32.907493 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:34.321412 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:35.715251 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:37.061195 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:38.410113 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:39.754070 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:41.078786 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:42.440379 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:43.931909 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:45.366429 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:46.779230 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:48.163891 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:49.568459 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:50.913739 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:52.216647 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:53.591369 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:54.947307 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:56.270881 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:57.605433 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:58:58.915532 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:00.227003 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:01.560679 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:01.575168 [INFO] Hydrating modular tools
+2026/05/19 14:59:01.575168 [ERROR] Failed to register core tools: tool already registered: read_file
+2026/05/19 14:59:01.575168 [DEBUG] HydrateModularTools completed in 0s
+2026/05/19 14:59:01.575710 [INFO] Hydrating 6 static tool definitions
+2026/05/19 14:59:02.913596 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:04.347620 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:05.725218 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:07.100301 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:08.443252 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:09.760198 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:11.058067 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:12.406132 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:13.749037 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:15.074925 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:16.434085 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:17.780647 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:19.276515 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:20.908104 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:22.453029 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:24.062322 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:25.653347 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:27.346528 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:28.958104 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:30.325302 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:31.654121 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:33.015122 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:34.427209 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:35.840883 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:37.187893 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:38.558506 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:39.880713 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:41.232138 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:42.561757 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:43.978458 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:45.337202 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:46.691374 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:48.100541 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:49.624223 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:51.007127 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:52.332395 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:53.659768 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:54.958579 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:56.272280 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:57.751120 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 14:59:59.207083 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:00.645733 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:02.027090 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:03.530840 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:04.920405 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:06.511403 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:07.930600 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:09.325274 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:10.702450 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:12.054602 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:13.477306 [DEBUG] Static tools hydrated successfully
+2026/05/19 15:00:13.477306 [DEBUG] HydrateStaticTools completed in 1m11.9015959s
+2026/05/19 15:00:13.477306 [INFO] Hydrating tools from disk: C:\CodeProjects\codeNERD\.nerd
+2026/05/19 15:00:13.481356 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:14.886559 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:16.264326 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:17.695811 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:19.102896 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:20.556194 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:21.956656 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:23.399529 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:24.772111 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:26.115179 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:27.500738 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:28.846697 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:30.235311 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:31.643891 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:33.031906 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:34.534855 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:35.946535 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:37.398096 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:38.821049 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:40.169737 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:41.550573 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:42.929284 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:44.395675 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:45.775264 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:47.131539 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:48.536246 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:49.985547 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:51.372037 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:52.744034 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:54.112284 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:55.536483 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:56.910148 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:58.295012 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:00:59.682987 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:01.032640 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:02.428880 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:03.851579 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:05.309015 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:06.735943 [DEBUG] Tools restored from compiled directory
+2026/05/19 15:01:06.739584 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:08.141987 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:09.505765 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:10.946423 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:12.401377 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:13.818614 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:15.194643 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:16.635210 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:18.048393 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:19.473985 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:20.864911 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:22.252785 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:23.645673 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:24.982442 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:26.322324 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:27.669971 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:29.097982 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:30.465197 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:32.212011 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:34.091636 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:35.671822 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:37.342245 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:38.821943 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:40.351362 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:42.037561 [DEBUG] Tools synced from Ouroboros executor
+2026/05/19 15:01:42.037561 [DEBUG] HydrateToolsFromDisk completed in 1m28.5602543s
+2026/05/19 15:01:42.041109 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:43.836297 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:45.420834 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:46.968173 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:48.619668 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:50.391300 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:51.997733 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:53.522728 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:55.131696 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:56.692134 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:58.314301 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:01:59.919027 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:01.555415 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:03.119359 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:04.905554 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:06.649338 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:08.328088 [DEBUG] PersistFactsToKnowledge: 339 facts, type=fact, priority=5
+2026/05/19 15:02:08.332351 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:08.436560 [DEBUG] PersistFactsToKnowledge: persisted 339 facts
+2026/05/19 15:02:08.436560 [DEBUG] PersistLink: interface:ThinkingProvider -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.438153 [DEBUG] PersistLink: struct:UnderstandingTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.438692 [DEBUG] PersistLink: func:NewUnderstandingTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.440286 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).SetPromptAssembler -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.440840 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).SetStrategicContext -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.441442 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).SetKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.441442 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).initialize -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.442001 [DEBUG] PersistLink: func:getUnderstandingPrompt -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.442556 [DEBUG] PersistLink: func:isValidUnderstandingPromptContract -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443109 [DEBUG] PersistLink: func:likelyTopicChange -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443109 [DEBUG] PersistLink: func:computeStabilityScore -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.443653 [DEBUG] PersistLink: func:sanitizeAtomString -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.444749 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).assertStabilityFacts -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445375 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).updateVerbHistory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445375 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).updateMsgLenHistory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445903 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).ParseIntent -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.445903 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).ParseIntentWithContext -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).understandingToIntent -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).mapActionToVerb -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.446474 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).mapSemanticToCategory -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447015 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).extractMemoryOperations -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447015 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).ResolveFocus -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447570 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).ParseIntentWithGCD -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.447570 [DEBUG] PersistLink: method:(t *UnderstandingTransducer).GetLastUnderstanding -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\understanding_adapter.go (weight=1.00)
+2026/05/19 15:02:08.448103 [DEBUG] PersistLink: struct:LLMTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.449185 [DEBUG] PersistLink: interface:RoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.449711 [DEBUG] PersistLink: interface:KernelAsserter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.450260 [DEBUG] PersistLink: struct:RoutingMatch -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.450858 [DEBUG] PersistLink: func:NewLLMTransducer -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.451380 [DEBUG] PersistLink: method:(t *LLMTransducer).Understand -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.451913 [DEBUG] PersistLink: func:identifyBottleneck -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.452458 [DEBUG] PersistLink: method:(t *LLMTransducer).BuildPrompt -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453010 [DEBUG] PersistLink: method:(t *LLMTransducer).parseResponse -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453010 [DEBUG] PersistLink: func:normalizeLLMFields -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453571 [DEBUG] PersistLink: func:ExtractCleanJSON -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.453571 [DEBUG] PersistLink: method:(t *LLMTransducer).validate -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454087 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454087 [DEBUG] PersistLink: method:(t *LLMTransducer).assertRoutingFacts -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454642 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveMode -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454642 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveShards -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.454642 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveContextPriorities -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveToolPriorities -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] PersistLink: method:(t *LLMTransducer).deriveBlockedTools -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455189 [DEBUG] PersistLink: struct:Turn -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.455740 [DEBUG] PersistLink: struct:MangleRoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.456252 [DEBUG] PersistLink: func:NewMangleRoutingKernel -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.456895 [DEBUG] PersistLink: method:(k *MangleRoutingKernel).QueryRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.457999 [DEBUG] PersistLink: method:(k *MangleRoutingKernel).ValidateField -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.457999 [DEBUG] PersistLink: func:max -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.458520 [DEBUG] PersistLink: struct:RealKernelRouter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.459055 [DEBUG] PersistLink: func:NewRealKernelRouter -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.459577 [DEBUG] PersistLink: method:(k *RealKernelRouter).QueryRouting -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460102 [DEBUG] PersistLink: method:(k *RealKernelRouter).ValidateField -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] PersistLink: method:(k *RealKernelRouter).AssertRoutingFact -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] PersistLink: method:(k *RealKernelRouter).RetractRoutingPredicate -[defined_in]-> C:\CodeProjects\codeNERD\internal\perception\transducer_llm.go (weight=1.00)
+2026/05/19 15:02:08.460655 [DEBUG] PersistLink: method:(m Model).processInput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462294 [DEBUG] PersistLink: interface:perceiver -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462808 [DEBUG] PersistLink: method:(m Model).processInputWithKnowledge -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.462808 [DEBUG] PersistLink: method:(m *Model).seedIssueFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463363 [DEBUG] PersistLink: method:(m *Model).seedCampaignFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463363 [DEBUG] PersistLink: method:(m Model).runClarifierShard -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process.go (weight=1.00)
+2026/05/19 15:02:08.463887 [DEBUG] PersistLink: struct:DreamConsultation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.465500 [DEBUG] PersistLink: func:containsWord -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.465500 [DEBUG] PersistLink: func:isShardRelevantToTopic -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.466571 [DEBUG] PersistLink: method:(m Model).handleDreamState -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.466571 [DEBUG] PersistLink: struct:shardPriority -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.467097 [DEBUG] PersistLink: func:formatDreamStateResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.467656 [DEBUG] PersistLink: func:extractToolMentions -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.468199 [DEBUG] PersistLink: func:extractConcerns -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.468735 [DEBUG] PersistLink: method:(m Model).shouldAutoClarify -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469255 [DEBUG] PersistLink: method:(m Model).shouldClarifyFromKernel -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469814 [DEBUG] PersistLink: method:(m Model).shouldClarifyIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.469814 [DEBUG] PersistLink: method:(m Model).needsWorkspaceScanForDelegation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470363 [DEBUG] PersistLink: method:(m Model).loadWorkspaceFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470363 [DEBUG] PersistLink: struct:systemExecutionResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470889 [DEBUG] PersistLink: method:(m Model).handleSystemDelegations -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.470889 [DEBUG] PersistLink: func:shouldWaitForSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.471437 [DEBUG] PersistLink: method:(m Model).buildResponseFromExecutions -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.472122 [DEBUG] PersistLink: method:(m Model).executeDelegateTaskFallback -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.472683 [DEBUG] PersistLink: method:(m Model).buildShardResultPayload -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473235 [DEBUG] PersistLink: method:(m Model).formatDelegationOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473235 [DEBUG] PersistLink: method:(m Model).buildShardInterpretationPrompt -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] PersistLink: method:(m Model).interpretShardOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] PersistLink: method:(m Model).formatInterpretedResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.473767 [DEBUG] PersistLink: func:parseExecutionResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.474315 [DEBUG] PersistLink: func:parseBool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.474843 [DEBUG] PersistLink: func:nextActionName -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475393 [DEBUG] PersistLink: func:normalizeActionType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475393 [DEBUG] PersistLink: func:actionTypeToShardType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475918 [DEBUG] PersistLink: func:parseDelegateFact -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.475918 [DEBUG] PersistLink: func:normalizeShardType -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.476467 [DEBUG] PersistLink: method:(m Model).collectTraceShardTypes -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.477014 [DEBUG] PersistLink: func:resolveDelegateTask -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.477577 [DEBUG] PersistLink: func:defaultVerbForShard -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478098 [DEBUG] PersistLink: method:(m Model).collectSystemSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478633 [DEBUG] PersistLink: method:(m Model).waitForSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.478633 [DEBUG] PersistLink: method:(m Model).diffFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479203 [DEBUG] PersistLink: func:formatSystemResults -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479732 [DEBUG] PersistLink: method:(m Model).appendSystemSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.479732 [DEBUG] PersistLink: method:(m Model).executeMultiStepTask -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\process_dream.go (weight=1.00)
+2026/05/19 15:02:08.496593 [DEBUG] PersistLink: func:formatResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.498243 [DEBUG] PersistLink: func:payloadForArticulation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.498802 [DEBUG] PersistLink: struct:ArticulationOutput -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499333 [DEBUG] PersistLink: func:articulateWithContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499853 [DEBUG] PersistLink: struct:ConversationContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.499853 [DEBUG] PersistLink: func:articulateWithContextFull -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500391 [DEBUG] PersistLink: func:articulateWithConversation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500391 [DEBUG] PersistLink: func:appendFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500927 [DEBUG] PersistLink: func:applyPatchResult -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.500927 [DEBUG] PersistLink: func:runApplyPatch -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] PersistLink: func:resolvePath -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] PersistLink: func:readFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.501464 [DEBUG] PersistLink: func:countFileLines -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.502471 [DEBUG] PersistLink: method:(m *Model).handleStatsIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.502471 [DEBUG] PersistLink: func:writeFileContent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.502978 [DEBUG] PersistLink: func:makeDir -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] PersistLink: func:searchInFiles -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] PersistLink: method:(m Model).runInitialization -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] PersistLink: struct:scanCompleteMsg -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.503505 [DEBUG] PersistLink: method:(m Model).runScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505018 [DEBUG] PersistLink: struct:docRefreshCompleteMsg -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505545 [DEBUG] PersistLink: method:(m Model).runDocRefresh -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.505545 [DEBUG] PersistLink: method:(m *Model).ensureDeepWorldFacts -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506075 [DEBUG] PersistLink: method:(m Model).runPartialScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506604 [DEBUG] PersistLink: method:(m Model).runDirScan -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.506604 [DEBUG] PersistLink: func:buildFileTopologyFact -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507122 [DEBUG] PersistLink: func:detectLanguage -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507661 [DEBUG] PersistLink: func:isTestFile -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.507661 [DEBUG] PersistLink: struct:learningStoreAdapter -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508200 [DEBUG] PersistLink: method:(a *learningStoreAdapter).Save -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508739 [DEBUG] PersistLink: method:(a *learningStoreAdapter).Load -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.508739 [DEBUG] PersistLink: method:(a *learningStoreAdapter).DecayConfidence -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509271 [DEBUG] PersistLink: method:(a *learningStoreAdapter).LoadByPredicate -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509271 [DEBUG] PersistLink: method:(a *learningStoreAdapter).Close -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] PersistLink: method:(m Model).renderInitComplete -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] PersistLink: method:(m Model).renderWorkspaceSummary -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.509800 [DEBUG] PersistLink: method:(m Model).getDefinedProfiles -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510333 [DEBUG] PersistLink: method:(m Model).loadType3Agents -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510861 [DEBUG] PersistLink: func:isConversationalIntent -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.510861 [DEBUG] PersistLink: method:(m Model).renderToolList -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] PersistLink: method:(m Model).renderToolInfo -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] PersistLink: method:(m Model).runTool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511413 [DEBUG] PersistLink: method:(m Model).generateTool -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511971 [DEBUG] PersistLink: func:formatVerifiedResponse -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.511971 [DEBUG] PersistLink: func:formatVerificationEscalation -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.512523 [DEBUG] PersistLink: func:truncateForContext -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:08.513046 [DEBUG] PersistLink: method:(m Model).renderJITStatus -[defined_in]-> C:\CodeProjects\codeNERD\cmd\nerd\chat\helpers.go (weight=1.00)
+2026/05/19 15:02:10.012948 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:11.731963 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:13.505109 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:15.356741 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:17.096804 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:18.707953 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:20.142652 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:21.526649 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:22.887989 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:24.300028 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:25.720727 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:27.282330 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:28.648390 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:29.980004 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:31.316799 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:32.746178 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:34.242499 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:35.702765 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:37.123831 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:38.532969 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:39.924187 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:41.264806 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:42.656166 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:44.136744 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:45.496890 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:46.849252 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:48.261435 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:49.696648 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:51.084312 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:52.435723 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:53.801502 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:55.164748 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:56.526598 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:57.919212 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:02:59.265992 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:00.599006 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:01.905208 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:03.224971 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:04.601469 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:05.931344 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:07.497906 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:09.050896 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:10.573542 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:12.071939 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:13.636179 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:15.183291 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:16.682304 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:18.257072 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:19.817501 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:21.382960 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:22.861177 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:24.395317 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:25.916323 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:27.446091 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:29.023895 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:30.541405 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:32.096265 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:33.641181 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:35.240204 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:36.855366 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:38.406464 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:39.953313 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:41.560930 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:43.107453 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:44.743293 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:46.268516 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:47.820148 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:49.504109 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:51.089317 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:52.639793 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:54.142950 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:55.647317 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:57.130499 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:03:58.649867 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:00.195564 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:01.729881 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:03.294216 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:04.895642 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:06.538975 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:08.130551 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:09.673462 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:11.216594 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:12.733715 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:14.291325 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:15.767594 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:17.222773 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:18.739364 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:20.307194 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:21.854610 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:23.407170 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:24.873373 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:26.367100 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:27.823403 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:29.358514 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:30.871223 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:32.397172 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:33.962665 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:35.573321 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:37.328226 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:38.878117 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:40.487560 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:41.842734 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:43.161340 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:44.634821 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:45.981751 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:47.364866 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:48.788270 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:50.223844 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:51.583384 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:52.862374 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:54.146260 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:55.480751 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:56.769851 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:58.063094 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:04:59.385432 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:00.698791 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:02.005280 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:03.380569 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:04.764008 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:06.027931 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:07.367460 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:08.680450 [DEBUG] Built 10 external predicate callbacks
+2026/05/19 15:05:09.968935 [DEBUG] Built 10 external predicate callbacks

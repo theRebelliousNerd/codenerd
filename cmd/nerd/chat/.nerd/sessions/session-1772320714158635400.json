@@ -1,0 +1,22 @@
+{
+  "session_id": "session-1772320714158635400",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "*Fresh session started.* Use `/sessions` to load previous sessions (114 available).",
+      "time": "2026-02-28T18:18:34.1612668-05:00"
+    },
+    {
+      "role": "assistant",
+      "content": "System Ready",
+      "time": "2026-02-28T18:18:34.1586354-05:00"
+    },
+    {
+      "role": "assistant",
+      "content": "**Scan complete**\n\n| Metric | Value |\n|--------|-------|\n| Files indexed | 10 |\n| Directories | 0 |\n| Facts generated | 100 |\n| Duration | 1.00s |\n\nThe kernel has been updated with fresh codebase facts.",
+      "time": "2026-02-28T18:18:34.1623779-05:00"
+    }
+  ],
+  "created_at": "2026-02-28T18:18:34.1650085-05:00",
+  "updated_at": "2026-02-28T18:18:34.1650085-05:00"
+}
