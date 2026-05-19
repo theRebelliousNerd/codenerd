@@ -219,6 +219,73 @@ func (m Model) processInput(input string) tea.Cmd {
 			})
 		}
 
+		// FAST-PATH: For conversational intents with a surface_response ready,
+		// return immediately without going through ORIENT/DECIDE/ACT.
+		// Kernel state updates happen asynchronously.
+		if willConverse && intent.Response != "" {
+			logging.Routing("[processInput] FAST-PATH: conversational response | verb=%s confidence=%.2f | responseLen=%d | OODA total=%dms (skipped ORIENT/DECIDE/ACT)",
+				intent.Verb, intent.Confidence, len(intent.Response), time.Since(oodaStart).Milliseconds())
+
+			// Glass Box: Emit fast-path event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   fmt.Sprintf("FAST-PATH: %s (bypassed ORIENT/DECIDE/ACT)", intent.Verb),
+					Details:   "Conversational intent handled directly from perception surface_response",
+					TurnID:    m.turnCount,
+				})
+			}
+
+			// Async kernel update: assert user_intent in background so kernel state
+			// eventually reflects this turn. Non-blocking.
+			if m.kernel != nil {
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logging.Routing("[processInput] FAST-PATH async kernel update recovered panic: %v", r)
+						}
+					}()
+					tx := m.kernel.Transaction()
+					// Retract stale facts from previous turns
+					tx.Retract("shard_result")
+					tx.Retract("pending_test")
+					tx.Retract("pending_review")
+					tx.Retract("interrupt_requested")
+					tx.Retract("execution_result")
+					tx.Retract("routing_result")
+					tx.Retract("pending_action")
+					tx.Retract("delegate_task")
+					tx.Retract("trace_recall_result")
+					tx.Retract("learning_recall_result")
+					tx.Retract("current_understanding")
+					tx.Retract("llm_suggested_mode")
+					tx.Retract("candidate_mode")
+					tx.Retract("best_candidate_priority")
+					tx.Retract("derived_mode")
+					tx.Retract("derived_primary_shard")
+					tx.Retract("derived_context_priority")
+					tx.Retract("derived_tool_priority")
+					// Assert current intent
+					intentID := "/current_intent"
+					tx.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+					tx.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+					tx.Assert(core.Fact{
+						Predicate: "user_intent",
+						Args:      []interface{}{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
+					})
+					tx.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+					if err := tx.Commit(); err != nil {
+						logging.Routing("[processInput] FAST-PATH async kernel update commit error: %v", err)
+					} else {
+						logging.Routing("[processInput] FAST-PATH async kernel update complete")
+					}
+				}()
+			}
+
+			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+		}
+
 		// Seed the shared kernel immediately so system shards can begin deriving actions.
 		if m.kernel != nil {
 			// CONTINUATION PROTOCOL: Clean up stale continuation facts from previous turns

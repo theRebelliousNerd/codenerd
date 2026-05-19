@@ -1427,12 +1427,9 @@ func isConversationalIntent(intent perception.Intent) bool {
 	}
 
 	// Verbs that are conditionally conversational based on target
-	// NOTE: /explain is intentionally NOT in this list - it must go through
-	// articulation so the LLM can emit knowledge_requests for unknown topics.
-	// Previously /explain was bypassing articulation for "conceptual" topics,
-	// which prevented the knowledge discovery system from working.
 	conditionalVerbs := map[string]bool{
-		"/read": true, // Simple file reads (when target is "none" or empty)
+		"/read":    true, // Simple file reads (when target is "none" or empty)
+		"/explain": true, // Meta-questions about the agent itself are conversational
 	}
 
 	// Check if it's a conditional verb
@@ -1446,6 +1443,14 @@ func isConversationalIntent(intent perception.Intent) bool {
 		if target == "" || target == "none" {
 			return true
 		}
+	}
+
+	// For /explain: meta-questions about the agent itself are conversational.
+	// Codebase explanations (target = specific file/symbol) need articulation
+	// so the LLM can emit knowledge_requests for unknown topics.
+	if intent.Verb == "/explain" {
+		target := strings.ToLower(intent.Target)
+		return target == "" || target == "none" || target == "capabilities" || target == "session"
 	}
 
 	return false
