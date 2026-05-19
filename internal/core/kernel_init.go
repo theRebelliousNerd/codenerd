@@ -340,12 +340,6 @@ func (k *RealKernel) loadMangleFiles() error {
 	}
 	logging.KernelDebug("Loaded modular schemas (%d bytes from %d files)", loadedSchemaBytes, len(schemaFiles))
 
-	// Load legacy JIT Prompt Schema if it exists (for backward compatibility)
-	if data, err := coreLogic.ReadFile("defaults/schema/prompts.mg"); err == nil {
-		k.schemas += "\n\n" + string(data)
-		logging.KernelDebug("Loaded legacy JIT prompt schema (%d bytes)", len(data))
-	}
-
 	// Load Core Policy (Stratified)
 	// Iterate over the split policy files in defaults/policy/
 	policyDir := "defaults/policy"
@@ -366,14 +360,9 @@ func (k *RealKernel) loadMangleFiles() error {
 		}
 		logging.KernelDebug("Loaded stratified policy (%d bytes from %d files)", loadedPolicyBytes, len(policyEntries))
 	} else {
-		// Fallback for backward compatibility or if directory missing
-		logging.Get(logging.CategoryKernel).Warn("Failed to read policy directory: %v, falling back to legacy policy.mg", err)
-		if data, err := coreLogic.ReadFile("defaults/policy.mg"); err == nil {
-			k.policy = string(data)
-			logging.KernelDebug("Loaded legacy core policy (%d bytes)", len(data))
-		} else {
-			logging.Get(logging.CategoryKernel).Error("Failed to load core policy: %v", err)
-		}
+		// Policy directory is required — no fallback to monolithic policy.mg
+		logging.Get(logging.CategoryKernel).Error("Failed to read policy directory %s: %v", policyDir, err)
+		return fmt.Errorf("critical: failed to read policy directory: %w", err)
 	}
 
 	// Load other core modules into policy

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	nerdconfig "codenerd/internal/config"
 	"codenerd/internal/core"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
@@ -121,7 +122,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	context7Key := os.Getenv("CONTEXT7_API_KEY")
 	if context7Key == "" {
 		// Try loading from config.json
-		if providerCfg, err := perception.LoadConfigJSON(perception.DefaultConfigPath()); err == nil && providerCfg.Context7APIKey != "" {
+		if providerCfg, err := perception.LoadConfigJSON(nerdconfig.DefaultUserConfigPath()); err == nil && providerCfg.Context7APIKey != "" {
 			context7Key = providerCfg.Context7APIKey
 		}
 	}

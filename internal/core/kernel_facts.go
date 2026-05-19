@@ -73,11 +73,14 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		return nil
 	}
 
-	err := k.rebuild()
+	// LoadFacts is the boot path — evaluate eagerly to ensure initialization.
+	k.cachedAtoms = nil // Invalidate cache before full re-evaluation
+	err := k.evaluate()
 	if err != nil {
-		logging.Get(logging.CategoryKernel).Error("LoadFacts: rebuild failed: %v", err)
+		logging.Get(logging.CategoryKernel).Error("LoadFacts: evaluate failed: %v", err)
 		return err
 	}
+	k.factsDirty = false
 
 	timer.Stop()
 	return nil
@@ -400,10 +403,7 @@ func (k *RealKernel) Assert(fact Fact) error {
 		logging.KernelDebug("Assert: duplicate fact skipped: %s", fact.String())
 		return nil
 	}
-	if err := k.evaluate(); err != nil {
-		logging.Get(logging.CategoryKernel).Error("Assert: evaluation failed after asserting %s: %v", fact.Predicate, err)
-		return err
-	}
+	k.factsDirty = true
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	return nil
 }
@@ -435,11 +435,8 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 		return nil
 	}
 
-	// Evaluate ONCE for all added facts
-	if err := k.evaluate(); err != nil {
-		logging.Get(logging.CategoryKernel).Error("AssertBatch: evaluation failed after asserting %d facts: %v", addedCount, err)
-		return err
-	}
+	// Mark dirty for lazy evaluation (single evaluate on next query)
+	k.factsDirty = true
 
 	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
 		addedCount, len(facts), len(k.facts))
@@ -484,6 +481,7 @@ func (k *RealKernel) Evaluate() error {
 		logging.Get(logging.CategoryKernel).Error("Evaluate: failed: %v", err)
 		return err
 	}
+	k.factsDirty = false
 
 	timer.Stop()
 	return nil
@@ -503,10 +501,11 @@ func (k *RealKernel) Retract(predicate string) error {
 	newAtomsLen := 0
 
 	// Filter facts and atoms in parallel
+	hasCachedAtoms := len(k.cachedAtoms) > 0
 	for i, f := range k.facts {
 		if f.Predicate != predicate {
 			k.facts[newFactsLen] = f
-			if i < len(k.cachedAtoms) {
+			if hasCachedAtoms && i < len(k.cachedAtoms) {
 				k.cachedAtoms[newAtomsLen] = k.cachedAtoms[i]
 			}
 			newFactsLen++
@@ -524,12 +523,14 @@ func (k *RealKernel) Retract(predicate string) error {
 	// Zero tail to release references for GC.
 	for i := newFactsLen; i < prevCount; i++ {
 		k.facts[i] = Fact{}
-		if i < len(k.cachedAtoms) {
+		if hasCachedAtoms && i < len(k.cachedAtoms) {
 			k.cachedAtoms[i] = ast.Atom{} // Zero value for ast.Atom
 		}
 	}
 	k.facts = k.facts[:newFactsLen]
-	k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
+	if hasCachedAtoms {
+		k.cachedAtoms = k.cachedAtoms[:newAtomsLen]
+	}
 
 	// OPTIMIZATION: Incremental index update instead of full rebuild
 	if retractedCount > 0 && k.factIndex != nil {
@@ -1205,3 +1206,32 @@ func (k *RealKernel) GetAllFacts() []Fact {
 	copy(result, k.facts)
 	return result
 }
+
+// IsDirty returns whether the kernel's EDB has been mutated since the last evaluation.
+// When true, the next Query/QueryAll will trigger a lazy re-evaluation.
+func (k *RealKernel) IsDirty() bool {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.factsDirty
+}
+
+// LoadSchemas replaces the kernel's schema content and marks it for reparse.
+// This is used by KernelShard to load domain-specific schemas.
+func (k *RealKernel) LoadSchemas(schemaContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas = schemaContent
+	k.policyDirty = true // Force reparse since schemas changed
+	logging.KernelDebug("LoadSchemas: replaced schemas (%d bytes), policyDirty=true", len(schemaContent))
+}
+
+// LoadPolicy replaces the kernel's policy content and marks it for reparse.
+// This is used by KernelShard to load domain-specific policy rules.
+func (k *RealKernel) LoadPolicy(policyContent string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.policy = policyContent
+	k.policyDirty = true // Force reparse since policy changed
+	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
+}
+
