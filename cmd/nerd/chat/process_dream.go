@@ -675,9 +675,9 @@ func (m Model) shouldClarifyIntent(intent *perception.Intent, input string) bool
 		return false
 	}
 
-	if len(intent.Ambiguity) > 0 {
-		return true
-	}
+	// NOTE: intent.Ambiguity is NOT checked here because the Understanding adapter
+	// always populates it with debug metadata (semantic_type, action_type, domain).
+	// The real ambiguity signal is the confidence score below.
 
 	if intent.Confidence < 0.45 {
 		return true

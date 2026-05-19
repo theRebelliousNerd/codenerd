@@ -1413,6 +1413,7 @@ func isConversationalIntent(intent perception.Intent) bool {
 	// Verbs that are ALWAYS conversational and don't require shard execution
 	alwaysConversational := map[string]bool{
 		"/greet":     true, // Greetings: hello, hi, hey
+		"/converse":  true, // Casual chat: mapped from action_type "chat"
 		"/help":      true, // Capability questions: what can you do?
 		"/knowledge": true, // Memory queries: what do you remember?
 		"/shadow":    true, // What-if queries: what would happen if?
