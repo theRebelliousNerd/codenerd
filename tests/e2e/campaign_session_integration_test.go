@@ -240,6 +240,15 @@ func (m *campaignMockLLMClient) CompleteWithTools(ctx context.Context, systemPro
 func (m *campaignMockLLMClient) ShouldUsePiggybackTools() bool {
 	return m.piggyback
 }
+
+func (m *campaignMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
 func (m *campaignMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
 func (m *campaignMockTransducer) SetStrategicContext(ctx string) {}
 func (m *campaignMockTransducer) ClearStrategicContext() {}

@@ -77,6 +77,15 @@ func (m *pbMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, u
 	return nil, fmt.Errorf("CompleteWithTools called in Piggyback mode — this is a test failure")
 }
 
+func (m *pbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
 // ShouldUsePiggybackTools forces the executor into Piggyback mode.
 func (m *pbMockLLMClient) ShouldUsePiggybackTools() bool { return true }
 

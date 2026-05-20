@@ -73,6 +73,15 @@ func (m *sekMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 	return &types.LLMToolResponse{Text: "mock response"}, nil
 }
 
+func (m *sekMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
 type sekMockTransducer struct{}
 
 func (m *sekMockTransducer) ParseIntentWithGCD(ctx context.Context, input string, history []perception.ConversationTurn, maxRetries int) (perception.Intent, []string, error) {

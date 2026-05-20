@@ -35,6 +35,15 @@ func (m *scbMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 }
 func (m *scbMockLLMClient) ShouldUsePiggybackTools() bool { return false }
 
+func (m *scbMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
 type scbMockVirtualStore struct {
 	readRawFunc func(path string) ([]byte, error)
 }

@@ -477,6 +477,14 @@ func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt, us
 	}
 	return "mock", nil
 }
+func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
 func (m *mockTransducer) ParseIntentWithContext(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
 	return m.intent, m.err
 }

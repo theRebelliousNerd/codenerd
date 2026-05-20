@@ -132,6 +132,15 @@ func (m *oeMockLLMClient) ToolCallWithSystem(ctx context.Context, systemPrompt, 
 
 func (m *oeMockLLMClient) CountTokens(text string) int { return len(text) }
 
+func (m *oeMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
 
 // setupTestEnvironment sets up the dependencies for the Executor and JITExecutor.
 func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor) {
@@ -407,7 +416,7 @@ func TestE2E_OrchestratorExecutor_MultiTurn_HistoryAccumulation(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		res, err := jitExecutor.Execute(ctx, "/fix", fmt.Sprintf("Turn %d", i))
 		if err != nil {
-			t.Fatalf("Turn %d failed: %v, i", err)
+			t.Fatalf("Turn %d failed: %v", i, err)
 		}
 		if res == "" {
 			t.Fatalf("Turn %d returned empty result", i)

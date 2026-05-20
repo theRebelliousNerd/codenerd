@@ -52,6 +52,15 @@ func (m *pceMockLLMClient) CompleteWithTools(ctx context.Context, sys, user stri
 	return &types.LLMToolResponse{Text: "", StopReason: "end_turn"}, nil
 }
 
+func (m *pceMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string, 1)
+	errCh := make(chan error, 1)
+	ch <- "mock streaming response"
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+
 func (m *pceMockLLMClient) getRecordedUser(idx int) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
