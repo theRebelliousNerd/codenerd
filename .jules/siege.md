@@ -39,3 +39,7 @@ This means `Campaign Orchestrator ↔ Session Executor` has a critical thread-sa
 I will write the `.e2e_quality_assurance` journal based on this.
 
 **Subsystems Tested:** Campaign Orchestrator, Session Executor, Spawner.
+
+## 2026-05-19 - [Context Bleed via JITExecutor Inline Execution]
+**Learning:** The Campaign Orchestrator executes phase tasks in parallel goroutines, invoking the `TaskExecutor`. However, when `JITExecutor` opts for "inline" execution instead of spawning a subagent (e.g., for simple intents like `/fix`), it calls `executor.SetSessionContext()`. This function mutates the shared `Executor` instance state and is explicitly documented as not thread-safe. Consequently, concurrent inline tasks overwrite each other's context, leading to catastrophic context bleed and data races in `conversationHistory`.
+**Action:** Always write adversarial scenarios that exploit JIT/Optimization fallbacks. When an architecture provides a "fast path" (like inline execution) and a "safe path" (like subagent spawning), force massive parallel execution through the fast path to break implicit shared-state contracts.
