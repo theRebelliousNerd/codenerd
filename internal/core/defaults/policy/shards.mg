@@ -40,28 +40,31 @@ high_quality_trace(TraceID) :-
     trace_quality(TraceID, Score),
     Score >= 80.
 
-# Shard Performance Patterns
+# Shard Performance Patterns (Aggregation-Based)
+# These use fn:count + fn:group_by instead of N-way self-joins
+# to avoid O(N^3) / O(N^5) combinatorial explosion.
 
-# Shard has high failure rate (3+ consecutive failures)
+# Count failures per shard type
+shard_failure_count(ShardType, N) :-
+    reasoning_trace(_, ShardType, _, _, /false, _) |>
+    do fn:group_by(ShardType),
+    let N = fn:count().
+
+# Shard has high failure rate (3+ failures)
 shard_struggling(ShardType) :-
-    reasoning_trace(T1, ShardType, _, _, /false, _),
-    reasoning_trace(T2, ShardType, _, _, /false, _),
-    reasoning_trace(T3, ShardType, _, _, /false, _),
-    T1 != T2,
-    T2 != T3,
-    T1 != T3.
+    shard_failure_count(ShardType, N),
+    N >= 3.
 
-# Shard is performing well (5+ consecutive successes)
+# Count successes per shard type
+shard_success_count(ShardType, N) :-
+    reasoning_trace(_, ShardType, _, _, /true, _) |>
+    do fn:group_by(ShardType),
+    let N = fn:count().
+
+# Shard is performing well (5+ successes)
 shard_performing_well(ShardType) :-
-    reasoning_trace(T1, ShardType, _, _, /true, _),
-    reasoning_trace(T2, ShardType, _, _, /true, _),
-    reasoning_trace(T3, ShardType, _, _, /true, _),
-    reasoning_trace(T4, ShardType, _, _, /true, _),
-    reasoning_trace(T5, ShardType, _, _, /true, _),
-    T1 != T2,
-    T2 != T3,
-    T3 != T4,
-    T4 != T5.
+    shard_success_count(ShardType, N),
+    N >= 5.
 
 # Detect slow reasoning (> 30 seconds)
 slow_reasoning_detected(ShardType) :-
@@ -89,11 +92,12 @@ promote_to_long_term(/shard_pattern, ShardType) :-
 # Cross-Shard Learning (Specialist vs Ephemeral)
 
 # Specialist outperforms ephemeral for same task type
+# Reordered: bind TaskType from T1 first, then filter T2 by same TaskType
 specialist_outperforms(SpecialistName, TaskType) :-
     reasoning_trace(T1, SpecialistName, /specialist, _, /true, _),
-    reasoning_trace(T2, /coder, /ephemeral, _, /false, _),
     trace_task_type(T1, TaskType),
-    trace_task_type(T2, TaskType).
+    trace_task_type(T2, TaskType),
+    reasoning_trace(T2, /coder, /ephemeral, _, /false, _).
 
 # Suggest using specialist instead of ephemeral
 suggest_use_specialist(TaskType, SpecialistName) :-
@@ -145,12 +149,12 @@ escalation_needed(/system_health, ShardType, "System shard failure") :-
 # Specialist Knowledge Hydration from Traces
 
 # Specialist with good traces should be preferred for similar tasks
+# Reordered: bind Task from user_intent first, then check specialist capabilities
 delegate_task(SpecialistName, Task, /pending) :-
+    user_intent(/current_intent, _, _, Task, _),
     shard_performing_well(SpecialistName),
     shard_profile(SpecialistName, /specialist, _),
-    trace_task_type(_, TaskType),
-    shard_can_handle(SpecialistName, TaskType),
-    user_intent(/current_intent, _, _, Task, _).
+    shard_can_handle(SpecialistName, TaskType).
 
 # Learn which tasks specialists handle well
 shard_can_handle(ShardType, TaskType) :-
@@ -231,9 +235,13 @@ specialist_should_advise(Specialist, Task) :-
     Confidence <= 80.
 
 # Always consult strategic advisors for complex tasks
+# Note: specialist_classification is a small static set (8 entries), cross-product is bounded
 strategic_advisor_required(Task) :-
     task_complexity(Task, /high),
-    specialist_classification(Advisor, /advisor, /strategic).
+    has_strategic_advisor.
+
+# Helper: check existence of any strategic advisor (avoids cross-product with Task)
+has_strategic_advisor :- specialist_classification(_, /advisor, /strategic).
 
 # Route to specialist's knowledge DB for context
 specialist_context_source(Specialist, DBPath) :-

@@ -175,11 +175,20 @@ Decl low_quality_trace(TraceID) bound [/string].
 # high_quality_trace(TraceID) - derived: trace quality >= 80 (on 0-100 scale)
 Decl high_quality_trace(TraceID) bound [/string].
 
-# shard_struggling(ShardType) - derived: shard has high failure rate
+# shard_failure_count(ShardType, N) - derived: count of failures per shard type
+Decl shard_failure_count(ShardType, N) bound [/name, /number].
+
+# shard_success_count(ShardType, N) - derived: count of successes per shard type
+Decl shard_success_count(ShardType, N) bound [/name, /number].
+
+# shard_struggling(ShardType) - derived: shard has high failure rate (3+)
 Decl shard_struggling(ShardType) bound [/name].
 
-# shard_performing_well(ShardType) - derived: shard has high success rate
+# shard_performing_well(ShardType) - derived: shard has high success rate (5+)
 Decl shard_performing_well(ShardType) bound [/name].
+
+# has_strategic_advisor - derived: at least one strategic advisor exists
+Decl has_strategic_advisor().
 
 # slow_reasoning_detected(ShardType) - derived: average duration > threshold
 Decl slow_reasoning_detected(ShardType) bound [/name].
