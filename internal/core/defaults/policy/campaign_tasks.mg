@@ -42,6 +42,7 @@ task_conflict(TaskID, OtherTaskID) :-
 
 # Helper: check if there's an earlier pending task
 has_earlier_task(TaskID, PhaseID) :-
+    campaign_task(TaskID, PhaseID, _, /pending, _),
     campaign_task(OtherTaskID, PhaseID, _, /pending, _),
     OtherTaskID != TaskID,
     task_priority(OtherTaskID, OtherPriority),

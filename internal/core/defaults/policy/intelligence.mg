@@ -46,7 +46,7 @@ intelligence_chestertons_fence(Path, "WARNING: Very high churn - requires carefu
 
 # Core infrastructure detection - file has 3+ dependents
 # Uses aggregation instead of O(N³) self-join
-Decl intelligence_dependent_count(Path.Type<string>, Count.Type<int>).
+Decl intelligence_dependent_count(Path, Count).
 intelligence_dependent_count(Path, N) :-
     intelligence_file_depends(_, Path) |>
     do fn:group_by(Path),
@@ -246,7 +246,7 @@ intelligence_needs_tests_first(TaskID) :-
 # =============================================================================
 
 # Helper: extract active campaign IDs from task/phase chain (avoids cross-product)
-Decl active_campaign_id(CampaignID.Type<n>).
+Decl active_campaign_id(CampaignID).
 active_campaign_id(CampaignID) :-
     campaign_task(_, PhaseID, _, _, _),
     campaign_phase(PhaseID, CampaignID, _, _, _, _).

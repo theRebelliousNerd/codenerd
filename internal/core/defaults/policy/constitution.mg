@@ -171,53 +171,117 @@ requires_permission(/system_modify).
 # Note: dangerous_action takes ActionType (e.g., /delete_file), not ActionID.
 dangerous_action(ActionType) :- requires_permission(ActionType).
 
-# Identify dangerous command content (Payload check)
-# Note: blocked_pattern is bounded (~16 facts), pending_action is typically 1.
-# Ordering: bind Payload first from pending_action, then scan patterns.
-dangerous_content(/exec_cmd, Payload) :-
-    pending_action(_, /exec_cmd, _, Payload, _),
-    blocked_pattern(Pattern),
-    :string:contains(Payload, Pattern).
+# Identify dangerous command content
+# :string:contains requires both args bound in the same rule.
+# Pattern: bind Payload/Target from pending_action, then check each constant pattern.
 
-# Identify dangerous command TARGET (Bug #Safety-ExecCmd fix)
-dangerous_content(/exec_cmd, Target) :-
-    pending_action(_, /exec_cmd, Target, _, _),
-    blocked_pattern(Pattern),
-    :string:contains(Target, Pattern).
+# --- exec_cmd Payload ---
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "git push --force").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "git push -f").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "git push origin --force").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "git push origin -f").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "rm -rf /").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "rm -rf").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "sudo").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "> /dev/").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "mkfs").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "dd if=").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "chmod 777").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "chmod -R 777").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, ":(){").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "| bash").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "| sh").
+dangerous_content(/exec_cmd, Payload) :- pending_action(_, /exec_cmd, _, Payload, _), :string:contains(Payload, "nc -e").
 
-# Specific block for git push force (robust to flag position)
-dangerous_content(/exec_cmd, Payload) :-
-    pending_action(_, /exec_cmd, _, Payload, _),
-    :string:contains(Payload, "git push"),
-    :string:contains(Payload, "--force").
+# --- exec_cmd Target ---
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "git push --force").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "git push -f").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "git push origin --force").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "git push origin -f").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "rm -rf /").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "rm -rf").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "sudo").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "> /dev/").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "mkfs").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "dd if=").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "chmod 777").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "chmod -R 777").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, ":(){").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "| bash").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "| sh").
+dangerous_content(/exec_cmd, Target) :- pending_action(_, /exec_cmd, Target, _, _), :string:contains(Target, "nc -e").
 
-dangerous_content(/exec_cmd, Payload) :-
-    pending_action(_, /exec_cmd, _, Payload, _),
-    :string:contains(Payload, "git push"),
-    :string:contains(Payload, "-f").
+# --- run_command Payload ---
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "git push --force").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "git push -f").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "git push origin --force").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "git push origin -f").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "rm -rf /").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "rm -rf").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "sudo").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "> /dev/").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "mkfs").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "dd if=").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "chmod 777").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "chmod -R 777").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, ":(){").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "| bash").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "| sh").
+dangerous_content(/run_command, Payload) :- pending_action(_, /run_command, _, Payload, _), :string:contains(Payload, "nc -e").
 
-# Safety checks for run_command and bash (Payload check)
-# Bounded cross-product: blocked_pattern has ~16 facts, pending_action typically 0-1.
-dangerous_content(/run_command, Payload) :-
-    pending_action(_, /run_command, _, Payload, _),
-    blocked_pattern(Pattern),
-    :string:contains(Payload, Pattern).
+# --- run_command Target ---
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "git push --force").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "git push -f").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "git push origin --force").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "git push origin -f").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "rm -rf /").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "rm -rf").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "sudo").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "> /dev/").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "mkfs").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "dd if=").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "chmod 777").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "chmod -R 777").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, ":(){").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "| bash").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "| sh").
+dangerous_content(/run_command, Target) :- pending_action(_, /run_command, Target, _, _), :string:contains(Target, "nc -e").
 
-dangerous_content(/bash, Payload) :-
-    pending_action(_, /bash, _, Payload, _),
-    blocked_pattern(Pattern),
-    :string:contains(Payload, Pattern).
+# --- bash Payload ---
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "git push --force").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "git push -f").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "git push origin --force").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "git push origin -f").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "rm -rf /").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "rm -rf").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "sudo").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "> /dev/").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "mkfs").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "dd if=").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "chmod 777").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "chmod -R 777").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, ":(){").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "| bash").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "| sh").
+dangerous_content(/bash, Payload) :- pending_action(_, /bash, _, Payload, _), :string:contains(Payload, "nc -e").
 
-# Safety checks for run_command and bash (Target check)
-dangerous_content(/run_command, Target) :-
-    pending_action(_, /run_command, Target, _, _),
-    blocked_pattern(Pattern),
-    :string:contains(Target, Pattern).
-
-dangerous_content(/bash, Target) :-
-    pending_action(_, /bash, Target, _, _),
-    blocked_pattern(Pattern),
-    :string:contains(Target, Pattern).
+# --- bash Target ---
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "git push --force").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "git push -f").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "git push origin --force").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "git push origin -f").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "rm -rf /").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "rm -rf").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "sudo").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "> /dev/").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "mkfs").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "dd if=").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "chmod 777").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "chmod -R 777").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, ":(){").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "| bash").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "| sh").
+dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "nc -e").
 
 dangerous_content(/run_command, Payload) :-
     pending_action(_, /run_command, _, Payload, _),

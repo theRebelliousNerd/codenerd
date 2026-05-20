@@ -106,7 +106,7 @@ quality_signal(/require_error_handling) :-
 
 # Promote learning signals to long-term memory after repeated violations
 # Uses aggregation instead of O(N³) self-join
-Decl quality_violation_count(ViolationType.Type<n>, Count.Type<int>).
+Decl quality_violation_count(ViolationType, Count).
 quality_violation_count(ViolationType, N) :-
     quality_violation(_, ViolationType) |>
     do fn:group_by(ViolationType),
@@ -188,7 +188,7 @@ required_retry(TaskID) :-
 
 # Helper: track specific violation types for analytics
 # Uses aggregation instead of O(N⁵) self-join
-Decl violation_type_occurrence_count(ViolationType.Type<n>, Count.Type<int>).
+Decl violation_type_occurrence_count(ViolationType, Count).
 violation_type_occurrence_count(ViolationType, N) :-
     quality_violation(_, ViolationType) |>
     do fn:group_by(ViolationType),
