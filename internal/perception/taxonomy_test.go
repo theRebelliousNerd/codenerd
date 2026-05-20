@@ -30,6 +30,21 @@ func (m *mockClient) CompleteWithStructuredOutput(ctx context.Context, sys, user
 func (m *mockClient) CompleteWithTools(ctx context.Context, sys, user string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	return &LLMToolResponse{Text: "", StopReason: "end_turn"}, nil
 }
+func (m *mockClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	contentChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	go func() {
+		defer close(contentChan)
+		defer close(errorChan)
+		res, err := m.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		contentChan <- res
+	}()
+	return contentChan, errorChan
+}
 func (m *mockClient) SetModel(s string) {}
 func (m *mockClient) GetModel() string  { return "mock" }
 func (m *mockClient) DisableSemaphore() {}
