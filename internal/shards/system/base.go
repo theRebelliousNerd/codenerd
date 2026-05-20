@@ -394,12 +394,15 @@ func (b *BaseSystemShard) SetLLMClient(client types.LLMClient) {
 func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if k == nil {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] SetParentKernel called with nil kernel", b.ID)
+		return
+	}
 	if rk, ok := k.(*core.RealKernel); ok {
 		b.Kernel = rk
 		logging.SystemShardsDebug("[%s] Parent kernel attached", b.ID)
 	} else {
-		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type, requires *core.RealKernel", b.ID)
-		panic("SystemShard requires *core.RealKernel")
+		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type %T, requires *core.RealKernel — shard will run without kernel", b.ID, k)
 	}
 }
 

@@ -737,6 +737,10 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		startTime := time.Now()
 		m.ReportStatus("Scanning workspace...")
 
+		if m.scanner == nil {
+			return scanCompleteMsg{err: fmt.Errorf("scanner not initialized")}
+		}
+
 		// Incremental fast scan
 		res, err := m.scanner.ScanWorkspaceIncremental(context.Background(), m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: true})
 		if err != nil {
