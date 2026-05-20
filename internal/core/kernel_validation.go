@@ -182,9 +182,31 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 			}
 
 			result.stats.ValidRules++
+			healedLines = append(healedLines, line)
+			continue
 		}
 
-		// Valid line - keep as is
+		// CATCH-ALL: Non-empty, non-comment line that doesn't match rule or fact structure.
+		// This catches malformed content: unclosed strings, gibberish, missing-dot expressions, etc.
+		// Run through syntax check — if it fails, treat as corrupted and heal.
+		result.stats.TotalRules++
+		if syntaxErr := checkSyntax(trimmed); syntaxErr != nil {
+			result.stats.InvalidRules++
+			errMsg := fmt.Sprintf("line %d: malformed statement: %v", i+1, syntaxErr)
+			result.stats.InvalidRuleErrors = append(result.stats.InvalidRuleErrors, errMsg)
+			logging.Get(logging.CategoryKernel).Warn("Startup validation: %s", errMsg)
+
+			if heal {
+				healedLines = append(healedLines, "# SELF-HEALED: malformed statement: "+syntaxErr.Error())
+				healedLines = append(healedLines, "# "+line)
+			} else {
+				healedLines = append(healedLines, line)
+			}
+			continue
+		}
+
+		// Syntactically valid but structurally unrecognized — keep it
+		result.stats.ValidRules++
 		healedLines = append(healedLines, line)
 	}
 

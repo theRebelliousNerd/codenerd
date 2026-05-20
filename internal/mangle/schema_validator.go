@@ -148,7 +148,8 @@ func (sv *SchemaValidator) ValidateRule(ruleText string) error {
 //
 // In addition to schema drift checks (undefined predicates in the body), learned rules are
 // prevented from defining protected control-plane predicates that must remain deterministic.
-// Also validates that head predicates match declared arities.
+// Also validates that head predicates match declared arities and that learned facts only
+// assert into declared predicates (schema drift prevention).
 func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	trimmed := strings.TrimSpace(ruleText)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -156,9 +157,19 @@ func (sv *SchemaValidator) ValidateLearnedRule(ruleText string) error {
 	}
 
 	head := sv.extractHeadPredicate(trimmed)
+	isRule := strings.Contains(trimmed, ":-")
+
 	if head != "" {
 		if reason, forbidden := forbiddenLearnedHeads[head]; forbidden {
 			return fmt.Errorf("learned rule defines protected predicate %q: %s", head, reason)
+		}
+
+		// Schema drift check for learned FACTS only (not rules).
+		// A learned fact like undeclared_pred("oops"). asserts data for a predicate with no Decl —
+		// it will never be consumed by any rule. But a learned rule like
+		// candidate_action(/x) :- user_intent(...) legitimately derives a new predicate.
+		if !isRule && !sv.declaredPredicates[head] && !sv.isBuiltin(head) {
+			return fmt.Errorf("undeclared predicate %q in learned fact (available: %v)", head, sv.getAvailablePredicates())
 		}
 
 		// Validate arity of head predicate against declared schema

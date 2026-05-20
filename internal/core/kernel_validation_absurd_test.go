@@ -47,30 +47,25 @@ other_pred(X, "val") :- valid_pred(X).
 
 	healedText := k.healLearnedRules(corruptedText, "")
 
-	// KNOWN GAP: validateLearnedRulesContent uses a line-by-line parser that only recognizes:
-	//   isRule: strings.Contains(trimmed, ":-")
-	//   isFact: !isRule && strings.Contains(trimmed, "(") && strings.HasSuffix(trimmed, ").")
-	// Lines that don't match either pattern (unclosed strings, gibberish, missing-dot expressions)
-	// pass through unchanged and are NOT counted in stats.
-	//
-	// Additionally, facts (no ":-") pass ValidateRule since it only checks body predicates.
-	// So undeclared_pred("oops"). passes because there's no body to validate.
-	//
-	// Recognized lines from the corrupted text:
-	//   1. valid_pred("ok").               -> fact, valid (syntax OK, schema OK)
-	//   2. undeclared_pred("oops").         -> fact, valid (no body to check, head not forbidden)
-	//   3. next_action(/do_something) :- current_time(T). -> rule, INVALID (undefined predicate current_time)
-	//   4. other_pred(X, "val") :- valid_pred(X).         -> rule, valid
-	//
-	// NOT recognized (silently passed through):
-	//   - valid_pred("unclosed string.     -> no closing ")."
-	//   - Gibberish!!! Emojis 🚀🔥         -> no "(" at all
-	//   - other_pred("missing", "dot")     -> ends with ")" not ")."
-	t.Log("KNOWN GAP: line-by-line parser does not catch malformed lines that lack rule/fact structure")
+	// With the catch-all parser and head-predicate schema drift check, all 6 items are caught:
+	//   1. valid_pred("ok").               → fact, VALID (syntax OK, head declared, schema OK)
+	//   2. valid_pred("unclosed string.    → catch-all, INVALID (malformed: fails checkSyntax)
+	//   3. Gibberish!!! Emojis 🚀🔥        → catch-all, INVALID (malformed: fails checkSyntax)
+	//   4. other_pred("missing", "dot")    → catch-all, INVALID (malformed: missing terminating dot)
+	//   5. undeclared_pred("oops").         → fact, INVALID (head predicate not declared in schema)
+	//   6. next_action(/do_something) :- current_time(T). → rule, INVALID (undefined body predicate)
+	//   7. other_pred(X, "val") :- valid_pred(X).         → rule, VALID
 
-	// The next_action rule is caught by schema validation (undefined predicate in body)
-	if !strings.Contains(healedText, "# SELF-HEALED: rule uses undefined predicates") {
-		t.Errorf("Expected healed text to contain SELF-HEALED comment for undefined predicates, got:\n%s", healedText)
+	// Verify SELF-HEALED comments for each category of corruption
+	expectedHealMarkers := []string{
+		"# SELF-HEALED: malformed statement:",      // unclosed string, gibberish, missing-dot
+		"# SELF-HEALED: undeclared predicate",      // undeclared_pred fact head not in schema
+		"# SELF-HEALED: rule uses undefined",       // next_action body uses undefined current_time
+	}
+	for _, marker := range expectedHealMarkers {
+		if !strings.Contains(healedText, marker) {
+			t.Errorf("Expected healed text to contain %q, got:\n%s", marker, healedText)
+		}
 	}
 
 	// Verify valid rules are kept intact
@@ -81,24 +76,27 @@ other_pred(X, "val") :- valid_pred(X).
 		t.Errorf("Expected valid rule to be kept intact")
 	}
 
-	// Verify that unrecognized corrupted lines pass through unchanged (known gap)
-	if !strings.Contains(healedText, `Gibberish!!! Emojis`) {
-		t.Errorf("Expected gibberish line to pass through unchanged (parser does not recognize it)")
+	// Verify corrupted lines are commented out (not passed through raw)
+	if strings.Contains(healedText, "\nGibberish!!! Emojis") {
+		t.Errorf("Gibberish line should be commented out, not passed through raw")
 	}
-	if !strings.Contains(healedText, `other_pred("missing", "dot")`) {
-		t.Errorf("Expected missing-dot line to pass through unchanged (parser does not recognize it)")
+	if strings.Contains(healedText, "\nother_pred(\"missing\", \"dot\")\n") {
+		t.Errorf("Missing-dot line should be commented out, not passed through raw")
+	}
+	if strings.Contains(healedText, "\nundeclared_pred(\"oops\").\n") {
+		t.Errorf("Undeclared predicate fact should be commented out, not passed through raw")
 	}
 
-	// Verify validation stats match actual parser behavior
+	// Verify validation stats: 7 total statements, 2 valid, 5 invalid
 	stats := k.validateLearnedRulesContent(corruptedText, "", false)
-	if stats.stats.TotalRules != 4 {
-		t.Errorf("Expected 4 recognized rules/facts, got %d", stats.stats.TotalRules)
+	if stats.stats.TotalRules != 7 {
+		t.Errorf("Expected 7 total recognized statements, got %d", stats.stats.TotalRules)
 	}
-	if stats.stats.ValidRules != 3 {
-		t.Errorf("Expected 3 valid (valid_pred fact, undeclared_pred fact, other_pred rule), got %d", stats.stats.ValidRules)
+	if stats.stats.ValidRules != 2 {
+		t.Errorf("Expected 2 valid (valid_pred fact, other_pred rule), got %d", stats.stats.ValidRules)
 	}
-	if stats.stats.InvalidRules != 1 {
-		t.Errorf("Expected 1 invalid (next_action with undefined current_time), got %d", stats.stats.InvalidRules)
+	if stats.stats.InvalidRules != 5 {
+		t.Errorf("Expected 5 invalid (unclosed string, gibberish, missing dot, undeclared head, undefined body), got %d", stats.stats.InvalidRules)
 	}
 }
 
