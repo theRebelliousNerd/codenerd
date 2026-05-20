@@ -408,6 +408,8 @@ func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 		return vs.getQueryTraceStatsAtoms(query)
 	case "query_strategic":
 		return vs.getQueryStrategicAtoms(query)
+	case "query_graph":
+		return vs.getQueryGraphAtoms(query)
 	// string_contains is commented out as we transitioned to native :string:contains.
 	// case "string_contains":
 	// 	return vs.getStringContainsAtoms(query)

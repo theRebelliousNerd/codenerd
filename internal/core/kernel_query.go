@@ -428,7 +428,8 @@ func baseTermToValue(term ast.BaseTerm) interface{} {
 		case ast.NumberType:
 			return t.NumValue
 		case ast.Float64Type:
-			return t.Float64Value
+			val, _ := t.Float64Value()
+			return val
 		default:
 			// DEFENSIVE: Log unknown constant types to catch new AST types early
 			logging.Kernel("baseTermToValue: unknown constant type %v, using Symbol fallback", t.Type)
