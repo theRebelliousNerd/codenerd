@@ -32,7 +32,7 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 		return nil, fmt.Errorf("cannot query empty predicate string")
 	}
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
-	logging.KernelDebug("Query: predicate=%s", predicate)
+	// Suppress per-query debug logging for idle queries; only log at trace level
 
 	k.mu.RLock()
 
@@ -122,7 +122,9 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	}
 
 	elapsed := timer.Stop()
-	logging.KernelDebug("Query: predicate=%s returned %d results", predicate, len(results))
+	if len(results) > 0 {
+		logging.KernelDebug("Query: predicate=%s returned %d results", predicate, len(results))
+	}
 	logging.Audit().KernelQuery(predicate, len(results), elapsed.Milliseconds())
 	return results, nil
 }

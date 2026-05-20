@@ -204,7 +204,7 @@ func DefaultRouterConfig() RouterConfig {
 			{ActionPattern: "delegate_tester", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
 			{ActionPattern: "delegate_tool_generator", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: true},
 		},
-		TickInterval:         100 * time.Millisecond,
+		TickInterval:         500 * time.Millisecond,
 		IdleTimeout:          30 * time.Second,
 		AllowUnmappedActions: false,
 	}

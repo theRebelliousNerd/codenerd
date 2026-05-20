@@ -53,7 +53,7 @@ func DefaultPerceptionConfig() PerceptionConfig {
 	return PerceptionConfig{
 		ConfidenceThreshold:          0.85,
 		AmbiguityThreshold:           0.7,
-		TickInterval:                 50 * time.Millisecond,
+		TickInterval:                 500 * time.Millisecond,
 		MaxQueueSize:                 100,
 		UseFallbackParsing:           true,
 		LearningCandidateThreshold:   3,

@@ -64,7 +64,7 @@ type ExecutiveConfig struct {
 // DefaultExecutiveConfig returns sensible defaults.
 func DefaultExecutiveConfig() ExecutiveConfig {
 	return ExecutiveConfig{
-		TickInterval:               100 * time.Millisecond,
+		TickInterval:               500 * time.Millisecond,
 		StrictBarriers:             true,
 		MaxActionsPerTick:          5,
 		DebugMode:                  false,

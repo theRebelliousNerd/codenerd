@@ -392,7 +392,10 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.
 func (k *RealKernel) Assert(fact Fact) error {
-	logging.KernelDebug("Assert: %s", fact.String())
+	// Skip per-assert debug for high-frequency predicates (heartbeats)
+	if fact.Predicate != "system_heartbeat" {
+		logging.KernelDebug("Assert: %s", fact.String())
+	}
 	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 
 	k.mu.Lock()
@@ -400,7 +403,7 @@ func (k *RealKernel) Assert(fact Fact) error {
 
 	fact = sanitizeFactForNumericPredicates(fact)
 	if !k.addFactIfNewLocked(fact) {
-		logging.KernelDebug("Assert: duplicate fact skipped: %s", fact.String())
+		// Duplicate assert is a no-op — suppress debug to avoid log spam
 		return nil
 	}
 	k.factsDirty = true
@@ -490,7 +493,7 @@ func (k *RealKernel) Evaluate() error {
 // Retract removes all facts of a given predicate.
 // OPTIMIZATION: Maintains atom cache instead of rebuilding entire index.
 func (k *RealKernel) Retract(predicate string) error {
-	logging.KernelDebug("Retract: removing all facts with predicate=%s", predicate)
+	// Skip per-retract debug for high-frequency no-op retractions
 
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -516,7 +519,7 @@ func (k *RealKernel) Retract(predicate string) error {
 	}
 
 	if retractedCount == 0 {
-		logging.KernelDebug("Retract: no facts found for predicate=%s (EDB unchanged at %d facts)", predicate, prevCount)
+		// Empty retract is a no-op — suppress debug to avoid log spam
 		return nil
 	}
 

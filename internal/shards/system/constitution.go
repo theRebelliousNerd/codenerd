@@ -62,7 +62,7 @@ func DefaultConstitutionConfig() ConstitutionConfig {
 			`sudo\s+rm`,
 		},
 		EscalateOnAmbiguity: true,
-		TickInterval:        50 * time.Millisecond,
+		TickInterval:        500 * time.Millisecond,
 	}
 }
 
