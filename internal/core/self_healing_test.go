@@ -109,3 +109,12 @@ func TestDefaultSelfHealerConfig(t *testing.T) {
 		t.Error("Expected positive RetryBackoff")
 	}
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify HandleValidationFailure behaves gracefully (no panic) when called with a completely zero-initialized SelfHealer (nil kernel, nil validators) and an empty string for ActionID.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify determineHealingType correctly defaults to HealingEscalate when vr.Error is empty or purely whitespace.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify HandleValidationFailure returns a clean error instead of panicking when the executor is explicitly nil.
+// TODO: TEST_GAP: [Type Coercion] Verify SelfHealer handles negative or extreme RetryBackoff durations (e.g., math.MaxInt64) without deadlocking the time.After select block.
+// TODO: TEST_GAP: [Type Coercion] Verify behavior when config.MaxRetries is 0 or negative; it should immediately bypass retries and fallback to escalate.
+// TODO: TEST_GAP: [User Request Extremes] Verify HandleValidationFailure bails out instantly and correctly propagates ctx.Err() if the context is cancelled immediately before or during the backoff period.
+// TODO: TEST_GAP: [State Conflicts] Verify the "Zombie Retry" race condition: If ClearHealingAttempts is called while a retry is waiting in time.After, verify the retry count isn't reset causing an infinite retry bypass.
+// TODO: TEST_GAP: [State Conflicts] Verify performance and safety under extreme concurrency (e.g., 10,000 goroutines) hitting HandleValidationFailure and ClearHealingAttempts for the same ActionID simultaneously to stress the global mutex.
