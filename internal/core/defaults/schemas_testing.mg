@@ -175,8 +175,6 @@ Decl low_quality_trace(TraceID) bound [/string].
 # high_quality_trace(TraceID) - derived: trace quality >= 80 (on 0-100 scale)
 Decl high_quality_trace(TraceID) bound [/string].
 
-# shard_failure_count(ShardType, N) - derived: count of failures per shard type
-Decl shard_failure_count(ShardType, N) bound [/name, /number].
 
 # shard_success_count(ShardType, N) - derived: count of successes per shard type
 Decl shard_success_count(ShardType, N) bound [/name, /number].
