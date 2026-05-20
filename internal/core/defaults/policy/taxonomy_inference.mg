@@ -28,19 +28,20 @@ potential_score(Verb, Score) :- candidate_intent(Verb, Score).
 
 # Learned Pattern Override (Highest Priority)
 # If the input matches a learned pattern, give it a massive boost.
+# Bind Input first (singleton), then match against learned_exemplar via equality.
 potential_score(Verb, 100) :-
     user_input_string(Input),
-    learned_exemplar(Pattern, Verb, _, _, _),
-    Input = Pattern.
+    learned_exemplar(Input, Verb, _, _, _).
 
 # 2. Boosted Scores (Rule-based)
 # Use integer arithmetic for scores (0-100 scale).
 #
 # Boost verbs when a context token matches a known synonym for that verb.
+# verb_synonym(Verb, Token) joins candidate_intent(Verb) with context_token(Token).
 potential_score(Verb, NewScore) :-
     candidate_intent(Verb, Base),
-    context_token(Token),
     verb_synonym(Verb, Token),
+    context_token(Token),
     NewScore = fn:plus(Base, 30).
 
 potential_score(Verb, NewScore) :-
@@ -129,11 +130,12 @@ potential_score(Verb, NewScore) :-
 
 # VERB COMPOSITION FROM MULTIPLE MATCHES
 # If two different verbs both have high similarity, suggest composition
+# Filter S1 >= 65 early, then join second verb with V1 != V2 filter.
 compound_suggestion(V1, V2) :-
     semantic_suggested_verb(V1, S1),
+    S1 >= 65,
     semantic_suggested_verb(V2, S2),
     V1 != V2,
-    S1 >= 65,
     S2 >= 65,
     verb_composition(V1, V2, _, Priority),
     Priority >= 80.
@@ -205,11 +207,12 @@ potential_score(/dream, 92) :-
 # --- COPULAR + STATE ADJECTIVE (High Priority) ---
 # "Is this code secure?" -> /security
 # Requires copular verb + state adjective in context
+# Bounded cross-product: detected_state_adj typically 0-3 facts per query.
 Decl copular_state_intent(ImpliedVerb, Priority).
 copular_state_intent(ImpliedVerb, Priority) :-
+    detected_state_adj(_, ImpliedVerb, _, Priority),
     context_token(Copular),
-    copular_verb(Copular, _, _),
-    detected_state_adj(_, ImpliedVerb, _, Priority).
+    copular_verb(Copular, _, _).
 
 # Helper predicates for safe negation (wildcards in negated atoms cause safety violations)
 Decl has_copular_state_intent(Flag).
@@ -225,11 +228,13 @@ potential_score(Verb, Score) :-
 
 # --- INTERROGATIVE + STATE COMBINATION (Very High Priority) ---
 # "Why is this failing?" -> causation + error_state -> /debug
+# Reordered: interrogative_state_signal joins InterrogType from detected_interrogative
+# with StateCategory, then detected_state_adj confirms StateCategory.
 Decl interrogative_state_combo(CombinedVerb, Priority).
 interrogative_state_combo(CombinedVerb, Priority) :-
     detected_interrogative(_, InterrogType, _, _),
-    detected_state_adj(_, _, StateCategory, _),
-    interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority).
+    interrogative_state_signal(InterrogType, StateCategory, CombinedVerb, Priority),
+    detected_state_adj(_, _, StateCategory, _).
 
 Decl has_interrogative_state_combo(Flag).
 has_interrogative_state_combo(/true) :- interrogative_state_combo(_, _).

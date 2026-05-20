@@ -12,9 +12,9 @@ permitted(Action, Target, Payload) :-
 
 permitted(Action, Target, Payload) :-
     dangerous_action(Action),
-    admin_override(User),
     signed_approval(Action),
-    pending_action(_, Action, Target, Payload, _).
+    pending_action(_, Action, Target, Payload, _),
+    admin_override(User).
 
 # Downstream executor bridge:
 permitted(Action, Target, Payload) :-
@@ -172,6 +172,8 @@ requires_permission(/system_modify).
 dangerous_action(ActionType) :- requires_permission(ActionType).
 
 # Identify dangerous command content (Payload check)
+# Note: blocked_pattern is bounded (~16 facts), pending_action is typically 1.
+# Ordering: bind Payload first from pending_action, then scan patterns.
 dangerous_content(/exec_cmd, Payload) :-
     pending_action(_, /exec_cmd, _, Payload, _),
     blocked_pattern(Pattern),
@@ -195,6 +197,7 @@ dangerous_content(/exec_cmd, Payload) :-
     :string:contains(Payload, "-f").
 
 # Safety checks for run_command and bash (Payload check)
+# Bounded cross-product: blocked_pattern has ~16 facts, pending_action typically 0-1.
 dangerous_content(/run_command, Payload) :-
     pending_action(_, /run_command, _, Payload, _),
     blocked_pattern(Pattern),
@@ -325,10 +328,11 @@ has_temporary_override(ActionType) :-
     temporary_override(ActionType, _).
 
 # Override is currently active for an action type
+# Fixed: current_time (singleton) comes first to avoid cross-product with appeal_granted
 has_active_override(ActionType) :-
+    current_time(Now),
     appeal_granted(_, ActionType, _, _),
     temporary_override(ActionType, Expiration),
-    current_time(Now),
     Now < Expiration.
 
 # Permanent override (no expiration)

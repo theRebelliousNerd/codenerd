@@ -27,11 +27,13 @@ Decl is_test_function(Ref).
 # Build the direct dependency graph between tests and source code.
 
 # Test depends on source if test imports the source file
+# Reordered: bind TestFile from TestRef, then file_imports joins to SourceFile,
+# then code_element binds SourceRef sharing SourceFile.
 test_depends_on(TestRef, SourceRef) :-
     is_test_function(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    code_element(SourceRef, _, SourceFile, _, _),
-    file_imports(TestFile, SourceFile).
+    file_imports(TestFile, SourceFile),
+    code_element(SourceRef, _, SourceFile, _, _).
 
 # Test depends on source if test calls source function
 test_depends_on(TestRef, SourceRef) :-
@@ -39,11 +41,12 @@ test_depends_on(TestRef, SourceRef) :-
     code_calls(TestRef, SourceRef).
 
 # Test depends on source if they share the same package and test references source symbol
+# Reordered: bind TestFile, then same_package joins to SourceFile, then code_element shares SourceFile.
 test_depends_on(TestRef, SourceRef) :-
     is_test_function(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    code_element(SourceRef, _, SourceFile, _, _),
     same_package(TestFile, SourceFile),
+    code_element(SourceRef, _, SourceFile, _, _),
     test_references_symbol(TestRef, SourceRef).
 
 
@@ -90,11 +93,13 @@ impacted_test(TestRef) :-
     is_test_function(TestRef).
 
 # A test is impacted if it depends on a modified file (file-level granularity fallback)
+# Reordered: bind TestRef first, get TestFile, then file_imports joins to File,
+# then modified_file confirms File is modified.
 impacted_test(TestRef) :-
-    modified_file(File),
-    code_element(TestRef, _, TestFile, _, _),
     is_test_function(TestRef),
-    file_imports(TestFile, File).
+    code_element(TestRef, _, TestFile, _, _),
+    file_imports(TestFile, File),
+    modified_file(File).
 
 
 # =============================================================================
@@ -144,10 +149,12 @@ coverage_gap(Ref, /no_direct_tests) :-
 # Score tests for execution priority.
 
 # High priority detection (helper predicate to avoid stratification)
+# Reordered: impacted_test binds TestRef, test_depends_on shares TestRef and binds
+# TargetRef, then plan_edit shares TargetRef.
 is_high_priority_test(TestRef) :-
     impacted_test(TestRef),
-    plan_edit(TargetRef),
-    test_depends_on(TestRef, TargetRef).
+    test_depends_on(TestRef, TargetRef),
+    plan_edit(TargetRef).
 
 # High priority: Test directly tests the edited function
 test_priority(TestRef, /high) :-
@@ -159,13 +166,15 @@ test_priority(TestRef, /medium) :-
     !is_high_priority_test(TestRef).
 
 # Low priority detection (helper predicate)
+# Reordered: bind TestRef and its file, then same_package joins to TargetFile,
+# then code_element and plan_edit share TargetRef via TargetFile.
 is_low_priority_test(TestRef) :-
     is_test_function(TestRef),
-    plan_edit(TargetRef),
+    !impacted_test(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    code_element(TargetRef, _, TargetFile, _, _),
     same_package(TestFile, TargetFile),
-    !impacted_test(TestRef).
+    code_element(TargetRef, _, TargetFile, _, _),
+    plan_edit(TargetRef).
 
 # Low priority: Test in same package but no dependency
 test_priority(TestRef, /low) :-

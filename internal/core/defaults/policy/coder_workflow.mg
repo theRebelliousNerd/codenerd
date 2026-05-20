@@ -73,17 +73,17 @@ next_coder_action(/retry_with_diagnostics) :-
 # Roll back if critical edit fails
 next_coder_action(/rollback) :-
     coder_state(/build_failed),
-    pending_edit(File, _),
-    critical_impact_edit(File),
     retry_count(N),
-    N >= 2.
+    N >= 2,
+    pending_edit(File, _),
+    critical_impact_edit(File).
 
 # Decompose complex task on failure
 next_coder_action(/decompose_task) :-
     coder_state(/build_failed),
-    coder_task_complexity(/complex),
     retry_count(N),
-    N >= 2.
+    N >= 2,
+    coder_task_complexity(/complex).
 
 # =============================================================================
 # SECTION 8: CONTEXT GATHERING INTELLIGENCE
@@ -114,8 +114,8 @@ coder_context_priority(File, 75) :-
 
 # Interface definitions have high priority
 coder_context_priority(File, 70) :-
-    is_interface_file(File),
     coder_target(Target),
+    is_interface_file(File),
     same_package(File, Target).
 
 # -----------------------------------------------------------------------------
@@ -136,8 +136,8 @@ include_in_context(File) :-
 # Include type definitions
 include_in_context(File) :-
     coder_target(Target),
-    type_definition_file(File),
-    same_package(File, Target).
+    same_package(File, Target),
+    type_definition_file(File).
 
 # -----------------------------------------------------------------------------
 # 8.3 Context Exclusion
@@ -216,11 +216,11 @@ coder_task_completed(TaskID) :-
 
 # Report coder failure to campaign
 coder_task_failed(TaskID, Reason) :-
-    coder_task(TaskID, _, _, _),
     coder_state(/build_failed),
     retry_count(N),
     N >= 3,
-    Reason = "max_retries_exceeded".
+    Reason = "max_retries_exceeded",
+    coder_task(TaskID, _, _, _).
 
 # =============================================================================
 # SECTION 13: OBSERVABILITY & DEBUGGING
@@ -230,7 +230,8 @@ coder_task_failed(TaskID, Reason) :-
 # 13.1 State Queries
 # -----------------------------------------------------------------------------
 
-# Current coder status (all singletons - 1×1×1, no actual explosion)
+# Current coder status (bounded: all three predicates are singletons 1×1×1)
+# Acceptable cross-product: max 1 fact each for coder_state, coder_target, coder_strategy.
 coder_status(State, Target, Strategy) :-
     coder_state(State),
     coder_target(Target),
@@ -240,9 +241,13 @@ coder_status(State, Target, Strategy) :-
 coder_blocked_reason(File, Reason) :-
     coder_block_write(File, Reason).
 
+# Helper: an edit action is currently blocked
+Decl has_edit_block(Reason).
+has_edit_block(Reason) :- coder_block_action(/edit, Reason).
+
 coder_blocked_reason(File, Reason) :-
-    coder_block_action(/edit, Reason),
-    pending_edit(File, _).
+    pending_edit(File, _),
+    has_edit_block(Reason).
 
 # -----------------------------------------------------------------------------
 # 13.2 Diagnostic Summary
@@ -262,15 +267,25 @@ target_warning_count(Count) :-
 # 13.3 Performance Metrics
 # -----------------------------------------------------------------------------
 
+# Helper: previous state differs from current
+Decl has_state_change(Current, Previous).
+has_state_change(Current, Previous) :-
+    coder_state(Current),
+    previous_coder_state(Previous),
+    Current != Previous.
+
 # Coder is making progress
 coder_progressing() :-
-    coder_state(S1),
-    previous_coder_state(S2),
-    S1 != S2.
+    has_state_change(_, _).
 
-# Coder is stuck
+# Helper: state has been unchanged too long
+Decl state_is_stuck().
+state_is_stuck() :-
+    state_unchanged_count(N),
+    N >= 3.
+
+# Coder is stuck (state unchanged AND count exceeds threshold)
 coder_stuck() :-
     coder_state(State),
     previous_coder_state(State),
-    state_unchanged_count(N),
-    N >= 3.
+    state_is_stuck().

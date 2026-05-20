@@ -1,6 +1,27 @@
 # Dynamic Prompt Context Logic
 # Section 41 of Cortex Executive Policy
 
+# --- Helper predicates for recall results (avoids cross-products) ---
+Decl high_score_trace_recall(Summary).
+high_score_trace_recall(Summary) :-
+    trace_recall_result(_, Score, _, Summary),
+    Score >= 85.
+
+Decl high_score_failure_recall(Summary).
+high_score_failure_recall(Summary) :-
+    trace_recall_result(_, Score, /failure, Summary),
+    Score >= 85.
+
+Decl high_score_learning_recall(Description).
+high_score_learning_recall(Description) :-
+    learning_recall_result(_, Score, _, Description),
+    Score >= 80.
+
+Decl context_effective_count(Atom, N).
+context_effective_count(Atom, N) :-
+    context_injection_effective(_, Atom)
+    |> do fn:group_by(Atom), let N = fn:count().
+
 # --- Shard-Specific Context Relevance ---
 
 # Context relevance based on intent match - HIGH relevance (90)
@@ -17,31 +38,28 @@ shard_context_atom(ShardID, Knowledge, 80) :-
 # Reflection: recent trace recall hits (System 2 memory) - HIGH relevance (85)
 shard_context_atom(ShardID, Summary, 85) :-
     active_shard(ShardID, _),
-    trace_recall_result(_, Score, _, Summary),
-    Score >= 85.
+    high_score_trace_recall(Summary).
 
 # Reflection: past failures are prioritized slightly higher (90)
 shard_context_atom(ShardID, Summary, 90) :-
     active_shard(ShardID, _),
-    trace_recall_result(_, Score, /failure, Summary),
-    Score >= 85.
+    high_score_failure_recall(Summary).
 
 # Reflection: learned preferences and patterns - MEDIUM relevance (75)
 shard_context_atom(ShardID, Description, 75) :-
     active_shard(ShardID, _),
-    learning_recall_result(_, Score, _, Description),
-    Score >= 80.
+    high_score_learning_recall(Description).
 
 # Include campaign constraints in context - MEDIUM relevance (70)
 shard_context_atom(ShardID, Constraint, 70) :-
-    active_shard(ShardID, ShardType),
     campaign_active(CampaignID),
+    active_shard(ShardID, ShardType),
     campaign_prompt_policy(CampaignID, ShardType, Constraint).
 
 # Include learned exemplars - MEDIUM relevance (60)
 shard_context_atom(ShardID, Exemplar, 60) :-
-    active_shard(ShardID, ShardType),
     user_intent(/current_intent, Category, _, _, _),
+    active_shard(ShardID, ShardType),
     prompt_exemplar(ShardType, Category, Exemplar).
 
 # Include relevant tool descriptions - MEDIUM relevance (65)
@@ -52,8 +70,8 @@ shard_context_atom(ShardID, ToolDesc, 65) :-
 
 # Include recent successful trace patterns - LOW relevance (50)
 shard_context_atom(ShardID, TracePattern, 50) :-
-    active_shard(ShardID, ShardType),
     high_quality_trace(TraceID),
+    active_shard(ShardID, ShardType),
     reasoning_trace(TraceID, ShardType, _, _, /true, _),
     trace_pattern(TraceID, TracePattern).
 
@@ -172,10 +190,7 @@ learning_signal(/effective_context, Atom) :-
     context_injection_effective(_, Atom).
 
 # Promote frequently effective context to long-term memory
+# Uses aggregation instead of O(N^3) self-join
 promote_to_long_term(/context_pattern, Atom) :-
-    context_injection_effective(S1, Atom),
-    context_injection_effective(S2, Atom),
-    context_injection_effective(S3, Atom),
-    S1 != S2,
-    S2 != S3,
-    S1 != S3.
+    context_effective_count(Atom, N),
+    N >= 3.
