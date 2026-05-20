@@ -96,6 +96,24 @@ func (c *CortexKernel) GetShard(domain string) (*KernelShard, bool) {
 	return shard, ok
 }
 
+// GetPrimaryRealKernel returns the underlying RealKernel from the cortex (catch-all) shard.
+// This is needed by components that require direct RealKernel access (e.g., GetPredicateCorpus).
+// Returns nil if the cortex shard doesn't exist or has no inner kernel.
+func (c *CortexKernel) GetPrimaryRealKernel() *RealKernel {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if shard, ok := c.shards[c.cortexDomain]; ok && shard != nil {
+		return shard.kernel
+	}
+	// Fallback: return the first shard's kernel if cortex domain not found
+	for _, shard := range c.shards {
+		if shard != nil && shard.kernel != nil {
+			return shard.kernel
+		}
+	}
+	return nil
+}
+
 // routeToShard returns the shard that owns the given predicate.
 // Falls back to the cortex shard if no domain claims ownership.
 func (c *CortexKernel) routeToShard(predicate string) *KernelShard {

@@ -774,6 +774,8 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	var realKernel *core.RealKernel
 	if rk, ok := kernel.(*core.RealKernel); ok {
 		realKernel = rk
+	} else if ck, ok := kernel.(*core.CortexKernel); ok {
+		realKernel = ck.GetPrimaryRealKernel()
 	}
 
 	return &Cortex{
