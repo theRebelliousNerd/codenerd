@@ -189,8 +189,23 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 		logging.SystemShards("[SessionPlanner] System startup - awaiting goals")
 	}
 
-	ticker := time.NewTicker(s.config.TickInterval)
-	defer ticker.Stop()
+	// Event-driven: subscribe to task lifecycle facts instead of polling
+	factCh := s.SubscribeToFacts([]string{"task_completed", "task_blocked", "campaign_task"})
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.SystemShards("[SessionPlanner] No event bus available, falling back to polling at %v", s.config.TickInterval)
+		fallbackTicker = time.NewTicker(s.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
 
 	for {
 		select {
@@ -200,7 +215,17 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 		case <-s.StopCh:
 			logging.SystemShards("[SessionPlanner] Stop signal received")
 			return s.generateShutdownSummary("stopped"), nil
-		case <-ticker.C:
+		case <-factCh:
+			// Event-driven: a task lifecycle fact was just asserted
+			s.updateAgendaFromKernel()
+
+			// Check for blocked tasks
+			s.checkBlockedTasks()
+
+			// Emit status
+			s.emitStatusFacts()
+		case <-fallbackCh:
+			// Polling fallback: same work as event-driven case
 			// Check idle timeout
 			if s.CostGuard.IsIdle() {
 				logging.SystemShards("[SessionPlanner] Idle timeout reached, shutting down")
@@ -221,6 +246,21 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 
 			// Emit status
 			s.emitStatusFacts()
+
+			// Emit heartbeat
+			_ = s.EmitHeartbeat()
+		case <-heartbeat.C:
+			// Check idle timeout
+			if s.CostGuard.IsIdle() {
+				logging.SystemShards("[SessionPlanner] Idle timeout reached, shutting down")
+				return s.generateShutdownSummary("idle timeout"), nil
+			}
+
+			// Check for auto-checkpoint
+			if time.Since(s.lastCheckpoint) >= s.config.AutoCheckpointEvery {
+				logging.SystemShardsDebug("[SessionPlanner] Creating auto-checkpoint")
+				s.createCheckpoint("auto")
+			}
 
 			// Emit heartbeat
 			_ = s.EmitHeartbeat()

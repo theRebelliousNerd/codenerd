@@ -399,15 +399,21 @@ func (k *RealKernel) Assert(fact Fact) error {
 	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 
 	k.mu.Lock()
-	defer k.mu.Unlock()
 
 	fact = sanitizeFactForNumericPredicates(fact)
 	if !k.addFactIfNewLocked(fact) {
 		// Duplicate assert is a no-op — suppress debug to avoid log spam
+		k.mu.Unlock()
 		return nil
 	}
 	k.factsDirty = true
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
+	k.mu.Unlock()
+
+	// Publish AFTER releasing lock to avoid holding mutex during channel sends
+	if k.eventBus != nil {
+		k.eventBus.Publish(fact.Predicate)
+	}
 	return nil
 }
 
@@ -422,19 +428,21 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	logging.KernelDebug("AssertBatch: asserting %d facts", len(facts))
 
 	k.mu.Lock()
-	defer k.mu.Unlock()
 
 	addedCount := 0
+	addedPredicates := make(map[string]struct{}) // Track unique predicates for event bus
 	for _, fact := range facts {
 		fact = sanitizeFactForNumericPredicates(fact)
 		if k.addFactIfNewLocked(fact) {
 			addedCount++
+			addedPredicates[fact.Predicate] = struct{}{}
 			logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 		}
 	}
 
 	if addedCount == 0 {
 		logging.KernelDebug("AssertBatch: all %d facts were duplicates", len(facts))
+		k.mu.Unlock()
 		return nil
 	}
 
@@ -443,6 +451,14 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 
 	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
 		addedCount, len(facts), len(k.facts))
+	k.mu.Unlock()
+
+	// Publish AFTER releasing lock — one event per unique predicate
+	if k.eventBus != nil {
+		for pred := range addedPredicates {
+			k.eventBus.Publish(pred)
+		}
+	}
 	return nil
 }
 

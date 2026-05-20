@@ -366,8 +366,23 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 
 	r.syncToolAllowlist()
 
-	ticker := time.NewTicker(r.config.TickInterval)
-	defer ticker.Stop()
+	// Event-driven: subscribe to permitted_action facts instead of polling
+	factCh := r.SubscribeToFacts([]string{"permitted_action"})
+	heartbeat := time.NewTicker(5 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.Routing("No event bus available, falling back to polling at %v", r.config.TickInterval)
+		fallbackTicker = time.NewTicker(r.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
 
 	for {
 		select {
@@ -375,19 +390,28 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 			return r.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-r.StopCh:
 			return r.generateShutdownSummary("stopped"), nil
-		case <-ticker.C:
-			// Check idle timeout
-			if r.CostGuard.IsIdle() {
-				return r.generateShutdownSummary("idle timeout"), nil
-			}
-
-			// Process permitted actions
+		case <-factCh:
+			// Event-driven: a permitted_action fact was just asserted
 			if err := r.processPermittedActions(ctx); err != nil {
 				// Log error but continue
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_error",
 					Args:      []interface{}{"internal_error", err.Error(), time.Now().Unix()},
 				})
+			}
+		case <-fallbackCh:
+			// Polling fallback: same work as event-driven case
+			if err := r.processPermittedActions(ctx); err != nil {
+				// Log error but continue
+				_ = r.Kernel.Assert(types.Fact{
+					Predicate: "routing_error",
+					Args:      []interface{}{"internal_error", err.Error(), time.Now().Unix()},
+				})
+			}
+		case <-heartbeat.C:
+			// Check idle timeout
+			if r.CostGuard.IsIdle() {
+				return r.generateShutdownSummary("idle timeout"), nil
 			}
 
 			// Emit heartbeat

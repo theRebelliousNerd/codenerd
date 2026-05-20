@@ -354,8 +354,21 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		}
 	}
 
-	ticker := time.NewTicker(e.config.TickInterval)
-	defer ticker.Stop()
+	// Subscribe to fact events instead of polling
+	factCh := e.SubscribeToFacts([]string{"user_intent", "next_action", "delegate_task", "tdd_next_action", "campaign_next_action", "repair_next_action"})
+	heartbeat := time.NewTicker(5 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable (e.g., tests)
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		fallbackTicker = time.NewTicker(e.config.TickInterval)
+		defer fallbackTicker.Stop()
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
 
 	for {
 		select {
@@ -365,8 +378,8 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 		case <-e.StopCh:
 			logging.SystemShards("[ExecutivePolicy] Stop signal received")
 			return e.generateShutdownSummary("stopped"), nil
-		case <-ticker.C:
-			// Core OODA loop: Observe -> Orient -> Decide -> (emit for Act)
+		case <-factCh:
+			// Event-driven: a relevant fact was asserted — evaluate policy
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
 				_ = e.Kernel.Assert(types.Fact{
@@ -374,15 +387,24 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
 			}
-
-			// Emit heartbeat
+		case <-fallbackCh:
+			// Polling fallback when no event bus available
+			if err := e.evaluatePolicy(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
+				_ = e.Kernel.Assert(types.Fact{
+					Predicate: "executive_error",
+					Args:      []interface{}{err.Error(), time.Now().Unix()},
+				})
+			}
+		case <-heartbeat.C:
+			// Heartbeat + periodic checks (runs every 5s regardless)
 			_ = e.EmitHeartbeat()
 
-			// Check for autopoiesis (strategy gaps) - run async to avoid blocking OODA loop
+			// Check for autopoiesis (strategy gaps) - run async to avoid blocking
 			if e.Autopoiesis.ShouldPropose() {
 				logging.SystemShardsDebug("[ExecutivePolicy] Triggering async autopoiesis rule proposal")
 				go func() {
-					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute) // Extended for LLM rule generation
+					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 					defer cancel()
 					e.handleAutopoiesis(autoCtx)
 				}()

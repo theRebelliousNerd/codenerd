@@ -52,6 +52,7 @@ func NewRealKernel() (*RealKernel, error) {
 		store:             factstore.NewSimpleInMemoryStore(),
 		loadedPolicyFiles: make(map[string]struct{}),
 		policyDirty:       true, // Need to parse on first use
+		eventBus:          NewFactEventBus(),
 	}
 	logging.KernelDebug("Kernel struct created, store initialized, policyDirty=true")
 
@@ -516,6 +517,12 @@ func (k *RealKernel) loadPredicateCorpus() {
 // GetPredicateCorpus returns the baked-in predicate corpus (may be nil if not loaded).
 func (k *RealKernel) GetPredicateCorpus() *PredicateCorpus {
 	return k.predicateCorpus
+}
+
+// GetEventBus returns the kernel's fact event bus for pub/sub subscriptions.
+// System shards use this to subscribe to specific predicates instead of polling.
+func (k *RealKernel) GetEventBus() *FactEventBus {
+	return k.eventBus
 }
 
 // ConsumeBootPrompts returns any PROMPT directives extracted during boot

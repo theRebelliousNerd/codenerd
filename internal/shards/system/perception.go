@@ -426,8 +426,10 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 		p.Kernel = kernel
 	}
 
-	ticker := time.NewTicker(p.config.TickInterval)
-	defer ticker.Stop()
+	// Perception is already event-driven via pendingInputs channel.
+	// This ticker is only for heartbeat emission — no polling needed.
+	heartbeat := time.NewTicker(5 * time.Second)
+	defer heartbeat.Stop()
 
 	for {
 		select {
@@ -447,8 +449,8 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
 			}
-		case <-ticker.C:
-			// Emit heartbeat
+		case <-heartbeat.C:
+			// Heartbeat only — no polling
 			_ = p.EmitHeartbeat()
 		}
 	}

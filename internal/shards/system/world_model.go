@@ -208,8 +208,23 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 		return "", fmt.Errorf("initial scan failed: %w", err)
 	}
 
-	ticker := time.NewTicker(w.config.TickInterval)
-	defer ticker.Stop()
+	// Event-driven: subscribe to world_model_updating facts instead of polling
+	factCh := w.SubscribeToFacts([]string{"world_model_updating"})
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.SystemShards("[WorldModel] No event bus available, falling back to polling at %v", w.config.TickInterval)
+		fallbackTicker = time.NewTicker(w.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
 
 	for {
 		select {
@@ -217,8 +232,23 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			return w.generateShutdownSummary("context cancelled"), ctx.Err()
 		case <-w.StopCh:
 			return w.generateShutdownSummary("stopped"), nil
-		case <-ticker.C:
-			// Check for trigger fact (Fix 15.1: World Model Event-Loop Breakage)
+		case <-factCh:
+			// Event-driven: a world_model_updating fact was just asserted
+			logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
+			if err := w.performIncrementalScan(ctx); err != nil {
+				_ = w.Kernel.Assert(types.Fact{
+					Predicate: "world_model_error",
+					Args:      []interface{}{err.Error(), time.Now().Unix()},
+				})
+			}
+			// Retract trigger
+			_ = w.Kernel.Retract("world_model_updating")
+			// Reset idle timer
+			w.mu.Lock()
+			w.lastActivity = time.Now()
+			w.mu.Unlock()
+		case <-fallbackCh:
+			// Polling fallback: check for trigger fact (Fix 15.1: World Model Event-Loop Breakage)
 			updatingFacts, _ := w.Kernel.Query("world_model_updating")
 			if len(updatingFacts) > 0 {
 				logging.SystemShardsDebug("[WorldModel] Triggered by world_model_updating fact")
@@ -248,6 +278,22 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 					Predicate: "world_model_error",
 					Args:      []interface{}{err.Error(), time.Now().Unix()},
 				})
+			}
+
+			// Emit heartbeat
+			_ = w.Kernel.Assert(types.Fact{
+				Predicate: "world_model_heartbeat",
+				Args:      []interface{}{w.ID, len(w.files), time.Now().Unix()},
+			})
+
+			// Check for autopoiesis
+			if w.Autopoiesis.ShouldPropose() {
+				w.handleAutopoiesis(ctx)
+			}
+		case <-heartbeat.C:
+			// Check idle timeout
+			if w.CostGuard.IsIdle() {
+				return w.generateShutdownSummary("idle timeout"), nil
 			}
 
 			// Emit heartbeat

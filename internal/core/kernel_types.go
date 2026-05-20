@@ -66,6 +66,7 @@ type RealKernel struct {
 	derivedFactLimit  int                    // Configurable limit for derived facts (0 = use default)
 	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
 	simulateCommitErr error                  // TEST ONLY: Simulates a transaction commit failure
+	eventBus          *FactEventBus           // Pub/sub for fact mutations — replaces polling in system shards
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

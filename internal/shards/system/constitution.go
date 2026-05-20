@@ -206,8 +206,23 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 		c.Kernel = kernel
 	}
 
-	ticker := time.NewTicker(c.config.TickInterval)
-	defer ticker.Stop()
+	// Event-driven: subscribe to pending_action facts instead of polling
+	factCh := c.SubscribeToFacts([]string{"pending_action"})
+	heartbeat := time.NewTicker(5 * time.Second)
+	defer heartbeat.Stop()
+
+	// Fallback ticker for when event bus is unavailable
+	var fallbackTicker *time.Ticker
+	if factCh == nil {
+		logging.SystemShards("[ConstitutionGate] No event bus available, falling back to polling at %v", c.config.TickInterval)
+		fallbackTicker = time.NewTicker(c.config.TickInterval)
+		defer fallbackTicker.Stop()
+		factCh = make(chan core.FactEvent) // dummy channel that never fires
+	}
+	var fallbackCh <-chan time.Time
+	if fallbackTicker != nil {
+		fallbackCh = fallbackTicker.C
+	}
 
 	for {
 		select {
@@ -217,7 +232,8 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 		case <-c.StopCh:
 			logging.SystemShards("[ConstitutionGate] Stop signal received")
 			return c.generateShutdownSummary("stopped"), nil
-		case <-ticker.C:
+		case <-factCh:
+			// Event-driven: a pending_action fact was just asserted
 			if err := c.processPendingActions(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
 				c.recordViolation("internal_error", "", err.Error(), nil, "")
@@ -228,8 +244,20 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
 				c.recordViolation("appeal_error", "", err.Error(), nil, "")
 			}
+		case <-fallbackCh:
+			// Polling fallback: same work as event-driven case
+			if err := c.processPendingActions(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing pending actions: %v", err)
+				c.recordViolation("internal_error", "", err.Error(), nil, "")
+			}
 
-			// Emit heartbeat
+			// Process pending appeals from Mangle facts
+			if err := c.processPendingAppeals(ctx); err != nil {
+				logging.Get(logging.CategorySystemShards).Error("[ConstitutionGate] Error processing appeals: %v", err)
+				c.recordViolation("appeal_error", "", err.Error(), nil, "")
+			}
+		case <-heartbeat.C:
+			// Heartbeat + periodic checks
 			_ = c.EmitHeartbeat()
 
 			// Check for autopoiesis opportunity

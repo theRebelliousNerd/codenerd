@@ -48,6 +48,9 @@ type CortexKernel struct {
 	// Metrics
 	routeMissCount int64 // Mutations/queries for unowned predicates
 	routeHitCount  int64 // Successfully routed mutations/queries
+
+	// Event bus for fact mutations — aggregates events from all domain shards
+	eventBus *FactEventBus
 }
 
 // NewCortexKernel creates a new hierarchical kernel hub.
@@ -57,6 +60,7 @@ func NewCortexKernel(cortexDomain string) *CortexKernel {
 		shards:         make(map[string]*KernelShard),
 		predicateOwner: make(map[string]string),
 		cortexDomain:   cortexDomain,
+		eventBus:       NewFactEventBus(),
 	}
 }
 
@@ -114,6 +118,12 @@ func (c *CortexKernel) GetPrimaryRealKernel() *RealKernel {
 	return nil
 }
 
+// GetEventBus returns the cortex-level fact event bus.
+// System shards subscribe here to receive events from all domain shards.
+func (c *CortexKernel) GetEventBus() *FactEventBus {
+	return c.eventBus
+}
+
 // routeToShard returns the shard that owns the given predicate.
 // Falls back to the cortex shard if no domain claims ownership.
 func (c *CortexKernel) routeToShard(predicate string) *KernelShard {
@@ -157,7 +167,14 @@ func (c *CortexKernel) Assert(fact types.Fact) error {
 	if shard == nil {
 		return fmt.Errorf("[cortex] no shard available for predicate '%s'", fact.Predicate)
 	}
-	return shard.Assert(fact)
+	if err := shard.Assert(fact); err != nil {
+		return err
+	}
+	// Publish at cortex level so system shards subscribing here get notified
+	if c.eventBus != nil {
+		c.eventBus.Publish(fact.Predicate)
+	}
+	return nil
 }
 
 // AssertBatch routes facts to their respective shards, batching per-shard.
@@ -173,6 +190,7 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 	}
 
 	// Assert each batch to its shard
+	publishedPredicates := make(map[string]struct{})
 	for domain, batch := range batches {
 		shard, _ := c.GetShard(domain)
 		if shard == nil {
@@ -180,6 +198,15 @@ func (c *CortexKernel) AssertBatch(facts []types.Fact) error {
 		}
 		if err := shard.AssertBatch(batch); err != nil {
 			return fmt.Errorf("[cortex] shard '%s' AssertBatch failed: %w", domain, err)
+		}
+		for _, f := range batch {
+			publishedPredicates[f.Predicate] = struct{}{}
+		}
+	}
+	// Publish at cortex level — one event per unique predicate
+	if c.eventBus != nil {
+		for pred := range publishedPredicates {
+			c.eventBus.Publish(pred)
 		}
 	}
 	return nil

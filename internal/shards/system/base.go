@@ -300,6 +300,9 @@ type BaseSystemShard struct {
 	// Lifecycle
 	StartTime time.Time
 	StopCh    chan struct{}
+
+	// Event-driven fact subscription (replaces polling)
+	eventCh chan core.FactEvent // Receives events when subscribed predicates are asserted
 }
 
 // NewBaseSystemShard creates a base system shard with given ID and startup mode.
@@ -379,8 +382,33 @@ func (b *BaseSystemShard) Stop() error {
 		logging.SystemShards("[%s] Stopping shard (was running for %v)", b.ID, time.Since(b.StartTime))
 		close(b.StopCh)
 		b.State = types.ShardStateCompleted
+		// Unsubscribe from event bus if subscribed
+		if b.eventCh != nil && b.Kernel != nil {
+			if bus := b.Kernel.GetEventBus(); bus != nil {
+				bus.Unsubscribe(b.eventCh)
+			}
+			b.eventCh = nil
+		}
 	}
 	return nil
+}
+
+// SubscribeToFacts subscribes to fact events for the given predicates.
+// Returns the event channel that can be used in select statements.
+// If the kernel has no event bus (e.g., during tests), returns nil.
+func (b *BaseSystemShard) SubscribeToFacts(predicates []string) <-chan core.FactEvent {
+	if b.Kernel == nil {
+		return nil
+	}
+	bus := b.Kernel.GetEventBus()
+	if bus == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.eventCh = bus.Subscribe(predicates)
+	logging.SystemShards("[%s] Subscribed to fact events: %v", b.ID, predicates)
+	return b.eventCh
 }
 
 // SetLLMClient sets the LLM client.
