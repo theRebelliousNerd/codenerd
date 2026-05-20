@@ -124,6 +124,17 @@ Decl healing_attempt(ActionID, HealingType, Success, ErrorMsg, Timestamp) bound 
 # Indicates an action was escalated to user for manual intervention.
 Decl action_escalated(ActionID, Reason, Timestamp) bound [/string, /name, /number].
 
+# --- Derived Validation Predicates (used in policy/validation.mg) ---
+
+# action_failed_validation(ActionID) - derived: true when any validator reported failure
+Decl action_failed_validation(ActionID) bound [/string].
+
+# validation_syntax_error(ActionID) - derived: syntax validation failed (code corruption)
+Decl validation_syntax_error(ActionID) bound [/string].
+
+# unresolved_failure(ActionID) - derived: failed validation not yet resolved or escalated
+Decl unresolved_failure(ActionID) bound [/string].
+
 
 # =============================================================================
 # SECTION 12: EXECUTION OUTCOMES (Integration Gaps)
