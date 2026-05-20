@@ -407,7 +407,7 @@ func TestE2E_OrchestratorExecutor_MultiTurn_HistoryAccumulation(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		res, err := jitExecutor.Execute(ctx, "/fix", fmt.Sprintf("Turn %d", i))
 		if err != nil {
-			t.Fatalf("Turn %d failed: %v", i, err)
+			t.Fatalf("Turn %d failed: %v, i", err)
 		}
 		if res == "" {
 			t.Fatalf("Turn %d returned empty result", i)
