@@ -238,10 +238,10 @@ specialist_should_advise(Specialist, Task) :-
 # Note: specialist_classification is a small static set (8 entries), cross-product is bounded
 strategic_advisor_required(Task) :-
     task_complexity(Task, /high),
-    has_strategic_advisor.
+    has_strategic_advisor().
 
 # Helper: check existence of any strategic advisor (avoids cross-product with Task)
-has_strategic_advisor :- specialist_classification(_, /advisor, /strategic).
+has_strategic_advisor() :- specialist_classification(_, /advisor, /strategic).
 
 # Route to specialist's knowledge DB for context
 specialist_context_source(Specialist, DBPath) :-
