@@ -283,7 +283,29 @@ dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :str
 dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "| sh").
 dangerous_content(/bash, Target) :- pending_action(_, /bash, Target, _, _), :string:contains(Target, "nc -e").
 
+# --- exec_cmd: Catch --force/-f at any position in git push commands ---
+dangerous_content(/exec_cmd, Payload) :-
+    pending_action(_, /exec_cmd, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "--force").
+
+dangerous_content(/exec_cmd, Payload) :-
+    pending_action(_, /exec_cmd, _, Payload, _),
+    :string:contains(Payload, "git push"),
+    :string:contains(Payload, "-f").
+
+dangerous_content(/exec_cmd, Target) :-
+    pending_action(_, /exec_cmd, Target, _, _),
+    :string:contains(Target, "git push"),
+    :string:contains(Target, "--force").
+
+dangerous_content(/exec_cmd, Target) :-
+    pending_action(_, /exec_cmd, Target, _, _),
+    :string:contains(Target, "git push"),
+    :string:contains(Target, "-f").
+
 dangerous_content(/run_command, Payload) :-
+
     pending_action(_, /run_command, _, Payload, _),
     :string:contains(Payload, "git push"),
     :string:contains(Payload, "--force").
