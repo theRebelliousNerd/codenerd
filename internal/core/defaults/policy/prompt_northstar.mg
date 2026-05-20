@@ -107,32 +107,48 @@ strategic_warning(/critical_unmitigated_risk, CapID, RiskID) :-
     unmitigated_risk(RiskID).
 
 # Warning: immediate work depends on unaddressed risk
+# Both CapID and RiskID are independent - true NxM cross-product.
+# Extract existence checks to avoid: only fire if BOTH conditions exist.
+Decl has_immediate_capability().
+Decl has_unaddressed_high_risk().
+
+has_immediate_capability() :- immediate_capability(_, _).
+has_unaddressed_high_risk() :- unaddressed_high_risk(_, _).
+
+# Accepted bounded cross-product: both CapID and RiskID appear in the head,
+# so the NxM output is semantically required. The existence guard short-circuits
+# when either set is empty (typical case).
 strategic_warning(/immediate_risk_gap, CapID, RiskID) :-
+    has_unaddressed_high_risk(),
     immediate_capability(CapID, _),
     unaddressed_high_risk(RiskID, _).
 
 # --- Context Injection for Northstar ---
 
+# Existence helpers for shard family checks (avoids cross-product with active_shard)
+Decl has_active_planner().
+Decl has_active_coder().
+
+has_active_planner() :- active_shard(ShardID, _), shard_family(ShardID, /planner).
+has_active_coder() :- active_shard(ShardID, _), shard_family(ShardID, /coder).
+
 # Inject mission when planning or deciding actions
 injectable_context(/northstar_mission, Mission) :-
     northstar_defined(),
     northstar_mission(_, Mission),
-    active_shard(ShardID, _),
-    shard_family(ShardID, /planner).
+    has_active_planner().
 
 injectable_context(/northstar_mission, Mission) :-
     northstar_defined(),
     northstar_mission(_, Mission),
-    active_shard(ShardID, _),
-    shard_family(ShardID, /coder).
+    has_active_coder().
 
 # Inject critical capabilities during planning
 injectable_context(/critical_cap, Desc) :-
     northstar_defined(),
     critical_capability(CapID),
     northstar_capability(CapID, Desc, _, _),
-    active_shard(ShardID, _),
-    shard_family(ShardID, /planner).
+    has_active_planner().
 
 # Inject unmitigated risks as warnings
 injectable_context(/unmitigated_risk_warning, Desc) :-

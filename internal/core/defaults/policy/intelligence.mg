@@ -45,11 +45,16 @@ intelligence_chestertons_fence(Path, "WARNING: Very high churn - requires carefu
     intelligence_churn_hotspot(Path, Churn, _), Churn > 20.
 
 # Core infrastructure detection - file has 3+ dependents
+# Uses aggregation instead of O(N³) self-join
+Decl intelligence_dependent_count(Path.Type<string>, Count.Type<int>).
+intelligence_dependent_count(Path, N) :-
+    intelligence_file_depends(_, Path) |>
+    do fn:group_by(Path),
+    let N = fn:count().
+
 intelligence_is_core_infrastructure(Path) :-
-    intelligence_file_depends(D1, Path),
-    intelligence_file_depends(D2, Path),
-    intelligence_file_depends(D3, Path),
-    D1 != D2, D2 != D3, D1 != D3.
+    intelligence_dependent_count(Path, N),
+    N >= 3.
 
 intelligence_chestertons_fence(Path, "CAUTION: Core infrastructure file - understand dependencies first") :-
     intelligence_is_core_infrastructure(Path).
@@ -240,18 +245,25 @@ intelligence_needs_tests_first(TaskID) :-
 # STRATEGIC KNOWLEDGE INTEGRATION
 # =============================================================================
 
+# Helper: extract active campaign IDs from task/phase chain (avoids cross-product)
+Decl active_campaign_id(CampaignID.Type<n>).
+active_campaign_id(CampaignID) :-
+    campaign_task(_, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+
 # Only select high-priority patterns
+# Accepted bounded cross-product: CampaignID, Concept, Content all appear in head.
+# The knowledge × campaigns join is semantically required. active_campaign_id helper
+# pre-computes the campaign_task->campaign_phase chain to avoid deeper cross-products.
 intelligence_relevant_strategy(CampaignID, Concept, Content) :-
     intelligence_strategic_knowledge(Concept, /pattern, Content, Priority),
     Priority > 50,
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+    active_campaign_id(CampaignID).
 
-# Always include vision for active campaigns
+# Always include vision for active campaigns (same accepted bounded cross-product)
 intelligence_relevant_strategy(CampaignID, Concept, Content) :-
     intelligence_strategic_knowledge(Concept, /vision, Content, _),
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _).
+    active_campaign_id(CampaignID).
 
 intelligence_knowledge_path(Start, End, Relation) :-
     intelligence_knowledge_link(Start, Relation, End, Weight), Weight > 0.5.
@@ -330,20 +342,21 @@ intelligence_has_high_complexity_source(CampaignID) :-
     intelligence_high_impact(Path).
 
 # Medium complexity if churn > 5 (but not high)
+# Filter churn hotspots first to reduce intermediate results
 intelligence_campaign_complexity(CampaignID, /medium) :-
+    intelligence_churn_hotspot(Path, Churn, _), Churn > 5,
+    task_artifact(TaskID, _, Path, _),
     campaign_task(TaskID, PhaseID, _, _, _),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    task_artifact(TaskID, _, Path, _),
-    intelligence_churn_hotspot(Path, Churn, _), Churn > 5,
     !intelligence_has_high_complexity_source(CampaignID).
 
 # Exclusion: campaign has medium-or-above complexity source
 intelligence_has_medium_complexity_source(CampaignID) :- intelligence_has_high_complexity_source(CampaignID).
 intelligence_has_medium_complexity_source(CampaignID) :-
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    intelligence_churn_hotspot(Path, Churn, _), Churn > 5,
     task_artifact(TaskID, _, Path, _),
-    intelligence_churn_hotspot(Path, Churn, _), Churn > 5.
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 # Low complexity for everything else
 intelligence_campaign_complexity(CampaignID, /low) :-
@@ -352,35 +365,36 @@ intelligence_campaign_complexity(CampaignID, /low) :-
     !intelligence_has_medium_complexity_source(CampaignID).
 
 # Risk assessment
+# Filter churn hotspots first (Churn > 15) to reduce intermediate results
 intelligence_campaign_risk(CampaignID, /high, "Modifying high-churn core infrastructure") :-
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 15,
-    intelligence_high_impact(Path).
+    intelligence_high_impact(Path),
+    task_artifact(TaskID, _, Path, _),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 # Exclusion: campaign has high-risk source conditions
 intelligence_has_high_risk_source(CampaignID) :-
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    task_artifact(TaskID, _, Path, _),
     intelligence_churn_hotspot(Path, Churn, _), Churn > 15,
-    intelligence_high_impact(Path).
+    intelligence_high_impact(Path),
+    task_artifact(TaskID, _, Path, _),
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 intelligence_campaign_risk(CampaignID, /medium, "Low test coverage on modified files") :-
+    intelligence_missing_tests(Path),
+    task_artifact(TaskID, _, Path, _),
     campaign_task(TaskID, PhaseID, _, _, _),
     campaign_phase(PhaseID, CampaignID, _, _, _, _),
-    task_artifact(TaskID, _, Path, _),
-    intelligence_missing_tests(Path),
     !intelligence_has_high_risk_source(CampaignID).
 
 # Exclusion: campaign has medium-or-above risk source
 intelligence_has_medium_risk_source(CampaignID) :- intelligence_has_high_risk_source(CampaignID).
 intelligence_has_medium_risk_source(CampaignID) :-
-    campaign_task(TaskID, PhaseID, _, _, _),
-    campaign_phase(PhaseID, CampaignID, _, _, _, _),
+    intelligence_missing_tests(Path),
     task_artifact(TaskID, _, Path, _),
-    intelligence_missing_tests(Path).
+    campaign_task(TaskID, PhaseID, _, _, _),
+    campaign_phase(PhaseID, CampaignID, _, _, _, _).
 
 intelligence_campaign_risk(CampaignID, /low, "Standard modifications with good coverage") :-
     campaign_task(_, PhaseID, _, _, _),

@@ -4,9 +4,10 @@
 # Declarations live in schemas_safety.mg, schemas_intent.mg, and schemas_analysis.mg.
 
 # Recent change by another author (within 2 days)
+# current_user is a singleton - bind it first to avoid cross-product with git_history
 recent_change_by_other(File) :-
-    git_history(File, _, Author, Age, _),
     current_user(CurrentUser),
+    git_history(File, _, Author, Age, _),
     Author != CurrentUser,
     Age < 2.
 

@@ -122,9 +122,10 @@ tool_success_relevance(ToolName, 0) :-
 # 40.3.5 Recency Boost: Recently used tools likely still relevant
 # Note: Full implementation would check timestamp difference
 # Score: 15 (out of 100)
+# current_time is a singleton - bind it first to avoid cross-product
 tool_recency_relevance(ToolName, 15) :-
-    tool_usage_stats(ToolName, _, _, LastUsed),
     current_time(Now),
+    tool_usage_stats(ToolName, _, _, LastUsed),
     LastUsed > 0.
 
 tool_recency_relevance(ToolName, 0) :-
@@ -142,11 +143,12 @@ relevant_tool(ShardType, ToolName) :-
     BaseScore >= 30.
 
 # Also relevant if intent matches strongly (>= 70)
+# current_shard_type is a singleton - bind it first to avoid cross-product
 relevant_tool(ShardType, ToolName) :-
+    current_shard_type(ShardType),
     tool_intent_relevance(ToolName, IntentScore),
     IntentScore >= 70,
-    tool_registered(ToolName, _),
-    current_shard_type(ShardType).
+    tool_registered(ToolName, _).
 
 # System shards see all tools (Type S gets full visibility)
 relevant_tool(/system, ToolName) :-

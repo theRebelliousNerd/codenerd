@@ -18,6 +18,7 @@ atom_candidate(AtomID) :-
 
 # Phase 2: Detect conflicts among candidates
 # An atom loses to a conflicting atom with higher score
+# Get both scores via shared AtomID/OtherID, compare before joining conflict table
 atom_loses_conflict(AtomID) :-
     atom_candidate(AtomID),
     atom_conflict(AtomID, OtherID),
@@ -124,10 +125,16 @@ activation(AtomID, 60) :-
 # -----------------------------------------------------------------------------
 
 # Signal: atom was selected and shard execution succeeded
-effective_prompt_atom(AtomID) :-
-    atom_selected(AtomID),
+# compile_shard+shard_executed is an existential check (ShardID unused in head)
+# Extract existence helper to avoid cross-product with atom_selected
+Decl has_successful_shard().
+has_successful_shard() :-
     compile_shard(ShardID, _),
     shard_executed(ShardID, _, /success, _).
+
+effective_prompt_atom(AtomID) :-
+    atom_selected(AtomID),
+    has_successful_shard().
 
 # Learning signal: promote effective atoms to higher priority
 learning_signal(/effective_prompt_atom, AtomID) :-
@@ -149,11 +156,12 @@ skeleton_category(/methodology).
 # 1. It belongs to a skeleton category
 # 2. It matches the current shard type (if tagged)
 # 3. It is not explicitly prohibited
+# Reordered: bind ShardType from atom_tag first, then join compile_shard on shared ShardType
 mandatory_atom(AtomID) :-
     prompt_atom(AtomID, Category, _, _, _),
     skeleton_category(Category),
-    compile_shard(_, ShardType),
     atom_tag(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType),
     !prohibited_atom(AtomID).
 
 # Atoms explicitly marked as mandatory are always mandatory
@@ -204,13 +212,14 @@ candidate_atom(AtomID) :-
     !prohibited_atom(AtomID).
 
 # Also consider atoms matching context dimensions even without vector hit
+# Reordered: negation checks early (after binding AtomID), bind ShardType from atom_tag before compile_shard
 candidate_atom(AtomID) :-
     prompt_atom(AtomID, _, Priority, _, _),
     Priority > 50,
-    atom_tag(AtomID, /shard_type, ShardType),
-    compile_shard(_, ShardType),
     !prohibited_atom(AtomID),
-    !mandatory_atom(AtomID).
+    !mandatory_atom(AtomID),
+    atom_tag(AtomID, /shard_type, ShardType),
+    compile_shard(_, ShardType).
 
 # Final Selection (with Conflict Resolution)
 
@@ -226,18 +235,19 @@ conflict_loser(AtomID) :-
     mandatory_atom(MandatoryID).
 
 # Helper: Two candidates conflict, lower priority loses
+# Use atom_conflicts to bind OtherID from AtomID (shared variable), avoiding cross-product
 conflict_loser(AtomID) :-
     candidate_atom(AtomID),
-    candidate_atom(OtherID),
     atom_conflicts(AtomID, OtherID),
+    candidate_atom(OtherID),
     prompt_atom(AtomID, _, PriorityA, _, _),
     prompt_atom(OtherID, _, PriorityB, _, _),
     PriorityA < PriorityB.
 
 conflict_loser(AtomID) :-
     candidate_atom(AtomID),
-    candidate_atom(OtherID),
     atom_conflicts(OtherID, AtomID),
+    candidate_atom(OtherID),
     prompt_atom(AtomID, _, PriorityA, _, _),
     prompt_atom(OtherID, _, PriorityB, _, _),
     PriorityA < PriorityB.

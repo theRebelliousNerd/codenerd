@@ -34,11 +34,12 @@ next_agenda_item(ItemID) :-
     !has_higher_priority_item(ItemID).
 
 # Helper for priority ordering
+# Bind ItemID's priority first, then check ready items (avoids cross-product)
 has_higher_priority_item(ItemID) :-
     agenda_item(ItemID, _, Priority, _, _),
-    agenda_item_ready(OtherID),
-    OtherID != ItemID,
     agenda_item(OtherID, _, OtherPriority, _, _),
+    OtherID != ItemID,
+    agenda_item_ready(OtherID),
     priority_higher(OtherPriority, Priority).
 
 # Checkpoint needed based on time or completion (10 minutes = 600 seconds)

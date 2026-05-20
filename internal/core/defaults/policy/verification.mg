@@ -105,13 +105,16 @@ quality_signal(/require_error_handling) :-
     quality_violation(_, /missing_errors).
 
 # Promote learning signals to long-term memory after repeated violations
+# Uses aggregation instead of O(N³) self-join
+Decl quality_violation_count(ViolationType.Type<n>, Count.Type<int>).
+quality_violation_count(ViolationType, N) :-
+    quality_violation(_, ViolationType) |>
+    do fn:group_by(ViolationType),
+    let N = fn:count().
+
 promote_to_long_term(/quality_pattern, ViolationType) :-
-    quality_violation(Task1, ViolationType),
-    quality_violation(Task2, ViolationType),
-    quality_violation(Task3, ViolationType),
-    Task1 != Task2,
-    Task2 != Task3,
-    Task1 != Task3.
+    quality_violation_count(ViolationType, N),
+    N >= 3.
 
 # Shard Selection for Retries
 
@@ -142,10 +145,11 @@ active_strategy(/verification_loop) :-
     verification_attempt(TaskID, _, _).
 
 # Block normal task execution when in verification failure state
+# current_time is a singleton - bind it first to avoid cross-product
 executive_blocked("verification_in_progress", Now) :-
+    current_time(Now),
     current_task(TaskID),
-    needs_corrective_action(TaskID),
-    current_time(Now).
+    needs_corrective_action(TaskID).
 
 # Quality Gate Integration with Commit Barrier
 
@@ -183,13 +187,16 @@ required_retry(TaskID) :-
     AttemptNum > 1.
 
 # Helper: track specific violation types for analytics
+# Uses aggregation instead of O(N⁵) self-join
+Decl violation_type_occurrence_count(ViolationType.Type<n>, Count.Type<int>).
+violation_type_occurrence_count(ViolationType, N) :-
+    quality_violation(_, ViolationType) |>
+    do fn:group_by(ViolationType),
+    let N = fn:count().
+
 violation_type_count_high(ViolationType) :-
-    quality_violation(T1, ViolationType),
-    quality_violation(T2, ViolationType),
-    quality_violation(T3, ViolationType),
-    quality_violation(T4, ViolationType),
-    quality_violation(T5, ViolationType),
-    T1 != T2, T2 != T3, T3 != T4, T4 != T5.
+    violation_type_occurrence_count(ViolationType, N),
+    N >= 5.
 
 # Trigger rule proposal for high-frequency violations
 propose_new_rule(/verification_policy) :-
