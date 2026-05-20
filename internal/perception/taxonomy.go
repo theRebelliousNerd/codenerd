@@ -12,10 +12,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
-// TaxonomyEngine manages the verb taxonomy using Mangle.
 type TaxonomyEngine struct {
+	mu            sync.Mutex
 	engine        *mangle.Engine
 	store         *TaxonomyStore
 	client        LLMClient
@@ -130,8 +131,10 @@ func (t *TaxonomyEngine) SetStore(s *TaxonomyStore) {
 // SetWorkspace sets the explicit workspace root path for .nerd directory resolution.
 // This MUST be called to ensure learned facts are persisted in the correct location.
 func (t *TaxonomyEngine) SetWorkspace(root string) {
+	t.mu.Lock()
 	t.workspaceRoot = root
 	t.tryLoadLearned()
+	t.mu.Unlock()
 }
 
 // HasWorkspace returns true if an explicit workspace root has been set.
@@ -184,6 +187,12 @@ func (t *TaxonomyEngine) tryLoadLearned() {
 
 // HydrateFromDB loads all taxonomy facts from the database into the engine.
 func (t *TaxonomyEngine) HydrateFromDB() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.hydrateFromDBLocked()
+}
+
+func (t *TaxonomyEngine) hydrateFromDBLocked() error {
 	if t.store == nil {
 		return fmt.Errorf("no store configured")
 	}
@@ -193,7 +202,7 @@ func (t *TaxonomyEngine) HydrateFromDB() error {
 
 	// Keep the package-level VerbCorpus in sync after hydration so parsing reflects
 	// any newly learned verbs/synonyms/patterns persisted in SQLite.
-	if verbs, err := t.GetVerbs(); err == nil && len(verbs) > 0 {
+	if verbs, err := t.getVerbsLocked(); err == nil && len(verbs) > 0 {
 		SetVerbCorpus(verbs)
 	}
 
@@ -237,6 +246,12 @@ func (t *TaxonomyEngine) EnsureDefaults() error {
 
 // GetVerbs returns all defined verbs with their metadata.
 func (t *TaxonomyEngine) GetVerbs() ([]VerbEntry, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.getVerbsLocked()
+}
+
+func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 	// Use GetFacts to access EDB directly
 	facts, err := t.engine.GetFacts("verb_def")
 	if err != nil {
@@ -345,6 +360,9 @@ func toInt(val interface{}) int {
 
 // ClassifyInput uses advanced Mangle inference to determine the best intent.
 func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (bestVerb string, bestConf float64, err error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	// Note: We don't Clear() because we want to keep the static facts.
 	// But we need to clear transient facts. Mangle Engine wrapper needs improvement for sessions.
 	// For now, we add transient facts, query, and then maybe remove them?
@@ -380,23 +398,24 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 		logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
 	}
 
+	facts := []mangle.Fact{}
+
 	// 3. Re-hydrate Verb Taxonomy (EDB facts)
 	if t.store != nil {
-		t.HydrateFromDB()
+		t.hydrateFromDBLocked()
 	} else {
 		// Re-add defaults
 		for _, entry := range DefaultTaxonomyData {
-			t.engine.AddFact("verb_def", entry.Verb, entry.Category, entry.ShardType, entry.Priority)
+			facts = append(facts, mangle.Fact{Predicate: "verb_def", Args: []interface{}{entry.Verb, entry.Category, entry.ShardType, entry.Priority}})
 			for _, syn := range entry.Synonyms {
-				t.engine.AddFact("verb_synonym", entry.Verb, syn)
+				facts = append(facts, mangle.Fact{Predicate: "verb_synonym", Args: []interface{}{entry.Verb, syn}})
 			}
 			for _, pat := range entry.Patterns {
-				t.engine.AddFact("verb_pattern", entry.Verb, pat)
+				facts = append(facts, mangle.Fact{Predicate: "verb_pattern", Args: []interface{}{entry.Verb, pat}})
 			}
 		}
 	}
 
-	facts := []mangle.Fact{}
 	rawTokens := strings.Fields(strings.ToLower(input))
 	for _, token := range rawTokens {
 		// Keep tokenization simple and stable: trim common punctuation and add a naive singular form.
@@ -469,12 +488,16 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 
 // SetClient provides the taxonomy engine with an LLM client for the "Critic" loop.
 func (t *TaxonomyEngine) SetClient(client LLMClient) {
+	t.mu.Lock()
 	t.client = client
+	t.mu.Unlock()
 }
 
 // GenerateSystemPromptSection generates the "VERB TAXONOMY" section.
 func (t *TaxonomyEngine) GenerateSystemPromptSection() (string, error) {
-	verbs, err := t.GetVerbs()
+	t.mu.Lock()
+	verbs, err := t.getVerbsLocked()
+	t.mu.Unlock()
 	if err != nil {
 		return "", err
 	}

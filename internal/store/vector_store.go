@@ -1033,6 +1033,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 	batchSize := 32
 	totalBatches := (len(vectors) + batchSize - 1) / batchSize
 	totalEmbedded := 0
+	var lastFallbackErr error
 	for i := 0; i < len(vectors); i += batchSize {
 		end := int(math.Min(float64(i+batchSize), float64(len(vectors))))
 		batch := vectors[i:end]
@@ -1066,6 +1067,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 					vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[0])
 					if embedErr != nil {
 						logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s (task_type=%s): %v", v.id, s.dbPath, taskTypes[0], embedErr)
+						lastFallbackErr = embedErr
 						continue
 					}
 					embeddings[j] = vec
@@ -1079,6 +1081,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 				vec, embedErr := taskAware.EmbedWithTask(ctx, v.content, taskTypes[j])
 				if embedErr != nil {
 					logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s (task_type=%s): %v", v.id, s.dbPath, taskTypes[j], embedErr)
+					lastFallbackErr = embedErr
 					continue
 				}
 				embeddings[j] = vec
@@ -1101,6 +1104,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 				}
 				if embedErr != nil {
 					logging.Get(logging.CategoryStore).Warn("Failed to embed vector %d in %s: %v", v.id, s.dbPath, embedErr)
+					lastFallbackErr = embedErr
 					continue
 				}
 				embeddings[j] = vec
@@ -1165,6 +1169,10 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		if err := tx.Commit(); err != nil {
 			return totalEmbedded, fmt.Errorf("failed to commit transaction: %w", err)
 		}
+	}
+
+	if totalEmbedded == 0 && lastFallbackErr != nil {
+		return 0, lastFallbackErr
 	}
 
 	logging.Store("Force re-embedding complete: %d vectors processed", totalEmbedded)

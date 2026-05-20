@@ -432,7 +432,8 @@ Recommend which executions to DELETE. Output ONLY valid JSON:
 	}
 
 	// Calculate bytes freed
-	newStats, _ := s.GetStats()
+	newStats, _ := s.getStatsLocked()
+
 	if newStats != nil {
 		stats.BytesFreed = overallStats.TotalSizeBytes - newStats.TotalSizeBytes
 		stats.RuntimeHoursFreed = overallStats.TotalRuntimeHours - newStats.TotalRuntimeHours

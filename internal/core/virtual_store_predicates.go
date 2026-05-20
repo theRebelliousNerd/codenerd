@@ -824,6 +824,8 @@ func (v *VirtualStore) getQueryTraceStatsAtoms(query ast.Atom) ([]ast.Atom, erro
 	return atoms, nil
 }
 
+// getStringContainsAtoms is commented out as we transitioned to native :string:contains.
+/*
 func (v *VirtualStore) getStringContainsAtoms(query ast.Atom) ([]ast.Atom, error) {
 	if len(query.Args) != 2 {
 		return nil, nil
@@ -843,6 +845,7 @@ func (v *VirtualStore) getStringContainsAtoms(query ast.Atom) ([]ast.Atom, error
 	atoms = appendAtom(atoms, "string_contains", haystack, needle)
 	return atoms, nil
 }
+*/
 
 func boundNameArg(args []ast.BaseTerm, idx int) (string, string, bool) {
 	raw, ok := queryArgStringRaw(args, idx)

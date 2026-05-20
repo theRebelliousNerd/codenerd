@@ -172,7 +172,7 @@ requires_permission(/system_modify).
 dangerous_action(ActionType) :- requires_permission(ActionType).
 
 # Identify dangerous command content
-# :string:contains requires both args bound in the same rule.
+# string_contains requires both args bound in the same rule.
 # Pattern: bind Payload/Target from pending_action, then check each constant pattern.
 
 # --- exec_cmd Payload ---

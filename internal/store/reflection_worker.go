@@ -317,9 +317,6 @@ func (s *LocalStore) ensureTraceVecTable(dim int) error {
 	if _, err := s.db.Exec(query); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_reasoning_traces_vec_trace_id ON reasoning_traces_vec(trace_id)"); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -631,9 +628,6 @@ func ensureLearningVecTable(db *sql.DB, dim int) error {
 	}
 	query := fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS learnings_vec USING vec0(embedding float[%d], learning_id INTEGER)", dim)
 	if _, err := db.Exec(query); err != nil {
-		return err
-	}
-	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS idx_learnings_vec_learning_id ON learnings_vec(learning_id)"); err != nil {
 		return err
 	}
 	return nil

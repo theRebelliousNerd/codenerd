@@ -25,6 +25,10 @@ Decl dangerous_action(ActionType) bound [/name].
 # blocked_pattern(Pattern) - dangerous string patterns
 Decl blocked_pattern(Pattern) bound [/string].
 
+# string_contains(Haystack, Needle) - virtual predicate for dynamic substring checks
+# External predicate: both args are required inputs
+# Decl string_contains(Haystack, Needle) descr [external(), mode('+', '+')] bound [/string, /string].
+
 # dangerous_content(ActionType, Payload) - derived predicate for content-based blocking
 Decl dangerous_content(ActionType, Payload) bound [/name, /string].
 

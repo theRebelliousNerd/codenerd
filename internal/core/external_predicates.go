@@ -145,8 +145,9 @@ func (vs *VirtualStore) BuildExternalPredicates() map[ast.PredicateSym]engine.Ex
 	sym, cb = mkPred("query_trace_stats", 4, vs.getQueryTraceStatsAtoms, in, out, out, out)
 	callbacks[sym] = cb
 
-	sym, cb = mkPred("string_contains", 2, vs.getStringContainsAtoms, in, in)
-	callbacks[sym] = cb
+	// string_contains is commented out as we transitioned to native :string:contains.
+	// sym, cb = mkPred("string_contains", 2, vs.getStringContainsAtoms, in, in)
+	// callbacks[sym] = cb
 
 	logging.VirtualStoreDebug("Built %d external predicate callbacks", len(callbacks))
 	return callbacks

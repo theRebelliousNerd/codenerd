@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -480,3 +481,92 @@ func TestTraceStore_GetFailurePatterns(t *testing.T) {
 		t.Errorf("Expected 1 file not found error, got %d", patterns["File not found"])
 	}
 }
+
+func TestTraceStore_GetLearningInsights(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_traces.db")
+
+	store, err := NewLocalStore(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	traceStore := store.GetTraceStore()
+	db := store.db
+
+	// Insert 2 old success traces (first half)
+	oldTimestamp := time.Now().AddDate(0, 0, -5).Format("2006-01-02 15:04:05")
+	for i := 0; i < 2; i++ {
+		_, err = db.Exec(`
+			INSERT INTO reasoning_traces
+			(id, shard_id, shard_type, shard_category, session_id, system_prompt, user_prompt, response, success, duration_ms, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("trace_old_%d", i), "shard_001", "coder", "ephemeral", "session_001", "test", "test", "test", true, 1000, oldTimestamp)
+		if err != nil {
+			t.Fatalf("Failed to insert old trace: %v", err)
+		}
+	}
+
+	// Insert 2 new success, 1 fail traces (second half)
+	newTimestamp := time.Now().Format("2006-01-02 15:04:05")
+	for i := 0; i < 3; i++ {
+		success := i < 2
+		errMsg := ""
+		if !success {
+			errMsg = "Failed test"
+		}
+		_, err = db.Exec(`
+			INSERT INTO reasoning_traces
+			(id, shard_id, shard_type, shard_category, session_id, system_prompt, user_prompt, response, success, error_message, duration_ms, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fmt.Sprintf("trace_new_%d", i), "shard_001", "coder", "ephemeral", "session_001", "test", "test", "test", success, errMsg, 2000, newTimestamp)
+		if err != nil {
+			t.Fatalf("Failed to insert new trace: %v", err)
+		}
+	}
+
+	insights, err := traceStore.GetLearningInsights("coder", 7)
+	if err != nil {
+		t.Fatalf("Failed to get learning insights: %v", err)
+	}
+
+	recentCount, ok := insights["recent_trace_count"].(int64)
+	if !ok || recentCount != 5 {
+		t.Errorf("Expected 5 recent traces, got %v", insights["recent_trace_count"])
+	}
+
+	recentSuccessRate, ok := insights["recent_success_rate"].(float64)
+	if !ok || recentSuccessRate != 0.8 { // 4/5
+		t.Errorf("Expected 0.8 success rate, got %v", insights["recent_success_rate"])
+	}
+
+	trend, ok := insights["performance_trend"].(float64)
+	if !ok || trend >= 0 {
+		// First half: 100%, Second half: 66%. Trend should be negative
+		t.Errorf("Expected negative trend, got %v", insights["performance_trend"])
+	}
+
+	avgDur, ok := insights["avg_duration_ms"].(float64)
+	if !ok || avgDur != 1600.0 { // (2000 + 6000) / 5
+		t.Errorf("Expected avg duration 1600.0, got %v", insights["avg_duration_ms"])
+	}
+}
+
+func TestTraceStore_Close(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test_traces.db")
+
+	store, err := NewLocalStore(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	traceStore := store.GetTraceStore()
+	err = traceStore.Close()
+	if err != nil {
+		t.Errorf("Expected nil from TraceStore.Close, got %v", err)
+	}
+	store.Close()
+}
+

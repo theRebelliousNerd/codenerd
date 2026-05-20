@@ -75,6 +75,9 @@ func NewToolStore(dbPath string) (*ToolStore, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Required for concurrent safety in SQLite and to ensure memory dbs don't spawn multiple instances
+	db.SetMaxOpenConns(1)
+
 	store := &ToolStore{db: db, dbPath: dbPath}
 	if err := store.initialize(); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to initialize ToolStore schema: %v", err)
@@ -246,7 +249,10 @@ func (s *ToolStore) IncrementReference(callID string) error {
 func (s *ToolStore) GetStats() (*ToolStoreStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.getStatsLocked()
+}
 
+func (s *ToolStore) getStatsLocked() (*ToolStoreStats, error) {
 	stats := &ToolStoreStats{
 		ToolBreakdown: make(map[string]int),
 	}

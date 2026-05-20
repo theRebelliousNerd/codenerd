@@ -90,6 +90,7 @@ func NewEmbeddedCorpusStore() (*EmbeddedCorpusStore, error) {
 		logging.Get(logging.CategoryStore).Error("Failed to open corpus database: %v", err)
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 
 	// Verify database is accessible
 	if err := db.Ping(); err != nil {

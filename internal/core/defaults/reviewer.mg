@@ -392,7 +392,7 @@ suppressed_finding(File, Line, RuleID, "learned_false_positive") :-
     false_positive_pattern(Pattern, Category, Occurrences, Confidence),
     Occurrences > 2,
     Confidence > 70,
-    string_contains(Message, Pattern).
+    :string:contains(Message, Pattern).
 
 # --- Self-Correction Signals ---
 
@@ -540,7 +540,7 @@ configured_layer_pattern("bin/", /entrypoint).
 layer(File, Layer) :-
     symbol_graph(_, _, _, File, _),
     configured_layer_pattern(Pattern, Layer),
-    string_contains(File, Pattern).
+    :string:contains(File, Pattern).
 
 architecture_violation(CallerFile, CalleeFile) :-
     dependency_link(CallerID, CalleeID, _),

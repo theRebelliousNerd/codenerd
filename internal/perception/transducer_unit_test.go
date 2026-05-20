@@ -334,7 +334,6 @@ func TestContainsAny_WhenMatch_ShouldReturnTrue(t *testing.T) {
 // =============================================================================
 
 func TestGetShardTypeForVerb_WhenKnownVerb_ShouldReturnShardType(t *testing.T) {
-	t.Parallel()
 
 	// Set up a known corpus for testing
 	original := GetVerbCorpus()
@@ -374,7 +373,6 @@ func TestGetShardTypeForVerb_WhenKnownVerb_ShouldReturnShardType(t *testing.T) {
 // =============================================================================
 
 func TestVerbCorpus_ConcurrentAccess_ShouldNotRace(t *testing.T) {
-	t.Parallel()
 
 	original := GetVerbCorpus()
 	defer SetVerbCorpus(original)
@@ -678,7 +676,6 @@ func TestFocusResolution_ToFact_WhenZeroConfidence_ShouldPreserve(t *testing.T) 
 // =============================================================================
 
 func TestGetRegexCandidates_WhenEmptyCorpus_ShouldReturnEmpty(t *testing.T) {
-	t.Parallel()
 
 	original := GetVerbCorpus()
 	defer SetVerbCorpus(original)
@@ -692,7 +689,6 @@ func TestGetRegexCandidates_WhenEmptyCorpus_ShouldReturnEmpty(t *testing.T) {
 }
 
 func TestGetRegexCandidates_WhenPatternMatches_ShouldReturnEntry(t *testing.T) {
-	t.Parallel()
 
 	original := GetVerbCorpus()
 	defer SetVerbCorpus(original)
@@ -728,7 +724,6 @@ func TestGetRegexCandidates_WhenPatternMatches_ShouldReturnEntry(t *testing.T) {
 }
 
 func TestGetRegexCandidates_WhenSynonymMatches_ShouldReturnEntry(t *testing.T) {
-	t.Parallel()
 
 	original := GetVerbCorpus()
 	defer SetVerbCorpus(original)
@@ -757,7 +752,6 @@ func TestGetRegexCandidates_WhenSynonymMatches_ShouldReturnEntry(t *testing.T) {
 }
 
 func TestGetRegexCandidates_WhenNoDuplicate_ShouldDedup(t *testing.T) {
-	t.Parallel()
 
 	original := GetVerbCorpus()
 	defer SetVerbCorpus(original)

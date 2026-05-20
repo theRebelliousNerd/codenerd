@@ -797,26 +797,26 @@ func TestTransaction_WhenDoubleCommit_ShouldError(t *testing.T) {
 
 func TestTransaction_WhenRetractThenAssert_ShouldBeAtomic(t *testing.T) {
 	k := setupMockKernel(t)
-	k.AppendPolicy("Decl state(Key, Value).")
+	k.AppendPolicy("Decl test_state_atomic(Key, Value).")
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "state", Args: []interface{}{"mode", "old"}})
+	k.Assert(Fact{Predicate: "test_state_atomic", Args: []interface{}{"mode", "old"}})
 
 	tx := k.Transaction()
-	tx.Retract("state")
-	tx.Assert(Fact{Predicate: "state", Args: []interface{}{"mode", "new"}})
+	tx.Retract("test_state_atomic")
+	tx.Assert(Fact{Predicate: "test_state_atomic", Args: []interface{}{"mode", "new"}})
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Transaction commit failed: %v", err)
 	}
 
-	results, err := k.Query("state")
+	results, err := k.Query("test_state_atomic")
 	if err != nil {
 		t.Fatalf("Query state failed: %v", err)
 	}
 	if len(results) != 1 {
-		t.Fatalf("Expected 1 state fact, got %d", len(results))
+		t.Fatalf("Expected 1 test_state_atomic fact, got %d", len(results))
 	}
 }
 
