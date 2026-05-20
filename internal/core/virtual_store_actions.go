@@ -560,6 +560,10 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleSearchCode")
 	defer timer.Stop()
 
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
 	pattern := req.Target
 	facts := make([]Fact, 0)
 	var output strings.Builder
@@ -690,8 +694,14 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 	}
 
 	result, err := v.executor.Execute(ctx, cmd)
-	success := err == nil && result.ExitCode == 0
-	output := result.Output()
+	var output string
+	var success bool
+	if result != nil {
+		output = result.Output()
+		success = err == nil && result.ExitCode == 0
+	} else if err != nil {
+		output = err.Error()
+	}
 
 	testState := "/passing"
 	if !success {
@@ -733,8 +743,14 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 	}
 
 	result, err := v.executor.Execute(ctx, cmd)
-	success := err == nil && result.ExitCode == 0
-	output := result.Output()
+	var output string
+	var success bool
+	if result != nil {
+		output = result.Output()
+		success = err == nil && result.ExitCode == 0
+	} else if err != nil {
+		output = err.Error()
+	}
 
 	facts := []Fact{
 		{Predicate: "build_result", Args: []interface{}{success, output}},
@@ -827,6 +843,9 @@ func (v *VirtualStore) handleShowDiff(ctx context.Context, req ActionRequest) (A
 
 // handleAnalyzeImpact analyzes the impact of changes using code graph.
 func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionRequest) (ActionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 	codeGraph := v.GetMCPClient("code_graph")
 
 	if codeGraph == nil {
@@ -914,6 +933,10 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleResearch")
 	defer timer.Stop()
 
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
+
 	query := req.Target
 	logging.VirtualStore("Research request: %s", query)
 
@@ -963,6 +986,10 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 func (v *VirtualStore) handleModularTool(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, "handleModularTool")
 	defer timer.Stop()
+
+	if err := ctx.Err(); err != nil {
+		return ActionResult{Success: false, Error: err.Error()}, nil
+	}
 
 	toolName := string(req.Type)
 	logging.VirtualStore("Executing modular tool: %s", toolName)
@@ -1318,7 +1345,14 @@ func extractCodeBlockForFile(content, path string) string {
 		}
 	}
 
-	// Second try: Look for first { and match to closing } (for JSON-like or code files)
+	// Second try: For Go files, look for "package" keyword
+	if lang == "go" {
+		if pkgIdx := strings.Index(content, "package "); pkgIdx != -1 {
+			return strings.TrimSpace(content[pkgIdx:])
+		}
+	}
+
+	// Third try: Look for first { and match to closing } (for JSON-like or code files)
 	if braceStart := strings.Index(content, "{"); braceStart != -1 && (lang == "json" || lang == "go" || lang == "kotlin" || lang == "typescript" || lang == "javascript") {
 		depth := 0
 		inString := false
@@ -1348,13 +1382,6 @@ func extractCodeBlockForFile(content, path string) string {
 					return strings.TrimSpace(content[braceStart : i+1])
 				}
 			}
-		}
-	}
-
-	// Third try: For Go files, look for "package" keyword
-	if lang == "go" {
-		if pkgIdx := strings.Index(content, "package "); pkgIdx != -1 {
-			return strings.TrimSpace(content[pkgIdx:])
 		}
 	}
 
