@@ -6,6 +6,7 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -315,7 +316,11 @@ func (d *EdgeCaseDetector) gatherMetrics(decision *FileDecision, path string, in
 		}
 	}
 	// Estimate line count from symbol density
-	decision.LineCount = symbolCount * 25 // Rough estimate
+	if symbolCount > math.MaxInt32/25 {
+		decision.LineCount = math.MaxInt32
+	} else {
+		decision.LineCount = symbolCount * 25 // Rough estimate
+	}
 
 	// Check for test file
 	if strings.HasSuffix(path, "_test.go") {
@@ -360,6 +365,19 @@ func (d *EdgeCaseDetector) queryDependencies(decision *FileDecision, path string
 
 // queryComplexity estimates complexity from kernel facts.
 func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) {
+	if d.kernel == nil {
+		// Just estimate from line count if kernel is not available
+		decision.Complexity = 0
+		if decision.LineCount > 0 {
+			safeLineCount := decision.LineCount
+			if safeLineCount > 10000000 {
+				safeLineCount = 10000000
+			}
+			decision.Complexity = float64(safeLineCount) / 50.0
+		}
+		return
+	}
+
 	// Query for complexity-related facts
 	facts, err := d.kernel.Query("cyclomatic_complexity")
 	if err != nil {
@@ -388,8 +406,13 @@ func (d *EdgeCaseDetector) queryComplexity(decision *FileDecision, path string) 
 	if hasComplexity {
 		decision.Complexity = maxComplexity
 	} else if decision.LineCount > 0 {
+		// Bounds check to prevent float64 precision issues or extreme values
+		safeLineCount := decision.LineCount
+		if safeLineCount > 10000000 {
+			safeLineCount = 10000000
+		}
 		// Rough heuristic: 1 complexity point per 50 lines
-		decision.Complexity = float64(decision.LineCount) / 50.0
+		decision.Complexity = float64(safeLineCount) / 50.0
 	}
 }
 
@@ -824,6 +847,3 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 // `queryDependencies` and `queryComplexity` executes an O(N) fetch of all facts for *each file*.
 // For campaigns on large repos, this becomes O(N * M) and hangs the orchestrator.
 // Need to parallelize AnalyzeFiles or parameterize kernel queries.
-
-// TODO: Missing Edge Case - Extreme Values: Max file size boundaries.
-// `LineCount` bounds checking should prevent `float64` precision or overflow issues
