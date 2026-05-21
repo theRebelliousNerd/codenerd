@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -82,23 +81,29 @@ func NewPredicateCorpus() (*PredicateCorpus, error) {
 		return nil, fmt.Errorf("failed to read embedded corpus: %w", err)
 	}
 
-	// Write to temp file for SQLite access
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, "predicate_corpus.db")
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	// Write to a unique temp file for SQLite access to prevent concurrent test interference
+	f, err := os.CreateTemp("", "predicate_corpus_*.db")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := f.Name()
+	f.Close() // Close the handle immediately so we can write to it and open via SQLite
+
+	if err := os.WriteFile(tempPath, data, 0644); err != nil {
+		os.Remove(tempPath)
 		return nil, fmt.Errorf("failed to write temp corpus: %w", err)
 	}
 
 	// Open database
-	db, err := sql.Open("sqlite3", tempFile+"?mode=ro")
+	db, err := sql.Open("sqlite3", tempPath+"?mode=ro")
 	if err != nil {
-		os.Remove(tempFile)
+		os.Remove(tempPath)
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
 
 	return &PredicateCorpus{
 		db:       db,
-		tempFile: tempFile,
+		tempFile: tempPath,
 	}, nil
 }
 

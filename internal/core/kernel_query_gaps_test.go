@@ -144,8 +144,12 @@ func TestKernelQueryGap_LoadFactsFromFile_LargeFile(t *testing.T) {
 // reads (Query) don't starve write locks (SetSchemas/Evaluate).
 func TestKernelQueryGap_Concurrency_ReadWriteStarvation(t *testing.T) {
 	k := setupMockKernel(t)
+	k.policy = ""
+	k.learned = ""
 	k.SetSchemas("Decl conc_pred(Name).")
-	k.Evaluate()
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Initial Evaluate failed: %v", err)
+	}
 
 	// Seed with facts
 	for i := 0; i < 100; i++ {
@@ -154,7 +158,9 @@ func TestKernelQueryGap_Concurrency_ReadWriteStarvation(t *testing.T) {
 			Args:      []interface{}{"item_" + string(rune('a'+i%26))},
 		})
 	}
-	k.Evaluate()
+	if err := k.Evaluate(); err != nil {
+		t.Fatalf("Seed Evaluate failed: %v", err)
+	}
 
 	var wg sync.WaitGroup
 	const readers = 30

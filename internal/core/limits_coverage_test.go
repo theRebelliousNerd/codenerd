@@ -144,3 +144,53 @@ func TestLimitsEnforcer_CoverageExtra(t *testing.T) {
 		t.Errorf("expected status memory limit 999999, got: %v", status["memory_limit_mb"])
 	}
 }
+
+func TestLimitsEnforcer_ExtraCornerCases(t *testing.T) {
+	// Trigger CheckAll memory error
+	cfgTrigger := LimitsConfig{
+		MaxTotalMemoryMB:      1,
+		MaxConcurrentShards:   2,
+		MaxSessionDurationMin: 10,
+	}
+	leTrigger := NewLimitsEnforcer(cfgTrigger)
+	if err := leTrigger.CheckAll(0); err == nil || !errors.Is(err, ErrMemoryLimitExceeded) {
+		t.Errorf("expected ErrMemoryLimitExceeded in CheckAll, got: %v", err)
+	}
+
+	// Trigger CheckAll session timeout error
+	cfgSession := LimitsConfig{
+		MaxTotalMemoryMB:      999999,
+		MaxConcurrentShards:   10,
+		MaxSessionDurationMin: 10,
+	}
+	leSession := NewLimitsEnforcer(cfgSession)
+	leSession.SetSessionStart(time.Now().Add(-20 * time.Minute))
+	if err := leSession.CheckAll(0); err == nil || !errors.Is(err, ErrSessionTimeout) {
+		t.Errorf("expected ErrSessionTimeout in CheckAll, got: %v", err)
+	}
+
+	// Trigger CheckAll shard limit error
+	cfgShard := LimitsConfig{
+		MaxTotalMemoryMB:      999999,
+		MaxConcurrentShards:   2,
+		MaxSessionDurationMin: 10,
+	}
+	leShard := NewLimitsEnforcer(cfgShard)
+	if err := leShard.CheckAll(2); err == nil || !errors.Is(err, ErrTooManyShards) {
+		t.Errorf("expected ErrTooManyShards in CheckAll, got: %v", err)
+	}
+
+	// Trigger EstimateCapacity memory > 70% and slots < 1
+	currentMem := leTrigger.GetMemoryUsage()
+	if currentMem > 0 {
+		cfgHighMem := LimitsConfig{
+			MaxTotalMemoryMB:    int(float64(currentMem) / 0.75),
+			MaxConcurrentShards: 1, // Only 1 shard allowed
+		}
+		leHighMem := NewLimitsEnforcer(cfgHighMem)
+		slots, reason := leHighMem.EstimateCapacity(0) // activeShards = 0, so slots initially 1
+		if slots != 1 || !strings.Contains(reason, "reduced due to high memory") {
+			t.Errorf("expected slots = 1, reason to contain high memory; got slots=%d, reason=%q", slots, reason)
+		}
+	}
+}

@@ -1,17 +1,24 @@
 package core
 
 import (
+	"os"
 	"testing"
 
 	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
+	code := m.Run()
+	if code != 0 {
+		os.Exit(code)
+	}
+	if err := goleak.Find(
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
 		goleak.IgnoreAnyFunction("github.com/fsnotify/fsnotify.*"),
-	)
+	); err != nil {
+		panic(err)
+	}
 }
 
 func TestNewRealKernel(t *testing.T) {
@@ -479,4 +486,35 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 	if err := kernel.Evaluate(); err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
+}
+
+func TestKernelAccessors(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+
+	// 1. GetBaseFacts
+	facts := []Fact{
+		{Predicate: "test_state", Args: []interface{}{"/passing"}},
+	}
+	if err := kernel.LoadFacts(facts); err != nil {
+		t.Fatalf("LoadFacts() error = %v", err)
+	}
+	baseFacts := kernel.GetBaseFacts()
+	found := false
+	for _, f := range baseFacts {
+		if f.Predicate == "test_state" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find test_state in base facts")
+	}
+
+	// 2. GetProgramInfo
+	// Under test setup it should be non-nil if it compiled successfully, or nil if not loaded.
+	// But it shouldn't panic.
+	_ = kernel.GetProgramInfo()
 }

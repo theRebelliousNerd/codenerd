@@ -333,3 +333,30 @@ func TestClassifyRiskType(t *testing.T) {
 		}
 	}
 }
+
+func TestDreamLearningCollector_GetPendingAndConfirmed(t *testing.T) {
+	collector := NewDreamLearningCollector()
+
+	collector.staged["L1"] = &DreamLearning{ID: "L1"}
+	collector.confirmed = append(collector.confirmed, &DreamLearning{ID: "L2"})
+
+	pending := collector.GetPendingLearnings()
+	if len(pending) != 1 || pending[0].ID != "L1" {
+		t.Errorf("Expected pending to contain 'L1', got %v", pending)
+	}
+
+	confirmed := collector.GetConfirmedLearnings()
+	if len(confirmed) != 1 || confirmed[0].ID != "L2" {
+		t.Errorf("Expected confirmed to contain 'L2', got %v", confirmed)
+	}
+}
+
+func TestDreamLearningCollector_ClearStaged(t *testing.T) {
+	collector := NewDreamLearningCollector()
+	collector.staged["L1"] = &DreamLearning{ID: "L1"}
+
+	collector.ClearStaged()
+	if len(collector.staged) != 0 {
+		t.Errorf("Expected staged to be empty after ClearStaged, got %d", len(collector.staged))
+	}
+}
