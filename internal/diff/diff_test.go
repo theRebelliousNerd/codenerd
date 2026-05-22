@@ -348,3 +348,16 @@ func BenchmarkComputeDiff_WithCache(b *testing.B) {
 		engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 	}
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ComputeDiff handles completely empty strings for both oldContent and newContent without panicking or creating invalid hunks.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify the algorithm correctly captures and represents the addition or removal of a single trailing newline at EOF, avoiding the empty line truncation logic.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify the caching mechanism's behavior if an FNV-1a hash collision occurs with an empty string, ensuring cache hits validate the actual content or lengths.
+// TODO: TEST_GAP: [Type Coercion] Verify ComputeDiff flags binary payloads (e.g., strings containing null bytes \x00) immediately without passing them to the heavy Myers diff engine.
+// TODO: TEST_GAP: [Type Coercion] Verify extreme file paths (e.g. containing \n, \r, or exceeding 4096 chars) do not break the FileDiff struct serialization or cause panic.
+// TODO: TEST_GAP: [Type Coercion] Verify ComputeDiff gracefully handles invalid UTF-8 byte sequences or unpaired surrogate halves without causing panics in the rune mapping engine.
+// TODO: TEST_GAP: [User Request Extremes] Verify ComputeDiff does not hang indefinitely when processing massive single-line minified strings (e.g. 5MB of minified JS without newlines). A timeout or fallback must exist.
+// TODO: TEST_GAP: [User Request Extremes] Verify the DefaultEngine cache does not cause an Out-Of-Memory (OOM) crash when 100,000 unique files are diffed sequentially in a rapid loop.
+// TODO: TEST_GAP: [User Request Extremes] Verify ComputeDiff avoids extreme memory allocations when processing a massive pure deletion (e.g., deleting a 5MB file). It should not allocate millions of Line structs.
+// TODO: TEST_GAP: [State Conflicts] Verify the "Shallow Copy Pointer Trap". Retrieve a cached diff, mutate its Hunks slice, request the diff again, and verify the cache was not permanently mutated.
+// TODO: TEST_GAP: [State Conflicts] Verify the exact boundary spacing of context lines (changes exactly contextLines * 2 apart) does not cause context duplication or incorrect Hunk merging.
+// TODO: TEST_GAP: [State Conflicts] Verify the race condition between ClearCache() and concurrent active ComputeDiff requests doesn't result in stale computations populating the new cache.
