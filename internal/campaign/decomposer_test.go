@@ -97,6 +97,16 @@ func (m *mockLLMClient) SchemaCapable() bool {
 	return m.schemaCapable
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify NewDecomposer handles an empty workspace string without defaulting to root or polluting unintended locations.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Decompose handles Decomposer instances with nil optional dependencies (advisoryBoard, intelligenceGatherer, edgeCaseDetector).
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify readDocumentsFromPath behaves correctly when an element in SourcePaths is an empty string `[""]`.
+// TODO: TEST_GAP: [Type Coercion] Verify cleanJSONResponse cleanly handles partially valid JSON with incorrect nested types (e.g., string instead of int for phase budget).
+// TODO: TEST_GAP: [Type Coercion] Verify seedDocFacts asserts strictly typed Mangle Atoms instead of Strings when creating campaign facts.
+// TODO: TEST_GAP: [User Request Extremes] Verify readDocumentsFromDir gracefully handles a directory tree with 1,000,000 nested files without exhausting memory or file descriptors.
+// TODO: TEST_GAP: [User Request Extremes] Verify the Decomposer can process a simulated 50 million line monorepo by using streaming logic/sparse retrieval instead of full RAM loading.
+// TODO: TEST_GAP: [User Request Extremes] Verify validation logic prevents the LLM from hallucinating non-existent subsystems, tools, or coding languages in the plan.
+// TODO: TEST_GAP: [State Conflicts] Verify Decomposer handles concurrent calls to setter methods (SetPromptProvider, SetShardLister) while Decompose is running without data races.
+// TODO: TEST_GAP: [State Conflicts] Verify readDocumentsFromDir handles Time-of-Check/Time-of-Use (TOC/TOU) race conditions where a file is deleted after metadata is gathered but before reading content.
 func TestNewDecomposer(t *testing.T) {
 	mockKernel := &core.RealKernel{} // Minimal struct
 	mockClient := &mockLLMClient{}
