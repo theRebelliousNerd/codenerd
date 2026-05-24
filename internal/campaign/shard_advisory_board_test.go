@@ -413,6 +413,11 @@ func TestIsCriticalAdvisor(t *testing.T) {
 // Marathon 21: Shard Advisory Board Gaps
 // -----------------------------------------------------------------------------
 
+// TODO: TEST_GAP: Zero-Vote Fail-Closed Logic. Verify that passing an empty slice of responses to SynthesizeVotes correctly evaluates to false (fail-closed) rather than true (auto-approve), preventing security bypasses when LLMs fail to respond.
+// TODO: TEST_GAP: Regex Vote Extraction vs Word Salad. Verify that parseAdvisoryResponse accurately extracts the correct vote from a verbose or adversarial response containing multiple conflicting vote keywords (e.g., "I reject the premise... I approve"), rather than relying on loose string matching.
+// TODO: TEST_GAP: OOM Prevention on Massive RawPlan. Verify that buildConsultationContext can safely truncate an extremely large RawPlan string (e.g., 50MB) without causing excessive memory allocation during `[]rune` conversion by using `utf8.DecodeRuneInString`.
+// TODO: TEST_GAP: List Parsing Resilience. Verify that parseAdvisoryResponse can successfully extract numbered lists (e.g., "1. Do this") from the suggestions/concerns blocks, rather than silently dropping them due to strict hyphen-only checks.
+// TODO: TEST_GAP: Duplicate Advisor Prevention. Verify that SynthesizeVotes handles multiple responses from the same advisor gracefully (e.g., by deduplication or rejecting the plan) rather than blindly double-counting their votes.
 func TestShardAdvisoryBoard_NullEmptyInputs(t *testing.T) {
 	board := NewShardAdvisoryBoard(nil)
 	
