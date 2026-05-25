@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strings"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -553,6 +553,114 @@ func CosineSimilarity(a, b []float64) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
+func getBatchCountQueryPiece(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT 'vectors' as tbl, COUNT(*) as cnt FROM vectors"
+	case "knowledge_graph":
+		return "SELECT 'knowledge_graph' as tbl, COUNT(*) as cnt FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT 'cold_storage' as tbl, COUNT(*) as cnt FROM cold_storage"
+	case "activation_log":
+		return "SELECT 'activation_log' as tbl, COUNT(*) as cnt FROM activation_log"
+	case "session_history":
+		return "SELECT 'session_history' as tbl, COUNT(*) as cnt FROM session_history"
+	case "compressed_states":
+		return "SELECT 'compressed_states' as tbl, COUNT(*) as cnt FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT 'knowledge_atoms' as tbl, COUNT(*) as cnt FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT 'world_files' as tbl, COUNT(*) as cnt FROM world_files"
+	case "world_facts":
+		return "SELECT 'world_facts' as tbl, COUNT(*) as cnt FROM world_facts"
+	case "learning_candidates":
+		return "SELECT 'learning_candidates' as tbl, COUNT(*) as cnt FROM learning_candidates"
+	default:
+		return ""
+	}
+}
+
+func getTableCountQuery(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT COUNT(*) FROM vectors"
+	case "knowledge_graph":
+		return "SELECT COUNT(*) FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT COUNT(*) FROM cold_storage"
+	case "activation_log":
+		return "SELECT COUNT(*) FROM activation_log"
+	case "session_history":
+		return "SELECT COUNT(*) FROM session_history"
+	case "compressed_states":
+		return "SELECT COUNT(*) FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT COUNT(*) FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT COUNT(*) FROM world_files"
+	case "world_facts":
+		return "SELECT COUNT(*) FROM world_facts"
+	case "learning_candidates":
+		return "SELECT COUNT(*) FROM learning_candidates"
+	default:
+		return ""
+	}
+}
+
+func getBatchCountQueryPiece(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT 'vectors' as tbl, COUNT(*) as cnt FROM vectors"
+	case "knowledge_graph":
+		return "SELECT 'knowledge_graph' as tbl, COUNT(*) as cnt FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT 'cold_storage' as tbl, COUNT(*) as cnt FROM cold_storage"
+	case "activation_log":
+		return "SELECT 'activation_log' as tbl, COUNT(*) as cnt FROM activation_log"
+	case "session_history":
+		return "SELECT 'session_history' as tbl, COUNT(*) as cnt FROM session_history"
+	case "compressed_states":
+		return "SELECT 'compressed_states' as tbl, COUNT(*) as cnt FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT 'knowledge_atoms' as tbl, COUNT(*) as cnt FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT 'world_files' as tbl, COUNT(*) as cnt FROM world_files"
+	case "world_facts":
+		return "SELECT 'world_facts' as tbl, COUNT(*) as cnt FROM world_facts"
+	case "learning_candidates":
+		return "SELECT 'learning_candidates' as tbl, COUNT(*) as cnt FROM learning_candidates"
+	default:
+		return ""
+	}
+}
+
+func getTableCountQuery(table string) string {
+	switch table {
+	case "vectors":
+		return "SELECT COUNT(*) FROM vectors"
+	case "knowledge_graph":
+		return "SELECT COUNT(*) FROM knowledge_graph"
+	case "cold_storage":
+		return "SELECT COUNT(*) FROM cold_storage"
+	case "activation_log":
+		return "SELECT COUNT(*) FROM activation_log"
+	case "session_history":
+		return "SELECT COUNT(*) FROM session_history"
+	case "compressed_states":
+		return "SELECT COUNT(*) FROM compressed_states"
+	case "knowledge_atoms":
+		return "SELECT COUNT(*) FROM knowledge_atoms"
+	case "world_files":
+		return "SELECT COUNT(*) FROM world_files"
+	case "world_facts":
+		return "SELECT COUNT(*) FROM world_facts"
+	case "learning_candidates":
+		return "SELECT COUNT(*) FROM learning_candidates"
+	default:
+		return ""
+	}
+}
+
 // GetStats returns database statistics.
 func (s *LocalStore) GetStats() (map[string]int64, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetStats")
@@ -572,7 +680,11 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 		if i > 0 {
 			queryBuilder.WriteString(" UNION ALL ")
 		}
-		queryBuilder.WriteString(fmt.Sprintf("SELECT '%s' as tbl, COUNT(*) as cnt FROM %s", table, table))
+		piece := getBatchCountQueryPiece(table)
+		if piece == "" {
+			continue
+		}
+		queryBuilder.WriteString(piece)
 	}
 
 	rows, err := s.db.Query(queryBuilder.String())
@@ -581,7 +693,11 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 		// Fallback to individual queries if batch query fails (e.g., table missing)
 		for _, table := range tables {
 			var count int64
-			err := s.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+			query := getTableCountQuery(table)
+			if query == "" {
+				continue
+			}
+			err := s.db.QueryRow(query).Scan(&count)
 			if err != nil {
 				logging.StoreDebug("Table %s count failed (may not exist): %v", table, err)
 				continue
