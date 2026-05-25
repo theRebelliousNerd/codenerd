@@ -356,21 +356,22 @@ func TestThunderdomeArena(t *testing.T) {
 func (t *Thunderdome) normalizePackage(code string) string {
 	// Pattern to match package declaration
 	packagePattern := regexp.MustCompile(`(?m)^package\s+(\w+)`)
-	match := packagePattern.FindStringSubmatch(code)
+	match := packagePattern.FindStringSubmatchIndex(code)
 
-	if len(match) < 2 {
+	if match == nil {
 		// No package found, prepend one
 		return "package tools\n\n" + code
 	}
 
-	if match[1] == "tools" {
+	packageName := code[match[2]:match[3]]
+	if packageName == "tools" {
 		// Already correct
 		return code
 	}
 
 	// Replace the package name with "tools"
-	logging.AutopoiesisDebug("Normalizing package from '%s' to 'tools'", match[1])
-	return packagePattern.ReplaceAllString(code, "package tools")
+	logging.AutopoiesisDebug("Normalizing package from '%s' to 'tools'", packageName)
+	return code[:match[2]] + "tools" + code[match[3]:]
 }
 
 // findEntryPoint uses AST parsing to locate the tool's main entry function.
