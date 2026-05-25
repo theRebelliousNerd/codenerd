@@ -28,7 +28,7 @@ func NewProblemClassifier() *ProblemClassifier {
 // Returns the problem type and confidence score (0.0-1.0).
 func (pc *ProblemClassifier) Classify(taskRequest string) (ProblemType, float64) {
 	normalized := strings.ToLower(taskRequest)
-	
+
 	// Truncate excessively long inputs to prevent regex performance issues
 	// We check the first 8KB and the last 8KB of text for keywords.
 	if len(normalized) > 16384 {

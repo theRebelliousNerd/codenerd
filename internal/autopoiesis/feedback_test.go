@@ -920,12 +920,12 @@ func TestLearningStore_Save_NoLockStarvation(t *testing.T) {
 
 	store := NewLearningStore(tmpDir)
 
-	// Since save is now outside the lock, we can test that calling RecordLearning 
+	// Since save is now outside the lock, we can test that calling RecordLearning
 	// does not block GetAllLearnings for the entire duration of file writing.
 	// We simulate this by rapidly accessing GetAllLearnings while RecordLearning runs.
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	feedback := &ExecutionFeedback{
 		ToolName: "test_tool",
 		Success:  true,

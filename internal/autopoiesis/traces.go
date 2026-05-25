@@ -752,8 +752,16 @@ func hasExitLogging(code string) bool {
 	return strings.Contains(code, "TOOL_EXIT") || strings.Contains(code, "defer") && strings.Contains(code, "log.")
 }
 
+var errorLogPattern = regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`)
+
 func hasErrorLogging(code string) bool {
-	return strings.Contains(code, "TOOL_ERROR") || hasErrorPattern.MatchString(code)
+	if strings.Contains(code, "TOOL_ERROR") {
+		return true
+	}
+	if !strings.Contains(code, "err") || !strings.Contains(code, "log.") {
+		return false
+	}
+	return hasErrorPattern.MatchString(code)
 }
 
 func hasTimingLogging(code string) bool {
