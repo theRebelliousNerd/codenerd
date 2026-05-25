@@ -131,18 +131,27 @@ func (c *JITPromptCompiler) snapshotPromptDBs() []*sql.DB {
 	if c == nil {
 		return nil
 	}
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	dbs := make([]*sql.DB, 0, 1+len(c.shardDBs))
-	if c.projectDB != nil {
-		dbs = append(dbs, c.projectDB)
-	}
+	c.shardMu.RLock()
+	shardDBsCopy := make([]*sql.DB, 0, len(c.shardDBs))
 	for _, db := range c.shardDBs {
 		if db != nil {
-			dbs = append(dbs, db)
+			shardDBsCopy = append(shardDBsCopy, db)
 		}
 	}
+	c.shardMu.RUnlock()
+
+	c.dbMu.RLock()
+	var projectDB *sql.DB
+	if c.projectDB != nil {
+		projectDB = c.projectDB
+	}
+	c.dbMu.RUnlock()
+
+	dbs := make([]*sql.DB, 0, 1+len(shardDBsCopy))
+	if projectDB != nil {
+		dbs = append(dbs, projectDB)
+	}
+	dbs = append(dbs, shardDBsCopy...)
 	return dbs
 }
 

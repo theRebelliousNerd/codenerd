@@ -153,8 +153,8 @@ func (eam *EvolvedAtomManager) Count() int {
 
 // RegisterEvolvedAtomManager registers an evolved atom manager with the compiler.
 func (c *JITPromptCompiler) RegisterEvolvedAtomManager(eam *EvolvedAtomManager) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.dbMu.Lock()
+	defer c.dbMu.Unlock()
 
 	c.evolvedAtomMgr = eam
 	logging.JIT("Registered evolved atom manager: %d atoms", eam.Count())
@@ -162,8 +162,8 @@ func (c *JITPromptCompiler) RegisterEvolvedAtomManager(eam *EvolvedAtomManager) 
 
 // collectEvolvedAtoms gathers evolved atoms matching the context.
 func (c *JITPromptCompiler) collectEvolvedAtoms(cc *CompilationContext) []*PromptAtom {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.dbMu.RLock()
+	defer c.dbMu.RUnlock()
 
 	if c.evolvedAtomMgr == nil {
 		return nil
@@ -174,9 +174,9 @@ func (c *JITPromptCompiler) collectEvolvedAtoms(cc *CompilationContext) []*Promp
 
 // ReloadEvolvedAtoms reloads evolved atoms from disk.
 func (c *JITPromptCompiler) ReloadEvolvedAtoms() error {
-	c.mu.RLock()
+	c.dbMu.RLock()
 	mgr := c.evolvedAtomMgr
-	c.mu.RUnlock()
+	c.dbMu.RUnlock()
 
 	if mgr == nil {
 		return nil
@@ -198,8 +198,8 @@ func (c *JITPromptCompiler) RefreshEvolvedAtoms() error {
 
 // GetEvolvedAtomCount returns the number of evolved atoms loaded.
 func (c *JITPromptCompiler) GetEvolvedAtomCount() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.dbMu.RLock()
+	defer c.dbMu.RUnlock()
 
 	if c.evolvedAtomMgr == nil {
 		return 0
