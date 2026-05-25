@@ -214,7 +214,8 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 				}
 			}
 			// If not found in candidates (rare), find in corpus
-			for _, entry := range GetVerbCorpus() {
+			corpus := GetVerbCorpus()
+			for _, entry := range corpus {
 				if entry.Verb == bestVerb {
 					logging.Perception("Matched verb %s from corpus (category: %s, shard: %s, confidence: %.2f)", entry.Verb, entry.Category, entry.ShardType, conf)
 					return entry.Verb, entry.Category, conf, entry.ShardType
@@ -224,8 +225,6 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 			logging.PerceptionDebug("Mangle inference error: %v", err)
 		}
 	}
-
-
 
 	logging.Get(logging.CategoryPerception).Warn("No verb match found for input, defaulting to /explain")
 	return "/explain", "/query", 0.3, ""
@@ -248,7 +247,8 @@ func getRegexCandidates(input string) []VerbEntry {
 	var candidates []VerbEntry
 	seen := make(map[string]bool)
 
-	for _, entry := range GetVerbCorpus() {
+	corpus := GetVerbCorpus()
+	for _, entry := range corpus {
 		matched := false
 		// Check patterns
 		for _, pattern := range entry.Patterns {
@@ -444,7 +444,8 @@ func containsAny(s string, subs []string) bool {
 // GetShardTypeForVerb returns the shard type associated with a canonical verb.
 // Returns empty string if verb is not found in the VerbCorpus.
 func GetShardTypeForVerb(verb string) string {
-	for _, entry := range GetVerbCorpus() {
+	corpus := GetVerbCorpus()
+	for _, entry := range corpus {
 		if entry.Verb == verb {
 			return entry.ShardType
 		}
