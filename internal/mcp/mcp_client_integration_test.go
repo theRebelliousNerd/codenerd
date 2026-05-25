@@ -203,12 +203,14 @@ func (s *MCPClientIntegrationSuite) TestConnectAndUseTools() {
 // Marathon 17: MCP Client Integration Test Gaps
 // -----------------------------------------------------------------------------
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify empty ServerID rejects strictly when calling Connect.
 func (s *MCPClientIntegrationSuite) TestConnect_EmptyServerID() {
 	err := s.client.Connect(context.Background(), "")
 	s.Require().Error(err)
 	s.Contains(err.Error(), "cannot be empty")
 }
 
+// TODO: TEST_GAP: [Type Coercion] Verify invalid argument types (like unmarshalable structs) properly fail JSON marshaling before transmission.
 func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 	// CallTool with nil args
 	ctx := context.Background()
@@ -223,6 +225,7 @@ func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 	s.Contains(result.Error, "Method not found")
 }
 
+// TODO: TEST_GAP: [User Request Extremes] Verify DiscoverTools behaves safely and aborts gracefully when given an extremely large list of tools or malformed empty responses.
 func (s *MCPClientIntegrationSuite) TestDiscoverTools_EmptyList() {
 	// Let's create an empty mock server
 	emptyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -352,6 +355,7 @@ func (s *MCPClientIntegrationSuite) TestConcurrentConnectDisconnect() {
 	wg.Wait()
 }
 
+// TODO: TEST_GAP: [State Conflicts] Verify concurrent execution of CallTool and Disconnect does not trigger deadlocks or nil pointer dereferences.
 func (s *MCPClientIntegrationSuite) TestCallToolConcurrentDisconnect() {
 	s.Require().NoError(s.client.Connect(context.Background(), "test-server"))
 

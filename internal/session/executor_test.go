@@ -89,6 +89,7 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify empty ToolCall.Name rejects strictly instead of allowing through to Mangle as "/".
 // TestExecutor_EmptyToolCallName tests behavior when ToolCall.Name is empty
 func TestExecutor_EmptyToolCallName(t *testing.T) {
 	mockKernel := &MockKernel{}
@@ -111,6 +112,7 @@ func TestExecutor_EmptyToolCallName(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Nil ToolCall.Args rejects gracefully without propagating to subsequent validation logic.
 // TestExecutor_NilArgsInToolCall tests behavior when ToolCall.Args is nil
 func TestExecutor_NilArgsInToolCall(t *testing.T) {
 	mockKernel := &MockKernel{}
@@ -151,6 +153,7 @@ func TestExecutor_ExtractTargetMultipleKeys(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify extractTarget handles completely empty maps ({}) without crashing.
 // TestExecutor_ExtractTargetNoMatch tests extractTarget with no matching keys
 func TestExecutor_ExtractTargetNoMatch(t *testing.T) {
 	executor := &Executor{
@@ -194,6 +197,7 @@ func TestExecutor_PermittedFactIncorrectArity(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Type Coercion] Verify parsing of String literal args vs Mangle Atom args specifically for path collisions like "/etc/passwd".
 // TestExecutor_ArgsMarshalFailure tests behavior when Args contains types that fail json.Marshal
 func TestExecutor_ArgsMarshalFailure(t *testing.T) {
 	mockKernel := &MockKernel{}
@@ -262,6 +266,8 @@ func TestExecutor_KernelQueryFailure(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [User Request Extremes] Verify executeToolCall behaves safely and aborts gracefully when given an extremely large ToolCall payload (e.g. 100MB string) that might OOM the Mangle fact store.
+// TODO: TEST_GAP: [State Conflicts] Verify that checkSafety's deferred retraction of pending_action functions correctly even if the context is violently cancelled during kernel.Query.
 // TestExecutor_RetractFactFailure tests behavior when kernel.RetractFact fails
 func TestExecutor_RetractFactFailure(t *testing.T) {
 	// Setup a scenario where checkSafety SHOULD succeed, but Retract fails.
