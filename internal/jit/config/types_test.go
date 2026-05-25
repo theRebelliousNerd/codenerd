@@ -37,6 +37,19 @@ func TestAgentConfigValidation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "Whitespace-only Identity",
+			config: AgentConfig{
+				IdentityPrompt: "   \t\n  ",
+				Tools: ToolSet{
+					AllowedTools: []string{"read_file"},
+				},
+				Policies: PolicySet{
+					Files: []string{"base.mg"},
+				},
+			},
+			wantErr: true,
+		},
+		{
 			name: "Empty Policies",
 			config: AgentConfig{
 				IdentityPrompt: "Identity",
@@ -45,6 +58,19 @@ func TestAgentConfigValidation(t *testing.T) {
 				},
 				Policies: PolicySet{
 					Files: []string{},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Nil Policies Files",
+			config: AgentConfig{
+				IdentityPrompt: "Identity",
+				Tools: ToolSet{
+					AllowedTools: []string{"read_file"},
+				},
+				Policies: PolicySet{
+					Files: nil,
 				},
 			},
 			wantErr: true,
