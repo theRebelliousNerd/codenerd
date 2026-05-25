@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/atotto/clipboard"
 )
 
 // Pre-computed indentation strings to avoid repeated allocation
@@ -69,7 +70,6 @@ type DerivationTrace struct {
 
 // LogicPane represents the logic visualization pane with search/filter support
 // TODO: IMPROVEMENT: Implement tea.Model interface for LogicPane to handle its own events
-// TODO: Allow copying derivation trace to clipboard.
 type LogicPane struct {
 	Viewport       viewport.Model
 	Styles         Styles
@@ -251,6 +251,50 @@ func (p *LogicPane) DecreaseActivationThreshold() {
 		p.ActivationThreshold = MinActivationThreshold
 	}
 	p.refreshNodes()
+}
+
+// CopyTraceToClipboard copies a plain text representation of the derivation trace to the system clipboard
+func (p *LogicPane) CopyTraceToClipboard() {
+	if p.CurrentTrace == nil || len(p.AllNodes) == 0 {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Query: %s\n", p.CurrentTrace.Query))
+	sb.WriteString(fmt.Sprintf("Total Facts: %d\n", p.CurrentTrace.TotalFacts))
+	sb.WriteString(fmt.Sprintf("Derived Time: %v\n\n", p.CurrentTrace.DerivedTime))
+
+	// Recursive helper to format nodes
+	var writeNodeText func(node *DerivationNode)
+	writeNodeText = func(node *DerivationNode) {
+		indent := strings.Repeat("  ", node.Depth)
+
+		sourceStr := "[EDB]"
+		if node.Source == "idb" {
+			sourceStr = "[IDB]"
+		}
+
+		argsStr := ""
+		if len(node.Args) > 0 {
+			argsStr = "(" + strings.Join(node.Args, ", ") + ")"
+		}
+
+		sb.WriteString(fmt.Sprintf("%s%s %s%s\n", indent, sourceStr, node.Predicate, argsStr))
+
+		if node.Rule != "" {
+			sb.WriteString(fmt.Sprintf("%s  <- %s\n", indent, node.Rule))
+		}
+
+		for _, child := range node.Children {
+			writeNodeText(child)
+		}
+	}
+
+	for _, root := range p.CurrentTrace.RootNodes {
+		writeNodeText(root)
+	}
+
+	clipboard.WriteAll(sb.String())
 }
 
 // SetActivationThreshold sets the threshold to a specific value
@@ -878,6 +922,11 @@ func (s *SplitPaneView) HandleKey(key string) bool {
 	case "a":
 		if s.FocusRight {
 			s.RightPane.ToggleActivation()
+			return true
+		}
+	case "c":
+		if s.FocusRight {
+			s.RightPane.CopyTraceToClipboard()
 			return true
 		}
 	}
