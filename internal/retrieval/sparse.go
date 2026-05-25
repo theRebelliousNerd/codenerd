@@ -117,6 +117,15 @@ var (
 
 // ExtractKeywords extracts keywords from issue text using heuristics.
 // For production use, this could be enhanced with NLP/LLM processing.
+var (
+	filePathPattern     = regexp.MustCompile(`(?:^|\s)([a-zA-Z_][a-zA-Z0-9_\\/]*\.(?:py|go|js|ts|rs|java|rb|cpp|c|h))(?:\s|$|:)`)
+	pythonSymbolPattern = regexp.MustCompile(`\b([A-Z][a-zA-Z0-9_]*(?:Error|Exception|Warning)?)\b`)
+	functionPattern     = regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
+	methodPattern       = regexp.MustCompile(`\.([a-z_][a-z0-9_]*)\s*\(`)
+	classPattern        = regexp.MustCompile(`\bclass\s+([A-Z][a-zA-Z0-9_]*)`)
+	quotedPattern       = regexp.MustCompile(`["'\x60]([a-zA-Z_][a-zA-Z0-9_]*)["'\x60]`)
+)
+
 func ExtractKeywords(issueText string) *IssueKeywords {
 	kw := &IssueKeywords{
 		Weights:          make(map[string]float64),

@@ -202,7 +202,7 @@ func TestParseRipgrepOutput_MalformedColons(t *testing.T) {
 		"a.go:bad:2:content\n" +
 		"a.go:1:bad:content\n" +
 		"missing_colon\n"
-	
+
 	hits := r.parseRipgrepOutput(output, "kw")
 	if len(hits) != 3 {
 		t.Errorf("Expected 3 hits, got %d", len(hits))
@@ -256,7 +256,7 @@ func TestExtractKeywords_ReDoS(t *testing.T) {
 		ExtractKeywords(longStr)
 		done <- true
 	}()
-	
+
 	select {
 	case <-done:
 		// success
@@ -291,4 +291,3 @@ func TestRankFiles_CaseInsensitiveWeights(t *testing.T) {
 		t.Errorf("Case Sensitivity weighting issue")
 	}
 }
-
