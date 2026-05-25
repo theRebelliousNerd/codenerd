@@ -700,6 +700,8 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	return intent, parseErr
 }
 
+var fallbackPathPattern = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
+
 // parseWithFallback uses regex patterns for parsing.
 func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 	intent := Intent{
@@ -716,8 +718,7 @@ func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 	}
 
 	// Extract potential target (file paths, symbols)
-	pathPattern := regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
-	if matches := pathPattern.FindStringSubmatch(input); len(matches) > 1 {
+	if matches := fallbackPathPattern.FindStringSubmatch(input); len(matches) > 1 {
 		intent.Target = matches[1]
 	}
 
@@ -884,7 +885,6 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 // Perception system prompts are now JIT-compiled from:
 //   internal/prompt/atoms/system/perception.yaml
 // The UnderstandingTransducer handles prompt assembly via its PromptAssembler.
-
 
 func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 1)
