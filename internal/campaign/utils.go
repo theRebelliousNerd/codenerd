@@ -2,7 +2,6 @@ package campaign
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -55,9 +54,38 @@ func chunkText(text string, maxLen int) []string {
 // sanitizeCampaignID removes the leading slash and non-alphanum for filesystem safety.
 func sanitizeCampaignID(id string) string {
 	id = strings.TrimPrefix(id, "/")
-	re := regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
-	id = re.ReplaceAllString(id, "_")
-	return id
+
+	// Fast path: check if we need to replace anything
+	needsReplace := false
+	for i := 0; i < len(id); i++ {
+		ch := id[i]
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
+			needsReplace = true
+			break
+		}
+	}
+
+	if !needsReplace {
+		return id
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(id))
+
+	inInvalidRun := false
+	for i := 0; i < len(id); i++ {
+		ch := id[i]
+		valid := (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-'
+		if valid {
+			sb.WriteByte(ch)
+			inInvalidRun = false
+		} else if !inInvalidRun {
+			sb.WriteByte('_')
+			inInvalidRun = true
+		}
+	}
+
+	return sb.String()
 }
 
 func isPathWithinWorkspace(workspace, target string) bool {
