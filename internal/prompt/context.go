@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // CompilationContext holds all dimensions for prompt atom selection.
@@ -443,6 +444,14 @@ func AllContextDimensions() []ContextDimension {
 	}
 }
 
+// bufferPool is a sync.Pool for bytes.Buffer used in CompilationContext.Hash
+// to reduce GC pressure during high-frequency compilation requests.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
+}
+
 // Hash generates a stable hash key for caching based on context fields.
 // Bug #5 fix: Enable prompt caching to prevent recompilation spam.
 func (cc *CompilationContext) Hash() string {
@@ -453,9 +462,11 @@ func (cc *CompilationContext) Hash() string {
 
 	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
 	// string->[]byte allocation when passing to sha256.Sum256.
-	// TODO: PERFORMANCE: Use a sync.Pool for these buffers to reduce GC pressure
-	// during high-frequency compilation requests.
-	var buf bytes.Buffer
+	buf := bufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		bufferPool.Put(buf)
+	}()
 	// Estimate size: ~20 fields * 10-15 chars = 200-300 chars. 256 is usually sufficient.
 	buf.Grow(256)
 
