@@ -2,7 +2,6 @@ package ui
 
 import (
 	"codenerd/internal/prompt"
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,27 +34,25 @@ func TestJITPageFilterByContent(t *testing.T) {
 		IncludedAtoms: []*prompt.PromptAtom{atom1, atom2},
 	}
 
-	// Update content
+	// Update content (initializes unfiltered list)
 	model.UpdateContent(result)
 
-	// Verify FilterValue includes content
-	items := model.list.Items()
-	found := false
-	for _, item := range items {
-		ai, ok := item.(atomItem)
-		if !ok {
-			continue
-		}
-		if ai.atom.ID == "atom1" {
-			filterVal := ai.FilterValue()
-			if strings.Contains(filterVal, "unique_keyword") {
-				found = true
-			}
-		}
+	if len(model.list.Items()) != 2 {
+		t.Errorf("Expected 2 items initially, got %d", len(model.list.Items()))
 	}
 
-	if !found {
-		t.Errorf("Expected FilterValue to contain content 'unique_keyword', but it did not.")
+	// Simulate typing into the filter input
+	model.filterInput.SetValue("unique_keyword")
+	model.applyFilter()
+
+	items := model.list.Items()
+	if len(items) != 1 {
+		t.Fatalf("Expected 1 item after filtering, got %d", len(items))
+	}
+
+	ai, ok := items[0].(atomItem)
+	if !ok || ai.atom.ID != "atom1" {
+		t.Errorf("Expected filtered item to be atom1, got %v", items[0])
 	}
 }
 
