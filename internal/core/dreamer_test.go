@@ -123,7 +123,6 @@ func TestIsDangerousCommand_BypassAttempts(t *testing.T) {
 }
 
 // REMEDIATED: Input Extremes - see TestDreamerGap_PathTraversalBypass in dreamer_gaps_test.go
-// FOUND BUG: criticalPrefix doesn't normalize double-slash paths (internal//core → not matched)
 
 func TestDreamer_ProjectEffects(t *testing.T) {
 	d, _ := setupTestDreamer(t)
@@ -174,7 +173,7 @@ func TestDreamer_ProjectEffects(t *testing.T) {
 //   TestDreamerGap_DeeplyNestedPaths (User Extremes)
 //   TestDreamerGap_PerformanceFullTableScan (Performance)
 //   TestDreamerGap_KernelCloneCost (Performance)
-//   TestDreamerGap_PathTraversalBypass (Security - FOUND BUG: double-slash bypass)
+//   TestDreamerGap_PathTraversalBypass (Security)
 //   TestDreamerGap_SecurityShellFeatures (Security - documented gaps)
 //   TestDreamerGap_UnboundedDreamCache (Resource Exhaustion)
 //   TestDreamerGap_UnknownActionTypes (Fragile Defaults)
