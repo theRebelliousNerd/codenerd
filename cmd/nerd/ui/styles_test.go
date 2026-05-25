@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,80 @@ func TestLogo(t *testing.T) {
 	}
 	if strings.Count(logo, "\n") < 3 {
 		t.Errorf("Logo() expected multiple lines, got %d", strings.Count(logo, "\n"))
+	}
+}
+
+func TestAdjustColor(t *testing.T) {
+	// Original: #101F38 -> H: 217.500000, S: 0.555556, L: 0.141176
+	// With 1.5x saturation and lightness: #092b63
+
+	tests := []struct {
+		name        string
+		color       string
+		lightness   float64
+		saturation  float64
+		expectedHex string
+	}{
+		{
+			name:        "Increase lightness and saturation",
+			color:       "#101F38",
+			lightness:   1.5,
+			saturation:  1.5,
+			expectedHex: "#092b63",
+		},
+		{
+			name:        "Decrease lightness and saturation",
+			color:       "#101F38",
+			lightness:   0.5,
+			saturation:  0.5,
+			expectedHex: "#0d1117",
+		},
+		{
+			name:        "Clamp upper bounds",
+			color:       "#8BC34A",
+			lightness:   5.0,
+			saturation:  5.0,
+			expectedHex: "#ffffff",
+		},
+		{
+			name:        "Clamp lower bounds",
+			color:       "#8BC34A",
+			lightness:   -1.0,
+			saturation:  -1.0,
+			expectedHex: "#000000",
+		},
+		{
+			name:        "Invalid color returns original",
+			color:       "not-a-color",
+			lightness:   1.5,
+			saturation:  1.5,
+			expectedHex: "not-a-color",
+		},
+		{
+			name:        "Empty color returns original",
+			color:       "",
+			lightness:   1.5,
+			saturation:  1.5,
+			expectedHex: "",
+		},
+		{
+			name:        "No change factors",
+			color:       "#101F38",
+			lightness:   1.0,
+			saturation:  1.0,
+			expectedHex: "#101f38",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := AdjustColor(lipgloss.Color(tt.color), tt.lightness, tt.saturation)
+			// Lowercase the result because colorful might use lowercase hex
+			// whereas we might use uppercase in tests. AdjustColor returns the hex directly.
+			// Let's compare strings directly and allow for case differences.
+			if strings.ToLower(string(result)) != strings.ToLower(tt.expectedHex) {
+				t.Errorf("AdjustColor() = %v, want %v", result, tt.expectedHex)
+			}
+		})
 	}
 }
