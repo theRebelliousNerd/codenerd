@@ -276,48 +276,72 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 
 	var cyclePath []string
 
-	var dfs func(node string, depth int) bool
-	dfs = func(node string, depth int) bool {
-		if depth > 1000 {
-			logging.Get(logging.CategoryContext).Warn("DetectCycles: max recursion depth (1000) exceeded at node %s", node)
-			return false // Abort this path safely to prevent stack overflow
-		}
-		color[node] = gray
-
-		for _, neighbor := range graph[node] {
-			if !atomSet[neighbor] {
-				continue // Dependency not in set, skip
-			}
-
-			if color[neighbor] == gray {
-				// Found cycle - reconstruct path
-				cyclePath = []string{neighbor}
-				for cur := node; cur != neighbor; cur = parent[cur] {
-					cyclePath = append([]string{cur}, cyclePath...)
-				}
-				cyclePath = append([]string{neighbor}, cyclePath...)
-				return true
-			}
-
-			if color[neighbor] == white {
-				parent[neighbor] = node
-				if dfs(neighbor, depth+1) {
-					return true
-				}
-			}
-		}
-
-		color[node] = black
-		return false
-	}
-
 	for _, atom := range atoms {
 		if atom == nil || atom.ID == "" {
 			continue
 		}
-		if color[atom.ID] == white {
-			if dfs(atom.ID, 0) {
-				return cyclePath
+
+		if color[atom.ID] != white {
+			continue
+		}
+
+		// Use iterative DFS
+		// Stack stores pairs of (node, neighbor_index)
+		type stackFrame struct {
+			node string
+			idx  int
+		}
+		stack := []stackFrame{{node: atom.ID, idx: 0}}
+		color[atom.ID] = gray
+
+		for len(stack) > 0 {
+			// Depth limit check replaced by iterative heap structure, safe against stack overflow.
+			// Optional: We can still impose a limit on len(stack) if we want to guard against OOM in truly massive/malicious graphs.
+			if len(stack) > 100000 {
+				logging.Get(logging.CategoryContext).Warn("DetectCycles: max iteration depth (100000) exceeded at node %s", stack[len(stack)-1].node)
+				break // Abort this path safely
+			}
+
+			currIdx := len(stack) - 1
+			curr := stack[currIdx]
+
+			neighbors := graph[curr.node]
+
+			// Find next valid neighbor
+			var nextNeighbor string
+			foundNext := false
+
+			for i := curr.idx; i < len(neighbors); i++ {
+				neighbor := neighbors[i]
+				if !atomSet[neighbor] {
+					continue
+				}
+
+				if color[neighbor] == gray {
+					// Found cycle - reconstruct path
+					cyclePath = []string{neighbor}
+					for cur := curr.node; cur != neighbor; cur = parent[cur] {
+						cyclePath = append([]string{cur}, cyclePath...)
+					}
+					cyclePath = append([]string{neighbor}, cyclePath...)
+					return cyclePath
+				}
+
+				if color[neighbor] == white {
+					nextNeighbor = neighbor
+					stack[currIdx].idx = i + 1 // update idx for when we return to this node
+					foundNext = true
+					break
+				}
+			}
+
+			if foundNext {
+				parent[nextNeighbor] = curr.node
+				color[nextNeighbor] = gray
+				stack = append(stack, stackFrame{node: nextNeighbor, idx: 0})
+			} else {
+				color[curr.node] = black
+				stack = stack[:len(stack)-1]
 			}
 		}
 	}
