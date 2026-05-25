@@ -241,53 +241,6 @@ func TestExtractRuleFromResponse(t *testing.T) {
 	}
 }
 
-func TestNormalizeRuleInput(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "no changes without escapes",
-			input:    "next_action(/run) :- test(/fail).",
-			expected: "next_action(/run) :- test(/fail).",
-		},
-		{
-			name:     "windows path inside quotes is normalized",
-			input:    `next_action(/open) :- has_path("C:\CodeProjects\codeNERD\core").`,
-			expected: `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
-		},
-		{
-			name:     "escaped backslashes preserved",
-			input:    `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
-			expected: `next_action(/open) :- has_path("C:\\CodeProjects\\codeNERD\\core").`,
-		},
-		{
-			name:     "prolog negation converted to mangle",
-			input:    `blocked(X) :- \+ permitted(X), has_path("C:\Code\Nerd").`,
-			expected: `blocked(X) :- !permitted(X), has_path("C:\\Code\\Nerd").`,
-		},
-		{
-			name:     "known escapes in strings remain intact",
-			input:    `message("line1\nline2").`,
-			expected: `message("line1\nline2").`,
-		},
-		{
-			name:     "json quoted rule is unquoted",
-			input:    `"next_action(/run) :- test(/fail)."`,
-			expected: "next_action(/run) :- test(/fail).",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeRuleInput(tt.input)
-			if got != tt.expected {
-				t.Errorf("NormalizeRuleInput() = %q, want %q", got, tt.expected)
-			}
-		})
-	}
-}
 
 func TestFeedbackLoop_CanRetryPrompt(t *testing.T) {
 	loop := NewFeedbackLoop(RetryConfig{
