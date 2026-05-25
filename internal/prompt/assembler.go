@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"codenerd/internal/logging"
 )
@@ -516,13 +517,23 @@ func minifyWhitespace(content string) string {
 
 // truncatePrompt truncates content at a sensible boundary.
 func truncatePrompt(content string, maxLen int) string {
-	// TODO: Reliability: Ensure prompt truncation happens at valid UTF-8 rune boundaries instead of raw byte indices to prevent returning invalid utf-8 strings.
 	if len(content) <= maxLen {
 		return content
 	}
 
-	// Try to truncate at a paragraph boundary
 	truncated := content[:maxLen]
+
+	// Fix UTF-8 boundary efficiently
+	for len(truncated) > 0 {
+		r, size := utf8.DecodeLastRuneInString(truncated)
+		if r == utf8.RuneError && size <= 1 {
+			truncated = truncated[:len(truncated)-1]
+		} else {
+			break
+		}
+	}
+
+	// Try to truncate at a paragraph boundary
 	lastPara := strings.LastIndex(truncated, "\n\n")
 	if lastPara > maxLen/2 {
 		truncated = truncated[:lastPara]

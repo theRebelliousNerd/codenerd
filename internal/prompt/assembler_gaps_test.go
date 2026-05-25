@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 // =============================================================================
@@ -119,15 +120,18 @@ func TestTemplate_NilSliceFields(t *testing.T) {
 func TestTruncatePrompt_UTF8Boundary(t *testing.T) {
 	// GAP B1: Supply strings with multi-byte runes and bisect them.
 	content := "Hello " + strings.Repeat("日本語", 100) // Multi-byte runes
-	truncated := truncatePrompt(content, 50)
 
-	// Known issue: truncatePrompt slices at byte boundaries, not rune boundaries.
-	// See TODO in assembler.go:467 for the fix tracker.
-	if strings.ContainsRune(truncated, '\uFFFD') {
-		t.Logf("KNOWN BUG: Truncation produced invalid UTF-8 (replacement characters) — tracked in assembler.go TODO")
+	// Test truncations at various points to hit different parts of multi-byte characters
+	for i := 48; i <= 52; i++ {
+		truncated := truncatePrompt(content, i)
+
+		if !utf8.ValidString(truncated) {
+			t.Errorf("Truncation at length %d produced invalid UTF-8 string: %q", i, truncated)
+		}
+		if strings.ContainsRune(truncated, '\uFFFD') {
+			t.Errorf("Truncation at length %d produced replacement characters (invalid UTF-8): %q", i, truncated)
+		}
 	}
-	// Must not panic
-	t.Logf("Truncated len: %d", len(truncated))
 }
 
 func TestTemplate_MalformedSyntax(t *testing.T) {
