@@ -17,6 +17,13 @@ func TestDetectTheme(t *testing.T) {
 	if light.IsDark {
 		t.Fatalf("expected light theme when CODENERD_DARK_MODE is unset")
 	}
+
+	t.Setenv("NO_COLOR", "1")
+	nocolor := DetectTheme()
+	empty := Theme{}
+	if nocolor != empty {
+		t.Fatalf("expected empty theme when NO_COLOR is set, got %v", nocolor)
+	}
 }
 
 func TestThemeRenderer(t *testing.T) {
