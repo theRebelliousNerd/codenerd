@@ -354,23 +354,23 @@ func TestThunderdomeArena(t *testing.T) {
 // normalizePackage ensures the tool code uses "package tools" to match the harness.
 // This fixes the "Package Schism" bug where mismatched packages cause compilation failures.
 func (t *Thunderdome) normalizePackage(code string) string {
-	// Pattern to match package declaration
-	packagePattern := regexp.MustCompile(`(?m)^package\s+(\w+)`)
-	match := packagePattern.FindStringSubmatch(code)
+	// Pattern to match package declaration, allowing for leading whitespace
+	packagePattern := regexp.MustCompile(`(?m)^([ \t]*)package\s+([a-zA-Z_]\w*)`)
+	loc := packagePattern.FindStringSubmatchIndex(code)
 
-	if len(match) < 2 {
+	if loc == nil {
 		// No package found, prepend one
 		return "package tools\n\n" + code
 	}
 
-	if match[1] == "tools" {
+	if code[loc[4]:loc[5]] == "tools" {
 		// Already correct
 		return code
 	}
 
-	// Replace the package name with "tools"
-	logging.AutopoiesisDebug("Normalizing package from '%s' to 'tools'", match[1])
-	return packagePattern.ReplaceAllString(code, "package tools")
+	// Replace only the first occurrence of the package name
+	logging.AutopoiesisDebug("Normalizing package from '%s' to 'tools'", code[loc[4]:loc[5]])
+	return code[:loc[4]] + "tools" + code[loc[5]:]
 }
 
 // findEntryPoint uses AST parsing to locate the tool's main entry function.
