@@ -1,6 +1,0 @@
-1. Read the TODO at the bottom of `internal/campaign/edge_case_detector_test.go` related to `Max file size boundaries`.
-2. Add a test function `TestEdgeCaseDetector_DetermineAction_MaxLineCount` to `internal/campaign/edge_case_detector_test.go`.
-3. In the test, instantiate `EdgeCaseDetector`.
-4. Create a `FileDecision` with `LineCount = math.MaxInt32`.
-5. Call `determineAction(decision)` on the detector.
-6. Assert that the returned action is `ActionModularize`.

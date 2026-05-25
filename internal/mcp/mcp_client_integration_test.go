@@ -6,6 +6,7 @@ package mcp_test
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -286,40 +287,18 @@ func (s *MCPClientIntegrationSuite) TestListTools_Extremes() {
 	// Directly inject 10000 tools into a server connection
 	s.Require().NoError(s.client.Connect(context.Background(), "test-server"))
 	
-	// Hack: We can't access m.servers easily, but we can access it via GetAllTools? No, we can't mutate.
-	// But we can benchmark the `ListTools` performance via a custom client loop or test server.
-	// Let's create a huge mock server response
-	hugeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID     int    `json:"id"`
-			Method string `json:"method"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-		
-		resp := map[string]interface{}{"jsonrpc": "2.0", "id": req.ID}
-		if req.Method == "tools/list" {
-			tools := make([]map[string]interface{}, 10000)
-			for i := 0; i < 10000; i++ {
-				tools[i] = map[string]interface{}{"name": "t"}
-			}
-			resp["result"] = map[string]interface{}{"tools": tools}
-		} else {
-			resp["result"] = map[string]interface{}{}
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer hugeServer.Close()
-
-	client := mcp.NewMCPClientManager(s.store, nil, map[string]mcp.MCPServerConfig{
-		"huge": {ID: "huge", Enabled: true, Protocol: "http", BaseURL: hugeServer.URL},
-	})
+	conn, ok := s.client.ServersForTest()["test-server"]
+	s.Require().True(ok)
 	
-	s.Require().NoError(client.Connect(context.Background(), "huge"))
-	s.Require().NoError(client.DiscoverTools(context.Background(), "huge"))
+	tools := make([]*mcp.MCPTool, 10000)
+	for i := 0; i < 10000; i++ {
+		tools[i] = &mcp.MCPTool{Name: fmt.Sprintf("t%d", i)}
+	}
+	conn.Tools = tools
 
 	// ListTools should be fast and not hold mutex too long
 	start := time.Now()
-	schemas, err := client.ListTools(context.Background())
+	schemas, err := s.client.ListTools(context.Background())
 	s.Require().NoError(err)
 	s.Len(schemas, 10000)
 	s.True(time.Since(start) < time.Second) // Should be extremely fast
