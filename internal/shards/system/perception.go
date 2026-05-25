@@ -374,29 +374,36 @@ func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, 
 	return store.RecordLearningCandidate(phrase, verb, target, reason)
 }
 
-func buildVerbPatterns() map[string]*regexp.Regexp {
-	patterns := map[string]string{
-		"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
-		"review":    `(?i)(review|check|analyze|audit|inspect)`,
-		"fix":       `(?i)(fix|repair|resolve|correct|patch)`,
-		"refactor":  `(?i)(refactor|clean up|improve|optimize)`,
-		"create":    `(?i)(create|make|generate|build|write|add)`,
-		"delete":    `(?i)(delete|remove|drop|clear)`,
-		"test":      `(?i)(test|verify|validate|check)`,
-		"search":    `(?i)(search|find|look for|locate|grep)`,
-		"debug":     `(?i)(debug|troubleshoot|diagnose|trace)`,
-		"implement": `(?i)(implement|build|develop|code)`,
-		"run":       `(?i)(run|execute|start|launch)`,
-		"research":  `(?i)(research|investigate|explore|learn about)`,
-	}
+var (
+	globalVerbPatterns     map[string]*regexp.Regexp
+	globalVerbPatternsOnce sync.Once
+	pathPattern            = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
+)
 
-	result := make(map[string]*regexp.Regexp)
-	for verb, pattern := range patterns {
-		if re, err := regexp.Compile(pattern); err == nil {
-			result[verb] = re
+func buildVerbPatterns() map[string]*regexp.Regexp {
+	globalVerbPatternsOnce.Do(func() {
+		patterns := map[string]string{
+			"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
+			"review":    `(?i)(review|check|analyze|audit|inspect)`,
+			"fix":       `(?i)(fix|repair|resolve|correct|patch)`,
+			"refactor":  `(?i)(refactor|clean up|improve|optimize)`,
+			"create":    `(?i)(create|make|generate|build|write|add)`,
+			"delete":    `(?i)(delete|remove|drop|clear)`,
+			"test":      `(?i)(test|verify|validate|check)`,
+			"search":    `(?i)(search|find|look for|locate|grep)`,
+			"debug":     `(?i)(debug|troubleshoot|diagnose|trace)`,
+			"implement": `(?i)(implement|build|develop|code)`,
+			"run":       `(?i)(run|execute|start|launch)`,
+			"research":  `(?i)(research|investigate|explore|learn about)`,
 		}
-	}
-	return result
+
+		globalVerbPatterns = make(map[string]*regexp.Regexp, len(patterns))
+		for verb, pattern := range patterns {
+			globalVerbPatterns[verb] = regexp.MustCompile(pattern)
+		}
+	})
+
+	return globalVerbPatterns
 }
 
 // Execute runs the Perception Firewall's continuous parsing loop.
@@ -716,7 +723,6 @@ func (p *PerceptionFirewallShard) parseWithFallback(input string) Intent {
 	}
 
 	// Extract potential target (file paths, symbols)
-	pathPattern := regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
 	if matches := pathPattern.FindStringSubmatch(input); len(matches) > 1 {
 		intent.Target = matches[1]
 	}
@@ -884,7 +890,6 @@ func (p *PerceptionFirewallShard) GetLearnedPatterns() map[string][]string {
 // Perception system prompts are now JIT-compiled from:
 //   internal/prompt/atoms/system/perception.yaml
 // The UnderstandingTransducer handles prompt assembly via its PromptAssembler.
-
 
 func (g guardedPerceptionClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 1)
