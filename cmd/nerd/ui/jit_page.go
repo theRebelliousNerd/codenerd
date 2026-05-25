@@ -18,19 +18,17 @@ import (
 var clipboardWriteAll = clipboard.WriteAll
 
 // JITPageModel defines the state of the JIT Prompt Inspector.
-// TODO: Persist Mandatory/Optional toggle state (filter preference) across sessions.
 type JITPageModel struct {
-	width    int
-	height   int
-	list     list.Model
-	viewport viewport.Model
-
-	// Focus state
+	width         int
+	height        int
+	list          list.Model
+	viewport      viewport.Model
 	focusViewport bool
 
-	// Search state
-	searchInput   textinput.Model
-	searchFocused bool
+	// Search/Filter state
+	filterInput   textinput.Model
+	filterFocused bool
+	filteredAtoms []*prompt.PromptAtom
 
 	// Data
 	lastResult *prompt.CompilationResult
@@ -41,7 +39,6 @@ type JITPageModel struct {
 }
 
 // atomItem adapts prompt.PromptAtom to list.Item
-// TODO: IMPROVEMENT: Add support for custom icons based on atom category.
 type atomItem struct {
 	atom *prompt.PromptAtom
 }
@@ -63,19 +60,20 @@ func NewJITPageModel() JITPageModel {
 	l.Title = "Prompt Atoms"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(false)
+	l.SetFilteringEnabled(false) // Custom filter used instead
 	l.Styles.Title = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 
-	ti := textinput.New()
-	ti.Placeholder = "Filter atoms..."
-	ti.Width = 40
+	fi := textinput.New()
+	fi.Placeholder = "Filter atoms by content..."
+	fi.CharLimit = 100
+	fi.Width = 40
 
 	return JITPageModel{
-		list:     l,
-		viewport: vp,
-		searchInput: ti,
-		searchFocused: false,
-		styles:   DefaultStyles(),
+		list:          l,
+		viewport:      vp,
+		filterInput:   fi,
+		filterFocused: false,
+		styles:        DefaultStyles(),
 	}
 }
 
@@ -96,24 +94,35 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "/":
-			if !m.searchFocused {
-				m.searchFocused = true
-				cmd = m.searchInput.Focus()
-				return m, cmd
+			if !m.filterFocused {
+				m.filterFocused = true
+				m.filterInput.Focus()
+				return m, nil
 			}
-		case "esc", "enter":
-			if m.searchFocused {
-				m.searchFocused = false
-				m.searchInput.Blur()
+		case "esc":
+			if m.filterFocused {
+				m.filterFocused = false
+				m.filterInput.Blur()
+				m.filterInput.SetValue("")
+				m.applyFilter()
+				return m, nil
+			}
+		case "enter":
+			if m.filterFocused {
+				m.filterFocused = false
+				m.filterInput.Blur()
 				return m, nil
 			}
 		case "tab":
-			if !m.searchFocused {
+			if !m.filterFocused {
 				m.focusViewport = !m.focusViewport
 				return m, nil
 			}
-		case "c", "y":
-			if !m.searchFocused && !m.focusViewport {
+		}
+
+		if !m.filterFocused {
+			switch msg.String() {
+			case "c", "y":
 				if m.selected != nil {
 					if err := clipboardWriteAll(m.selected.Content); err != nil {
 						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy atom content"))
@@ -122,9 +131,7 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 					}
 					cmds = append(cmds, cmd)
 				}
-			}
-		case "p":
-			if !m.searchFocused && !m.focusViewport {
+			case "p":
 				if m.lastResult != nil {
 					if err := clipboardWriteAll(m.lastResult.Prompt); err != nil {
 						cmd = m.list.NewStatusMessage(m.styles.Error.Render("Failed to copy full prompt"))
@@ -137,29 +144,26 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 		}
 	}
 
-	// Determine where to route events
-	_, isKey := msg.(tea.KeyMsg)
-
-	if m.searchFocused {
-		m.searchInput, cmd = m.searchInput.Update(msg)
+	if m.filterFocused {
+		m.filterInput, cmd = m.filterInput.Update(msg)
 		cmds = append(cmds, cmd)
-		m.applySearch()
+		m.applyFilter()
+	} else {
+		_, isKey := msg.(tea.KeyMsg)
+		updateList := !isKey || !m.focusViewport
+		updateViewport := !isKey || m.focusViewport
+
+		if updateList {
+			m.list, cmd = m.list.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
+		if updateViewport {
+			m.viewport, cmd = m.viewport.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 	}
 
-	updateList := !isKey || (!m.searchFocused && !m.focusViewport)
-	updateViewport := !isKey || (m.focusViewport && !m.searchFocused)
-
-	if updateList {
-		m.list, cmd = m.list.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if updateViewport {
-		m.viewport, cmd = m.viewport.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	// Check for selection change ALWAYS, not just conditionally
 	if sel := m.list.SelectedItem(); sel != nil {
 		item := sel.(atomItem)
 		if m.selected == nil || m.selected.ID != item.atom.ID {
@@ -167,16 +171,38 @@ func (m JITPageModel) Update(msg tea.Msg) (JITPageModel, tea.Cmd) {
 			m.viewport.SetContent(m.renderAtomContent(item.atom))
 		}
 	} else {
-		// Handle empty list case
 		m.selected = nil
-		m.viewport.SetContent("No atoms match the filter.")
+		m.viewport.SetContent("No atoms match filter.")
 	}
 
 	return m, tea.Batch(cmds...)
 }
 
+func (m *JITPageModel) applyFilter() {
+	if m.lastResult == nil {
+		return
+	}
+
+	filterText := strings.ToLower(m.filterInput.Value())
+	m.filteredAtoms = make([]*prompt.PromptAtom, 0)
+
+	for _, atom := range m.lastResult.IncludedAtoms {
+		if filterText == "" ||
+			strings.Contains(strings.ToLower(atom.ID), filterText) ||
+			strings.Contains(strings.ToLower(string(atom.Category)), filterText) ||
+			strings.Contains(strings.ToLower(atom.Content), filterText) {
+			m.filteredAtoms = append(m.filteredAtoms, atom)
+		}
+	}
+
+	items := make([]list.Item, 0, len(m.filteredAtoms))
+	for _, atom := range m.filteredAtoms {
+		items = append(items, atomItem{atom: atom})
+	}
+	m.list.SetItems(items)
+}
+
 // renderAtomContent formats the atom for display using strings.Builder
-// TODO: IMPROVEMENT: Implement syntax highlighting for atom content based on file type (e.g., Markdown, Mangle, Go).
 func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 	headerStyle := m.styles.Header
 	infoStyle := m.styles.Info
@@ -213,51 +239,42 @@ func (m JITPageModel) renderAtomContent(atom *prompt.PromptAtom) string {
 }
 
 // View renders the page.
-// TODO: IMPROVEMENT: Abstract split view logic into a shared helper or component to ensure consistency across pages.
 func (m JITPageModel) View() string {
 	if m.lastResult == nil {
 		return m.styles.Content.Render("No JIT compilation result available yet.")
 	}
 
-	// Filter bar
 	var sb strings.Builder
+
+	// Render filter bar
 	filterStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(m.styles.Theme.Outline).
-		Padding(0, 1)
+		Padding(0, 1).
+		MarginBottom(1)
 
-	if m.searchFocused {
+	if m.filterFocused {
 		filterStyle = filterStyle.BorderForeground(m.styles.Theme.Primary)
 	}
+	sb.WriteString(filterStyle.Render(m.filterInput.View()))
+	sb.WriteString("\n")
 
-	sb.WriteString(filterStyle.Render(m.searchInput.View()))
-	sb.WriteString("  ")
-	sb.WriteString(m.styles.Muted.Render("[/] Filter  [Tab] Focus"))
-	sb.WriteString("\n\n")
-
-	// Split view: List (35%) | Viewport (65%)
-	// Note: Widths are calculated in SetSize for the inner components.
-	// But we need to render the containers here.
-
-	// Re-calculate pane widths (outer widths)
 	totalWidth := m.width
 	listPaneWidth := int(float64(totalWidth) * 0.35)
 	viewPaneWidth := totalWidth - listPaneWidth
 
-	// Define base styles with border
 	baseStyle := m.styles.Content.Copy().
-		Padding(0, 1). // Reduced padding to accommodate border
+		Padding(0, 1).
 		Border(lipgloss.RoundedBorder())
 
-	// Focus styles
 	focusedBorder := m.styles.Theme.Secondary
 	blurredBorder := m.styles.Theme.OnSurfaceMuted
 
 	var listStyle, viewStyle lipgloss.Style
-	if !m.focusViewport && !m.searchFocused {
+	if !m.focusViewport && !m.filterFocused {
 		listStyle = baseStyle.BorderForeground(focusedBorder)
 		viewStyle = baseStyle.BorderForeground(blurredBorder)
-	} else if m.focusViewport && !m.searchFocused {
+	} else if m.focusViewport && !m.filterFocused {
 		listStyle = baseStyle.BorderForeground(blurredBorder)
 		viewStyle = baseStyle.BorderForeground(focusedBorder)
 	} else {
@@ -265,17 +282,13 @@ func (m JITPageModel) View() string {
 		viewStyle = baseStyle.BorderForeground(blurredBorder)
 	}
 
-	// Render panes
-	// We force the width on the style to ensure layout consistency
 	listView := listStyle.Width(listPaneWidth - 4).Render(m.list.View())
 	contentView := viewStyle.Width(viewPaneWidth - 4).Render(m.viewport.View())
 
 	mainView := lipgloss.JoinHorizontal(lipgloss.Top, listView, contentView)
-
-	help := m.styles.Muted.Render(" • c/y: copy atom • p: copy full prompt • tab: focus switch • /: filter")
-
 	sb.WriteString(mainView)
-	sb.WriteString("\n")
+
+	help := m.styles.Muted.Render("\n • c/y: copy atom • p: copy full prompt • tab: focus switch • /: filter • esc: clear filter")
 	sb.WriteString(help)
 
 	return sb.String()
@@ -286,15 +299,15 @@ func (m *JITPageModel) SetSize(w, h int) {
 	m.width = w
 	m.height = h
 
-	// Chrome: Border(2) + Padding(2) = 4 width per pane
 	chromeW := 4
-	// Vertical: Border(2) + Padding(0) = 2 height
 	chromeH := 2
 
-	// Search bar height: Box(3) + Margin(2) = 5
-	searchBarH := 5
+	filterBarHeight := 4
+	paneH := h - 3 - chromeH - filterBarHeight
 
-	paneH := h - 3 - chromeH - searchBarH // Footer(1+margin) - VerticalChrome - SearchBar
+	if paneH < 5 {
+		paneH = 5
+	}
 
 	listPaneWidth := int(float64(w) * 0.35)
 	viewPaneWidth := w - listPaneWidth
@@ -310,39 +323,16 @@ func (m *JITPageModel) UpdateContent(result *prompt.CompilationResult) {
 	if result == nil {
 		return
 	}
-	m.lastResult = result
-
-	// Sort by priority desc
+	// Sort by priority desc before storing
 	sort.Slice(result.IncludedAtoms, func(i, j int) bool {
 		return result.IncludedAtoms[i].Priority > result.IncludedAtoms[j].Priority
 	})
 
-	m.applySearch()
+	m.lastResult = result
+	m.applyFilter()
 
 	// Set stats in title
 	stats := fmt.Sprintf("JIT Inspector (%d atoms, %d tokens, %.0f%% budget)",
 		len(result.IncludedAtoms), result.TotalTokens, result.BudgetUsed*100)
 	m.list.Title = stats
-}
-
-// applySearch filters the included atoms based on the search term
-func (m *JITPageModel) applySearch() {
-	if m.lastResult == nil {
-		return
-	}
-
-	term := strings.ToLower(m.searchInput.Value())
-	var filteredItems []list.Item
-
-	for _, atom := range m.lastResult.IncludedAtoms {
-		id := strings.ToLower(atom.ID)
-		cat := strings.ToLower(string(atom.Category))
-		content := strings.ToLower(atom.Content)
-
-		if term == "" || strings.Contains(id, term) || strings.Contains(cat, term) || strings.Contains(content, term) {
-			filteredItems = append(filteredItems, atomItem{atom: atom})
-		}
-	}
-
-	m.list.SetItems(filteredItems)
 }
