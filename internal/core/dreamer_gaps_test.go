@@ -291,7 +291,7 @@ func TestDreamerGap_PathTraversalBypass(t *testing.T) {
 	}{
 		{"direct internal/core", "internal/core/kernel.go", true},
 		{"traversal bypass", "something/../internal/core/kernel.go", true},
-		{"double slash (KNOWN GAP: not normalized)", "internal//core/kernel.go", false}, // BUG: criticalPrefix doesn't normalize paths
+		{"double slash", "internal//core/kernel.go", true},
 		{".git direct", ".git/config", true},
 		{"unicode safe", "internalⓐcore/kernel.go", false}, // not a real path
 		{"case variant", "Internal/Core/kernel.go", false}, // case-sensitive
