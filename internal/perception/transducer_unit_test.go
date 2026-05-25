@@ -682,7 +682,7 @@ func TestGetRegexCandidates_WhenEmptyCorpus_ShouldReturnEmpty(t *testing.T) {
 
 	SetVerbCorpus(nil)
 
-	candidates := getRegexCandidates("fix the bug")
+	candidates := getRegexCandidates("fix the bug", GetVerbCorpus())
 	if len(candidates) != 0 {
 		t.Errorf("expected 0 candidates with nil corpus, got %d", len(candidates))
 	}
@@ -710,7 +710,7 @@ func TestGetRegexCandidates_WhenPatternMatches_ShouldReturnEntry(t *testing.T) {
 		},
 	})
 
-	candidates := getRegexCandidates("fix this bug please")
+	candidates := getRegexCandidates("fix this bug please", GetVerbCorpus())
 	found := false
 	for _, c := range candidates {
 		if c.Verb == "/fix" {
@@ -738,7 +738,7 @@ func TestGetRegexCandidates_WhenSynonymMatches_ShouldReturnEntry(t *testing.T) {
 		},
 	})
 
-	candidates := getRegexCandidates("please repair this code")
+	candidates := getRegexCandidates("please repair this code", GetVerbCorpus())
 	found := false
 	for _, c := range candidates {
 		if c.Verb == "/fix" {
@@ -767,7 +767,7 @@ func TestGetRegexCandidates_WhenNoDuplicate_ShouldDedup(t *testing.T) {
 	})
 
 	// Both "fix" synonym and pattern should match, but only one entry returned
-	candidates := getRegexCandidates("fix the issue")
+	candidates := getRegexCandidates("fix the issue", GetVerbCorpus())
 	count := 0
 	for _, c := range candidates {
 		if c.Verb == "/fix" {

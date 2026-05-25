@@ -603,7 +603,7 @@ func TestTorture_PureGo_GetRegexCandidates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			candidates := getRegexCandidates(tt.input)
+			candidates := getRegexCandidates(tt.input, GetVerbCorpus())
 			if tt.wantVerbs == nil {
 				// Empty input may or may not have candidates — just log
 				if len(candidates) > 0 {

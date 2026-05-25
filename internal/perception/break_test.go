@@ -525,7 +525,7 @@ func TestBreak_GetRegexCandidates_AllSynonymsMatch(t *testing.T) {
 	}
 
 	start := time.Now()
-	candidates := getRegexCandidates(input)
+	candidates := getRegexCandidates(input, GetVerbCorpus())
 	elapsed := time.Since(start)
 
 	t.Logf("all-synonyms input: %d candidates from %d bytes, took %v",
@@ -616,7 +616,7 @@ func TestBreak_VerbCorpus_DataRace(t *testing.T) {
 				case <-stop:
 					return
 				default:
-					_ = getRegexCandidates("fix the login bug") // NOW SYNCHRONIZED
+					_ = getRegexCandidates("fix the login bug", GetVerbCorpus()) // NOW SYNCHRONIZED
 				}
 			}
 		}()
@@ -668,7 +668,7 @@ func TestBreak_ClassifyInput_10K_Tokens(t *testing.T) {
 		t.Skipf("cannot create taxonomy engine: %v", err)
 	}
 
-	candidates := getRegexCandidates(input)
+	candidates := getRegexCandidates(input, GetVerbCorpus())
 
 	start := time.Now()
 	verb, conf, classErr := engine.ClassifyInput(input, candidates)
@@ -696,7 +696,7 @@ func TestBreak_ClassifyInput_RepeatedCalls(t *testing.T) {
 	}
 	// Detect race detector by checking if a single call is slow
 	start := time.Now()
-	candidates := getRegexCandidates("fix the bug")
+	candidates := getRegexCandidates("fix the bug", GetVerbCorpus())
 	_, _, _ = engine.ClassifyInput("fix the bug", candidates)
 	if time.Since(start) > 3*time.Second {
 		// Race detector overhead detected, reduce iterations
@@ -704,7 +704,7 @@ func TestBreak_ClassifyInput_RepeatedCalls(t *testing.T) {
 	}
 
 	for i := 0; i < count; i++ {
-		candidates := getRegexCandidates("fix the bug")
+		candidates := getRegexCandidates("fix the bug", GetVerbCorpus())
 		_, _, _ = engine.ClassifyInput("fix the bug", candidates)
 	}
 	t.Logf("%d rapid ClassifyInput calls completed without crash", count)
