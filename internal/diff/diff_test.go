@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+// TODO: TEST_GAP: Null/Empty inputs (Empty File Paths with Non-Empty Content, Null Byte Injection, Zero-Byte Hunks / Empty Slices, Whitespace-Only Modifications)
+// TODO: TEST_GAP: Type Coercion (Binary File Masquerading as Text, Invalid UTF-8 Byte Sequences, Carriage Return (CRLF) vs. Line Feed (LF) Dissonance)
+// TODO: TEST_GAP: User Request Extremes (The 'No Newline' Monolith, Infinite Generation Loops, MaxInt32 Boundary Testing)
+// TODO: TEST_GAP: State Conflicts (Concurrent Cache Mutation Data Race, Hash Collisions in FNV-1a, Cache Invalidation Under Memory Pressure)
+
 func TestComputeDiff_SimpleAddition(t *testing.T) {
 	oldContent := "line1\nline2\nline3"
 	newContent := "line1\nline2\nline2.5\nline3"
