@@ -605,6 +605,8 @@ type LoggingValidation struct {
 	Warnings []string `json:"warnings"`
 }
 
+
+
 // ensureLoggingImport adds the logging import if not present
 func (li *LogInjector) ensureLoggingImport(code string) string {
 	// Check if we have structured logging
@@ -613,12 +615,11 @@ func (li *LogInjector) ensureLoggingImport(code string) string {
 	}
 
 	// Find import block and add logging
-
+	// Find import block and add logging
 	if importPattern.MatchString(code) {
 		code = importPattern.ReplaceAllString(code, "import (\n\t\"log\"\n\t\"time\"\n")
 	} else if strings.Contains(code, "import ") {
 		// Single import, convert to block
-
 		code = singleImportPattern.ReplaceAllString(code, "import (\n\t\"log\"\n\t\"time\"\n\t\"$1\"\n)")
 	}
 
@@ -632,7 +633,6 @@ func (li *LogInjector) injectEntryLogging(code string, toolName string) string {
 	}
 
 	// Find main tool function and add entry log
-
 	return funcPattern.ReplaceAllStringFunc(code, func(match string) string {
 		// Don't add if already has entry log
 		if strings.Contains(code[strings.Index(code, match):], "TOOL_ENTRY") {
@@ -651,7 +651,6 @@ func (li *LogInjector) injectExitLogging(code string, toolName string) string {
 	}
 
 	// Add defer for exit logging after entry log
-
 	return entryPattern.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(code, "TOOL_EXIT") {
 			return match
@@ -668,7 +667,6 @@ func (li *LogInjector) injectErrorLogging(code string, toolName string) string {
 	}
 
 	// Find error returns and wrap with logging
-
 	return errorReturnPattern.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(match, "TOOL_ERROR") {
 			return match
@@ -690,7 +688,6 @@ func (li *LogInjector) injectTimingLogging(code string, toolName string) string 
 	}
 
 	// Add timing after entry log
-
 	return entryPattern.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(code, "_toolStartTime") {
 			return match
@@ -707,7 +704,6 @@ func (li *LogInjector) injectAPICallLogging(code string, toolName string) string
 	}
 
 	// Find http.Get, http.Post, etc. and wrap with logging
-
 	return httpPattern.ReplaceAllStringFunc(code, func(match string) string {
 		idx := strings.Index(code, match)
 		startIdx := idx - 50
@@ -728,7 +724,6 @@ func (li *LogInjector) injectIterationLogging(code string, toolName string) stri
 	}
 
 	// Find for loops and add iteration logging
-
 	counter := 0
 	return forPattern.ReplaceAllStringFunc(code, func(match string) string {
 		counter++
@@ -772,13 +767,11 @@ func hasTimingLogging(code string) bool {
 // REASONING EXTRACTION HELPERS
 // =============================================================================
 
-var thoughtStepPattern = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
-
 func extractThoughtSteps(response string) []ThoughtStep {
 	steps := []ThoughtStep{}
 
 	// Look for numbered steps or bullet points
-	matches := thoughtStepPattern.FindAllStringSubmatch(response, -1)
+	matches := stepPattern.FindAllStringSubmatch(response, -1)
 
 	for i, match := range matches {
 		if len(match) > 1 {
