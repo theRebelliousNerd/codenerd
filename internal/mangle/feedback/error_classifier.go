@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+var (
+	lineColPattern = regexp.MustCompile(`(?:^|\s)(\d+):(\d+)`)
+	linePattern    = regexp.MustCompile(`(?i)line\s+(\d+)`)
+	predPattern    = regexp.MustCompile(`'?([a-z_][a-z0-9_]*)\s*\(`)
+)
+
+
 // ErrorClassifier parses Mangle compiler errors into structured ValidationErrors.
 // It extracts line numbers, error types, and provides actionable suggestions.
 type ErrorClassifier struct {
@@ -182,7 +189,6 @@ func (ec *ErrorClassifier) compilePatterns() {
 // extractLineCol attempts to extract line and column numbers from an error message.
 func extractLineCol(errMsg string) (line, col int) {
 	// Pattern: "123:45" at start or after space
-	lineColPattern := regexp.MustCompile(`(?:^|\s)(\d+):(\d+)`)
 	matches := lineColPattern.FindStringSubmatch(errMsg)
 	if len(matches) >= 3 {
 		line, _ = strconv.Atoi(matches[1])
@@ -191,7 +197,6 @@ func extractLineCol(errMsg string) (line, col int) {
 	}
 
 	// Pattern: "line 123" or "Line 123"
-	linePattern := regexp.MustCompile(`(?i)line\s+(\d+)`)
 	matches = linePattern.FindStringSubmatch(errMsg)
 	if len(matches) >= 2 {
 		line, _ = strconv.Atoi(matches[1])
@@ -204,7 +209,6 @@ func extractLineCol(errMsg string) (line, col int) {
 // ExtractPredicateFromError attempts to extract a predicate name from an error.
 func ExtractPredicateFromError(errMsg string) string {
 	// Pattern: predicate name followed by (
-	predPattern := regexp.MustCompile(`'?([a-z_][a-z0-9_]*)\s*\(`)
 	matches := predPattern.FindStringSubmatch(errMsg)
 	if len(matches) >= 2 {
 		return matches[1]
