@@ -175,7 +175,8 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 	logging.PerceptionDebug("Matching verb for input: %q", truncateForLog(input, 100))
 
 	// 1. Get Candidates via Regex (Fast)
-	candidates := getRegexCandidates(input)
+	corpus := GetVerbCorpus()
+	candidates := getRegexCandidates(input, corpus)
 	logging.PerceptionDebug("Regex candidates found: %d", len(candidates))
 
 	// 2. Semantic classification - inject semantic_match facts into kernel
@@ -214,7 +215,6 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 				}
 			}
 			// If not found in candidates (rare), find in corpus
-			corpus := GetVerbCorpus()
 			for _, entry := range corpus {
 				if entry.Verb == bestVerb {
 					logging.Perception("Matched verb %s from corpus (category: %s, shard: %s, confidence: %.2f)", entry.Verb, entry.Category, entry.ShardType, conf)
@@ -237,7 +237,7 @@ func matchVerbFromCorpus(ctx context.Context, input string) (verb string, catego
 const maxRegexInputLen = 2000
 
 // getRegexCandidates returns all verbs that match the input via regex or synonyms.
-func getRegexCandidates(input string) []VerbEntry {
+func getRegexCandidates(input string, corpus []VerbEntry) []VerbEntry {
 	// Truncate to prevent linear-cost amplification on massive inputs
 	truncated := input
 	if len(truncated) > maxRegexInputLen {
@@ -247,7 +247,6 @@ func getRegexCandidates(input string) []VerbEntry {
 	var candidates []VerbEntry
 	seen := make(map[string]bool)
 
-	corpus := GetVerbCorpus()
 	for _, entry := range corpus {
 		matched := false
 		// Check patterns

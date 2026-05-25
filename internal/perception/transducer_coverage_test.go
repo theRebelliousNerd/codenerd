@@ -207,7 +207,7 @@ func TestGetRegexCandidates_WhenLongInput_ShouldTruncate(t *testing.T) {
 
 	// Create input longer than maxRegexInputLen (2000)
 	longInput := "fix " + strings.Repeat("a", 3000)
-	candidates := getRegexCandidates(longInput)
+	candidates := getRegexCandidates(longInput, GetVerbCorpus())
 
 	// Should still find the match in the first part
 	found := false
@@ -235,7 +235,7 @@ func TestGetRegexCandidates_WhenEmptyInput_ShouldReturnEmpty(t *testing.T) {
 		},
 	})
 
-	candidates := getRegexCandidates("")
+	candidates := getRegexCandidates("", GetVerbCorpus())
 	if len(candidates) != 0 {
 		t.Errorf("expected 0 candidates for empty input, got %d", len(candidates))
 	}
@@ -261,7 +261,7 @@ func TestGetRegexCandidates_WhenMultipleVerbsMatch_ShouldReturnAll(t *testing.T)
 	})
 
 	// Input that matches both
-	candidates := getRegexCandidates("fix and review the code")
+	candidates := getRegexCandidates("fix and review the code", GetVerbCorpus())
 	if len(candidates) != 2 {
 		t.Errorf("expected 2 candidates, got %d", len(candidates))
 	}

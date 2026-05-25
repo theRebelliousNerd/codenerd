@@ -241,7 +241,7 @@ func TestNormalizeLLMFields_WhenNil_ShouldNotPanic(t *testing.T) {
 func TestGetRegexCandidates_LargeInput(t *testing.T) {
 	// Build a large input string that would normally be expensive
 	large := strings.Repeat("review my code please ", 1000) // ~22KB
-	candidates := getRegexCandidates(large)
+	candidates := getRegexCandidates(large, GetVerbCorpus())
 	// Should not panic or hang. The function should work on truncated input.
 	// We don't care about specific results, just that it completes.
 	_ = candidates
@@ -250,7 +250,7 @@ func TestGetRegexCandidates_LargeInput(t *testing.T) {
 func TestGetRegexCandidates_TruncationPreservesMatches(t *testing.T) {
 	// The verb should be at the start, so truncation shouldn't affect matching
 	input := "review " + strings.Repeat("x", 5000)
-	candidates := getRegexCandidates(input)
+	candidates := getRegexCandidates(input, GetVerbCorpus())
 	// "review" is within the first 2000 chars, so it should still match
 	found := false
 	for _, c := range candidates {
