@@ -444,11 +444,11 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	}
 
 	learning.UpdatedAt = time.Now()
-	
+
 	// Marshal data while holding the lock
 	data, err := json.MarshalIndent(ls.learnings, "", "  ")
 	ls.mu.Unlock()
-	
+
 	// Write to disk without holding the lock
 	if err == nil {
 		ls.saveBytes(data)

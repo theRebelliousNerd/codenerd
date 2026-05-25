@@ -63,10 +63,10 @@ func TestNormalizeCapabilityName_AllCases(t *testing.T) {
 
 func TestClamp_AllCases(t *testing.T) {
 	tests := []struct {
-		name       string
-		value      float64
-		min, max   float64
-		want       float64
+		name     string
+		value    float64
+		min, max float64
+		want     float64
 	}{
 		{"within", 0.5, 0.0, 1.0, 0.5},
 		{"at_min", 0.0, 0.0, 1.0, 0.0},
