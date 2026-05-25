@@ -505,6 +505,7 @@ func isDangerousCommand(cmd string) bool {
 
 // criticalPrefix returns a critical prefix if the path falls under it.
 func criticalPrefix(path string) string {
+	cleanPath := filepath.ToSlash(filepath.Clean(path))
 	prefixes := []string{
 		".git",
 		".nerd",
@@ -513,7 +514,7 @@ func criticalPrefix(path string) string {
 		"cmd/nerd",
 	}
 	for _, p := range prefixes {
-		if strings.Contains(path, p) {
+		if strings.Contains(cleanPath, p) {
 			return p
 		}
 	}
