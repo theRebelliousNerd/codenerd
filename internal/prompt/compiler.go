@@ -279,7 +279,9 @@ type JITPromptCompiler struct {
 	lastResult atomic.Pointer[CompilationResult]
 
 	// Concurrency control
-	mu           sync.RWMutex
+	configMu     sync.RWMutex
+	dbMu         sync.RWMutex
+	shardMu      sync.RWMutex
 	compileGroup singleflight.Group
 	wg           sync.WaitGroup
 
@@ -442,8 +444,6 @@ func WithConfigFactory(factory *ConfigFactory) CompilerOption {
 // Compile generates a system prompt for the given context.
 // This is the main entry point for prompt compilation.
 func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext) (*CompilationResult, error) {
-	// TODO: Performance: Replace coarse-grained locking with finer-grained locks or RCU pattern.
-	// Currently c.mu protects disparate fields (lastResult, shardDBs), creating unnecessary contention.
 
 	c.wg.Add(1)
 	defer c.wg.Done()
@@ -836,14 +836,17 @@ func (c *JITPromptCompiler) collectAtomsWithStats(ctx context.Context, cc *Compi
 	// Acquired RLock only to read shared pointers (embeddedCorpus, projectDB, shardDB)
 	// instead of wrapping the entire function. This prevents slow database queries
 	// (loadAtomsFromDB) from blocking other threads from accessing the compiler state.
-	c.mu.RLock()
+	c.dbMu.RLock()
 	embeddedCorpus := c.embeddedCorpus
 	projectDB := c.projectDB
+	c.dbMu.RUnlock()
+
 	var shardDB *sql.DB
 	if cc.ShardID != "" {
+		c.shardMu.RLock()
 		shardDB = c.shardDBs[cc.ShardID]
+		c.shardMu.RUnlock()
 	}
-	c.mu.RUnlock()
 
 	// 1. Embedded corpus (always first)
 	if embeddedCorpus != nil {
@@ -1269,8 +1272,8 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 		return fmt.Errorf("failed to ping database %s: %w", dbPath, pingErr)
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.dbMu.Lock()
+	defer c.dbMu.Unlock()
 
 	switch name {
 	case "corpus", "project":
@@ -1294,17 +1297,17 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 // The DB should be the agent's unified knowledge database (.nerd/shards/{name}_knowledge.db)
 // which contains both knowledge_atoms and prompt_atoms tables.
 func (c *JITPromptCompiler) RegisterShardDB(shardID string, db *sql.DB) {
-	c.mu.Lock()
+	c.shardMu.Lock()
 	c.shardDBs[shardID] = db
-	c.mu.Unlock()
+	c.shardMu.Unlock()
 	c.clearPromptCache(fmt.Sprintf("shard database registered: %s", shardID))
 }
 
 // UnregisterShardDB removes a shard database registration.
 func (c *JITPromptCompiler) UnregisterShardDB(shardID string) {
-	c.mu.Lock()
+	c.shardMu.Lock()
 	delete(c.shardDBs, shardID)
-	c.mu.Unlock()
+	c.shardMu.Unlock()
 	c.clearPromptCache(fmt.Sprintf("shard database unregistered: %s", shardID))
 }
 
@@ -1316,15 +1319,15 @@ func (c *JITPromptCompiler) LoadAtoms(ctx context.Context, db *sql.DB) ([]*Promp
 
 // GetConfig returns the current compiler configuration.
 func (c *JITPromptCompiler) GetConfig() CompilerConfig {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.configMu.RLock()
+	defer c.configMu.RUnlock()
 	return c.config
 }
 
 // SetConfig updates the compiler configuration.
 func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.configMu.Lock()
+	defer c.configMu.Unlock()
 	c.config = config
 	c.selector.SetVectorSearchTimeout(config.VectorSearchTimeout)
 }
@@ -1333,8 +1336,8 @@ func (c *JITPromptCompiler) SetConfig(config CompilerConfig) {
 // This enables the Semantic Knowledge Bridge, allowing JIT to query
 // knowledge atoms with embeddings for context-aware prompt assembly.
 func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.dbMu.Lock()
+	defer c.dbMu.Unlock()
 	c.localDB = db
 }
 
@@ -1343,10 +1346,13 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 // This is the core of the Semantic Knowledge Bridge - connecting stored documentation
 // knowledge to runtime prompt assembly.
 func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
-	c.mu.RLock()
+	c.dbMu.RLock()
 	db := c.localDB
+	c.dbMu.RUnlock()
+
+	c.configMu.RLock()
 	timeout := c.config.KnowledgeSearchTimeout
-	c.mu.RUnlock()
+	c.configMu.RUnlock()
 
 	if timeout <= 0 {
 		timeout = 10 * time.Second
@@ -1448,16 +1454,19 @@ type CompilerStats struct {
 
 // GetStats returns current compiler statistics.
 func (c *JITPromptCompiler) GetStats() CompilerStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.shardMu.RLock()
+	shardCount := len(c.shardDBs)
+	c.shardMu.RUnlock()
 
 	stats := CompilerStats{
-		ShardDBCount: len(c.shardDBs),
+		ShardDBCount: shardCount,
 	}
 
+	c.dbMu.RLock()
 	if c.embeddedCorpus != nil {
 		stats.EmbeddedAtomCount = c.embeddedCorpus.Count()
 	}
+	c.dbMu.RUnlock()
 
 	return stats
 }
@@ -1475,26 +1484,34 @@ func (c *JITPromptCompiler) AssertFacts(facts []string) error {
 // Close releases all resources held by the compiler.
 func (c *JITPromptCompiler) Close() error {
 	c.wg.Wait()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	// Close shard databases
-	for id, db := range c.shardDBs {
-		if err := db.Close(); err != nil {
-			logging.Get(logging.CategoryContext).Warn("Failed to close shard DB %s: %v", id, err)
+	func() {
+		c.shardMu.Lock()
+		defer c.shardMu.Unlock()
+		// Close shard databases
+		for id, db := range c.shardDBs {
+			if err := db.Close(); err != nil {
+				logging.Get(logging.CategoryContext).Warn("Failed to close shard DB %s: %v", id, err)
+			}
 		}
-	}
-	c.shardDBs = make(map[string]*sql.DB)
+		c.shardDBs = make(map[string]*sql.DB)
+	}()
 
-	// Close project database
-	if c.projectDB != nil {
-		if err := c.projectDB.Close(); err != nil {
-			return fmt.Errorf("failed to close project DB: %w", err)
+	var finalErr error
+	func() {
+		c.dbMu.Lock()
+		defer c.dbMu.Unlock()
+		// Close project database
+		if c.projectDB != nil {
+			if err := c.projectDB.Close(); err != nil {
+				finalErr = fmt.Errorf("failed to close project DB: %w", err)
+				return
+			}
+			c.projectDB = nil
 		}
-		c.projectDB = nil
-	}
+	}()
 
-	return nil
+	return finalErr
 }
 
 // specialistCache stores cached specialist strings to avoid re-reading agents.json.
