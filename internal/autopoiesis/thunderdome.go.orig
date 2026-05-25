@@ -456,18 +456,7 @@ func (t *Thunderdome) findEntryPointCall(code string) (string, string, error) {
 				}
 			} else if len(results) == 1 {
 				score += 3
-				if t.isErrorResult(results[0]) {
-					callExpr = strings.Replace(callExpr, "_, toolErr =", "toolErr =", 1)
-				} else {
-					callExpr = strings.Replace(callExpr, "_, toolErr =", "_ =", 1)
-				}
-			} else if len(results) > 2 {
-				blanks := strings.Repeat("_, ", len(results)-1) + "_"
-				callExpr = strings.Replace(callExpr, "_, toolErr =", blanks+" =", 1)
 			}
-		} else {
-			// 0 return values
-			callExpr = strings.Replace(callExpr, "_, toolErr = ", "", 1)
 		}
 
 		// Prefer common tool function names
