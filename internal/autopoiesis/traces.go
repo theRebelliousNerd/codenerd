@@ -732,12 +732,32 @@ func hasTimingLogging(code string) bool {
 // REASONING EXTRACTION HELPERS
 // =============================================================================
 
+var (
+	thoughtStepPattern = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
+
+	assumptionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`),
+	}
+
+	alternativePatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`),
+	}
+
+	decisionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`),
+	}
+)
+
 func extractThoughtSteps(response string) []ThoughtStep {
 	steps := []ThoughtStep{}
 
 	// Look for numbered steps or bullet points
-	stepPattern := regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
-	matches := stepPattern.FindAllStringSubmatch(response, -1)
+	matches := thoughtStepPattern.FindAllStringSubmatch(response, -1)
 
 	for i, match := range matches {
 		if len(match) > 1 {
@@ -755,13 +775,7 @@ func extractAssumptions(response string) []string {
 	assumptions := []string{}
 
 	// Look for assumption indicators
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range assumptionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 1 {
@@ -777,13 +791,7 @@ func extractAlternatives(response string) []Alternative {
 	alternatives := []Alternative{}
 
 	// Look for "instead of", "rather than", "could also"
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range alternativePatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
@@ -802,12 +810,7 @@ func extractDecisions(response string) []Decision {
 	decisions := []Decision{}
 
 	// Look for decision indicators
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range decisionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
