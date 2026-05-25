@@ -444,6 +444,8 @@ func AllContextDimensions() []ContextDimension {
 	}
 }
 
+// hashBufferPool is a sync.Pool for bytes.Buffer used in CompilationContext.Hash
+// to reduce GC pressure during high-frequency compilation requests.
 var hashBufferPool = sync.Pool{
 	New: func() interface{} {
 		buf := new(bytes.Buffer)
@@ -463,8 +465,10 @@ func (cc *CompilationContext) Hash() string {
 	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
 	// string->[]byte allocation when passing to sha256.Sum256.
 	buf := hashBufferPool.Get().(*bytes.Buffer)
-	defer hashBufferPool.Put(buf)
-	buf.Reset()
+	defer func() {
+		buf.Reset()
+		hashBufferPool.Put(buf)
+	}()
 
 	// Helper to write string + separator
 	const sep = "|"
