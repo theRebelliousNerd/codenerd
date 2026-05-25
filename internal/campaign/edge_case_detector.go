@@ -344,6 +344,18 @@ func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDe
 	if err := ctx.Err(); err != nil {
 		return
 	}
+	if d.kernel == nil {
+		// Just estimate from line count if kernel is not available
+		decision.Complexity = 0
+		if decision.LineCount > 0 {
+			safeLineCount := decision.LineCount
+			if safeLineCount > 10000000 {
+				safeLineCount = 10000000
+			}
+			decision.Complexity = float64(safeLineCount) / 50.0
+		}
+		return
+	}
 
 	// Query for complexity-related facts
 	facts, err := d.kernel.Query("cyclomatic_complexity")
@@ -378,8 +390,13 @@ func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDe
 	if hasComplexity {
 		decision.Complexity = maxComplexity
 	} else if decision.LineCount > 0 {
+		// Bounds check to prevent float64 precision issues or extreme values
+		safeLineCount := decision.LineCount
+		if safeLineCount > 10000000 {
+			safeLineCount = 10000000
+		}
 		// Rough heuristic: 1 complexity point per 50 lines
-		decision.Complexity = float64(decision.LineCount) / 50.0
+		decision.Complexity = float64(safeLineCount) / 50.0
 	}
 }
 
@@ -986,7 +1003,11 @@ func (d *EdgeCaseDetector) gatherMetricsWithCache(ctx context.Context, decision 
 			}
 		}
 		// Estimate line count from symbol density
-		decision.LineCount = symbolCount * 25 // Rough estimate
+		if symbolCount > math.MaxInt32/25 {
+			decision.LineCount = math.MaxInt32
+		} else {
+			decision.LineCount = symbolCount * 25 // Rough estimate
+		}
 
 		// Check for test file
 		if !strings.HasSuffix(path, "_test.go") {

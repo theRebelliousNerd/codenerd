@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"context"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -434,5 +435,28 @@ func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
 	}
 	if decision.RecommendedAction == ActionCreate {
 		t.Errorf("Expected an action other than ActionCreate")
+	}
+}
+
+func TestEdgeCaseDetector_MaxFileSize(t *testing.T) {
+	detector := NewEdgeCaseDetector(nil, nil)
+	decision := FileDecision{
+		Path:      "huge_file.go",
+		LineCount: math.MaxInt32,
+		Language:  "go",
+		Exists:    true,
+	}
+
+	action, reason := detector.determineAction(decision)
+	if action != ActionModularize {
+		t.Errorf("Expected ActionModularize for huge file, got %v", action)
+	}
+	if !strings.Contains(reason, "threshold") {
+		t.Errorf("Expected threshold reasoning, got %v", reason)
+	}
+
+	detector.queryComplexity(context.Background(), &decision, "huge_file.go")
+	if decision.Complexity > float64(10000000)/50.0 {
+		t.Errorf("Complexity was not properly bounded, got %v", decision.Complexity)
 	}
 }
