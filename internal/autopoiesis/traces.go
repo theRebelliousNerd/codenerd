@@ -772,12 +772,13 @@ func hasTimingLogging(code string) bool {
 // REASONING EXTRACTION HELPERS
 // =============================================================================
 
+var thoughtStepPattern = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
+
 func extractThoughtSteps(response string) []ThoughtStep {
 	steps := []ThoughtStep{}
 
 	// Look for numbered steps or bullet points
-
-	matches := stepPattern.FindAllStringSubmatch(response, -1)
+	matches := thoughtStepPattern.FindAllStringSubmatch(response, -1)
 
 	for i, match := range matches {
 		if len(match) > 1 {
@@ -795,9 +796,7 @@ func extractAssumptions(response string) []string {
 	assumptions := []string{}
 
 	// Look for assumption indicators
-	patterns := assumptionPatterns
-
-	for _, pattern := range patterns {
+	for _, pattern := range assumptionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 1 {
@@ -813,9 +812,7 @@ func extractAlternatives(response string) []Alternative {
 	alternatives := []Alternative{}
 
 	// Look for "instead of", "rather than", "could also"
-	patterns := alternativePatterns
-
-	for _, pattern := range patterns {
+	for _, pattern := range alternativePatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
@@ -834,9 +831,7 @@ func extractDecisions(response string) []Decision {
 	decisions := []Decision{}
 
 	// Look for decision indicators
-	patterns := decisionPatterns
-
-	for _, pattern := range patterns {
+	for _, pattern := range decisionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
