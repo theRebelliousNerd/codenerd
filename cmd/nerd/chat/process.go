@@ -1047,7 +1047,8 @@ func (m Model) processInput(input string) tea.Cmd {
 				if baseCtx == nil {
 					baseCtx = context.Background()
 				}
-				compressCtx, _ := context.WithTimeout(baseCtx, 2*time.Minute)
+				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
+		defer cancel()
 				go m.compressor.ProcessTurn(compressCtx, turn)
 			}
 

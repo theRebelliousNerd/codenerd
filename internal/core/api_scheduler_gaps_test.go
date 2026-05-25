@@ -487,6 +487,7 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	contentCh, errCh := call.CompleteWithStreaming(ctx, "sys", "usr", false)
 
 	// Read a few chunks then cancel rapidly
