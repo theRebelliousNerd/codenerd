@@ -431,7 +431,7 @@ func worldFactPathArg(arg interface{}) string {
 	if s == globalWorldFactsPath {
 		return ""
 	}
-	if strings.Contains(s, string(filepath.Separator)) {
+	if strings.Contains(s, "/") || strings.Contains(s, "\\") {
 		return s
 	}
 	return ""
