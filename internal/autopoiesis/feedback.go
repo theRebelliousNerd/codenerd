@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -412,8 +413,10 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	}
 
 	if feedback.Quality != nil {
-		learning.AverageQuality = (learning.AverageQuality*float64(learning.TotalExecutions-1) +
-			feedback.Quality.Score) / float64(learning.TotalExecutions)
+		if !math.IsNaN(feedback.Quality.Score) {
+			learning.AverageQuality = (learning.AverageQuality*float64(learning.TotalExecutions-1) +
+				feedback.Quality.Score) / float64(learning.TotalExecutions)
+		}
 
 		// Track known issues
 		newIssues := 0

@@ -258,27 +258,25 @@ func TestE2E_LearningStore_ConcurrentFeedback_MangleFacts(t *testing.T) {
 		nanStore := autopoiesis.NewLearningStore(t.TempDir())
 
 		feedback := &autopoiesis.ExecutionFeedback{
-			ToolName: "nan_tool",
+			ToolName: "bad_score_tool",
 			Success:  true,
 			Duration: 50 * time.Millisecond,
 			Quality: &autopoiesis.QualityAssessment{
 				Score: math.NaN(),
 			},
 		}
-		nanStore.RecordLearning("nan_tool", feedback, nil)
+		nanStore.RecordLearning("bad_score_tool", feedback, nil)
 
 		facts := nanStore.GenerateMangleFacts()
 		for _, f := range facts {
 			if strings.Contains(f, "NaN") || strings.Contains(f, "nan") {
-				// KNOWN ISSUE (QA §3.1): NaN propagates through moving average math
-				// and leaks into Mangle facts. Fix: validate Score before averaging.
-				t.Logf("KNOWN ISSUE (QA §3.1): NaN leaked into Mangle fact: %s", f)
+				t.Errorf("NaN leaked into Mangle fact: %s", f)
 			}
 		}
 
-		learning := nanStore.GetLearning("nan_tool")
+		learning := nanStore.GetLearning("bad_score_tool")
 		if learning != nil && math.IsNaN(learning.AverageQuality) {
-			t.Log("KNOWN ISSUE: NaN propagated to AverageQuality — will corrupt Mangle engine")
+			t.Errorf("NaN propagated to AverageQuality — will corrupt Mangle engine")
 		}
 	})
 
