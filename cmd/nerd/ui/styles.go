@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 // Theme holds the current color scheme
@@ -156,7 +157,6 @@ func DetectTheme() Theme {
 }
 
 // Styles holds all the styled components
-// TODO: Add utility function to adjust color brightness/saturation
 // TODO: Group related styles into sub-structs (e.g. TextStyles, LayoutStyles) for better API organization.
 // TODO: IMPROVEMENT: Add a method to serialize/deserialize theme to JSON for user customization.
 type Styles struct {
@@ -326,4 +326,39 @@ func Logo(s Styles) string {
 // Divider returns a horizontal divider
 func (s Styles) RenderDivider(width int) string {
 	return s.Divider.Render(strings.Repeat("─", width))
+}
+
+// AdjustColor modifies the brightness and saturation of a lipgloss.Color.
+// Note: This utility only supports adjusting hex color strings. ANSI color codes (e.g. "212") will be returned unmodified.
+// Returns the original color if parsing fails.
+// Factors > 1.0 increase the property, < 1.0 decrease it.
+func AdjustColor(c lipgloss.Color, lightnessFactor float64, saturationFactor float64) lipgloss.Color {
+	colorStr := string(c)
+	if colorStr == "" {
+		return c
+	}
+
+	col, err := colorful.Hex(colorStr)
+	if err != nil {
+		return c
+	}
+
+	h, s, l := col.Hsl()
+
+	s = s * saturationFactor
+	if s > 1.0 {
+		s = 1.0
+	} else if s < 0.0 {
+		s = 0.0
+	}
+
+	l = l * lightnessFactor
+	if l > 1.0 {
+		l = 1.0
+	} else if l < 0.0 {
+		l = 0.0
+	}
+
+	newC := colorful.Hsl(h, s, l)
+	return lipgloss.Color(newC.Hex())
 }
