@@ -581,12 +581,12 @@ func (li *LogInjector) ensureLoggingImport(code string) string {
 	}
 
 	// Find import block and add logging
-	importPattern := regexp.MustCompile(`import\s*\(\s*\n`)
+	importPattern := logImportPattern
 	if importPattern.MatchString(code) {
 		code = importPattern.ReplaceAllString(code, "import (\n\t\"log\"\n\t\"time\"\n")
 	} else if strings.Contains(code, "import ") {
 		// Single import, convert to block
-		singleImport := regexp.MustCompile(`import\s+"([^"]+)"`)
+		singleImport := logSingleImportPattern
 		code = singleImport.ReplaceAllString(code, "import (\n\t\"log\"\n\t\"time\"\n\t\"$1\"\n)")
 	}
 
@@ -600,7 +600,7 @@ func (li *LogInjector) injectEntryLogging(code string, toolName string) string {
 	}
 
 	// Find main tool function and add entry log
-	funcPattern := regexp.MustCompile(`(func\s+\w+\s*\([^)]*\)\s*(?:\([^)]*\)\s*)?\{)\n`)
+	funcPattern := logFuncPattern
 	return funcPattern.ReplaceAllStringFunc(code, func(match string) string {
 		// Don't add if already has entry log
 		if strings.Contains(code[strings.Index(code, match):], "TOOL_ENTRY") {
@@ -619,7 +619,7 @@ func (li *LogInjector) injectExitLogging(code string, toolName string) string {
 	}
 
 	// Add defer for exit logging after entry log
-	entryPattern := regexp.MustCompile(`(\[TOOL_ENTRY\][^\n]+\n)`)
+	entryPattern := logEntryPattern
 	return entryPattern.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(code, "TOOL_EXIT") {
 			return match
@@ -636,7 +636,7 @@ func (li *LogInjector) injectErrorLogging(code string, toolName string) string {
 	}
 
 	// Find error returns and wrap with logging
-	errorReturn := regexp.MustCompile(`return\s+([^,\n]+),\s*(fmt\.Errorf|errors\.New|err)\b`)
+	errorReturn := logErrorReturnPattern
 	return errorReturn.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(match, "TOOL_ERROR") {
 			return match
@@ -658,7 +658,7 @@ func (li *LogInjector) injectTimingLogging(code string, toolName string) string 
 	}
 
 	// Add timing after entry log
-	entryPattern := regexp.MustCompile(`(\[TOOL_ENTRY\][^\n]+\n)`)
+	entryPattern := logEntryPattern
 	return entryPattern.ReplaceAllStringFunc(code, func(match string) string {
 		if strings.Contains(code, "_toolStartTime") {
 			return match
@@ -675,7 +675,7 @@ func (li *LogInjector) injectAPICallLogging(code string, toolName string) string
 	}
 
 	// Find http.Get, http.Post, etc. and wrap with logging
-	httpPattern := regexp.MustCompile(`(http\.(Get|Post|Do)\([^)]+\))`)
+	httpPattern := logHttpPattern
 	return httpPattern.ReplaceAllStringFunc(code, func(match string) string {
 		idx := strings.Index(code, match)
 		startIdx := idx - 50
@@ -696,7 +696,7 @@ func (li *LogInjector) injectIterationLogging(code string, toolName string) stri
 	}
 
 	// Find for loops and add iteration logging
-	forPattern := regexp.MustCompile(`(for\s+[^{]+\{)\n`)
+	forPattern := logForPattern
 	counter := 0
 	return forPattern.ReplaceAllStringFunc(code, func(match string) string {
 		counter++
@@ -721,7 +721,7 @@ func hasExitLogging(code string) bool {
 }
 
 func hasErrorLogging(code string) bool {
-	return strings.Contains(code, "TOOL_ERROR") || regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`).MatchString(code)
+	return strings.Contains(code, "TOOL_ERROR") || errLogPattern.MatchString(code)
 }
 
 func hasTimingLogging(code string) bool {
@@ -732,11 +732,41 @@ func hasTimingLogging(code string) bool {
 // REASONING EXTRACTION HELPERS
 // =============================================================================
 
+var (
+	logImportPattern       = regexp.MustCompile(`import\s*\(\s*\n`)
+	logSingleImportPattern = regexp.MustCompile(`import\s+"([^"]+)"`)
+	logFuncPattern         = regexp.MustCompile(`(func\s+\w+\s*\([^)]*\)\s*(?:\([^)]*\)\s*)?\{)\n`)
+	logEntryPattern        = regexp.MustCompile(`(\[TOOL_ENTRY\][^\n]+\n)`)
+	logErrorReturnPattern  = regexp.MustCompile(`return\s+([^,\n]+),\s*(fmt\.Errorf|errors\.New|err)\b`)
+	logHttpPattern         = regexp.MustCompile(`(http\.(Get|Post|Do)\([^)]+\))`)
+	logForPattern          = regexp.MustCompile(`(for\s+[^{]+\{)\n`)
+
+	errLogPattern = regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`)
+
+	stepPattern = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
+
+	assumptionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`),
+	}
+
+	alternativePatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`),
+	}
+
+	decisionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`),
+		regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`),
+	}
+)
+
 func extractThoughtSteps(response string) []ThoughtStep {
 	steps := []ThoughtStep{}
 
 	// Look for numbered steps or bullet points
-	stepPattern := regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
 	matches := stepPattern.FindAllStringSubmatch(response, -1)
 
 	for i, match := range matches {
@@ -755,13 +785,7 @@ func extractAssumptions(response string) []string {
 	assumptions := []string{}
 
 	// Look for assumption indicators
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range assumptionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 1 {
@@ -777,13 +801,7 @@ func extractAlternatives(response string) []Alternative {
 	alternatives := []Alternative{}
 
 	// Look for "instead of", "rather than", "could also"
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range alternativePatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
@@ -802,12 +820,7 @@ func extractDecisions(response string) []Decision {
 	decisions := []Decision{}
 
 	// Look for decision indicators
-	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`),
-		regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`),
-	}
-
-	for _, pattern := range patterns {
+	for _, pattern := range decisionPatterns {
 		matches := pattern.FindAllStringSubmatch(response, -1)
 		for _, match := range matches {
 			if len(match) > 2 {
