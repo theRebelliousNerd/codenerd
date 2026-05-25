@@ -1,7 +1,6 @@
 package prompt
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -446,24 +445,17 @@ func AllContextDimensions() []ContextDimension {
 // Hash generates a stable hash key for caching based on context fields.
 // Bug #5 fix: Enable prompt caching to prevent recompilation spam.
 func (cc *CompilationContext) Hash() string {
-	// TODO: Performance: Write context dimension values directly to the sha256 hash.Hash object instead of allocating and concatenating a potentially massive string in bytes.Buffer first.
 	if cc == nil {
 		return "nil"
 	}
 
-	// Optimization: Use bytes.Buffer instead of strings.Builder to avoid
-	// string->[]byte allocation when passing to sha256.Sum256.
-	// TODO: PERFORMANCE: Use a sync.Pool for these buffers to reduce GC pressure
-	// during high-frequency compilation requests.
-	var buf bytes.Buffer
-	// Estimate size: ~20 fields * 10-15 chars = 200-300 chars. 256 is usually sufficient.
-	buf.Grow(256)
+	h := sha256.New()
 
 	// Helper to write string + separator
-	const sep = "|"
+	sep := []byte("|")
 	write := func(s string) {
-		buf.WriteString(s)
-		buf.WriteString(sep)
+		h.Write([]byte(s))
+		h.Write(sep)
 	}
 
 	write(cc.OperationalMode)
@@ -476,11 +468,11 @@ func (cc *CompilationContext) Hash() string {
 
 	for i, fw := range cc.Frameworks {
 		if i > 0 {
-			buf.WriteString(",")
+			h.Write([]byte(","))
 		}
-		buf.WriteString(fw)
+		h.Write([]byte(fw))
 	}
-	buf.WriteString(sep)
+	h.Write(sep)
 
 	write(cc.IntentVerb)
 	write(cc.IntentTarget)
@@ -490,12 +482,12 @@ func (cc *CompilationContext) Hash() string {
 	write(cc.SemanticQuery)
 
 	var scratch [64]byte
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.TokenBudget), 10))
-	buf.WriteString(sep)
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.FailingTestCount), 10))
-	buf.WriteString(sep)
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.DiagnosticCount), 10))
-	buf.WriteString(sep)
+	h.Write(strconv.AppendInt(scratch[:0], int64(cc.TokenBudget), 10))
+	h.Write(sep)
+	h.Write(strconv.AppendInt(scratch[:0], int64(cc.FailingTestCount), 10))
+	h.Write(sep)
+	h.Write(strconv.AppendInt(scratch[:0], int64(cc.DiagnosticCount), 10))
+	h.Write(sep)
 
 	if cc.IsLargeRefactor {
 		write("true")
@@ -516,8 +508,8 @@ func (cc *CompilationContext) Hash() string {
 	}
 
 	// Hash the content
-	hash := sha256.Sum256(buf.Bytes())
-	return hex.EncodeToString(hash[:])
+	hash := h.Sum(nil)
+	return hex.EncodeToString(hash)
 }
 
 // FactStyle defines the formatting strategy for context facts.

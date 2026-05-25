@@ -586,3 +586,49 @@ func BenchmarkToContextFacts(b *testing.B) {
 		cc.ToContextFacts()
 	}
 }
+
+func TestCompilationContext_Hash(t *testing.T) {
+	t.Run("stable hash", func(t *testing.T) {
+		cc1 := NewCompilationContext().
+			WithOperationalMode("/active").
+			WithCampaign("", "", "/planning").
+			WithShard("/coder", "", "").
+			WithLanguage("/go").
+			WithIntent("/fix", "/db")
+
+		cc1.SemanticQuery = "Fix the connection leak"
+		cc1.TokenBudget = 92000
+		cc1.Frameworks = []string{"/react", "/nextjs"}
+		cc1.FailingTestCount = 5
+		cc1.DiagnosticCount = 2
+		cc1.IsLargeRefactor = true
+
+		cc2 := NewCompilationContext().
+			WithOperationalMode("/active").
+			WithCampaign("", "", "/planning").
+			WithShard("/coder", "", "").
+			WithLanguage("/go").
+			WithIntent("/fix", "/db")
+
+		cc2.SemanticQuery = "Fix the connection leak"
+		cc2.TokenBudget = 92000
+		cc2.Frameworks = []string{"/react", "/nextjs"}
+		cc2.FailingTestCount = 5
+		cc2.DiagnosticCount = 2
+		cc2.IsLargeRefactor = true
+
+		assert.Equal(t, cc1.Hash(), cc2.Hash())
+	})
+
+	t.Run("different hash", func(t *testing.T) {
+		cc1 := NewCompilationContext().WithLanguage("/go")
+		cc2 := NewCompilationContext().WithLanguage("/python")
+
+		assert.NotEqual(t, cc1.Hash(), cc2.Hash())
+	})
+
+	t.Run("nil context", func(t *testing.T) {
+		var cc *CompilationContext
+		assert.Equal(t, "nil", cc.Hash())
+	})
+}
