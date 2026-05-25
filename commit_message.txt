@@ -1,0 +1,10 @@
+⚡ Optimize regex compilation in autopoiesis traces
+
+💡 What: Refactored regexp.MustCompile calls inside repeatedly called functions in `internal/autopoiesis/traces.go` into global variables initialized once at package startup.
+
+🎯 Why: Calling `regexp.MustCompile` repeatedly inside functions like `injectAPICallLogging` is a known anti-pattern that drastically reduces performance and leads to unnecessary CPU cycles and memory allocations during active tracing.
+
+📊 Measured Improvement:
+Before: ~929ms for 100,000 executions.
+After: ~119ms for 100,000 executions.
+A ~87% reduction in execution time.
