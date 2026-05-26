@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+// TODO: TEST_GAP: Null/Undefined/Empty - What happens if a nil tool is registered? Does it panic?
+// TODO: TEST_GAP: Null/Undefined/Empty - What if nil context or nil args are passed to Execute?
+// TODO: TEST_GAP: Type Coercion - What happens when an integer is passed for a string property in args?
+// TODO: TEST_GAP: User Request Extremes - Test priority sorting in GetByCategory with math.MaxInt64 and math.MinInt64.
+// TODO: TEST_GAP: User Request Extremes - What if FilterByIntent is called with an empty string, or an unknown hallucinated intent?
+// TODO: TEST_GAP: State Conflicts - Are there race conditions when concurrently calling Register, Get, and Execute across multiple goroutines?
+
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()
 	if reg == nil {
