@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -394,7 +395,7 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 	_, err := exec.Process(context.Background(), "get huge data")
 
 	if err != nil {
-		t.Logf("Got error on huge data (expected if MaxTurns trips): %v", err)
+		t.Fatalf("Got unexpected fatal error on huge data instead of boundary cap: %v", err)
 	}
 	history := exec.GetHistory()
 	if len(history) == 0 {
@@ -497,3 +498,261 @@ func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, candida
 func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
 func (m *mockTransducer) SetStrategicContext(context string)                  {}
 func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
+
+func TestE2E_ContractViolation_TypeSafetyMangleStringVsAtom(t *testing.T) {
+	exec, kernel, llm := setupTestExecutor(t)
+
+	llm.piggyback = true
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{Text: `{"surface_response": "done", "control_packet": {"mangle_updates": ["action_allowed(\"/malicious_atom\")"]}}`}, nil
+	}
+
+	_, err := exec.Process(context.Background(), "do a bad atom")
+	if err != nil {
+		t.Fatalf("Expected nil error but type mismatch blocked evaluation entirely: %v", err)
+	}
+
+	kernel.mu.RLock()
+	defer kernel.mu.RUnlock()
+	for _, f := range kernel.facts {
+		if f.Predicate == "action_allowed" {
+			if len(f.Args) > 0 {
+				argStr := fmt.Sprintf("%v", f.Args[0])
+				if argStr == "\"/malicious_atom\"" {
+					t.Fatalf("Type safety violated: kernel accepted a Go string as an Atom!")
+				}
+			}
+		}
+	}
+}
+
+func TestE2E_StateCorruption_VirtualStoreFFIRace(t *testing.T) {
+	// 50 goroutines call Execute on VirtualStore for the same kernel simultaneously.
+	// We run this to trigger the race detector (-race).
+	exec, kernel, llm := setupTestExecutor(t)
+
+	var execCount int32
+	tools.Global().Register(&tools.Tool{Name: "race_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		time.Sleep(10 * time.Millisecond) // Ensure overlap
+		atomic.AddInt32(&execCount, 1)
+		return "done", nil
+	}})
+
+	cfg := session.DefaultExecutorConfig()
+	exec.SetConfig(cfg)
+
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{
+			Text: "racing",
+			ToolCalls: []types.ToolCall{
+				{Name: "race_tool"},
+			},
+		}, nil
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, _ = exec.Process(context.Background(), fmt.Sprintf("race %d", idx))
+		}(i)
+	}
+
+	wg.Wait()
+
+	if execCount != 50 {
+		t.Fatalf("Race corruption: Expected 50 executions, got %d", execCount)
+	}
+	// Check kernel is alive
+	kernel.mu.RLock()
+	defer kernel.mu.RUnlock()
+}
+
+func TestE2E_ResourceExhaustion_ConcurrentToolExecutions(t *testing.T) {
+	exec, _, llm := setupTestExecutor(t)
+
+	hugeData := strings.Repeat("B", 10*1024*1024)
+	var completeCount int32
+	tools.Global().Register(&tools.Tool{Name: "heavy_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		time.Sleep(5 * time.Millisecond)
+		atomic.AddInt32(&completeCount, 1)
+		return hugeData, nil
+	}})
+	cfg := session.DefaultExecutorConfig()
+	exec.SetConfig(cfg)
+
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{
+			Text: "Heavy",
+			ToolCalls: []types.ToolCall{
+				{Name: "heavy_tool"},
+			},
+		}, nil
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = exec.Process(context.Background(), "get heavy data")
+		}()
+	}
+	wg.Wait()
+
+	if completeCount != 10 {
+		t.Fatalf("Expected 10 complete heavy tool executions, got %d. OOM limit bypassed or execution dropped.", completeCount)
+	}
+}
+
+func TestE2E_TemporalFailure_GoroutineLeakPrevention(t *testing.T) {
+	exec, _, llm := setupTestExecutor(t)
+
+	started := make(chan struct{})
+	done := make(chan struct{})
+
+	tools.Global().Register(&tools.Tool{Name: "leaky_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			close(done)
+			return "", ctx.Err()
+		case <-time.After(5 * time.Second):
+			return "done", nil
+		}
+	}})
+
+	cfg := session.DefaultExecutorConfig()
+	exec.SetConfig(cfg)
+
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{
+			Text: "Running leaky tool",
+			ToolCalls: []types.ToolCall{
+				{Name: "leaky_tool"},
+			},
+		}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		_, _ = exec.Process(ctx, "run leak test")
+	}()
+
+	<-started // wait for tool to start executing
+	cancel()
+
+	select {
+	case <-done:
+		// Success, the goroutine exited properly
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Goroutine leaked: did not exit after context cancellation")
+	}
+}
+
+func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
+	exec, _, llm := setupTestExecutor(t)
+
+	var secondTurnSuccess bool
+	tools.Global().Register(&tools.Tool{Name: "timing_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		if val, ok := args["sleep"]; ok && val == "yes" {
+			select {
+			case <-time.After(1 * time.Second):
+				return "done", nil
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		secondTurnSuccess = true
+		return "fast success", nil
+	}})
+
+	cfg := session.DefaultExecutorConfig()
+	exec.SetConfig(cfg)
+
+	callCount := 0
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		callCount++
+		if callCount == 1 {
+			return &types.LLMToolResponse{
+				Text: "Timeout call",
+				ToolCalls: []types.ToolCall{
+					{Name: "timing_tool", Input: map[string]interface{}{"sleep": "yes"}},
+				},
+			}, nil
+		}
+		return &types.LLMToolResponse{
+			Text: "Fast call",
+			ToolCalls: []types.ToolCall{
+				{Name: "timing_tool", Input: map[string]interface{}{"sleep": "no"}},
+			},
+		}, nil
+	}
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel1()
+
+	_, err1 := exec.Process(ctx1, "do slow")
+	if err1 == nil {
+		t.Fatalf("Expected timeout error on first turn")
+	}
+
+	res, err2 := exec.Process(context.Background(), "do fast")
+	if err2 != nil {
+		t.Fatalf("Expected success on second turn after previous timeout, got error: %v", err2)
+	}
+
+	if res.Response == "" {
+		t.Fatalf("Expected valid response")
+	}
+
+	if !secondTurnSuccess {
+		t.Fatalf("Expected second turn tool to successfully execute")
+	}
+}
+
+func TestE2E_Smoke_HappyPathPipeline(t *testing.T) {
+	// Verifies the end-to-end integration works without failures.
+	exec, _, llm := setupTestExecutor(t)
+
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{Text: "Success Pipeline"}, nil
+	}
+
+	res, err := exec.Process(context.Background(), "run happy path")
+	if err != nil {
+		t.Fatalf("Expected nil error on happy path, got: %v", err)
+	}
+	if res.Response != "Success Pipeline" {
+		t.Fatalf("Expected 'Success Pipeline', got: %v", res.Response)
+	}
+}
+
+func TestE2E_ContractViolation_ZeroResultQueryHandling(t *testing.T) {
+	exec, kernel, llm := setupTestExecutor(t)
+
+	kernel.queryResults["permitted"] = []types.Fact{} // Empty result set
+
+	tools.Global().Register(&tools.Tool{Name: "restricted_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		return "success", nil
+	}})
+
+	cfg := session.DefaultExecutorConfig()
+	exec.SetConfig(cfg)
+
+	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
+		return &types.LLMToolResponse{
+			Text: "Running restricted",
+			ToolCalls: []types.ToolCall{
+				{Name: "restricted_tool"},
+			},
+		}, nil
+	}
+
+	_, err := exec.Process(context.Background(), "run zero result")
+	if err == nil {
+		t.Fatalf("Expected denial error due to zero results, got nil")
+	}
+}
