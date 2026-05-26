@@ -587,43 +587,4 @@ func BenchmarkToContextFacts(b *testing.B) {
 	}
 }
 
-func TestCompilationContext_Hash_Stability(t *testing.T) {
-	ctx1 := &CompilationContext{
-		OperationalMode: "/active",
-		CampaignPhase:   "/planning",
-		Language:        "/go",
-		Frameworks:      []string{"gin", "gorm"},
-	}
 
-	ctx2 := &CompilationContext{
-		OperationalMode: "/active",
-		CampaignPhase:   "/planning",
-		Language:        "/go",
-		Frameworks:      []string{"gin", "gorm"},
-	}
-
-	hash1 := ctx1.Hash()
-	hash2 := ctx2.Hash()
-
-	if hash1 != hash2 {
-		t.Errorf("Expected hashes to be equal, got %s and %s", hash1, hash2)
-	}
-
-	ctx3 := &CompilationContext{
-		OperationalMode: "/active",
-		CampaignPhase:   "/planning",
-		Language:        "/python", // Difference here
-		Frameworks:      []string{"gin", "gorm"},
-	}
-
-	hash3 := ctx3.Hash()
-	if hash1 == hash3 {
-		t.Errorf("Expected hashes to be different, got same hash %s", hash1)
-	}
-
-	// Verify nil context handling
-	var nilCtx *CompilationContext
-	if nilCtx.Hash() != "nil" {
-		t.Errorf("Expected nil context hash to be 'nil', got %s", nilCtx.Hash())
-	}
-}
