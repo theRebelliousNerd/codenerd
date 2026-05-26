@@ -14,7 +14,6 @@ var (
 	// Pattern: predicate name followed by (
 	predPattern = regexp.MustCompile(`'?([a-z_][a-z0-9_]*)\s*\(`)
 )
-
 // ErrorClassifier parses Mangle compiler errors into structured ValidationErrors.
 // It extracts line numbers, error types, and provides actionable suggestions.
 type ErrorClassifier struct {
