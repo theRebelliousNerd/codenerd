@@ -111,6 +111,9 @@ type VirtualStore struct {
 
 	// Post-action validation registry - verifies actions actually succeeded
 	validators *ValidatorRegistry
+
+	// Transaction Manager - atomic multi-file edits with shadow validation (2PC)
+	transactionMgr *TransactionManager
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -409,6 +412,21 @@ func (v *VirtualStore) SetDreamPlanManager(pm *DreamPlanManager) {
 	if dreamer != nil {
 		dreamer.SetDreamPlanManager(pm)
 	}
+}
+
+// SetTransactionManager sets the atomic multi-file edit manager.
+func (v *VirtualStore) SetTransactionManager(tm *TransactionManager) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.transactionMgr = tm
+	logging.VirtualStore("TransactionManager connected for atomic multi-file edits")
+}
+
+// GetTransactionManager returns the transaction manager for atomic edits.
+func (v *VirtualStore) GetTransactionManager() *TransactionManager {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.transactionMgr
 }
 
 // Get resolves virtual predicates for the Mangle kernel on demand.

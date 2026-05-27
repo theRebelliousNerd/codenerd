@@ -423,6 +423,12 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	dreamPlanMgr := core.NewDreamPlanManager(kernel)
 	virtualStore.SetDreamPlanManager(dreamPlanMgr)
 
+	// TransactionManager enables atomic multi-file edits with shadow validation (2PC)
+	if realKernel, ok := kernel.(*core.RealKernel); ok {
+		transactionMgr := core.NewTransactionManager(realKernel, workspace)
+		virtualStore.SetTransactionManager(transactionMgr)
+	}
+
 	// Hydrate modular tools so tools.Global() works for session.Executor
 	if err := virtualStore.HydrateModularTools(); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
