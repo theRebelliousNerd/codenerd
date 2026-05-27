@@ -776,6 +776,10 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		configFactory,
 		transducer,
 	)
+	// Wire session turn persistence for cross-session continuity
+	if localDB != nil {
+		sessionExecutor.SetSessionPersister(localDB)
+	}
 
 	sessionSpawner := session.NewSpawner(
 		sessionKernel,

@@ -31,14 +31,19 @@ import (
 	"codenerd/internal/types"
 )
 
-// JITCompiler defines the interface for JIT prompt compilation.
+// JITCompiler compiles prompt atoms for the current context.
 type JITCompiler interface {
-	Compile(ctx context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error)
+	Compile(ctx context.Context, compilationCtx *prompt.CompilationContext) (*prompt.CompilationResult, error)
 }
 
-// ConfigFactory defines the interface for configuration generation.
+// ConfigFactory creates AgentConfig from compilation results.
 type ConfigFactory interface {
 	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error)
+}
+
+// SessionPersister stores session turn data for cross-session continuity.
+type SessionPersister interface {
+	StoreSessionTurn(sessionID string, turnNumber int, userInput, intentJSON, response, atomsJSON string) error
 }
 
 // MangleAtom wraps a string as a Mangle name constant (avoids core import).
@@ -71,6 +76,10 @@ type Executor struct {
 	// Context management
 	conversationHistory []perception.ConversationTurn
 	sessionContext      *types.SessionContext
+
+	// Session persistence
+	sessionPersister SessionPersister
+	sessionID        string
 
 	// Configuration
 	config ExecutorConfig
@@ -141,6 +150,21 @@ func (e *Executor) SetOuroborosRegistry(registry *core.ToolRegistry) {
 	defer e.mu.Unlock()
 	e.ouroborosRegistry = registry
 	logging.Session("Ouroboros registry configured with %d tools", len(registry.ListTools()))
+}
+
+// SetSessionPersister sets the store for persisting session turns.
+// When set, each Process() call records the turn for cross-session continuity.
+func (e *Executor) SetSessionPersister(persister SessionPersister) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sessionPersister = persister
+}
+
+// SetSessionID sets the session identifier for turn persistence.
+func (e *Executor) SetSessionID(id string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sessionID = id
 }
 
 // ExecutionResult holds the result of processing user input.
@@ -298,6 +322,9 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		}
 		perception.SharedTaxonomy.QueueForLearning([]perception.ReasoningTrace{trace})
 	}
+
+	// Persist session turn for cross-session continuity
+	e.persistTurn(input, intent, result)
 
 	logging.Session("Execution complete: %d tool calls, %v duration", result.ToolCallsExecuted, result.Duration)
 
@@ -944,4 +971,50 @@ func (e *Executor) GetHistory() []perception.ConversationTurn {
 	history := make([]perception.ConversationTurn, len(e.conversationHistory))
 	copy(history, e.conversationHistory)
 	return history
+}
+
+// persistTurn stores the session turn for cross-session continuity.
+// Best-effort: failures are logged but do not interrupt execution.
+func (e *Executor) persistTurn(input string, intent perception.Intent, result *ExecutionResult) {
+	e.mu.RLock()
+	persister := e.sessionPersister
+	sid := e.sessionID
+	historyLen := len(e.conversationHistory)
+	e.mu.RUnlock()
+
+	if persister == nil {
+		return
+	}
+
+	// Determine session ID
+	sessionID := sid
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	// Serialize intent for storage
+	intentJSON, err := json.Marshal(intent)
+	if err != nil {
+		logging.Get(logging.CategorySession).Debug("Failed to marshal intent for persistence: %v", err)
+		intentJSON = []byte("{}")
+	}
+
+	// Turn number based on conversation history length (each turn = user + assistant = 2 entries)
+	turnNumber := historyLen / 2
+
+	// Store asynchronously to avoid blocking the response
+	go func() {
+		if storeErr := persister.StoreSessionTurn(
+			sessionID,
+			turnNumber,
+			input,
+			string(intentJSON),
+			result.Response,
+			"", // atomsJSON — populated by future piggyback integration
+		); storeErr != nil {
+			logging.Get(logging.CategorySession).Warn("Failed to persist session turn %d: %v", turnNumber, storeErr)
+		} else {
+			logging.SessionDebug("Persisted session turn %d for session %s", turnNumber, sessionID)
+		}
+	}()
 }
