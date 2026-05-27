@@ -89,19 +89,21 @@ func (c *DreamCache) Invalidate() {
 
 // Dreamer simulates the impact of actions before execution.
 type Dreamer struct {
-	mu          sync.RWMutex
-	kernel      *RealKernel
-	cache       *DreamCache
-	router      *DreamRouter      // Routes confirmed learnings to persistence stores
-	planManager *DreamPlanManager // Manages dream plan lifecycle and execution state
+	mu                sync.RWMutex
+	kernel            *RealKernel
+	cache             *DreamCache
+	router            *DreamRouter            // Routes confirmed learnings to persistence stores
+	planManager       *DreamPlanManager       // Manages dream plan lifecycle and execution state
+	learningCollector *DreamLearningCollector // Extracts learnings from dream consultations
 }
 
 // NewDreamer creates a Dreamer backed by the provided kernel.
 func NewDreamer(kernel *RealKernel) *Dreamer {
 	logging.Dream("Creating new Dreamer instance with cache")
 	d := &Dreamer{
-		kernel: kernel,
-		cache:  NewDreamCache(),
+		kernel:            kernel,
+		cache:             NewDreamCache(),
+		learningCollector: NewDreamLearningCollector(),
 	}
 	d.assertCriticalPathFacts()
 	return d
@@ -147,6 +149,16 @@ func (d *Dreamer) GetDreamPlanManager() *DreamPlanManager {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.planManager
+}
+
+// GetLearningCollector returns the Dreamer's learning extractor.
+func (d *Dreamer) GetLearningCollector() *DreamLearningCollector {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.learningCollector
 }
 
 // SetKernel updates the kernel reference (used when the virtual store swaps kernels).
