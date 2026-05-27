@@ -365,38 +365,38 @@ func TestDetermineTier_WhenLowScore_ShouldReturnTier4(t *testing.T) {
 }
 
 // =============================================================================
-// parseRipgrepOutput - edge cases
+// parseRipgrepJSON - edge cases
 // =============================================================================
 
-func TestParseRipgrepOutput_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
+func TestParseRipgrepJSON_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
 	t.Parallel()
 	r := &SparseRetriever{}
-	hits := r.parseRipgrepOutput("", "kw")
+	hits := r.parseRipgrepJSON(nil, "kw")
 	if len(hits) != 0 {
 		t.Errorf("expected 0 hits for empty output, got %d", len(hits))
 	}
 }
 
-func TestParseRipgrepOutput_WhenPartialLine_ShouldSkip(t *testing.T) {
+func TestParseRipgrepJSON_WhenPartialLine_ShouldSkip(t *testing.T) {
 	t.Parallel()
 	r := &SparseRetriever{}
-	output := "file.go:1:2\n" // Missing 4th field
-	hits := r.parseRipgrepOutput(output, "kw")
+	output := []byte("file.go:1:2\n") // Not valid JSON — should be skipped
+	hits := r.parseRipgrepJSON(output, "kw")
 	if len(hits) != 0 {
-		t.Errorf("expected 0 hits for incomplete line, got %d", len(hits))
+		t.Errorf("expected 0 hits for non-JSON line, got %d", len(hits))
 	}
 }
 
-func TestParseRipgrepOutput_WhenContentContainsColons_ShouldHandleGracefully(t *testing.T) {
+func TestParseRipgrepJSON_WhenContentContainsColons_ShouldHandleGracefully(t *testing.T) {
 	t.Parallel()
 	r := &SparseRetriever{}
-	output := "file.go:10:5:map[string]int{\"a\": 1, \"b\": 2}\n"
-	hits := r.parseRipgrepOutput(output, "kw")
+	output := []byte(rgMatchJSON("file.go", 10, 5, 11, `map[string]int{"a": 1, "b": 2}`) + "\n")
+	hits := r.parseRipgrepJSON(output, "kw")
 	if len(hits) != 1 {
 		t.Fatalf("expected 1 hit, got %d", len(hits))
 	}
 	if !strings.Contains(hits[0].Context, "map[string]int") {
-		t.Errorf("context should contain content after colon split: %q", hits[0].Context)
+		t.Errorf("context should contain content with embedded colons: %q", hits[0].Context)
 	}
 }
 

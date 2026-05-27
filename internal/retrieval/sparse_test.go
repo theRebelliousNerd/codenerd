@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -110,15 +111,27 @@ func TestKeywordHitCache_TTLAndEviction(t *testing.T) {
 	})
 }
 
-func TestParseRipgrepOutput_CountsPerFile(t *testing.T) {
-	r := &SparseRetriever{}
-	output := "a.go:1:2:first\n" +
-		"a.go:3:4:second\n" +
-		"b.go:5:6:third\n"
+// rgMatchJSON builds a single ripgrep --json "match" event line matching the
+// format ripgrep emits. Submatches are byte ranges; we use a single submatch
+// at the given 0-based byte offset.
+func rgMatchJSON(path string, lineNumber, byteStart, byteEnd int, line string) string {
+	return fmt.Sprintf(
+		`{"type":"match","data":{"path":{"text":%q},"lines":{"text":%q},"line_number":%d,"submatches":[{"start":%d,"end":%d}]}}`,
+		path, line, lineNumber, byteStart, byteEnd,
+	)
+}
 
-	hits := r.parseRipgrepOutput(output, "kw")
+func TestParseRipgrepJSON_CountsPerFile(t *testing.T) {
+	r := &SparseRetriever{}
+	output := strings.Join([]string{
+		rgMatchJSON("a.go", 1, 1, 4, "first"),
+		rgMatchJSON("a.go", 3, 3, 6, "second"),
+		rgMatchJSON("b.go", 5, 5, 8, "third"),
+	}, "\n") + "\n"
+
+	hits := r.parseRipgrepJSON([]byte(output), "kw")
 	if len(hits) != 3 {
-		t.Fatalf("parseRipgrepOutput len=%d, want 3", len(hits))
+		t.Fatalf("parseRipgrepJSON len=%d, want 3", len(hits))
 	}
 	if hits[0].FilePath != "a.go" || hits[0].Count != 1 {
 		t.Fatalf("hits[0]=%+v, want FilePath=a.go Count=1", hits[0])
@@ -128,6 +141,25 @@ func TestParseRipgrepOutput_CountsPerFile(t *testing.T) {
 	}
 	if hits[2].FilePath != "b.go" || hits[2].Count != 1 {
 		t.Fatalf("hits[2]=%+v, want FilePath=b.go Count=1", hits[2])
+	}
+}
+
+// TestParseRipgrepJSON_WindowsPath asserts that a path with a drive-letter
+// colon (e.g. C:\repo\file.go) is preserved verbatim, since it's a
+// structured JSON field rather than a colon-delimited token. This is the
+// original motivation for switching to --json.
+func TestParseRipgrepJSON_WindowsPath(t *testing.T) {
+	r := &SparseRetriever{}
+	output := rgMatchJSON(`C:\repo\file.go`, 12, 3, 9, "content") + "\n"
+	hits := r.parseRipgrepJSON([]byte(output), "kw")
+	if len(hits) != 1 {
+		t.Fatalf("expected 1 hit, got %d", len(hits))
+	}
+	if hits[0].FilePath != `C:\repo\file.go` {
+		t.Fatalf("FilePath=%q, want C:\\repo\\file.go", hits[0].FilePath)
+	}
+	if hits[0].Line != 12 || hits[0].Column != 4 {
+		t.Fatalf("Line/Column = %d/%d, want 12/4", hits[0].Line, hits[0].Column)
 	}
 }
 
@@ -196,16 +228,20 @@ func TestExtractKeywords_EmptyString(t *testing.T) {
 	}
 }
 
-func TestParseRipgrepOutput_MalformedColons(t *testing.T) {
+func TestParseRipgrepJSON_MalformedLines(t *testing.T) {
 	r := &SparseRetriever{}
-	output := "C:\\repo\\file.go:1:2:content\n" +
-		"a.go:bad:2:content\n" +
-		"a.go:1:bad:content\n" +
-		"missing_colon\n"
+	// One good match, one non-JSON line, one JSON of a different type,
+	// one JSON match with missing path — only the first should produce a hit.
+	output := strings.Join([]string{
+		rgMatchJSON(`C:\repo\file.go`, 1, 2, 5, "content"),
+		"not json at all",
+		`{"type":"begin","data":{"path":{"text":"a.go"}}}`,
+		`{"type":"match","data":{"path":{"text":""},"lines":{"text":"x"},"line_number":1,"submatches":[]}}`,
+	}, "\n") + "\n"
 
-	hits := r.parseRipgrepOutput(output, "kw")
-	if len(hits) != 3 {
-		t.Errorf("Expected 3 hits, got %d", len(hits))
+	hits := r.parseRipgrepJSON([]byte(output), "kw")
+	if len(hits) != 1 {
+		t.Errorf("Expected 1 hit, got %d", len(hits))
 	}
 }
 
@@ -230,10 +266,12 @@ func TestKeywordHitCache_Concurrency(t *testing.T) {
 func TestSparseRetriever_HugeOutput(t *testing.T) {
 	r := &SparseRetriever{}
 	var sb strings.Builder
+	line := rgMatchJSON("a.go", 1, 1, 4, "hit")
 	for i := 0; i < 100000; i++ {
-		sb.WriteString("a.go:1:2:hit\n")
+		sb.WriteString(line)
+		sb.WriteByte('\n')
 	}
-	hits := r.parseRipgrepOutput(sb.String(), "kw")
+	hits := r.parseRipgrepJSON([]byte(sb.String()), "kw")
 	if len(hits) != 100000 {
 		t.Errorf("Expected 100000 hits, got %d", len(hits))
 	}

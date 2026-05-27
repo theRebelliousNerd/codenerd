@@ -120,6 +120,11 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 
 // CompleteWithTools makes an LLM call with tools and cooperative scheduling.
 // Acquires a slot, makes the call, releases the slot.
+//
+// Tool-calling is the most important agent path, so this function mirrors
+// the LLM I/O tracing of Complete/CompleteWithSystem — the request (with a
+// summary of the tools offered), the response text, and the tool calls
+// requested by the model are all logged.
 func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
@@ -129,8 +134,39 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	// Always release the slot when done
 	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
 
+	// LLM I/O tracing: log the request, including a summary of the tools
+	// offered to the model.
+	model := c.GetModel()
+	toolNames := make([]string, 0, len(tools))
+	for _, t := range tools {
+		toolNames = append(toolNames, t.Name)
+	}
+	toolsNote := fmt.Sprintf("[TOOLS, count=%d, names=%v]", len(tools), toolNames)
+	logging.LogLLMRequest(c.ShardID+"-tools", systemPrompt, userPrompt+"\n"+toolsNote, nil, model, 0)
+
 	// Make the actual LLM call with tools
-	return c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	start := time.Now()
+	resp, err := c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	duration := time.Since(start)
+
+	// LLM I/O tracing: log the response or error. For tool responses,
+	// summarize both the text content and any tool calls — the calls are
+	// the load-bearing output on this code path.
+	if err != nil {
+		logging.LogLLMError(c.ShardID+"-tools", err, duration)
+	} else if resp != nil {
+		summary := resp.Text
+		if len(resp.ToolCalls) > 0 {
+			callNames := make([]string, 0, len(resp.ToolCalls))
+			for _, tc := range resp.ToolCalls {
+				callNames = append(callNames, tc.Name)
+			}
+			summary += fmt.Sprintf("\n[TOOL_CALLS, count=%d, names=%v, stop=%s]", len(resp.ToolCalls), callNames, resp.StopReason)
+		}
+		logging.LogLLMResponse(c.ShardID+"-tools", summary, duration, len(summary)/4)
+	}
+
+	return resp, err
 }
 
 type tracingContextSetter interface {

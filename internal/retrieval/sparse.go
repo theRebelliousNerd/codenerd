@@ -6,6 +6,7 @@ package retrieval
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -310,12 +311,12 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
 
-	// Build ripgrep command
+	// Build ripgrep command. Use --json so we don't have to parse a
+	// colon-delimited "file:line:col:text" stream — that format breaks on
+	// Windows because absolute paths contain a drive-letter colon
+	// ("C:\repo\foo.go:12:3:text"), which the naive splitter mis-parses.
 	args := []string{
-		"--line-number",
-		"--column",
-		"--no-heading",
-		"--with-filename",
+		"--json",
 		"--color=never",
 		"-i", // Case insensitive
 		"-w", // Word boundary
@@ -340,38 +341,82 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		return nil, fmt.Errorf("ripgrep failed for %q: %w", keyword, err)
 	}
 
-	return r.parseRipgrepOutput(string(output), keyword), nil
+	return r.parseRipgrepJSON(output, keyword), nil
 }
 
-// parseRipgrepOutput parses ripgrep output into KeywordHits.
-// Format: file:line:column:content
-func (r *SparseRetriever) parseRipgrepOutput(output, keyword string) []KeywordHit {
+// rgJSONEvent is the envelope ripgrep emits with --json. We only need the
+// "match" event type; "begin", "end", and "summary" are ignored.
+type rgJSONEvent struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+type rgJSONText struct {
+	Text  string `json:"text"`
+	Bytes string `json:"bytes"` // ripgrep emits base64 here when text isn't valid UTF-8
+}
+
+type rgJSONSubmatch struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type rgJSONMatchData struct {
+	Path       rgJSONText       `json:"path"`
+	Lines      rgJSONText       `json:"lines"`
+	LineNumber int              `json:"line_number"`
+	Submatches []rgJSONSubmatch `json:"submatches"`
+}
+
+// parseRipgrepJSON parses ripgrep --json output into KeywordHits.
+// Each line of output is a JSON object; we only extract "match" events.
+// This is Windows-safe because the path is a structured field, not a
+// colon-separated token.
+func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []KeywordHit {
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
 
-	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	// ripgrep can emit very long lines (large matched lines). Grow the buffer.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
 	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) < 4 {
+		raw := scanner.Bytes()
+		if len(raw) == 0 {
 			continue
 		}
-
-		filePath := parts[0]
-		lineNum := 0
+		var evt rgJSONEvent
+		if err := json.Unmarshal(raw, &evt); err != nil {
+			continue
+		}
+		if evt.Type != "match" {
+			continue
+		}
+		var data rgJSONMatchData
+		if err := json.Unmarshal(evt.Data, &data); err != nil {
+			continue
+		}
+		filePath := data.Path.Text
+		if filePath == "" {
+			continue
+		}
 		colNum := 0
-		fmt.Sscanf(parts[1], "%d", &lineNum)
-		fmt.Sscanf(parts[2], "%d", &colNum)
-		context := strings.TrimSpace(parts[3])
+		if len(data.Submatches) > 0 {
+			// Convert byte offset to a 1-based column for parity with the
+			// previous text-mode behavior.
+			colNum = data.Submatches[0].Start + 1
+		}
+		contextLine := strings.TrimRight(data.Lines.Text, "\r\n")
+		contextLine = strings.TrimSpace(contextLine)
 
 		hitCounts[filePath]++
 
 		hits = append(hits, KeywordHit{
 			FilePath: filePath,
 			Keyword:  keyword,
-			Line:     lineNum,
+			Line:     data.LineNumber,
 			Column:   colNum,
-			Context:  context,
+			Context:  contextLine,
 			Count:    hitCounts[filePath],
 		})
 	}

@@ -7,6 +7,28 @@ import (
 	"os"
 )
 
+// providerKeyFieldName returns the name of the API key config field/env var
+// associated with a provider, used for clearer error messages when an
+// explicit provider is set but its key is missing.
+func providerKeyFieldName(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "anthropic_api_key (or ANTHROPIC_API_KEY)"
+	case "openai":
+		return "openai_api_key (or OPENAI_API_KEY)"
+	case "gemini":
+		return "gemini_api_key (or GEMINI_API_KEY)"
+	case "xai":
+		return "xai_api_key (or XAI_API_KEY)"
+	case "zai":
+		return "zai_api_key (or ZAI_API_KEY)"
+	case "openrouter":
+		return "openrouter_api_key (or OPENROUTER_API_KEY)"
+	default:
+		return provider + " api key"
+	}
+}
+
 // ProviderConfig holds the resolved provider and API key.
 type ProviderConfig struct {
 	Provider       Provider
@@ -52,6 +74,9 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 	// Use the unified config's provider detection for API mode
 	providerStr, apiKey := userCfg.GetActiveProvider()
 	if apiKey == "" {
+		if userCfg.Provider != "" {
+			return nil, fmt.Errorf("provider %q is configured but its API key is missing; set the %s key or change the provider (config is boss: no silent fallback)", userCfg.Provider, providerKeyFieldName(userCfg.Provider))
+		}
 		return nil, fmt.Errorf("no API key found in config")
 	}
 

@@ -25,9 +25,19 @@ type reembedCompleteMsg struct {
 }
 
 // runReembedAllDBs force re-embeds vectors and prompt atoms across all .db files
-// in .nerd/ and internal/.
+// in .nerd/ and internal/. Re-embedding can take minutes; it must honor the
+// TUI shutdown context so quitting the chat session cancels in-flight work
+// rather than letting it run on detached.
 func (m Model) runReembedAllDBs() tea.Cmd {
 	return func() tea.Msg {
+		// Use the model's shutdown context so a quit during re-embed
+		// cancels the work cleanly. Fall back to Background only if the
+		// model was built without one (defensive — production paths set it).
+		ctx := m.shutdownCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+
 		m.ReportStatus("Re-embedding all databases...")
 
 		// Build embedding engine from current config (so no restart required).
@@ -55,7 +65,7 @@ func (m Model) runReembedAllDBs() tea.Cmd {
 		}
 
 		res, err := store.ReembedAllDBsForce(
-			context.Background(),
+			ctx,
 			searchRoots,
 			engine,
 			func(msg string) { m.ReportStatus(msg) },

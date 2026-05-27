@@ -115,7 +115,8 @@ type APIScheduler struct {
 	currentlyExecuting int32
 
 	// Lifecycle
-	stopCh chan struct{}
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 type waitingEntry struct {
@@ -399,9 +400,12 @@ func (m APISchedulerMetrics) String() string {
 		m.ActiveSlots, m.MaxSlots, m.WaitingForSlot, m.TotalAPICalls, avgWait, m.RegisteredShards)
 }
 
-// Stop shuts down the scheduler.
+// Stop shuts down the scheduler. Safe to call multiple times; subsequent
+// calls are no-ops. Without sync.Once, a double-close of stopCh would panic.
 func (s *APIScheduler) Stop() {
-	close(s.stopCh)
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
 }
 
 // -----------------------------------------------------------------------------

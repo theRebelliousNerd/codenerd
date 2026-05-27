@@ -25,6 +25,22 @@ func NewScanner() *Scanner {
 	return NewScannerWithConfig(DefaultScannerConfig())
 }
 
+// canonicalScanPath returns a workspace-relative, forward-slash path suitable
+// for use as a stable identity in scanner-emitted facts. Storing absolute
+// paths makes the knowledge store machine- and workspace-location dependent,
+// which breaks portability, session restore across machines, and repo moves.
+//
+// If path is not located under root (or relativization fails), the original
+// path is returned with separators normalized to forward slashes, which is
+// still strictly more portable than a backslash-laden absolute path on
+// Windows.
+func canonicalScanPath(root, path string) string {
+	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(path)
+}
+
 // NewScannerWithConfig creates a new filesystem Scanner with custom config.
 func NewScannerWithConfig(cfg ScannerConfig) *Scanner {
 	logging.WorldDebug("Creating new filesystem Scanner")
@@ -245,11 +261,14 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 				skippedDirs++
 				return filepath.SkipDir
 			}
-			// OPTIMIZATION: Send to channel instead of locking mutex
+			// OPTIMIZATION: Send to channel instead of locking mutex.
+			// Store workspace-relative path as canonical identity so facts
+			// are portable across machines and don't bake in the scanner's
+			// absolute location.
 			dirResults <- dirScanResult{
 				fact: core.Fact{
 					Predicate: "directory",
-					Args:      []interface{}{path, name},
+					Args:      []interface{}{canonicalScanPath(root, path), name},
 				},
 			}
 			logging.WorldDebug("Indexed directory: %s", path)
@@ -304,10 +323,13 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			}
 
 			// file_topology(Path, Hash, Language, LastModified, IsTestFile)
+			// Store workspace-relative path as canonical identity. Absolute
+			// scanner paths make the knowledge store machine-dependent and
+			// break session restore / cross-machine context reuse.
 			fact := core.Fact{
 				Predicate: "file_topology",
 				Args: []interface{}{
-					path,
+					canonicalScanPath(root, path),
 					hash,
 					core.MangleAtom("/" + lang),
 					info.ModTime().Unix(),

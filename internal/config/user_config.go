@@ -384,36 +384,32 @@ func (c *UserConfig) Save(path string) error {
 }
 
 // GetActiveProvider returns the provider and API key to use.
-// Priority: explicit provider setting > first available key
+//
+// Config is boss: if c.Provider is explicitly set, ONLY that provider's key is
+// considered. If the matching key is missing, this returns (c.Provider, "")
+// so callers can fail loudly. Silent fallback to a different provider would
+// violate the user's explicit configuration.
+//
+// Priority when c.Provider is unset: first available key in priority order.
 func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
-	// If provider is explicitly set, use that provider's key
+	// If provider is explicitly set, ONLY that provider's key is considered.
+	// No silent fallback to another provider — that would violate config-is-boss.
 	if c.Provider != "" {
 		switch c.Provider {
 		case "anthropic":
-			if c.AnthropicAPIKey != "" {
-				return "anthropic", c.AnthropicAPIKey
-			}
+			return "anthropic", c.AnthropicAPIKey
 		case "openai":
-			if c.OpenAIAPIKey != "" {
-				return "openai", c.OpenAIAPIKey
-			}
-
+			return "openai", c.OpenAIAPIKey
 		case "gemini":
-			if c.GeminiAPIKey != "" {
-				return "gemini", c.GeminiAPIKey
-			}
+			return "gemini", c.GeminiAPIKey
 		case "xai":
-			if c.XAIAPIKey != "" {
-				return "xai", c.XAIAPIKey
-			}
+			return "xai", c.XAIAPIKey
 		case "zai":
-			if c.ZAIAPIKey != "" {
-				return "zai", c.ZAIAPIKey
-			}
+			return "zai", c.ZAIAPIKey
 		case "openrouter":
-			if c.OpenRouterAPIKey != "" {
-				return "openrouter", c.OpenRouterAPIKey
-			}
+			return "openrouter", c.OpenRouterAPIKey
+		default:
+			return c.Provider, ""
 		}
 	}
 

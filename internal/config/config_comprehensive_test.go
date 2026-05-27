@@ -498,16 +498,17 @@ func TestGetActiveProvider_WhenLegacyAPIKey_ShouldDefaultToZAI(t *testing.T) {
 	}
 }
 
-func TestGetActiveProvider_WhenProviderSetButKeyMissing_ShouldFallbackToFirstAvailable(t *testing.T) {
+func TestGetActiveProvider_WhenProviderSetButKeyMissing_ShouldReturnEmptyKey(t *testing.T) {
+	// Config is boss: explicit provider with missing key must NOT silently
+	// fall back to another provider. The caller is responsible for failing
+	// loudly when the key is empty.
 	cfg := &UserConfig{
-		Provider:     "openai",
-		// No OpenAI key, but anthropic key exists
+		Provider:        "openai",
 		AnthropicAPIKey: "ant-key",
 	}
 	prov, key := cfg.GetActiveProvider()
-	// OpenAI key missing, so falls through to anthropic
-	if prov != "anthropic" || key != "ant-key" {
-		t.Errorf("got (%q, %q), want ('anthropic', 'ant-key')", prov, key)
+	if prov != "openai" || key != "" {
+		t.Errorf("got (%q, %q), want ('openai', '') — explicit provider must not silently fall back", prov, key)
 	}
 }
 

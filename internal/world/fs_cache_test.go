@@ -50,15 +50,20 @@ func TestScanWorkspace_BlindSpotFix(t *testing.T) {
 		t.Fatalf("ScanWorkspace failed: %v", err)
 	}
 
-	// Verify visibility
+	// Verify visibility. The scanner emits workspace-relative paths with
+	// forward-slash separators so facts are portable across machines and
+	// session restores — see canonicalScanPath in fs.go. If a future change
+	// reintroduces absolute paths, this normalization will still work.
 	foundFiles := make(map[string]bool)
 	for _, f := range facts {
 		if f.Predicate == "file_topology" {
 			path := f.Args[0].(string)
-			relPath, _ := filepath.Rel(tmpDir, path)
-			// Normalize path separators for Windows
-			relPath = filepath.ToSlash(relPath)
-			foundFiles[relPath] = true
+			if filepath.IsAbs(path) {
+				if rel, err := filepath.Rel(tmpDir, path); err == nil {
+					path = rel
+				}
+			}
+			foundFiles[filepath.ToSlash(path)] = true
 		}
 	}
 
