@@ -165,6 +165,30 @@ func (tm *TransactionManager) AddEdit(ctx context.Context, edit FileEdit) error 
 	edit.Timestamp = time.Now()
 	txn.Edits = append(txn.Edits, edit)
 
+	// Assert pending_mutation to kernel for policy evaluation (commit_gate, shadow_mode)
+	mutationID := fmt.Sprintf("%s_edit_%d", txn.ID, len(txn.Edits)-1)
+	oldContent := ""
+	if snapshot, exists := txn.Snapshots[edit.FilePath]; exists {
+		// Truncate for Mangle (avoid huge string atoms)
+		if len(snapshot) > 200 {
+			oldContent = string(snapshot[:200]) + "..."
+		} else {
+			oldContent = string(snapshot)
+		}
+	}
+	newContent := ""
+	if len(edit.Content) > 200 {
+		newContent = string(edit.Content[:200]) + "..."
+	} else {
+		newContent = string(edit.Content)
+	}
+	if assertErr := tm.kernel.Assert(Fact{
+		Predicate: "pending_mutation",
+		Args:      []interface{}{mutationID, edit.FilePath, oldContent, newContent},
+	}); assertErr != nil {
+		logging.KernelDebug("Failed to assert pending_mutation for %s: %v", edit.FilePath, assertErr)
+	}
+
 	logging.KernelDebug("Added edit to transaction %s: %s (%s)", txn.ID, edit.FilePath, edit.EditType)
 
 	return nil

@@ -258,6 +258,15 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		return result
 	}
 
+	// Assert hypothetical fact for shadow_mode policy rules
+	hypotheticalDesc := fmt.Sprintf("%s:%s", req.Type, req.Target)
+	if assertErr := kernel.Assert(Fact{
+		Predicate: "hypothetical",
+		Args:      []interface{}{hypotheticalDesc},
+	}); assertErr != nil {
+		logging.DreamDebug("Failed to assert hypothetical for %s: %v", actionID, assertErr)
+	}
+
 	// Build projected facts for this action
 	logging.DreamDebug("SimulateAction: projecting effects for action %s", actionID)
 	projected := d.projectEffects(kernel, actionID, req)
