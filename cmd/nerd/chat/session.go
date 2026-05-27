@@ -440,6 +440,10 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		if localDB != nil {
 			logStep("Wiring virtual store...")
 			virtualStore.SetLocalDB(localDB)
+			// Wire knowledge graph query bridge for Mangle query_graph virtual predicate.
+			if gqAdapter := store.NewLocalStoreGraphAdapter(localDB); gqAdapter != nil {
+				virtualStore.SetGraphQuery(gqAdapter)
+			}
 
 			logStep("Initializing taxonomy store...")
 			taxStore := perception.NewTaxonomyStore(localDB)

@@ -376,6 +376,12 @@ func (b *BaseSystemShard) GetKernel() *core.RealKernel {
 
 // Stop signals the shard to stop.
 func (b *BaseSystemShard) Stop() error {
+	// Flush learning patterns to SQLite before shutdown (§8.3 Autopoiesis).
+	// Called before acquiring the write lock because persistLearning() takes its own RLock.
+	if err := b.persistLearning(); err != nil {
+		logging.Get(logging.CategorySystemShards).Warn("[%s] Failed to persist learning on shutdown: %v", b.ID, err)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.State == types.ShardStateRunning {

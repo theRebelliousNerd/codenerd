@@ -97,10 +97,12 @@ type Dreamer struct {
 // NewDreamer creates a Dreamer backed by the provided kernel.
 func NewDreamer(kernel *RealKernel) *Dreamer {
 	logging.Dream("Creating new Dreamer instance with cache")
-	return &Dreamer{
+	d := &Dreamer{
 		kernel: kernel,
 		cache:  NewDreamCache(),
 	}
+	d.assertCriticalPathFacts()
+	return d
 }
 
 // SetKernel updates the kernel reference (used when the virtual store swaps kernels).
@@ -112,6 +114,43 @@ func (d *Dreamer) SetKernel(kernel *RealKernel) {
 	defer d.mu.Unlock()
 	d.kernel = kernel
 	logging.DreamDebug("Dreamer: kernel reference updated")
+	// Re-assert critical path facts into the new kernel
+	d.assertCriticalPathFactsLocked()
+}
+
+// criticalPathPrefixes are the paths the Dreamer treats as catastrophic to delete.
+// These are the source-of-truth for both the Go criticalPrefix() function and
+// the Mangle critical_path_prefix() facts.
+var criticalPathPrefixes = []string{
+	".git",
+	".nerd",
+	"internal/mangle",
+	"internal/core",
+	"cmd/nerd",
+}
+
+// assertCriticalPathFacts populates the Mangle critical_path_prefix(Prefix) schema
+// from the Go hardcoded constants, giving policy rules visibility into critical paths.
+func (d *Dreamer) assertCriticalPathFacts() {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	d.assertCriticalPathFactsLocked()
+}
+
+// assertCriticalPathFactsLocked does the actual assertion without locking.
+// Caller must hold d.mu.
+func (d *Dreamer) assertCriticalPathFactsLocked() {
+	if d.kernel == nil {
+		return
+	}
+	for _, prefix := range criticalPathPrefixes {
+		d.kernel.AssertWithoutEval(Fact{
+			Predicate: "critical_path_prefix",
+			Args:      []interface{}{prefix},
+		})
+	}
+	d.kernel.Evaluate()
+	logging.DreamDebug("Dreamer: asserted %d critical_path_prefix facts", len(criticalPathPrefixes))
 }
 
 func (d *Dreamer) getKernel() *RealKernel {
@@ -583,14 +622,7 @@ func isDangerousCommand(cmd string) bool {
 // criticalPrefix returns a critical prefix if the path falls under it.
 func criticalPrefix(path string) string {
 	normalizedPath := filepath.ToSlash(filepath.Clean(path))
-	prefixes := []string{
-		".git",
-		".nerd",
-		"internal/mangle",
-		"internal/core",
-		"cmd/nerd",
-	}
-	for _, p := range prefixes {
+	for _, p := range criticalPathPrefixes {
 		if strings.Contains(normalizedPath, p) {
 			return p
 		}

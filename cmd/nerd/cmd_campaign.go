@@ -154,6 +154,10 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 		defer localDB.Close()
 		virtualStore.SetLocalDB(localDB)
 		virtualStore.SetKernel(kern)
+		// Wire knowledge graph query bridge for Mangle query_graph virtual predicate.
+		if gqAdapter := store.NewLocalStoreGraphAdapter(localDB); gqAdapter != nil {
+			virtualStore.SetGraphQuery(gqAdapter)
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to open knowledge DB: %v\n", err)
 	}

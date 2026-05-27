@@ -775,7 +775,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 			// Initialize Dream State learning collector and router (§8.3.1)
 			m.dreamCollector = core.NewDreamLearningCollector()
-			m.dreamRouter = core.NewDreamRouter(m.kernel, nil, m.localDB)
+			m.dreamRouter = core.NewDreamRouter(m.kernel, m.learningStore, m.localDB)
 
 			// Wire Dream → Ouroboros tool need bridge (§8.3.1)
 			if c.DreamToolQ != nil {

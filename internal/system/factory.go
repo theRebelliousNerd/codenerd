@@ -397,6 +397,10 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	virtualStore.DisableBootGuard() // BootCortex is always user-initiated (CLI commands)
 	if localDB != nil {
 		virtualStore.SetLocalDB(localDB)
+		// Wire knowledge graph query bridge for Mangle query_graph virtual predicate.
+		if gqAdapter := store.NewLocalStoreGraphAdapter(localDB); gqAdapter != nil {
+			virtualStore.SetGraphQuery(gqAdapter)
+		}
 	}
 	if learningStore != nil {
 		virtualStore.SetLearningStore(learningStore)
