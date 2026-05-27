@@ -180,15 +180,27 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		}
 
 		go func() {
-			for need := range dreamToolCh {
-				ctx, cancel := context.WithTimeout(autoCtx, 5*time.Minute)
-				autoNeed := &autopoiesis.ToolNeed{
-					Name:     need.Name,
-					Purpose:  need.Description,
-					Priority: need.Priority,
+			// Bug #16 fix: bound goroutine lifetime to autoCtx.
+			// dreamToolCh is fed by the DreamRouter (set via SetOuroborosQueue);
+			// we don't own its close. Without a ctx.Done arm this goroutine
+			// would block forever on the receive after autopoiesis cancels.
+			for {
+				select {
+				case <-autoCtx.Done():
+					return
+				case need, ok := <-dreamToolCh:
+					if !ok {
+						return
+					}
+					ctx, cancel := context.WithTimeout(autoCtx, 5*time.Minute)
+					autoNeed := &autopoiesis.ToolNeed{
+						Name:     need.Name,
+						Purpose:  need.Description,
+						Priority: need.Priority,
+					}
+					autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
+					cancel()
 				}
-				autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
-				cancel()
 			}
 		}()
 	}

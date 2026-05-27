@@ -439,8 +439,14 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
-	// Use specialist name as intent for now
-	return s.configFactory.Generate(ctx, nil, "/"+name)
+	// Specialist fallback path: when no on-disk config exists for `name`, we still
+	// need a runtime config so the specialist can boot with default tools/policies
+	// drawn from its intent atom. ConfigFactory.Generate rejects a nil
+	// CompilationResult (it dereferences result.Prompt), so we pass a minimal
+	// non-nil shell instead. The identity prompt is intentionally empty here —
+	// the specialist will be driven by whatever ConfigAtom the factory resolves
+	// for "/<name>".
+	return s.configFactory.Generate(ctx, &prompt.CompilationResult{Prompt: ""}, "/"+name)
 }
 
 // determineAgentType maps intents to subagent types.

@@ -11,10 +11,11 @@ import (
 // ConsolidationWorker manages an asynchronous "sleep cycle" for learning taxonomy patterns
 // from recent interactions without blocking the main execution loop.
 type ConsolidationWorker struct {
-	engine *TaxonomyEngine
-	queue  chan []ReasoningTrace
-	quit   chan struct{}
-	wg     sync.WaitGroup
+	engine   *TaxonomyEngine
+	queue    chan []ReasoningTrace
+	quit     chan struct{}
+	wg       sync.WaitGroup
+	stopOnce sync.Once // Bug #17: guards close(quit) against double-close panic.
 }
 
 // NewConsolidationWorker initializes a ConsolidationWorker with the given TaxonomyEngine.
@@ -48,9 +49,14 @@ func (cw *ConsolidationWorker) Start() {
 }
 
 // Stop signals the worker to finish processing the queue and shut down.
+// Stop is idempotent: subsequent calls are no-ops. This matters because both
+// the chat-session Shutdown path and ad-hoc test cleanup paths can call
+// StopWorker; double-closing the quit channel would panic.
 func (cw *ConsolidationWorker) Stop() {
-	close(cw.quit)
-	cw.wg.Wait()
+	cw.stopOnce.Do(func() {
+		close(cw.quit)
+		cw.wg.Wait()
+	})
 }
 
 // Enqueue submits a history of reasoning traces to be evaluated asynchronously.

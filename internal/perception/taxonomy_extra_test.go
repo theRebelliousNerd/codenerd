@@ -20,7 +20,11 @@ func TestTaxonomyEngine_StopWorker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	// Calling StopWorker on a stopped or unstarted engine shouldn't panic
+	// Calling StopWorker on a stopped or unstarted engine shouldn't panic.
+	// Second + third invocations exercise the sync.Once idempotency guard
+	// added for Bug #17 — without it close(quit) would panic on the 2nd call.
+	e.StopWorker()
+	e.StopWorker()
 	e.StopWorker()
 }
 
