@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 
 	"sync"
+	"time"
 
 	"github.com/google/mangle/ast"
 	"github.com/google/mangle/parse"
@@ -171,6 +172,59 @@ func normalizeShardTypeName(typeName string) string {
 	typeName = strings.TrimSpace(typeName)
 	typeName = strings.TrimLeft(typeName, "/")
 	return typeName
+}
+
+// StartMaintenanceSchedule launches a background goroutine that periodically
+// runs cold storage archival and cleanup. Call this once after boot.
+// Returns a cancel function to stop the maintenance loop.
+func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFunc {
+	if c.LocalDB == nil {
+		logging.Get(logging.CategorySession).Warn("Maintenance schedule skipped: no LocalDB")
+		return func() {}
+	}
+
+	mCtx, cancel := context.WithCancel(ctx)
+	go func() {
+		// Run once immediately on startup
+		c.runMaintenance()
+
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-mCtx.Done():
+				logging.Get(logging.CategorySession).Info("Maintenance schedule stopped")
+				return
+			case <-ticker.C:
+				c.runMaintenance()
+			}
+		}
+	}()
+
+	logging.Get(logging.CategorySession).Info("Maintenance schedule started (every 30 minutes)")
+	return cancel
+}
+
+// runMaintenance performs a single maintenance cycle.
+func (c *Cortex) runMaintenance() {
+	stats, err := c.LocalDB.MaintenanceCleanup(store.MaintenanceConfig{
+		ArchiveOlderThanDays:       90,
+		MaxAccessCount:             5,
+		PurgeArchivedOlderThanDays: 365,
+		CleanActivationLogDays:     30,
+		VacuumDatabase:             false, // Only vacuum on explicit request
+	})
+	if err != nil {
+		logging.Get(logging.CategoryStore).Warn("Maintenance cycle failed: %v", err)
+		return
+	}
+	if stats.FactsArchived > 0 || stats.FactsPurged > 0 || stats.ActivationLogsDeleted > 0 {
+		logging.Get(logging.CategoryStore).Info(
+			"Maintenance complete: archived=%d purged=%d logs_cleaned=%d",
+			stats.FactsArchived, stats.FactsPurged, stats.ActivationLogsDeleted,
+		)
+	}
 }
 
 // BootCortex initializes the entire system stack for a given workspace.
