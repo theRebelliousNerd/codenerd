@@ -63,8 +63,19 @@ func isValidMangleNameConstant(v string) bool {
 	// Mangle atoms are typically short like /true, /markdown, /coder
 	// while file paths look like /mnt/c/path/to/file.go
 
-	// More than 1 slash indicates a file path (multiple segments)
-	if strings.Count(v, "/") > 1 {
+	// Just "/" with nothing after is invalid
+	if v == "/" {
+		return false
+	}
+
+	// Double slash is never valid in Mangle names
+	if strings.Contains(v, "//") {
+		return false
+	}
+
+	// Mangle supports hierarchical names like /a/b but deep paths
+	// like /a/b/c/d are likely file paths, not atoms.
+	if strings.Count(v, "/") > 2 {
 		return false
 	}
 
