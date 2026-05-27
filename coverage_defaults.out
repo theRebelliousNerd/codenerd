@@ -1,0 +1,19 @@
+mode: set
+codenerd/internal/core/defaults/intent_corpus.go:29.35,31.16 2 1
+codenerd/internal/core/defaults/intent_corpus.go:31.16,33.3 1 0
+codenerd/internal/core/defaults/intent_corpus.go:34.2,34.28 1 1
+codenerd/internal/core/defaults/intent_corpus.go:34.28,35.37 1 1
+codenerd/internal/core/defaults/intent_corpus.go:35.37,37.4 1 1
+codenerd/internal/core/defaults/intent_corpus.go:39.2,39.14 1 0
+codenerd/internal/core/defaults/predicate_corpus.go:31.38,33.16 2 1
+codenerd/internal/core/defaults/predicate_corpus.go:33.16,35.3 1 0
+codenerd/internal/core/defaults/predicate_corpus.go:36.2,36.28 1 1
+codenerd/internal/core/defaults/predicate_corpus.go:36.28,37.40 1 1
+codenerd/internal/core/defaults/predicate_corpus.go:37.40,39.4 1 1
+codenerd/internal/core/defaults/predicate_corpus.go:41.2,41.14 1 0
+codenerd/internal/core/defaults/prompt_corpus.go:28.35,30.16 2 1
+codenerd/internal/core/defaults/prompt_corpus.go:30.16,32.3 1 0
+codenerd/internal/core/defaults/prompt_corpus.go:33.2,33.28 1 1
+codenerd/internal/core/defaults/prompt_corpus.go:33.28,34.37 1 1
+codenerd/internal/core/defaults/prompt_corpus.go:34.37,36.4 1 1
+codenerd/internal/core/defaults/prompt_corpus.go:38.2,38.14 1 0

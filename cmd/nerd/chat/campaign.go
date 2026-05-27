@@ -8,6 +8,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/usage"
+	"codenerd/internal/world"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -96,10 +97,15 @@ func (m Model) startCampaign(goal string) tea.Cmd {
 		progressChan := make(chan campaign.Progress, 100)
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
 		consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
+		// Wire holographic provider for rich codebase context during intelligence gathering
+		var holographic *world.HolographicProvider
+		if m.kernel != nil {
+			holographic = world.NewHolographicProvider(m.kernel, m.workspace)
+		}
 		intelligenceGatherer := campaign.NewIntelligenceGatherer(
 			m.kernel,
 			m.scanner,
-			nil,
+			holographic,
 			m.learningStore,
 			m.localDB,
 			nil,

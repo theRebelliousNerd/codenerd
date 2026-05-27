@@ -359,10 +359,11 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	fmt.Println("   ✓ World scanner initialized")
 
 	// Create IntelligenceGatherer - orchestrates pre-planning intelligence from 12 systems
+	holographic := world.NewHolographicProvider(kern, cwd)
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
 		kern,          // kernel
 		worldScanner,  // worldScanner - codebase analysis
-		nil,           // holographic - not yet wired in CLI mode
+		holographic,   // holographic - rich codebase context
 		learningStore, // learningStore - historical patterns
 		localDB,       // localStore - knowledge graph + cold storage
 		nil,           // toolGenerator - not yet wired in CLI mode
@@ -719,10 +720,11 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// Initialize campaign intelligence components for deterministic gating during resume.
 	worldScanner := world.NewScanner()
+	holographic := world.NewHolographicProvider(kern, cwd)
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
 		kern,
 		worldScanner,
-		nil,
+		holographic,
 		nil,
 		nil,
 		nil,

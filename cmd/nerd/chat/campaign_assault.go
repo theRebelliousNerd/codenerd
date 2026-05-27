@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/usage"
+	"codenerd/internal/world"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -71,10 +72,15 @@ func (m Model) startAssaultCampaign(args []string) tea.Cmd {
 		progressChan := make(chan campaign.Progress, 100)
 		eventChan := make(chan campaign.OrchestratorEvent, 200)
 		consultationProvider := newCampaignConsultationProvider(m.consultationMgr)
+		// Wire holographic provider for rich codebase context during intelligence gathering
+		var holographic *world.HolographicProvider
+		if m.kernel != nil {
+			holographic = world.NewHolographicProvider(m.kernel, m.workspace)
+		}
 		intelligenceGatherer := campaign.NewIntelligenceGatherer(
 			m.kernel,
 			m.scanner,
-			nil,
+			holographic,
 			m.learningStore,
 			m.localDB,
 			nil,

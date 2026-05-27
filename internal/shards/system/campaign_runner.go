@@ -207,10 +207,11 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 	consultationMgr := newCampaignRunnerConsultationManager(
 		&campaignRunnerShardManagerConsultationSpawner{shardMgr: shardMgr},
 	)
+	holographic := world.NewHolographicProvider(s.Kernel, workspace)
 	intelligenceGatherer := campaign.NewIntelligenceGatherer(
 		s.Kernel,
 		worldScanner,
-		nil,
+		holographic,
 		nil,
 		nil,
 		nil,

@@ -443,9 +443,10 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	bridge := core.NewAutopoiesisBridge(kernel)
 	poiesis.SetKernel(bridge)
 
-	// Wire Ouroboros as ToolGenerator for coder shard self-tool routing
+	// Wire Ouroboros as ToolGenerator AND ToolExecutor for coder shard self-tool routing
 	if ouroborosLoop := poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
 		virtualStore.SetToolGenerator(ouroborosLoop)
+		virtualStore.SetToolExecutor(ouroborosLoop)
 	}
 	// 4. Browser Physics
 	browserCfg := browser.DefaultConfig()
