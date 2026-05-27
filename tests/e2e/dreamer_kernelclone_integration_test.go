@@ -21,17 +21,8 @@ func setupDreamerTestKernel(t *testing.T, policy string) *core.RealKernel {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
 
-	// Add test schemas
-	schema := `
-	Decl projected_action(Id.Type<String>, Action.Type<Atom>, Target.Type<String>).
-	Decl projected_fact(Id.Type<String>, FactType.Type<Atom>, Target.Type<String>).
-	Decl code_defines(File.Type<String>, Symbol.Type<String>).
-	Decl panic_state(Id.Type<String>, Reason.Type<String>).
-	`
-kernel.LoadSchemas(schema)
-
 	if policy != "" {
-kernel.LoadPolicy(policy)
+		kernel.LoadPolicy(policy)
 	}
 
 	return kernel
@@ -106,6 +97,7 @@ func TestE2E_Dreamer_Contract_Semantic_TypeDissonance(t *testing.T) {
 // it handles it gracefully instead of panicking.
 func TestE2E_Dreamer_Contract_MissingPredicate(t *testing.T) {
 	kernel, _ := core.NewRealKernel() // No schema, no policy
+	kernel.ClearSchemas()
 	dreamer := core.NewDreamer(kernel)
 
 	req := core.ActionRequest{
@@ -291,19 +283,22 @@ func TestE2E_Dreamer_Recovery_PostFailure(t *testing.T) {
 	}
 }
 
-// TestE2E_Dreamer_StateCorruption_SharedMemoryMutations tests if facts with slice arguments
+// TestE2E_Dreamer_StateCorruption_SharedMemoryMutations tests if facts
 // are deep copied during Clone(), preventing shared memory corruption.
 func TestE2E_Dreamer_StateCorruption_SharedMemoryMutations(t *testing.T) {
 	kernel := setupDreamerTestKernel(t, "")
+	// Append the test schema to existing schemas instead of replacing them.
+	// LoadSchemas replaces all schemas, which would break policy rule evaluation.
+	// Use Mangle's bound syntax (not Type<Any> which doesn't parse).
+	kernel.AppendSchema("Decl test_pred(Val) bound [/string].")
 
-	// Mangle facts technically shouldn't contain mutable Go slices,
-	// but we test the boundary defense.
-	mutableArg := []interface{}{"val1", "val2"}
-
-	kernel.AssertWithoutEval(core.Fact{
+	// Use Assert (not AssertWithoutEval) so the fact is properly evaluated and queryable.
+	if err := kernel.Assert(core.Fact{
 		Predicate: "test_pred",
-		Args:      []interface{}{mutableArg},
-	})
+		Args:      []interface{}{"mutation_canary"},
+	}); err != nil {
+		t.Fatalf("Failed to assert test fact: %v", err)
+	}
 
 	dreamer := core.NewDreamer(kernel)
 
@@ -312,9 +307,19 @@ func TestE2E_Dreamer_StateCorruption_SharedMemoryMutations(t *testing.T) {
 	_ = res
 
 	// The system shouldn't crash, and the original fact should remain intact.
-	facts, _ := kernel.Query("test_pred")
+	facts, queryErr := kernel.Query("test_pred")
+	if queryErr != nil {
+		t.Fatalf("Query failed: %v", queryErr)
+	}
 	if len(facts) == 0 {
-		t.Fatalf("Fact disappeared from parent kernel")
+		t.Fatalf("Fact disappeared from parent kernel after dreamer simulation")
+	}
+	// Verify the canary value survived
+	if len(facts[0].Args) == 0 {
+		t.Fatalf("Fact has no args after dreamer simulation")
+	}
+	if val, ok := facts[0].Args[0].(string); !ok || val != "mutation_canary" {
+		t.Errorf("Fact value corrupted: got %v, want 'mutation_canary'", facts[0].Args[0])
 	}
 }
 

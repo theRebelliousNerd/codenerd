@@ -133,7 +133,10 @@ type mockConfigFactory struct{}
 
 func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
 	return &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"read_file", "write_file", "shell_exec", "mock_tool", "blocking_tool", "huge_tool"}},
+		Tools: config.ToolSet{AllowedTools: []string{
+			"read_file", "write_file", "shell_exec", "mock_tool", "blocking_tool", "huge_tool",
+			"restricted_tool", "race_tool", "heavy_tool", "leaky_tool", "timing_tool",
+		}},
 	}, nil
 }
 
@@ -235,6 +238,7 @@ func TestE2E_ContractViolation_ToolSpamming(t *testing.T) {
 
 	cfg := session.DefaultExecutorConfig()
 	cfg.MaxToolCalls = 2
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	callCount := 0
@@ -390,6 +394,7 @@ func TestE2E_ResourceExhaustion_GiganticToolResult(t *testing.T) {
 
 	cfg := session.DefaultExecutorConfig()
 	cfg.MaxToolCalls = 2
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	_, err := exec.Process(context.Background(), "get huge data")
@@ -539,13 +544,18 @@ func TestE2E_StateCorruption_VirtualStoreFFIRace(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
 		return &types.LLMToolResponse{
 			Text: "racing",
 			ToolCalls: []types.ToolCall{
-				{Name: "race_tool"},
+				{
+					ID:    "call_race",
+					Name:  "race_tool",
+					Input: map[string]interface{}{},
+				},
 			},
 		}, nil
 	}
@@ -580,13 +590,18 @@ func TestE2E_ResourceExhaustion_ConcurrentToolExecutions(t *testing.T) {
 		return hugeData, nil
 	}})
 	cfg := session.DefaultExecutorConfig()
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
 		return &types.LLMToolResponse{
 			Text: "Heavy",
 			ToolCalls: []types.ToolCall{
-				{Name: "heavy_tool"},
+				{
+					ID:    "call_heavy",
+					Name:  "heavy_tool",
+					Input: map[string]interface{}{},
+				},
 			},
 		}, nil
 	}
@@ -624,13 +639,18 @@ func TestE2E_TemporalFailure_GoroutineLeakPrevention(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
 		return &types.LLMToolResponse{
 			Text: "Running leaky tool",
 			ToolCalls: []types.ToolCall{
-				{Name: "leaky_tool"},
+				{
+					ID:    "call_leak",
+					Name:  "leaky_tool",
+					Input: map[string]interface{}{},
+				},
 			},
 		}, nil
 	}
@@ -670,6 +690,7 @@ func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
 	}})
 
 	cfg := session.DefaultExecutorConfig()
+	cfg.EnableSafetyGate = false
 	exec.SetConfig(cfg)
 
 	callCount := 0
@@ -679,14 +700,22 @@ func TestE2E_Recovery_ContextTimeoutThenSuccess(t *testing.T) {
 			return &types.LLMToolResponse{
 				Text: "Timeout call",
 				ToolCalls: []types.ToolCall{
-					{Name: "timing_tool", Input: map[string]interface{}{"sleep": "yes"}},
+					{
+						ID:    "call_time1",
+						Name:  "timing_tool",
+						Input: map[string]interface{}{"sleep": "yes"},
+					},
 				},
 			}, nil
 		}
 		return &types.LLMToolResponse{
 			Text: "Fast call",
 			ToolCalls: []types.ToolCall{
-				{Name: "timing_tool", Input: map[string]interface{}{"sleep": "no"}},
+				{
+					ID:    "call_time2",
+					Name:  "timing_tool",
+					Input: map[string]interface{}{"sleep": "no"},
+				},
 			},
 		}, nil
 	}

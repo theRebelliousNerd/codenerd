@@ -63,8 +63,8 @@ func isValidMangleNameConstant(v string) bool {
 	// Mangle atoms are typically short like /true, /markdown, /coder
 	// while file paths look like /mnt/c/path/to/file.go
 
-	// More than 2 path segments indicates a file path
-	if strings.Count(v, "/") > 2 {
+	// More than 1 slash indicates a file path (multiple segments)
+	if strings.Count(v, "/") > 1 {
 		return false
 	}
 

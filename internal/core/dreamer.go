@@ -122,10 +122,11 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	result.ProjectedFacts = projected
 	logging.DreamDebug("SimulateAction: projected %d facts", len(projected))
 
-	// Allow cancellation
+	// Allow cancellation (Fail Closed)
 	select {
 	case <-ctx.Done():
 		logging.Get(logging.CategoryDream).Warn("SimulateAction: context canceled for %s", actionID)
+		result.Unsafe = true
 		result.Reason = ctx.Err().Error()
 		timer.Stop()
 		return result
@@ -153,18 +154,33 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 	logging.DreamDebug("evaluateProjection: cloning kernel for sandbox evaluation")
 	clone := kernel.Clone()
 
-	// Batch-assert projections for performance
-	logging.DreamDebug("evaluateProjection: asserting %d projected facts", len(projected))
+	// Assert projected facts into the sandbox clone so panic_state rules can fire.
+	// Without this, the clone has no projected_action facts for rules to match against.
 	for _, fact := range projected {
 		clone.AssertWithoutEval(fact)
 	}
 
-	logging.DreamDebug("evaluateProjection: evaluating sandbox kernel")
+	logging.DreamDebug("evaluateProjection: evaluating sandbox kernel with %d projected facts", len(projected))
 	if err := clone.Evaluate(); err != nil {
 		// If evaluation fails, treat as unsafe to be conservative
 		logging.Get(logging.CategoryDream).Error("evaluateProjection: sandbox evaluation failed: %v", err)
 		timer.Stop()
 		return true, fmt.Sprintf("dream evaluation failed: %v", err)
+	}
+
+	// Ensure panic_state is declared (Fail Closed contract)
+	hasPanicState := false
+	if clone.programInfo != nil && clone.programInfo.Decls != nil {
+		for pred := range clone.programInfo.Decls {
+			if pred.Symbol == "panic_state" {
+				hasPanicState = true
+				break
+			}
+		}
+	}
+	if !hasPanicState {
+		timer.Stop()
+		return true, "dream query failed: panic_state predicate not declared"
 	}
 
 	logging.DreamDebug("evaluateProjection: querying panic_state predicate")

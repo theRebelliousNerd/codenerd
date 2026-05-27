@@ -190,6 +190,9 @@ func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, 
 	t.Cleanup(func() {})
 
 	exec := session.NewExecutor(nil, nil, lc, jc, cf, tr)
+	cfg := session.DefaultExecutorConfig()
+	cfg.EnableSafetyGate = false
+	exec.SetConfig(cfg)
 	return exec
 }
 

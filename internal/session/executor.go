@@ -262,6 +262,12 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		toolResult, err := e.executeToolCall(ctx, toolCall, agentConfig)
 		if err != nil {
 			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, err)
+			if strings.Contains(err.Error(), "blocked by safety gate") {
+				return nil, err
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			// Continue with other tool calls
 		} else {
 			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(toolResult))

@@ -275,7 +275,7 @@ func (k *RealKernel) Clone() *RealKernel {
 
 	clone := &RealKernel{
 		facts:             make([]Fact, len(k.facts)),
-		cachedAtoms:       make([]ast.Atom, len(k.cachedAtoms)), // OPTIMIZATION: Clone atom cache
+		cachedAtoms:       nil, // Rebuild fresh to avoid shared memory pointers
 		factIndex:         make(map[string]struct{}, len(k.factIndex)),
 		bootFacts:         make([]Fact, len(k.bootFacts)),
 		bootIntents:       make([]HybridIntent, len(k.bootIntents)),
@@ -301,10 +301,30 @@ func (k *RealKernel) Clone() *RealKernel {
 		simulateCommitErr: k.simulateCommitErr,
 	}
 
-	// Deep copy facts and cached atoms
-	copy(clone.facts, k.facts)
-	copy(clone.cachedAtoms, k.cachedAtoms) // OPTIMIZATION: Copy atom cache
-	copy(clone.bootFacts, k.bootFacts)
+	// Deep copy facts
+	for i, f := range k.facts {
+		clonedArgs := make([]interface{}, len(f.Args))
+		for j, arg := range f.Args {
+			clonedArgs[j] = deepCopyArg(arg)
+		}
+		clone.facts[i] = Fact{
+			Predicate: f.Predicate,
+			Args:      clonedArgs,
+		}
+	}
+
+	// Deep copy bootFacts
+	for i, f := range k.bootFacts {
+		clonedArgs := make([]interface{}, len(f.Args))
+		for j, arg := range f.Args {
+			clonedArgs[j] = deepCopyArg(arg)
+		}
+		clone.bootFacts[i] = Fact{
+			Predicate: f.Predicate,
+			Args:      clonedArgs,
+		}
+	}
+
 	copy(clone.bootIntents, k.bootIntents)
 	copy(clone.bootPrompts, k.bootPrompts)
 
@@ -318,11 +338,38 @@ func (k *RealKernel) Clone() *RealKernel {
 		clone.loadedPolicyFiles[key] = struct{}{}
 	}
 
-	// OPTIMIZATION: Use cached atoms instead of re-converting
-	for _, atom := range clone.cachedAtoms {
-		clone.store.Add(atom)
-	}
-
 	logging.KernelDebug("Kernel cloned (facts=%d, policy=%d bytes)", len(clone.facts), len(clone.policy))
 	return clone
+}
+
+func deepCopyArg(arg interface{}) interface{} {
+	if arg == nil {
+		return nil
+	}
+	switch v := arg.(type) {
+	case []interface{}:
+		res := make([]interface{}, len(v))
+		for i, item := range v {
+			res[i] = deepCopyArg(item)
+		}
+		return res
+	case map[string]interface{}:
+		res := make(map[string]interface{})
+		for k, val := range v {
+			res[k] = deepCopyArg(val)
+		}
+		return res
+	default:
+		return v
+	}
+}
+
+// ClearSchemas removes all loaded schemas and policy from the kernel.
+func (k *RealKernel) ClearSchemas() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.schemas = ""
+	k.policy = ""
+	k.programInfo = nil
+	k.policyDirty = true
 }

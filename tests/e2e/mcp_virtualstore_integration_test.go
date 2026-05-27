@@ -217,7 +217,7 @@ func TestE2E_MCPVirtualStore_MassivePayload_OOMPrevention(t *testing.T) {
 	// Create a ~50MB payload
 	var builder strings.Builder
 	builder.Grow(50 * 1024 * 1024)
-	for i := 0; i < 50000; i++ {
+	for i := 0; i < 900000; i++ {
 		builder.WriteString("very_long_string_payload_repeated_many_times_to_exhaust_memory_")
 	}
 	massiveResult := builder.String()
