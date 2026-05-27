@@ -215,15 +215,24 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			synthUsed bool
 		)
 		if fl.synthMode != SynthModeOff {
-			compiled, synthErr := synth.FromResponse(response, fl.synthOptions)
-			if synthErr == nil {
-				if clause, err := compiled.SingleClause(); err == nil {
-					rule = clause
-					synthUsed = true
+			var synthErr error
+			spec, specErr := synth.DecodeSpec(response)
+			if specErr == nil {
+				compiled, compileErr := synth.Compile(spec, fl.synthOptions)
+				if compileErr == nil {
+					if clause, err := compiled.SingleClause(); err == nil {
+						rule = clause
+						synthUsed = true
+					} else {
+						synthErr = err
+					}
 				} else {
-					synthErr = err
+					synthErr = compileErr
 				}
+			} else {
+				synthErr = specErr
 			}
+			
 			if synthErr != nil && fl.synthMode == SynthModeRequire {
 				lastErrors = []ValidationError{{
 					Category: CategoryParse,

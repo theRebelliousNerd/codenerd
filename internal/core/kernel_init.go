@@ -376,12 +376,17 @@ func (k *RealKernel) loadMangleFiles() error {
 		"taxonomy.mg",
 		"inference.mg",
 		"jit_compiler.mg", // JIT Prompt Compiler logic (context matching, selection)
+		"reviewer.mg",
+		"tester.mg",
+		"go_safety.mg",
+		"benchmarks.mg",
 	}
 
 	loadedModules := 0
 	for _, mod := range coreModules {
 		if data, err := coreLogic.ReadFile("defaults/" + mod); err == nil {
 			k.policy += "\n\n" + string(data)
+			k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
 			loadedModules++
 			logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
 		} else {

@@ -177,7 +177,11 @@ func (p *PerceptionFirewallShard) SetPromptAssembler(assembler *articulation.Pro
 	p.BaseSystemShard.SetPromptAssembler(assembler)
 	p.promptAssembler = assembler
 	if p.transducer != nil {
-		p.transducer.SetPromptAssembler(assembler)
+		if assembler != nil {
+			p.transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(assembler))
+		} else {
+			p.transducer.SetPromptAssembler(nil)
+		}
 	}
 	if assembler != nil {
 		logging.SystemShards("[PerceptionFirewall] PromptAssembler attached (JIT ready: %v)", assembler.JITReady())
@@ -249,7 +253,7 @@ func (p *PerceptionFirewallShard) ensureTransducer() perception.Transducer {
 
 	t := perception.NewUnderstandingTransducer(transducerClient)
 	if p.promptAssembler != nil {
-		t.SetPromptAssembler(p.promptAssembler)
+		t.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(p.promptAssembler))
 	}
 	p.transducer = t
 	return t

@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -149,7 +148,7 @@ func (m *MockTransducer) ResolveFocus(ctx context.Context, reference string, can
 	return perception.FocusResolution{}, nil
 }
 
-func (m *MockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
+func (m *MockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 func (m *MockTransducer) SetStrategicContext(context string)                  {}
 
 // --- MockLLMClient ---

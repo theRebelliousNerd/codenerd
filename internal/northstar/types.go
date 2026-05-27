@@ -8,7 +8,10 @@
 package northstar
 
 import (
+	"fmt"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // =============================================================================
@@ -27,6 +30,76 @@ type Vision struct {
 	Constraints  []string      `json:"constraints"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+}
+
+// ToFacts converts the Vision into a slice of Mangle facts.
+func (v *Vision) ToFacts() []types.Fact {
+	var facts []types.Fact
+
+	if v.Mission != "" {
+		facts = append(facts, types.Fact{Predicate: "northstar_mission", Args: []interface{}{"global", v.Mission}})
+	}
+	if v.Problem != "" {
+		facts = append(facts, types.Fact{Predicate: "northstar_problem", Args: []interface{}{"global", v.Problem}})
+	}
+	if v.VisionStmt != "" {
+		facts = append(facts, types.Fact{Predicate: "northstar_vision", Args: []interface{}{"global", v.VisionStmt}})
+	}
+
+	for _, p := range v.Personas {
+		id := fmt.Sprintf("persona_%s", p.Name)
+		facts = append(facts, types.Fact{Predicate: "northstar_persona", Args: []interface{}{id, p.Name}})
+		for _, pp := range p.PainPoints {
+			facts = append(facts, types.Fact{Predicate: "northstar_pain_point", Args: []interface{}{id, pp}})
+		}
+		for _, need := range p.Needs {
+			facts = append(facts, types.Fact{Predicate: "northstar_need", Args: []interface{}{id, need}})
+		}
+	}
+
+	for _, c := range v.Capabilities {
+		facts = append(facts, types.Fact{Predicate: "northstar_capability", Args: []interface{}{c.ID, c.Description, "/" + c.Timeline, parsePriority(c.Priority)}})
+	}
+
+	for _, r := range v.Risks {
+		facts = append(facts, types.Fact{Predicate: "northstar_risk", Args: []interface{}{r.ID, r.Description, "/" + r.Likelihood, parseRiskImpact(r.Impact)}})
+		if r.Mitigation != "" {
+			// Convert strategy to a valid Mangle /name atom
+			strategyName := fmt.Sprintf("/%s", "mitigation") 
+			facts = append(facts, types.Fact{Predicate: "northstar_mitigation", Args: []interface{}{r.ID, strategyName}})
+		}
+	}
+
+	for _, req := range v.Requirements {
+		facts = append(facts, types.Fact{Predicate: "northstar_requirement", Args: []interface{}{req.ID, "/" + req.Type, req.Description, parsePriority(req.Priority)}})
+	}
+
+	for i, c := range v.Constraints {
+		facts = append(facts, types.Fact{Predicate: "northstar_constraint", Args: []interface{}{fmt.Sprintf("constraint_%d", i), c}})
+	}
+
+	facts = append(facts, types.Fact{Predicate: "northstar_defined", Args: []interface{}{}})
+
+	return facts
+}
+
+func parsePriority(p string) int {
+	switch p {
+	case "critical", "must_have": return 100
+	case "high", "should_have": return 80
+	case "medium": return 50
+	case "low", "nice_to_have": return 20
+	default: return 50
+	}
+}
+
+func parseRiskImpact(i string) int {
+	switch i {
+	case "high": return 100
+	case "medium": return 50
+	case "low": return 20
+	default: return 50
+	}
 }
 
 // Persona represents a user persona with their pain points and needs.

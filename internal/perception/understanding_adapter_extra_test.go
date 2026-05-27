@@ -4,16 +4,25 @@ import (
 	"context"
 	"testing"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 )
+
+type mockPerceptionPromptAssembler struct{}
+
+func (m *mockPerceptionPromptAssembler) AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error) {
+	return "mock prompt", nil
+}
+
+func (m *mockPerceptionPromptAssembler) JITReady() bool {
+	return true
+}
 
 func TestUnderstandingTransducer_SettersAndGetters(t *testing.T) {
 	mockClient := &baseMockLLMClient{}
 	tr := NewUnderstandingTransducer(mockClient).(*UnderstandingTransducer)
 
 	// SetPromptAssembler
-	pa := &articulation.PromptAssembler{}
+	pa := &mockPerceptionPromptAssembler{}
 	tr.SetPromptAssembler(pa)
 	if tr.promptAssembler != pa {
 		t.Errorf("SetPromptAssembler failed")

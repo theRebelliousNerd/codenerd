@@ -1105,6 +1105,9 @@ func (a *PromptAssemblerAdapter) AssembleSystemPrompt(ctx context.Context, shard
 		ShardID:   shardID,
 		ShardType: shardType,
 	}
+	if sCtx := types.GetSessionContext(ctx); sCtx != nil {
+		pc.WithSessionContext(sCtx)
+	}
 	return a.assembler.AssembleSystemPrompt(ctx, pc)
 }
 

@@ -34,6 +34,13 @@ func (m *mockVectorSearcher) Search(ctx context.Context, query string, limit int
 	return results, nil
 }
 
+func (m *mockVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []float32{0.1, 0.2, 0.3}, nil
+}
+
 type validatingKernel struct {
 	results []Fact
 }

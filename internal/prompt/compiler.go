@@ -48,6 +48,9 @@ type KernelRetracter interface {
 type VectorSearcher interface {
 	// Search performs semantic search and returns atom IDs with scores.
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+	
+	// EmbedQuery generates an embedding vector for the given query.
+	EmbedQuery(ctx context.Context, query string) ([]float32, error)
 }
 
 // SearchResult represents a semantic search result.
@@ -294,6 +297,9 @@ type JITPromptCompiler struct {
 	// LocalDB for semantic knowledge atom queries (Semantic Knowledge Bridge)
 	localDB *store.LocalStore
 
+	// LearningStore for recalling learned intents and feedback (Semantic Knowledge Bridge)
+	learningStore *store.LearningStore
+
 	// Evolved atoms manager for System Prompt Learning (SPL)
 	evolvedAtomMgr *EvolvedAtomManager
 }
@@ -523,6 +529,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 		var dynamicAtoms []*PromptAtom
 		var knowledgeAtoms []*PromptAtom
+		var learningAtoms []*PromptAtom
 
 		// 1.5a: Collect static/selected atoms
 		g.Go(func() error {
@@ -550,6 +557,12 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 			return nil // Non-fatal
 		})
 
+		// 1.5d: Collect learning atoms from autopoiesis memory (Semantic Knowledge Bridge)
+		g.Go(func() error {
+			learningAtoms = c.collectLearningAtoms(gCtx, cc)
+			return nil // Non-fatal
+		})
+
 		if err := g.Wait(); err != nil {
 			return nil, err
 		}
@@ -563,6 +576,11 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		if len(knowledgeAtoms) > 0 {
 			candidates = append(candidates, knowledgeAtoms...)
 			logging.Get(logging.CategoryJIT).Debug("Appended %d semantic knowledge atoms to candidates", len(knowledgeAtoms))
+		}
+
+		if len(learningAtoms) > 0 {
+			candidates = append(candidates, learningAtoms...)
+			logging.Get(logging.CategoryJIT).Debug("Appended %d learning atoms to candidates", len(learningAtoms))
 		}
 
 		stats.CollectAtomsMs = time.Since(collectStart).Milliseconds()
@@ -1341,6 +1359,13 @@ func (c *JITPromptCompiler) SetLocalDB(db *store.LocalStore) {
 	c.localDB = db
 }
 
+// SetLearningStore sets the LearningStore for recalling learned intents.
+func (c *JITPromptCompiler) SetLearningStore(ls *store.LearningStore) {
+	c.dbMu.Lock()
+	defer c.dbMu.Unlock()
+	c.learningStore = ls
+}
+
 // collectKnowledgeAtoms queries the LocalStore for semantically relevant knowledge atoms
 // and converts them to ephemeral PromptAtoms for JIT compilation.
 // This is the core of the Semantic Knowledge Bridge - connecting stored documentation
@@ -1430,6 +1455,82 @@ func (c *JITPromptCompiler) collectKnowledgeAtoms(ctx context.Context, cc *Compi
 
 	logging.Get(logging.CategoryJIT).Debug(
 		"Collected %d knowledge atoms for query: %s",
+		len(result), truncateQuery(query, 50))
+
+	return result
+}
+
+// collectLearningAtoms queries the LearningStore for relevant past learnings.
+func (c *JITPromptCompiler) collectLearningAtoms(ctx context.Context, cc *CompilationContext) []*PromptAtom {
+	c.dbMu.RLock()
+	ls := c.learningStore
+	c.dbMu.RUnlock()
+
+	c.configMu.RLock()
+	timeout := c.config.VectorSearchTimeout
+	c.configMu.RUnlock()
+
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+
+	if ls == nil || cc == nil {
+		return nil
+	}
+
+	query := buildExpandedQuery(cc)
+	if query == "" {
+		return nil
+	}
+
+	searchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Wait for the context or do search
+	// Currently LearningStore lexical search doesn't take context, so we just run it
+	_ = searchCtx
+
+	var hits []store.LearningRecallHit
+	if c.vectorSearcher != nil {
+		if queryEmbedding, err := c.vectorSearcher.EmbedQuery(searchCtx, query); err == nil {
+			hits, err = ls.RecallLearningsByEmbedding(queryEmbedding, 5)
+			if err != nil {
+				logging.Get(logging.CategoryJIT).Debug("Semantic learning atom search failed, falling back to lexical: %v", err)
+			}
+		} else {
+			logging.Get(logging.CategoryJIT).Debug("Failed to embed query for learning atom search: %v", err)
+		}
+	}
+
+	// Fallback to lexical if no semantic hits or vector searcher missing
+	if len(hits) == 0 {
+		var err error
+		hits, err = ls.RecallLearningsLexical(query, 5)
+		if err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Lexical learning atom search failed: %v", err)
+			return nil
+		}
+	}
+
+	if len(hits) == 0 {
+		return nil
+	}
+
+	result := make([]*PromptAtom, 0, len(hits))
+	for _, hit := range hits {
+		content := fmt.Sprintf("[%s] %s: %s", hit.ShardType, hit.Predicate, hit.Summary)
+		atomID := "learning/" + HashContent(content)[:8]
+		pa := NewPromptAtom(atomID, CategoryKnowledge, content)
+		pa.Priority = 88 // slightly above regular knowledge
+		pa.IsMandatory = false
+		if cc.ShardID != "" {
+			pa.ShardTypes = []string{cc.ShardID}
+		}
+		result = append(result, pa)
+	}
+
+	logging.Get(logging.CategoryJIT).Debug(
+		"Collected %d learning atoms for query: %s",
 		len(result), truncateQuery(query, 50))
 
 	return result

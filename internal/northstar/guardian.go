@@ -10,7 +10,14 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
+
+// KernelClient provides an interface for asserting facts into the Mangle kernel.
+type KernelClient interface {
+	Assert(fact types.Fact) error
+	Retract(predicate string) error
+}
 
 // Guardian is the Northstar vision guardian.
 // It monitors project activity and ensures alignment with the defined vision.
@@ -18,6 +25,7 @@ type Guardian struct {
 	store  *Store
 	config GuardianConfig
 	llm    LLMClient
+	kernel KernelClient
 	mu     sync.RWMutex
 
 	// Runtime state
@@ -46,6 +54,13 @@ func (g *Guardian) SetLLMClient(client LLMClient) {
 	g.llm = client
 }
 
+// SetParentKernel sets the Mangle kernel for fact injection.
+func (g *Guardian) SetParentKernel(client KernelClient) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.kernel = client
+}
+
 // Initialize loads the vision and state from the store.
 func (g *Guardian) Initialize() error {
 	vision, err := g.store.LoadVision()
@@ -69,7 +84,43 @@ func (g *Guardian) Initialize() error {
 		logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian initialized (no vision defined)")
 	}
 
+	g.refreshKernelFacts()
+
 	return nil
+}
+
+func (g *Guardian) refreshKernelFacts() {
+	g.mu.RLock()
+	kernel := g.kernel
+	vision := cloneVision(g.vision)
+	g.mu.RUnlock()
+
+	if kernel == nil {
+		return
+	}
+
+	// Retract all existing northstar facts
+	predicates := []string{
+		"northstar_mission", "northstar_problem", "northstar_vision",
+		"northstar_persona", "northstar_pain_point", "northstar_need",
+		"northstar_capability", "northstar_risk", "northstar_mitigation",
+		"northstar_requirement", "northstar_constraint", "northstar_defined",
+	}
+
+	for _, p := range predicates {
+		_ = kernel.Retract(p)
+	}
+
+	if vision == nil {
+		return
+	}
+
+	// Assert new facts
+	for _, fact := range vision.ToFacts() {
+		if err := kernel.Assert(fact); err != nil {
+			logging.Get(logging.CategoryNorthstar).Debug("Failed to assert northstar fact %s: %v", fact.Predicate, err)
+		}
+	}
 }
 
 // HasVision returns true if a vision is defined.
@@ -112,6 +163,8 @@ func (g *Guardian) UpdateVision(vision *Vision) error {
 	g.vision = cloneVision(vision)
 	g.state = cloneGuardianState(state)
 	g.mu.Unlock()
+
+	g.refreshKernelFacts()
 
 	logging.Get(logging.CategoryNorthstar).Info("Vision updated: %s", truncate(vision.Mission, 50))
 	return nil

@@ -184,7 +184,7 @@ func TestLimitsEnforcer_ExtraCornerCases(t *testing.T) {
 	currentMem := leTrigger.GetMemoryUsage()
 	if currentMem > 0 {
 		cfgHighMem := LimitsConfig{
-			MaxTotalMemoryMB:    int(float64(currentMem) / 0.75),
+			MaxTotalMemoryMB:    int(float64(currentMem) / 0.80),
 			MaxConcurrentShards: 1, // Only 1 shard allowed
 		}
 		leHighMem := NewLimitsEnforcer(cfgHighMem)

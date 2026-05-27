@@ -397,6 +397,12 @@ func (f FocusResolution) ToFact() core.Fact {
 	}
 }
 
+// PromptAssembler provides JIT compilation capability.
+type PromptAssembler interface {
+	AssembleSystemPrompt(ctx context.Context, shardID, shardType string) (string, error)
+	JITReady() bool
+}
+
 // Transducer defines the interface for the perception layer.
 // UnderstandingTransducer is the canonical LLM-first implementation.
 type Transducer interface {
@@ -416,7 +422,7 @@ type Transducer interface {
 	ResolveFocus(ctx context.Context, reference string, candidates []string) (FocusResolution, error)
 
 	// SetPromptAssembler sets the prompt assembler for JIT compilation.
-	SetPromptAssembler(pa *articulation.PromptAssembler)
+	SetPromptAssembler(pa PromptAssembler)
 
 	// SetStrategicContext injects strategic knowledge about the codebase.
 	SetStrategicContext(context string)

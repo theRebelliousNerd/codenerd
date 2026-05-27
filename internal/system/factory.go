@@ -77,6 +77,11 @@ var (
 func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
 	globalCortexOnce.Do(func() {
 		globalCortex, globalCortexErr = BootCortex(ctx, workspace, apiKey, disableSystemShards)
+		if globalCortexErr == nil && globalCortex != nil {
+			// Start background maintenance for archival, cleanup, and logging.
+			// Run it with background context so it survives individual command executions in daemon mode.
+			globalCortex.StartMaintenanceSchedule(context.Background())
+		}
 	})
 	return globalCortex, globalCortexErr
 }
@@ -477,7 +482,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	dreamPlanMgr := core.NewDreamPlanManager(kernel)
 	virtualStore.SetDreamPlanManager(dreamPlanMgr)
 
-	// TransactionManager enables atomic multi-file edits with shadow validation (2PC)
+	// Wire TransactionManager for atomic multi-file edits and ShadowMode
 	if realKernel, ok := kernel.(*core.RealKernel); ok {
 		transactionMgr := core.NewTransactionManager(realKernel, workspace)
 		virtualStore.SetTransactionManager(transactionMgr)
@@ -580,6 +585,13 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	// Enable semantic vector operations on the LocalStore if possible.
 	if localDB != nil && embeddingEngine != nil {
 		localDB.SetEmbeddingEngine(embeddingEngine)
+		localDB.SetReflectionConfig(appCfg.GetReflectionConfig())
+	}
+
+	// Enable semantic vector operations on the LearningStore if possible.
+	if learningStore != nil && embeddingEngine != nil {
+		learningStore.SetEmbeddingEngine(embeddingEngine)
+		learningStore.SetReflectionConfig(appCfg.GetReflectionConfig())
 	}
 
 	// 5a. MCP Integration (JIT Tool Compiler)
@@ -687,6 +699,14 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
+
+	// Inject stores for semantic knowledge bridging
+	if localDB != nil {
+		jitCompiler.SetLocalDB(localDB)
+	}
+	if learningStore != nil {
+		jitCompiler.SetLearningStore(learningStore)
+	}
 	if defaultVectorSearcher != nil {
 		defaultVectorSearcher.SetCompiler(jitCompiler)
 	}
@@ -696,7 +716,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
 		pa.EnableJIT(jitCfg.Enabled)
 		promptAssembler = pa
-		transducer.SetPromptAssembler(pa)
+		transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(pa))
 		// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
 		poiesis.SetPromptAssembler(pa)
 	}
@@ -770,7 +790,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 			shard.SetBrowserManager(browserMgr)
 		}
 		if promptAssembler != nil {
-			shard.SetPromptAssembler(promptAssembler)
+			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(promptAssembler))
 		}
 		return shard
 	})
@@ -787,7 +807,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		shard.SetWorkspaceRoot(workspace)
 		shard.SetShardManager(shardManager)
 		if promptAssembler != nil {
-			shard.SetPromptAssembler(promptAssembler)
+			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(promptAssembler))
 		}
 		return shard
 	})

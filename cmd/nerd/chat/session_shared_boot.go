@@ -249,6 +249,24 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 				setter.SetToolStore(toolStore)
 			}
 		}
+
+		// Register a post-spawn hook so on-demand shards created after boot
+		// automatically get the same chat-specific dependencies.
+		shardMgr.SetPostSpawnHook(func(agent types.ShardAgent) {
+			if setter, ok := agent.(interface {
+				SetGlassBox(*transparency.GlassBoxEventBus)
+			}); ok {
+				setter.SetGlassBox(glassBoxEventBus)
+			}
+			if setter, ok := agent.(interface {
+				SetToolEventBus(*transparency.ToolEventBus)
+			}); ok {
+				setter.SetToolEventBus(toolEventBus)
+			}
+			if setter, ok := agent.(interface{ SetToolStore(*store.ToolStore) }); ok {
+				setter.SetToolStore(toolStore)
+			}
+		})
 	}
 
 	logStep("Initializing Prompt Evolution...")
@@ -297,6 +315,9 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 		if northstarStore, err := northstar.NewStore(nerdDir); err == nil {
 			guardian := northstar.NewGuardian(northstarStore, northstar.DefaultGuardianConfig())
 			guardian.SetLLMClient(llmClient)
+			if kernel != nil {
+				guardian.SetParentKernel(kernel)
+			}
 			if err := guardian.Initialize(); err == nil {
 				handler := northstar.NewBackgroundEventHandler(guardian, resolveSessionID(loadedSession))
 				observerMgr.SetNorthstarHandler(&northstarHandlerAdapter{handler})

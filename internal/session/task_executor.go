@@ -130,6 +130,12 @@ func (j *JITExecutor) ExecuteAsync(ctx context.Context, intent string, task stri
 	return j.executeAsyncInternal(ctx, intent, task, nil)
 }
 
+// SpawnConsultation implements shards.ConsultationSpawner.
+func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
+	intent := fmt.Sprintf("/consult/%s", specialistName)
+	return j.executeAsyncInternal(ctx, intent, task, nil)
+}
+
 // executeAsyncInternal is an internal helper to spawn subagent with context.
 func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext) (string, error) {
 	logging.Session("JITExecutor.ExecuteAsync: intent=%s", intent)

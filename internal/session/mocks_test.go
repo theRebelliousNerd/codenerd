@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -173,7 +172,7 @@ func (m *MockTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 	return perception.Intent{Verb: "/general", Category: "/general"}, nil, nil
 }
 
-func (m *MockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
+func (m *MockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 func (m *MockTransducer) SetStrategicContext(context string)                  {}
 
 // --- MockJITCompiler ---

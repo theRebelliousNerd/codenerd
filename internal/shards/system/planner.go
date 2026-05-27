@@ -300,7 +300,7 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	}
 
 	// Build system prompt (JIT required - no fallback)
-	systemPrompt := s.buildSystemPrompt(ctx)
+	systemPrompt := s.buildSystemPrompt(ctx, goal)
 	if systemPrompt == "" {
 		return fmt.Errorf("JIT prompt compilation failed - ensure campaign/planner atoms exist in internal/prompt/atoms/campaign/planner.yaml")
 	}
@@ -363,7 +363,7 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 // buildSystemPrompt constructs the system prompt for goal decomposition.
 // Uses JIT prompt compilation - returns empty string if JIT is unavailable.
 // Planner system prompts are JIT-compiled from internal/prompt/atoms/campaign/planner.yaml
-func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
+func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context, goal string) string {
 	s.mu.RLock()
 	pa := s.promptAssembler
 	shardID := s.ID
@@ -389,9 +389,13 @@ func (s *SessionPlannerShard) buildSystemPrompt(ctx context.Context) string {
 	}
 
 	// Build proper PromptContext for JIT compilation
-	promptCtx := &articulation.PromptContext{
+	promptCtx := (&articulation.PromptContext{
 		ShardID:   shardID,
 		ShardType: "planner",
+	}).WithSemanticQuery(goal, 5)
+
+	if s.activeCampaign != "" {
+		promptCtx = promptCtx.WithCampaign(s.activeCampaign)
 	}
 
 	jitPrompt, err := assembler.AssembleSystemPrompt(ctx, promptCtx)

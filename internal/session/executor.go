@@ -44,6 +44,7 @@ type ConfigFactory interface {
 // SessionPersister stores session turn data for cross-session continuity.
 type SessionPersister interface {
 	StoreSessionTurn(sessionID string, turnNumber int, userInput, intentJSON, response, atomsJSON string) error
+	StoreCompressedState(sessionID string, turnNumber int, stateJSON string, ratio float64) error
 }
 
 // MangleAtom wraps a string as a Mangle name constant (avoids core import).
@@ -297,8 +298,8 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		result.ToolCallsExecuted++
 	}
 
-	// 7. Articulate response
-	result.Response = llmResponse.Text
+	// 7. Articulate response — process Piggyback control packet (best-effort)
+	result.Response = e.processPiggybackControlPacket(llmResponse.Text)
 	result.Duration = time.Since(start)
 
 	// Update conversation history
@@ -442,7 +443,8 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 
 	// Use CompleteWithSystem (supports grounding + structured output)
 	// The Piggyback envelope will contain tool_requests
-	logging.Session("Using Piggyback++ for tool invocation (grounding-compatible mode)")
+	schemaLen := len(articulation.GetPiggybackSchema(false))
+	logging.Session("Using Piggyback++ for tool invocation (grounding-compatible mode, schema_len=%d)", schemaLen)
 	text, err := e.llmClient.CompleteWithSystem(ctx, systemPrompt, userInput)
 	if err != nil {
 		return nil, err
@@ -1010,11 +1012,109 @@ func (e *Executor) persistTurn(input string, intent perception.Intent, result *E
 			input,
 			string(intentJSON),
 			result.Response,
-			"", // atomsJSON — populated by future piggyback integration
+			"", // atomsJSON — populated by piggyback integration
 		); storeErr != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to persist session turn %d: %v", turnNumber, storeErr)
 		} else {
 			logging.SessionDebug("Persisted session turn %d for session %s", turnNumber, sessionID)
 		}
 	}()
+}
+
+// processPiggybackControlPacket performs best-effort parsing of the LLM response
+// as a Piggyback Protocol envelope. When the LLM emits structured JSON with a
+// control_packet, this method extracts and processes:
+//   - Self-correction signals (logged + asserted to kernel)
+//   - Memory operations (logged for future Cold Storage wiring)
+//   - Mangle updates (asserted to kernel via existing processMangleUpdatesFromEnvelope)
+//   - Context feedback (logged for spreading activation tuning)
+//
+// Returns the surface response (user-facing text). If parsing fails, returns
+// the original raw text unchanged — this is best-effort, never fatal.
+func (e *Executor) processPiggybackControlPacket(rawText string) string {
+	// Best-effort parse — don't fail if the response isn't Piggyback-formatted
+	processed := articulation.ProcessLLMResponseAllowPlain(rawText)
+	if processed.Control == nil {
+		// No control packet found — return raw surface as-is
+		return processed.Surface
+	}
+
+	logging.Session("Piggyback control packet detected (method=%s, confidence=%.2f)",
+		processed.ParseMethod, processed.Confidence)
+
+	// Build envelope for helper functions
+	envelope := articulation.PiggybackEnvelope{
+		Surface: processed.Surface,
+		Control: *processed.Control,
+	}
+
+	// --- Self-Correction ---
+	if articulation.HasSelfCorrection(envelope) {
+		hypothesis := envelope.Control.SelfCorrection.Hypothesis
+		logging.Session("Piggyback self-correction triggered: %s", hypothesis)
+
+		// Assert self-correction fact to kernel for autopoiesis tracking
+		if e.kernel != nil {
+			if err := e.kernel.Assert(types.Fact{
+				Predicate: "self_correction",
+				Args:      []interface{}{hypothesis, time.Now().Unix()},
+			}); err != nil {
+				logging.Get(logging.CategorySession).Warn("Failed to assert self_correction fact: %v", err)
+			}
+		}
+	}
+
+	// --- Memory Operations ---
+	if articulation.HasMemoryOperations(envelope) {
+		memOps := envelope.Control.MemoryOperations
+		logging.Session("Piggyback memory operations: %d total", len(memOps))
+
+		// Log by operation type for visibility
+		for _, opType := range []string{"promote_to_long_term", "forget", "store_vector", "note"} {
+			ops := articulation.GetMemoryOperationsByType(envelope, opType)
+			if len(ops) > 0 {
+				for _, op := range ops {
+					logging.SessionDebug("Piggyback memory op: %s key=%s value=%.100s", op.Op, op.Key, op.Value)
+				}
+			}
+		}
+
+		// Assert memory operation facts for future Cold Storage integration
+		if e.kernel != nil {
+			for _, op := range memOps {
+				if err := e.kernel.Assert(types.Fact{
+					Predicate: "memory_operation",
+					Args:      []interface{}{op.Op, op.Key, op.Value},
+				}); err != nil {
+					logging.Get(logging.CategorySession).Warn("Failed to assert memory_operation fact: %v", err)
+				}
+			}
+		}
+	}
+
+	// --- Mangle Updates ---
+	if len(envelope.Control.MangleUpdates) > 0 {
+		logging.Session("Piggyback mangle_updates: %d atoms", len(envelope.Control.MangleUpdates))
+		e.processMangleUpdatesFromEnvelope(&envelope)
+	}
+
+	// --- Context Feedback ---
+	if envelope.Control.ContextFeedback != nil {
+		fb := envelope.Control.ContextFeedback
+		logging.Session("Piggyback context feedback: usefulness=%.2f, helpful=%d, noise=%d",
+			fb.OverallUsefulness, len(fb.HelpfulFacts), len(fb.NoiseFacts))
+		if fb.MissingContext != "" {
+			logging.SessionDebug("Piggyback missing context: %s", fb.MissingContext)
+		}
+	}
+
+	// --- Intent Classification ---
+	ic := envelope.Control.IntentClassification
+	if ic.Category != "" || ic.Verb != "" {
+		logging.SessionDebug("Piggyback intent: category=%s verb=%s target=%s confidence=%.2f",
+			ic.Category, ic.Verb, ic.Target, ic.Confidence)
+	}
+
+	// Return only the surface response (control data has been routed to kernel)
+	return processed.Surface
 }

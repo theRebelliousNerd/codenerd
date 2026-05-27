@@ -315,6 +315,12 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		agent.SetSessionContext(sessionCtx)
 	}
 
+	// Inject chat-specific dependencies (GlassBox, ToolEventBus, ToolStore, etc.)
+	// via the registered hook so on-demand shards get the same wiring as boot-time shards.
+	if sm.postSpawnHook != nil {
+		sm.postSpawnHook(agent)
+	}
+
 	sm.shards[id] = agent
 
 	logging.Audit().ShardSpawn(id, typeName)

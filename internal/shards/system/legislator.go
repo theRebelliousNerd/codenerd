@@ -349,13 +349,12 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context, directive string)
 		return ""
 	}
 
-	pc := &articulation.PromptContext{
+	pc := (&articulation.PromptContext{
 		ShardID:       l.ID,
 		ShardType:     "legislator",
 		SessionCtx:    l.Config.SessionContext,
-		SemanticQuery: buildLegislatorSemanticQuery(directive),
-		SemanticTopK:  100,
-	}
+	}).WithSemanticQuery(buildLegislatorSemanticQuery(directive), 100)
+	
 	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.SystemShards("[Legislator] [ERROR] JIT compilation failed: %v", err)

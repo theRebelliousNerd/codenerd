@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -91,7 +90,7 @@ func (m *mockTransducerUT) ResolveFocus(ctx context.Context, p string, history [
 	return perception.FocusResolution{}, nil
 }
 
-func (m *mockTransducerUT) SetPromptAssembler(pa *articulation.PromptAssembler) {}
+func (m *mockTransducerUT) SetPromptAssembler(pa perception.PromptAssembler) {}
 
 func (m *mockTransducerUT) SetStrategicContext(context string) {}
 

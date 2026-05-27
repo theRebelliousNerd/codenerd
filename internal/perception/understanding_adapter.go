@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -26,7 +25,7 @@ type ThinkingProvider interface {
 type UnderstandingTransducer struct {
 	llmTransducer     *LLMTransducer
 	client            LLMClient
-	promptAssembler   *articulation.PromptAssembler
+	promptAssembler   PromptAssembler
 	kernel            RoutingKernel
 	mu                sync.RWMutex
 	lastUnderstanding *Understanding // GAP-018 FIX: Cache for debugging
@@ -57,9 +56,11 @@ func NewUnderstandingTransducer(client LLMClient) Transducer {
 	return base
 }
 
-// SetPromptAssembler sets the prompt assembler for JIT compilation.
-func (t *UnderstandingTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {
+// SetPromptAssembler sets the JIT prompt assembler.
+func (t *UnderstandingTransducer) SetPromptAssembler(pa PromptAssembler) {
+	t.mu.Lock()
 	t.promptAssembler = pa
+	t.mu.Unlock()
 }
 
 // SetStrategicContext injects strategic knowledge about the codebase.
@@ -102,24 +103,14 @@ func (t *UnderstandingTransducer) initialize(ctx context.Context) {
 
 // getUnderstandingPrompt returns the system prompt for LLM classification.
 // Uses JIT compilation if available, otherwise falls back to embedded prompt.
-func getUnderstandingPrompt(ctx context.Context, pa *articulation.PromptAssembler) string {
+func getUnderstandingPrompt(ctx context.Context, pa PromptAssembler) string {
 	// Check if JIT is available
 	if pa == nil || !pa.JITReady() {
 		return understandingSystemPrompt
 	}
 
-	// Build prompt context for perception layer
-	pc := &articulation.PromptContext{
-		ShardID:   "perception-transducer",
-		ShardType: "perception",
-	}
-
-	if sCtx := types.GetSessionContext(ctx); sCtx != nil {
-		pc.WithSessionContext(sCtx)
-	}
-
 	// Attempt JIT compilation
-	prompt, err := pa.AssembleSystemPrompt(ctx, pc)
+	prompt, err := pa.AssembleSystemPrompt(ctx, "perception-transducer", "perception")
 	if err != nil {
 		// Log the error and fall back to embedded prompt
 		return understandingSystemPrompt

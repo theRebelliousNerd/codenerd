@@ -870,6 +870,13 @@ func (m *mockFailingVectorSearcher) Search(ctx context.Context, query string, li
 	return nil, fmt.Errorf("vector search unavailable")
 }
 
+func (m *mockFailingVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, fmt.Errorf("vector search unavailable")
+}
+
 // mockFallbackKernel simulates a kernel that supports fallback selection.
 // When provided with atoms, it selects mandatory atoms and those matching context.
 type mockFallbackKernel struct {

@@ -61,7 +61,7 @@ func (s *RequirementsInterrogatorShard) SetPromptAssembler(assembler *articulati
 
 // getSystemPrompt returns the JIT-compiled system prompt.
 // Returns empty string if JIT is unavailable.
-func (s *RequirementsInterrogatorShard) getSystemPrompt(ctx context.Context) string {
+func (s *RequirementsInterrogatorShard) getSystemPrompt(ctx context.Context, task string) string {
 	s.mu.RLock()
 	pa := s.promptAssembler
 	s.mu.RUnlock()
@@ -76,10 +76,11 @@ func (s *RequirementsInterrogatorShard) getSystemPrompt(ctx context.Context) str
 		return ""
 	}
 
-	pc := &articulation.PromptContext{
+	pc := (&articulation.PromptContext{
 		ShardID:   "requirements_interrogator",
 		ShardType: "requirements_interrogator",
-	}
+	}).WithSemanticQuery(task, 5)
+
 	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.SystemShards("[RequirementsInterrogator] [ERROR] JIT compilation failed: %v", err)
@@ -119,8 +120,8 @@ func (s *RequirementsInterrogatorShard) Execute(ctx context.Context, task string
 		}), nil
 	}
 
-	// Get JIT-compiled system prompt (no fallback constant)
-	systemPrompt := s.getSystemPrompt(ctx)
+	// 3. Build system prompt using JIT (required)
+	systemPrompt := s.getSystemPrompt(ctx, task)
 	if systemPrompt == "" {
 		// If JIT fails, return error rather than using hardcoded prompt
 		return "", fmt.Errorf("JIT prompt compilation failed - ensure atoms exist in internal/prompt/atoms/system/requirements_interrogator.yaml")

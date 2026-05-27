@@ -45,6 +45,12 @@ type ShardManager struct {
 	learningStore       types.LearningStore
 	reviewerFeedback    ReviewerFeedbackProvider
 
+	// PostSpawnHook is called on every newly created shard immediately after core
+	// dependency injection (kernel, llmClient, virtualStore). It lets the chat layer
+	// inject chat-specific dependencies (GlassBox, ToolEventBus, ToolStore, etc.)
+	// without introducing import cycles from shards → transparency/store.
+	postSpawnHook func(agent types.ShardAgent)
+
 	// Resource limits enforcement
 	limitsEnforcer types.LimitsEnforcer
 
@@ -179,6 +185,17 @@ func (sm *ShardManager) SetLearningStore(store types.LearningStore) {
 	defer sm.mu.Unlock()
 	sm.learningStore = store
 	logging.ShardsDebug("LearningStore attached to ShardManager")
+}
+
+// SetPostSpawnHook registers a callback that is invoked on every newly spawned
+// shard right after core dependency injection. This lets the chat layer inject
+// chat-specific dependencies (GlassBox, ToolEventBus, ToolStore, etc.) into
+// on-demand shards without creating import cycles.
+func (sm *ShardManager) SetPostSpawnHook(hook func(types.ShardAgent)) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.postSpawnHook = hook
+	logging.ShardsDebug("PostSpawnHook registered on ShardManager")
 }
 
 func (sm *ShardManager) RegisterShard(typeName string, factory types.ShardFactory) {

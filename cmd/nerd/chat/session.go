@@ -681,7 +681,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			}
 		}
 		if promptAssembler != nil {
-			transducer.SetPromptAssembler(promptAssembler)
+			transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(promptAssembler))
 		}
 
 		// Wire kernel to transducer for Mangle-based routing derivation.

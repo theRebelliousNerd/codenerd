@@ -33,14 +33,30 @@ func (s *CompilerVectorSearcher) SetCompiler(c *JITPromptCompiler) {
 	s.compiler = c
 }
 
+// EmbedQuery generates an embedding vector for the given query.
+func (s *CompilerVectorSearcher) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	s.mu.RLock()
+	engine := s.engine
+	s.mu.RUnlock()
+
+	if engine == nil || query == "" {
+		return nil, fmt.Errorf("no engine or query")
+	}
+
+	taskType := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
+	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+		return taskAware.EmbedWithTask(ctx, query, taskType)
+	}
+	return engine.Embed(ctx, query)
+}
+
 // Search performs semantic search over prompt_atoms embeddings.
 func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	s.mu.RLock()
 	compiler := s.compiler
-	engine := s.engine
 	s.mu.RUnlock()
 
-	if compiler == nil || engine == nil || query == "" {
+	if compiler == nil || query == "" {
 		return nil, nil
 	}
 	if limit <= 0 {
@@ -48,14 +64,7 @@ func (s *CompilerVectorSearcher) Search(ctx context.Context, query string, limit
 	}
 
 	// Embed query (prefer RETRIEVAL_QUERY if supported).
-	var queryEmbedding []float32
-	var err error
-	taskType := embedding.SelectTaskType(embedding.ContentTypeQuery, true)
-	if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
-		queryEmbedding, err = taskAware.EmbedWithTask(ctx, query, taskType)
-	} else {
-		queryEmbedding, err = engine.Embed(ctx, query)
-	}
+	queryEmbedding, err := s.EmbedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
