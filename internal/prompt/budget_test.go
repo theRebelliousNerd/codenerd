@@ -493,6 +493,13 @@ func BenchmarkGenerateReport(b *testing.B) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Undefined/Empty: Test empty or nil configurations such as `budgets` being empty map, `atoms` array being completely nil rather than just containing nil items, and `totalBudget` being 0 or negative.
+// TODO: TEST_GAP: Type Coercion / Precision Loss: `totalBudget` interacting with `budget.BasePercent` (float64) can lead to truncation/precision loss. Test with odd numbers where exact float division loses fractional tokens.
+// TODO: TEST_GAP: User Request Extremes: Test `totalBudget` near math.MaxInt (or math.MaxInt32). Validate that calculating `int(float64(totalBudget) * budget.BasePercent)` does not overflow int causing negative allocations.
+// TODO: TEST_GAP: User Request Extremes: Test with >5000 items in `atoms` to ensure the `maxAtomsLimit` branch executes correctly and unselected atoms are correctly bypassed or skipped.
+// TODO: TEST_GAP: User Request Extremes: Validate token addition (`catTokens += tokens`) behaves correctly if an atom is artificially crafted with near `math.MaxInt64` tokens (testing for overflow wrap-around in int64 math).
+// TODO: TEST_GAP: State Conflicts: Test concurrent access. Run `Fit` or `GenerateReport` in multiple goroutines while simultaneously calling `SetCategoryBudget`, `SetStrategy`, or `SetReservedHeadroom` to ensure `m.mu` locking prevents race conditions and crashes.
+
 func TestTokenBudgetManager_Fit_InvalidData(t *testing.T) {
 	manager := NewTokenBudgetManager()
 
