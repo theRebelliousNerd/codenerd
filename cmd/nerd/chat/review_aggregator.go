@@ -164,16 +164,37 @@ func parseShardOutput(output string, shardName string) []ParsedFinding {
 	return findings
 }
 
-// PersistReview saves a review to the database.
+// PersistReview saves a review and all its findings to the database.
 func persistReview(ctx context.Context, db *store.LocalStore, review *PersistedReview) error {
-	// Stub: review persistence disabled
-	if db != nil {
-		// Just to use db variable
+	if db == nil {
+		return fmt.Errorf("local store is nil")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	logging.Shards("Review persistence stub called for %s", review.ID)
+
+	logging.Shards("Persisting %d review findings for %s to SQLite...", review.TotalFindings, review.ID)
+
+	for shard, findings := range review.FindingsByShard {
+		for _, f := range findings {
+			sf := store.StoredReviewFinding{
+				FilePath:    f.File,
+				Line:        f.Line,
+				Severity:    f.Severity,
+				Category:    f.Category,
+				RuleID:      shard,
+				Message:     f.Message,
+				ProjectRoot: review.Target,
+			}
+			if sf.Category == "" {
+				sf.Category = "general"
+			}
+			if err := db.StoreReviewFinding(sf); err != nil {
+				logging.Get(logging.CategoryStore).Error("Failed to store review finding for %s:%d: %v", sf.FilePath, sf.Line, err)
+			}
+		}
+	}
+
 	return nil
 }
 

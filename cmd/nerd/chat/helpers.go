@@ -1660,6 +1660,32 @@ func (m Model) renderToolInfo(toolName string) string {
 		}
 	}
 
+	// Get recent execution stats from ToolStore
+	if m.toolStore != nil {
+		recent, err := m.toolStore.GetRecentByTool(toolName, 5)
+		if err == nil && len(recent) > 0 {
+			sb.WriteString("\n### Recent Executions\n\n")
+			sb.WriteString("| Time | Input Summary | Status | Duration | Refs |\n")
+			sb.WriteString("|------|---------------|--------|----------|------|\n")
+			for _, r := range recent {
+				inputSummary := r.Input
+				if len(inputSummary) > 25 {
+					inputSummary = inputSummary[:22] + "..."
+				}
+				if inputSummary == "" {
+					inputSummary = "_"
+				}
+				status := "✅ SUCCESS"
+				if !r.Success {
+					status = "❌ FAILED"
+				}
+				sb.WriteString(fmt.Sprintf("| %s | `%s` | %s | %dms | %d |\n",
+					r.CreatedAt.Format("15:04:05"), inputSummary, status, r.DurationMs, r.ReferenceCount))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
 	sb.WriteString("\n*Use `/tool run " + toolName + " <input>` to execute*\n")
 
 	return sb.String()

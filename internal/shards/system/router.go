@@ -612,6 +612,11 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 					logging.Get(logging.CategoryTools).Warn("Failed to persist tool execution: %v", err)
 				} else {
 					logging.ToolsDebug("Persisted tool execution: %s (tool=%s, size=%d bytes)", call.ID, route.ToolName, len(call.Result))
+					if call.Error == "" {
+						if refErr := r.ToolStore.IncrementReference(call.ID); refErr != nil {
+							logging.Get(logging.CategoryTools).Warn("Failed to increment tool reference: %v", refErr)
+						}
+					}
 				}
 			}
 

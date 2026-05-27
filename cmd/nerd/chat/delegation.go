@@ -854,6 +854,62 @@ Do NOT just advise - implement the solution.`,
 		strings.Join(specialist.Files, ", "),
 		specialist.Reason)
 
+	// Strategic Advisory Delegation check (consultation.go integration)
+	taskComplexity := "normal"
+	taskLower := strings.ToLower(task)
+	if strings.Contains(taskLower, "complex") || strings.Contains(taskLower, "security") ||
+		strings.Contains(taskLower, "architecture") || strings.Contains(taskLower, "critical") ||
+		strings.Contains(taskLower, "refactor") || len(specialist.Files) > 3 {
+		taskComplexity = "high"
+	}
+
+	if shards.ShouldConsultBeforeExecution(specialist.AgentName, taskComplexity) {
+		advisors := shards.GetStrategicAdvisorsFor(specialist.AgentName)
+		if len(advisors) > 0 {
+			m.ReportStatus("Consulting strategic advisors for complex task...")
+			sb.WriteString("### Phase 1: Strategic Consultation\n\n")
+			sb.WriteString(fmt.Sprintf("Before executing, executor **%s** consulted strategic advisors for guidance on this complex task:\n\n", specialist.AgentName))
+
+			advisorMatches := make([]shards.SpecialistMatch, 0, len(advisors))
+			for _, adv := range advisors {
+				class, _ := shards.GetSpecialistClassification(adv)
+				displayName := adv
+				if strings.ToLower(adv) == "securityauditor" {
+					displayName = "SecurityAuditor"
+				} else if strings.ToLower(adv) == "testarchitect" {
+					displayName = "TestArchitect"
+				}
+				advisorMatches = append(advisorMatches, shards.SpecialistMatch{
+					AgentName:      displayName,
+					Files:          specialist.Files,
+					Score:          1.0,
+					Reason:         fmt.Sprintf("Strategic advisor classification for %s", specialist.AgentName),
+					Classification: &class,
+					ShouldExecute:  false,
+				})
+			}
+
+			adviceResults := m.gatherSpecialistAdvice(ctx, verb, specialist.Files, advisorMatches)
+			var combinedAdvice strings.Builder
+			for _, adv := range adviceResults {
+				if adv.Err != nil {
+					sb.WriteString(fmt.Sprintf("**%s**: ⚠️ Failed to provide strategic advice\n\n", adv.Name))
+				} else {
+					sb.WriteString(fmt.Sprintf("**%s** strategic advice:\n%s\n\n", adv.Name, adv.Result))
+					combinedAdvice.WriteString(fmt.Sprintf("[%s strategic advice]: %s\n", adv.Name, adv.Result))
+				}
+			}
+
+			// Inject strategic advice into the task
+			if combinedAdvice.Len() > 0 {
+				specialistTask = fmt.Sprintf("%s\n\n[STRATEGIC ADVICE - Apply these high-level architectural recommendations from your advisors]:\n%s",
+					specialistTask, combinedAdvice.String())
+			}
+
+			sb.WriteString("---\n\n### Phase 2: Execution\n\n")
+		}
+	}
+
 	execStart := time.Now()
 	result, err := m.spawnTask(ctx, specialist.AgentName, specialistTask)
 	execDuration := time.Since(execStart)

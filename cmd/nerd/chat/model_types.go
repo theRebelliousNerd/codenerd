@@ -289,7 +289,8 @@ type Model struct {
 	transparencyMgr *transparency.TransparencyManager
 
 	// Background Observer Manager - runs observer specialists (Northstar) in background
-	observerMgr *shards.BackgroundObserverManager
+	observerMgr            *shards.BackgroundObserverManager
+	observerAssessmentChan chan shards.ObserverAssessment
 
 	// Consultation Manager - cross-specialist consultation protocol
 	consultationMgr *shards.ConsultationManager
@@ -626,6 +627,9 @@ type (
 
 	// glassBoxEventMsg carries a Glass Box event for inline display
 	glassBoxEventMsg transparency.GlassBoxEvent
+
+	// observerAssessmentMsg carries a background observer assessment for inline display
+	observerAssessmentMsg shards.ObserverAssessment
 
 	// traceUpdateMsg carries Mangle derivation trace data for the logic pane
 	traceUpdateMsg struct {

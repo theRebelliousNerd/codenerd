@@ -40,6 +40,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"codenerd/internal/store"
 	"codenerd/internal/transparency"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -1348,6 +1349,167 @@ You have an existing Northstar definition. What would you like to do?
 		return m, nil
 
 	case "/learn":
+		if len(parts) > 1 && (parts[1] == "list" || parts[1] == "candidates") {
+			if m.localDB == nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "No local database available.",
+					Time:    time.Now(),
+				})
+			} else {
+				candidates, err := m.localDB.ListLearningCandidates("", 50)
+				if err != nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: fmt.Sprintf("Failed to list candidates: %v", err),
+						Time:    time.Now(),
+					})
+				} else if len(candidates) == 0 {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: "No learning candidates found.",
+						Time:    time.Now(),
+					})
+				} else {
+					var sb strings.Builder
+					sb.WriteString("## Staging Learning Candidates\n\n")
+					sb.WriteString("| ID | Phrase | Verb | Target | Status | Count |\n")
+					sb.WriteString("|----|--------|------|--------|--------|-------|\n")
+					for _, c := range candidates {
+						sb.WriteString(fmt.Sprintf("| %d | `%s` | `%s` | `%s` | **%s** | %d |\n",
+							c.ID, c.Phrase, c.Verb, c.Target, c.Status, c.Count))
+					}
+					sb.WriteString("\n*Confirm or reject candidates using `/learn confirm <id>` or `/learn reject <id>`*")
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: sb.String(),
+						Time:    time.Now(),
+					})
+				}
+			}
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		if len(parts) > 1 && parts[1] == "confirm" {
+			if len(parts) < 3 {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "Usage: `/learn confirm <id>`",
+					Time:    time.Now(),
+				})
+			} else {
+				var id int64
+				if _, err := fmt.Sscanf(parts[2], "%d", &id); err != nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: "Invalid candidate ID. Must be an integer.",
+						Time:    time.Now(),
+					})
+				} else if m.localDB == nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: "No local database available.",
+						Time:    time.Now(),
+					})
+				} else {
+					cands, err := m.localDB.ListLearningCandidates("", 100)
+					var targetCand *store.LearningCandidate
+					if err == nil {
+						for _, c := range cands {
+							if c.ID == id {
+								targetCand = &c
+								break
+							}
+						}
+					}
+					if targetCand == nil {
+						m = m.addMessage(Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Candidate ID %d not found.", id),
+							Time:    time.Now(),
+						})
+					} else {
+						err := m.localDB.ConfirmLearningCandidate(id)
+						if err == nil && perception.SharedTaxonomy != nil {
+							verb := normalizeVerbAtom(targetCand.Verb)
+							fact := fmt.Sprintf(
+								`learned_exemplar("%s", %s, "%s", "", 0.90).`,
+								escapeMangleString(targetCand.Phrase),
+								verb,
+								escapeMangleString(targetCand.Target),
+							)
+							_ = perception.SharedTaxonomy.PersistLearnedFact(fact)
+						}
+						if err != nil {
+							m = m.addMessage(Message{
+								Role:    "assistant",
+								Content: fmt.Sprintf("Failed to confirm candidate: %v", err),
+								Time:    time.Now(),
+							})
+						} else {
+							m = m.addMessage(Message{
+								Role:    "assistant",
+								Content: fmt.Sprintf("✓ Confirmed learning candidate %d: `%s` -> `%s` successfully!",
+									id, targetCand.Phrase, targetCand.Verb),
+								Time:    time.Now(),
+							})
+						}
+					}
+				}
+			}
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
+		if len(parts) > 1 && parts[1] == "reject" {
+			if len(parts) < 3 {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: "Usage: `/learn reject <id>`",
+					Time:    time.Now(),
+				})
+			} else {
+				var id int64
+				if _, err := fmt.Sscanf(parts[2], "%d", &id); err != nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: "Invalid candidate ID. Must be an integer.",
+						Time:    time.Now(),
+					})
+				} else if m.localDB == nil {
+					m = m.addMessage(Message{
+						Role:    "assistant",
+						Content: "No local database available.",
+						Time:    time.Now(),
+					})
+				} else {
+					err := m.localDB.RejectLearningCandidate(id)
+					if err != nil {
+						m = m.addMessage(Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("Failed to reject candidate: %v", err),
+							Time:    time.Now(),
+						})
+					} else {
+						m = m.addMessage(Message{
+							Role:    "assistant",
+							Content: fmt.Sprintf("✓ Rejected learning candidate %d successfully.", id),
+							Time:    time.Now(),
+						})
+					}
+				}
+			}
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+
 		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Invoking Meta-Cognitive Supervisor (The Critic)... Analyzing recent turns for learning opportunities.",
@@ -1359,21 +1521,12 @@ You have an existing Northstar definition. What would you like to do?
 
 		return m, func() tea.Msg {
 			// Trigger the Ouroboros Loop
-			// We need to fetch recent traces. Since we don't have direct access to ReasoningTraces in the Model struct
-			// (we only have Message history), we should ideally rely on the TraceStore if available.
-			// But for now, we can construct traces from the session history or rely on the TaxonomyEngine's access if we passed it in.
-
-			// Actually, perception.SharedTaxonomy is available globally.
-			// And we have m.client.
-
-			// We need to convert m.history (Message) to perception.ReasoningTrace for the learner
 			var traces []perception.ReasoningTrace
 			for _, msg := range m.history {
-				// Convert TUI message to Trace format (simplified)
 				t := perception.ReasoningTrace{
-					UserPrompt: "...", // We don't have perfect mapping here, simplified for now
+					UserPrompt: "...",
 					Response:   msg.Content,
-					Success:    true, // Assumed
+					Success:    true,
 				}
 				if msg.Role == "user" {
 					t.UserPrompt = msg.Content

@@ -1154,6 +1154,12 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 					width: rect.width,
 					height: rect.height,
 					visible: isVisible
+				},
+				styles: {
+					display: style.display || '',
+					visibility: style.visibility || '',
+					opacity: style.opacity || '',
+					pointerEvents: style.pointerEvents || ''
 				}
 			};
 		});
@@ -1187,39 +1193,126 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 			Height  float64 `json:"height"`
 			Visible bool    `json:"visible"`
 		} `json:"layout"`
+		Styles map[string]string `json:"styles"`
 	}
 	if err := json.Unmarshal(raw, &nodes); err != nil {
 		return err
 	}
 
 	now := time.Now()
-	facts := make([]mangle.Fact, 0, len(nodes)*3)
+	facts := make([]mangle.Fact, 0, len(nodes)*6)
 	for _, n := range nodes {
-		// Include sessionID in all facts to associate DOM with specific browser session
+		// 1. Assert standard DOM predicates aligned with schemas_browser.mg (no sessionID prefix)
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
-			Args:      []interface{}{sessionID, n.ID, n.Tag, n.Text, n.Parent},
+			Args:      []interface{}{n.ID, n.Tag, n.Text, n.Parent},
 			Timestamp: now,
 		})
 		if n.Text != "" {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_text",
-				Args:      []interface{}{sessionID, n.ID, n.Text},
+				Args:      []interface{}{n.ID, n.Text},
 				Timestamp: now,
 			})
 		}
 		for k, v := range n.Attrs {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_attr",
-				Args:      []interface{}{sessionID, n.ID, k, v},
+				Args:      []interface{}{n.ID, k, v},
 				Timestamp: now,
 			})
+			facts = append(facts, mangle.Fact{
+				Predicate: "attribute",
+				Args:      []interface{}{n.ID, k, v},
+				Timestamp: now,
+			})
+			if v == "true" || v == "-1" {
+				facts = append(facts, mangle.Fact{
+					Predicate: "attribute",
+					Args:      []interface{}{n.ID, k, "/" + v},
+					Timestamp: now,
+				})
+			}
+		}
+
+		visibleAtom := "/false"
+		if n.Layout.Visible {
+			visibleAtom = "/true"
 		}
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_layout",
-			Args:      []interface{}{sessionID, n.ID, n.Layout.X, n.Layout.Y, n.Layout.Width, n.Layout.Height, fmt.Sprintf("%v", n.Layout.Visible)},
+			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height), visibleAtom},
 			Timestamp: now,
 		})
+
+		// 2. Assert element, position, and geometry predicates
+		facts = append(facts, mangle.Fact{
+			Predicate: "element",
+			Args:      []interface{}{n.ID, strings.ToLower(n.Tag), n.Parent},
+			Timestamp: now,
+		})
+		facts = append(facts, mangle.Fact{
+			Predicate: "position",
+			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
+			Timestamp: now,
+		})
+		facts = append(facts, mangle.Fact{
+			Predicate: "geometry",
+			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
+			Timestamp: now,
+		})
+
+		// 3. Assert interactable predicates
+		tagLower := strings.ToLower(n.Tag)
+		isInteractable := false
+		var elemType string
+		if tagLower == "button" || tagLower == "a" {
+			isInteractable = true
+			elemType = "/click"
+		} else if tagLower == "input" {
+			isInteractable = true
+			inputType := strings.ToLower(n.Attrs["type"])
+			if inputType == "checkbox" {
+				elemType = "/checkbox"
+			} else if inputType == "radio" {
+				elemType = "/radio"
+			} else if inputType == "submit" || inputType == "button" {
+				elemType = "/click"
+			} else {
+				elemType = "/input"
+			}
+		} else if tagLower == "textarea" || tagLower == "select" {
+			isInteractable = true
+			elemType = "/input"
+		}
+		if isInteractable {
+			facts = append(facts, mangle.Fact{
+				Predicate: "interactable",
+				Args:      []interface{}{n.ID, elemType},
+				Timestamp: now,
+			})
+		}
+
+		// 4. Assert css_property and computed_style predicates for computed styles
+		for k, v := range n.Styles {
+			if v != "" {
+				facts = append(facts, mangle.Fact{
+					Predicate: "computed_style",
+					Args:      []interface{}{n.ID, k, v},
+					Timestamp: now,
+				})
+				facts = append(facts, mangle.Fact{
+					Predicate: "css_property",
+					Args:      []interface{}{n.ID, k, v},
+					Timestamp: now,
+				})
+				facts = append(facts, mangle.Fact{
+					Predicate: "css_property",
+					Args:      []interface{}{n.ID, "/" + k, "/" + v},
+					Timestamp: now,
+				})
+			}
+		}
 	}
 	return m.engine.AddFacts(facts)
 }

@@ -9,6 +9,7 @@ import (
 	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/shards"
 	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
@@ -417,6 +418,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.continuationTotal = 2
 		}
 		m.continuationStep = 1
+		m.updateContinuationFacts()
 
 		m = m.pushAssistantMsg(msg.completedSurface)
 
@@ -465,6 +467,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.continuationStep++
+		m.updateContinuationFacts()
 
 		// Show progress for completed step
 		m = m.pushAssistantMsg(fmt.Sprintf("✓ [%d/%d] %s", m.continuationStep-1, m.continuationTotal, m.statusMessage))
@@ -530,6 +533,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear continuation facts from kernel
 		if m.kernel != nil {
 			_ = m.kernel.Retract("interrupt_requested")
+			_ = m.kernel.Retract("continuation_step")
 		}
 		m = m.pushAssistantMsg(fmt.Sprintf("✅ All %d steps complete.\n\n%s", msg.stepCount, msg.summary))
 
@@ -688,6 +692,18 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		m.viewport.GotoBottom()
 		return m, m.listenToolEvents() // Listen for next event
 
+	case observerAssessmentMsg:
+		// Handle background observer assessment
+		content := shards.FormatAssessment(shards.ObserverAssessment(msg))
+		m = m.addMessage(Message{
+			Role:    "system",
+			Content: content,
+			Time:    msg.Timestamp,
+		})
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		return m, m.listenObserverAssessments() // Keep listening
+
 	case memUsageMsg:
 		m.memAllocBytes = msg.Alloc
 		m.memSysBytes = msg.Sys
@@ -804,18 +820,36 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		if msg.err != nil {
 			m.textarea.Placeholder = "System boot failed. Fix config then retry /scan or restart."
 			m.textarea.Focus()
-		} else {
-			m.textarea.Placeholder = "Indexing workspace..."
+			return m, nil
 		}
+
+		m.textarea.Placeholder = "Indexing workspace..."
 
 		// Append any initial messages generated during boot
 		if msg.components != nil && len(msg.components.InitialMessages) > 0 {
 			m = m.addMessages(msg.components.InitialMessages...)
 		}
 
+		// Wire Background Observer Manager callback and start it
+		if m.observerMgr != nil {
+			m.observerAssessmentChan = make(chan shards.ObserverAssessment, 100)
+			assessCh := m.observerAssessmentChan
+			m.observerMgr.AddCallback(func(assessment shards.ObserverAssessment) {
+				select {
+				case assessCh <- assessment:
+				default:
+				}
+			})
+			if err := m.observerMgr.Start(); err != nil {
+				logging.Get(logging.CategoryShards).Error("Failed to start background observer manager: %v", err)
+			} else {
+				logging.Get(logging.CategoryShards).Info("Background observer manager started successfully")
+			}
+		}
+
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		// Also start listening for tool events (always active, not gated by Glass Box).
-		return m, tea.Batch(m.runScan(false), m.listenToolEvents())
+		// Also start listening for tool events and background observer assessments.
+		return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments())
 
 	case onboardingCheckMsg:
 		// Handle first-run detection result
@@ -921,4 +955,20 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd)
+}
+
+// updateContinuationFacts asserts/retracts continuation facts in the kernel.
+func (m *Model) updateContinuationFacts() {
+	if m.kernel == nil {
+		return
+	}
+	_ = m.kernel.Retract("continuation_step")
+	_ = m.kernel.Assert(core.Fact{
+		Predicate: "continuation_step",
+		Args:      []interface{}{float64(m.continuationStep), float64(m.continuationTotal)},
+	})
+	_ = m.kernel.Assert(core.Fact{
+		Predicate: "max_continuation_steps",
+		Args:      []interface{}{10.0},
+	})
 }

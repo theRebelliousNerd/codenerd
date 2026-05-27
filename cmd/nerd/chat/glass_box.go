@@ -269,3 +269,19 @@ func (m *Model) initToolEventBus(bus *transparency.ToolEventBus) {
 		m.toolEventChan = bus.Subscribe()
 	}
 }
+
+// listenObserverAssessments returns a tea.Cmd that waits for background observer assessments.
+func (m Model) listenObserverAssessments() tea.Cmd {
+	if m.observerAssessmentChan == nil {
+		return nil
+	}
+
+	assessChan := m.observerAssessmentChan
+	return func() tea.Msg {
+		assess, ok := <-assessChan
+		if !ok {
+			return nil // Channel closed
+		}
+		return observerAssessmentMsg(assess)
+	}
+}
