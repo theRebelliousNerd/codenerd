@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
 
@@ -13,17 +14,17 @@ type MockTaskExecutor struct {
 	LastIntent string
 }
 
-func (m *MockTaskExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
-	m.LastIntent = intent
+func (m *MockTaskExecutor) Execute(ctx context.Context, req session.TaskRequest) (string, error) {
+	m.LastIntent = req.IntentVerb
 	return "executed", nil
 }
 
-func (m *MockTaskExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	m.LastIntent = intent
+func (m *MockTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	m.LastIntent = req.IntentVerb
 	return "executed_with_context", nil
 }
 
-func (m *MockTaskExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
+func (m *MockTaskExecutor) ExecuteAsync(ctx context.Context, req session.TaskRequest) (string, error) {
 	return "task_id", nil
 }
 

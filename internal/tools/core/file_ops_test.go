@@ -49,9 +49,8 @@ func TestReadFileTool_Execute_FileNotFound(t *testing.T) {
 }
 
 func TestReadFileTool_Execute_Success(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	content := "Hello, World!\nSecond line."
 	os.WriteFile(tmpFile, []byte(content), 0644)
@@ -69,9 +68,8 @@ func TestReadFileTool_Execute_Success(t *testing.T) {
 }
 
 func TestReadFileTool_Execute_WithLineRange(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	content := "line1\nline2\nline3\nline4\nline5"
 	os.WriteFile(tmpFile, []byte(content), 0644)
@@ -116,9 +114,8 @@ func TestWriteFileTool_Execute_MissingPath(t *testing.T) {
 }
 
 func TestWriteFileTool_Execute_Success(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "new_file.txt")
 
 	result, err := executeWriteFile(context.Background(), map[string]any{
@@ -141,9 +138,8 @@ func TestWriteFileTool_Execute_Success(t *testing.T) {
 }
 
 func TestWriteFileTool_Execute_CreatesDirs(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "subdir", "nested", "file.txt")
 
 	_, err := executeWriteFile(context.Background(), map[string]any{
@@ -198,9 +194,8 @@ func TestEditFileTool_Execute_MissingSearch(t *testing.T) {
 }
 
 func TestEditFileTool_Execute_Success(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	content := "Hello, OLD, goodbye OLD"
 	os.WriteFile(tmpFile, []byte(content), 0644)
@@ -226,9 +221,8 @@ func TestEditFileTool_Execute_Success(t *testing.T) {
 }
 
 func TestEditFileTool_Execute_NoMatch(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "test.txt")
 	os.WriteFile(tmpFile, []byte("Hello, World"), 0644)
 
@@ -266,9 +260,8 @@ func TestDeleteFileTool_Execute_MissingPath(t *testing.T) {
 }
 
 func TestDeleteFileTool_Execute_Success(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	tmpFile := filepath.Join(tmpDir, "to_delete.txt")
 	os.WriteFile(tmpFile, []byte("delete me"), 0644)
 
@@ -325,9 +318,8 @@ func TestListFilesTool_Execute_MissingPath(t *testing.T) {
 }
 
 func TestListFilesTool_Execute_Success(t *testing.T) {
-	t.Parallel()
-
 	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
 	// Create some files
 	os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte(""), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "file2.go"), []byte(""), 0644)

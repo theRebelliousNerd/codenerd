@@ -306,7 +306,16 @@ func (j *JITExecutor) intentToAgentName(intent string) string {
 		return "reviewer"
 	case "/research", "/learn", "/document":
 		return "researcher"
-	default:
-		return "executor"
+	case "/attack":
+		return "nemesis"
+	case "/legislate":
+		return "legislator"
+	case "/plan":
+		return "planner"
 	}
+	// /consult/<persona> → <persona>
+	if strings.HasPrefix(intent, "/consult/") {
+		return strings.TrimPrefix(intent, "/consult/")
+	}
+	return "executor"
 }

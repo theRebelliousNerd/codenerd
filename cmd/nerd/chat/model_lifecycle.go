@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/perception"
 
 	textarea "github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,12 +72,11 @@ func (m *Model) Shutdown() {
 			}
 		}
 
-		// Close status channel to unblock waitForStatus
-		// Set to nil after close to prevent sends on closed channel
-		if m.statusChan != nil {
-			close(m.statusChan)
-			m.statusChan = nil
-		}
+		// NOTE: statusChan is intentionally NOT closed here. Bubble Tea models
+		// are passed by value, so copies of this Model may still hold a
+		// reference to statusChan and call ReportStatus(); closing the channel
+		// would panic those sends. waitForStatus and ReportStatus both observe
+		// shutdownCtx (cancelled above) to exit cleanly without a close.
 
 		// Close local database connection
 		if m.localDB != nil {
@@ -102,6 +102,15 @@ func (m *Model) Shutdown() {
 		if m.shardMgr != nil {
 			m.shardMgr.StopAll()
 		}
+
+		// Bug #17: stop the shared taxonomy consolidation worker.
+		// SharedTaxonomy is a package-level singleton started in init();
+		// without this call the worker goroutine leaks past chat shutdown.
+		// StopWorker is nil-guarded and idempotent (sync.Once), so multiple
+		// callers (e.g. chat + tests) can invoke it safely.
+		if perception.SharedTaxonomy != nil {
+			perception.SharedTaxonomy.StopWorker()
+		}
 	})
 }
 
@@ -120,21 +129,51 @@ func (m Model) performShutdown() {
 	modelPtr.Shutdown()
 }
 
-// waitForStatus listens for status updates
+// waitForStatus listens for status updates.
+// Returns nil (terminating the cmd) when shutdown is signaled, so the goroutine
+// does not leak after the program exits. The statusChan is never closed —
+// model copies may still hold references to it.
 func (m Model) waitForStatus() tea.Cmd {
 	return func() tea.Msg {
-		return statusMsg(<-m.statusChan)
+		if m.statusChan == nil {
+			return nil
+		}
+		select {
+		case s, ok := <-m.statusChan:
+			if !ok {
+				return nil
+			}
+			return statusMsg(s)
+		case <-m.shutdownCtx.Done():
+			return nil
+		}
 	}
 }
 
-// ReportStatus sends a non-blocking status update
+// ReportStatus sends a non-blocking status update.
+// Safe to call on stale Model copies after Shutdown: shutdownCtx cancellation
+// short-circuits the send, and the select is non-blocking via default.
 func (m Model) ReportStatus(msg string) {
-	if m.statusChan != nil {
+	if m.statusChan == nil {
+		return
+	}
+	// Fast-path: if shutdown has been signaled, drop the update.
+	if m.shutdownCtx != nil {
 		select {
-		case m.statusChan <- msg:
+		case <-m.shutdownCtx.Done():
+			return
 		default:
-			// Channel full, drop update to prevent blocking
 		}
+	}
+	defer func() {
+		// Defensive: if a future change ever closes statusChan, swallow the
+		// panic rather than crash the caller's goroutine.
+		_ = recover()
+	}()
+	select {
+	case m.statusChan <- msg:
+	default:
+		// Channel full, drop update to prevent blocking
 	}
 }
 

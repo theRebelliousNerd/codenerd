@@ -18,10 +18,22 @@ import (
 // the key was not fully consumed (e.g., fell through to textarea update).
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
-	// If the error panel is focused, capture scroll keys first.
-	// Keep global keys (Ctrl+C, etc.) handled normally.
+	// Global exit keys are ALWAYS honored, even when the error panel is focused
+	// or a non-chat view is active. These must never be swallowed by focus state.
+	switch msg.Type {
+	case tea.KeyCtrlC, tea.KeyCtrlD:
+		// Graceful shutdown before quit
+		m.performShutdown()
+		return m, tea.Quit, true
+	}
+
+	// If the error panel is focused, capture scroll keys.
+	// Global exit keys handled above; Ctrl+X (stop) is also honored here so
+	// users can interrupt an in-flight operation without first un-focusing.
 	if m.focusError && m.err != nil && m.showError && !msg.Alt {
 		switch msg.Type {
+		case tea.KeyCtrlX:
+			// Fall through to global Ctrl+X handler below.
 		case tea.KeyEsc:
 			m.focusError = false
 			return m, nil, true
@@ -35,13 +47,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 	}
 
-	// Global Keybindings (Ctrl+C, Ctrl+X, Shift+Tab, Esc)
+	// Global Keybindings (Ctrl+X, Shift+Tab)
+	// Esc is intentionally NOT handled globally — each view handles its own
+	// Esc below so view-specific cleanup (e.g., campaign pause) can run.
 	switch msg.Type {
-	case tea.KeyCtrlC:
-		// Graceful shutdown before quit
-		m.performShutdown()
-		return m, tea.Quit, true
-
 	case tea.KeyCtrlX:
 		// Ctrl+X: Stop current activity immediately
 		if m.isLoading {
@@ -70,18 +79,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 			_ = m.Config.Save(config.DefaultUserConfigPath())
 		}
 		return m, nil, true
+	}
 
-	case tea.KeyEsc:
-		if m.viewMode != ChatView {
-			m.viewMode = ChatView // Escape current view
-			return m, nil, true
-		}
-		// If already in ChatView, Esc does nothing (use Ctrl+C to quit)
+	// Esc in ChatView is a no-op (use Ctrl+C to quit). For non-chat views,
+	// fall through to the view-specific Esc handlers below.
+	if msg.Type == tea.KeyEsc && m.viewMode == ChatView {
 		return m, nil, true
 	}
 
 	// List View Handling
 	if m.viewMode == ListView {
+		// Esc returns to chat (preserve original global-handler behavior)
+		if msg.Type == tea.KeyEsc {
+			m.viewMode = ChatView
+			return m, nil, true
+		}
 		// Check for Enter to select session
 		if msg.Type == tea.KeyEnter {
 			if selected, ok := m.list.SelectedItem().(sessionItem); ok {
@@ -96,6 +108,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	// File Picker View Handling
 	if m.viewMode == FilePickerView {
+		// Esc returns to chat (preserve original global-handler behavior)
+		if msg.Type == tea.KeyEsc {
+			m.viewMode = ChatView
+			m.filepicker = filepicker.New()
+			return m, nil, true
+		}
 		var cmd tea.Cmd
 		m.filepicker, cmd = m.filepicker.Update(msg)
 
@@ -122,6 +140,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	if m.viewMode == UsageView {
+		// Esc returns to chat (preserve original global-handler behavior)
+		if msg.Type == tea.KeyEsc {
+			m.viewMode = ChatView
+			return m, nil, true
+		}
 		var cmd tea.Cmd
 		m.usagePage, cmd = m.usagePage.Update(msg)
 		return m, cmd, true

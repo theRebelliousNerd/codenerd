@@ -54,7 +54,7 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	// Let's check needsSubagent in task_executor.go
 	// complexIntents: /research, /implement, /refactor, /campaign
 
-	result, err := jitExec.Execute(context.Background(), "/fix", "Fix the bug")
+	result, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "Fix the bug"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestJITExecutor_ExecuteWithContext_PreservesInlineIntent(t *testing.T) {
 
 	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
 
-	result, err := jitExec.ExecuteWithContext(context.Background(), "/review", "internal/core/shards/agents.go", nil, types.PriorityNormal)
+	result, err := jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/review", Task: "internal/core/shards/agents.go"}, nil, types.PriorityNormal)
 	if err != nil {
 		t.Fatalf("ExecuteWithContext failed: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestJITExecutor_Execute_SubagentExecution(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := jitExec.Execute(ctx, "/research", "Research this topic")
+	result, err := jitExec.Execute(ctx, TaskRequest{IntentVerb: "/research", Task: "Research this topic"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestJITExecutor_ExecuteAsync(t *testing.T) {
 	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
 
 	// Execute Async
-	taskID, err := jitExec.ExecuteAsync(context.Background(), "/test", "Run tests")
+	taskID, err := jitExec.ExecuteAsync(context.Background(), TaskRequest{IntentVerb: "/test", Task: "Run tests"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -230,15 +230,16 @@ func TestJITExecutor_NullUndefinedEmpty(t *testing.T) {
 	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
 
 	// 1. Empty task and intent
-	_, err := jitExec.Execute(context.Background(), "", "")
+	_, err := jitExec.Execute(context.Background(), TaskRequest{})
 	if err != nil {
-		// Might fail down the line, but shouldn't panic
+		// Might fail down the line, but shouldn't panic — and with the new
+		// strict intent validation, empty intent IS expected to fail.
 		t.Logf("Empty execute returned: %v", err)
 	}
 
 	// 2. sessionCtx is a non-nil pointer to empty struct
 	emptyCtx := &types.SessionContext{}
-	_, err = jitExec.ExecuteWithContext(context.Background(), "", "", emptyCtx, types.PriorityNormal)
+	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{}, emptyCtx, types.PriorityNormal)
 	if err != nil {
 		t.Logf("Empty context execute returned: %v", err)
 	}
@@ -274,13 +275,13 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 	)
 	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
 
-	// 1. Malformed prefixes, multiple slashes, invalid Unicode in intent
+	// 1. Malformed prefixes, multiple slashes, invalid Unicode in intent.
+	// With the strict TaskRequest validation, intents that don't start with
+	// "/" are rejected — that's the intended behavior; we only check that
+	// the validation doesn't panic on garbage input.
 	intents := []string{"///refactor", "\\x80\\x81\\x82", "/   /test", "invalid \xff"}
 	for _, intent := range intents {
-		_, err := jitExec.Execute(context.Background(), intent, "task")
-		if err != nil {
-			t.Errorf("Execute failed on intent %q: %v", intent, err)
-		}
+		_, _ = jitExec.Execute(context.Background(), TaskRequest{IntentVerb: intent, Task: "task"})
 	}
 
 	// 2. Massive whitespace, binary/malformed UTF-8 in task strings
@@ -295,7 +296,7 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 		"\x00\x01\x02\xff\xfe",
 	}
 	for _, task := range tasks {
-		_, err := jitExec.Execute(context.Background(), "/fix", task)
+		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: task})
 		if err != nil {
 			t.Errorf("Execute failed on malformed task: %v", err)
 		}
@@ -326,7 +327,7 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	for i := 0; i < 50000; i++ {
 		massiveTask.WriteString("This is a very long string used to simulate a massive task payload from the user. ")
 	}
-	_, err := jitExec.Execute(context.Background(), "/fix", massiveTask.String())
+	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: massiveTask.String()})
 	if err != nil {
 		t.Errorf("Failed with massive task: %v", err)
 	}
@@ -340,7 +341,7 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, e := jitExec.ExecuteAsync(context.Background(), "/research", "test")
+			_, e := jitExec.ExecuteAsync(context.Background(), TaskRequest{IntentVerb: "/research", Task: "test"})
 			if e != nil {
 				errMu.Lock()
 				errCount++
@@ -356,11 +357,11 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	}
 
 	// 3. Extreme priority values
-	_, err = jitExec.ExecuteWithContext(context.Background(), "/fix", "task", &types.SessionContext{}, types.SpawnPriority(-2147483648))
+	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(-2147483648))
 	if err != nil {
 		t.Errorf("Failed with min priority: %v", err)
 	}
-	_, err = jitExec.ExecuteWithContext(context.Background(), "/fix", "task", &types.SessionContext{}, types.SpawnPriority(2147483647))
+	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(2147483647))
 	if err != nil {
 		t.Errorf("Failed with max priority: %v", err)
 	}
@@ -389,7 +390,7 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 				defer wg.Done()
 				// /fix is an inline intent (needsSubagent is false)
 				ctx := &types.SessionContext{DreamMode: false}
-				_, _ = jitExec.ExecuteWithContext(context.Background(), "/fix", "task", ctx, types.PriorityNormal)
+				_, _ = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "task"}, ctx, types.PriorityNormal)
 			}(i)
 		}
 		wg.Wait()
@@ -397,7 +398,7 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 
 	t.Run("WaitForResult Context Cancellation", func(t *testing.T) {
 		// Spawn a subagent that will take some time
-		taskID, err := jitExec.ExecuteAsync(context.Background(), "/research", "long task")
+		taskID, err := jitExec.ExecuteAsync(context.Background(), TaskRequest{IntentVerb: "/research", Task: "long task"})
 		if err != nil {
 			t.Fatalf("ExecuteAsync failed: %v", err)
 		}
@@ -428,7 +429,7 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				taskID, _ := jitExec.ExecuteAsync(context.Background(), "/research", "test task")
+				taskID, _ := jitExec.ExecuteAsync(context.Background(), TaskRequest{IntentVerb: "/research", Task: "test task"})
 				
 				// Concurrently poll GetResult and WaitForResult
 				var innerWg sync.WaitGroup

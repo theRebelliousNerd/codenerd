@@ -14,12 +14,8 @@ func TestAgentConfigValidation(t *testing.T) {
 			name: "Valid Config",
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "You are a helpful agent.",
-				Tools: ToolSet{
-					AllowedTools: []string{"read_file", "write_file"},
-				},
-				Policies: PolicySet{
-					Files: []string{"base.mg", "coder.mg"},
-				},
+				AllowedTools:   []string{"read_file", "write_file"},
+				Policies:       []string{"base.mg", "coder.mg"},
 			},
 			wantErr: false,
 		},
@@ -27,12 +23,8 @@ func TestAgentConfigValidation(t *testing.T) {
 			name: "Missing Identity",
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "",
-				Tools: ToolSet{
-					AllowedTools: []string{"read_file"},
-				},
-				Policies: PolicySet{
-					Files: []string{"base.mg"},
-				},
+				AllowedTools:   []string{"read_file"},
+				Policies:       []string{"base.mg"},
 			},
 			wantErr: true,
 		},
@@ -40,12 +32,8 @@ func TestAgentConfigValidation(t *testing.T) {
 			name: "Whitespace-only Identity",
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "   \t\n  ",
-				Tools: ToolSet{
-					AllowedTools: []string{"read_file"},
-				},
-				Policies: PolicySet{
-					Files: []string{"base.mg"},
-				},
+				AllowedTools:   []string{"read_file"},
+				Policies:       []string{"base.mg"},
 			},
 			wantErr: true,
 		},
@@ -53,12 +41,8 @@ func TestAgentConfigValidation(t *testing.T) {
 			name: "Empty Policies",
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "Identity",
-				Tools: ToolSet{
-					AllowedTools: []string{"read_file"},
-				},
-				Policies: PolicySet{
-					Files: []string{},
-				},
+				AllowedTools:   []string{"read_file"},
+				Policies:       []string{},
 			},
 			wantErr: true,
 		},
@@ -66,12 +50,8 @@ func TestAgentConfigValidation(t *testing.T) {
 			name: "Nil Policies Files",
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "Identity",
-				Tools: ToolSet{
-					AllowedTools: []string{"read_file"},
-				},
-				Policies: PolicySet{
-					Files: nil,
-				},
+				AllowedTools:   []string{"read_file"},
+				Policies:       nil,
 			},
 			wantErr: true,
 		},

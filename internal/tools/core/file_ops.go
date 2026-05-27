@@ -40,9 +40,18 @@ func ReadFileTool() *tools.Tool {
 }
 
 func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+
+	root, err := workspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(root, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	logging.VirtualStoreDebug("read_file: path=%s", path)
@@ -54,34 +63,60 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 
 	result := string(content)
 
-	// Handle line range if specified
-	startLine, hasStart := args["start_line"].(int)
-	endLine, hasEnd := args["end_line"].(int)
+	// Handle line range if specified.
+	// LLM tool args may arrive as float64 via JSON; coerce robustly.
+	startLine, hasStart := coerceInt(args["start_line"])
+	endLine, hasEnd := coerceInt(args["end_line"])
 
 	if hasStart || hasEnd {
 		lines := strings.Split(result, "\n")
+		totalLines := len(lines)
 
 		if !hasStart {
 			startLine = 1
 		}
 		if !hasEnd {
-			endLine = len(lines)
+			endLine = totalLines
 		}
 
-		// Convert to 0-indexed
-		startLine--
-		if startLine < 0 {
-			startLine = 0
+		// Clamp to valid 1-indexed range
+		if startLine < 1 {
+			startLine = 1
 		}
-		if endLine > len(lines) {
-			endLine = len(lines)
+		if startLine > totalLines {
+			startLine = totalLines
+		}
+		if endLine < startLine {
+			endLine = startLine
+		}
+		if endLine > totalLines {
+			endLine = totalLines
 		}
 
-		result = strings.Join(lines[startLine:endLine], "\n")
+		// Convert to 0-indexed slice bounds
+		result = strings.Join(lines[startLine-1:endLine], "\n")
 	}
 
 	logging.VirtualStore("read_file completed: %s (%d bytes)", path, len(result))
 	return result, nil
+}
+
+// coerceInt accepts an int or a JSON-decoded float64 and returns an int.
+// LLM tool args arrive via JSON, so integers commonly decode as float64.
+func coerceInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	}
+	return 0, false
 }
 
 // WriteFileTool returns a tool for writing content to a file.
@@ -114,16 +149,33 @@ func WriteFileTool() *tools.Tool {
 }
 
 func executeWriteFile(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
 	}
 
-	content, _ := args["content"].(string)
+	// Reject non-string content rather than silently writing an empty file.
+	rawContent, ok := args["content"]
+	if !ok {
+		return "", fmt.Errorf("content is required")
+	}
+	content, ok := rawContent.(string)
+	if !ok {
+		return "", fmt.Errorf("content must be a string, got %T", rawContent)
+	}
 
 	createDirs := true
 	if cd, ok := args["create_dirs"].(bool); ok {
 		createDirs = cd
+	}
+
+	root, err := workspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(root, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	logging.VirtualStoreDebug("write_file: path=%s, size=%d", path, len(content))
@@ -178,8 +230,8 @@ func EditFileTool() *tools.Tool {
 }
 
 func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
 	}
 
@@ -193,6 +245,15 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 	replaceAll := false
 	if ra, ok := args["replace_all"].(bool); ok {
 		replaceAll = ra
+	}
+
+	root, err := workspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(root, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	logging.VirtualStoreDebug("edit_file: path=%s, old_len=%d, new_len=%d", path, len(oldText), len(newText))
@@ -247,9 +308,18 @@ func DeleteFileTool() *tools.Tool {
 }
 
 func executeDeleteFile(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
 		return "", fmt.Errorf("path is required")
+	}
+
+	root, err := workspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(root, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	logging.VirtualStoreDebug("delete_file: path=%s", path)
@@ -303,9 +373,9 @@ func ListFilesTool() *tools.Tool {
 }
 
 func executeListFiles(ctx context.Context, args map[string]any) (string, error) {
-	path, _ := args["path"].(string)
-	if path == "" {
-		path = "."
+	rawPath, _ := args["path"].(string)
+	if rawPath == "" {
+		rawPath = "."
 	}
 
 	recursive := false
@@ -316,6 +386,15 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 	includeHidden := false
 	if ih, ok := args["include_hidden"].(bool); ok {
 		includeHidden = ih
+	}
+
+	root, err := workspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	path, err := resolveWorkspacePath(root, rawPath)
+	if err != nil {
+		return "", err
 	}
 
 	logging.VirtualStoreDebug("list_files: path=%s, recursive=%v", path, recursive)
@@ -330,6 +409,15 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 
 			name := info.Name()
 			if !includeHidden && strings.HasPrefix(name, ".") {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Defensive containment: skip anything that resolves outside the
+			// workspace root (e.g. a symlink pointing out of tree).
+			if _, guardErr := resolveWorkspacePath(root, p); guardErr != nil {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}

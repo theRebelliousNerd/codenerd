@@ -1033,15 +1033,28 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		dreamToolCh := make(chan core.ToolNeed, 16)
 		dreamToolQ = dreamToolCh
 		go func() {
-			for need := range dreamToolCh {
-				ctx, cancel := context.WithTimeout(autopoiesisCtx, 5*time.Minute)
-				autoNeed := &autopoiesis.ToolNeed{
-					Name:     need.Name,
-					Purpose:  need.Description,
-					Priority: need.Priority,
+			// Bug #16 fix: bound goroutine lifetime to autopoiesisCtx.
+			// Previously this used `for need := range dreamToolCh` with no
+			// cancellation arm. The channel is never closed (its sender is the
+			// DreamRouter, which we don't own here), so on autopoiesis shutdown
+			// the goroutine would block forever on a receive and leak.
+			for {
+				select {
+				case <-autopoiesisCtx.Done():
+					return
+				case need, ok := <-dreamToolCh:
+					if !ok {
+						return
+					}
+					ctx, cancel := context.WithTimeout(autopoiesisCtx, 5*time.Minute)
+					autoNeed := &autopoiesis.ToolNeed{
+						Name:     need.Name,
+						Purpose:  need.Description,
+						Priority: need.Priority,
+					}
+					autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
+					cancel()
 				}
-				autopoiesisOrch.ExecuteOuroborosLoop(ctx, autoNeed)
-				cancel()
 			}
 		}()
 		logStep("Dream → Ouroboros tool need bridge started")
@@ -1898,4 +1911,16 @@ func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPro
 		contentChan <- res
 	}()
 	return contentChan, errorChan
+}
+
+type chatTaskDelegatorAdapter struct {
+	executor session.TaskExecutor
+}
+
+func (a *chatTaskDelegatorAdapter) Execute(ctx context.Context, intent string, task string) (string, error) {
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Task:       task,
+	}
+	return a.executor.Execute(ctx, req)
 }

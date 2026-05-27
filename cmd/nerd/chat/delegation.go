@@ -19,7 +19,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	"codenerd/internal/prompt"
+	promptpkg "codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/types"
@@ -33,16 +33,17 @@ import (
 
 // spawnTask is the unified entry point for task execution in the chat model.
 // It uses TaskExecutor for all task execution.
+//
+// The shardType argument may be either an intent verb (e.g. "/fix") or a
+// persona / agent name (e.g. "coder", "reviewer", "requirements_interrogator").
+// shardTypeToTaskRequest normalizes these into a valid TaskRequest so the
+// executor's strict IntentVerb validation doesn't trip on persona names.
 func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (string, error) {
 	if m.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	req := session.TaskRequest{
-		IntentVerb: shardType,
-		Task:       task,
-	}
-	return m.taskExecutor.Execute(ctx, req)
+	return m.taskExecutor.Execute(ctx, shardTypeToTaskRequest(shardType, task))
 }
 
 // spawnTaskWithContext spawns a task with additional session context and priority.
@@ -52,11 +53,53 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	req := session.TaskRequest{
-		IntentVerb: shardType,
-		Task:       task,
+	return m.taskExecutor.ExecuteWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, priority)
+}
+
+// shardTypeToTaskRequest maps a shard/persona name OR an intent verb into a
+// TaskRequest. The executor requires IntentVerb to start with "/", so persona
+// names get mapped to their canonical intent (and recorded as Persona for
+// downstream routing).
+func shardTypeToTaskRequest(shardType, task string) session.TaskRequest {
+	st := strings.TrimSpace(shardType)
+	if strings.HasPrefix(st, "/") {
+		// Already an intent verb.
+		return session.TaskRequest{IntentVerb: st, Task: task}
 	}
-	return m.taskExecutor.ExecuteWithContext(ctx, req, sessionCtx, priority)
+	intent := personaToIntent(st)
+	return session.TaskRequest{IntentVerb: intent, Persona: st, Task: task}
+}
+
+// personaToIntent maps a persona / agent name to its canonical intent verb.
+// Unknown personas fall back to /consult/<name> so the executor can dispatch
+// to a consultation flow rather than rejecting the request.
+func personaToIntent(persona string) string {
+	switch strings.ToLower(persona) {
+	case "coder":
+		return "/fix"
+	case "tester":
+		return "/test"
+	case "reviewer":
+		return "/review"
+	case "researcher":
+		return "/research"
+	case "nemesis":
+		return "/attack"
+	case "librarian":
+		return "/learn"
+	case "planner":
+		return "/plan"
+	case "legislator":
+		return "/legislate"
+	case "constitution":
+		return "/audit"
+	case "":
+		return "/general"
+	default:
+		// Custom specialist — route through a consultation intent so the
+		// executor and config factory can pick it up by name.
+		return "/consult/" + persona
+	}
 }
 
 func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {

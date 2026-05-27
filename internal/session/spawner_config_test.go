@@ -60,9 +60,7 @@ mode: "SingleTurn"
 	if len(cfg.AllowedTools) != 1 || cfg.AllowedTools[0] != "read_file" {
 		t.Errorf("Unexpected tools: %v", cfg.AllowedTools)
 	}
-	if cfg.Mode != "SingleTurn" {
-		t.Errorf("Expected Mode 'SingleTurn', got '%s'", cfg.Mode)
-	}
+	// (Mode field removed from EffectiveAgentRuntimeConfig; no longer asserted.)
 
 	// Test Case 2: Load missing config (Fallback)
 	// With nil configFactory, it should return empty config

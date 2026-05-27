@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/session"
 	"codenerd/internal/types"
 )
 
@@ -123,30 +124,30 @@ func TestExtractPathFromDescription_EdgeCases(t *testing.T) {
 
 
 type MockTaskExecutor struct {
-	ExecuteFunc            func(ctx context.Context, intent string, task string) (string, error)
-	ExecuteWithContextFunc func(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
-	ExecuteAsyncFunc       func(ctx context.Context, intent string, task string) (string, error)
+	ExecuteFunc            func(ctx context.Context, req session.TaskRequest) (string, error)
+	ExecuteWithContextFunc func(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
+	ExecuteAsyncFunc       func(ctx context.Context, req session.TaskRequest) (string, error)
 	GetResultFunc          func(taskID string) (string, bool, error)
 	WaitForResultFunc      func(ctx context.Context, taskID string) (string, error)
 }
 
-func (m *MockTaskExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
+func (m *MockTaskExecutor) Execute(ctx context.Context, req session.TaskRequest) (string, error) {
 	if m.ExecuteFunc != nil {
-		return m.ExecuteFunc(ctx, intent, task)
+		return m.ExecuteFunc(ctx, req)
 	}
 	return "", errors.New("not implemented")
 }
 
-func (m *MockTaskExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+func (m *MockTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
 	if m.ExecuteWithContextFunc != nil {
-		return m.ExecuteWithContextFunc(ctx, intent, task, sessionCtx, priority)
+		return m.ExecuteWithContextFunc(ctx, req, sessionCtx, priority)
 	}
 	return "", errors.New("not implemented")
 }
 
-func (m *MockTaskExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
+func (m *MockTaskExecutor) ExecuteAsync(ctx context.Context, req session.TaskRequest) (string, error) {
 	if m.ExecuteAsyncFunc != nil {
-		return m.ExecuteAsyncFunc(ctx, intent, task)
+		return m.ExecuteAsyncFunc(ctx, req)
 	}
 	return "", errors.New("not implemented")
 }
@@ -177,10 +178,10 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 	t.Run("empty shard type", func(t *testing.T) {
 		o := &Orchestrator{
 			taskExecutor: &MockTaskExecutor{
-				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 					// With the removal of LegacyShardNameToIntent, empty intent is passed as-is
-					if intent != "" {
-						return "", fmt.Errorf("expected empty intent to be passed directly, got %s", intent)
+					if req.IntentVerb != "" {
+						return "", fmt.Errorf("expected empty intent to be passed directly, got %s", req.IntentVerb)
 					}
 					return "success", nil
 				},
@@ -205,8 +206,8 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 
 		o := &Orchestrator{
 			taskExecutor: &MockTaskExecutor{
-				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
-					if len(task) != len(taskStr) {
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+					if len(req.Task) != len(taskStr) {
 						return "", errors.New("task payload size mismatch")
 					}
 					return "success", nil
@@ -225,7 +226,7 @@ func TestSpawnTask_InputValidation(t *testing.T) {
 	t.Run("valid taskExecutor", func(t *testing.T) {
 		o := &Orchestrator{
 			taskExecutor: &MockTaskExecutor{
-				ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+				ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 					return "success", nil
 				},
 			},
@@ -476,8 +477,8 @@ func TestExecuteTask_Dispatch(t *testing.T) {
 			},
 		},
 		taskExecutor: &MockTaskExecutor{
-			ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
-				called = intent
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
+				called = req.IntentVerb
 				return "success", nil
 			},
 		},
@@ -494,7 +495,7 @@ func TestNullEmptyInputs(t *testing.T) {
 	ctx := context.Background()
 	o := &Orchestrator{
 		taskExecutor: &MockTaskExecutor{
-			ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) { return "success", nil },
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) { return "success", nil },
 		},
 	}
 
@@ -546,7 +547,7 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 	o := &Orchestrator{
 		workspace: t.TempDir(),
 		taskExecutor: &MockTaskExecutor{
-			ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 				return "", errors.New("shard failure")
 			},
 		},
@@ -575,7 +576,7 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 	o := &Orchestrator{
 		workspace: t.TempDir(),
 		taskExecutor: &MockTaskExecutor{
-			ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 				// Success but file is NOT created!
 				return "I did it", nil
 			},

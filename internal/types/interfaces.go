@@ -43,6 +43,45 @@ type LLMClient interface {
 	CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error)
 }
 
+// Message represents a turn in a multi-turn LLM conversation.
+// Either Text is set, or ToolCalls (assistant turn), or ToolResults (user turn).
+type Message struct {
+	Role        string       // "user" or "assistant"
+	Text        string       // Plain text content (assistant or user)
+	ToolCalls   []ToolCall   // Assistant tool-use blocks
+	ToolResults []ToolResult // User tool_result blocks (paired by ToolUseID)
+}
+
+// ToolResult represents the result of executing a tool call, to be sent back
+// to the LLM. The ToolUseID must match the ID of the originating ToolCall so
+// Anthropic/OpenAI can pair the result with the request.
+type ToolResult struct {
+	ToolUseID string // Matches the ID of the originating ToolCall
+	Content   string // Tool output (truncated if huge)
+	IsError   bool   // True if the tool execution failed
+}
+
+// ToolResultsProvider is an optional interface for LLM clients that natively
+// support multi-turn function calling: sending tool_result content blocks back
+// to the model and getting either more tool calls or a final answer.
+//
+// Providers that don't implement this fall back to single-turn CompleteWithTools.
+// Anthropic and OpenAI-style APIs implement this; Gemini Piggyback uses a
+// synthesized JSON envelope in the user prompt instead.
+//
+// Usage:
+//
+//	if trp, ok := client.(ToolResultsProvider); ok {
+//	    resp, _ := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+//	}
+type ToolResultsProvider interface {
+	// CompleteWithToolResults continues a tool-using conversation by sending
+	// the accumulated history (user → assistant tool_use → user tool_result …)
+	// and returning the model's next response, which may include further
+	// tool calls or a final text answer.
+	CompleteWithToolResults(ctx context.Context, systemPrompt string, history []Message, tools []ToolDefinition) (*LLMToolResponse, error)
+}
+
 // ToolDefinition describes a tool that the LLM can invoke.
 type ToolDefinition struct {
 	Name        string                 `json:"name"`

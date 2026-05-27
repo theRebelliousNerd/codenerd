@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"codenerd/internal/session"
 )
 
 func TestWithTaskExecutionSnapshot_RollsBackOnError(t *testing.T) {
@@ -168,7 +170,7 @@ func TestExecuteTaskWithRollback_MicroCheckpointFailureRollsBackState(t *testing
 	orch := newSnapshotTestOrchestrator()
 	orch.workspace = t.TempDir()
 	orch.taskExecutor = &MockTaskExecutor{
-		ExecuteFunc: func(ctx context.Context, intent string, task string) (string, error) {
+		ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 			return "ok", nil
 		},
 	}

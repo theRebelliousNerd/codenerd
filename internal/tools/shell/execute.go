@@ -3,10 +3,12 @@ package shell
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +23,54 @@ var (
 	execCommandContext = exec.CommandContext
 	execLookPath       = exec.LookPath
 )
+
+// coerceInt accepts any of the shapes a JSON-decoded LLM tool argument can
+// take and returns an int. LLM tool-call payloads round-trip through JSON,
+// which decodes numbers as float64 by default — so a plain
+// `args["timeout_seconds"].(int)` silently fails when the model supplies
+// `timeout_seconds: 5`. This helper accepts int, int64, float64,
+// json.Number, and decimal strings, returning (value, true) on success.
+func coerceInt(v any) (int, bool) {
+	if v == nil {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case uint:
+		return int(n), true
+	case uint32:
+		return int(n), true
+	case uint64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return int(i), true
+		}
+		if f, err := n.Float64(); err == nil {
+			return int(f), true
+		}
+	case string:
+		if n == "" {
+			return 0, false
+		}
+		if i, err := strconv.Atoi(n); err == nil {
+			return i, true
+		}
+		if f, err := strconv.ParseFloat(n, 64); err == nil {
+			return int(f), true
+		}
+	}
+	return 0, false
+}
 
 // RunCommandTool returns a tool for executing shell commands.
 func RunCommandTool() *tools.Tool {
@@ -67,7 +117,7 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	timeout := 60
-	if t, ok := args["timeout_seconds"].(int); ok && t > 0 {
+	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
 		timeout = t
 	}
 
@@ -83,11 +133,16 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("empty command after parsing")
 	}
 
+	// Build the timeout context BEFORE constructing the command so the
+	// process is actually bound to the deadline (was previously built twice).
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
 	var cmd *exec.Cmd
 	if len(parsedArgs) == 1 {
-		cmd = execCommandContext(ctx, parsedArgs[0])
+		cmd = execCommandContext(execCtx, parsedArgs[0])
 	} else {
-		cmd = execCommandContext(ctx, parsedArgs[0], parsedArgs[1:]...)
+		cmd = execCommandContext(execCtx, parsedArgs[0], parsedArgs[1:]...)
 	}
 
 	if workingDir != "" {
@@ -103,12 +158,6 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			}
 		}
 	}
-
-	// Create timeout context
-	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
-	cmd = execCommandContext(execCtx, cmd.Path, cmd.Args[1:]...)
-	cmd.Dir = workingDir
 	cmd.Env = finalEnv
 
 	var stdout, stderr bytes.Buffer
@@ -177,13 +226,22 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("script is required")
 	}
 
+	timeout := 60
+	if t, ok := coerceInt(args["timeout_seconds"]); ok && t > 0 {
+		timeout = t
+	}
+
+	// Build the timeout context BEFORE constructing the command so the
+	// process is actually bound to the deadline.
+	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
 	// On Windows, try to use Git Bash or WSL
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// Try Git Bash first
 		bashPath := findBashWindows()
 		if bashPath != "" {
-			cmd = execCommandContext(ctx, bashPath)
+			cmd = execCommandContext(execCtx, bashPath)
 			cmd.Stdin = strings.NewReader(script)
 		} else {
 			// Fall back to cmd with basic interpretation
@@ -194,7 +252,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 			})
 		}
 	} else {
-		cmd = execCommandContext(ctx, "bash")
+		cmd = execCommandContext(execCtx, "bash")
 		cmd.Stdin = strings.NewReader(script)
 	}
 
@@ -202,15 +260,7 @@ func executeBash(ctx context.Context, args map[string]any) (string, error) {
 		cmd.Dir = wd
 	}
 
-	timeout := 60
-	if t, ok := args["timeout_seconds"].(int); ok && t > 0 {
-		timeout = t
-	}
-
 	logging.VirtualStoreDebug("bash: script_len=%d, timeout=%ds", len(script), timeout)
-
-	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -559,11 +609,8 @@ func executeGitLog(ctx context.Context, args map[string]any) (string, error) {
 
 	// Add count
 	count := 10
-	if c, ok := args["count"].(int); ok && c > 0 {
+	if c, ok := coerceInt(args["count"]); ok && c > 0 {
 		count = c
-	}
-	if cf, ok := args["count"].(float64); ok && cf > 0 {
-		count = int(cf)
 	}
 	cmdArgs = append(cmdArgs, fmt.Sprintf("-n%d", count))
 

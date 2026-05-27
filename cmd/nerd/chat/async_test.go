@@ -67,27 +67,29 @@ func TestShutdown_CancelsContext(t *testing.T) {
 	}
 }
 
-func TestShutdown_ClosesStatusChannel(t *testing.T) {
+func TestShutdown_StatusChannelSafeAfterShutdown(t *testing.T) {
 	t.Parallel()
 	m := NewTestModel()
 
-	// Get reference to status channel before shutdown
-	statusChan := m.statusChan
-
 	m.Shutdown()
 
-	// Channel should be closed
+	// After shutdown, ReportStatus must not panic. The channel is intentionally
+	// NOT closed (Bubble Tea passes models by value, so stale copies may still
+	// send). Shutdown cancellation is signaled via shutdownCtx instead, and
+	// ReportStatus drops sends once shutdownCtx is done.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("ReportStatus panicked after shutdown: %v", r)
+		}
+	}()
+	m.ReportStatus("post-shutdown update")
+
+	// shutdownCtx must be cancelled so waitForStatus terminates.
 	select {
-	case _, ok := <-statusChan:
-		if ok {
-			// Got a value, try reading again
-			_, ok = <-statusChan
-		}
-		if ok {
-			t.Error("Status channel not closed after shutdown")
-		}
+	case <-m.shutdownCtx.Done():
+		// Expected
 	case <-time.After(time.Second):
-		t.Error("Status channel read timed out")
+		t.Error("shutdownCtx not cancelled after Shutdown()")
 	}
 }
 

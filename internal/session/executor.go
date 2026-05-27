@@ -94,6 +94,11 @@ type ExecutorConfig struct {
 	// MaxToolCalls limits tool calls per turn to prevent runaway execution.
 	MaxToolCalls int
 
+	// MaxToolIterations limits the number of LLM → tools → LLM loop iterations
+	// in a single Process() call. Without this cap, a model that keeps requesting
+	// tools could spin forever. 0 falls back to the default.
+	MaxToolIterations int
+
 	// ToolTimeout is the maximum time for a single tool execution.
 	ToolTimeout time.Duration
 
@@ -104,9 +109,10 @@ type ExecutorConfig struct {
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		MaxToolCalls:     50,
-		ToolTimeout:      5 * time.Minute,
-		EnableSafetyGate: true,
+		MaxToolCalls:      50,
+		MaxToolIterations: 8,
+		ToolTimeout:       5 * time.Minute,
+		EnableSafetyGate:  true,
 	}
 }
 
@@ -283,42 +289,27 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
-	// 5. LLM: Generate response with tool calling
-	llmResponse, err := e.generateResponse(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig)
+	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
+	// feed the results back as a new turn — repeated until the model returns a
+	// final answer with no tool calls, or we hit the iteration cap.
+	llmResponse, toolErrs, err := e.runToolLoop(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig, result)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
-	}
-
-	// 6. Execute tool calls (if any)
-	for i, call := range llmResponse.ToolCalls {
-		if i >= e.config.MaxToolCalls {
-			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
-			break
-		}
-
-		toolCall := ToolCall{
-			ID:   call.ID,
-			Name: call.Name,
-			Args: call.Input,
-		}
-
-		toolResult, err := e.executeToolCall(ctx, toolCall, EffectiveAgentRuntimeConfig)
-		if err != nil {
-			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, err)
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			// Continue with other tool calls (safety gate blocks are non-fatal —
-			// the pending_action fact was already asserted for the constitution shard)
-		} else {
-			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(toolResult))
-		}
-		result.ToolCallsExecuted++
 	}
 
 	// 7. Articulate response — process Piggyback control packet (best-effort)
 	result.Response = e.processPiggybackControlPacket(llmResponse.Text)
 	result.Duration = time.Since(start)
+
+	// Surface unrecovered tool failures as the execution error. A tool that
+	// errored is considered "recovered" if the model ultimately produced a
+	// final text response without re-requesting that tool. We can't know that
+	// precisely, but as a conservative heuristic: if the final response is
+	// empty AND tools errored, treat it as execution failure so the learning
+	// trace doesn't record success.
+	if len(toolErrs) > 0 && strings.TrimSpace(result.Response) == "" {
+		result.Error = fmt.Errorf("tool execution failed: %s", strings.Join(toolErrs, "; "))
+	}
 
 	// Update conversation history
 	e.appendToHistory(perception.ConversationTurn{
@@ -332,12 +323,13 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 		ThoughtSignature: llmResponse.ThoughtSignature,
 	})
 
-	// Dispatch asynchronous learning
+	// Dispatch asynchronous learning. Success is only true if no tool errored
+	// AND the executor produced a response.
 	if perception.SharedTaxonomy != nil {
 		trace := perception.ReasoningTrace{
 			UserPrompt: input,
 			Response:   result.Response,
-			Success:    result.Error == nil,
+			Success:    result.Error == nil && len(toolErrs) == 0,
 		}
 		perception.SharedTaxonomy.QueueForLearning([]perception.ReasoningTrace{trace})
 	}
@@ -775,6 +767,197 @@ type ToolCall struct {
 	ID   string
 	Name string
 	Args map[string]interface{}
+}
+
+// runToolLoop drives the LLM ↔ tools cycle. It performs the initial generation
+// and, when the model requests tools, executes them and feeds the results back
+// via ToolResultsProvider for as many turns as needed (up to MaxToolIterations).
+//
+// Returns the final LLM response, a slice of tool error messages encountered
+// across all iterations, and any fatal error.
+//
+// Behavior degrades gracefully:
+//   - If the client implements types.ToolResultsProvider: native multi-turn loop.
+//   - Otherwise: one round of tool execution then return (the pre-fix behavior).
+//     Tool failures are still recorded for the caller to surface.
+//   - Piggyback Protocol clients keep using their structured-output path — the
+//     loop currently runs for one iteration on that path because the
+//     Piggyback envelope is its own contract; extending it is future work.
+func (e *Executor) runToolLoop(
+	ctx context.Context,
+	systemPrompt, userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) (*types.LLMToolResponse, []string, error) {
+	llmResponse, err := e.generateResponse(ctx, systemPrompt, userInput, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// No tools requested: done.
+	if len(llmResponse.ToolCalls) == 0 {
+		return llmResponse, nil, nil
+	}
+
+	// Piggyback Protocol path: execute tools but don't continue the loop here.
+	// (The Piggyback envelope carries tool_requests in structured output; a
+	// proper loop for that path would require re-invoking with a synthesized
+	// envelope. Out of scope for this fix.)
+	if ptp, ok := e.llmClient.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
+		toolErrs := e.executeToolBatchPiggyback(ctx, llmResponse.ToolCalls, cfg, result)
+		return llmResponse, toolErrs, nil
+	}
+
+	// Native multi-turn tool calling required for correct semantics on
+	// Anthropic/OpenAI-style providers.
+	trp, supportsLoop := e.llmClient.(types.ToolResultsProvider)
+	toolDefs := e.buildToolDefinitions(cfg)
+
+	// Seed the history with the initial user turn and the assistant's
+	// first response (which contains the tool_use blocks).
+	history := []types.Message{
+		{Role: "user", Text: userInput},
+		{Role: "assistant", Text: llmResponse.Text, ToolCalls: llmResponse.ToolCalls},
+	}
+
+	maxIter := e.config.MaxToolIterations
+	if maxIter <= 0 {
+		maxIter = 8
+	}
+
+	var toolErrs []string
+	currentResponse := llmResponse
+
+	for iter := 0; iter < maxIter; iter++ {
+		if ctx.Err() != nil {
+			return currentResponse, toolErrs, ctx.Err()
+		}
+
+		// Execute all tool calls from this turn and collect tool_result blocks.
+		toolResults := make([]types.ToolResult, 0, len(currentResponse.ToolCalls))
+		for _, call := range currentResponse.ToolCalls {
+			if result.ToolCallsExecuted >= e.config.MaxToolCalls {
+				logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
+				toolResults = append(toolResults, types.ToolResult{
+					ToolUseID: call.ID,
+					Content:   "tool call budget exceeded for this turn",
+					IsError:   true,
+				})
+				toolErrs = append(toolErrs, fmt.Sprintf("%s: budget exceeded", call.Name))
+				continue
+			}
+
+			toolCall := ToolCall{
+				ID:   call.ID,
+				Name: call.Name,
+				Args: call.Input,
+			}
+			out, execErr := e.executeToolCall(ctx, toolCall, cfg)
+			result.ToolCallsExecuted++
+
+			if execErr != nil {
+				logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+				if ctx.Err() != nil {
+					return currentResponse, toolErrs, ctx.Err()
+				}
+				toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+				toolResults = append(toolResults, types.ToolResult{
+					ToolUseID: call.ID,
+					Content:   execErr.Error(),
+					IsError:   true,
+				})
+				continue
+			}
+
+			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
+			toolResults = append(toolResults, types.ToolResult{
+				ToolUseID: call.ID,
+				Content:   truncateToolResult(out),
+				IsError:   false,
+			})
+		}
+
+		// If the client can't accept tool results back, we're done after the
+		// first execution pass. The model will not see the results this turn.
+		if !supportsLoop {
+			logging.Get(logging.CategorySession).Warn(
+				"LLM client does not implement ToolResultsProvider; tool results not fed back to model. Provider=%T", e.llmClient)
+			return currentResponse, toolErrs, nil
+		}
+
+		// Append the user tool_result turn to history and re-invoke.
+		history = append(history, types.Message{
+			Role:        "user",
+			ToolResults: toolResults,
+		})
+
+		nextResp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, toolDefs)
+		if err != nil {
+			return currentResponse, toolErrs, fmt.Errorf("tool-result follow-up failed: %w", err)
+		}
+		currentResponse = nextResp
+
+		// Append the next assistant turn to history (whether or not it has more tool calls).
+		history = append(history, types.Message{
+			Role:      "assistant",
+			Text:      nextResp.Text,
+			ToolCalls: nextResp.ToolCalls,
+		})
+
+		if len(nextResp.ToolCalls) == 0 {
+			// Model returned a final answer.
+			return currentResponse, toolErrs, nil
+		}
+	}
+
+	logging.Get(logging.CategorySession).Warn("Max tool iterations reached: %d", maxIter)
+	return currentResponse, toolErrs, nil
+}
+
+// executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are
+// executed and any errors collected, but results are not fed back to the LLM
+// here (that would require a Piggyback-specific envelope follow-up).
+func (e *Executor) executeToolBatchPiggyback(
+	ctx context.Context,
+	calls []types.ToolCall,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	result *ExecutionResult,
+) []string {
+	var toolErrs []string
+	for _, call := range calls {
+		if result.ToolCallsExecuted >= e.config.MaxToolCalls {
+			logging.Get(logging.CategorySession).Warn("Max tool calls reached: %d", e.config.MaxToolCalls)
+			break
+		}
+		toolCall := ToolCall{
+			ID:   call.ID,
+			Name: call.Name,
+			Args: call.Input,
+		}
+		out, execErr := e.executeToolCall(ctx, toolCall, cfg)
+		result.ToolCallsExecuted++
+		if execErr != nil {
+			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, execErr)
+			if ctx.Err() != nil {
+				return toolErrs
+			}
+			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
+			continue
+		}
+		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
+	}
+	return toolErrs
+}
+
+// truncateToolResult caps tool output before feeding it back to the model.
+// Massive output (greps, file dumps) wastes context budget for diminishing
+// returns; 16 KB is enough for typical agent decisions.
+func truncateToolResult(s string) string {
+	const limit = 16 * 1024
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "\n...[truncated]"
 }
 
 // executeToolCall routes a tool call through the appropriate registry with safety checks.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
@@ -170,22 +171,22 @@ func (n *noopLLM) CompleteWithStreaming(ctx context.Context, systemPrompt, userP
 }
 
 type gatingTaskExecutor struct {
-	execute func(ctx context.Context, intent string, task string) (string, error)
+	execute func(ctx context.Context, req session.TaskRequest) (string, error)
 }
 
-func (g *gatingTaskExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
+func (g *gatingTaskExecutor) Execute(ctx context.Context, req session.TaskRequest) (string, error) {
 	if g.execute != nil {
-		return g.execute(ctx, intent, task)
+		return g.execute(ctx, req)
 	}
 	return "", nil
 }
 
-func (g *gatingTaskExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	return g.Execute(ctx, intent, task)
+func (g *gatingTaskExecutor) ExecuteWithContext(ctx context.Context, req session.TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	return g.Execute(ctx, req)
 }
 
-func (g *gatingTaskExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
-	return g.Execute(ctx, intent, task)
+func (g *gatingTaskExecutor) ExecuteAsync(ctx context.Context, req session.TaskRequest) (string, error) {
+	return g.Execute(ctx, req)
 }
 
 func (g *gatingTaskExecutor) GetResult(taskID string) (string, bool, error) {
@@ -217,12 +218,12 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 	var mu sync.Mutex
 	started := make([]string, 0, 2)
 	executor := &gatingTaskExecutor{
-		execute: func(ctx context.Context, intent string, task string) (string, error) {
+		execute: func(ctx context.Context, req session.TaskRequest) (string, error) {
 			mu.Lock()
-			started = append(started, task)
+			started = append(started, req.Task)
 			mu.Unlock()
 
-			if strings.Contains(task, "task-one") {
+			if strings.Contains(req.Task, "task-one") {
 				firstStartOnce.Do(func() { close(firstStarted) })
 				select {
 				case <-ctx.Done():

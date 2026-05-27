@@ -347,7 +347,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	)
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(taskExecutor)
+	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
 	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
 	consultationProvider := newCampaignConsultationProvider(consultationMgr)
 
@@ -714,7 +714,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	)
 
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(taskExecutor)
+	virtualStore.SetTaskExecutor(&campaignTaskDelegatorAdapter{executor: taskExecutor})
 	consultationMgr := shards.NewConsultationManager(&campaignTaskExecutorConsultationSpawner{executor: taskExecutor})
 	consultationProvider := newCampaignConsultationProvider(consultationMgr)
 
@@ -967,7 +967,18 @@ func (s *campaignTaskExecutorConsultationSpawner) SpawnConsultation(ctx context.
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	return s.executor.Execute(ctx, specialistName, task)
+	// Specialists arrive here as free-form names ("nemesis", "requirements_interrogator", etc.).
+	// Wrap them in /consult/<name> so the executor's strict IntentVerb check accepts the request.
+	intent := specialistName
+	if !strings.HasPrefix(intent, "/") {
+		intent = "/consult/" + specialistName
+	}
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Persona:    specialistName,
+		Task:       task,
+	}
+	return s.executor.Execute(ctx, req)
 }
 
 // campaignConsultationProviderAdapter adapts shards.ConsultationManager to campaign.ConsultationProvider.
@@ -1043,4 +1054,16 @@ func (a *campaignLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPr
 		contentChan <- res
 	}()
 	return contentChan, errorChan
+}
+
+type campaignTaskDelegatorAdapter struct {
+	executor session.TaskExecutor
+}
+
+func (a *campaignTaskDelegatorAdapter) Execute(ctx context.Context, intent string, task string) (string, error) {
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Task:       task,
+	}
+	return a.executor.Execute(ctx, req)
 }

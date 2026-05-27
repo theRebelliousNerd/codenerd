@@ -3,6 +3,7 @@ package prompt
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"codenerd/internal/jit/config"
@@ -77,6 +78,17 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 		if atom, ok := f.provider.GetAtom(intent); ok {
 			finalAtom = finalAtom.Merge(atom)
 			found = true
+			continue
+		}
+		// Specialists arrive as "/consult/<persona>" from the chat layer.
+		// If no exact atom is registered for that persona, fall back to the
+		// /general atom so the agent still gets a reasonable tool set
+		// rather than running with zero capability.
+		if strings.HasPrefix(intent, "/consult/") {
+			if atom, ok := f.provider.GetAtom("/general"); ok {
+				finalAtom = finalAtom.Merge(atom)
+				found = true
+			}
 		}
 	}
 
