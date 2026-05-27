@@ -77,12 +77,12 @@ func TestConfigFactory_DeterministicOrdering(t *testing.T) {
 			t.Fatalf("Generate failed: %v", err)
 		}
 		if firstTools == nil {
-			firstTools = cfg.Tools.AllowedTools
+			firstTools = cfg.AllowedTools
 		} else {
-			if len(cfg.Tools.AllowedTools) != len(firstTools) {
-				t.Fatalf("Non-deterministic tool count: %d vs %d", len(cfg.Tools.AllowedTools), len(firstTools))
+			if len(cfg.AllowedTools) != len(firstTools) {
+				t.Fatalf("Non-deterministic tool count: %d vs %d", len(cfg.AllowedTools), len(firstTools))
 			}
-			for j, tool := range cfg.Tools.AllowedTools {
+			for j, tool := range cfg.AllowedTools {
 				if tool != firstTools[j] {
 					t.Fatalf("Non-deterministic tool ordering at index %d: %q vs %q", j, tool, firstTools[j])
 				}
@@ -111,7 +111,7 @@ func TestConfigFactory_SliceCopySafety(t *testing.T) {
 	}
 
 	// Mutate cfg1's tools
-	cfg1.Tools.AllowedTools[0] = "MUTATED"
+	cfg1.AllowedTools[0] = "MUTATED"
 
 	// Generate again — should NOT see the mutation
 	cfg2, err := factory.Generate(ctx, cr, "/coder")
@@ -119,7 +119,7 @@ func TestConfigFactory_SliceCopySafety(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if cfg2.Tools.AllowedTools[0] == "MUTATED" {
+	if cfg2.AllowedTools[0] == "MUTATED" {
 		t.Error("Slice aliasing detected: mutation of cfg1 leaked into cfg2")
 	}
 }

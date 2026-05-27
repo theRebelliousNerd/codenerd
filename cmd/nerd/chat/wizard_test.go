@@ -289,7 +289,7 @@ func TestInputMode_Clarification(t *testing.T) {
 
 	m := NewTestModel(WithInputMode(InputModeClarification))
 
-	if !m.awaitingClarification {
+	if m.inputMode != InputModeClarification {
 		t.Error("Expected awaitingClarification to be true")
 	}
 }
@@ -299,7 +299,7 @@ func TestInputMode_Patch(t *testing.T) {
 
 	m := NewTestModel(WithInputMode(InputModePatch))
 
-	if !m.awaitingPatch {
+	if m.inputMode != InputModePatch {
 		t.Error("Expected awaitingPatch to be true")
 	}
 }
@@ -388,10 +388,10 @@ func TestPatchMode_Entry(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingPatch = true
+	m.inputMode = InputModePatch
 	m.pendingPatchLines = []string{}
 
-	if !m.awaitingPatch {
+	if m.inputMode != InputModePatch {
 		t.Error("Expected awaitingPatch to be true")
 	}
 	if len(m.pendingPatchLines) != 0 {
@@ -403,13 +403,13 @@ func TestPatchMode_AccumulatesLines(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingPatch = true
+	m.inputMode = InputModePatch
 	m.pendingPatchLines = []string{"line 1", "line 2"}
 
 	if len(m.pendingPatchLines) != 2 {
 		t.Errorf("Expected 2 pending lines, got %d", len(m.pendingPatchLines))
 	}
-	if !m.awaitingPatch {
+	if m.inputMode != InputModePatch {
 		t.Error("Expected awaitingPatch to be true")
 	}
 }
@@ -418,7 +418,7 @@ func TestPatchMode_EndMarker(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingPatch = true
+	m.inputMode = InputModePatch
 	m.pendingPatchLines = []string{"line 1", "line 2"}
 
 	// Typing --END-- should complete patch
@@ -509,7 +509,7 @@ func TestWizard_ViewNoPanic(t *testing.T) {
 		{
 			name: "clarification",
 			setup: func(m *Model) {
-				m.awaitingClarification = true
+				m.inputMode = InputModeClarification
 				m.clarificationState = &ClarificationState{
 					Question: "test",
 					Options:  []string{"a", "b"},
@@ -519,7 +519,7 @@ func TestWizard_ViewNoPanic(t *testing.T) {
 		{
 			name: "patch mode",
 			setup: func(m *Model) {
-				m.awaitingPatch = true
+				m.inputMode = InputModePatch
 				m.pendingPatchLines = []string{"line 1"}
 			},
 		},

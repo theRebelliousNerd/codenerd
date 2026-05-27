@@ -23,7 +23,7 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 	store.db.Exec("INSERT INTO vectors (content, metadata, embedding) VALUES ('text', '{\"path\":\"path2\", \"k\":\"v2\"}', '[0.5, 0.6, 0.7, 0.8]')")
 	
 	// Test vectorRecallBruteForce
-	results, err := store.vectorRecallBruteForce([]float32{0.1, 0.2, 0.3, 0.4}, 10)
+	results, err := store.vectorRecallBruteForce("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10)
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForce failed: %v", err)
 	}
@@ -33,10 +33,10 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 
 	// Test vectorRecallBruteForceByPaths
 	paths := []string{"path1", "path2"}
-	_, _ = store.vectorRecallBruteForceByPaths([]float32{0.1, 0.2, 0.3, 0.4}, 10, paths)
+	_, _ = store.vectorRecallBruteForceByPaths("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10, paths)
 
 	// Test vectorRecallBruteForceFiltered
-	filteredResults, err := store.vectorRecallBruteForceFiltered([]float32{0.1, 0.2, 0.3, 0.4}, 10, "k", "v")
+	filteredResults, err := store.vectorRecallBruteForceFiltered("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10, "k", "v")
 	if err != nil {
 		t.Fatalf("vectorRecallBruteForceFiltered failed: %v", err)
 	}

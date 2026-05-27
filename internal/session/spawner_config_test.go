@@ -57,8 +57,8 @@ mode: "SingleTurn"
 	if cfg.IdentityPrompt != "You are a test agent." {
 		t.Errorf("Expected IdentityPrompt 'You are a test agent.', got '%s'", cfg.IdentityPrompt)
 	}
-	if len(cfg.Tools.AllowedTools) != 1 || cfg.Tools.AllowedTools[0] != "read_file" {
-		t.Errorf("Unexpected tools: %v", cfg.Tools.AllowedTools)
+	if len(cfg.AllowedTools) != 1 || cfg.AllowedTools[0] != "read_file" {
+		t.Errorf("Unexpected tools: %v", cfg.AllowedTools)
 	}
 	if cfg.Mode != "SingleTurn" {
 		t.Errorf("Expected Mode 'SingleTurn', got '%s'", cfg.Mode)
@@ -72,7 +72,7 @@ mode: "SingleTurn"
 	}
 
 	// Check if it returned an empty config (since configFactory is nil)
-	// We expect empty AgentConfig, checking IdentityPrompt is empty
+	// We expect empty EffectiveAgentRuntimeConfig, checking IdentityPrompt is empty
 	if cfgFallback.IdentityPrompt != "" {
 		t.Errorf("Expected empty config for missing agent, got: %+v", cfgFallback)
 	}

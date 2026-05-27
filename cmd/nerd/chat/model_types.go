@@ -204,10 +204,8 @@ type Model struct {
 	jitCompiler *prompt.JITPromptCompiler
 
 	// Clarification Loop State (Pause/Resume Protocol)
-	awaitingClarification bool
 	clarificationState    *ClarificationState
 	selectedOption        int // For option picker
-	awaitingPatch         bool
 	pendingPatchLines     []string
 	lastClarifyInput      string // Track last input for clarification dedup
 	lastDreamHypothetical string // Track last dream state hypothetical for learning follow-up

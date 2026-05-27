@@ -508,10 +508,11 @@ type GeminiResponseCandidate struct {
 type GeminiResponse struct {
 	Candidates    []GeminiResponseCandidate `json:"candidates"`
 	UsageMetadata struct {
-		PromptTokenCount     int `json:"promptTokenCount"`
-		CandidatesTokenCount int `json:"candidatesTokenCount"`
-		TotalTokenCount      int `json:"totalTokenCount"`
-		ThoughtsTokenCount   int `json:"thoughtsTokenCount,omitempty"` // Tokens used for thinking
+		PromptTokenCount        int `json:"promptTokenCount"`
+		CandidatesTokenCount    int `json:"candidatesTokenCount"`
+		TotalTokenCount         int `json:"totalTokenCount"`
+		ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitempty"`      // Tokens used for thinking
+		CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"` // Tokens read from cache
 	} `json:"usageMetadata"`
 	// ThoughtSummary contains the model's reasoning process (when thinking is enabled)
 	ThoughtSummary string `json:"thoughtSummary,omitempty"`

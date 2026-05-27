@@ -155,8 +155,8 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 
 	// Mock ConfigFactory to return allowed tools
 	mockConfig := &MockConfigFactory{
-		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-			return &config.AgentConfig{
+		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+			return &config.EffectiveAgentRuntimeConfig{
 				Tools: config.ToolSet{
 					AllowedTools: []string{"readFile"},
 				},
@@ -230,8 +230,8 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 	mockKernel := &MockKernel{} // Empty kernel = no permissions
 
 	mockConfig := &MockConfigFactory{
-		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-			return &config.AgentConfig{
+		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+			return &config.EffectiveAgentRuntimeConfig{
 				Tools: config.ToolSet{
 					AllowedTools: []string{"deleteFile"},
 				},
@@ -384,8 +384,8 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 		mockLLM,
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{
 					Tools: config.ToolSet{AllowedTools: []string{"valid_name"}},
 				}, nil
 			},
@@ -500,8 +500,8 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 		mockLLM,
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{Tools: config.ToolSet{AllowedTools: []string{"valid_name"}}}, nil
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{Tools: config.ToolSet{AllowedTools: []string{"valid_name"}}}, nil
 			},
 		},
 		&MockTransducer{
@@ -541,8 +541,8 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 		mockLLM,
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{Tools: config.ToolSet{AllowedTools: []string{"sleep_tool"}}}, nil
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{Tools: config.ToolSet{AllowedTools: []string{"sleep_tool"}}}, nil
 			},
 		},
 		&MockTransducer{
@@ -609,8 +609,8 @@ func TestExecutor_StateConflicts_ToolRemoved(t *testing.T) {
 		mockLLM,
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{Tools: config.ToolSet{AllowedTools: []string{"removed_tool"}}}, nil
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{Tools: config.ToolSet{AllowedTools: []string{"removed_tool"}}}, nil
 			},
 		},
 		&MockTransducer{
@@ -642,8 +642,8 @@ func TestExecutor_StateConflicts_PanicRecovery(t *testing.T) {
 		mockLLM,
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{Tools: config.ToolSet{AllowedTools: []string{"panic_tool"}}}, nil
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{Tools: config.ToolSet{AllowedTools: []string{"panic_tool"}}}, nil
 			},
 		},
 		&MockTransducer{
@@ -743,7 +743,7 @@ func TestExecutor_ConfigFactoryFallback(t *testing.T) {
 		},
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 				return nil, errors.New("config failure")
 			},
 		},
@@ -796,8 +796,8 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 		},
 		&MockJITCompiler{},
 		&MockConfigFactory{
-			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-				return &config.AgentConfig{Tools: config.ToolSet{AllowedTools: []string{"any_tool"}}}, nil
+			GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+				return &config.EffectiveAgentRuntimeConfig{Tools: config.ToolSet{AllowedTools: []string{"any_tool"}}}, nil
 			},
 		},
 		&MockTransducer{

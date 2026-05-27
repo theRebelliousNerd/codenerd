@@ -245,7 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clarificationMsg:
 		// Enter clarification mode (Pause)
 		m.isLoading = false
-		m.awaitingClarification = true
+		m.inputMode = InputModeClarification
 		m.clarificationState = &ClarificationState{
 			Question:      msg.Question,
 			Options:       msg.Options,

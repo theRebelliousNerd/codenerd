@@ -332,3 +332,10 @@ type CacheProvider interface {
 	// Pass empty string to disable.
 	SetCachedContent(name string)
 }
+
+// TokenCounter is an optional interface for LLM clients that support
+// counting tokens before generation.
+type TokenCounter interface {
+	// CountTokens counts the total number of tokens for the given prompt.
+	CountTokens(ctx context.Context, systemPrompt, userPrompt string) (int, error)
+}

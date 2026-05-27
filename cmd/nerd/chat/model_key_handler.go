@@ -72,17 +72,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		return m, nil, true
 
 	case tea.KeyEsc:
-		if m.viewMode == ListView {
-			m.viewMode = ChatView // Escape list view
+		if m.viewMode != ChatView {
+			m.viewMode = ChatView // Escape current view
 			return m, nil, true
 		}
-		if m.viewMode == UsageView {
-			m.viewMode = ChatView // Escape usage view
-			return m, nil, true
-		}
-		// Only Quit if not in List View
-		m.performShutdown()
-		return m, tea.Quit, true
+		// If already in ChatView, Esc does nothing (use Ctrl+C to quit)
+		return m, nil, true
 	}
 
 	// List View Handling
@@ -222,7 +217,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 		// Enter sends the message if not loading
 		if !m.isLoading {
-			if m.awaitingClarification {
+			if m.inputMode == InputModeClarification {
 				model, cmd := m.handleClarificationResponse()
 				return model.(Model), cmd, true
 			}
@@ -238,7 +233,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 		// Navigate options when in clarification mode
-		if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
+		if m.inputMode == InputModeClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 			if m.selectedOption > 0 {
 				m.selectedOption--
 			}
@@ -264,7 +259,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		}
 
 		// Navigate options when in clarification mode
-		if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
+		if m.inputMode == InputModeClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 			if m.selectedOption < len(m.clarificationState.Options)-1 {
 				m.selectedOption++
 			}
@@ -287,7 +282,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 
 	case tea.KeyTab:
 		// Tab cycles through options
-		if m.awaitingClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
+		if m.inputMode == InputModeClarification && m.clarificationState != nil && len(m.clarificationState.Options) > 0 {
 			m.selectedOption = (m.selectedOption + 1) % len(m.clarificationState.Options)
 			return m, nil, true
 		}

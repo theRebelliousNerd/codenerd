@@ -68,8 +68,8 @@ func (s *blockyLLMClient) CompleteWithSystem(ctx context.Context, sys, user stri
 	return `{"surface_response":"done","control_packet":{}}`, nil
 }
 
-func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intentVerbs ...string) (*config.AgentConfig, error) {
-	return &config.AgentConfig{}, nil
+func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intentVerbs ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
 
 type mockTransducerUT struct{}

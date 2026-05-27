@@ -348,20 +348,8 @@ func MigrateV2ToV3(db *sql.DB) error {
 		return nil
 	}
 
-	// Try to create vec_index - may fail if sqlite-vec is not available
-	query := `CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(
-		embedding float[3072],
-		content TEXT,
-		metadata TEXT
-	)`
-	logging.StoreDebug("Executing vec_index creation")
-	if _, err := db.Exec(query); err != nil {
-		logging.Get(logging.CategoryStore).Warn("Failed to create vec_index (sqlite-vec may not be available): %v", err)
-		// Don't fail - sqlite-vec is optional
-		return nil
-	}
-
-	logging.Store("Created vec_index virtual table for ANN search")
+	// vec_index creation is now deferred to SetEmbeddingEngine dynamically
+	logging.Store("Skipping vec_index creation in migration; deferred to dynamic runtime creation")
 	return nil
 }
 

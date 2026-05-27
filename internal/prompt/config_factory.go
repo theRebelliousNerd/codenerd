@@ -49,7 +49,7 @@ type ConfigAtomProvider interface {
 	GetAtom(intent string) (ConfigAtom, bool)
 }
 
-// ConfigFactory generates AgentConfig objects.
+// ConfigFactory generates EffectiveAgentRuntimeConfig objects.
 type ConfigFactory struct {
 	provider ConfigAtomProvider
 }
@@ -61,9 +61,9 @@ func NewConfigFactory(provider ConfigAtomProvider) *ConfigFactory {
 	}
 }
 
-// Generate creates an AgentConfig based on the intents and compilation result.
+// Generate creates an EffectiveAgentRuntimeConfig based on the intents and compilation result.
 // It merges config atoms for all provided intents.
-func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if result == nil {
 		return nil, fmt.Errorf("compilation result cannot be nil")
 	}
@@ -84,17 +84,50 @@ func (f *ConfigFactory) Generate(ctx context.Context, result *CompilationResult,
 		return nil, fmt.Errorf("no config atoms found for intents: %v", intents)
 	}
 
-	cfg := &config.AgentConfig{
+	// Determine primary intent for the config
+	primaryIntent := intents[0]
+
+	cfg := &config.EffectiveAgentRuntimeConfig{
 		IdentityPrompt: result.Prompt,
-		Tools: config.ToolSet{
-			AllowedTools: finalAtom.Tools,
+		IntentVerb:     primaryIntent,
+		AllowedTools:   finalAtom.Tools,
+		Policies:       finalAtom.Policies,
+		ToolLoop: config.ToolLoopConfig{
+			MaxIterations:   5,
+			MaxTotalCalls:   50,
+			FailOnToolError: false,
 		},
-		Policies: config.PolicySet{
-			Files: finalAtom.Policies,
+		Safety: config.SafetyConfig{
+			RequirePolicyEnforcement: true,
 		},
 	}
 
 	return cfg, nil
+}
+
+// GenerateFallback creates a minimal config for when JIT compilation fails.
+func (f *ConfigFactory) GenerateFallback(ctx context.Context, intent string, fallbackIdentity string) *config.EffectiveAgentRuntimeConfig {
+	var finalAtom ConfigAtom
+	if atom, ok := f.provider.GetAtom(intent); ok {
+		finalAtom = atom
+	} else if atom, ok := f.provider.GetAtom("/general"); ok {
+		finalAtom = atom
+	}
+
+	return &config.EffectiveAgentRuntimeConfig{
+		IdentityPrompt: fallbackIdentity,
+		IntentVerb:     intent,
+		AllowedTools:   finalAtom.Tools,
+		Policies:       finalAtom.Policies,
+		ToolLoop: config.ToolLoopConfig{
+			MaxIterations:   5,
+			MaxTotalCalls:   50,
+			FailOnToolError: false,
+		},
+		Safety: config.SafetyConfig{
+			RequirePolicyEnforcement: true,
+		},
+	}
 }
 
 // =============================================================================

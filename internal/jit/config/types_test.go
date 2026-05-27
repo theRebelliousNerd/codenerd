@@ -7,12 +7,12 @@ import (
 func TestAgentConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  AgentConfig
+		config  EffectiveAgentRuntimeConfig
 		wantErr bool
 	}{
 		{
 			name: "Valid Config",
-			config: AgentConfig{
+			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "You are a helpful agent.",
 				Tools: ToolSet{
 					AllowedTools: []string{"read_file", "write_file"},
@@ -25,7 +25,7 @@ func TestAgentConfigValidation(t *testing.T) {
 		},
 		{
 			name: "Missing Identity",
-			config: AgentConfig{
+			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "",
 				Tools: ToolSet{
 					AllowedTools: []string{"read_file"},
@@ -38,7 +38,7 @@ func TestAgentConfigValidation(t *testing.T) {
 		},
 		{
 			name: "Whitespace-only Identity",
-			config: AgentConfig{
+			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "   \t\n  ",
 				Tools: ToolSet{
 					AllowedTools: []string{"read_file"},
@@ -51,7 +51,7 @@ func TestAgentConfigValidation(t *testing.T) {
 		},
 		{
 			name: "Empty Policies",
-			config: AgentConfig{
+			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "Identity",
 				Tools: ToolSet{
 					AllowedTools: []string{"read_file"},
@@ -64,7 +64,7 @@ func TestAgentConfigValidation(t *testing.T) {
 		},
 		{
 			name: "Nil Policies Files",
-			config: AgentConfig{
+			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "Identity",
 				Tools: ToolSet{
 					AllowedTools: []string{"read_file"},
@@ -80,7 +80,7 @@ func TestAgentConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.config.Validate(); (err != nil) != tt.wantErr {
-				t.Errorf("AgentConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("EffectiveAgentRuntimeConfig.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

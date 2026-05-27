@@ -232,7 +232,7 @@ type CompilationResult struct {
 	Manifest *PromptManifest
 
 	// JIT-generated Agent Config
-	AgentConfig *config.AgentConfig
+	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
 
 	// Comprehensive compilation statistics
 	Stats *CompilationStats
@@ -677,7 +677,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 				if err != nil {
 					logging.Get(logging.CategoryJIT).Warn("Failed to generate agent config: %v", err)
 				} else {
-					result.AgentConfig = agentCfg
+					result.EffectiveAgentRuntimeConfig = agentCfg
 					logging.Get(logging.CategoryJIT).Debug("Generated JIT Agent Config for intents: %v", intents)
 				}
 			}

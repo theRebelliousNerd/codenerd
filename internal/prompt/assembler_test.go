@@ -30,8 +30,8 @@ func TestDefaultCategoryOrder(t *testing.T) {
 		assert.Equal(t, CategoryIdentity, order[0])
 	})
 
-	t.Run("exemplar comes last", func(t *testing.T) {
-		assert.Equal(t, CategoryExemplar, order[len(order)-1])
+	t.Run("context comes last", func(t *testing.T) {
+		assert.Equal(t, CategoryContext, order[len(order)-1])
 	})
 
 	t.Run("safety before methodology", func(t *testing.T) {

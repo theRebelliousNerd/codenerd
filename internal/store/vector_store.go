@@ -354,11 +354,11 @@ func (s *LocalStore) VectorRecallSemantic(ctx context.Context, query string, lim
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
-		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
+		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "", nil)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search")
-	return s.vectorRecallBruteForce(queryEmbedding, limit)
+	return s.vectorRecallBruteForce(query, queryEmbedding, limit)
 }
 
 // VectorRecallSemanticByPaths restricts search to a list of allowed paths (matched via metadata).
@@ -410,11 +410,11 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with path filter")
-		return s.vectorRecallVec(queryEmbedding, limit, allowedPaths, "", nil)
+		return s.vectorRecallVec(query, queryEmbedding, limit, allowedPaths, "", nil)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search with path filter")
-	return s.vectorRecallBruteForceByPaths(queryEmbedding, limit, allowedPaths)
+	return s.vectorRecallBruteForceByPaths(query, queryEmbedding, limit, allowedPaths)
 }
 
 // VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
@@ -468,11 +468,11 @@ func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query str
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with metadata filter")
-		return s.vectorRecallVec(queryEmbedding, limit, nil, metaKey, metaValue)
+		return s.vectorRecallVec(query, queryEmbedding, limit, nil, metaKey, metaValue)
 	}
 
 	logging.StoreDebug("Using brute-force cosine similarity search with metadata filter")
-	return s.vectorRecallBruteForceFiltered(queryEmbedding, limit, metaKey, metaValue)
+	return s.vectorRecallBruteForceFiltered(query, queryEmbedding, limit, metaKey, metaValue)
 }
 
 // vectorRecallKeyword is the fallback keyword-based search.
@@ -536,7 +536,7 @@ func filterByPaths(entries []VectorEntry, paths []string) []VectorEntry {
 }
 
 // vectorRecallVec performs ANN search via sqlite-vec when available.
-func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "vectorRecallVec")
 	defer timer.Stop()
 
@@ -613,6 +613,21 @@ func (s *LocalStore) vectorRecallVec(queryVec []float32, limit int, allowedPaths
 
 	}
 
+	if len(results) > 0 {
+		logging.Store("VECTOR QUERY [vec0 ANN] -> [%q]", queryText)
+		logging.Store("SQL Executed: %s", sqlStr)
+		for i, res := range results {
+			contentStr := res.Content
+			if len(contentStr) > 100 {
+				contentStr = contentStr[:100] + "..."
+			}
+			logging.Store("  Result %d: (dist: %.4f) -> %q", i+1, 1-res.Metadata["similarity"].(float64), contentStr)
+		}
+	} else {
+		logging.Store("VECTOR QUERY [vec0 ANN] -> [%q]", queryText)
+		logging.Store("SQL Executed: %s", sqlStr)
+		logging.Store("  -> 0 results returned")
+	}
 	logging.StoreDebug("sqlite-vec ANN search returned %d results", len(results))
 	return results, nil
 }
@@ -623,7 +638,11 @@ func (s *LocalStore) initVecIndex(dim int) {
 		return
 	}
 	logging.StoreDebug("Initializing sqlite-vec index with %d dimensions", dim)
-	stmt := fmt.Sprintf("CREATE VIRTUAL TABLE IF NOT EXISTS vec_index USING vec0(embedding float[%d], content TEXT, metadata TEXT)", dim)
+
+	// Drop existing table to ensure clean dimension application if models switched
+	_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_index")
+
+	stmt := fmt.Sprintf("CREATE VIRTUAL TABLE vec_index USING vec0(embedding float[%d], content TEXT, metadata TEXT)", dim)
 	if _, err := s.db.Exec(stmt); err == nil {
 		s.vectorExt = true
 		logging.Store("sqlite-vec index initialized successfully (dimensions=%d)", dim)
@@ -1226,11 +1245,11 @@ func (s *LocalStore) VectorRecallSemanticWithTask(ctx context.Context, query str
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search")
-		return s.vectorRecallVec(queryEmbedding, limit, nil, "", nil)
+		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "", nil)
 	}
 
 	// Fallback to brute-force search
-	return s.vectorRecallBruteForce(queryEmbedding, limit)
+	return s.vectorRecallBruteForce(query, queryEmbedding, limit)
 }
 
 // VectorRecallForPromptAtoms searches for prompt atoms using RETRIEVAL_QUERY task type.
@@ -1286,15 +1305,15 @@ func (s *LocalStore) VectorRecallForPromptAtoms(ctx context.Context, query strin
 
 	if vecEnabled {
 		logging.StoreDebug("Using sqlite-vec ANN search with prompt_atom filter")
-		return s.vectorRecallVec(queryEmbedding, limit, nil, "content_type", "prompt_atom")
+		return s.vectorRecallVec(query, queryEmbedding, limit, nil, "content_type", "prompt_atom")
 	}
 
 	// Fallback to filtered brute-force search
-	return s.vectorRecallBruteForceFiltered(queryEmbedding, limit, "content_type", "prompt_atom")
+	return s.vectorRecallBruteForceFiltered(query, queryEmbedding, limit, "content_type", "prompt_atom")
 }
 
-// vectorRecallBruteForce performs brute-force cosine similarity search.
-func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int) ([]VectorEntry, error) {
+// vectorRecallBruteForce is the fallback cosine similarity search.
+func (s *LocalStore) vectorRecallBruteForce(queryText string, queryEmbedding []float32, limit int) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1364,11 +1383,16 @@ func (s *LocalStore) vectorRecallBruteForce(queryEmbedding []float32, limit int)
 		results[i].Metadata["similarity"] = c.similarity
 	}
 
+	if len(results) > 0 {
+		logging.Store("VECTOR QUERY [brute-force] -> %d results (top match dist: %.4f | '%.30s...')", len(results), 1-results[0].Metadata["similarity"].(float64), results[0].Content)
+	} else {
+		logging.Store("VECTOR QUERY [brute-force] -> 0 results returned")
+	}
 	return results, nil
 }
 
-// vectorRecallBruteForceByPaths performs brute-force cosine similarity search scoped to allowed paths.
-func (s *LocalStore) vectorRecallBruteForceByPaths(queryEmbedding []float32, limit int, allowedPaths []string) ([]VectorEntry, error) {
+// vectorRecallBruteForceByPaths is the fallback cosine similarity search with path filtering.
+func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedding []float32, limit int, allowedPaths []string) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1437,8 +1461,8 @@ func (s *LocalStore) vectorRecallBruteForceByPaths(queryEmbedding []float32, lim
 	return results, nil
 }
 
-// vectorRecallBruteForceFiltered performs brute-force search with metadata filtering.
-func (s *LocalStore) vectorRecallBruteForceFiltered(queryEmbedding []float32, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+// vectorRecallBruteForceFiltered is the fallback cosine similarity search with metadata filtering.
+func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbedding []float32, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -255,7 +255,7 @@ func seedErrorFocusedModel() Model {
 
 func seedClarificationModel() Model {
 	m := NewTestModel()
-	m.awaitingClarification = true
+	m.inputMode = InputModeClarification
 	m.clarificationState = &ClarificationState{
 		Question: "Which file do you mean?",
 		Options:  []string{"internal/core/kernel.go", "internal/core/kernel_eval.go"},
@@ -695,7 +695,7 @@ func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
 	// --- patch mode accumulation ---
 	t.Run("patch_mode_accumulation", func(t *testing.T) {
 		m := NewTestModel()
-		m.awaitingPatch = true
+		m.inputMode = InputModePatch
 		m.textarea.Placeholder = "Enter patch lines (--END-- to finish)..."
 
 		// Accumulate lines
@@ -712,7 +712,7 @@ func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
 			t.Error("textarea should be cleared after patch line")
 		}
 		// Still in patch mode
-		if !m.awaitingPatch {
+		if m.inputMode != InputModePatch {
 			t.Error("should still be in patch mode")
 		}
 		// NO user message added for patch lines
@@ -730,7 +730,7 @@ func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
 		m.textarea.SetValue("--END--")
 		submitted, cmd = m.handleSubmit()
 		m = submitted.(Model)
-		if m.awaitingPatch {
+		if m.inputMode == InputModePatch {
 			t.Error("should exit patch mode after --END--")
 		}
 	})
@@ -738,7 +738,7 @@ func TestE2E_TUI_InputStateMachine_KeySequences(t *testing.T) {
 	// --- clarification mode ---
 	t.Run("clarification_submit", func(t *testing.T) {
 		m := NewTestModel()
-		m.awaitingClarification = true
+		m.inputMode = InputModeClarification
 		m.clarificationState = &ClarificationState{
 			Question: "Which file?",
 			Options:  []string{"a.go", "b.go"},

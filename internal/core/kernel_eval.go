@@ -137,8 +137,12 @@ func (k *RealKernel) evaluate() error {
 	baseStore := factstore.NewSimpleInMemoryStore()
 
 	// Defensive sync check: ensure cache is valid
-	if len(k.cachedAtoms) != len(k.facts) {
-		logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), len(k.facts))
+	if k.cachedAtoms == nil || len(k.cachedAtoms) != len(k.facts) {
+		if len(k.cachedAtoms) > 0 {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: cache desync (atoms=%d facts=%d), rebuilding cache", len(k.cachedAtoms), len(k.facts))
+		} else {
+			logging.KernelDebug("evaluate: cache empty (facts=%d), populating cache", len(k.facts))
+		}
 		k.cachedAtoms = make([]ast.Atom, 0, len(k.facts))
 		for _, f := range k.facts {
 			atom, err := f.ToAtom()

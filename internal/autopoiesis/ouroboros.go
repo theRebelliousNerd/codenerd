@@ -256,11 +256,11 @@ func NewOuroborosLoop(client LLMClient, config OuroborosConfig) *OuroborosLoop {
 
 	// Load State Machine Rules from embedded core (not workspace filesystem)
 	logging.AutopoiesisDebug("Loading state machine rules from embedded core")
-	stateContent, err := core.GetDefaultContent("state.mg")
+	stateContent, err := core.GetDefaultContent("schemas_state.mg")
 	if err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to get embedded state.mg: %v. Operating in open-loop mode", err)
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to get embedded schemas_state.mg: %v. Operating in open-loop mode", err)
 	} else if err := loop.engine.LoadSchemaString(stateContent); err != nil {
-		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to parse state.mg: %v. Operating in open-loop mode", err)
+		logging.Get(logging.CategoryAutopoiesis).Warn("Failed to parse schemas_state.mg: %v. Operating in open-loop mode", err)
 	} else {
 		logging.AutopoiesisDebug("State machine rules loaded successfully from embedded core")
 	}

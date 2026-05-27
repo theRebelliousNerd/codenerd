@@ -27,7 +27,7 @@ type routingOutcome struct {
 	HasError    bool      // m.err != nil after Update
 	HasCampaign bool      // m.activeCampaign != nil
 	HasSubtasks bool      // len(m.pendingSubtasks) > 0
-	HasClarify  bool      // m.awaitingClarification
+	HasClarify  bool      // m.inputMode == InputModeClarification
 	HistoryLen  int       // len(m.history)
 }
 
@@ -93,7 +93,7 @@ func routeInput(t *testing.T, m Model, input string) routingOutcome {
 		HasError:    m.err != nil,
 		HasCampaign: m.activeCampaign != nil,
 		HasSubtasks: len(m.pendingSubtasks) > 0,
-		HasClarify:  m.awaitingClarification,
+		HasClarify:  m.inputMode == InputModeClarification,
 		HistoryLen:  len(m.history),
 	}
 }

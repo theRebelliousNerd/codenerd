@@ -191,14 +191,14 @@ func (m *MockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 // --- MockConfigFactory ---
 
 type MockConfigFactory struct {
-	GenerateFunc func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error)
+	GenerateFunc func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
 }
 
-func (m *MockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *MockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.GenerateFunc != nil {
 		return m.GenerateFunc(ctx, result, intents...)
 	}
-	return &config.AgentConfig{}, nil
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
 
 // --- MockVirtualStore ---

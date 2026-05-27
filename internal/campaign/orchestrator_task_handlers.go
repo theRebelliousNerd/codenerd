@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/session"
 	"codenerd/internal/tactile"
 	internaltypes "codenerd/internal/types"
 )
@@ -25,7 +26,11 @@ func (o *Orchestrator) spawnTask(ctx context.Context, intent string, task string
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	logging.CampaignDebug("spawnTask: using TaskExecutor for intent=%s", intent)
-	return te.Execute(ctx, intent, task)
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Task:       task,
+	}
+	return te.Execute(ctx, req)
 }
 
 // executeTask executes a single task.

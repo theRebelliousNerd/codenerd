@@ -12,6 +12,14 @@ import (
 	"codenerd/internal/types"
 )
 
+// TaskRequest represents a structured request for task execution.
+type TaskRequest struct {
+	IntentVerb string // Canonical intent verb (e.g., /fix, /review)
+	Persona    string // Optional persona (e.g., coder, reviewer)
+	Task       string // The task description
+	ConfigRef  string // Optional named config/profile
+}
+
 // TaskExecutor is the unified interface for task execution.
 // It abstracts both the new JIT-driven architecture and the legacy ShardManager,
 // enabling incremental migration from the old shard system to the new clean loop.
@@ -23,17 +31,15 @@ import (
 //  4. Delete LegacyBridge and ShardManager
 type TaskExecutor interface {
 	// Execute runs a task synchronously and returns the result.
-	// The intent parameter is an intent verb (e.g., "/fix", "/test", "/review")
-	// that determines the persona, tools, and policies via JIT compilation.
-	Execute(ctx context.Context, intent string, task string) (string, error)
+	Execute(ctx context.Context, req TaskRequest) (string, error)
 
 	// ExecuteWithContext runs a task with explicit session context and priority.
 	// This enables dream mode, shadow execution, and context injection.
-	ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
+	ExecuteWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error)
 
 	// ExecuteAsync spawns a subagent to handle the task asynchronously.
 	// Returns an ID that can be used to track progress and get results.
-	ExecuteAsync(ctx context.Context, intent string, task string) (taskID string, err error)
+	ExecuteAsync(ctx context.Context, req TaskRequest) (taskID string, err error)
 
 	// GetResult retrieves the result of an async task.
 	// Returns empty result and false if the task is still running.
@@ -77,37 +83,46 @@ func NewJITExecutor(executor *Executor, spawner *Spawner, transducer perception.
 // Execute runs a task through the clean execution loop.
 // For simple tasks, it uses the executor directly.
 // For complex tasks that need isolation, it spawns a subagent.
-func (j *JITExecutor) Execute(ctx context.Context, intent string, task string) (string, error) {
-	return j.ExecuteWithContext(ctx, intent, task, nil, types.PriorityNormal)
+func (j *JITExecutor) Execute(ctx context.Context, req TaskRequest) (string, error) {
+	return j.ExecuteWithContext(ctx, req, nil, types.PriorityNormal)
 }
 
 // ExecuteWithContext runs a task with explicit session context and priority.
-func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", intent, len(task), priority)
+func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
+	// Normalize IntentVerb vs Persona
+	if !strings.HasPrefix(req.IntentVerb, "/") {
+		if req.IntentVerb == "coder" {
+			logging.Get(logging.CategorySession).Warn("TaskExecutor received deprecated intent 'coder'. Mapping to '/fix'")
+			req.IntentVerb = "/fix"
+		} else {
+			return "", fmt.Errorf("invalid intent verb '%s', must start with '/'", req.IntentVerb)
+		}
+	}
+
+	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", req.IntentVerb, len(req.Task), priority)
 
 	// Dream mode tasks are speculative and should always use a subagent
 	// to avoid side effects and allow for parallelism.
 	if sessionCtx != nil && sessionCtx.DreamMode {
-		return j.executeWithSubagent(ctx, intent, task, sessionCtx)
+		return j.executeWithSubagent(ctx, req, sessionCtx)
 	}
 
 	// Determine if we need a subagent or can use inline execution
-	if j.needsSubagent(intent) {
-		return j.executeWithSubagent(ctx, intent, task, sessionCtx)
+	if j.needsSubagent(req.IntentVerb) {
+		return j.executeWithSubagent(ctx, req, sessionCtx)
 	}
 
 	// Use inline execution for simple tasks
 	// NOTE: SetSessionContext is not thread-safe. For true concurrent execution,
-	// use ExecuteAsync which spawns isolated subagents.
-	// The Executor's session context is only used for inline execution which
-	// is typically single-threaded per chat session.
+	// tasks MUST use subagents.
 	if sessionCtx != nil {
 		j.executor.SetSessionContext(sessionCtx)
+		defer j.executor.SetSessionContext(nil)
 	}
 
-	inlineTask := strings.TrimSpace(task)
-	if intent != "" {
-		intentWord := strings.TrimPrefix(strings.TrimSpace(intent), "/")
+	inlineTask := strings.TrimSpace(req.Task)
+	if req.IntentVerb != "" {
+		intentWord := strings.TrimPrefix(strings.TrimSpace(req.IntentVerb), "/")
 		if intentWord != "" && (inlineTask == "" || !strings.HasPrefix(inlineTask, intentWord+" ")) {
 			if inlineTask == "" {
 				inlineTask = intentWord
@@ -126,34 +141,37 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, intent string, tas
 }
 
 // ExecuteAsync spawns a subagent to handle the task.
-func (j *JITExecutor) ExecuteAsync(ctx context.Context, intent string, task string) (string, error) {
-	return j.executeAsyncInternal(ctx, intent, task, nil)
+func (j *JITExecutor) ExecuteAsync(ctx context.Context, req TaskRequest) (string, error) {
+	return j.executeAsyncInternal(ctx, req, nil)
 }
 
 // SpawnConsultation implements shards.ConsultationSpawner.
 func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
-	intent := fmt.Sprintf("/consult/%s", specialistName)
-	return j.executeAsyncInternal(ctx, intent, task, nil)
+	req := TaskRequest{
+		IntentVerb: fmt.Sprintf("/consult/%s", specialistName),
+		Task:       task,
+	}
+	return j.executeAsyncInternal(ctx, req, nil)
 }
 
 // executeAsyncInternal is an internal helper to spawn subagent with context.
-func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext) (string, error) {
-	logging.Session("JITExecutor.ExecuteAsync: intent=%s", intent)
+func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
+	logging.Session("JITExecutor.ExecuteAsync: intent=%s", req.IntentVerb)
 
 	// Spawn subagent via Spawner
-	req := SpawnRequest{
-		Name:           j.intentToAgentName(intent),
-		Task:           task,
+	spawnReq := SpawnRequest{
+		Name:           j.intentToAgentName(req.IntentVerb),
+		Task:           req.Task,
 		Type:           SubAgentTypeEphemeral,
-		IntentVerb:     intent,
+		IntentVerb:     req.IntentVerb,
 		Timeout:        30 * time.Minute,
 		SessionContext: sessionCtx,
 	}
 
-	// Spawner.Spawn() creates the agent AND starts it via `go agent.Run(ctx, req.Task)`.
-	// We must NOT call agent.Run() again here — that would create duplicate execution
-	// (double LLM calls, double tool invocations, cancellation bypass).
-	agent, err := j.spawner.Spawn(ctx, req)
+	// Spawner.Spawn() creates the agent. We must manually start it after tracking
+	// its ID to prevent a TOCTOU race where a very fast execution completes and
+	// caches its true result before ExecuteAsync initializes it to false.
+	agent, err := j.spawner.Spawn(ctx, spawnReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to spawn subagent: %w", err)
 	}
@@ -161,14 +179,15 @@ func (j *JITExecutor) executeAsyncInternal(ctx context.Context, intent string, t
 	taskID := agent.GetID()
 
 	// Track the task for result retrieval BEFORE starting execution
-	// This prevents a TOCTOU race where a very fast execution completes and
-	// caches its true result before ExecuteAsync initializes it to false.
 	j.mu.Lock()
 	j.results[taskID] = &TaskResult{
 		TaskID:    taskID,
 		Completed: false,
 	}
 	j.mu.Unlock()
+
+	// Start execution
+	go agent.Run(ctx, spawnReq.Task)
 
 	return taskID, nil
 }
@@ -267,8 +286,8 @@ func (j *JITExecutor) needsSubagent(intent string) bool {
 }
 
 // executeWithSubagent spawns a subagent and waits for the result.
-func (j *JITExecutor) executeWithSubagent(ctx context.Context, intent string, task string, sessionCtx *types.SessionContext) (string, error) {
-	taskID, err := j.executeAsyncInternal(ctx, intent, task, sessionCtx)
+func (j *JITExecutor) executeWithSubagent(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
+	taskID, err := j.executeAsyncInternal(ctx, req, sessionCtx)
 	if err != nil {
 		return "", err
 	}

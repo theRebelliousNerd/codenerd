@@ -1,4 +1,4 @@
-//go:build sqlite_vec && cgo
+//go:build cgo
 
 package store
 

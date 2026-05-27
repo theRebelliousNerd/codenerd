@@ -1217,7 +1217,7 @@ Press **Enter** to begin...`,
 		return m, nil
 
 	case "/patch":
-		m.awaitingPatch = true
+		m.inputMode = InputModePatch
 		m.pendingPatchLines = nil
 		m.textarea.Placeholder = "Paste patch lines (type --END-- when done)..."
 		m = m.addMessage(Message{

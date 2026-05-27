@@ -18,7 +18,7 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to generate coder config: %v", err)
 	}
-	if len(coderCfg.Tools.AllowedTools) == 0 {
+	if len(coderCfg.AllowedTools) == 0 {
 		t.Errorf("Coder config has no tools")
 	}
 	expectedCoderPolicies := []string{
@@ -37,21 +37,21 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 		"policy/coder_observability.mg",
 		"policy/coder_patterns.mg",
 	}
-	assertContainsAll(t, coderCfg.Policies.Files, expectedCoderPolicies, "Coder")
+	assertContainsAll(t, coderCfg.Policies, expectedCoderPolicies, "Coder")
 
 	// Test Tester
 	testerCfg, err := factory.Generate(ctx, result, "/tester")
 	if err != nil {
 		t.Fatalf("Failed to generate tester config: %v", err)
 	}
-	assertContainsAll(t, testerCfg.Policies.Files, []string{"base.mg", "tester.mg"}, "Tester")
+	assertContainsAll(t, testerCfg.Policies, []string{"base.mg", "tester.mg"}, "Tester")
 
 	// Test Reviewer
 	reviewerCfg, err := factory.Generate(ctx, result, "/reviewer")
 	if err != nil {
 		t.Fatalf("Failed to generate reviewer config: %v", err)
 	}
-	assertContainsAll(t, reviewerCfg.Policies.Files, []string{"base.mg", "reviewer.mg"}, "Reviewer")
+	assertContainsAll(t, reviewerCfg.Policies, []string{"base.mg", "reviewer.mg"}, "Reviewer")
 }
 
 func TestConfigGeneration_HybridIntents(t *testing.T) {
@@ -69,15 +69,15 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 	}
 
 	// Should have both policies
-	assertContainsAll(t, hybridCfg.Policies.Files, []string{
+	assertContainsAll(t, hybridCfg.Policies, []string{
 		"base.mg",
 		"policy/coder_workflow.mg",
 		"tester.mg",
 	}, "Hybrid")
 
 	// Should have union of tools
-	if !contains(hybridCfg.Tools.AllowedTools, "write_file") || !contains(hybridCfg.Tools.AllowedTools, "run_shell_command") {
-		t.Errorf("Hybrid config missing tools: %v", hybridCfg.Tools.AllowedTools)
+	if !contains(hybridCfg.AllowedTools, "write_file") || !contains(hybridCfg.AllowedTools, "run_shell_command") {
+		t.Errorf("Hybrid config missing tools: %v", hybridCfg.AllowedTools)
 	}
 }
 

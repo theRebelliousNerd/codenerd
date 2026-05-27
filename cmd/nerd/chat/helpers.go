@@ -1842,6 +1842,11 @@ func formatVerifiedResponse(
 			verificationResult.Confidence*100))
 	}
 
+	// Include the LLM's surface response if meaningful
+	if intent.Response != "" && len(intent.Response) < 500 {
+		sb.WriteString(fmt.Sprintf("> %s\n\n", intent.Response))
+	}
+
 	sb.WriteString("### Output\n\n")
 	sb.WriteString(result)
 

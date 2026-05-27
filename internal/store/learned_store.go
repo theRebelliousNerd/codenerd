@@ -119,26 +119,31 @@ func (s *LearnedCorpusStore) initializeSchema() error {
 		return fmt.Errorf("failed to create patterns table: %w", err)
 	}
 
-	// Create sqlite-vec virtual table for ANN search
-	// We need to determine embedding dimensions from the engine
-	dims := 3072 // Default to Gemini embedding size (updated from 768)
+	// Create sqlite-vec virtual table for ANN search only if engine is provided.
+	// Otherwise, it will be deferred to SetEmbeddingEngine.
 	if s.embedEngine != nil {
-		dims = s.embedEngine.Dimensions()
-	}
+		dims := s.embedEngine.Dimensions()
+		logging.StoreDebug("Initializing learned store vec_learned with vector dimensions: %d", dims)
 
-	vecTable := fmt.Sprintf(`
-	CREATE VIRTUAL TABLE IF NOT EXISTS vec_learned USING vec0(
-		embedding float[%d],
-		pattern TEXT,
-		verb TEXT
-	);
-	`, dims)
+		// Drop first to ensure dimension enforcement if user changed models
+		_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_learned")
 
-	if _, err := s.db.Exec(vecTable); err != nil {
-		// Log warning but don't fail - vec extension might not be available
-		logging.Get(logging.CategoryStore).Warn("Failed to create vec_learned table (sqlite-vec may not be available): %v", err)
+		vecTable := fmt.Sprintf(`
+		CREATE VIRTUAL TABLE vec_learned USING vec0(
+			embedding float[%d],
+			pattern TEXT,
+			verb TEXT
+		);
+		`, dims)
+
+		if _, err := s.db.Exec(vecTable); err != nil {
+			// Log warning but don't fail - vec extension might not be available
+			logging.Get(logging.CategoryStore).Warn("Failed to create vec_learned table (sqlite-vec may not be available): %v", err)
+		} else {
+			logging.StoreDebug("sqlite-vec table created with %d dimensions", dims)
+		}
 	} else {
-		logging.StoreDebug("sqlite-vec table created with %d dimensions", dims)
+		logging.StoreDebug("Skipping vec_learned creation during init (no embedding engine provided, deferred to SetEmbeddingEngine)")
 	}
 
 	logging.StoreDebug("Learned corpus schema initialized")
@@ -528,9 +533,12 @@ func (s *LearnedCorpusStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine
 	s.embedEngine = engine
 
 	// Re-initialize vec table with correct dimensions if needed
+	// We drop the table first to ensure dimension correctness if the user switched models
 	dims := engine.Dimensions()
+	_, _ = s.db.Exec("DROP TABLE IF EXISTS vec_learned")
+
 	vecTable := fmt.Sprintf(`
-		CREATE VIRTUAL TABLE IF NOT EXISTS vec_learned USING vec0(
+		CREATE VIRTUAL TABLE vec_learned USING vec0(
 			embedding float[%d],
 			pattern TEXT,
 			verb TEXT

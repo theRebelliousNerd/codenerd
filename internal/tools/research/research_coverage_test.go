@@ -1871,7 +1871,7 @@ func TestRegisterAll_WhenValidRegistry_ShouldRegisterAllTools(t *testing.T) {
 	}
 }
 
-func TestRegisterAll_WhenCalledTwice_ShouldReturnError(t *testing.T) {
+func TestRegisterAll_WhenCalledTwice_ShouldNotReturnError(t *testing.T) {
 	t.Parallel()
 	registry := tools.NewRegistry()
 	err := RegisterAll(registry)
@@ -1880,8 +1880,8 @@ func TestRegisterAll_WhenCalledTwice_ShouldReturnError(t *testing.T) {
 	}
 
 	err = RegisterAll(registry)
-	if err == nil {
-		t.Error("expected error when registering duplicate tools")
+	if err != nil {
+		t.Errorf("expected no error when registering duplicate tools, got %v", err)
 	}
 }
 

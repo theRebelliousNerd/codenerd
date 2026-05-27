@@ -114,21 +114,21 @@ func TestModel_InputModeTransitions(t *testing.T) {
 			name:      "Normal",
 			inputMode: InputModeNormal,
 			checkFn: func(m Model) bool {
-				return !m.awaitingClarification && !m.awaitingPatch
+				return m.inputMode != InputModeClarification && m.inputMode != InputModePatch
 			},
 		},
 		{
 			name:      "Clarification",
 			inputMode: InputModeClarification,
 			checkFn: func(m Model) bool {
-				return m.awaitingClarification
+				return m.inputMode == InputModeClarification
 			},
 		},
 		{
 			name:      "Patch",
 			inputMode: InputModePatch,
 			checkFn: func(m Model) bool {
-				return m.awaitingPatch
+				return m.inputMode == InputModePatch
 			},
 		},
 		{

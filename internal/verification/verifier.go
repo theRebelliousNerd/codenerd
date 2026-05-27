@@ -103,7 +103,11 @@ func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
 func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string) (string, error) {
 	// Prefer TaskExecutor when available
 	if v.taskExecutor != nil {
-		return v.taskExecutor.Execute(ctx, intent, task)
+		req := session.TaskRequest{
+			IntentVerb: intent,
+			Task:       task,
+		}
+		return v.taskExecutor.Execute(ctx, req)
 	}
 
 	// Fall back to ShardManager

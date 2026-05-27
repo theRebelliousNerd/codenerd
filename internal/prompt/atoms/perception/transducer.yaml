@@ -167,7 +167,8 @@
     - "analyze", "examine", "inspect" → /analyze
     - "what does", "explain", "how does", "why" → /explain
     - "debug", "troubleshoot", "why failing", "root cause" → /debug
-    - "find", "search", "grep", "where is" → /search
+    - "where is", "how is this implemented", "find definition" → /research
+    - "find", "search", "grep" → /search
     - "explore", "show structure", "what's in" → /explore
     - "read", "show", "cat", "display contents" → /read
     - "diff", "changes", "what changed" → /diff

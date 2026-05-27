@@ -171,7 +171,13 @@ func NewConstitutionGateShardWithConfig(cfg ConstitutionConfig) *ConstitutionGat
 // SetParentKernel wires the kernel and configures context-aware predicate selection.
 func (c *ConstitutionGateShard) SetParentKernel(k types.Kernel) {
 	c.BaseSystemShard.SetParentKernel(k)
-	if rk, ok := k.(*core.RealKernel); ok {
+	var rk *core.RealKernel
+	if kReal, ok := k.(*core.RealKernel); ok {
+		rk = kReal
+	} else if ck, ok := k.(*core.CortexKernel); ok {
+		rk = ck.GetPrimaryRealKernel()
+	}
+	if rk != nil {
 		if corpus := rk.GetPredicateCorpus(); corpus != nil {
 			c.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
 		}

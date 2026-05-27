@@ -34,7 +34,11 @@ func (cr *CheckpointRunner) spawnTask(ctx context.Context, intent string, task s
 	if cr.taskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	return cr.taskExecutor.Execute(ctx, intent, task)
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Task:       task,
+	}
+	return cr.taskExecutor.Execute(ctx, req)
 }
 
 // Run executes a checkpoint based on the verification method.

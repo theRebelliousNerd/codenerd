@@ -172,9 +172,9 @@ func TestSpawner_GenerateConfig_FallbackSuccess(t *testing.T) {
 	}
 
 	mockConfigFactory := &MockConfigFactory{
-		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+		GenerateFunc: func(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 			if result != nil && result.Prompt == "baseline prompt" {
-				return &config.AgentConfig{}, nil
+				return &config.EffectiveAgentRuntimeConfig{}, nil
 			}
 			return nil, errors.New("unexpected result")
 		},

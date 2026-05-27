@@ -90,13 +90,13 @@ func TestConfigFactory_Generate(t *testing.T) {
 				}
 
 				// Verify tools
-				if len(cfg.Tools.AllowedTools) != len(tt.wantTools) {
-					t.Errorf("Generate() Tools count = %v, want %v", len(cfg.Tools.AllowedTools), len(tt.wantTools))
+				if len(cfg.AllowedTools) != len(tt.wantTools) {
+					t.Errorf("Generate() Tools count = %v, want %v", len(cfg.AllowedTools), len(tt.wantTools))
 				}
 
 				// Verify policies
-				if len(cfg.Policies.Files) != len(tt.wantPolicies) {
-					t.Errorf("Generate() Policies count = %v, want %v", len(cfg.Policies.Files), len(tt.wantPolicies))
+				if len(cfg.Policies) != len(tt.wantPolicies) {
+					t.Errorf("Generate() Policies count = %v, want %v", len(cfg.Policies), len(tt.wantPolicies))
 				}
 			}
 		})
@@ -150,8 +150,8 @@ func TestConfigFactory_NullUndefinedEmpty_2(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error for empty string intent: %v", err)
 	} else {
-		if len(cfg.Tools.AllowedTools) != 1 || cfg.Tools.AllowedTools[0] != "fallback_tool" {
-			t.Errorf("Expected fallback_tool for empty string intent, got %v", cfg.Tools.AllowedTools)
+		if len(cfg.AllowedTools) != 1 || cfg.AllowedTools[0] != "fallback_tool" {
+			t.Errorf("Expected fallback_tool for empty string intent, got %v", cfg.AllowedTools)
 		}
 	}
 }
@@ -185,11 +185,11 @@ func TestConfigFactory_TypeCoercion(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if len(cfg.Tools.AllowedTools) != 2 {
-		t.Errorf("Expected 2 tools due to mixed casing and trailing spaces, got %v", len(cfg.Tools.AllowedTools))
+	if len(cfg.AllowedTools) != 2 {
+		t.Errorf("Expected 2 tools due to mixed casing and trailing spaces, got %v", len(cfg.AllowedTools))
 	}
-	if len(cfg.Policies.Files) != 2 {
-		t.Errorf("Expected 2 policies due to trailing spaces, got %v", len(cfg.Policies.Files))
+	if len(cfg.Policies) != 2 {
+		t.Errorf("Expected 2 policies due to trailing spaces, got %v", len(cfg.Policies))
 	}
 
 	atomMin, _ := provider.GetAtom("/priority_min")
@@ -233,11 +233,11 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 		t.Fatalf("Generate failed for large intents array: %v", err)
 	}
 
-	if len(cfg.Tools.AllowedTools) != 2 {
-		t.Errorf("Deduplication failed or returned wrong number of tools: %v", len(cfg.Tools.AllowedTools))
+	if len(cfg.AllowedTools) != 2 {
+		t.Errorf("Deduplication failed or returned wrong number of tools: %v", len(cfg.AllowedTools))
 	}
-	if len(cfg.Policies.Files) != 2 {
-		t.Errorf("Deduplication failed or returned wrong number of policies: %v", len(cfg.Policies.Files))
+	if len(cfg.Policies) != 2 {
+		t.Errorf("Deduplication failed or returned wrong number of policies: %v", len(cfg.Policies))
 	}
 }
 

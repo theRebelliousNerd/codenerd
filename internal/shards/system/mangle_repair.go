@@ -422,7 +422,13 @@ func (m *MangleRepairShard) validateRule(rule string, kernel core.Kernel, corpus
 
 	// Phase 1: Syntax check via kernel (requires RealKernel)
 	if kernel != nil {
-		if realKernel, ok := kernel.(*core.RealKernel); ok && realKernel != nil {
+		var realKernel *core.RealKernel
+		if rk, ok := kernel.(*core.RealKernel); ok {
+			realKernel = rk
+		} else if ck, ok := kernel.(*core.CortexKernel); ok {
+			realKernel = ck.GetPrimaryRealKernel()
+		}
+		if realKernel != nil {
 			if err := realKernel.HotLoadRule(rule); err != nil {
 				errors = append(errors, fmt.Sprintf("syntax: %v", err))
 			}

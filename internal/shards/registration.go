@@ -234,7 +234,13 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		shard.SetPromptAssembler(createAssembler())
 		// Wire the predicate corpus from kernel for schema validation
 		// Also wire the shard as the kernel's learned rule interceptor
-		if realKernel, ok := ctx.Kernel.(*core.RealKernel); ok {
+		var realKernel *core.RealKernel
+		if rk, ok := ctx.Kernel.(*core.RealKernel); ok {
+			realKernel = rk
+		} else if ck, ok := ctx.Kernel.(*core.CortexKernel); ok {
+			realKernel = ck.GetPrimaryRealKernel()
+		}
+		if realKernel != nil {
 			if corpus := realKernel.GetPredicateCorpus(); corpus != nil {
 				shard.SetCorpus(corpus)
 			}

@@ -32,6 +32,9 @@ func RegisterAll(registry *tools.Registry) error {
 	}
 
 	for _, tool := range allTools {
+		if registry.Has(tool.Name) {
+			continue
+		}
 		if err := registry.Register(tool); err != nil {
 			return err
 		}

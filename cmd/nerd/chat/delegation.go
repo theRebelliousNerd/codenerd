@@ -19,7 +19,8 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
-	promptpkg "codenerd/internal/prompt"
+	"codenerd/internal/prompt"
+	"codenerd/internal/session"
 	"codenerd/internal/shards"
 	"codenerd/internal/types"
 
@@ -37,7 +38,11 @@ func (m *Model) spawnTask(ctx context.Context, shardType string, task string) (s
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	return m.taskExecutor.Execute(ctx, shardType, task)
+	req := session.TaskRequest{
+		IntentVerb: shardType,
+		Task:       task,
+	}
+	return m.taskExecutor.Execute(ctx, req)
 }
 
 // spawnTaskWithContext spawns a task with additional session context and priority.
@@ -47,7 +52,11 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
 	ctx = m.withShardModelContext(ctx, shardType)
-	return m.taskExecutor.ExecuteWithContext(ctx, shardType, task, sessionCtx, priority)
+	req := session.TaskRequest{
+		IntentVerb: shardType,
+		Task:       task,
+	}
+	return m.taskExecutor.ExecuteWithContext(ctx, req, sessionCtx, priority)
 }
 
 func (m *Model) withShardModelContext(ctx context.Context, shardType string) context.Context {

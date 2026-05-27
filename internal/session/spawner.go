@@ -114,11 +114,11 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
 
 	// Phase 2: Generate JIT config (no lock - may involve IO/LLM calls)
-	agentConfig, err := s.generateConfig(ctx, req)
+	EffectiveAgentRuntimeConfig, err := s.generateConfig(ctx, req)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to generate config for %s: %v", req.Name, err)
 		// Continue with empty config - subagent can still function
-		agentConfig = &config.AgentConfig{}
+		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
 	}
 
 	// Phase 3: Build subagent configuration
@@ -126,7 +126,7 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 		ID:             fmt.Sprintf("%s-%d-%d", req.Name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
 		Name:           req.Name,
 		Type:           req.Type,
-		AgentConfig:    agentConfig,
+		EffectiveAgentRuntimeConfig:    EffectiveAgentRuntimeConfig,
 		Timeout:        req.Timeout,
 		MaxTurns:       100,
 		SessionContext: req.SessionContext,
@@ -158,9 +158,6 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	s.subagents[agent.GetID()] = agent
 	s.mu.Unlock()
 
-	// Phase 6: Start execution
-	go agent.Run(ctx, req.Task)
-
 	logging.Session("Spawned subagent: %s (id: %s)", req.Name, agent.GetID())
 
 	return agent, nil
@@ -186,7 +183,7 @@ func (s *Spawner) SpawnForIntent(ctx context.Context, intent perception.Intent, 
 // Specialists have their configs loaded from .nerd/agents/{name}/
 func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string) (*SubAgent, error) {
 	// Load specialist config from filesystem
-	agentConfig, err := s.loadSpecialistConfig(ctx, name)
+	EffectiveAgentRuntimeConfig, err := s.loadSpecialistConfig(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load specialist %s: %w", name, err)
 	}
@@ -205,7 +202,7 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 		ID:          fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
 		Name:        name,
 		Type:        SubAgentTypePersistent, // Specialists are persistent
-		AgentConfig: agentConfig,
+		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
 		Timeout:     30 * time.Minute,
 		MaxTurns:    100,
 	}
@@ -343,9 +340,9 @@ func (s *Spawner) countActive() int {
 }
 
 // generateConfig creates a JIT config for the subagent.
-func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.AgentConfig, error) {
+func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config.EffectiveAgentRuntimeConfig, error) {
 	if s.configFactory == nil {
-		return &config.AgentConfig{}, nil
+		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
 	intentVerb := req.IntentVerb
@@ -368,7 +365,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 	var compileResult *prompt.CompilationResult
 	if s.jitCompiler == nil {
 		logging.Get(logging.CategorySession).Warn("JIT compiler unavailable, using empty subagent config")
-		return &config.AgentConfig{}, nil
+		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
 	compileResult, err := s.jitCompiler.Compile(ctx, compilationCtx)
@@ -386,7 +383,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		if err != nil {
 			// Final fallback: return empty config, subagent will use defaults
 			logging.Get(logging.CategorySession).Warn("JIT baseline compilation also failed, using empty config: %v", err)
-			return &config.AgentConfig{}, nil
+			return &config.EffectiveAgentRuntimeConfig{}, nil
 		}
 	}
 
@@ -398,7 +395,7 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 const maxSpecialistConfigSize = 1 << 20 // 1MB
 
 // loadSpecialistConfig loads a specialist's config from the filesystem.
-func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*config.AgentConfig, error) {
+func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*config.EffectiveAgentRuntimeConfig, error) {
 	// Guard against path traversal: reject names containing ".." or path separators.
 	// Without this, a name like "../../etc/passwd" would escape .nerd/agents/.
 	if strings.Contains(name, "..") || strings.ContainsAny(name, "/\\") {
@@ -425,7 +422,7 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 				name, len(data), maxSpecialistConfigSize)
 		}
 
-		var cfg config.AgentConfig
+		var cfg config.EffectiveAgentRuntimeConfig
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse specialist config at %s: %w", configPath, err)
 		}
@@ -439,7 +436,7 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 	}
 
 	if s.configFactory == nil {
-		return &config.AgentConfig{}, nil
+		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
 	// Use specialist name as intent for now

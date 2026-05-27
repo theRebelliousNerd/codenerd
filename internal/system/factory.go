@@ -151,7 +151,11 @@ func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	return c.TaskExecutor.Execute(ctx, shardType, task)
+	req := session.TaskRequest{
+		IntentVerb: shardType,
+		Task:       task,
+	}
+	return c.TaskExecutor.Execute(ctx, req)
 }
 
 // SpawnTaskWithContext spawns a task with additional session context and priority.
@@ -170,13 +174,29 @@ func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, tas
 	if c.TaskExecutor == nil {
 		return "", fmt.Errorf("taskExecutor not initialized")
 	}
-	return c.TaskExecutor.ExecuteWithContext(ctx, shardType, task, sessionCtx, priority)
+	req := session.TaskRequest{
+		IntentVerb: shardType,
+		Task:       task,
+	}
+	return c.TaskExecutor.ExecuteWithContext(ctx, req, sessionCtx, priority)
 }
 
 func normalizeShardTypeName(typeName string) string {
 	typeName = strings.TrimSpace(typeName)
 	typeName = strings.TrimLeft(typeName, "/")
 	return typeName
+}
+
+type taskDelegatorAdapter struct {
+	executor session.TaskExecutor
+}
+
+func (a *taskDelegatorAdapter) Execute(ctx context.Context, intent string, task string) (string, error) {
+	req := session.TaskRequest{
+		IntentVerb: intent,
+		Task:       task,
+	}
+	return a.executor.Execute(ctx, req)
 }
 
 // StartMaintenanceSchedule launches a background goroutine that periodically
@@ -483,9 +503,17 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	virtualStore.SetDreamPlanManager(dreamPlanMgr)
 
 	// Wire TransactionManager for atomic multi-file edits and ShadowMode
-	if realKernel, ok := kernel.(*core.RealKernel); ok {
-		transactionMgr := core.NewTransactionManager(realKernel, workspace)
-		virtualStore.SetTransactionManager(transactionMgr)
+	{
+		var realKernel *core.RealKernel
+		if rk, ok := kernel.(*core.RealKernel); ok {
+			realKernel = rk
+		} else if ck, ok := kernel.(*core.CortexKernel); ok {
+			realKernel = ck.GetPrimaryRealKernel()
+		}
+		if realKernel != nil {
+			transactionMgr := core.NewTransactionManager(realKernel, workspace)
+			virtualStore.SetTransactionManager(transactionMgr)
+		}
 	}
 
 	// Hydrate modular tools so tools.Global() works for session.Executor
@@ -873,7 +901,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	// Create JITExecutor and wire to VirtualStore
 	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(taskExecutor)
+	virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: taskExecutor})
 
 	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
 

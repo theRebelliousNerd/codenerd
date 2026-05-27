@@ -568,7 +568,7 @@ func TestE2E_ChatLoop_PatchMode_DoesNotInvokePerceptionUntilEnd(t *testing.T) {
 	m := NewTestModel(WithSize(100, 50))
 	m.transducer = tr
 	m.client = NewMockLLMClient()
-	m.awaitingPatch = true
+	m.inputMode = InputModePatch
 	m.textarea.Placeholder = "Paste patch (--END-- to finish)..."
 
 	callsBefore := tr.getCallCount()
@@ -611,7 +611,7 @@ func TestE2E_ChatLoop_PatchMode_DoesNotInvokePerceptionUntilEnd(t *testing.T) {
 	m = submitted.(Model)
 
 	// 5. awaitingPatch false
-	if m.awaitingPatch {
+	if m.inputMode == InputModePatch {
 		t.Error("awaitingPatch should be false after --END--")
 	}
 
@@ -753,7 +753,7 @@ func TestE2E_ChatLoop_AmbiguousIntent_ClarificationThenResume(t *testing.T) {
 		t.Log("Clarification triggered correctly")
 
 		// 2. awaitingClarification true
-		if !m.awaitingClarification {
+		if m.inputMode != InputModeClarification {
 			t.Error("awaitingClarification should be true")
 		}
 

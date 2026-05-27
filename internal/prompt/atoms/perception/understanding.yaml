@@ -218,7 +218,47 @@ content: |
   }
   ```
 
-  ### Example 3: Hypothetical / What-If
+  ### Example 3: Architectural Investigation
+
+  **User**: "Where is the LocalStore defined and how does semantic vector recall work?"
+
+  ```json
+  {
+    "understanding": {
+      "primary_intent": "research",
+      "semantic_type": "mechanism",
+      "action_type": "research",
+      "domain": "architecture",
+      "scope": {
+        "level": "codebase",
+        "target": "LocalStore and semantic vector recall",
+        "file": "",
+        "symbol": "LocalStore"
+      },
+      "user_constraints": [],
+      "implicit_assumptions": ["want to understand implementation details", "seeking codebase navigation"],
+      "confidence": 0.95
+    },
+    "signals": {
+      "is_question": true,
+      "is_hypothetical": false,
+      "is_multi_step": false,
+      "is_negated": false,
+      "requires_confirmation": false,
+      "urgency": "normal"
+    },
+    "suggested_approach": {
+      "mode": "normal",
+      "primary_shard": "researcher",
+      "supporting_shards": [],
+      "tools_needed": ["grep_search", "read_file", "ast_query"],
+      "context_needed": ["LocalStore definition", "vector recall implementation"]
+    },
+    "surface_response": "I'll locate the LocalStore definition and explain the mechanics of semantic vector recall."
+  }
+  ```
+
+  ### Example 4: Hypothetical / What-If
 
   **User**: "What if I removed the caching layer entirely?"
 

@@ -151,7 +151,13 @@ func NewExecutivePolicyShardWithConfig(cfg ExecutiveConfig) *ExecutivePolicyShar
 // SetParentKernel wires the kernel and configures context-aware predicate selection.
 func (e *ExecutivePolicyShard) SetParentKernel(k types.Kernel) {
 	e.BaseSystemShard.SetParentKernel(k)
-	if rk, ok := k.(*core.RealKernel); ok {
+	var rk *core.RealKernel
+	if kReal, ok := k.(*core.RealKernel); ok {
+		rk = kReal
+	} else if ck, ok := k.(*core.CortexKernel); ok {
+		rk = ck.GetPrimaryRealKernel()
+	}
+	if rk != nil {
 		if corpus := rk.GetPredicateCorpus(); corpus != nil {
 			e.feedbackLoop.SetPredicateSelector(prompt.NewPredicateSelector(corpus))
 		}

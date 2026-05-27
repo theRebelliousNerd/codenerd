@@ -747,7 +747,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// Create JITExecutor - the new unified task execution interface
 		// This replaces LegacyBridge which wrapped ShardManager
 		taskExecutor = session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-		virtualStore.SetTaskExecutor(taskExecutor)
+		virtualStore.SetTaskExecutor(&chatTaskDelegatorAdapter{executor: taskExecutor})
 		logging.Boot("JITExecutor wired to VirtualStore")
 
 		// Create Tool Store for persisting full tool execution results
@@ -1168,7 +1168,11 @@ func (s *taskExecutorObserverSpawner) SpawnObserver(ctx context.Context, observe
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	return s.executor.Execute(ctx, observerName, task)
+	req := session.TaskRequest{
+		IntentVerb: observerName,
+		Task:       task,
+	}
+	return s.executor.Execute(ctx, req)
 }
 
 // taskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner interface.
@@ -1180,7 +1184,11 @@ func (s *taskExecutorConsultationSpawner) SpawnConsultation(ctx context.Context,
 	if s.executor == nil {
 		return "", fmt.Errorf("task executor not available")
 	}
-	return s.executor.Execute(ctx, specialistName, task)
+	req := session.TaskRequest{
+		IntentVerb: specialistName,
+		Task:       task,
+	}
+	return s.executor.Execute(ctx, req)
 }
 
 // northstarHandlerAdapter adapts northstar.BackgroundEventHandler to shards.NorthstarHandler interface.

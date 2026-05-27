@@ -70,8 +70,8 @@ type SubAgentConfig struct {
 	// Type determines lifecycle behavior.
 	Type SubAgentType
 
-	// AgentConfig from JIT provides identity, tools, and policies.
-	AgentConfig *config.AgentConfig
+	// EffectiveAgentRuntimeConfig from JIT provides identity, tools, and policies.
+	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
 
 	// Timeout for the entire subagent execution.
 	Timeout time.Duration
@@ -156,9 +156,9 @@ func NewSubAgent(
 	}
 
 	// Apply agent config to executor if provided
-	if cfg.AgentConfig != nil {
+	if cfg.EffectiveAgentRuntimeConfig != nil {
 		// The executor will use this config for all operations
-		logging.SessionDebug("SubAgent %s configured with %d tools", cfg.Name, len(cfg.AgentConfig.Tools.AllowedTools))
+		logging.SessionDebug("SubAgent %s configured with %d tools", cfg.Name, len(cfg.EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
 	return &SubAgent{
@@ -239,15 +239,29 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 
 // execute runs the clean loop for this subagent.
 func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
-	// For single-turn execution, just process the task
+	// Inject compiled EffectiveAgentRuntimeConfig and current history into the executor
+	s.mu.RLock()
+	if s.config.EffectiveAgentRuntimeConfig != nil {
+		s.executor.SetAgentConfig(s.config.EffectiveAgentRuntimeConfig)
+	}
+	s.executor.SetHistory(s.conversationHistory)
+	s.mu.RUnlock()
+
+	// For single-turn execution, process the task
 	result, err := s.executor.Process(ctx, task)
+
+	// Sync history back from executor
+	s.mu.Lock()
+	s.conversationHistory = s.executor.GetHistory()
+	s.turnCount++
+	s.mu.Unlock()
+
+	// Perform memory compression if needed (threshold 10)
+	_ = s.CompressMemory(ctx, 10)
+
 	if err != nil {
 		return "", err
 	}
-
-	s.mu.Lock()
-	s.turnCount++
-	s.mu.Unlock()
 
 	return result.Response, nil
 }

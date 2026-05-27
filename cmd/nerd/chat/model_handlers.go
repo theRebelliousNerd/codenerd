@@ -114,12 +114,12 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Patch ingestion mode
-	if m.awaitingPatch {
+	if m.inputMode == InputModePatch {
 		// Accumulate lines until user types --END--
 		if input == "--END--" {
 			patch := strings.Join(m.pendingPatchLines, "\n")
 			m.pendingPatchLines = nil
-			m.awaitingPatch = false
+			m.inputMode = InputModeNormal
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m = m.addMessage(Message{
 				Role:    "assistant",
@@ -450,7 +450,8 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 		clarifyContext = m.clarificationState.Context
 	}
 	pendingIntent := m.clarificationState.PendingIntent
-	m.awaitingClarification = false
+	// Resume clarification protocol if applicable
+	m.inputMode = InputModeNormal
 	m.clarificationState = nil
 	m.selectedOption = 0
 	if clarifyContext != "" {

@@ -438,6 +438,8 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 	// Construct URL with API key
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
 
+	logging.LogLLMRequest("GeminiClient", systemPrompt, userPrompt, nil, c.model, reqBody.GenerationConfig.Temperature)
+
 	// Retry loop for rate limits
 	maxRetries := 3
 	var lastErr error
@@ -520,11 +522,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		if thinkingText == "" && geminiResp.ThoughtSummary != "" {
 			thinkingText = strings.TrimSpace(geminiResp.ThoughtSummary)
 		}
-		if thinkingText != "" {
-			result.WriteString("🧠 **Thinking:**\n")
-			result.WriteString(thinkingText)
-			result.WriteString("\n\n---\n\n")
-		}
+		// The thinking text is stored in c.lastThoughtSummary (below) and shouldn't be prepended to the returned string.
 		result.WriteString(responseText)
 		response := result.String()
 
@@ -537,17 +535,21 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
+		cachedTokens := geminiResp.UsageMetadata.CachedContentTokenCount
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d thinking_chars=%d grounding_sources=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(thinkingText), len(c.lastGroundingSources))
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d thinking_tokens=%d thinking_chars=%d grounding_sources=%d cached_tokens=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(thinkingText), len(c.lastGroundingSources), cachedTokens)
 		} else {
-			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d",
-				time.Since(startTime), len(response), len(c.lastGroundingSources))
+			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
+				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
+		
+		logging.LogLLMResponse("gemini", response, time.Since(startTime), len(response)/4)
 		return response, nil
 	}
 
 	logging.PerceptionError("[Gemini] CompleteWithSystem: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	logging.LogLLMError("gemini", lastErr, time.Since(startTime))
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -689,6 +691,8 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 	// Construct URL with API key
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", c.baseURL, c.model, c.apiKey)
 
+	logging.LogLLMRequest("GeminiClient-Schema", systemPrompt, userPrompt, nil, c.model, reqBody.GenerationConfig.Temperature)
+
 	// Retry loop for rate limits
 	maxRetries := 3
 	var lastErr error
@@ -773,17 +777,21 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		c.captureGroundingSources(&geminiResp)
 
 		// Log thinking tokens if used
+		cachedTokens := geminiResp.UsageMetadata.CachedContentTokenCount
 		if geminiResp.UsageMetadata.ThoughtsTokenCount > 0 {
-			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d",
-				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources))
+			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d thinking_tokens=%d grounding_sources=%d cached_tokens=%d",
+				time.Since(startTime), len(response), geminiResp.UsageMetadata.ThoughtsTokenCount, len(c.lastGroundingSources), cachedTokens)
 		} else {
-			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d",
-				time.Since(startTime), len(response), len(c.lastGroundingSources))
+			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
+				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
+		
+		logging.LogLLMResponse("gemini-schema", response, time.Since(startTime), len(response)/4)
 		return response, nil
 	}
 
 	logging.PerceptionError("[Gemini] CompleteWithSchema: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	logging.LogLLMError("gemini-schema", lastErr, time.Since(startTime))
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -955,6 +963,11 @@ func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, 
 						}
 						if part.ThoughtSignature != "" {
 							c.lastThoughtSignature = part.ThoughtSignature
+						}
+						if part.Thought {
+							// Filter out thinking content from the stream
+							// otherwise it corrupts Piggyback JSON parsing
+							continue
 						}
 						if part.Text == "" {
 							continue
@@ -1138,7 +1151,7 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		OutputTokens:        geminiResp.UsageMetadata.CandidatesTokenCount,
 		TotalTokens:         geminiResp.UsageMetadata.TotalTokenCount,
 		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
-		CachedContentTokens: 0, // Not exposed in this response struct yet, or needs different mapping
+		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
 	}
 
 	if len(geminiResp.Candidates) > 0 {
@@ -1361,7 +1374,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		OutputTokens:        geminiResp.UsageMetadata.CandidatesTokenCount,
 		TotalTokens:         geminiResp.UsageMetadata.TotalTokenCount,
 		ThinkingTokens:      geminiResp.UsageMetadata.ThoughtsTokenCount,
-		CachedContentTokens: 0,
+		CachedContentTokens: geminiResp.UsageMetadata.CachedContentTokenCount,
 	}
 
 	if len(geminiResp.Candidates) > 0 {
@@ -1396,4 +1409,67 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		time.Since(startTime), len(result.Text), len(result.ToolCalls), result.StopReason)
 
 	return result, nil
+}
+
+// CountTokens counts the total number of tokens for the given prompt.
+func (c *GeminiClient) CountTokens(ctx context.Context, systemPrompt, userPrompt string) (int, error) {
+	reqBody := GeminiRequest{
+		Contents: []GeminiContent{
+			{
+				Role: "user",
+				Parts: []GeminiPart{
+					{Text: userPrompt},
+				},
+			},
+		},
+	}
+
+	if systemPrompt != "" {
+		reqBody.SystemInstruction = &GeminiContent{
+			Role: "system",
+			Parts: []GeminiPart{
+				{Text: systemPrompt},
+			},
+		}
+	}
+	
+	// Apply cached content if set
+	cachedContent := c.cachedContentName
+	if cachedContent != "" {
+		reqBody.CachedContent = cachedContent
+	}
+
+	// For counting tokens, we use the specific API endpoint
+	url := fmt.Sprintf("%s/models/%s:countTokens?key=%s", c.baseURL, c.model, c.apiKey)
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return 0, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var countResp struct {
+		TotalTokens int `json:"totalTokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&countResp); err != nil {
+		return 0, err
+	}
+
+	return countResp.TotalTokens, nil
 }

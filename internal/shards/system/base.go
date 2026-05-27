@@ -435,6 +435,9 @@ func (b *BaseSystemShard) SetParentKernel(k types.Kernel) {
 	if rk, ok := k.(*core.RealKernel); ok {
 		b.Kernel = rk
 		logging.SystemShardsDebug("[%s] Parent kernel attached", b.ID)
+	} else if ck, ok := k.(*core.CortexKernel); ok {
+		b.Kernel = ck.GetPrimaryRealKernel()
+		logging.SystemShardsDebug("[%s] Parent kernel (unwrapped from CortexKernel) attached", b.ID)
 	} else {
 		logging.Get(logging.CategorySystemShards).Error("[%s] Invalid kernel type %T, requires *core.RealKernel — shard will run without kernel", b.ID, k)
 	}

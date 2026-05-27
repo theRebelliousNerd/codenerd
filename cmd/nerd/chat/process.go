@@ -130,6 +130,29 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 		logging.Routing("[processInput] follow-up check: %dms (not a follow-up)", time.Since(followUpStart).Milliseconds())
 
+		// =====================================================================
+		// 0.5 FAST-PATH GREETING DETECTION (Pre-Perception)
+		// =====================================================================
+		// Bypasses the LLM entirely for simple conversational greetings
+		lowerTrimmed := strings.ToLower(trimmed)
+		if lowerTrimmed == "hi" || lowerTrimmed == "hello" || lowerTrimmed == "hey" || lowerTrimmed == "sup" || lowerTrimmed == "greetings" || lowerTrimmed == "yo" {
+			logging.Routing("[processInput] PRE-PERCEPTION FAST-PATH: simple greeting | OODA total=%dms", time.Since(oodaStart).Milliseconds())
+			
+			// Glass Box: Emit fast-path event
+			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryControl,
+					Summary:   "FAST-PATH: /greet (bypassed perception)",
+					Details:   "Pre-perception heuristic matched greeting",
+					TurnID:    m.turnCount,
+				})
+			}
+			
+			greetingResp := "Hello! I'm codeNERD. I can help you analyze, test, and refactor your code. What are we working on today?"
+			return responseMsg(m.appendSystemSummary(greetingResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
+		}
+
 		// 1. PERCEPTION (Transducer) - with conversation history for context
 		perceptionStart := time.Now()
 		m.ReportStatus("Perception: parsing intent...")

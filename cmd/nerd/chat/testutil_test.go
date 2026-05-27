@@ -433,9 +433,9 @@ func WithInputMode(mode InputMode) TestModelOption {
 	return func(m *Model) {
 		switch mode {
 		case InputModeClarification:
-			m.awaitingClarification = true
+			m.inputMode = InputModeClarification
 		case InputModePatch:
-			m.awaitingPatch = true
+			m.inputMode = InputModePatch
 		case InputModeAgentWizard:
 			m.awaitingAgentDefinition = true
 		case InputModeConfigWizard:

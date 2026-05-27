@@ -47,27 +47,41 @@ func NewFinalAssembler() *FinalAssembler {
 }
 
 // defaultCategoryOrder returns the standard category sequence.
-// Order is important: identity first, context last.
+// Order is extremely important for Prefix Caching: static categories first (Head),
+// highly dynamic JIT context last (Tail).
 func defaultCategoryOrder() []AtomCategory {
 	return []AtomCategory{
-		CategoryIdentity,      // Who the agent is
-		CategorySafety,        // Constitutional constraints
-		CategoryProtocol,      // Operational protocols
-		CategoryCapability,    // Capability guidance
-		CategoryMethodology,   // Problem-solving approach
-		CategoryHallucination, // Anti-hallucination guardrails
-		CategoryLanguage,      // Language-specific guidance
-		CategoryFramework,     // Framework-specific guidance
-		CategoryDomain,        // Project/domain context
-		CategoryCampaign,      // Active campaign context
-		CategoryInit,          // Init phase specifics
-		CategoryNorthstar,     // Planning specifics
-		CategoryOuroboros,     // Self-improvement specifics
-		CategoryAutopoiesis,   // Autopoiesis specifics
-		CategoryContext,       // Dynamic context (files, symbols)
-		CategoryReviewer,      // Reviewer guidance
-		CategoryEval,          // Evaluation/judge guidance
-		CategoryExemplar,      // Few-shot examples (last)
+		// Level 0: The Core Identity (Never Changes)
+		CategoryIdentity,
+		CategorySafety,
+		CategoryProtocol,
+		CategoryHallucination,
+		CategoryMethodology,
+		CategoryCapability,
+
+		// Level 1: Stack & Knowledge (Changes rarely / per project)
+		CategoryLanguage,
+		CategoryFramework,
+		CategoryDomain,
+		CategoryKnowledge,
+
+		// Level 2: Goal Context (Changes per phase)
+		CategoryCampaign,
+		CategoryNorthstar,
+		CategoryInit,
+		CategoryBuildLayer,
+		CategoryOuroboros,
+		CategoryAutopoiesis,
+
+		// Level 3: Mode Context (Changes per task)
+		CategoryReviewer,
+		CategoryEval,
+		CategoryExemplar,
+
+		// Level 4: JIT Working Memory (Changes EVERY turn) - THE TAIL
+		CategoryIntent,
+		CategoryWorldState,
+		CategoryContext,
 	}
 }
 
@@ -261,15 +275,19 @@ func categoryHeader(cat AtomCategory) string {
 		CategoryLanguage:      "## Language Guidelines",
 		CategoryFramework:     "## Framework Guidelines",
 		CategoryDomain:        "## Domain Context",
+		CategoryKnowledge:     "## Knowledge Base",
 		CategoryCampaign:      "## Campaign Context",
-		CategoryInit:          "## Initialization",
 		CategoryNorthstar:     "## Planning",
+		CategoryInit:          "## Initialization",
+		CategoryBuildLayer:    "## Build Layer Guidance",
 		CategoryOuroboros:     "## Self-Improvement",
 		CategoryAutopoiesis:   "## Autopoiesis",
-		CategoryContext:       "## Current Context",
 		CategoryReviewer:      "## Reviewer Guidance",
 		CategoryEval:          "## Evaluation",
 		CategoryExemplar:      "## Examples",
+		CategoryIntent:        "## User Intent",
+		CategoryWorldState:    "## World State",
+		CategoryContext:       "## Current Context",
 	}
 
 	if name, ok := names[cat]; ok {

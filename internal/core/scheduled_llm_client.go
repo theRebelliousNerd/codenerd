@@ -366,6 +366,11 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 		return contentChan, errorChan
 	}
 
+	// LLM I/O tracing: log the full prompt package before the call
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
+
+	start := time.Now()
 	underContent, underErr := streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
 
 	go func() {
@@ -377,6 +382,7 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 		contentClosed := underContent == nil
 		errClosed := underErr == nil
 		var firstErr error
+		var fullResponse string
 
 		for !(contentClosed && errClosed) {
 			select {
@@ -395,6 +401,7 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 				}
 				select {
 				case contentChan <- chunk:
+					fullResponse += chunk
 				case <-ctx.Done():
 					if firstErr == nil {
 						firstErr = ctx.Err()
@@ -413,8 +420,12 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 			}
 		}
 
+		duration := time.Since(start)
 		if firstErr != nil {
+			logging.LogLLMError(c.ShardID, firstErr, duration)
 			errorChan <- firstErr
+		} else {
+			logging.LogLLMResponse(c.ShardID, fullResponse, duration, len(fullResponse)/4)
 		}
 	}()
 

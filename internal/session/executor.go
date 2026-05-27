@@ -36,9 +36,9 @@ type JITCompiler interface {
 	Compile(ctx context.Context, compilationCtx *prompt.CompilationContext) (*prompt.CompilationResult, error)
 }
 
-// ConfigFactory creates AgentConfig from compilation results.
+// ConfigFactory creates EffectiveAgentRuntimeConfig from compilation results.
 type ConfigFactory interface {
-	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error)
+	Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error)
 }
 
 // SessionPersister stores session turn data for cross-session continuity.
@@ -84,6 +84,9 @@ type Executor struct {
 
 	// Configuration
 	config ExecutorConfig
+
+	// Precompiled EffectiveAgentRuntimeConfig (injected by SubAgent)
+	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
 }
 
 // ExecutorConfig holds configuration for the executor.
@@ -142,6 +145,21 @@ func (e *Executor) SetConfig(cfg ExecutorConfig) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.config = cfg
+}
+
+// SetAgentConfig injects a pre-compiled agent config, bypassing JIT config compilation.
+func (e *Executor) SetAgentConfig(cfg *config.EffectiveAgentRuntimeConfig) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.EffectiveAgentRuntimeConfig = cfg
+}
+
+// SetHistory sets the conversation history.
+func (e *Executor) SetHistory(history []perception.ConversationTurn) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.conversationHistory = make([]perception.ConversationTurn, len(history))
+	copy(e.conversationHistory, history)
 }
 
 // SetOuroborosRegistry sets the Ouroboros tool registry for generated tools.
@@ -256,17 +274,17 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	}
 
 	// 4. JIT: Compile config (tools, policies)
-	agentConfig, err := e.compileConfig(ctx, compileResult, intent)
+	EffectiveAgentRuntimeConfig, err := e.compileConfig(ctx, compileResult, intent)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("Config compilation failed: %v", err)
 		// Continue with empty config - LLM can still respond
-		agentConfig = &config.AgentConfig{}
+		EffectiveAgentRuntimeConfig = &config.EffectiveAgentRuntimeConfig{}
 	} else {
-		logging.Session("Config compiled: %d tools allowed", len(agentConfig.Tools.AllowedTools))
+		logging.Session("Config compiled: %d tools allowed", len(EffectiveAgentRuntimeConfig.AllowedTools))
 	}
 
 	// 5. LLM: Generate response with tool calling
-	llmResponse, err := e.generateResponse(ctx, compileResult.Prompt, input, agentConfig)
+	llmResponse, err := e.generateResponse(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
@@ -284,7 +302,7 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 			Args: call.Input,
 		}
 
-		toolResult, err := e.executeToolCall(ctx, toolCall, agentConfig)
+		toolResult, err := e.executeToolCall(ctx, toolCall, EffectiveAgentRuntimeConfig)
 		if err != nil {
 			logging.Get(logging.CategorySession).Error("Tool call %s failed: %v", call.Name, err)
 			if ctx.Err() != nil {
@@ -386,10 +404,18 @@ func (e *Executor) buildCompilationContext(ctx context.Context, intent perceptio
 	return cc
 }
 
-// compileConfig creates an AgentConfig from the compilation result and intent.
-func (e *Executor) compileConfig(ctx context.Context, result *prompt.CompilationResult, intent perception.Intent) (*config.AgentConfig, error) {
+// compileConfig creates an EffectiveAgentRuntimeConfig from the compilation result and intent.
+func (e *Executor) compileConfig(ctx context.Context, result *prompt.CompilationResult, intent perception.Intent) (*config.EffectiveAgentRuntimeConfig, error) {
+	e.mu.RLock()
+	if e.EffectiveAgentRuntimeConfig != nil {
+		cfg := e.EffectiveAgentRuntimeConfig
+		e.mu.RUnlock()
+		return cfg, nil
+	}
+	e.mu.RUnlock()
+
 	if e.configFactory == nil {
-		return &config.AgentConfig{}, nil
+		return &config.EffectiveAgentRuntimeConfig{}, nil
 	}
 
 	// Use intent verb as the primary intent for config lookup
@@ -403,13 +429,13 @@ func (e *Executor) compileConfig(ctx context.Context, result *prompt.Compilation
 
 // generateResponse calls the LLM with the compiled prompt and tools for tool calling.
 // Uses Piggyback Protocol for tools when the client supports it (e.g., Gemini with grounding).
-func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (*types.LLMToolResponse, error) {
+func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
 	// Check if client should use Piggyback for tools (e.g., Gemini with grounding enabled)
 	if ptp, ok := e.llmClient.(types.PiggybackToolProvider); ok && ptp.ShouldUsePiggybackTools() {
 		return e.generateResponseWithPiggybackTools(ctx, systemPrompt, userInput, cfg)
 	}
 
-	// Convert AgentConfig tool names to ToolDefinition structs
+	// Convert EffectiveAgentRuntimeConfig tool names to ToolDefinition structs
 	toolDefs := e.buildToolDefinitions(cfg)
 
 	// If we have tools, use native function calling; otherwise fall back to simple completion
@@ -433,7 +459,7 @@ func (e *Executor) generateResponse(ctx context.Context, systemPrompt, userInput
 // generateResponseWithPiggybackTools uses structured output for tool invocation.
 // This enables tool use to coexist with Gemini's built-in grounding tools
 // (Google Search, URL Context) which cannot be combined with native function calling.
-func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, systemPrompt, userInput string, cfg *config.AgentConfig) (*types.LLMToolResponse, error) {
+func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, systemPrompt, userInput string, cfg *config.EffectiveAgentRuntimeConfig) (*types.LLMToolResponse, error) {
 	// Build tool catalog for injection into system prompt
 	toolCatalog := e.buildToolCatalogForPiggyback(cfg)
 	if toolCatalog != "" {
@@ -480,7 +506,7 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 // This merges tools from both registries:
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
-func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string {
+func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntimeConfig) string {
 	// Use json.MarshalIndent to ensure the example is always valid JSON
 	exampleRequest := []map[string]interface{}{{
 		"id":        "req_1",
@@ -503,9 +529,9 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string 
 
 	// 1. Add modular tools from tools.Global()
 	modularRegistry := tools.Global()
-	if cfg != nil && len(cfg.Tools.AllowedTools) > 0 {
+	if cfg != nil && len(cfg.AllowedTools) > 0 {
 		catalog.WriteString("### Built-in Tools\n\n")
-		for _, toolName := range cfg.Tools.AllowedTools {
+		for _, toolName := range cfg.AllowedTools {
 			tool := modularRegistry.Get(toolName)
 			if tool == nil {
 				continue
@@ -557,7 +583,7 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.AgentConfig) string 
 	catalog.WriteString("```\n")
 
 	logging.Session("Built Piggyback++ tool catalog: %d tools (%d modular, %d ouroboros)",
-		toolCount, len(cfg.Tools.AllowedTools), toolCount-len(cfg.Tools.AllowedTools))
+		toolCount, len(cfg.AllowedTools), toolCount-len(cfg.AllowedTools))
 
 	return catalog.String()
 }
@@ -707,18 +733,18 @@ func (e *Executor) parseMangleArg(arg string) interface{} {
 	return arg
 }
 
-// buildToolDefinitions converts tool names from AgentConfig to ToolDefinition structs.
-func (e *Executor) buildToolDefinitions(cfg *config.AgentConfig) []types.ToolDefinition {
-	if cfg == nil || len(cfg.Tools.AllowedTools) == 0 {
+// buildToolDefinitions converts tool names from EffectiveAgentRuntimeConfig to ToolDefinition structs.
+func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig) []types.ToolDefinition {
+	if cfg == nil || len(cfg.AllowedTools) == 0 {
 		logging.SessionDebug("buildToolDefinitions: no tools configured (cfg=%v)", cfg != nil)
 		return nil
 	}
-	logging.Session("buildToolDefinitions: building %d tool definitions", len(cfg.Tools.AllowedTools))
+	logging.Session("buildToolDefinitions: building %d tool definitions", len(cfg.AllowedTools))
 
 	registry := tools.Global()
 	var defs []types.ToolDefinition
 
-	for _, toolName := range cfg.Tools.AllowedTools {
+	for _, toolName := range cfg.AllowedTools {
 		tool := registry.Get(toolName)
 		if tool == nil {
 			logging.SessionDebug("Tool %s not found in registry", toolName)
@@ -740,7 +766,7 @@ func (e *Executor) buildToolDefinitions(cfg *config.AgentConfig) []types.ToolDef
 		})
 	}
 
-	logging.Session("Built %d tool definitions from %d allowed tools", len(defs), len(cfg.Tools.AllowedTools))
+	logging.Session("Built %d tool definitions from %d allowed tools", len(defs), len(cfg.AllowedTools))
 	return defs
 }
 
@@ -755,7 +781,7 @@ type ToolCall struct {
 // It checks both registries in order:
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
-func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.AgentConfig) (string, error) {
+func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
 	// Check if tool is allowed by config (for modular tools) or exists in Ouroboros
 	if !e.isToolAllowed(call.Name, cfg) && !e.isOuroborosTool(call.Name) {
 		return "", fmt.Errorf("tool %s not allowed by config and not in Ouroboros registry", call.Name)
@@ -823,12 +849,12 @@ func (e *Executor) isOuroborosTool(toolName string) bool {
 }
 
 // isToolAllowed checks if a tool is in the allowed list.
-func (e *Executor) isToolAllowed(toolName string, cfg *config.AgentConfig) bool {
-	if cfg == nil || len(cfg.Tools.AllowedTools) == 0 {
+func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRuntimeConfig) bool {
+	if cfg == nil || len(cfg.AllowedTools) == 0 {
 		return true // No restrictions
 	}
 
-	for _, allowed := range cfg.Tools.AllowedTools {
+	for _, allowed := range cfg.AllowedTools {
 		if allowed == toolName {
 			return true
 		}
