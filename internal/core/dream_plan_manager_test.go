@@ -54,11 +54,14 @@ func TestDreamPlanManager_StorePlan(t *testing.T) {
 	if mgr.GetCurrentPlan() != plan1 {
 		t.Errorf("Expected current plan to be plan1, got %v", mgr.GetCurrentPlan())
 	}
-	if len(k.assertedFacts) != 1 {
-		t.Errorf("Expected 1 asserted fact, got %d", len(k.assertedFacts))
+	if len(k.assertedFacts) != 2 {
+		t.Errorf("Expected 2 asserted facts (dream_plan + dream_plan_subtask), got %d", len(k.assertedFacts))
 	}
 	if k.assertedFacts[0].Predicate != "dream_plan" {
 		t.Errorf("Expected dream_plan predicate, got %s", k.assertedFacts[0].Predicate)
+	}
+	if len(k.assertedFacts) > 1 && k.assertedFacts[1].Predicate != "dream_plan_subtask" {
+		t.Errorf("Expected dream_plan_subtask predicate, got %s", k.assertedFacts[1].Predicate)
 	}
 
 	// Store second plan - triggers archive of plan1

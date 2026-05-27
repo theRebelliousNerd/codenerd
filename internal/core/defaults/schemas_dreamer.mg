@@ -23,6 +23,9 @@ Decl panic_state(ActionID, Reason) bound [/string, /string].
 # dream_block(ActionID, Reason) - Derived: action blocked by Dreamer
 Decl dream_block(ActionID, Reason) bound [/string, /string].
 
+# dream_blocked_action(DreamActionID, ActionType, Target, Reason) - Audit: RouteAction blocked by Dreamer gate
+Decl dream_blocked_action(DreamActionID, ActionType, Target, Reason) bound [/string, /string, /string, /string].
+
 # critical_file(Path) - Enumerates files whose deletion is catastrophic
 Decl critical_file(Path) bound [/string].
 

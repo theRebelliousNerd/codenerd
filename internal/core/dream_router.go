@@ -112,6 +112,22 @@ func (r *DreamRouter) RouteLearnings(learnings []*DreamLearning) []RouteResult {
 			l.Persisted = true
 			l.PersistedTo = result.Destination
 			logging.Dream("RouteLearnings: %s → %s", l.ID, result.Destination)
+
+			// Assert audit trail fact so the kernel can track confirmed learnings
+			if r.kernel != nil {
+				auditFact := Fact{
+					Predicate: "dream_learning_confirmed",
+					Args: []interface{}{
+						l.ID,
+						"/" + string(l.Type), // Name constant for Mangle
+						truncateResult(l.Content),
+						time.Now().Unix(),
+					},
+				}
+				if err := r.kernel.Assert(auditFact); err != nil {
+					logging.DreamDebug("RouteLearnings: failed to assert audit trail: %v", err)
+				}
+			}
 		} else {
 			logging.Get(logging.CategoryDream).Error("RouteLearnings: failed to route %s: %s", l.ID, result.ErrorMessage)
 		}

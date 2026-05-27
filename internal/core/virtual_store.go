@@ -1036,6 +1036,37 @@ func (v *VirtualStore) checkConstitution(req ActionRequest) error {
 	return nil
 }
 
+// isDestructiveAction returns true for action types that could cause irreversible damage.
+// These are routed through the Dreamer safety gate for speculative pre-evaluation.
+// Aggressive list: shell execution, file mutations, git ops, campaign mutations.
+func isDestructiveAction(t ActionType) bool {
+	switch t {
+	// Shell execution — arbitrary code
+	case ActionExecCmd, ActionRunCommand, ActionBash, ActionRunBuild, ActionExecTool:
+		return true
+	// File mutations
+	case ActionWriteFile, ActionEditFile, ActionDeleteFile, ActionFSWrite:
+		return true
+	// Line-level mutations
+	case ActionEditLines, ActionInsertLines, ActionDeleteLines:
+		return true
+	// Code DOM element edits
+	case ActionEditElement:
+		return true
+	// Git operations — can rewrite history
+	case ActionGitOperation:
+		return true
+	// Campaign file mutations
+	case ActionCampaignCreateFile, ActionCampaignModifyFile, ActionCampaignRefactor:
+		return true
+	// Python environment — arbitrary code execution
+	case ActionPythonEnvExec, ActionPythonApplyPatch:
+		return true
+	default:
+		return false
+	}
+}
+
 // RouteAction intercepts 'next_action' atoms and routes them to appropriate handlers.
 func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, error) {
 	timer := logging.StartTimer(logging.CategoryVirtualStore, fmt.Sprintf("RouteAction(%s)", action.Predicate))
@@ -1062,8 +1093,30 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	logging.VirtualStoreDebug("Parsed action: type=%s, target=%s", req.Type, req.Target)
 
-	// NOTE: Speculative dreaming (precognition) is OPT-IN only.
-	// It was previously auto-invoked here but caused unwanted startup activity.
+	// Dreamer safety gate: speculatively simulate destructive actions before execution.
+	// The dreamer clones the kernel, projects effects, and queries panic_state rules.
+	// If unsafe, the action is blocked. Fail-closed: if dreamer itself fails, action is blocked.
+	if isDestructiveAction(req.Type) {
+		dreamer := v.getDreamer()
+		if dreamer != nil {
+			dreamResult := dreamer.SimulateAction(ctx, req)
+			if dreamResult.Unsafe {
+				logging.Get(logging.CategoryVirtualStore).Warn(
+					"Dreamer BLOCKED action: %s on %s (reason: %s)",
+					req.Type, req.Target, dreamResult.Reason)
+				v.injectFact(Fact{
+					Predicate: "security_violation",
+					Args:      []interface{}{string(req.Type), req.Target, "dreamer: " + dreamResult.Reason},
+				})
+				v.injectFact(Fact{
+					Predicate: "dream_blocked_action",
+					Args:      []interface{}{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
+				})
+				return "", fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
+			}
+			logging.VirtualStoreDebug("Dreamer approved action: %s on %s", req.Type, req.Target)
+		}
+	}
 
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {

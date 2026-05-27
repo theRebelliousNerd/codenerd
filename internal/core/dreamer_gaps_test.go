@@ -341,30 +341,48 @@ func TestDreamerGap_SecurityShellFeatures(t *testing.T) {
 
 // ---------- Resource Exhaustion ----------
 
-// TestDreamerGap_UnboundedDreamCache documents the unbounded growth of DreamCache.
-func TestDreamerGap_UnboundedDreamCache(t *testing.T) {
+// TestDreamerGap_BoundedDreamCache verifies the DreamCache eviction policy.
+func TestDreamerGap_BoundedDreamCache(t *testing.T) {
 	cache := NewDreamCache()
 
-	// Store 10000 results to verify no panic
-	const count = 10000
+	// Store more than the max to trigger eviction
+	const count = dreamCacheMaxSize + 100
 	for i := 0; i < count; i++ {
-		cache.Store(DreamResult{
+		key := fmt.Sprintf("action_%d:target_%d", i, i)
+		cache.Store(key, DreamResult{
 			ActionID: fmt.Sprintf("action_%d", i),
 			Unsafe:   i%2 == 0,
 			Reason:   fmt.Sprintf("reason_%d", i),
 		})
 	}
 
-	// Verify we can still retrieve
-	result, ok := cache.Get("action_5000")
-	if !ok {
-		t.Error("Expected cache hit for action_5000")
-	}
-	if !result.Unsafe {
-		t.Error("Expected action_5000 to be unsafe (even index)")
+	// Verify cache didn't grow beyond max
+	cache.mu.RLock()
+	cacheSize := len(cache.results)
+	cache.mu.RUnlock()
+
+	if cacheSize > dreamCacheMaxSize {
+		t.Errorf("Cache size %d exceeds max %d after eviction", cacheSize, dreamCacheMaxSize)
 	}
 
-	t.Logf("KNOWN GAP: DreamCache grows indefinitely. %d entries stored with no eviction policy.", count)
+	// Verify recent entries are still accessible
+	recentKey := fmt.Sprintf("action_%d:target_%d", count-1, count-1)
+	result, ok := cache.Get(recentKey)
+	if !ok {
+		t.Error("Expected cache hit for most recent entry")
+	}
+	if result.ActionID != fmt.Sprintf("action_%d", count-1) {
+		t.Errorf("Wrong result for recent entry: %s", result.ActionID)
+	}
+
+	// Verify Invalidate clears everything
+	cache.Invalidate()
+	_, ok = cache.Get(recentKey)
+	if ok {
+		t.Error("Expected cache miss after Invalidate()")
+	}
+
+	t.Logf("DreamCache bounded: stored %d, final size %d (max %d)", count, cacheSize, dreamCacheMaxSize)
 }
 
 // ---------- Fragile Defaults ----------

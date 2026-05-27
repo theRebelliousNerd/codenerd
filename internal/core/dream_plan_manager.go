@@ -52,6 +52,28 @@ func (m *DreamPlanManager) StorePlan(plan *DreamPlan) {
 		if err := m.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan fact: %v", err)
 		}
+
+		// Assert each subtask so policy rules can reason about plan structure
+		for _, subtask := range plan.Subtasks {
+			shardType := subtask.ShardType
+			if shardType == "" {
+				shardType = "unknown"
+			}
+			stFact := Fact{
+				Predicate: "dream_plan_subtask",
+				Args: []interface{}{
+					plan.ID,
+					subtask.Order,
+					"/" + shardType, // Name constant for Mangle
+					truncateResult(subtask.Description),
+					"/" + string(subtask.Status), // Name constant for Mangle
+				},
+			}
+			if err := m.kernel.Assert(stFact); err != nil {
+				logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan_subtask fact: %v", err)
+			}
+		}
+		logging.DreamDebug("Asserted dream_plan + %d dream_plan_subtask facts for plan %s", len(plan.Subtasks), plan.ID)
 	}
 }
 

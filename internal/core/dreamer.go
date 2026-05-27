@@ -22,11 +22,14 @@ type DreamResult struct {
 	Reason         string
 }
 
-// DreamCache is a threadsafe cache of dream results (action -> verdict).
+// DreamCache is a threadsafe cache of dream results keyed by action type + target.
+// This avoids redundant kernel clones when the same action is simulated multiple times.
 type DreamCache struct {
 	mu      sync.RWMutex
 	results map[string]DreamResult
 }
+
+const dreamCacheMaxSize = 256
 
 // NewDreamCache creates an empty dream cache.
 func NewDreamCache() *DreamCache {
@@ -36,37 +39,68 @@ func NewDreamCache() *DreamCache {
 	}
 }
 
-// Store saves a result.
-func (c *DreamCache) Store(result DreamResult) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.results[result.ActionID] = result
-	logging.DreamDebug("DreamCache: stored result for action %s (unsafe=%v)", result.ActionID, result.Unsafe)
+// cacheKey generates a deterministic key from action type and target.
+func dreamCacheKey(req ActionRequest) string {
+	return string(req.Type) + ":" + req.Target
 }
 
-// Get retrieves a result by action ID.
-func (c *DreamCache) Get(actionID string) (DreamResult, bool) {
+// Store saves a result, evicting oldest entries if cache exceeds max size.
+func (c *DreamCache) Store(key string, result DreamResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Simple eviction: if at capacity, clear half the cache
+	if len(c.results) >= dreamCacheMaxSize {
+		count := 0
+		for k := range c.results {
+			delete(c.results, k)
+			count++
+			if count >= dreamCacheMaxSize/2 {
+				break
+			}
+		}
+		logging.DreamDebug("DreamCache: evicted %d entries (capacity reached)", count)
+	}
+	c.results[key] = result
+	logging.DreamDebug("DreamCache: stored result for %s (unsafe=%v, size=%d)", key, result.Unsafe, len(c.results))
+}
+
+// Get retrieves a cached result by key.
+func (c *DreamCache) Get(key string) (DreamResult, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	res, ok := c.results[actionID]
+	res, ok := c.results[key]
 	if ok {
-		logging.DreamDebug("DreamCache: cache hit for action %s", actionID)
-	} else {
-		logging.DreamDebug("DreamCache: cache miss for action %s", actionID)
+		logging.DreamDebug("DreamCache: cache hit for %s", key)
 	}
 	return res, ok
+}
+
+// Invalidate clears the entire cache. Call when kernel state changes
+// (new facts asserted, policy updated) to prevent stale verdicts.
+func (c *DreamCache) Invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	prevSize := len(c.results)
+	c.results = make(map[string]DreamResult)
+	if prevSize > 0 {
+		logging.DreamDebug("DreamCache: invalidated %d entries", prevSize)
+	}
 }
 
 // Dreamer simulates the impact of actions before execution.
 type Dreamer struct {
 	mu     sync.RWMutex
 	kernel *RealKernel
+	cache  *DreamCache
 }
 
 // NewDreamer creates a Dreamer backed by the provided kernel.
 func NewDreamer(kernel *RealKernel) *Dreamer {
-	logging.Dream("Creating new Dreamer instance")
-	return &Dreamer{kernel: kernel}
+	logging.Dream("Creating new Dreamer instance with cache")
+	return &Dreamer{
+		kernel: kernel,
+		cache:  NewDreamCache(),
+	}
 }
 
 // SetKernel updates the kernel reference (used when the virtual store swaps kernels).
@@ -91,6 +125,7 @@ func (d *Dreamer) getKernel() *RealKernel {
 
 // SimulateAction performs a speculative evaluation of a single action.
 // It returns a DreamResult with any panic_state detections.
+// Results are cached by action type + target to avoid redundant kernel clones.
 func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamResult {
 	if ctx == nil {
 		ctx = context.Background()
@@ -99,7 +134,19 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	timer := logging.StartTimer(logging.CategoryDream, fmt.Sprintf("SimulateAction(%s)", req.Type))
 	actionID := fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano())
 	logging.Dream("SimulateAction: starting simulation for %s (target=%s)", req.Type, req.Target)
-	logging.DreamDebug("SimulateAction: actionID=%s", actionID)
+
+	// Check cache first — avoid cloning the 277KB kernel for repeated actions
+	cacheKey := dreamCacheKey(req)
+	if d.cache != nil {
+		if cached, ok := d.cache.Get(cacheKey); ok {
+			// Return cached verdict with fresh ActionID
+			cached.ActionID = actionID
+			cached.Request = req
+			logging.Dream("SimulateAction: returning cached verdict for %s (unsafe=%v)", cacheKey, cached.Unsafe)
+			timer.Stop()
+			return cached
+		}
+	}
 
 	result := DreamResult{
 		ActionID: actionID,
@@ -144,8 +191,22 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		logging.Dream("SimulateAction: action %s deemed safe", req.Type)
 	}
 
+	// Cache the verdict
+	if d.cache != nil {
+		d.cache.Store(cacheKey, result)
+	}
+
 	timer.Stop()
 	return result
+}
+
+// InvalidateCache clears the dream cache. Should be called when kernel state changes
+// (e.g., new facts asserted, policy updated) to prevent stale safety verdicts.
+func (d *Dreamer) InvalidateCache() {
+	if d == nil || d.cache == nil {
+		return
+	}
+	d.cache.Invalidate()
 }
 
 // evaluateProjection loads projected facts into a sandboxed kernel and queries panic_state.
