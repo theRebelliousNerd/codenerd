@@ -89,9 +89,11 @@ func (c *DreamCache) Invalidate() {
 
 // Dreamer simulates the impact of actions before execution.
 type Dreamer struct {
-	mu     sync.RWMutex
-	kernel *RealKernel
-	cache  *DreamCache
+	mu          sync.RWMutex
+	kernel      *RealKernel
+	cache       *DreamCache
+	router      *DreamRouter      // Routes confirmed learnings to persistence stores
+	planManager *DreamPlanManager // Manages dream plan lifecycle and execution state
 }
 
 // NewDreamer creates a Dreamer backed by the provided kernel.
@@ -103,6 +105,48 @@ func NewDreamer(kernel *RealKernel) *Dreamer {
 	}
 	d.assertCriticalPathFacts()
 	return d
+}
+
+// SetDreamRouter connects a DreamRouter for persisting confirmed learnings.
+func (d *Dreamer) SetDreamRouter(router *DreamRouter) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.router = router
+	logging.Dream("Dreamer: DreamRouter connected for learning persistence")
+}
+
+// GetDreamRouter returns the Dreamer's learning router, if connected.
+func (d *Dreamer) GetDreamRouter() *DreamRouter {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.router
+}
+
+// SetDreamPlanManager connects a DreamPlanManager for plan lifecycle tracking.
+func (d *Dreamer) SetDreamPlanManager(pm *DreamPlanManager) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.planManager = pm
+	logging.Dream("Dreamer: DreamPlanManager connected for plan lifecycle")
+}
+
+// GetDreamPlanManager returns the Dreamer's plan manager, if connected.
+func (d *Dreamer) GetDreamPlanManager() *DreamPlanManager {
+	if d == nil {
+		return nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.planManager
 }
 
 // SetKernel updates the kernel reference (used when the virtual store swaps kernels).

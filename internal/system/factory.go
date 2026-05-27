@@ -406,6 +406,23 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		virtualStore.SetLearningStore(learningStore)
 	}
 
+	// Wire Dream subsystem components for learning persistence
+	// DreamRouter routes confirmed dream learnings to LearningStore and ColdStore
+	var dreamColdStore core.ColdStoreSaver
+	if localDB != nil {
+		dreamColdStore = localDB // LocalStore satisfies ColdStoreSaver interface
+	}
+	var dreamLearningSaver core.LearningStoreSaver
+	if learningStore != nil {
+		dreamLearningSaver = learningStore // LearningStore satisfies LearningStoreSaver interface
+	}
+	dreamRouter := core.NewDreamRouter(kernel, dreamLearningSaver, dreamColdStore)
+	virtualStore.SetDreamRouter(dreamRouter)
+
+	// DreamPlanManager handles plan lifecycle (store, approve, execute, track)
+	dreamPlanMgr := core.NewDreamPlanManager(kernel)
+	virtualStore.SetDreamPlanManager(dreamPlanMgr)
+
 	// Hydrate modular tools so tools.Global() works for session.Executor
 	if err := virtualStore.HydrateModularTools(); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)

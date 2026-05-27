@@ -169,6 +169,16 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 
 		dreamToolCh := make(chan core.ToolNeed, 16)
 		dreamToolQ = dreamToolCh
+
+		// Connect DreamRouter to Ouroboros tool generation pipeline
+		if virtualStore != nil {
+			if dreamer := virtualStore.GetDreamer(); dreamer != nil {
+				if dreamRouter := dreamer.GetDreamRouter(); dreamRouter != nil {
+					dreamRouter.SetOuroborosQueue(dreamToolCh)
+				}
+			}
+		}
+
 		go func() {
 			for need := range dreamToolCh {
 				ctx, cancel := context.WithTimeout(autoCtx, 5*time.Minute)

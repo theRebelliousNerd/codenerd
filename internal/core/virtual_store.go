@@ -387,6 +387,30 @@ func (v *VirtualStore) getDreamer() *Dreamer {
 	return v.dreamer
 }
 
+// GetDreamer returns the Dreamer instance, creating it lazily if needed.
+// Exported for external wiring (e.g., connecting DreamRouter to Ouroboros).
+func (v *VirtualStore) GetDreamer() *Dreamer {
+	return v.getDreamer()
+}
+
+// SetDreamRouter connects a DreamRouter to the Dreamer for learning persistence.
+// If the Dreamer hasn't been created yet, it will be created lazily.
+func (v *VirtualStore) SetDreamRouter(router *DreamRouter) {
+	dreamer := v.getDreamer()
+	if dreamer != nil {
+		dreamer.SetDreamRouter(router)
+	}
+}
+
+// SetDreamPlanManager connects a DreamPlanManager to the Dreamer for plan lifecycle.
+// If the Dreamer hasn't been created yet, it will be created lazily.
+func (v *VirtualStore) SetDreamPlanManager(pm *DreamPlanManager) {
+	dreamer := v.getDreamer()
+	if dreamer != nil {
+		dreamer.SetDreamPlanManager(pm)
+	}
+}
+
 // Get resolves virtual predicates for the Mangle kernel on demand.
 func (vs *VirtualStore) Get(query ast.Atom) ([]ast.Atom, error) {
 	switch query.Predicate.Symbol {
