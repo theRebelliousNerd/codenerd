@@ -34,9 +34,23 @@ type WorkspaceConfig struct {
 }
 
 // Validate ensures the configuration is complete and usable.
+//
+// A valid config MUST have:
+//   - A non-empty IdentityPrompt (after trimming whitespace). Without an
+//     identity prompt the runtime has no persona to ground the LLM.
+//   - At least one entry in Policies. Policies anchor the Mangle kernel's
+//     executive layer; an agent with zero policy files has no constitutional
+//     safety net and is rejected by the JIT compiler.
+//
+// AllowedTools, Model, ToolLoop, Safety, and Workspace are intentionally
+// NOT validated here. They have safe zero values or are populated by
+// downstream layers (e.g. session executor defaults, ConfigFactory).
 func (c EffectiveAgentRuntimeConfig) Validate() error {
 	if strings.TrimSpace(c.IdentityPrompt) == "" {
 		return fmt.Errorf("config validation failed: identity_prompt is required")
+	}
+	if len(c.Policies) == 0 {
+		return fmt.Errorf("config validation failed: at least one policy file is required")
 	}
 	return nil
 }

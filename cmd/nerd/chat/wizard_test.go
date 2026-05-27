@@ -117,14 +117,14 @@ func TestConfigWizard_ModelEntry(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepWelcome,
 	}
 
 	// Config wizard mode should be active
-	if !m.awaitingConfigWizard {
-		t.Error("Expected awaitingConfigWizard to be true")
+	if m.inputMode != InputModeConfigWizard {
+		t.Error("Expected inputMode == InputModeConfigWizard")
 	}
 	if m.configWizard.Step != StepWelcome {
 		t.Errorf("Expected StepWelcome, got %v", m.configWizard.Step)
@@ -135,7 +135,7 @@ func TestConfigWizard_ExitOnEscape(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepWelcome,
 	}
@@ -156,10 +156,10 @@ func TestAgentWizard_StateCreation(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingAgentDefinition = true
+	m.setInputMode(InputModeAgentWizard)
 
-	if !m.awaitingAgentDefinition {
-		t.Error("Expected awaitingAgentDefinition to be true")
+	if m.inputMode != InputModeAgentWizard {
+		t.Error("Expected inputMode == InputModeAgentWizard")
 	}
 }
 
@@ -173,7 +173,7 @@ func TestAgentWizard_Entry(t *testing.T) {
 	result := newModel.(Model)
 
 	// Should either start wizard or show message
-	if result.awaitingAgentDefinition {
+	if result.inputMode == InputModeAgentWizard {
 		t.Log("Agent wizard started")
 	} else if len(result.history) > 0 {
 		t.Log("Message shown instead of wizard")
@@ -184,7 +184,7 @@ func TestAgentWizard_NoPanicOnInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingAgentDefinition = true
+	m.setInputMode(InputModeAgentWizard)
 	m.agentWizard = &AgentWizardState{
 		Step: 0,
 	}
@@ -207,10 +207,10 @@ func TestNorthstarWizard_StateCreation(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingNorthstar = true
+	m.setInputMode(InputModeNorthstar)
 
-	if !m.awaitingNorthstar {
-		t.Error("Expected awaitingNorthstar to be true")
+	if m.inputMode != InputModeNorthstar {
+		t.Error("Expected inputMode == InputModeNorthstar")
 	}
 }
 
@@ -231,7 +231,7 @@ func TestNorthstarWizard_NoPanicOnInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingNorthstar = true
+	m.setInputMode(InputModeNorthstar)
 	m.northstarWizard = &NorthstarWizardState{
 		Phase: 0,
 	}
@@ -254,10 +254,10 @@ func TestOnboardingWizard_StateCreation(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingOnboarding = true
+	m.setInputMode(InputModeOnboarding)
 
-	if !m.awaitingOnboarding {
-		t.Error("Expected awaitingOnboarding to be true")
+	if m.inputMode != InputModeOnboarding {
+		t.Error("Expected inputMode == InputModeOnboarding")
 	}
 }
 
@@ -265,7 +265,7 @@ func TestOnboardingWizard_NoPanicOnInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingOnboarding = true
+	m.setInputMode(InputModeOnboarding)
 	m.onboardingWizard = &OnboardingWizardState{
 		Step: 0,
 	}
@@ -309,8 +309,8 @@ func TestInputMode_AgentWizard(t *testing.T) {
 
 	m := NewTestModel(WithInputMode(InputModeAgentWizard))
 
-	if !m.awaitingAgentDefinition {
-		t.Error("Expected awaitingAgentDefinition to be true")
+	if m.inputMode != InputModeAgentWizard {
+		t.Error("Expected inputMode == InputModeAgentWizard")
 	}
 }
 
@@ -319,8 +319,8 @@ func TestInputMode_ConfigWizard(t *testing.T) {
 
 	m := NewTestModel(WithInputMode(InputModeConfigWizard))
 
-	if !m.awaitingConfigWizard {
-		t.Error("Expected awaitingConfigWizard to be true")
+	if m.inputMode != InputModeConfigWizard {
+		t.Error("Expected inputMode == InputModeConfigWizard")
 	}
 }
 
@@ -329,8 +329,8 @@ func TestInputMode_Onboarding(t *testing.T) {
 
 	m := NewTestModel(WithInputMode(InputModeOnboarding))
 
-	if !m.awaitingOnboarding {
-		t.Error("Expected awaitingOnboarding to be true")
+	if m.inputMode != InputModeOnboarding {
+		t.Error("Expected inputMode == InputModeOnboarding")
 	}
 }
 
@@ -437,7 +437,7 @@ func TestWizard_BackNavigation(t *testing.T) {
 
 	// Test that wizards support going back (if implemented)
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepProvider,
 	}
@@ -455,7 +455,7 @@ func TestWizard_CancelNavigation(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepProvider,
 	}
@@ -481,28 +481,28 @@ func TestWizard_ViewNoPanic(t *testing.T) {
 		{
 			name: "config wizard",
 			setup: func(m *Model) {
-				m.awaitingConfigWizard = true
+				m.setInputMode(InputModeConfigWizard)
 				m.configWizard = &ConfigWizardState{Step: StepWelcome}
 			},
 		},
 		{
 			name: "agent wizard",
 			setup: func(m *Model) {
-				m.awaitingAgentDefinition = true
+				m.setInputMode(InputModeAgentWizard)
 				m.agentWizard = &AgentWizardState{Step: 0}
 			},
 		},
 		{
 			name: "northstar wizard",
 			setup: func(m *Model) {
-				m.awaitingNorthstar = true
+				m.setInputMode(InputModeNorthstar)
 				m.northstarWizard = &NorthstarWizardState{Phase: 0}
 			},
 		},
 		{
 			name: "onboarding wizard",
 			setup: func(m *Model) {
-				m.awaitingOnboarding = true
+				m.setInputMode(InputModeOnboarding)
 				m.onboardingWizard = &OnboardingWizardState{Step: 0}
 			},
 		},
@@ -548,7 +548,7 @@ func TestWizard_EmptyInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepAPIKey,
 	}
@@ -566,7 +566,7 @@ func TestWizard_WhitespaceInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepAPIKey,
 	}
@@ -583,7 +583,7 @@ func TestWizard_NumericInput(t *testing.T) {
 	t.Parallel()
 
 	m := NewTestModel()
-	m.awaitingConfigWizard = true
+	m.setInputMode(InputModeConfigWizard)
 	m.configWizard = &ConfigWizardState{
 		Step: StepProvider,
 	}

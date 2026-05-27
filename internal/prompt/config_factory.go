@@ -154,6 +154,23 @@ type DefaultConfigAtomProvider struct {
 	mu    sync.RWMutex
 }
 
+// defaultBasePolicies is the minimum policy set every default-built agent
+// receives. Persona-specific policy files are layered on top via per-intent
+// atoms; "base.mg" mirrors the convention used by RegisterDefaultConfigAtoms
+// in config_defaults.go so that EffectiveAgentRuntimeConfig.Validate() passes
+// for any atom produced by DefaultConfigAtomProvider.
+var defaultBasePolicies = []string{"base.mg"}
+
+// copyPolicies returns a fresh slice combining the shared base policies with
+// any persona-specific additions, so per-intent registrations cannot mutate
+// the shared base slice.
+func copyPolicies(extra ...string) []string {
+	out := make([]string, 0, len(defaultBasePolicies)+len(extra))
+	out = append(out, defaultBasePolicies...)
+	out = append(out, extra...)
+	return out
+}
+
 // NewDefaultConfigAtomProvider creates a new default config provider.
 func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	provider := &DefaultConfigAtomProvider{
@@ -240,6 +257,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    coderTools,
+			Policies: copyPolicies("coder.mg"),
 			Priority: 100,
 		}
 	}
@@ -248,6 +266,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/test", "/cover", "/verify", "/validate"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    testerTools,
+			Policies: copyPolicies("tester.mg"),
 			Priority: 90,
 		}
 	}
@@ -256,6 +275,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/review", "/audit", "/check", "/analyze", "/inspect"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    reviewerTools,
+			Policies: copyPolicies("reviewer.mg"),
 			Priority: 80,
 		}
 	}
@@ -264,6 +284,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/research", "/learn", "/document", "/understand", "/explore", "/find"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    researcherTools,
+			Policies: copyPolicies("researcher.mg"),
 			Priority: 70,
 		}
 	}
@@ -280,6 +301,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/attack", "/break", "/exploit", "/fuzz", "/pentest", "/nemesis"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    nemesisTools,
+			Policies: copyPolicies("nemesis.mg"),
 			Priority: 85, // Higher priority than reviewer
 		}
 	}
@@ -294,6 +316,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	for _, intent := range []string{"/generate", "/generate-tool", "/tool_generator", "/create_tool"} {
 		provider.atoms[intent] = ConfigAtom{
 			Tools:    toolGenTools,
+			Policies: copyPolicies("tool_generator.mg"),
 			Priority: 75,
 		}
 	}
@@ -301,6 +324,7 @@ func NewDefaultConfigAtomProvider() *DefaultConfigAtomProvider {
 	// General/fallback intent
 	provider.atoms["/general"] = ConfigAtom{
 		Tools:    coreTools,
+		Policies: copyPolicies(),
 		Priority: 50,
 	}
 

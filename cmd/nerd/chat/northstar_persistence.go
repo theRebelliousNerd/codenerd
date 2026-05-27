@@ -60,8 +60,7 @@ func (m Model) saveNorthstar(startCampaign bool) (tea.Model, tea.Cmd) {
 	}
 
 	// Exit wizard mode
-	m.awaitingNorthstar = false
-	m.northstarWizard = nil
+	m.setInputMode(InputModeNormal)
 	m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
 
 	var msg string

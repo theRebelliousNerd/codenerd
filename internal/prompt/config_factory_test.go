@@ -241,6 +241,76 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 	}
 }
 
+// TestDefaultConfigFactory_OutputPassesValidate asserts that every config
+// produced by the default factory satisfies EffectiveAgentRuntimeConfig.Validate.
+// This is the regression guard for bug #13: the default provider previously
+// produced configs with empty Policies, which would fail validation once
+// Validate started enforcing the policy requirement.
+func TestDefaultConfigFactory_OutputPassesValidate(t *testing.T) {
+	factory := NewDefaultConfigFactory()
+	ctx := context.Background()
+	compileResult := &CompilationResult{Prompt: "You are codeNERD."}
+
+	intents := []string{
+		// Coder family
+		"/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update",
+		// Tester family
+		"/test", "/cover", "/verify", "/validate",
+		// Reviewer family
+		"/review", "/audit", "/check", "/analyze", "/inspect",
+		// Researcher family
+		"/research", "/learn", "/document", "/understand", "/explore", "/find",
+		// Nemesis family
+		"/attack", "/break", "/exploit", "/fuzz", "/pentest", "/nemesis",
+		// Tool generator family
+		"/generate", "/generate-tool", "/tool_generator", "/create_tool",
+		// Fallback
+		"/general",
+	}
+
+	for _, intent := range intents {
+		t.Run(intent, func(t *testing.T) {
+			cfg, err := factory.Generate(ctx, compileResult, intent)
+			if err != nil {
+				t.Fatalf("Generate(%q) failed: %v", intent, err)
+			}
+			if cfg == nil {
+				t.Fatalf("Generate(%q) returned nil config", intent)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Generate(%q) produced config that fails Validate: %v (policies=%v)",
+					intent, err, cfg.Policies)
+			}
+		})
+	}
+}
+
+// TestDefaultConfigFactory_FallbackPassesValidate asserts that GenerateFallback
+// also produces a config that satisfies Validate when given a known intent.
+func TestDefaultConfigFactory_FallbackPassesValidate(t *testing.T) {
+	factory := NewDefaultConfigFactory()
+	ctx := context.Background()
+
+	cfg := factory.GenerateFallback(ctx, "/fix", "Fallback identity prompt.")
+	if cfg == nil {
+		t.Fatal("GenerateFallback returned nil")
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("GenerateFallback produced config that fails Validate: %v (policies=%v)",
+			err, cfg.Policies)
+	}
+
+	// Unknown intent should fall back to /general, which also has policies.
+	cfgUnknown := factory.GenerateFallback(ctx, "/no-such-intent", "Fallback identity.")
+	if cfgUnknown == nil {
+		t.Fatal("GenerateFallback(unknown) returned nil")
+	}
+	if err := cfgUnknown.Validate(); err != nil {
+		t.Errorf("GenerateFallback(unknown) produced config that fails Validate: %v (policies=%v)",
+			err, cfgUnknown.Policies)
+	}
+}
+
 func TestConfigFactory_StateConflicts(t *testing.T) {
 	provider := NewDefaultConfigAtomProvider()
 	factory := NewConfigFactory(provider)

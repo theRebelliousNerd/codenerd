@@ -57,8 +57,7 @@ func (m Model) handleNorthstarWizardInput(input string) (tea.Model, tea.Cmd) {
 		return m.previousNorthstarPhase()
 	}
 	if lower == "quit" || lower == "/quit" || lower == "exit" {
-		m.awaitingNorthstar = false
-		m.northstarWizard = nil
+		m.setInputMode(InputModeNormal)
 		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
 		m = m.addMessage(Message{
 			Role:    "assistant",

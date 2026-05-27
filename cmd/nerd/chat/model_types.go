@@ -74,14 +74,63 @@ const (
 type InputMode int
 
 const (
-	InputModeNormal         InputMode = iota // Default: process as chat input
-	InputModeClarification                   // Awaiting clarification response
-	InputModePatch                           // Awaiting patch input (--END-- terminated)
-	InputModeAgentWizard                     // Agent definition wizard active
-	InputModeConfigWizard                    // Config wizard active
-	InputModeCampaignLaunch                  // Campaign launch clarification
-	InputModeOnboarding                      // Onboarding wizard active (first-run experience)
+	InputModeNormal        InputMode = iota // Default: process as chat input
+	InputModeClarification                  // Awaiting clarification response
+	InputModePatch                          // Awaiting patch input (--END-- terminated)
+	InputModeAgentWizard                    // Agent definition wizard active
+	InputModeConfigWizard                   // Config wizard active
+	InputModeNorthstar                      // Northstar / vision / spec wizard active
+	InputModeOnboarding                     // Onboarding wizard active (first-run experience)
 )
+
+// IsWizard reports whether the input mode is one of the multi-step modal wizards.
+// Wizards are mutually exclusive primary modes that consume textarea input.
+func (im InputMode) IsWizard() bool {
+	switch im {
+	case InputModeAgentWizard, InputModeConfigWizard, InputModeNorthstar, InputModeOnboarding:
+		return true
+	default:
+		return false
+	}
+}
+
+// setInputMode atomically transitions the model into the requested primary mode
+// and clears the per-wizard data carriers for OTHER (now-inactive) modes.
+//
+// It deliberately does not touch orthogonal overlay state
+// (awaitingKnowledge, launchClarifyPending, pendingKnowledge, knowledgeHistory)
+// — those are not primary modes and survive transitions.
+//
+// Pointer receiver so callers can write `m.setInputMode(...)` without re-binding.
+func (m *Model) setInputMode(mode InputMode) {
+	m.inputMode = mode
+
+	// Clear data carriers for modes that are no longer active.
+	if mode != InputModeAgentWizard {
+		m.agentWizard = nil
+	}
+	if mode != InputModeConfigWizard {
+		m.configWizard = nil
+	}
+	if mode != InputModeNorthstar {
+		m.northstarWizard = nil
+	}
+	if mode != InputModeOnboarding {
+		m.onboardingWizard = nil
+	}
+	if mode != InputModeClarification {
+		m.clarificationState = nil
+		m.selectedOption = 0
+	}
+	if mode != InputModePatch {
+		m.pendingPatchLines = nil
+	}
+}
+
+// isInWizard reports whether the model is currently inside any wizard mode.
+func (m *Model) isInWizard() bool {
+	return m.inputMode.IsWizard()
+}
 
 // BootStage represents the startup phase for the interactive UI.
 // While any boot stage is active, the chat input is hidden.
@@ -213,8 +262,6 @@ type Model struct {
 	// Session State
 	sessionID string
 	turnCount int
-	// Agent creation wizard
-	awaitingAgentDefinition bool
 
 	// Backend
 	client              perception.LLMClient
@@ -299,20 +346,17 @@ type Model struct {
 	// Verification Loop (Quality-Enforcing)
 	verifier *verification.TaskVerifier
 
-	// Agent Wizard State
+	// Agent Wizard State (active when inputMode == InputModeAgentWizard)
 	agentWizard *AgentWizardState
 
-	// Config Wizard State
-	awaitingConfigWizard bool
-	configWizard         *ConfigWizardState
+	// Config Wizard State (active when inputMode == InputModeConfigWizard)
+	configWizard *ConfigWizardState
 
-	// Northstar Wizard State
-	awaitingNorthstar bool
-	northstarWizard   *NorthstarWizardState
+	// Northstar Wizard State (active when inputMode == InputModeNorthstar)
+	northstarWizard *NorthstarWizardState
 
-	// Onboarding Wizard State (first-run experience)
-	awaitingOnboarding bool
-	onboardingWizard   *OnboardingWizardState
+	// Onboarding Wizard State (active when inputMode == InputModeOnboarding)
+	onboardingWizard *OnboardingWizardState
 
 	// CLI Config
 	CLIConfig Config

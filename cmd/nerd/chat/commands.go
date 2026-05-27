@@ -744,7 +744,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 			})
 		} else if parts[1] == "wizard" {
 			// Enter config wizard mode
-			m.awaitingConfigWizard = true
+			m.setInputMode(InputModeConfigWizard)
 			m.configWizard = NewConfigWizard()
 			m.textarea.Placeholder = "Press Enter to start..."
 			m = m.addMessage(Message{
@@ -1295,7 +1295,7 @@ Press **Enter** to begin...`,
 
 	case "/define-agent", "/agent":
 		// Enter agent definition wizard
-		m.awaitingAgentDefinition = true
+		m.setInputMode(InputModeAgentWizard)
 		m.agentWizard = &AgentWizardState{Step: 0} // Start at step 0 (Name)
 		m.textarea.Placeholder = "Enter agent name (e.g., 'RustExpert')..."
 		m = m.addMessage(Message{
@@ -1310,7 +1310,7 @@ Press **Enter** to begin...`,
 
 	case "/northstar", "/vision", "/spec":
 		// Enter Northstar definition wizard - project vision and specification
-		m.awaitingNorthstar = true
+		m.setInputMode(InputModeNorthstar)
 
 		// Check for existing northstar session
 		existingWizard, hasExisting := loadExistingNorthstar(m.workspace)

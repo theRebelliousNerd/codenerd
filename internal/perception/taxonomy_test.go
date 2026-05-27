@@ -149,6 +149,71 @@ func TestTaxonomyEngine_ClassifyInput_Simple(t *testing.T) {
 	}
 }
 
+// TestTaxonomyEngine_ClassifyInput_Idempotent verifies bug #18 fix preserves
+// behavioral equivalence: classifying the same input across multiple calls,
+// including with other inputs interleaved, must return the same result. This
+// catches state leakage between calls if Clear() ever fails to wipe transient
+// facts that influence scoring.
+func TestTaxonomyEngine_ClassifyInput_Idempotent(t *testing.T) {
+	engine, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Skipf("init failed: %v", err)
+	}
+	defer engine.StopWorker()
+
+	candidates, err := engine.GetVerbs()
+	if err != nil || len(candidates) == 0 {
+		t.Skip("no candidates available")
+	}
+
+	inputA := "fix this bug in the parser"
+	inputB := "explain how the kernel routes intents"
+
+	verbA1, _, errA1 := engine.ClassifyInput(inputA, candidates)
+	if errA1 != nil {
+		t.Skipf("classify A1 failed (mangle dependency): %v", errA1)
+	}
+	verbB, _, errB := engine.ClassifyInput(inputB, candidates)
+	if errB != nil {
+		t.Fatalf("classify B failed: %v", errB)
+	}
+	verbA2, _, errA2 := engine.ClassifyInput(inputA, candidates)
+	if errA2 != nil {
+		t.Fatalf("classify A2 failed: %v", errA2)
+	}
+
+	if verbA1 != verbA2 {
+		t.Errorf("ClassifyInput not idempotent: first call returned %q, second returned %q (intervening input: %q -> %q)", verbA1, verbA2, inputB, verbB)
+	}
+}
+
+// TestTaxonomyEngine_SchemasLoadedOnce verifies that ClassifyInput does NOT
+// reload static schemas on every call (bug #18). It checks the schemasLoaded
+// flag is set after construction and remains set after multiple calls.
+func TestTaxonomyEngine_SchemasLoadedOnce(t *testing.T) {
+	engine, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Skipf("init failed: %v", err)
+	}
+	defer engine.StopWorker()
+
+	if !engine.schemasLoaded {
+		t.Fatal("schemasLoaded should be true after NewTaxonomyEngine")
+	}
+
+	candidates, _ := engine.GetVerbs()
+	if len(candidates) == 0 {
+		candidates = []VerbEntry{{Verb: "/fix", Priority: 90}}
+	}
+
+	for i := 0; i < 5; i++ {
+		_, _, _ = engine.ClassifyInput("fix bug", candidates)
+		if !engine.schemasLoaded {
+			t.Fatalf("schemasLoaded flipped to false after call %d", i)
+		}
+	}
+}
+
 func TestGenerateSystemPromptSection(t *testing.T) {
 	engine, err := NewTaxonomyEngine()
 	if err != nil {

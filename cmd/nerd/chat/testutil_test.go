@@ -428,21 +428,11 @@ func WithSize(width, height int) TestModelOption {
 	}
 }
 
-// WithInputMode sets the input mode.
+// WithInputMode sets the input mode using the production transition helper
+// so the test fixture matches the real state machine semantics.
 func WithInputMode(mode InputMode) TestModelOption {
 	return func(m *Model) {
-		switch mode {
-		case InputModeClarification:
-			m.inputMode = InputModeClarification
-		case InputModePatch:
-			m.inputMode = InputModePatch
-		case InputModeAgentWizard:
-			m.awaitingAgentDefinition = true
-		case InputModeConfigWizard:
-			m.awaitingConfigWizard = true
-		case InputModeOnboarding:
-			m.awaitingOnboarding = true
-		}
+		m.setInputMode(mode)
 	}
 }
 

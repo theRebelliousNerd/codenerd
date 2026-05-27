@@ -118,8 +118,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		// Accumulate lines until user types --END--
 		if input == "--END--" {
 			patch := strings.Join(m.pendingPatchLines, "\n")
-			m.pendingPatchLines = nil
-			m.inputMode = InputModeNormal
+			m.setInputMode(InputModeNormal)
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Shift+Enter for newline, Ctrl+C to exit)"
 			m = m.addMessage(Message{
 				Role:    "assistant",
@@ -170,22 +169,22 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.viewport.GotoBottom()
 
 	// Start loading
-	if m.awaitingAgentDefinition {
+	if m.inputMode == InputModeAgentWizard {
 		return m.handleAgentWizardInput(input)
 	}
 
 	// Config wizard mode
-	if m.awaitingConfigWizard {
+	if m.inputMode == InputModeConfigWizard {
 		return m.handleConfigWizardInput(input)
 	}
 
 	// Northstar wizard mode
-	if m.awaitingNorthstar {
+	if m.inputMode == InputModeNorthstar {
 		return m.handleNorthstarWizardInput(input)
 	}
 
 	// Onboarding wizard mode (first-run experience)
-	if m.awaitingOnboarding {
+	if m.inputMode == InputModeOnboarding {
 		return m.handleOnboardingInput(input)
 	}
 
@@ -451,9 +450,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 	}
 	pendingIntent := m.clarificationState.PendingIntent
 	// Resume clarification protocol if applicable
-	m.inputMode = InputModeNormal
-	m.clarificationState = nil
-	m.selectedOption = 0
+	m.setInputMode(InputModeNormal)
 	if clarifyContext != "" {
 		m.lastClarifyInput = clarifyContext
 	}

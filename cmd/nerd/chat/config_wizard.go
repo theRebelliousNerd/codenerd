@@ -1074,7 +1074,7 @@ func (m Model) configWizardReview(input string) (tea.Model, tea.Cmd) {
 			})
 		} else {
 			m.configWizard.Step = StepComplete
-			m.awaitingConfigWizard = false
+			m.setInputMode(InputModeNormal)
 			m = m.addMessage(Message{
 				Role: "assistant",
 				Content: `## Configuration Saved!
@@ -1089,12 +1089,10 @@ You can edit the config manually or run ` + "`" + `/config wizard` + "`" + ` aga
 				Time: time.Now(),
 			})
 			m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
-			m.configWizard = nil
 		}
 	} else {
 		// Cancel
-		m.awaitingConfigWizard = false
-		m.configWizard = nil
+		m.setInputMode(InputModeNormal)
 		m = m.addMessage(Message{
 			Role:    "assistant",
 			Content: "Configuration cancelled. No changes were saved.",

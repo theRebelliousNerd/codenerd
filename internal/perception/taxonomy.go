@@ -23,6 +23,58 @@ type TaxonomyEngine struct {
 	workspaceRoot string // Explicit workspace root (for .nerd paths)
 	learnedPath   string // Absolute path of loaded .nerd/mangle/learned.mg (if any)
 	worker        *ConsolidationWorker
+
+	// schemasLoaded indicates that the static taxonomy/intent/inference schemas
+	// have been loaded into t.engine. ClassifyInput uses this to avoid the
+	// previous behavior of Reset() + re-loading every embedded .mg on every call,
+	// which is a measurable hot-path cost (bug #18). Embedded schema content is
+	// baked in via go:embed and cannot change at runtime within a single process,
+	// so a one-shot load is correct.
+	schemasLoaded bool
+}
+
+// taxonomySchemaFiles returns the ordered list of embedded schema/logic files
+// that must be loaded for ClassifyInput's Mangle inference to succeed.
+// Order matters: qualifier logic must precede inference logic, and the
+// schemas_intent module must precede schemas_learning.
+func taxonomySchemaFiles() []string {
+	files := []string{"schemas_intent.mg"}
+	files = append(files, core.DefaultIntentSchemaFiles()...)
+	files = append(files, "schemas_learning.mg")
+	files = append(files, "policy/taxonomy_qualifiers.mg")
+	files = append(files, "policy/taxonomy_inference.mg")
+	return files
+}
+
+// loadStaticSchemasLocked loads all static schema and logic content into the
+// engine exactly once per engine instance. The caller MUST hold t.mu.
+// Embedded content is immutable in-process, so we never need to reload.
+func (t *TaxonomyEngine) loadStaticSchemasLocked() error {
+	if t.schemasLoaded {
+		return nil
+	}
+
+	for _, file := range taxonomySchemaFiles() {
+		content, err := core.GetDefaultContent(file)
+		if err != nil {
+			// schemas_learning.mg has a documented fallback below; everything
+			// else is required for correct inference.
+			if file == "schemas_learning.mg" {
+				fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
+				if ferr := t.engine.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); ferr != nil {
+					return fmt.Errorf("failed to define fallback learned_exemplar: %w", ferr)
+				}
+				continue
+			}
+			return fmt.Errorf("failed to get embedded content for %s: %w", file, err)
+		}
+		if err := t.engine.LoadSchemaString(content); err != nil {
+			return fmt.Errorf("failed to load %s: %w", file, err)
+		}
+	}
+
+	t.schemasLoaded = true
+	return nil
 }
 
 // SharedTaxonomy is the global instance loaded on init.
@@ -49,53 +101,11 @@ func NewTaxonomyEngine() (*TaxonomyEngine, error) {
 	t.worker = NewConsolidationWorker(t)
 	t.worker.Start()
 
-	// Load Intent Definition Schemas (Modular) - must be loaded in order
-	intentFiles := []string{
-		"schemas_intent.mg",             // Core intent declarations
-	}
-
-	for _, file := range intentFiles {
-		content, err := core.GetDefaultContent(file)
-		if err == nil {
-			if err := eng.LoadSchemaString(content); err != nil {
-				return nil, fmt.Errorf("failed to load %s: %w", file, err)
-			}
-		} else {
-			// Fallback to disk (dev mode) or warn
-			fmt.Printf("WARNING: %s not found in embedded defaults: %v\n", file, err)
-		}
-	}
-
-	// Load Learning Schema (Ouroboros)
-	learningContent, err := core.GetDefaultContent("schemas_learning.mg")
-	if err == nil {
-		if err := eng.LoadSchemaString(learningContent); err != nil {
-			return nil, fmt.Errorf("failed to load learning schema: %w", err)
-		}
-	} else {
-		fmt.Printf("WARNING: learning.mg not found in embedded defaults: %v. Using fallback declaration.\n", err)
-		// Fallback declaration if file missing, to satisfy InferenceLogicMG
-		if err := eng.LoadSchemaString("Decl learned_exemplar(Pattern, Verb, Target, Constraint, Confidence)."); err != nil {
-			return nil, fmt.Errorf("failed to define fallback learned_exemplar: %w", err)
-		}
-	}
-
-	// Load Qualifier Logic (Must be loaded BEFORE inference logic)
-	qualifierLogic, err := core.GetDefaultContent("policy/taxonomy_qualifiers.mg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get qualifier logic content: %w", err)
-	}
-	if err := eng.LoadSchemaString(qualifierLogic); err != nil {
-		return nil, fmt.Errorf("failed to load qualifier logic: %w", err)
-	}
-
-	// Load declarations and logic (Must be loaded AFTER learning.mg)
-	inferenceContent, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get inference logic content: %w", err)
-	}
-	if err := eng.LoadSchemaString(inferenceContent); err != nil {
-		return nil, fmt.Errorf("failed to load inference logic: %w", err)
+	// Load the full static schema/logic corpus exactly once. ClassifyInput
+	// will reuse these schemas across all calls (bug #18: previously these
+	// were reloaded per call after a Reset(), which was a hot-path bottleneck).
+	if err := t.loadStaticSchemasLocked(); err != nil {
+		return nil, err
 	}
 
 	// Populate default data (robustly via Go)
@@ -359,50 +369,40 @@ func toInt(val interface{}) int {
 }
 
 // ClassifyInput uses advanced Mangle inference to determine the best intent.
+//
+// Performance: bug #18 fix. Previously this Reset()'d the engine and reloaded
+// ~17 embedded .mg files on every call. Embedded schema content is immutable
+// in-process (baked in via go:embed), so we now load schemas exactly once in
+// NewTaxonomyEngine and use engine.Clear() here, which wipes EDB facts but
+// preserves all schema declarations and rules.
 func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (bestVerb string, bestConf float64, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Note: We don't Clear() because we want to keep the static facts.
-	// But we need to clear transient facts. Mangle Engine wrapper needs improvement for sessions.
-	// For now, we add transient facts, query, and then maybe remove them?
-	// Or just accept that memory grows (it's small for now).
-
-	// Actually, if we don't Clear(), we accumulate context_token.
-	// This is bad.
-	// We MUST Reset() to clear schema fragments too, otherwise reloading schemas creates duplicate Decls.
-	t.engine.Reset()
-
-	// 1. Reload Intent Schemas (Modular) - ALWAYS REQUIRED for inference
-	// These contain critical facts like interrogative_type, modal_type, etc.
-	// Must include schemas_intent.mg FIRST as it declares context_token, candidate_intent, etc.
-	intentFiles := []string{"schemas_intent.mg"}
-	intentFiles = append(intentFiles, core.DefaultIntentSchemaFiles()...)
-	intentFiles = append(intentFiles, "schemas_learning.mg") // CRITICAL: Required by InferenceLogicMG
-	for _, file := range intentFiles {
-		content, err := core.GetDefaultContent(file)
-		if err == nil {
-			if err := t.engine.LoadSchemaString(content); err != nil {
-				logging.PerceptionDebug("Failed to reload schema %s: %v", file, err)
-			}
-		} else {
-			logging.PerceptionDebug("Failed to get content for %s: %v", file, err)
-		}
+	// Defensive: if schemas were somehow not loaded (e.g. construction error
+	// was ignored), load them now. This is a no-op on the hot path.
+	if err := t.loadStaticSchemasLocked(); err != nil {
+		return "", 0, fmt.Errorf("failed to ensure static schemas: %w", err)
 	}
 
-	// 2. Reload Inference Logic - ALWAYS REQUIRED
-	inferenceContent, err := core.GetDefaultContent("policy/taxonomy_inference.mg")
-	if err != nil {
-		logging.PerceptionDebug("Failed to get inference logic content: %v", err)
-	} else if err := t.engine.LoadSchemaString(inferenceContent); err != nil {
-		logging.PerceptionDebug("Failed to reload InferenceLogicMG: %v", err)
-	}
+	// Clear EDB facts (verb_def, verb_synonym, verb_pattern, context_token,
+	// candidate_intent, derived potential_score, ...) without disturbing the
+	// schema/rule graph. This is what makes the fix safe: every call starts
+	// from the same clean fact-store state it did under the old Reset() path,
+	// just without paying the ~17-file schema reload cost.
+	t.engine.Clear()
 
 	facts := []mangle.Fact{}
 
-	// 3. Re-hydrate Verb Taxonomy (EDB facts)
+	// Re-hydrate Verb Taxonomy (EDB facts). Mirrors the old behavior: prefer
+	// the persistent store when configured, otherwise fall back to defaults.
 	if t.store != nil {
-		t.hydrateFromDBLocked()
+		if herr := t.hydrateFromDBLocked(); herr != nil {
+			// Match previous behavior (the old code ignored the error from
+			// hydrateFromDBLocked); just log it so we don't silently drop
+			// taxonomy on a transient DB hiccup.
+			logging.PerceptionDebug("hydrateFromDBLocked failed: %v", herr)
+		}
 	} else {
 		// Re-add defaults
 		for _, entry := range DefaultTaxonomyData {
@@ -415,6 +415,14 @@ func (t *TaxonomyEngine) ClassifyInput(input string, candidates []VerbEntry) (be
 			}
 		}
 	}
+
+	// Note on learned facts: learned_taxonomy.mg contents are loaded via
+	// LoadSchema which stores them as schema fragments (rules/clauses), not as
+	// EDB facts. Clear() only wipes the EDB, so learned rules survive across
+	// ClassifyInput calls. This is at least as correct as the previous Reset()
+	// path, which wiped the learned schema fragment entirely and never
+	// restored it (so prior code only saw learned facts on the very first
+	// call, if at all).
 
 	rawTokens := strings.Fields(strings.ToLower(input))
 	for _, token := range rawTokens {

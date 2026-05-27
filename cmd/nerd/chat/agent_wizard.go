@@ -80,8 +80,10 @@ func (m Model) handleAgentWizardInput(input string) (tea.Model, tea.Cmd) {
 		m.agentWizard.Topics = topics
 		m.agentWizard.IsResearching = true
 
-		// Transition out of wizard mode in UI, but keep state for async process
-		m.awaitingAgentDefinition = false
+		// Transition out of wizard mode in UI, but keep state for async process.
+		// Note: agentWizard pointer is retained because the async research goroutine
+		// still references it; setInputMode would nil it, so we set inputMode directly.
+		m.inputMode = InputModeNormal
 		m.textarea.Placeholder = "Ask me anything... (Enter to send, Alt+Enter for newline, Ctrl+C to exit)"
 
 		m.history = append(m.history, Message{

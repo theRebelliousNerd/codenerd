@@ -135,7 +135,7 @@ func TestModel_InputModeTransitions(t *testing.T) {
 			name:      "ConfigWizard",
 			inputMode: InputModeConfigWizard,
 			checkFn: func(m Model) bool {
-				return m.awaitingConfigWizard
+				return m.inputMode == InputModeConfigWizard
 			},
 		},
 	}

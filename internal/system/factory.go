@@ -30,6 +30,8 @@ import (
 	"codenerd/internal/usage"
 	"codenerd/internal/world"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,36 +64,148 @@ type BootConfig struct {
 	KernelOverride     SystemKernel
 }
 
-// Global singleton Cortex instance to prevent repeated initialization (Bug #1 fix)
+// Keyed cache of Cortex instances. Each entry is keyed by a hash of
+// (workspace + provider + apiKey + model) so that switching workspace,
+// provider, API key, or model mid-process yields the correct instance
+// instead of a stale singleton bound to the wrong context (Bug #15 fix).
+//
+// Failed boots are NOT cached: returning an error never inserts into the
+// map, so a transient initialization failure cannot poison subsequent
+// boots for the same key.
 var (
-	globalCortex     *Cortex
-	globalCortexOnce sync.Once
-	globalCortexErr  error
+	cortexCacheMu sync.RWMutex
+	cortexCache   = make(map[string]*Cortex)
 )
 
-// GetOrBootCortex returns the global Cortex singleton, initializing it once if needed.
-// This prevents the massive initialization spam (2,141 reinitializations) that was
-// occurring when every command created its own Cortex instance.
-//
-// IMPORTANT: This function should be used instead of BootCortex() in all command handlers.
-func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
-	globalCortexOnce.Do(func() {
-		globalCortex, globalCortexErr = BootCortex(ctx, workspace, apiKey, disableSystemShards)
-		if globalCortexErr == nil && globalCortex != nil {
-			// Start background maintenance for archival, cleanup, and logging.
-			// Run it with background context so it survives individual command executions in daemon mode.
-			globalCortex.StartMaintenanceSchedule(context.Background())
-		}
-	})
-	return globalCortex, globalCortexErr
+// cortexKey derives a stable cache key for a Cortex instance from the
+// dimensions that change Cortex identity: workspace, provider, API key,
+// and model. The components are joined with NUL bytes to avoid ambiguity
+// between values that contain the separator, then SHA-256 hashed so the
+// key can be safely used as a map index without leaking the API key.
+func cortexKey(workspace, provider, apiKey, model string) string {
+	h := sha256.New()
+	h.Write([]byte(workspace + "\x00" + provider + "\x00" + apiKey + "\x00" + model))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ResetGlobalCortex resets the global Cortex singleton. This is primarily for testing.
-// WARNING: This should NOT be used in production code as it can cause inconsistent state.
+// resolveWorkspaceRoot mirrors BootCortexWithConfig's workspace resolution
+// so cache keying uses the same effective workspace path as boot.
+func resolveWorkspaceRoot(workspace string) string {
+	if workspace != "" {
+		return workspace
+	}
+	if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
+		return root
+	}
+	cwd, _ := os.Getwd()
+	return cwd
+}
+
+// resolveProviderModelForKey reads the user config (best-effort) to
+// determine the provider and model components of the cortex cache key.
+// Errors are intentionally swallowed: if the config is unreadable the
+// caller will hit the same failure mode inside BootCortex, and we still
+// want to key consistently across calls.
+func resolveProviderModelForKey(workspace string) (provider, model string) {
+	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
+	cfg, err := config.LoadUserConfig(userCfgPath)
+	if err != nil || cfg == nil {
+		return "", ""
+	}
+	return cfg.Provider, cfg.Model
+}
+
+// GetOrBootCortex returns the Cortex bound to the given workspace and
+// provider context, booting it on first use. Subsequent calls with the
+// same (workspace, provider, apiKey, model) tuple return the cached
+// instance; calls with a different tuple boot a fresh Cortex so that
+// switching workspace, provider, or credentials mid-session does not
+// hand back a Cortex wired to the wrong context.
+//
+// Failed boots return the error to the caller and are NOT cached, so a
+// transient failure (missing config, unreachable embedding service)
+// will not poison subsequent attempts.
+//
+// IMPORTANT: This function should be used instead of BootCortex() in
+// all command handlers.
+func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
+	ws := resolveWorkspaceRoot(workspace)
+	provider, model := resolveProviderModelForKey(ws)
+	key := cortexKey(ws, provider, apiKey, model)
+
+	// Fast path: cache hit under read lock.
+	cortexCacheMu.RLock()
+	if existing, ok := cortexCache[key]; ok {
+		cortexCacheMu.RUnlock()
+		return existing, nil
+	}
+	cortexCacheMu.RUnlock()
+
+	// Slow path: hold the write lock across BootCortex. This serializes
+	// concurrent first-boots even across distinct keys, which is acceptable
+	// because boot is heavy and rare; the simpler invariant (no torn cache,
+	// no duplicate maintenance goroutines) is worth the contention.
+	cortexCacheMu.Lock()
+	defer cortexCacheMu.Unlock()
+
+	// Re-check under write lock in case a concurrent caller booted it first.
+	if existing, ok := cortexCache[key]; ok {
+		return existing, nil
+	}
+
+	cortex, err := BootCortex(ctx, workspace, apiKey, disableSystemShards)
+	if err != nil {
+		// Do NOT cache failures.
+		return nil, err
+	}
+	if cortex == nil {
+		return nil, fmt.Errorf("BootCortex returned nil cortex without error")
+	}
+
+	cortex.cortexKey = key
+	cortexCache[key] = cortex
+
+	// Start background maintenance for archival, cleanup, and logging.
+	// Only spawned on a fresh boot so cache hits do not leak goroutines.
+	cortex.StartMaintenanceSchedule(context.Background())
+
+	return cortex, nil
+}
+
+// ResetGlobalCortex clears every cached Cortex instance. Primarily intended
+// for testing; in production prefer ResetCortexForWorkspace for surgical
+// invalidation. Does not Close() the evicted instances; callers that need
+// resource cleanup should Close() the Cortex they hold a reference to.
 func ResetGlobalCortex() {
-	globalCortex = nil
-	globalCortexErr = nil
-	globalCortexOnce = sync.Once{}
+	cortexCacheMu.Lock()
+	defer cortexCacheMu.Unlock()
+	cortexCache = make(map[string]*Cortex)
+}
+
+// ResetCortexForWorkspace evicts every cached Cortex whose Workspace matches
+// the given path. Use this when a workspace's configuration changes (provider
+// switch, key rotation, model change) and you want the next GetOrBootCortex
+// call for that workspace to boot fresh against the new config.
+func ResetCortexForWorkspace(workspace string) {
+	ws := resolveWorkspaceRoot(workspace)
+	cortexCacheMu.Lock()
+	defer cortexCacheMu.Unlock()
+	for k, c := range cortexCache {
+		if c != nil && c.Workspace == ws {
+			delete(cortexCache, k)
+		}
+	}
+}
+
+// evictCortexByKey removes the given key from the cache. Used by Cortex.Close
+// to keep the cache from holding pointers to torn-down instances.
+func evictCortexByKey(key string) {
+	if key == "" {
+		return
+	}
+	cortexCacheMu.Lock()
+	defer cortexCacheMu.Unlock()
+	delete(cortexCache, key)
 }
 
 // Cortex represents a fully initialized system instance.
@@ -116,6 +230,11 @@ type Cortex struct {
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
+
+	// cortexKey is the cache key under which this Cortex is registered
+	// in cortexCache (set by GetOrBootCortex). Direct BootCortex callers
+	// leave it empty; Close() then becomes a no-op against the cache.
+	cortexKey string
 }
 
 type missingLLMClient struct {

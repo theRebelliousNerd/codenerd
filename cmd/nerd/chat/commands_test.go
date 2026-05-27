@@ -187,7 +187,7 @@ func TestCommand_Config(t *testing.T) {
 	result := newModel.(Model)
 
 	// Should enter config wizard or show config
-	if result.awaitingConfigWizard {
+	if result.inputMode == InputModeConfigWizard {
 		t.Log("Config wizard started")
 	} else if len(result.history) > 0 {
 		t.Log("Config shown in history")
@@ -483,7 +483,7 @@ func TestCommand_DefineAgent(t *testing.T) {
 	result := newModel.(Model)
 
 	// Should start agent wizard
-	if !result.awaitingAgentDefinition && len(result.history) == 0 {
+	if result.inputMode != InputModeAgentWizard && len(result.history) == 0 {
 		t.Error("Expected wizard start or message")
 	}
 }

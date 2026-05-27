@@ -25,8 +25,7 @@ import (
 
 // startOnboarding initializes the onboarding wizard.
 func (m Model) startOnboarding() (tea.Model, tea.Cmd) {
-	m.awaitingOnboarding = true
-	m.inputMode = InputModeOnboarding
+	m.setInputMode(InputModeOnboarding)
 	m.onboardingWizard = &OnboardingWizardState{
 		Step: OnboardingStepWelcome,
 	}
@@ -163,9 +162,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 	switch input {
 	case "1", "api", "api key":
 		// Launch config wizard for API setup
-		m.awaitingOnboarding = false
-		m.inputMode = InputModeConfigWizard
-		m.awaitingConfigWizard = true
+		m.setInputMode(InputModeConfigWizard)
 		m.configWizard = &ConfigWizardState{
 			Step:   StepEngine,
 			Engine: "api",
@@ -179,9 +176,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "2", "claude", "claude cli":
-		m.awaitingOnboarding = false
-		m.inputMode = InputModeConfigWizard
-		m.awaitingConfigWizard = true
+		m.setInputMode(InputModeConfigWizard)
 		m.configWizard = &ConfigWizardState{
 			Step:   StepClaudeCLIConfig,
 			Engine: "claude-cli",
@@ -194,9 +189,7 @@ func (m Model) handleAPICheckResponse(input string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "3", "codex", "codex cli":
-		m.awaitingOnboarding = false
-		m.inputMode = InputModeConfigWizard
-		m.awaitingConfigWizard = true
+		m.setInputMode(InputModeConfigWizard)
 		m.configWizard = &ConfigWizardState{
 			Step:   StepCodexCLIConfig,
 			Engine: "codex-cli",
@@ -280,9 +273,10 @@ func (m Model) handleWowResponse(input string) (tea.Model, tea.Cmd) {
 
 // skipOnboarding skips the remaining onboarding steps.
 func (m Model) skipOnboarding() (tea.Model, tea.Cmd) {
-	m.onboardingWizard.SkipRequested = true
-	m.awaitingOnboarding = false
-	m.inputMode = InputModeNormal
+	if m.onboardingWizard != nil {
+		m.onboardingWizard.SkipRequested = true
+	}
+	m.setInputMode(InputModeNormal)
 
 	// Save skip state to preferences
 	pm := ux.NewPreferencesManager(m.workspace)
@@ -307,8 +301,12 @@ func (m Model) skipOnboarding() (tea.Model, tea.Cmd) {
 
 // completeOnboarding finalizes the onboarding wizard.
 func (m Model) completeOnboarding() (tea.Model, tea.Cmd) {
-	m.awaitingOnboarding = false
-	m.inputMode = InputModeNormal
+	// Capture per-wizard data before setInputMode clears the wizard pointer.
+	expLevel := ""
+	if m.onboardingWizard != nil {
+		expLevel = m.onboardingWizard.ExperienceLevel
+	}
+	m.setInputMode(InputModeNormal)
 
 	// Save preferences
 	pm := ux.NewPreferencesManager(m.workspace)
@@ -316,8 +314,8 @@ func (m Model) completeOnboarding() (tea.Model, tea.Cmd) {
 		_ = pm.MarkOnboardingComplete()
 
 		// Set experience level if selected
-		if m.onboardingWizard != nil && m.onboardingWizard.ExperienceLevel != "" {
-			switch m.onboardingWizard.ExperienceLevel {
+		if expLevel != "" {
+			switch expLevel {
 			case string(config.ExperienceBeginner):
 				_ = pm.SetGuidanceLevel(config.GuidanceVerbose)
 			case string(config.ExperienceIntermediate):
@@ -351,11 +349,6 @@ Just type naturally - I'll figure out the rest. Happy coding!
 		Time:    time.Now(),
 	})
 	m.textarea.Placeholder = "Enter a command or chat..."
-
-	expLevel := ""
-	if m.onboardingWizard != nil {
-		expLevel = m.onboardingWizard.ExperienceLevel
-	}
 
 	return m, func() tea.Msg {
 		return onboardingCompleteMsg{

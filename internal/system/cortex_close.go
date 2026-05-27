@@ -47,8 +47,12 @@ func (c *Cortex) Close() error {
 		errs = append(errs, err)
 	}
 
-	if c == globalCortex {
-		ResetGlobalCortex()
+	// Evict from the keyed cache so a future GetOrBootCortex with the same
+	// (workspace, provider, apiKey, model) tuple boots a fresh instance
+	// instead of handing back this torn-down one.
+	if c.cortexKey != "" {
+		evictCortexByKey(c.cortexKey)
+		c.cortexKey = ""
 	}
 
 	if len(errs) > 0 {
