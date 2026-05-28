@@ -476,6 +476,15 @@ func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, err
 	if err != nil {
 		return nil, fmt.Errorf("diff: NewDifferentialEngine: %w", err)
 	}
+	// Opt into the unified fast path. The kernel doesn't use Snapshot /
+	// Query / RegisterVirtualPredicate on this engine — it just needs the
+	// derived-fact union via CopyAllFactsTo — so it can pay zero
+	// per-stratum overhead. Caller paths that need the per-stratum API
+	// (ouroboros, torture tests) construct their own DifferentialEngine
+	// and don't enable the fast path.
+	if err := de.EnableUnifiedFastPath(); err != nil {
+		return nil, fmt.Errorf("diff: EnableUnifiedFastPath: %w", err)
+	}
 	k.diffMangleEngine = eng
 	return de, nil
 }

@@ -190,7 +190,16 @@ func resolveBool(envVar string, fromActive func(*FeaturesConfig) *bool, def bool
 }
 
 // IsDiffEvalEnabled gates kernel_eval.go's DifferentialEngine path.
-// Default OFF for unit tests; .nerd/config.json opts production in.
+//
+// Default OFF at the compile-time level so unit tests that construct a
+// kernel directly (no .nerd/config.json) see the canonical full-eval
+// path — the diff engine's first build is heavyweight (LoadSchemaString
+// + Stratify on the whole constitution) and inflated test wall time
+// before this default was set conservatively.
+//
+// Production opts IN via the `features.diff_eval: true` key in
+// .nerd/config.json, which LoadUserConfig pushes into the active
+// pointer at boot.
 func IsDiffEvalEnabled() bool {
 	return resolveBool("CODENERD_DIFF_EVAL",
 		func(f *FeaturesConfig) *bool { return f.DiffEval }, false)
