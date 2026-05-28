@@ -316,6 +316,13 @@ func normalizeLLMFields(u *Understanding) {
 	}
 }
 
+// maxJSONCandidates caps the number of balanced {...}/[...] spans we keep
+// while scanning. A pathological response with thousands of nested or
+// sibling JSON-like fragments would otherwise allocate a candidate slice of
+// unbounded size. Since we want the LAST valid object/array, we only need
+// to retain the most recent spans — older ones can be dropped.
+const maxJSONCandidates = 1000
+
 // ExtractCleanJSON finds the last valid JSON object in the response.
 // This handles cases where the model outputs thinking logs or schema examples before the final JSON.
 // It scans from the end of the string to efficiently find the last valid object without O(N^2) overhead.
@@ -334,6 +341,17 @@ func ExtractCleanJSON(response string) string {
 		bracket    []byte
 		candidates []string
 	)
+
+	// appendCandidate keeps the candidate slice bounded by dropping the
+	// oldest entry when the cap is reached. The reverse-scan below returns
+	// the last valid candidate, so dropping the oldest is safe.
+	appendCandidate := func(c string) {
+		if len(candidates) >= maxJSONCandidates {
+			copy(candidates, candidates[1:])
+			candidates = candidates[:len(candidates)-1]
+		}
+		candidates = append(candidates, c)
+	}
 
 	for i := 0; i < len(response); i++ {
 		b := response[i]
@@ -365,7 +383,7 @@ func ExtractCleanJSON(response string) string {
 				stack = stack[:len(stack)-1]
 				bracket = bracket[:len(bracket)-1]
 				if typ == '{' {
-					candidates = append(candidates, response[start:i+1])
+					appendCandidate(response[start : i+1])
 					break
 				}
 			}
@@ -376,7 +394,7 @@ func ExtractCleanJSON(response string) string {
 				stack = stack[:len(stack)-1]
 				bracket = bracket[:len(bracket)-1]
 				if typ == '[' {
-					candidates = append(candidates, response[start:i+1])
+					appendCandidate(response[start : i+1])
 					break
 				}
 			}
@@ -752,7 +770,10 @@ func (k *MangleRoutingKernel) QueryRouting(ctx context.Context, predicate string
 		}
 	}
 
-	// Sort by weight descending
+	// Sort by weight descending.
+	// TODO(qa-boundary): consider sort.SliceStable for deterministic tie-breaks
+	// when two RoutingMatch entries share a weight. Current call sites do not
+	// depend on tie order, so sort.Slice is sufficient.
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].Weight > matches[j].Weight
 	})

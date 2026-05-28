@@ -126,6 +126,13 @@ func ExtractKeywords(issueText string) *IssueKeywords {
 		MentionedSymbols: make([]string, 0),
 	}
 
+	// Fast-path: empty or whitespace-only input has no extractable keywords.
+	// Cheap guard even though the regex passes would short-circuit naturally —
+	// avoids six regex invocations on every blank call.
+	if strings.TrimSpace(issueText) == "" {
+		return kw
+	}
+
 	// Extract file paths
 	for _, match := range filePathPattern.FindAllStringSubmatch(issueText, -1) {
 		if len(match) > 1 {
@@ -368,10 +375,17 @@ type rgJSONMatchData struct {
 	Submatches []rgJSONSubmatch `json:"submatches"`
 }
 
+// maxHitsPerKeyword caps the number of KeywordHits returned per ripgrep
+// invocation. ripgrep can return millions of matches on a hot keyword like
+// "self" in a large repo; without a cap we risk OOM and unbounded slice growth.
+const maxHitsPerKeyword = 10000
+
 // parseRipgrepJSON parses ripgrep --json output into KeywordHits.
 // Each line of output is a JSON object; we only extract "match" events.
 // This is Windows-safe because the path is a structured field, not a
 // colon-separated token.
+//
+// Output is capped at maxHitsPerKeyword to prevent unbounded memory growth.
 func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []KeywordHit {
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
@@ -381,6 +395,10 @@ func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []Keyw
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	for scanner.Scan() {
+		if len(hits) >= maxHitsPerKeyword {
+			logging.Context("SparseRetriever: hit cap (%d) reached for keyword %q, truncating", maxHitsPerKeyword, keyword)
+			break
+		}
 		raw := scanner.Bytes()
 		if len(raw) == 0 {
 			continue

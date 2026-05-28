@@ -267,13 +267,14 @@ func TestSparseRetriever_HugeOutput(t *testing.T) {
 	r := &SparseRetriever{}
 	var sb strings.Builder
 	line := rgMatchJSON("a.go", 1, 1, 4, "hit")
+	// Feed 100k lines; parser must cap at maxHitsPerKeyword (OOM prevention).
 	for i := 0; i < 100000; i++ {
 		sb.WriteString(line)
 		sb.WriteByte('\n')
 	}
 	hits := r.parseRipgrepJSON([]byte(sb.String()), "kw")
-	if len(hits) != 100000 {
-		t.Errorf("Expected 100000 hits, got %d", len(hits))
+	if len(hits) != maxHitsPerKeyword {
+		t.Errorf("Expected exactly %d hits (cap), got %d", maxHitsPerKeyword, len(hits))
 	}
 }
 
