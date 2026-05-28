@@ -2,11 +2,17 @@ package prompt
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 
 	"codenerd/internal/logging"
 )
+
+// maxAtomsInput caps the total number of atoms accepted by Fit().
+// Inputs larger than this are truncated to prevent excessive allocation
+// and sort cost. Chosen to comfortably exceed any realistic corpus size.
+const maxAtomsInput = 100000
 
 // BudgetPriority defines priority levels for category budget allocation.
 type BudgetPriority int
@@ -321,7 +327,15 @@ func (m *TokenBudgetManager) SetStrategy(strategy AllocationStrategy) {
 }
 
 // SetReservedHeadroom sets the buffer tokens to keep as reserve.
+// Negative values are clamped to 0 (a negative buffer is nonsensical
+// and would silently inflate the available budget).
 func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
+	if tokens < 0 {
+		logging.Get(logging.CategoryContext).Warn(
+			"SetReservedHeadroom: negative value %d clamped to 0", tokens,
+		)
+		tokens = 0
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reservedHeadroom = tokens
@@ -339,6 +353,17 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 	if len(atoms) == 0 {
 		return nil, nil
+	}
+
+	// Bounds check input size up front to avoid pathological allocation /
+	// sort cost on adversarially large inputs. We truncate rather than error
+	// so callers degrade gracefully.
+	if len(atoms) > maxAtomsInput {
+		logging.Get(logging.CategoryContext).Warn(
+			"TokenBudgetManager.Fit: input atom count %d exceeds cap %d; truncating",
+			len(atoms), maxAtomsInput,
+		)
+		atoms = atoms[:maxAtomsInput]
 	}
 
 	availableBudget := totalBudget - m.reservedHeadroom
@@ -399,11 +424,17 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	// Calculate category allocations
 	allocations := m.calculateAllocations(availableBudget, presentCategories)
 
-	// Select atoms
-	result := make([]*OrderedAtom, 0, len(atoms))
-	unselected := make([]*OrderedAtom, 0, len(atoms))
-	var usedTokens int64 = 0
+	// Select atoms.
+	// Pre-allocate slices using min(len(atoms), maxAtomsLimit) to avoid
+	// allocating very large backing arrays when callers pass enormous inputs.
 	const maxAtomsLimit = 5000
+	preAlloc := len(atoms)
+	if preAlloc > maxAtomsLimit {
+		preAlloc = maxAtomsLimit
+	}
+	result := make([]*OrderedAtom, 0, preAlloc)
+	unselected := make([]*OrderedAtom, 0, preAlloc)
+	var usedTokens int64 = 0
 	var atomsIncluded int = 0
 
 	// Helper to get token count for a mode
@@ -470,6 +501,20 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			}
 
 			if oa.Atom.IsMandatory {
+				// Enforce absolute totalBudget cap even for mandatory atoms.
+				// Without this guard, a single oversized mandatory atom can
+				// blow the context window (e.g. a 2M-token atom against an
+				// 8K budget). Log a warning and skip if it would overflow.
+				if tokens > int64(totalBudget) ||
+					usedTokens > math.MaxInt64-tokens ||
+					usedTokens+tokens > int64(totalBudget) {
+					logging.Get(logging.CategoryContext).Warn(
+						"Mandatory atom %s (%d tokens) exceeds total budget %d (used=%d); skipping",
+						oa.Atom.ID, tokens, totalBudget, usedTokens,
+					)
+					unselected = append(unselected, oa)
+					continue
+				}
 				oa.RenderMode = mode
 				result = append(result, oa)
 				catTokens += tokens
@@ -478,8 +523,12 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				continue
 			}
 
-			// Try Standard
-			if catTokens+tokens <= int64(allocation) {
+			// Try Standard. Guard against int64 overflow on catTokens/usedTokens
+			// before performing the inclusion check.
+			if tokens >= 0 &&
+				catTokens <= math.MaxInt64-tokens &&
+				usedTokens <= math.MaxInt64-tokens &&
+				catTokens+tokens <= int64(allocation) {
 				oa.RenderMode = mode
 				result = append(result, oa)
 				catTokens += tokens
@@ -492,7 +541,10 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			if oa.Atom.ContentConcise != "" {
 				mode = "concise"
 				tokens = int64(getTokenCount(oa.Atom, mode))
-				if catTokens+tokens <= int64(allocation) {
+				if tokens >= 0 &&
+					catTokens <= math.MaxInt64-tokens &&
+					usedTokens <= math.MaxInt64-tokens &&
+					catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
 					catTokens += tokens
@@ -506,7 +558,10 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			if oa.Atom.ContentMin != "" {
 				mode = "min"
 				tokens = int64(getTokenCount(oa.Atom, mode))
-				if catTokens+tokens <= int64(allocation) {
+				if tokens >= 0 &&
+					catTokens <= math.MaxInt64-tokens &&
+					usedTokens <= math.MaxInt64-tokens &&
+					catTokens+tokens <= int64(allocation) {
 					oa.RenderMode = mode
 					result = append(result, oa)
 					catTokens += tokens
@@ -543,7 +598,8 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 			// Try Standard
 			tokens := int64(getTokenCount(oa.Atom, "standard"))
-			if tokens <= remaining {
+			if tokens >= 0 && tokens <= remaining &&
+				usedTokens <= math.MaxInt64-tokens {
 				oa.RenderMode = "standard"
 				result = append(result, oa)
 				remaining -= tokens
@@ -555,7 +611,8 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			// Try Concise
 			if oa.Atom.ContentConcise != "" {
 				tokens = int64(getTokenCount(oa.Atom, "concise"))
-				if tokens <= remaining {
+				if tokens >= 0 && tokens <= remaining &&
+					usedTokens <= math.MaxInt64-tokens {
 					oa.RenderMode = "concise"
 					result = append(result, oa)
 					remaining -= tokens
@@ -568,7 +625,8 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			// Try Min
 			if oa.Atom.ContentMin != "" {
 				tokens = int64(getTokenCount(oa.Atom, "min"))
-				if tokens <= remaining {
+				if tokens >= 0 && tokens <= remaining &&
+					usedTokens <= math.MaxInt64-tokens {
 					oa.RenderMode = "min"
 					result = append(result, oa)
 					remaining -= tokens

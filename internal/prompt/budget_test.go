@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -499,6 +500,217 @@ func BenchmarkGenerateReport(b *testing.B) {
 // TODO: TEST_GAP: User Request Extremes: Test with >5000 items in `atoms` to ensure the `maxAtomsLimit` branch executes correctly and unselected atoms are correctly bypassed or skipped.
 // TODO: TEST_GAP: User Request Extremes: Validate token addition (`catTokens += tokens`) behaves correctly if an atom is artificially crafted with near `math.MaxInt64` tokens (testing for overflow wrap-around in int64 math).
 // TODO: TEST_GAP: State Conflicts: Test concurrent access. Run `Fit` or `GenerateReport` in multiple goroutines while simultaneously calling `SetCategoryBudget`, `SetStrategy`, or `SetReservedHeadroom` to ensure `m.mu` locking prevents race conditions and crashes.
+
+// TestTokenBudgetManager_Fit_Extremes covers boundary inputs:
+// - Massive atom count that exceeds the input cap (truncation path)
+// - Zero / negative budgets that should error
+// - Budget that equals reservedHeadroom (boundary on the <= guard)
+// GAP: User Request Extremes from boundary analysis QA.
+func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
+	t.Run("massive atom count is truncated without panic", func(t *testing.T) {
+		// Build > maxAtomsInput atoms to exercise the truncation guard.
+		count := maxAtomsInput + 1234
+		atoms := make([]*OrderedAtom, count)
+		for i := 0; i < count; i++ {
+			atoms[i] = &OrderedAtom{
+				Atom: &PromptAtom{
+					ID:         "atom",
+					TokenCount: 1,
+					Category:   CategoryIdentity,
+				},
+				Score: 0.5,
+				Order: i,
+			}
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		// Should not panic and should return a non-error result.
+		result, err := mgr.Fit(atoms, 1000000)
+		require.NoError(t, err)
+		// Result is capped by maxAtomsLimit (5000) inside Fit.
+		assert.LessOrEqual(t, len(result), 5000)
+	})
+
+	t.Run("zero budget returns error", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{ID: "a", TokenCount: 10, Category: CategoryIdentity}, Score: 1.0},
+		}
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		_, err := mgr.Fit(atoms, 0)
+		require.Error(t, err)
+	})
+
+	t.Run("negative budget returns error", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{ID: "a", TokenCount: 10, Category: CategoryIdentity}, Score: 1.0},
+		}
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		_, err := mgr.Fit(atoms, -1)
+		require.Error(t, err)
+
+		_, err2 := mgr.Fit(atoms, math.MinInt32)
+		require.Error(t, err2)
+	})
+
+	t.Run("budget equal to reserved headroom errors", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{ID: "a", TokenCount: 10, Category: CategoryIdentity}, Score: 1.0},
+		}
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(500)
+
+		_, err := mgr.Fit(atoms, 500)
+		require.Error(t, err)
+	})
+
+	t.Run("very large per-atom token count does not overflow", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{
+				ID:         "huge",
+				TokenCount: math.MaxInt32, // close to but not at MaxInt64
+				Category:   CategoryIdentity,
+			}, Score: 1.0},
+			{Atom: &PromptAtom{
+				ID:         "small",
+				TokenCount: 10,
+				Category:   CategoryIdentity,
+			}, Score: 0.9},
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		// Should not panic / loop forever; either fit small, or skip both.
+		result, err := mgr.Fit(atoms, 10000)
+		require.NoError(t, err)
+		// The huge atom must not be wrongly included via overflow.
+		for _, oa := range result {
+			assert.NotEqual(t, "huge", oa.Atom.ID, "oversized atom should not be selected")
+		}
+	})
+}
+
+// TestTokenBudgetManager_SetReservedHeadroom_Negative verifies that
+// negative reserved headroom is rejected (clamped to 0) rather than
+// silently inflating the available budget.
+// GAP: Null/Undefined/Empty from boundary analysis QA.
+func TestTokenBudgetManager_SetReservedHeadroom_Negative(t *testing.T) {
+	mgr := NewTokenBudgetManager()
+
+	mgr.SetReservedHeadroom(-100)
+	assert.Equal(t, 0, mgr.reservedHeadroom, "negative headroom should clamp to 0")
+
+	mgr.SetReservedHeadroom(math.MinInt32)
+	assert.Equal(t, 0, mgr.reservedHeadroom, "very negative headroom should clamp to 0")
+
+	// Non-negative values pass through unchanged.
+	mgr.SetReservedHeadroom(0)
+	assert.Equal(t, 0, mgr.reservedHeadroom)
+
+	mgr.SetReservedHeadroom(750)
+	assert.Equal(t, 750, mgr.reservedHeadroom)
+}
+
+// TestTokenBudgetManager_Fit_MandatoryOverflow verifies that a single
+// mandatory atom larger than the total budget is skipped (with a warning)
+// rather than included and exploding the context window.
+// GAP: Enormous single atom from boundary analysis QA.
+func TestTokenBudgetManager_Fit_MandatoryOverflow(t *testing.T) {
+	t.Run("oversized mandatory atom is skipped", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{
+				ID:          "huge-mandatory",
+				TokenCount:  2_000_000, // far exceeds budget
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 1.0},
+			{Atom: &PromptAtom{
+				ID:          "small-mandatory",
+				TokenCount:  100,
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 0.9},
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		result, err := mgr.Fit(atoms, 8000)
+		require.NoError(t, err)
+
+		// huge-mandatory must not appear; small-mandatory should.
+		var sawHuge, sawSmall bool
+		for _, oa := range result {
+			if oa.Atom.ID == "huge-mandatory" {
+				sawHuge = true
+			}
+			if oa.Atom.ID == "small-mandatory" {
+				sawSmall = true
+			}
+		}
+		assert.False(t, sawHuge, "oversized mandatory atom should be skipped")
+		assert.True(t, sawSmall, "in-budget mandatory atom should be included")
+	})
+
+	t.Run("mandatory atom at MaxInt64 token count does not overflow", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{
+				ID:          "max-int",
+				TokenCount:  math.MaxInt64 - 10,
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 1.0},
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		// Must not panic or wrap. Atom should be skipped because it cannot fit.
+		result, err := mgr.Fit(atoms, 10000)
+		require.NoError(t, err)
+		for _, oa := range result {
+			assert.NotEqual(t, "max-int", oa.Atom.ID)
+		}
+	})
+
+	t.Run("multiple mandatory atoms summing past budget are partially included", func(t *testing.T) {
+		atoms := []*OrderedAtom{
+			{Atom: &PromptAtom{
+				ID:          "m1",
+				TokenCount:  5000,
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 1.0},
+			{Atom: &PromptAtom{
+				ID:          "m2",
+				TokenCount:  5000,
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 0.9},
+			{Atom: &PromptAtom{
+				ID:          "m3",
+				TokenCount:  5000,
+				Category:    CategorySafety,
+				IsMandatory: true,
+			}, Score: 0.8},
+		}
+
+		mgr := NewTokenBudgetManager()
+		mgr.SetReservedHeadroom(0)
+
+		// Budget allows two but not three.
+		result, err := mgr.Fit(atoms, 11000)
+		require.NoError(t, err)
+		// At most two of the three mandatory atoms fit; the third must be skipped.
+		assert.LessOrEqual(t, len(result), 2)
+	})
+}
 
 func TestTokenBudgetManager_Fit_InvalidData(t *testing.T) {
 	manager := NewTokenBudgetManager()
