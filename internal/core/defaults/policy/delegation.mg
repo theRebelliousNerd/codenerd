@@ -130,6 +130,28 @@ intent_requires_tool_call(Verb) :-
     action_mapping(Verb, Action),
     side_effecting_action(Action).
 
+# Step 6: TOOL-LOOP TERMINATION stays in Go — deliberately NOT migrated.
+# runToolLoop's three control branch points are all mechanical loop counters,
+# not policy decisions:
+#   (1) len(ToolCalls)==0        -> model-driven natural exit (final answer);
+#   (2) iter < MaxToolIterations -> the iteration ceiling (Go for-loop bound);
+#   (3) ToolCallsExecuted >= MaxToolCalls -> the per-call budget.
+# Encoding (2)/(3) as a should_retry_tool_loop(Attempt, Max) rule would force a
+# fast-changing counter fact (tool_loop_state) into the deductive store. That is
+# the classic Datalog counter fallacy (unbounded/monotonic store growth) AND it
+# is unsafe here specifically: SubAgents (internal/session/subagent.go) each
+# build their own Executor over the SINGLE shared kernel passed by the Spawner
+# (internal/session/spawner.go), and run their tool loops concurrently. A 0-ary
+# should_retry_tool_loop() gate cannot discriminate which loop a tool_loop_state
+# fact belongs to, so concurrent loops would clobber each other's counter — a
+# cross-goroutine race that retract-before-assert cannot fix.
+# The ONLY genuine policy decision in runToolLoop — whether a no-tool first turn
+# is acceptable — is already migrated above (intent_requires_tool_call/1,
+# queried at executor.go:intentRequiresToolCall). The Go `for iter < maxIter`
+# bound remains the hard, race-free termination backstop. There is nothing
+# sound left to migrate, so no rule is written (per the repo guardrail against
+# unbounded recursion / counter facts, and to avoid a consumer-less dead rule).
+
 # Step 4: DELEGATION DECISION (confidence gate moved from Go to policy).
 # Go computes the verb->shard lookup and the perception confidence and asserts
 # delegation_candidate(/current_intent, ShardType, Conf). This rule applies the
