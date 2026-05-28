@@ -1956,7 +1956,31 @@ func formatVerificationEscalation(
 
 	if verificationResult != nil {
 		sb.WriteString("### Last Verification Result\n\n")
-		sb.WriteString(fmt.Sprintf("**Reason**: %s\n\n", verificationResult.Reason))
+		// Synthesize a Reason from QualityViolations + Evidence when the
+		// verifier LLM returns success=false without filling in `reason`
+		// in the JSON response (observed against Gemini 3.5-flash). The
+		// previous template printed "**Reason**: " with a blank tail and
+		// gave the user no useful signal.
+		reason := strings.TrimSpace(verificationResult.Reason)
+		if reason == "" {
+			parts := make([]string, 0, 2)
+			if len(verificationResult.QualityViolations) > 0 {
+				viols := make([]string, 0, len(verificationResult.QualityViolations))
+				for _, v := range verificationResult.QualityViolations {
+					viols = append(viols, string(v))
+				}
+				parts = append(parts, "violations="+strings.Join(viols, ","))
+			}
+			if len(verificationResult.Evidence) > 0 {
+				parts = append(parts, "evidence="+verificationResult.Evidence[0])
+			}
+			if len(parts) == 0 {
+				reason = "(verifier returned no reason — see logs)"
+			} else {
+				reason = strings.Join(parts, "; ")
+			}
+		}
+		sb.WriteString(fmt.Sprintf("**Reason**: %s\n\n", reason))
 
 		if len(verificationResult.QualityViolations) > 0 {
 			sb.WriteString("**Quality Violations Detected**:\n")

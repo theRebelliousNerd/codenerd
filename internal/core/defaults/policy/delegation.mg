@@ -78,7 +78,14 @@ action_mapping(/refactor, /delegate_coder).
 action_mapping(/create, /delegate_coder).
 action_mapping(/delete, /delegate_coder).
 action_mapping(/write, /fs_write).
-action_mapping(/document, /delegate_coder).
+# /document is documentation/prose, not code generation. Earlier this
+# routed to /delegate_coder which contradicted persona(/researcher) :-
+# user_intent(_, _, /document, _, _) in internal/mangle/intent_routing.mg
+# and produced a planning-only failure: the coder shard tried to "plan
+# how to document" a non-existent file instead of writing the markdown.
+# Routing to /delegate_researcher matches the persona rule and uses the
+# researcher shard's write_file allowance for prose output.
+action_mapping(/document, /delegate_researcher).
 action_mapping(/commit, /delegate_coder).
 
 # Debug actions
