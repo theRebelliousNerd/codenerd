@@ -40,6 +40,67 @@ action_weakly_validated(ActionID) :-
     Confidence >= 50,
     Confidence < 80.
 
+# -----------------------------------------------------------------------------
+# Step 2: ACTION-LEVEL COMPLETION VERIFICATION (interactive path)
+# -----------------------------------------------------------------------------
+# Goal: turn the LLM's implicit "I'm done" into a kernel-verified fact, keyed on
+# the ActionID that actually flows on the interactive tool-calling turn (the
+# validation facts asserted by ValidateInteractiveToolResult -> ToFacts). We do
+# NOT key on TaskID/current_task: those are never asserted on this path, so a
+# TaskID-keyed rule would be a silent no-op.
+#
+# These ActionType atoms are the interactive-tool vocabulary emitted by
+# core.ActionType (virtual_store_types.go) after the /-prefix coercion in
+# ToFacts. They are DISTINCT from delegation.mg's side_effecting_action/1, which
+# uses the action-pipeline vocabulary (/fs_write, /exec_cmd, ...). Reusing that
+# predicate here would be a dead join, so we declare a dedicated allowlist.
+Decl interactive_side_effect_type(ActionType) bound [/name].
+interactive_side_effect_type(/write_file).
+interactive_side_effect_type(/edit_file).
+interactive_side_effect_type(/delete_file).
+interactive_side_effect_type(/run_command).
+interactive_side_effect_type(/bash).
+interactive_side_effect_type(/run_build).
+interactive_side_effect_type(/edit_lines).
+interactive_side_effect_type(/insert_lines).
+interactive_side_effect_type(/delete_lines).
+
+# A side-effecting action was ATTEMPTED this session if either a verification or
+# a validation-failure fact exists for it (both prove the tool actually ran).
+# ActionType is bound by the fact, then filtered by the allowlist.
+Decl side_effect_attempted(ActionID, ActionType) bound [/string, /name].
+side_effect_attempted(ActionID, ActionType) :-
+    action_verified(ActionID, ActionType, _, _, _),
+    interactive_side_effect_type(ActionType).
+side_effect_attempted(ActionID, ActionType) :-
+    action_validation_failed(ActionID, ActionType, _, _, _),
+    interactive_side_effect_type(ActionType).
+
+# An action's work is POSITIVELY VERIFIED COMPLETE only if it both (a) was a
+# side-effecting action and (b) passed positive validation (>=80 confidence via
+# action_validated, or paranoid validation via critical_action_resolved).
+# This is the soundness anchor: completion is gated on POSITIVE validation, NOT
+# on the mere absence of unresolved_failure (which would let an unvalidated
+# write slip through -> the Q4 false-completion hole).
+Decl action_complete_verified(ActionID) bound [/string].
+action_complete_verified(ActionID) :-
+    side_effect_attempted(ActionID, _),
+    action_validated(ActionID).
+action_complete_verified(ActionID) :-
+    side_effect_attempted(ActionID, _),
+    critical_action_resolved(ActionID).
+
+# A side-effecting action that RAN but is NOT yet positively verified complete,
+# and has not been escalated for user intervention. This is the "do not report
+# done yet" signal: its existence means the turn produced mutating work whose
+# success the kernel cannot confirm. Negation is safe: ActionID is bound by the
+# positive side_effect_attempted atom before the negated atoms.
+Decl unvalidated_side_effect(ActionID, ActionType) bound [/string, /name].
+unvalidated_side_effect(ActionID, ActionType) :-
+    side_effect_attempted(ActionID, ActionType),
+    !action_complete_verified(ActionID),
+    !action_escalated(ActionID, _, _).
+
 # =============================================================================
 # SECTION 2: VALIDATION FAILURE DERIVATION
 # =============================================================================
@@ -103,6 +164,15 @@ block_action(/validation_pending) :-
     action_failed_validation(ActionID),
     !action_validated(ActionID),
     !needs_self_healing(ActionID, _).
+
+# Step 2: Block "done"/subsequent actions while a side-effecting action RAN but
+# is not yet positively verified complete. The clause above only covers the
+# explicitly-FAILED-and-unhealable case; this covers the no-opinion / middling
+# case (the action executed but produced no positive action_validated /
+# critical_action_resolved fact). Consumed by ExecutivePolicyShard.checkBarriers
+# (internal/shards/system/executive.go) which queries block_action/1.
+block_action(/validation_pending) :-
+    unvalidated_side_effect(ActionID, _).
 
 # Block actions if previous action awaiting self-healing
 block_action(/awaiting_healing) :-
