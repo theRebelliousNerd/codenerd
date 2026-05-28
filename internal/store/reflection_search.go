@@ -56,7 +56,12 @@ func (s *LocalStore) RecallTracesByEmbedding(query []float32, limit int) ([]Trac
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for traces: %v", err)
 	} else {
-		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled or table missing")
+		// sqlite-vec is a build-time decision (the binary either has the
+		// extension compiled in or it doesn't). A missing extension is NOT
+		// an error — callers fall back to keyword search. Logged at Warn
+		// so triage tools don't classify it as a runtime failure (it was
+		// inflating error counts 4x per query, per data-plane log audit).
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search")
 	}
 
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")
@@ -264,7 +269,9 @@ func (ls *LearningStore) recallLearningsInShard(query []float32, shardType strin
 		}
 		logging.Get(logging.CategoryStore).Error("vec search failed for learnings: %v", err)
 	} else {
-		logging.Get(logging.CategoryStore).Error("sqlite-vec not enabled or table missing")
+		// See RecallTracesANN above — sqlite-vec absence is a recoverable
+		// build-time condition, logged at Warn not Error.
+		logging.Get(logging.CategoryStore).Warn("sqlite-vec not available; falling back from ANN to lexical search")
 	}
 
 	return nil, fmt.Errorf("ANN search failed (sqlite-vec required)")

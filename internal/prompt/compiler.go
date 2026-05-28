@@ -1067,6 +1067,22 @@ func (c *JITPromptCompiler) buildManifest(
 func (c *JITPromptCompiler) logCompilationStats(stats *CompilationStats, result *CompilationResult) {
 	logger := logging.Get(logging.CategoryJIT)
 
+	// Budget breach detection: budgetMgr.Fit accounts only per-atom render-mode
+	// tokens. The final assembled prompt picks up extra tokens from headers,
+	// category markers, and separators that Fit doesn't see. When that drift
+	// pushes TokensUsed above TokenBudget, the prior code shipped the
+	// over-budget prompt silently (logged at INFO) and the JIT cache would
+	// re-serve it for every cache HIT on the same context, contaminating the
+	// LLM with truncation-prone payloads. Surface it loudly so callers (and
+	// log audits) can see when the budget contract is violated.
+	if stats.TokenBudget > 0 && stats.TokensUsed > stats.TokenBudget {
+		overshoot := stats.TokensUsed - stats.TokenBudget
+		logger.Warn(
+			"JIT[%s] budget breach: assembled %d tokens vs budget %d (+%d, %.1f%%) — assembler boilerplate exceeded budgetMgr.Fit accounting; consider reserving headroom in fit step",
+			stats.ShardID, stats.TokensUsed, stats.TokenBudget, overshoot, stats.BudgetUtilization*100,
+		)
+	}
+
 	// Summary line (INFO level)
 	logger.Info("%s", stats.String())
 

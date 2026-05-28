@@ -1228,25 +1228,78 @@ func hasFileExtension(v string) bool {
 // for predicates that participate in numeric comparisons.
 // This prevents evaluation failures like "value /high is not a number" when
 // LLMs emit priority atoms in numeric slots.
+//
+// Also performs poisoned-fact rescue: when a numeric slot contains a Go
+// pointer string leak (`0x7ff63be770e0` shape — see types.go ToAtom
+// guard for the upstream fix), the slot is rewritten to 0 with a Warn
+// log. This protects the kernel from crashing on facts that were
+// PERSISTED to shard knowledge DBs before the upstream fix landed; new
+// emissions go through types.go and never reach here.
 func sanitizeFactForNumericPredicates(f Fact) Fact {
 	switch f.Predicate {
 	case "agenda_item":
 		// agenda_item(ItemID, Description, Priority, Status, Timestamp)
 		if len(f.Args) > 2 {
 			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
+			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
 		}
 	case "prompt_atom":
 		// prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
 		if len(f.Args) > 2 {
 			f.Args[2] = coercePriorityAtomToNumber(f.Args[2])
+			f.Args[2] = scrubPointerLeak(f.Predicate, 2, f.Args[2])
+		}
+		if len(f.Args) > 3 {
+			f.Args[3] = scrubPointerLeak(f.Predicate, 3, f.Args[3])
 		}
 	case "atom_priority":
 		// atom_priority(AtomID, Priority)
 		if len(f.Args) > 1 {
 			f.Args[1] = coercePriorityAtomToNumber(f.Args[1])
+			f.Args[1] = scrubPointerLeak(f.Predicate, 1, f.Args[1])
 		}
 	}
 	return f
+}
+
+// scrubPointerLeak detects strings that look like Go memory addresses
+// (`0x` + 6+ hex digits, no spaces, no other content) and rewrites them
+// to int64(0) with a one-line Warn. This is the persisted-fact
+// counterpart of the structured error in types.go ToAtom: that one
+// catches new leaks at the assertion site; this one catches facts
+// loaded from .nerd/shards/*.db that were poisoned BEFORE the upstream
+// fix. The warn includes predicate and arg-index so the offending row
+// can be located and cleaned out of the DB.
+func scrubPointerLeak(predicate string, argIdx int, v any) any {
+	s, ok := v.(string)
+	if !ok {
+		return v
+	}
+	if !looksLikePointerHex(s) {
+		return v
+	}
+	logging.Kernel("WARN: scrubbed pointer-leak %q from %s arg #%d (numeric slot); coerced to 0 — clean shard knowledge DBs to remove the root entry", s, predicate, argIdx)
+	return int64(0)
+}
+
+func looksLikePointerHex(s string) bool {
+	if len(s) < 8 || len(s) > 20 {
+		return false
+	}
+	if s[0] != '0' || (s[1] != 'x' && s[1] != 'X') {
+		return false
+	}
+	for i := 2; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		case c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func coercePriorityAtomToNumber(v any) any {

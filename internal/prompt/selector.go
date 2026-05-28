@@ -707,7 +707,13 @@ func (s *AtomSelector) loadFleshAtoms(
 	}
 
 	if err := s.kernel.AssertBatch(facts); err != nil {
-		logging.Get(logging.CategoryContext).Warn("Failed to assert flesh facts: %v", err)
+		// Logged at Error: when the kernel rejects flesh facts (e.g. the
+		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
+		// selector silently falls back to fallbackFleshSelection — a
+		// keyword-matching code path that loses semantic ranking. The old
+		// Warn level made this look like routine info; in fact it means
+		// the JIT compiler is running in degraded mode for this turn.
+		logging.Get(logging.CategoryContext).Error("Failed to assert flesh facts (selector falls back to keyword matching — semantic ranking unavailable): %v", err)
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
