@@ -318,8 +318,40 @@ func DefaultUserConfigPath() string {
 	return filepath.Join(root, ".nerd", "config.json")
 }
 
-// FindWorkspaceRoot attempts to find the project root by looking for .nerd or go.mod.
-// If not found, returns the current working directory.
+// FindWorkspaceRoot finds the project root by walking upward from cwd. It
+// returns the deepest ancestor containing a go.mod (the canonical Go module
+// root), or — only if no go.mod is found anywhere in the chain — the
+// deepest ancestor containing a .nerd directory.
+//
+// Why go.mod takes precedence over .nerd:
+//
+// The previous behavior was "stop at the first .nerd OR go.mod going
+// upward." That broke in two distinct ways:
+//
+//  1. Stray nested .nerd trap. If a .nerd/ ever materialized inside a
+//     subpackage (e.g. cmd/nerd/chat/.nerd from a test run with cwd
+//     pointing there), every subsequent run from inside that subtree
+//     would stop at the stray and write all state into it, compounding
+//     the pollution. Walking past stray .nerd toward the real module
+//     root (go.mod) fixes this.
+//
+//  2. Personal home .nerd false positive. A "topmost .nerd wins"
+//     implementation walks past the actual project root to find a global
+//     ~/.nerd, mixing every project's state into one personal directory.
+//     Stopping at the project's go.mod (always inside the repo, never in
+//     ~) prevents this.
+//
+// Algorithm:
+//
+//   - Walk upward from cwd.
+//   - At each level, return immediately if the dir has a go.mod.
+//   - Otherwise remember the deepest .nerd we see as a fallback.
+//   - If we reach the filesystem root without finding go.mod, return
+//     the deepest .nerd. If neither exists, return cwd.
+//
+// This makes go.mod the authoritative project boundary for Go projects
+// (codeNERD is always Go) while still supporting fresh non-Go workspaces
+// via the .nerd fallback.
 func FindWorkspaceRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -327,12 +359,19 @@ func FindWorkspaceRoot() (string, error) {
 	}
 
 	originalDir := dir
+	var deepestNerd string
+
 	for {
-		if _, err := os.Stat(filepath.Join(dir, ".nerd")); err == nil {
+		// go.mod is the authoritative module-root marker — return immediately.
+		if info, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil && !info.IsDir() {
 			return dir, nil
 		}
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
+		// Track the deepest .nerd seen (walk goes deepest -> shallowest, so
+		// the first assignment is the deepest).
+		if deepestNerd == "" {
+			if info, err := os.Stat(filepath.Join(dir, ".nerd")); err == nil && info.IsDir() {
+				deepestNerd = dir
+			}
 		}
 
 		parent := filepath.Dir(dir)
@@ -342,6 +381,9 @@ func FindWorkspaceRoot() (string, error) {
 		dir = parent
 	}
 
+	if deepestNerd != "" {
+		return deepestNerd, nil
+	}
 	return originalDir, nil
 }
 

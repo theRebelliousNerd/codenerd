@@ -8,6 +8,154 @@ import (
 	"codenerd/internal/logging"
 )
 
+// looksLikePartialEnvelope reports whether a raw response appears to be a
+// piggyback envelope that the LLM started emitting but failed to complete.
+// We detect this by looking for JSON-start markers plus characteristic
+// envelope field names. Used to short-circuit the fallback path which
+// would otherwise dump the bare control_packet to the user.
+func looksLikePartialEnvelope(s string) bool {
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "```") {
+		return false
+	}
+	return strings.Contains(trimmed, `"control_packet"`) ||
+		strings.Contains(trimmed, `"reasoning_trace"`) ||
+		strings.Contains(trimmed, `"intent_classification"`)
+}
+
+// salvageSurfaceFromPartial scans a malformed/truncated piggyback envelope
+// for a usable surface_response value. Mirrors the StreamParser's logic:
+// find `"surface_response"`, then the colon, then the opening quote, then
+// read characters (honoring escapes) until the closing quote.
+// Returns "" if no usable value can be extracted.
+func salvageSurfaceFromPartial(raw string) string {
+	keyIdx := strings.Index(raw, `"surface_response"`)
+	if keyIdx == -1 {
+		return ""
+	}
+	colonIdx := strings.IndexByte(raw[keyIdx:], ':')
+	if colonIdx == -1 {
+		return ""
+	}
+	colonIdx += keyIdx
+	quoteIdx := strings.IndexByte(raw[colonIdx:], '"')
+	if quoteIdx == -1 {
+		return ""
+	}
+	start := colonIdx + quoteIdx + 1
+
+	var b strings.Builder
+	escapeNext := false
+	for i := start; i < len(raw); i++ {
+		c := raw[i]
+		if escapeNext {
+			switch c {
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			default:
+				b.WriteByte(c)
+			}
+			escapeNext = false
+			continue
+		}
+		if c == '\\' {
+			escapeNext = true
+			continue
+		}
+		if c == '"' {
+			return strings.TrimSpace(b.String())
+		}
+		b.WriteByte(c)
+	}
+	// Closing quote never appeared — output was truncated mid-string. If we
+	// got at least a few meaningful characters, return what we have; the
+	// user is better off seeing the partial message than the raw envelope.
+	salvaged := strings.TrimSpace(b.String())
+	if len(salvaged) >= 8 {
+		return salvaged + " […truncated]"
+	}
+	return ""
+}
+
+// truncatedEnvelopeMessage builds a friendly user-facing message when the
+// model produced a partial envelope with no recoverable surface_response.
+// If a reasoning_trace was captured before truncation, we surface it so
+// the user has some idea what the model was working on.
+func truncatedEnvelopeMessage(raw string) string {
+	reasoning := extractStringField(raw, "reasoning_trace")
+	if reasoning != "" {
+		if len(reasoning) > 600 {
+			reasoning = reasoning[:600] + "…"
+		}
+		return "_The model's response was cut off before it could write a reply (likely an output-token limit). It was working on:_\n\n> " + reasoning
+	}
+	return "_The model's response was cut off before it could write a reply (likely an output-token limit). Please ask again — possibly more narrowly._"
+}
+
+// extractStringField pulls the value of a top-level JSON string field out of
+// a possibly malformed/truncated envelope. Used by truncatedEnvelopeMessage
+// to recover reasoning_trace. Returns "" if not found or value is
+// non-string. Mirrors the same scan logic as salvageSurfaceFromPartial but
+// keyed on the requested field name.
+func extractStringField(raw, field string) string {
+	needle := `"` + field + `"`
+	keyIdx := strings.Index(raw, needle)
+	if keyIdx == -1 {
+		return ""
+	}
+	colonIdx := strings.IndexByte(raw[keyIdx:], ':')
+	if colonIdx == -1 {
+		return ""
+	}
+	colonIdx += keyIdx
+	quoteIdx := strings.IndexByte(raw[colonIdx:], '"')
+	if quoteIdx == -1 {
+		return ""
+	}
+	start := colonIdx + quoteIdx + 1
+
+	var b strings.Builder
+	escapeNext := false
+	for i := start; i < len(raw); i++ {
+		c := raw[i]
+		if escapeNext {
+			switch c {
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case '"':
+				b.WriteByte('"')
+			case '\\':
+				b.WriteByte('\\')
+			default:
+				b.WriteByte(c)
+			}
+			escapeNext = false
+			continue
+		}
+		if c == '\\' {
+			escapeNext = true
+			continue
+		}
+		if c == '"' {
+			return strings.TrimSpace(b.String())
+		}
+		b.WriteByte(c)
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // =============================================================================
 // PIGGYBACK PROTOCOL - Dual-Channel Steganographic Control
 // =============================================================================
@@ -288,12 +436,32 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 
 	// 4. Fallback: treat entire response as surface text
 	if !rp.RequireValidJSON {
-		result.Surface = strings.TrimSpace(rawResponse)
+		raw := strings.TrimSpace(rawResponse)
+		result.Surface = raw
 		result.Control = ControlPacket{} // Empty control packet
 		result.ParseMethod = "fallback"
 		result.Confidence = 0.5
 		rp.stats.FallbackParses++
-		result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
+
+		// Salvage path: if the raw text looks like a piggyback envelope
+		// (LLM started emitting JSON but never finished), we should not
+		// dump the bare control_packet to the user. That's the
+		// "{control_packet:..., tool_requests:" blob they were seeing.
+		// Try to extract surface_response heuristically; if that fails,
+		// substitute a friendly "model output was truncated" message
+		// with whatever reasoning we can recover.
+		if looksLikePartialEnvelope(raw) {
+			if salvaged := salvageSurfaceFromPartial(raw); salvaged != "" {
+				result.Surface = salvaged
+				result.Warnings = append(result.Warnings, "Recovered surface_response from partial JSON envelope")
+			} else {
+				friendly := truncatedEnvelopeMessage(raw)
+				result.Surface = friendly
+				result.Warnings = append(result.Warnings, "Model response was truncated before surface_response — showing fallback message")
+			}
+		} else {
+			result.Warnings = append(result.Warnings, "No valid JSON found, using raw response as surface")
+		}
 
 		// Log comprehensive diagnostic info for debugging Piggyback failures.
 		responsePreview := rawResponse

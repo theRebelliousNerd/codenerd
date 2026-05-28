@@ -92,7 +92,11 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 		}
 	})
 
-	// Case 3: Fallback enabled behavior
+	// Case 3: Fallback enabled behavior — when strict JSON parsing fails
+	// (here because mangle_updates is the wrong type), the response
+	// processor now SALVAGES surface_response from the partial envelope
+	// instead of dumping the raw JSON to the user. That's the whole point
+	// of the salvage path: never show users bare control_packet text.
 	t.Run("FallbackOnCoercionFailure", func(t *testing.T) {
 		rp := NewResponseProcessor()
 		rp.RequireValidJSON = false
@@ -109,9 +113,8 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 		if res.ParseMethod != "fallback" {
 			t.Errorf("Expected fallback parse method, got %s", res.ParseMethod)
 		}
-		// The entire raw string becomes the surface response in fallback
-		if !strings.Contains(res.Surface, "wrong_type") {
-			t.Errorf("Expected raw content in surface, got %q", res.Surface)
+		if strings.TrimSpace(res.Surface) != "ok" {
+			t.Errorf("Expected salvaged surface_response %q, got %q", "ok", res.Surface)
 		}
 	})
 }

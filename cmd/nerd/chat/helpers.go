@@ -1821,6 +1821,14 @@ func (m Model) generateTool(description string) tea.Cmd {
 // =============================================================================
 
 // formatVerifiedResponse formats a response that passed verification.
+//
+// A shard's raw `result` may be either plain text or a piggyback envelope
+// (JSON with control_packet + surface_response) — for example when a
+// downstream shard delegates back to articulation. Dumping the envelope
+// directly produces the noisy "### Output\n\n{control_packet:..., ...}"
+// blob users have been seeing. Extract surface_response when present so
+// the display stays clean. If parsing fails (genuine plain text), we
+// preserve the raw result unchanged.
 func formatVerifiedResponse(
 	intent perception.Intent,
 	shardType string,
@@ -1828,6 +1836,14 @@ func formatVerifiedResponse(
 	result string,
 	verificationResult *verification.VerificationResult,
 ) string {
+	displayResult := strings.TrimSpace(result)
+	if looksLikeEnvelope(displayResult) {
+		if processed := articulation.ProcessLLMResponseAllowPlain(displayResult); processed != nil &&
+			processed.ParseMethod != "fallback" && strings.TrimSpace(processed.Surface) != "" {
+			displayResult = strings.TrimSpace(processed.Surface)
+		}
+	}
+
 	var sb strings.Builder
 
 	// Include intent/task in header for traceability
@@ -1848,9 +1864,24 @@ func formatVerifiedResponse(
 	}
 
 	sb.WriteString("### Output\n\n")
-	sb.WriteString(result)
+	sb.WriteString(displayResult)
 
 	return sb.String()
+}
+
+// looksLikeEnvelope reports whether a string is plausibly a piggyback
+// envelope worth running through the response processor. Used to avoid
+// invoking the JSON parser on every plain-text shard result.
+func looksLikeEnvelope(s string) bool {
+	if len(s) < 20 {
+		return false
+	}
+	trimmed := strings.TrimLeft(s, " \t\r\n")
+	if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "{") {
+		return strings.Contains(trimmed, `"surface_response"`) ||
+			strings.Contains(trimmed, `"control_packet"`)
+	}
+	return false
 }
 
 // formatVerificationEscalation formats a response when verification fails after max retries.

@@ -943,8 +943,26 @@ func (m Model) processInput(input string) tea.Cmd {
 		resultChan := make(chan tea.Msg, 1)
 		errChan := make(chan error, 1)
 
+		// IMPORTANT: the streaming articulation runs in a goroutine that
+		// outlives this function. We CANNOT share the parent's `ctx`, because
+		// `defer cancel()` at the top of processInput fires the moment we
+		// return streamStartMsg below — instantly cancelling the LLM call
+		// the goroutine just started. That's the source of every
+		// "articulation failed: context canceled" the user has been hitting.
+		// Build a fresh context for the goroutine, parented on shutdownCtx
+		// so Ctrl+C/D still cancels cleanly, with its own OODA budget.
+		streamBaseCtx := m.shutdownCtx
+		if streamBaseCtx == nil {
+			streamBaseCtx = context.Background()
+		}
+		streamCtx, streamCancel := context.WithTimeout(streamBaseCtx, config.GetLLMTimeouts().OODALoopTimeout)
+		if m.usageTracker != nil {
+			streamCtx = usage.NewContext(streamCtx, m.usageTracker)
+		}
+
 		go func() {
-			artOutput, err := articulateWithConversation(ctx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan)
+			defer streamCancel()
+			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan)
 			close(streamChan)
 			if err != nil {
 				errChan <- err
@@ -996,7 +1014,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					"LLM requested knowledge: %d specialists to consult",
 					len(artOutput.KnowledgeRequests),
 				)
-				resultChan <- m.handleKnowledgeRequests(ctx, artOutput.KnowledgeRequests, input, response)
+				resultChan <- m.handleKnowledgeRequests(streamCtx, artOutput.KnowledgeRequests, input, response)
 				return
 			}
 
@@ -1110,7 +1128,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
 			
 			resultChan <- assistantMsg{
-				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)),
+				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, baseRoutingCount, baseExecCount)),
 				ShardResult:       srPayload,
 				DreamHypothetical: m.lastDreamHypothetical,
 				ThoughtSummary:    thoughtSummary,

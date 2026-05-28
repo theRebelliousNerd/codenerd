@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/articulation"
 	prompt_evolution "codenerd/internal/autopoiesis/prompt_evolution"
 	"codenerd/internal/config"
 	"codenerd/internal/core"
@@ -334,7 +335,19 @@ func formatShardTask(verb, target, constraint, workspace string) string {
 }
 
 // formatDelegatedResponse creates a user-friendly response from shard execution.
+// Shards may return a piggyback envelope (JSON with surface_response +
+// control_packet) rather than plain text — when that happens we extract
+// surface_response so the user sees clean prose instead of raw JSON. The
+// fallback path preserves the original result unchanged.
 func formatDelegatedResponse(intent perception.Intent, shardType, task, result string) string {
+	displayResult := strings.TrimSpace(result)
+	if looksLikeEnvelope(displayResult) {
+		if processed := articulation.ProcessLLMResponseAllowPlain(displayResult); processed != nil &&
+			processed.ParseMethod != "fallback" && strings.TrimSpace(processed.Surface) != "" {
+			displayResult = strings.TrimSpace(processed.Surface)
+		}
+	}
+
 	// Build header based on verb
 	var header string
 	switch intent.Verb {
@@ -371,7 +384,7 @@ func formatDelegatedResponse(intent perception.Intent, shardType, task, result s
 **Task**: %s
 
 ### Output
-%s`, header, surfaceNote, intent.Target, shardType, task, result)
+%s`, header, surfaceNote, intent.Target, shardType, task, displayResult)
 }
 
 // sendObserverEvent sends an event to the background observer manager (if active).

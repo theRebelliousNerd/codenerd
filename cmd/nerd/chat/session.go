@@ -128,8 +128,18 @@ func InitChat(cfg Config) Model {
 		)
 	}
 
-	// Resolve workspace
-	workspace, _ := os.Getwd()
+	// Resolve workspace. Anchor on the canonical project root (topmost
+	// ancestor with .nerd/ or go.mod) rather than raw os.Getwd(): if the
+	// user (or a test) invokes from inside a subpackage, raw cwd would
+	// cause every .nerd/* path (config, knowledge.db, session.json,
+	// sessions/) to materialize in that subdirectory instead of the
+	// project root — producing exactly the stray cmd/nerd/chat/.nerd
+	// pollution we hit before. FindWorkspaceRoot enforces config-is-boss:
+	// one workspace per project, regardless of cwd.
+	workspace, err := config.FindWorkspaceRoot()
+	if err != nil || workspace == "" {
+		workspace, _ = os.Getwd()
+	}
 
 	// Note: API key parsing is handled by perception.NewClientFromEnv() during boot
 	// The perception package supports multiple providers (zai, anthropic, openai, gemini, xai, openrouter)

@@ -151,6 +151,40 @@ func TestFindWorkspaceRoot_PrefersNerdDir(t *testing.T) {
 	}
 }
 
+// TestFindWorkspaceRoot_BypassesStrayNestedNerd is the regression guard for
+// the nested-.nerd trap: a stray .nerd/ in a subpackage must NOT capture
+// workspace discovery away from the real project root marked by go.mod.
+// Without this fix, every run from inside the subpackage would write state
+// (config.json, knowledge.db, session.json, sessions/) into the stray dir
+// and compound the pollution over time.
+func TestFindWorkspaceRoot_BypassesStrayNestedNerd(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".nerd"), 0o755); err != nil {
+		t.Fatalf("mkdir root/.nerd: %v", err)
+	}
+	subPkg := filepath.Join(root, "cmd", "nerd", "chat")
+	if err := os.MkdirAll(filepath.Join(subPkg, ".nerd"), 0o755); err != nil {
+		t.Fatalf("mkdir stray subPkg/.nerd: %v", err)
+	}
+
+	origWD, _ := os.Getwd()
+	if err := os.Chdir(subPkg); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	got, err := FindWorkspaceRoot()
+	if err != nil {
+		t.Fatalf("FindWorkspaceRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("FindWorkspaceRoot=%q, want %q (stray nested .nerd must not trap discovery)", got, root)
+	}
+}
+
 func TestFindWorkspaceRoot_FallsBackToGoMod(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/test\n\ngo 1.22\n"), 0o644); err != nil {

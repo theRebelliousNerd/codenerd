@@ -100,7 +100,22 @@ func (v *TaskVerifier) SetTaskExecutor(te session.TaskExecutor) {
 
 // spawnTask is the unified entry point for task execution.
 // It uses TaskExecutor when available, falling back to ShardManager.
+//
+// Normalization: the verifier's retry-selection LLM may return a bare shard
+// NAME (e.g. "world_model_ingestor") as its "selected_shard", which then
+// flows through here as the `intent` argument. TaskExecutor rejects intent
+// verbs that don't start with "/" — so without normalization, every retry
+// that picks a new shard immediately fails with
+// `invalid intent verb '<name>', must start with '/'`. We coerce here so
+// the retry path actually retries instead of dying at the validator.
+//
+// Mapping rules (mirror chat/delegation.go's personaToIntent):
+//   - already a "/verb" → use as-is
+//   - known persona → canonical intent verb
+//   - everything else → /consult/<name> (consultation dispatch)
 func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string) (string, error) {
+	intent = normalizeIntentVerb(intent)
+
 	// Prefer TaskExecutor when available
 	if v.taskExecutor != nil {
 		req := session.TaskRequest{
@@ -116,6 +131,42 @@ func (v *TaskVerifier) spawnTask(ctx context.Context, intent string, task string
 	}
 
 	return "", fmt.Errorf("no executor available: both taskExecutor and shardMgr are nil")
+}
+
+// normalizeIntentVerb coerces a shard name or persona into a valid intent
+// verb (one that starts with "/"). Mirrors cmd/nerd/chat.personaToIntent so
+// the verifier's retry-selection path routes the same way as the chat
+// delegation path. Kept in this package to avoid an import cycle.
+func normalizeIntentVerb(intent string) string {
+	st := strings.TrimSpace(intent)
+	if st == "" {
+		return "/general"
+	}
+	if strings.HasPrefix(st, "/") {
+		return st
+	}
+	switch strings.ToLower(st) {
+	case "coder":
+		return "/fix"
+	case "tester":
+		return "/test"
+	case "reviewer":
+		return "/review"
+	case "researcher":
+		return "/research"
+	case "nemesis":
+		return "/attack"
+	case "librarian":
+		return "/learn"
+	case "planner":
+		return "/plan"
+	case "legislator":
+		return "/legislate"
+	case "constitution":
+		return "/audit"
+	default:
+		return "/consult/" + st
+	}
 }
 
 // NewTaskVerifier creates a new verifier with all dependencies.
