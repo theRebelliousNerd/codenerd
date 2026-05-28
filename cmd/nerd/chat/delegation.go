@@ -1275,13 +1275,53 @@ type TaskStep struct {
 	DependsOn []int // Indices of steps that must complete first
 }
 
+// stripQuotedSubstrings removes content inside single, double, or
+// backtick quotes so verb-counting and regex pattern matching don't
+// pick up nouns the user is using as literal content. Failure mode
+// this guards against: 'write a file with the word "test" as its
+// content' previously matched two verbs (write + test) and triggered
+// multi-step decomposition, splitting a single file-write into
+// "create" + "test" sub-steps.
+func stripQuotedSubstrings(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inSingle, inDouble, inBacktick := false, false, false
+	for _, r := range s {
+		switch r {
+		case '\'':
+			if !inDouble && !inBacktick {
+				inSingle = !inSingle
+				continue
+			}
+		case '"':
+			if !inSingle && !inBacktick {
+				inDouble = !inDouble
+				continue
+			}
+		case '`':
+			if !inSingle && !inDouble {
+				inBacktick = !inBacktick
+				continue
+			}
+		}
+		if !inSingle && !inDouble && !inBacktick {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // detectMultiStepTask checks if input requires multiple steps
 func detectMultiStepTask(input string, intent perception.Intent) bool {
-	lower := strings.ToLower(input)
+	// Operate on the quote-stripped form so verbs inside literal
+	// content (file content, error messages, quoted examples) don't
+	// inflate the verb counter or trigger compound-pattern regexes.
+	lower := strings.ToLower(stripQuotedSubstrings(input))
 
-	// Multi-step indicators
+	// Multi-step indicators — only counted when they appear OUTSIDE
+	// quoted content (which is why we use the stripped string).
 	multiStepKeywords := []string{
-		"and then", "after that", "next", "then",
+		"and then", "after that", "next ", "then ",
 		"first", "second", "third", "finally",
 		"step 1", "step 2", "1.", "2.", "3.",
 		"also", "additionally", "furthermore",
@@ -1298,23 +1338,30 @@ func detectMultiStepTask(input string, intent perception.Intent) bool {
 		}
 	}
 
-	// Check for multiple verbs in the input
+	// Check for multiple verbs in the input. Threshold bumped from 2
+	// to 3 — two verb-synonym hits in a short request (e.g. "write a
+	// file" matches both 'write' and 'file' if 'file' is a synonym
+	// for a verb in the corpus) was producing false positives on
+	// trivially single-step tasks.
 	verbCount := 0
 	for _, entry := range perception.GetVerbCorpus() {
 		for _, synonym := range entry.Synonyms {
 			if strings.Contains(lower, synonym) {
 				verbCount++
-				if verbCount >= 2 {
+				if verbCount >= 3 {
 					return true
 				}
 			}
 		}
 	}
 
-	// Check for compound tasks (review + test, fix + test, etc.)
+	// Check for compound tasks (review + test, fix + test, etc.).
+	// All patterns now use word-boundary anchors so 'create.*test'
+	// only matches when 'create' is actually present as a token, not
+	// as a substring inside a longer word.
 	compoundPatterns := []string{
-		"review.*test", "fix.*test", "refactor.*test",
-		"create.*test", "implement.*test",
+		`\breview\b.*\btest\b`, `\bfix\b.*\btest\b`, `\brefactor\b.*\btest\b`,
+		`\bcreate\b.*\btest\b`, `\bimplement\b.*\btest\b`,
 	}
 
 	for _, pattern := range compoundPatterns {

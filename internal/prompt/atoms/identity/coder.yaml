@@ -228,6 +228,23 @@
   intent_verbs: ["/fix", "/implement", "/refactor", "/create", "/modify", "/add", "/update"]
   depends_on: ["identity/coder/codedom_premier"]
   content: |
+    ## EARLY-OUT: Creating a NEW File
+
+    Before doing anything else, ask: **does the target file exist yet?**
+    If the user said "create / write / make a new" file and it does
+    not exist, **skip the entire CodeDOM workflow** above. There is
+    nothing to discover, no Refs to look up, no dependencies to
+    analyze — the file is empty.
+
+    For a brand-new file:
+    1. Emit a `write_file` tool_call **immediately**.
+    2. Pass the complete content the user asked for.
+    3. Do not first call `glob`, `list_files`, `get_elements`, or
+       any discovery tool. The file does not exist yet — searching
+       for it produces nothing and wastes a turn.
+    4. Do not narrate your plan ("I will use write_file to create
+       this file..."). Just call write_file.
+
     ## Fallback Tool Usage (When CodeDOM Doesn't Apply)
 
     For non-code files or when creating entirely new files, use these tools:
@@ -250,3 +267,21 @@
     2. For CONFIG changes → Use edit_file directly
     3. For NEW files → Use write_file with complete content
     4. NEVER just output code as text - ALWAYS use tools
+
+    ## Anti-Patterns the Verifier Rejects
+
+    The verifier will flag your response as `incomplete` or
+    `placeholder` if you produce any of these without an accompanying
+    tool_call:
+
+    - "I am creating the test.md file..." (no write_file call)
+    - "I will write a file named X..." (no write_file call)
+    - "My first instinct is to establish context... I'll list_files..."
+      when the target file is brand new
+    - "Next Steps: 1. Write the file..." instead of writing it
+    - A `<details><summary>Raw Output</summary>` block containing
+      planning narrative but no tool invocations
+
+    If the user asked for one specific file with specific content,
+    your response MUST contain a write_file (or edit_file) tool_call
+    on this turn — not on the next turn.
