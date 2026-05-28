@@ -102,6 +102,12 @@ type ExecutivePolicyShard struct {
 	learningStore  core.LearningStore
 	candidateStore LearningCandidateStore
 
+	// autopoiesisWg tracks the fire-and-forget autopoiesis-proposal
+	// goroutines spawned from the heartbeat tick. Execute waits on this
+	// before returning so the shard never declares itself terminated
+	// while a proposal is still mutating learning/candidate stores.
+	autopoiesisWg sync.WaitGroup
+
 	// Mangle feedback loop for validated rule generation
 	feedbackLoop          *feedback.FeedbackLoop
 	budgetExhaustedLogged bool // Prevents repeated "budget exhausted" warnings
@@ -329,6 +335,10 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 	e.mu.Unlock()
 
 	defer func() {
+		// Wait for any in-flight autopoiesis proposals to finish before
+		// transitioning to Completed; this prevents the shard manager
+		// from spawning a replacement that races with stale goroutines.
+		e.autopoiesisWg.Wait()
 		e.SetState(types.ShardStateCompleted)
 		e.mu.Lock()
 		e.running = false
@@ -407,10 +417,16 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			// Heartbeat + periodic checks (runs every 5s regardless)
 			_ = e.EmitHeartbeat()
 
-			// Check for autopoiesis (strategy gaps) - run async to avoid blocking
+			// Check for autopoiesis (strategy gaps) - run async to avoid blocking.
+			// Tracked via e.autopoiesisWg so Execute can wait for in-flight
+			// autopoiesis goroutines to finish before declaring the shard
+			// terminated; previously these were fire-and-forget and the
+			// shard could exit with goroutines still mutating its state.
 			if e.Autopoiesis.ShouldPropose() {
 				logging.SystemShardsDebug("[ExecutivePolicy] Triggering async autopoiesis rule proposal")
+				e.autopoiesisWg.Add(1)
 				go func() {
+					defer e.autopoiesisWg.Done()
 					autoCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 					defer cancel()
 					e.handleAutopoiesis(autoCtx)

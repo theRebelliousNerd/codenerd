@@ -587,9 +587,27 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 			if len(entry) != 2 {
 				continue
 			}
+			// react_state(FiberID, HookIndex, Value) bound
+			// [/string, /number, /string]. JSON-decoded numbers arrive as
+			// float64 from json.Unmarshal; coerce to int64 so the slot
+			// satisfies /number instead of being rejected for a /float64
+			// type mismatch.
+			var hookIndex int64
+			switch v := entry[0].(type) {
+			case float64:
+				hookIndex = int64(v)
+			case int:
+				hookIndex = int64(v)
+			case int64:
+				hookIndex = v
+			default:
+				// Best-effort parse; skip malformed entries rather than
+				// poisoning the kernel with a non-numeric hook index.
+				continue
+			}
 			facts = append(facts, mangle.Fact{
 				Predicate: "react_state",
-				Args:      []any{n.ID, entry[0], fmt.Sprintf("%v", entry[1])},
+				Args:      []any{n.ID, hookIndex, fmt.Sprintf("%v", entry[1])},
 				Timestamp: now,
 			})
 		}

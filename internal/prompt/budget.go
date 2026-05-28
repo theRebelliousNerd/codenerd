@@ -657,9 +657,26 @@ func (m *TokenBudgetManager) calculateAllocations(
 ) map[AtomCategory]int {
 	allocations := make(map[AtomCategory]int)
 
+	// Iterate categories in a deterministic order. Go's map iteration is
+	// intentionally randomised, but the PriorityFirst / Balanced
+	// strategies decrement a shared `remaining` budget as they go — so
+	// the order categories are visited changes which ones win the
+	// last-few-tokens contention. That made allocation non-reproducible
+	// between runs (and between test invocations) which masked subtle
+	// budget regressions. Sorting by string makes the algorithm
+	// deterministic without altering the math.
+	orderedCats := make([]AtomCategory, 0, len(m.budgets))
+	for cat := range m.budgets {
+		orderedCats = append(orderedCats, cat)
+	}
+	sort.Slice(orderedCats, func(i, j int) bool {
+		return string(orderedCats[i]) < string(orderedCats[j])
+	})
+
 	switch m.strategy {
 	case StrategyProportional:
-		for cat, budget := range m.budgets {
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
@@ -673,7 +690,8 @@ func (m *TokenBudgetManager) calculateAllocations(
 
 		// Helper to allocate for a priority level
 		allocateForPriority := func(p BudgetPriority) {
-			for cat, budget := range m.budgets {
+			for _, cat := range orderedCats {
+				budget := m.budgets[cat]
 				if budget.Priority != p {
 					continue
 				}
@@ -705,7 +723,8 @@ func (m *TokenBudgetManager) calculateAllocations(
 		allocateForPriority(PriorityMedium)
 
 		// Low and conditional get what's left
-		for cat, budget := range m.budgets {
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
 			if budget.Priority != PriorityLow && budget.Priority != PriorityConditional {
 				continue
 			}
@@ -725,7 +744,8 @@ func (m *TokenBudgetManager) calculateAllocations(
 	case StrategyBalanced:
 		// Start with minimum allocations
 		remaining := totalBudget
-		for cat, budget := range m.budgets {
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
@@ -734,7 +754,8 @@ func (m *TokenBudgetManager) calculateAllocations(
 		}
 
 		// Distribute remaining proportionally
-		for cat, budget := range m.budgets {
+		for _, cat := range orderedCats {
+			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}

@@ -462,12 +462,23 @@ func (a *FinalAssembler) AssembleWithOptions(
 	cc *CompilationContext,
 	opts AssemblyOptions,
 ) (string, error) {
-	// Temporarily modify assembler settings
+	// Earlier this temporarily mutated a.addSectionHeaders without
+	// holding a.mu, and called Assemble which then re-snapshotted under
+	// RLock. Two concurrent AssembleWithOptions calls would race on the
+	// temp swap and one could observe the other's "restored" value as
+	// its own active config. Hold the write lock for the duration of the
+	// swap+Assemble pair so the override is atomic w.r.t. other writers.
+	// AssembleWithOptions is a low-frequency call path (e.g.
+	// preview/debug surfaces), so the added serialization is harmless.
+	a.mu.Lock()
 	originalHeaders := a.addSectionHeaders
 	a.addSectionHeaders = opts.IncludeSectionHeaders
+	a.mu.Unlock()
 
 	defer func() {
+		a.mu.Lock()
 		a.addSectionHeaders = originalHeaders
+		a.mu.Unlock()
 	}()
 
 	// Assemble

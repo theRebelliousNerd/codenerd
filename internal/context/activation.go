@@ -888,12 +888,17 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 	factStr := strings.ToLower(fact.String())
 
 	// Primary boost: facts from referenced turns
-	// Check if fact's turn ID matches any referenced turn
-	if len(fact.Args) > 0 {
-		if turnID, ok := fact.Args[0].(int); ok {
-			if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
-				score += 50.0
-			}
+	// Check if fact's turn ID matches any referenced turn.
+	//
+	// The bare `.(int)` assertion silently fails when the kernel returns
+	// turn IDs as `int64` (which is the common case for facts loaded
+	// from SQLite or asserted via AssertString — both produce
+	// ast.Number, which materialises as int64 on the Go side). Use the
+	// same int/int64/float64 normalization the compressor uses for
+	// turn IDs.
+	if turnID, ok := factArgAsInt(fact); ok {
+		if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
+			score += 50.0
 		}
 	}
 
@@ -946,16 +951,35 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 
 	if boost, ok := backRefPredicates[fact.Predicate]; ok {
 		// Only apply predicate boost if this fact is from a referenced turn
-		if len(fact.Args) > 0 {
-			if turnID, ok := fact.Args[0].(int); ok {
-				if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
-					score += boost
-				}
+		if turnID, ok := factArgAsInt(fact); ok {
+			if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
+				score += boost
 			}
 		}
 	}
 
 	return math.Min(score, 70.0) // Cap at 70
+}
+
+// factArgAsInt extracts the first argument of a fact as an int, handling
+// the int / int64 / float64 type drift between Go-emitted facts and
+// kernel-derived facts. The kernel typically returns Number constants
+// as int64; Go-side asserts may use int. Both must match for back-ref
+// scoring to fire.
+func factArgAsInt(fact core.Fact) (int, bool) {
+	if len(fact.Args) == 0 {
+		return 0, false
+	}
+	switch v := fact.Args[0].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
 // ScoreFactsWithKernelOverride scores facts using kernel-derived scores as primary

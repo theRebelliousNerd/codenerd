@@ -412,17 +412,27 @@ func LoadAgentPreferences(workspace string) (*AgentSelectionPreferences, error) 
 }
 
 // SaveAgentPreferences saves agent selection preferences to .nerd/preferences.json.
+//
+// Previously the function silently overwrote the entire file on any read
+// or parse error, destroying all sibling keys (theme, onboarding, etc.).
+// Now we distinguish "file missing" (fine, start fresh) from "file
+// corrupted" (refuse, surface the error to the caller so a backup can
+// be made before clobbering).
 func SaveAgentPreferences(workspace string, agentPrefs *AgentSelectionPreferences) error {
 	path := filepath.Join(workspace, ".nerd", "preferences.json")
 
-	// Load existing preferences
-	existingData, _ := os.ReadFile(path)
-	var existing map[string]any
-	if len(existingData) > 0 {
-		json.Unmarshal(existingData, &existing)
+	existing := make(map[string]any)
+	existingData, readErr := os.ReadFile(path)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("read existing preferences: %w", readErr)
 	}
-	if existing == nil {
-		existing = make(map[string]any)
+	if len(existingData) > 0 {
+		if err := json.Unmarshal(existingData, &existing); err != nil {
+			// Refuse to overwrite a corrupt file — the caller can inspect
+			// the path, back it up, and retry. Silent overwrite was
+			// destroying every other preferences section on save.
+			return fmt.Errorf("existing preferences.json is corrupt (refusing to overwrite): %w", err)
+		}
 	}
 
 	// Update agent selection

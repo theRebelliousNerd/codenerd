@@ -164,10 +164,16 @@ func (sq *SpawnQueue) Start() error {
 	sq.isRunning = true
 	sq.stopCh = make(chan struct{})
 
+	// Capture stopCh locally so each worker observes the channel it was
+	// started against. Without this, a Stop/Start cycle that reassigns
+	// sq.stopCh while old workers were still in their select races with
+	// the worker's read of sq.stopCh.
+	stopCh := sq.stopCh
+
 	// Start worker goroutines
 	for i := 0; i < sq.config.WorkerCount; i++ {
 		sq.workerWg.Add(1)
-		go sq.worker(i)
+		go sq.worker(i, stopCh)
 	}
 
 	logging.Shards("SpawnQueue: started with %d workers, max_queue=%d, high_water=%.0f%%",
@@ -290,14 +296,16 @@ func (sq *SpawnQueue) SubmitAndWait(ctx context.Context, typeName, task string, 
 	}
 }
 
-// worker logic
-func (sq *SpawnQueue) worker(id int) {
+// worker logic. stopCh is passed in so the worker observes the same
+// channel it was started against, even if Start/Stop cycles reassign
+// sq.stopCh on subsequent generations.
+func (sq *SpawnQueue) worker(id int, stopCh <-chan struct{}) {
 	defer sq.workerWg.Done()
 	logging.ShardsDebug("SpawnQueue: worker %d started", id)
 
 	for {
 		select {
-		case <-sq.stopCh:
+		case <-stopCh:
 			logging.ShardsDebug("SpawnQueue: worker %d stopping", id)
 			return
 		default:

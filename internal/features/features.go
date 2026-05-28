@@ -31,6 +31,7 @@
 package features
 
 import (
+	"fmt"
 	"os"
 	"sync/atomic"
 )
@@ -151,6 +152,13 @@ var active atomic.Pointer[FeaturesConfig]
 // SetActive installs the FeaturesConfig parsed from .nerd/config.json.
 // Idempotent: callers can install the same value repeatedly without
 // side effects. Pass nil to reset to defaults.
+//
+// Layering note: features is intentionally a leaf package and must not
+// import internal/logging. The caller (LoadUserConfig) is responsible
+// for emitting a Boot-level "features: SetActive applied …" log line
+// AFTER calling SetActive, so triage can tell at a glance which flags
+// are live for a given run. Summary() below gives callers a stable
+// string for that log line.
 func SetActive(cfg *FeaturesConfig) {
 	if cfg == nil {
 		active.Store(nil)
@@ -159,6 +167,24 @@ func SetActive(cfg *FeaturesConfig) {
 	// Copy so callers can't mutate the active pointer's struct.
 	c := *cfg
 	active.Store(&c)
+}
+
+// Summary returns a short single-line description of the currently
+// active FeaturesConfig (or "defaults" if none is installed). Suitable
+// for boot-time logging by the caller of SetActive.
+func Summary() string {
+	c := active.Load()
+	if c == nil {
+		return "features: defaults active"
+	}
+	return fmt.Sprintf(
+		"features: diff_eval=%v flight_recorder=%v provenance=%v "+
+			"system_shards=%v per_shard_facts=%v dark_mode=%v skip_onboarding=%v "+
+			"taxonomy_fast=%v fast_scan_workers=%d fast_ast_max_bytes=%d",
+		c.DiffEval, c.FlightRecorder, c.Provenance,
+		c.SystemShards, c.PerShardFacts, c.DarkMode, c.SkipOnboarding,
+		c.TaxonomyFast, c.FastScanWorkers, c.FastASTMaxBytes,
+	)
 }
 
 // Active returns the currently-installed FeaturesConfig or nil if

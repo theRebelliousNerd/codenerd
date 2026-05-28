@@ -98,10 +98,21 @@ func (b *FactEventBus) Unsubscribe(ch chan FactEvent) {
 // This ensures Assert never blocks on a slow consumer. The subscriber's fallback
 // heartbeat ticker will catch any missed events.
 func (b *FactEventBus) Publish(predicate string) {
+	// Hold the RLock for the duration of the send so a concurrent
+	// Unsubscribe (write-lock) cannot close any ch while we're sending
+	// to it. Without this, the previous snapshot-then-release pattern
+	// raced with Unsubscribe → close(ch) and would panic on the next
+	// `ch <- event` ("send on closed channel"). The bus is on the
+	// kernel's Assert hot path, so the panic crashed the whole agent
+	// non-deterministically under load.
+	//
+	// RLock allows many concurrent Publishers to proceed in parallel;
+	// only Unsubscribe (Lock) serializes against them, which is the
+	// correct trade-off for an Assert-heavy workload.
 	b.mu.RLock()
-	subs := b.subscribers[predicate]
-	b.mu.RUnlock()
+	defer b.mu.RUnlock()
 
+	subs := b.subscribers[predicate]
 	if len(subs) == 0 {
 		return
 	}
@@ -112,7 +123,8 @@ func (b *FactEventBus) Publish(predicate string) {
 	}
 
 	for _, ch := range subs {
-		// Non-blocking send — drop if buffer full
+		// Non-blocking send — drop if buffer full. Safe under RLock:
+		// Unsubscribe cannot close ch concurrently.
 		select {
 		case ch <- event:
 		default:

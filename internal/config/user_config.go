@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"codenerd/internal/features"
+	"codenerd/internal/logging"
 )
 
 // UserConfig holds ALL codeNERD configuration from .nerd/config.json.
@@ -423,6 +424,10 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	// internal/config. Nil is fine: SetActive(nil) resets the registry
 	// so accessors fall back to compile-time defaults.
 	features.SetActive(cfg.Features)
+	// Log the post-install snapshot so triage can tell at a glance which
+	// flags are live for this run (features.SetActive itself stays
+	// log-free to keep the leaf package dependency-free).
+	logging.Get(logging.CategoryBoot).Info("%s", features.Summary())
 
 	return cfg, nil
 }

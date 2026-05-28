@@ -621,7 +621,16 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 			Metadata:  make(map[string]any),
 		}
 		if len(metaJSON) > 0 {
-			json.Unmarshal(metaJSON, &entry.Metadata)
+			if err := json.Unmarshal(metaJSON, &entry.Metadata); err != nil {
+				// Mark the row as having corrupt metadata instead of
+				// silently presenting empty metadata to callers — this
+				// is the clue that lets triage notice a partial-write
+				// or schema-version mismatch in the vectors table.
+				logging.Get(logging.CategoryStore).Warn(
+					"sqlite-vec row id=%d: metadata JSON unparseable (%d bytes): %v",
+					id, len(metaJSON), err)
+				entry.Metadata["_corrupt_metadata"] = true
+			}
 		}
 		if entry.Metadata == nil {
 			entry.Metadata = make(map[string]any)

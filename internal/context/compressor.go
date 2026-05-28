@@ -1140,14 +1140,22 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 func (c *Compressor) getCoreFacts() []core.Fact {
 	var coreFacts []core.Fact
 
-	// Always include permission-related facts
+	// Always include permission-related facts. Silently swallowing the
+	// error here was the same class of bug as the recent prompt_atom
+	// silent-drop — if a safety predicate Query failed, the resulting
+	// empty coreFacts slice would let the compressor build a context
+	// without any safety facts, and policy rules downstream had no way
+	// to know whether the kernel had refused the row or simply had
+	// nothing to say.
 	predicates := []string{"permitted", "dangerous_action", "admin_override", "security_violation", "block_commit"}
 
 	for _, pred := range predicates {
 		facts, err := c.kernel.Query(pred)
-		if err == nil {
-			coreFacts = append(coreFacts, facts...)
+		if err != nil {
+			logging.Get(logging.CategoryContext).Warn("getCoreFacts: safety-predicate query failed predicate=%s: %v", pred, err)
+			continue
 		}
+		coreFacts = append(coreFacts, facts...)
 	}
 
 	return coreFacts
@@ -1609,14 +1617,22 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 
 // assertTurnAgeCategories asserts turn_age_category(TurnID, Category) facts into the kernel
 // for the observation masking rules in context_compilation.mg to derive should_mask_observation.
+//
+// Age is computed as (currentTurnNumber - turn.TurnNumber). The previous
+// implementation used `len(c.recentTurns) - turn.TurnNumber` which mixed
+// a SLICE LENGTH with a MONOTONIC TURN ID. After compression slices
+// `recentTurns`, the length drops below the current turn number — every
+// fact then fell into the `/recent` bucket because `age` went negative
+// and tripped `case age <= 3`. The mask-observation rules were therefore
+// effectively dead.
 func (c *Compressor) assertTurnAgeCategories(turns []CompressedTurn) {
 	if c.kernel == nil {
 		return
 	}
-	totalTurns := len(c.recentTurns)
+	currentTurn := c.turnNumber
 	for _, turn := range turns {
 		turnID := fmt.Sprintf("turn_%d", turn.TurnNumber)
-		age := totalTurns - turn.TurnNumber
+		age := currentTurn - turn.TurnNumber
 		var category string
 		switch {
 		case age <= 3:

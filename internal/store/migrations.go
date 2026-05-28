@@ -498,7 +498,13 @@ func CreateBackup(dbPath string) (string, error) {
 		logging.Get(logging.CategoryStore).Error("Failed to create backup file: %v", err)
 		return "", fmt.Errorf("failed to create backup file: %w", err)
 	}
-	defer dst.Close()
+	// Close errors on write paths must be checked: a deferred Close that
+	// swallows an EIO / disk-full would let CreateBackup return success
+	// while the backup file is truncated. We explicit-Close below and
+	// keep a deferred Close as a safety net (idempotent on already-closed
+	// *os.File — returns os.ErrClosed which we ignore).
+	closeErr := error(nil)
+	defer func() { _ = dst.Close() }()
 
 	bytesCopied, err := io.Copy(dst, src)
 	if err != nil {
@@ -509,6 +515,14 @@ func CreateBackup(dbPath string) (string, error) {
 	if err := dst.Sync(); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to sync backup to disk: %v", err)
 		return "", fmt.Errorf("failed to sync backup to disk: %w", err)
+	}
+
+	// Explicit Close BEFORE returning success — catches flush errors that
+	// deferred Close would silently swallow. Without this, a corrupted
+	// backup could be left on disk and the caller would never know.
+	if closeErr = dst.Close(); closeErr != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to close backup file (data may be unflushed): %v", closeErr)
+		return "", fmt.Errorf("failed to close backup file: %w", closeErr)
 	}
 
 	logging.Store("Database backup created: %s (%d bytes)", backupPath, bytesCopied)
@@ -534,7 +548,10 @@ func RestoreBackup(dbPath, backupPath string) error {
 		logging.Get(logging.CategoryStore).Error("Failed to create database file during restore: %v", err)
 		return fmt.Errorf("failed to create database file: %w", err)
 	}
-	defer dst.Close()
+	// Same explicit-Close pattern as CreateBackup: a flush failure on
+	// restore corrupts the live DB. Explicit Close below; deferred Close
+	// is the idempotent safety net.
+	defer func() { _ = dst.Close() }()
 
 	bytesCopied, err := io.Copy(dst, src)
 	if err != nil {
@@ -545,6 +562,11 @@ func RestoreBackup(dbPath, backupPath string) error {
 	if err := dst.Sync(); err != nil {
 		logging.Get(logging.CategoryStore).Error("Failed to sync restored database: %v", err)
 		return fmt.Errorf("failed to sync restored database: %w", err)
+	}
+
+	if err := dst.Close(); err != nil {
+		logging.Get(logging.CategoryStore).Error("Failed to close restored database file: %v", err)
+		return fmt.Errorf("failed to close restored database: %w", err)
 	}
 
 	logging.Store("Database restored from backup (%d bytes)", bytesCopied)

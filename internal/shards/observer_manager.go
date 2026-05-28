@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -117,13 +118,19 @@ type BackgroundObserverManager struct {
 }
 
 // ObserverState tracks the state of a background observer.
+//
+// EventsReceived is incremented from processEvent (RLock-only context)
+// and read from elsewhere — concurrent processEvents on different events
+// would race on the counter without atomic ops. Promoted to int64 +
+// atomic.AddInt64 to make the counter free of data-race surfaces
+// regardless of manager mu state.
 type ObserverState struct {
 	Name           string
 	Classification SpecialistClassification
 	Active         bool
 	LastCheck      time.Time
 	LastAssessment *ObserverAssessment
-	EventsReceived int
+	EventsReceived int64 // atomic — use atomic.LoadInt64/AddInt64
 }
 
 // ObserverSpawner interface for spawning observer tasks.
@@ -336,13 +343,18 @@ func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
 	northstarHandler := m.northstarHandler
 	m.mu.RUnlock()
 
-	// Dispatch to each observer
+	// Dispatch to each observer. Each spawned goroutine is registered
+	// with m.wg so Stop() waits for them — previously they were fire-
+	// and-forget, leaking up to 2 minutes past Stop() while still
+	// writing into observer state.
 	for _, obs := range observers {
-		obs.EventsReceived++
+		atomic.AddInt64(&obs.EventsReceived, 1)
 
 		// Check for Northstar-specific handler
 		if strings.ToLower(obs.Name) == "northstar" && northstarHandler != nil {
+			m.wg.Add(1)
 			go func(observerState *ObserverState) {
+				defer m.wg.Done()
 				ctx, cancel := context.WithTimeout(m.ctx, 2*time.Minute)
 				defer cancel()
 
@@ -367,7 +379,9 @@ func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
 		task := m.buildAssessmentTask(event, obs)
 
 		// Spawn the observer task (async)
+		m.wg.Add(1)
 		go func(observerState *ObserverState, assessTask string) {
+			defer m.wg.Done()
 			ctx, cancel := context.WithTimeout(m.ctx, 2*time.Minute)
 			defer cancel()
 
