@@ -240,10 +240,16 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		Request:  req,
 	}
 
-	// Enforce strict target path length limit (4096 bytes) and action validations
+	// Enforce strict target path length limit (4096 bytes) and action validations.
+	// Earlier these rejections returned silently; the downstream "ACTION
+	// BLOCKED" path logs, but the validation-stage reject left no trail,
+	// which made the Dreamer look dormant in the logs.
 	if len(req.Target) > 4096 {
 		result.Unsafe = true
 		result.Reason = "target path exceeds maximum length of 4096 bytes"
+		logging.Get(logging.CategoryDream).Warn(
+			"SimulateAction REJECTED at validation: actionID=%s type=%s target_len=%d reason=target_too_long",
+			actionID, req.Type, len(req.Target))
 		timer.Stop()
 		return result
 	}
@@ -251,6 +257,9 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	if req.Type == "" {
 		result.Unsafe = true
 		result.Reason = "empty action type"
+		logging.Get(logging.CategoryDream).Warn(
+			"SimulateAction REJECTED at validation: actionID=%s target=%s reason=empty_type",
+			actionID, req.Target)
 		timer.Stop()
 		return result
 	}

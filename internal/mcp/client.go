@@ -423,7 +423,10 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 				}
 			}()
 			if err := m.store.RecordToolUsage(context.Background(), toolID, result.Success, result.LatencyMs); err != nil {
-				logging.Get(logging.CategoryTools).Debug("Failed to record tool usage: %v", err)
+				// Recoverable persistence failure — promote to Warn so it's
+				// visible by default. Tool-usage telemetry powers later
+				// affinity scoring; silent loss skews the model.
+				logging.Get(logging.CategoryTools).Warn("Failed to record tool usage tool=%s: %v", toolID, err)
 			}
 		}()
 	}
@@ -512,7 +515,9 @@ func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStat
 				}
 			}()
 			if err := m.store.UpdateServerStatus(context.Background(), serverID, status); err != nil {
-				logging.Get(logging.CategoryTools).Debug("Failed to update server status: %v", err)
+				// Server-status drift makes degraded MCP servers invisible
+				// in the registry; surface at Warn so it shows up by default.
+				logging.Get(logging.CategoryTools).Warn("Failed to update server status server=%s: %v", serverID, err)
 			}
 		}()
 	}

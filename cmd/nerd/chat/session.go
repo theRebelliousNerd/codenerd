@@ -547,7 +547,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// Load embedded corpus (baked-in prompt atoms)
 		embeddedCorpus, embeddedErr := prompt.LoadEmbeddedCorpus()
 		if embeddedErr != nil {
-			logging.Boot("Warning: Failed to load embedded corpus: %v", embeddedErr)
+			logging.BootWarn("Failed to load embedded corpus: %v", embeddedErr)
 		} else {
 			logging.Boot("Loaded %d atoms from embedded corpus", embeddedCorpus.Count())
 		}
@@ -580,12 +580,12 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			nerdDir := filepath.Join(workspace, ".nerd")
 			promptsDir := filepath.Join(nerdDir, "prompts")
 			if mkdirErr := os.MkdirAll(promptsDir, 0755); mkdirErr != nil {
-				logging.Boot("Warning: Failed to create prompts directory: %v", mkdirErr)
+				logging.BootWarn("Failed to create prompts directory: %v", mkdirErr)
 			} else {
 				corpusPath := filepath.Join(promptsDir, "corpus.db")
 
 				if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
-					logging.Boot("Warning: Failed to materialize default prompt corpus: %v", err)
+					logging.BootWarn("Failed to materialize default prompt corpus: %v", err)
 				} else if wrote {
 					logging.Boot("Materialized default prompt corpus to corpus.db")
 				}
@@ -594,7 +594,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 				if _, err := os.Stat(corpusPath); os.IsNotExist(err) && embeddingEngine != nil {
 					logStep("Syncing embedded corpus to SQLite...")
 					if syncErr := prompt.SyncEmbeddedToSQLite(context.Background(), corpusPath, embeddingEngine); syncErr != nil {
-						logging.Boot("Warning: Failed to sync embedded corpus: %v", syncErr)
+						logging.BootWarn("Failed to sync embedded corpus: %v", syncErr)
 					}
 				}
 
@@ -602,29 +602,29 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 				if _, err := os.Stat(corpusPath); err == nil {
 					db, err := sql.Open("sqlite3", corpusPath)
 					if err != nil {
-						logging.Boot("Warning: Failed to open corpus DB for migrations: %v", err)
+						logging.BootWarn("Failed to open corpus DB for migrations: %v", err)
 					} else {
 						sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 						loader := prompt.NewAtomLoader(nil)
 						if err := loader.EnsureSchema(context.Background(), db); err != nil {
-							logging.Boot("Warning: Failed to ensure corpus schema: %v", err)
+							logging.BootWarn("Failed to ensure corpus schema: %v", err)
 						} else if embeddedCorpus != nil {
 							if err := prompt.HydrateAtomContextTags(context.Background(), db, embeddedCorpus.All()); err != nil {
-								logging.Boot("Warning: Failed to hydrate corpus tags: %v", err)
+								logging.BootWarn("Failed to hydrate corpus tags: %v", err)
 							}
 						}
 						_ = db.Close()
 					}
 
 					if promptCount, ingestErr := nerdsystem.IngestHybridPrompts(context.Background(), workspace, kernel, prompt.NewAtomLoader(nil)); ingestErr != nil {
-						logging.Boot("Warning: Failed to ingest hybrid prompts during chat boot: %v", ingestErr)
+						logging.BootWarn("Failed to ingest hybrid prompts during chat boot: %v", ingestErr)
 					} else if promptCount > 0 {
 						logging.Boot("Ingested %d hybrid PROMPT atoms during chat boot", promptCount)
 					}
 
 					// Register corpus DB with JIT compiler for project-level atom queries.
 					if regErr := jitCompiler.RegisterDB("corpus", corpusPath); regErr != nil {
-						logging.Boot("Warning: Failed to register corpus DB: %v", regErr)
+						logging.BootWarn("Failed to register corpus DB: %v", regErr)
 					} else {
 						logging.Boot("Registered corpus DB: %s", corpusPath)
 					}
@@ -645,7 +645,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			// This ensures edited prompts are available to the JIT compiler immediately
 			logStep("Syncing agent prompts to knowledge DBs...")
 			if promptCount, syncErr := prompt.ReloadAllPrompts(context.Background(), nerdDir, embeddingEngine); syncErr != nil {
-				logging.Boot("Warning: Failed to sync agent prompts: %v", syncErr)
+				logging.BootWarn("Failed to sync agent prompts: %v", syncErr)
 			} else if promptCount > 0 {
 				logging.Boot("Synced %d prompt atoms from YAML to knowledge DBs", promptCount)
 			}
@@ -674,7 +674,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 					Time:    time.Now(),
 				})
 			} else {
-				logging.Boot("Warning: Failed to initialize Prompt Evolution: %v", err)
+				logging.BootWarn("Failed to initialize Prompt Evolution: %v", err)
 			}
 
 			initialMessages = append(initialMessages, Message{
@@ -699,7 +699,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 				promptAssembler.EnableJIT(jitCfg.Enabled)
 				logging.Boot("PromptAssembler created with JIT compiler")
 			} else {
-				logging.Boot("Warning: Failed to create PromptAssembler with JIT: %v", err)
+				logging.BootWarn("Failed to create PromptAssembler with JIT: %v", err)
 			}
 		}
 		if promptAssembler != nil {
@@ -1489,12 +1489,22 @@ func (m *Model) saveSessionState() {
 		logging.Session("Successfully saved %d messages to %s.json", len(messages), m.sessionID)
 	}
 
-	// Persist semantic compression state (best-effort) so we can rehydrate infinite context.
+	// Persist semantic compression state (best-effort) so we can rehydrate
+	// infinite context. Errors at this stage previously vanished into the
+	// blank assignment; log them at Warn so triage knows when rehydrate
+	// after restart is going to read stale state.
 	if m.localDB != nil && m.compressor != nil {
 		state := m.compressor.GetState()
 		if state != nil {
-			if data, err := ctxcompress.MarshalCompressedState(state); err == nil {
-				_ = m.localDB.StoreCompressedState(m.sessionID, state.TurnNumber, string(data), state.CompressionRatio)
+			data, marshalErr := ctxcompress.MarshalCompressedState(state)
+			if marshalErr != nil {
+				logging.Get(logging.CategorySession).Warn(
+					"StoreCompressedState: marshal failed session=%s turn=%d: %v",
+					m.sessionID, state.TurnNumber, marshalErr)
+			} else if storeErr := m.localDB.StoreCompressedState(m.sessionID, state.TurnNumber, string(data), state.CompressionRatio); storeErr != nil {
+				logging.Get(logging.CategorySession).Warn(
+					"StoreCompressedState: persist failed session=%s turn=%d ratio=%.3f: %v",
+					m.sessionID, state.TurnNumber, state.CompressionRatio, storeErr)
 			}
 		}
 	}

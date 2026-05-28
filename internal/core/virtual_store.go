@@ -1249,7 +1249,19 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 		permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
 		if !permitted {
-			logging.Get(logging.CategoryVirtualStore).Warn("Kernel policy denied action: %s", req.Type)
+			// Constitutional denial is the hardest class of failure to
+			// debug because the user only sees "action blocked." Surface
+			// the target and payload keys (not values — those can be
+			// sensitive) so triage can locate the offending request
+			// without reading source. Withholding values keeps the log
+			// safe to ship even when payloads contain secrets.
+			payloadKeys := make([]string, 0, len(req.Payload))
+			for k := range req.Payload {
+				payloadKeys = append(payloadKeys, k)
+			}
+			logging.Get(logging.CategoryVirtualStore).Warn(
+				"policy DENY action=%s target=%s payload_keys=%v",
+				req.Type, req.Target, payloadKeys)
 			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
 			v.injectFact(Fact{
 				Predicate: "security_violation",
