@@ -56,7 +56,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 	// Log sample of facts being loaded (first 5)
 	if len(sanitizedFacts) > 0 && logging.IsDebugMode() {
 		sampleSize := min(len(sanitizedFacts), 5)
-		for i := 0; i < sampleSize; i++ {
+		for i := range sampleSize {
 			logging.KernelDebug("  [%d] %s", i, sanitizedFacts[i].String())
 		}
 		if len(sanitizedFacts) > sampleSize {

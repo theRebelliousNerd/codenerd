@@ -10,27 +10,27 @@ type Spec struct {
 }
 
 type ProgramSpec struct {
-	Package *PackageSpec `json:"package,omitempty"`
-	Use     []UseSpec    `json:"use,omitempty"`
-	Decls   []DeclSpec   `json:"decls,omitempty"`
-	Clauses []ClauseSpec `json:"clauses,omitempty"`
+	Package *PackageSpec `json:"package,omitzero"`
+	Use     []UseSpec    `json:"use,omitzero"`
+	Decls   []DeclSpec   `json:"decls,omitzero"`
+	Clauses []ClauseSpec `json:"clauses,omitzero"`
 }
 
 type PackageSpec struct {
 	Name  string     `json:"name"`
-	Atoms []AtomSpec `json:"atoms,omitempty"`
+	Atoms []AtomSpec `json:"atoms,omitzero"`
 }
 
 type UseSpec struct {
 	Name  string     `json:"name"`
-	Atoms []AtomSpec `json:"atoms,omitempty"`
+	Atoms []AtomSpec `json:"atoms,omitzero"`
 }
 
 type DeclSpec struct {
 	Atom      AtomSpec    `json:"atom"`
-	Descr     []AtomSpec  `json:"descr,omitempty"`
-	Bounds    []BoundSpec `json:"bounds,omitempty"`
-	Inclusion []AtomSpec  `json:"inclusion,omitempty"`
+	Descr     []AtomSpec  `json:"descr,omitzero"`
+	Bounds    []BoundSpec `json:"bounds,omitzero"`
+	Inclusion []AtomSpec  `json:"inclusion,omitzero"`
 }
 
 type BoundSpec struct {
@@ -39,8 +39,8 @@ type BoundSpec struct {
 
 type ClauseSpec struct {
 	Head      AtomSpec       `json:"head"`
-	Body      []TermSpec     `json:"body,omitempty"`
-	Transform *TransformSpec `json:"transform,omitempty"`
+	Body      []TermSpec     `json:"body,omitzero"`
+	Transform *TransformSpec `json:"transform,omitzero"`
 }
 
 type TransformSpec struct {
@@ -49,31 +49,31 @@ type TransformSpec struct {
 
 type TransformStmtSpec struct {
 	Kind string   `json:"kind"`
-	Var  string   `json:"var,omitempty"`
+	Var  string   `json:"var,omitzero"`
 	Fn   ExprSpec `json:"fn"`
 }
 
 type TermSpec struct {
 	Kind  string    `json:"kind"`
-	Atom  *AtomSpec `json:"atom,omitempty"`
-	Left  *ExprSpec `json:"left,omitempty"`
-	Right *ExprSpec `json:"right,omitempty"`
-	Op    string    `json:"op,omitempty"`
+	Atom  *AtomSpec `json:"atom,omitzero"`
+	Left  *ExprSpec `json:"left,omitzero"`
+	Right *ExprSpec `json:"right,omitzero"`
+	Op    string    `json:"op,omitzero"`
 }
 
 type AtomSpec struct {
 	Pred string     `json:"pred"`
-	Args []ExprSpec `json:"args,omitempty"`
+	Args []ExprSpec `json:"args,omitzero"`
 }
 
 type ExprSpec struct {
 	Kind     string      `json:"kind"`
-	Value    string      `json:"value,omitempty"`
-	Number   json.Number `json:"number,omitempty"`
-	Float    *float64    `json:"float,omitempty"`
-	Function string      `json:"function,omitempty"`
-	Args     []ExprSpec  `json:"args,omitempty"`
-	Arity    *int        `json:"arity,omitempty"`
+	Value    string      `json:"value,omitzero"`
+	Number   json.Number `json:"number,omitzero"`
+	Float    *float64    `json:"float,omitzero"`
+	Function string      `json:"function,omitzero"`
+	Args     []ExprSpec  `json:"args,omitzero"`
+	Arity    *int        `json:"arity,omitzero"`
 }
 
 type Options struct {

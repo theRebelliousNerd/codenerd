@@ -24,9 +24,9 @@ type ValidationResult struct {
 	HashesPopulated int      `json:"hashes_populated"`
 	MissingHashes   int      `json:"missing_hashes"`
 	TablesOK        bool     `json:"tables_ok"`
-	MissingTables   []string `json:"missing_tables,omitempty"`
-	Errors          []string `json:"errors,omitempty"`
-	Warnings        []string `json:"warnings,omitempty"`
+	MissingTables   []string `json:"missing_tables,omitzero"`
+	Errors          []string `json:"errors,omitzero"`
+	Warnings        []string `json:"warnings,omitzero"`
 	Valid           bool     `json:"valid"`
 }
 
@@ -36,9 +36,9 @@ type ValidationSummary struct {
 	ValidDBs     int                          `json:"valid_dbs"`
 	InvalidDBs   int                          `json:"invalid_dbs"`
 	Results      map[string]*ValidationResult `json:"results"`
-	BackupFiles  []string                     `json:"backup_files,omitempty"`
+	BackupFiles  []string                     `json:"backup_files,omitzero"`
 	OverallValid bool                         `json:"overall_valid"`
-	Errors       []string                     `json:"errors,omitempty"`
+	Errors       []string                     `json:"errors,omitzero"`
 }
 
 // RequiredTables lists the tables that must exist in a valid agent KB.

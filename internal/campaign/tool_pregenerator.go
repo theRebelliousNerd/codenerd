@@ -79,8 +79,8 @@ type ToolGap struct {
 	Description string   `json:"description"`
 
 	// Resolution
-	ResolvedBy     string `json:"resolved_by,omitempty"`     // Tool ID if resolved
-	ResolutionType string `json:"resolution_type,omitempty"` // "generated", "mcp", "existing"
+	ResolvedBy     string `json:"resolved_by,omitzero"`     // Tool ID if resolved
+	ResolutionType string `json:"resolution_type,omitzero"` // "generated", "mcp", "existing"
 }
 
 // GeneratedTool represents a tool generated for the campaign.
@@ -95,14 +95,14 @@ type GeneratedTool struct {
 	// Validation
 	PassedThunderdome bool     `json:"passed_thunderdome"`
 	PassedSimulation  bool     `json:"passed_simulation"`
-	ValidationErrors  []string `json:"validation_errors,omitempty"`
+	ValidationErrors  []string `json:"validation_errors,omitzero"`
 
 	// Source
 	SourceGap string `json:"source_gap"` // Which gap this resolves
 
 	// Status
 	Status     string `json:"status"`                // "pending", "validated", "ready", "failed"
-	RegistryID string `json:"registry_id,omitempty"` // ID in tool registry
+	RegistryID string `json:"registry_id,omitzero"` // ID in tool registry
 }
 
 // PregenerationResult contains the results of tool pre-generation.
@@ -119,7 +119,7 @@ type PregenerationResult struct {
 	Duration     time.Duration `json:"duration"`
 
 	// Errors
-	Errors []string `json:"errors,omitempty"`
+	Errors []string `json:"errors,omitzero"`
 }
 
 // NewToolPregenerator creates a new tool pregenerator.

@@ -76,7 +76,7 @@ func runKnowledgeList(cmd *cobra.Command, args []string) error {
 
 	limit := min(len(atoms), 10)
 
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		atom := atoms[i]
 		concept := atom.Concept
 		if concept == "" {

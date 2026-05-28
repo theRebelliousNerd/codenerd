@@ -35,12 +35,11 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 	}
 
 	var sb strings.Builder
-	estimatedSize := len(turns) * 100
-	if estimatedSize > 10*1024*1024 {
-		estimatedSize = 10 * 1024 * 1024 // Cap initial allocation
-	}
+	estimatedSize := min(len(turns)*100,
+		// Cap initial allocation
+		10*1024*1024)
 	sb.Grow(estimatedSize)
-	
+
 	const maxTokens = 64000 // approx chars limit
 	totalChars := 0
 
@@ -48,7 +47,7 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 		if strings.TrimSpace(turn.Content) == "" {
 			continue // Skip empty turns (Gap 1)
 		}
-		
+
 		role := "Assistant"
 		switch strings.ToLower(turn.Role) {
 		case "user":
@@ -60,7 +59,7 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 		case "":
 			role = "Assistant" // Default for empty
 		}
-		
+
 		// Clean content (Gap 8 - basic unprintable cleanup)
 		content := strings.Map(func(r rune) rune {
 			if r < 32 && r != '\n' && r != '\t' && r != '\r' {
@@ -68,9 +67,9 @@ func (sc *SemanticCompressor) Compress(ctx context.Context, turns []perception.C
 			}
 			return r
 		}, turn.Content)
-		
+
 		line := fmt.Sprintf("<turn role=\"%s\">\n%s\n</turn>\n", role, content)
-		
+
 		if totalChars+len(line) > maxTokens {
 			sb.WriteString("\n[... CONVERSATION TRUNCATED DUE TO LENGTH ...]\n")
 			break

@@ -27,8 +27,8 @@ type DetectedAgent struct {
 	Permissions     []string          `json:"permissions"`
 	Priority        int               `json:"priority"`
 	Reason          string            `json:"reason"`
-	Tools           []string          `json:"tools,omitempty"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
+	Tools           []string          `json:"tools,omitzero"`
+	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
 
 	// Selection metadata
 	Recommended  bool   `json:"recommended"`   // true = recommended for this project
@@ -40,8 +40,8 @@ type DetectedAgent struct {
 
 // AgentSelectionPreferences stores user's agent selection preferences.
 type AgentSelectionPreferences struct {
-	AcceptedAgents        []string  `json:"accepted_agents,omitempty"`
-	RejectedAgents        []string  `json:"rejected_agents,omitempty"`
+	AcceptedAgents        []string  `json:"accepted_agents,omitzero"`
+	RejectedAgents        []string  `json:"rejected_agents,omitzero"`
 	LastInteractive       time.Time `json:"last_interactive"`
 	AutoAcceptRecommended bool      `json:"auto_accept_recommended"`
 }
@@ -401,7 +401,7 @@ func LoadAgentPreferences(workspace string) (*AgentSelectionPreferences, error) 
 	}
 
 	var wrapper struct {
-		AgentSelection *AgentSelectionPreferences `json:"agent_selection,omitempty"`
+		AgentSelection *AgentSelectionPreferences `json:"agent_selection,omitzero"`
 	}
 
 	if err := json.Unmarshal(data, &wrapper); err != nil {

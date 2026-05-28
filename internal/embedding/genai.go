@@ -104,7 +104,7 @@ func (e *GenAIEngine) embedWithTask(ctx context.Context, text string, taskType s
 	}
 
 	cfg := &genai.EmbedContentConfig{
-		OutputDimensionality: int32Ptr(3072),
+		OutputDimensionality: new(int32(3072)),
 	}
 	if taskType != "" {
 		cfg.TaskType = taskType
@@ -221,7 +221,7 @@ func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string, taskT
 	}
 
 	cfg := &genai.EmbedContentConfig{
-		OutputDimensionality: int32Ptr(3072),
+		OutputDimensionality: new(int32(3072)),
 	}
 	if taskType != "" {
 		cfg.TaskType = taskType

@@ -520,11 +520,11 @@ type codexExecJSONLEvent struct {
 	Item *struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
-	} `json:"item,omitempty"`
+	} `json:"item,omitzero"`
 	Error *struct {
 		Message string `json:"message"`
-	} `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
+	} `json:"error,omitzero"`
+	Message string `json:"message,omitzero"`
 }
 
 func extractCodexExecAgentMessage(stdout string) string {

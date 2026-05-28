@@ -19,8 +19,8 @@ type campaignJournalEvent struct {
 	TimestampUnix    int64           `json:"timestamp_unix"`
 	EventType        string          `json:"event_type"`
 	CampaignID       string          `json:"campaign_id"`
-	Payload          json.RawMessage `json:"payload,omitempty"`
-	SnapshotChecksum string          `json:"snapshot_checksum,omitempty"`
+	Payload          json.RawMessage `json:"payload,omitzero"`
+	SnapshotChecksum string          `json:"snapshot_checksum,omitzero"`
 	Checksum         string          `json:"checksum"`
 }
 

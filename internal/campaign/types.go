@@ -154,8 +154,8 @@ type Campaign struct {
 	Title          string           `json:"title"`
 	Goal           string           `json:"goal"`            // High-level goal description
 	SourceMaterial []string         `json:"source_material"` // Paths to spec docs
-	SourceDocs     []SourceDocument `json:"source_docs,omitempty"`
-	KnowledgeBase  string           `json:"knowledge_base,omitempty"` // Path to campaign knowledge DB
+	SourceDocs     []SourceDocument `json:"source_docs,omitzero"`
+	KnowledgeBase  string           `json:"knowledge_base,omitzero"` // Path to campaign knowledge DB
 	Status         CampaignStatus   `json:"status"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
@@ -163,7 +163,7 @@ type Campaign struct {
 
 	// Structure
 	Phases          []Phase          `json:"phases"`
-	ContextProfiles []ContextProfile `json:"context_profiles,omitempty"`
+	ContextProfiles []ContextProfile `json:"context_profiles,omitzero"`
 
 	// Progress
 	CompletedPhases int `json:"completed_phases"`
@@ -181,10 +181,10 @@ type Campaign struct {
 	LastRevision   string `json:"last_revision_summary"`
 
 	// Learnings (autopoiesis)
-	Learnings []Learning `json:"learnings,omitempty"`
+	Learnings []Learning `json:"learnings,omitzero"`
 
 	// Optional: adversarial assault configuration (for CampaignTypeAdversarialAssault).
-	Assault *AssaultConfig `json:"assault,omitempty"`
+	Assault *AssaultConfig `json:"assault,omitzero"`
 }
 
 // Phase represents a distinct phase within a campaign.
@@ -204,18 +204,18 @@ type Phase struct {
 	Tasks []Task `json:"tasks"`
 
 	// Dependencies
-	Dependencies []PhaseDependency `json:"dependencies,omitempty"`
+	Dependencies []PhaseDependency `json:"dependencies,omitzero"`
 
 	// Estimates
 	EstimatedTasks      int    `json:"estimated_tasks"`
 	EstimatedComplexity string `json:"estimated_complexity"` // /low, /medium, /high, /critical
 
 	// Checkpoints
-	Checkpoints []Checkpoint `json:"checkpoints,omitempty"`
+	Checkpoints []Checkpoint `json:"checkpoints,omitzero"`
 
 	// Compression (after completion)
-	CompressedSummary string    `json:"compressed_summary,omitempty"`
-	OriginalAtomCount int       `json:"original_atom_count,omitempty"`
+	CompressedSummary string    `json:"compressed_summary,omitzero"`
+	OriginalAtomCount int       `json:"original_atom_count,omitzero"`
 	CompressedAt      time.Time `json:"compressed_at"`
 }
 
@@ -243,34 +243,34 @@ type Task struct {
 	Order       int          `json:"order"`
 
 	// Dependencies
-	DependsOn []string `json:"depends_on,omitempty"` // Task IDs this depends on
-	SoftDeps  []string `json:"soft_deps,omitempty"`  // Soft dependencies (preferred order)
-	Resources []string `json:"resources,omitempty"`  // Required resources (semaphores)
-	WriteSet  []string `json:"write_set,omitempty"`  // Canonical file paths this task is allowed to mutate
+	DependsOn []string `json:"depends_on,omitzero"` // Task IDs this depends on
+	SoftDeps  []string `json:"soft_deps,omitzero"`  // Soft dependencies (preferred order)
+	Resources []string `json:"resources,omitzero"`  // Required resources (semaphores)
+	WriteSet  []string `json:"write_set,omitzero"`  // Canonical file paths this task is allowed to mutate
 
 	// Shard routing (explicit shard selection, overrides type-based inference)
-	Shard       string   `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
-	ShardInput  string   `json:"shard_input,omitempty"`  // Full input to pass to shard
-	ContextFrom []string `json:"context_from,omitempty"` // Task IDs to pull results from for context injection
+	Shard       string   `json:"shard,omitzero"`        // Which shard to use (e.g., "coder", "researcher")
+	ShardInput  string   `json:"shard_input,omitzero"`  // Full input to pass to shard
+	ContextFrom []string `json:"context_from,omitzero"` // Task IDs to pull results from for context injection
 
 	// Recursion
-	SubCampaignID string `json:"sub_campaign_id,omitempty"` // If set, this task is a sub-campaign
+	SubCampaignID string `json:"sub_campaign_id,omitzero"` // If set, this task is a sub-campaign
 
 	// Sub-campaign contract (TaskTypeCampaignRef)
-	CampaignRefFailurePolicy CampaignRefFailurePolicy `json:"campaign_ref_failure_policy,omitempty"`
-	CampaignRefInheritance   *CampaignRefInheritance  `json:"campaign_ref_inheritance,omitempty"`
+	CampaignRefFailurePolicy CampaignRefFailurePolicy `json:"campaign_ref_failure_policy,omitzero"`
+	CampaignRefInheritance   *CampaignRefInheritance  `json:"campaign_ref_inheritance,omitzero"`
 
 	// Artifacts produced
-	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
+	Artifacts []TaskArtifact `json:"artifacts,omitzero"`
 
 	// Provenance
-	InferredFrom    string  `json:"inferred_from,omitempty"` // What this was derived from
+	InferredFrom    string  `json:"inferred_from,omitzero"` // What this was derived from
 	InferenceConf   float64 `json:"inference_confidence"`    // Confidence of inference
-	InferenceReason string  `json:"inference_reason,omitempty"`
+	InferenceReason string  `json:"inference_reason,omitzero"`
 
 	// Execution tracking
-	Attempts  []TaskAttempt `json:"attempts,omitempty"`
-	LastError string        `json:"last_error,omitempty"`
+	Attempts  []TaskAttempt `json:"attempts,omitzero"`
+	LastError string        `json:"last_error,omitzero"`
 	// Backoff control (persisted for long-horizon durability)
 	NextRetryAt time.Time `json:"next_retry_at"`
 }
@@ -286,10 +286,10 @@ const (
 
 // CampaignRefInheritance defines parent -> child scope inheritance.
 type CampaignRefInheritance struct {
-	FactsScope  string `json:"facts_scope,omitempty"`
-	FSScope     string `json:"fs_scope,omitempty"`
-	MemoryScope string `json:"memory_scope,omitempty"`
-	ToolScope   string `json:"tool_scope,omitempty"`
+	FactsScope  string `json:"facts_scope,omitzero"`
+	FSScope     string `json:"fs_scope,omitzero"`
+	MemoryScope string `json:"memory_scope,omitzero"`
+	ToolScope   string `json:"tool_scope,omitzero"`
 }
 
 // CampaignRefResult is the typed result envelope returned from /campaign_ref tasks.
@@ -297,10 +297,10 @@ type CampaignRefResult struct {
 	Version        int                      `json:"version"`
 	SubCampaignID  string                   `json:"sub_campaign_id"`
 	Status         string                   `json:"status"`
-	Artifacts      []string                 `json:"artifacts,omitempty"`
-	LearnedFacts   []string                 `json:"learned_facts,omitempty"`
+	Artifacts      []string                 `json:"artifacts,omitzero"`
+	LearnedFacts   []string                 `json:"learned_facts,omitzero"`
 	Checkpoints    int                      `json:"checkpoints"`
-	FailureSummary string                   `json:"failure_summary,omitempty"`
+	FailureSummary string                   `json:"failure_summary,omitzero"`
 	FailurePolicy  CampaignRefFailurePolicy `json:"failure_policy"`
 	Inheritance    CampaignRefInheritance   `json:"inheritance"`
 }
@@ -309,7 +309,7 @@ type CampaignRefResult struct {
 type TaskArtifact struct {
 	Type string `json:"type"` // /source_file, /test_file, /config, /shard_agent, /knowledge_base, /doc
 	Path string `json:"path"`
-	Hash string `json:"hash,omitempty"`
+	Hash string `json:"hash,omitzero"`
 }
 
 // TaskAttempt tracks an execution attempt for a task.
@@ -317,14 +317,14 @@ type TaskAttempt struct {
 	Number    int       `json:"number"`
 	Outcome   string    `json:"outcome"` // /success, /failure, /partial
 	Timestamp time.Time `json:"timestamp"`
-	Error     string    `json:"error,omitempty"`
+	Error     string    `json:"error,omitzero"`
 }
 
 // Checkpoint represents a verification checkpoint for a phase.
 type Checkpoint struct {
 	Type      string    `json:"type"` // /tests, /build, /lint, /coverage, /manual, /integration
 	Passed    bool      `json:"passed"`
-	Details   string    `json:"details,omitempty"`
+	Details   string    `json:"details,omitzero"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -350,7 +350,7 @@ type SourceDocument struct {
 	Path       string    `json:"path"`
 	Type       string    `json:"type"` // /spec, /requirements, /design, /readme, /api_doc, /tutorial
 	ParsedAt   time.Time `json:"parsed_at"`
-	Summary    string    `json:"summary,omitempty"`
+	Summary    string    `json:"summary,omitzero"`
 }
 
 // FileMetadata captures lightweight document metadata for selection and retrieval.
@@ -359,10 +359,10 @@ type FileMetadata struct {
 	Type            string    `json:"type"`
 	SizeBytes       int64     `json:"size_bytes"`
 	ModifiedAt      time.Time `json:"modified_at"`
-	Tags            []string  `json:"tags,omitempty"`
-	Layer           string    `json:"layer,omitempty"`
-	LayerConfidence float64   `json:"layer_confidence,omitempty"`
-	LayerReason     string    `json:"layer_reason,omitempty"`
+	Tags            []string  `json:"tags,omitzero"`
+	Layer           string    `json:"layer,omitzero"`
+	LayerConfidence float64   `json:"layer_confidence,omitzero"`
+	LayerReason     string    `json:"layer_reason,omitzero"`
 }
 
 // Requirement represents a requirement extracted from source documents.
@@ -372,7 +372,7 @@ type Requirement struct {
 	Description string   `json:"description"`
 	Priority    string   `json:"priority"`
 	Source      string   `json:"source"`               // Which document this came from
-	CoveredBy   []string `json:"covered_by,omitempty"` // Task IDs that cover this
+	CoveredBy   []string `json:"covered_by,omitzero"` // Task IDs that cover this
 }
 
 // CampaignShard tracks a shard spawned as part of campaign execution.
@@ -410,7 +410,7 @@ type Progress struct {
 	ContextUsage    float64  `json:"context_usage"` // 0.0-1.0
 	Learnings       int      `json:"learnings_count"`
 	Replans         int      `json:"replans_count"`
-	Errors          []string `json:"errors,omitempty"`
+	Errors          []string `json:"errors,omitzero"`
 }
 
 // ReplanTrigger represents a reason to replan the campaign.
@@ -418,7 +418,7 @@ type ReplanTrigger struct {
 	CampaignID  string    `json:"campaign_id"`
 	Reason      string    `json:"reason"` // /task_failed, /new_requirement, /user_feedback, /dependency_change, /blocked
 	TriggeredAt time.Time `json:"triggered_at"`
-	Details     string    `json:"details,omitempty"`
+	Details     string    `json:"details,omitzero"`
 }
 
 // PlanValidationIssue represents an issue found during plan validation.

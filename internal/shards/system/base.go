@@ -154,10 +154,7 @@ func (g *CostGuard) RecordError() {
 	defer g.mu.Unlock()
 	g.consecutiveErrs++
 	// Exponential backoff: 1s, 2s, 4s, 8s, ... max 60s
-	backoff := g.CooldownAfterError * time.Duration(1<<min(g.consecutiveErrs-1, 6))
-	if backoff > 60*time.Second {
-		backoff = 60 * time.Second
-	}
+	backoff := min(g.CooldownAfterError*time.Duration(1<<min(g.consecutiveErrs-1, 6)), 60*time.Second)
 	g.cooldownUntil = time.Now().Add(backoff)
 }
 

@@ -49,7 +49,7 @@ type Understanding struct {
 
 	// --- Derived Routing (from Harness) ---
 	// These are populated by the harness after validation, using Mangle rules.
-	Routing *Routing `json:"routing,omitempty"`
+	Routing *Routing `json:"routing,omitzero"`
 
 	// --- Raw Surface Response (from LLM) ---
 	// The natural language response to show the user.
@@ -66,10 +66,10 @@ type Scope struct {
 	Target string `json:"target"`
 
 	// File is the specific file path if known.
-	File string `json:"file,omitempty"`
+	File string `json:"file,omitzero"`
 
 	// Symbol is the specific symbol (function, type, var) if known.
-	Symbol string `json:"symbol,omitempty"`
+	Symbol string `json:"symbol,omitzero"`
 }
 
 // Signals are boolean flags about the nature of the request.
@@ -103,14 +103,14 @@ type SuggestedApproach struct {
 	PrimaryShard string `json:"primary_shard"`
 
 	// SupportingShards are additional agents that may help.
-	SupportingShards []string `json:"supporting_shards,omitempty"`
+	SupportingShards []string `json:"supporting_shards,omitzero"`
 
 	// ToolsNeeded are tools the LLM thinks it will need.
-	ToolsNeeded []string `json:"tools_needed,omitempty"`
+	ToolsNeeded []string `json:"tools_needed,omitzero"`
 
 	// ContextNeeded describes what context would help.
 	// Examples: "test_output", "function_source", "git_history"
-	ContextNeeded []string `json:"context_needed,omitempty"`
+	ContextNeeded []string `json:"context_needed,omitzero"`
 }
 
 // Routing is derived by the harness from the Understanding using Mangle rules.
@@ -123,21 +123,21 @@ type Routing struct {
 	PrimaryShard string `json:"primary_shard"`
 
 	// SupportingShards are determined supporting agents.
-	SupportingShards []string `json:"supporting_shards,omitempty"`
+	SupportingShards []string `json:"supporting_shards,omitzero"`
 
 	// ContextPriorities maps context categories to priority weights.
 	// Higher weight = more important to include in context window.
-	ContextPriorities map[string]int `json:"context_priorities,omitempty"`
+	ContextPriorities map[string]int `json:"context_priorities,omitzero"`
 
 	// ToolPriorities maps tools to priority weights.
 	// Higher weight = more likely to be useful.
-	ToolPriorities map[string]int `json:"tool_priorities,omitempty"`
+	ToolPriorities map[string]int `json:"tool_priorities,omitzero"`
 
 	// BlockedTools are tools that cannot be used (due to constraints).
-	BlockedTools []string `json:"blocked_tools,omitempty"`
+	BlockedTools []string `json:"blocked_tools,omitzero"`
 
 	// RequiredValidations are checks that must pass before/after execution.
-	RequiredValidations []string `json:"required_validations,omitempty"`
+	RequiredValidations []string `json:"required_validations,omitzero"`
 }
 
 // UnderstandingEnvelope is the full control packet from LLM classification.

@@ -193,9 +193,9 @@ func (r *ToolRenderer) RenderJSON(tools *CompiledToolSet) (string, error) {
 type ToolJSONEntry struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
-	Capabilities []string        `json:"capabilities,omitempty"`
-	Categories   []string        `json:"categories,omitempty"`
-	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+	Capabilities []string        `json:"capabilities,omitzero"`
+	Categories   []string        `json:"categories,omitzero"`
+	InputSchema  json.RawMessage `json:"input_schema,omitzero"`
 }
 
 // RenderForInvocation renders tool information for invocation context.

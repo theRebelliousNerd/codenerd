@@ -255,10 +255,7 @@ func chunkTextRunes(text string, maxLen int) []string {
 
 		// Work in rune-space for the boundary search
 		rs := []rune(remaining)
-		limit := maxLen
-		if limit > len(rs) {
-			limit = len(rs)
-		}
+		limit := min(maxLen, len(rs))
 		candidate := string(rs[:limit])
 
 		// Try paragraph break first, then line break, then space

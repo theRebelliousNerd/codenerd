@@ -34,10 +34,10 @@ func (e *RateLimitError) Error() string {
 // StreamChunk represents a chunk of streaming output from Claude CLI.
 type StreamChunk struct {
 	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
-	Text    string `json:"text,omitempty"`
-	Done    bool   `json:"done,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Content string `json:"content,omitzero"`
+	Text    string `json:"text,omitzero"`
+	Done    bool   `json:"done,omitzero"`
+	Error   string `json:"error,omitzero"`
 }
 
 // StreamCallback is called for each chunk of streaming output.
@@ -71,17 +71,17 @@ type ClaudeCodeCLIClient struct {
 // When using --json-schema, the output is in structured_output instead.
 type claudeCLIResponse struct {
 	Type    string          `json:"type"`              // "result" for success
-	Subtype string          `json:"subtype,omitempty"` // "success" or "error"
-	IsError bool            `json:"is_error,omitempty"`
+	Subtype string          `json:"subtype,omitzero"` // "success" or "error"
+	IsError bool            `json:"is_error,omitzero"`
 	Result  json.RawMessage `json:"result"` // string OR object with content[]
 	Error   *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 	// Rate limit indicator in error response
-	IsRateLimited bool `json:"is_rate_limited,omitempty"`
+	IsRateLimited bool `json:"is_rate_limited,omitzero"`
 	// JSON Schema output - present when --json-schema flag is used
-	StructuredOutput json.RawMessage `json:"structured_output,omitempty"`
+	StructuredOutput json.RawMessage `json:"structured_output,omitzero"`
 }
 
 // claudeCLIResultObject is the structured result when tools are enabled.

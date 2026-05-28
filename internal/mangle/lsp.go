@@ -758,8 +758,8 @@ type LSPRequest struct {
 type LSPResponse struct {
 	JSONRPC string    `json:"jsonrpc"`
 	ID      any       `json:"id"`
-	Result  any       `json:"result,omitempty"`
-	Error   *LSPError `json:"error,omitempty"`
+	Result  any       `json:"result,omitzero"`
+	Error   *LSPError `json:"error,omitzero"`
 }
 
 // LSPError represents an LSP error.

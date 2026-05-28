@@ -114,16 +114,16 @@ type RiskGateResult struct {
 	Enabled bool            `json:"enabled"`
 	Outcome RiskGateOutcome `json:"outcome"`
 	Reason  string          `json:"reason"`
-	Data    map[string]any  `json:"data,omitempty"`
+	Data    map[string]any  `json:"data,omitzero"`
 }
 
 // RiskGateEvaluation captures full preflight risk gate execution.
 type RiskGateEvaluation struct {
-	Decision    *CampaignRiskDecision `json:"decision,omitempty"`
-	Results     []RiskGateResult      `json:"results,omitempty"`
+	Decision    *CampaignRiskDecision `json:"decision,omitzero"`
+	Results     []RiskGateResult      `json:"results,omitzero"`
 	Allowed     bool                  `json:"allowed"`
-	BlockedBy   RiskGateName          `json:"blocked_by,omitempty"`
-	BlockReason string                `json:"block_reason,omitempty"`
+	BlockedBy   RiskGateName          `json:"blocked_by,omitzero"`
+	BlockReason string                `json:"block_reason,omitzero"`
 }
 
 func normalizeRiskGateMode(mode RiskGateMode) RiskGateMode {

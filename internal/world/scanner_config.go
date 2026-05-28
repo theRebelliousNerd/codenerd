@@ -23,10 +23,7 @@ type ScannerConfig struct {
 
 // DefaultScannerConfig returns sane defaults for large repositories.
 func DefaultScannerConfig() ScannerConfig {
-	workers := min(runtime.NumCPU(), 20)
-	if workers < 4 {
-		workers = 4
-	}
+	workers := max(min(runtime.NumCPU(), 20), 4)
 	if env := os.Getenv("NERD_FAST_SCAN_WORKERS"); env != "" {
 		if v, err := strconv.Atoi(env); err == nil && v > 0 {
 			workers = v

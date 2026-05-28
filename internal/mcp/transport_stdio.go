@@ -42,7 +42,7 @@ type StdioTransport struct {
 type mcpNotification struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	Params  json.RawMessage `json:"params,omitzero"`
 }
 
 // SetNotificationHandler sets a handler for server notifications

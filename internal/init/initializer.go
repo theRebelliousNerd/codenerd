@@ -72,8 +72,8 @@ type RecommendedAgent struct {
 	Permissions     []string          `json:"permissions"`
 	Priority        int               `json:"priority"` // Higher = more important
 	Reason          string            `json:"reason"`   // Why this agent is needed
-	Tools           []string          `json:"tools,omitempty"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
+	Tools           []string          `json:"tools,omitzero"`
+	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
 }
 
 // InitConfig holds configuration for initialization.
@@ -114,22 +114,22 @@ type ProjectProfile struct {
 
 	// Technical
 	Language     string   `json:"language"`
-	Framework    string   `json:"framework,omitempty"`
-	BuildSystem  string   `json:"build_system,omitempty"`
-	Architecture string   `json:"architecture,omitempty"`
-	Patterns     []string `json:"patterns,omitempty"`
+	Framework    string   `json:"framework,omitzero"`
+	BuildSystem  string   `json:"build_system,omitzero"`
+	Architecture string   `json:"architecture,omitzero"`
+	Patterns     []string `json:"patterns,omitzero"`
 
 	// Enhanced detection (B4, D2)
-	BuildSystemInfo *BuildSystemInfo `json:"build_system_info,omitempty"`
-	ProjectType     string           `json:"project_type,omitempty"` // "application", "library", "hybrid"
+	BuildSystemInfo *BuildSystemInfo `json:"build_system_info,omitzero"`
+	ProjectType     string           `json:"project_type,omitzero"` // "application", "library", "hybrid"
 
 	// Dependencies
-	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
+	Dependencies []DependencyInfo `json:"dependencies,omitzero"`
 
 	// Paths
-	EntryPoints     []string `json:"entry_points,omitempty"`
-	TestDirectories []string `json:"test_directories,omitempty"`
-	ConfigFiles     []string `json:"config_files,omitempty"`
+	EntryPoints     []string `json:"entry_points,omitzero"`
+	TestDirectories []string `json:"test_directories,omitzero"`
+	ConfigFiles     []string `json:"config_files,omitzero"`
 
 	// Stats
 	FileCount      int `json:"file_count"`
@@ -139,29 +139,29 @@ type ProjectProfile struct {
 // DependencyInfo represents a project dependency.
 type DependencyInfo struct {
 	Name         string `json:"name"`
-	Version      string `json:"version,omitempty"`
-	MajorVersion string `json:"major_version,omitempty"` // D4: Major version for version-specific agents
+	Version      string `json:"version,omitzero"`
+	MajorVersion string `json:"major_version,omitzero"` // D4: Major version for version-specific agents
 	Type         string `json:"type"`                    // direct, dev, transitive
 }
 
 // UserPreferences represents user coding preferences (learned via autopoiesis).
 type UserPreferences struct {
 	// Code style
-	TestStyle        string `json:"test_style,omitempty"`        // "table_driven", "subtest", etc.
-	ErrorHandling    string `json:"error_handling,omitempty"`    // "wrap", "sentinel", etc.
-	NamingConvention string `json:"naming_convention,omitempty"` // "camelCase", "snake_case"
+	TestStyle        string `json:"test_style,omitzero"`        // "table_driven", "subtest", etc.
+	ErrorHandling    string `json:"error_handling,omitzero"`    // "wrap", "sentinel", etc.
+	NamingConvention string `json:"naming_convention,omitzero"` // "camelCase", "snake_case"
 
 	// Behavior
-	CommitStyle    string `json:"commit_style,omitempty"`    // "conventional", "descriptive"
-	BranchStrategy string `json:"branch_strategy,omitempty"` // "gitflow", "trunk"
+	CommitStyle    string `json:"commit_style,omitzero"`    // "conventional", "descriptive"
+	BranchStrategy string `json:"branch_strategy,omitzero"` // "gitflow", "trunk"
 
 	// Safety
 	RequireTests  bool `json:"require_tests"`  // Require tests before commits
 	RequireReview bool `json:"require_review"` // Require review before merges
 
 	// Communication
-	Verbosity        string `json:"verbosity,omitempty"`         // "concise", "detailed"
-	ExplanationLevel string `json:"explanation_level,omitempty"` // "beginner", "expert"
+	Verbosity        string `json:"verbosity,omitzero"`         // "concise", "detailed"
+	ExplanationLevel string `json:"explanation_level,omitzero"` // "beginner", "expert"
 }
 
 // InitResult represents the result of initialization.
@@ -173,16 +173,16 @@ type InitResult struct {
 	FilesCreated   []string        `json:"files_created"`
 	FactsGenerated int             `json:"facts_generated"`
 	Duration       time.Duration   `json:"duration"`
-	Warnings       []string        `json:"warnings,omitempty"`
+	Warnings       []string        `json:"warnings,omitzero"`
 
 	// Type 3 Agent Creation Results
-	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitempty"`
-	CreatedAgents     []CreatedAgent     `json:"created_agents,omitempty"`
-	AgentKBs          map[string]int     `json:"agent_knowledge_bases,omitempty"` // agent name -> KB size
+	RecommendedAgents []RecommendedAgent `json:"recommended_agents,omitzero"`
+	CreatedAgents     []CreatedAgent     `json:"created_agents,omitzero"`
+	AgentKBs          map[string]int     `json:"agent_knowledge_bases,omitzero"` // agent name -> KB size
 
 	// Gemini Grounding (when Gemini is the LLM provider)
-	GroundingSources []string `json:"grounding_sources,omitempty"` // URLs used to ground LLM responses
-	GroundingEnabled bool     `json:"grounding_enabled,omitempty"` // Whether grounding was active
+	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground LLM responses
+	GroundingEnabled bool     `json:"grounding_enabled,omitzero"` // Whether grounding was active
 }
 
 // CreatedAgent represents a Type 3 agent that was created during init.
@@ -193,12 +193,12 @@ type CreatedAgent struct {
 	KBSize          int               `json:"kb_size"`
 	CreatedAt       time.Time         `json:"created_at"`
 	Status          string            `json:"status"` // "ready", "partial", "failed"
-	Tools           []string          `json:"tools,omitempty"`
-	ToolPreferences map[string]string `json:"tool_preferences,omitempty"`
+	Tools           []string          `json:"tools,omitzero"`
+	ToolPreferences map[string]string `json:"tool_preferences,omitzero"`
 
 	// Quality metrics (populated during research)
-	QualityScore  float64 `json:"quality_score,omitempty"`  // 0-100 quality score
-	QualityRating string  `json:"quality_rating,omitempty"` // "Excellent", "Good", "Adequate", "Needs improvement"
+	QualityScore  float64 `json:"quality_score,omitzero"`  // 0-100 quality score
+	QualityRating string  `json:"quality_rating,omitzero"` // "Excellent", "Good", "Adequate", "Needs improvement"
 }
 
 // Initializer handles the cold-start initialization process.
@@ -1230,17 +1230,17 @@ type SessionState struct {
 
 	// Suspension state (for pause/resume)
 	Suspended       bool       `json:"suspended"`
-	SuspendedAt     *time.Time `json:"suspended_at,omitempty"`
-	PendingQuestion string     `json:"pending_question,omitempty"`
-	PendingOptions  []string   `json:"pending_options,omitempty"`
+	SuspendedAt     *time.Time `json:"suspended_at,omitzero"`
+	PendingQuestion string     `json:"pending_question,omitzero"`
+	PendingOptions  []string   `json:"pending_options,omitzero"`
 
 	// Context state
-	ActiveStrategy string   `json:"active_strategy,omitempty"`
-	ActiveGoals    []string `json:"active_goals,omitempty"`
-	WorkingFacts   []string `json:"working_facts,omitempty"`
+	ActiveStrategy string   `json:"active_strategy,omitzero"`
+	ActiveGoals    []string `json:"active_goals,omitzero"`
+	WorkingFacts   []string `json:"working_facts,omitzero"`
 
 	// Conversation history (stored separately in sessions/ folder)
-	HistoryFile string `json:"history_file,omitempty"`
+	HistoryFile string `json:"history_file,omitzero"`
 }
 
 // ChatMessage represents a single message in the conversation.

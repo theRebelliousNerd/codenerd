@@ -432,10 +432,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	// Pre-allocate slices using min(len(atoms), maxAtomsLimit) to avoid
 	// allocating very large backing arrays when callers pass enormous inputs.
 	const maxAtomsLimit = 5000
-	preAlloc := len(atoms)
-	if preAlloc > maxAtomsLimit {
-		preAlloc = maxAtomsLimit
-	}
+	preAlloc := min(len(atoms), maxAtomsLimit)
 	result := make([]*OrderedAtom, 0, preAlloc)
 	unselected := make([]*OrderedAtom, 0, preAlloc)
 	var usedTokens int64 = 0

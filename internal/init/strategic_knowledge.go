@@ -280,8 +280,8 @@ type DocProcessingEntry struct {
 	IsRelevant   bool                `json:"is_relevant"`
 	Reasoning    string              `json:"reasoning"`
 	AtomsStored  int                 `json:"atoms_stored"`
-	ProcessedAt  *time.Time          `json:"processed_at,omitempty"`
-	ErrorMessage string              `json:"error_message,omitempty"`
+	ProcessedAt  *time.Time          `json:"processed_at,omitzero"`
+	ErrorMessage string              `json:"error_message,omitzero"`
 }
 
 // assertDocFact asserts a document tracking fact to the kernel.
@@ -1015,10 +1015,7 @@ func (i *Initializer) filterDocumentsByRelevance(ctx context.Context, docs []Doc
 	var relevant []DocumentInfo
 
 	for batchStart := 0; batchStart < len(docs); batchStart += batchSize {
-		batchEnd := batchStart + batchSize
-		if batchEnd > len(docs) {
-			batchEnd = len(docs)
-		}
+		batchEnd := min(batchStart+batchSize, len(docs))
 		batch := docs[batchStart:batchEnd]
 
 		// Build analysis prompt

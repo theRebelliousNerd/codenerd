@@ -133,10 +133,7 @@ func (t *FeedbackTracer) TraceFeedback(snapshot *FeedbackSnapshot) {
 		})
 
 		// Show top 20
-		limit := 20
-		if len(sorted) < limit {
-			limit = len(sorted)
-		}
+		limit := min(len(sorted), 20)
 
 		for i := 0; i < limit; i++ {
 			p := sorted[i]

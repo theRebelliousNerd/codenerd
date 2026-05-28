@@ -1354,15 +1354,15 @@ type RawTask struct {
 	Description string   `json:"description"`
 	Type        string   `json:"type"`
 	Priority    string   `json:"priority"`
-	Order       int      `json:"order,omitempty"`
+	Order       int      `json:"order,omitzero"`
 	DependsOn   []int    `json:"depends_on"` // Indices of dependent tasks in same phase
 	Artifacts   []string `json:"artifacts"`
-	WriteSet    []string `json:"write_set,omitempty"`
+	WriteSet    []string `json:"write_set,omitzero"`
 
 	// Shard routing (optional - enables explicit shard selection)
-	Shard       string `json:"shard,omitempty"`        // Which shard to use (e.g., "coder", "researcher")
-	ShardInput  string `json:"shard_input,omitempty"`  // Full input to pass to shard
-	ContextFrom []int  `json:"context_from,omitempty"` // Task indices to pull results from for context
+	Shard       string `json:"shard,omitzero"`        // Which shard to use (e.g., "coder", "researcher")
+	ShardInput  string `json:"shard_input,omitzero"`  // Full input to pass to shard
+	ContextFrom []int  `json:"context_from,omitzero"` // Task indices to pull results from for context
 }
 
 // planResponseSchema enforces RawPlan structure for schema-capable LLM clients.

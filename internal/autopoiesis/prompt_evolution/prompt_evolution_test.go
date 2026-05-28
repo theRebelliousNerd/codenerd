@@ -417,7 +417,6 @@ func TestFeedbackCollector_ConcurrentWrites(t *testing.T) {
 	errCh := make(chan error, workers)
 
 	for i := range workers {
-		i := i
 		wg.Go(func() {
 			rec := &ExecutionRecord{
 				TaskID:      "task-concurrent-" + strconv.Itoa(i),

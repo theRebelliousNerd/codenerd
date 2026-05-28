@@ -420,10 +420,7 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 		maxBackoff = 5 * time.Minute
 	}
 
-	shift := max(attemptNum-1, 0)
-	if shift > 10 {
-		shift = 10
-	}
+	shift := min(max(attemptNum-1, 0), 10)
 	backoff := base * time.Duration(1<<shift)
 
 	// Logic errors often benefit from faster replans; cap their backoff lower.

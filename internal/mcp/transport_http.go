@@ -40,22 +40,22 @@ type mcpRequest struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      int    `json:"id"`
 	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
+	Params  any    `json:"params,omitzero"`
 }
 
 // mcpResponse represents a JSON-RPC style MCP response.
 type mcpResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      int             `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *mcpError       `json:"error,omitempty"`
+	Result  json.RawMessage `json:"result,omitzero"`
+	Error   *mcpError       `json:"error,omitzero"`
 }
 
 // mcpError represents an error in MCP response.
 type mcpError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
+	Data    any    `json:"data,omitzero"`
 }
 
 // Connect establishes connection to the MCP server.

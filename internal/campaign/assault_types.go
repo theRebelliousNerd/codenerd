@@ -27,10 +27,10 @@ type AssaultStage struct {
 	Name string           `json:"name"`
 
 	// Command is used only when Kind == /command. It may include "{{target}}".
-	Command string `json:"command,omitempty"`
+	Command string `json:"command,omitzero"`
 
-	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
-	Repeat         int `json:"repeat,omitempty"`
+	TimeoutSeconds int `json:"timeout_seconds,omitzero"`
+	Repeat         int `json:"repeat,omitzero"`
 }
 
 // AssaultConfig configures a long-horizon adversarial assault campaign.
@@ -38,24 +38,24 @@ type AssaultConfig struct {
 	Scope AssaultScope `json:"scope"`
 
 	// Optional path prefixes (workspace-relative). If provided, only matching targets are included.
-	Include []string `json:"include,omitempty"`
+	Include []string `json:"include,omitzero"`
 	// Optional path prefixes to skip (workspace-relative).
-	Exclude []string `json:"exclude,omitempty"`
+	Exclude []string `json:"exclude,omitzero"`
 
-	BatchSize             int            `json:"batch_size,omitempty"`
-	Cycles                int            `json:"cycles,omitempty"`
-	DefaultTimeoutSeconds int            `json:"default_timeout_seconds,omitempty"`
-	Stages                []AssaultStage `json:"stages,omitempty"`
+	BatchSize             int            `json:"batch_size,omitzero"`
+	Cycles                int            `json:"cycles,omitzero"`
+	DefaultTimeoutSeconds int            `json:"default_timeout_seconds,omitzero"`
+	Stages                []AssaultStage `json:"stages,omitzero"`
 
 	// Limit for per-command captured output (also used for on-disk logs).
-	LogMaxBytes int64 `json:"log_max_bytes,omitempty"`
+	LogMaxBytes int64 `json:"log_max_bytes,omitzero"`
 
-	EnableNemesis       bool `json:"enable_nemesis,omitempty"`
-	MaxRemediationTasks int  `json:"max_remediation_tasks,omitempty"`
+	EnableNemesis       bool `json:"enable_nemesis,omitzero"`
+	MaxRemediationTasks int  `json:"max_remediation_tasks,omitzero"`
 
 	// ContextBudget is the token budget for campaign context management.
 	// If 0, will use config.ContextWindow.MaxTokens or default 200000.
-	ContextBudget int `json:"context_budget,omitempty"`
+	ContextBudget int `json:"context_budget,omitzero"`
 }
 
 func DefaultAssaultConfig() AssaultConfig {

@@ -185,10 +185,7 @@ func likelyTopicChange(input string, msgLenHistory []int) bool {
 		"describe": true, "show": true, "tell": true, "help": true,
 	}
 	words := strings.Fields(strings.ToLower(input))
-	limit := 5
-	if len(words) < limit {
-		limit = len(words)
-	}
+	limit := min(len(words), 5)
 	for _, w := range words[:limit] {
 		// Strip punctuation from word end
 		w = strings.TrimRight(w, ".,;:!?")
@@ -482,10 +479,7 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 		hasSurface, surfacePreview)
 
 	llmDurationMs := time.Since(llmStart).Milliseconds()
-	semanticDurationMs := time.Since(semanticStart).Milliseconds() - llmDurationMs
-	if semanticDurationMs < 0 {
-		semanticDurationMs = 0
-	}
+	semanticDurationMs := max(time.Since(semanticStart).Milliseconds()-llmDurationMs, 0)
 	logging.Perception("[ParseIntentWithContext] COMPLETE: %dms total | init=%dms stability=%dms semantic=%dms llm=%dms convert=%dms | result: %s%s → %q (%.0f%%)",
 		time.Since(pipelineStart).Milliseconds(),
 		time.Since(initStart).Milliseconds(),

@@ -254,10 +254,7 @@ func (m Model) renderLogicPane() string {
 	if len(facts) > 0 {
 		sb.WriteString(m.styles.Bold.Render("Recent Facts"))
 		sb.WriteString("\n")
-		count := 10
-		if len(facts) < count {
-			count = len(facts)
-		}
+		count := min(len(facts), 10)
 		for i := 0; i < count; i++ {
 			sb.WriteString(fmt.Sprintf("  %s\n", facts[i].String()))
 		}

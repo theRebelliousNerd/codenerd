@@ -26,10 +26,7 @@ type DeepResult struct {
 func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
 	start := time.Now()
 	if workers <= 0 {
-		workers = min(runtime.NumCPU(), 8)
-		if workers < 2 {
-			workers = 2
-		}
+		workers = max(min(runtime.NumCPU(), 8), 2)
 	}
 
 	sem := make(chan struct{}, workers)

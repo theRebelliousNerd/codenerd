@@ -680,7 +680,6 @@ func main() {
 	errs := make(chan error, workers)
 
 	for i := range workers {
-		i := i
 		wg.Go(func() {
 			want := fmt.Sprintf("msg-%d", i)
 			got, err := loop.ExecuteTool(context.Background(), "concurrent_echo_tool", want)

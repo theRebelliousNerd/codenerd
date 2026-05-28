@@ -27,17 +27,17 @@ type ReasoningTrace struct {
 	Response     string `json:"response"`
 
 	// Metadata
-	Model      string `json:"model,omitempty"`
-	TokensUsed int    `json:"tokens_used,omitempty"`
+	Model      string `json:"model,omitzero"`
+	TokensUsed int    `json:"tokens_used,omitzero"`
 	DurationMs int64  `json:"duration_ms"`
 
 	// Outcome (filled after shard completes)
 	Success      bool   `json:"success"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	ErrorMessage string `json:"error_message,omitzero"`
 
 	// Learning metadata (filled after analysis)
-	QualityScore  float64  `json:"quality_score,omitempty"`
-	LearningNotes []string `json:"learning_notes,omitempty"`
+	QualityScore  float64  `json:"quality_score,omitzero"`
+	LearningNotes []string `json:"learning_notes,omitzero"`
 
 	Timestamp time.Time `json:"timestamp"`
 }

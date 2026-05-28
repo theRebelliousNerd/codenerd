@@ -237,10 +237,7 @@ func (t *JITTracer) TraceCompilation(snapshot *CompilationSnapshot) {
 			return sortedRejected[i].Priority > sortedRejected[j].Priority
 		})
 
-		sampleSize := 10
-		if len(sortedRejected) < sampleSize {
-			sampleSize = len(sortedRejected)
-		}
+		sampleSize := min(len(sortedRejected), 10)
 
 		for i := 0; i < sampleSize; i++ {
 			atom := sortedRejected[i]

@@ -81,7 +81,7 @@ type Engine struct {
 type Fact struct {
 	Predicate string    `json:"predicate"`
 	Args      []any     `json:"args"`
-	Line      int       `json:"line,omitempty"`
+	Line      int       `json:"line,omitzero"`
 	Timestamp time.Time `json:"timestamp"`
 }
 

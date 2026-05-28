@@ -120,8 +120,8 @@ type ExecutionResult struct {
 	Output      string            `json:"output"`       // Final output or error message
 	TestsPassed int               `json:"tests_passed"` // If tests were run
 	TestsFailed int               `json:"tests_failed"`
-	BuildErrors []string          `json:"build_errors,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	BuildErrors []string          `json:"build_errors,omitzero"`
+	Metadata    map[string]string `json:"metadata,omitzero"`
 }
 
 // ExecutionRecord captures everything about a shard task execution.
@@ -145,17 +145,17 @@ type ExecutionRecord struct {
 	Duration        time.Duration   `json:"duration"`
 
 	// Prompt Context (which atoms were used)
-	PromptManifest *prompt.PromptManifest `json:"prompt_manifest,omitempty"`
-	AtomIDs        []string               `json:"atom_ids,omitempty"` // Simplified list
+	PromptManifest *prompt.PromptManifest `json:"prompt_manifest,omitzero"`
+	AtomIDs        []string               `json:"atom_ids,omitzero"` // Simplified list
 
 	// LLM Reasoning Metadata (Gemini 3+ Thinking Mode)
 	// These fields capture the model's reasoning process for learning and improvement
-	ThoughtSummary   string   `json:"thought_summary,omitempty"`   // Model's reasoning process summary
-	ThinkingTokens   int      `json:"thinking_tokens,omitempty"`   // Tokens used for reasoning
-	GroundingSources []string `json:"grounding_sources,omitempty"` // URLs used to ground the response
+	ThoughtSummary   string   `json:"thought_summary,omitzero"`   // Model's reasoning process summary
+	ThinkingTokens   int      `json:"thinking_tokens,omitzero"`   // Tokens used for reasoning
+	GroundingSources []string `json:"grounding_sources,omitzero"` // URLs used to ground the response
 
 	// Verdict (filled after evaluation)
-	Verdict *JudgeVerdict `json:"verdict,omitempty"`
+	Verdict *JudgeVerdict `json:"verdict,omitzero"`
 }
 
 // =============================================================================
@@ -171,12 +171,12 @@ type JudgeVerdict struct {
 	Confidence  float64       `json:"confidence"`  // 0.0-1.0
 
 	// Learning Signal
-	ImprovementRule string `json:"improvement_rule,omitempty"` // Rule for next time
+	ImprovementRule string `json:"improvement_rule,omitzero"` // Rule for next time
 
 	// Context
 	TaskID    string    `json:"task_id"`
 	ShardType string    `json:"shard_type"`
-	AtomIDs   []string  `json:"atom_ids,omitempty"` // Which atoms were active
+	AtomIDs   []string  `json:"atom_ids,omitzero"` // Which atoms were active
 	Timestamp time.Time `json:"timestamp"`
 
 	// Tracking
@@ -274,13 +274,13 @@ type EvolutionResult struct {
 
 	// Output
 	AtomsGenerated    int      `json:"atoms_generated"`
-	AtomIDs           []string `json:"atom_ids,omitempty"`
+	AtomIDs           []string `json:"atom_ids,omitzero"`
 	StrategiesCreated int      `json:"strategies_created"`
 	StrategiesRefined int      `json:"strategies_refined"`
 	AtomsPromoted     int      `json:"atoms_promoted"`
 
 	// Errors
-	Errors []string `json:"errors,omitempty"`
+	Errors []string `json:"errors,omitzero"`
 }
 
 // =============================================================================

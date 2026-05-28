@@ -82,9 +82,9 @@ type FileDecision struct {
 	ImpactScore  int      `json:"impact_score"`
 
 	// Suggestions
-	SuggestedSplits []SplitSuggestion `json:"suggested_splits,omitempty"`
-	RefactorReasons []string          `json:"refactor_reasons,omitempty"`
-	Warnings        []string          `json:"warnings,omitempty"`
+	SuggestedSplits []SplitSuggestion `json:"suggested_splits,omitzero"`
+	RefactorReasons []string          `json:"refactor_reasons,omitzero"`
+	Warnings        []string          `json:"warnings,omitzero"`
 }
 
 // SplitSuggestion suggests how to split a large file.
@@ -184,10 +184,7 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	}
 
 	// 8-worker goroutine pool for high-concurrency safety and fast processing
-	numWorkers := 8
-	if len(validPaths) < numWorkers {
-		numWorkers = len(validPaths)
-	}
+	numWorkers := min(len(validPaths), 8)
 
 	taskChan := make(chan string, len(validPaths))
 	resChan := make(chan FileDecision, len(validPaths))
@@ -353,10 +350,7 @@ func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDe
 		// Just estimate from line count if kernel is not available
 		decision.Complexity = 0
 		if decision.LineCount > 0 {
-			safeLineCount := decision.LineCount
-			if safeLineCount > 10000000 {
-				safeLineCount = 10000000
-			}
+			safeLineCount := min(decision.LineCount, 10000000)
 			decision.Complexity = float64(safeLineCount) / 50.0
 		}
 		return
@@ -396,10 +390,7 @@ func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDe
 		decision.Complexity = maxComplexity
 	} else if decision.LineCount > 0 {
 		// Bounds check to prevent float64 precision issues or extreme values
-		safeLineCount := decision.LineCount
-		if safeLineCount > 10000000 {
-			safeLineCount = 10000000
-		}
+		safeLineCount := min(decision.LineCount, 10000000)
 		// Rough heuristic: 1 complexity point per 50 lines
 		decision.Complexity = float64(safeLineCount) / 50.0
 	}

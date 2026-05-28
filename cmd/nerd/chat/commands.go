@@ -364,10 +364,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 					sort.Slice(atoms, func(i, j int) bool {
 						return atoms[i].CreatedAt.After(atoms[j].CreatedAt)
 					})
-					limit := 5
-					if len(atoms) < limit {
-						limit = len(atoms)
-					}
+					limit := min(len(atoms), 5)
 					var sb strings.Builder
 					sb.WriteString("## Recent Knowledge Entries (Persisted)\n\n")
 					for i := 0; i < limit; i++ {

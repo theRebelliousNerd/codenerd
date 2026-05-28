@@ -218,10 +218,7 @@ func (c *ZAIClient) nextRetryDelay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
-	delay := base * time.Duration(1<<uint(attempt-1))
-	if delay > maxDelay {
-		delay = maxDelay
-	}
+	delay := min(base*time.Duration(1<<uint(attempt-1)), maxDelay)
 	return c.jitterDuration(delay)
 }
 

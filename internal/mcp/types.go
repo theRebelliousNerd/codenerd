@@ -44,7 +44,7 @@ type MCPServerConfig struct {
 	Enabled           bool   `json:"enabled"`
 	Protocol          string `json:"protocol"`
 	BaseURL           string `json:"base_url"`
-	Endpoint          string `json:"endpoint,omitempty"` // For stdio protocol
+	Endpoint          string `json:"endpoint,omitzero"` // For stdio protocol
 	Timeout           string `json:"timeout"`
 	AutoConnect       bool   `json:"auto_connect"`
 	AutoDiscoverTools bool   `json:"auto_discover_tools"`
@@ -76,7 +76,7 @@ type MCPTool struct {
 	// Schema (from MCP server)
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"input_schema"`
-	OutputSchema json.RawMessage `json:"output_schema,omitempty"`
+	OutputSchema json.RawMessage `json:"output_schema,omitzero"`
 
 	// LLM-extracted metadata
 	Categories      []string       `json:"categories"`       // ["filesystem", "code_analysis"]
@@ -87,8 +87,8 @@ type MCPTool struct {
 	Condensed       string         `json:"condensed"` // One-line description (max 80 chars)
 
 	// Embedding
-	Embedding      []float32 `json:"embedding,omitempty"`
-	EmbeddingModel string    `json:"embedding_model,omitempty"`
+	Embedding      []float32 `json:"embedding,omitzero"`
+	EmbeddingModel string    `json:"embedding_model,omitzero"`
 
 	// Usage statistics
 	UsageCount   int64     `json:"usage_count"`
@@ -109,7 +109,7 @@ type MCPToolSchema struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
 	InputSchema  json.RawMessage `json:"inputSchema"`
-	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitzero"`
 }
 
 // MCPCapabilities represents server capabilities from the MCP protocol.
@@ -129,7 +129,7 @@ type ToolAnalysis struct {
 	ShardAffinities map[string]int `json:"shard_affinities"`
 	UseCases        []string       `json:"use_cases"`
 	Condensed       string         `json:"condensed"`
-	Embedding       []float32      `json:"embedding,omitempty"`
+	Embedding       []float32      `json:"embedding,omitzero"`
 }
 
 // ToolCompilationContext provides context for JIT tool compilation.
@@ -212,8 +212,8 @@ type SelectedTool struct {
 // MCPCallResult represents the result of calling an MCP tool.
 type MCPCallResult struct {
 	Success   bool            `json:"success"`
-	Output    json.RawMessage `json:"output,omitempty"`
-	Error     string          `json:"error,omitempty"`
+	Output    json.RawMessage `json:"output,omitzero"`
+	Error     string          `json:"error,omitzero"`
 	LatencyMs int64           `json:"latency_ms"`
 }
 
@@ -244,21 +244,21 @@ type MCPTransport interface {
 // ToolAvailableEntry represents an MCP tool entry in available_tools.json.
 type ToolAvailableEntry struct {
 	Name          string   `json:"name"`
-	DisplayName   string   `json:"display_name,omitempty"`
+	DisplayName   string   `json:"display_name,omitzero"`
 	Category      string   `json:"category"`
-	Description   string   `json:"description,omitempty"`
+	Description   string   `json:"description,omitzero"`
 	Type          string   `json:"type"` // "mcp" for MCP tools, empty for static
-	MCPServer     string   `json:"mcp_server,omitempty"`
-	MCPTool       string   `json:"mcp_tool,omitempty"`
-	ShardAffinity string   `json:"shard_affinity,omitempty"`
-	AutoAnalyze   bool     `json:"auto_analyze,omitempty"`
-	Conditions    []string `json:"conditions,omitempty"`
+	MCPServer     string   `json:"mcp_server,omitzero"`
+	MCPTool       string   `json:"mcp_tool,omitzero"`
+	ShardAffinity string   `json:"shard_affinity,omitzero"`
+	AutoAnalyze   bool     `json:"auto_analyze,omitzero"`
+	Conditions    []string `json:"conditions,omitzero"`
 
 	// Static tool fields (non-MCP)
-	Command    string `json:"command,omitempty"`
-	WorkingDir string `json:"working_dir,omitempty"`
-	InputType  string `json:"input_type,omitempty"`
-	OutputType string `json:"output_type,omitempty"`
+	Command    string `json:"command,omitzero"`
+	WorkingDir string `json:"working_dir,omitzero"`
+	InputType  string `json:"input_type,omitzero"`
+	OutputType string `json:"output_type,omitzero"`
 }
 
 // IsMCPTool returns true if this is an MCP tool entry.

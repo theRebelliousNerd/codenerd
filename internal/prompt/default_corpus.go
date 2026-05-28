@@ -120,10 +120,7 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 	if len(allTags) > 0 {
 		const chunkSize = 300 // Safe chunk size for SQLite parameter limits (300 * 3 = 900 params)
 		for i := 0; i < len(allTags); i += chunkSize {
-			end := i + chunkSize
-			if end > len(allTags) {
-				end = len(allTags)
-			}
+			end := min(i+chunkSize, len(allTags))
 			chunk := allTags[i:end]
 
 			query := "INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES "

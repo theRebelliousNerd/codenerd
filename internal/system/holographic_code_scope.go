@@ -40,10 +40,7 @@ type deepCacheEntry struct {
 // deepWorkers <= 0 uses a small CPU-based default.
 func NewHolographicCodeScope(projectRoot string, kernel core.Kernel, localDB *store.LocalStore, deepWorkers int) *HolographicCodeScope {
 	if deepWorkers <= 0 {
-		deepWorkers = min(runtime.NumCPU(), 8)
-		if deepWorkers < 2 {
-			deepWorkers = 2
-		}
+		deepWorkers = max(min(runtime.NumCPU(), 8), 2)
 	}
 	return &HolographicCodeScope{
 		scope:       world.NewFileScope(projectRoot),

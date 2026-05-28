@@ -226,10 +226,7 @@ func (o *Orchestrator) AggregateLearningsForPrompt() string {
 		})
 		if len(issueCounts) > 0 {
 			sb.WriteString("\nTOP COMMON ISSUES TO AVOID:\n")
-			limit := 5
-			if len(issueCounts) < limit {
-				limit = len(issueCounts)
-			}
+			limit := min(len(issueCounts), 5)
 			for i := 0; i < limit; i++ {
 				sb.WriteString(fmt.Sprintf("- %s (occurred %d times)\n", issueCounts[i].issue, issueCounts[i].count))
 			}
@@ -250,10 +247,7 @@ func (o *Orchestrator) AggregateLearningsForPrompt() string {
 			return apCounts[i].count > apCounts[j].count
 		})
 		sb.WriteString("\nTOP ANTI-PATTERNS DETECTED:\n")
-		limit := 5
-		if len(apCounts) < limit {
-			limit = len(apCounts)
-		}
+		limit := min(len(apCounts), 5)
 		for i := 0; i < limit; i++ {
 			sb.WriteString(fmt.Sprintf("- %s\n", apCounts[i].name))
 		}
@@ -280,10 +274,7 @@ func (o *Orchestrator) AggregateLearningsForPrompt() string {
 	sort.Slice(badTools, func(i, j int) bool {
 		return badTools[i].quality < badTools[j].quality
 	})
-	toolLimit := 3
-	if len(badTools) < toolLimit {
-		toolLimit = len(badTools)
-	}
+	toolLimit := min(len(badTools), 3)
 	for i := 0; i < toolLimit; i++ {
 		sb.WriteString(fmt.Sprintf("\nTool '%s' had issues (quality=%.1f):\n", badTools[i].name, badTools[i].quality))
 		for _, issue := range badTools[i].issues {

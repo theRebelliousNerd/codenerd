@@ -118,7 +118,7 @@ type ZAIStreamOptions struct {
 // ZAIResponseFormat enforces structured output (JSON schema).
 type ZAIResponseFormat struct {
 	Type       string         `json:"type"` // "json_schema"
-	JSONSchema *ZAIJSONSchema `json:"json_schema,omitempty"`
+	JSONSchema *ZAIJSONSchema `json:"json_schema,omitzero"`
 }
 
 // ZAIJSONSchema defines the structured output schema.
@@ -131,7 +131,7 @@ type ZAIJSONSchema struct {
 // ZAIThinking enables extended reasoning mode.
 type ZAIThinking struct {
 	Type         string `json:"type"`                    // "enabled"
-	BudgetTokens int    `json:"budget_tokens,omitempty"` // Optional token budget
+	BudgetTokens int    `json:"budget_tokens,omitzero"` // Optional token budget
 }
 
 // ZAIMessage represents a message in the conversation.
@@ -144,15 +144,15 @@ type ZAIMessage struct {
 type ZAIRequest struct {
 	Model          string             `json:"model"`
 	Messages       []ZAIMessage       `json:"messages"`
-	MaxTokens      int                `json:"max_tokens,omitempty"`
-	Temperature    float64            `json:"temperature,omitempty"`
-	TopP           float64            `json:"top_p,omitempty"`
-	Stream         bool               `json:"stream,omitempty"`
-	StreamOptions  *ZAIStreamOptions  `json:"stream_options,omitempty"`
-	ResponseFormat *ZAIResponseFormat `json:"response_format,omitempty"` // Structured output
-	Thinking       *ZAIThinking       `json:"thinking,omitempty"`        // Extended reasoning
-	Tools          []OpenAITool       `json:"tools,omitempty"`
-	ToolChoice     any                `json:"tool_choice,omitempty"`
+	MaxTokens      int                `json:"max_tokens,omitzero"`
+	Temperature    float64            `json:"temperature,omitzero"`
+	TopP           float64            `json:"top_p,omitzero"`
+	Stream         bool               `json:"stream,omitzero"`
+	StreamOptions  *ZAIStreamOptions  `json:"stream_options,omitzero"`
+	ResponseFormat *ZAIResponseFormat `json:"response_format,omitzero"` // Structured output
+	Thinking       *ZAIThinking       `json:"thinking,omitzero"`        // Extended reasoning
+	Tools          []OpenAITool       `json:"tools,omitzero"`
+	ToolChoice     any                `json:"tool_choice,omitzero"`
 }
 
 // ZAIResponse represents the API response structure (Enhanced for v1.2.0).
@@ -166,13 +166,13 @@ type ZAIResponse struct {
 		Message struct {
 			Role      string           `json:"role"`
 			Content   string           `json:"content"`
-			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
 		} `json:"message"`
 		Delta *struct { // For streaming
-			Role      string           `json:"role,omitempty"`
-			Content   string           `json:"content,omitempty"`
-			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
-		} `json:"delta,omitempty"`
+			Role      string           `json:"role,omitzero"`
+			Content   string           `json:"content,omitzero"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+		} `json:"delta,omitzero"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
@@ -180,13 +180,13 @@ type ZAIResponse struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 		// Thinking mode tokens
-		ThinkingTokens int `json:"thinking_tokens,omitempty"`
+		ThinkingTokens int `json:"thinking_tokens,omitzero"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // AnthropicMessage represents a message (supports both text and tool results).
@@ -198,19 +198,19 @@ type AnthropicMessage struct {
 // AnthropicContentBlock represents a content block in a message.
 type AnthropicContentBlock struct {
 	Type      string         `json:"type"`                  // "text", "tool_use", "tool_result"
-	Text      string         `json:"text,omitempty"`        // For text blocks
-	ID        string         `json:"id,omitempty"`          // For tool_use blocks
-	Name      string         `json:"name,omitempty"`        // For tool_use blocks
-	Input     map[string]any `json:"input,omitempty"`       // For tool_use blocks
-	ToolUseID string         `json:"tool_use_id,omitempty"` // For tool_result blocks
-	Content   string         `json:"content,omitempty"`     // For tool_result blocks (result content)
-	IsError   bool           `json:"is_error,omitempty"`    // For tool_result blocks
+	Text      string         `json:"text,omitzero"`        // For text blocks
+	ID        string         `json:"id,omitzero"`          // For tool_use blocks
+	Name      string         `json:"name,omitzero"`        // For tool_use blocks
+	Input     map[string]any `json:"input,omitzero"`       // For tool_use blocks
+	ToolUseID string         `json:"tool_use_id,omitzero"` // For tool_result blocks
+	Content   string         `json:"content,omitzero"`     // For tool_result blocks (result content)
+	IsError   bool           `json:"is_error,omitzero"`    // For tool_result blocks
 }
 
 // AnthropicTool represents a tool definition for Anthropic API.
 type AnthropicTool struct {
 	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
+	Description string         `json:"description,omitzero"`
 	InputSchema map[string]any `json:"input_schema"`
 }
 
@@ -218,11 +218,11 @@ type AnthropicTool struct {
 type AnthropicRequest struct {
 	Model       string             `json:"model"`
 	MaxTokens   int                `json:"max_tokens"`
-	System      string             `json:"system,omitempty"`
+	System      string             `json:"system,omitzero"`
 	Messages    []AnthropicMessage `json:"messages"`
-	Tools       []AnthropicTool    `json:"tools,omitempty"`
-	Temperature float64            `json:"temperature,omitempty"`
-	Stream      bool               `json:"stream,omitempty"`
+	Tools       []AnthropicTool    `json:"tools,omitzero"`
+	Temperature float64            `json:"temperature,omitzero"`
+	Stream      bool               `json:"stream,omitzero"`
 }
 
 // NERD-EVOLVE-START: P1P2-prompt-caching
@@ -239,7 +239,7 @@ type AnthropicCacheControl struct {
 type AnthropicSystemCacheBlock struct {
 	Type         string                 `json:"type"` // always "text"
 	Text         string                 `json:"text"`
-	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitzero"`
 }
 
 // anthropicCachedRequest is a variant of AnthropicRequest where System is replaced
@@ -248,11 +248,11 @@ type AnthropicSystemCacheBlock struct {
 type anthropicCachedRequest struct {
 	Model       string                      `json:"model"`
 	MaxTokens   int                         `json:"max_tokens"`
-	System      []AnthropicSystemCacheBlock `json:"system,omitempty"`
+	System      []AnthropicSystemCacheBlock `json:"system,omitzero"`
 	Messages    []AnthropicMessage          `json:"messages"`
-	Tools       []AnthropicTool             `json:"tools,omitempty"`
-	Temperature float64                     `json:"temperature,omitempty"`
-	Stream      bool                        `json:"stream,omitempty"`
+	Tools       []AnthropicTool             `json:"tools,omitzero"`
+	Temperature float64                     `json:"temperature,omitzero"`
+	Stream      bool                        `json:"stream,omitzero"`
 }
 
 // NERD-EVOLVE-END: P1P2-prompt-caching
@@ -274,7 +274,7 @@ type AnthropicResponse struct {
 	Error *struct {
 		Type    string `json:"type"`
 		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // OpenAITool represents a tool definition for OpenAI-compatible APIs.
@@ -286,7 +286,7 @@ type OpenAITool struct {
 // OpenAIFunction represents the function definition.
 type OpenAIFunction struct {
 	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
+	Description string         `json:"description,omitzero"`
 	Parameters  map[string]any `json:"parameters"`
 }
 
@@ -305,7 +305,7 @@ type OpenAIFunctionCall struct {
 
 // OpenAIStreamOptions configures streaming behavior.
 type OpenAIStreamOptions struct {
-	IncludeUsage bool `json:"include_usage,omitempty"`
+	IncludeUsage bool `json:"include_usage,omitzero"`
 }
 
 // OpenAIMessage represents a message.
@@ -318,13 +318,13 @@ type OpenAIMessage struct {
 type OpenAIRequest struct {
 	Model          string               `json:"model"`
 	Messages       []OpenAIMessage      `json:"messages"`
-	MaxTokens      int                  `json:"max_tokens,omitempty"`
-	Temperature    float64              `json:"temperature,omitempty"`
-	Stream         bool                 `json:"stream,omitempty"`
-	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitempty"`
-	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitempty"`
-	Tools          []OpenAITool         `json:"tools,omitempty"`
-	ToolChoice     any                  `json:"tool_choice,omitempty"`
+	MaxTokens      int                  `json:"max_tokens,omitzero"`
+	Temperature    float64              `json:"temperature,omitzero"`
+	Stream         bool                 `json:"stream,omitzero"`
+	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitzero"`
+	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitzero"`
+	Tools          []OpenAITool         `json:"tools,omitzero"`
+	ToolChoice     any                  `json:"tool_choice,omitzero"`
 }
 
 // OpenAIResponse represents the API response.
@@ -338,13 +338,13 @@ type OpenAIResponse struct {
 		Message struct {
 			Role      string           `json:"role"`
 			Content   string           `json:"content"`
-			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
 		} `json:"message"`
 		Delta *struct { // For streaming
-			Role      string           `json:"role,omitempty"`
-			Content   string           `json:"content,omitempty"`
-			ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
-		} `json:"delta,omitempty"`
+			Role      string           `json:"role,omitzero"`
+			Content   string           `json:"content,omitzero"`
+			ToolCalls []OpenAIToolCall `json:"tool_calls,omitzero"`
+		} `json:"delta,omitzero"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
@@ -356,12 +356,12 @@ type OpenAIResponse struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // GeminiContent represents content in the request.
 type GeminiContent struct {
-	Role  string       `json:"role,omitempty"`
+	Role  string       `json:"role,omitzero"`
 	Parts []GeminiPart `json:"parts"`
 }
 
@@ -379,26 +379,26 @@ type GeminiFileData struct {
 
 // GeminiMediaResolution configures per-part media resolution.
 type GeminiMediaResolution struct {
-	Level string `json:"level,omitempty"` // media_resolution_low/medium/high/ultra_high
+	Level string `json:"level,omitzero"` // media_resolution_low/medium/high/ultra_high
 }
 
 // GeminiPart represents a part of the content.
 type GeminiPart struct {
-	Text             string                  `json:"text,omitempty"`
-	Thought          bool                    `json:"thought,omitempty"` // True if this part contains thinking/reasoning content
-	InlineData       *GeminiInlineData       `json:"inlineData,omitempty"`
-	FileData         *GeminiFileData         `json:"fileData,omitempty"`
-	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitempty"`
-	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitempty"`
-	ThoughtSignature string                  `json:"thoughtSignature,omitempty"`
-	MediaResolution  *GeminiMediaResolution  `json:"mediaResolution,omitempty"`
+	Text             string                  `json:"text,omitzero"`
+	Thought          bool                    `json:"thought,omitzero"` // True if this part contains thinking/reasoning content
+	InlineData       *GeminiInlineData       `json:"inlineData,omitzero"`
+	FileData         *GeminiFileData         `json:"fileData,omitzero"`
+	FunctionCall     *GeminiFunctionCall     `json:"functionCall,omitzero"`
+	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitzero"`
+	ThoughtSignature string                  `json:"thoughtSignature,omitzero"`
+	MediaResolution  *GeminiMediaResolution  `json:"mediaResolution,omitzero"`
 }
 
 // GeminiFunctionCall represents a function call from the model.
 type GeminiFunctionCall struct {
 	Name             string         `json:"name"`
 	Args             map[string]any `json:"args"`
-	ThoughtSignature string         `json:"thoughtSignature,omitempty"`
+	ThoughtSignature string         `json:"thoughtSignature,omitzero"`
 }
 
 // GeminiFunctionResponse represents a tool result sent back to the model.
@@ -409,31 +409,31 @@ type GeminiFunctionResponse struct {
 
 // GeminiThinkingConfig configures thinking/reasoning mode.
 type GeminiThinkingConfig struct {
-	IncludeThoughts bool   `json:"includeThoughts,omitempty"` // Enable thinking mode
-	ThinkingLevel   string `json:"thinkingLevel,omitempty"`   // Gemini 3: minimal/low/medium/high (lowercase)
+	IncludeThoughts bool   `json:"includeThoughts,omitzero"` // Enable thinking mode
+	ThinkingLevel   string `json:"thinkingLevel,omitzero"`   // Gemini 3: minimal/low/medium/high (lowercase)
 }
 
 // GeminiGenerationConfig represents generation parameters.
 type GeminiGenerationConfig struct {
-	Temperature      float64               `json:"temperature,omitempty"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`
-	ResponseMimeType string                `json:"responseMimeType,omitempty"`
-	ResponseSchema   map[string]any        `json:"responseJsonSchema,omitempty"`
-	ThinkingConfig   *GeminiThinkingConfig `json:"thinkingConfig,omitempty"` // Thinking mode settings
+	Temperature      float64               `json:"temperature,omitzero"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitzero"`
+	ResponseMimeType string                `json:"responseMimeType,omitzero"`
+	ResponseSchema   map[string]any        `json:"responseJsonSchema,omitzero"`
+	ThinkingConfig   *GeminiThinkingConfig `json:"thinkingConfig,omitzero"` // Thinking mode settings
 }
 
 // GeminiRequest represents the Gemini API request.
 type GeminiRequest struct {
 	Contents          []GeminiContent        `json:"contents"`
-	SystemInstruction *GeminiContent         `json:"systemInstruction,omitempty"`
+	SystemInstruction *GeminiContent         `json:"systemInstruction,omitzero"`
 	GenerationConfig  GeminiGenerationConfig `json:"generationConfig"`
-	Tools             []GeminiTool           `json:"tools,omitempty"`
+	Tools             []GeminiTool           `json:"tools,omitzero"`
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
-	ThoughtSignature string `json:"thoughtSignature,omitempty"`
-	SessionID        string `json:"sessionId,omitempty"`
+	ThoughtSignature string `json:"thoughtSignature,omitzero"`
+	SessionID        string `json:"sessionId,omitzero"`
 	// CachedContent is a resource name of cached context content
-	CachedContent string `json:"cachedContent,omitempty"`
+	CachedContent string `json:"cachedContent,omitzero"`
 }
 
 // GeminiGoogleSearch represents the Google Search grounding tool.
@@ -443,21 +443,21 @@ type GeminiGoogleSearch struct {
 
 // GeminiURLContext represents the URL context tool for grounding.
 type GeminiURLContext struct {
-	URLs []string `json:"urls,omitempty"` // Max 20 URLs, 34MB per URL
+	URLs []string `json:"urls,omitzero"` // Max 20 URLs, 34MB per URL
 }
 
 // GeminiTool represents a tool declaration for function calling or built-in tools.
 type GeminiTool struct {
-	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations,omitempty"`
-	GoogleSearch         *GeminiGoogleSearch         `json:"googleSearch,omitempty"` // Built-in Google Search
-	URLContext           *GeminiURLContext           `json:"urlContext,omitempty"`   // Built-in URL Context
+	FunctionDeclarations []GeminiFunctionDeclaration `json:"functionDeclarations,omitzero"`
+	GoogleSearch         *GeminiGoogleSearch         `json:"googleSearch,omitzero"` // Built-in Google Search
+	URLContext           *GeminiURLContext           `json:"urlContext,omitzero"`   // Built-in URL Context
 }
 
 // GeminiFunctionDeclaration represents a function declaration.
 type GeminiFunctionDeclaration struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitzero"`
 }
 
 // GeminiGroundingChunk represents a chunk of grounding data from Google Search.
@@ -465,7 +465,7 @@ type GeminiGroundingChunk struct {
 	Web *struct {
 		URI   string `json:"uri"`
 		Title string `json:"title"`
-	} `json:"web,omitempty"`
+	} `json:"web,omitzero"`
 }
 
 // GeminiGroundingSupport represents grounding support for a segment of text.
@@ -481,17 +481,17 @@ type GeminiGroundingSupport struct {
 
 // GeminiSearchEntryPoint represents a search entry point for grounding.
 type GeminiSearchEntryPoint struct {
-	RenderedContent string `json:"renderedContent,omitempty"`
-	SDKBlob         string `json:"sdkBlob,omitempty"`
+	RenderedContent string `json:"renderedContent,omitzero"`
+	SDKBlob         string `json:"sdkBlob,omitzero"`
 }
 
 // GeminiGroundingMetadata contains grounding information from Google Search.
 type GeminiGroundingMetadata struct {
-	GroundingChunks   []GeminiGroundingChunk   `json:"groundingChunks,omitempty"`
-	GroundingSupports []GeminiGroundingSupport `json:"groundingSupports,omitempty"`
-	WebSearchQueries  []string                 `json:"webSearchQueries,omitempty"`
-	SearchEntryPoint  *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitempty"`
-	RetrievalMetadata map[string]any           `json:"retrievalMetadata,omitempty"`
+	GroundingChunks   []GeminiGroundingChunk   `json:"groundingChunks,omitzero"`
+	GroundingSupports []GeminiGroundingSupport `json:"groundingSupports,omitzero"`
+	WebSearchQueries  []string                 `json:"webSearchQueries,omitzero"`
+	SearchEntryPoint  *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitzero"`
+	RetrievalMetadata map[string]any           `json:"retrievalMetadata,omitzero"`
 }
 
 // GeminiResponseCandidate represents a single response candidate.
@@ -501,7 +501,7 @@ type GeminiResponseCandidate struct {
 		Role  string               `json:"role"`
 	} `json:"content"`
 	FinishReason      string                   `json:"finishReason"`
-	GroundingMetadata *GeminiGroundingMetadata `json:"groundingMetadata,omitempty"`
+	GroundingMetadata *GeminiGroundingMetadata `json:"groundingMetadata,omitzero"`
 }
 
 // GeminiResponse represents the API response.
@@ -511,29 +511,29 @@ type GeminiResponse struct {
 		PromptTokenCount        int `json:"promptTokenCount"`
 		CandidatesTokenCount    int `json:"candidatesTokenCount"`
 		TotalTokenCount         int `json:"totalTokenCount"`
-		ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitempty"`      // Tokens used for thinking
-		CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"` // Tokens read from cache
+		ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitzero"`      // Tokens used for thinking
+		CachedContentTokenCount int `json:"cachedContentTokenCount,omitzero"` // Tokens read from cache
 	} `json:"usageMetadata"`
 	// ThoughtSummary contains the model's reasoning process (when thinking is enabled)
-	ThoughtSummary string `json:"thoughtSummary,omitempty"`
+	ThoughtSummary string `json:"thoughtSummary,omitzero"`
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for the model to maintain reasoning context
-	ThoughtSignature string `json:"thoughtSignature,omitempty"`
+	ThoughtSignature string `json:"thoughtSignature,omitzero"`
 	Error            *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 		Status  string `json:"status"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // GeminiResponsePart represents a part of the response content.
 type GeminiResponsePart struct {
-	Text             string              `json:"text,omitempty"`
-	Thought          bool                `json:"thought,omitempty"` // True if this part contains thinking/reasoning content
-	InlineData       *GeminiInlineData   `json:"inlineData,omitempty"`
-	FileData         *GeminiFileData     `json:"fileData,omitempty"`
-	FunctionCall     *GeminiFunctionCall `json:"functionCall,omitempty"`
-	ThoughtSignature string              `json:"thoughtSignature,omitempty"`
+	Text             string              `json:"text,omitzero"`
+	Thought          bool                `json:"thought,omitzero"` // True if this part contains thinking/reasoning content
+	InlineData       *GeminiInlineData   `json:"inlineData,omitzero"`
+	FileData         *GeminiFileData     `json:"fileData,omitzero"`
+	FunctionCall     *GeminiFunctionCall `json:"functionCall,omitzero"`
+	ThoughtSignature string              `json:"thoughtSignature,omitzero"`
 }
 
 // GeminiFile represents a file in the Gemini Files API.
@@ -541,7 +541,7 @@ type GeminiFile struct {
 	Name        string `json:"name"` // Resource name: files/123...
 	DisplayName string `json:"displayName"`
 	MimeType    string `json:"mimeType"`
-	SizeBytes   int64  `json:"sizeBytes,string,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes,string,omitzero"`
 	CreateTime  string `json:"createTime"`
 	UpdateTime  string `json:"updateTime"`
 	Expiration  string `json:"expirationTime"`
@@ -551,7 +551,7 @@ type GeminiFile struct {
 	Error       *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	} `json:"error,omitzero"`
 }
 
 // GeminiCachedContent represents a context cache resource.
@@ -562,8 +562,8 @@ type GeminiCachedContent struct {
 	CreateTime  string          `json:"createTime"`
 	UpdateTime  string          `json:"updateTime"`
 	ExpireTime  string          `json:"expireTime"`
-	TTL         string          `json:"ttl,omitempty"` // Input only (e.g. "3600s")
-	Contents    []GeminiContent `json:"contents,omitempty"`
+	TTL         string          `json:"ttl,omitzero"` // Input only (e.g. "3600s")
+	Contents    []GeminiContent `json:"contents,omitzero"`
 }
 
 // GeminiListFilesResponse represents the response from ListFiles.

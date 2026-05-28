@@ -614,10 +614,7 @@ func assertNoCriticalLogPatterns(t *testing.T, entries []logEntry) {
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("critical log patterns detected (%d)\n", len(matches)))
-	limit := 6
-	if len(matches) < limit {
-		limit = len(matches)
-	}
+	limit := min(len(matches), 6)
 	for i := 0; i < limit; i++ {
 		entry := matches[i]
 		sb.WriteString(fmt.Sprintf("- %s [%s] %s\n", entry.Time.Format(time.RFC3339), entry.Category, entry.Message))
@@ -1010,10 +1007,7 @@ func formatLoopReport(report loopReport, limit int) string {
 		sb.WriteString(fmt.Sprintf("affected actions: %s\n", strings.Join(report.Summary.Affected, ", ")))
 	}
 
-	count := len(report.Anomalies)
-	if count > limit {
-		count = limit
-	}
+	count := min(len(report.Anomalies), limit)
 	for i := 0; i < count; i++ {
 		sb.WriteString(fmt.Sprintf("- %s\n", formatLoopAnomaly(report.Anomalies[i])))
 	}
@@ -1059,10 +1053,7 @@ func formatLogQueryResults(results []logQueryResult, limit int) string {
 	}
 
 	var sb strings.Builder
-	count := len(results)
-	if count > limit {
-		count = limit
-	}
+	count := min(len(results), limit)
 	for i := 0; i < count; i++ {
 		sb.WriteString(fmt.Sprintf("- %s\n", formatLogQueryResult(results[i])))
 	}
@@ -1202,10 +1193,7 @@ func formatLogIssues(errors, warnings []logEntry, limit int) string {
 			return
 		}
 		sb.WriteString(fmt.Sprintf("%s:\n", label))
-		count := len(entries)
-		if count > limit {
-			count = limit
-		}
+		count := min(len(entries), limit)
 		for i := 0; i < count; i++ {
 			entry := entries[i]
 			sb.WriteString(fmt.Sprintf("- %s [%s] %s\n", entry.Time.Format(time.RFC3339), entry.Category, entry.Message))
@@ -1393,7 +1381,7 @@ func TestChatLiveLLM_EventStorm(t *testing.T) {
 	waitForSignal(t, "boot", signals.bootDone.ch, signals, resultCh, timeouts.boot, startTime)
 	waitForSignal(t, "scan", signals.scanDone.ch, signals, resultCh, timeouts.scan, startTime)
 
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		sendAlt(program, 'l')
 		sendAlt(program, 'p')
 		sendAlt(program, 'a')
@@ -1451,7 +1439,7 @@ func TestChatLiveLLM_RaceStorm(t *testing.T) {
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < senders; i++ {
+	for i := range senders {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

@@ -48,7 +48,7 @@ type Checkpoint struct {
 
 // PlanView provides a structured view of the current plan.
 type PlanView struct {
-	CampaignID   string       `json:"campaign_id,omitempty"`
+	CampaignID   string       `json:"campaign_id,omitzero"`
 	TotalTasks   int          `json:"total_tasks"`
 	Pending      int          `json:"pending"`
 	InProgress   int          `json:"in_progress"`
@@ -941,10 +941,7 @@ func (s *SessionPlannerShard) FormatPlanAsMarkdown() string {
 		completedTasks := filterTasksByStatus(plan.Tasks, "completed")
 		if len(completedTasks) > 0 {
 			sb.WriteString("## Recently Completed\n\n")
-			displayCount := len(completedTasks)
-			if displayCount > 5 {
-				displayCount = 5
-			}
+			displayCount := min(len(completedTasks), 5)
 			for i := len(completedTasks) - displayCount; i < len(completedTasks); i++ {
 				task := completedTasks[i]
 				sb.WriteString(fmt.Sprintf("- ✓ %s", task.Description))
@@ -963,10 +960,7 @@ func (s *SessionPlannerShard) FormatPlanAsMarkdown() string {
 	// Checkpoints
 	if len(plan.Checkpoints) > 0 {
 		sb.WriteString("## Checkpoints\n\n")
-		displayCount := len(plan.Checkpoints)
-		if displayCount > 3 {
-			displayCount = 3
-		}
+		displayCount := min(len(plan.Checkpoints), 3)
 		for i := len(plan.Checkpoints) - displayCount; i < len(plan.Checkpoints); i++ {
 			cp := plan.Checkpoints[i]
 			sb.WriteString(fmt.Sprintf("- **%s** - %s (%d tasks remaining)\n",
@@ -1032,10 +1026,7 @@ func formatRelativeTime(t time.Time) string {
 }
 
 func generateProgressBar(percent float64, width int) string {
-	filled := int(percent / 100 * float64(width))
-	if filled > width {
-		filled = width
-	}
+	filled := min(int(percent/100*float64(width)), width)
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 	return fmt.Sprintf("[%s] %.1f%%", bar, percent)
 }

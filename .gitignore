@@ -79,6 +79,8 @@ tmp*/
 Docs/research/
 Docs/plans/
 Docs/Spec/
+/scratch_*/
+vet_output.txt
 
 # Local runtime / tooling state
 /conductor/

@@ -16,14 +16,8 @@ type WorldConfig struct {
 
 // DefaultWorldConfig returns defaults for world-model scanning.
 func DefaultWorldConfig() WorldConfig {
-	fast := min(runtime.NumCPU(), 20)
-	if fast < 4 {
-		fast = 4
-	}
-	deep := min(runtime.NumCPU(), 8)
-	if deep < 2 {
-		deep = 2
-	}
+	fast := max(min(runtime.NumCPU(), 20), 4)
+	deep := max(min(runtime.NumCPU(), 8), 2)
 	return WorldConfig{
 		FastWorkers: fast,
 		DeepWorkers: deep,

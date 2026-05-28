@@ -127,7 +127,7 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 		fmt.Println("  No routing decisions recorded")
 	} else {
 		limit := min(len(routingFacts), 5)
-		for i := 0; i < limit; i++ {
+		for i := range limit {
 			fmt.Printf("  %s\n", formatFactStr(routingFacts[i]))
 		}
 	}
@@ -139,7 +139,7 @@ func runTransparency(cmd *cobra.Command, args []string) error {
 		fmt.Println("  No tool invocations recorded")
 	} else {
 		limit := min(len(toolFacts), 5)
-		for i := 0; i < limit; i++ {
+		for i := range limit {
 			fmt.Printf("  %s\n", formatFactStr(toolFacts[i]))
 		}
 	}

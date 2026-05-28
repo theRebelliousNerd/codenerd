@@ -440,12 +440,12 @@ func renderNodeASCII(sb *strings.Builder, node *DerivationNode, prefix string, i
 func (trace *DerivationTrace) RenderJSON() ([]byte, error) {
 	type jsonNode struct {
 		ID       string      `json:"id"`
-		ParentID string      `json:"parent_id,omitempty"`
+		ParentID string      `json:"parent_id,omitzero"`
 		Fact     string      `json:"fact"`
 		Source   string      `json:"source"`
-		Rule     string      `json:"rule,omitempty"`
+		Rule     string      `json:"rule,omitzero"`
 		Depth    int         `json:"depth"`
-		Children []*jsonNode `json:"children,omitempty"`
+		Children []*jsonNode `json:"children,omitzero"`
 	}
 
 	var convertNode func(*DerivationNode) *jsonNode

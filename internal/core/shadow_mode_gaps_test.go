@@ -164,7 +164,6 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 	var mu sync.Mutex
 
 	for i := range 20 {
-		i := i
 		wg.Go(func() {
 			action := SimulatedAction{
 				ID:     fmt.Sprintf("whatif-%d", i),

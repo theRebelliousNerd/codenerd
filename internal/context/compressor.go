@@ -839,10 +839,7 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 
 	scoredFacts := c.activation.GetHighActivationFacts(allFacts, currentIntent, c.config.AtomReserve)
 
-	start := len(c.recentTurns) - c.config.RecentTurnWindow
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(c.recentTurns)-c.config.RecentTurnWindow, 0)
 	recent := c.recentTurns[start:]
 
 	builder := NewContextBlockBuilder()

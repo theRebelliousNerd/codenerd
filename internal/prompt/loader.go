@@ -474,10 +474,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 	// We have 15 columns per atom insert. So max chunk size is 999 / 15 = 66
 	chunkSize := 60
 	for i := 0; i < len(atoms); i += chunkSize {
-		end := i + chunkSize
-		if end > len(atoms) {
-			end = len(atoms)
-		}
+		end := min(i+chunkSize, len(atoms))
 		chunk := atoms[i:end]
 		chunkEmbeds := embeddings[i:end]
 
@@ -1092,10 +1089,7 @@ func storeAtomsWithEmbeddings(ctx context.Context, db *sql.DB, atoms []*PromptAt
 
 	chunkSize := 50
 	for i := 0; i < len(atoms); i += chunkSize {
-		end := i + chunkSize
-		if end > len(atoms) {
-			end = len(atoms)
-		}
+		end := min(i+chunkSize, len(atoms))
 
 		chunkAtoms := atoms[i:end]
 		chunkEmbeddings := embeddings[i:end]
@@ -1221,10 +1215,7 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 	// SQLite limits parameters, so we chunk tags too (999 limit / 3 fields = 333 max tags per batch)
 	tagChunkSize := 300
 	for i := 0; i < len(allTags); i += tagChunkSize {
-		end := i + tagChunkSize
-		if end > len(allTags) {
-			end = len(allTags)
-		}
+		end := min(i+tagChunkSize, len(allTags))
 
 		chunk := allTags[i:end]
 		placeholders := make([]string, 0, len(chunk))

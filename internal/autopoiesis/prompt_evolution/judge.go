@@ -221,7 +221,7 @@ func (tj *TaskJudge) parseVerdict(response string, exec *ExecutionRecord) (*Judg
 		Explanation     string  `json:"explanation"`
 		Category        string  `json:"category"`
 		ImprovementRule string  `json:"improvement_rule"`
-		Confidence      float64 `json:"confidence,omitempty"`
+		Confidence      float64 `json:"confidence,omitzero"`
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {

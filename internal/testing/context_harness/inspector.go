@@ -144,10 +144,7 @@ func (i *PromptInspector) InspectPrompt(snapshot *PromptSnapshot) {
 			return sortedFacts[i].Score > sortedFacts[j].Score
 		})
 
-		topN := 10
-		if len(sortedFacts) < topN {
-			topN = len(sortedFacts)
-		}
+		topN := min(len(sortedFacts), 10)
 
 		for idx := 0; idx < topN; idx++ {
 			fact := sortedFacts[idx]
@@ -173,10 +170,7 @@ func (i *PromptInspector) InspectPrompt(snapshot *PromptSnapshot) {
 			return sortedPruned[i].Score < sortedPruned[j].Score
 		})
 
-		sampleSize := 5
-		if len(sortedPruned) < sampleSize {
-			sampleSize = len(sortedPruned)
-		}
+		sampleSize := min(len(sortedPruned), 5)
 
 		sb.WriteString("Sample Pruned (lowest scores):\n")
 		for idx := 0; idx < sampleSize; idx++ {

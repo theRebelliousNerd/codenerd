@@ -342,12 +342,12 @@ func (c *AnthropicClient) CompleteWithStreaming(ctx context.Context, systemPromp
 					Type  string `json:"type"`
 					Delta *struct {
 						Type string `json:"type"`
-						Text string `json:"text,omitempty"`
-					} `json:"delta,omitempty"`
+						Text string `json:"text,omitzero"`
+					} `json:"delta,omitzero"`
 					Error *struct {
 						Type    string `json:"type"`
 						Message string `json:"message"`
-					} `json:"error,omitempty"`
+					} `json:"error,omitzero"`
 				}
 				if err := json.Unmarshal([]byte(data), &evt); err != nil {
 					continue

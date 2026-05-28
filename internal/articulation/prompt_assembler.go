@@ -1201,16 +1201,16 @@ func (a *PromptAssemblerAdapter) JITReady() bool {
 func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext, error) {
 	pc := &PromptContext{}
 
-	if v, ok := m["shard_id"].(string); ok {
+	if v := types.ExtractString(m["shard_id"]); v != "" {
 		pc.ShardID = v
 	}
-	if v, ok := m["shard_type"].(string); ok {
+	if v := types.ExtractString(m["shard_type"]); v != "" {
 		pc.ShardType = v
 	}
-	if v, ok := m["campaign_id"].(string); ok {
+	if v := types.ExtractString(m["campaign_id"]); v != "" {
 		pc.CampaignID = v
 	}
-	if v, ok := m["semantic_query"].(string); ok {
+	if v := types.ExtractString(m["semantic_query"]); v != "" {
 		pc.SemanticQuery = v
 	}
 	if v, ok := m["semantic_top_k"].(int); ok {
@@ -1232,7 +1232,7 @@ func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext,
 	// Map known Ouroboros fields to ExtraContext tags
 	keysToCheck := []string{"ouroboros_stage", "stage", "tool_name", "tool_purpose", "input_type", "output_type"}
 	for _, key := range keysToCheck {
-		if v, ok := m[key].(string); ok && v != "" {
+		if v := types.ExtractString(m[key]); v != "" {
 			extraContext[key] = v
 			// For "stage", map to "ouroboros_stage" as well if missing
 			if key == "stage" {
@@ -1327,7 +1327,7 @@ func (pa *PromptAssembler) queryAndFormatContext(shardID string) string {
 			continue
 		}
 
-		if atom, ok := fact.Args[1].(string); ok {
+		if atom := types.ExtractString(fact.Args[1]); atom != "" {
 			atoms = append(atoms, atom)
 		}
 	}
@@ -1363,8 +1363,8 @@ func (pa *PromptAssembler) queryAndFormatSpecialistKnowledge(shardID string) str
 			continue
 		}
 
-		topic, _ := fact.Args[1].(string)
-		content, _ := fact.Args[2].(string)
+		topic := types.ExtractString(fact.Args[1])
+		content := types.ExtractString(fact.Args[2])
 		if topic != "" && content != "" {
 			blocks = append(blocks, fmt.Sprintf("## %s\n%s", topic, content))
 		}

@@ -720,8 +720,8 @@ func TestPromptAssembler_NullEmptyInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryContextAtoms() error = %v", err)
 	}
-	if len(atoms) != 1 {
-		t.Errorf("Expected 1 atom for empty query, got %d", len(atoms))
+	if len(atoms) != 0 {
+		t.Errorf("Expected 0 atom for empty query, got %d", len(atoms))
 	}
 }
 

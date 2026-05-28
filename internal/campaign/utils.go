@@ -25,10 +25,7 @@ func chunkText(text string, maxLen int) []string {
 		}
 
 		rs := []rune(remaining)
-		limit := maxLen
-		if limit > len(rs) {
-			limit = len(rs)
-		}
+		limit := min(maxLen, len(rs))
 		candidate := string(rs[:limit])
 
 		splitIdx := -1

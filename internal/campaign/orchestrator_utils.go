@@ -243,10 +243,7 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 	// We can scale up, but let's be conservative.
 	if researchCount > 0 || testCount > 0 {
 		// Boost limit for IO heavy work
-		limit = o.maxParallelTasks * 2
-		if limit > 10 {
-			limit = 10
-		}
+		limit = min(o.maxParallelTasks*2, 10)
 	}
 
 	return limit

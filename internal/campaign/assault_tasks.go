@@ -25,8 +25,8 @@ type assaultTargetsFile struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	Scope      AssaultScope `json:"scope"`
 	Targets    []string     `json:"targets"`
-	Include    []string     `json:"include,omitempty"`
-	Exclude    []string     `json:"exclude,omitempty"`
+	Include    []string     `json:"include,omitzero"`
+	Exclude    []string     `json:"exclude,omitzero"`
 }
 
 type assaultBatchFile struct {
@@ -46,11 +46,11 @@ type assaultResult struct {
 	StartedAt  time.Time        `json:"started_at"`
 	DurationMs int64            `json:"duration_ms"`
 	ExitCode   int              `json:"exit_code"`
-	Killed     bool             `json:"killed,omitempty"`
-	KillReason string           `json:"kill_reason,omitempty"`
-	Truncated  bool             `json:"truncated,omitempty"`
+	Killed     bool             `json:"killed,omitzero"`
+	KillReason string           `json:"kill_reason,omitzero"`
+	Truncated  bool             `json:"truncated,omitzero"`
 	LogPath    string           `json:"log_path"`
-	Error      string           `json:"error,omitempty"`
+	Error      string           `json:"error,omitzero"`
 }
 
 type stageOutcome struct {
@@ -76,16 +76,16 @@ type assaultFailure struct {
 type assaultTriageOutput struct {
 	Summary            string                   `json:"summary"`
 	RecommendedTasks   []assaultRemediationTask `json:"recommended_tasks"`
-	AdditionalMetadata map[string]any           `json:"metadata,omitempty"`
+	AdditionalMetadata map[string]any           `json:"metadata,omitzero"`
 }
 
 type assaultRemediationTask struct {
 	Type        string   `json:"type"` // "/shard_task" | "/tool_create"
-	Priority    string   `json:"priority,omitempty"`
+	Priority    string   `json:"priority,omitzero"`
 	Description string   `json:"description"`
-	Shard       string   `json:"shard,omitempty"`
-	ShardInput  string   `json:"shard_input,omitempty"`
-	Artifacts   []string `json:"artifacts,omitempty"`
+	Shard       string   `json:"shard,omitzero"`
+	ShardInput  string   `json:"shard_input,omitzero"`
+	Artifacts   []string `json:"artifacts,omitzero"`
 }
 
 func (o *Orchestrator) executeAssaultDiscoverTask(ctx context.Context, task *Task) (any, error) {
@@ -712,10 +712,7 @@ func chunkStrings(items []string, size int) [][]string {
 	}
 	out := make([][]string, 0, (len(items)/size)+1)
 	for i := 0; i < len(items); i += size {
-		end := i + size
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(i+size, len(items))
 		out = append(out, items[i:end])
 	}
 	return out

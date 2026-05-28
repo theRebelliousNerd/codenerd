@@ -51,8 +51,8 @@ func (s *MCPClientIntegrationSuite) SetupTest() {
 		resp := struct {
 			JSONRPC string      `json:"jsonrpc"`
 			ID      int         `json:"id"`
-			Result  interface{} `json:"result,omitempty"`
-			Error   interface{} `json:"error,omitempty"`
+			Result  interface{} `json:"result,omitzero"`
+			Error   interface{} `json:"error,omitzero"`
 		}{
 			JSONRPC: "2.0",
 			ID:      req.ID,

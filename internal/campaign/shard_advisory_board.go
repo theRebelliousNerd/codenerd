@@ -70,7 +70,7 @@ type AdvisoryRequest struct {
 	TargetPaths []string        `json:"target_paths"`
 
 	// Context from intelligence gathering
-	Intelligence *IntelligenceReport `json:"intelligence,omitempty"`
+	Intelligence *IntelligenceReport `json:"intelligence,omitzero"`
 }
 
 // AdvisoryPhase represents a simplified campaign phase for advisory review.

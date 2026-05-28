@@ -204,10 +204,7 @@ func (t *ActivationTracer) TraceActivation(snapshot *ActivationSnapshot) {
 			return sortedFacts[i].Score > sortedFacts[j].Score
 		})
 
-		topN := 15
-		if len(sortedFacts) < topN {
-			topN = len(sortedFacts)
-		}
+		topN := min(len(sortedFacts), 15)
 
 		for i := 0; i < topN; i++ {
 			fa := sortedFacts[i]
@@ -269,10 +266,7 @@ func (t *ActivationTracer) TraceActivation(snapshot *ActivationSnapshot) {
 			return sortedPruned[i].Score < sortedPruned[j].Score
 		})
 
-		sampleSize := 10
-		if len(sortedPruned) < sampleSize {
-			sampleSize = len(sortedPruned)
-		}
+		sampleSize := min(len(sortedPruned), 10)
 
 		for i := 0; i < sampleSize; i++ {
 			fa := sortedPruned[i]
