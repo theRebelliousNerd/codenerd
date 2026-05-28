@@ -80,14 +80,16 @@ func (s *LocalStore) ensureContentHashes() error {
 		return nil
 	}
 
-	// Check if content_hash column exists. Use deferred Close so any future
-	// early return between Query and the explicit Close (a refactor risk)
-	// can't leak the rows handle.
+	// Check if content_hash column exists. NOTE: do NOT use defer
+	// rows.Close() here — go-sqlite3 holds the underlying connection
+	// until rows.Close returns, and the QueryRow below would block
+	// waiting for that connection (caused a 9-minute deadlock in
+	// TestPersistFastSnapshotToDB_PreservesGlobalFacts before this was
+	// reverted). Close explicitly before the next query.
 	rows, err := s.db.Query("PRAGMA table_info(knowledge_atoms)")
 	if err != nil {
 		return fmt.Errorf("failed to get table info: %w", err)
 	}
-	defer rows.Close()
 	hasContentHash := false
 	for rows.Next() {
 		var cid int
@@ -101,6 +103,9 @@ func (s *LocalStore) ensureContentHashes() error {
 			hasContentHash = true
 			break
 		}
+	}
+	if err := rows.Close(); err != nil {
+		logging.Get(logging.CategoryStore).Warn("ensureContentHashes: rows.Close() failed: %v", err)
 	}
 
 	if !hasContentHash {
