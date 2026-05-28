@@ -1,6 +1,7 @@
 ---
 
-remediated: false
+remediated: true
+remediated_date: 2026-05-28
 subsystem: world
 ---
 # QA Journal: Boundary Value Analysis & Negative Testing

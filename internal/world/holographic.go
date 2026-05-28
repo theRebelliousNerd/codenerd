@@ -141,43 +141,66 @@ func NewHolographicProvider(kernel *core.RealKernel, workDir string) *Holographi
 
 // GetContext generates complete holographic context for a file.
 func (h *HolographicProvider) GetContext(filePath string) (*HolographicContext, error) {
+	return h.getContextInternal(context.Background(), filePath)
+}
+
+// GetContextWithContext generates complete holographic context with support for context cancellation.
+func (h *HolographicProvider) GetContextWithContext(ctx context.Context, filePath string) (*HolographicContext, error) {
+	return h.getContextInternal(ctx, filePath)
+}
+
+// getContextInternal is the shared cancellable context generator.
+func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath string) (*HolographicContext, error) {
 	logging.WorldDebug("HolographicProvider: generating context for %s", filepath.Base(filePath))
 
-	ctx := &HolographicContext{
+	hc := &HolographicContext{
 		TargetFile:     filePath,
 		PackageImports: make(map[string][]string),
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// Detect language and route to appropriate handler
 	ext := filepath.Ext(filePath)
 	switch ext {
 	case ".go":
-		if err := h.buildGoContext(ctx, filePath); err != nil {
+		if err := h.buildGoContextWithContext(ctx, hc, filePath); err != nil {
 			logging.WorldDebug("HolographicProvider: Go context failed: %v", err)
 			// Continue with partial context
 		}
 	default:
 		// For non-Go files, provide basic architectural context
-		h.buildBasicContext(ctx, filePath)
+		h.buildBasicContextWithContext(ctx, hc, filePath)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	// Add architectural analysis (works for any language)
-	h.analyzeArchitecture(ctx, filePath)
+	h.analyzeArchitecture(hc, filePath)
 
 	// Query knowledge graph for relationships
-	h.queryRelationships(ctx, filePath)
+	h.queryRelationshipsWithContext(ctx, hc, filePath)
 
 	// Check for test file existence
-	h.checkTestCoverage(ctx, filePath)
+	h.checkTestCoverage(hc, filePath)
 
 	logging.WorldDebug("HolographicProvider: context complete for %s - %d siblings, %d signatures",
-		filepath.Base(filePath), len(ctx.PackageSiblings), len(ctx.PackageSignatures))
+		filepath.Base(filePath), len(hc.PackageSiblings), len(hc.PackageSignatures))
 
-	return ctx, nil
+	return hc, nil
 }
 
 // buildGoContext builds package-level context for Go files.
 func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath string) error {
+	return h.buildGoContextWithContext(context.Background(), ctx, filePath)
+}
+
+// buildGoContextWithContext builds package-level context for Go files with cancellation and limit protections.
+func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) error {
 	// Get the directory containing this file
 	dir := filepath.Dir(filePath)
 
@@ -188,6 +211,8 @@ func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath s
 	}
 
 	var goFiles []string
+	const maxPackageFilesToParse = 100 // Cap to prevent memory/CPU starvation
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -197,16 +222,28 @@ func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath s
 		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
 			fullPath := filepath.Join(dir, name)
 			if fullPath != filePath {
-				ctx.PackageSiblings = append(ctx.PackageSiblings, fullPath)
+				hc.PackageSiblings = append(hc.PackageSiblings, fullPath)
 			}
 			goFiles = append(goFiles, fullPath)
 		}
 	}
 
+	// Cap the sibling files parsed to protect resource usage
+	if len(goFiles) > maxPackageFilesToParse {
+		logging.Get(logging.CategoryWorld).Warn("buildGoContext: package too large (%d files), limiting parsing to first %d", len(goFiles), maxPackageFilesToParse)
+		goFiles = goFiles[:maxPackageFilesToParse]
+	}
+
 	// Parse all files in the package to extract signatures
 	fset := token.NewFileSet()
 	for _, goFile := range goFiles {
-		if err := h.extractGoSignatures(ctx, fset, goFile); err != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
 		}
@@ -214,7 +251,7 @@ func (h *HolographicProvider) buildGoContext(ctx *HolographicContext, filePath s
 
 	// Extract package name from target file
 	if node, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly); err == nil {
-		ctx.TargetPkg = node.Name.Name
+		hc.TargetPkg = node.Name.Name
 	}
 
 	return nil
@@ -427,7 +464,16 @@ func (h *HolographicProvider) analyzeArchitecture(ctx *HolographicContext, fileP
 
 // queryRelationships queries the kernel for semantic relationships.
 func (h *HolographicProvider) queryRelationships(ctx *HolographicContext, filePath string) {
+	h.queryRelationshipsWithContext(context.Background(), ctx, filePath)
+}
+
+// queryRelationshipsWithContext queries the kernel with context support and graph edge caps.
+func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
 	if h.kernel == nil {
+		return
+	}
+
+	if err := ctx.Err(); err != nil {
 		return
 	}
 
@@ -441,6 +487,12 @@ func (h *HolographicProvider) queryRelationships(ctx *HolographicContext, filePa
 	var fileSymbols []string
 
 	for _, fact := range facts {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		if len(fact.Args) < 5 {
 			continue
 		}
@@ -452,13 +504,30 @@ func (h *HolographicProvider) queryRelationships(ctx *HolographicContext, filePa
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return
+	}
+
 	// Query code_calls to build call graph for these symbols
 	callFacts, err := h.kernel.Query("code_calls")
 	if err != nil {
 		return
 	}
 
+	const maxCallGraphEdges = 100 // Cap to prevent prompt & serialization bloat
+	edgeCount := 0
+
 	for _, fact := range callFacts {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if edgeCount >= maxCallGraphEdges {
+			break
+		}
+
 		if len(fact.Args) < 2 {
 			continue
 		}
@@ -468,10 +537,12 @@ func (h *HolographicProvider) queryRelationships(ctx *HolographicContext, filePa
 		// Check if caller or callee is in our file
 		for _, sym := range fileSymbols {
 			if strings.Contains(caller, sym) || strings.Contains(callee, sym) {
-				ctx.CallGraph = append(ctx.CallGraph, CallEdge{
+				hc.CallGraph = append(hc.CallGraph, CallEdge{
 					Caller: caller,
 					Callee: callee,
 				})
+				edgeCount++
+				break
 			}
 		}
 	}
@@ -494,6 +565,11 @@ func (h *HolographicProvider) checkTestCoverage(ctx *HolographicContext, filePat
 
 // buildBasicContext provides minimal context for non-Go files.
 func (h *HolographicProvider) buildBasicContext(ctx *HolographicContext, filePath string) {
+	h.buildBasicContextWithContext(context.Background(), ctx, filePath)
+}
+
+// buildBasicContextWithContext provides minimal context with cancellation support.
+func (h *HolographicProvider) buildBasicContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
 	// Just set up basic file info
 	dir := filepath.Dir(filePath)
 	entries, err := os.ReadDir(dir)
@@ -503,13 +579,19 @@ func (h *HolographicProvider) buildBasicContext(ctx *HolographicContext, filePat
 
 	ext := filepath.Ext(filePath)
 	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		if entry.IsDir() {
 			continue
 		}
 		if filepath.Ext(entry.Name()) == ext {
 			fullPath := filepath.Join(dir, entry.Name())
 			if fullPath != filePath {
-				ctx.PackageSiblings = append(ctx.PackageSiblings, fullPath)
+				hc.PackageSiblings = append(hc.PackageSiblings, fullPath)
 			}
 		}
 	}
@@ -1022,10 +1104,25 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fi
 		return "", fmt.Errorf("empty file path")
 	}
 
-	// Resolve relative paths against workDir
+	// Resolve relative paths against workDir and verify workspace bounds (security check)
 	resolvedPath := file
-	if !filepath.IsAbs(file) && h.workDir != "" {
-		resolvedPath = filepath.Join(h.workDir, file)
+	if h.workDir != "" {
+		cleanWorkDir := filepath.Clean(h.workDir)
+		absPath := file
+		if !filepath.IsAbs(file) {
+			absPath = filepath.Join(cleanWorkDir, file)
+		} else {
+			absPath = filepath.Clean(file)
+		}
+
+		// Verify that absPath has cleanWorkDir as prefix to block path traversal
+		rel, relErr := filepath.Rel(cleanWorkDir, absPath)
+		if relErr != nil || strings.HasPrefix(rel, "..") {
+			return "", fmt.Errorf("security violation: path traversal detected: %s is outside workspace %s", file, h.workDir)
+		}
+		resolvedPath = absPath
+	} else if !filepath.IsAbs(file) {
+		return "", fmt.Errorf("cannot resolve relative path %s with empty workDir", file)
 	}
 
 	var content string
@@ -1037,6 +1134,14 @@ func (h *HolographicProvider) fetchFunctionBody(file, funcName string, cache *fi
 	}
 
 	if content == "" {
+		info, statErr := os.Stat(resolvedPath)
+		if statErr != nil {
+			return "", fmt.Errorf("failed to stat file %s: %w", resolvedPath, statErr)
+		}
+		if info.Size() > 5*1024*1024 { // 5MB limit
+			return "", fmt.Errorf("file too large: %s (%d bytes)", resolvedPath, info.Size())
+		}
+
 		b, err := os.ReadFile(resolvedPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read file %s: %w", resolvedPath, err)

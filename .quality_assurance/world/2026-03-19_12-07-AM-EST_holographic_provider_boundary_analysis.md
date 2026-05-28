@@ -1,6 +1,7 @@
 ---
 
-remediated: false
+remediated: true
+remediated_date: 2026-05-28
 subsystem: world
 ---
 # HolographicProvider Boundary Value Analysis and Negative Testing Journal

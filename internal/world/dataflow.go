@@ -44,14 +44,23 @@ func (d *DataFlowExtractor) ExtractDataFlow(path string) ([]core.Fact, error) {
 	}
 
 	info, statErr := os.Stat(path)
-	if statErr == nil && info.Size() > 5*1024*1024 { // 5MB limit
+	if statErr != nil {
+		return nil, fmt.Errorf("failed to stat file %s: %w", path, statErr)
+	}
+	if info.Size() > 5*1024*1024 { // 5MB limit
 		logging.Get(logging.CategoryWorld).Warn("DataFlowExtractor: skipping huge file: %s (%d bytes)", path, info.Size())
 		return nil, nil
 	}
 
+	// Single read to protect against TOCTOU race conditions
+	contentBytes, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read file %s: %w", path, readErr)
+	}
+
 	// Parse with full AST (need bodies for data flow analysis)
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments|parser.SkipObjectResolution)
+	node, err := parser.ParseFile(fset, path, contentBytes, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		logging.Get(logging.CategoryWorld).Error("DataFlowExtractor: parse failed: %s - %v", path, err)
 		return nil, fmt.Errorf("failed to parse file %s: %w", path, err)
@@ -187,7 +196,7 @@ func (ctx *extractionContext) extractAssignment(stmt *ast.AssignStmt) {
 
 		// Determine the type classification from RHS
 		var typeClass string
-		if varName == "ok" {
+		if varName == "ok" || varName == "found" || varName == "exists" || varName == "success" {
 			typeClass = "boolean"
 		} else if i < len(stmt.Rhs) {
 			typeClass = ctx.classifyAssignmentType(stmt.Rhs[i], i, len(stmt.Lhs))
@@ -431,26 +440,28 @@ func (ctx *extractionContext) isErrorCheck(expr *ast.BinaryExpr) bool {
 	return isErrorVar && ctx.isNilComparison(expr)
 }
 
+// extractVarStr recursively unwraps nested SelectorExpr or Ident structures.
+func (ctx *extractionContext) extractVarStr(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		if e.Name != "nil" {
+			return e.Name
+		}
+	case *ast.SelectorExpr:
+		base := ctx.extractVarStr(e.X)
+		if base != "" {
+			return base + "." + e.Sel.Name
+		}
+	}
+	return ""
+}
+
 // extractComparedVariable extracts the variable name from a comparison expression.
 func (ctx *extractionContext) extractComparedVariable(expr *ast.BinaryExpr) string {
-	extractName := func(node ast.Node) string {
-		switch n := node.(type) {
-		case *ast.Ident:
-			if n.Name != "nil" {
-				return n.Name
-			}
-		case *ast.SelectorExpr:
-			if ident, ok := n.X.(*ast.Ident); ok {
-				return ident.Name + "." + n.Sel.Name
-			}
-		}
-		return ""
-	}
-
-	if name := extractName(expr.X); name != "" {
+	if name := ctx.extractVarStr(expr.X); name != "" {
 		return name
 	}
-	if name := extractName(expr.Y); name != "" {
+	if name := ctx.extractVarStr(expr.Y); name != "" {
 		return name
 	}
 	return ""

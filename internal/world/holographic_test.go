@@ -880,3 +880,73 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestGetContextWithContext_Cancellation(t *testing.T) {
+	h := &HolographicProvider{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := h.GetContextWithContext(ctx, "any_file.go")
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got %v", err)
+	}
+}
+
+func TestFetchFunctionBody_LargeFileHandling(t *testing.T) {
+	dir := t.TempDir()
+	largeFile := filepath.Join(dir, "large_file.go")
+	
+	// Create a 6MB file (exceeding our 5MB limit)
+	content := make([]byte, 6*1024*1024)
+	err := os.WriteFile(largeFile, content, 0644)
+	if err != nil {
+		t.Fatalf("Failed to write large test file: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	_, err = h.fetchFunctionBody("large_file.go", "Func", nil)
+	if err == nil || !strings.Contains(err.Error(), "file too large") {
+		t.Errorf("Expected 'file too large' error, got: %v", err)
+	}
+}
+
+func TestFetchFunctionBody_PathTraversalGuard(t *testing.T) {
+	dir := t.TempDir()
+	
+	h := NewHolographicProvider(nil, dir)
+	
+	// Try a path traversal attempt outside the workspace
+	_, err := h.fetchFunctionBody("../outside.go", "Func", nil)
+	if err == nil || !strings.Contains(err.Error(), "security violation") {
+		t.Errorf("Expected 'security violation' error, got: %v", err)
+	}
+}
+
+func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
+	dir := t.TempDir()
+	
+	// Write 110 dummy Go files (exceeding our limit of 100)
+	for i := 0; i < 110; i++ {
+		filePath := filepath.Join(dir, fmt.Sprintf("file_%d.go", i))
+		err := os.WriteFile(filePath, []byte("package main\n"), 0644)
+		if err != nil {
+			t.Fatalf("Failed to write dummy sibling file: %v", err)
+		}
+	}
+	
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+	
+	targetPath := filepath.Join(dir, "file_0.go")
+	err := h.buildGoContextWithContext(context.Background(), hc, targetPath)
+	if err != nil {
+		t.Fatalf("buildGoContext failed: %v", err)
+	}
+	
+	// Verify it successfully collected the siblings up to cap
+	if len(hc.PackageSiblings) < 100 {
+		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
