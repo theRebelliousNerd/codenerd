@@ -59,7 +59,7 @@ func BenchmarkHydrateAtomContextTags(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// We need to truncate the tags table before each run
 		b.StopTimer()
 		_, err := db.Exec("DELETE FROM atom_context_tags")

@@ -245,7 +245,7 @@ func BenchmarkRenderHistoryWithCache(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = m.renderHistory()
 	}
 }
@@ -276,7 +276,7 @@ func BenchmarkRenderHistoryWithoutCache(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Render each message without cache
 		for _, msg := range m.history {
 			_ = m.renderSingleMessage(msg)

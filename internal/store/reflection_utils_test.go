@@ -92,7 +92,7 @@ func TestSanitizeDescriptor(t *testing.T) {
 func BenchmarkSanitizeDescriptor(b *testing.B) {
 	input := "Here is a log message with api_key: secret123 and also a Bearer token-xyz and maybe a sk-abcdef123456 inside. It also has some normal text context to make it longer and more realistic."
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		sanitizeDescriptor(input)
 	}
 }

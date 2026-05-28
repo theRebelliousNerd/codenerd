@@ -219,7 +219,7 @@ func BenchmarkResponseProcessor_ExtractEmbeddedJSON(b *testing.B) {
 	input := noise + validJSON + noise
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := rp.extractEmbeddedJSON(input)
 		if err != nil {
 			b.Fatalf("extractEmbeddedJSON failed: %v", err)

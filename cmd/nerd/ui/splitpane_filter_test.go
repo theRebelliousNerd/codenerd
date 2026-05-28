@@ -461,7 +461,7 @@ func BenchmarkApplyFilters_NoFilters(b *testing.B) {
 	pane := createTestLogicPaneWithData()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pane.applyFilters()
 	}
 }
@@ -471,7 +471,7 @@ func BenchmarkApplyFilters_SearchOnly(b *testing.B) {
 	pane.SearchQuery = "intent"
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pane.applyFilters()
 	}
 }
@@ -481,7 +481,7 @@ func BenchmarkApplyFilters_SourceOnly(b *testing.B) {
 	pane.FilterSource = "edb"
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pane.applyFilters()
 	}
 }
@@ -492,7 +492,7 @@ func BenchmarkApplyFilters_Combined(b *testing.B) {
 	pane.FilterSource = "idb"
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pane.applyFilters()
 	}
 }

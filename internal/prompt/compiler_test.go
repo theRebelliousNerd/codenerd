@@ -692,7 +692,7 @@ func BenchmarkCompile_SmallCorpus(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = compiler.Compile(ctx, cc)
 	}
 }
@@ -724,7 +724,7 @@ func BenchmarkCompile_MediumCorpus(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = compiler.Compile(ctx, cc)
 	}
 }
@@ -759,7 +759,7 @@ func BenchmarkCompile_LargeCorpus(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = compiler.Compile(ctx, cc)
 	}
 }
@@ -797,7 +797,7 @@ func BenchmarkCompile_WithVectorSearch(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = compiler.Compile(ctx, cc)
 	}
 }

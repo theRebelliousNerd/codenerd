@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -20,6 +21,16 @@ import (
 // MANGLE EVALUATION ENGINE
 // =============================================================================
 
+// programBuilderPool reuses strings.Builder instances across rebuildProgram calls.
+// rebuildProgram concatenates schemas+policy+learned into a single program source
+// on every policy-dirty cycle; pooling avoids reallocating the backing slice each
+// time the kernel re-stratifies during long-running campaigns.
+//
+// Each Get must be paired with a Put after Reset (see usage in rebuildProgram).
+var programBuilderPool = sync.Pool{
+	New: func() any { return &strings.Builder{} },
+}
+
 // rebuildProgram parses schemas+policy and caches programInfo.
 // This is only called when policyDirty is true.
 func (k *RealKernel) rebuildProgram() error {
@@ -28,7 +39,9 @@ func (k *RealKernel) rebuildProgram() error {
 
 	// Construct program from schemas + policy + learned (no facts)
 	// STRATIFIED TRUST: Load order ensures Constitution has priority
-	var sb strings.Builder
+	sb := programBuilderPool.Get().(*strings.Builder)
+	sb.Reset()
+	defer programBuilderPool.Put(sb)
 
 	if k.schemas != "" {
 		sb.WriteString(k.schemas)

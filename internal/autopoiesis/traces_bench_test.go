@@ -19,7 +19,7 @@ func doSomething() error {
 }`
 
 func BenchmarkHasErrorLogging(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		hasErrorLogging(codeWithLog)
 		hasErrorLogging(codeWithoutLog)
 	}

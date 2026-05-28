@@ -11,7 +11,7 @@ func BenchmarkExtractKeywords(b *testing.B) {
 	Please fix the ValueError by using global variables.
 	`
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ExtractKeywords(issueText)
 	}
 }

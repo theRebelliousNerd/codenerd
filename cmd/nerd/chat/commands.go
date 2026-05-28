@@ -1868,6 +1868,85 @@ You have an existing Northstar definition. What would you like to do?
 		m.statusMessage = "Tracing derivation..."
 		return m, tea.Batch(m.spinner.Tick, m.fetchTraceForWhy(fact))
 
+	case "/explain":
+		// Full provenance via the Codeberg mangle-go fork's
+		// DerivationRecorder (more accurate than /why for rules using
+		// let-transforms or aggregations). On first use, enables
+		// provenance + forces a re-evaluation so the recorder catches
+		// the current pass; subsequent /explain calls reuse the
+		// installed recorder.
+		if len(parts) < 2 {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: "Usage: `/explain <ground-fact>` - Full-provenance proof tree (handles let-transforms + aggregations).\n\nThe fact must be ground (no variables), e.g.:\n- `/explain next_action(/generate_tool)`\n- `/explain permitted(/edit, \"main.go\")`\n\nOn first use this enables kernel provenance recording and forces a re-evaluation; following calls reuse the installed recorder.",
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+		goal := strings.Join(parts[1:], " ")
+		if m.kernel == nil {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("## /explain %s\n\n_error: kernel not available in this session_\n", goal),
+				Time:    time.Now(),
+			})
+			m.viewport.SetContent(m.renderHistory())
+			m.viewport.GotoBottom()
+			m.textarea.Reset()
+			return m, nil
+		}
+		// Enable provenance if it's off and force a re-eval so the
+		// recorder catches the current store.
+		newlyEnabled := false
+		if !m.kernel.IsProvenanceEnabled() {
+			m.kernel.EnableProvenance()
+			newlyEnabled = true
+			if evalErr := m.kernel.Evaluate(); evalErr != nil {
+				m = m.addMessage(Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("## /explain %s\n\n_error: forced re-evaluation failed: %v_\n", goal, evalErr),
+					Time:    time.Now(),
+				})
+				m.viewport.SetContent(m.renderHistory())
+				m.viewport.GotoBottom()
+				m.textarea.Reset()
+				return m, nil
+			}
+		}
+		proofs, err := m.kernel.Explain(goal, core.ExplainOptions{MaxProofs: 3, MaxDepth: 32})
+		msg := explainCommandReply(goal, proofs, err)
+		if newlyEnabled {
+			msg.Content += "\n_provenance recording enabled for this session — disable with `/explain-off`._\n"
+		}
+		m = m.addMessage(msg)
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
+	case "/explain-off":
+		if m.kernel == nil {
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: "_error: kernel not available_\n",
+				Time:    time.Now(),
+			})
+		} else {
+			m.kernel.DisableProvenance()
+			m = m.addMessage(Message{
+				Role:    "assistant",
+				Content: "_Provenance recording disabled._\n",
+				Time:    time.Now(),
+			})
+		}
+		m.viewport.SetContent(m.renderHistory())
+		m.viewport.GotoBottom()
+		m.textarea.Reset()
+		return m, nil
+
 	case "/logic":
 		// Show current logic pane content
 		var sb strings.Builder

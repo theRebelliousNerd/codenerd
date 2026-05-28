@@ -319,7 +319,7 @@ func BenchmarkComputeDiff_Small(b *testing.B) {
 	engine := NewEngine()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 	}
 }
@@ -337,7 +337,7 @@ func BenchmarkComputeDiff_Large(b *testing.B) {
 	engine := NewEngine()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 	}
 }
@@ -351,7 +351,7 @@ func BenchmarkComputeDiff_WithCache(b *testing.B) {
 	engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
 	}
 }

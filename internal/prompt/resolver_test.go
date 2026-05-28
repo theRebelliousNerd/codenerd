@@ -520,7 +520,7 @@ func BenchmarkResolve_SmallSet(b *testing.B) {
 	resolver := NewDependencyResolver()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = resolver.Resolve(atoms)
 	}
 }
@@ -541,7 +541,7 @@ func BenchmarkResolve_MediumSet(b *testing.B) {
 	resolver := NewDependencyResolver()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = resolver.Resolve(atoms)
 	}
 }
@@ -562,7 +562,7 @@ func BenchmarkDetectCycles(b *testing.B) {
 	resolver := NewDependencyResolver()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		resolver.DetectCycles(atoms)
 	}
 }
@@ -581,7 +581,7 @@ func BenchmarkSortByCategory(b *testing.B) {
 	resolver := NewDependencyResolver()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		resolver.SortByCategory(atoms)
 	}
 }

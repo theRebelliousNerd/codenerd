@@ -166,7 +166,7 @@ func BenchmarkDebouncer_RapidCalls(b *testing.B) {
 	debouncer := NewDebouncer(10 * time.Millisecond)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		debouncer.Debounce(func() {
 			// No-op
 		})

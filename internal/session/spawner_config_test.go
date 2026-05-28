@@ -8,20 +8,11 @@ import (
 )
 
 func TestLoadSpecialistConfig(t *testing.T) {
-	// Save current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// Create a temporary directory for the test
 	tmpDir := t.TempDir()
 
-	// Change to temp dir to mock .nerd location
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(cwd)
+	// Change to temp dir to mock .nerd location (auto-restored via t.Chdir)
+	t.Chdir(tmpDir)
 
 	// Create .nerd/agents/test-agent/config.yaml
 	configDir := filepath.Join(".nerd", "agents", "test-agent")

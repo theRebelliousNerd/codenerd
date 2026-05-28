@@ -36,7 +36,7 @@ func BenchmarkEmbedBatchParallel(b *testing.B) {
 
 	ctx := context.Background()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if _, err := engine.EmbedBatch(ctx, texts); err != nil {
 			b.Fatalf("EmbedBatch: %v", err)
 		}

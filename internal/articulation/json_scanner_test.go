@@ -101,7 +101,7 @@ func BenchmarkFindJSONCandidates(b *testing.B) {
 	input := sb.String()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		candidates := findJSONCandidates(input)
 		if len(candidates) == 0 {
 			b.Fatal("no candidates found")

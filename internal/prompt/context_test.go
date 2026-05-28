@@ -527,7 +527,7 @@ func BenchmarkWorldStates(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cc.WorldStates()
 	}
 }
@@ -551,7 +551,7 @@ func BenchmarkCompilationContextClone(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cc.Clone()
 	}
 }
@@ -564,7 +564,7 @@ func BenchmarkValidate(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = cc.Validate()
 	}
 }
@@ -582,7 +582,7 @@ func BenchmarkToContextFacts(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cc.ToContextFacts()
 	}
 }

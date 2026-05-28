@@ -296,7 +296,7 @@ func BenchmarkWordLevelDiff_Rendering(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		view.ClearMutations()
 		view.AddMutation(mutation)
 		_ = view.View()
@@ -321,7 +321,7 @@ func BenchmarkWordLevelDiff_Disabled(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		view.ClearMutations()
 		view.AddMutation(mutation)
 		_ = view.View()

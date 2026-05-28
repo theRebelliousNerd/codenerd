@@ -665,7 +665,7 @@ func BenchmarkSelectAtoms(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = selector.SelectAtoms(ctx, atoms, cc)
 	}
 }
@@ -693,7 +693,7 @@ func BenchmarkMergeAtoms(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = selector.mergeAtoms(skeleton, flesh)
 	}
 }

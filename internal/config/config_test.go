@@ -136,11 +136,7 @@ func TestFindWorkspaceRoot_PrefersNerdDir(t *testing.T) {
 		t.Fatalf("mkdir nested: %v", err)
 	}
 
-	origWD, _ := os.Getwd()
-	if err := os.Chdir(nested); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	t.Chdir(nested)
 
 	got, err := FindWorkspaceRoot()
 	if err != nil {
@@ -170,11 +166,7 @@ func TestFindWorkspaceRoot_BypassesStrayNestedNerd(t *testing.T) {
 		t.Fatalf("mkdir stray subPkg/.nerd: %v", err)
 	}
 
-	origWD, _ := os.Getwd()
-	if err := os.Chdir(subPkg); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	t.Chdir(subPkg)
 
 	got, err := FindWorkspaceRoot()
 	if err != nil {
@@ -195,11 +187,7 @@ func TestFindWorkspaceRoot_FallsBackToGoMod(t *testing.T) {
 		t.Fatalf("mkdir nested: %v", err)
 	}
 
-	origWD, _ := os.Getwd()
-	if err := os.Chdir(nested); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	t.Chdir(nested)
 
 	got, err := FindWorkspaceRoot()
 	if err != nil {
@@ -220,11 +208,7 @@ func TestDefaultUserConfigPath_UsesWorkspaceRoot(t *testing.T) {
 		t.Fatalf("mkdir nested: %v", err)
 	}
 
-	origWD, _ := os.Getwd()
-	if err := os.Chdir(nested); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	t.Chdir(nested)
 
 	got := DefaultUserConfigPath()
 	want := filepath.Join(root, ".nerd", "config.json")

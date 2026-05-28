@@ -27,7 +27,7 @@ func BenchmarkInjectAvailableSpecialists(b *testing.B) {
 	cc := NewCompilationContext()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// We pass the tmpDir as workspace
 		_ = InjectAvailableSpecialists(cc, tmpDir)
 	}

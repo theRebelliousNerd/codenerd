@@ -77,7 +77,7 @@ func runBenchmarkVectorRecallBruteForce(b *testing.B, numVectors int) {
 
 	// 2. Run Benchmark
 	query := "test query"
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := store.VectorRecallSemantic(ctx, query, 10)
 		if err != nil {
 			b.Fatalf("Recall failed: %v", err)

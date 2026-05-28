@@ -135,7 +135,7 @@ func BenchmarkExtractJSON(b *testing.B) {
 	input := sb.String()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ExtractCleanJSON(input)
 	}
 }

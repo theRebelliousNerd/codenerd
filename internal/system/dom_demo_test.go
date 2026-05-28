@@ -24,11 +24,7 @@ func TestCodeDOM_EndToEnd(t *testing.T) {
 		t.Fatalf("write demo module: %v", err)
 	}
 
-	origWD, _ := os.Getwd()
-	if err := os.Chdir(ws); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(origWD) })
+	t.Chdir(ws)
 
 	kernel, err := core.NewRealKernel()
 	if err != nil {

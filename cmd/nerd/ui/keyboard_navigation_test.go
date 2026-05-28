@@ -256,7 +256,7 @@ func BenchmarkLogicPane_CircularNavigation(b *testing.B) {
 	pane.SetTrace(trace)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pane.SelectNext()
 	}
 }

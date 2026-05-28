@@ -215,10 +215,7 @@ func ensureWorkspaceRoot(t *testing.T) string {
 	}
 
 	if root != cwd {
-		if err := os.Chdir(root); err != nil {
-			t.Fatalf("chdir to workspace root: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Chdir(cwd) })
+		t.Chdir(root)
 	}
 
 	return root

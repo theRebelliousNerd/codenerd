@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"bufio"
 	"bytes"
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
@@ -1258,7 +1257,10 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 			// Read SSE stream with context cancellation support.
 			// The scanner runs in a separate goroutine so we can monitor ctx.Done()
 			// and force-close the response body to unblock scanner.Scan() on timeout.
-			scanner := bufio.NewScanner(resp.Body)
+			// Buffer is pooled (64 KiB initial, 1 MiB max line) to match the other
+			// streaming clients and reduce GC pressure on long-running sessions.
+			scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
+			defer releaseScanner()
 
 			// Channel to signal scanner goroutine completion
 			scanDone := make(chan struct{})

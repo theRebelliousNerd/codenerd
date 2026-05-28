@@ -428,16 +428,7 @@ func TestFinalAssembler_Assemble_InjectsAvailableSpecialists(t *testing.T) {
 		t.Fatalf("write agents.json failed: %v", err)
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd failed: %v", err)
-	}
-	defer func() {
-		_ = os.Chdir(wd)
-	}()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("Chdir failed: %v", err)
-	}
+	t.Chdir(tmpDir)
 
 	assembler := NewFinalAssembler()
 	cc := NewCompilationContext()
@@ -661,7 +652,7 @@ func BenchmarkAssemble_SmallSet(b *testing.B) {
 	cc := NewCompilationContext()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = assembler.Assemble(atoms, cc)
 	}
 }
@@ -680,7 +671,7 @@ func BenchmarkAssemble_MediumSet(b *testing.B) {
 	cc := NewCompilationContext()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = assembler.Assemble(atoms, cc)
 	}
 }
@@ -702,7 +693,7 @@ func BenchmarkAssemble_WithTemplates(b *testing.B) {
 	cc := NewCompilationContext().WithShard("/coder", "", "").WithLanguage("/go").WithOperationalMode("/active")
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = assembler.Assemble(atoms, cc)
 	}
 }
@@ -718,7 +709,7 @@ func BenchmarkTemplateProcess(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		te.Process(content, cc)
 	}
 }
@@ -741,7 +732,7 @@ func BenchmarkAnalyzePrompt(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		AnalyzePrompt(prompt, atoms)
 	}
 }

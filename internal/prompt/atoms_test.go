@@ -1219,7 +1219,7 @@ func BenchmarkEstimateTokens(b *testing.B) {
 	content := strings.Repeat("This is sample content for token estimation. ", 100)
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		EstimateTokens(content)
 	}
 }
@@ -1228,7 +1228,7 @@ func BenchmarkHashContent(b *testing.B) {
 	content := strings.Repeat("Content to hash repeatedly. ", 100)
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		HashContent(content)
 	}
 }
@@ -1255,7 +1255,7 @@ func BenchmarkMatchesContext(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		atom.NormalizeSelectors()
 		atom.MatchesContext(cc)
 	}
@@ -1277,7 +1277,7 @@ func BenchmarkClone(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		atom.Clone()
 	}
 }

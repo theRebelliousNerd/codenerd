@@ -53,6 +53,15 @@ type MangleAtom string
 
 func (m MangleAtom) String() string { return string(m) }
 
+// catalogBuilderPool reuses strings.Builder instances across
+// buildToolCatalogForPiggyback calls. The Piggyback tool catalog is assembled
+// once per LLM turn for grounding-capable clients (e.g. Gemini), so the
+// builder is hot on long-running sessions. Each Get must be paired with a
+// Reset before use and a Put after String() has been read.
+var catalogBuilderPool = sync.Pool{
+	New: func() any { return &strings.Builder{} },
+}
+
 // Executor implements the clean execution loop.
 // It replaces all hardcoded shard logic with JIT-driven behavior.
 type Executor struct {
@@ -510,7 +519,9 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntim
 
 	exampleJSON, _ := json.MarshalIndent(exampleRequest, "", "  ")
 
-	var catalog strings.Builder
+	catalog := catalogBuilderPool.Get().(*strings.Builder)
+	catalog.Reset()
+	defer catalogBuilderPool.Put(catalog)
 	catalog.WriteString("\n## Available Tools\n\n")
 	catalog.WriteString("Request tools via `tool_requests` in control_packet:\n")
 	catalog.WriteString("```json\n")

@@ -13,7 +13,7 @@ func BenchmarkSystemBoot(b *testing.B) {
 	cfg := config.DefaultUserConfig()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Run boot command
 		cmd := performSystemBoot(cfg, nil, ws)
 		msg := cmd() // blocking execution

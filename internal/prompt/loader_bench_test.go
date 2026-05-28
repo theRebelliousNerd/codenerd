@@ -78,7 +78,7 @@ func BenchmarkStoreAtomsWithEmbeddings(b *testing.B) {
 	ctx := context.Background()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		err := storeAtomsWithEmbeddings(ctx, db, atoms, embeddings, "retrieval_document")
 		if err != nil {
 			b.Fatalf("Failed to store atoms: %v", err)

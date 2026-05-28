@@ -12,7 +12,7 @@ func BenchmarkEscapeString(b *testing.B) {
 	input = strings.Repeat(input, 100)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = escapeString(input)
 	}
 }
@@ -24,7 +24,7 @@ func BenchmarkEscapeStringNoEscapes(b *testing.B) {
 	input = strings.Repeat(input, 100)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = escapeString(input)
 	}
 }

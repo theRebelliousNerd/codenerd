@@ -48,7 +48,7 @@ func BenchmarkTraversePath(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := db.TraversePath("0-0", "9-9", 20)
 		if err != nil {
 			b.Fatal(err)

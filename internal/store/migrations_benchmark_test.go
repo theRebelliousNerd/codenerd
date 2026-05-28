@@ -28,7 +28,7 @@ func BenchmarkRunMigrations(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// We call RunMigrations repeatedly.
 		// Note: The first call might apply migrations, subsequent calls will check and find columns exist.
 		// Since we want to benchmark the checking logic (the N+1 issue), this is valid.

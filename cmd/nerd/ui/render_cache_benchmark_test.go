@@ -5,25 +5,25 @@ import (
 )
 
 func BenchmarkComputeKey_Int(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ComputeKey(12345, 67890, 42)
 	}
 }
 
 func BenchmarkComputeKey_String(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ComputeKey("component", "status", "active")
 	}
 }
 
 func BenchmarkComputeKey_Float(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ComputeKey(0.123, 0.456, 0.789)
 	}
 }
 
 func BenchmarkComputeKey_Mixed(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ComputeKey("shard", 1, true, "running", 0.55)
 	}
 }
@@ -40,14 +40,14 @@ func BenchmarkComputeHash(b *testing.B) {
 	filterSource := "idb"
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		computeHash(traceVersion, width, height, showActivation, selectedNode, scrollOffset, searchQuery, filterSource)
 	}
 }
 
 func BenchmarkComputeHashIntegersOnly(b *testing.B) {
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		computeHash(1, 2, 3, 4, 5, 6, 7, 8)
 	}
 }
@@ -66,7 +66,7 @@ func BenchmarkRenderCacheCall(b *testing.B) {
 	filterSource := "idb"
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Simulate the call in LogicPane.renderContent().
 		cacheKey := []any{
 			traceVersion,
@@ -103,7 +103,7 @@ func BenchmarkRenderTree(b *testing.B) {
 	lp.Nodes = nodes
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		lp.renderTree()
 	}
 }

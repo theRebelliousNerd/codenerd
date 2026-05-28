@@ -76,14 +76,14 @@ func BenchmarkKernelQuery(b *testing.B) {
 	kernel.LoadFacts(facts)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		kernel.Query("test_data")
 	}
 }
 
 // Benchmark: CRITICAL - LoadFacts with ToAtom conversion
 func BenchmarkKernelLoadFacts(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		kernel, err := NewRealKernel()
 		if err != nil {
@@ -117,7 +117,7 @@ func BenchmarkFactMatching(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		argsSliceEqual(fact.Args, pattern.Args)
 	}
 }
@@ -139,7 +139,7 @@ func BenchmarkFactDeduplication(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		kernel.LoadFacts(facts)
 		kernel.Clear()
 	}
@@ -213,7 +213,7 @@ func BenchmarkKernelAssertLoop(b *testing.B) {
 
 // Benchmark baseline for comparison after optimizations
 func BenchmarkTypicalWorkflow(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 		kernel, err := NewRealKernel()
 		if err != nil {

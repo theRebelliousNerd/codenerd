@@ -22,7 +22,7 @@ type Interface1 interface {}
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := extractCodeElements(goFile)
 		if err != nil {
 			b.Fatalf("extractCodeElements failed: %v", err)

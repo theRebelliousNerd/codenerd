@@ -404,6 +404,10 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 		return false
 	}
 
+	// Intern predicate name + string args so repeated values across
+	// the EDB share a single backing string (stdlib unique.Handle).
+	f = internFact(f)
+
 	k.ensureFactIndexLocked()
 	key := k.canonFact(f)
 	if _, ok := k.factIndex[key]; ok {

@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"bufio"
 	"bytes"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
@@ -313,8 +312,8 @@ func (c *OpenRouterClient) CompleteWithStreaming(ctx context.Context, systemProm
 
 			defer resp.Body.Close()
 
-			scanner := bufio.NewScanner(resp.Body)
-			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
+			defer releaseScanner()
 
 			scanDone := make(chan struct{})
 			scanErrChan := make(chan error, 1)

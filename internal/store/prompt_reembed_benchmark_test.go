@@ -66,7 +66,7 @@ func BenchmarkReembedAllPromptAtomsForce(b *testing.B) {
 	s.embeddingEngine = mock
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := s.ReembedAllPromptAtomsForce(context.Background())
 		if err != nil {
 			b.Fatalf("ReembedAllPromptAtomsForce failed: %v", err)

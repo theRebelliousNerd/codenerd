@@ -1,7 +1,6 @@
 package perception
 
 import (
-	"bufio"
 	"bytes"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -990,8 +989,8 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 			return
 		}
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		scanner, releaseScanner := newPooledScanner(resp.Body, 1024*1024)
+		defer releaseScanner()
 
 		scanDone := make(chan struct{})
 		scanErrChan := make(chan error, 1)

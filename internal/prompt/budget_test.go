@@ -427,7 +427,7 @@ func BenchmarkFit_SmallSet(b *testing.B) {
 	mgr := NewTokenBudgetManager()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = mgr.Fit(atoms, 10000)
 	}
 }
@@ -446,7 +446,7 @@ func BenchmarkFit_MediumSet(b *testing.B) {
 	mgr := NewTokenBudgetManager()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = mgr.Fit(atoms, 50000)
 	}
 }
@@ -465,7 +465,7 @@ func BenchmarkFit_LargeSet(b *testing.B) {
 	mgr := NewTokenBudgetManager()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = mgr.Fit(atoms, 100000)
 	}
 }
@@ -489,7 +489,7 @@ func BenchmarkGenerateReport(b *testing.B) {
 	mgr := NewTokenBudgetManager()
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mgr.GenerateReport(atoms, 10000)
 	}
 }

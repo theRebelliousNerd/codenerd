@@ -105,7 +105,7 @@ func BenchmarkMinifyWhitespace_Large(b *testing.B) {
 	input := sb.String()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		minifyWhitespace(input)
 	}
 }

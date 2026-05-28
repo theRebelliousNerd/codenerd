@@ -258,7 +258,7 @@ func BenchmarkFitBudget_10000Tools(b *testing.B) {
 	}
 
 	// Gap 5: Benchmark performance
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		result := &CompiledToolSet{}
 		for range 10000 {
 			result.FullTools = append(result.FullTools, MCPTool{})
