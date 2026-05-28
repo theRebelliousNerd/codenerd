@@ -313,7 +313,11 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	sourceDocs, fileMeta, err := d.ingestSourceDocuments(ctx, campaignID, req.SourcePaths)
 	ingestTimer.Stop()
 	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Source document ingestion failed: %v", err)
+		// Anchor errors against campaign + source-path list so triage can
+		// locate the offending document without scanning the whole run log.
+		logging.Get(logging.CategoryCampaign).Error(
+			"Source document ingestion failed campaign=%s paths=%v: %v",
+			campaignID, req.SourcePaths, err)
 		return nil, fmt.Errorf("failed to ingest source documents: %w", err)
 	}
 	logging.Campaign("Ingested %d source documents, %d file metadata entries", len(sourceDocs), len(fileMeta))
@@ -334,7 +338,9 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	requirements, err := d.extractRequirementsSmart(ctx, campaignID, req.Goal, kbPath, fileMeta)
 	reqTimer.Stop()
 	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Requirement extraction failed: %v", err)
+		logging.Get(logging.CategoryCampaign).Error(
+			"Requirement extraction failed campaign=%s goal=%q file_count=%d: %v",
+			campaignID, req.Goal, len(fileMeta), err)
 		return nil, fmt.Errorf("failed to extract requirements: %w", err)
 	}
 	logging.Campaign("Extracted %d requirements", len(requirements))
@@ -345,7 +351,9 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	rawPlan, err := d.llmProposePlan(ctx, campaignID, req, kbPath, fileMeta, requirements)
 	planTimer.Stop()
 	if err != nil {
-		logging.Get(logging.CategoryCampaign).Error("LLM plan proposal failed: %v", err)
+		logging.Get(logging.CategoryCampaign).Error(
+			"LLM plan proposal failed campaign=%s goal=%q requirements=%d: %v",
+			campaignID, req.Goal, len(requirements), err)
 		return nil, fmt.Errorf("failed to propose plan: %w", err)
 	}
 	logging.Campaign("LLM proposed plan: %s (confidence=%.2f, phases=%d)",
@@ -838,7 +846,9 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 	}
 
 	if err := d.kernel.AssertBatch(facts); err != nil {
-		logging.Get(logging.CategoryCampaign).Error("Failed to assert doc facts batch: %v", err)
+		logging.Get(logging.CategoryCampaign).Error(
+			"Failed to assert doc facts batch campaign=%s fact_count=%d: %v",
+			campaignID, len(facts), err)
 	} else {
 		logging.CampaignDebug("Seeded %d facts into kernel", len(facts))
 	}
