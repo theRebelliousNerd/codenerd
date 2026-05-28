@@ -38,6 +38,14 @@ safe_action(/write_file).
 safe_action(/fs_write).
 safe_action(/search_files).
 safe_action(/glob_files).
+# Aliases for tool-registry names that the LLM actually emits
+# (the registry exposes /glob and /list_files; the policy was only
+# permitting the /glob_files spelling, which silently blocked every
+# directory listing the agent tried to do). See session.log for the
+# 2026-05-28 cascade of "tool call blocked by safety gate".
+safe_action(/glob).
+safe_action(/list_files).
+safe_action(/find_files).
 safe_action(/analyze_code).
 
 # Code analysis operations

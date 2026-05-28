@@ -114,7 +114,24 @@ type ExecutorConfig struct {
 
 	// EnableSafetyGate enables constitutional safety checks.
 	EnableSafetyGate bool
+
+	// TokenBudget is the JIT prompt compilation budget passed via
+	// CompilationContext. The old hardcoded 8192 was choking spawned
+	// shards: when the user's context_window.max_tokens was 1M, the
+	// compiler had to drop mandatory atoms (defensive_patterns,
+	// behavior_changes, etc.) just to fit prompts into a tiny 8K window.
+	// Zero falls back to DefaultTokenBudget at use time, which is set
+	// generously for modern long-context models. Callers that load a
+	// UserConfig should derive this from
+	// ContextWindow.MaxTokens / appropriate fraction.
+	TokenBudget int
 }
+
+// DefaultTokenBudget is the prompt-compilation budget used when no
+// ExecutorConfig/SpawnerConfig override is set. 65,536 tokens is a
+// safe sub-agent default that survives on Claude/Gemini/GPT context
+// windows ≥128K and still leaves headroom for response + tool I/O.
+const DefaultTokenBudget = 65536
 
 // DefaultExecutorConfig returns sensible defaults.
 func DefaultExecutorConfig() ExecutorConfig {
@@ -123,6 +140,7 @@ func DefaultExecutorConfig() ExecutorConfig {
 		MaxToolIterations: 8,
 		ToolTimeout:       5 * time.Minute,
 		EnableSafetyGate:  true,
+		TokenBudget:       DefaultTokenBudget,
 	}
 }
 
@@ -363,11 +381,15 @@ func (e *Executor) observe(ctx context.Context, input string) (perception.Intent
 
 // buildCompilationContext creates a CompilationContext from the current state.
 func (e *Executor) buildCompilationContext(ctx context.Context, intent perception.Intent) *prompt.CompilationContext {
+	budget := e.config.TokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget
+	}
 	cc := &prompt.CompilationContext{
 		IntentVerb:      intent.Verb,
 		IntentTarget:    intent.Target,
 		OperationalMode: "/active",
-		TokenBudget:     8192, // Default token budget for prompt compilation
+		TokenBudget:     budget,
 	}
 
 	// Determine world states from kernel facts

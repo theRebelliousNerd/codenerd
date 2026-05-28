@@ -385,12 +385,16 @@ func TestPromptAtom_ToFact(t *testing.T) {
 
 		fact := atom.ToFact()
 
+		// Schema order: prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory).
+		// Pre-2026-05-28 the code emitted TokenCount at index 2 and Priority
+		// at index 3 in disagreement with the schema (which the selector.go
+		// path was already respecting). See atoms.go ToFact() comment.
 		assert.Equal(t, "prompt_atom", fact.Predicate)
 		require.Len(t, fact.Args, 5)
 		assert.Equal(t, "test/atom", fact.Args[0])
 		assert.Equal(t, "/identity", fact.Args[1])
-		assert.Equal(t, 100, fact.Args[2])
-		assert.Equal(t, 80, fact.Args[3])
+		assert.Equal(t, 80, fact.Args[2])  // Priority
+		assert.Equal(t, 100, fact.Args[3]) // TokenCount
 	})
 
 	t.Run("non-mandatory atom", func(t *testing.T) {

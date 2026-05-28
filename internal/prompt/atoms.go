@@ -430,13 +430,20 @@ func (a *PromptAtom) ToFact() core.Fact {
 		mandatory = "/true"
 	}
 
+	// Schema (schemas_prompts.mg:194):
+	//   Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory).
+	// Priority is at index 2, TokenCount at index 3. This used to be
+	// swapped in code (TokenCount at 2, Priority at 3); the schema's
+	// bound list (/number, /number) hid the bug — but selector.go's
+	// parallel assertion path used the schema order, so the two paths
+	// emitted facts with inconsistent meanings for the same predicate.
 	return core.Fact{
 		Predicate: "prompt_atom",
 		Args: []any{
 			a.ID,
 			"/" + string(a.Category),
-			a.TokenCount,
-			a.Priority,
+			a.Priority,    // index 2 per schema
+			a.TokenCount,  // index 3 per schema
 			core.MangleAtom(mandatory),
 		},
 	}

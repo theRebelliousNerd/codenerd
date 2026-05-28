@@ -749,6 +749,29 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// This provides tool sets and policies for different intent verbs
 		configFactory := prompt.NewDefaultConfigFactory()
 
+		// Derive a sub-agent prompt-compilation budget from the user's
+		// configured context window. Without this, executor.go and
+		// spawner.go used a hardcoded 8192-token budget that silently
+		// dropped mandatory atoms (defensive_patterns, behavior_changes,
+		// etc.) from every spawned shard's prompt — agents came up
+		// amnesiac. We allocate up to half the context-window max for
+		// the JIT prompt, capped at 256K so even 1M-context models leave
+		// generous headroom for response + tool I/O. Falls back to
+		// DefaultTokenBudget (65536) if no config is loaded.
+		subAgentBudget := session.DefaultTokenBudget
+		if appCfg != nil {
+			ctxCfg := appCfg.GetContextWindowConfig()
+			if ctxCfg.MaxTokens > 0 {
+				half := ctxCfg.MaxTokens / 2
+				switch {
+				case half > 262144:
+					subAgentBudget = 262144
+				case half > session.DefaultTokenBudget:
+					subAgentBudget = half
+				}
+			}
+		}
+
 		// Create the clean execution loop
 		sessionExecutor = session.NewExecutor(
 			cleanLoopKernelAdapter,
@@ -758,8 +781,13 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			configFactory,
 			transducer,
 		)
+		execCfg := session.DefaultExecutorConfig()
+		execCfg.TokenBudget = subAgentBudget
+		sessionExecutor.SetConfig(execCfg)
 
-		// Create the JIT-driven subagent spawner with default config
+		// Create the JIT-driven subagent spawner with the same budget.
+		spawnCfg := session.DefaultSpawnerConfig()
+		spawnCfg.TokenBudget = subAgentBudget
 		sessionSpawner = session.NewSpawner(
 			cleanLoopKernelAdapter,
 			cleanLoopVSAdapter,
@@ -767,8 +795,11 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			jitCompiler,
 			configFactory,
 			transducer,
-			session.DefaultSpawnerConfig(),
+			spawnCfg,
 		)
+
+		logging.Boot("Sub-agent token budget set to %d (derived from context_window.max_tokens=%d)",
+			subAgentBudget, appCfg.GetContextWindowConfig().MaxTokens)
 
 		logging.Boot("Clean loop executor and spawner initialized")
 
@@ -1927,6 +1958,25 @@ func (a *sessionLLMAdapter) CompleteWithSystem(ctx context.Context, systemPrompt
 
 func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+}
+
+// CompleteWithToolResults forwards to the underlying LLMClient when it
+// natively implements ToolResultsProvider (Anthropic, OpenAI). When it
+// does NOT (e.g. providers using the Gemini Piggyback JSON envelope),
+// this returns ErrToolResultsNotSupported so the session can fall back
+// to single-turn CompleteWithTools instead of silently swallowing the
+// multi-turn conversation history.
+//
+// Without this passthrough every blocked / completed tool call dropped
+// straight on the floor: the model never saw its own tool_use ↔
+// tool_result loop and the agent went deaf on multi-step tasks. See the
+// "LLM client does not implement ToolResultsProvider" warning in
+// session.log for the canary that traced this gap.
+func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if trp, ok := a.client.(types.ToolResultsProvider); ok {
+		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}
+	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider; use single-turn CompleteWithTools instead", a.client)
 }
 
 func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {

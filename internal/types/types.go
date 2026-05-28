@@ -190,7 +190,25 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 				terms = append(terms, ast.FalseConstant)
 			}
 		default:
-			terms = append(terms, ast.String(fmt.Sprintf("%v", v)))
+			// Unknown argument type. The fallback used to silently coerce
+			// via fmt.Sprintf("%v", v), which for struct pointers /
+			// interfaces produces strings like "0x7ff63be770e0" — a Go
+			// memory address. That value then propagates into the kernel
+			// as a StringType constant and, when a numeric builtin
+			// (fn:plus, fn:minus, fn:max, etc.) fires on it, evaluation
+			// dies with "value 0x... (1) is not a number". The diff
+			// engine then falls back to full eval and dies the same way.
+			//
+			// Return a structured error so the offending caller is
+			// identified at the assertion site instead of after the
+			// kernel re-evaluates 38k+ facts and crashes one of its
+			// downstream rules. The error includes the predicate and
+			// argument index so the assertion site can be located even
+			// if the actual value is opaque.
+			return ast.Atom{}, fmt.Errorf(
+				"Fact(%s): unsupported arg type %T at index %d (value %v); "+
+					"assert with string/int/int64/float64/bool/time/MangleAtom only",
+				f.Predicate, v, len(terms), v)
 		}
 	}
 

@@ -40,6 +40,7 @@ type Spawner struct {
 
 	// Configuration
 	maxActiveSubagents int
+	tokenBudget        int
 
 	// Pre-reservation tracking for pending spawns
 	pendingSpawns int
@@ -48,12 +49,19 @@ type Spawner struct {
 // SpawnerConfig holds configuration for the spawner.
 type SpawnerConfig struct {
 	MaxActiveSubagents int
+
+	// TokenBudget is the JIT prompt compilation budget for spawned
+	// sub-agents. Zero falls back to DefaultTokenBudget. Earlier this
+	// was hardcoded to 8192 which silently dropped mandatory atoms from
+	// every spawned sub-agent's prompt — they came up amnesiac.
+	TokenBudget int
 }
 
 // DefaultSpawnerConfig returns sensible defaults.
 func DefaultSpawnerConfig() SpawnerConfig {
 	return SpawnerConfig{
 		MaxActiveSubagents: 10,
+		TokenBudget:        DefaultTokenBudget,
 	}
 }
 
@@ -69,6 +77,10 @@ func NewSpawner(
 ) *Spawner {
 	logging.Session("Creating Spawner (max active: %d)", cfg.MaxActiveSubagents)
 
+	budget := cfg.TokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget
+	}
 	return &Spawner{
 		kernel:             kernel,
 		virtualStore:       virtualStore,
@@ -78,6 +90,7 @@ func NewSpawner(
 		transducer:         transducer,
 		subagents:          make(map[string]*SubAgent),
 		maxActiveSubagents: cfg.MaxActiveSubagents,
+		tokenBudget:        budget,
 	}
 }
 
@@ -365,11 +378,18 @@ func (s *Spawner) generateConfig(ctx context.Context, req SpawnRequest) (*config
 		intentVerb = "/general"
 	}
 
-	// First compile a minimal prompt to get compilation result
+	// First compile a minimal prompt to get compilation result.
+	// TokenBudget comes from spawner config (set by the chat session
+	// from UserConfig.ContextWindow.MaxTokens). Hardcoded 8192 was the
+	// pre-fix bottleneck that silently stripped mandatory atoms.
+	budget := s.tokenBudget
+	if budget <= 0 {
+		budget = DefaultTokenBudget
+	}
 	compilationCtx := &prompt.CompilationContext{
 		IntentVerb:      intentVerb,
 		OperationalMode: "/active",
-		TokenBudget:     8192, // Default token budget for JIT compilation
+		TokenBudget:     budget,
 	}
 
 	// If dream mode, pass it to compilation context to potentially select different persona/skills

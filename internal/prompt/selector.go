@@ -898,14 +898,6 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 			isMandatoryAtom = "/true"
 		}
 
-		hash := atom.ContentHash
-
-		if hash == "" {
-
-			hash = "nohash"
-
-		}
-
 		// Category must be an atom (e.g. /identity) not a string ('identity')
 
 		category := string(atom.Category)
@@ -916,7 +908,18 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 		}
 
-		facts = append(facts, "prompt_atom("+mangleQuoteString(id)+", "+mangleNormalizeNameConst(category)+", "+strconv.Itoa(atom.Priority)+", "+mangleQuoteString(hash)+", "+isMandatoryAtom+")")
+		// Schema (schemas_prompts.mg:194):
+		//   Decl prompt_atom(AtomID, Category, Priority, TokenCount, IsMandatory)
+		//                    /string  /name    /number   /number    /name
+		// Position 3 MUST be a number (TokenCount). Earlier this code put
+		// atom.ContentHash there, which is a hex string — every rule that
+		// did fn:plus / fn:max over the TokenCount slot blew up with
+		// "value 0x... (1) is not a number", killing the kernel's fixpoint
+		// evaluation and cascading into ConstitutionGate / ExecutivePolicy
+		// errors. ContentHash is not part of the prompt_atom schema; if
+		// it needs to flow into the kernel, add a dedicated predicate
+		// like prompt_atom_hash(AtomID, Hash) with its own Decl.
+		facts = append(facts, "prompt_atom("+mangleQuoteString(id)+", "+mangleNormalizeNameConst(category)+", "+strconv.Itoa(atom.Priority)+", "+strconv.Itoa(atom.TokenCount)+", "+isMandatoryAtom+")")
 
 		// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
