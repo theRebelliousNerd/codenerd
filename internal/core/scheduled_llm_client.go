@@ -27,6 +27,13 @@ var _ LLMClient = (*ScheduledLLMCall)(nil)
 // Complete makes an LLM call with cooperative scheduling (single prompt).
 // Acquires a slot, makes the call, releases the slot.
 func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string, error) {
+	if c.Scheduler == nil {
+		return "", fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return "", fmt.Errorf("underlying LLM client is nil")
+	}
+
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
 		return "", fmt.Errorf("failed to acquire API slot: %w", err)
@@ -39,9 +46,18 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 	model := c.GetModel()
 	logging.LogLLMRequest(c.ShardID, "", prompt, nil, model, 0)
 
-	// Make the actual LLM call
+	// Make the actual LLM call with panic recovery
+	var result string
+	var err error
 	start := time.Now()
-	result, err := c.Client.Complete(ctx, prompt)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during LLM call: %v", r)
+			}
+		}()
+		result, err = c.Client.Complete(ctx, prompt)
+	}()
 	duration := time.Since(start)
 
 	// LLM I/O tracing: log the response or error
@@ -57,6 +73,13 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 // CompleteWithSystem makes an LLM call with system prompt and cooperative scheduling.
 // Acquires a slot, makes the call, releases the slot.
 func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if c.Scheduler == nil {
+		return "", fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return "", fmt.Errorf("underlying LLM client is nil")
+	}
+
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
 		return "", fmt.Errorf("failed to acquire API slot: %w", err)
@@ -69,9 +92,18 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	model := c.GetModel()
 	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
 
-	// Make the actual LLM call
+	// Make the actual LLM call with panic recovery
+	var result string
+	var err error
 	start := time.Now()
-	result, err := c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during LLM call: %v", r)
+			}
+		}()
+		result, err = c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+	}()
 	duration := time.Since(start)
 
 	// LLM I/O tracing: log the response or error
@@ -86,6 +118,13 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 
 // CompleteWithSchema makes a scheduled LLM call with response schema enforcement.
 func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
+	if c.Scheduler == nil {
+		return "", fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return "", fmt.Errorf("underlying LLM client is nil")
+	}
+
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
 		return "", fmt.Errorf("failed to acquire API slot: %w", err)
@@ -99,13 +138,23 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 	schemaNote := fmt.Sprintf("[SCHEMA-CONSTRAINED, schema=%d chars]", len(jsonSchema))
 	logging.LogLLMRequest(c.ShardID+"-schema", systemPrompt, userPrompt+"\n"+schemaNote, nil, model, 0)
 
-	// Make the actual LLM call
+	// Make the actual LLM call with panic recovery
+	var result string
+	var err error
 	start := time.Now()
-	sc, ok := AsSchemaCapable(c.Client)
-	if !ok {
-		return "", ErrSchemaNotSupported
-	}
-	result, err := sc.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during LLM call: %v", r)
+			}
+		}()
+		sc, ok := AsSchemaCapable(c.Client)
+		if !ok {
+			err = ErrSchemaNotSupported
+			return
+		}
+		result, err = sc.CompleteWithSchema(ctx, systemPrompt, userPrompt, jsonSchema)
+	}()
 	duration := time.Since(start)
 
 	// LLM I/O tracing: log the response or error
@@ -120,12 +169,14 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 
 // CompleteWithTools makes an LLM call with tools and cooperative scheduling.
 // Acquires a slot, makes the call, releases the slot.
-//
-// Tool-calling is the most important agent path, so this function mirrors
-// the LLM I/O tracing of Complete/CompleteWithSystem — the request (with a
-// summary of the tools offered), the response text, and the tool calls
-// requested by the model are all logged.
 func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if c.Scheduler == nil {
+		return nil, fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return nil, fmt.Errorf("underlying LLM client is nil")
+	}
+
 	// Acquire slot (blocks until available)
 	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
 		return nil, fmt.Errorf("failed to acquire API slot: %w", err)
@@ -144,14 +195,21 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	toolsNote := fmt.Sprintf("[TOOLS, count=%d, names=%v]", len(tools), toolNames)
 	logging.LogLLMRequest(c.ShardID+"-tools", systemPrompt, userPrompt+"\n"+toolsNote, nil, model, 0)
 
-	// Make the actual LLM call with tools
+	// Make the actual LLM call with panic recovery
+	var resp *types.LLMToolResponse
+	var err error
 	start := time.Now()
-	resp, err := c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during LLM call: %v", r)
+			}
+		}()
+		resp, err = c.Client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
+	}()
 	duration := time.Since(start)
 
-	// LLM I/O tracing: log the response or error. For tool responses,
-	// summarize both the text content and any tool calls — the calls are
-	// the load-bearing output on this code path.
+	// LLM I/O tracing: log the response or error
 	if err != nil {
 		logging.LogLLMError(c.ShardID+"-tools", err, duration)
 	} else if resp != nil {
@@ -379,6 +437,23 @@ type llmStreamingChannels interface {
 	CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error)
 }
 
+// LLMStreamingWithThoughts is the opt-in 3-channel streaming surface for
+// clients that can expose the model's thinking trace alongside visible
+// output. Implementing this is OPTIONAL — callers must type-assert and
+// fall back to the 2-channel CompleteWithStreaming when not supported.
+//
+// The contract: content and thoughts are streamed in arrival order on
+// their respective channels; both channels (and the error channel) are
+// closed when the stream ends. The thoughts channel may be empty for the
+// entire stream (e.g. if thinking is disabled or the model produced no
+// thinking content); callers must handle a closed-without-data thought
+// stream gracefully.
+//
+// Currently implemented by: GeminiClient (Gemini 3.x with thinking mode).
+type LLMStreamingWithThoughts interface {
+	CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (content <-chan string, thoughts <-chan string, err <-chan error)
+}
+
 // CompleteWithStreaming makes a scheduled streaming LLM call.
 // The API slot is held for the duration of the stream and released when the stream ends.
 func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
@@ -468,13 +543,156 @@ func (c *ScheduledLLMCall) CompleteWithStreaming(ctx context.Context, systemProm
 	return contentChan, errorChan
 }
 
+// CompleteWithStreamingAndThoughts makes a scheduled streaming LLM call
+// and forwards the model's thinking trace on a separate channel. If the
+// underlying client doesn't implement LLMStreamingWithThoughts, falls
+// back transparently to CompleteWithStreaming with an already-closed
+// (empty) thoughts channel — so callers can use the same code path
+// regardless of which provider is configured.
+//
+// The API slot is held for the lifetime of the stream and released when
+// it ends (either both content+thoughts close or the error channel
+// receives).
+func (c *ScheduledLLMCall) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	thoughtsChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	// Acquire slot before starting (releases below in deferred close goroutine).
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		close(contentChan)
+		close(thoughtsChan)
+		errorChan <- fmt.Errorf("failed to acquire API slot: %w", err)
+		close(errorChan)
+		return contentChan, thoughtsChan, errorChan
+	}
+
+	thoughtsStreamer, supportsThoughts := c.Client.(LLMStreamingWithThoughts)
+	streamer, supportsStreaming := c.Client.(llmStreamingChannels)
+	if !supportsThoughts && !supportsStreaming {
+		c.Scheduler.ReleaseAPISlot(c.ShardID)
+		close(contentChan)
+		close(thoughtsChan)
+		errorChan <- ErrStreamingNotSupported
+		close(errorChan)
+		return contentChan, thoughtsChan, errorChan
+	}
+
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID, systemPrompt, userPrompt, nil, model, 0)
+
+	start := time.Now()
+
+	// Resolve underlying channels: either native 3-channel from a
+	// thoughts-capable client, or a 2-channel stream with an
+	// immediately-closed thoughts side.
+	var underContent, underThoughts <-chan string
+	var underErr <-chan error
+	if supportsThoughts {
+		underContent, underThoughts, underErr = thoughtsStreamer.CompleteWithStreamingAndThoughts(ctx, systemPrompt, userPrompt, enableThinking)
+	} else {
+		underContent, underErr = streamer.CompleteWithStreaming(ctx, systemPrompt, userPrompt, enableThinking)
+		closedThoughts := make(chan string)
+		close(closedThoughts)
+		underThoughts = closedThoughts
+	}
+
+	go func() {
+		defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+		defer close(contentChan)
+		defer close(thoughtsChan)
+		defer close(errorChan)
+
+		contentClosed := underContent == nil
+		thoughtsClosed := underThoughts == nil
+		errClosed := underErr == nil
+		var firstErr error
+		var fullResponse string
+
+		for !(contentClosed && thoughtsClosed && errClosed) {
+			select {
+			case <-ctx.Done():
+				if firstErr == nil {
+					firstErr = ctx.Err()
+				}
+				contentClosed = true
+				thoughtsClosed = true
+				errClosed = true
+			case chunk, ok := <-underContent:
+				if !ok {
+					contentClosed = true
+					continue
+				}
+				select {
+				case contentChan <- chunk:
+					fullResponse += chunk
+				case <-ctx.Done():
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					contentClosed = true
+					thoughtsClosed = true
+					errClosed = true
+				}
+			case chunk, ok := <-underThoughts:
+				if !ok {
+					thoughtsClosed = true
+					continue
+				}
+				select {
+				case thoughtsChan <- chunk:
+				case <-ctx.Done():
+					if firstErr == nil {
+						firstErr = ctx.Err()
+					}
+					contentClosed = true
+					thoughtsClosed = true
+					errClosed = true
+				}
+			case err, ok := <-underErr:
+				if !ok {
+					errClosed = true
+					continue
+				}
+				if err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+		}
+
+		duration := time.Since(start)
+		if firstErr != nil {
+			logging.LogLLMError(c.ShardID, firstErr, duration)
+			errorChan <- firstErr
+		} else {
+			logging.LogLLMResponse(c.ShardID, fullResponse, duration, len(fullResponse)/4)
+		}
+	}()
+
+	return contentChan, thoughtsChan, errorChan
+}
+
 // CompleteWithRetry makes an LLM call with retries and cooperative scheduling.
 func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, userPrompt string, maxRetries int) (string, error) {
+	if c.Scheduler == nil {
+		return "", fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return "", fmt.Errorf("underlying LLM client is nil")
+	}
+
+	// Enforce absolute max retry cap and time budget to prevent infinite starvation
+	if maxRetries > 5 {
+		maxRetries = 5
+	}
+	budgetCtx, budgetCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer budgetCancel()
+
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Acquire slot for this attempt
-		if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		if err := c.Scheduler.AcquireAPISlot(budgetCtx, c.ShardID); err != nil {
 			return "", fmt.Errorf("failed to acquire API slot (attempt %d): %w", attempt+1, err)
 		}
 
@@ -486,7 +704,7 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 				}
 				c.Scheduler.ReleaseAPISlot(c.ShardID)
 			}()
-			return c.Client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
+			return c.Client.CompleteWithSystem(budgetCtx, systemPrompt, userPrompt)
 		}()
 
 		if err == nil {
@@ -504,8 +722,8 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 			}
 
 			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
+			case <-budgetCtx.Done():
+				return "", budgetCtx.Err()
 			case <-time.After(backoff):
 				logging.ShardsDebug("ScheduledLLMCall: retrying after error (attempt %d/%d): %v",
 					attempt+1, maxRetries, err)

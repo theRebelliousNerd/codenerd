@@ -107,6 +107,7 @@ type APIScheduler struct {
 	mu          sync.RWMutex
 	shardStates map[string]*ShardExecutionState
 	waitQueue   []*waitingEntry // Shards waiting for slots (for logging/metrics)
+	waiters     []chan struct{} // Waiter list for dynamic scheduling and reconfiguration
 
 	// Metrics
 	totalAPICalls      int64
@@ -128,17 +129,30 @@ type waitingEntry struct {
 
 // NewAPIScheduler creates a new scheduler.
 func NewAPIScheduler(config APISchedulerConfig) *APIScheduler {
+	if config.MaxConcurrentAPICalls <= 0 {
+		config.MaxConcurrentAPICalls = 5 // Defensively use default
+	}
+	if config.SlotAcquireTimeout <= 0 {
+		config.SlotAcquireTimeout = 5 * time.Minute // Defensively use default
+	}
+
 	return &APIScheduler{
 		config:      config,
 		slots:       make(chan struct{}, config.MaxConcurrentAPICalls),
 		shardStates: make(map[string]*ShardExecutionState),
 		waitQueue:   make([]*waitingEntry, 0),
+		waiters:     make([]chan struct{}, 0),
 		stopCh:      make(chan struct{}),
 	}
 }
 
 // RegisterShard creates state tracking for a new shard.
 func (s *APIScheduler) RegisterShard(shardID, shardType string) *ShardExecutionState {
+	if shardID == "" {
+		logging.Get(logging.CategoryShards).Error("APIScheduler: attempt to register shard with empty ID")
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -172,6 +186,10 @@ func (s *APIScheduler) UnregisterShard(shardID string) {
 // Blocks until a slot is available or context is cancelled.
 // The shard enters PhaseWaitingForSlot while waiting.
 func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error {
+	if ctx == nil {
+		return fmt.Errorf("nil context provided to AcquireAPISlot")
+	}
+
 	s.mu.Lock()
 	state, ok := s.shardStates[shardID]
 	if !ok {
@@ -202,17 +220,42 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		priority:  initialPriority,
 	}
 	s.waitQueue = append(s.waitQueue, entry)
+
+	// If we have an available slot immediately, acquire it
+	if int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls {
+		atomic.AddInt32(&s.currentlyExecuting, 1)
+
+		// Fill s.slots non-blocking to keep len(s.slots) aligned if needed
+		select {
+		case s.slots <- struct{}{}:
+		default:
+		}
+
+		state.Phase = PhaseExecutingAPI
+		state.LastAPICall = time.Now()
+
+		// Remove from wait queue
+		for i, e := range s.waitQueue {
+			if e.shardID == shardID {
+				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
+				break
+			}
+		}
+		s.mu.Unlock()
+		return nil
+	}
+
+	// Otherwise, we must queue up and wait!
+	w := make(chan struct{})
+	s.waiters = append(s.waiters, w)
 	s.mu.Unlock()
 
 	atomic.AddInt32(&s.currentlyWaiting, 1)
 	defer atomic.AddInt32(&s.currentlyWaiting, -1)
 
 	// Log if we're actually waiting
-	activeSlots := len(s.slots)
-	if activeSlots >= s.config.MaxConcurrentAPICalls {
-		logging.Shards("APIScheduler: shard %s waiting for slot (active=%d/%d, waiting=%d)",
-			shardID, activeSlots, s.config.MaxConcurrentAPICalls, atomic.LoadInt32(&s.currentlyWaiting))
-	}
+	logging.Shards("APIScheduler: shard %s waiting for slot (active=%d/%d, waiting=%d)",
+		shardID, atomic.LoadInt32(&s.currentlyExecuting), s.config.MaxConcurrentAPICalls, atomic.LoadInt32(&s.currentlyWaiting))
 
 	waitCtx := ctx
 	var waitCancel context.CancelFunc
@@ -227,10 +270,9 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 
 	// Try to acquire slot
 	select {
-	case s.slots <- struct{}{}:
-		// Got a slot
+	case <-w:
+		// Got the slot! The releaser has already incremented s.currentlyExecuting for us.
 		waitDuration := time.Since(waitStart)
-
 		s.mu.Lock()
 		state.Phase = PhaseExecutingAPI
 		state.TotalWaitTime += waitDuration
@@ -246,18 +288,50 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		s.mu.Unlock()
 
 		atomic.AddInt64(&s.totalWaitTime, int64(waitDuration))
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-
 		if waitDuration > 100*time.Millisecond {
 			logging.Shards("APIScheduler: shard %s acquired slot after %v", shardID, waitDuration)
 		}
 		return nil
 
 	case <-waitCtx.Done():
+		// Check if we were actually woken up just as we cancelled (TOCTOU prevention)
+		select {
+		case <-w:
+			// We got the slot after all! Ignore the cancellation/timeout.
+			waitDuration := time.Since(waitStart)
+			s.mu.Lock()
+			state.Phase = PhaseExecutingAPI
+			state.TotalWaitTime += waitDuration
+			state.LastAPICall = time.Now()
+
+			// Remove from wait queue
+			for i, e := range s.waitQueue {
+				if e.shardID == shardID {
+					s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
+					break
+				}
+			}
+			s.mu.Unlock()
+
+			atomic.AddInt64(&s.totalWaitTime, int64(waitDuration))
+			return nil
+		default:
+			// Genuinely cancelled before getting slot
+		}
+
 		// Context cancelled while waiting
 		s.mu.Lock()
 		state.Phase = PhaseFailed
 		state.Error = waitCtx.Err()
+
+		// Remove our waiter channel from the list
+		for i, waiter := range s.waiters {
+			if waiter == w {
+				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+				break
+			}
+		}
+
 		// Remove from wait queue
 		for i, e := range s.waitQueue {
 			if e.shardID == shardID {
@@ -274,6 +348,12 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	case <-s.stopCh:
 		// Clean up wait queue on scheduler stop
 		s.mu.Lock()
+		for i, waiter := range s.waiters {
+			if waiter == w {
+				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+				break
+			}
+		}
 		for i, e := range s.waitQueue {
 			if e.shardID == shardID {
 				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
@@ -288,12 +368,11 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 // ReleaseAPISlot releases the API slot after call completes.
 // The shard enters PhaseProcessingResult and can do local work before next API call.
 func (s *APIScheduler) ReleaseAPISlot(shardID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Release the slot
-	select {
-	case <-s.slots:
-		// Slot released
-	default:
-		// Shouldn't happen - means we're releasing without acquiring
+	if atomic.LoadInt32(&s.currentlyExecuting) <= 0 {
 		logging.Get(logging.CategoryShards).Error("APIScheduler: shard %s released slot it didn't hold", shardID)
 		return
 	}
@@ -301,12 +380,31 @@ func (s *APIScheduler) ReleaseAPISlot(shardID string) {
 	atomic.AddInt32(&s.currentlyExecuting, -1)
 	atomic.AddInt64(&s.totalAPICalls, 1)
 
-	s.mu.Lock()
+	// Keep len(s.slots) aligned if needed
+	select {
+	case <-s.slots:
+	default:
+	}
+
 	if state, ok := s.shardStates[shardID]; ok {
 		state.Phase = PhaseProcessingResult
 		state.APICallCount++
 	}
-	s.mu.Unlock()
+
+	// Wake up first waiter if any
+	if len(s.waiters) > 0 {
+		w := s.waiters[0]
+		s.waiters = s.waiters[1:]
+		atomic.AddInt32(&s.currentlyExecuting, 1)
+
+		// Align len(s.slots)
+		select {
+		case s.slots <- struct{}{}:
+		default:
+		}
+
+		close(w)
+	}
 
 	logging.ShardsDebug("APIScheduler: shard %s released slot (total_calls=%d)", shardID, atomic.LoadInt64(&s.totalAPICalls))
 }
@@ -317,6 +415,10 @@ func (s *APIScheduler) SaveCheckpoint(shardID string, key string, value interfac
 	defer s.mu.Unlock()
 
 	if state, ok := s.shardStates[shardID]; ok {
+		if len(state.Checkpoint) >= 1000 {
+			logging.Get(logging.CategoryShards).Warn("APIScheduler: checkpoint size limit (1000) reached for shard %s; ignoring save", shardID)
+			return
+		}
 		state.Checkpoint[key] = value
 	}
 }
@@ -421,16 +523,10 @@ var (
 
 // ConfigureGlobalAPIScheduler sets the config used for the global scheduler.
 // Must be called before the first GetAPIScheduler() to take effect.
-// If the global scheduler is already initialized, the call is ignored.
+// If the global scheduler is already initialized, we now dynamically reconfigure it!
 func ConfigureGlobalAPIScheduler(cfg APISchedulerConfig) {
 	globalSchedulerConfigMu.Lock()
 	defer globalSchedulerConfigMu.Unlock()
-
-	if globalScheduler != nil {
-		logging.Shards("APIScheduler: global already initialized; ignoring reconfigure (requested_max=%d)",
-			cfg.MaxConcurrentAPICalls)
-		return
-	}
 
 	// Apply defaults for unset fields
 	if cfg.MaxConcurrentAPICalls <= 0 {
@@ -441,7 +537,61 @@ func ConfigureGlobalAPIScheduler(cfg APISchedulerConfig) {
 	}
 
 	globalSchedulerConfig = cfg
-	logging.Shards("APIScheduler: global config set (max_slots=%d)", cfg.MaxConcurrentAPICalls)
+
+	if globalScheduler != nil {
+		globalScheduler.UpdateMaxConcurrentAPICalls(cfg.MaxConcurrentAPICalls)
+
+		globalScheduler.mu.Lock()
+		globalScheduler.config.SlotAcquireTimeout = cfg.SlotAcquireTimeout
+		globalScheduler.config.EnableMetrics = cfg.EnableMetrics
+		globalScheduler.mu.Unlock()
+
+		logging.Shards("APIScheduler: global dynamically reconfigured (max_slots=%d, timeout=%v)",
+			cfg.MaxConcurrentAPICalls, cfg.SlotAcquireTimeout)
+	} else {
+		logging.Shards("APIScheduler: global config set (max_slots=%d)", cfg.MaxConcurrentAPICalls)
+	}
+}
+
+// UpdateMaxConcurrentAPICalls dynamically modifies the MaxConcurrentAPICalls slot capacity.
+func (s *APIScheduler) UpdateMaxConcurrentAPICalls(newMax int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if newMax <= 0 {
+		return
+	}
+	oldMax := s.config.MaxConcurrentAPICalls
+	if oldMax == newMax {
+		return
+	}
+
+	s.config.MaxConcurrentAPICalls = newMax
+
+	// Recreate slots channel to match new capacity
+	newSlots := make(chan struct{}, newMax)
+	currentExecuting := int(atomic.LoadInt32(&s.currentlyExecuting))
+	for i := 0; i < currentExecuting && i < newMax; i++ {
+		newSlots <- struct{}{}
+	}
+	s.slots = newSlots
+
+	// Wake up as many waiters as new capacity allows
+	for int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls && len(s.waiters) > 0 {
+		w := s.waiters[0]
+		s.waiters = s.waiters[1:]
+		atomic.AddInt32(&s.currentlyExecuting, 1)
+
+		// Fill s.slots non-blocking
+		select {
+		case s.slots <- struct{}{}:
+		default:
+		}
+
+		close(w)
+	}
+
+	logging.Shards("APIScheduler: dynamically updated MaxConcurrentAPICalls from %d to %d (executing=%d)", oldMax, newMax, currentExecuting)
 }
 
 // GetAPIScheduler returns the global API scheduler instance.

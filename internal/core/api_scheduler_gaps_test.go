@@ -15,26 +15,21 @@ import (
 
 // ---------- Null/Empty Inputs ----------
 
-// TestAPISchedulerGap_RegisterShard_EmptyID verifies registering with empty shard ID.
+// TestAPISchedulerGap_RegisterShard_EmptyID verifies registering with empty shard ID is rejected.
 func TestAPISchedulerGap_RegisterShard_EmptyID(t *testing.T) {
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 
-	// Should succeed (no validation on empty IDs currently)
 	state := scheduler.RegisterShard("", "test")
-	if state == nil {
-		t.Fatal("Expected non-nil state for empty shard ID")
-	}
-	if state.ShardID != "" {
-		t.Errorf("Expected empty ShardID, got %q", state.ShardID)
+	if state != nil {
+		t.Fatal("Expected nil state when registering empty shard ID")
 	}
 
-	// Should be able to acquire and release with empty ID
+	// Should fail to acquire
 	ctx := context.Background()
 	err := scheduler.AcquireAPISlot(ctx, "")
-	if err != nil {
-		t.Fatalf("Expected AcquireAPISlot to work with empty ID: %v", err)
+	if err == nil {
+		t.Fatal("Expected AcquireAPISlot to fail with unregistered empty ID")
 	}
-	scheduler.ReleaseAPISlot("")
 }
 
 // TestAPISchedulerGap_UnregisterShard_NonExistent verifies unregistering a non-existent shard.
@@ -57,19 +52,15 @@ func TestAPISchedulerGap_AcquireSlot_NilContext(t *testing.T) {
 	scheduler := NewAPIScheduler(DefaultAPISchedulerConfig())
 	scheduler.RegisterShard("test", "test")
 
-	// nil context should panic (Go stdlib convention)
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("KNOWN: nil context causes panic as expected by Go conventions: %v", r)
-		}
-	}()
-	// This will likely panic because context operations on nil are UB
-	scheduler.AcquireAPISlot(nil, "test") //nolint:staticcheck
+	err := scheduler.AcquireAPISlot(nil, "test") //nolint:staticcheck
+	if err == nil {
+		t.Fatal("Expected AcquireAPISlot to fail with nil context")
+	}
 }
 
 // ---------- Config Boundary Values ----------
 
-// TestAPISchedulerGap_NegativeConcurrency verifies zero/negative MaxConcurrentAPICalls.
+// TestAPISchedulerGap_NegativeConcurrency verifies zero/negative MaxConcurrentAPICalls are sanitized.
 func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -81,20 +72,16 @@ func TestAPISchedulerGap_NegativeConcurrency(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// NewAPIScheduler creates a buffered channel with size maxConc.
-			// Zero or negative creates an unbuffered or panics.
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("KNOWN: NewAPIScheduler(%d) panics: %v", tt.maxConc, r)
-				}
-			}()
-
 			scheduler := NewAPIScheduler(APISchedulerConfig{
 				MaxConcurrentAPICalls: tt.maxConc,
 				SlotAcquireTimeout:    5 * time.Second,
 			})
-			if scheduler != nil {
-				t.Logf("NewAPIScheduler(%d) created successfully (channel size=%d)", tt.maxConc, tt.maxConc)
+			if scheduler == nil {
+				t.Fatal("Expected scheduler to be non-nil")
+			}
+			metrics := scheduler.GetMetrics()
+			if metrics.MaxSlots <= 0 {
+				t.Errorf("Expected sanitized MaxSlots > 0, got %d", metrics.MaxSlots)
 			}
 		})
 	}
@@ -145,15 +132,10 @@ func TestAPISchedulerGap_NilClient_PanicRecovery(t *testing.T) {
 	}
 
 	ctx := context.Background()
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("KNOWN: nil Client causes panic on method call: %v", r)
-		}
-	}()
-
-	// This will panic when it tries to call nil.Complete
-	call.Complete(ctx, "test")
+	_, err := call.Complete(ctx, "test")
+	if err == nil {
+		t.Fatal("Expected Complete to fail when Client is nil")
+	}
 }
 
 // ---------- Resource Exhaustion ----------
@@ -520,11 +502,8 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 }
 
 // TestAPISchedulerGap_GlobalConfig_SyncOnce tests that ConfigureGlobalAPIScheduler
-// is ignored after GetAPIScheduler has been called (sync.Once semantics).
+// dynamically reconfigures the global instance even after GetAPIScheduler has been called.
 func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
-	// NOTE: This test operates on package-level globals. The sync.Once means
-	// GetAPIScheduler() will only initialize once per process. After that,
-	// ConfigureGlobalAPIScheduler is a no-op. We can verify the no-op path.
 	scheduler := GetAPIScheduler()
 	if scheduler == nil {
 		t.Fatal("GetAPIScheduler returned nil")
@@ -532,21 +511,27 @@ func TestAPISchedulerGap_GlobalConfig_SyncOnce(t *testing.T) {
 
 	originalMax := scheduler.config.MaxConcurrentAPICalls
 
-	// Attempt to reconfigure — should be ignored because sync.Once already fired
+	// Attempt to reconfigure — should be applied dynamically!
 	ConfigureGlobalAPIScheduler(APISchedulerConfig{
-		MaxConcurrentAPICalls: originalMax + 100, // Try to change it
+		MaxConcurrentAPICalls: originalMax + 2,
 		SlotAcquireTimeout:    99 * time.Second,
 	})
 
-	// Get again — should be same instance
 	scheduler2 := GetAPIScheduler()
 	if scheduler2 != scheduler {
 		t.Error("GetAPIScheduler returned different instance after reconfigure attempt")
 	}
-	if scheduler2.config.MaxConcurrentAPICalls != originalMax {
-		t.Errorf("Config was modified despite sync.Once guard: expected %d, got %d",
-			originalMax, scheduler2.config.MaxConcurrentAPICalls)
+	metrics := scheduler2.GetMetrics()
+	if metrics.MaxSlots != originalMax+2 {
+		t.Errorf("Config was not modified dynamically: expected %d, got %d",
+			originalMax+2, metrics.MaxSlots)
 	}
+
+	// Restore original config for cleanliness
+	ConfigureGlobalAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: originalMax,
+		SlotAcquireTimeout:    5 * time.Minute,
+	})
 }
 
 func (m *mockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
