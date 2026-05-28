@@ -680,22 +680,89 @@ func TestRefinePlan_TxCommitFail(t *testing.T) {
 }
 
 func TestDecompose_EmptySourcePaths(t *testing.T) {
+	// Empty/whitespace-only SourcePaths entries are rejected up front to
+	// prevent ingesting the workspace root or current working directory.
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
 			return sampleRawPlanJSON("Empty Source Plan"), nil
 		},
 	}, t.TempDir())
 
+	cases := []struct {
+		name  string
+		paths []string
+	}{
+		{"single empty string", []string{""}},
+		{"single whitespace", []string{"   "}},
+		{"mixed empty and whitespace", []string{"", "   "}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := d.Decompose(context.Background(), DecomposeRequest{
+				Goal:         "No sources",
+				CampaignType: CampaignTypeCustom,
+				SourcePaths:  tc.paths,
+			})
+			if err == nil {
+				t.Fatalf("expected error for paths=%v, got nil", tc.paths)
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("expected ErrInvalidConfig, got %v", err)
+			}
+		})
+	}
+
+	// Nil and zero-length SourcePaths remain valid (no entries to validate).
+	t.Run("nil source paths", func(t *testing.T) {
+		res, err := d.Decompose(context.Background(), DecomposeRequest{
+			Goal:         "No sources",
+			CampaignType: CampaignTypeCustom,
+			SourcePaths:  nil,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res == nil || len(res.SourceDocs) != 0 {
+			t.Errorf("expected 0 source docs for nil SourcePaths")
+		}
+	})
+}
+
+// TestDecompose_SetIntelligenceGatherer_NilDereference verifies that calling
+// Decompose after SetIntelligenceGatherer(nil) does not panic with a nil
+// pointer dereference at the Step 0 intelligence gathering call site.
+func TestDecompose_SetIntelligenceGatherer_NilDereference(t *testing.T) {
+	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
+		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+			return sampleRawPlanJSON("Nil Intel Setter"), nil
+		},
+	}, t.TempDir())
+
+	// Explicitly set a nil gatherer; the guard at the Step 0 call site must
+	// short-circuit instead of dereferencing.
+	d.SetIntelligenceGatherer(nil)
+	// Same for advisory board and edge case detector setters - they accept nil
+	// without panicking.
+	d.SetAdvisoryBoard(nil)
+	d.SetEdgeCaseDetector(nil)
+	d.SetToolPregenerator(nil)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Decompose panicked with nil dependencies: %v", r)
+		}
+	}()
+
 	res, err := d.Decompose(context.Background(), DecomposeRequest{
-		Goal:         "No sources",
+		Goal:         "Nil intelligence gatherer setter",
 		CampaignType: CampaignTypeCustom,
-		SourcePaths:  []string{"", "   "},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(res.SourceDocs) != 0 {
-		t.Errorf("expected 0 source docs, got %d", len(res.SourceDocs))
+	if res == nil || res.Campaign == nil {
+		t.Fatal("expected campaign to be produced even with nil gatherer")
 	}
 }
 

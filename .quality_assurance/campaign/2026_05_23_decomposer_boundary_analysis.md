@@ -1,3 +1,9 @@
+---
+
+remediated: true
+remediated_date: 2026-05-28
+subsystem: campaign
+---
 # QA Journal: Decomposer Subsystem (internal/campaign)
 Date: 2026-05-23 00:26:21 EDT
 Reviewer: QA Automation Engineer

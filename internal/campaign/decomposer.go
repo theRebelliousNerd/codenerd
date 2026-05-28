@@ -259,6 +259,13 @@ func (d *Decomposer) Decompose(ctx context.Context, req DecomposeRequest) (*Deco
 	if req.ContextBudget < 0 {
 		return nil, fmt.Errorf("%w: context budget must be non-negative", ErrInvalidConfig)
 	}
+	// Validate SourcePaths: reject empty/whitespace-only entries to prevent
+	// accidentally ingesting the workspace root or current working directory.
+	for i, p := range req.SourcePaths {
+		if strings.TrimSpace(p) == "" {
+			return nil, fmt.Errorf("%w: SourcePaths[%d] is empty or whitespace-only", ErrInvalidConfig, i)
+		}
+	}
 
 	timer := logging.StartTimer(logging.CategoryCampaign, "Decompose")
 	defer timer.StopWithInfo()

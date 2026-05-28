@@ -1,3 +1,9 @@
+---
+
+remediated: true
+remediated_date: 2026-05-28
+subsystem: campaign
+---
 # QA Journal: Shard Advisory Board Boundary Value Analysis
 Date: 2026-05-24_04-26-EST
 Subsystem: internal/campaign/shard_advisory_board.go

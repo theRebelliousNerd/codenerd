@@ -157,6 +157,14 @@ func (b *ShardAdvisoryBoard) ConsultAdvisors(ctx context.Context, req AdvisoryRe
 		return nil, fmt.Errorf("consultation manager not configured")
 	}
 
+	// Validate critical request fields before incurring LLM cost.
+	if strings.TrimSpace(req.CampaignID) == "" {
+		return nil, fmt.Errorf("advisory request requires non-empty CampaignID")
+	}
+	if strings.TrimSpace(req.Goal) == "" {
+		return nil, fmt.Errorf("advisory request requires non-empty Goal")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, b.config.ConsultTimeout*time.Duration(len(b.config.EnabledAdvisors)))
 	defer cancel()
 
@@ -202,9 +210,12 @@ func (b *ShardAdvisoryBoard) SynthesizeVotes(responses []AdvisoryResponse) Advis
 	}
 
 	if len(responses) == 0 {
-		synthesis.Approved = true // No advisors = auto-approve
-		synthesis.Summary = "No advisors configured; plan auto-approved."
-		synthesis.Recommendation = "Proceed with execution."
+		// Fail-closed: zero advisor responses must not auto-approve, since the
+		// LLM integration could have silently failed. Treat absence of votes as
+		// a safety blocker and require explicit review.
+		synthesis.Approved = false
+		synthesis.Summary = "No advisor responses received; plan not approved (fail-closed)."
+		synthesis.Recommendation = "NOT RECOMMENDED: No advisory responses received. Verify consultation pipeline before proceeding."
 		return synthesis
 	}
 
@@ -421,7 +432,7 @@ Campaign Goal: %s`, req.Goal)
 func (b *ShardAdvisoryBoard) parseAdvisoryResponse(sr ConsultationResponse) AdvisoryResponse {
 	resp := AdvisoryResponse{
 		AdvisorName: sr.FromSpec,
-		Confidence:  sr.Confidence,
+		Confidence:  clampConfidence(sr.Confidence),
 		Reasoning:   sr.Advice,
 		Caveats:     sr.Caveats,
 		Duration:    sr.Duration,
@@ -492,6 +503,21 @@ func (b *ShardAdvisoryBoard) parseAdvisoryResponse(sr ConsultationResponse) Advi
 	return resp
 }
 
+// clampConfidence constrains a confidence score to the valid [0.0, 1.0] range.
+// NaN values are normalized to 0.0 (treated as no confidence).
+func clampConfidence(c float64) float64 {
+	if c != c { // NaN check
+		return 0.0
+	}
+	if c < 0.0 {
+		return 0.0
+	}
+	if c > 1.0 {
+		return 1.0
+	}
+	return c
+}
+
 func (b *ShardAdvisoryBoard) isCriticalAdvisor(name string) bool {
 	criticalAdvisors := map[string]bool{
 		"coder":  true,
@@ -516,7 +542,10 @@ func (b *ShardAdvisoryBoard) determineApproval(synthesis AdvisorySynthesis, appr
 
 	// Check approval ratio
 	if validVotes == 0 {
-		return true // No valid votes = auto-approve
+		// Fail-closed: if no votes met the confidence threshold, do not approve.
+		// A silent LLM failure or unanimously low-confidence panel must not
+		// pass the plan through.
+		return false
 	}
 
 	return synthesis.ApprovalRatio >= b.config.MinApprovalRatio
