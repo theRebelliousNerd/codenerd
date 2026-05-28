@@ -16,6 +16,20 @@
 # SerializationOrder: 1
 Decl user_intent(ID, Category, Verb, Target, Constraint) bound [/string, /name, /name, /string, /string].
 
+# multi_step_signal(Signal) - EDB asserted by Go.
+# Step 5: the multi-step CLASSIFICATION decision moves to policy, while the
+# regex/keyword/verb-count EXTRACTION stays in Go (cmd/nerd/chat/delegation.go:
+# detectMultiStepTask, and the decompose corpus in schema/intent_multi_step.mg).
+# Go computes each signal from the (quote-stripped) input and asserts one fact
+# per detected signal; Mangle ORs them into is_multi_step.
+# Signal: /campaign_verb, /keyword_match, /verb_count_high, /compound_pattern
+Decl multi_step_signal(Signal) bound [/name].
+
+# is_multi_step() - derived: the current request should be decomposed into
+# multiple steps. Queried by Go, which falls back to the legacy Go boolean if the
+# kernel is unavailable or returns nothing.
+Decl is_multi_step().
+
 # =============================================================================
 # SECTION 2: FOCUS RESOLUTION (§1.2)
 # =============================================================================

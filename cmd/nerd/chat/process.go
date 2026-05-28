@@ -330,6 +330,8 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Step 4: clear the prior turn's delegation decision input so stale
 			// confidence cannot leak into this turn's should_delegate gate.
 			_ = m.kernel.Retract("delegation_candidate")
+			// Step 5: clear the prior turn's multi-step signals.
+			_ = m.kernel.Retract("multi_step_signal")
 
 			// NERD-EVOLVE-START: P3_routing_assertion
 			// Retract per-turn perception routing facts so stale values from the
@@ -492,7 +494,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
 		// This implements autonomous multi-step execution without campaigns
-		isMultiStep := detectMultiStepTask(input, intent)
+		isMultiStep := m.detectMultiStepTask(input, intent)
 		if isMultiStep {
 			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)

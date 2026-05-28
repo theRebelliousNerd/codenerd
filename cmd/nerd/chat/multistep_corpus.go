@@ -744,8 +744,11 @@ func DetectMultiStepFromCorpus(input string, intent perception.Intent) (bool, *M
 		return true, pattern, captures
 	}
 
-	// Fallback to legacy detection
-	if detectMultiStepTask(input, intent) {
+	// Fallback to legacy signal detection. This corpus helper has no kernel
+	// handle, so it uses the pure Go signal extractor directly (any signal =>
+	// multi-step). The kernel-gated decision lives at the primary call site
+	// (Model.detectMultiStepTask in process.go).
+	if len(multiStepSignals(input, intent)) > 0 {
 		return true, nil, nil // Multi-step detected but no specific pattern matched
 	}
 

@@ -144,6 +144,20 @@ should_delegate(ShardType) :-
     /none != ShardType,
     Conf >= 50.
 
+# Step 5: MULTI-STEP CLASSIFICATION (decision moves to policy; extraction stays
+# in Go). Go's detectMultiStepTask computes the individual signals from the
+# (quote-stripped) input — campaign verb, multi-step keyword match, verb-count
+# >= 3, compound-pattern regex — and asserts one multi_step_signal fact per
+# detected signal. This rule ORs them: the request is multi-step if ANY signal
+# fired, reproducing the legacy boolean exactly. The regex/keyword/verb-count
+# MATCHING itself stays in Go (Mangle is not used for fuzzy/NL pattern banks per
+# the repo guardrails); only the combination DECISION lives here, so policy can
+# later tune it (e.g. require >=2 signals, or admit the LLM perception signal)
+# without a Go change. Go queries is_multi_step and falls back to the legacy
+# boolean if the kernel is unavailable or returns nothing.
+is_multi_step() :-
+    multi_step_signal(_).
+
 # Derive next_action from intent and mapping
 # Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
 next_action(Action) :-
