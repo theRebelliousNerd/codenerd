@@ -23,17 +23,17 @@ func BenchmarkDreamer_SimulateAction_LargeGraph(b *testing.B) {
 	// Pre-allocate to avoid resize overhead during setup
 	// But we use Assert loop anyway.
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		file := fmt.Sprintf("pkg/file_%d.go", i)
 		if i >= 90 {
 			file = fmt.Sprintf("pkg/file_%d_test.go", i)
 		}
 
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			sym := fmt.Sprintf("sym_%d_%d", i, j)
 			k.AssertWithoutEval(Fact{
 				Predicate: "code_defines",
-				Args:      []interface{}{file, sym},
+				Args:      []any{file, sym},
 			})
 		}
 	}
@@ -51,17 +51,17 @@ func BenchmarkDreamer_SimulateAction_LargeGraph(b *testing.B) {
 
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_calls",
-			Args:      []interface{}{caller, targetSym},
+			Args:      []any{caller, targetSym},
 		})
 	}
 
 	// 99k random calls
-	for i := 0; i < 99000; i++ {
+	for i := range 99000 {
 		caller := fmt.Sprintf("sym_%d_%d", i%100, i%100)
 		callee := fmt.Sprintf("sym_%d_%d", (i+1)%100, (i+1)%100)
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_calls",
-			Args:      []interface{}{caller, callee},
+			Args:      []any{caller, callee},
 		})
 	}
 

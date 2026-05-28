@@ -251,7 +251,7 @@ func (c *ZAIClient) waitForRateLimit(ctx context.Context, reqID string, log *log
 	}
 
 	remaining, hasDeadline := contextRemaining(deadline)
-	log.StructuredLog("debug", "Rate limit sleep starting", map[string]interface{}{
+	log.StructuredLog("debug", "Rate limit sleep starting", map[string]any{
 		"request_id":            reqID,
 		"sleep_ms":              delay.Milliseconds(),
 		"context_remaining_ms":  remaining.Milliseconds(),
@@ -260,7 +260,7 @@ func (c *ZAIClient) waitForRateLimit(ctx context.Context, reqID string, log *log
 	})
 
 	if err := sleepWithContext(ctx, delay); err != nil {
-		log.StructuredLog("error", "Rate limit sleep cancelled", map[string]interface{}{
+		log.StructuredLog("error", "Rate limit sleep cancelled", map[string]any{
 			"request_id": reqID,
 			"error":      err.Error(),
 		})
@@ -338,7 +338,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		deadlineRemaining = time.Until(deadline)
 	}
 
-	log.StructuredLog("debug", "ZAI request started", map[string]interface{}{
+	log.StructuredLog("debug", "ZAI request started", map[string]any{
 		"request_id":           reqID,
 		"method":               "CompleteWithSystem",
 		"context_deadline":     contextDeadline.Format(time.RFC3339),
@@ -374,7 +374,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		select {
 		case c.sem <- struct{}{}:
 			semWaitDuration := time.Since(semWaitStart)
-			log.StructuredLog("debug", "Semaphore acquired", map[string]interface{}{
+			log.StructuredLog("debug", "Semaphore acquired", map[string]any{
 				"request_id":                      reqID,
 				"wait_ms":                         semWaitDuration.Milliseconds(),
 				"slots_in_use":                    len(c.sem),
@@ -383,7 +383,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			defer func() { <-c.sem }()
 		case <-ctx.Done():
 			semWaitDuration := time.Since(semWaitStart)
-			log.StructuredLog("error", "Context cancelled waiting for semaphore", map[string]interface{}{
+			log.StructuredLog("error", "Context cancelled waiting for semaphore", map[string]any{
 				"request_id":   reqID,
 				"wait_ms":      semWaitDuration.Milliseconds(),
 				"error":        ctx.Err().Error(),
@@ -449,7 +449,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			cumulativeBackoffMs += backoffDuration.Milliseconds()
 			remainingBeforeBackoff, hasDeadline := contextRemaining(contextDeadline)
 
-			log.StructuredLog("debug", "Retry backoff starting", map[string]interface{}{
+			log.StructuredLog("debug", "Retry backoff starting", map[string]any{
 				"request_id":            reqID,
 				"attempt":               i + 1,
 				"backoff_ms":            backoffDuration.Milliseconds(),
@@ -459,7 +459,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			})
 
 			if hasDeadline && backoffDuration > remainingBeforeBackoff {
-				log.StructuredLog("error", "Retry backoff would exceed deadline", map[string]interface{}{
+				log.StructuredLog("error", "Retry backoff would exceed deadline", map[string]any{
 					"request_id":           reqID,
 					"attempt":              i + 1,
 					"backoff_ms":           backoffDuration.Milliseconds(),
@@ -469,7 +469,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			}
 
 			if err := sleepWithContext(ctx, backoffDuration); err != nil {
-				log.StructuredLog("error", "Retry backoff cancelled", map[string]interface{}{
+				log.StructuredLog("error", "Retry backoff cancelled", map[string]any{
 					"request_id": reqID,
 					"attempt":    i + 1,
 					"error":      err.Error(),
@@ -480,7 +480,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 
 		// Check context before making HTTP request
 		if ctx.Err() != nil {
-			log.StructuredLog("error", "Context cancelled before HTTP request", map[string]interface{}{
+			log.StructuredLog("error", "Context cancelled before HTTP request", map[string]any{
 				"request_id":            reqID,
 				"attempt":               i + 1,
 				"total_elapsed_ms":      time.Since(startTime).Milliseconds(),
@@ -514,7 +514,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			GotConn: func(info httptrace.GotConnInfo) {
 				connReused = info.Reused
 				connIdleTime = info.IdleTime
-				log.StructuredLog("debug", "Connection acquired", map[string]interface{}{
+				log.StructuredLog("debug", "Connection acquired", map[string]any{
 					"request_id": reqID,
 					"reused":     info.Reused,
 					"was_idle":   info.WasIdle,
@@ -526,7 +526,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
 
 		httpStart := time.Now()
-		log.StructuredLog("debug", "HTTP request starting", map[string]interface{}{
+		log.StructuredLog("debug", "HTTP request starting", map[string]any{
 			"request_id":           reqID,
 			"attempt":              i + 1,
 			"context_remaining_ms": time.Until(contextDeadline).Milliseconds(),
@@ -537,7 +537,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		httpDuration := time.Since(httpStart)
 
 		if err != nil {
-			log.StructuredLog("error", "HTTP request failed", map[string]interface{}{
+			log.StructuredLog("error", "HTTP request failed", map[string]any{
 				"request_id":       reqID,
 				"attempt":          i + 1,
 				"http_duration_ms": httpDuration.Milliseconds(),
@@ -556,7 +556,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		readDuration := time.Since(httpStart) - httpDuration
 
 		if err != nil {
-			log.StructuredLog("error", "Response body read failed", map[string]interface{}{
+			log.StructuredLog("error", "Response body read failed", map[string]any{
 				"request_id":       reqID,
 				"attempt":          i + 1,
 				"read_duration_ms": readDuration.Milliseconds(),
@@ -566,7 +566,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			continue
 		}
 
-		log.StructuredLog("debug", "HTTP request completed", map[string]interface{}{
+		log.StructuredLog("debug", "HTTP request completed", map[string]any{
 			"request_id":       reqID,
 			"attempt":          i + 1,
 			"status_code":      resp.StatusCode,
@@ -588,7 +588,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 			}
 			c.mu.Unlock()
 
-			log.StructuredLog("warn", "Rate limit exceeded (429), will retry", map[string]interface{}{
+			log.StructuredLog("warn", "Rate limit exceeded (429), will retry", map[string]any{
 				"request_id":            reqID,
 				"retry_after_ms":        retryAfter.Milliseconds(),
 				"backoff_ms":            retryDelay.Milliseconds(),
@@ -604,7 +604,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 				retryDelay := c.nextRetryDelay(i)
 				lastErr = fmt.Errorf("retryable status %d: %s", resp.StatusCode, string(body))
 				retryDelayOverride = retryDelay
-				log.StructuredLog("warn", "Retryable HTTP status received", map[string]interface{}{
+				log.StructuredLog("warn", "Retryable HTTP status received", map[string]any{
 					"request_id":     reqID,
 					"status_code":    resp.StatusCode,
 					"backoff_ms":     retryDelay.Milliseconds(),
@@ -620,7 +620,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		trimmedBody := bytes.TrimSpace(body)
 		if len(trimmedBody) == 0 {
 			retryDelay := c.nextRetryDelay(i)
-			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]interface{}{
+			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]any{
 				"request_id": reqID,
 				"attempt":    i + 1,
 				"backoff_ms": retryDelay.Milliseconds(),
@@ -658,7 +658,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 		}
 
 		totalDuration := time.Since(startTime)
-		log.StructuredLog("info", "ZAI request completed successfully", map[string]interface{}{
+		log.StructuredLog("info", "ZAI request completed successfully", map[string]any{
 			"request_id":            reqID,
 			"total_duration_ms":     totalDuration.Milliseconds(),
 			"attempts":              i + 1,
@@ -675,7 +675,7 @@ func (c *ZAIClient) CompleteWithSystem(ctx context.Context, systemPrompt, userPr
 	if lastErr != nil {
 		lastErrMsg = lastErr.Error()
 	}
-	log.StructuredLog("error", "ZAI request failed after all retries", map[string]interface{}{
+	log.StructuredLog("error", "ZAI request failed after all retries", map[string]any{
 		"request_id":            reqID,
 		"total_duration_ms":     totalDuration.Milliseconds(),
 		"attempts":              maxRetries + 1,
@@ -722,7 +722,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		deadlineRemaining = time.Until(deadline)
 	}
 
-	log.StructuredLog("debug", "ZAI structured request started", map[string]interface{}{
+	log.StructuredLog("debug", "ZAI structured request started", map[string]any{
 		"request_id":           reqID,
 		"method":               "CompleteWithStructuredOutput",
 		"context_deadline":     contextDeadline.Format(time.RFC3339),
@@ -747,7 +747,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		select {
 		case c.sem <- struct{}{}:
 			semWaitDuration := time.Since(semWaitStart)
-			log.StructuredLog("debug", "Semaphore acquired", map[string]interface{}{
+			log.StructuredLog("debug", "Semaphore acquired", map[string]any{
 				"request_id":                      reqID,
 				"wait_ms":                         semWaitDuration.Milliseconds(),
 				"slots_in_use":                    len(c.sem),
@@ -756,7 +756,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			defer func() { <-c.sem }()
 		case <-ctx.Done():
 			semWaitDuration := time.Since(semWaitStart)
-			log.StructuredLog("error", "Context cancelled waiting for semaphore", map[string]interface{}{
+			log.StructuredLog("error", "Context cancelled waiting for semaphore", map[string]any{
 				"request_id":   reqID,
 				"wait_ms":      semWaitDuration.Milliseconds(),
 				"error":        ctx.Err().Error(),
@@ -831,7 +831,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			cumulativeBackoffMs += backoffDuration.Milliseconds()
 			remainingBeforeBackoff, hasDeadline := contextRemaining(contextDeadline)
 
-			log.StructuredLog("debug", "Retry backoff starting", map[string]interface{}{
+			log.StructuredLog("debug", "Retry backoff starting", map[string]any{
 				"request_id":            reqID,
 				"attempt":               i + 1,
 				"backoff_ms":            backoffDuration.Milliseconds(),
@@ -841,7 +841,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			})
 
 			if hasDeadline && backoffDuration > remainingBeforeBackoff {
-				log.StructuredLog("error", "Retry backoff would exceed deadline", map[string]interface{}{
+				log.StructuredLog("error", "Retry backoff would exceed deadline", map[string]any{
 					"request_id":           reqID,
 					"attempt":              i + 1,
 					"backoff_ms":           backoffDuration.Milliseconds(),
@@ -851,7 +851,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			}
 
 			if err := sleepWithContext(ctx, backoffDuration); err != nil {
-				log.StructuredLog("error", "Retry backoff cancelled", map[string]interface{}{
+				log.StructuredLog("error", "Retry backoff cancelled", map[string]any{
 					"request_id": reqID,
 					"attempt":    i + 1,
 					"error":      err.Error(),
@@ -862,7 +862,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 
 		// Check context before making HTTP request
 		if ctx.Err() != nil {
-			log.StructuredLog("error", "Context cancelled before HTTP request", map[string]interface{}{
+			log.StructuredLog("error", "Context cancelled before HTTP request", map[string]any{
 				"request_id":            reqID,
 				"attempt":               i + 1,
 				"total_elapsed_ms":      time.Since(startTime).Milliseconds(),
@@ -896,7 +896,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			GotConn: func(info httptrace.GotConnInfo) {
 				connReused = info.Reused
 				connIdleTime = info.IdleTime
-				log.StructuredLog("debug", "Connection acquired", map[string]interface{}{
+				log.StructuredLog("debug", "Connection acquired", map[string]any{
 					"request_id": reqID,
 					"reused":     info.Reused,
 					"was_idle":   info.WasIdle,
@@ -908,7 +908,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
 
 		httpStart := time.Now()
-		log.StructuredLog("debug", "HTTP request starting", map[string]interface{}{
+		log.StructuredLog("debug", "HTTP request starting", map[string]any{
 			"request_id":           reqID,
 			"attempt":              i + 1,
 			"context_remaining_ms": time.Until(contextDeadline).Milliseconds(),
@@ -919,7 +919,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		httpDuration := time.Since(httpStart)
 
 		if err != nil {
-			log.StructuredLog("error", "HTTP request failed", map[string]interface{}{
+			log.StructuredLog("error", "HTTP request failed", map[string]any{
 				"request_id":       reqID,
 				"attempt":          i + 1,
 				"http_duration_ms": httpDuration.Milliseconds(),
@@ -938,7 +938,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		readDuration := time.Since(httpStart) - httpDuration
 
 		if err != nil {
-			log.StructuredLog("error", "Response body read failed", map[string]interface{}{
+			log.StructuredLog("error", "Response body read failed", map[string]any{
 				"request_id":       reqID,
 				"attempt":          i + 1,
 				"read_duration_ms": readDuration.Milliseconds(),
@@ -948,7 +948,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			continue
 		}
 
-		log.StructuredLog("debug", "HTTP request completed", map[string]interface{}{
+		log.StructuredLog("debug", "HTTP request completed", map[string]any{
 			"request_id":       reqID,
 			"attempt":          i + 1,
 			"status_code":      resp.StatusCode,
@@ -970,7 +970,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 			}
 			c.mu.Unlock()
 
-			log.StructuredLog("warn", "Rate limit exceeded (429), will retry", map[string]interface{}{
+			log.StructuredLog("warn", "Rate limit exceeded (429), will retry", map[string]any{
 				"request_id":            reqID,
 				"retry_after_ms":        retryAfter.Milliseconds(),
 				"backoff_ms":            retryDelay.Milliseconds(),
@@ -986,7 +986,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 				retryDelay := c.nextRetryDelay(i)
 				lastErr = fmt.Errorf("retryable status %d: %s", resp.StatusCode, string(body))
 				retryDelayOverride = retryDelay
-				log.StructuredLog("warn", "Retryable HTTP status received", map[string]interface{}{
+				log.StructuredLog("warn", "Retryable HTTP status received", map[string]any{
 					"request_id":     reqID,
 					"status_code":    resp.StatusCode,
 					"backoff_ms":     retryDelay.Milliseconds(),
@@ -1002,7 +1002,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		trimmedBody := bytes.TrimSpace(body)
 		if len(trimmedBody) == 0 {
 			retryDelay := c.nextRetryDelay(i)
-			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]interface{}{
+			log.StructuredLog("warn", "Empty response from API (possible safety filter), will retry", map[string]any{
 				"request_id": reqID,
 				"attempt":    i + 1,
 				"backoff_ms": retryDelay.Milliseconds(),
@@ -1030,7 +1030,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 		}
 
 		totalDuration := time.Since(startTime)
-		log.StructuredLog("info", "ZAI structured request completed successfully", map[string]interface{}{
+		log.StructuredLog("info", "ZAI structured request completed successfully", map[string]any{
 			"request_id":            reqID,
 			"total_duration_ms":     totalDuration.Milliseconds(),
 			"attempts":              i + 1,
@@ -1045,7 +1045,7 @@ func (c *ZAIClient) CompleteWithStructuredOutput(ctx context.Context, systemProm
 	if lastErr != nil {
 		lastErrMsg = lastErr.Error()
 	}
-	log.StructuredLog("error", "ZAI structured request failed after all retries", map[string]interface{}{
+	log.StructuredLog("error", "ZAI structured request failed after all retries", map[string]any{
 		"request_id":            reqID,
 		"total_duration_ms":     totalDuration.Milliseconds(),
 		"attempts":              maxRetries + 1,
@@ -1120,7 +1120,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 				cumulativeBackoffMs += backoffDuration.Milliseconds()
 				remainingBeforeBackoff, hasDeadline := contextRemaining(contextDeadline)
 
-				log.StructuredLog("debug", "Retry backoff starting", map[string]interface{}{
+				log.StructuredLog("debug", "Retry backoff starting", map[string]any{
 					"request_id":            reqID,
 					"attempt":               i + 1,
 					"backoff_ms":            backoffDuration.Milliseconds(),
@@ -1335,7 +1335,7 @@ func (c *ZAIClient) CompleteWithStreaming(ctx context.Context, systemPrompt, use
 		if lastErr != nil {
 			lastErrMsg = lastErr.Error()
 		}
-		log.StructuredLog("error", "ZAI streaming request failed after all retries", map[string]interface{}{
+		log.StructuredLog("error", "ZAI streaming request failed after all retries", map[string]any{
 			"request_id":            reqID,
 			"total_duration_ms":     totalDuration.Milliseconds(),
 			"attempts":              maxRetries + 1,

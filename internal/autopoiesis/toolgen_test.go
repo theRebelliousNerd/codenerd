@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ type failingPromptAssembler struct {
 	err error
 }
 
-func (f failingPromptAssembler) AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error) {
+func (f failingPromptAssembler) AssembleSystemPrompt(ctx context.Context, pc any) (string, error) {
 	if f.err != nil {
 		return "", f.err
 	}
@@ -580,13 +581,7 @@ func TestRegisterTool(t *testing.T) {
 
 	// Verify tool is registered
 	tools := tg.listExistingTools()
-	found := false
-	for _, name := range tools {
-		if name == "registered_tool" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(tools, "registered_tool")
 	if !found {
 		t.Error("Tool was not registered")
 	}

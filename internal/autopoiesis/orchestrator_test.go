@@ -47,7 +47,7 @@ func TestRecordCodeEditOutcome(t *testing.T) {
 
 	// Case 2: Pruning old events (MaxLearningFacts=10 in helper)
 	// Fill up to limit
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		orch.RecordCodeEditOutcome("func:Test", "fix", true)
 	}
 	// Check retraction happens (requires query mock to return facts to prune)

@@ -20,48 +20,48 @@ func TestFact_String_WhenVariousArgTypes_ShouldFormat(t *testing.T) {
 		contains []string
 	}{
 		{
-			name: "StringAtomArg",
-			fact: Fact{Predicate: "p", Args: []interface{}{"/atom"}},
+			name:     "StringAtomArg",
+			fact:     Fact{Predicate: "p", Args: []any{"/atom"}},
 			contains: []string{"p(/atom)."},
 		},
 		{
-			name: "QuotedStringArg",
-			fact: Fact{Predicate: "p", Args: []interface{}{"hello world"}},
+			name:     "QuotedStringArg",
+			fact:     Fact{Predicate: "p", Args: []any{"hello world"}},
 			contains: []string{`p("hello world").`},
 		},
 		{
-			name: "IntArg",
-			fact: Fact{Predicate: "p", Args: []interface{}{42}},
+			name:     "IntArg",
+			fact:     Fact{Predicate: "p", Args: []any{42}},
 			contains: []string{"p(42)."},
 		},
 		{
-			name: "Int64Arg",
-			fact: Fact{Predicate: "p", Args: []interface{}{int64(999)}},
+			name:     "Int64Arg",
+			fact:     Fact{Predicate: "p", Args: []any{int64(999)}},
 			contains: []string{"p(999)."},
 		},
 		{
-			name: "Float64Arg",
-			fact: Fact{Predicate: "p", Args: []interface{}{3.14}},
+			name:     "Float64Arg",
+			fact:     Fact{Predicate: "p", Args: []any{3.14}},
 			contains: []string{"p(3.140000)."},
 		},
 		{
-			name: "BoolTrue",
-			fact: Fact{Predicate: "p", Args: []interface{}{true}},
+			name:     "BoolTrue",
+			fact:     Fact{Predicate: "p", Args: []any{true}},
 			contains: []string{"p(/true)."},
 		},
 		{
-			name: "BoolFalse",
-			fact: Fact{Predicate: "p", Args: []interface{}{false}},
+			name:     "BoolFalse",
+			fact:     Fact{Predicate: "p", Args: []any{false}},
 			contains: []string{"p(/false)."},
 		},
 		{
-			name: "NoArgs",
-			fact: Fact{Predicate: "p", Args: nil},
+			name:     "NoArgs",
+			fact:     Fact{Predicate: "p", Args: nil},
 			contains: []string{"p()."},
 		},
 		{
-			name: "MultipleArgs",
-			fact: Fact{Predicate: "exec", Args: []interface{}{"req-1", int64(0), "/success"}},
+			name:     "MultipleArgs",
+			fact:     Fact{Predicate: "exec", Args: []any{"req-1", int64(0), "/success"}},
 			contains: []string{`exec("req-1", 0, /success).`},
 		},
 	}
@@ -789,7 +789,7 @@ func TestExecutionMetrics_Snapshot_WhenSuccessRate_ShouldCalculateCorrectly(t *t
 	t.Parallel()
 	m := NewExecutionMetrics()
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		m.RecordEvent(AuditEvent{
 			Type:      AuditEventComplete,
 			Timestamp: time.Now(),

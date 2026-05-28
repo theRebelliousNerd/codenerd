@@ -7,6 +7,7 @@ import (
 	"context"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -237,10 +238,8 @@ func (b *TestDependencyBuilder) addDependency(testRef, sourceRef string) {
 
 	deps := b.dependencies[testRef]
 	// Check for duplicates
-	for _, existing := range deps {
-		if existing == sourceRef {
-			return
-		}
+	if slices.Contains(deps, sourceRef) {
+		return
 	}
 	b.dependencies[testRef] = append(deps, sourceRef)
 }

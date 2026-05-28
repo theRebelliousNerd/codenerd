@@ -78,7 +78,7 @@ func BenchmarkFormatExecutionSummary(b *testing.B) {
 	observer.Enable()
 
 	// Add a few dummy executions
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		observer.StartExecution(fmt.Sprintf("shard-%d", i), "coder", "task")
 		observer.UpdatePhase(fmt.Sprintf("shard-%d", i), PhaseAnalyzing, "analysis")
 	}

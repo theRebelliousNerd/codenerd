@@ -115,7 +115,7 @@ func formatFactForHuman(fact mangle.Fact) string {
 }
 
 // formatArg formats a single argument for human readability.
-func formatArg(arg interface{}) string {
+func formatArg(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		// Remove atom prefix if present for cleaner display
@@ -242,7 +242,7 @@ func (e *Explainer) buildNarrative(sb *strings.Builder, node *mangle.DerivationN
 }
 
 // QuickExplain provides a one-liner explanation for common predicates.
-func QuickExplain(predicate string, args []interface{}) string {
+func QuickExplain(predicate string, args []any) string {
 	switch predicate {
 	case "next_action":
 		if len(args) > 0 {

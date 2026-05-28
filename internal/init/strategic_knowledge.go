@@ -292,7 +292,7 @@ func (i *Initializer) assertDocFact(kernel *core.RealKernel, status DocProcessin
 	}
 	fact := core.Fact{
 		Predicate: "doc_ingestion",
-		Args:      []interface{}{path, string(status), hash, time.Now().Unix()},
+		Args:      []any{path, string(status), hash, time.Now().Unix()},
 	}
 	if err := kernel.Assert(fact); err != nil {
 		logging.Get(logging.CategoryBoot).Debug("Failed to assert doc fact: %v", err)
@@ -930,8 +930,8 @@ func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 
 		// Check if in target directory
 		if priority == 3 {
-			parts := strings.Split(relPath, string(os.PathSeparator))
-			for _, part := range parts {
+			parts := strings.SplitSeq(relPath, string(os.PathSeparator))
+			for part := range parts {
 				if targetDirs[strings.ToLower(part)] {
 					priority = 2
 					break
@@ -957,10 +957,10 @@ func (i *Initializer) GatherProjectDocumentation() []DocumentInfo {
 
 		// Extract title from first heading
 		title := filepath.Base(path)
-		lines := strings.Split(string(content), "\n")
-		for _, line := range lines {
-			if strings.HasPrefix(line, "# ") {
-				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+		lines := strings.SplitSeq(string(content), "\n")
+		for line := range lines {
+			if after, ok := strings.CutPrefix(line, "# "); ok {
+				title = strings.TrimSpace(after)
 				break
 			}
 		}
@@ -1298,13 +1298,6 @@ func extractJSON(s string) string {
 	}
 
 	return s
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // extractDirectoriesFromFacts extracts directory paths from file_topology facts.

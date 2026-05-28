@@ -124,7 +124,7 @@ func TestSanitizeFactArg_WhenControlChars_ShouldStrip(t *testing.T) {
 			},
 		},
 		{
-			name: "max_length_truncation",
+			name:  "max_length_truncation",
 			input: strings.Repeat("a", 3000),
 			check: func(t *testing.T, result string) {
 				if len(result) > 2048 {
@@ -144,7 +144,6 @@ func TestSanitizeFactArg_WhenControlChars_ShouldStrip(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result := sanitizeFactArg(tc.input)
@@ -176,7 +175,6 @@ func TestMin_WhenCompared_ShouldReturnSmaller(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := min(tc.a, tc.b)
@@ -406,7 +404,6 @@ func TestUnderstanding_Validate_WhenMissingFields_ShouldReturnError(t *testing.T
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := tc.u.Validate()
@@ -441,7 +438,6 @@ func TestUnderstanding_Validate_WhenBadConfidence_ShouldReturnError(t *testing.T
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			u := Understanding{
@@ -472,7 +468,6 @@ func TestUnderstanding_Validate_WhenBoundaryConfidence_ShouldPass(t *testing.T) 
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			u := Understanding{
@@ -499,7 +494,6 @@ func TestUnderstanding_IsActionRequest_WhenActionVerb_ShouldReturnTrue(t *testin
 	actionTypes := []string{"implement", "modify", "refactor", "verify", "attack", "revert", "configure"}
 
 	for _, at := range actionTypes {
-		at := at
 		t.Run(at, func(t *testing.T) {
 			t.Parallel()
 			u := &Understanding{ActionType: at}
@@ -516,7 +510,6 @@ func TestUnderstanding_IsActionRequest_WhenNonActionVerb_ShouldReturnFalse(t *te
 	nonActionTypes := []string{"explain", "investigate", "research", "chat", "review", ""}
 
 	for _, at := range nonActionTypes {
-		at := at
 		t.Run("type_"+at, func(t *testing.T) {
 			t.Parallel()
 			u := &Understanding{ActionType: at}
@@ -548,7 +541,6 @@ func TestUnderstanding_IsReadOnly_WhenConstraints_ShouldReturnTrue(t *testing.T)
 
 	constraintCases := []string{"no_changes", "read_only", "dry_run"}
 	for _, c := range constraintCases {
-		c := c
 		t.Run(c, func(t *testing.T) {
 			t.Parallel()
 			u := &Understanding{
@@ -567,7 +559,6 @@ func TestUnderstanding_IsReadOnly_WhenReadOnlyAction_ShouldReturnTrue(t *testing
 
 	readOnlyTypes := []string{"investigate", "explain", "research", "review"}
 	for _, at := range readOnlyTypes {
-		at := at
 		t.Run(at, func(t *testing.T) {
 			t.Parallel()
 			u := &Understanding{ActionType: at}
@@ -621,7 +612,6 @@ func TestUnderstanding_NeedsConfirmation_WhenHighRisk_ShouldReturnTrue(t *testin
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if !tc.u.NeedsConfirmation() {
@@ -693,7 +683,6 @@ func TestExtractCleanJSON_WhenValidJSON_ShouldExtract(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := ExtractCleanJSON(tc.input)
@@ -819,7 +808,6 @@ func TestNormalizeLearnedFact_WhenFloatConfidence_ShouldConvertToInt(t *testing.
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := NormalizeLearnedFact(tc.fact)
@@ -982,7 +970,7 @@ func TestRequiresJSONOutput_WhenMarkerInSystem_ShouldReturnTrue(t *testing.T) {
 func TestNormalizeTaxonomyFactArgs_WhenVerbDef_ShouldNormalizePriority(t *testing.T) {
 	t.Parallel()
 
-	args := normalizeTaxonomyFactArgs("verb_def", []interface{}{"/fix", "/mutation", "/coder", float64(90)})
+	args := normalizeTaxonomyFactArgs("verb_def", []any{"/fix", "/mutation", "/coder", float64(90)})
 	if args[3] != int64(90) {
 		t.Errorf("args[3] = %v (type %T), want int64(90)", args[3], args[3])
 	}
@@ -991,7 +979,7 @@ func TestNormalizeTaxonomyFactArgs_WhenVerbDef_ShouldNormalizePriority(t *testin
 func TestNormalizeTaxonomyFactArgs_WhenLearnedExemplar_ShouldNormalizeConfidence(t *testing.T) {
 	t.Parallel()
 
-	args := normalizeTaxonomyFactArgs("learned_exemplar", []interface{}{"pattern", "/fix", "target", "constraint", float64(95)})
+	args := normalizeTaxonomyFactArgs("learned_exemplar", []any{"pattern", "/fix", "target", "constraint", float64(95)})
 	if args[4] != int64(95) {
 		t.Errorf("args[4] = %v (type %T), want int64(95)", args[4], args[4])
 	}
@@ -1000,7 +988,7 @@ func TestNormalizeTaxonomyFactArgs_WhenLearnedExemplar_ShouldNormalizeConfidence
 func TestNormalizeTaxonomyFactArgs_WhenEmptyArgs_ShouldReturnEmpty(t *testing.T) {
 	t.Parallel()
 
-	args := normalizeTaxonomyFactArgs("verb_def", []interface{}{})
+	args := normalizeTaxonomyFactArgs("verb_def", []any{})
 	if len(args) != 0 {
 		t.Errorf("expected empty args, got %d", len(args))
 	}
@@ -1011,8 +999,8 @@ func TestNormalizeWholeNumber_WhenVariousTypes_ShouldNormalize(t *testing.T) {
 
 	cases := []struct {
 		name string
-		val  interface{}
-		want interface{}
+		val  any
+		want any
 	}{
 		{"int", int(42), int64(42)},
 		{"int32", int32(42), int64(42)},
@@ -1025,7 +1013,6 @@ func TestNormalizeWholeNumber_WhenVariousTypes_ShouldNormalize(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := normalizeWholeNumber(tc.val)
@@ -1046,7 +1033,7 @@ func TestToInt_WhenVariousTypes_ShouldConvert(t *testing.T) {
 
 	cases := []struct {
 		name string
-		val  interface{}
+		val  any
 		want int
 	}{
 		{"int", int(42), 42},
@@ -1057,7 +1044,6 @@ func TestToInt_WhenVariousTypes_ShouldConvert(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := toInt(tc.val)
@@ -1115,7 +1101,6 @@ func TestNewClassificationClientFromConfig_WhenCLIEngine_ShouldReturnNil(t *test
 
 	cases := []string{"claude-cli", "codex-cli"}
 	for _, engine := range cases {
-		engine := engine
 		t.Run(engine, func(t *testing.T) {
 			t.Parallel()
 			cfg := &ProviderConfig{Engine: engine}
@@ -1135,7 +1120,6 @@ func TestNewClassificationClientFromConfig_WhenUnsupportedProvider_ShouldReturnN
 
 	unsupported := []Provider{ProviderZAI, ProviderXAI, ProviderOpenRouter}
 	for _, p := range unsupported {
-		p := p
 		t.Run(string(p), func(t *testing.T) {
 			t.Parallel()
 			cfg := &ProviderConfig{Provider: p, APIKey: "test-key"}
@@ -1170,7 +1154,7 @@ func TestMapToolDefinitionsToOpenAI_WhenSingle_ShouldMap(t *testing.T) {
 		{
 			Name:        "read_file",
 			Description: "Read a file",
-			InputSchema: map[string]interface{}{"type": "object"},
+			InputSchema: map[string]any{"type": "object"},
 		},
 	}
 
@@ -1441,7 +1425,6 @@ func TestSanitizeAtomString_WhenSpecialChars_ShouldSanitize(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := sanitizeAtomString(tc.input)
@@ -1494,7 +1477,7 @@ func TestUnderstandingTransducer_ResolveFocus_WhenNoCandidates_ShouldReturnRefer
 
 func TestUnderstandingTransducer_UpdateVerbHistory_WhenMaxReached_ShouldTrim(t *testing.T) {
 	tr := &UnderstandingTransducer{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		tr.updateVerbHistory(fmt.Sprintf("verb_%d", i))
 	}
 	if len(tr.verbHistory) != 5 {
@@ -1507,7 +1490,7 @@ func TestUnderstandingTransducer_UpdateVerbHistory_WhenMaxReached_ShouldTrim(t *
 
 func TestUnderstandingTransducer_UpdateMsgLenHistory_WhenMaxReached_ShouldTrim(t *testing.T) {
 	tr := &UnderstandingTransducer{}
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		tr.updateMsgLenHistory(strings.Repeat("a", i*10))
 	}
 	if len(tr.msgLenHistory) != 5 {
@@ -1637,7 +1620,7 @@ func TestConsolidationWorker_Enqueue_WhenQueueFull_ShouldNotBlock(t *testing.T) 
 	defer cw.Stop()
 
 	// Fill queue beyond capacity (100)
-	for i := 0; i < 110; i++ {
+	for range 110 {
 		cw.Enqueue([]ReasoningTrace{{UserPrompt: "test", Response: "resp"}})
 	}
 	// If we get here without blocking, the test passes
@@ -1761,8 +1744,7 @@ func TestDebugTaxonomy_ShouldReturnResults(t *testing.T) {
 }
 
 func TestDebugTaxonomyWithContext_ShouldAcceptContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	verb, category, _, _ := DebugTaxonomyWithContext(ctx, "review the code")
 	if verb == "" {
@@ -2083,7 +2065,6 @@ func TestProviderConstants_ShouldHaveExpectedValues(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			if string(tc.p) != tc.want {
@@ -2111,7 +2092,6 @@ func TestRefineCategory_WhenPolitePrefix_ShouldStillDetectMutation(t *testing.T)
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := refineCategory(tc.input, "/query")
@@ -2153,7 +2133,6 @@ func TestMapActionToVerb_WhenAllActions_ShouldMapCorrectly(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.action+"_"+tc.domain, func(t *testing.T) {
 			t.Parallel()
 			got := tr.mapActionToVerb(tc.action, tc.domain)

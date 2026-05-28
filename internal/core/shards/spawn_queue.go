@@ -145,7 +145,7 @@ func NewSpawnQueue(sm *ShardManager, le types.LimitsEnforcer, cfg SpawnQueueConf
 	}
 
 	// Initialize priority queues
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		sq.queues[i] = make(chan *spawnRequestWrapper, cfg.MaxQueuePerPriority)
 	}
 
@@ -202,7 +202,7 @@ func (sq *SpawnQueue) Stop() error {
 	}
 
 	// Drain remaining requests with errors
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		for {
 			select {
 			case req := <-sq.queues[i]:
@@ -502,7 +502,7 @@ func (sq *SpawnQueue) CanAccept(priority types.SpawnPriority) (bool, string) {
 
 func (sq *SpawnQueue) GetQueueDepth() int {
 	total := 0
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		total += len(sq.queues[i])
 	}
 	return total
@@ -565,7 +565,7 @@ func (sq *SpawnQueue) GetMetrics() SpawnQueueMetrics {
 		TotalRejected: atomic.LoadInt64(&sq.totalRejected),
 		IsRunning:     running,
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		metrics.QueueDepthByPriority[i] = len(sq.queues[i])
 	}
 	metrics.CurrentUtilization = float64(sq.GetQueueDepth()) / float64(sq.config.MaxQueueSize)

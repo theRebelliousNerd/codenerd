@@ -33,7 +33,7 @@ func runBenchmarkVectorRecallBruteForce(b *testing.B, numVectors int) {
 	mockEngine := &MockEmbeddingEngine{
 		EmbedFunc: func(ctx context.Context, text string) ([]float32, error) {
 			vec := make([]float32, dim)
-			for i := 0; i < dim; i++ {
+			for i := range dim {
 				vec[i] = rand.Float32()
 			}
 			return vec, nil
@@ -42,7 +42,7 @@ func runBenchmarkVectorRecallBruteForce(b *testing.B, numVectors int) {
 			result := make([][]float32, len(texts))
 			for i := range texts {
 				vec := make([]float32, dim)
-				for j := 0; j < dim; j++ {
+				for j := range dim {
 					vec[j] = rand.Float32()
 				}
 				result[i] = vec
@@ -63,10 +63,10 @@ func runBenchmarkVectorRecallBruteForce(b *testing.B, numVectors int) {
 			count = numVectors - i
 		}
 		contents := make([]string, count)
-		metas := make([]map[string]interface{}, count)
+		metas := make([]map[string]any, count)
 		for j := 0; j < count; j++ {
 			contents[j] = fmt.Sprintf("content_%d", i+j)
-			metas[j] = map[string]interface{}{"id": i + j}
+			metas[j] = map[string]any{"id": i + j}
 		}
 		if _, err := store.StoreVectorBatchWithEmbedding(ctx, contents, metas); err != nil {
 			b.Fatalf("Failed to store batch: %v", err)

@@ -138,8 +138,8 @@ func isMangleDigit(b byte) bool { return b >= '0' && b <= '9' }
 func splitMangleHead(statement string) (head string, isRule bool) {
 	// Strip trailing '.' if present for parsing.
 	stmt := strings.TrimSpace(statement)
-	if strings.HasSuffix(stmt, ".") {
-		stmt = strings.TrimSpace(strings.TrimSuffix(stmt, "."))
+	if before, ok := strings.CutSuffix(stmt, "."); ok {
+		stmt = strings.TrimSpace(before)
 	}
 
 	inString := false
@@ -215,11 +215,11 @@ func parseManglePredicateAndArity(head string) (pred string, arity int) {
 		return "", 0
 	}
 
-	if strings.HasPrefix(h, "?") {
-		h = strings.TrimSpace(strings.TrimPrefix(h, "?"))
+	if after, ok := strings.CutPrefix(h, "?"); ok {
+		h = strings.TrimSpace(after)
 	}
-	if strings.HasPrefix(h, "Decl") {
-		h = strings.TrimSpace(strings.TrimPrefix(h, "Decl"))
+	if after, ok := strings.CutPrefix(h, "Decl"); ok {
+		h = strings.TrimSpace(after)
 	}
 
 	// Predicate name up to '(' or whitespace.

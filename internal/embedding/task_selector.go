@@ -81,7 +81,7 @@ func SelectTaskType(contentType ContentType, isQuery bool) string {
 }
 
 // DetectContentType attempts to auto-detect content type from text and metadata.
-func DetectContentType(text string, metadata map[string]interface{}) ContentType {
+func DetectContentType(text string, metadata map[string]any) ContentType {
 	logging.EmbeddingDebug("DetectContentType: analyzing text (length=%d chars), metadata_keys=%d", len(text), len(metadata))
 
 	originalText := text
@@ -180,7 +180,7 @@ func DetectContentType(text string, metadata map[string]interface{}) ContentType
 }
 
 // GetOptimalTaskType combines detection and selection for convenience.
-func GetOptimalTaskType(text string, metadata map[string]interface{}, isQuery bool) string {
+func GetOptimalTaskType(text string, metadata map[string]any, isQuery bool) string {
 	logging.EmbeddingDebug("GetOptimalTaskType: starting auto-detection for text (length=%d), is_query=%v", len(text), isQuery)
 
 	contentType := DetectContentType(text, metadata)

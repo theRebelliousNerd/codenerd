@@ -71,7 +71,7 @@ func TestKernelLoadFacts(t *testing.T) {
 	baseCount := kernel.FactCount()
 
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/passing"}},
+		{Predicate: "test_state", Args: []any{"/passing"}},
 	}
 
 	err = kernel.LoadFacts(facts)
@@ -100,7 +100,7 @@ func TestKernelAssert(t *testing.T) {
 
 	fact := Fact{
 		Predicate: "retry_count",
-		Args:      []interface{}{int64(0)},
+		Args:      []any{int64(0)},
 	}
 
 	err = kernel.Assert(fact)
@@ -117,8 +117,8 @@ func TestKernelQuery(t *testing.T) {
 
 	// Load a fact
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/failing"}},
-		{Predicate: "retry_count", Args: []interface{}{int64(1)}},
+		{Predicate: "test_state", Args: []any{"/failing"}},
+		{Predicate: "retry_count", Args: []any{int64(1)}},
 	}
 
 	err = kernel.LoadFacts(facts)
@@ -144,8 +144,8 @@ func TestKernelQueryAll(t *testing.T) {
 	}
 
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/passing"}},
-		{Predicate: "retry_count", Args: []interface{}{int64(2)}},
+		{Predicate: "test_state", Args: []any{"/passing"}},
+		{Predicate: "retry_count", Args: []any{int64(2)}},
 	}
 
 	err = kernel.LoadFacts(facts)
@@ -171,8 +171,8 @@ func TestKernelRetract(t *testing.T) {
 
 	// Load facts
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/failing"}},
-		{Predicate: "retry_count", Args: []interface{}{int64(1)}},
+		{Predicate: "test_state", Args: []any{"/failing"}},
+		{Predicate: "retry_count", Args: []any{int64(1)}},
 	}
 
 	err = kernel.LoadFacts(facts)
@@ -209,8 +209,8 @@ func TestKernelRetractExactFact(t *testing.T) {
 		t.Fatalf("NewRealKernel() error = %v", err)
 	}
 
-	f1 := Fact{Predicate: "pending_action", Args: []interface{}{"id1", "/write_file", "a.go", map[string]interface{}{}, int64(1)}}
-	f2 := Fact{Predicate: "pending_action", Args: []interface{}{"id2", "/write_file", "b.go", map[string]interface{}{}, int64(2)}}
+	f1 := Fact{Predicate: "pending_action", Args: []any{"id1", "/write_file", "a.go", map[string]any{}, int64(1)}}
+	f2 := Fact{Predicate: "pending_action", Args: []any{"id2", "/write_file", "b.go", map[string]any{}, int64(2)}}
 
 	if err := kernel.LoadFacts([]Fact{f1, f2}); err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)
@@ -239,7 +239,7 @@ func TestKernelClear(t *testing.T) {
 	}
 
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/passing"}},
+		{Predicate: "test_state", Args: []any{"/passing"}},
 	}
 
 	_ = kernel.LoadFacts(facts)
@@ -262,32 +262,32 @@ func TestFactString(t *testing.T) {
 	}{
 		{
 			name: "name constant",
-			fact: Fact{Predicate: "status", Args: []interface{}{"/active"}},
+			fact: Fact{Predicate: "status", Args: []any{"/active"}},
 			want: `status(/active).`,
 		},
 		{
 			name: "string arg",
-			fact: Fact{Predicate: "file", Args: []interface{}{"main.go"}},
+			fact: Fact{Predicate: "file", Args: []any{"main.go"}},
 			want: `file("main.go").`,
 		},
 		{
 			name: "int arg",
-			fact: Fact{Predicate: "count", Args: []interface{}{42}},
+			fact: Fact{Predicate: "count", Args: []any{42}},
 			want: `count(42).`,
 		},
 		{
 			name: "bool true",
-			fact: Fact{Predicate: "flag", Args: []interface{}{true}},
+			fact: Fact{Predicate: "flag", Args: []any{true}},
 			want: `flag(/true).`,
 		},
 		{
 			name: "bool false",
-			fact: Fact{Predicate: "flag", Args: []interface{}{false}},
+			fact: Fact{Predicate: "flag", Args: []any{false}},
 			want: `flag(/false).`,
 		},
 		{
 			name: "mixed args",
-			fact: Fact{Predicate: "record", Args: []interface{}{"test.go", int64(100), "/go", true}},
+			fact: Fact{Predicate: "record", Args: []any{"test.go", int64(100), "/go", true}},
 			want: `record("test.go", 100, /go, /true).`,
 		},
 	}
@@ -310,32 +310,32 @@ func TestFactToAtom(t *testing.T) {
 	}{
 		{
 			name:    "simple string",
-			fact:    Fact{Predicate: "test", Args: []interface{}{"hello"}},
+			fact:    Fact{Predicate: "test", Args: []any{"hello"}},
 			wantErr: false,
 		},
 		{
 			name:    "name constant",
-			fact:    Fact{Predicate: "status", Args: []interface{}{"/active"}},
+			fact:    Fact{Predicate: "status", Args: []any{"/active"}},
 			wantErr: false,
 		},
 		{
 			name:    "string starting with // is not a name constant",
-			fact:    Fact{Predicate: "file_content", Args: []interface{}{"// Package main\npackage main\n"}},
+			fact:    Fact{Predicate: "file_content", Args: []any{"// Package main\npackage main\n"}},
 			wantErr: false,
 		},
 		{
 			name:    "unix path starting with / is not a name constant",
-			fact:    Fact{Predicate: "path", Args: []interface{}{"/usr/local/bin"}},
+			fact:    Fact{Predicate: "path", Args: []any{"/usr/local/bin"}},
 			wantErr: false,
 		},
 		{
 			name:    "int arg",
-			fact:    Fact{Predicate: "num", Args: []interface{}{int64(42)}},
+			fact:    Fact{Predicate: "num", Args: []any{int64(42)}},
 			wantErr: false,
 		},
 		{
 			name:    "float arg",
-			fact:    Fact{Predicate: "score", Args: []interface{}{0.95}},
+			fact:    Fact{Predicate: "score", Args: []any{0.95}},
 			wantErr: false,
 		},
 	}
@@ -376,7 +376,7 @@ func TestKernelPermissionDerivation(t *testing.T) {
 	for _, action := range expectedPermitted {
 		pendingActions = append(pendingActions, Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{"id_" + action, action, "target.txt", map[string]interface{}{}, int64(1234567890)},
+			Args:      []any{"id_" + action, action, "target.txt", map[string]any{}, int64(1234567890)},
 		})
 	}
 	if err := kernel.LoadFacts(pendingActions); err != nil {
@@ -418,7 +418,7 @@ func TestKernelPermissionDerivation(t *testing.T) {
 	for _, action := range dangerousActions {
 		dangerousPending = append(dangerousPending, Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{"id_" + action, action, "critical.sys", map[string]interface{}{}, int64(1234567890)},
+			Args:      []any{"id_" + action, action, "critical.sys", map[string]any{}, int64(1234567890)},
 		})
 	}
 	_ = kernel.LoadFacts(dangerousPending)
@@ -463,7 +463,7 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 	if err := kernel.LoadFacts([]Fact{
 		{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				projectFile,
 				"deadbeef",
 				MangleAtom("/go"),
@@ -474,7 +474,7 @@ func TestKernelLoadCoderPolicyDoesNotTypeConflict(t *testing.T) {
 		// Trigger context_priority derivation via policy.mg activation rules.
 		{
 			Predicate: "activation",
-			Args:      []interface{}{projectFile, int64(80)},
+			Args:      []any{projectFile, int64(80)},
 		},
 	}); err != nil {
 		t.Fatalf("LoadFacts(seed) error = %v", err)
@@ -496,7 +496,7 @@ func TestKernelAccessors(t *testing.T) {
 
 	// 1. GetBaseFacts
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/passing"}},
+		{Predicate: "test_state", Args: []any{"/passing"}},
 	}
 	if err := kernel.LoadFacts(facts); err != nil {
 		t.Fatalf("LoadFacts() error = %v", err)

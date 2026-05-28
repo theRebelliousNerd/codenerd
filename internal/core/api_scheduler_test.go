@@ -177,7 +177,7 @@ func TestAPIScheduler_ConcurrentAccess(t *testing.T) {
 	scheduler := NewAPIScheduler(config)
 
 	numShards := 10
-	for i := 0; i < numShards; i++ {
+	for i := range numShards {
 		scheduler.RegisterShard(string(rune('A'+i)), "test")
 	}
 
@@ -187,7 +187,7 @@ func TestAPIScheduler_ConcurrentAccess(t *testing.T) {
 
 	ctx := context.Background()
 
-	for i := 0; i < numShards; i++ {
+	for i := range numShards {
 		wg.Add(1)
 		shardID := string(rune('A' + i))
 		go func(id string) {
@@ -443,7 +443,7 @@ func TestNoDoubleLimiting(t *testing.T) {
 	}
 
 	// Register 5 shards
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		shardID := string(rune('A' + i))
 		scheduler.RegisterShard(shardID, "test")
 	}
@@ -452,7 +452,7 @@ func TestNoDoubleLimiting(t *testing.T) {
 	var wg sync.WaitGroup
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		shardID := string(rune('A' + i))
 		go func(id string) {
@@ -491,5 +491,3 @@ func TestNoDoubleLimiting(t *testing.T) {
 //   TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying (Nil Channels)
 //   TestAPISchedulerGap_Streaming_RapidCancel (Goroutine Leak)
 //   TestAPISchedulerGap_GlobalConfig_SyncOnce (sync.Once guard)
-
-

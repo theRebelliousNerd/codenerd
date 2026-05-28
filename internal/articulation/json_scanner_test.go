@@ -88,7 +88,7 @@ func BenchmarkFindJSONCandidates(b *testing.B) {
 				"confidence": 0.95
 			},
 			"mangle_updates": [`)
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		if i > 0 {
 			sb.WriteString(",")
 		}
@@ -129,11 +129,11 @@ func TestFindJSONCandidates_DecoyInjection(t *testing.T) {
 func TestFindJSONCandidates_DeeplyNested(t *testing.T) {
 	// 500 levels of nesting
 	var sb strings.Builder
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		sb.WriteByte('{')
 	}
 	sb.WriteString(`"key": "value"`)
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		sb.WriteByte('}')
 	}
 	candidates := findJSONCandidates(sb.String())
@@ -162,11 +162,11 @@ func TestFindJSONCandidates_UnicodeEmoji(t *testing.T) {
 func TestFindJSONCandidates_DepthCap(t *testing.T) {
 	// Build JSON nested deeper than maxJSONDepth (200)
 	var b strings.Builder
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		b.WriteString(`{"a":`)
 	}
 	b.WriteString(`"deep"`)
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		b.WriteString(`}`)
 	}
 	input := b.String()
@@ -196,11 +196,11 @@ func TestFindJSONCandidates_SizeLimit(t *testing.T) {
 func TestFindJSONCandidates_DepthAtLimit(t *testing.T) {
 	// Exactly at maxJSONDepth should still work
 	var b strings.Builder
-	for i := 0; i < maxJSONDepth; i++ {
+	for range maxJSONDepth {
 		b.WriteString(`{"a":`)
 	}
 	b.WriteString(`"ok"`)
-	for i := 0; i < maxJSONDepth; i++ {
+	for range maxJSONDepth {
 		b.WriteString(`}`)
 	}
 	input := b.String()
@@ -215,11 +215,11 @@ func TestFindJSONCandidates_SmallObjectsAfterDeepReset(t *testing.T) {
 	// After a depth-exceeded reset, small objects should still be found
 	var b strings.Builder
 	// Deep object that exceeds depth
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		b.WriteString(`{"a":`)
 	}
 	b.WriteString(`"deep"`)
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		b.WriteString(`}`)
 	}
 	// Then a normal small object

@@ -60,7 +60,7 @@ func TestCleanupEdgeCases(t *testing.T) {
 	stmt, _ := tx.Prepare(`INSERT INTO tool_executions (call_id, session_id, tool_name, result, success, duration_ms, result_size, session_runtime_ms, created_at) VALUES (?, ?, 't1', 'res', 1, 100, 100, 3600000, ?)`) // 1hr runtime
 
 	startTime := time.Now().Add(-10 * time.Hour)
-	for i := 0; i < 550; i++ {
+	for i := range 550 {
 		_, err := stmt.Exec(fmt.Sprintf("call-%d", i), fmt.Sprintf("sess-%d", i), startTime.Add(time.Duration(i)*time.Second))
 		if err != nil {
 			t.Fatalf("Batch insert failed: %v", err)
@@ -105,10 +105,10 @@ func BenchmarkCleanupByRuntimeBudget(b *testing.B) {
         `)
 
 		startTime := time.Now().Add(-24 * time.Hour)
-		for i := 0; i < numSessions; i++ {
+		for i := range numSessions {
 			sessionID := fmt.Sprintf("session-%d-%d", n, i) // Unique per benchmark iteration
 			sessionStart := startTime.Add(time.Duration(i) * time.Minute)
-			for j := 0; j < executionsPerSession; j++ {
+			for j := range executionsPerSession {
 				callID := fmt.Sprintf("%s-%d", sessionID, j)
 				runtimeMs := int64((j + 1) * 1000)
 				created := sessionStart.Add(time.Duration(j) * time.Second)

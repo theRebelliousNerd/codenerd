@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -282,10 +283,8 @@ func (pm *PreferencesManager) CompleteOnboardingStep(step string) error {
 	}
 
 	// Check if already completed
-	for _, s := range pm.preferences.UserJourney.CompletedSteps {
-		if s == step {
-			return nil
-		}
+	if slices.Contains(pm.preferences.UserJourney.CompletedSteps, step) {
+		return nil
 	}
 
 	pm.preferences.UserJourney.CompletedSteps = append(

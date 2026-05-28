@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -272,12 +273,7 @@ func newFailureTestOrchestrator(t *testing.T, maxRetries int) (*Orchestrator, *M
 }
 
 func containsString(values []string, target string) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 // -----------------------------------------------------------------------------
@@ -337,10 +333,10 @@ func TestOrchestratorFailure_InfiniteRecursionProtection(t *testing.T) {
 	// Make the task a Repro Diagnostic task
 	task.Type = TaskTypeTestRun
 	task.Description = "repro diagnostic: run tests before next mutation"
-	
+
 	// Fail the repro task
 	orch.handleTaskFailure(context.Background(), phase, task, errors.New("logic failure in repro"))
-	
+
 	// Should NOT spawn another repro task
 	if len(phase.Tasks) > 1 {
 		t.Fatalf("expected no repro task spawned from a repro task, got %d", len(phase.Tasks))
@@ -355,7 +351,7 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 	err := errors.New("some error")
 
 	errCh := make(chan error, 50)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		go func() {
 			// Catch any panic
 			defer func() {
@@ -369,7 +365,7 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 		}()
 	}
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		if e := <-errCh; e != nil {
 			t.Fatalf("concurrent handleTaskFailure failed: %v", e)
 		}

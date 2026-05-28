@@ -165,7 +165,7 @@ func (t *ProofTreeTracer) TraceQuery(ctx context.Context, query string) (*Deriva
 		// Reconstruct the fact from bindings
 		fact := Fact{
 			Predicate: predicate,
-			Args:      make([]interface{}, len(shape.atom.Args)),
+			Args:      make([]any, len(shape.atom.Args)),
 			Timestamp: time.Now(),
 		}
 

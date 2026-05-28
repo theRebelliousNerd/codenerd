@@ -158,7 +158,7 @@ func findJSONObject(input string) (string, bool) {
 }
 
 func ensureEOF(decoder *json.Decoder) error {
-	var extra interface{}
+	var extra any
 	if err := decoder.Decode(&extra); err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil

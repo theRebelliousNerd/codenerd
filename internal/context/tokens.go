@@ -332,14 +332,6 @@ func (tb *TokenBudget) Reset() {
 // Helper Functions
 // =============================================================================
 
-// max returns the maximum of two integers.
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // EstimateCompressionRatio estimates the compression ratio achievable.
 func EstimateCompressionRatio(originalTokens, factsCount int) float64 {
 	if factsCount == 0 {

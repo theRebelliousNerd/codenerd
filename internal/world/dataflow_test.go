@@ -400,15 +400,15 @@ func withEarlyReturn(x *int) int {
 
 func TestSummarizeDataFlow(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "assigns", Args: []interface{}{"/x", core.MangleAtom("/nullable"), "test.go", int64(1)}},
-		{Predicate: "assigns", Args: []interface{}{"/err", core.MangleAtom("/error"), "test.go", int64(2)}},
-		{Predicate: "guards_block", Args: []interface{}{"/x", "/nil_check", "test.go", int64(3), int64(5)}},
-		{Predicate: "guards_return", Args: []interface{}{"/y", "/nil_check", "test.go", int64(6)}},
-		{Predicate: "error_checked_return", Args: []interface{}{"/err", "test.go", int64(7)}},
-		{Predicate: "uses", Args: []interface{}{"test.go", "/foo", "/x", int64(8)}},
-		{Predicate: "call_arg", Args: []interface{}{"/callsite", int64(0), "/x", "test.go", int64(9)}},
-		{Predicate: "function_scope", Args: []interface{}{"test.go", "/foo", int64(1), int64(10)}},
-		{Predicate: "guard_dominates", Args: []interface{}{"test.go", "/foo", int64(4), int64(10)}},
+		{Predicate: "assigns", Args: []any{"/x", core.MangleAtom("/nullable"), "test.go", int64(1)}},
+		{Predicate: "assigns", Args: []any{"/err", core.MangleAtom("/error"), "test.go", int64(2)}},
+		{Predicate: "guards_block", Args: []any{"/x", "/nil_check", "test.go", int64(3), int64(5)}},
+		{Predicate: "guards_return", Args: []any{"/y", "/nil_check", "test.go", int64(6)}},
+		{Predicate: "error_checked_return", Args: []any{"/err", "test.go", int64(7)}},
+		{Predicate: "uses", Args: []any{"test.go", "/foo", "/x", int64(8)}},
+		{Predicate: "call_arg", Args: []any{"/callsite", int64(0), "/x", "test.go", int64(9)}},
+		{Predicate: "function_scope", Args: []any{"test.go", "/foo", int64(1), int64(10)}},
+		{Predicate: "guard_dominates", Args: []any{"test.go", "/foo", int64(4), int64(10)}},
 	}
 
 	summary := SummarizeDataFlow(facts)
@@ -529,11 +529,9 @@ func foo() {
 	// Channel to signal the writer to stop
 	done := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Add(1)
 
 	// Start a goroutine that constantly overwrites the file
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-done:
@@ -545,12 +543,12 @@ func foo() {
 				_ = os.WriteFile(testFile, []byte(validCode), 0644)
 			}
 		}
-	}()
+	})
 
 	extractor := NewDataFlowExtractor()
 
 	// Run extraction multiple times
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_, err := extractor.ExtractDataFlow(testFile)
 		// We expect either success or a parse error (if we caught it mid-write),
 		// but NOT a panic or inconsistency error related to line numbers.
@@ -579,11 +577,11 @@ func TestDataFlowExtractor_DeepNesting(t *testing.T) {
 	// Go default stack size is small, but grows.
 	// 5000 is usually enough to stress test recursion without timing out the test.
 	const depth = 5000
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString("if x > 0 {\n")
 	}
 	sb.WriteString("x++\n")
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString("}\n")
 	}
 	sb.WriteString("}\n")
@@ -662,7 +660,7 @@ func TestDataFlowExtractor_NullUndefinedEmpty(t *testing.T) {
 		}`
 		_ = os.WriteFile(testFile, []byte(testCode), 0644)
 		facts, _ := extractor.ExtractDataFlow(testFile)
-		
+
 		hasGuard := false
 		for _, f := range facts {
 			if f.Predicate == "guards_return" && len(f.Args) > 0 {
@@ -744,7 +742,7 @@ func TestDataFlowExtractor_UserRequestExtremes(t *testing.T) {
 		f.WriteString("package test\n")
 		// Write 6MB of comments to exceed the 5MB limit
 		chunk := strings.Repeat("// A very long comment line that does nothing\n", 1000) // ~44KB
-		for i := 0; i < 150; i++ {
+		for range 150 {
 			f.WriteString(chunk)
 		}
 		f.Close()
@@ -761,15 +759,15 @@ func TestDataFlowExtractor_UserRequestExtremes(t *testing.T) {
 	t.Run("Massive Directory", func(t *testing.T) {
 		massiveDir := filepath.Join(tmpDir, "massivedir")
 		_ = os.Mkdir(massiveDir, 0755)
-		
+
 		// Create 10001 empty/small files to exceed the 10000 file limit
 		// Note: Creating 10001 real files in a test can be slow, so we just
 		// verify the logic using a subset or trust the limit implementation.
 		// Instead of actual files, we just test the ExtractDataFlowForDirectory handles many files.
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			_ = os.WriteFile(filepath.Join(massiveDir, fmt.Sprintf("f%d.go", i)), []byte("package test\n"), 0644)
 		}
-		
+
 		_, err := extractor.ExtractDataFlowForDirectory(massiveDir)
 		if err != nil {
 		}
@@ -789,10 +787,8 @@ func TestDataFlowExtractor_Concurrency(t *testing.T) {
 	_ = os.WriteFile(testFile, []byte(testCode), 0644)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			facts, err := extractor.ExtractDataFlow(testFile)
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
@@ -800,8 +796,7 @@ func TestDataFlowExtractor_Concurrency(t *testing.T) {
 			if len(facts) == 0 {
 				t.Errorf("Expected facts from concurrent extraction")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
-

@@ -1,9 +1,9 @@
 package store
 
 import (
-	"testing"
-	"math"
 	"fmt"
+	"math"
+	"testing"
 )
 
 func TestLocalStore_KnowledgeGraph_Extra(t *testing.T) {
@@ -24,7 +24,7 @@ func TestLocalStore_KnowledgeGraph_Extra(t *testing.T) {
 	}
 
 	// StoreLink
-	err = s.StoreLink("a", "rel", "b", 1.0, map[string]interface{}{"key": "val"})
+	err = s.StoreLink("a", "rel", "b", 1.0, map[string]any{"key": "val"})
 	if err != nil {
 		t.Errorf("StoreLink failed: %v", err)
 	}
@@ -53,13 +53,13 @@ func TestLocalStore_KnowledgeGraph_Extra(t *testing.T) {
 	if len(path) != 2 {
 		t.Errorf("Expected path length 2, got %d", len(path))
 	}
-	
+
 	// TraversePath with maxDepth limit
 	path, err = s.TraversePath("a", "c", 1)
 	if err == nil {
 		t.Errorf("Expected error when maxDepth is too small")
 	}
-	
+
 	// TraversePath no path
 	path, err = s.TraversePath("a", "x", 5)
 	if err == nil {
@@ -68,7 +68,7 @@ func TestLocalStore_KnowledgeGraph_Extra(t *testing.T) {
 
 	// HydrateKnowledgeGraph
 	assertCount := 0
-	assertFunc := func(pred string, args []interface{}) error {
+	assertFunc := func(pred string, args []any) error {
 		if pred == "knowledge_link" {
 			assertCount++
 			return nil

@@ -107,7 +107,7 @@ func inferCategoryFromVerb(verb string) string {
 }
 
 func inferTargetFromText(text string) string {
-	for _, tok := range strings.Fields(text) {
+	for tok := range strings.FieldsSeq(text) {
 		tok = strings.Trim(tok, " \t\r\n,;:()[]{}<>\"'`")
 		if tok == "" {
 			continue

@@ -465,14 +465,14 @@ func (s *LearnedCorpusStore) DeletePattern(pattern string) error {
 }
 
 // GetStats returns statistics about the learned corpus.
-func (s *LearnedCorpusStore) GetStats() (map[string]interface{}, error) {
+func (s *LearnedCorpusStore) GetStats() (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearnedCorpusStore.GetStats")
 	defer timer.Stop()
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	// Total patterns
 	var total int64

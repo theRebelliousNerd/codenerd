@@ -210,7 +210,7 @@ func (t *StdioTransport) readStdout() {
 			continue
 		}
 
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := json.Unmarshal(line, &raw); err != nil {
 			logging.Get(logging.CategoryTools).Warn("Failed to parse JSON from stdout: %v", err)
 			continue
@@ -294,7 +294,7 @@ func (t *StdioTransport) readStdout() {
 }
 
 // call sends a request and waits for a response.
-func (t *StdioTransport) call(ctx context.Context, method string, params interface{}) (*mcpResponse, error) {
+func (t *StdioTransport) call(ctx context.Context, method string, params any) (*mcpResponse, error) {
 	t.mu.Lock()
 	if !t.connected {
 		t.mu.Unlock()
@@ -365,10 +365,10 @@ func (t *StdioTransport) ListTools(ctx context.Context) ([]MCPToolSchema, error)
 }
 
 // CallTool invokes a tool on the MCP server.
-func (t *StdioTransport) CallTool(ctx context.Context, name string, args map[string]interface{}) (*MCPCallResult, error) {
+func (t *StdioTransport) CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error) {
 	start := time.Now()
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"name":      name,
 		"arguments": args,
 	}
@@ -409,9 +409,9 @@ func (t *StdioTransport) GetCapabilities(ctx context.Context) (*MCPCapabilities,
 	// We need to ensure only one initialize happens.
 	// But usually Client calls GetCapabilities once after Connect.
 
-	resp, err := t.call(ctx, "initialize", map[string]interface{}{
+	resp, err := t.call(ctx, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
+		"capabilities":    map[string]any{},
 		"clientInfo": map[string]string{
 			"name":    "codeNERD",
 			"version": "1.0.0",
@@ -447,7 +447,7 @@ func (t *StdioTransport) GetCapabilities(ctx context.Context) (*MCPCapabilities,
 	// After initialize, we must send 'notifications/initialized'
 	// We don't wait for response.
 	// We construct a notification (no ID).
-	notification := map[string]interface{}{
+	notification := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "notifications/initialized",
 	}

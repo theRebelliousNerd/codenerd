@@ -137,7 +137,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		overallProgress = prog.OverallProgress
 	}
 
-	cacheKey := []interface{}{
+	cacheKey := []any{
 		camp.RevisionNumber,
 		camp.Status,
 		overallProgress,
@@ -185,16 +185,12 @@ func (m *CampaignPageModel) calculateVisibleRange() {
 	}
 
 	// Calculate available height for phases (accounting for header, progress, etc.)
-	availableHeight := m.height - 12 // Reserve space for header, progress, metrics, controls
-	if availableHeight < 5 {
-		availableHeight = 5
-	}
+	availableHeight := max(
+		// Reserve space for header, progress, metrics, controls
+		m.height-12, 5)
 
 	// Calculate how many phases can fit
-	maxVisible := availableHeight / PhaseRowHeight
-	if maxVisible > MaxVisiblePhases {
-		maxVisible = MaxVisiblePhases
-	}
+	maxVisible := min(availableHeight/PhaseRowHeight, MaxVisiblePhases)
 
 	// Start from viewport scroll position (approximate)
 	scrollRatio := 0.0
@@ -208,10 +204,7 @@ func (m *CampaignPageModel) calculateVisibleRange() {
 		startIdx = 0
 	}
 
-	endIdx := startIdx + maxVisible + (VirtualBufferSize * 2)
-	if endIdx > m.totalPhases {
-		endIdx = m.totalPhases
-	}
+	endIdx := min(startIdx+maxVisible+(VirtualBufferSize*2), m.totalPhases)
 
 	m.visibleStartIdx = startIdx
 	m.visibleEndIdx = endIdx

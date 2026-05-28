@@ -54,7 +54,7 @@ func ParseTypeUAgentFlag(flagValue string) (*TypeUAgentDefinition, error) {
 
 	// Parse topics (comma-separated)
 	var topics []string
-	for _, t := range strings.Split(topicsRaw, ",") {
+	for t := range strings.SplitSeq(topicsRaw, ",") {
 		t = strings.TrimSpace(t)
 		if t != "" {
 			topics = append(topics, t)

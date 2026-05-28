@@ -73,10 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			errorPanelHeight = 1 + errorPanelViewportHeight + 2
 		}
 
-		calcHeight := msg.Height - headerHeight - footerHeight - inputHeight - paddingHeight - errorPanelHeight
-		if calcHeight < 1 {
-			calcHeight = 1
-		}
+		calcHeight := max(msg.Height-headerHeight-footerHeight-inputHeight-paddingHeight-errorPanelHeight, 1)
 
 		if !m.ready {
 			m.viewport = viewport.New(chatWidth, calcHeight)
@@ -88,10 +85,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Error viewport lives inside a bordered box within the content area.
 		// Box uses 1-col padding left/right plus 1-col border left/right => total 4 cols.
-		m.errorVP.Width = chatWidth - 4
-		if m.errorVP.Width < 1 {
-			m.errorVP.Width = 1
-		}
+		m.errorVP.Width = max(chatWidth-4, 1)
 		m.errorVP.Height = errorPanelViewportHeight
 		if m.err != nil {
 			m.refreshErrorViewport()
@@ -157,20 +151,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamStartMsg:
 		m.isStreaming = true
 		m.currentStream = ""
+		m.currentThought = ""
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		return m, tea.Batch(waitForStream(msg.streamChan), waitForResult(msg.resultChan, msg.errChan))
+		// Watch both surface and thoughts in parallel. waitForThoughts
+		// returns nil when thoughtsChan is nil (provider has no thought
+		// stream) — tea.Batch drops nil cmds, so this is safe.
+		return m, tea.Batch(
+			waitForStream(msg.streamChan),
+			waitForThoughts(msg.thoughtsChan),
+			waitForResult(msg.resultChan, msg.errChan),
+		)
 
 	case streamChunkMsg:
 		if m.isStreaming {
-			m.currentStream += msg.chunk
+			switch msg.kind {
+			case streamKindThought:
+				m.currentThought += msg.chunk
+			default:
+				m.currentStream += msg.chunk
+			}
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
+		}
+		// Continue watching the same channel for the next chunk.
+		if msg.kind == streamKindThought {
+			return m, waitForThoughts(msg.sub)
 		}
 		return m, waitForStream(msg.sub)
 
 	case streamEndMsg:
 		m.isStreaming = false
+		m.currentThought = ""
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		return m, nil
@@ -182,6 +194,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isLoading = false
 		m.isStreaming = false
 		m.currentStream = ""
+		m.currentThought = ""
 		m.turnCount++
 
 		// Apply any state updates carried by the message
@@ -848,8 +861,9 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 
 		// Now trigger the workspace scan (deferred). This keeps chat input hidden until ready.
-		// Also start listening for tool events and background observer assessments.
-		return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments())
+		// Also start listening for tool events, background observer assessments,
+		// and Glass Box events (the latter is no-op if the bus is disabled).
+		return m, tea.Batch(m.runScan(false), m.listenToolEvents(), m.listenObserverAssessments(), m.listenGlassBoxEvents())
 
 	case onboardingCheckMsg:
 		// Handle first-run detection result
@@ -965,10 +979,10 @@ func (m *Model) updateContinuationFacts() {
 	_ = m.kernel.Retract("continuation_step")
 	_ = m.kernel.Assert(core.Fact{
 		Predicate: "continuation_step",
-		Args:      []interface{}{float64(m.continuationStep), float64(m.continuationTotal)},
+		Args:      []any{float64(m.continuationStep), float64(m.continuationTotal)},
 	})
 	_ = m.kernel.Assert(core.Fact{
 		Predicate: "max_continuation_steps",
-		Args:      []interface{}{10.0},
+		Args:      []any{10.0},
 	})
 }

@@ -52,7 +52,7 @@ func TestCortexKernel_RetractFact(t *testing.T) {
 	shard := setupTestShard(t, "main", []string{"pred"})
 	cortex.RegisterShard(shard)
 
-	fact := types.Fact{Predicate: "pred", Args: []interface{}{"val"}}
+	fact := types.Fact{Predicate: "pred", Args: []any{"val"}}
 	if err := cortex.Assert(fact); err != nil {
 		t.Fatalf("Assert failed: %v", err)
 	}
@@ -82,8 +82,8 @@ func TestCortexKernel_RetractExactFactsBatch(t *testing.T) {
 	cortex.RegisterShard(mainShard)
 	cortex.RegisterShard(otherShard)
 
-	f1 := types.Fact{Predicate: "main_pred", Args: []interface{}{"a"}}
-	f2 := types.Fact{Predicate: "other_pred", Args: []interface{}{"b"}}
+	f1 := types.Fact{Predicate: "main_pred", Args: []any{"a"}}
+	f2 := types.Fact{Predicate: "other_pred", Args: []any{"b"}}
 
 	if err := cortex.Assert(f1); err != nil {
 		t.Fatalf("Assert f1 failed: %v", err)
@@ -114,8 +114,8 @@ func TestCortexKernel_RemoveFactsByPredicateSet(t *testing.T) {
 	mainShard := setupTestShard(t, "main", []string{"p1", "p2"})
 	cortex.RegisterShard(mainShard)
 
-	cortex.Assert(types.Fact{Predicate: "p1", Args: []interface{}{"a"}})
-	cortex.Assert(types.Fact{Predicate: "p2", Args: []interface{}{"b"}})
+	cortex.Assert(types.Fact{Predicate: "p1", Args: []any{"a"}})
+	cortex.Assert(types.Fact{Predicate: "p2", Args: []any{"b"}})
 
 	predSet := map[string]struct{}{
 		"p1": {},
@@ -140,8 +140,8 @@ func TestCortexKernel_QueryAll(t *testing.T) {
 	cortex.RegisterShard(mainShard)
 	cortex.RegisterShard(otherShard)
 
-	cortex.Assert(types.Fact{Predicate: "main_pred", Args: []interface{}{"1"}})
-	cortex.Assert(types.Fact{Predicate: "other_pred", Args: []interface{}{"2"}})
+	cortex.Assert(types.Fact{Predicate: "main_pred", Args: []any{"1"}})
+	cortex.Assert(types.Fact{Predicate: "other_pred", Args: []any{"2"}})
 
 	all, err := cortex.QueryAll()
 	if err != nil {
@@ -159,7 +159,7 @@ func TestCortexKernel_LoadFacts(t *testing.T) {
 	cortex.RegisterShard(mainShard)
 
 	facts := []types.Fact{
-		{Predicate: "p1", Args: []interface{}{"val"}},
+		{Predicate: "p1", Args: []any{"val"}},
 	}
 
 	if err := cortex.LoadFacts(facts); err != nil {
@@ -204,7 +204,7 @@ func TestCortexKernel_Reset(t *testing.T) {
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
 
-	cortex.Assert(types.Fact{Predicate: "p1", Args: []interface{}{"val"}})
+	cortex.Assert(types.Fact{Predicate: "p1", Args: []any{"val"}})
 	cortex.Reset()
 
 	res, _ := cortex.Query("p1")
@@ -240,7 +240,7 @@ func TestCortexKernel_EvaluateAll(t *testing.T) {
 	mainShard := setupTestShard(t, "main", []string{"p1"})
 	cortex.RegisterShard(mainShard)
 
-	cortex.Assert(types.Fact{Predicate: "p1", Args: []interface{}{"val"}})
+	cortex.Assert(types.Fact{Predicate: "p1", Args: []any{"val"}})
 	duration, err := cortex.EvaluateAll()
 	if err != nil {
 		t.Fatalf("EvaluateAll failed: %v", err)
@@ -296,8 +296,8 @@ func TestCortexTransaction_RetractFact(t *testing.T) {
 	cortex.RegisterShard(mainShard)
 
 	// p1 must have arity 1 as declared by setupTestShard
-	f1 := types.Fact{Predicate: "p1", Args: []interface{}{"a"}}
-	f2 := types.Fact{Predicate: "p1", Args: []interface{}{"b"}}
+	f1 := types.Fact{Predicate: "p1", Args: []any{"a"}}
+	f2 := types.Fact{Predicate: "p1", Args: []any{"b"}}
 
 	cortex.Assert(f1)
 	cortex.Assert(f2)

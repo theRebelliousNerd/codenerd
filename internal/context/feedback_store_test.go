@@ -39,7 +39,7 @@ func TestContextFeedbackStore_QueryHelpersReturnWithoutRecursiveLocking(t *testi
 	defer store.Close()
 
 	store.minSamples = 1
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := store.StoreFeedback(i+1, "", 0.9, "/fix", true, []string{"file_topology"}, []string{"browser_state"}); err != nil {
 			t.Fatalf("StoreFeedback failed: %v", err)
 		}

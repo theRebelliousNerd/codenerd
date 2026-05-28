@@ -376,7 +376,7 @@ func assertReflectionFacts(kernel *core.RealKernel, traceHits []rankedTrace, lea
 		score := scoreToPercent(r.score)
 		_ = kernel.Assert(core.Fact{
 			Predicate: "trace_recall_result",
-			Args:      []interface{}{r.hit.TraceID, score, outcome, summary},
+			Args:      []any{r.hit.TraceID, score, outcome, summary},
 		})
 	}
 
@@ -389,7 +389,7 @@ func assertReflectionFacts(kernel *core.RealKernel, traceHits []rankedTrace, lea
 		score := scoreToPercent(r.score)
 		_ = kernel.Assert(core.Fact{
 			Predicate: "learning_recall_result",
-			Args:      []interface{}{r.hit.LearningID, score, r.hit.Predicate, summary},
+			Args:      []any{r.hit.LearningID, score, r.hit.Predicate, summary},
 		})
 	}
 }

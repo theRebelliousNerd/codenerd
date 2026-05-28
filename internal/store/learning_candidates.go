@@ -69,7 +69,7 @@ func (s *LocalStore) ListLearningCandidates(status string, limit int) ([]Learnin
 		SELECT id, phrase, verb, target, reason, count, status, created_at, updated_at
 		FROM learning_candidates
 	`
-	var args []interface{}
+	var args []any
 	if status != "" {
 		query += " WHERE status = ?"
 		args = append(args, status)

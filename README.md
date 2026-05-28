@@ -10,7 +10,7 @@
     Logic determines Reality; the Model merely describes it.
 ```
 
-[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://go.dev/)
 [![Mangle](https://img.shields.io/badge/Kernel-Google_Mangle-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://github.com/google/mangle)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Architecture](https://img.shields.io/badge/Architecture-Neuro--Symbolic-purple?style=for-the-badge)]()
@@ -90,7 +90,7 @@ Every interaction flows through:
 
 ### Prerequisites
 
-- **Go 1.24+** — [Download](https://go.dev/dl/) (only for building from source)
+- **Go 1.26+** — [Download](https://go.dev/dl/) (only for building from source)
 - **API Key** — Set `ZAI_API_KEY` environment variable
 
 ### Option 1: Pre-built Binary (Recommended)
@@ -131,7 +131,7 @@ Every interaction flows through:
 
 #### 1. Install & Build
 **Prerequisites:**
-- Go 1.22+
+- Go 1.26+
 - Docker (must be running for sandboxed execution)
 
 **Build:**

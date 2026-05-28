@@ -41,14 +41,14 @@ Decl next_action(Action).
 
 		facts := []testFact{
 			// User is interested in main.go
-			{"user_intent", []interface{}{"intent1", "/command", "/fix", targetFile, ""}},
+			{"user_intent", []any{"intent1", "/command", "/fix", targetFile, ""}},
 
 			// main.go imports helper.go
-			{"file_imports", []interface{}{targetFile, importedFile}},
+			{"file_imports", []any{targetFile, importedFile}},
 
 			// Both files exist
-			{"file_exists", []interface{}{targetFile}},
-			{"file_exists", []interface{}{importedFile}},
+			{"file_exists", []any{targetFile}},
+			{"file_exists", []any{importedFile}},
 		}
 
 		// Query context_priority for the imported file

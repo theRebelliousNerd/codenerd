@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func encodeActionPayload(payload map[string]interface{}) string {
+func encodeActionPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return "{}"
 	}
@@ -17,12 +17,12 @@ func encodeActionPayload(payload map[string]interface{}) string {
 	return string(data)
 }
 
-func decodeActionPayload(arg interface{}) (map[string]interface{}, string) {
-	payload := map[string]interface{}{}
+func decodeActionPayload(arg any) (map[string]any, string) {
+	payload := map[string]any{}
 	intentID := ""
 
 	switch v := arg.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		payload = v
 	case string:
 		trimmed := strings.TrimSpace(v)
@@ -45,13 +45,13 @@ func decodeActionPayload(arg interface{}) (map[string]interface{}, string) {
 	return payload, intentID
 }
 
-func parsePseudoMapPayload(raw string) map[string]interface{} {
-	payload := map[string]interface{}{}
+func parsePseudoMapPayload(raw string) map[string]any {
+	payload := map[string]any{}
 	trimmed := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(raw), "map["), "]")
 	if trimmed == "" {
 		return payload
 	}
-	for _, field := range strings.Fields(trimmed) {
+	for field := range strings.FieldsSeq(trimmed) {
 		parts := strings.SplitN(field, ":", 2)
 		if len(parts) != 2 {
 			continue

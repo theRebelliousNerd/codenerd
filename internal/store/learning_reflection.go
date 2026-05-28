@@ -69,7 +69,7 @@ func (ls *LearningStore) ListLearningEmbeddingCandidates(shardType string, limit
 		WHERE (semantic_handle IS NULL OR semantic_handle = '' OR handle_version IS NULL OR handle_version != ? OR handle_hash IS NULL OR handle_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
-	args := []interface{}{learningHandleVersion}
+	args := []any{learningHandleVersion}
 	if expectedModel != "" {
 		query += " OR embedding_model_id != ?"
 		args = append(args, expectedModel)
@@ -194,7 +194,7 @@ func (ls *LearningStore) CountLearningEmbeddingBacklog(shardType string, expecte
 		WHERE (semantic_handle IS NULL OR semantic_handle = '' OR handle_version IS NULL OR handle_version != ? OR handle_hash IS NULL OR handle_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
-	args := []interface{}{learningHandleVersion}
+	args := []any{learningHandleVersion}
 	if expectedModel != "" {
 		query += " OR embedding_model_id != ?"
 		args = append(args, expectedModel)

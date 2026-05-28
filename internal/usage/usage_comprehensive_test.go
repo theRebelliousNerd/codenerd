@@ -15,7 +15,7 @@ import (
 func TestTokenCounts_Add_WhenMultipleSequentialAdds_ShouldAccumulate(t *testing.T) {
 	t.Parallel()
 	tc := TokenCounts{}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tc.Add(100, 50)
 	}
 	if tc.Input != 1000 {

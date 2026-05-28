@@ -176,7 +176,7 @@ func TestModel_ShardResultHistory(t *testing.T) {
 	m := NewTestModel()
 
 	// Add shard results
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		result := &ShardResult{
 			ShardType:  "test",
 			Task:       "task",
@@ -638,13 +638,13 @@ func TestConcurrent_ViewRendering(t *testing.T) {
 
 	done := make(chan bool, 10)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			defer func() {
 				recover() // Don't fail on panic in goroutine
 				done <- true
 			}()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				select {
 				case <-ctx.Done():
 					return
@@ -656,7 +656,7 @@ func TestConcurrent_ViewRendering(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -671,13 +671,13 @@ func TestConcurrent_HistoryAccess(t *testing.T) {
 	done := make(chan bool, 5)
 
 	// Writers
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		go func(id int) {
 			defer func() {
 				recover()
 				done <- true
 			}()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				select {
 				case <-ctx.Done():
 					return
@@ -693,13 +693,13 @@ func TestConcurrent_HistoryAccess(t *testing.T) {
 	}
 
 	// Readers
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		go func() {
 			defer func() {
 				recover()
 				done <- true
 			}()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				select {
 				case <-ctx.Done():
 					return
@@ -711,7 +711,7 @@ func TestConcurrent_HistoryAccess(t *testing.T) {
 	}
 
 	// Wait for all
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		<-done
 	}
 }

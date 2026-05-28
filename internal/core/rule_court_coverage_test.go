@@ -45,7 +45,7 @@ func TestRuleCourt_CoverageExtra(t *testing.T) {
 	// Assert a pending action that should be permitted
 	kDeadlock.Assert(Fact{
 		Predicate: "pending_action",
-		Args:      []interface{}{"action1", "/read_file", "target", "payload", float64(123)},
+		Args:      []any{"action1", "/read_file", "target", "payload", float64(123)},
 	})
 	if err := kDeadlock.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)

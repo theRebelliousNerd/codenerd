@@ -68,7 +68,7 @@ func TestCostGuard_CanCall_WhenSessionCapExceeded_ShouldBlock(t *testing.T) {
 	g := NewCostGuard()
 	g.MaxLLMCallsPerSession = 3
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		g.RecordCall()
 	}
 
@@ -745,7 +745,7 @@ func TestEncodeActionPayload_WhenEmpty_ShouldReturnEmptyJSON(t *testing.T) {
 }
 
 func TestEncodeActionPayload_WhenNonEmpty_ShouldReturnJSON(t *testing.T) {
-	payload := map[string]interface{}{"key": "value"}
+	payload := map[string]any{"key": "value"}
 	result := encodeActionPayload(payload)
 	if result != `{"key":"value"}` {
 		t.Errorf("encodeActionPayload = %q", result)
@@ -753,7 +753,7 @@ func TestEncodeActionPayload_WhenNonEmpty_ShouldReturnJSON(t *testing.T) {
 }
 
 func TestDecodeActionPayload_WhenMapInput_ShouldReturnDirectly(t *testing.T) {
-	input := map[string]interface{}{"intent_id": "test123", "other": "data"}
+	input := map[string]any{"intent_id": "test123", "other": "data"}
 	payload, intentID := decodeActionPayload(input)
 
 	if intentID != "test123" {
@@ -876,7 +876,7 @@ func TestExtractIntentIDFromPayloadString_WhenNoID_ShouldReturnEmpty(t *testing.
 // ─── unixSecondsArg ──────────────────────────────────────────────────────────
 
 func TestUnixSecondsArg_WhenInt64_ShouldReturn(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{"a", "b", int64(1234567890)}}
+	f := types.Fact{Predicate: "test", Args: []any{"a", "b", int64(1234567890)}}
 	ts, ok := unixSecondsArg(f, 2)
 	if !ok {
 		t.Fatal("expected ok=true")
@@ -887,7 +887,7 @@ func TestUnixSecondsArg_WhenInt64_ShouldReturn(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenInt_ShouldConvert(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{42}}
+	f := types.Fact{Predicate: "test", Args: []any{42}}
 	ts, ok := unixSecondsArg(f, 0)
 	if !ok {
 		t.Fatal("expected ok=true")
@@ -898,7 +898,7 @@ func TestUnixSecondsArg_WhenInt_ShouldConvert(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenFloat64_ShouldConvert(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{float64(999)}}
+	f := types.Fact{Predicate: "test", Args: []any{float64(999)}}
 	ts, ok := unixSecondsArg(f, 0)
 	if !ok {
 		t.Fatal("expected ok=true")
@@ -909,7 +909,7 @@ func TestUnixSecondsArg_WhenFloat64_ShouldConvert(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenStringNumber_ShouldParse(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{"12345"}}
+	f := types.Fact{Predicate: "test", Args: []any{"12345"}}
 	ts, ok := unixSecondsArg(f, 0)
 	if !ok {
 		t.Fatal("expected ok=true")
@@ -920,7 +920,7 @@ func TestUnixSecondsArg_WhenStringNumber_ShouldParse(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenInvalidString_ShouldFail(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{"not_a_number"}}
+	f := types.Fact{Predicate: "test", Args: []any{"not_a_number"}}
 	_, ok := unixSecondsArg(f, 0)
 	if ok {
 		t.Error("expected ok=false for invalid string")
@@ -928,7 +928,7 @@ func TestUnixSecondsArg_WhenInvalidString_ShouldFail(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenOutOfBounds_ShouldFail(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{"a"}}
+	f := types.Fact{Predicate: "test", Args: []any{"a"}}
 	_, ok := unixSecondsArg(f, 5)
 	if ok {
 		t.Error("expected ok=false for out-of-bounds index")
@@ -936,7 +936,7 @@ func TestUnixSecondsArg_WhenOutOfBounds_ShouldFail(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenNegativeIndex_ShouldFail(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{"a"}}
+	f := types.Fact{Predicate: "test", Args: []any{"a"}}
 	_, ok := unixSecondsArg(f, -1)
 	if ok {
 		t.Error("expected ok=false for negative index")
@@ -944,7 +944,7 @@ func TestUnixSecondsArg_WhenNegativeIndex_ShouldFail(t *testing.T) {
 }
 
 func TestUnixSecondsArg_WhenUnknownType_ShouldFail(t *testing.T) {
-	f := types.Fact{Predicate: "test", Args: []interface{}{true}}
+	f := types.Fact{Predicate: "test", Args: []any{true}}
 	_, ok := unixSecondsArg(f, 0)
 	if ok {
 		t.Error("expected ok=false for bool type")
@@ -993,7 +993,7 @@ func TestCostGuard_RecordError_WhenManyErrors_ShouldCapBackoffAt60s(t *testing.T
 	g.CooldownAfterError = 1 * time.Second
 
 	// Record many errors to trigger max backoff
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		g.RecordError()
 	}
 

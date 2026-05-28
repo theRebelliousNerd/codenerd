@@ -69,8 +69,6 @@ func TestUnderstandingTransducer_ParseIntent_HappyPath(t *testing.T) {
 
 	tr := NewUnderstandingTransducer(mockClient)
 
-
-
 	// Call ParseIntentWithContext
 	intent, err := tr.ParseIntentWithContext(context.Background(), "implement a new feature", nil)
 	if err != nil {
@@ -205,7 +203,6 @@ func TestUnderstandingTransducer_MapSemanticToCategory(t *testing.T) {
 	// REMEDIATED: TEST_GAP_NULL_01: Add test cases for empty strings ("" and "   ") for both semanticType and actionType to ensure correct fallback to `/query`.
 	// REMEDIATED: TEST_GAP_EXTREME_02: Ensure mapping logic is resilient to novel domains with strange characters, avoiding invalid Mangle atom creation.
 
-
 	tests := []struct {
 		semantic string
 		action   string
@@ -258,6 +255,7 @@ func TestUnderstandingTransducer_ExtractMemoryOperations(t *testing.T) {
 		t.Errorf("Expected op forget, got %s", opsForget[0].Op)
 	}
 }
+
 // REMEDIATED: TEST_GAP_COERCION_01: Mock the LLM to return improperly typed JSON (e.g., a string instead of float64 for confidence) and ensure safe fallback intent.
 // REMEDIATED: TEST_GAP_COERCION_02: Mock the LLM to return completely empty JSON `{}` and ensure defaults map to safe Intent without nil pointer panics.
 
@@ -376,7 +374,7 @@ func TestUnderstandingTransducer_Concurrency(t *testing.T) {
 	tr := &UnderstandingTransducer{client: mockClient}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

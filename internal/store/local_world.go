@@ -22,7 +22,7 @@ type WorldFileMeta struct {
 // Predicate + Args mirror core/types.Fact without importing core.
 type WorldFactInput struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 // UpsertWorldFile stores or updates world_files metadata.

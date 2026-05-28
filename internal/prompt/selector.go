@@ -490,8 +490,6 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	return merged, vectorMs, nil
 }
 
-
-
 // getVectorScores retrieves semantic similarity scores for atoms.
 // Uses a configurable sub-timeout to prevent blocking JIT compilation.
 // TODO: Reliability: Ensure callers gracefully degrade (continue with 0 vector scores) if getVectorScores returns an error or times out, rather than failing the entire JIT compilation.
@@ -862,7 +860,7 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 // buildContextFacts builds Mangle facts from context and atoms.
 // TODO: Performance: Replace fmt.Sprintf with a specialized FactBuilder or buffer pool to reduce allocation pressure in hot loops.
 // This function allocates thousands of strings per compilation.
-func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]interface{}, error) {
+func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]any, error) {
 	// Generate base context facts using the unified generator
 	baseFacts := cc.GenerateFacts(FactStyle{
 		Predicate:  "current_context",
@@ -872,7 +870,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	})
 
 	// Pre-allocate facts array to minimize reallocation for candidate facts.
-	facts := make([]interface{}, 0, len(baseFacts)+len(atoms)*15)
+	facts := make([]any, 0, len(baseFacts)+len(atoms)*15)
 	facts = append(facts, baseFacts...)
 
 	// Candidate Facts
@@ -975,7 +973,7 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 
 // extractStringArg safely extracts a string from a Mangle fact argument.
 // Returns an error if the argument is of an unsupported or complex type.
-func extractStringArg(arg interface{}) (string, error) {
+func extractStringArg(arg any) (string, error) {
 	if arg == nil {
 		return "", nil
 	}

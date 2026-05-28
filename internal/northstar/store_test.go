@@ -292,7 +292,7 @@ func TestStore_GetRecentObservations(t *testing.T) {
 	store := newTestStore(t)
 
 	// Record multiple observations
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		obs := &Observation{
 			SessionID: "session-1",
 			Type:      ObsTaskCompleted,
@@ -372,7 +372,7 @@ func TestStore_GetAlignmentHistory(t *testing.T) {
 	store := newTestStore(t)
 
 	// Record multiple checks
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		check := &AlignmentCheck{
 			Trigger: TriggerPeriodic,
 			Subject: "Periodic check",

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -246,7 +247,7 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	if e.kernel != nil {
 		if assertErr := e.kernel.Assert(types.Fact{
 			Predicate: "user_intent",
-			Args: []interface{}{
+			Args: []any{
 				types.MangleAtom("/current_intent"),
 				types.MangleAtom(intent.Category),
 				types.MangleAtom(intent.Verb),
@@ -500,10 +501,10 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntimeConfig) string {
 	// Use json.MarshalIndent to ensure the example is always valid JSON
-	exampleRequest := []map[string]interface{}{{
+	exampleRequest := []map[string]any{{
 		"id":        "req_1",
 		"tool_name": "<tool_name>",
-		"tool_args": map[string]interface{}{"arg_name": "arg_value"},
+		"tool_args": map[string]any{"arg_name": "arg_value"},
 		"purpose":   "why this tool is needed",
 	}}
 
@@ -664,8 +665,8 @@ func (e *Executor) processMangleUpdatesFromEnvelope(envelope *articulation.Piggy
 
 // parseMangleArgs parses comma-separated Mangle arguments.
 // Handles quoted strings and atom constants.
-func (e *Executor) parseMangleArgs(argsStr string) []interface{} {
-	var args []interface{}
+func (e *Executor) parseMangleArgs(argsStr string) []any {
+	var args []any
 	var current strings.Builder
 	inString := false
 	escaped := false
@@ -706,7 +707,7 @@ func (e *Executor) parseMangleArgs(argsStr string) []interface{} {
 }
 
 // parseMangleArg parses a single Mangle argument.
-func (e *Executor) parseMangleArg(arg string) interface{} {
+func (e *Executor) parseMangleArg(arg string) any {
 	// String literal
 	if strings.HasPrefix(arg, "\"") && strings.HasSuffix(arg, "\"") {
 		return arg[1 : len(arg)-1] // Remove quotes
@@ -744,7 +745,7 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 		}
 
 		// Build input schema from tool's schema
-		inputSchema := make(map[string]interface{})
+		inputSchema := make(map[string]any)
 		inputSchema["type"] = "object"
 		inputSchema["properties"] = tool.Schema.Properties
 		if len(tool.Schema.Required) > 0 {
@@ -766,7 +767,7 @@ func (e *Executor) buildToolDefinitions(cfg *config.EffectiveAgentRuntimeConfig)
 type ToolCall struct {
 	ID   string
 	Name string
-	Args map[string]interface{}
+	Args map[string]any
 }
 
 // runToolLoop drives the LLM ↔ tools cycle. It performs the initial generation
@@ -1037,12 +1038,7 @@ func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRunt
 		return true // No restrictions
 	}
 
-	for _, allowed := range cfg.AllowedTools {
-		if allowed == toolName {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cfg.AllowedTools, toolName)
 }
 
 // maxPayloadBytes caps the JSON-serialized tool args we'll push into the
@@ -1081,7 +1077,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	// of "null" — the permitted facts written by policy use "{}" for no-arg
 	// actions, so matching depends on this consistency.
 	if call.Args == nil {
-		call.Args = map[string]interface{}{}
+		call.Args = map[string]any{}
 	}
 
 	// Extract target and serialize payload
@@ -1107,7 +1103,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	// Decl pending_action(ActionID, ActionType, Target, Payload, Timestamp)
 	pendingFact := types.Fact{
 		Predicate: "pending_action",
-		Args: []interface{}{
+		Args: []any{
 			call.ID,
 			actionAtom,
 			target,
@@ -1170,7 +1166,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 }
 
 // extractTarget attempts to identify the primary target of a tool call.
-func (e *Executor) extractTarget(args map[string]interface{}) string {
+func (e *Executor) extractTarget(args map[string]any) string {
 	// Common keys for targets
 	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query"}
 	for _, key := range candidates {
@@ -1294,7 +1290,7 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 		if e.kernel != nil {
 			if err := e.kernel.Assert(types.Fact{
 				Predicate: "self_correction",
-				Args:      []interface{}{hypothesis, time.Now().Unix()},
+				Args:      []any{hypothesis, time.Now().Unix()},
 			}); err != nil {
 				logging.Get(logging.CategorySession).Warn("Failed to assert self_correction fact: %v", err)
 			}
@@ -1321,7 +1317,7 @@ func (e *Executor) processPiggybackControlPacket(rawText string) string {
 			for _, op := range memOps {
 				if err := e.kernel.Assert(types.Fact{
 					Predicate: "memory_operation",
-					Args:      []interface{}{op.Op, op.Key, op.Value},
+					Args:      []any{op.Op, op.Key, op.Value},
 				}); err != nil {
 					logging.Get(logging.CategorySession).Warn("Failed to assert memory_operation fact: %v", err)
 				}

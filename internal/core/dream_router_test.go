@@ -18,7 +18,7 @@ type mockColdStore struct {
 	stored []string
 }
 
-func (m *mockColdStore) StoreFact(predicate string, args []interface{}, factType string, importance int) error {
+func (m *mockColdStore) StoreFact(predicate string, args []any, factType string, importance int) error {
 	m.stored = append(m.stored, predicate)
 	return nil
 }

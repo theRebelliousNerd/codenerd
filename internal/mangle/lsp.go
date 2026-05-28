@@ -749,17 +749,17 @@ func (s *LSPServer) IndexWorkspace(ctx context.Context, rootPath string) error {
 // LSPRequest represents an LSP JSON-RPC request.
 type LSPRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
+	ID      any             `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
 }
 
 // LSPResponse represents an LSP JSON-RPC response.
 type LSPResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *LSPError   `json:"error,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id"`
+	Result  any       `json:"result,omitempty"`
+	Error   *LSPError `json:"error,omitempty"`
 }
 
 // LSPError represents an LSP error.
@@ -790,8 +790,8 @@ func (s *LSPServer) ServeStdio(ctx context.Context) error {
 		}
 
 		var contentLength int
-		if strings.HasPrefix(header, "Content-Length: ") {
-			lengthStr := strings.TrimPrefix(header, "Content-Length: ")
+		if after, ok := strings.CutPrefix(header, "Content-Length: "); ok {
+			lengthStr := after
 			lengthStr = strings.TrimSpace(lengthStr)
 			contentLength, err = strconv.Atoi(lengthStr)
 			if err != nil {
@@ -833,13 +833,13 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 		return &LSPResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result: map[string]interface{}{
-				"capabilities": map[string]interface{}{
+			Result: map[string]any{
+				"capabilities": map[string]any{
 					"textDocumentSync":   1, // Full sync
 					"definitionProvider": true,
 					"referencesProvider": true,
 					"hoverProvider":      true,
-					"completionProvider": map[string]interface{}{
+					"completionProvider": map[string]any{
 						"triggerCharacters": []string{"/", ":", "("},
 					},
 				},
@@ -898,9 +898,9 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 		return &LSPResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result: map[string]interface{}{
+			Result: map[string]any{
 				"uri": pathToURI(defs[0].FilePath),
-				"range": map[string]interface{}{
+				"range": map[string]any{
 					"start": map[string]int{"line": defs[0].Line - 1, "character": defs[0].Column},
 					"end":   map[string]int{"line": defs[0].Line - 1, "character": defs[0].Column},
 				},
@@ -927,7 +927,7 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 		return &LSPResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result: map[string]interface{}{
+			Result: map[string]any{
 				"contents": map[string]string{
 					"kind":  "markdown",
 					"value": hover,
@@ -952,8 +952,8 @@ func (s *LSPServer) handleRequest(req LSPRequest) *LSPResponse {
 // ============================================================================
 
 func uriToPath(uri string) string {
-	if strings.HasPrefix(uri, "file://") {
-		path := strings.TrimPrefix(uri, "file://")
+	if after, ok := strings.CutPrefix(uri, "file://"); ok {
+		path := after
 		// Handle Windows paths
 		if len(path) > 2 && path[0] == '/' && path[2] == ':' {
 			path = path[1:] // Remove leading slash for Windows

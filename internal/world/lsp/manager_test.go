@@ -65,7 +65,6 @@ func TestPathToURI(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result := pathToURI(tc.path)
@@ -106,7 +105,6 @@ func TestDiagnosticSeverityToAtom(t *testing.T) {
 	}
 
 	for _, tc := range severities {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// This tests the function exists and handles inputs without panicking

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,9 +59,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	// Snapshot previous entries for diffing.
 	cache.mu.RLock()
 	prevEntries := make(map[string]CacheEntry, len(cache.Entries))
-	for k, v := range cache.Entries {
-		prevEntries[k] = v
-	}
+	maps.Copy(prevEntries, cache.Entries)
 	cache.mu.RUnlock()
 
 	patterns := s.config.IgnorePatterns
@@ -102,7 +101,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			dirCount++
 			dirFacts = append(dirFacts, core.Fact{
 				Predicate: "directory",
-				Args:      []interface{}{path, name},
+				Args:      []any{path, name},
 			})
 			return nil
 		}
@@ -180,7 +179,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			res.ProjectLanguage = lang
 			res.NewFacts = append(res.NewFacts, core.Fact{
 				Predicate: "project_language",
-				Args:      []interface{}{core.MangleAtom("/" + lang)},
+				Args:      []any{core.MangleAtom("/" + lang)},
 			})
 		}
 
@@ -280,7 +279,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 			ft := core.Fact{
 				Predicate: "file_topology",
-				Args: []interface{}{
+				Args: []any{
 					path,
 					hash,
 					core.MangleAtom("/" + lang),
@@ -423,7 +422,7 @@ func groupFactsByPath(facts []core.Fact) map[string][]core.Fact {
 	return out
 }
 
-func worldFactPathArg(arg interface{}) string {
+func worldFactPathArg(arg any) string {
 	s, ok := arg.(string)
 	if !ok || s == "" {
 		return ""
@@ -526,7 +525,7 @@ func detectEntryPoints(facts []core.Fact) []core.Fact {
 			if isEntry {
 				entryPoints = append(entryPoints, core.Fact{
 					Predicate: "entry_point",
-					Args:      []interface{}{path},
+					Args:      []any{path},
 				})
 			}
 		}

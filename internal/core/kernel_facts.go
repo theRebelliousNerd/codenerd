@@ -55,10 +55,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 
 	// Log sample of facts being loaded (first 5)
 	if len(sanitizedFacts) > 0 && logging.IsDebugMode() {
-		sampleSize := 5
-		if len(sanitizedFacts) < sampleSize {
-			sampleSize = len(sanitizedFacts)
-		}
+		sampleSize := min(len(sanitizedFacts), 5)
 		for i := 0; i < sampleSize; i++ {
 			logging.KernelDebug("  [%d] %s", i, sanitizedFacts[i].String())
 		}
@@ -105,7 +102,7 @@ func (k *RealKernel) canonFact(f Fact) string {
 	return sb.String()
 }
 
-func canonValue(v interface{}) string {
+func canonValue(v any) string {
 	switch t := v.(type) {
 	case nil:
 		return "null"
@@ -152,7 +149,7 @@ func canonValue(v interface{}) string {
 		return strconv.Quote(t.String())
 	case []byte:
 		return strconv.Quote(string(t))
-	case []interface{}:
+	case []any:
 		return canonSliceInterface(t)
 	case []string:
 		return canonSliceString(t)
@@ -162,7 +159,7 @@ func canonValue(v interface{}) string {
 		return canonSliceInt64(t)
 	case []float64:
 		return canonSliceFloat64(t)
-	case map[string]interface{}:
+	case map[string]any:
 		return canonMapStringInterface(t)
 	case map[string]string:
 		return canonMapStringString(t)
@@ -192,7 +189,7 @@ func canonFloat64(v float64) string {
 	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
-func canonSliceInterface(values []interface{}) string {
+func canonSliceInterface(values []any) string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i, v := range values {
@@ -270,7 +267,7 @@ func canonSliceReflect(value reflect.Value) string {
 	return sb.String()
 }
 
-func canonMapStringInterface(values map[string]interface{}) string {
+func canonMapStringInterface(values map[string]any) string {
 	keys := make([]string, 0, len(values))
 	for k := range values {
 		keys = append(keys, k)
@@ -609,7 +606,7 @@ func (k *RealKernel) RetractFact(fact Fact) error {
 	}
 
 	if retractedCount == 0 {
-		firstArg := interface{}(nil)
+		firstArg := any(nil)
 		if len(fact.Args) > 0 {
 			firstArg = fact.Args[0]
 		}
@@ -997,7 +994,7 @@ func (tx *KernelTransaction) retractExactFactLocked(k *RealKernel, fact Fact) bo
 
 // argsEqual compares two fact arguments for equality.
 // OPTIMIZATION: Uses type switches instead of expensive fmt.Sprintf fallback.
-func argsEqual(a, b interface{}) bool {
+func argsEqual(a, b any) bool {
 	// Check for nil
 	if a == nil && b == nil {
 		return true
@@ -1071,14 +1068,14 @@ func argsEqual(a, b interface{}) bool {
 		if bv, ok := b.(bool); ok {
 			return av == bv
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		// Maps are not comparable with ==, use reflect.DeepEqual
-		if bv, ok := b.(map[string]interface{}); ok {
+		if bv, ok := b.(map[string]any); ok {
 			return reflect.DeepEqual(av, bv)
 		}
-	case []interface{}:
+	case []any:
 		// Slices are not comparable with ==, use reflect.DeepEqual
-		if bv, ok := b.([]interface{}); ok {
+		if bv, ok := b.([]any); ok {
 			return reflect.DeepEqual(av, bv)
 		}
 	default:
@@ -1092,7 +1089,7 @@ func argsEqual(a, b interface{}) bool {
 }
 
 // argsSliceEqual compares two argument slices for full equality.
-func argsSliceEqual(a, b []interface{}) bool {
+func argsSliceEqual(a, b []any) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -1171,7 +1168,7 @@ func sanitizeFactForNumericPredicates(f Fact) Fact {
 	return f
 }
 
-func coercePriorityAtomToNumber(v interface{}) interface{} {
+func coercePriorityAtomToNumber(v any) any {
 	switch t := v.(type) {
 	case string:
 		return parsePriorityString(t, v)
@@ -1182,7 +1179,7 @@ func coercePriorityAtomToNumber(v interface{}) interface{} {
 	}
 }
 
-func parsePriorityString(atom string, original interface{}) interface{} {
+func parsePriorityString(atom string, original any) any {
 	atom = strings.TrimSpace(atom)
 	if atom == "" {
 		return original
@@ -1271,4 +1268,3 @@ func (k *RealKernel) LoadPolicy(policyContent string) {
 	k.policyDirty = true // Force reparse since policy changed
 	logging.KernelDebug("LoadPolicy: replaced policy (%d bytes), policyDirty=true", len(policyContent))
 }
-

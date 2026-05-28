@@ -1,6 +1,7 @@
 package shards
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -65,10 +66,5 @@ func TestDefaultSystemConfig(t *testing.T) {
 }
 
 func containsPermission(perms []types.ShardPermission, p types.ShardPermission) bool {
-	for _, perm := range perms {
-		if perm == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(perms, p)
 }

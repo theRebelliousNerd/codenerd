@@ -106,12 +106,12 @@ func TestCompiler_KernelNonStringFacts(t *testing.T) {
 
 	// Return facts with non-string types
 	kernel := &mockKernel{
-		facts: []interface{}{
-			Fact{Predicate: "selected_atom", Args: []interface{}{42, "skeleton", 1.0}},           // int ID
-			Fact{Predicate: "selected_atom", Args: []interface{}{nil, "skeleton", 1.0}},          // nil ID
-			Fact{Predicate: "selected_atom", Args: []interface{}{true, "skeleton", 1.0}},         // bool ID
-			Fact{Predicate: "selected_atom", Args: []interface{}{"identity", "skeleton", "bad"}}, // non-float score
-			Fact{Predicate: "selected_atom", Args: []interface{}{"identity", 42, 1.0}},           // non-string source
+		facts: []any{
+			Fact{Predicate: "selected_atom", Args: []any{42, "skeleton", 1.0}},           // int ID
+			Fact{Predicate: "selected_atom", Args: []any{nil, "skeleton", 1.0}},          // nil ID
+			Fact{Predicate: "selected_atom", Args: []any{true, "skeleton", 1.0}},         // bool ID
+			Fact{Predicate: "selected_atom", Args: []any{"identity", "skeleton", "bad"}}, // non-float score
+			Fact{Predicate: "selected_atom", Args: []any{"identity", 42, 1.0}},           // non-string source
 		},
 	}
 
@@ -137,7 +137,7 @@ func TestCompiler_KernelNonStringFacts(t *testing.T) {
 func TestCompiler_ContextCancellation(t *testing.T) {
 	// GAP: Verify context cancellation aborts compilation.
 	atoms := make([]*PromptAtom, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		atoms[i] = &PromptAtom{
 			ID:         fmt.Sprintf("atom_%d", i),
 			Category:   CategoryContext,
@@ -229,13 +229,11 @@ func TestCompiler_ConcurrentCompile(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 20
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			cc := NewCompilationContext().WithTokenBudget(10000, 1000)
 			_, _ = compiler.Compile(context.Background(), cc)
-		}()
+		})
 	}
 
 	// Must not panic or race
@@ -274,7 +272,7 @@ func TestCompiler_ConcurrentRegisterDB(t *testing.T) {
 	// Goroutine 1: compile repeatedly
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			cc := NewCompilationContext().WithTokenBudget(10000, 1000)
 			_, _ = compiler.Compile(context.Background(), cc)
 		}
@@ -283,7 +281,7 @@ func TestCompiler_ConcurrentRegisterDB(t *testing.T) {
 	// Goroutine 2: register/unregister DBs
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			dbPath := filepath.Join(tmp, fmt.Sprintf("test-%d.db", i))
 			_ = compiler.RegisterDB("corpus", dbPath)
 		}

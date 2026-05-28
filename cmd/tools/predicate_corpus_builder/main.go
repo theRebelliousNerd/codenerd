@@ -278,9 +278,9 @@ func parseArgumentDefs(argsStr string) []ArgumentDef {
 		arg := ArgumentDef{Position: i}
 
 		// Parse argument: Name.Type<type> or just Name
-		if dotIdx := strings.Index(part, "."); dotIdx != -1 {
-			arg.Name = part[:dotIdx]
-			typeStr := part[dotIdx+1:]
+		if before, after, ok := strings.Cut(part, "."); ok {
+			arg.Name = before
+			typeStr := after
 
 			// Extract type from Type<...>
 			if strings.HasPrefix(typeStr, "Type<") && strings.HasSuffix(typeStr, ">") {

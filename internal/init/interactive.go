@@ -42,7 +42,7 @@ type DetectedAgent struct {
 type AgentSelectionPreferences struct {
 	AcceptedAgents        []string  `json:"accepted_agents,omitempty"`
 	RejectedAgents        []string  `json:"rejected_agents,omitempty"`
-	LastInteractive       time.Time `json:"last_interactive,omitempty"`
+	LastInteractive       time.Time `json:"last_interactive"`
 	AutoAcceptRecommended bool      `json:"auto_accept_recommended"`
 }
 
@@ -417,12 +417,12 @@ func SaveAgentPreferences(workspace string, agentPrefs *AgentSelectionPreference
 
 	// Load existing preferences
 	existingData, _ := os.ReadFile(path)
-	var existing map[string]interface{}
+	var existing map[string]any
 	if len(existingData) > 0 {
 		json.Unmarshal(existingData, &existing)
 	}
 	if existing == nil {
-		existing = make(map[string]interface{})
+		existing = make(map[string]any)
 	}
 
 	// Update agent selection

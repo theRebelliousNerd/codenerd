@@ -55,14 +55,14 @@ func (di *DocumentIngestor) Ingest(ctx context.Context, campaignID string, fileC
 			continue
 		}
 
-		if err := di.store.StoreLink(campaignID, "/has_source_doc", path, 1.0, map[string]interface{}{
+		if err := di.store.StoreLink(campaignID, "/has_source_doc", path, 1.0, map[string]any{
 			"path": path,
 		}); err != nil {
 			logging.StoreWarn("DocumentIngestor: failed to store source doc link for %s: %v", path, err)
 		}
 
 		for idx, chunk := range chunks {
-			meta := map[string]interface{}{
+			meta := map[string]any{
 				"campaign_id":  campaignID,
 				"path":         path,
 				"chunk_index":  idx,

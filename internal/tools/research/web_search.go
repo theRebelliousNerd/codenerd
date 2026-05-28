@@ -197,8 +197,8 @@ func extractResult(n *html.Node) SearchResult {
 	extract(n)
 
 	// Clean up the URL if it's a DuckDuckGo redirect
-	if strings.HasPrefix(result.URL, "//duckduckgo.com/l/?uddg=") {
-		if decoded, err := url.QueryUnescape(strings.TrimPrefix(result.URL, "//duckduckgo.com/l/?uddg=")); err == nil {
+	if after, ok := strings.CutPrefix(result.URL, "//duckduckgo.com/l/?uddg="); ok {
+		if decoded, err := url.QueryUnescape(after); err == nil {
 			if idx := strings.Index(decoded, "&"); idx > 0 {
 				decoded = decoded[:idx]
 			}

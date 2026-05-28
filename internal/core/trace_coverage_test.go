@@ -22,22 +22,22 @@ func TestTrace_CoverageHeuristics(t *testing.T) {
 	}
 
 	// Assert facts
-	k.Assert(Fact{Predicate: "is_edb_predicate", Args: []interface{}{"my_edb"}})
-	k.Assert(Fact{Predicate: "rule_metadata", Args: []interface{}{"my_impact", "transitive_impact"}})
-	k.Assert(Fact{Predicate: "rule_metadata", Args: []interface{}{"my_permitted", "permission_gate"}})
-	k.Assert(Fact{Predicate: "rule_metadata", Args: []interface{}{"my_clarification", "focus_threshold"}})
-	k.Assert(Fact{Predicate: "rule_metadata", Args: []interface{}{"my_action", "strategy_selector"}})
+	k.Assert(Fact{Predicate: "is_edb_predicate", Args: []any{"my_edb"}})
+	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_impact", "transitive_impact"}})
+	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_permitted", "permission_gate"}})
+	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_clarification", "focus_threshold"}})
+	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_action", "strategy_selector"}})
 
-	k.Assert(Fact{Predicate: "dependency_link", Args: []interface{}{"caller1", "callee1", "import1"}})
-	k.Assert(Fact{Predicate: "safe_action", Args: []interface{}{"action1"}})
-	k.Assert(Fact{Predicate: "focus_resolution", Args: []interface{}{"ref1", "path1", "symbol1", int64(95)}})
-	k.Assert(Fact{Predicate: "user_intent", Args: []interface{}{"id1", "cat1", "verb1", "target1", "constraint1"}})
+	k.Assert(Fact{Predicate: "dependency_link", Args: []any{"caller1", "callee1", "import1"}})
+	k.Assert(Fact{Predicate: "safe_action", Args: []any{"action1"}})
+	k.Assert(Fact{Predicate: "focus_resolution", Args: []any{"ref1", "path1", "symbol1", int64(95)}})
+	k.Assert(Fact{Predicate: "user_intent", Args: []any{"id1", "cat1", "verb1", "target1", "constraint1"}})
 
-	k.Assert(Fact{Predicate: "my_impact", Args: []interface{}{"caller1"}})
-	k.Assert(Fact{Predicate: "my_permitted", Args: []interface{}{"action1"}})
-	k.Assert(Fact{Predicate: "my_clarification", Args: []interface{}{"ref1"}})
-	k.Assert(Fact{Predicate: "my_action", Args: []interface{}{"any"}})
-	k.Assert(Fact{Predicate: "my_edb", Args: []interface{}{"val1"}})
+	k.Assert(Fact{Predicate: "my_impact", Args: []any{"caller1"}})
+	k.Assert(Fact{Predicate: "my_permitted", Args: []any{"action1"}})
+	k.Assert(Fact{Predicate: "my_clarification", Args: []any{"ref1"}})
+	k.Assert(Fact{Predicate: "my_action", Args: []any{"any"}})
+	k.Assert(Fact{Predicate: "my_edb", Args: []any{"val1"}})
 
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate facts failed: %v", err)

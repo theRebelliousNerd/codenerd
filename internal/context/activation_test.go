@@ -35,12 +35,12 @@ func TestScoreFacts(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "auth.go", ""}},
-		{Predicate: "file_topology", Args: []interface{}{"main.go", "hash1", "/go", int64(1699000000), "/false"}},
-		{Predicate: "diagnostic", Args: []interface{}{"/error", "main.go", int64(10), "E001", "error"}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "auth.go", ""}},
+		{Predicate: "file_topology", Args: []any{"main.go", "hash1", "/go", int64(1699000000), "/false"}},
+		{Predicate: "diagnostic", Args: []any{"/error", "main.go", int64(10), "E001", "error"}},
 	}
 
-	intent := &core.Fact{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "auth.go", ""}}
+	intent := &core.Fact{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "auth.go", ""}}
 
 	scored := engine.ScoreFacts(facts, intent)
 
@@ -96,9 +96,9 @@ func TestSelectWithinBudget(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	scored := []ScoredFact{
-		{Fact: core.Fact{Predicate: "file_topology", Args: []interface{}{"main.go", "hash1", "/go", int64(1699000000), "/false"}}, Score: 100.0},
-		{Fact: core.Fact{Predicate: "file_topology", Args: []interface{}{"auth.go", "hash2", "/go", int64(1699000001), "/false"}}, Score: 90.0},
-		{Fact: core.Fact{Predicate: "file_topology", Args: []interface{}{"test.go", "hash3", "/go", int64(1699000002), "/true"}}, Score: 80.0},
+		{Fact: core.Fact{Predicate: "file_topology", Args: []any{"main.go", "hash1", "/go", int64(1699000000), "/false"}}, Score: 100.0},
+		{Fact: core.Fact{Predicate: "file_topology", Args: []any{"auth.go", "hash2", "/go", int64(1699000001), "/false"}}, Score: 90.0},
+		{Fact: core.Fact{Predicate: "file_topology", Args: []any{"test.go", "hash3", "/go", int64(1699000002), "/true"}}, Score: 80.0},
 	}
 
 	// Small budget should limit results
@@ -121,9 +121,9 @@ func TestUpdateFocusedPaths(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
-		{Predicate: "focus_resolution", Args: []interface{}{"auth", "pkg/auth/auth.go", "Auth", int64(95)}},
-		{Predicate: "focus_resolution", Args: []interface{}{"handler", "pkg/http/handler.go", "Handler", int64(85)}},
-		{Predicate: "file_topology", Args: []interface{}{"main.go", "hash", "/go", int64(0), "/false"}}, // Should be ignored
+		{Predicate: "focus_resolution", Args: []any{"auth", "pkg/auth/auth.go", "Auth", int64(95)}},
+		{Predicate: "focus_resolution", Args: []any{"handler", "pkg/http/handler.go", "Handler", int64(85)}},
+		{Predicate: "file_topology", Args: []any{"main.go", "hash", "/go", int64(0), "/false"}}, // Should be ignored
 	}
 
 	engine.UpdateFocusedPaths(facts)
@@ -143,7 +143,7 @@ func TestRecordFactTimestamp(t *testing.T) {
 	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
-	fact := core.Fact{Predicate: "test_fact", Args: []interface{}{"arg1"}}
+	fact := core.Fact{Predicate: "test_fact", Args: []any{"arg1"}}
 	engine.RecordFactTimestamp(fact)
 
 	key := factKey(fact)
@@ -160,8 +160,8 @@ func TestAddDependency(t *testing.T) {
 	config := DefaultConfig()
 	engine := NewActivationEngine(config)
 
-	dependent := core.Fact{Predicate: "handler", Args: []interface{}{"h1"}}
-	dependency := core.Fact{Predicate: "auth", Args: []interface{}{"a1"}}
+	dependent := core.Fact{Predicate: "handler", Args: []any{"h1"}}
+	dependency := core.Fact{Predicate: "auth", Args: []any{"a1"}}
 
 	engine.AddDependency(dependent, dependency)
 
@@ -182,7 +182,7 @@ func TestComputeRecencyScore(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Create a fact with recent timestamp
-	recentFact := core.Fact{Predicate: "recent", Args: []interface{}{"arg"}}
+	recentFact := core.Fact{Predicate: "recent", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(recentFact)] = time.Now()
 
 	score := engine.computeRecencyScore(recentFact)
@@ -191,7 +191,7 @@ func TestComputeRecencyScore(t *testing.T) {
 	}
 
 	// Create a fact with old timestamp
-	oldFact := core.Fact{Predicate: "old", Args: []interface{}{"arg"}}
+	oldFact := core.Fact{Predicate: "old", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(oldFact)] = time.Now().Add(-1 * time.Hour)
 
 	oldScore := engine.computeRecencyScore(oldFact)
@@ -200,7 +200,7 @@ func TestComputeRecencyScore(t *testing.T) {
 	}
 
 	// Fact with unknown timestamp
-	unknownFact := core.Fact{Predicate: "unknown", Args: []interface{}{"arg"}}
+	unknownFact := core.Fact{Predicate: "unknown", Args: []any{"arg"}}
 	unknownScore := engine.computeRecencyScore(unknownFact)
 	if unknownScore != 0.0 {
 		t.Errorf("Expected recency score of 0 for unknown fact, got %f", unknownScore)
@@ -214,16 +214,16 @@ func TestComputeRelevanceScoreWithIntent(t *testing.T) {
 	// Set up intent
 	intent := &core.Fact{
 		Predicate: "user_intent",
-		Args:      []interface{}{"id1", "/mutation", "/fix", "auth.go", ""},
+		Args:      []any{"id1", "/mutation", "/fix", "auth.go", ""},
 	}
 	engine.state.ActiveIntent = intent
 
 	// Fact that matches intent target
-	matchingFact := core.Fact{Predicate: "file_content", Args: []interface{}{"auth.go", "content"}}
+	matchingFact := core.Fact{Predicate: "file_content", Args: []any{"auth.go", "content"}}
 	matchScore := engine.computeRelevanceScore(matchingFact)
 
 	// Fact that doesn't match
-	nonMatchingFact := core.Fact{Predicate: "file_content", Args: []interface{}{"other.go", "content"}}
+	nonMatchingFact := core.Fact{Predicate: "file_content", Args: []any{"other.go", "content"}}
 	nonMatchScore := engine.computeRelevanceScore(nonMatchingFact)
 
 	if matchScore <= nonMatchScore {
@@ -236,7 +236,7 @@ func TestComputeCampaignScore(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Without campaign context, score should be 0
-	fact := core.Fact{Predicate: "file_topology", Args: []interface{}{"main.go"}}
+	fact := core.Fact{Predicate: "file_topology", Args: []any{"main.go"}}
 	score := engine.computeCampaignScore(fact)
 	if score != 0.0 {
 		t.Errorf("Expected 0 campaign score without context, got %f", score)
@@ -251,7 +251,7 @@ func TestComputeCampaignScore(t *testing.T) {
 	})
 
 	// Fact related to campaign
-	campaignFact := core.Fact{Predicate: "campaign_task", Args: []interface{}{"task1", "add_auth"}}
+	campaignFact := core.Fact{Predicate: "campaign_task", Args: []any{"task1", "add_auth"}}
 	campaignScore := engine.computeCampaignScore(campaignFact)
 	if campaignScore <= 0 {
 		t.Errorf("Expected positive campaign score for campaign-related fact, got %f", campaignScore)
@@ -263,14 +263,14 @@ func TestComputeSessionScore(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Fact not in session
-	nonSessionFact := core.Fact{Predicate: "old_fact", Args: []interface{}{"arg"}}
+	nonSessionFact := core.Fact{Predicate: "old_fact", Args: []any{"arg"}}
 	nonSessionScore := engine.computeSessionScore(nonSessionFact)
 	if nonSessionScore != 0.0 {
 		t.Errorf("Expected 0 session score for non-session fact, got %f", nonSessionScore)
 	}
 
 	// Mark a fact as session fact
-	sessionFact := core.Fact{Predicate: "new_fact", Args: []interface{}{"arg"}}
+	sessionFact := core.Fact{Predicate: "new_fact", Args: []any{"arg"}}
 	engine.RecordFactTimestamp(sessionFact)
 
 	sessionScore := engine.computeSessionScore(sessionFact)
@@ -284,9 +284,9 @@ func TestBuildSymbolGraph(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
-		{Predicate: "dependency_link", Args: []interface{}{"handler.go", "auth.go", "pkg/auth"}},
-		{Predicate: "dependency_link", Args: []interface{}{"main.go", "handler.go", "pkg/http"}},
-		{Predicate: "symbol_graph", Args: []interface{}{"Handler", "/function", "/public", "handler.go", "Handler(w, r)"}},
+		{Predicate: "dependency_link", Args: []any{"handler.go", "auth.go", "pkg/auth"}},
+		{Predicate: "dependency_link", Args: []any{"main.go", "handler.go", "pkg/http"}},
+		{Predicate: "symbol_graph", Args: []any{"Handler", "/function", "/public", "handler.go", "Handler(w, r)"}},
 	}
 
 	engine.buildSymbolGraph(facts)
@@ -314,12 +314,12 @@ func TestApplyIntentActivation(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	facts := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "auth.go", ""}},
-		{Predicate: "file_topology", Args: []interface{}{"main.go", "hash", "/go", int64(0), "/false"}},
-		{Predicate: "focus_resolution", Args: []interface{}{"auth", "auth.go", "Auth", int64(90)}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "auth.go", ""}},
+		{Predicate: "file_topology", Args: []any{"main.go", "hash", "/go", int64(0), "/false"}},
+		{Predicate: "focus_resolution", Args: []any{"auth", "auth.go", "Auth", int64(90)}},
 	}
 
-	intent := &core.Fact{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "auth.go", ""}}
+	intent := &core.Fact{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "auth.go", ""}}
 
 	scored := engine.ApplyIntentActivation(facts, intent)
 
@@ -341,7 +341,7 @@ func TestClearState(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Add some state
-	fact := core.Fact{Predicate: "test", Args: []interface{}{"arg"}}
+	fact := core.Fact{Predicate: "test", Args: []any{"arg"}}
 	engine.RecordFactTimestamp(fact)
 	engine.SetCampaignContext(&CampaignActivationContext{CampaignID: "test"})
 	engine.state.FocusedPaths = []string{"path1"}
@@ -371,7 +371,7 @@ func TestNewSession(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Add session facts
-	fact := core.Fact{Predicate: "test", Args: []interface{}{"arg"}}
+	fact := core.Fact{Predicate: "test", Args: []any{"arg"}}
 	engine.RecordFactTimestamp(fact)
 
 	oldSessionID := engine.sessionID
@@ -396,7 +396,7 @@ func TestGetSessionStats(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Add some data
-	fact := core.Fact{Predicate: "test", Args: []interface{}{"arg"}}
+	fact := core.Fact{Predicate: "test", Args: []any{"arg"}}
 	engine.RecordFactTimestamp(fact)
 
 	stats := engine.GetSessionStats()
@@ -415,11 +415,11 @@ func TestDecayRecency(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Add fact with old timestamp
-	oldFact := core.Fact{Predicate: "old", Args: []interface{}{"arg"}}
+	oldFact := core.Fact{Predicate: "old", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(oldFact)] = time.Now().Add(-2 * time.Hour)
 
 	// Add fact with recent timestamp
-	recentFact := core.Fact{Predicate: "recent", Args: []interface{}{"arg"}}
+	recentFact := core.Fact{Predicate: "recent", Args: []any{"arg"}}
 	engine.factTimestamps[factKey(recentFact)] = time.Now()
 
 	// Decay with 1 hour cutoff
@@ -450,13 +450,13 @@ func TestSpreadFromSeeds(t *testing.T) {
 	}
 
 	facts := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "handler.go", ""}},
-		{Predicate: "file_topology", Args: []interface{}{"handler.go", "hash", "/go", int64(0), "/false"}},
-		{Predicate: "file_topology", Args: []interface{}{"auth.go", "hash", "/go", int64(0), "/false"}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "handler.go", ""}},
+		{Predicate: "file_topology", Args: []any{"handler.go", "hash", "/go", int64(0), "/false"}},
+		{Predicate: "file_topology", Args: []any{"auth.go", "hash", "/go", int64(0), "/false"}},
 	}
 
 	seeds := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "handler.go", ""}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "handler.go", ""}},
 	}
 
 	scored := engine.SpreadFromSeeds(facts, seeds, 1)
@@ -474,7 +474,7 @@ func TestSpreadFromSeeds(t *testing.T) {
 }
 
 func TestFactKey(t *testing.T) {
-	fact := core.Fact{Predicate: "test", Args: []interface{}{"arg1", "arg2"}}
+	fact := core.Fact{Predicate: "test", Args: []any{"arg1", "arg2"}}
 	key := factKey(fact)
 
 	if key == "" {
@@ -520,7 +520,7 @@ func TestSetCorpusPriorities(t *testing.T) {
 	engine.SetCorpusPriorities(corpusPriorities)
 
 	// Test that corpus priority is used
-	fact := core.Fact{Predicate: "corpus_predicate", Args: []interface{}{"arg"}}
+	fact := core.Fact{Predicate: "corpus_predicate", Args: []any{"arg"}}
 	score := engine.computeBaseScore(fact)
 
 	if score != 95.0 {
@@ -528,7 +528,7 @@ func TestSetCorpusPriorities(t *testing.T) {
 	}
 
 	// Test that corpus overrides config
-	intentFact := core.Fact{Predicate: "user_intent", Args: []interface{}{"id", "/query", "/explain", "file", ""}}
+	intentFact := core.Fact{Predicate: "user_intent", Args: []any{"id", "/query", "/explain", "file", ""}}
 	intentScore := engine.computeBaseScore(intentFact)
 
 	if intentScore != 100.0 {
@@ -545,7 +545,7 @@ func TestCorpusPriorityFallback(t *testing.T) {
 	engine := NewActivationEngine(config)
 
 	// Without setting corpus priorities, should use config
-	fact := core.Fact{Predicate: "config_predicate", Args: []interface{}{"arg"}}
+	fact := core.Fact{Predicate: "config_predicate", Args: []any{"arg"}}
 	score := engine.computeBaseScore(fact)
 
 	if score != 85.0 {
@@ -553,7 +553,7 @@ func TestCorpusPriorityFallback(t *testing.T) {
 	}
 
 	// Unknown predicate should get default
-	unknownFact := core.Fact{Predicate: "unknown_predicate", Args: []interface{}{"arg"}}
+	unknownFact := core.Fact{Predicate: "unknown_predicate", Args: []any{"arg"}}
 	unknownScore := engine.computeBaseScore(unknownFact)
 
 	if unknownScore != 50.0 {
@@ -579,7 +579,7 @@ func TestLoadPrioritiesFromCorpus(t *testing.T) {
 	}
 
 	// Verify a known high-priority predicate
-	fact := core.Fact{Predicate: "user_intent", Args: []interface{}{"id", "/query", "/explain", "file", ""}}
+	fact := core.Fact{Predicate: "user_intent", Args: []any{"id", "/query", "/explain", "file", ""}}
 	score := engine.computeBaseScore(fact)
 
 	if score < 90.0 {
@@ -640,7 +640,7 @@ func TestComputeIssueScore_WeightClamping(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "test_exploit_fact",
-		Args:      []interface{}{"exploit vulnerability"},
+		Args:      []any{"exploit vulnerability"},
 	}
 
 	score := engine.computeIssueScore(fact)
@@ -666,7 +666,7 @@ func TestComputeIssueScore_NegativeWeight(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "test_negative",
-		Args:      []interface{}{"negative keyword"},
+		Args:      []any{"negative keyword"},
 	}
 
 	score := engine.computeIssueScore(fact)

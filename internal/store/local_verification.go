@@ -157,7 +157,7 @@ func (s *LocalStore) GetQualityViolationStats() (map[string]int, error) {
 // StoreReasoningTrace persists a reasoning trace.
 // Implements perception.TraceStore interface.
 // Accepts interface{} to avoid import cycles - uses reflection to extract fields.
-func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
+func (s *LocalStore) StoreReasoningTrace(trace any) error {
 	// Try direct ReasoningTrace (from store package)
 	if rt, ok := trace.(*ReasoningTrace); ok {
 		return s.traceStore.StoreReasoningTrace(rt)
@@ -166,7 +166,7 @@ func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
 	// Use reflection to handle perception.ReasoningTrace without import cycle
 	// This allows any struct with the same field names to work
 	v := reflect.ValueOf(trace)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
@@ -174,7 +174,7 @@ func (s *LocalStore) StoreReasoningTrace(trace interface{}) error {
 	}
 
 	// Extract fields by name using reflection
-	getField := func(name string) interface{} {
+	getField := func(name string) any {
 		f := v.FieldByName(name)
 		if !f.IsValid() {
 			return nil
@@ -259,6 +259,6 @@ func (s *LocalStore) UpdateTraceQuality(traceID string, score float64, notes []s
 }
 
 // GetTraceStats returns statistics about reasoning traces.
-func (s *LocalStore) GetTraceStats() (map[string]interface{}, error) {
+func (s *LocalStore) GetTraceStats() (map[string]any, error) {
 	return s.traceStore.GetTraceStats()
 }

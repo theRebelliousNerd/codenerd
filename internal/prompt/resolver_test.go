@@ -484,7 +484,7 @@ func TestDependencyResolver_SortByCategory_DeterministicUnknownCategories(t *tes
 
 	// Run multiple times to catch non-determinism.
 	var want string
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		// Copy slice to avoid reusing the same backing array after re-ordering.
 		atoms := append([]*OrderedAtom(nil), input...)
 		sorted := resolver.SortByCategory(atoms)
@@ -510,7 +510,7 @@ func TestDependencyResolver_SortByCategory_DeterministicUnknownCategories(t *tes
 
 func BenchmarkResolve_SmallSet(b *testing.B) {
 	atoms := make([]*ScoredAtom, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		atoms[i] = &ScoredAtom{
 			Atom:     &PromptAtom{ID: string(rune('a' + i))},
 			Combined: float64(i) / 10.0,
@@ -527,7 +527,7 @@ func BenchmarkResolve_SmallSet(b *testing.B) {
 
 func BenchmarkResolve_MediumSet(b *testing.B) {
 	atoms := make([]*ScoredAtom, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		var deps []string
 		if i > 0 && i%10 == 0 {
 			deps = []string{string(rune('a' + (i - 1)))}
@@ -548,7 +548,7 @@ func BenchmarkResolve_MediumSet(b *testing.B) {
 
 func BenchmarkDetectCycles(b *testing.B) {
 	atoms := make([]*PromptAtom, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		var deps []string
 		if i > 0 {
 			deps = []string{string(rune('a' + (i - 1)))}
@@ -570,7 +570,7 @@ func BenchmarkDetectCycles(b *testing.B) {
 func BenchmarkSortByCategory(b *testing.B) {
 	categories := AllCategories()
 	atoms := make([]*OrderedAtom, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), Category: categories[i%len(categories)]},
 			Score: float64(i) / 100.0,

@@ -78,16 +78,40 @@ type geminiToolCall struct {
 }
 
 // DefaultGeminiConfig returns sensible defaults.
-// Uses gemini-3.1-flash-lite - fast, cost-effective model for coding tasks.
+//
+// Model choice — gemini-3.5-flash:
+//
+//	codeNERD uses structured output (responseJsonSchema) together with
+//	grounding tools (Google Search + URL Context) for chat articulation.
+//	Per the Gemini docs, that combination is currently a Preview feature
+//	supported ONLY on `gemini-3.1-pro-preview` and `gemini-3.5-flash`. On
+//	models outside that list (notably `gemini-3.1-flash-lite`), the API
+//	exhibits undefined behavior — most commonly mid-stream truncation of
+//	the JSON envelope, which surfaces to users as raw control_packet
+//	dumps. Flash is the right default: structured-output capable and fast.
+//
+// Thinking level — "medium":
+//
+//	Per the Gemini 3 docs, `medium` is the API default and yields "very
+//	good results across a wide range of tasks while being faster and more
+//	cost-efficient." Set explicitly so we don't surprise users who omit
+//	the field. Set to "high" only when a task genuinely benefits from
+//	maximum reasoning depth.
+//
+// Output tokens — 65536:
+//
+//	Gemini 3 cap. thoughtsTokenCount and candidatesTokenCount are tracked
+//	separately by the API (UsageMetadata), so high thinking does NOT eat
+//	the visible-output budget.
 func DefaultGeminiConfig(apiKey string) GeminiConfig {
 	return GeminiConfig{
 		APIKey:          apiKey,
 		BaseURL:         "https://generativelanguage.googleapis.com/v1beta",
-		Model:           "gemini-3.1-flash-lite",
+		Model:           "gemini-3.5-flash",
 		Timeout:         10 * time.Minute, // Large context models need extended timeout
 		MaxOutputTokens: 65536,
 		EnableThinking:  true,
-		ThinkingLevel:   "high",
+		ThinkingLevel:   "medium",
 	}
 }
 
@@ -113,7 +137,10 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 	thinkingLevel := strings.ToLower(strings.TrimSpace(config.ThinkingLevel))
 	if config.EnableThinking {
 		if thinkingLevel == "" {
-			thinkingLevel = "high"
+			// Per Gemini 3 docs, "medium" is the API default and recommended
+			// for most tasks. The previous "high" auto-default forced max
+			// reasoning depth on every call without the user opting in.
+			thinkingLevel = "medium"
 		}
 	}
 
@@ -159,7 +186,8 @@ func (c *GeminiClient) buildThinkingConfig() *GeminiThinkingConfig {
 
 	level := c.thinkingLevel
 	if level == "" {
-		level = "high"
+		// Match the documented API default rather than forcing "high".
+		level = "medium"
 	}
 	cfg.ThinkingLevel = level
 
@@ -543,7 +571,7 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 			logging.Perception("[Gemini] CompleteWithSystem: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
-		
+
 		logging.LogLLMResponse("gemini", response, time.Since(startTime), len(response)/4)
 		return response, nil
 	}
@@ -555,10 +583,10 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 const geminiSchemaDepthLimit = 10 // Gemini 3 can handle deeper nesting
 
-func schemaMaxDepth(value interface{}, depth int) int {
+func schemaMaxDepth(value any, depth int) int {
 	maxDepth := depth
 	switch typed := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if depth+1 > maxDepth {
 			maxDepth = depth + 1
 		}
@@ -567,7 +595,7 @@ func schemaMaxDepth(value interface{}, depth int) int {
 				maxDepth = childDepth
 			}
 		}
-	case []interface{}:
+	case []any:
 		if depth+1 > maxDepth {
 			maxDepth = depth + 1
 		}
@@ -580,17 +608,17 @@ func schemaMaxDepth(value interface{}, depth int) int {
 	return maxDepth
 }
 
-func shallowSchema(schema map[string]interface{}) map[string]interface{} {
+func shallowSchema(schema map[string]any) map[string]any {
 	if schema == nil {
-		return map[string]interface{}{"type": "object"}
+		return map[string]any{"type": "object"}
 	}
-	props := map[string]interface{}{}
-	if rawProps, ok := schema["properties"].(map[string]interface{}); ok {
+	props := map[string]any{}
+	if rawProps, ok := schema["properties"].(map[string]any); ok {
 		for key, value := range rawProps {
 			props[key] = shallowSchemaProperty(value)
 		}
 	}
-	result := map[string]interface{}{
+	result := map[string]any{
 		"type": "object",
 	}
 	if len(props) > 0 {
@@ -602,21 +630,21 @@ func shallowSchema(schema map[string]interface{}) map[string]interface{} {
 	return result
 }
 
-func shallowSchemaProperty(value interface{}) map[string]interface{} {
-	if valueMap, ok := value.(map[string]interface{}); ok {
+func shallowSchemaProperty(value any) map[string]any {
+	if valueMap, ok := value.(map[string]any); ok {
 		if enumVal, ok := valueMap["enum"]; ok {
-			return map[string]interface{}{
+			return map[string]any{
 				"type": "string",
 				"enum": enumVal,
 			}
 		}
 		if typeVal, ok := valueMap["type"].(string); ok && typeVal != "" {
-			return map[string]interface{}{
+			return map[string]any{
 				"type": typeVal,
 			}
 		}
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"type": "string",
 	}
 }
@@ -649,7 +677,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		return "", fmt.Errorf("json schema is empty")
 	}
 
-	var schema map[string]interface{}
+	var schema map[string]any
 	if err := json.Unmarshal([]byte(schemaText), &schema); err != nil {
 		return "", fmt.Errorf("invalid json schema: %w", err)
 	}
@@ -785,7 +813,7 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			logging.Perception("[Gemini] CompleteWithSchema: completed in %v response_len=%d grounding_sources=%d cached_tokens=%d",
 				time.Since(startTime), len(response), len(c.lastGroundingSources), cachedTokens)
 		}
-		
+
 		logging.LogLLMResponse("gemini-schema", response, time.Since(startTime), len(response)/4)
 		return response, nil
 	}
@@ -796,218 +824,331 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 }
 
 // CompleteWithStreaming sends a prompt with streaming enabled.
-// Returns channels of incremental content deltas.
-func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, _ bool) (<-chan string, <-chan error) {
+// Returns channels of incremental content deltas. Thinking parts are
+// dropped silently — see CompleteWithStreamingAndThoughts when you want
+// to surface the model's reasoning trace separately (e.g. for the TUI).
+func (c *GeminiClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
-	logging.PerceptionDebug("[Gemini] CompleteWithStreaming: starting streaming model=%s", c.model)
-
-	go func() {
-		defer close(contentChan)
-		defer close(errorChan)
-
-		// Auto-apply timeout if context has no deadline (centralized timeout handling)
-		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
-			defer cancel()
-		}
-
-		startTime := time.Now()
-
-		if c.apiKey == "" {
-			logging.PerceptionError("[Gemini] CompleteWithStreaming: API key not configured")
-			errorChan <- fmt.Errorf("API key not configured")
-			return
-		}
-
-		if strings.TrimSpace(systemPrompt) == "" {
-			systemPrompt = defaultSystemPrompt
-		}
-
-		isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
-			strings.Contains(systemPrompt, "surface_response") ||
-			strings.Contains(userPrompt, "PiggybackEnvelope") ||
-			strings.Contains(userPrompt, "control_packet")
-
-		// Rate limiting
-		c.mu.Lock()
-		elapsed := time.Since(c.lastRequest)
-		if elapsed < 100*time.Millisecond {
-			time.Sleep(100*time.Millisecond - elapsed)
-		}
-		c.lastRequest = time.Now()
-		c.mu.Unlock()
-
-		reqBody := GeminiRequest{
-			Contents: []GeminiContent{
-				{
-					Role:  "user",
-					Parts: []GeminiPart{{Text: userPrompt}},
-				},
-			},
-			SystemInstruction: &GeminiContent{
-				Parts: []GeminiPart{{Text: systemPrompt}},
-			},
-			GenerationConfig: GeminiGenerationConfig{
-				Temperature:     1.0,
-				MaxOutputTokens: c.maxOutputTokens,
-				ThinkingConfig:  c.buildThinkingConfig(),
-			},
-			Tools: c.buildBuiltInTools(),
-		}
-		if isPiggyback {
-			reqBody.GenerationConfig.ResponseMimeType = "application/json"
-			reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
-		}
-
-		url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)
-
-		maxRetries := 3
-		var lastErr error
-
-		for attempt := 0; attempt <= maxRetries; attempt++ {
-			if attempt > 0 {
-				time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
-			}
-
-			jsonData, err := json.Marshal(reqBody)
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to marshal request: %w", err)
-				return
-			}
-
-			req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to create request: %w", err)
-				return
-			}
-
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "text/event-stream")
-
-			resp, err := c.httpClient.Do(req)
-			if err != nil {
-				lastErr = fmt.Errorf("request failed: %w", err)
-				continue
-			}
-
-			if resp.StatusCode == http.StatusTooManyRequests {
-				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-				resp.Body.Close()
-				lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
-				continue
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-				resp.Body.Close()
-
-				// Some models may reject responseJsonSchema; retry once without it.
-				if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
-					bodyStr := string(body)
-					bodyLower := strings.ToLower(bodyStr)
-					if strings.Contains(bodyLower, "responsejsonschema") || strings.Contains(bodyLower, "responsemimetype") ||
-						strings.Contains(bodyLower, "response_schema") || strings.Contains(bodyLower, "response_mime_type") ||
-						strings.Contains(bodyLower, "responseschema") {
-						reqBody.GenerationConfig.ResponseSchema = nil
-						reqBody.GenerationConfig.ResponseMimeType = ""
-						lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
-						continue
-					}
-				}
-
-				errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-				return
-			}
-
-			scanner := bufio.NewScanner(resp.Body)
-			scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-			scanDone := make(chan struct{})
-			scanErrChan := make(chan error, 1)
-
-			go func() {
-				defer close(scanDone)
-				for scanner.Scan() {
-					line := scanner.Text()
-					if !strings.HasPrefix(line, "data:") {
-						continue
-					}
-					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-					if data == "" {
-						continue
-					}
-					if data == "[DONE]" {
-						return
-					}
-
-					var chunk GeminiResponse
-					if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-						continue
-					}
-					if chunk.Error != nil {
-						scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
-						return
-					}
-					if chunk.ThoughtSignature != "" {
-						c.lastThoughtSignature = chunk.ThoughtSignature
-					}
-					if len(chunk.Candidates) == 0 {
-						continue
-					}
-					for _, part := range chunk.Candidates[0].Content.Parts {
-						if part.FunctionCall != nil && part.FunctionCall.ThoughtSignature != "" {
-							c.lastThoughtSignature = part.FunctionCall.ThoughtSignature
-						}
-						if part.ThoughtSignature != "" {
-							c.lastThoughtSignature = part.ThoughtSignature
-						}
-						if part.Thought {
-							// Filter out thinking content from the stream
-							// otherwise it corrupts Piggyback JSON parsing
-							continue
-						}
-						if part.Text == "" {
-							continue
-						}
-						select {
-						case contentChan <- part.Text:
-						case <-ctx.Done():
-							return
-						}
-					}
-				}
-				if err := scanner.Err(); err != nil {
-					scanErrChan <- err
-				}
-			}()
-
-			select {
-			case <-scanDone:
-				resp.Body.Close()
-				select {
-				case err := <-scanErrChan:
-					logging.PerceptionError("[Gemini] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
-					errorChan <- fmt.Errorf("stream error: %w", err)
-				default:
-					logging.Perception("[Gemini] CompleteWithStreaming: completed in %v", time.Since(startTime))
-				}
-			case <-ctx.Done():
-				resp.Body.Close()
-				<-scanDone
-				logging.PerceptionWarn("[Gemini] CompleteWithStreaming: cancelled after %v", time.Since(startTime))
-				errorChan <- ctx.Err()
-			}
-			return
-		}
-
-		logging.PerceptionError("[Gemini] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
-		errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
-	}()
-
+	// Use the unified streaming engine. Passing nil for the thoughtsChan
+	// causes thinking parts to be discarded — preserving the existing
+	// 2-channel contract for the 40+ callers/mocks that depend on it.
+	go c.runStreamingRequest(ctx, systemPrompt, userPrompt, enableThinking, contentChan, nil, errorChan)
 	return contentChan, errorChan
+}
+
+// CompleteWithStreamingAndThoughts is the opt-in 3-channel variant of
+// CompleteWithStreaming. The model's thinking trace streams on the
+// thoughts channel as it arrives, and visible response text streams on
+// the content channel — same semantics as the 2-channel version. Both
+// channels are closed when the stream ends.
+//
+// Use this when you want to render the model's reasoning live (TUI
+// "thought animation"), or when you need the thought stream for
+// observability. Most callers (shards, transducers, verifiers) should
+// stick with the 2-channel CompleteWithStreaming since they don't care
+// about thinking content.
+func (c *GeminiClient) CompleteWithStreamingAndThoughts(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan string, <-chan error) {
+	contentChan := make(chan string, 100)
+	thoughtsChan := make(chan string, 100)
+	errorChan := make(chan error, 1)
+
+	go c.runStreamingRequest(ctx, systemPrompt, userPrompt, enableThinking, contentChan, thoughtsChan, errorChan)
+	return contentChan, thoughtsChan, errorChan
+}
+
+// runStreamingRequest is the unified streaming engine for Gemini. It is
+// called by both CompleteWithStreaming (2-channel) and
+// CompleteWithStreamingAndThoughts (3-channel). When thoughtsChan is
+// non-nil, thinking parts are routed to it; when nil, they are dropped.
+// Both content and thoughts channels (and the error channel) are closed
+// when the stream terminates.
+//
+// This factoring keeps the streaming retry / scanner / finish-reason
+// logging in one place — adding a new public method just means choosing
+// what to do with the thinking parts.
+func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, userPrompt string, _ bool, contentChan, thoughtsChan chan<- string, errorChan chan<- error) {
+	defer close(contentChan)
+	if thoughtsChan != nil {
+		defer close(thoughtsChan)
+	}
+	defer close(errorChan)
+
+	logging.PerceptionDebug("[Gemini] streaming start: model=%s thoughts_enabled=%v", c.model, thoughtsChan != nil)
+
+	// Auto-apply timeout if context has no deadline (centralized timeout handling)
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.httpClient.Timeout)
+		defer cancel()
+	}
+
+	startTime := time.Now()
+
+	if c.apiKey == "" {
+		logging.PerceptionError("[Gemini] CompleteWithStreaming: API key not configured")
+		errorChan <- fmt.Errorf("API key not configured")
+		return
+	}
+
+	if strings.TrimSpace(systemPrompt) == "" {
+		systemPrompt = defaultSystemPrompt
+	}
+
+	isPiggyback := strings.Contains(systemPrompt, "control_packet") ||
+		strings.Contains(systemPrompt, "surface_response") ||
+		strings.Contains(userPrompt, "PiggybackEnvelope") ||
+		strings.Contains(userPrompt, "control_packet")
+
+	// Rate limiting
+	c.mu.Lock()
+	elapsed := time.Since(c.lastRequest)
+	if elapsed < 100*time.Millisecond {
+		time.Sleep(100*time.Millisecond - elapsed)
+	}
+	c.lastRequest = time.Now()
+	c.mu.Unlock()
+
+	reqBody := GeminiRequest{
+		Contents: []GeminiContent{
+			{
+				Role:  "user",
+				Parts: []GeminiPart{{Text: userPrompt}},
+			},
+		},
+		SystemInstruction: &GeminiContent{
+			Parts: []GeminiPart{{Text: systemPrompt}},
+		},
+		GenerationConfig: GeminiGenerationConfig{
+			Temperature:     1.0,
+			MaxOutputTokens: c.maxOutputTokens,
+			ThinkingConfig:  c.buildThinkingConfig(),
+		},
+		Tools: c.buildBuiltInTools(),
+	}
+	if isPiggyback {
+		reqBody.GenerationConfig.ResponseMimeType = "application/json"
+		reqBody.GenerationConfig.ResponseSchema = BuildGeminiPiggybackEnvelopeSchema()
+	}
+
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse&key=%s", c.baseURL, c.model, c.apiKey)
+
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(1<<uint(attempt-1)) * time.Second)
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to marshal request: %w", err)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to create request: %w", err)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+
+			// Some models may reject responseJsonSchema; retry once without it.
+			if isPiggyback && reqBody.GenerationConfig.ResponseSchema != nil && resp.StatusCode == http.StatusBadRequest {
+				bodyStr := string(body)
+				bodyLower := strings.ToLower(bodyStr)
+				if strings.Contains(bodyLower, "responsejsonschema") || strings.Contains(bodyLower, "responsemimetype") ||
+					strings.Contains(bodyLower, "response_schema") || strings.Contains(bodyLower, "response_mime_type") ||
+					strings.Contains(bodyLower, "responseschema") {
+					reqBody.GenerationConfig.ResponseSchema = nil
+					reqBody.GenerationConfig.ResponseMimeType = ""
+					lastErr = fmt.Errorf("request rejected structured output, retrying without responseJsonSchema: %s", bodyStr)
+					continue
+				}
+			}
+
+			errorChan <- fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			return
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+		scanDone := make(chan struct{})
+		scanErrChan := make(chan error, 1)
+
+		// Track the last observed finish_reason and usage metadata so
+		// we can log them after the stream ends. Previously these were
+		// silently dropped, which made truncation impossible to
+		// diagnose — the user saw a half-finished envelope and we
+		// had no signal explaining why generation stopped.
+		var (
+			lastFinishReason string
+			lastUsage        struct {
+				promptTokens   int
+				outputTokens   int
+				thoughtsTokens int
+				totalTokens    int
+				cachedTokens   int
+			}
+			outputChars int
+		)
+
+		go func() {
+			defer close(scanDone)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if data == "" {
+					continue
+				}
+				if data == "[DONE]" {
+					return
+				}
+
+				var chunk GeminiResponse
+				if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+					continue
+				}
+				if chunk.Error != nil {
+					scanErrChan <- fmt.Errorf("API error: %s", chunk.Error.Message)
+					return
+				}
+				if chunk.ThoughtSignature != "" {
+					c.lastThoughtSignature = chunk.ThoughtSignature
+				}
+				// Pick up usage metadata whenever the chunk carries it
+				// (typically the final chunk).
+				if chunk.UsageMetadata.TotalTokenCount > 0 ||
+					chunk.UsageMetadata.CandidatesTokenCount > 0 ||
+					chunk.UsageMetadata.ThoughtsTokenCount > 0 {
+					lastUsage.promptTokens = chunk.UsageMetadata.PromptTokenCount
+					lastUsage.outputTokens = chunk.UsageMetadata.CandidatesTokenCount
+					lastUsage.thoughtsTokens = chunk.UsageMetadata.ThoughtsTokenCount
+					lastUsage.totalTokens = chunk.UsageMetadata.TotalTokenCount
+					lastUsage.cachedTokens = chunk.UsageMetadata.CachedContentTokenCount
+				}
+				if len(chunk.Candidates) == 0 {
+					continue
+				}
+				if chunk.Candidates[0].FinishReason != "" {
+					lastFinishReason = chunk.Candidates[0].FinishReason
+				}
+				for _, part := range chunk.Candidates[0].Content.Parts {
+					if part.FunctionCall != nil && part.FunctionCall.ThoughtSignature != "" {
+						c.lastThoughtSignature = part.FunctionCall.ThoughtSignature
+					}
+					if part.ThoughtSignature != "" {
+						c.lastThoughtSignature = part.ThoughtSignature
+					}
+					if part.Thought {
+						// Thinking parts MUST NOT go to contentChan —
+						// mixing them with the visible-output stream
+						// corrupts Piggyback JSON parsing on the
+						// downstream StreamParser (which only knows how
+						// to extract surface_response from clean JSON).
+						//
+						// When the caller wants thoughts, we route them
+						// to a dedicated thoughtsChan; otherwise we
+						// drop them, preserving the old 2-channel
+						// contract.
+						if thoughtsChan != nil && part.Text != "" {
+							select {
+							case thoughtsChan <- part.Text:
+							case <-ctx.Done():
+								return
+							}
+						}
+						continue
+					}
+					if part.Text == "" {
+						continue
+					}
+					outputChars += len(part.Text)
+					select {
+					case contentChan <- part.Text:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				scanErrChan <- err
+			}
+		}()
+
+		select {
+		case <-scanDone:
+			resp.Body.Close()
+			select {
+			case err := <-scanErrChan:
+				logging.PerceptionError("[Gemini] CompleteWithStreaming: stream error after %v: %v", time.Since(startTime), err)
+				errorChan <- fmt.Errorf("stream error: %w", err)
+			default:
+				// Surface finish_reason and usage so truncation is
+				// immediately diagnosable. A MAX_TOKENS finish on a
+				// short response is the smoking gun for a thinking
+				// budget that ate the output.
+				if lastFinishReason != "" && lastFinishReason != "STOP" {
+					logging.Get(logging.CategoryPerception).Warn(
+						"[Gemini] CompleteWithStreaming: completed in %v finish=%s output_chars=%d output_tokens=%d thoughts_tokens=%d total_tokens=%d prompt_tokens=%d cached=%d max_output_tokens=%d (response likely truncated)",
+						time.Since(startTime),
+						lastFinishReason,
+						outputChars,
+						lastUsage.outputTokens,
+						lastUsage.thoughtsTokens,
+						lastUsage.totalTokens,
+						lastUsage.promptTokens,
+						lastUsage.cachedTokens,
+						c.maxOutputTokens,
+					)
+				} else {
+					logging.Perception("[Gemini] CompleteWithStreaming: completed in %v finish=%s output_chars=%d output_tokens=%d thoughts_tokens=%d total_tokens=%d cached=%d",
+						time.Since(startTime),
+						lastFinishReason,
+						outputChars,
+						lastUsage.outputTokens,
+						lastUsage.thoughtsTokens,
+						lastUsage.totalTokens,
+						lastUsage.cachedTokens,
+					)
+				}
+			}
+		case <-ctx.Done():
+			resp.Body.Close()
+			<-scanDone
+			logging.PerceptionWarn("[Gemini] CompleteWithStreaming: cancelled after %v finish=%s output_chars=%d", time.Since(startTime), lastFinishReason, outputChars)
+			errorChan <- ctx.Err()
+		}
+		return
+	}
+
+	logging.PerceptionError("[Gemini] CompleteWithStreaming: max retries exceeded after %v: %v", time.Since(startTime), lastErr)
+	errorChan <- fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
 // SetModel changes the model used for completions.
@@ -1144,7 +1285,6 @@ func (c *GeminiClient) CompleteWithTools(ctx context.Context, systemPrompt, user
 		result.ThoughtSignature = c.lastThoughtSignature
 	}
 
-
 	// Map usage metadata
 	result.Usage = types.UsageMetadata{
 		InputTokens:         geminiResp.UsageMetadata.PromptTokenCount,
@@ -1233,7 +1373,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 			part := GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
 					Name: call.name,
-					Response: map[string]interface{}{
+					Response: map[string]any{
 						"content":  tr.Content,
 						"is_error": tr.IsError,
 					},
@@ -1253,7 +1393,7 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 			resultParts = append(resultParts, GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
 					Name: tr.ToolUseID,
-					Response: map[string]interface{}{
+					Response: map[string]any{
 						"content":  tr.Content,
 						"is_error": tr.IsError,
 					},
@@ -1367,7 +1507,6 @@ func (c *GeminiClient) CompleteWithToolResults(ctx context.Context, systemPrompt
 		result.ThoughtSignature = c.lastThoughtSignature
 	}
 
-
 	// Map usage metadata
 	result.Usage = types.UsageMetadata{
 		InputTokens:         geminiResp.UsageMetadata.PromptTokenCount,
@@ -1432,7 +1571,7 @@ func (c *GeminiClient) CountTokens(ctx context.Context, systemPrompt, userPrompt
 			},
 		}
 	}
-	
+
 	// Apply cached content if set
 	cachedContent := c.cachedContentName
 	if cachedContent != "" {

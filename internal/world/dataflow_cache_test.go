@@ -32,7 +32,7 @@ func TestDataFlowCache_GetOrCompute(t *testing.T) {
 			wantHit: false,
 			computeFunc: func() []core.Fact {
 				return []core.Fact{
-					{Predicate: "assigns", Args: []interface{}{core.MangleAtom("/x"), core.MangleAtom("/nullable"), "/test/file1.go", int64(10)}},
+					{Predicate: "assigns", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/nullable"), "/test/file1.go", int64(10)}},
 				}
 			},
 		},
@@ -53,7 +53,7 @@ func TestDataFlowCache_GetOrCompute(t *testing.T) {
 			wantHit: false,
 			computeFunc: func() []core.Fact {
 				return []core.Fact{
-					{Predicate: "assigns", Args: []interface{}{core.MangleAtom("/y"), core.MangleAtom("/error"), "/test/file1.go", int64(20)}},
+					{Predicate: "assigns", Args: []any{core.MangleAtom("/y"), core.MangleAtom("/error"), "/test/file1.go", int64(20)}},
 				}
 			},
 		},
@@ -90,19 +90,19 @@ func TestDataFlowCache_Serialization(t *testing.T) {
 	originalFacts := []core.Fact{
 		{
 			Predicate: "assigns",
-			Args:      []interface{}{core.MangleAtom("/varName"), core.MangleAtom("/nullable"), "/path/to/file.go", int64(42)},
+			Args:      []any{core.MangleAtom("/varName"), core.MangleAtom("/nullable"), "/path/to/file.go", int64(42)},
 		},
 		{
 			Predicate: "uses",
-			Args:      []interface{}{"/path/to/file.go", core.MangleAtom("/funcName"), core.MangleAtom("/x"), int64(100)},
+			Args:      []any{"/path/to/file.go", core.MangleAtom("/funcName"), core.MangleAtom("/x"), int64(100)},
 		},
 		{
 			Predicate: "guards_return",
-			Args:      []interface{}{core.MangleAtom("/err"), core.MangleAtom("/nil_check"), "/file.go", int64(15)},
+			Args:      []any{core.MangleAtom("/err"), core.MangleAtom("/nil_check"), "/file.go", int64(15)},
 		},
 		{
 			Predicate: "test_types",
-			Args:      []interface{}{"string_value", int64(123), float64(3.14), true},
+			Args:      []any{"string_value", int64(123), float64(3.14), true},
 		},
 	}
 
@@ -179,7 +179,7 @@ func TestDataFlowCache_Serialization(t *testing.T) {
 }
 
 // argsEqual compares two argument values for equality, handling type variations.
-func argsEqual(a, b interface{}) bool {
+func argsEqual(a, b any) bool {
 	switch av := a.(type) {
 	case core.MangleAtom:
 		bv, ok := b.(core.MangleAtom)
@@ -225,7 +225,7 @@ func TestDataFlowCache_Invalidate(t *testing.T) {
 
 	// Add to cache
 	cache.GetOrCompute(file, content, func() []core.Fact {
-		return []core.Fact{{Predicate: "test", Args: []interface{}{"arg"}}}
+		return []core.Fact{{Predicate: "test", Args: []any{"arg"}}}
 	})
 
 	// Verify it's cached
@@ -266,7 +266,7 @@ func TestDataFlowCache_InvalidateAll(t *testing.T) {
 	files := []string{"/test/file1.go", "/test/file2.go", "/test/file3.go"}
 	for _, file := range files {
 		cache.GetOrCompute(file, []byte(file), func() []core.Fact {
-			return []core.Fact{{Predicate: "test", Args: []interface{}{file}}}
+			return []core.Fact{{Predicate: "test", Args: []any{file}}}
 		})
 	}
 
@@ -360,7 +360,7 @@ func TestDataFlowCache_Store(t *testing.T) {
 	file := "/test/direct.go"
 	content := []byte("direct store test")
 	facts := []core.Fact{
-		{Predicate: "direct", Args: []interface{}{"stored"}},
+		{Predicate: "direct", Args: []any{"stored"}},
 	}
 
 	// Store directly

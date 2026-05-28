@@ -3,6 +3,7 @@ package northstar
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -212,9 +213,7 @@ func (o *CampaignObserver) GetAllPhaseChecks() map[string]*AlignmentCheck {
 	defer o.mu.RUnlock()
 
 	result := make(map[string]*AlignmentCheck)
-	for k, v := range o.phaseChecks {
-		result[k] = v
-	}
+	maps.Copy(result, o.phaseChecks)
 	return result
 }
 

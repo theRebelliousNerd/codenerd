@@ -13,7 +13,7 @@ func TestRuleCourt_RatifySafe(t *testing.T) {
 	Decl test_trigger(Name).
 	test_perm("base_action") :- test_trigger("now").
 	`)
-	k.Assert(Fact{Predicate: "test_trigger", Args: []interface{}{"now"}})
+	k.Assert(Fact{Predicate: "test_trigger", Args: []any{"now"}})
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestRuleCourt_RatifyDeadlock(t *testing.T) {
 	k.AppendPolicy(`
 	Decl test_allowed(Name).
 	`)
-	k.Assert(Fact{Predicate: "test_allowed", Args: []interface{}{"action1"}})
+	k.Assert(Fact{Predicate: "test_allowed", Args: []any{"action1"}})
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestRuleCourt_RatifyDeadlock(t *testing.T) {
 func TestRuleCourt_RatifyAskUserVeto(t *testing.T) {
 	k := setupMockKernel(t)
 	k.AppendPolicy(`Decl test_action(Name).`)
-	k.Assert(Fact{Predicate: "test_action", Args: []interface{}{"action1"}})
+	k.Assert(Fact{Predicate: "test_action", Args: []any{"action1"}})
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
@@ -89,7 +89,6 @@ func TestRuleCourt_RatifyAskUserVeto(t *testing.T) {
 		t.Logf("Got expected ask_user veto: %v", err)
 	}
 }
-
 
 // TestRuleCourt_NilKernel verifies that RatifyRule rejects a nil kernel
 // argument with a clean error instead of panicking with a nil dereference.
@@ -118,10 +117,10 @@ func TestRuleCourt_WhitespaceOnly(t *testing.T) {
 	court := NewRuleCourt(k)
 
 	cases := []string{
-		" \t \n \r ",       // standard whitespace — trimmed to empty
-		"​​",     // zero-width spaces only
-		"  ",     // non-breaking spaces only
-		"​   \t", // mixed exotic + standard
+		" \t \n \r ", // standard whitespace — trimmed to empty
+		"​​",         // zero-width spaces only
+		"  ",         // non-breaking spaces only
+		"​   \t",     // mixed exotic + standard
 	}
 
 	for _, rule := range cases {

@@ -102,20 +102,20 @@ const (
 // AuditEvent represents a structured audit log entry that can be parsed to Mangle.
 // Format: predicate(timestamp, category, ...args)
 type AuditEvent struct {
-	Timestamp  int64                  `json:"ts"`      // Unix milliseconds
-	EventType  AuditEventType         `json:"event"`   // Maps to Mangle predicate
-	Category   string                 `json:"cat"`     // Log category
-	SessionID  string                 `json:"session"` // Session correlation
-	RequestID  string                 `json:"req"`     // Request correlation
-	ShardID    string                 `json:"shard"`   // Shard ID if applicable
-	Target     string                 `json:"target"`  // Target of operation
-	Action     string                 `json:"action"`  // Action being performed
-	Success    bool                   `json:"success"` // Operation succeeded
-	DurationMs int64                  `json:"dur_ms"`  // Duration in milliseconds
-	Error      string                 `json:"error"`   // Error message if failed
-	Message    string                 `json:"msg"`     // Human-readable message
-	Fields     map[string]interface{} `json:"fields"`  // Additional structured fields
-	MangleFact string                 `json:"mangle"`  // Pre-formatted Mangle fact
+	Timestamp  int64          `json:"ts"`      // Unix milliseconds
+	EventType  AuditEventType `json:"event"`   // Maps to Mangle predicate
+	Category   string         `json:"cat"`     // Log category
+	SessionID  string         `json:"session"` // Session correlation
+	RequestID  string         `json:"req"`     // Request correlation
+	ShardID    string         `json:"shard"`   // Shard ID if applicable
+	Target     string         `json:"target"`  // Target of operation
+	Action     string         `json:"action"`  // Action being performed
+	Success    bool           `json:"success"` // Operation succeeded
+	DurationMs int64          `json:"dur_ms"`  // Duration in milliseconds
+	Error      string         `json:"error"`   // Error message if failed
+	Message    string         `json:"msg"`     // Human-readable message
+	Fields     map[string]any `json:"fields"`  // Additional structured fields
+	MangleFact string         `json:"mangle"`  // Pre-formatted Mangle fact
 }
 
 // =============================================================================
@@ -226,7 +226,7 @@ func (a *AuditLogger) Log(event AuditEvent) {
 		event.Category = string(a.category)
 	}
 	if event.Fields == nil {
-		event.Fields = make(map[string]interface{})
+		event.Fields = make(map[string]any)
 	}
 
 	// Generate Mangle fact
@@ -419,7 +419,7 @@ func (a *AuditLogger) KernelAssert(predicate string, argCount int) {
 		EventType: AuditKernelAssert,
 		Target:    predicate,
 		Success:   true,
-		Fields:    map[string]interface{}{"arg_count": argCount},
+		Fields:    map[string]any{"arg_count": argCount},
 		Message:   fmt.Sprintf("Kernel assert: %s/%d", predicate, argCount),
 	})
 }
@@ -431,7 +431,7 @@ func (a *AuditLogger) KernelQuery(predicate string, resultCount int, durationMs 
 		Target:     predicate,
 		Success:    true,
 		DurationMs: durationMs,
-		Fields:     map[string]interface{}{"result_count": resultCount},
+		Fields:     map[string]any{"result_count": resultCount},
 		Message:    fmt.Sprintf("Kernel query: %s -> %d results (%dms)", predicate, resultCount, durationMs),
 	})
 }
@@ -444,7 +444,7 @@ func (a *AuditLogger) LLMCall(model string, tokens int, durationMs int64, succes
 		Success:    success,
 		DurationMs: durationMs,
 		Error:      errMsg,
-		Fields:     map[string]interface{}{"tokens": tokens},
+		Fields:     map[string]any{"tokens": tokens},
 		Message:    fmt.Sprintf("LLM call: %s -> %d tokens (%dms, success=%v)", model, tokens, durationMs, success),
 	})
 }
@@ -456,7 +456,7 @@ func (a *AuditLogger) FileOp(op AuditEventType, path string, size int64, success
 		Target:    path,
 		Success:   success,
 		Error:     errMsg,
-		Fields:    map[string]interface{}{"size": size},
+		Fields:    map[string]any{"size": size},
 		Message:   fmt.Sprintf("File %s: %s (%d bytes, success=%v)", op, path, size, success),
 	})
 }
@@ -467,7 +467,7 @@ func (a *AuditLogger) IntentParsed(category, verb, target string, confidence flo
 		EventType: AuditIntentParsed,
 		Target:    target,
 		Success:   true,
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"category":   category,
 			"verb":       verb,
 			"confidence": confidence,
@@ -487,7 +487,7 @@ func (a *AuditLogger) SafetyCheck(action string, allowed bool, reason string) {
 		Action:    action,
 		Success:   allowed,
 		Message:   fmt.Sprintf("Safety %s: %s (%s)", eventType, action, reason),
-		Fields:    map[string]interface{}{"reason": reason},
+		Fields:    map[string]any{"reason": reason},
 	})
 }
 
@@ -499,7 +499,7 @@ func (a *AuditLogger) PerfMetric(operation string, durationMs int64, threshold i
 		eventType = AuditPerfSlow
 		success = false
 	}
-	fields := map[string]interface{}{}
+	fields := map[string]any{}
 	if threshold > 0 {
 		fields["threshold_ms"] = threshold
 	}
@@ -549,7 +549,7 @@ func (a *AuditLogger) SessionEnd(sessionID string, turnCount int, durationMs int
 		SessionID:  sessionID,
 		Success:    true,
 		DurationMs: durationMs,
-		Fields:     map[string]interface{}{"turn_count": turnCount},
+		Fields:     map[string]any{"turn_count": turnCount},
 		Message:    fmt.Sprintf("Session ended: %s (%d turns, %dms)", sessionID, turnCount, durationMs),
 	})
 }
@@ -560,7 +560,7 @@ func (a *AuditLogger) TurnStart(sessionID string, turnNum int, inputLen int) {
 		EventType: AuditTurnStart,
 		SessionID: sessionID,
 		Success:   true,
-		Fields:    map[string]interface{}{"turn": turnNum, "input_len": inputLen},
+		Fields:    map[string]any{"turn": turnNum, "input_len": inputLen},
 		Message:   fmt.Sprintf("Turn %d started (%d chars)", turnNum, inputLen),
 	})
 }
@@ -572,7 +572,7 @@ func (a *AuditLogger) TurnEnd(sessionID string, turnNum int, durationMs int64, s
 		SessionID:  sessionID,
 		Success:    success,
 		DurationMs: durationMs,
-		Fields:     map[string]interface{}{"turn": turnNum},
+		Fields:     map[string]any{"turn": turnNum},
 		Message:    fmt.Sprintf("Turn %d ended (%dms, success=%v)", turnNum, durationMs, success),
 	})
 }
@@ -600,7 +600,7 @@ func (a *AuditLogger) CampaignEvent(eventType AuditEventType, campaignID, phase 
 		EventType: eventType,
 		SessionID: campaignID,
 		Success:   success,
-		Fields:    map[string]interface{}{"phase": phase},
+		Fields:    map[string]any{"phase": phase},
 		Message:   fmt.Sprintf("Campaign %s: %s phase=%s success=%v", eventType, campaignID, phase, success),
 	})
 }

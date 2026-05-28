@@ -46,7 +46,7 @@ func TestSortByCategoryGap_Determinism(t *testing.T) {
 
 	// Create atoms with random custom categories
 	ordered := make([]*OrderedAtom, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		ordered[i] = &OrderedAtom{
 			Atom: &PromptAtom{
 				ID:       fmt.Sprintf("atom_%d", i),
@@ -58,15 +58,15 @@ func TestSortByCategoryGap_Determinism(t *testing.T) {
 
 	// Sort multiple times and verify the output is identical
 	var firstResult string
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		sorted := resolver.SortByCategory(ordered)
-		
+
 		var sb strings.Builder
 		for _, sa := range sorted {
 			sb.WriteString(sa.Atom.ID)
 			sb.WriteString(",")
 		}
-		
+
 		currentResult := sb.String()
 		if i == 0 {
 			firstResult = currentResult
@@ -84,12 +84,12 @@ func TestDetectCyclesGap_DeepChain(t *testing.T) {
 	// DetectCycles should safely abort the path at depth > 1000 without stack overflow
 	chainSize := 1500
 	atoms := make([]*PromptAtom, chainSize)
-	for i := 0; i < chainSize; i++ {
+	for i := range chainSize {
 		dependsOn := []string{}
 		if i < chainSize-1 {
 			dependsOn = []string{fmt.Sprintf("atom_%d", i+1)}
 		}
-		
+
 		atoms[i] = &PromptAtom{
 			ID:        fmt.Sprintf("atom_%d", i),
 			DependsOn: dependsOn,
@@ -98,7 +98,7 @@ func TestDetectCyclesGap_DeepChain(t *testing.T) {
 
 	// This should not panic
 	cycle := resolver.DetectCycles(atoms)
-	
+
 	// Because there's no actual cycle, but it exceeds max recursion, it returns false safely
 	if cycle != nil {
 		t.Errorf("Expected no cycle for linear chain, got %v", cycle)
@@ -134,11 +134,11 @@ func TestValidateGap_EmptyDepends(t *testing.T) {
 	}
 
 	errors := resolver.ValidateDependencies(atoms)
-	
+
 	if len(errors) != 1 {
 		t.Fatalf("Expected 1 validation error, got %d", len(errors))
 	}
-	
+
 	if errors[0].MissingDepID != "" {
 		t.Errorf("Expected MissingDepID to be empty string, got %s", errors[0].MissingDepID)
 	}

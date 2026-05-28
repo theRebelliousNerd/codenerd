@@ -40,10 +40,7 @@ type deepCacheEntry struct {
 // deepWorkers <= 0 uses a small CPU-based default.
 func NewHolographicCodeScope(projectRoot string, kernel core.Kernel, localDB *store.LocalStore, deepWorkers int) *HolographicCodeScope {
 	if deepWorkers <= 0 {
-		deepWorkers = runtime.NumCPU()
-		if deepWorkers > 8 {
-			deepWorkers = 8
-		}
+		deepWorkers = min(runtime.NumCPU(), 8)
 		if deepWorkers < 2 {
 			deepWorkers = 2
 		}
@@ -103,7 +100,7 @@ func (h *HolographicCodeScope) VerifyFileHash(path string) (bool, error) {
 
 func (h *HolographicCodeScope) RefreshWithRetry(maxRetries int) error {
 	var lastErr error
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		if err := h.Refresh(); err != nil {
 			lastErr = err
 			continue

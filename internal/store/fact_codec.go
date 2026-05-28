@@ -9,11 +9,11 @@ import (
 )
 
 type encodedFactArg struct {
-	Type  string      `json:"type"`
-	Value interface{} `json:"value,omitempty"`
+	Type  string `json:"type"`
+	Value any    `json:"value,omitempty"`
 }
 
-func encodeFactArgs(args []interface{}) (string, error) {
+func encodeFactArgs(args []any) (string, error) {
 	encoded := make([]encodedFactArg, 0, len(args))
 	for _, arg := range args {
 		switch v := arg.(type) {
@@ -43,14 +43,14 @@ func encodeFactArgs(args []interface{}) (string, error) {
 	return string(data), nil
 }
 
-func decodeFactArgs(data string) ([]interface{}, error) {
+func decodeFactArgs(data string) ([]any, error) {
 	if strings.TrimSpace(data) == "" {
 		return nil, nil
 	}
 
 	var tagged []encodedFactArg
 	if err := json.Unmarshal([]byte(data), &tagged); err == nil && isTaggedFactArgs(tagged) {
-		args := make([]interface{}, 0, len(tagged))
+		args := make([]any, 0, len(tagged))
 		for _, arg := range tagged {
 			switch arg.Type {
 			case "nil":

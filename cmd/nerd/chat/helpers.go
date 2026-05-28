@@ -34,13 +34,35 @@ import (
 // STREAMING HELPERS
 // =============================================================================
 
+// waitForStream is the surface-text streaming consumer used by the TUI.
+// Surface stream closing terminates the streaming UI (streamEndMsg);
+// thoughts are watched in parallel via waitForThoughts and a closed
+// thoughts channel is silently ignored (it's optional/auxiliary data).
 func waitForStream(sub chan string) tea.Cmd {
 	return func() tea.Msg {
 		chunk, ok := <-sub
 		if !ok {
 			return streamEndMsg{}
 		}
-		return streamChunkMsg{chunk: chunk, sub: sub}
+		return streamChunkMsg{chunk: chunk, sub: sub, kind: streamKindSurface}
+	}
+}
+
+// waitForThoughts is the parallel consumer for the model's thinking
+// trace. We deliberately do NOT emit streamEndMsg when the thoughts
+// channel closes — the surface stream owns end-of-life. A nil channel
+// (provider doesn't expose thoughts) yields a no-op tea.Cmd so the
+// caller can wire it unconditionally.
+func waitForThoughts(sub chan string) tea.Cmd {
+	if sub == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		chunk, ok := <-sub
+		if !ok {
+			return nil // thoughts stream ended; surface stream drives the UI lifecycle
+		}
+		return streamChunkMsg{chunk: chunk, sub: sub, kind: streamKindThought}
 	}
 }
 
@@ -122,12 +144,18 @@ type ConversationContext struct {
 // This enhanced version properly extracts all control packet data for the compressor.
 func articulateWithContextFull(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string) (*ArticulationOutput, error) {
 	// Use the new version with nil conversation context for backward compatibility
-	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil, nil)
+	return articulateWithConversation(ctx, client, intent, payload, contextFacts, warnings, systemPrompt, nil, nil, nil)
 }
 
 // articulateWithConversation performs articulation with full conversation context.
 // This is the new entry point that enables fluid conversational follow-ups.
-func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string) (*ArticulationOutput, error) {
+//
+// If thoughtsChan is non-nil AND the underlying client implements
+// core.LLMStreamingWithThoughts, the model's thinking trace is streamed
+// to thoughtsChan in arrival order; otherwise thoughtsChan is left
+// untouched (and the function silently falls back to 2-channel streaming).
+// Callers own closing thoughtsChan, just like streamChan.
+func articulateWithConversation(ctx context.Context, client perception.LLMClient, intent perception.Intent, payload articulation.PiggybackEnvelope, contextFacts []core.Fact, warnings []string, systemPrompt string, convCtx *ConversationContext, streamChan chan<- string, thoughtsChan chan<- string) (*ArticulationOutput, error) {
 	var sb strings.Builder
 
 	if systemPrompt != "" {
@@ -264,7 +292,6 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	sb.WriteString("- store_vector: Store for semantic search\n\n")
 	sb.WriteString("Use only the context facts above. Do not invent filesystem access or knowledge not present in the facts. Output JSON only.")
 
-
 	// Log the full prompt package for transparency
 	logging.Get(logging.CategorySession).Debug("================ FULL PROMPT PACKAGE ================\nSystem:\n%s\n\nUser:\n%s\n==================================================", systemPrompt, sb.String())
 
@@ -272,8 +299,23 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	var err error
 
 	if streamChan != nil {
-		// Use streaming completion
-		chunkChan, errChan := client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), false)
+		// Use streaming completion. If the client (or its wrapper) supports
+		// 3-channel thoughts streaming AND the caller provided a thoughtsChan,
+		// route the model's thinking trace to it for live TUI rendering.
+		var chunkChan <-chan string
+		var tChan <-chan string
+		var errChan <-chan error
+		enableThinking := false
+		if thoughtsChan != nil {
+			if ts, ok := client.(core.LLMStreamingWithThoughts); ok {
+				enableThinking = true
+				chunkChan, tChan, errChan = ts.CompleteWithStreamingAndThoughts(ctx, systemPrompt, sb.String(), enableThinking)
+			}
+		}
+		if chunkChan == nil {
+			chunkChan, errChan = client.CompleteWithStreaming(ctx, systemPrompt, sb.String(), enableThinking)
+		}
+
 		parser := articulation.NewStreamParser()
 		var fullBuilder strings.Builder
 
@@ -289,6 +331,17 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 						streamChan <- surfaceChunk
 					}
 				}
+			case thought, ok := <-tChan:
+				if !ok {
+					tChan = nil
+				} else if thoughtsChan != nil && thought != "" {
+					// Non-blocking forward — if the TUI hasn't drained yet,
+					// drop rather than stall the LLM stream.
+					select {
+					case thoughtsChan <- thought:
+					default:
+					}
+				}
 			case streamErr, ok := <-errChan:
 				if !ok {
 					errChan = nil
@@ -301,7 +354,7 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 				break
 			}
 
-			if chunkChan == nil && errChan == nil {
+			if chunkChan == nil && tChan == nil && errChan == nil {
 				break // stream finished successfully
 			}
 			if err != nil {
@@ -387,7 +440,7 @@ func applyPatchResult(workspace, patch string) string {
 	}
 	tmpPath := filepath.Join(workspace, ".nerd", "last_patch.txt")
 	if err := os.MkdirAll(filepath.Dir(tmpPath), 0755); err == nil {
-	if err := os.WriteFile(tmpPath, []byte(fullPatch), 0644); err != nil {
+		if err := os.WriteFile(tmpPath, []byte(fullPatch), 0644); err != nil {
 			logging.Routing("[helpers] failed to write patch file: %v", err)
 		}
 	}
@@ -699,9 +752,9 @@ func (m Model) runInitialization(force bool) tea.Cmd {
 			if m.scanner != nil {
 				res, scanErr := m.scanner.ScanWorkspaceIncremental(ctx, m.workspace, m.localDB, world.IncrementalOptions{SkipWhenUnchanged: false})
 				if scanErr == nil && res != nil && !res.Unchanged {
-				if err := world.ApplyIncrementalResult(m.kernel, res); err != nil {
-					logging.Routing("[helpers] failed to apply incremental result: %v", err)
-				}
+					if err := world.ApplyIncrementalResult(m.kernel, res); err != nil {
+						logging.Routing("[helpers] failed to apply incremental result: %v", err)
+					}
 				}
 			}
 		}
@@ -777,7 +830,7 @@ func (m Model) runScan(deep bool) tea.Cmd {
 						if len(f.Args) >= 3 {
 							rel = "depends_on:" + types.ExtractString(f.Args[2])
 						}
-						if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"}); err != nil {
+						if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan"}); err != nil {
 							logging.Routing("[helpers] failed to persist dependency link: %v", err)
 						}
 					}
@@ -785,7 +838,7 @@ func (m Model) runScan(deep bool) tea.Cmd {
 					if len(f.Args) >= 4 {
 						sid := types.ExtractString(f.Args[0])
 						file := types.ExtractString(f.Args[3])
-						if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"}); err != nil {
+						if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan"}); err != nil {
 							logging.Routing("[helpers] failed to persist symbol link: %v", err)
 						}
 					}
@@ -796,9 +849,9 @@ func (m Model) runScan(deep bool) tea.Cmd {
 		// Reload profile facts if present
 		factsPath := filepath.Join(m.workspace, ".nerd", "profile.mg")
 		if _, statErr := os.Stat(factsPath); statErr == nil {
-		if err := m.kernel.LoadFactsFromFile(factsPath); err != nil {
-			logging.Kernel("[helpers] failed to load profile facts from file: %v", err)
-		}
+			if err := m.kernel.LoadFactsFromFile(factsPath); err != nil {
+				logging.Kernel("[helpers] failed to load profile facts from file: %v", err)
+			}
 		}
 
 		// Optional deep scan (on-demand)
@@ -968,7 +1021,7 @@ func (m *Model) ensureDeepWorldFacts() error {
 					if len(f.Args) >= 3 {
 						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
-					if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-deep"}); err != nil {
+					if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-deep"}); err != nil {
 						logging.Routing("[helpers] failed to persist deep dependency link: %v", err)
 					}
 				}
@@ -976,7 +1029,7 @@ func (m *Model) ensureDeepWorldFacts() error {
 				if len(f.Args) >= 4 {
 					sid := types.ExtractString(f.Args[0])
 					file := types.ExtractString(f.Args[3])
-					if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-deep"}); err != nil {
+					if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-deep"}); err != nil {
 						logging.Routing("[helpers] failed to persist deep symbol link: %v", err)
 					}
 				}
@@ -1040,7 +1093,7 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 								if len(f.Args) >= 3 {
 									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
-								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-path"}); err != nil {
+								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-path"}); err != nil {
 									logging.Routing("[helpers] failed to persist path dependency link: %v", err)
 								}
 							}
@@ -1048,7 +1101,7 @@ func (m Model) runPartialScan(paths []string) tea.Cmd {
 							if len(f.Args) >= 4 {
 								sid := types.ExtractString(f.Args[0])
 								file := types.ExtractString(f.Args[3])
-								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-path"}); err != nil {
+								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-path"}); err != nil {
 									logging.Routing("[helpers] failed to persist path symbol link: %v", err)
 								}
 							}
@@ -1140,7 +1193,7 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 								if len(f.Args) >= 3 {
 									rel = "depends_on:" + types.ExtractString(f.Args[2])
 								}
-								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan-dir"}); err != nil {
+								if err := m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan-dir"}); err != nil {
 									logging.Routing("[helpers] failed to persist dir dependency link: %v", err)
 								}
 							}
@@ -1148,7 +1201,7 @@ func (m Model) runDirScan(dir string) tea.Cmd {
 							if len(f.Args) >= 4 {
 								sid := types.ExtractString(f.Args[0])
 								file := types.ExtractString(f.Args[3])
-								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan-dir"}); err != nil {
+								if err := m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan-dir"}); err != nil {
 									logging.Routing("[helpers] failed to persist dir symbol link: %v", err)
 								}
 							}
@@ -1182,7 +1235,7 @@ func buildFileTopologyFact(path string, info os.FileInfo) core.Fact {
 	}
 	return core.Fact{
 		Predicate: "file_topology",
-		Args: []interface{}{
+		Args: []any{
 			path,
 			hex.EncodeToString(hash[:]),
 			"/" + lang,

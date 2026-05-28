@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -250,13 +251,7 @@ func (i *Initializer) detectEntryPoints() []string {
 				}
 
 				// Avoid duplicates if already added by candidate list
-				alreadyAdded := false
-				for _, ep := range entryPoints {
-					if ep == relPath {
-						alreadyAdded = true
-						break
-					}
-				}
+				alreadyAdded := slices.Contains(entryPoints, relPath)
 
 				if !alreadyAdded && hasContent(relPath, `if __name__ == "__main__":`) {
 					entryPoints = append(entryPoints, relPath)
@@ -271,7 +266,7 @@ func (i *Initializer) detectEntryPoints() []string {
 		if err == nil {
 			var pkg struct {
 				Main    string            `json:"main"`
-				Bin     interface{}       `json:"bin"` // Can be string or map
+				Bin     any               `json:"bin"` // Can be string or map
 				Scripts map[string]string `json:"scripts"`
 			}
 			if json.Unmarshal(data, &pkg) == nil {
@@ -282,7 +277,7 @@ func (i *Initializer) detectEntryPoints() []string {
 				switch v := pkg.Bin.(type) {
 				case string:
 					entryPoints = append(entryPoints, v)
-				case map[string]interface{}:
+				case map[string]any:
 					for _, val := range v {
 						if strVal, ok := val.(string); ok {
 							entryPoints = append(entryPoints, strVal)
@@ -292,8 +287,8 @@ func (i *Initializer) detectEntryPoints() []string {
 				// Heuristic: check start script
 				if start, ok := pkg.Scripts["start"]; ok {
 					// Extract filename from "node dist/index.js" or "ts-node src/index.ts"
-					parts := strings.Fields(start)
-					for _, part := range parts {
+					parts := strings.FieldsSeq(start)
+					for part := range parts {
 						if strings.HasSuffix(part, ".js") || strings.HasSuffix(part, ".ts") {
 							entryPoints = append(entryPoints, part)
 							break
@@ -308,13 +303,7 @@ func (i *Initializer) detectEntryPoints() []string {
 	for _, f := range nodeCandidates {
 		if exists(f) {
 			// Only add if not already covered (avoid duplicates)
-			found := false
-			for _, ep := range entryPoints {
-				if ep == f {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(entryPoints, f)
 			if !found {
 				entryPoints = append(entryPoints, f)
 			}
@@ -326,8 +315,8 @@ func (i *Initializer) detectEntryPoints() []string {
 
 // extractGoModVersion extracts the version of a dependency from go.mod content.
 func (i *Initializer) extractGoModVersion(content, pkg string) string {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, pkg) {
 			// Format: "pkg version" or "pkg version // indirect"
@@ -545,8 +534,8 @@ func (i *Initializer) parseGoSum(content string) []DependencyInfo {
 		"github.com/grpc-ecosystem":           "grpc-ecosystem",
 	}
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		for pkg, name := range notableDeps {
 			if strings.HasPrefix(line, pkg) && !seen[name] {
 				deps = append(deps, DependencyInfo{
@@ -720,10 +709,10 @@ func (i *Initializer) parseCargoLock(content string) []DependencyInfo {
 		"aws-sdk-s3": "aws-sdk",
 	}
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "name = ") {
-			name := strings.Trim(strings.TrimPrefix(line, "name = "), "\"")
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
+		if after, ok := strings.CutPrefix(line, "name = "); ok {
+			name := strings.Trim(after, "\"")
 			if mappedName, ok := notableDeps[name]; ok && !seen[mappedName] {
 				deps = append(deps, DependencyInfo{
 					Name: mappedName,
@@ -742,8 +731,8 @@ func (i *Initializer) parsePipfileLock(data []byte) []DependencyInfo {
 	deps := []DependencyInfo{}
 
 	var lockFile struct {
-		Default map[string]interface{} `json:"default"`
-		Develop map[string]interface{} `json:"develop"`
+		Default map[string]any `json:"default"`
+		Develop map[string]any `json:"develop"`
 	}
 
 	if err := json.Unmarshal(data, &lockFile); err != nil {
@@ -802,10 +791,10 @@ func (i *Initializer) parsePoetryLock(content string) []DependencyInfo {
 		"pandas":     "pandas",
 	}
 
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "name = ") {
-			name := strings.Trim(strings.TrimPrefix(line, "name = "), "\"")
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
+		if after, ok := strings.CutPrefix(line, "name = "); ok {
+			name := strings.Trim(after, "\"")
 			if mappedName, ok := notableDeps[name]; ok && !seen[mappedName] {
 				deps = append(deps, DependencyInfo{
 					Name: mappedName,
@@ -1165,9 +1154,9 @@ func (i *Initializer) detectProjectType() string {
 	if data, err := os.ReadFile(filepath.Join(workspace, "package.json")); err == nil {
 		var pkg struct {
 			Main    string            `json:"main"`
-			Bin     interface{}       `json:"bin"`
+			Bin     any               `json:"bin"`
 			Scripts map[string]string `json:"scripts"`
-			Exports interface{}       `json:"exports"`
+			Exports any               `json:"exports"`
 			Types   string            `json:"types"`
 		}
 		if json.Unmarshal(data, &pkg) == nil {

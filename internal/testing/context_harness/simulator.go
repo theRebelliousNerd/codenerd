@@ -141,21 +141,21 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 		// Fallback: generate mock facts for visualization
 		compressedTokens = originalTokens / 5 // Assume 5:1 compression
 		compressedFacts = []core.Fact{
-			{Predicate: "conversation_turn", Args: []interface{}{turn.TurnID, turn.Speaker, turn.Intent}},
+			{Predicate: "conversation_turn", Args: []any{turn.TurnID, turn.Speaker, turn.Intent}},
 		}
 		for _, topic := range turn.Metadata.Topics {
 			compressedFacts = append(compressedFacts, core.Fact{
-				Predicate: "turn_topic", Args: []interface{}{turn.TurnID, topic},
+				Predicate: "turn_topic", Args: []any{turn.TurnID, topic},
 			})
 		}
 		for _, file := range turn.Metadata.FilesReferenced {
 			compressedFacts = append(compressedFacts, core.Fact{
-				Predicate: "turn_references_file", Args: []interface{}{turn.TurnID, file},
+				Predicate: "turn_references_file", Args: []any{turn.TurnID, file},
 			})
 		}
 		for _, err := range turn.Metadata.ErrorMessages {
 			compressedFacts = append(compressedFacts, core.Fact{
-				Predicate: "turn_error_message", Args: []interface{}{turn.TurnID, err},
+				Predicate: "turn_error_message", Args: []any{turn.TurnID, err},
 			})
 		}
 	}
@@ -310,13 +310,13 @@ func (s *SessionSimulator) executeTurn(ctx context.Context, turn *Turn) error {
 			if turn.Metadata.ReferencesBackToTurn != nil {
 				retrievedFacts = append(retrievedFacts, core.Fact{
 					Predicate: "conversation_turn",
-					Args:      []interface{}{*turn.Metadata.ReferencesBackToTurn, "user", "original-message"},
+					Args:      []any{*turn.Metadata.ReferencesBackToTurn, "user", "original-message"},
 				})
 			}
 			for _, topic := range turn.Metadata.Topics {
 				retrievedFacts = append(retrievedFacts, core.Fact{
 					Predicate: "turn_topic",
-					Args:      []interface{}{turn.TurnID, topic},
+					Args:      []any{turn.TurnID, topic},
 				})
 			}
 		}
@@ -915,9 +915,9 @@ func (s *SessionSimulator) executeLiveLLMTurn(ctx context.Context, turn *Turn) e
 
 	// Log the live LLM response
 	if s.compressionViz != nil {
-		s.compressionViz.writer.Write([]byte(fmt.Sprintf(
+		s.compressionViz.writer.Write(fmt.Appendf(nil,
 			"\n=== LIVE LLM RESPONSE (Turn %d) ===\nLatency: %v\nSurface: %s\n",
-			turn.TurnID, llmLatency, truncateString(llmResponse.SurfaceText, 200))))
+			turn.TurnID, llmLatency, truncateString(llmResponse.SurfaceText, 200)))
 	}
 
 	// Use the real context feedback from the LLM

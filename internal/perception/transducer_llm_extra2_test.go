@@ -24,7 +24,7 @@ func (m *mockRoutingKernel2) ValidateField(ctx context.Context, field, value str
 	return m.valid[key]
 }
 
-func (m *mockRoutingKernel2) AssertRoutingFact(predicate string, args ...interface{}) error {
+func (m *mockRoutingKernel2) AssertRoutingFact(predicate string, args ...any) error {
 	m.asserts = append(m.asserts, predicate)
 	return nil
 }
@@ -47,10 +47,10 @@ func TestLLMTransducer_validate(t *testing.T) {
 	tr := NewLLMTransducer(nil, rk, "prompt")
 
 	uValid := &Understanding{
-		SemanticType: "valid_sem",
-		ActionType:   "valid_act",
-		Domain:       "valid_dom",
-		Scope: Scope{Level: "valid_scope"},
+		SemanticType:      "valid_sem",
+		ActionType:        "valid_act",
+		Domain:            "valid_dom",
+		Scope:             Scope{Level: "valid_scope"},
 		SuggestedApproach: SuggestedApproach{Mode: "valid_mode"},
 	}
 
@@ -60,10 +60,10 @@ func TestLLMTransducer_validate(t *testing.T) {
 	}
 
 	uInvalid := &Understanding{
-		SemanticType: "invalid_sem",
-		ActionType:   "invalid_act",
-		Domain:       "invalid_dom",
-		Scope: Scope{Level: "invalid_scope"},
+		SemanticType:      "invalid_sem",
+		ActionType:        "invalid_act",
+		Domain:            "invalid_dom",
+		Scope:             Scope{Level: "invalid_scope"},
 		SuggestedApproach: SuggestedApproach{Mode: "invalid_mode"},
 	}
 
@@ -83,8 +83,8 @@ func TestLLMTransducer_assertRoutingFacts(t *testing.T) {
 		Domain:       "dom",
 	}
 	routing := &Routing{
-		Mode:             "test_mode",
-		PrimaryShard:     "coder",
+		Mode:              "test_mode",
+		PrimaryShard:      "coder",
 		ContextPriorities: map[string]int{"ctx1": 10},
 		ToolPriorities:    map[string]int{"tool1": 20},
 	}
@@ -119,7 +119,7 @@ func TestLLMTransducer_deriveBlockedTools(t *testing.T) {
 
 	u := &Understanding{
 		UserConstraints: []string{"no_network"},
-		SemanticType:    "query", // read-only triggers
+		SemanticType:    "query",   // read-only triggers
 		ActionType:      "explain", // triggers read-only mode
 	}
 
@@ -138,7 +138,7 @@ func TestLLMTransducer_deriveBlockedTools(t *testing.T) {
 	if !foundCurl {
 		t.Errorf("expected curl to be blocked")
 	}
-	
+
 	if !foundWriteFile {
 		t.Errorf("expected write_file to be blocked")
 	}
@@ -158,21 +158,21 @@ func TestNewRealKernelRouter(t *testing.T) {
 	if r.kernel != nil {
 		t.Errorf("expected nil kernel")
 	}
-	
+
 	// Test nil kernel paths
 	matches, err := r.QueryRouting(context.Background(), "pred", "arg")
 	if err != nil || matches != nil {
 		t.Errorf("expected nil/nil on nil kernel QueryRouting")
 	}
-	
+
 	if r.ValidateField(context.Background(), "field", "value") != true {
 		t.Errorf("expected true on nil kernel ValidateField")
 	}
-	
+
 	if err := r.AssertRoutingFact("pred", "arg"); err != nil {
 		t.Errorf("expected nil on nil kernel AssertRoutingFact")
 	}
-	
+
 	if err := r.RetractRoutingPredicate("pred"); err != nil {
 		t.Errorf("expected nil on nil kernel RetractRoutingPredicate")
 	}
@@ -183,7 +183,7 @@ func TestNewMangleRoutingKernel(t *testing.T) {
 	if m.engine != nil {
 		t.Errorf("expected nil engine")
 	}
-	
+
 	// Create an empty mangle engine to test QueryRouting and ValidateField
 	// Note: We don't have direct access to mangle.NewEngine here without importing it.
 	// We'll test the string formatting by passing nil and catching the panic, or just ignore for now since

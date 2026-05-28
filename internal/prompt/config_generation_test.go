@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"slices"
 	"testing"
 )
 
@@ -82,12 +83,7 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 }
 
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }
 
 func assertContainsAll(t *testing.T, got []string, expected []string, label string) {

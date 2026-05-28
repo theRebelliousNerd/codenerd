@@ -8,7 +8,7 @@ import (
 func TestExtractString(t *testing.T) {
 	tests := []struct {
 		name string
-		arg  interface{}
+		arg  any
 		want string
 	}{
 		{"string", "hello", "hello"},
@@ -36,7 +36,7 @@ func TestExtractString(t *testing.T) {
 func TestExtractName(t *testing.T) {
 	tests := []struct {
 		name string
-		arg  interface{}
+		arg  any
 		want string
 	}{
 		{"MangleAtom", MangleAtom("/read_file"), "/read_file"},
@@ -57,7 +57,7 @@ func TestExtractName(t *testing.T) {
 func TestExtractInt64(t *testing.T) {
 	tests := []struct {
 		name   string
-		arg    interface{}
+		arg    any
 		want   int64
 		wantOK bool
 	}{
@@ -81,7 +81,7 @@ func TestExtractInt64(t *testing.T) {
 func TestExtractFloat64(t *testing.T) {
 	tests := []struct {
 		name   string
-		arg    interface{}
+		arg    any
 		want   float64
 		wantOK bool
 	}{
@@ -104,7 +104,7 @@ func TestExtractFloat64(t *testing.T) {
 func TestExtractBool(t *testing.T) {
 	tests := []struct {
 		name   string
-		arg    interface{}
+		arg    any
 		want   bool
 		wantOK bool
 	}{
@@ -167,7 +167,7 @@ func TestExtractDuration(t *testing.T) {
 }
 
 func TestArgString(t *testing.T) {
-	f := Fact{Predicate: "test", Args: []interface{}{"hello", int64(42)}}
+	f := Fact{Predicate: "test", Args: []any{"hello", int64(42)}}
 
 	if got := ArgString(f, 0); got != "hello" {
 		t.Errorf("ArgString(f, 0) = %q, want %q", got, "hello")
@@ -185,7 +185,7 @@ func TestArgString(t *testing.T) {
 }
 
 func TestArgInt64(t *testing.T) {
-	f := Fact{Predicate: "test", Args: []interface{}{int64(99), "not int"}}
+	f := Fact{Predicate: "test", Args: []any{int64(99), "not int"}}
 
 	v, ok := ArgInt64(f, 0)
 	if !ok || v != 99 {

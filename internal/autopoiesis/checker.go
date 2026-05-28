@@ -135,9 +135,10 @@ func ExtractASTFacts(sourceCode string) ([]mangle.Fact, error) {
 
 	fileName := fset.File(file.Pos()).Name()
 	emitter := &astFactEmitter{
-		fset:     fset,
-		fileName: fileName,
-		aliases:  make(map[string]string),
+		fset:          fset,
+		fileName:      fileName,
+		aliases:       make(map[string]string),
+		importAliases: make(map[string]string),
 	}
 	emitter.emitImports(file)
 	ast.Walk(&astFactVisitor{emitter: emitter}, file)
@@ -193,7 +194,7 @@ func propagatePanicCalls(facts []mangle.Fact) []mangle.Fact {
 		}
 		extra = append(extra, mangle.Fact{
 			Predicate: "ast_call",
-			Args:      []interface{}{caller, "panic"},
+			Args:      []any{caller, "panic"},
 		})
 		seen[key] = struct{}{}
 	}
@@ -254,7 +255,7 @@ func (sc *SafetyChecker) Check(code string) *SafetyReport {
 	for _, pkg := range sc.allowedPkgs {
 		facts = append(facts, mangle.Fact{
 			Predicate: "allowed_package",
-			Args:      []interface{}{pkg},
+			Args:      []any{pkg},
 		})
 	}
 
@@ -428,7 +429,7 @@ func buildFactIndex(facts []mangle.Fact) factIndex {
 	return idx
 }
 
-func describeViolation(value interface{}, idx factIndex) SafetyViolation {
+func describeViolation(value any, idx factIndex) SafetyViolation {
 	switch v := value.(type) {
 	case string:
 		// Mangle may return atoms with "/" prefix - strip it for lookups
@@ -476,11 +477,12 @@ func describeViolation(value interface{}, idx factIndex) SafetyViolation {
 
 // astFactEmitter walks an AST and emits facts for the safety policy.
 type astFactEmitter struct {
-	fset       *token.FileSet
-	fileName   string
-	currentFcn string
-	facts      []mangle.Fact
-	aliases    map[string]string
+	fset          *token.FileSet
+	fileName      string
+	currentFcn    string
+	facts         []mangle.Fact
+	aliases       map[string]string
+	importAliases map[string]string
 }
 
 func (e *astFactEmitter) emitImports(file *ast.File) {
@@ -488,13 +490,42 @@ func (e *astFactEmitter) emitImports(file *ast.File) {
 		importPath := strings.Trim(imp.Path.Value, `"`)
 		e.facts = append(e.facts, mangle.Fact{
 			Predicate: "ast_import",
-			Args:      []interface{}{e.fileName, importPath},
+			Args:      []any{e.fileName, importPath},
 		})
+
+		// Map import aliases to resolve indirect evasion
+		localName := ""
+		if imp.Name != nil {
+			localName = imp.Name.Name
+		} else {
+			parts := strings.Split(importPath, "/")
+			localName = parts[len(parts)-1]
+		}
+		if localName != "" && localName != "." && localName != "_" {
+			e.importAliases[localName] = importPath
+		}
 	}
 }
 
+func (e *astFactEmitter) resolveSelector(sel *ast.SelectorExpr) string {
+	xStr := e.exprToString(sel.X)
+	if realPath, exists := e.importAliases[xStr]; exists {
+		// Use real package name instead of local alias for safety checking
+		parts := strings.Split(realPath, "/")
+		realPkgName := parts[len(parts)-1]
+		return realPkgName + "." + sel.Sel.Name
+	}
+	return xStr + "." + sel.Sel.Name
+}
+
 func (e *astFactEmitter) emitCall(call *ast.CallExpr) {
-	callee := e.exprToString(call.Fun)
+	callee := ""
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		callee = e.resolveSelector(sel)
+	} else {
+		callee = e.exprToString(call.Fun)
+	}
+
 	if ident, ok := call.Fun.(*ast.Ident); ok {
 		if resolved, exists := e.aliases[ident.Name]; exists {
 			callee = resolved
@@ -502,7 +533,7 @@ func (e *astFactEmitter) emitCall(call *ast.CallExpr) {
 	}
 	e.facts = append(e.facts, mangle.Fact{
 		Predicate: "ast_call",
-		Args:      []interface{}{e.currentFcn, callee},
+		Args:      []any{e.currentFcn, callee},
 	})
 }
 
@@ -511,13 +542,13 @@ func (e *astFactEmitter) emitGoroutine(stmt *ast.GoStmt) {
 	target := e.exprToString(stmt.Call.Fun)
 	e.facts = append(e.facts, mangle.Fact{
 		Predicate: "ast_goroutine_spawn",
-		Args:      []interface{}{target, line},
+		Args:      []any{target, line},
 	})
 
 	if e.usesContextCancellation(stmt.Call) {
 		e.facts = append(e.facts, mangle.Fact{
 			Predicate: "ast_uses_context_cancellation",
-			Args:      []interface{}{line},
+			Args:      []any{line},
 		})
 	}
 }
@@ -552,7 +583,7 @@ func (e *astFactEmitter) handleAssignment(lhsName string, rhs ast.Expr) {
 		if rhsIdent.Name == "nil" {
 			e.facts = append(e.facts, mangle.Fact{
 				Predicate: "ast_assignment",
-				Args:      []interface{}{lhsName, "nil"},
+				Args:      []any{lhsName, "nil"},
 			})
 			return
 		}
@@ -570,7 +601,7 @@ func (e *astFactEmitter) handleAssignment(lhsName string, rhs ast.Expr) {
 
 	if sel, ok := rhs.(*ast.SelectorExpr); ok {
 		// Track aliases to dangerous selector calls (e.g. f := os.RemoveAll).
-		resolved := e.exprToString(sel)
+		resolved := e.resolveSelector(sel)
 		switch resolved {
 		case "os.RemoveAll", "os.Remove", "unsafe.Pointer":
 			e.aliases[lhsName] = resolved

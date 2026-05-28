@@ -23,7 +23,7 @@ func TestPersistFastSnapshotToDB_PreservesGlobalFacts(t *testing.T) {
 	facts := []core.Fact{
 		{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				filePath,
 				"hash123",
 				core.MangleAtom("/go"),
@@ -33,11 +33,11 @@ func TestPersistFastSnapshotToDB_PreservesGlobalFacts(t *testing.T) {
 		},
 		{
 			Predicate: "project_language",
-			Args:      []interface{}{core.MangleAtom("/go")},
+			Args:      []any{core.MangleAtom("/go")},
 		},
 		{
 			Predicate: "entry_point",
-			Args:      []interface{}{"main.main"},
+			Args:      []any{"main.main"},
 		},
 	}
 

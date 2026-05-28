@@ -452,7 +452,7 @@ func TestRiskScoring_DedupeSortedStrings_AllEmpty(t *testing.T) {
 func TestBuildCampaignRiskDecision_EmptyIntelligence(t *testing.T) {
 	c := testNonProtectedRiskCampaign()
 	cfg := OrchestratorConfig{}
-	
+
 	intel := &IntelligenceReport{}
 	d := buildCampaignRiskDecision(c, cfg, riskGateResolved{}, nil, intel)
 	if d == nil {
@@ -474,7 +474,7 @@ func TestCampaignMaxComplexity_NilCampaign(t *testing.T) {
 func TestComplexityToNorm_MalformedStrings(t *testing.T) {
 	cases := map[string]int{
 		"**CRITICAL**": 40, // Falls back to default since it's malformed
-		" \x00 high ":   40,
+		" \x00 high ":  40,
 		"<b>low</b>":   40,
 		"/CRITICAL":    100,
 	}
@@ -515,14 +515,14 @@ func TestRiskScoring_PathMatchesRiskRoot_WindowsPaths(t *testing.T) {
 
 func TestRiskScoring_DedupeSortedStrings_MassiveDataset(t *testing.T) {
 	var in []string
-	for i := 0; i < 1000000; i++ {
+	for range 1000000 {
 		in = append(in, "internal/core/kernel.go") // Lots of duplicates
 	}
-	
+
 	start := time.Now()
 	out := dedupeSortedStrings(in)
 	duration := time.Since(start)
-	
+
 	if len(out) != 1 {
 		t.Errorf("expected 1 unique path, got %d", len(out))
 	}
@@ -536,7 +536,7 @@ func TestWeightedRiskScore_Extremes(t *testing.T) {
 	if score1 > 100 {
 		t.Errorf("expected max score bounded to 100, got %d", score1)
 	}
-	
+
 	score2 := weightedRiskScore(-math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32, -math.MaxInt32)
 	if score2 < 0 {
 		t.Errorf("expected min score bounded to 0, got %d", score2)
@@ -563,25 +563,25 @@ func TestShouldGateTask_ConcurrentMapAccess(t *testing.T) {
 			RiskGateMode:      RiskGateModeAuto,
 		},
 	}
-	
+
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			orch.mu.Lock()
 			orch.config.TaskRiskOverrides["task1"] = true
 			orch.mu.Unlock()
 		}
 		close(done)
 	}()
-	
-	for i := 0; i < 100; i++ {
+
+	for range 100 {
 		go func() {
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				orch.shouldGateTask("task1")
 			}
 		}()
 	}
-	
+
 	<-done
 	// If it doesn't panic and passes race detector, we are good.
 }
@@ -590,22 +590,22 @@ func TestComputeCampaignRiskDecision_ConcurrentCampaignMutation(t *testing.T) {
 	orch := &Orchestrator{
 		campaign: testRiskCampaign(),
 	}
-	
+
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			orch.mu.Lock()
 			orch.campaign.Phases = append(orch.campaign.Phases, Phase{Name: "Extra"})
 			orch.mu.Unlock()
 		}
 		close(done)
 	}()
-	
-	for i := 0; i < 10; i++ {
+
+	for range 10 {
 		go func() {
 			orch.computeCampaignRiskDecision()
 		}()
 	}
-	
+
 	<-done
 }

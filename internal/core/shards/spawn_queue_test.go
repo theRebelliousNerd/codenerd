@@ -76,7 +76,7 @@ func TestSpawnQueueBackpressureHighWaterMark(t *testing.T) {
 	}
 	sq := NewSpawnQueue(nil, stubLimits{slots: 0}, cfg)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		sq.queues[types.PriorityNormal] <- &spawnRequestWrapper{ID: "req"}
 	}
 

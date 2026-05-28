@@ -46,7 +46,7 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 	actionID := "action-test"
 	if err := kernel.Assert(core.Fact{
 		Predicate: "pending_action",
-		Args:      []interface{}{actionID, "/read_file", "hello.txt", map[string]interface{}{}, time.Now().Unix()},
+		Args:      []any{actionID, "/read_file", "hello.txt", map[string]any{}, time.Now().Unix()},
 	}); err != nil {
 		t.Fatalf("assert pending_action: %v", err)
 	}

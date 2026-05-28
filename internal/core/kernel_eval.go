@@ -67,8 +67,7 @@ func (k *RealKernel) rebuildProgram() error {
 		lines := strings.Split(programStr, "\n")
 		for i, line := range lines {
 			if strings.Contains(line, "Decl permitted(") {
-				start := i - 2
-				if start < 0 { start = 0 }
+				start := max(i-2, 0)
 				fmt.Printf("MATCH AT LINE %d:\n%s\n", i, strings.Join(lines[start:i+1], "\n"))
 			}
 		}
@@ -307,7 +306,7 @@ func (k *RealKernel) Clone() *RealKernel {
 
 	// Deep copy facts
 	for i, f := range k.facts {
-		clonedArgs := make([]interface{}, len(f.Args))
+		clonedArgs := make([]any, len(f.Args))
 		for j, arg := range f.Args {
 			clonedArgs[j] = deepCopyArg(arg)
 		}
@@ -319,7 +318,7 @@ func (k *RealKernel) Clone() *RealKernel {
 
 	// Deep copy bootFacts
 	for i, f := range k.bootFacts {
-		clonedArgs := make([]interface{}, len(f.Args))
+		clonedArgs := make([]any, len(f.Args))
 		for j, arg := range f.Args {
 			clonedArgs[j] = deepCopyArg(arg)
 		}
@@ -346,19 +345,19 @@ func (k *RealKernel) Clone() *RealKernel {
 	return clone
 }
 
-func deepCopyArg(arg interface{}) interface{} {
+func deepCopyArg(arg any) any {
 	if arg == nil {
 		return nil
 	}
 	switch v := arg.(type) {
-	case []interface{}:
-		res := make([]interface{}, len(v))
+	case []any:
+		res := make([]any, len(v))
 		for i, item := range v {
 			res[i] = deepCopyArg(item)
 		}
 		return res
-	case map[string]interface{}:
-		res := make(map[string]interface{})
+	case map[string]any:
+		res := make(map[string]any)
 		for k, val := range v {
 			res[k] = deepCopyArg(val)
 		}

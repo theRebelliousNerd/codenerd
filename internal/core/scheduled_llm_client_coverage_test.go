@@ -134,7 +134,7 @@ func (m *mockFullClient) CreateCachedContent(ctx context.Context, files []string
 	return "cache1", nil
 }
 
-func (m *mockFullClient) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+func (m *mockFullClient) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
 	return "cached_data", nil
 }
 
@@ -161,7 +161,7 @@ func (m *mockFullClient) ListFiles(ctx context.Context) ([]string, error) {
 	return []string{"file1"}, nil
 }
 
-func (m *mockFullClient) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+func (m *mockFullClient) GetFile(ctx context.Context, fileID string) (any, error) {
 	return "file_data", nil
 }
 
@@ -447,13 +447,20 @@ func TestScheduledLLMCall_RetryAndStreaming(t *testing.T) {
 }
 
 func TestScheduledLLMCall_SlotAcquireCancellation(t *testing.T) {
-	// Create a scheduler with 0 slots so any acquisition blocks
+	// Create a scheduler with 1 slot
 	cfg := APISchedulerConfig{
-		MaxConcurrentAPICalls: 0,
-		SlotAcquireTimeout:    10 * time.Millisecond,
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    100 * time.Millisecond,
 		EnableMetrics:         true,
 	}
 	scheduler := NewAPIScheduler(cfg)
+
+	// Manually acquire the single slot first under shard "holder" to fill capacity
+	scheduler.RegisterShard("holder", "tester")
+	if err := scheduler.AcquireAPISlot(context.Background(), "holder"); err != nil {
+		t.Fatalf("failed to acquire holding slot: %v", err)
+	}
+	defer scheduler.ReleaseAPISlot("holder")
 
 	mc := &mockFullClient{model: "gemini-3.5-flash"}
 	sc := &ScheduledLLMCall{
@@ -464,7 +471,7 @@ func TestScheduledLLMCall_SlotAcquireCancellation(t *testing.T) {
 	scheduler.RegisterShard(sc.ShardID, "tester")
 
 	// Trigger a complete call with a timeout context that will expire
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
 	_, err := sc.Complete(ctx, "hello")

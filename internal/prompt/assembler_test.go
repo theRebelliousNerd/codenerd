@@ -650,7 +650,7 @@ func TestAnalyzePrompt(t *testing.T) {
 
 func BenchmarkAssemble_SmallSet(b *testing.B) {
 	atoms := make([]*OrderedAtom, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), Category: CategoryIdentity, Content: "Content " + string(rune(i))},
 			Order: i,
@@ -669,7 +669,7 @@ func BenchmarkAssemble_SmallSet(b *testing.B) {
 func BenchmarkAssemble_MediumSet(b *testing.B) {
 	atoms := make([]*OrderedAtom, 50)
 	categories := AllCategories()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), Category: categories[i%len(categories)], Content: strings.Repeat("content ", 20)},
 			Order: i,
@@ -687,7 +687,7 @@ func BenchmarkAssemble_MediumSet(b *testing.B) {
 
 func BenchmarkAssemble_WithTemplates(b *testing.B) {
 	atoms := make([]*OrderedAtom, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		atoms[i] = &OrderedAtom{
 			Atom: &PromptAtom{
 				ID:       string(rune(i)),
@@ -727,7 +727,7 @@ func BenchmarkAnalyzePrompt(b *testing.B) {
 	prompt := strings.Repeat("This is a test prompt with some content. ", 100)
 	atoms := make([]*OrderedAtom, 20)
 	categories := AllCategories()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		atoms[i] = &OrderedAtom{
 			Atom: &PromptAtom{
 				ID:          string(rune(i)),

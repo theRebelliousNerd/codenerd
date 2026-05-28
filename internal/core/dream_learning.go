@@ -457,11 +457,11 @@ func (c *DreamLearningCollector) ClearStaged() {
 }
 
 // GetStats returns statistics about dream learning activity.
-func (c *DreamLearningCollector) GetStats() map[string]interface{} {
+func (c *DreamLearningCollector) GetStats() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"staged_count":        len(c.staged),
 		"confirmed_count":     len(c.confirmed),
 		"known_patterns":      len(c.knownPatterns),

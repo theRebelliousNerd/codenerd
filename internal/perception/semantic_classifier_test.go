@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	"codenerd/internal/core"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/google/mangle/analysis"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // mockKernel implements core.Kernel for testing.
@@ -376,7 +377,7 @@ func TestEmbeddedCorpusStore_GhostDuplication(t *testing.T) {
 	store, _ := NewEmbeddedCorpusStore(3072)
 	kernel := &mockKernel{
 		assertedFacts: []core.Fact{
-			{Args: []interface{}{"phrase", "/verb"}},
+			{Args: []any{"phrase", "/verb"}},
 		},
 	}
 	engine := &mockEmbedEngine{}
@@ -421,13 +422,7 @@ func TestSemanticClassifier_StatePollution(t *testing.T) {
 	}
 	sc.injectFacts("test", matches)
 
-	found := false
-	for _, p := range kernel.retractedPredicates {
-		if p == "semantic_match" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(kernel.retractedPredicates, "semantic_match")
 	if !found {
 		t.Errorf("Expected 'semantic_match' to be retracted, got %v", kernel.retractedPredicates)
 	}
@@ -439,7 +434,7 @@ func TestSemanticClassifier_Concurrency(t *testing.T) {
 	sc := NewSemanticClassifier(&mockKernel{}, store, nil, &mockEmbedEngine{})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -577,9 +572,9 @@ func TestLoadFromKernel_WithCache_FirstBoot(t *testing.T) {
 
 	kernel := &mockKernel{
 		assertedFacts: []core.Fact{
-			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
-			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
-			{Predicate: "intent_definition", Args: []interface{}{"run tests", "/test", ""}},
+			{Predicate: "intent_definition", Args: []any{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []any{"fix bug", "/fix", ""}},
+			{Predicate: "intent_definition", Args: []any{"run tests", "/test", ""}},
 		},
 	}
 
@@ -608,8 +603,8 @@ func TestLoadFromKernel_WithCache_SecondBoot(t *testing.T) {
 
 	kernel := &mockKernel{
 		assertedFacts: []core.Fact{
-			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
-			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
+			{Predicate: "intent_definition", Args: []any{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []any{"fix bug", "/fix", ""}},
 		},
 	}
 
@@ -658,7 +653,7 @@ func TestLoadFromKernel_WithCache_PartialHit(t *testing.T) {
 	// First boot: cache "review code" only
 	kernel1 := &mockKernel{
 		assertedFacts: []core.Fact{
-			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []any{"review code", "/review", ""}},
 		},
 	}
 	store1, _ := NewEmbeddedCorpusStoreWithCache(4, dbPath)
@@ -671,8 +666,8 @@ func TestLoadFromKernel_WithCache_PartialHit(t *testing.T) {
 	// Second boot: add new text "fix bug" (partial miss)
 	kernel2 := &mockKernel{
 		assertedFacts: []core.Fact{
-			{Predicate: "intent_definition", Args: []interface{}{"review code", "/review", ""}},
-			{Predicate: "intent_definition", Args: []interface{}{"fix bug", "/fix", ""}},
+			{Predicate: "intent_definition", Args: []any{"review code", "/review", ""}},
+			{Predicate: "intent_definition", Args: []any{"fix bug", "/fix", ""}},
 		},
 	}
 	store2, _ := NewEmbeddedCorpusStoreWithCache(4, dbPath)

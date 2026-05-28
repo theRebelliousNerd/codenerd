@@ -97,7 +97,7 @@ func (m *mockCacheAndFileProvider) CreateCachedContent(ctx context.Context, file
 	m.cacheCalled = true
 	return "cache1", nil
 }
-func (m *mockCacheAndFileProvider) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+func (m *mockCacheAndFileProvider) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
 	m.cacheCalled = true
 	return "cache_data", nil
 }
@@ -125,7 +125,7 @@ func (m *mockCacheAndFileProvider) ListFiles(ctx context.Context) ([]string, err
 	m.fileCalled = true
 	return []string{"file1"}, nil
 }
-func (m *mockCacheAndFileProvider) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+func (m *mockCacheAndFileProvider) GetFile(ctx context.Context, fileID string) (any, error) {
 	m.fileCalled = true
 	return "file_data", nil
 }
@@ -281,7 +281,7 @@ type mockModelProvider struct {
 }
 
 func (m *mockModelProvider) SetModel(model string) { m.model = model }
-func (m *mockModelProvider) GetModel() string { return m.model }
+func (m *mockModelProvider) GetModel() string      { return m.model }
 
 func TestTracingLLMClient_MiscInterfaces(t *testing.T) {
 	ctx := context.Background()

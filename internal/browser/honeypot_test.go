@@ -3,6 +3,7 @@ package browser
 import (
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"codenerd/internal/mangle"
@@ -51,7 +52,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Display None",
 			facts: []mangle.Fact{
-				{Predicate: "css_property", Args: []interface{}{"elem1", "display", "none"}},
+				{Predicate: "css_property", Args: []any{"elem1", "display", "none"}},
 			},
 			elemID:   "elem1",
 			expected: true,
@@ -60,7 +61,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Visibility Hidden",
 			facts: []mangle.Fact{
-				{Predicate: "css_property", Args: []interface{}{"elem2", "visibility", "hidden"}},
+				{Predicate: "css_property", Args: []any{"elem2", "visibility", "hidden"}},
 			},
 			elemID:   "elem2",
 			expected: true,
@@ -69,7 +70,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Offscreen",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"elem3", int64(-9999), int64(0), int64(100), int64(100)}},
+				{Predicate: "position", Args: []any{"elem3", int64(-9999), int64(0), int64(100), int64(100)}},
 			},
 			elemID:   "elem3",
 			expected: true,
@@ -78,7 +79,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Zero Size",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"elem4", int64(0), int64(0), int64(0), int64(0)}},
+				{Predicate: "position", Args: []any{"elem4", int64(0), int64(0), int64(0), int64(0)}},
 			},
 			elemID:   "elem4",
 			expected: true,
@@ -87,7 +88,7 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Suspicious URL",
 			facts: []mangle.Fact{
-				{Predicate: "honeypot_suspicious_url", Args: []interface{}{"elem5"}},
+				{Predicate: "honeypot_suspicious_url", Args: []any{"elem5"}},
 			},
 			elemID:   "elem5",
 			expected: true,
@@ -96,8 +97,8 @@ func TestHoneypotDetection(t *testing.T) {
 		{
 			name: "Normal Element",
 			facts: []mangle.Fact{
-				{Predicate: "css_property", Args: []interface{}{"elem6", "display", "block"}},
-				{Predicate: "position", Args: []interface{}{"elem6", int64(100), int64(100), int64(50), int64(20)}},
+				{Predicate: "css_property", Args: []any{"elem6", "display", "block"}},
+				{Predicate: "position", Args: []any{"elem6", int64(100), int64(100), int64(50), int64(20)}},
 			},
 			elemID:   "elem6",
 			expected: false,
@@ -133,13 +134,7 @@ func TestHoneypotDetection(t *testing.T) {
 				}
 				// Simple check for presence of expected reason string
 				for _, expectedReason := range tc.reasons {
-					found := false
-					for _, r := range reasons {
-						if r == expectedReason {
-							found = true
-							break
-						}
-					}
+					found := slices.Contains(reasons, expectedReason)
 					if !found {
 						t.Errorf("Expected reason %q not found in %v", expectedReason, reasons)
 					}

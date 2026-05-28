@@ -102,7 +102,7 @@ func (r *ToolRenderer) formatSchema(raw json.RawMessage) string {
 	}
 
 	// Try to parse and pretty print
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return string(raw)
 	}

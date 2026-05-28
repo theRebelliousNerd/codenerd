@@ -28,8 +28,8 @@ func TestCalculateFactScoreAndReason(t *testing.T) {
 
 func TestConvertToFactActivations(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "turn_topic", Args: []interface{}{"t1", "topic"}},
-		{Predicate: "conversation_turn", Args: []interface{}{1, "user", "hello", "debug"}},
+		{Predicate: "turn_topic", Args: []any{"t1", "topic"}},
+		{Predicate: "conversation_turn", Args: []any{1, "user", "hello", "debug"}},
 	}
 
 	activations := convertToFactActivations(facts, true)
@@ -61,9 +61,9 @@ func TestCalculateRetrievalMetrics(t *testing.T) {
 	}
 
 	retrieved := []core.Fact{
-		{Predicate: "turn_references_file", Args: []interface{}{turn.TurnID, "main.go"}},
-		{Predicate: "turn_topic", Args: []interface{}{turn.TurnID, "routing"}},
-		{Predicate: "conversation_turn", Args: []interface{}{refTurn, "assistant", "prev", "debug"}},
+		{Predicate: "turn_references_file", Args: []any{turn.TurnID, "main.go"}},
+		{Predicate: "turn_topic", Args: []any{turn.TurnID, "routing"}},
+		{Predicate: "conversation_turn", Args: []any{refTurn, "assistant", "prev", "debug"}},
 	}
 
 	sim := &SessionSimulator{}

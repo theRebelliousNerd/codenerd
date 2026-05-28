@@ -58,6 +58,7 @@
 package autopoiesis
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -622,26 +623,26 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	// Assert Current State (baseline stability 0.0 for new tool)
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []interface{}{stepID, 0.0, 0},
+		Args:      []any{stepID, 0.0, 0},
 	})
 	// Assert base_stability for penalty calculations
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "base_stability",
-		Args:      []interface{}{stepID, 0.0},
+		Args:      []any{stepID, 0.0},
 	})
 
 	// Assert Proposed State
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []interface{}{nextStepID, stability, loc},
+		Args:      []any{nextStepID, stability, loc},
 	})
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "proposed",
-		Args:      []interface{}{nextStepID},
+		Args:      []any{nextStepID},
 	})
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "base_stability",
-		Args:      []interface{}{nextStepID, stability},
+		Args:      []any{nextStepID, stability},
 	})
 
 	// Check Halting Oracle (Stagnation)
@@ -651,7 +652,7 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "history",
-		Args:      []interface{}{nextStepID, hashStr},
+		Args:      []any{nextStepID, hashStr},
 	})
 
 	// Check ?stagnation_detected
@@ -729,18 +730,18 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 
 	// Assert tool registration facts to Mangle engine for discovery
 	registrationFacts := []mangle.Fact{
-		{Predicate: "tool_registered", Args: []interface{}{handle.Name, handle.RegisteredAt.Format(time.RFC3339)}},
-		{Predicate: "tool_hash", Args: []interface{}{handle.Name, handle.Hash}},
-		{Predicate: "has_capability", Args: []interface{}{handle.Name}},
+		{Predicate: "tool_registered", Args: []any{handle.Name, handle.RegisteredAt.Format(time.RFC3339)}},
+		{Predicate: "tool_hash", Args: []any{handle.Name, handle.Hash}},
+		{Predicate: "has_capability", Args: []any{handle.Name}},
 	}
 	if handle.Description != "" {
 		registrationFacts = append(registrationFacts, mangle.Fact{
-			Predicate: "tool_description", Args: []interface{}{handle.Name, handle.Description},
+			Predicate: "tool_description", Args: []any{handle.Name, handle.Description},
 		})
 	}
 	if handle.BinaryPath != "" {
 		registrationFacts = append(registrationFacts, mangle.Fact{
-			Predicate: "tool_binary_path", Args: []interface{}{handle.Name, handle.BinaryPath},
+			Predicate: "tool_binary_path", Args: []any{handle.Name, handle.BinaryPath},
 		})
 	}
 	if err := o.engine.AddFacts(registrationFacts); err != nil {
@@ -765,8 +766,8 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	hashStr := hex.EncodeToString(h[:])
 
 	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "history", Args: []interface{}{nextStepID, hashStr}},
-		{Predicate: "state", Args: []interface{}{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
+		{Predicate: "history", Args: []any{nextStepID, hashStr}},
+		{Predicate: "state", Args: []any{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
 	})
 	logging.AutopoiesisDebug("Mangle history updated for %s", nextStepID)
 
@@ -791,9 +792,9 @@ func (o *OuroborosLoop) initializeState(stepID string, maxIters, maxRetries int)
 	logging.AutopoiesisDebug("Initializing state: stepID=%s, maxIters=%d, maxRetries=%d",
 		stepID, maxIters, maxRetries)
 	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "max_iterations", Args: []interface{}{maxIters}},
-		{Predicate: "max_retries", Args: []interface{}{maxRetries}},
-		{Predicate: "base_stability", Args: []interface{}{stepID, 0.0}},
+		{Predicate: "max_iterations", Args: []any{maxIters}},
+		{Predicate: "max_retries", Args: []any{maxRetries}},
+		{Predicate: "base_stability", Args: []any{stepID, 0.0}},
 	})
 }
 
@@ -811,7 +812,7 @@ func (o *OuroborosLoop) recordRetry(stepID string, attempt int, reason string) {
 
 // handlePanic records panic as error event with penalty.
 // NOTE: Verified panic recovery persists error facts (see ouroboros_panic_test.go).
-func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopResult) {
+func (o *OuroborosLoop) handlePanic(stepID string, r any, result *LoopResult) {
 	logging.Get(logging.CategoryAutopoiesis).Error("PANIC in Ouroboros: stepID=%s, panic=%v", stepID, r)
 
 	o.mu.Lock()
@@ -827,8 +828,8 @@ func (o *OuroborosLoop) handlePanic(stepID string, r interface{}, result *LoopRe
 
 	// Record in Mangle with timestamp for penalty calculation
 	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "error_event", Args: []interface{}{"/panic"}},
-		{Predicate: "error_history", Args: []interface{}{stepID, "/panic", time.Now().Unix()}},
+		{Predicate: "error_event", Args: []any{"/panic"}},
+		{Predicate: "error_history", Args: []any{stepID, "/panic", time.Now().Unix()}},
 	})
 }
 
@@ -865,8 +866,8 @@ func (o *OuroborosLoop) updateStability(stepID string, iterNum int, confidence f
 	logging.AutopoiesisDebug("Updating stability: stepID=%s, iter=%d, confidence=%.2f",
 		stepID, iterNum, confidence)
 	_ = o.engine.AddFacts([]mangle.Fact{
-		{Predicate: "base_stability", Args: []interface{}{stepID, confidence}},
-		{Predicate: "state_at_iteration", Args: []interface{}{stepID, iterNum, confidence}},
+		{Predicate: "base_stability", Args: []any{stepID, confidence}},
+		{Predicate: "state_at_iteration", Args: []any{stepID, iterNum, confidence}},
 	})
 }
 
@@ -1007,6 +1008,20 @@ type ToolInfo = types.ToolInfo
 // =============================================================================
 // Implements core.ToolGenerator for routing coder shard self-tools through Ouroboros.
 
+func sanitizeToolName(name string) string {
+	var sb strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			sb.WriteRune(r)
+		}
+	}
+	res := sb.String()
+	if len(res) == 0 {
+		return "tool"
+	}
+	return res
+}
+
 // GenerateToolFromCode implements core.ToolGenerator interface.
 // Takes pre-generated code (from coder shard) and runs it through the
 // Ouroboros pipeline: safety check → compile → register.
@@ -1016,6 +1031,7 @@ func (o *OuroborosLoop) GenerateToolFromCode(ctx context.Context, name, purpose,
 	timer := logging.StartTimer(logging.CategoryAutopoiesis, "GenerateToolFromCode")
 	defer timer.Stop()
 
+	name = sanitizeToolName(name)
 	logging.Autopoiesis("GenerateToolFromCode: name=%s, code_len=%d, isDiagnostic=%v", name, len(code), isDiagnostic)
 
 	toolName = name
@@ -1094,6 +1110,7 @@ func NewToolCompiler(config OuroborosConfig) *ToolCompiler {
 // Compile compiles a generated tool
 func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*CompileResult, error) {
 	start := time.Now()
+	tool.Name = sanitizeToolName(tool.Name)
 	result := &CompileResult{
 		Success: false,
 	}
@@ -1145,7 +1162,7 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	}
 
 	// Initialize go module
-	modContent := fmt.Sprintf("module %s\n\ngo 1.24\n", tool.Name)
+	modContent := fmt.Sprintf("module %s\n\ngo 1.26.0\n", tool.Name)
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(modContent), 0644); err != nil {
 		return result, fmt.Errorf("failed to write go.mod: %w", err)
 	}
@@ -1217,6 +1234,79 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 	return result, nil
 }
 
+// Helper to verify exact signature: func(ctx context.Context, input string) (string, error)
+func isExactEntryPoint(fn *ast.FuncDecl) bool {
+	// Must have exactly 2 parameters
+	var paramTypes []ast.Expr
+	if fn.Type.Params != nil {
+		for _, field := range fn.Type.Params.List {
+			namesLen := len(field.Names)
+			if namesLen == 0 {
+				namesLen = 1 // anonymous parameter
+			}
+			for i := 0; i < namesLen; i++ {
+				paramTypes = append(paramTypes, field.Type)
+			}
+		}
+	}
+	if len(paramTypes) != 2 {
+		return false
+	}
+
+	// First param must be context.Context (or Context if dot-imported)
+	firstParam := paramTypes[0]
+	isContext := false
+	if selExpr, ok := firstParam.(*ast.SelectorExpr); ok {
+		if ident, ok := selExpr.X.(*ast.Ident); ok && ident.Name == "context" {
+			if selExpr.Sel.Name == "Context" {
+				isContext = true
+			}
+		}
+	} else if ident, ok := firstParam.(*ast.Ident); ok && ident.Name == "Context" {
+		isContext = true
+	}
+	if !isContext {
+		return false
+	}
+
+	// Second param must be string
+	secondParam := paramTypes[1]
+	if ident, ok := secondParam.(*ast.Ident); !ok || ident.Name != "string" {
+		return false
+	}
+
+	// Must have exactly 2 results
+	var resultTypes []ast.Expr
+	if fn.Type.Results != nil {
+		for _, field := range fn.Type.Results.List {
+			namesLen := len(field.Names)
+			if namesLen == 0 {
+				namesLen = 1
+			}
+			for i := 0; i < namesLen; i++ {
+				resultTypes = append(resultTypes, field.Type)
+			}
+		}
+	}
+	if len(resultTypes) != 2 {
+		return false
+	}
+
+	// First result must be string
+	firstRes := resultTypes[0]
+	if ident, ok := firstRes.(*ast.Ident); !ok || ident.Name != "string" {
+		return false
+	}
+
+	// Second result must be error
+	secondRes := resultTypes[1]
+	if ident, ok := secondRes.(*ast.Ident); !ok || ident.Name != "error" {
+		return false
+	}
+
+	return true
+}
+
 // findEntryPoint parses code to find the main tool function
 func (tc *ToolCompiler) findEntryPoint(code string) (string, error) {
 	fset := token.NewFileSet()
@@ -1226,8 +1316,6 @@ func (tc *ToolCompiler) findEntryPoint(code string) (string, error) {
 	}
 
 	var foundFunc string
-	var maxScore int
-
 	ast.Inspect(file, func(n ast.Node) bool {
 		fn, ok := n.(*ast.FuncDecl)
 		if !ok {
@@ -1239,31 +1327,15 @@ func (tc *ToolCompiler) findEntryPoint(code string) (string, error) {
 			return true
 		}
 
-		score := 0
-		if fn.Name.IsExported() {
-			score += 5
-		}
-
-		// Check signature: (ctx, input) (output, error)
-		if fn.Type.Params != nil && len(fn.Type.Params.List) >= 1 {
-			// Heuristic check for context
-			if len(fn.Type.Params.List) >= 1 {
-				score += 5
-			}
-		}
-		if fn.Type.Results != nil && len(fn.Type.Results.List) == 2 {
-			score += 5
-		}
-
-		if score > maxScore {
-			maxScore = score
+		if isExactEntryPoint(fn) {
 			foundFunc = name
+			return false // stop inspect
 		}
 		return true
 	})
 
 	if foundFunc == "" {
-		return "", fmt.Errorf("no suitable entry point function found")
+		return "", fmt.Errorf("no suitable entry point function found with signature 'func(context.Context, string) (string, error)'")
 	}
 	return foundFunc, nil
 }
@@ -1276,20 +1348,13 @@ import (
 	"io"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 )
 
-// ToolInput matches standard agent input
-type ToolInput struct {
-	Input string   `+"`json:\"input\"`"+`
-	Args  []string `+"`json:\"args\"`"+`
-}
-
 type ToolOutput struct {
-	Output string `+"`json:\"output\"`"+`
-	Error  string `+"`json:\"error,omitempty\"`"+`
+	Output json.RawMessage `+"`json:\"output\"`"+`
+	Error  string          `+"`json:\"error,omitempty\"`"+`
 }
 
 func main() {
@@ -1302,9 +1367,17 @@ func main() {
 		reader := io.LimitReader(os.Stdin, 10*1024*1024)
 		inputBytes, err := io.ReadAll(reader)
 		if err == nil && len(inputBytes) > 0 {
-			var toolInput ToolInput
-			if err := json.Unmarshal(inputBytes, &toolInput); err == nil {
-				input = toolInput.Input
+			var toolInput struct {
+				Input json.RawMessage `+"`json:\"input\"`"+`
+				Args  []string        `+"`json:\"args\"`"+`
+			}
+			if err := json.Unmarshal(inputBytes, &toolInput); err == nil && len(toolInput.Input) > 0 {
+				var strInput string
+				if err := json.Unmarshal(toolInput.Input, &strInput); err == nil {
+					input = strInput
+				} else {
+					input = string(toolInput.Input)
+				}
 			} else {
 				input = strings.TrimSpace(string(inputBytes))
 			}
@@ -1315,12 +1388,6 @@ func main() {
 
 	// Execute
 	ctx := context.Background()
-	// Assume output is string for now, tool logic handles types
-	// We pass input string directly. 
-	// Limitation: The generated function might expect a struct or int.
-	// But our prompt asks for string input usually.
-	// If it's not string, this wrapper is too simple.
-	// For Ouroboros v1, we enforce string input/output interface.
 	
 	res, err := %s(ctx, input)
 	
@@ -1328,7 +1395,13 @@ func main() {
 	if err != nil {
 		output.Error = err.Error()
 	} else {
-		output.Output = fmt.Sprintf("%%v", res)
+		// If res is valid JSON, treat it as json.RawMessage, else marshal it
+		if json.Valid([]byte(res)) {
+			output.Output = json.RawMessage(res)
+		} else {
+			marshaled, _ := json.Marshal(res)
+			output.Output = json.RawMessage(marshaled)
+		}
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -1451,13 +1524,36 @@ func (r *RuntimeRegistry) Restore(toolsDir, compiledDir string) {
 			hash = hex.EncodeToString(h[:])
 		}
 
+		registeredAt := time.Now()
+		if info, err := entry.Info(); err == nil {
+			registeredAt = info.ModTime()
+		}
+
+		description := "Restored from disk"
+		if srcBytes, err := os.ReadFile(srcPath); err == nil {
+			lines := strings.SplitSeq(string(srcBytes), "\n")
+			for line := range lines {
+				line = strings.TrimSpace(line)
+				if after, ok := strings.CutPrefix(line, "// Description:"); ok {
+					description = strings.TrimSpace(after)
+					break
+				} else if after, ok := strings.CutPrefix(line, "//Description:"); ok {
+					description = strings.TrimSpace(after)
+					break
+				}
+				if strings.HasPrefix(line, "package ") {
+					break
+				}
+			}
+		}
+
 		rt := &RuntimeTool{
 			Name:         name,
-			Description:  "Restored from disk", // We could parse source to get better desc
+			Description:  description,
 			BinaryPath:   binaryPath,
 			Hash:         hash,
 			Schema:       ToolSchema{Name: name}, // Basic schema
-			RegisteredAt: time.Now(),
+			RegisteredAt: registeredAt,
 		}
 
 		r.tools[name] = rt
@@ -1483,14 +1579,22 @@ func (rt *RuntimeTool) Execute(ctx context.Context, input string) (string, error
 	}
 
 	// Execute the tool binary
+	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd := exec.CommandContext(ctx, cleanPath)
 	cmd.Stdin = strings.NewReader(string(inputJSON))
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
 	cmd.Env = toolExecutionEnv()
 
-	output, err := cmd.Output()
+	err = cmd.Run()
 	if err != nil {
+		stderrStr := strings.TrimSpace(stderrBuf.String())
+		if stderrStr != "" {
+			return "", fmt.Errorf("tool execution failed (stderr: %s): %w", stderrStr, err)
+		}
 		return "", fmt.Errorf("tool execution failed: %w", err)
 	}
+	output := stdoutBuf.Bytes()
 
 	// Parse output
 	var result struct {

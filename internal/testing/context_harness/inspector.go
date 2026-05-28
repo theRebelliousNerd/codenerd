@@ -248,7 +248,7 @@ type ControlPacket struct {
 	MangleUpdates        []string
 	NextPhase            string
 	ToolCalls            []string
-	Metadata             map[string]interface{}
+	Metadata             map[string]any
 	ContextFeedback      *ContextFeedback // LLM feedback on context usefulness
 }
 

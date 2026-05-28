@@ -155,7 +155,7 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 				Confidence: 0.85, // Not 1.0 because pattern might be false positive
 				Method:     ValidationMethodOutputScan,
 				Error:      "failure pattern detected in output",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"pattern": pattern.String(),
 					"match":   match,
 					"context": contextStr,
@@ -174,7 +174,7 @@ func (v *ExecutionValidator) Validate(ctx context.Context, req ActionRequest, re
 		Verified:   true,
 		Confidence: 0.8, // Not 1.0 because we only scanned patterns
 		Method:     ValidationMethodOutputScan,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"output_length":    len(output),
 			"patterns_checked": len(v.failurePatterns),
 		},
@@ -204,7 +204,7 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Go compilation error detected",
-				Details:    map[string]interface{}{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
 			}
 		}
 	}
@@ -217,7 +217,7 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Go test failure detected",
-				Details:    map[string]interface{}{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
 			}
 		}
 	}
@@ -230,7 +230,7 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.9,
 				Method:     ValidationMethodOutputScan,
 				Error:      "npm/yarn error detected",
-				Details:    map[string]interface{}{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
 			}
 		}
 	}
@@ -245,7 +245,7 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.95,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Python error detected",
-				Details:    map[string]interface{}{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
 			}
 		}
 	}
@@ -260,7 +260,7 @@ func (v *ExecutionValidator) validateCommandSpecific(ctx context.Context, req Ac
 				Confidence: 0.9,
 				Method:     ValidationMethodOutputScan,
 				Error:      "Git error detected",
-				Details:    map[string]interface{}{"output_preview": truncateStr(output, 200)},
+				Details:    map[string]any{"output_preview": truncateStr(output, 200)},
 			}
 		}
 	}
@@ -276,8 +276,8 @@ func (v *ExecutionValidator) Priority() int { return 10 }
 
 // extractContext extracts text around a match for context.
 func extractContext(text, match string, contextChars int) string {
-	idx := strings.Index(text, match)
-	if idx == -1 {
+	before, _, ok := strings.Cut(text, match)
+	if !ok {
 		return match
 	}
 
@@ -285,17 +285,11 @@ func extractContext(text, match string, contextChars int) string {
 	matchRunes := []rune(match)
 
 	// Convert byte index to rune index
-	startRuneIdx := len([]rune(text[:idx]))
+	startRuneIdx := len([]rune(before))
 
-	start := startRuneIdx - contextChars
-	if start < 0 {
-		start = 0
-	}
+	start := max(startRuneIdx-contextChars, 0)
 
-	end := startRuneIdx + len(matchRunes) + contextChars
-	if end > len(runes) {
-		end = len(runes)
-	}
+	end := min(startRuneIdx+len(matchRunes)+contextChars, len(runes))
 
 	result := string(runes[start:end])
 	if start > 0 {

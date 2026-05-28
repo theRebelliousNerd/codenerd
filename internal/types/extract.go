@@ -29,7 +29,7 @@ import (
 // ExtractString extracts a string representation from a fact argument.
 // Handles string, MangleAtom, and falls back to fmt.Sprintf for other types.
 // This is the safe replacement for fmt.Sprintf("%v", fact.Args[N]).
-func ExtractString(arg interface{}) string {
+func ExtractString(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v
@@ -64,7 +64,7 @@ func ExtractString(arg interface{}) string {
 // For non-atom strings, returns the string as-is.
 // This is specifically for extracting predicate-like identifiers such as
 // "/read_file", "/active", "/coder".
-func ExtractName(arg interface{}) string {
+func ExtractName(arg any) string {
 	switch v := arg.(type) {
 	case MangleAtom:
 		return string(v)
@@ -77,7 +77,7 @@ func ExtractName(arg interface{}) string {
 
 // ExtractInt64 extracts an int64 value from a fact argument.
 // Returns (value, true) on success, (0, false) if the type is incompatible.
-func ExtractInt64(arg interface{}) (int64, bool) {
+func ExtractInt64(arg any) (int64, bool) {
 	switch v := arg.(type) {
 	case int64:
 		return v, true
@@ -94,7 +94,7 @@ func ExtractInt64(arg interface{}) (int64, bool) {
 
 // ExtractFloat64 extracts a float64 value from a fact argument.
 // Returns (value, true) on success, (0, false) if the type is incompatible.
-func ExtractFloat64(arg interface{}) (float64, bool) {
+func ExtractFloat64(arg any) (float64, bool) {
 	switch v := arg.(type) {
 	case float64:
 		return v, true
@@ -112,7 +112,7 @@ func ExtractFloat64(arg interface{}) (float64, bool) {
 // ExtractBool extracts a boolean value from a fact argument.
 // Handles bool type directly and MangleAtom/string "/true"/"/false" conventions.
 // Returns (value, true) on success, (false, false) if the type is incompatible.
-func ExtractBool(arg interface{}) (bool, bool) {
+func ExtractBool(arg any) (bool, bool) {
 	switch v := arg.(type) {
 	case bool:
 		return v, true
@@ -140,7 +140,7 @@ func ExtractBool(arg interface{}) (bool, bool) {
 
 // ExtractTime extracts a time.Time value from a fact argument.
 // Returns (value, true) on success, (zero, false) if the type is incompatible.
-func ExtractTime(arg interface{}) (time.Time, bool) {
+func ExtractTime(arg any) (time.Time, bool) {
 	switch v := arg.(type) {
 	case time.Time:
 		return v, true
@@ -154,7 +154,7 @@ func ExtractTime(arg interface{}) (time.Time, bool) {
 
 // ExtractDuration extracts a time.Duration value from a fact argument.
 // Returns (value, true) on success, (0, false) if the type is incompatible.
-func ExtractDuration(arg interface{}) (time.Duration, bool) {
+func ExtractDuration(arg any) (time.Duration, bool) {
 	switch v := arg.(type) {
 	case time.Duration:
 		return v, true

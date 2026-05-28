@@ -5,11 +5,14 @@ package retrieval
 
 import (
 	"bufio"
+	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -71,12 +74,17 @@ func NewSparseRetriever(cfg *SparseRetrieverConfig) *SparseRetriever {
 		cfg = DefaultSparseRetrieverConfig(".")
 	}
 
+	parallelism := cfg.Parallelism
+	if parallelism <= 0 {
+		parallelism = runtime.NumCPU()
+	}
+
 	return &SparseRetriever{
 		workDir:         cfg.WorkDir,
 		cache:           NewKeywordHitCache(cfg.CacheSize, cfg.CacheTTL),
 		maxResults:      cfg.MaxResults,
 		searchTimeout:   cfg.SearchTimeout,
-		parallelism:     cfg.Parallelism,
+		parallelism:     parallelism,
 		excludePatterns: cfg.ExcludePatterns,
 	}
 }
@@ -250,8 +258,24 @@ type CandidateFile struct {
 
 // SearchKeywords performs parallel keyword search using ripgrep.
 func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKeywords) ([]KeywordHit, error) {
-	if keywords == nil || len(keywords.AllKeywords()) == 0 {
+	if keywords == nil || (len(keywords.AllKeywords()) == 0 && len(keywords.MentionedFiles) == 0) {
 		return nil, nil
+	}
+
+	// Route files-only keyword search fallback candidates correctly
+	if len(keywords.AllKeywords()) == 0 && len(keywords.MentionedFiles) > 0 {
+		var hits []KeywordHit
+		for _, file := range keywords.MentionedFiles {
+			hits = append(hits, KeywordHit{
+				FilePath: file,
+				Keyword:  "[mentioned]",
+				Line:     1,
+				Column:   1,
+				Context:  "Explicitly mentioned file",
+				Count:    1,
+			})
+		}
+		return hits, nil
 	}
 
 	logging.Context("SparseRetriever: searching %d keywords", len(keywords.AllKeywords()))
@@ -339,16 +363,27 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 
 	cmd := exec.CommandContext(ctx, "rg", args...)
 
-	output, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start ripgrep: %w", err)
+	}
+
+	hits := r.parseRipgrepStream(stdout, keyword)
+
+	err = cmd.Wait()
 	if err != nil {
 		// Exit code 1 means no matches (not an error)
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return nil, nil
+			return hits, nil
 		}
 		return nil, fmt.Errorf("ripgrep failed for %q: %w", keyword, err)
 	}
 
-	return r.parseRipgrepJSON(output, keyword), nil
+	return hits, nil
 }
 
 // rgJSONEvent is the envelope ripgrep emits with --json. We only need the
@@ -381,16 +416,22 @@ type rgJSONMatchData struct {
 const maxHitsPerKeyword = 10000
 
 // parseRipgrepJSON parses ripgrep --json output into KeywordHits.
+// Deprecated: use parseRipgrepStream for O(1) memory streaming. Kept for test compatibility.
+func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []KeywordHit {
+	return r.parseRipgrepStream(strings.NewReader(string(output)), keyword)
+}
+
+// parseRipgrepStream parses ripgrep --json stream into KeywordHits.
 // Each line of output is a JSON object; we only extract "match" events.
 // This is Windows-safe because the path is a structured field, not a
 // colon-separated token.
 //
 // Output is capped at maxHitsPerKeyword to prevent unbounded memory growth.
-func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []KeywordHit {
+func (r *SparseRetriever) parseRipgrepStream(reader io.Reader, keyword string) []KeywordHit {
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
 
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	scanner := bufio.NewScanner(reader)
 	// ripgrep can emit very long lines (large matched lines). Grow the buffer.
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
@@ -437,6 +478,10 @@ func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []Keyw
 			Context:  contextLine,
 			Count:    hitCounts[filePath],
 		})
+	}
+
+	if err := scanner.Err(); err != nil {
+		logging.Context("SparseRetriever: scanner error during ripgrep JSON stream parsing: %v", err)
 	}
 
 	return hits
@@ -559,20 +604,24 @@ func (r *SparseRetriever) FindRelevantFiles(ctx context.Context, issueText strin
 // KeywordHitCache caches keyword search results.
 type KeywordHitCache struct {
 	entries map[string]*cacheEntry
+	list    *list.List
 	mu      sync.RWMutex
 	maxSize int
 	ttl     time.Duration
 }
 
 type cacheEntry struct {
+	key       string
 	hits      []KeywordHit
 	timestamp time.Time
+	element   *list.Element
 }
 
 // NewKeywordHitCache creates a new cache.
 func NewKeywordHitCache(maxSize int, ttl time.Duration) *KeywordHitCache {
 	return &KeywordHitCache{
 		entries: make(map[string]*cacheEntry),
+		list:    list.New(),
 		maxSize: maxSize,
 		ttl:     ttl,
 	}
@@ -580,8 +629,8 @@ func NewKeywordHitCache(maxSize int, ttl time.Duration) *KeywordHitCache {
 
 // Get retrieves cached hits for a keyword.
 func (c *KeywordHitCache) Get(keyword string) ([]KeywordHit, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	entry, ok := c.entries[keyword]
 	if !ok {
@@ -590,10 +639,18 @@ func (c *KeywordHitCache) Get(keyword string) ([]KeywordHit, bool) {
 
 	// Check TTL
 	if time.Since(entry.timestamp) > c.ttl {
+		c.list.Remove(entry.element)
+		delete(c.entries, keyword)
 		return nil, false
 	}
 
-	return entry.hits, true
+	// LRU promotion
+	c.list.MoveToFront(entry.element)
+
+	// Return a copy to prevent cache aliasing corruption
+	cloned := make([]KeywordHit, len(entry.hits))
+	copy(cloned, entry.hits)
+	return cloned, true
 }
 
 // Set stores hits for a keyword.
@@ -601,31 +658,41 @@ func (c *KeywordHitCache) Set(keyword string, hits []KeywordHit) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// If entry already exists, update and promote it
+	if entry, ok := c.entries[keyword]; ok {
+		cloned := make([]KeywordHit, len(hits))
+		copy(cloned, hits)
+		entry.hits = cloned
+		entry.timestamp = time.Now()
+		c.list.MoveToFront(entry.element)
+		return
+	}
+
 	// Evict if at capacity
-	if len(c.entries) >= c.maxSize {
+	if c.list.Len() >= c.maxSize {
 		c.evictOldest()
 	}
 
-	c.entries[keyword] = &cacheEntry{
-		hits:      hits,
+	cloned := make([]KeywordHit, len(hits))
+	copy(cloned, hits)
+
+	entry := &cacheEntry{
+		key:       keyword,
+		hits:      cloned,
 		timestamp: time.Now(),
 	}
+	elem := c.list.PushFront(entry)
+	entry.element = elem
+	c.entries[keyword] = entry
 }
 
-// evictOldest removes the oldest cache entry.
+// evictOldest removes the oldest cache entry in O(1) time.
 func (c *KeywordHitCache) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
-
-	for key, entry := range c.entries {
-		if oldestKey == "" || entry.timestamp.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = entry.timestamp
-		}
-	}
-
-	if oldestKey != "" {
-		delete(c.entries, oldestKey)
+	elem := c.list.Back()
+	if elem != nil {
+		c.list.Remove(elem)
+		entry := elem.Value.(*cacheEntry)
+		delete(c.entries, entry.key)
 	}
 }
 
@@ -634,6 +701,7 @@ func (c *KeywordHitCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries = make(map[string]*cacheEntry)
+	c.list.Init()
 }
 
 // =============================================================================

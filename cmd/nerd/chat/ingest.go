@@ -136,12 +136,12 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 
 			sourceHash := prompt.HashContent(rel)[:8]
 			if localDB != nil {
-				_ = localDB.StoreLink(root, "/has_file", rel, 1.0, map[string]interface{}{"path": rel})
+				_ = localDB.StoreLink(root, "/has_file", rel, 1.0, map[string]any{"path": rel})
 			}
 
 			// Collect batch data for vector storage
 			var batchContents []string
-			var batchMeta []map[string]interface{}
+			var batchMeta []map[string]any
 
 			for idx, chunk := range chunks {
 				chunkHash := prompt.HashContent(chunk)[:12]
@@ -157,7 +157,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 				}
 
 				if localDB != nil {
-					meta := map[string]interface{}{
+					meta := map[string]any{
 						"path":         rel,
 						"chunk_index":  idx,
 						"total":        len(chunks),

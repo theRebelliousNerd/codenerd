@@ -299,16 +299,16 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 
 func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Create a 50MB reasoning trace
 	massiveTrace := strings.Repeat("A", 50*1024*1024)
 	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"%s"},"surface_response":"hi"}`, massiveTrace)
-	
+
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	
+
 	if len(res.Control.ReasoningTrace) > 60000 {
 		t.Fatalf("ReasoningTrace was not truncated: len=%d", len(res.Control.ReasoningTrace))
 	}
@@ -319,35 +319,35 @@ func TestResponseProcessor_Process_MassiveReasoningTrace(t *testing.T) {
 
 func TestResponseProcessor_Process_RecursionDepth(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Create deeply nested JSON
 	depth := 10000
 	var sb strings.Builder
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString(`{"a":`)
 	}
 	sb.WriteString(`1`)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString(`}`)
 	}
-	
+
 	// This will likely fail to parse, but shouldn't stack overflow
 	raw := fmt.Sprintf(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":%s},"surface_response":"hi"}`, sb.String())
-	
+
 	_, _ = rp.Process(raw) // We just want to ensure it doesn't crash
 }
 
 func TestResponseProcessor_Process_DuplicateKeys(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Standard JSON decoding in Go uses last-wins for duplicate keys
 	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"first","surface_response":"second"}`
-	
+
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	
+
 	if res.Surface != "second" {
 		t.Fatalf("Expected last-wins for duplicate keys, got %q", res.Surface)
 	}
@@ -355,11 +355,11 @@ func TestResponseProcessor_Process_DuplicateKeys(t *testing.T) {
 
 func TestResponseProcessor_ExtractEmbeddedJSON_CatastrophicBacktracking(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Benchmark extractEmbeddedJSON with lots of braces
 	massiveNoise := strings.Repeat("{ } ", 10000)
 	raw := massiveNoise + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + massiveNoise
-	
+
 	_, err := rp.extractEmbeddedJSON(raw)
 	if err != nil {
 		t.Fatalf("extractEmbeddedJSON() error = %v", err)
@@ -368,16 +368,16 @@ func TestResponseProcessor_ExtractEmbeddedJSON_CatastrophicBacktracking(t *testi
 
 func TestResponseProcessor_ExtractEmbeddedJSON_DecoyInjection(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Real comes second, Decoy comes first
 	raw := `Example: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}
 Real: {"control_packet":{"intent_classification":{"category":"/real","verb":"/real","target":"x","constraint":"none","confidence":1}},"surface_response":"real"}`
-	
+
 	env, err := rp.extractEmbeddedJSON(raw)
 	if err != nil {
 		t.Fatalf("extractEmbeddedJSON() error = %v", err)
 	}
-	
+
 	if env.Surface != "real" {
 		t.Fatalf("Expected real surface to win, got %q", env.Surface)
 	}
@@ -389,15 +389,15 @@ Real: {"control_packet":{"intent_classification":{"category":"/real","verb":"/re
 func TestResponseProcessor_Process_HallucinatedKeys(t *testing.T) {
 	rpStrict := NewResponseProcessor()
 	rpStrict.RequireValidJSON = true
-	
+
 	// "control_packets" instead of "control_packet"
 	raw := `{"control_packets":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`
-	
+
 	_, err := rpStrict.Process(raw)
 	if err == nil {
 		t.Fatalf("Expected strict processor to fail on hallucinated keys")
 	}
-	
+
 	rpLoose := NewResponseProcessor()
 	rpLoose.RequireValidJSON = false
 	res, err := rpLoose.Process(raw)
@@ -415,14 +415,14 @@ func TestResponseProcessor_Process_HallucinatedKeys(t *testing.T) {
 
 func TestResponseProcessor_ExtractEmbeddedJSON_DOS(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	// Create 10,000 JSON objects that are NOT valid Piggyback Envelopes
 	var sb strings.Builder
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		sb.WriteString(`{"a": 1} `)
 	}
 	sb.WriteString(`{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}`)
-	
+
 	// Must not take too long
 	_, err := rp.extractEmbeddedJSON(sb.String())
 	if err != nil {
@@ -433,18 +433,18 @@ func TestResponseProcessor_ExtractEmbeddedJSON_DOS(t *testing.T) {
 func TestResponseProcessor_Process_MalformedHiding(t *testing.T) {
 	rp := NewResponseProcessor()
 	rp.RequireValidJSON = false // Allow fallback
-	
+
 	// Real is missing a brace, so it's malformed. Decoy follows it.
 	raw := `Real: {"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"
 Decoy: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/decoy","target":"x","constraint":"none","confidence":1}},"surface_response":"decoy"}`
-	
+
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	
+
 	// Because of brace counting, the entire block is seen as one malformed candidate.
-	// It should fallback to parsing the entire text as surface response rather than 
+	// It should fallback to parsing the entire text as surface response rather than
 	// getting confused and picking up the decoy.
 	if res.ParseMethod != "fallback" {
 		t.Fatalf("Expected fallback for malformed hiding, got %q", res.ParseMethod)
@@ -453,14 +453,14 @@ Decoy: {"control_packet":{"intent_classification":{"category":"/decoy","verb":"/
 
 func TestResponseProcessor_Process_NonASCII(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"reasoning_trace":"🤔💡"},"surface_response":"こんにちは"}`
-	
+
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
 	}
-	
+
 	if res.Surface != "こんにちは" {
 		t.Fatalf("Expected Japanese surface, got %q", res.Surface)
 	}
@@ -471,10 +471,10 @@ func TestResponseProcessor_Process_NonASCII(t *testing.T) {
 
 func TestResponseProcessor_ExtractEmbeddedJSON_BraceImbalance(t *testing.T) {
 	rp := NewResponseProcessor()
-	
+
 	raw := strings.Repeat("{", 1000) + `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1}},"surface_response":"hi"}` + strings.Repeat("}", 1000)
-	
-	// The scanner may or may not find it depending on how it handles depth. 
+
+	// The scanner may or may not find it depending on how it handles depth.
 	// The goal is just to ensure it doesn't hang/OOM.
 	_, _ = rp.extractEmbeddedJSON(raw)
 }
@@ -482,9 +482,9 @@ func TestResponseProcessor_ExtractEmbeddedJSON_BraceImbalance(t *testing.T) {
 func TestResponseProcessor_Process_TypeCoercionResilience(t *testing.T) {
 	rp := NewResponseProcessor()
 	rp.RequireValidJSON = false
-	
+
 	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":"0.95"}},"surface_response":"hi"}`
-	
+
 	res, err := rp.Process(raw)
 	if err != nil {
 		t.Fatalf("Expected process to succeed, got: %v", err)

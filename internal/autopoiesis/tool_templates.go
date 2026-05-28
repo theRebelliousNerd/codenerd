@@ -370,7 +370,7 @@ func toCamelCase(s string) string {
 // toPascalCase converts snake_case to PascalCase
 func toPascalCase(s string) string {
 	parts := strings.Split(s, "_")
-	for i := 0; i < len(parts); i++ {
+	for i := range parts {
 		if len(parts[i]) > 0 {
 			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
 		}
@@ -481,8 +481,8 @@ func getTestValue(typeName string, valid bool) string {
 // getComplexTestValue handles complex types like slices, maps, pointers, and structs
 func getComplexTestValue(typeName string, valid bool) string {
 	// Handle slices: []ElementType
-	if strings.HasPrefix(typeName, "[]") {
-		elemType := strings.TrimPrefix(typeName, "[]")
+	if after, ok := strings.CutPrefix(typeName, "[]"); ok {
+		elemType := after
 		if valid {
 			elemValue := getTestValue(elemType, true)
 			return fmt.Sprintf("%s{%s}", typeName, elemValue)
@@ -491,10 +491,10 @@ func getComplexTestValue(typeName string, valid bool) string {
 	}
 
 	// Handle maps: map[KeyType]ValueType
-	if strings.HasPrefix(typeName, "map[") {
+	if after, ok := strings.CutPrefix(typeName, "map["); ok {
 		if valid {
 			// Parse map type: map[K]V
-			rest := strings.TrimPrefix(typeName, "map[")
+			rest := after
 			bracketDepth := 0
 			keyEnd := 0
 			for i, c := range rest {
@@ -520,8 +520,8 @@ func getComplexTestValue(typeName string, valid bool) string {
 	}
 
 	// Handle pointers: *Type
-	if strings.HasPrefix(typeName, "*") {
-		baseType := strings.TrimPrefix(typeName, "*")
+	if after, ok := strings.CutPrefix(typeName, "*"); ok {
+		baseType := after
 		if valid {
 			// For primitive types, create a pointer via helper
 			switch baseType {
@@ -551,8 +551,8 @@ func getComplexTestValue(typeName string, valid bool) string {
 	}
 
 	// Handle channel types: chan Type
-	if strings.HasPrefix(typeName, "chan ") {
-		elemType := strings.TrimPrefix(typeName, "chan ")
+	if after, ok := strings.CutPrefix(typeName, "chan "); ok {
+		elemType := after
 		if valid {
 			return fmt.Sprintf("make(%s, 1)", typeName)
 		}

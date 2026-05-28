@@ -6,15 +6,18 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	
+
 	"codenerd/internal/tactile"
 )
 
 type stubExecutor struct{}
+
 func (s *stubExecutor) Execute(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 	return &tactile.ExecutionResult{ExitCode: 0, Stdout: "test", Success: true}, nil
 }
-func (s *stubExecutor) Capabilities() tactile.ExecutorCapabilities { return tactile.ExecutorCapabilities{} }
+func (s *stubExecutor) Capabilities() tactile.ExecutorCapabilities {
+	return tactile.ExecutorCapabilities{}
+}
 func (s *stubExecutor) Validate(cmd tactile.Command) error { return nil }
 
 // ============================================================================
@@ -41,7 +44,7 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 			name: "Missing Target",
 			fact: Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{"act_1", "/read_file"},
+				Args:      []any{"act_1", "/read_file"},
 			},
 			expectError:   true,
 			errorContains: "requires at least 3 arguments",
@@ -50,7 +53,7 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 			name: "Empty ActionID",
 			fact: Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{"", "/read_file", "main.go"},
+				Args:      []any{"", "/read_file", "main.go"},
 			},
 			expectError: false, // Routes, but handlers might fail depending on logic
 		},
@@ -58,7 +61,7 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 			name: "Empty Target String",
 			fact: Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{"act_1", "/read_file", ""},
+				Args:      []any{"act_1", "/read_file", ""},
 			},
 			expectError: true, // Should fail somewhere in validation or execution cleanly
 		},
@@ -81,14 +84,14 @@ func TestVirtualStoreGap_MissingActionIDOrTarget(t *testing.T) {
 func TestVirtualStoreGap_EmptyPayloadMap(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	kernel := &stubKernel{
-		safe: []Fact{{Predicate: "safe_action", Args: []interface{}{"/read_file"}}},
+		safe: []Fact{{Predicate: "safe_action", Args: []any{"/read_file"}}},
 	}
 	vs.SetKernel(kernel)
 
 	// Should not panic
 	res1 := vs.CheckKernelPermitted("/read_file", "test.go", nil)
-	res2 := vs.CheckKernelPermitted("/read_file", "test.go", map[string]interface{}{})
-	
+	res2 := vs.CheckKernelPermitted("/read_file", "test.go", map[string]any{})
+
 	if !res1 || !res2 {
 		t.Log("Expected true for permitted action even with nil payload, but safe logic ran fine without panicking")
 	}
@@ -98,12 +101,12 @@ func TestVirtualStoreGap_EmptyPayloadMap(t *testing.T) {
 func TestVirtualStoreGap_NilKernelReference(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
-	
+
 	_, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"act_1", "/read_file", "main.go"},
+		Args:      []any{"act_1", "/read_file", "main.go"},
 	})
-	
+
 	// Should not panic, but either fail cleanly or log and execute
 	if err == nil {
 		t.Log("Executed without kernel; fact injection safely skipped")
@@ -118,34 +121,34 @@ func TestVirtualStoreGap_IncorrectTypesParseActionFact(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		args        []interface{}
+		args        []any
 		expectError bool
 		checkID     string
 		checkType   ActionType
 		checkTarget string
 	}{
 		{
-			name: "Integer ActionID",
-			args: []interface{}{123, "/read_file", "main.go"},
+			name:        "Integer ActionID",
+			args:        []any{123, "/read_file", "main.go"},
 			expectError: false,
-			checkID: "123", // ExtractString coerces correctly
-			checkType: ActionReadFile,
+			checkID:     "123", // ExtractString coerces correctly
+			checkType:   ActionReadFile,
 			checkTarget: "main.go",
 		},
 		{
-			name: "Float Target",
-			args: []interface{}{"act_1", "/read_file", 456.78},
+			name:        "Float Target",
+			args:        []any{"act_1", "/read_file", 456.78},
 			expectError: false,
-			checkID: "act_1",
-			checkType: ActionReadFile,
+			checkID:     "act_1",
+			checkType:   ActionReadFile,
 			checkTarget: "456.78",
 		},
 		{
-			name: "Boolean Type",
-			args: []interface{}{"act_1", true, "main.go"},
-			expectError: false, 
-			checkID: "act_1",
-			checkType: ActionType("true"), 
+			name:        "Boolean Type",
+			args:        []any{"act_1", true, "main.go"},
+			expectError: false,
+			checkID:     "act_1",
+			checkType:   ActionType("true"),
 			checkTarget: "main.go",
 		},
 	}
@@ -181,17 +184,17 @@ func TestVirtualStoreGap_IncorrectTypesParseActionFact(t *testing.T) {
 func TestVirtualStoreGap_MalformedPayloadValues(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
-	
+
 	// Pass an array instead of string for command, etc.
 	req := ActionRequest{
 		ActionID: "act_test",
-		Type: ActionExecCmd,
-		Target: "echo",
-		Payload: map[string]interface{}{
+		Type:     ActionExecCmd,
+		Target:   "echo",
+		Payload: map[string]any{
 			"timeout_seconds": "invalid_timeout_string", // should fallback to default gracefully
 		},
 	}
-	
+
 	timeout := timeoutSecondsFromActionRequest(req, 300)
 	if timeout != 300 {
 		t.Errorf("Expected fallback timeout 300, got %d", timeout)
@@ -202,12 +205,12 @@ func TestVirtualStoreGap_MalformedPayloadValues(t *testing.T) {
 func TestVirtualStoreGap_UnrecognizedActionTypes(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
-	
+
 	_, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"act_1", "/invented_action", "target"},
+		Args:      []any{"act_1", "/invented_action", "target"},
 	})
-	
+
 	if err == nil || !strings.Contains(err.Error(), "unknown") {
 		// Handlers usually return an error like "unknown action type: invented_action"
 		t.Logf("Expected unknown action error, got: %v", err)
@@ -223,17 +226,17 @@ func TestVirtualStoreGap_MassivePayloadMaps(t *testing.T) {
 	}
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
-	
-	payload := make(map[string]interface{})
-	for i := 0; i < 50000; i++ {
+
+	payload := make(map[string]any)
+	for i := range 50000 {
 		payload[fmt.Sprintf("key_%d", i)] = "value"
 	}
-	
+
 	fact := Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"act", "/test", "target", payload},
+		Args:      []any{"act", "/test", "target", payload},
 	}
-	
+
 	// Should parse successfully without OOM
 	req, err := vs.parseActionFact(fact)
 	if err != nil {
@@ -248,12 +251,12 @@ func TestVirtualStoreGap_MassivePayloadMaps(t *testing.T) {
 func TestVirtualStoreGap_ExtremelyLongTargetStrings(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	target := strings.Repeat("a/", 50000) + "file.go"
-	
+
 	req := ActionRequest{
-		Type: ActionReadFile,
+		Type:   ActionReadFile,
 		Target: target,
 	}
-	
+
 	err := vs.checkConstitution(req)
 	// Should not hang (catastrophic backtracking check)
 	if err != nil {
@@ -265,15 +268,15 @@ func TestVirtualStoreGap_ExtremelyLongTargetStrings(t *testing.T) {
 func TestVirtualStoreGap_ExtremeConcurrency(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.DisableBootGuard()
-	
+
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			_, _ = vs.RouteAction(context.Background(), Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{fmt.Sprintf("act_%d", idx), "/test_action", "target"},
+				Args:      []any{fmt.Sprintf("act_%d", idx), "/test_action", "target"},
 			})
 		}(i)
 	}
@@ -285,25 +288,23 @@ func TestVirtualStoreGap_ExtremeConcurrency(t *testing.T) {
 // TestVirtualStoreGap_ConcurrentDisableBootGuardAndRouteAction
 func TestVirtualStoreGap_ConcurrentDisableBootGuardAndRouteAction(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
-	
+
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			_, _ = vs.RouteAction(context.Background(), Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{fmt.Sprintf("act_%d", idx), "/test", "target"},
+				Args:      []any{fmt.Sprintf("act_%d", idx), "/test", "target"},
 			})
 		}(i)
 	}
-	
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+
+	for range 10 {
+		wg.Go(func() {
 			vs.DisableBootGuard()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -313,26 +314,24 @@ func TestVirtualStoreGap_EnableModernExecutorToggledDuringExecution(t *testing.T
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	vs.executor = &stubExecutor{} // Prevent nil pointer in handleExecCmd
 	vs.DisableBootGuard()
-	
+
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			// This exercises the executor getter safely
 			_, _ = vs.RouteAction(context.Background(), Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{fmt.Sprintf("act_%d", idx), "/exec_cmd", "echo test"},
+				Args:      []any{fmt.Sprintf("act_%d", idx), "/exec_cmd", "echo test"},
 			})
 		}(i)
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			vs.EnableModernExecutor()
 			vs.DisableModernExecutor()
-		}()
+		})
 	}
 	wg.Wait()
 }

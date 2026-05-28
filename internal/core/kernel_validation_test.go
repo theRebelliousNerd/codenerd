@@ -22,7 +22,7 @@ func TestKernelValidation_Schema(t *testing.T) {
 	k.Evaluate()
 
 	// 1. Assert valid fact
-	err := k.Assert(Fact{Predicate: "valid_pred", Args: []interface{}{"ok"}})
+	err := k.Assert(Fact{Predicate: "valid_pred", Args: []any{"ok"}})
 	if err != nil {
 		t.Errorf("Valid assert failed: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestKernelValidation_Schema(t *testing.T) {
 	// But `k.facts` are stored as `Fact` structs.
 	// When rebuilding, `LoadFacts` is used.
 
-	err = k.Assert(Fact{Predicate: "valid_pred", Args: []interface{}{"ok", "extra"}})
+	err = k.Assert(Fact{Predicate: "valid_pred", Args: []any{"ok", "extra"}})
 	// If Evaluate fails, Verify returns error.
 
 	if err == nil {
@@ -61,13 +61,13 @@ func TestKernelValidation_Types(t *testing.T) {
 	k.Evaluate()
 
 	// 1. Assert valid type
-	k.Assert(Fact{Predicate: "typed_pred", Args: []interface{}{123}})
+	k.Assert(Fact{Predicate: "typed_pred", Args: []any{123}})
 
 	// 2. Assert invalid type (String instead of Number)
 	// Mangle type checking occurs during evaluation/validation.
 	// k.Assert won't catch it immediately, but Evaluate might.
 
-	k.AssertWithoutEval(Fact{Predicate: "typed_pred", Args: []interface{}{"not_a_number"}})
+	k.AssertWithoutEval(Fact{Predicate: "typed_pred", Args: []any{"not_a_number"}})
 	err := k.Evaluate()
 
 	if err == nil {

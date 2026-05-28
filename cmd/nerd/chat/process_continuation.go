@@ -176,7 +176,7 @@ func (m *Model) injectShardResultFacts(shardType, task, result string, err error
 	// Assert shard_result fact
 	resultFact := core.Fact{
 		Predicate: "shard_result",
-		Args: []interface{}{
+		Args: []any{
 			taskID,
 			status,
 			"/" + shardType,
@@ -190,7 +190,7 @@ func (m *Model) injectShardResultFacts(shardType, task, result string, err error
 	if status == "/code_generated" {
 		testFact := core.Fact{
 			Predicate: "pending_test",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("test_%d", time.Now().UnixNano()),
 				fmt.Sprintf("Write tests for: %s", truncateSummary(task, 100)),
 			},
@@ -202,7 +202,7 @@ func (m *Model) injectShardResultFacts(shardType, task, result string, err error
 	if shardType == "reviewer" && strings.Contains(strings.ToLower(result), "issue") {
 		reviewFact := core.Fact{
 			Predicate: "pending_review",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("review_%d", time.Now().UnixNano()),
 				fmt.Sprintf("Fix issues found in: %s", truncateSummary(task, 100)),
 			},

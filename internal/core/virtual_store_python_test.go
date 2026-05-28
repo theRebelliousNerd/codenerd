@@ -16,7 +16,7 @@ func TestVirtualStorePython_EnvSetup(t *testing.T) {
 	// 1. Missing project_name and git_url
 	req := ActionRequest{
 		Type:    ActionPythonEnvSetup,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonEnvSetup(ctx, req)
 	if err != nil {
@@ -27,7 +27,7 @@ func TestVirtualStorePython_EnvSetup(t *testing.T) {
 	}
 
 	// 2. Project name present
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 	}
 	res, err = vs.handlePythonEnvSetup(ctx, req)
@@ -42,7 +42,7 @@ func TestVirtualStorePython_EnvSetup(t *testing.T) {
 	}
 
 	// 3. Project name and git_url present
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 		"git_url":      "https://github.com/foo/bar",
 		"commit":       "abcdef",
@@ -79,7 +79,7 @@ func TestVirtualStorePython_EnvExec(t *testing.T) {
 	// 1. Missing project_name or command
 	req := ActionRequest{
 		Type:    ActionPythonEnvExec,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonEnvExec(ctx, req)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestVirtualStorePython_EnvExec(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 		"command":      "python -m pip install pytest",
 	}
@@ -122,7 +122,7 @@ func TestVirtualStorePython_RunPytest(t *testing.T) {
 	// 1. Missing project_name
 	req := ActionRequest{
 		Type:    ActionPythonRunPytest,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonRunPytest(ctx, req)
 	if err != nil {
@@ -133,9 +133,9 @@ func TestVirtualStorePython_RunPytest(t *testing.T) {
 	}
 
 	// 2. Success path with test_args
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
-		"test_args":    []interface{}{"test_foo.py", "test_bar.py", 123}, // 123 should be ignored as non-string
+		"test_args":    []any{"test_foo.py", "test_bar.py", 123}, // 123 should be ignored as non-string
 	}
 	res, err = vs.handlePythonRunPytest(ctx, req)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestVirtualStorePython_ApplyPatch(t *testing.T) {
 	// 1. Missing project_name or patch
 	req := ActionRequest{
 		Type:    ActionPythonApplyPatch,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonApplyPatch(ctx, req)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestVirtualStorePython_ApplyPatch(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 		"patch":        "diff --git a/file.py b/file.py...",
 	}
@@ -212,7 +212,7 @@ func TestVirtualStorePython_Snapshot(t *testing.T) {
 	// 1. Missing project_name
 	req := ActionRequest{
 		Type:    ActionPythonSnapshot,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonSnapshot(ctx, req)
 	if err != nil {
@@ -223,7 +223,7 @@ func TestVirtualStorePython_Snapshot(t *testing.T) {
 	}
 
 	// 2. Success path with snapshot_name empty
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 	}
 	res, err = vs.handlePythonSnapshot(ctx, req)
@@ -235,7 +235,7 @@ func TestVirtualStorePython_Snapshot(t *testing.T) {
 	}
 
 	// 3. Success path with snapshot_name specified
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name":  "my-project",
 		"snapshot_name": "my-snap",
 	}
@@ -267,7 +267,7 @@ func TestVirtualStorePython_Restore(t *testing.T) {
 	// 1. Missing project_name or snapshot_name
 	req := ActionRequest{
 		Type:    ActionPythonRestore,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonRestore(ctx, req)
 	if err != nil {
@@ -278,7 +278,7 @@ func TestVirtualStorePython_Restore(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name":  "my-project",
 		"snapshot_name": "my-snap",
 	}
@@ -310,7 +310,7 @@ func TestVirtualStorePython_Teardown(t *testing.T) {
 	// 1. Missing project_name
 	req := ActionRequest{
 		Type:    ActionPythonTeardown,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handlePythonTeardown(ctx, req)
 	if err != nil {
@@ -321,7 +321,7 @@ func TestVirtualStorePython_Teardown(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"project_name": "my-project",
 	}
 	res, err = vs.handlePythonTeardown(ctx, req)
@@ -352,7 +352,7 @@ func TestVirtualStorePython_SWEBenchSetup(t *testing.T) {
 	// 1. Missing instance_id
 	req := ActionRequest{
 		Type:    ActionSWEBenchSetup,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchSetup(ctx, req)
 	if err != nil {
@@ -363,13 +363,13 @@ func TestVirtualStorePython_SWEBenchSetup(t *testing.T) {
 	}
 
 	// 2. Success path with test expectations
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id":       "inst-1",
 		"repo":              "django/django",
 		"base_commit":       "abcdef1234567890",
 		"problem_statement": "fix model field validation",
-		"fail_to_pass":      []interface{}{"test_fail_1", 123},
-		"pass_to_pass":      []interface{}{"test_pass_1"},
+		"fail_to_pass":      []any{"test_fail_1", 123},
+		"pass_to_pass":      []any{"test_pass_1"},
 	}
 	res, err = vs.handleSWEBenchSetup(ctx, req)
 	if err != nil {
@@ -403,7 +403,7 @@ func TestVirtualStorePython_SWEBenchApplyPatch(t *testing.T) {
 	// 1. Missing instance_id or patch
 	req := ActionRequest{
 		Type:    ActionSWEBenchApplyPatch,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchApplyPatch(ctx, req)
 	if err != nil {
@@ -414,9 +414,9 @@ func TestVirtualStorePython_SWEBenchApplyPatch(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
-		"patch":        "diff --git a/file.py...",
+		"patch":       "diff --git a/file.py...",
 	}
 	res, err = vs.handleSWEBenchApplyPatch(ctx, req)
 	if err != nil {
@@ -446,7 +446,7 @@ func TestVirtualStorePython_SWEBenchRunTests(t *testing.T) {
 	// 1. Missing instance_id
 	req := ActionRequest{
 		Type:    ActionSWEBenchRunTests,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchRunTests(ctx, req)
 	if err != nil {
@@ -457,9 +457,9 @@ func TestVirtualStorePython_SWEBenchRunTests(t *testing.T) {
 	}
 
 	// 2. Success path with test_names
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
-		"test_names":  []interface{}{"test_one", 123},
+		"test_names":  []any{"test_one", 123},
 	}
 	res, err = vs.handleSWEBenchRunTests(ctx, req)
 	if err != nil {
@@ -489,7 +489,7 @@ func TestVirtualStorePython_SWEBenchSnapshot(t *testing.T) {
 	// 1. Missing instance_id
 	req := ActionRequest{
 		Type:    ActionSWEBenchSnapshot,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchSnapshot(ctx, req)
 	if err != nil {
@@ -500,7 +500,7 @@ func TestVirtualStorePython_SWEBenchSnapshot(t *testing.T) {
 	}
 
 	// 2. Success path with snapshot_name empty
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
 	}
 	res, err = vs.handleSWEBenchSnapshot(ctx, req)
@@ -512,7 +512,7 @@ func TestVirtualStorePython_SWEBenchSnapshot(t *testing.T) {
 	}
 
 	// 3. Success path with snapshot_name specified
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id":   "inst-1",
 		"snapshot_name": "my-snap",
 	}
@@ -544,7 +544,7 @@ func TestVirtualStorePython_SWEBenchRestore(t *testing.T) {
 	// 1. Missing instance_id or snapshot_name
 	req := ActionRequest{
 		Type:    ActionSWEBenchRestore,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchRestore(ctx, req)
 	if err != nil {
@@ -555,7 +555,7 @@ func TestVirtualStorePython_SWEBenchRestore(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id":   "inst-1",
 		"snapshot_name": "my-snap",
 	}
@@ -587,7 +587,7 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 	// 1. Missing instance_id
 	req := ActionRequest{
 		Type:    ActionSWEBenchEvaluate,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchEvaluate(ctx, req)
 	if err != nil {
@@ -598,9 +598,9 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 	}
 
 	// 2. Success path with model_name empty (defaults to codenerd)
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
-		"patch":        "diff...",
+		"patch":       "diff...",
 	}
 	res, err = vs.handleSWEBenchEvaluate(ctx, req)
 	if err != nil {
@@ -611,9 +611,9 @@ func TestVirtualStorePython_SWEBenchEvaluate(t *testing.T) {
 	}
 
 	// 3. Success path with model_name specified
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
-		"patch":        "diff...",
+		"patch":       "diff...",
 		"model_name":  "custom-model",
 	}
 	res, err = vs.handleSWEBenchEvaluate(ctx, req)
@@ -644,7 +644,7 @@ func TestVirtualStorePython_SWEBenchTeardown(t *testing.T) {
 	// 1. Missing instance_id
 	req := ActionRequest{
 		Type:    ActionSWEBenchTeardown,
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	res, err := vs.handleSWEBenchTeardown(ctx, req)
 	if err != nil {
@@ -655,7 +655,7 @@ func TestVirtualStorePython_SWEBenchTeardown(t *testing.T) {
 	}
 
 	// 2. Success path
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"instance_id": "inst-1",
 	}
 	res, err = vs.handleSWEBenchTeardown(ctx, req)

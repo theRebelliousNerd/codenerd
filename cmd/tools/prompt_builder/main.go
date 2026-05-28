@@ -562,10 +562,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 		default:
 		}
 
-		end := i + batchSize
-		if end > total {
-			end = total
-		}
+		end := min(i+batchSize, total)
 		batch := atoms[i:end]
 
 		// Generate embeddings for batch (unless skipped)
@@ -600,13 +597,13 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 			}
 		}
 
-		var tagArgs []interface{}
+		var tagArgs []any
 		var tagPlaceholders []string
 
 		// Store each atom
 		for j, atom := range batch {
 			var embeddingBlob []byte
-			var embeddingTask interface{}
+			var embeddingTask any
 
 			if !skipEmbeddings && embeddings != nil && j < len(embeddings) {
 				embeddingBlob = encodeFloat32Slice(embeddings[j])
@@ -671,10 +668,7 @@ func generateAndStoreAtoms(ctx context.Context, engine embedding.EmbeddingEngine
 		// Execute bulk tag inserts in chunks (SQLite limit is 32766 params, we use 3 per row)
 		chunkSize := 500
 		for k := 0; k < len(tagArgs); k += chunkSize * 3 {
-			endK := k + chunkSize*3
-			if endK > len(tagArgs) {
-				endK = len(tagArgs)
-			}
+			endK := min(k+chunkSize*3, len(tagArgs))
 
 			chunkArgs := tagArgs[k:endK]
 			chunkPlaceholders := tagPlaceholders[k/3 : endK/3]
@@ -718,7 +712,7 @@ func encodeFloat32Slice(vec []float32) []byte {
 }
 
 // nullableString returns nil for empty strings, otherwise the string.
-func nullableString(s string) interface{} {
+func nullableString(s string) any {
 	if s == "" {
 		return nil
 	}

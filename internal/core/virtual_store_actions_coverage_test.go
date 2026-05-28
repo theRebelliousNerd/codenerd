@@ -250,8 +250,8 @@ func TestHandleExecCmd(t *testing.T) {
 	req := ActionRequest{
 		ActionID: "a1",
 		Target:   "go test",
-		Payload: map[string]interface{}{
-			"env":             []interface{}{"GO111MODULE=on"},
+		Payload: map[string]any{
+			"env":             []any{"GO111MODULE=on"},
 			"timeout_seconds": 30,
 		},
 	}
@@ -517,7 +517,7 @@ func TestHandleWriteFile(t *testing.T) {
 	req := ActionRequest{
 		ActionID: "w1",
 		Target:   fileName,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content":   "some content",
 			"overwrite": true,
 		},
@@ -587,7 +587,7 @@ func TestHandleEditFile(t *testing.T) {
 	req := ActionRequest{
 		ActionID: "e1",
 		Target:   fileName,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"old": "old content",
 			"new": "new content",
 		},
@@ -610,7 +610,7 @@ func TestHandleEditFile(t *testing.T) {
 	}
 
 	// 2. Edit missing 'old' in payload (returns error in production)
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"new": "some content",
 	}
 	res, err = vs.handleEditFile(ctx, req)
@@ -620,7 +620,7 @@ func TestHandleEditFile(t *testing.T) {
 
 	// 3. Search target not found
 	req.Target = fileName
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"old": "non-existent",
 		"new": "new stuff",
 	}
@@ -669,7 +669,7 @@ func TestHandleDeleteFile(t *testing.T) {
 	req := ActionRequest{
 		ActionID: "del1",
 		Target:   fileName,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"confirmed": true,
 		},
 	}
@@ -1084,7 +1084,7 @@ func TestHandleDelegate(t *testing.T) {
 	req := ActionRequest{
 		ActionID: "del_task",
 		Target:   "coder",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"task": "refactor logic",
 		},
 	}
@@ -1232,13 +1232,13 @@ func TestGetStrategicSummary(t *testing.T) {
 		{"strategic/pattern", "OODA loop.", 0.85},
 		{"strategic/capability", "Self-repair, tool generation.", 0.99},
 		{"strategic/constraint", "Verify safety of commands.", 1.0},
-		{"strategic/full_knowledge", "Skip this blob.", 1.0}, // Should be skipped
+		{"strategic/full_knowledge", "Skip this blob.", 1.0},                // Should be skipped
 		{"doc/internal/architecture/design", "Documentation detail.", 0.95}, // High confidence doc/ architecture
-		{"doc/internal/pattern/flow", "Flow patterns.", 0.9},             // High confidence doc/ pattern
-		{"doc/internal/philosophy/creed", "Datalog creed.", 0.99},         // High confidence doc/ philosophy
-		{"doc/internal/capability/tools", "Tool capability.", 0.92},       // High confidence doc/ capability
-		{"doc/internal/constraint/jail", "Jail cell restriction.", 0.89},  // High confidence doc/ constraint
-		{"doc/internal/constraint/unsafe", "Ignore this constraint.", 0.5}, // Low confidence doc (should be ignored)
+		{"doc/internal/pattern/flow", "Flow patterns.", 0.9},                // High confidence doc/ pattern
+		{"doc/internal/philosophy/creed", "Datalog creed.", 0.99},           // High confidence doc/ philosophy
+		{"doc/internal/capability/tools", "Tool capability.", 0.92},         // High confidence doc/ capability
+		{"doc/internal/constraint/jail", "Jail cell restriction.", 0.89},    // High confidence doc/ constraint
+		{"doc/internal/constraint/unsafe", "Ignore this constraint.", 0.5},  // Low confidence doc (should be ignored)
 	}
 
 	for _, a := range atoms {

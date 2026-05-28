@@ -318,7 +318,7 @@ func (ss *StrategyStore) GetAllStrategies(problemType string, shardType string) 
 		       success_rate, last_used, last_refined, version, source, created_at
 		FROM strategies
 		WHERE 1=1`
-	args := []interface{}{}
+	args := []any{}
 
 	if problemType != "" {
 		query += " AND problem_type = ?"

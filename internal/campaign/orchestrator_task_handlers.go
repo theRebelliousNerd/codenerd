@@ -118,7 +118,7 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
-	return map[string]interface{}{
+	return map[string]any{
 		"shard":  shardType,
 		"result": result,
 		"task":   task.ID,
@@ -134,7 +134,7 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, err
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
-	return map[string]interface{}{"research_result": result}, nil
+	return map[string]any{"research_result": result}, nil
 }
 
 // executeFileTask creates or modifies a file using the Coder shard.
@@ -177,7 +177,7 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 	}
 
 	logging.Campaign("File verified after shard execution: %s", fullPath)
-	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
+	return map[string]any{"coder_result": result, "path": targetPath}, nil
 }
 
 // executeFileTaskFallback uses direct LLM when shard is unavailable.
@@ -232,7 +232,7 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 	}
 
 	logging.CampaignDebug("File fallback completed: %s", fullPath)
-	return map[string]interface{}{"path": fullPath, "size": len(content)}, nil
+	return map[string]any{"path": fullPath, "size": len(content)}, nil
 }
 
 // executeTestWriteTask writes tests for existing code using the Tester shard.
@@ -257,7 +257,7 @@ func (o *Orchestrator) executeTestWriteTask(ctx context.Context, task *Task) (an
 	}
 
 	logging.CampaignDebug("Test write task completed: %s", task.ID)
-	return map[string]interface{}{"tester_result": result, "target": targetPath}, nil
+	return map[string]any{"tester_result": result, "target": targetPath}, nil
 }
 
 // executeTestRunTask runs tests using the Tester shard.
@@ -298,14 +298,14 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 		}
 		if execErr != nil {
 			logging.Get(logging.CategoryCampaign).Error("Test execution failed: %v", execErr)
-			return map[string]interface{}{"output": output, "passed": false}, execErr
+			return map[string]any{"output": output, "passed": false}, execErr
 		}
 		logging.Campaign("Tests passed via direct execution")
-		return map[string]interface{}{"output": output, "passed": true}, nil
+		return map[string]any{"output": output, "passed": true}, nil
 	}
 
 	logging.CampaignDebug("Test run task completed: %s", task.ID)
-	return map[string]interface{}{"tester_result": result, "target": target}, nil
+	return map[string]any{"tester_result": result, "target": target}, nil
 }
 
 // executeVerifyTask runs verification (build, lint, etc.).
@@ -327,14 +327,14 @@ func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, 
 	}
 	if err != nil {
 		logging.Get(logging.CategoryCampaign).Error("Verify task %s failed: %v", task.ID, err)
-		return map[string]interface{}{
+		return map[string]any{
 			"task_id":  task.ID,
 			"output":   output,
 			"verified": false,
 		}, err
 	}
 	logging.Campaign("Verify task %s passed", task.ID)
-	return map[string]interface{}{
+	return map[string]any{
 		"task_id":  task.ID,
 		"output":   output,
 		"verified": true,
@@ -352,7 +352,7 @@ func (o *Orchestrator) executeShardSpawnTask(ctx context.Context, task *Task) (a
 		return nil, err
 	}
 	logging.CampaignDebug("Shard spawn task completed: %s", task.ID)
-	return map[string]interface{}{"shard_result": result}, nil
+	return map[string]any{"shard_result": result}, nil
 }
 
 // executeRefactorTask refactors existing code using the Coder shard.
@@ -377,7 +377,7 @@ func (o *Orchestrator) executeRefactorTask(ctx context.Context, task *Task) (any
 	}
 
 	logging.CampaignDebug("Refactor task completed: %s", task.ID)
-	return map[string]interface{}{"coder_result": result, "path": targetPath}, nil
+	return map[string]any{"coder_result": result, "path": targetPath}, nil
 }
 
 // executeIntegrateTask integrates components.
@@ -415,7 +415,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 	// 3. Autopoiesis orchestrator picks up the delegation
 	err := o.kernel.Assert(core.Fact{
 		Predicate: "missing_tool_for",
-		Args:      []interface{}{intentID, capability},
+		Args:      []any{intentID, capability},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to assert missing_tool_for: %w", err)
@@ -424,14 +424,14 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 	// Also assert goal_requires so the policy can derive properly
 	err = o.kernel.Assert(core.Fact{
 		Predicate: "goal_requires",
-		Args:      []interface{}{o.campaign.Goal, capability},
+		Args:      []any{o.campaign.Goal, capability},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to assert goal_requires: %w", err)
 	}
 
 	// Emit event for visibility
-	o.emitEvent("tool_generation_requested", "", task.ID, capability, map[string]interface{}{
+	o.emitEvent("tool_generation_requested", "", task.ID, capability, map[string]any{
 		"intent_id":  intentID,
 		"capability": capability,
 	})
@@ -448,7 +448,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 		case <-timeout:
 			// Tool generation timed out - return partial success
 			// The tool may still be generating in the background
-			return map[string]interface{}{
+			return map[string]any{
 				"status":     "pending",
 				"capability": capability,
 				"message":    "tool generation initiated but not yet complete",
@@ -460,7 +460,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 				for _, fact := range facts {
 					if len(fact.Args) > 0 {
 						if toolName, ok := fact.Args[0].(string); ok && toolName == capability {
-							return map[string]interface{}{
+							return map[string]any{
 								"status":     "complete",
 								"capability": capability,
 								"tool_name":  toolName,
@@ -476,7 +476,7 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 				for _, fact := range capFacts {
 					if len(fact.Args) > 0 {
 						if cap, ok := fact.Args[0].(string); ok && cap == capability {
-							return map[string]interface{}{
+							return map[string]any{
 								"status":     "complete",
 								"capability": capability,
 							}, nil
@@ -631,7 +631,7 @@ func (o *Orchestrator) executeGenericTask(ctx context.Context, task *Task) (any,
 		return nil, err
 	}
 	logging.CampaignDebug("Generic task completed: %s", task.ID)
-	return map[string]interface{}{"result": result}, nil
+	return map[string]any{"result": result}, nil
 }
 
 // extractCodeBlock extracts code from LLM response that may contain markdown fences.

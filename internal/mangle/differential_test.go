@@ -101,7 +101,7 @@ func TestDifferentialEngine_Incremental(t *testing.T) {
 	}
 
 	// Add b("foo"). Should derive a("foo").
-	err = diffEngine.AddFactIncremental(Fact{Predicate: "b", Args: []interface{}{"foo"}})
+	err = diffEngine.AddFactIncremental(Fact{Predicate: "b", Args: []any{"foo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,12 +145,12 @@ func TestSnapshotIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create differential engine: %v", err)
 	}
-	if err := diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"A"}}); err != nil {
+	if err := diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []any{"A"}}); err != nil {
 		t.Fatalf("Failed to add fact A: %v", err)
 	}
 
 	snapshot := diffEngine.Snapshot()
-	if err := snapshot.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"B"}}); err != nil {
+	if err := snapshot.AddFactIncremental(Fact{Predicate: "item", Args: []any{"B"}}); err != nil {
 		t.Fatalf("Failed to add fact B to snapshot: %v", err)
 	}
 

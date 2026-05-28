@@ -86,7 +86,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	facts := []core.Fact{
 		{
 			Predicate: "conversation_turn",
-			Args: []interface{}{
+			Args: []any{
 				turn.TurnID,
 				turn.Speaker,
 				turn.Message,
@@ -99,7 +99,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	for _, file := range turn.Metadata.FilesReferenced {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_file",
-			Args:      []interface{}{turn.TurnID, file},
+			Args:      []any{turn.TurnID, file},
 		})
 	}
 
@@ -107,7 +107,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	for _, symbol := range turn.Metadata.SymbolsReferenced {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_symbol",
-			Args:      []interface{}{turn.TurnID, symbol},
+			Args:      []any{turn.TurnID, symbol},
 		})
 	}
 
@@ -115,7 +115,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	for _, errMsg := range turn.Metadata.ErrorMessages {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_error_message",
-			Args:      []interface{}{turn.TurnID, errMsg},
+			Args:      []any{turn.TurnID, errMsg},
 		})
 	}
 
@@ -123,7 +123,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	for _, topic := range turn.Metadata.Topics {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_topic",
-			Args:      []interface{}{turn.TurnID, topic},
+			Args:      []any{turn.TurnID, topic},
 		})
 	}
 
@@ -131,7 +131,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	if turn.Metadata.IsQuestionReferringBack && turn.Metadata.ReferencesBackToTurn != nil {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_back",
-			Args:      []interface{}{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
+			Args:      []any{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
 		})
 	}
 
@@ -139,7 +139,7 @@ func (e *RealIntegrationEngine) createFactsFromTurn(turn *Turn) []core.Fact {
 	if turn.CampaignPhase != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_campaign_phase",
-			Args:      []interface{}{turn.TurnID, turn.CampaignPhase},
+			Args:      []any{turn.TurnID, turn.CampaignPhase},
 		})
 	}
 
@@ -221,7 +221,7 @@ func (e *RealIntegrationEngine) RetrieveContext(ctx context.Context, query strin
 	// Create intent fact from query for activation scoring
 	intentFact := &core.Fact{
 		Predicate: "user_intent",
-		Args:      []interface{}{"query", "retrieve", query, ""},
+		Args:      []any{"query", "retrieve", query, ""},
 	}
 
 	// Score all facts with real 9-component activation (including native back-reference scoring)

@@ -90,7 +90,7 @@ func (s *LocalStore) ensureContentHashes() error {
 		var cid int
 		var name, ctype string
 		var notnull, pk int
-		var dfltValue interface{}
+		var dfltValue any
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
 			continue
 		}
@@ -301,7 +301,7 @@ func (s *LocalStore) StoreKnowledgeAtomWithEmbedding(ctx context.Context, concep
 	// 2. Also store to vectors table with embedding for semantic search
 	// This makes knowledge atoms discoverable via VectorRecallSemanticFiltered
 	if s.embeddingEngine != nil {
-		metadata := map[string]interface{}{
+		metadata := map[string]any{
 			"content_type": "knowledge_atom",
 			"concept":      concept,
 			"confidence":   confidence,

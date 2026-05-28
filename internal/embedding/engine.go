@@ -138,7 +138,7 @@ func CosineSimilarity(a, b []float32) (float64, error) {
 	logging.EmbeddingDebug("Computing cosine similarity for vectors of dimension %d", len(a))
 
 	var dotProduct, aMagnitude, bMagnitude float64
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		dotProduct += float64(a[i] * b[i])
 		aMagnitude += float64(a[i] * a[i])
 		bMagnitude += float64(b[i] * b[i])

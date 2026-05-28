@@ -54,8 +54,8 @@ type SerializedFact struct {
 
 // SerializedArg preserves the type of each argument through JSON serialization.
 type SerializedArg struct {
-	Type  string      `json:"type"`  // "string", "int64", "float64", "bool", "atom"
-	Value interface{} `json:"value"` // The actual value
+	Type  string `json:"type"`  // "string", "int64", "float64", "bool", "atom"
+	Value any    `json:"value"` // The actual value
 }
 
 // NewDataFlowCache creates a new cache with the specified directory.
@@ -143,7 +143,7 @@ func (c *DataFlowCache) serializeFacts(facts []core.Fact) []SerializedFact {
 }
 
 // serializeArg converts a single argument to serializable form with type info.
-func (c *DataFlowCache) serializeArg(arg interface{}) SerializedArg {
+func (c *DataFlowCache) serializeArg(arg any) SerializedArg {
 	switch v := arg.(type) {
 	case core.MangleAtom:
 		return SerializedArg{Type: "atom", Value: string(v)}
@@ -169,7 +169,7 @@ func (c *DataFlowCache) deserializeFacts(serialized []SerializedFact) []core.Fac
 	for _, sf := range serialized {
 		f := core.Fact{
 			Predicate: sf.Predicate,
-			Args:      make([]interface{}, 0, len(sf.Args)),
+			Args:      make([]any, 0, len(sf.Args)),
 		}
 		for _, arg := range sf.Args {
 			f.Args = append(f.Args, c.deserializeArg(arg))
@@ -180,7 +180,7 @@ func (c *DataFlowCache) deserializeFacts(serialized []SerializedFact) []core.Fac
 }
 
 // deserializeArg converts a serialized argument back to its original type.
-func (c *DataFlowCache) deserializeArg(arg SerializedArg) interface{} {
+func (c *DataFlowCache) deserializeArg(arg SerializedArg) any {
 	switch arg.Type {
 	case "atom":
 		if s, ok := arg.Value.(string); ok {

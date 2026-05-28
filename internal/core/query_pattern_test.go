@@ -22,10 +22,10 @@ Decl name_probe(A).
 	k.learned = ``
 
 	k.facts = append(k.facts,
-		Fact{Predicate: "probe", Args: []interface{}{"alpha", "one"}},
-		Fact{Predicate: "probe", Args: []interface{}{"beta", "one"}},
-		Fact{Predicate: "probe", Args: []interface{}{"beta", "two"}},
-		Fact{Predicate: "name_probe", Args: []interface{}{"/foo"}},
+		Fact{Predicate: "probe", Args: []any{"alpha", "one"}},
+		Fact{Predicate: "probe", Args: []any{"beta", "one"}},
+		Fact{Predicate: "probe", Args: []any{"beta", "two"}},
+		Fact{Predicate: "name_probe", Args: []any{"/foo"}},
 	)
 	k.rebuildFactIndexLocked()
 

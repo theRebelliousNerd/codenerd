@@ -13,6 +13,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -216,7 +217,7 @@ type ToolCall struct {
 	Tool        string
 	Action      string
 	Target      string
-	Payload     map[string]interface{}
+	Payload     map[string]any
 	Timeout     time.Duration
 	QueuedAt    time.Time
 	StartedAt   time.Time
@@ -396,7 +397,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 				// Log error but continue
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_error",
-					Args:      []interface{}{"internal_error", err.Error(), time.Now().Unix()},
+					Args:      []any{"internal_error", err.Error(), time.Now().Unix()},
 				})
 			}
 		case <-fallbackCh:
@@ -405,7 +406,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 				// Log error but continue
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_error",
-					Args:      []interface{}{"internal_error", err.Error(), time.Now().Unix()},
+					Args:      []any{"internal_error", err.Error(), time.Now().Unix()},
 				})
 			}
 		case <-heartbeat.C:
@@ -448,7 +449,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		actionID := types.ExtractString(fact.Args[0])
 		actionType := types.ExtractString(fact.Args[1])
 		target := types.ExtractString(fact.Args[2])
-		payload := map[string]interface{}{}
+		payload := map[string]any{}
 		intentID := ""
 		if len(fact.Args) > 3 {
 			payload, intentID = normalizePayload(fact.Args[3])
@@ -480,12 +481,12 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			// Emit routing failure so policy can react deterministically
 			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "routing_result",
-				Args:      []interface{}{actionID, types.MangleAtom("/failure"), "no_handler", time.Now().Unix()},
+				Args:      []any{actionID, types.MangleAtom("/failure"), "no_handler", time.Now().Unix()},
 			})
 			if intentID != "" {
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "no_action_reason",
-					Args:      []interface{}{intentID, types.MangleAtom("/no_route")},
+					Args:      []any{intentID, types.MangleAtom("/no_route")},
 				})
 			}
 			continue
@@ -498,7 +499,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Routing("Rate limit exceeded for tool: %s (action=%s)", route.ToolName, actionType)
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{actionID, types.MangleAtom("/failure"), "rate_limit_exceeded", time.Now().Unix()},
+					Args:      []any{actionID, types.MangleAtom("/failure"), "rate_limit_exceeded", time.Now().Unix()},
 				})
 				continue
 			}
@@ -509,14 +510,14 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			logging.Routing("Internal kernel action acknowledged: %s", actionType)
 			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "system_event_handled",
-				Args:      []interface{}{actionType, target, time.Now().Unix()},
+				Args:      []any{actionType, target, time.Now().Unix()},
 			})
 			// Clear the permitted action to avoid repeated processing
 			if r.Kernel != nil {
 				_ = r.Kernel.RetractExactFact(fact)
 				_ = r.Kernel.RetractFact(types.Fact{
 					Predicate: "action_permitted",
-					Args:      []interface{}{actionID},
+					Args:      []any{actionID},
 				})
 			}
 			continue
@@ -547,7 +548,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			// Create action fact for VirtualStore (preserve payload)
 			actionFact := types.Fact{
 				Predicate: "next_action",
-				Args:      []interface{}{call.ID, actionType, target, payload},
+				Args:      []any{call.ID, actionType, target, payload},
 			}
 
 			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
@@ -560,7 +561,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Get(logging.CategoryTools).Error("Tool execution failed: %s (call_id=%s, duration=%v, error=%s)", route.ToolName, call.ID, duration, err.Error())
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
+					Args:      []any{call.ID, types.MangleAtom("/failure"), err.Error(), call.CompletedAt.Unix()},
 				})
 			} else {
 				call.Status = "completed"
@@ -568,7 +569,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				logging.Tools("Tool execution completed: %s (call_id=%s, duration=%v, result_len=%d)", route.ToolName, call.ID, duration, len(result))
 				_ = r.Kernel.Assert(types.Fact{
 					Predicate: "routing_result",
-					Args:      []interface{}{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
+					Args:      []any{call.ID, types.MangleAtom("/success"), result, call.CompletedAt.Unix()},
 				})
 			}
 
@@ -633,7 +634,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			// Emit exec_request fact for async processing by VirtualStore
 			_ = r.Kernel.Assert(types.Fact{
 				Predicate: "exec_request",
-				Args: []interface{}{
+				Args: []any{
 					route.ToolName,
 					target,
 					route.Timeout.Seconds(),
@@ -650,7 +651,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		// Also clear unary marker for this action type
 		_ = r.Kernel.RetractFact(types.Fact{
 			Predicate: "action_permitted",
-			Args:      []interface{}{actionID},
+			Args:      []any{actionID},
 		})
 	}
 
@@ -682,7 +683,7 @@ func (r *TactileRouterShard) syncToolAllowlist() {
 	for toolName := range toolNames {
 		_ = r.Kernel.Assert(types.Fact{
 			Predicate: "tool_allowlist",
-			Args:      []interface{}{types.MangleAtom("/" + toolName), now},
+			Args:      []any{types.MangleAtom("/" + toolName), now},
 		})
 	}
 }
@@ -917,7 +918,7 @@ func (r *TactileRouterShard) handleAutopoiesis(ctx context.Context) {
 		// Emit route_added fact
 		_ = r.Kernel.Assert(types.Fact{
 			Predicate: "route_added",
-			Args:      []interface{}{newRoute.ActionPattern, newRoute.ToolName, time.Now().Unix()},
+			Args:      []any{newRoute.ActionPattern, newRoute.ToolName, time.Now().Unix()},
 		})
 	}
 }
@@ -951,19 +952,19 @@ func (r *TactileRouterShard) buildRouteProposalPrompt(cases []UnhandledCase) str
 func (r *TactileRouterShard) parseProposedRoute(output string) ToolRoute {
 	route := ToolRoute{}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "ACTION:") {
-			route.ActionPattern = strings.TrimSpace(strings.TrimPrefix(line, "ACTION:"))
-		} else if strings.HasPrefix(line, "TOOL:") {
-			route.ToolName = strings.TrimSpace(strings.TrimPrefix(line, "TOOL:"))
+		if after, ok := strings.CutPrefix(line, "ACTION:"); ok {
+			route.ActionPattern = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "TOOL:"); ok {
+			route.ToolName = strings.TrimSpace(after)
 		} else if strings.HasPrefix(line, "TIMEOUT:") {
 			var secs int
 			fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "TIMEOUT:")), "%d", &secs)
 			route.Timeout = time.Duration(secs) * time.Second
-		} else if strings.HasPrefix(line, "RATE_LIMIT:") {
-			fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "RATE_LIMIT:")), "%d", &route.RateLimit)
+		} else if after, ok := strings.CutPrefix(line, "RATE_LIMIT:"); ok {
+			fmt.Sscanf(strings.TrimSpace(after), "%d", &route.RateLimit)
 		} else if strings.HasPrefix(line, "REQUIRES_SAFE:") {
 			route.RequiresSafe = strings.Contains(strings.ToLower(line), "true")
 		}
@@ -1002,9 +1003,7 @@ func (r *TactileRouterShard) GetRoutes() map[string]ToolRoute {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	result := make(map[string]ToolRoute)
-	for k, v := range r.routes {
-		result[k] = v
-	}
+	maps.Copy(result, r.routes)
 	return result
 }
 
@@ -1014,7 +1013,7 @@ func (r *TactileRouterShard) getSessionID() string {
 	return fmt.Sprintf("session-%d", r.StartTime.Unix())
 }
 
-func normalizePayload(arg interface{}) (map[string]interface{}, string) {
+func normalizePayload(arg any) (map[string]any, string) {
 	return decodeActionPayload(arg)
 }
 

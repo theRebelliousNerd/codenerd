@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+// requireLiveLLMClient resolves a live LLM client via the production
+// client_factory path so the test uses whatever provider + model is in
+// .nerd/config.json. The previous implementation hardcoded
+// `perception.NewZAIClient(apiKey)`, which silently locked the test to
+// ZAI even after the codebase migrated to Gemini — meaning these live
+// tests skipped on every developer machine whose config wasn't ZAI.
+// Provider-agnostic resolution catches the actual production stack.
 func requireLiveLLMClient(t *testing.T) perception.LLMClient {
 	t.Helper()
 
@@ -17,26 +24,22 @@ func requireLiveLLMClient(t *testing.T) perception.LLMClient {
 	}
 
 	configPath := config.DefaultUserConfigPath()
-	cfg, err := config.LoadUserConfig(configPath)
+	providerCfg, err := perception.LoadConfigJSON(configPath)
 	if err != nil {
 		t.Skipf("skipping live LLM test: load config %s: %v", configPath, err)
 	}
-
-	apiKey := cfg.ZAIAPIKey
-	if apiKey == "" && cfg.Provider == "zai" && cfg.APIKey != "" {
-		apiKey = cfg.APIKey
+	if providerCfg.Engine != "" && providerCfg.Engine != "api" {
+		t.Skipf("skipping live LLM test: engine=%q (this test requires the API engine)", providerCfg.Engine)
 	}
-	if apiKey == "" && cfg.Provider == "" && cfg.APIKey != "" {
-		apiKey = cfg.APIKey
-	}
-	if apiKey == "" {
-		t.Skipf("skipping live LLM test: zai_api_key not configured in %s", configPath)
+	if providerCfg.APIKey == "" {
+		t.Skipf("skipping live LLM test: no API key configured in %s", configPath)
 	}
 
-	client := perception.NewZAIClient(apiKey)
-	if cfg.Provider == "zai" && cfg.Model != "" {
-		client.SetModel(cfg.Model)
+	client, err := perception.NewClientFromConfig(providerCfg)
+	if err != nil {
+		t.Fatalf("build live LLM client: %v", err)
 	}
+	t.Logf("live client resolved: provider=%s model=%s", providerCfg.Provider, providerCfg.Model)
 	return client
 }
 

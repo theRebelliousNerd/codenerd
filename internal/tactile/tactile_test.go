@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -301,13 +302,7 @@ func TestDirectExecutor_Capabilities(t *testing.T) {
 	}
 
 	// Should support SandboxNone
-	found := false
-	for _, mode := range caps.SupportedSandboxModes {
-		if mode == SandboxNone {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(caps.SupportedSandboxModes, SandboxNone)
 	if !found {
 		t.Errorf("Expected SandboxNone in supported modes")
 	}
@@ -540,13 +535,7 @@ func TestCompositeExecutor(t *testing.T) {
 	}
 
 	// Should have at least SandboxNone
-	found := false
-	for _, mode := range caps.SupportedSandboxModes {
-		if mode == SandboxNone {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(caps.SupportedSandboxModes, SandboxNone)
 	if !found {
 		t.Errorf("Expected SandboxNone in supported modes")
 	}

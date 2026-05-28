@@ -98,7 +98,7 @@ func TestShadowMode_MassiveSimulationVolume(t *testing.T) {
 	sim, _ := shadow.StartSimulation(ctx, "Massive Volume")
 
 	// Test bounds of slice capacity and GC pressure
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		action := SimulatedAction{
 			ID:     "action-mass",
 			Type:   ActionTypeExec,
@@ -126,10 +126,8 @@ func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
 	failures := 0
 	var mu sync.Mutex
 
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			_, err := shadow.StartSimulation(ctx, "Concurrent Start")
 			mu.Lock()
 			if err == nil {
@@ -138,7 +136,7 @@ func TestShadowMode_ConcurrentStartSimulation(t *testing.T) {
 				failures++
 			}
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -165,11 +163,9 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 	failures := 0
 	var mu sync.Mutex
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			action := SimulatedAction{
 				ID:     fmt.Sprintf("whatif-%d", i),
 				Type:   ActionTypeExec,
@@ -183,7 +179,7 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 				failures++
 			}
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -229,7 +225,7 @@ func TestSimulation_ExcessiveActionsLimit(t *testing.T) {
 	// test fast — appending MaxSimActions real actions is wasteful here.
 	shadow.mu.Lock()
 	sim := shadow.simulations[shadow.activeSimID]
-	for i := 0; i < MaxSimActions-1; i++ {
+	for range MaxSimActions - 1 {
 		sim.Actions = append(sim.Actions, SimulatedAction{ID: "pad", Type: ActionTypeExec})
 	}
 	shadow.mu.Unlock()

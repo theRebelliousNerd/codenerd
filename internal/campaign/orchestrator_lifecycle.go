@@ -158,11 +158,11 @@ func (o *Orchestrator) resetInProgress() {
 				// Update kernel fact for the task
 				_ = o.kernel.RetractFact(core.Fact{
 					Predicate: "campaign_task",
-					Args:      []interface{}{task.ID},
+					Args:      []any{task.ID},
 				})
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "campaign_task",
-					Args:      []interface{}{task.ID, task.PhaseID, task.Description, string(TaskPending), string(task.Type)},
+					Args:      []any{task.ID, task.PhaseID, task.Description, string(TaskPending), string(task.Type)},
 				})
 			}
 		}

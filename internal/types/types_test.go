@@ -27,7 +27,7 @@ func TestIsValidMangleNameConstant(t *testing.T) {
 func TestFactString(t *testing.T) {
 	fact := Fact{
 		Predicate: "test",
-		Args: []interface{}{
+		Args: []any{
 			MangleAtom("/name"),
 			"/valid",
 			"/bad//name",
@@ -51,7 +51,7 @@ func TestFactString(t *testing.T) {
 func TestFactToAtomConversion(t *testing.T) {
 	fact := Fact{
 		Predicate: "test",
-		Args: []interface{}{
+		Args: []any{
 			MangleAtom("/name"),
 			MangleAtom("not-atom"),
 			"/valid",
@@ -93,7 +93,7 @@ func TestFactToAtomConversion(t *testing.T) {
 func TestFactToAtomInvalidMangleAtom(t *testing.T) {
 	fact := Fact{
 		Predicate: "test",
-		Args: []interface{}{
+		Args: []any{
 			MangleAtom("/bad//name"),
 		},
 	}
@@ -105,7 +105,7 @@ func TestFactToAtomInvalidMangleAtom(t *testing.T) {
 func TestKernelFactToFact(t *testing.T) {
 	kf := KernelFact{
 		Predicate: "pred",
-		Args:      []interface{}{"arg"},
+		Args:      []any{"arg"},
 	}
 	fact := kf.ToFact()
 	if fact.Predicate != "pred" || len(fact.Args) != 1 || fact.Args[0] != "arg" {

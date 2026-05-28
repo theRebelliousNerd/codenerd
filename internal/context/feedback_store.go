@@ -233,7 +233,7 @@ func (s *ContextFeedbackStore) GetPredicateUsefulnessForIntent(predicate, intent
 func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb string) float64 {
 	// Build query based on whether intent filter is specified
 	var query string
-	var args []interface{}
+	var args []any
 
 	if intentVerb != "" {
 		query = `
@@ -244,7 +244,7 @@ func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb strin
 			ORDER BY cf.timestamp DESC
 			LIMIT 100
 		`
-		args = []interface{}{predicate, intentVerb}
+		args = []any{predicate, intentVerb}
 	} else {
 		query = `
 			SELECT pf.rating, cf.timestamp
@@ -254,7 +254,7 @@ func (s *ContextFeedbackStore) computePredicateScore(predicate, intentVerb strin
 			ORDER BY cf.timestamp DESC
 			LIMIT 100
 		`
-		args = []interface{}{predicate}
+		args = []any{predicate}
 	}
 
 	rows, err := s.db.Query(query, args...)

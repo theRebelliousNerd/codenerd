@@ -226,7 +226,7 @@ func TestComputeDiff_LargeFile(t *testing.T) {
 	// Generate large content. Note: avoid NUL bytes (rune(0)) because the diff
 	// engine now short-circuits binary payloads via NUL-byte detection.
 	var oldLines, newLines []string
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		oldLines = append(oldLines, "line "+string(rune(i+1)))
 		newLines = append(newLines, "line "+string(rune(i+1)))
 	}
@@ -326,7 +326,7 @@ func BenchmarkComputeDiff_Small(b *testing.B) {
 
 func BenchmarkComputeDiff_Large(b *testing.B) {
 	var lines []string
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		// Skip rune(0) (NUL) — flagged as binary by the engine.
 		lines = append(lines, "line content here "+string(rune(i+1)))
 	}

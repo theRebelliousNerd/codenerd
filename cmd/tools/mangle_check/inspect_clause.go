@@ -7,9 +7,8 @@ import (
 )
 
 func main() {
-	c := ast.Clause{}
-	t := reflect.TypeOf(c)
-	for i := 0; i < t.NumField(); i++ {
-		fmt.Printf("Field: %s\n", t.Field(i).Name)
+	t := reflect.TypeFor[ast.Clause]()
+	for field := range t.Fields() {
+		fmt.Printf("Field: %s\n", field.Name)
 	}
 }

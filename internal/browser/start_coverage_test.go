@@ -194,7 +194,7 @@ func TestPersistSessions_WhenMultipleSessions_ShouldWriteAll(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 
 	// Add several sessions
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		id := filepath.Base(tmpDir) + string(rune('A'+i))
 		sm.sessions[id] = &sessionRecord{
 			meta: Session{
@@ -310,7 +310,7 @@ func TestSessionManager_ConcurrentReadWrite_ShouldBeSafe(t *testing.T) {
 	now := time.Now()
 
 	// Seed with some sessions
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		id := string(rune('a' + i))
 		sm.sessions[id] = &sessionRecord{
 			meta: Session{ID: id, Status: "active", CreatedAt: now, LastActive: now},
@@ -320,7 +320,7 @@ func TestSessionManager_ConcurrentReadWrite_ShouldBeSafe(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			sm.List()
 			sm.GetSession("a")
 			sm.Page("b")
@@ -334,7 +334,7 @@ func TestSessionManager_ConcurrentReadWrite_ShouldBeSafe(t *testing.T) {
 	}()
 
 	// Concurrent reads while goroutine is running
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		sm.List()
 		sm.IsConnected()
 		sm.GetSession("d")

@@ -216,7 +216,7 @@ type Phase struct {
 	// Compression (after completion)
 	CompressedSummary string    `json:"compressed_summary,omitempty"`
 	OriginalAtomCount int       `json:"original_atom_count,omitempty"`
-	CompressedAt      time.Time `json:"compressed_at,omitempty"`
+	CompressedAt      time.Time `json:"compressed_at"`
 }
 
 // PhaseObjective describes what a phase aims to accomplish.
@@ -272,7 +272,7 @@ type Task struct {
 	Attempts  []TaskAttempt `json:"attempts,omitempty"`
 	LastError string        `json:"last_error,omitempty"`
 	// Backoff control (persisted for long-horizon durability)
-	NextRetryAt time.Time `json:"next_retry_at,omitempty"`
+	NextRetryAt time.Time `json:"next_retry_at"`
 }
 
 // CampaignRefFailurePolicy controls how parent task status reacts to child status.
@@ -442,25 +442,25 @@ func (c *Campaign) ToFacts() []core.Fact {
 	// Main campaign fact
 	facts = append(facts, core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{c.ID, string(c.Type), c.Title, source, string(c.Status)},
+		Args:      []any{c.ID, string(c.Type), c.Title, source, string(c.Status)},
 	})
 
 	// Campaign metadata
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_metadata",
-		Args:      []interface{}{c.ID, c.CreatedAt.Unix(), len(c.Phases), int64(c.Confidence * 100)}, // Scale 0.0-1.0 → 0-100 integer
+		Args:      []any{c.ID, c.CreatedAt.Unix(), len(c.Phases), int64(c.Confidence * 100)}, // Scale 0.0-1.0 → 0-100 integer
 	})
 
 	// Campaign goal
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_goal",
-		Args:      []interface{}{c.ID, c.Goal},
+		Args:      []any{c.ID, c.Goal},
 	})
 
 	// Progress
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_progress",
-		Args:      []interface{}{c.ID, c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks},
+		Args:      []any{c.ID, c.CompletedPhases, c.TotalPhases, c.CompletedTasks, c.TotalTasks},
 	})
 
 	// Context profiles
@@ -472,7 +472,7 @@ func (c *Campaign) ToFacts() []core.Fact {
 	for _, doc := range c.SourceDocs {
 		facts = append(facts, core.Fact{
 			Predicate: "source_document",
-			Args:      []interface{}{c.ID, doc.Path, doc.Type, doc.ParsedAt.Unix()},
+			Args:      []any{c.ID, doc.Path, doc.Type, doc.ParsedAt.Unix()},
 		})
 	}
 
@@ -496,7 +496,7 @@ func (p *Phase) ToFacts() []core.Fact {
 	// Phase fact
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_phase",
-		Args:      []interface{}{p.ID, p.CampaignID, p.Name, p.Order, string(p.Status), p.ContextProfile},
+		Args:      []any{p.ID, p.CampaignID, p.Name, p.Order, string(p.Status), p.ContextProfile},
 	})
 
 	// Phase category for build topology enforcement
@@ -505,7 +505,7 @@ func (p *Phase) ToFacts() []core.Fact {
 	if category != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "phase_category",
-			Args:      []interface{}{p.ID, category},
+			Args:      []any{p.ID, category},
 		})
 	}
 
@@ -513,7 +513,7 @@ func (p *Phase) ToFacts() []core.Fact {
 	for _, obj := range p.Objectives {
 		facts = append(facts, core.Fact{
 			Predicate: "phase_objective",
-			Args:      []interface{}{p.ID, string(obj.Type), obj.Description, string(obj.VerificationMethod)},
+			Args:      []any{p.ID, string(obj.Type), obj.Description, string(obj.VerificationMethod)},
 		})
 	}
 
@@ -521,14 +521,14 @@ func (p *Phase) ToFacts() []core.Fact {
 	for _, dep := range p.Dependencies {
 		facts = append(facts, core.Fact{
 			Predicate: "phase_dependency",
-			Args:      []interface{}{p.ID, dep.DependsOnPhaseID, string(dep.Type)},
+			Args:      []any{p.ID, dep.DependsOnPhaseID, string(dep.Type)},
 		})
 	}
 
 	// Phase estimates
 	facts = append(facts, core.Fact{
 		Predicate: "phase_estimate",
-		Args:      []interface{}{p.ID, p.EstimatedTasks, p.EstimatedComplexity},
+		Args:      []any{p.ID, p.EstimatedTasks, p.EstimatedComplexity},
 	})
 
 	// Tasks
@@ -543,7 +543,7 @@ func (p *Phase) ToFacts() []core.Fact {
 	if p.CompressedSummary != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "context_compression",
-			Args:      []interface{}{p.ID, p.CompressedSummary, p.OriginalAtomCount, p.CompressedAt.Unix()},
+			Args:      []any{p.ID, p.CompressedSummary, p.OriginalAtomCount, p.CompressedAt.Unix()},
 		})
 	}
 
@@ -557,26 +557,26 @@ func (t *Task) ToFacts() []core.Fact {
 	// Task fact
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_task",
-		Args:      []interface{}{t.ID, t.PhaseID, t.Description, string(t.Status), string(t.Type)},
+		Args:      []any{t.ID, t.PhaseID, t.Description, string(t.Status), string(t.Type)},
 	})
 
 	// Task priority
 	facts = append(facts, core.Fact{
 		Predicate: "task_priority",
-		Args:      []interface{}{t.ID, string(t.Priority)},
+		Args:      []any{t.ID, string(t.Priority)},
 	})
 
 	// Task order (stable deterministic ordering)
 	facts = append(facts, core.Fact{
 		Predicate: "task_order",
-		Args:      []interface{}{t.ID, t.Order},
+		Args:      []any{t.ID, t.Order},
 	})
 
 	// Task dependencies
 	for _, depID := range t.DependsOn {
 		facts = append(facts, core.Fact{
 			Predicate: "task_dependency",
-			Args:      []interface{}{t.ID, depID},
+			Args:      []any{t.ID, depID},
 		})
 	}
 
@@ -584,7 +584,7 @@ func (t *Task) ToFacts() []core.Fact {
 	for _, depID := range t.SoftDeps {
 		facts = append(facts, core.Fact{
 			Predicate: "task_soft_dependency",
-			Args:      []interface{}{t.ID, depID},
+			Args:      []any{t.ID, depID},
 		})
 	}
 
@@ -592,7 +592,7 @@ func (t *Task) ToFacts() []core.Fact {
 	for _, res := range t.Resources {
 		facts = append(facts, core.Fact{
 			Predicate: "requires_resource",
-			Args:      []interface{}{t.ID, res},
+			Args:      []any{t.ID, res},
 		})
 	}
 
@@ -600,7 +600,7 @@ func (t *Task) ToFacts() []core.Fact {
 	if t.SubCampaignID != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "task_sub_campaign",
-			Args:      []interface{}{t.ID, t.SubCampaignID},
+			Args:      []any{t.ID, t.SubCampaignID},
 		})
 	}
 
@@ -609,7 +609,7 @@ func (t *Task) ToFacts() []core.Fact {
 		path := normalizePath(artifact.Path)
 		facts = append(facts, core.Fact{
 			Predicate: "task_artifact",
-			Args:      []interface{}{t.ID, artifact.Type, path, artifact.Hash},
+			Args:      []any{t.ID, artifact.Type, path, artifact.Hash},
 		})
 	}
 
@@ -617,7 +617,7 @@ func (t *Task) ToFacts() []core.Fact {
 	if t.InferredFrom != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "task_inference",
-			Args:      []interface{}{t.ID, t.InferredFrom, t.InferenceConf, t.InferenceReason},
+			Args:      []any{t.ID, t.InferredFrom, t.InferenceConf, t.InferenceReason},
 		})
 	}
 
@@ -625,7 +625,7 @@ func (t *Task) ToFacts() []core.Fact {
 	for _, attempt := range t.Attempts {
 		facts = append(facts, core.Fact{
 			Predicate: "task_attempt",
-			Args:      []interface{}{t.ID, attempt.Number, attempt.Outcome, attempt.Timestamp.Unix()},
+			Args:      []any{t.ID, attempt.Number, attempt.Outcome, attempt.Timestamp.Unix()},
 		})
 	}
 
@@ -633,7 +633,7 @@ func (t *Task) ToFacts() []core.Fact {
 	if !t.NextRetryAt.IsZero() {
 		facts = append(facts, core.Fact{
 			Predicate: "task_retry_at",
-			Args:      []interface{}{t.ID, t.NextRetryAt.Unix()},
+			Args:      []any{t.ID, t.NextRetryAt.Unix()},
 		})
 	}
 
@@ -641,7 +641,7 @@ func (t *Task) ToFacts() []core.Fact {
 	if t.LastError != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "task_error",
-			Args:      []interface{}{t.ID, "execution_error", t.LastError},
+			Args:      []any{t.ID, "execution_error", t.LastError},
 		})
 	}
 
@@ -649,7 +649,7 @@ func (t *Task) ToFacts() []core.Fact {
 	for _, writePath := range t.DeterministicWriteSet() {
 		facts = append(facts, core.Fact{
 			Predicate: "task_write_target",
-			Args:      []interface{}{t.ID, writePath},
+			Args:      []any{t.ID, writePath},
 		})
 	}
 
@@ -723,7 +723,7 @@ func campaignRefLifecycleContractMap() map[string]string {
 func (cp *ContextProfile) ToFacts() []core.Fact {
 	return []core.Fact{{
 		Predicate: "context_profile",
-		Args: []interface{}{
+		Args: []any{
 			cp.ID,
 			joinStrings(cp.RequiredSchemas),
 			joinStrings(cp.RequiredTools),
@@ -734,14 +734,14 @@ func (cp *ContextProfile) ToFacts() []core.Fact {
 
 // Helper to join strings with commas.
 func joinStrings(strs []string) string {
-	result := ""
+	var result strings.Builder
 	for i, s := range strs {
 		if i > 0 {
-			result += ","
+			result.WriteString(",")
 		}
-		result += s
+		result.WriteString(s)
 	}
-	return result
+	return result.String()
 }
 
 // normalizeCategory coerces category strings into canonical /atom form with a default.

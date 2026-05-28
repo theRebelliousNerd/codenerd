@@ -1,12 +1,12 @@
 package core
 
 import (
-"context"
-"fmt"
-"time"
+	"context"
+	"fmt"
+	"time"
 
-"codenerd/internal/logging"
-"codenerd/internal/types"
+	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // Scheduled LLM Call Wrapper
@@ -353,9 +353,9 @@ func (c *ScheduledLLMCall) CreateCachedContent(ctx context.Context, files []stri
 }
 
 // GetCachedContent delegates to the underlying client.
-func (c *ScheduledLLMCall) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+func (c *ScheduledLLMCall) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
 	if p, ok := c.Client.(interface {
-		GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+		GetCachedContent(ctx context.Context, cacheName string) (any, error)
 	}); ok {
 		return p.GetCachedContent(ctx, cacheName)
 	}
@@ -424,9 +424,9 @@ func (c *ScheduledLLMCall) ListFiles(ctx context.Context) ([]string, error) {
 }
 
 // GetFile delegates to the underlying client.
-func (c *ScheduledLLMCall) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+func (c *ScheduledLLMCall) GetFile(ctx context.Context, fileID string) (any, error) {
 	if p, ok := c.Client.(interface {
-		GetFile(ctx context.Context, fileID string) (interface{}, error)
+		GetFile(ctx context.Context, fileID string) (any, error)
 	}); ok {
 		return p.GetFile(ctx, fileID)
 	}
@@ -716,10 +716,7 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 		// Check if we should retry
 		if attempt < maxRetries {
 			// Brief pause before retry (exponential backoff)
-			backoff := time.Duration(1<<attempt) * 100 * time.Millisecond
-			if backoff > 5*time.Second {
-				backoff = 5 * time.Second
-			}
+			backoff := min(time.Duration(1<<attempt)*100*time.Millisecond, 5*time.Second)
 
 			select {
 			case <-budgetCtx.Done():
@@ -769,4 +766,3 @@ func (c *ScheduledLLMCall) GetModel() string {
 	}
 	return ""
 }
-

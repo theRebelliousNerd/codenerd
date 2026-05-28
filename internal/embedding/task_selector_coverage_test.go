@@ -131,7 +131,7 @@ func TestDetectContentType_WhenMetadataTypeField_ShouldReturnCorrectType(t *test
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta := map[string]interface{}{"type": tt.metaType}
+			meta := map[string]any{"type": tt.metaType}
 			got := DetectContentType("some text", meta)
 			if got != tt.expected {
 				t.Errorf("DetectContentType(type=%q) = %q, want %q",
@@ -142,7 +142,7 @@ func TestDetectContentType_WhenMetadataTypeField_ShouldReturnCorrectType(t *test
 }
 
 func TestDetectContentType_WhenMetadataTypeUnrecognized_ShouldFallThrough(t *testing.T) {
-	meta := map[string]interface{}{"type": "unknown_type_xyz"}
+	meta := map[string]any{"type": "unknown_type_xyz"}
 	got := DetectContentType("hello world", meta)
 	// Should fall through to heuristic detection, not crash
 	if got == "" {
@@ -159,7 +159,7 @@ func TestDetectContentType_WhenNilMetadata_ShouldNotPanic(t *testing.T) {
 }
 
 func TestDetectContentType_WhenEmptyMetadata_ShouldUseHeuristics(t *testing.T) {
-	meta := map[string]interface{}{}
+	meta := map[string]any{}
 	got := DetectContentType("what is the meaning of life?", meta)
 	if got != ContentTypeQuestion {
 		t.Errorf("DetectContentType(question text) = %q, want %q", got, ContentTypeQuestion)
@@ -168,7 +168,7 @@ func TestDetectContentType_WhenEmptyMetadata_ShouldUseHeuristics(t *testing.T) {
 
 func TestDetectContentType_WhenContentTypeMetadata_ShouldOverrideHeuristics(t *testing.T) {
 	// Even if the text looks like code, content_type metadata wins
-	meta := map[string]interface{}{"content_type": "conversation"}
+	meta := map[string]any{"content_type": "conversation"}
 	got := DetectContentType("func main() { package main }", meta)
 	if got != ContentTypeConversation {
 		t.Errorf("DetectContentType(content_type override) = %q, want %q", got, ContentTypeConversation)
@@ -194,7 +194,7 @@ func TestDetectContentType_WhenQuestionPrefixes_ShouldDetectQuestion(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DetectContentType(tt.text, map[string]interface{}{})
+			got := DetectContentType(tt.text, map[string]any{})
 			if got != ContentTypeQuestion {
 				t.Errorf("DetectContentType(%q) = %q, want %q", tt.text, got, ContentTypeQuestion)
 			}
@@ -214,7 +214,7 @@ func TestDetectContentType_WhenConversationMarkers_ShouldDetectConversation(t *t
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DetectContentType(tt.text, map[string]interface{}{})
+			got := DetectContentType(tt.text, map[string]any{})
 			if got != ContentTypeConversation {
 				t.Errorf("DetectContentType(%q) = %q, want %q", tt.text, got, ContentTypeConversation)
 			}
@@ -237,7 +237,7 @@ func TestDetectContentType_WhenDocIndicators_ShouldDetectDocumentation(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DetectContentType(tt.text, map[string]interface{}{})
+			got := DetectContentType(tt.text, map[string]any{})
 			if got != ContentTypeDocumentation {
 				t.Errorf("DetectContentType(%q) = %q, want %q", tt.text, got, ContentTypeDocumentation)
 			}
@@ -248,7 +248,7 @@ func TestDetectContentType_WhenDocIndicators_ShouldDetectDocumentation(t *testin
 func TestDetectContentType_WhenCodeScore3Plus_ShouldDetectCode(t *testing.T) {
 	// Need at least 3 code indicators
 	codeText := "package main\nimport \"fmt\"\nfunc main() { fmt.Println() }"
-	got := DetectContentType(codeText, map[string]interface{}{})
+	got := DetectContentType(codeText, map[string]any{})
 	if got != ContentTypeCode {
 		t.Errorf("DetectContentType(code) = %q, want %q", got, ContentTypeCode)
 	}
@@ -257,7 +257,7 @@ func TestDetectContentType_WhenCodeScore3Plus_ShouldDetectCode(t *testing.T) {
 func TestDetectContentType_WhenCodeScoreLow_ShouldNotDetectCode(t *testing.T) {
 	// Only 1 code indicator (import)
 	text := "import something"
-	got := DetectContentType(text, map[string]interface{}{})
+	got := DetectContentType(text, map[string]any{})
 	// Should NOT be code (score < 3)
 	if got == ContentTypeCode {
 		t.Errorf("DetectContentType with low code score should not be code, got %q", got)
@@ -268,7 +268,7 @@ func TestDetectContentType_WhenLongNaturalText_ShouldDefaultToConversation(t *te
 	// Long text without specific markers should default to conversation
 	// Avoid words like "documentation" or markers like "# " that trigger other heuristics
 	text := "this is a general statement about something with no particular markers or patterns that would identify it as anything specific really just plain text that goes on and on with no real purpose"
-	got := DetectContentType(text, map[string]interface{}{})
+	got := DetectContentType(text, map[string]any{})
 	if got != ContentTypeConversation {
 		t.Errorf("DetectContentType(plain text) = %q, want %q", got, ContentTypeConversation)
 	}
@@ -278,7 +278,7 @@ func TestDetectContentType_WhenConversationMarkersButLongText_ShouldFallThroughT
 	// "please" in text > 100 chars should NOT match via the short-text conversation check,
 	// but will still hit the default conversation fallback at the end.
 	longText := "this is a very long text that contains the word please somewhere in it but because it is more than one hundred characters long it should not match the short conversation pattern check"
-	got := DetectContentType(longText, map[string]interface{}{})
+	got := DetectContentType(longText, map[string]any{})
 	// Falls through conversation check (len > 100) but hits default conversation at end
 	if got != ContentTypeConversation {
 		t.Errorf("Long text should default to conversation fallback, got %q", got)
@@ -324,7 +324,7 @@ func TestGetOptimalTaskType_WhenIsQuery_ShouldOverrideContentType(t *testing.T) 
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := GetOptimalTaskType(tt.text, map[string]interface{}{}, tt.isQuery)
+			got := GetOptimalTaskType(tt.text, map[string]any{}, tt.isQuery)
 			if got != tt.expected {
 				t.Errorf("GetOptimalTaskType(%q, isQuery=%v) = %q, want %q",
 					tt.text, tt.isQuery, got, tt.expected)
@@ -334,7 +334,7 @@ func TestGetOptimalTaskType_WhenIsQuery_ShouldOverrideContentType(t *testing.T) 
 }
 
 func TestGetOptimalTaskType_WhenMetadataProvided_ShouldUseMetadata(t *testing.T) {
-	meta := map[string]interface{}{"content_type": "fact"}
+	meta := map[string]any{"content_type": "fact"}
 	got := GetOptimalTaskType("some text", meta, false)
 	if got != "FACT_VERIFICATION" {
 		t.Errorf("GetOptimalTaskType with fact metadata = %q, want FACT_VERIFICATION", got)
@@ -342,7 +342,7 @@ func TestGetOptimalTaskType_WhenMetadataProvided_ShouldUseMetadata(t *testing.T)
 }
 
 func TestGetOptimalTaskType_WhenClassificationIsQuery_ShouldKeepClassification(t *testing.T) {
-	meta := map[string]interface{}{"content_type": "classification"}
+	meta := map[string]any{"content_type": "classification"}
 	got := GetOptimalTaskType("categorize this item", meta, true)
 	if got != "CLASSIFICATION" {
 		t.Errorf("GetOptimalTaskType(classification, isQuery=true) = %q, want CLASSIFICATION", got)
@@ -350,7 +350,7 @@ func TestGetOptimalTaskType_WhenClassificationIsQuery_ShouldKeepClassification(t
 }
 
 func TestGetOptimalTaskType_WhenClusteringIsQuery_ShouldKeepClustering(t *testing.T) {
-	meta := map[string]interface{}{"content_type": "clustering"}
+	meta := map[string]any{"content_type": "clustering"}
 	got := GetOptimalTaskType("group these items", meta, true)
 	if got != "CLUSTERING" {
 		t.Errorf("GetOptimalTaskType(clustering, isQuery=true) = %q, want CLUSTERING", got)
@@ -358,7 +358,7 @@ func TestGetOptimalTaskType_WhenClusteringIsQuery_ShouldKeepClustering(t *testin
 }
 
 func TestGetOptimalTaskType_WhenCodeIsQuery_ShouldKeepCodeRetrieval(t *testing.T) {
-	meta := map[string]interface{}{"content_type": "code"}
+	meta := map[string]any{"content_type": "code"}
 	got := GetOptimalTaskType("find this function", meta, true)
 	if got != "CODE_RETRIEVAL_QUERY" {
 		t.Errorf("GetOptimalTaskType(code, isQuery=true) = %q, want CODE_RETRIEVAL_QUERY", got)

@@ -53,7 +53,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 	}
 
 	// Minimal context profiles (used primarily for prompt assembly and future paging).
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		profileID := fmt.Sprintf("/profile_%s_%d", campaignID[10:], i)
 		profile := ContextProfile{
 			ID:              profileID,

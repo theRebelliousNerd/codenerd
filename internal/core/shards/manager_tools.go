@@ -153,26 +153,26 @@ func (sm *ShardManager) assertToolRoutingContext(query ToolRelevanceQuery) {
 	shardAtom := normalizeMangleAtom(query.ShardType)
 	tx.Assert(types.Fact{
 		Predicate: "current_shard_type",
-		Args:      []interface{}{shardAtom},
+		Args:      []any{shardAtom},
 	})
 
 	if query.IntentVerb != "" {
 		intentID := "/tool_routing_context"
 		verbAtom := normalizeMangleAtom(query.IntentVerb)
-		tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
+		tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []any{intentID}})
 		tx.Assert(types.Fact{
 			Predicate: "current_intent",
-			Args:      []interface{}{intentID},
+			Args:      []any{intentID},
 		})
 		tx.Assert(types.Fact{
 			Predicate: "user_intent",
-			Args:      []interface{}{intentID, "/routing", verbAtom, query.TargetFile, "_"},
+			Args:      []any{intentID, "/routing", verbAtom, query.TargetFile, "_"},
 		})
 	}
 
 	tx.Assert(types.Fact{
 		Predicate: "current_time",
-		Args:      []interface{}{int64(time.Now().Unix())},
+		Args:      []any{int64(time.Now().Unix())},
 	})
 
 	if err := tx.Commit(); err != nil {

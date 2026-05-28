@@ -320,8 +320,8 @@ func (g *Guardian) parseAlignmentResponse(response string, check *AlignmentCheck
 	check.Explanation = "Unable to parse alignment response"
 	explicitResult := false
 
-	lines := strings.Split(response, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(response, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		line = strings.ReplaceAll(line, "\"", "")
 		line = strings.TrimSuffix(line, ",")
@@ -332,8 +332,8 @@ func (g *Guardian) parseAlignmentResponse(response string, check *AlignmentCheck
 			if score >= 0 && score <= 1 {
 				check.Score = score
 			}
-		} else if strings.HasPrefix(line, "RESULT:") {
-			result := strings.TrimSpace(strings.TrimPrefix(line, "RESULT:"))
+		} else if after, ok := strings.CutPrefix(line, "RESULT:"); ok {
+			result := strings.TrimSpace(after)
 			switch strings.ToLower(result) {
 			case "passed":
 				check.Result = AlignmentPassed
@@ -348,12 +348,12 @@ func (g *Guardian) parseAlignmentResponse(response string, check *AlignmentCheck
 				check.Result = AlignmentBlocked
 				explicitResult = true
 			}
-		} else if strings.HasPrefix(line, "EXPLANATION:") {
-			check.Explanation = strings.TrimSpace(strings.TrimPrefix(line, "EXPLANATION:"))
-		} else if strings.HasPrefix(line, "SUGGESTIONS:") {
-			sugStr := strings.TrimSpace(strings.TrimPrefix(line, "SUGGESTIONS:"))
+		} else if after, ok := strings.CutPrefix(line, "EXPLANATION:"); ok {
+			check.Explanation = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "SUGGESTIONS:"); ok {
+			sugStr := strings.TrimSpace(after)
 			if sugStr != "none" && sugStr != "" {
-				for _, s := range strings.Split(sugStr, ",") {
+				for s := range strings.SplitSeq(sugStr, ",") {
 					if s = strings.TrimSpace(s); s != "" {
 						check.Suggestions = append(check.Suggestions, s)
 					}
@@ -445,8 +445,8 @@ func (g *Guardian) calculateRelevance(text string) float64 {
 	total := 0
 
 	checkKeywords := func(source string) {
-		words := strings.Fields(strings.ToLower(source))
-		for _, word := range words {
+		words := strings.FieldsSeq(strings.ToLower(source))
+		for word := range words {
 			if len(word) > 3 { // Skip short words
 				total++
 				if strings.Contains(textLower, word) {

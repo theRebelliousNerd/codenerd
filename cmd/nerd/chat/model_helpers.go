@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,8 +44,8 @@ func sanitizeCommandInput(input string) string {
 func extractFindings(result string) []map[string]any {
 	var findings []map[string]any
 	// Simple line-based extraction - look for patterns like "- [ERROR] file:line: message"
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "- [") || strings.HasPrefix(line, "• [") ||
 			strings.Contains(line, "[WARN]") || strings.Contains(line, "[INFO]") ||
@@ -73,8 +74,8 @@ func extractFindings(result string) []map[string]any {
 func extractMetrics(result string) map[string]any {
 	metrics := make(map[string]any)
 	// Look for common metric patterns
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, "lines") || strings.Contains(line, "functions") ||
 			strings.Contains(line, "complexity") || strings.Contains(line, "nesting") {
@@ -120,18 +121,15 @@ func (m *Model) refreshErrorViewport() {
 		m.errorVP.SetContent("")
 		return
 	}
-	width := m.errorVP.Width
-	if width < 1 {
-		width = 1
-	}
+	width := max(m.errorVP.Width, 1)
 	m.errorVP.SetContent(hardWrap(m.err.Error(), width))
 }
 
 // extractClarificationQuestion extracts the question from an error message
 func extractClarificationQuestion(errMsg string) string {
 	// Look for "USER_INPUT_REQUIRED:" prefix
-	if idx := strings.Index(errMsg, "USER_INPUT_REQUIRED:"); idx != -1 {
-		return strings.TrimSpace(errMsg[idx+len("USER_INPUT_REQUIRED:"):])
+	if _, after, ok := strings.Cut(errMsg, "USER_INPUT_REQUIRED:"); ok {
+		return strings.TrimSpace(after)
 	}
 	// Fallback: return the full error message
 	return errMsg
@@ -215,10 +213,8 @@ func isAffirmativeResponse(input string) bool {
 	}
 	// Exact match for very short responses
 	exactMatches := []string{"y", "yes", "ok", "okay", "yep", "yeah", "sure"}
-	for _, m := range exactMatches {
-		if lower == m {
-			return true
-		}
+	if slices.Contains(exactMatches, lower) {
+		return true
 	}
 	// Prefix match: "yes I want to do that" starts with affirmative word
 	prefixWords := []string{"yes ", "yeah ", "yep ", "sure ", "ok ", "okay "}
@@ -240,10 +236,8 @@ func isNegativeResponse(input string) bool {
 	}
 	// Exact match for very short responses
 	exactMatches := []string{"n", "no", "nope", "nah"}
-	for _, m := range exactMatches {
-		if lower == m {
-			return true
-		}
+	if slices.Contains(exactMatches, lower) {
+		return true
 	}
 	return matchesAnyTrigger(input, []string{
 		"/learn_no",
@@ -374,10 +368,7 @@ func (m *Model) buildAlignmentContext() string {
 	if len(m.history) > 0 {
 		sb.WriteString("## Recent Conversation\n")
 		// Last 3 messages
-		start := len(m.history) - 3
-		if start < 0 {
-			start = 0
-		}
+		start := max(len(m.history)-3, 0)
 		for i := start; i < len(m.history); i++ {
 			msg := m.history[i]
 			sb.WriteString(msg.Role + ": " + truncateStr(msg.Content, 200) + "\n")

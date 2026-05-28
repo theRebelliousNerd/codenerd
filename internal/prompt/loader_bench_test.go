@@ -57,7 +57,7 @@ func BenchmarkStoreAtomsWithEmbeddings(b *testing.B) {
 	atoms := make([]*PromptAtom, numAtoms)
 	embeddings := make([][]float32, numAtoms)
 
-	for i := 0; i < numAtoms; i++ {
+	for i := range numAtoms {
 		atoms[i] = &PromptAtom{
 			ID:               fmt.Sprintf("atom_%d", i),
 			Version:          1,
@@ -69,7 +69,7 @@ func BenchmarkStoreAtomsWithEmbeddings(b *testing.B) {
 		}
 
 		emb := make([]float32, 1536)
-		for j := 0; j < 1536; j++ {
+		for j := range 1536 {
 			emb[j] = rand.Float32()
 		}
 		embeddings[i] = emb

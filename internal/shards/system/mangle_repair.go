@@ -269,7 +269,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 		logging.SystemShardsDebug("[MangleRepair] Attempt %d: calling LLM for repair", attempt)
 		systemPrompt := m.getSystemPrompt(ctx, errors)
 		if traceLLMIO {
-			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_request", map[string]interface{}{
+			logging.Get(logging.CategorySystemShards).StructuredLog("debug", "mangle_repair_llm_request", map[string]any{
 				"shard_id":      m.ID,
 				"attempt":       attempt,
 				"system_prompt": systemPrompt,
@@ -297,7 +297,7 @@ func (m *MangleRepairShard) ValidateAndRepair(ctx context.Context, rule string) 
 			rawResponse, err = llmClient.CompleteWithSystem(ctx, systemPrompt, repairPrompt)
 		}
 		if traceLLMIO {
-			fields := map[string]interface{}{
+			fields := map[string]any{
 				"shard_id":     m.ID,
 				"attempt":      attempt,
 				"schema_used":  schemaUsed,
@@ -982,8 +982,8 @@ func (m *MangleRepairShard) extractRule(response string) string {
 	}
 
 	// Look for a line that looks like a rule
-	lines := strings.Split(response, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(response, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.HasPrefix(line, "#") {
 			// Check if it looks like a Mangle rule
@@ -996,8 +996,8 @@ func (m *MangleRepairShard) extractRule(response string) string {
 	// Return the whole response if it looks rule-like
 	if strings.Contains(response, "(") && (strings.Contains(response, ":-") || strings.HasSuffix(response, ".")) {
 		// Take just the first line
-		if idx := strings.Index(response, "\n"); idx != -1 {
-			return strings.TrimSpace(response[:idx])
+		if before, _, ok := strings.Cut(response, "\n"); ok {
+			return strings.TrimSpace(before)
 		}
 		return response
 	}

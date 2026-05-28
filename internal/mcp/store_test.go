@@ -210,7 +210,7 @@ func TestStore_TypeCoercion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to inject bad blob: %v", err)
 	}
-	
+
 	tool, err := store.GetTool(ctx, "t1")
 	if err != nil {
 		t.Errorf("GetTool failed on corrupt blob: %v", err)
@@ -240,8 +240,8 @@ func TestStore_UserRequestExtremes(t *testing.T) {
 	// Massive latency overflow test
 	store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1"})
 	store.RecordToolUsage(ctx, "t1", true, 9223372036854775807) // Max Int64
-	store.RecordToolUsage(ctx, "t1", true, 9223372036854775807) 
-	
+	store.RecordToolUsage(ctx, "t1", true, 9223372036854775807)
+
 	tool, err := store.GetTool(ctx, "t1")
 	if err != nil {
 		t.Errorf("GetTool failed: %v", err)
@@ -259,22 +259,16 @@ func TestStore_StateConflicts(t *testing.T) {
 
 	// Concurrent SaveTool, RecordToolUsage, SemanticSearch
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			_ = store.SaveTool(ctx, &MCPTool{ToolID: "t1", ServerID: "s1", Name: "t1", Embedding: []float32{1, 2}})
-		}()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			_ = store.RecordToolUsage(ctx, "t1", true, 100)
-		}()
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		})
+		wg.Go(func() {
 			_, _ = store.SemanticSearch(ctx, []float32{1, 2}, 10)
-		}()
+		})
 	}
 	wg.Wait()
 

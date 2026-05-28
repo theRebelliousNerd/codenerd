@@ -68,7 +68,7 @@ func (a *llmClientAdapter) Complete(ctx context.Context, systemPrompt, userPromp
 		rawResponse, err = a.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 	}
 	if a.traceLLMIO {
-		fields := map[string]interface{}{
+		fields := map[string]any{
 			"shard_id":      a.shardID,
 			"system_prompt": systemPrompt,
 			"user_prompt":   userPrompt,
@@ -356,11 +356,11 @@ func (l *LegislatorShard) getSystemPrompt(ctx context.Context, directive string)
 	}
 
 	pc := (&articulation.PromptContext{
-		ShardID:       l.ID,
-		ShardType:     "legislator",
-		SessionCtx:    l.Config.SessionContext,
+		ShardID:    l.ID,
+		ShardType:  "legislator",
+		SessionCtx: l.Config.SessionContext,
 	}).WithSemanticQuery(buildLegislatorSemanticQuery(directive), 100)
-	
+
 	jitPrompt, err := pa.AssembleSystemPrompt(ctx, pc)
 	if err != nil {
 		logging.SystemShards("[Legislator] [ERROR] JIT compilation failed: %v", err)

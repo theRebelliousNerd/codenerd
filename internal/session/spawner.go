@@ -40,6 +40,9 @@ type Spawner struct {
 
 	// Configuration
 	maxActiveSubagents int
+
+	// Pre-reservation tracking for pending spawns
+	pendingSpawns int
 }
 
 // SpawnerConfig holds configuration for the spawner.
@@ -102,14 +105,24 @@ type SpawnRequest struct {
 // Spawn creates and starts a new subagent based on the request.
 // The subagent's identity, tools, and policies are all JIT-compiled.
 func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error) {
-	// Phase 1: Check capacity (lock held briefly)
+	// Phase 1: Check capacity & pre-reserve (lock held briefly)
 	s.mu.Lock()
-	activeCount := s.countActive()
+	activeCount := s.countActive() + s.pendingSpawns
 	if activeCount >= s.maxActiveSubagents {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("max active subagents reached: %d", s.maxActiveSubagents)
 	}
+	s.pendingSpawns++
 	s.mu.Unlock()
+
+	var success bool
+	defer func() {
+		if !success {
+			s.mu.Lock()
+			s.pendingSpawns--
+			s.mu.Unlock()
+		}
+	}()
 
 	logging.Session("Spawning subagent: %s (type: %s, intent: %s)", req.Name, req.Type, req.IntentVerb)
 
@@ -149,13 +162,15 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 5: Register subagent (lock held briefly)
 	s.mu.Lock()
-	// Re-check capacity after config generation (race condition mitigation)
+	s.pendingSpawns--
+	// Re-check capacity after config generation (double-check active count only)
 	activeCount = s.countActive()
 	if activeCount >= s.maxActiveSubagents {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("max active subagents reached during spawn: %d", s.maxActiveSubagents)
 	}
 	s.subagents[agent.GetID()] = agent
+	success = true
 	s.mu.Unlock()
 
 	logging.Session("Spawned subagent: %s (id: %s)", req.Name, agent.GetID())

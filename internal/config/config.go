@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -384,13 +385,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("LLM API key not configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or ZAI_API_KEY)")
 	}
 
-	validProvider := false
-	for _, p := range ValidProviders {
-		if c.LLM.Provider == p {
-			validProvider = true
-			break
-		}
-	}
+	validProvider := slices.Contains(ValidProviders, c.LLM.Provider)
 	if !validProvider {
 		return fmt.Errorf("invalid LLM provider: %s (valid: %v)", c.LLM.Provider, ValidProviders)
 	}

@@ -10,10 +10,10 @@ import (
 
 // mockCodeParser implements CodeParser for testing.
 type mockCodeParser struct {
-	language    string
-	extensions  []string
-	parseFunc   func(path string, content []byte) ([]CodeElement, error)
-	factsFunc   func(elements []CodeElement) []core.Fact
+	language   string
+	extensions []string
+	parseFunc  func(path string, content []byte) ([]CodeElement, error)
+	factsFunc  func(elements []CodeElement) []core.Fact
 }
 
 func (m *mockCodeParser) Parse(path string, content []byte) ([]CodeElement, error) {
@@ -174,7 +174,7 @@ func TestParserFactory_ParseFunc(t *testing.T) {
 func TestParserFactory_ParseWithFacts(t *testing.T) {
 	factory := NewParserFactory("/test")
 	mockElements := []CodeElement{{Ref: "test-ref"}}
-	mockFacts := []core.Fact{{Predicate: "test_fact", Args: []interface{}{"arg"}}}
+	mockFacts := []core.Fact{{Predicate: "test_fact", Args: []any{"arg"}}}
 
 	mock := &mockCodeParser{
 		extensions: []string{".test"},
@@ -223,7 +223,7 @@ func TestParserFactory_EmitAllFacts(t *testing.T) {
 			{Ref: "elem1", Type: "/function"},
 		},
 		LanguageFacts: []core.Fact{
-			{Predicate: "lang_fact", Args: []interface{}{"arg"}},
+			{Predicate: "lang_fact", Args: []any{"arg"}},
 		},
 		Patterns: CodePatterns{
 			HasCGo: true,

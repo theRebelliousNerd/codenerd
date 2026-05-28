@@ -267,18 +267,16 @@ func TestValidationBudget_Concurrency(t *testing.T) {
 
 	ruleHash := "concurrent_rule"
 
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < attemptsPerWorker; j++ {
+	for range numWorkers {
+		wg.Go(func() {
+			for range attemptsPerWorker {
 				budget.RecordAttempt(ruleHash)
 				budget.GetAttemptCount(ruleHash)
 				budget.CanRetry(ruleHash)
 				budget.Stats()
 				budget.IsSessionExhausted()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

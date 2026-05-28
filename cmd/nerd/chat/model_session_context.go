@@ -497,8 +497,8 @@ func splitContextList(raw string) []string {
 		return nil
 	}
 	var items []string
-	for _, part := range strings.Split(raw, "\n") {
-		for _, entry := range strings.Split(part, ",") {
+	for part := range strings.SplitSeq(raw, "\n") {
+		for entry := range strings.SplitSeq(part, ",") {
 			entry = strings.TrimSpace(entry)
 			if entry != "" {
 				items = append(items, entry)
@@ -594,7 +594,7 @@ func (m *Model) assertKnowledgeAtomsToKernel() {
 
 		fact := core.Fact{
 			Predicate: "knowledge_atom",
-			Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+			Args:      []any{atom.Concept, atom.Content, atom.Confidence},
 		}
 		if err := m.kernel.Assert(fact); err == nil {
 			asserted++
@@ -618,7 +618,7 @@ func (m *Model) assertKnowledgeAtomsToKernel() {
 
 			fact := core.Fact{
 				Predicate: "knowledge_atom",
-				Args:      []interface{}{atom.Concept, atom.Content, atom.Confidence},
+				Args:      []any{atom.Concept, atom.Content, atom.Confidence},
 			}
 			if err := m.kernel.Assert(fact); err == nil {
 				asserted++

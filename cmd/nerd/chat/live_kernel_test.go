@@ -563,7 +563,7 @@ func TestLive_ConcurrentAccess(t *testing.T) {
 	// Test that model handles multiple rapid updates
 	done := make(chan bool)
 	perf.Track("concurrent_updates", func() {
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			go func(idx int) {
 				localM := m
 				localM.textarea.SetValue("test input " + string(rune('0'+idx)))
@@ -573,7 +573,7 @@ func TestLive_ConcurrentAccess(t *testing.T) {
 		}
 
 		// Wait for all goroutines
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):
@@ -596,21 +596,21 @@ func TestLive_PerformanceBaseline(t *testing.T) {
 
 	// View rendering performance
 	perf.Track("view_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_ = m.View()
 		}
 	})
 
 	// Command handling performance
 	perf.Track("help_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_, _ = m.handleCommand("/help")
 		}
 	})
 
 	// Input update performance
 	perf.Track("input_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			m.textarea.SetValue("test input")
 			m.textarea.SetValue("")
 		}

@@ -40,18 +40,18 @@ func (fs *FactSeeder) SeedCampaignContext(campaignID, currentPhase string, phase
 	facts := []core.Fact{
 		{
 			Predicate: "current_campaign",
-			Args:      []interface{}{campaignID},
+			Args:      []any{campaignID},
 		},
 		{
 			Predicate: "campaign_phase",
-			Args:      []interface{}{campaignID, currentPhase, phaseNum},
+			Args:      []any{campaignID, currentPhase, phaseNum},
 		},
 	}
 
 	for _, goal := range goals {
 		facts = append(facts, core.Fact{
 			Predicate: "phase_objective",
-			Args:      []interface{}{currentPhase, goal},
+			Args:      []any{currentPhase, goal},
 		})
 	}
 
@@ -63,11 +63,11 @@ func (fs *FactSeeder) SeedIssueContext(issueID, issueText string, mentionedFiles
 	facts := []core.Fact{
 		{
 			Predicate: "active_issue",
-			Args:      []interface{}{issueID},
+			Args:      []any{issueID},
 		},
 		{
 			Predicate: "issue_description",
-			Args:      []interface{}{issueID, issueText},
+			Args:      []any{issueID, issueText},
 		},
 	}
 
@@ -75,7 +75,7 @@ func (fs *FactSeeder) SeedIssueContext(issueID, issueText string, mentionedFiles
 	for _, file := range mentionedFiles {
 		facts = append(facts, core.Fact{
 			Predicate: "issue_mentioned_file",
-			Args:      []interface{}{issueID, file, 1}, // tier 1
+			Args:      []any{issueID, file, 1}, // tier 1
 		})
 	}
 
@@ -83,7 +83,7 @@ func (fs *FactSeeder) SeedIssueContext(issueID, issueText string, mentionedFiles
 	for _, errType := range errorTypes {
 		facts = append(facts, core.Fact{
 			Predicate: "issue_error_type",
-			Args:      []interface{}{issueID, errType},
+			Args:      []any{issueID, errType},
 		})
 	}
 
@@ -98,7 +98,7 @@ func (fs *FactSeeder) SeedSymbolGraph(edges map[string][]string) error {
 		for _, callee := range callees {
 			facts = append(facts, core.Fact{
 				Predicate: "symbol_graph",
-				Args:      []interface{}{caller, callee, "calls"},
+				Args:      []any{caller, callee, "calls"},
 			})
 		}
 	}
@@ -114,7 +114,7 @@ func (fs *FactSeeder) SeedDependencyLinks(edges map[string][]string) error {
 		for _, to := range tos {
 			facts = append(facts, core.Fact{
 				Predicate: "dependency_link",
-				Args:      []interface{}{from, to, "imports"},
+				Args:      []any{from, to, "imports"},
 			})
 		}
 	}
@@ -129,7 +129,7 @@ func (fs *FactSeeder) SeedProjectPatterns(patterns map[string]string) error {
 	for pattern, value := range patterns {
 		facts = append(facts, core.Fact{
 			Predicate: "project_pattern",
-			Args:      []interface{}{pattern, value},
+			Args:      []any{pattern, value},
 		})
 	}
 
@@ -143,7 +143,7 @@ func (fs *FactSeeder) SeedFileTopology(files []string) error {
 	for _, file := range files {
 		facts = append(facts, core.Fact{
 			Predicate: "file_topology",
-			Args:      []interface{}{file, "exists", true},
+			Args:      []any{file, "exists", true},
 		})
 	}
 

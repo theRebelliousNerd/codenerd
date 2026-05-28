@@ -94,7 +94,7 @@ func (ab *AutopoiesisBridge) Assert(fact string) error {
 }
 
 // Query implements a string-based query that returns bindings (MCP-style).
-func (ab *AutopoiesisBridge) Query(query string) ([]map[string]interface{}, error) {
+func (ab *AutopoiesisBridge) Query(query string) ([]map[string]any, error) {
 	queryFact, err := ParseFactString(strings.TrimSuffix(strings.TrimSpace(query), "."))
 	if err != nil {
 		return nil, err
@@ -112,9 +112,9 @@ func (ab *AutopoiesisBridge) Query(query string) ([]map[string]interface{}, erro
 		return nil, err
 	}
 
-	results := make([]map[string]interface{}, 0, len(facts))
+	results := make([]map[string]any, 0, len(facts))
 	for _, f := range facts {
-		binding := make(map[string]interface{})
+		binding := make(map[string]any)
 		if len(variableMap) > 0 {
 			for idx, varName := range variableMap {
 				if idx < len(f.Args) {

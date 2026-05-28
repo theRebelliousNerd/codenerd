@@ -149,7 +149,7 @@ func DebuggingMarathonScenario() *Scenario {
 			Intent:  "recall",
 			Metadata: TurnMetadata{
 				IsQuestionReferringBack: true,
-				ReferencesBackToTurn:    intPtr(0),
+				ReferencesBackToTurn:    new(0),
 				Topics:                  []string{"original-error"},
 			},
 		},
@@ -251,7 +251,7 @@ func FeatureImplementationScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(5),
+					ReferencesBackToTurn:    new(5),
 					Topics:                  []string{"planning", "password-hashing"},
 				},
 			},
@@ -309,7 +309,7 @@ func RefactoringCampaignScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(0),
+					ReferencesBackToTurn:    new(0),
 				},
 			},
 		},
@@ -381,7 +381,7 @@ func ResearchAndBuildScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(10),
+					ReferencesBackToTurn:    new(10),
 					Topics:                  []string{"gorilla-websocket", "research"},
 				},
 			},
@@ -406,8 +406,10 @@ func ResearchAndBuildScenario() *Scenario {
 }
 
 // Helper function to create int pointers
+//
+//go:fix inline
 func intPtr(i int) *int {
-	return &i
+	return new(i)
 }
 
 // generateIntermediateTurns creates filler turns between key turns for realistic testing.
@@ -442,7 +444,7 @@ func generateIntermediateTurns(keyTurns []Turn, totalTurns int) []Turn {
 		{"Let's fix that too", "Implemented guard clause for empty input", "implement", []string{"guard-clause"}},
 	}
 
-	for i := 0; i < totalTurns; i++ {
+	for i := range totalTurns {
 		if keyTurn, exists := keyTurnMap[i]; exists {
 			result = append(result, keyTurn)
 		} else {
@@ -533,7 +535,7 @@ func TDDLoopScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(1),
+					ReferencesBackToTurn:    new(1),
 					Topics:                  []string{"test-failure"},
 				},
 			},
@@ -623,7 +625,7 @@ func CampaignExecutionScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(5),
+					ReferencesBackToTurn:    new(5),
 					Topics:                  []string{"campaign-plan"},
 				},
 			},
@@ -715,7 +717,7 @@ func ShardCollaborationScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(1),
+					ReferencesBackToTurn:    new(1),
 					Topics:                  []string{"security-issue", "reviewer"},
 				},
 			},
@@ -784,7 +786,7 @@ func ManglePolicyDebugScenario() *Scenario {
 				Intent:  "recall",
 				Metadata: TurnMetadata{
 					IsQuestionReferringBack: true,
-					ReferencesBackToTurn:    intPtr(1),
+					ReferencesBackToTurn:    new(1),
 					Topics:                  []string{"mangle-rules", "next_action"},
 				},
 			},

@@ -76,7 +76,7 @@ type assaultFailure struct {
 type assaultTriageOutput struct {
 	Summary            string                   `json:"summary"`
 	RecommendedTasks   []assaultRemediationTask `json:"recommended_tasks"`
-	AdditionalMetadata map[string]interface{}   `json:"metadata,omitempty"`
+	AdditionalMetadata map[string]any           `json:"metadata,omitempty"`
 }
 
 type assaultRemediationTask struct {
@@ -112,7 +112,7 @@ func (o *Orchestrator) executeAssaultDiscoverTask(ctx context.Context, task *Tas
 	}
 	if existingBatchTasks > 0 {
 		// Likely already discovered; keep it idempotent.
-		return map[string]interface{}{
+		return map[string]any{
 			"campaign_id":   o.campaign.ID,
 			"campaign_slug": slug,
 			"scope":         cfg.Scope,
@@ -186,7 +186,7 @@ func (o *Orchestrator) executeAssaultDiscoverTask(ctx context.Context, task *Tas
 	logging.Campaign("Assault discovery complete: campaign=%s scope=%s targets=%d batches=%d",
 		o.campaign.ID, cfg.Scope, len(targets), len(batches))
 
-	return map[string]interface{}{
+	return map[string]any{
 		"campaign_id":   o.campaign.ID,
 		"campaign_slug": slug,
 		"scope":         cfg.Scope,
@@ -295,7 +295,7 @@ func (o *Orchestrator) executeAssaultBatchTask(ctx context.Context, task *Task) 
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"campaign_id":   o.campaign.ID,
 		"campaign_slug": slug,
 		"batch_id":      batch.BatchID,
@@ -476,7 +476,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 
 	triageOut := assaultTriageOutput{
 		Summary: summary,
-		AdditionalMetadata: map[string]interface{}{
+		AdditionalMetadata: map[string]any{
 			"campaign_id":  o.campaign.ID,
 			"results_dir":  normalizePath(filepath.Join(".nerd", "campaigns", slug, "assault", "results")),
 			"total":        total,
@@ -506,7 +506,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	}
 	if existing > 0 {
 		// Keep triage idempotent: if remediation tasks already exist, don't duplicate them.
-		return map[string]interface{}{
+		return map[string]any{
 			"campaign_id":             o.campaign.ID,
 			"campaign_slug":           slug,
 			"total_results":           total,
@@ -576,7 +576,7 @@ func (o *Orchestrator) executeAssaultTriageTask(ctx context.Context, task *Task)
 	logging.Campaign("Assault triage complete: failures=%d remediation_tasks=%d triage=%s",
 		len(failures), len(remediationTasks), normalizePath(triagePath))
 
-	return map[string]interface{}{
+	return map[string]any{
 		"campaign_id":                  o.campaign.ID,
 		"campaign_slug":                slug,
 		"total_results":                total,
@@ -1138,17 +1138,17 @@ func (o *Orchestrator) appendTasksToPhase(phaseID string, tasks []Task) error {
 	}
 
 	// Refresh campaign_progress fact for logic consumers.
-	_ = o.kernel.RetractFact(core.Fact{Predicate: "campaign_progress", Args: []interface{}{campaignID}})
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "campaign_progress", Args: []any{campaignID}})
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "campaign_progress",
-		Args:      []interface{}{campaignID, completedPhases, totalPhases, completedTasks, totalTasks},
+		Args:      []any{campaignID, completedPhases, totalPhases, completedTasks, totalTasks},
 	})
 
 	// Refresh phase_estimate for the mutated phase (best-effort).
-	_ = o.kernel.RetractFact(core.Fact{Predicate: "phase_estimate", Args: []interface{}{phaseID}})
+	_ = o.kernel.RetractFact(core.Fact{Predicate: "phase_estimate", Args: []any{phaseID}})
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "phase_estimate",
-		Args:      []interface{}{phaseID, phaseEstimatedTasks, phaseComplexity},
+		Args:      []any{phaseID, phaseEstimatedTasks, phaseComplexity},
 	})
 
 	// Persist campaign immediately for long-horizon durability.

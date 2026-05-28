@@ -35,7 +35,7 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 			continue // Skip non-function tool calls (if any)
 		}
 
-		var args map[string]interface{}
+		var args map[string]any
 		if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal arguments for tool %s: %w", c.Function.Name, err)
 		}

@@ -171,10 +171,10 @@ func (m *mockWorkflowTaskDelegator) Execute(ctx context.Context, intent string, 
 
 // Mock implementation of IntegrationClient
 type mockWorkflowIntegrationClient struct {
-	callToolFunc func(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error)
+	callToolFunc func(ctx context.Context, tool string, args map[string]any) (any, error)
 }
 
-func (m *mockWorkflowIntegrationClient) CallTool(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error) {
+func (m *mockWorkflowIntegrationClient) CallTool(ctx context.Context, tool string, args map[string]any) (any, error) {
 	if m.callToolFunc != nil {
 		return m.callToolFunc(ctx, tool, args)
 	}
@@ -303,7 +303,7 @@ func TestVirtualStoreWorkflows_TDDLoop(t *testing.T) {
 	}
 
 	// 3. handleGeneratePatch
-	req = ActionRequest{Target: "file.go", Payload: map[string]interface{}{"description": "fix syntax error"}}
+	req = ActionRequest{Target: "file.go", Payload: map[string]any{"description": "fix syntax error"}}
 	res, err = vs.handleGeneratePatch(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -342,7 +342,7 @@ func TestVirtualStoreWorkflows_TDDLoop(t *testing.T) {
 	}
 
 	// 5. handleComplete
-	req = ActionRequest{Target: "task_123", Payload: map[string]interface{}{"summary": "all tests pass now"}}
+	req = ActionRequest{Target: "task_123", Payload: map[string]any{"summary": "all tests pass now"}}
 	res, err = vs.handleComplete(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -372,7 +372,7 @@ func TestVirtualStoreWorkflows_TDDLoop(t *testing.T) {
 	}
 
 	// 6. handleInterrogative
-	req = ActionRequest{Target: "do you want dark mode?", Payload: map[string]interface{}{"options": []interface{}{"yes", "no"}}}
+	req = ActionRequest{Target: "do you want dark mode?", Payload: map[string]any{"options": []any{"yes", "no"}}}
 	res, err = vs.handleInterrogative(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -443,8 +443,8 @@ func TestVirtualStoreWorkflows_TDDLoop(t *testing.T) {
 	mKernel.queryFunc = func(predicate string) ([]Fact, error) {
 		if predicate == "context_stale" {
 			return []Fact{
-				{Predicate: "context_stale", Args: []interface{}{"coder", "file_topology"}},
-				{Predicate: "context_stale", Args: []interface{}{"tester", "test_output"}},
+				{Predicate: "context_stale", Args: []any{"coder", "file_topology"}},
+				{Predicate: "context_stale", Args: []any{"tester", "test_output"}},
 			}, nil
 		}
 		return nil, nil
@@ -529,7 +529,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	vs.toolGenerator = mGen
 
 	// Case 1b: Generator succeeds
-	req.Payload = map[string]interface{}{
+	req.Payload = map[string]any{
 		"purpose":       "testing tool generation",
 		"code":          "func main() {}",
 		"confidence":    0.9,
@@ -623,10 +623,10 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 				return "", fmt.Errorf("unexpected intent: %s", intent)
 			}
 			return "compile success", nil
-		}	}
+		}}
 	vs.taskDelegator = mDelegator
 
-	req = ActionRequest{Target: "my_tool", Payload: map[string]interface{}{"source_path": "my_tool.go"}}
+	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"source_path": "my_tool.go"}}
 	res, err = vs.handleOuroborosCompile(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -647,7 +647,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	// 5. handleOuroborosRegister
 	// Case 5a: registry nil
 	vs.toolRegistry = nil
-	req = ActionRequest{Target: "my_tool", Payload: map[string]interface{}{"binary_path": "/bin/my_tool", "shard_affinity": "coder"}}
+	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"binary_path": "/bin/my_tool", "shard_affinity": "coder"}}
 	res, err = vs.handleOuroborosRegister(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -673,7 +673,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	}
 
 	// Case 5c: Registration success with empty shard affinity (defaults to "coder")
-	req.Payload = map[string]interface{}{"binary_path": "/bin/my_tool"}
+	req.Payload = map[string]any{"binary_path": "/bin/my_tool"}
 	res, err = vs.handleOuroborosRegister(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -692,7 +692,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	}
 
 	// 6. handleRefineTool
-	req = ActionRequest{Target: "my_tool", Payload: map[string]interface{}{"feedback": "fix panic"}}
+	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"feedback": "fix panic"}}
 	res, err = vs.handleRefineTool(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -723,7 +723,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	cancel()
 
 	// 1. handleCampaignClarify
-	req := ActionRequest{Target: "what is the base branch?", Payload: map[string]interface{}{"campaign_id": "c1"}}
+	req := ActionRequest{Target: "what is the base branch?", Payload: map[string]any{"campaign_id": "c1"}}
 	res, err := vs.handleCampaignClarify(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -744,7 +744,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 2. handleCampaignCreateFile (delegates to handleWriteFile)
-	req = ActionRequest{Target: "newfile.txt", Payload: map[string]interface{}{"content": "new contents"}}
+	req = ActionRequest{Target: "newfile.txt", Payload: map[string]any{"content": "new contents"}}
 	res, err = vs.handleCampaignCreateFile(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -754,7 +754,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 3. handleCampaignModifyFile (delegates to handleEditFile)
-	req = ActionRequest{Target: "newfile.txt", Payload: map[string]interface{}{"old": "contents", "new": "stuff"}}
+	req = ActionRequest{Target: "newfile.txt", Payload: map[string]any{"old": "contents", "new": "stuff"}}
 	res, err = vs.handleCampaignModifyFile(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -764,7 +764,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 4. handleCampaignWriteTest
-	req = ActionRequest{Target: "newfile_test.txt", Payload: map[string]interface{}{"content": "test contents"}}
+	req = ActionRequest{Target: "newfile_test.txt", Payload: map[string]any{"content": "test contents"}}
 	res, err = vs.handleCampaignWriteTest(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -811,7 +811,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	// 5. handleCampaignRunTest (delegates to handleRunTests)
 	mExec := &mockWorkflowExecutor{}
 	vs.executor = mExec
-	req = ActionRequest{Target: "go test ./...", Payload: map[string]interface{}{"timeout": 10}}
+	req = ActionRequest{Target: "go test ./...", Payload: map[string]any{"timeout": 10}}
 	res, err = vs.handleCampaignRunTest(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -832,7 +832,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 7. handleCampaignVerify
-	req = ActionRequest{Target: "step_1", Payload: map[string]interface{}{"campaign_id": "c1"}}
+	req = ActionRequest{Target: "step_1", Payload: map[string]any{"campaign_id": "c1"}}
 	res, err = vs.handleCampaignVerify(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -867,7 +867,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// Case 8b: content present (writes documentation file)
-	req.Payload = map[string]interface{}{"content": "document contents"}
+	req.Payload = map[string]any{"content": "document contents"}
 	res, err = vs.handleCampaignDocument(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -885,7 +885,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 9. handleCampaignRefactor
-	req = ActionRequest{Target: "auth.go", Payload: map[string]interface{}{"refactor_type": "inline"}}
+	req = ActionRequest{Target: "auth.go", Payload: map[string]any{"refactor_type": "inline"}}
 	res, err = vs.handleCampaignRefactor(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -906,7 +906,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 10. handleCampaignIntegrate
-	req = ActionRequest{Target: "auth", Payload: map[string]interface{}{"campaign_id": "c1"}}
+	req = ActionRequest{Target: "auth", Payload: map[string]any{"campaign_id": "c1"}}
 	res, err = vs.handleCampaignIntegrate(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -927,7 +927,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 11. handleCampaignComplete
-	req = ActionRequest{Target: "c1", Payload: map[string]interface{}{"summary": "done"}}
+	req = ActionRequest{Target: "c1", Payload: map[string]any{"summary": "done"}}
 	res, err = vs.handleCampaignComplete(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1053,7 +1053,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 17. handleAskCampaignInterrupt
-	req = ActionRequest{Target: "c1", Payload: map[string]interface{}{"reason": "user requested"}}
+	req = ActionRequest{Target: "c1", Payload: map[string]any{"reason": "user requested"}}
 	res, err = vs.handleAskCampaignInterrupt(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1074,7 +1074,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 18. handleRunPhaseCheckpoint
-	req = ActionRequest{Target: "p1", Payload: map[string]interface{}{"campaign_id": "c1"}}
+	req = ActionRequest{Target: "p1", Payload: map[string]any{"campaign_id": "c1"}}
 	res, err = vs.handleRunPhaseCheckpoint(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1095,7 +1095,7 @@ func TestVirtualStoreWorkflows_Campaign(t *testing.T) {
 	}
 
 	// 19. handlePauseAndReplan
-	req = ActionRequest{Target: "c1", Payload: map[string]interface{}{"reason": "unreachable goal"}}
+	req = ActionRequest{Target: "c1", Payload: map[string]any{"reason": "unreachable goal"}}
 	res, err = vs.handlePauseAndReplan(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1141,7 +1141,7 @@ func TestVirtualStoreWorkflows_ContextManagement(t *testing.T) {
 	}
 
 	// Case 1b: ratio specified
-	req.Payload = map[string]interface{}{"ratio": 0.8}
+	req.Payload = map[string]any{"ratio": 0.8}
 	res, err = vs.handleCompressContext(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1236,7 +1236,7 @@ func TestVirtualStoreWorkflows_InvestigationAndCorrective(t *testing.T) {
 	}
 
 	// Case 1b: severity specified
-	req.Payload = map[string]interface{}{"severity": "high"}
+	req.Payload = map[string]any{"severity": "high"}
 	res, err = vs.handleInvestigateAnomaly(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1275,7 +1275,7 @@ func TestVirtualStoreWorkflows_InvestigationAndCorrective(t *testing.T) {
 	}
 
 	// 3. handleUpdateWorldModel
-	req = ActionRequest{Target: "file_hashes", Payload: map[string]interface{}{"scope": "internal/core"}}
+	req = ActionRequest{Target: "file_hashes", Payload: map[string]any{"scope": "internal/core"}}
 	res, err = vs.handleUpdateWorldModel(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1297,7 +1297,7 @@ func TestVirtualStoreWorkflows_InvestigationAndCorrective(t *testing.T) {
 
 	// 4. handleCorrectiveResearch
 	// Case 4a: scraper not registered (falls back to not calling handleResearch, returns success=true signal)
-	req = ActionRequest{Target: "how to implement FFI in mangle", Payload: map[string]interface{}{"issue_type": "build_error"}}
+	req = ActionRequest{Target: "how to implement FFI in mangle", Payload: map[string]any{"issue_type": "build_error"}}
 	res, err = vs.handleCorrectiveResearch(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

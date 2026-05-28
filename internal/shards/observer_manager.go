@@ -269,10 +269,7 @@ func (m *BackgroundObserverManager) GetRecentAssessments(limit int) []ObserverAs
 		limit = len(m.assessmentBuffer)
 	}
 
-	start := len(m.assessmentBuffer) - limit
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(m.assessmentBuffer)-limit, 0)
 
 	result := make([]ObserverAssessment, limit)
 	copy(result, m.assessmentBuffer[start:])
@@ -436,8 +433,8 @@ func (m *BackgroundObserverManager) parseAssessment(observerName string, event O
 	}
 
 	// Parse the structured response
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "SCORE:") {
 			var score int
@@ -445,11 +442,11 @@ func (m *BackgroundObserverManager) parseAssessment(observerName string, event O
 				assessment.Score = score
 				assessment.Level = GetAssessmentLevel(score)
 			}
-		} else if strings.HasPrefix(line, "VISION:") {
-			assessment.VisionMatch = strings.TrimPrefix(line, "VISION:")
+		} else if after, ok := strings.CutPrefix(line, "VISION:"); ok {
+			assessment.VisionMatch = after
 			assessment.VisionMatch = strings.TrimSpace(assessment.VisionMatch)
-		} else if strings.HasPrefix(line, "DEVIATIONS:") {
-			devStr := strings.TrimPrefix(line, "DEVIATIONS:")
+		} else if after, ok := strings.CutPrefix(line, "DEVIATIONS:"); ok {
+			devStr := after
 			devStr = strings.TrimSpace(devStr)
 			if devStr != "none" && devStr != "" {
 				assessment.Deviations = strings.Split(devStr, ",")
@@ -457,8 +454,8 @@ func (m *BackgroundObserverManager) parseAssessment(observerName string, event O
 					assessment.Deviations[i] = strings.TrimSpace(assessment.Deviations[i])
 				}
 			}
-		} else if strings.HasPrefix(line, "RECOMMENDATIONS:") {
-			recStr := strings.TrimPrefix(line, "RECOMMENDATIONS:")
+		} else if after, ok := strings.CutPrefix(line, "RECOMMENDATIONS:"); ok {
+			recStr := after
 			recStr = strings.TrimSpace(recStr)
 			if recStr != "none" && recStr != "" {
 				assessment.Suggestions = strings.Split(recStr, ",")

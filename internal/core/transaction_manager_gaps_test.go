@@ -522,7 +522,7 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 	}
 
 	const editCount = 500
-	for i := 0; i < editCount; i++ {
+	for i := range editCount {
 		filePath := filepath.Join(tmpDir, "gen", "file_"+strings.Replace(
 			time.Now().Format("150405.000000"), ".", "_", -1)+"_"+
 			strings.Repeat("x", 5)+".go")
@@ -620,7 +620,7 @@ func TestTransactionManagerGap_Concurrency_InterleavedOperations(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test files
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		f := filepath.Join(tmpDir, filepath.Base(filepath.Join(tmpDir, "file_"+string(rune('a'+i))+".go")))
 		os.WriteFile(f, []byte("package main\n"), 0644)
 	}
@@ -645,18 +645,16 @@ func TestTransactionManagerGap_Concurrency_InterleavedOperations(t *testing.T) {
 	const goroutines = 50
 
 	// Launch readers
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			_ = tm.IsTransactionActive()
 			_, _ = tm.GetActiveTransaction()
 			_ = tm.ToFacts()
-		}()
+		})
 	}
 
 	// Launch writers (AddEdit for create operations — no snapshot needed)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -690,7 +688,7 @@ func TestTransactionManagerGap_Concurrency_MultipleBeginAttempts(t *testing.T) {
 	results := make(chan error, attempts)
 
 	var wg sync.WaitGroup
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

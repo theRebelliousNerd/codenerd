@@ -3,6 +3,7 @@ package perception
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -122,11 +123,11 @@ func BenchmarkExtractJSON(b *testing.B) {
 	// Create a large input
 	var sb strings.Builder
 	sb.WriteString("Here is some text preamble.\n")
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		sb.WriteString("Some noise { invalid } more noise.\n")
 	}
 	sb.WriteString(`{"final": "json", "data": [`)
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		sb.WriteString(`{"id": 1},`)
 	}
 	sb.WriteString(`{"id": 2}]}`)
@@ -378,11 +379,11 @@ func TestExtractJSON_MismatchedBrackets(t *testing.T) {
 func TestExtractJSON_DeepNesting(t *testing.T) {
 	// Test extreme nesting depth that won't overflow the stack
 	var sb strings.Builder
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		sb.WriteString(`{"a":`)
 	}
 	sb.WriteString("1")
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		sb.WriteString("}")
 	}
 
@@ -442,13 +443,7 @@ func TestDeriveRouting_TiesAndAlphabetical(t *testing.T) {
 		t.Errorf("Expected primary shard A (alphabetical tie-breaker), got %q", primary)
 	}
 
-	foundB := false
-	for _, s := range supporting {
-		if s == "B" {
-			foundB = true
-			break
-		}
-	}
+	foundB := slices.Contains(supporting, "B")
 	if !foundB {
 		t.Errorf("Expected B to be present in supporting shards, got %v", supporting)
 	}
@@ -472,7 +467,7 @@ func TestTransducer_Concurrency(t *testing.T) {
 	transducer := NewLLMTransducer(mockClient, mockKernel, "prompt")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -484,7 +479,6 @@ func TestTransducer_Concurrency(t *testing.T) {
 	}
 	wg.Wait()
 }
-
 
 func TestExtractJSON_NonObject(t *testing.T) {
 	// GAP: extractJSON ignores valid JSON that isn't an object.
@@ -534,7 +528,7 @@ func TestDeriveRouting_Ambiguity(t *testing.T) {
 	// and they both have the same highest score. The first one encountered sets
 	// primaryScore to 100. The second one ("researcher") has score 100, which is NOT > 100.
 	// So "coder" will be primary, and "researcher" will go to supporting.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		primary, supporting := transducer.deriveShards(context.Background(), u)
 
 		if primary != "coder" {

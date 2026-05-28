@@ -29,16 +29,16 @@ func SchemaV1SingleClauseJSON() string {
 }
 
 // BuildSchemaV1 exposes the schema map for provider-specific clients.
-func BuildSchemaV1() map[string]interface{} {
+func BuildSchemaV1() map[string]any {
 	return buildSchema(false)
 }
 
 // BuildSchemaV1SingleClause exposes the schema map for a single-clause schema.
-func BuildSchemaV1SingleClause() map[string]interface{} {
+func BuildSchemaV1SingleClause() map[string]any {
 	return buildSchema(true)
 }
 
-func marshalSchema(schema map[string]interface{}) string {
+func marshalSchema(schema map[string]any) string {
 	if schema == nil {
 		return ""
 	}
@@ -49,7 +49,7 @@ func marshalSchema(schema map[string]interface{}) string {
 	return string(data)
 }
 
-func buildSchema(singleClause bool) map[string]interface{} {
+func buildSchema(singleClause bool) map[string]any {
 	exprArg := exprSchema(nil)
 	expr := exprSchema(exprArg)
 	atom := atomSchema(expr)
@@ -68,21 +68,21 @@ func buildSchema(singleClause bool) map[string]interface{} {
 	pkg := packageSchema(atom)
 	use := useSchema(atom)
 
-	program := schemaObject(map[string]interface{}{
+	program := schemaObject(map[string]any{
 		"package": pkg,
 		"use":     schemaArray(use),
 		"decls":   schemaArray(decl),
 		"clauses": clauses,
 	}, "clauses")
 
-	return schemaObject(map[string]interface{}{
+	return schemaObject(map[string]any{
 		"format":  schemaEnum(FormatV1),
 		"program": program,
 	}, "format", "program")
 }
 
-func exprSchema(argItems map[string]interface{}) map[string]interface{} {
-	props := map[string]interface{}{
+func exprSchema(argItems map[string]any) map[string]any {
+	props := map[string]any{
 		"kind":     schemaString(),
 		"value":    schemaString(),
 		"number":   schemaNumber(),
@@ -98,15 +98,15 @@ func exprSchema(argItems map[string]interface{}) map[string]interface{} {
 	return schemaObject(props, "kind")
 }
 
-func atomSchema(expr map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func atomSchema(expr map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"pred": schemaString(),
 		"args": schemaArray(expr),
 	}, "pred")
 }
 
-func termSchema(atom, expr map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func termSchema(atom, expr map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"kind":  schemaString(),
 		"atom":  atom,
 		"left":  expr,
@@ -115,30 +115,30 @@ func termSchema(atom, expr map[string]interface{}) map[string]interface{} {
 	}, "kind")
 }
 
-func transformStmtSchema(expr map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func transformStmtSchema(expr map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"kind": schemaString(),
 		"var":  schemaString(),
 		"fn":   expr,
 	}, "kind", "fn")
 }
 
-func transformSchema(stmt map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func transformSchema(stmt map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"statements": schemaArray(stmt),
 	}, "statements")
 }
 
-func clauseSchema(atom, term, transform map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func clauseSchema(atom, term, transform map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"head":      atom,
 		"body":      schemaArray(term),
 		"transform": transform,
 	}, "head")
 }
 
-func declSchema(atom, expr map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func declSchema(atom, expr map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"atom":      atom,
 		"descr":     schemaArray(atom),
 		"bounds":    schemaArray(boundSchema(expr)),
@@ -146,31 +146,31 @@ func declSchema(atom, expr map[string]interface{}) map[string]interface{} {
 	}, "atom")
 }
 
-func boundSchema(expr map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func boundSchema(expr map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"terms": schemaArray(expr),
 	}, "terms")
 }
 
-func packageSchema(atom map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func packageSchema(atom map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"name":  schemaString(),
 		"atoms": schemaArray(atom),
 	}, "name")
 }
 
-func useSchema(atom map[string]interface{}) map[string]interface{} {
-	return schemaObject(map[string]interface{}{
+func useSchema(atom map[string]any) map[string]any {
+	return schemaObject(map[string]any{
 		"name":  schemaString(),
 		"atoms": schemaArray(atom),
 	}, "name")
 }
 
-func schemaObject(props map[string]interface{}, required ...string) map[string]interface{} {
+func schemaObject(props map[string]any, required ...string) map[string]any {
 	if props == nil {
-		props = map[string]interface{}{}
+		props = map[string]any{}
 	}
-	obj := map[string]interface{}{
+	obj := map[string]any{
 		"type":       "object",
 		"properties": props,
 	}
@@ -180,33 +180,33 @@ func schemaObject(props map[string]interface{}, required ...string) map[string]i
 	return obj
 }
 
-func schemaArray(items map[string]interface{}) map[string]interface{} {
-	return map[string]interface{}{
+func schemaArray(items map[string]any) map[string]any {
+	return map[string]any{
 		"type":  "array",
 		"items": items,
 	}
 }
 
-func schemaString() map[string]interface{} {
-	return map[string]interface{}{
+func schemaString() map[string]any {
+	return map[string]any{
 		"type": "string",
 	}
 }
 
-func schemaNumber() map[string]interface{} {
-	return map[string]interface{}{
+func schemaNumber() map[string]any {
+	return map[string]any{
 		"type": "number",
 	}
 }
 
-func schemaInteger() map[string]interface{} {
-	return map[string]interface{}{
+func schemaInteger() map[string]any {
+	return map[string]any{
 		"type": "integer",
 	}
 }
 
-func schemaEnum(values ...string) map[string]interface{} {
-	return map[string]interface{}{
+func schemaEnum(values ...string) map[string]any {
+	return map[string]any{
 		"type": "string",
 		"enum": values,
 	}

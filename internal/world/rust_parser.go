@@ -638,7 +638,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			// rs_struct(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "rs_struct",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 			// Check for derive macros
@@ -646,7 +646,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			for _, derive := range derives {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_derive",
-					Args:      []interface{}{elem.Ref, derive},
+					Args:      []any{elem.Ref, derive},
 				})
 			}
 
@@ -655,7 +655,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			for field, rename := range serdeAttrs {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_serde_rename",
-					Args:      []interface{}{elem.Ref, field, rename},
+					Args:      []any{elem.Ref, field, rename},
 				})
 			}
 
@@ -663,7 +663,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			// rs_trait(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "rs_trait",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 		case ElementFunction, ElementMethod:
@@ -671,7 +671,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.HasPrefix(elem.Signature, "async ") || strings.Contains(elem.Signature, " async ") {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_async_fn",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -679,7 +679,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.Contains(elem.Body, "unsafe {") || strings.HasPrefix(elem.Signature, "unsafe ") {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_unsafe_block",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -687,7 +687,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if elem.Type == ElementMethod && elem.Parent != "" {
 				facts = append(facts, core.Fact{
 					Predicate: "method_of",
-					Args:      []interface{}{elem.Ref, elem.Parent},
+					Args:      []any{elem.Ref, elem.Parent},
 				})
 			}
 
@@ -695,7 +695,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.Contains(elem.Signature, "-> Result<") || strings.Contains(elem.Signature, "-> Result ") {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_returns_result",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -703,7 +703,7 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.Contains(elem.Body, ".unwrap()") || strings.Contains(elem.Body, ".expect(") {
 				facts = append(facts, core.Fact{
 					Predicate: "rs_uses_unwrap",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 		}
@@ -715,8 +715,8 @@ func (p *RustCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 // extractDerives extracts derive macro names from struct/enum.
 func (p *RustCodeParser) extractDerives(body string) []string {
 	var derives []string
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#[derive(") {
 			// Extract content between derive( and )
@@ -725,8 +725,8 @@ func (p *RustCodeParser) extractDerives(body string) []string {
 			if start > 0 && end > start {
 				content := trimmed[start+1 : end]
 				// Split by comma
-				parts := strings.Split(content, ",")
-				for _, part := range parts {
+				parts := strings.SplitSeq(content, ",")
+				for part := range parts {
 					derive := strings.TrimSpace(part)
 					if derive != "" {
 						derives = append(derives, derive)
@@ -759,10 +759,10 @@ func (p *RustCodeParser) extractSerdeAttrs(body string) map[string]string {
 					// Extract rename value
 					if renameIdx := strings.Index(trimmed, "rename"); renameIdx >= 0 {
 						afterRename := trimmed[renameIdx:]
-						if quoteStart := strings.Index(afterRename, "\""); quoteStart >= 0 {
-							afterQuote := afterRename[quoteStart+1:]
-							if quoteEnd := strings.Index(afterQuote, "\""); quoteEnd >= 0 {
-								rename := afterQuote[:quoteEnd]
+						if _, after, ok := strings.Cut(afterRename, "\""); ok {
+							afterQuote := after
+							if before, _, ok := strings.Cut(afterQuote, "\""); ok {
+								rename := before
 								attrs[fieldName] = rename
 							}
 						}

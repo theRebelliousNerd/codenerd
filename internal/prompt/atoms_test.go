@@ -114,7 +114,7 @@ func TestHashContent(t *testing.T) {
 	t.Run("hash is deterministic", func(t *testing.T) {
 		content := "deterministic test"
 		hashes := make([]string, 100)
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			hashes[i] = HashContent(content)
 		}
 		for i := 1; i < 100; i++ {
@@ -804,8 +804,8 @@ func TestMatchesContext_NilEmbeddedPointers(t *testing.T) {
 		expectMatch bool
 	}{
 		{
-			name: "context with all zero-value fields matches wildcard atom",
-			atom: &PromptAtom{ID: "wildcard"},
+			name:    "context with all zero-value fields matches wildcard atom",
+			atom:    &PromptAtom{ID: "wildcard"},
 			context: &CompilationContext{
 				// All fields zero-valued
 			},
@@ -1061,7 +1061,7 @@ func TestConcurrentAtomReadWrite(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 500; i++ {
+		for range 500 {
 			clone := atom.Clone()
 			_ = clone.MatchesContext(ctx)
 			_ = clone.ToFact()
@@ -1071,7 +1071,7 @@ func TestConcurrentAtomReadWrite(t *testing.T) {
 
 	// Concurrent reads on the same atom — Clone returns independent copies
 	// so reads on the original should be safe
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		_ = atom.MatchesContext(ctx)
 		_ = atom.ContentHash
 		_ = atom.TokenCount
@@ -1417,7 +1417,7 @@ func TestPromptAtom_ConcurrencyRace(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -1448,4 +1448,3 @@ func TestPromptAtom_DatalogFactTranslation(t *testing.T) {
 		t.Fatalf("Mangle Atom translation failed. Expected '/true', got %v", fact.Args[4])
 	}
 }
-

@@ -14,22 +14,24 @@ type mockDreamPlanKernel struct {
 	assertErr     error
 }
 
-func (m *mockDreamPlanKernel) LoadFacts(facts []Fact) error { return nil }
+func (m *mockDreamPlanKernel) LoadFacts(facts []Fact) error           { return nil }
 func (m *mockDreamPlanKernel) Query(predicate string) ([]Fact, error) { return nil, nil }
-func (m *mockDreamPlanKernel) QueryAll() (map[string][]Fact, error) { return nil, nil }
+func (m *mockDreamPlanKernel) QueryAll() (map[string][]Fact, error)   { return nil, nil }
 func (m *mockDreamPlanKernel) Assert(fact Fact) error {
 	m.assertedFacts = append(m.assertedFacts, fact)
 	return m.assertErr
 }
-func (m *mockDreamPlanKernel) AssertBatch(facts []Fact) error { return nil }
-func (m *mockDreamPlanKernel) Retract(predicate string) error { return nil }
-func (m *mockDreamPlanKernel) RetractFact(fact Fact) error { return nil }
-func (m *mockDreamPlanKernel) UpdateSystemFacts() error { return nil }
-func (m *mockDreamPlanKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
-func (m *mockDreamPlanKernel) Reset() {}
-func (m *mockDreamPlanKernel) AppendPolicy(policy string) {}
+func (m *mockDreamPlanKernel) AssertBatch(facts []Fact) error            { return nil }
+func (m *mockDreamPlanKernel) Retract(predicate string) error            { return nil }
+func (m *mockDreamPlanKernel) RetractFact(fact Fact) error               { return nil }
+func (m *mockDreamPlanKernel) UpdateSystemFacts() error                  { return nil }
+func (m *mockDreamPlanKernel) GetProgramInfo() *analysis.ProgramInfo     { return nil }
+func (m *mockDreamPlanKernel) Reset()                                    {}
+func (m *mockDreamPlanKernel) AppendPolicy(policy string)                {}
 func (m *mockDreamPlanKernel) RetractExactFactsBatch(facts []Fact) error { return nil }
-func (m *mockDreamPlanKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
+func (m *mockDreamPlanKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	return nil
+}
 
 func TestDreamPlanManager_New(t *testing.T) {
 	k := &mockDreamPlanKernel{}
@@ -271,7 +273,7 @@ func TestDreamPlanManager_MarkSubtaskComplete(t *testing.T) {
 
 	// Test truncation of result
 	longResult := ""
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		longResult += "a"
 	}
 	plan.Subtasks[1].Status = SubtaskStatusRunning

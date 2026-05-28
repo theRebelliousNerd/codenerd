@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"time"
 
 	"codenerd/internal/core"
@@ -431,7 +432,7 @@ func (a *PromptAtom) ToFact() core.Fact {
 
 	return core.Fact{
 		Predicate: "prompt_atom",
-		Args: []interface{}{
+		Args: []any{
 			a.ID,
 			"/" + string(a.Category),
 			a.TokenCount,
@@ -450,7 +451,7 @@ func (a *PromptAtom) ToSelectorFacts() []core.Fact {
 		for _, v := range values {
 			facts = append(facts, core.Fact{
 				Predicate: "atom_selector",
-				Args:      []interface{}{a.ID, "/" + dimension, v},
+				Args:      []any{a.ID, "/" + dimension, v},
 			})
 		}
 	}
@@ -478,7 +479,7 @@ func (a *PromptAtom) ToDependencyFacts() []core.Fact {
 	for _, dep := range a.DependsOn {
 		facts = append(facts, core.Fact{
 			Predicate: "atom_depends",
-			Args:      []interface{}{a.ID, dep},
+			Args:      []any{a.ID, dep},
 		})
 	}
 
@@ -493,7 +494,7 @@ func (a *PromptAtom) ToConflictFacts() []core.Fact {
 	for _, conflict := range a.ConflictsWith {
 		facts = append(facts, core.Fact{
 			Predicate: "atom_conflicts",
-			Args:      []interface{}{a.ID, conflict},
+			Args:      []any{a.ID, conflict},
 		})
 	}
 
@@ -509,7 +510,7 @@ func (a *PromptAtom) ToExclusionFact() *core.Fact {
 
 	return &core.Fact{
 		Predicate: "atom_exclusive",
-		Args:      []interface{}{a.ID, a.IsExclusive},
+		Args:      []any{a.ID, a.IsExclusive},
 	}
 }
 
@@ -528,29 +529,19 @@ func (a *PromptAtom) Validate() error {
 	}
 
 	// Validate category is known
-	validCategory := false
-	for _, cat := range AllCategories() {
-		if cat == a.Category {
-			validCategory = true
-			break
-		}
-	}
+	validCategory := slices.Contains(AllCategories(), a.Category)
 	if !validCategory {
 		return fmt.Errorf("unknown category %q for atom %q", a.Category, a.ID)
 	}
 
 	// Check for self-dependency
-	for _, dep := range a.DependsOn {
-		if dep == a.ID {
-			return fmt.Errorf("atom %q cannot depend on itself", a.ID)
-		}
+	if slices.Contains(a.DependsOn, a.ID) {
+		return fmt.Errorf("atom %q cannot depend on itself", a.ID)
 	}
 
 	// Check for self-conflict
-	for _, conflict := range a.ConflictsWith {
-		if conflict == a.ID {
-			return fmt.Errorf("atom %q cannot conflict with itself", a.ID)
-		}
+	if slices.Contains(a.ConflictsWith, a.ID) {
+		return fmt.Errorf("atom %q cannot conflict with itself", a.ID)
 	}
 
 	return nil

@@ -93,7 +93,7 @@ func TestSpawnQueue_Stress(t *testing.T) {
 
 	errCh := make(chan error, requestCount)
 
-	for i := 0; i < requestCount; i++ {
+	for i := range requestCount {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

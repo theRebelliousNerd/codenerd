@@ -81,7 +81,7 @@ func hasStrongToolEvidence(need *ToolNeed) bool {
 
 // sortActionsByPriority sorts actions by priority (highest first)
 func sortActionsByPriority(actions []AutopoiesisAction) {
-	for i := 0; i < len(actions); i++ {
+	for i := range actions {
 		for j := i + 1; j < len(actions); j++ {
 			if actions[j].Priority > actions[i].Priority {
 				actions[i], actions[j] = actions[j], actions[i]

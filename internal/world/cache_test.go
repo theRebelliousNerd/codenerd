@@ -20,7 +20,7 @@ func (t *testFileInfo) Size() int64        { return t.size }
 func (t *testFileInfo) Mode() os.FileMode  { return 0644 }
 func (t *testFileInfo) ModTime() time.Time { return t.modTime }
 func (t *testFileInfo) IsDir() bool        { return false }
-func (t *testFileInfo) Sys() interface{}   { return nil }
+func (t *testFileInfo) Sys() any           { return nil }
 
 func TestNewFileCache(t *testing.T) {
 	// Create a temporary workspace root

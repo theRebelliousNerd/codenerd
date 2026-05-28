@@ -35,17 +35,52 @@ func (m Model) listenGlassBoxEvents() tea.Cmd {
 }
 
 // handleGlassBoxEvent processes a Glass Box event and adds it to history.
+//
+// Two surfaces:
+//  1. Transient activity line (status bar above input): every event
+//     replaces the previous one. This is the "fun to watch" surface —
+//     it flickers as the system works.
+//  2. Scrollback (chat history): only milestone-grade events land here,
+//     gated by isMilestoneEvent. Otherwise the answer drowns under
+//     telemetry on a busy turn.
 func (m *Model) handleGlassBoxEvent(event transparency.GlassBoxEvent) {
-	// Add to event buffer (capped)
+	// Add to event buffer (capped) — used by /glassbox status etc.
 	m.glassBoxEvents = append(m.glassBoxEvents, event)
 	if len(m.glassBoxEvents) > maxGlassBoxEvents {
 		m.glassBoxEvents = m.glassBoxEvents[1:]
 	}
 
-	// Convert to Message and add to history
-	msg := m.glassBoxEventToMessage(event)
-	// Use addMessage to ensure caching
-	*m = m.addMessage(msg)
+	// Always update the transient activity line.
+	m.activityLine = event.Summary
+	m.activityIconCh = string(event.Category)
+	m.activityAt = event.Timestamp
+	if m.activityAt.IsZero() {
+		m.activityAt = time.Now()
+	}
+
+	// Only milestones land in scrollback.
+	if isMilestoneEvent(event) {
+		msg := m.glassBoxEventToMessage(event)
+		*m = m.addMessage(msg)
+	}
+}
+
+// isMilestoneEvent decides which events deserve a permanent line in
+// the chat scrollback. Heuristic: shard lifecycle, kernel decisions,
+// routing/tool results, and any event explicitly carrying Duration
+// (indicates a completed operation worth a tombstone).
+func isMilestoneEvent(e transparency.GlassBoxEvent) bool {
+	switch e.Category {
+	case transparency.CategoryShard, transparency.CategoryRouting:
+		return true
+	case transparency.CategoryKernel:
+		// Only completed decisions, not raw fact pings.
+		return e.Duration > 0 || strings.HasPrefix(e.Summary, "next_action") || strings.Contains(e.Summary, "denied")
+	case transparency.CategoryControl:
+		return true
+	default:
+		return e.Duration > 0
+	}
 }
 
 // glassBoxEventToMessage converts a GlassBoxEvent to a Message for display.
@@ -191,13 +226,17 @@ func (m *Model) initGlassBox(bus *transparency.GlassBoxEventBus) {
 		m.glassBoxEventChan = bus.Subscribe()
 	}
 
-	// Check config for initial state
-	// Note: m.Config.Transparency is a pointer in UserConfig, so check both
-	if m.Config != nil && m.Config.Transparency != nil && m.Config.Transparency.GlassBoxEnabled {
-		m.glassBoxEnabled = true
-		if bus != nil {
-			bus.Enable()
-		}
+	// Glass Box is ON by default — the activity overlay is the
+	// primary UX, and the user can still toggle off via Alt+G or
+	// `/glassbox`. We only respect an *explicit* config opt-out;
+	// missing/nil config keeps the default-on behavior.
+	enabled := true
+	if m.Config != nil && m.Config.Transparency != nil {
+		enabled = m.Config.Transparency.GlassBoxEnabled || !m.Config.Transparency.GlassBoxDisabled
+	}
+	m.glassBoxEnabled = enabled
+	if bus != nil && enabled {
+		bus.Enable()
 	}
 }
 

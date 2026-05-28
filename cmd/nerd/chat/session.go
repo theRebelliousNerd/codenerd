@@ -707,11 +707,17 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			logging.Boot("Injected strategic knowledge (%d chars) into transducer", len(strategicSummary))
 		}
 
-		// Create Glass Box event bus early so shards can capture it
+		// Create Glass Box event bus early so shards can capture it.
+		// We enable it eagerly here so producers can emit during boot;
+		// the TUI side controls subscription/display via initGlassBox.
 		glassBoxEventBus := transparency.NewGlassBoxEventBus()
+		glassBoxEventBus.Enable()
+		shardMgr.SetGlassBoxBus(glassBoxEventBus)
+		virtualStore.SetGlassBoxBus(glassBoxEventBus)
 
 		// Create Tool Event bus for always-visible tool execution notifications
 		toolEventBus := transparency.NewToolEventBus()
+		virtualStore.SetToolEventBus(toolEventBus)
 
 		// =======================================================================
 		// CLEAN LOOP ARCHITECTURE: Create Session Executor and Spawner
@@ -936,7 +942,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			disabled[name] = struct{}{}
 		}
 		if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
-			for _, token := range strings.Split(env, ",") {
+			for token := range strings.SplitSeq(env, ",") {
 				name := strings.TrimSpace(token)
 				if name != "" {
 					disabled[name] = struct{}{}

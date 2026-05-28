@@ -135,7 +135,7 @@ func (k *safeKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) e
 	return nil
 }
 
-func matchFactArgsPrefix(actual []interface{}, prefix []interface{}) bool {
+func matchFactArgsPrefix(actual []any, prefix []any) bool {
 	if len(prefix) > len(actual) {
 		return false
 	}
@@ -199,8 +199,8 @@ func (g *gatingTaskExecutor) WaitForResult(ctx context.Context, taskID string) (
 
 func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 	mockKernel := &safeKernel{}
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []interface{}{"/task_1"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []interface{}{"/task_2"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_1"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_2"}})
 
 	workspace := t.TempDir()
 	conflictPath := filepath.Join(workspace, "internal", "conflict.go")

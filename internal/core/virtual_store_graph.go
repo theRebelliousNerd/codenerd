@@ -41,7 +41,7 @@ func (v *VirtualStore) getQueryGraphAtoms(query ast.Atom) ([]ast.Atom, error) {
 
 	// 2. Extract Params
 	// Mangle's Map type is complex; for simplicity we extract the string representation.
-	params := make(map[string]interface{})
+	params := make(map[string]any)
 	params["arg"] = cleanMangleString(query.Args[1].String())
 
 	// 3. Execute Query
@@ -70,7 +70,7 @@ func cleanMangleString(s string) string {
 }
 
 // Helper to convert Go types to Mangle AST terms
-func goToMangleTerm(val interface{}) (ast.BaseTerm, error) {
+func goToMangleTerm(val any) (ast.BaseTerm, error) {
 	switch v := val.(type) {
 	case string:
 		return ast.String(v), nil

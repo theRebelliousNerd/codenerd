@@ -152,7 +152,7 @@ func TestBreak_ExtractJSON_AlternatingBracesInStrings(t *testing.T) {
 	if result == "" {
 		t.Error("failed to extract JSON with braces inside strings")
 	} else {
-		var parsed map[string]interface{}
+		var parsed map[string]any
 		if err := json.Unmarshal([]byte(result), &parsed); err != nil {
 			t.Errorf("extracted invalid JSON: %v (got: %q)", err, result)
 		}
@@ -294,7 +294,7 @@ func TestBreak_SanitizeFactArg_10MB_Input(t *testing.T) {
 func TestBreak_SanitizeFactArg_AllControlChars(t *testing.T) {
 	// Attack: every control character from 0x00 to 0x1F.
 	var input strings.Builder
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		input.WriteByte(byte(i))
 	}
 
@@ -372,11 +372,11 @@ func TestBreak_ParseResponse_DeeplyNestedJSON(t *testing.T) {
 	// But this creates a 1000-deep structure that may be slow to parse.
 	depth := 1000
 	var sb strings.Builder
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString(`{"a":`)
 	}
 	sb.WriteString(`"leaf"`)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		sb.WriteString(`}`)
 	}
 
@@ -429,7 +429,7 @@ func TestBreak_ParseResponse_HugeArray_UserConstraints(t *testing.T) {
 	// Tests memory allocation for slice fields during deserialization.
 	var constraints strings.Builder
 	constraints.WriteString("[")
-	for i := 0; i < 100_000; i++ {
+	for i := range 100_000 {
 		if i > 0 {
 			constraints.WriteString(",")
 		}
@@ -551,7 +551,7 @@ func TestBreak_RefineCategory_Nondeterministic(t *testing.T) {
 	input := "what would you change about this code"
 
 	results := make(map[string]int)
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		cat := refineCategory(input, "/default")
 		results[cat]++
 	}
@@ -584,9 +584,7 @@ func TestBreak_VerbCorpus_DataRace(t *testing.T) {
 	stop := make(chan struct{})
 
 	// Writer goroutine: continuously replace VerbCorpus
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stop:
@@ -604,13 +602,11 @@ func TestBreak_VerbCorpus_DataRace(t *testing.T) {
 				SetVerbCorpus(newCorpus) // NOW SYNCHRONIZED
 			}
 		}
-	}()
+	})
 
 	// Reader goroutines: continuously call getRegexCandidates
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -619,7 +615,7 @@ func TestBreak_VerbCorpus_DataRace(t *testing.T) {
 					_ = getRegexCandidates("fix the login bug", GetVerbCorpus()) // NOW SYNCHRONIZED
 				}
 			}
-		}()
+		})
 	}
 
 	// Run for 500ms
@@ -657,7 +653,7 @@ func TestBreak_ClassifyInput_10K_Tokens(t *testing.T) {
 	//
 	// This tests whether ClassifyInput has any token count limits.
 	var words []string
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		words = append(words, strings.Repeat("w", 5)+"_"+string(rune('a'+i%26))+string(rune('0'+i%10)))
 	}
 	input := "fix " + strings.Join(words, " ")
@@ -785,7 +781,7 @@ func TestBreak_ParseResponse_MemoryPressure(t *testing.T) {
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		resp := `{"primary_intent":"fix","semantic_type":"action","action_type":"modify","domain":"general","confidence":0.5}`
 		_, _ = trans.parseResponse(resp)
 	}
@@ -811,7 +807,7 @@ func TestBreak_ExtractJSON_MemoryPressure(t *testing.T) {
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		_ = ExtractCleanJSON(input)
 	}
 

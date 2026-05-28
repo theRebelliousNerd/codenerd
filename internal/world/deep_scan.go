@@ -26,10 +26,7 @@ type DeepResult struct {
 func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, workers int) (*DeepResult, error) {
 	start := time.Now()
 	if workers <= 0 {
-		workers = runtime.NumCPU()
-		if workers > 8 {
-			workers = 8
-		}
+		workers = min(runtime.NumCPU(), 8)
 		if workers < 2 {
 			workers = 2
 		}
@@ -48,9 +45,7 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 		if filepath.Ext(path) != ".go" {
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -107,7 +102,7 @@ func EnsureDeepFacts(ctx context.Context, paths []string, db *store.LocalStore, 
 			mu.Lock()
 			loadFacts = append(loadFacts, deepFacts...)
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()

@@ -14,10 +14,7 @@ func runGoFmtFiles(ctx context.Context, ws string, files []string) error {
 	// Chunk to avoid command line length limits on Windows.
 	const chunkSize = 40
 	for start := 0; start < len(files); start += chunkSize {
-		end := start + chunkSize
-		if end > len(files) {
-			end = len(files)
-		}
+		end := min(start+chunkSize, len(files))
 		args := append([]string{"-w"}, files[start:end]...)
 		gofmtCmd := exec.CommandContext(ctx, "gofmt", args...)
 		gofmtCmd.Dir = ws

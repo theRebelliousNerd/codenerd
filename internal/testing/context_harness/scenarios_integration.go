@@ -8,7 +8,7 @@ func CampaignPhaseTransitionScenario() *Scenario {
 	turns := make([]Turn, 60)
 
 	// Phase 1: Planning (turns 0-19)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		turns[i] = Turn{
 			TurnID:        i,
 			Speaker:       "user",
@@ -77,7 +77,7 @@ func CampaignPhaseTransitionScenario() *Scenario {
 func SWEBenchIssueResolutionScenario() *Scenario {
 	turns := make([]Turn, 50)
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		turns[i] = Turn{
 			TurnID:  i,
 			Speaker: "user",
@@ -129,7 +129,7 @@ func SWEBenchIssueResolutionScenario() *Scenario {
 func TokenBudgetOverflowScenario() *Scenario {
 	turns := make([]Turn, 100)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		// Generate increasingly verbose messages to trigger compression
 		msg := verboseMessages[i%len(verboseMessages)]
 		turns[i] = Turn{
@@ -180,7 +180,7 @@ func TokenBudgetOverflowScenario() *Scenario {
 func DependencySpreadingScenario() *Scenario {
 	turns := make([]Turn, 40)
 
-	for i := 0; i < 40; i++ {
+	for i := range 40 {
 		turns[i] = Turn{
 			TurnID:  i,
 			Speaker: "user",
@@ -232,7 +232,7 @@ func VerbSpecificBoostingScenario() *Scenario {
 	verbs := []string{"fix", "debug", "refactor", "test", "implement", "review", "research", "explain"}
 	turns := make([]Turn, 30)
 
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		verb := verbs[i%len(verbs)]
 		turns[i] = Turn{
 			TurnID:  i,
@@ -278,7 +278,7 @@ func VerbSpecificBoostingScenario() *Scenario {
 func EphemeralFilteringScenario() *Scenario {
 	turns := make([]Turn, 20)
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		turns[i] = Turn{
 			TurnID:  i,
 			Speaker: "user",
@@ -329,7 +329,7 @@ func ContextFeedbackLearningScenario() *Scenario {
 
 	// Phase 1: Build up feedback history (turns 0-19)
 	// Some predicates will be consistently helpful, others consistently noise
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		intent := "debug"
 		if i%3 == 0 {
 			intent = "implement"
@@ -358,7 +358,7 @@ func ContextFeedbackLearningScenario() *Scenario {
 				Topics:                  []string{"implementation", "auth"},
 				FilesReferenced:         []string{"auth/handler.go"},
 				IsQuestionReferringBack: true,
-				ReferencesBackToTurn:    intPtr(5),
+				ReferencesBackToTurn:    new(5),
 			},
 		}
 	}

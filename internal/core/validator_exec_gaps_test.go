@@ -74,12 +74,10 @@ func TestExecutionValidator_ConcurrentAccess(t *testing.T) {
 	res := ActionResult{Success: false, Output: "fatal: failure"}
 	var wg sync.WaitGroup
 
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for i := range 50 {
+		wg.Go(func() {
 			v.Validate(context.Background(), req, res)
-		}()
+		})
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

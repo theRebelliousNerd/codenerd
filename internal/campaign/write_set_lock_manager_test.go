@@ -71,7 +71,7 @@ func TestNormalizeWriteSetPaths_RejectsOutsideWorkspace(t *testing.T) {
 
 func TestWriteSetLockManager_NullEmptyInputs(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
-	
+
 	// empty/nil write set
 	lease, err := manager.acquire(context.Background(), "t1", nil, time.Millisecond)
 	if err != nil || lease != nil {
@@ -87,7 +87,9 @@ func TestWriteSetLockManager_NullEmptyInputs(t *testing.T) {
 	if err != nil || lease == nil {
 		t.Errorf("Expected success for nil context (should fallback to Background)")
 	}
-	if lease != nil { lease.release() }
+	if lease != nil {
+		lease.release()
+	}
 
 	// empty/whitespace taskID
 	lease, err = manager.acquire(context.Background(), "", []string{"a"}, time.Millisecond)
@@ -157,17 +159,19 @@ func TestWriteSetLockManager_NoDeadlockWithOppositeOrdering(t *testing.T) {
 
 func TestWriteSetLockManager_UserExtremes(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
-	
+
 	// Massive write set
 	var massive []string
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		massive = append(massive, fmt.Sprintf("file_%d.go", i))
 	}
 	lease, err := manager.acquire(context.Background(), "t1", massive, time.Millisecond)
 	if err != nil {
 		t.Errorf("Failed to acquire massive write set: %v", err)
 	}
-	if lease != nil { lease.release() }
+	if lease != nil {
+		lease.release()
+	}
 
 	// Poll interval 1ns
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
@@ -179,23 +183,27 @@ func TestWriteSetLockManager_UserExtremes(t *testing.T) {
 	if !errors.Is(err, ErrWriteSetLockTimeout) && err != context.DeadlineExceeded {
 		t.Errorf("Expected timeout, got %v", err)
 	}
-	if l1 != nil { l1.release() }
+	if l1 != nil {
+		l1.release()
+	}
 }
 
 func TestWriteSetLockManager_StateConflicts(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
-	
+
 	// Re-entrancy of task ID locks
 	l1, err := manager.acquire(context.Background(), "t1", []string{"a"}, time.Millisecond)
-	if err != nil { t.Fatal(err) }
-	
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	l2, err := manager.acquire(context.Background(), "t1", []string{"a"}, time.Millisecond)
 	if err != nil {
 		t.Errorf("Expected success for re-entrant lock, got %v", err)
 	}
-	
+
 	l2.release()
-	
+
 	// Check if lock is completely released or still held by l1
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel2()
@@ -219,7 +227,7 @@ func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 	errCh := make(chan error, 32)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -265,12 +273,14 @@ func TestWriteSetLockManager_ConcurrentMutualExclusion(t *testing.T) {
 
 func TestWriteSetLockManager_TypeCoercion(t *testing.T) {
 	manager := newWriteSetLockManager(t.TempDir())
-	
+
 	// Complex/Bizarre paths
 	paths := []string{"\x00", "a/../../b", "unprintable_\u0000", strings.Repeat("A", 3000)}
 	lease, err := manager.acquire(context.Background(), "t1", paths, time.Millisecond)
 	if err != nil {
 		t.Errorf("Acquire with bizarre paths failed: %v", err)
 	}
-	if lease != nil { lease.release() }
+	if lease != nil {
+		lease.release()
+	}
 }

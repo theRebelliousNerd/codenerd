@@ -51,7 +51,7 @@ func TestLocalStore_WorldFilesAndFacts(t *testing.T) {
 	if err := s.UpsertWorldFile(meta); err != nil {
 		t.Errorf("UpsertWorldFile failed: %v", err)
 	}
-	
+
 	// Update
 	meta.Size = 456
 	if err := s.UpsertWorldFile(meta); err != nil {
@@ -60,12 +60,12 @@ func TestLocalStore_WorldFilesAndFacts(t *testing.T) {
 
 	// Test ReplaceWorldFactsForFile
 	facts := []WorldFactInput{
-		{Predicate: "test_pred", Args: []interface{}{"arg1"}},
+		{Predicate: "test_pred", Args: []any{"arg1"}},
 	}
 	if err := s.ReplaceWorldFactsForFile("/test/path.go", "fast", "fingerprint", facts); err != nil {
 		t.Errorf("ReplaceWorldFactsForFile failed: %v", err)
 	}
-	
+
 	// Test ReplaceWorldFactsForFile empty depth
 	if err := s.ReplaceWorldFactsForFile("/test/path2.go", "", "fingerprint", facts); err != nil {
 		t.Errorf("ReplaceWorldFactsForFile failed: %v", err)
@@ -82,7 +82,7 @@ func TestLocalStore_WorldFilesAndFacts(t *testing.T) {
 	if len(loaded) != 1 {
 		t.Errorf("Expected 1 fact, got %d", len(loaded))
 	}
-	
+
 	// Empty depth
 	loaded2, _, err := s.LoadWorldFactsForFile("/test/path2.go", "")
 	if err != nil {

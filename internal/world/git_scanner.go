@@ -47,8 +47,8 @@ func ScanGitHistory(ctx context.Context, root string, depth int) ([]core.Fact, e
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "COMMIT:") {
-			parts := strings.Split(strings.TrimPrefix(line, "COMMIT:"), "|")
+		if after, ok := strings.CutPrefix(line, "COMMIT:"); ok {
+			parts := strings.Split(after, "|")
 			if len(parts) >= 4 {
 				currentHash = parts[0]
 				currentAuthor = parts[1]
@@ -71,7 +71,7 @@ func ScanGitHistory(ctx context.Context, root string, depth int) ([]core.Fact, e
 			// Generate git_history fact for this file/commit
 			facts = append(facts, core.Fact{
 				Predicate: "git_history",
-				Args: []interface{}{
+				Args: []any{
 					filePath,
 					currentHash,
 					currentAuthor,
@@ -89,7 +89,7 @@ func ScanGitHistory(ctx context.Context, root string, depth int) ([]core.Fact, e
 	for file, count := range churnMap {
 		facts = append(facts, core.Fact{
 			Predicate: "churn_rate",
-			Args: []interface{}{
+			Args: []any{
 				file,
 				count,
 			},

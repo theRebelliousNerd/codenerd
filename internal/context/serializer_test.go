@@ -88,8 +88,8 @@ func TestSerializeFactsGroupedWithCorpusOrder(t *testing.T) {
 	})
 
 	facts := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/read", "target", "constraint"}},
-		{Predicate: "next_action", Args: []interface{}{"/run_tests"}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query", "/read", "target", "constraint"}},
+		{Predicate: "next_action", Args: []any{"/run_tests"}},
 	}
 
 	result := fs.SerializeFacts(facts)
@@ -146,8 +146,8 @@ func TestSerializeFactsFlat(t *testing.T) {
 	fs := NewFactSerializer().WithGrouping(false).WithComments(false)
 
 	facts := []core.Fact{
-		{Predicate: "user_intent", Args: []interface{}{"id1", "/query"}},
-		{Predicate: "next_action", Args: []interface{}{"/run_tests"}},
+		{Predicate: "user_intent", Args: []any{"id1", "/query"}},
+		{Predicate: "next_action", Args: []any{"/run_tests"}},
 	}
 
 	result := fs.SerializeFacts(facts)

@@ -62,6 +62,7 @@ package mangle
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"sync"
 	"time"
@@ -468,9 +469,7 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 
 	// We need PredToRules and PredToDecl from programInfo
 	predToDecl := make(map[ast.PredicateSym]*ast.Decl)
-	for sym, decl := range de.programInfo.Decls {
-		predToDecl[sym] = decl
-	}
+	maps.Copy(predToDecl, de.programInfo.Decls)
 
 	predToRules := make(map[ast.PredicateSym][]ast.Clause)
 	for _, clause := range de.programInfo.Rules {
@@ -503,11 +502,11 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 	}
 
 	start := time.Now()
-	resultChan := make(chan []map[string]interface{}, 1)
+	resultChan := make(chan []map[string]any, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
-		var results []map[string]interface{}
+		var results []map[string]any
 
 		emitRow := func(fact ast.Atom) error {
 			select {
@@ -516,7 +515,7 @@ func (de *DifferentialEngine) Query(ctx context.Context, query string) (*QueryRe
 			default:
 			}
 
-			row := make(map[string]interface{}, len(shape.variables))
+			row := make(map[string]any, len(shape.variables))
 			for _, binding := range shape.variables {
 				if binding.Index >= len(fact.Args) {
 					continue

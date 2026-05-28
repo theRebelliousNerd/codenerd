@@ -30,9 +30,7 @@ func NewConsolidationWorker(engine *TaxonomyEngine) *ConsolidationWorker {
 
 // Start begins the background worker goroutine for processing learning evaluations.
 func (cw *ConsolidationWorker) Start() {
-	cw.wg.Add(1)
-	go func() {
-		defer cw.wg.Done()
+	cw.wg.Go(func() {
 		for {
 			select {
 			case <-cw.quit:
@@ -44,7 +42,7 @@ func (cw *ConsolidationWorker) Start() {
 				cw.process(traces)
 			}
 		}
-	}()
+	})
 	logging.Perception("ConsolidationWorker started in background")
 }
 

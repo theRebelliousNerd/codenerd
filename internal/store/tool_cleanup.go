@@ -146,7 +146,7 @@ func (s *ToolStore) CleanupByRuntimeBudget(budgetHours float64) (*CleanupStats, 
 		placeholders := strings.Repeat("?,", len(sessionsToDelete)-1) + "?"
 		query := fmt.Sprintf("DELETE FROM tool_executions WHERE session_id IN (%s)", placeholders)
 
-		args := make([]interface{}, len(sessionsToDelete))
+		args := make([]any, len(sessionsToDelete))
 		for i, id := range sessionsToDelete {
 			args[i] = id
 		}
@@ -372,7 +372,7 @@ Recommend which executions to DELETE. Output ONLY valid JSON:
 		query := `DELETE FROM tool_executions WHERE success = 0 AND session_runtime_ms < ?`
 		if len(rec.DeleteFailed.Exceptions) > 0 {
 			placeholders := make([]string, len(rec.DeleteFailed.Exceptions))
-			args := make([]interface{}, 1+len(rec.DeleteFailed.Exceptions))
+			args := make([]any, 1+len(rec.DeleteFailed.Exceptions))
 			args[0] = cutoffMs
 			for i, exc := range rec.DeleteFailed.Exceptions {
 				placeholders[i] = "?"

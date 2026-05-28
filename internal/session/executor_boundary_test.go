@@ -57,7 +57,7 @@ func TestExecutor_CheckSafety_MassivePayloadRejected(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_huge",
 		Name: "writeFile",
-		Args: map[string]interface{}{
+		Args: map[string]any{
 			"path":    "out.txt",
 			"content": huge,
 		},
@@ -93,7 +93,7 @@ func TestExecutor_CheckSafety_PayloadAtBoundary(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_ok",
 		Name: "writeFile",
-		Args: map[string]interface{}{
+		Args: map[string]any{
 			"path":    "out.txt",
 			"content": smallish,
 		},
@@ -130,7 +130,7 @@ func TestExecutor_CheckSafety_EmptyToolNameRejectsCategorically(t *testing.T) {
 		toolCall := ToolCall{
 			ID:   "call_empty",
 			Name: name,
-			Args: map[string]interface{}{"path": "x"},
+			Args: map[string]any{"path": "x"},
 		}
 
 		allowed := executor.checkSafety(toolCall)
@@ -157,7 +157,7 @@ func TestExecutor_CheckSafety_NilArgsAssertsEmptyObject(t *testing.T) {
 		// Pre-load a permitted fact for the readFile action with empty payload.
 		facts: []types.Fact{{
 			Predicate: "permitted",
-			Args:      []interface{}{"/readFile", "unknown", "{}"},
+			Args:      []any{"/readFile", "unknown", "{}"},
 		}},
 	}
 	executor := &Executor{

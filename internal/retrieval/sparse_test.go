@@ -248,7 +248,7 @@ func TestParseRipgrepJSON_MalformedLines(t *testing.T) {
 func TestKeywordHitCache_Concurrency(t *testing.T) {
 	cache := NewKeywordHitCache(10, time.Hour)
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -268,7 +268,7 @@ func TestSparseRetriever_HugeOutput(t *testing.T) {
 	var sb strings.Builder
 	line := rgMatchJSON("a.go", 1, 1, 4, "hit")
 	// Feed 100k lines; parser must cap at maxHitsPerKeyword (OOM prevention).
-	for i := 0; i < 100000; i++ {
+	for range 100000 {
 		sb.WriteString(line)
 		sb.WriteByte('\n')
 	}

@@ -550,12 +550,12 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 	}
 
 	var nodes []struct {
-		ID        string                 `json:"id"`
-		Name      string                 `json:"name"`
-		Parent    *string                `json:"parent"`
-		Props     map[string]interface{} `json:"props"`
-		State     [][]interface{}        `json:"state"`
-		DomNodeID *string                `json:"domNodeId"`
+		ID        string         `json:"id"`
+		Name      string         `json:"name"`
+		Parent    *string        `json:"parent"`
+		Props     map[string]any `json:"props"`
+		State     [][]any        `json:"state"`
+		DomNodeID *string        `json:"domNodeId"`
 	}
 	if err := json.Unmarshal(raw, &nodes); err != nil {
 		return nil, fmt.Errorf("decode reified tree: %w", err)
@@ -571,14 +571,14 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 		}
 		facts = append(facts, mangle.Fact{
 			Predicate: "react_component",
-			Args:      []interface{}{n.ID, n.Name, parent},
+			Args:      []any{n.ID, n.Name, parent},
 			Timestamp: now,
 		})
 
 		for k, v := range n.Props {
 			facts = append(facts, mangle.Fact{
 				Predicate: "react_prop",
-				Args:      []interface{}{n.ID, k, fmt.Sprintf("%v", v)},
+				Args:      []any{n.ID, k, fmt.Sprintf("%v", v)},
 				Timestamp: now,
 			})
 		}
@@ -589,7 +589,7 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 			}
 			facts = append(facts, mangle.Fact{
 				Predicate: "react_state",
-				Args:      []interface{}{n.ID, entry[0], fmt.Sprintf("%v", entry[1])},
+				Args:      []any{n.ID, entry[0], fmt.Sprintf("%v", entry[1])},
 				Timestamp: now,
 			})
 		}
@@ -597,7 +597,7 @@ func (m *SessionManager) ReifyReact(ctx context.Context, sessionID string) ([]ma
 		if n.DomNodeID != nil && *n.DomNodeID != "" {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_mapping",
-				Args:      []interface{}{n.ID, *n.DomNodeID},
+				Args:      []any{n.ID, *n.DomNodeID},
 				Timestamp: now,
 			})
 		}
@@ -873,12 +873,12 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 			facts := []mangle.Fact{
 				{
 					Predicate: "navigation_event",
-					Args:      []interface{}{sessionID, ev.Frame.URL, now.UnixMilli()},
+					Args:      []any{sessionID, ev.Frame.URL, now.UnixMilli()},
 					Timestamp: now,
 				},
 				{
 					Predicate: "current_url",
-					Args:      []interface{}{sessionID, ev.Frame.URL},
+					Args:      []any{sessionID, ev.Frame.URL},
 					Timestamp: now,
 				},
 			}
@@ -905,7 +905,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				msg := stringifyConsoleArgs(ev.Args)
 				if err := m.engine.AddFacts([]mangle.Fact{{
 					Predicate: "console_event",
-					Args:      []interface{}{string(ev.Type), msg, now.UnixMilli()},
+					Args:      []any{string(ev.Type), msg, now.UnixMilli()},
 					Timestamp: now,
 				}}); err != nil {
 					logging.BrowserError("[session:%s] console fact error: %v", sessionID, err)
@@ -948,7 +948,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 
 				facts := []mangle.Fact{{
 					Predicate: "net_request",
-					Args:      []interface{}{string(ev.RequestID), ev.Request.Method, ev.Request.URL, initiatorType, now.UnixMilli()},
+					Args:      []any{string(ev.RequestID), ev.Request.Method, ev.Request.URL, initiatorType, now.UnixMilli()},
 					Timestamp: now,
 				}}
 
@@ -959,7 +959,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					}
 					facts = append(facts, mangle.Fact{
 						Predicate: "request_initiator",
-						Args:      []interface{}{string(ev.RequestID), initiatorType, parentRef},
+						Args:      []any{string(ev.RequestID), initiatorType, parentRef},
 						Timestamp: now,
 					})
 				}
@@ -972,7 +972,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					for k, v := range ev.Request.Headers {
 						if err := m.engine.AddFacts([]mangle.Fact{{
 							Predicate: "net_header",
-							Args:      []interface{}{string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
+							Args:      []any{string(ev.RequestID), "req", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
 							logging.BrowserError("[session:%s] net_header fact error: %v", sessionID, err)
@@ -992,7 +992,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 				}
 				if err := m.engine.AddFacts([]mangle.Fact{{
 					Predicate: "net_response",
-					Args:      []interface{}{string(ev.RequestID), ev.Response.Status, latency, duration},
+					Args:      []any{string(ev.RequestID), ev.Response.Status, latency, duration},
 					Timestamp: now,
 				}}); err != nil {
 					logging.BrowserError("[session:%s] net_response fact error: %v", sessionID, err)
@@ -1002,7 +1002,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 					for k, v := range ev.Response.Headers {
 						if err := m.engine.AddFacts([]mangle.Fact{{
 							Predicate: "net_header",
-							Args:      []interface{}{string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
+							Args:      []any{string(ev.RequestID), "res", strings.ToLower(k), fmt.Sprintf("%v", v)},
 							Timestamp: now,
 						}}); err != nil {
 							logging.BrowserError("[session:%s] res net_header fact error: %v", sessionID, err)
@@ -1081,19 +1081,19 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 						case "click":
 							facts = append(facts, mangle.Fact{
 								Predicate: "click_event",
-								Args:      []interface{}{ev.ID, ts.UnixMilli()},
+								Args:      []any{ev.ID, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						case "input":
 							facts = append(facts, mangle.Fact{
 								Predicate: "input_event",
-								Args:      []interface{}{ev.ID, ev.Value, ts.UnixMilli()},
+								Args:      []any{ev.ID, ev.Value, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						case "state":
 							facts = append(facts, mangle.Fact{
 								Predicate: "state_change",
-								Args:      []interface{}{ev.Name, ev.Value, ts.UnixMilli()},
+								Args:      []any{ev.Name, ev.Value, ts.UnixMilli()},
 								Timestamp: ts,
 							})
 						}
@@ -1205,31 +1205,31 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		// 1. Assert standard DOM predicates aligned with schemas_browser.mg (no sessionID prefix)
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_node",
-			Args:      []interface{}{n.ID, n.Tag, n.Text, n.Parent},
+			Args:      []any{n.ID, n.Tag, n.Text, n.Parent},
 			Timestamp: now,
 		})
 		if n.Text != "" {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_text",
-				Args:      []interface{}{n.ID, n.Text},
+				Args:      []any{n.ID, n.Text},
 				Timestamp: now,
 			})
 		}
 		for k, v := range n.Attrs {
 			facts = append(facts, mangle.Fact{
 				Predicate: "dom_attr",
-				Args:      []interface{}{n.ID, k, v},
+				Args:      []any{n.ID, k, v},
 				Timestamp: now,
 			})
 			facts = append(facts, mangle.Fact{
 				Predicate: "attribute",
-				Args:      []interface{}{n.ID, k, v},
+				Args:      []any{n.ID, k, v},
 				Timestamp: now,
 			})
 			if v == "true" || v == "-1" {
 				facts = append(facts, mangle.Fact{
 					Predicate: "attribute",
-					Args:      []interface{}{n.ID, k, "/" + v},
+					Args:      []any{n.ID, k, "/" + v},
 					Timestamp: now,
 				})
 			}
@@ -1241,24 +1241,24 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		}
 		facts = append(facts, mangle.Fact{
 			Predicate: "dom_layout",
-			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height), visibleAtom},
+			Args:      []any{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height), visibleAtom},
 			Timestamp: now,
 		})
 
 		// 2. Assert element, position, and geometry predicates
 		facts = append(facts, mangle.Fact{
 			Predicate: "element",
-			Args:      []interface{}{n.ID, strings.ToLower(n.Tag), n.Parent},
+			Args:      []any{n.ID, strings.ToLower(n.Tag), n.Parent},
 			Timestamp: now,
 		})
 		facts = append(facts, mangle.Fact{
 			Predicate: "position",
-			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
+			Args:      []any{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
 			Timestamp: now,
 		})
 		facts = append(facts, mangle.Fact{
 			Predicate: "geometry",
-			Args:      []interface{}{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
+			Args:      []any{n.ID, int64(n.Layout.X), int64(n.Layout.Y), int64(n.Layout.Width), int64(n.Layout.Height)},
 			Timestamp: now,
 		})
 
@@ -1288,7 +1288,7 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 		if isInteractable {
 			facts = append(facts, mangle.Fact{
 				Predicate: "interactable",
-				Args:      []interface{}{n.ID, elemType},
+				Args:      []any{n.ID, elemType},
 				Timestamp: now,
 			})
 		}
@@ -1298,17 +1298,17 @@ func (m *SessionManager) captureDOMFacts(ctx context.Context, sessionID string, 
 			if v != "" {
 				facts = append(facts, mangle.Fact{
 					Predicate: "computed_style",
-					Args:      []interface{}{n.ID, k, v},
+					Args:      []any{n.ID, k, v},
 					Timestamp: now,
 				})
 				facts = append(facts, mangle.Fact{
 					Predicate: "css_property",
-					Args:      []interface{}{n.ID, k, v},
+					Args:      []any{n.ID, k, v},
 					Timestamp: now,
 				})
 				facts = append(facts, mangle.Fact{
 					Predicate: "css_property",
-					Args:      []interface{}{n.ID, "/" + k, "/" + v},
+					Args:      []any{n.ID, "/" + k, "/" + v},
 					Timestamp: now,
 				})
 			}
@@ -1367,7 +1367,7 @@ func restoreStorage(page *rod.Page, localJSON, sessionJSON string) {
 			} catch (e) {}
 		}
 		`,
-		JSArgs:       []interface{}{localJSON, sessionJSON},
+		JSArgs:       []any{localJSON, sessionJSON},
 		ByValue:      true,
 		AwaitPromise: true,
 		UserGesture:  true,

@@ -434,7 +434,7 @@ func (ts *TraceStore) UpdateTraceQuality(traceID string, score float64, notes []
 
 // GetTraceStats returns comprehensive statistics about reasoning traces.
 // Provides insights into agent performance and learning patterns.
-func (ts *TraceStore) GetTraceStats() (map[string]interface{}, error) {
+func (ts *TraceStore) GetTraceStats() (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetTraceStats")
 	defer timer.Stop()
 
@@ -443,7 +443,7 @@ func (ts *TraceStore) GetTraceStats() (map[string]interface{}, error) {
 
 	logging.StoreDebug("Computing trace statistics")
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	// Total traces
 	var totalCount int64
@@ -558,7 +558,7 @@ func (ts *TraceStore) GetFailurePatterns(limit int) (map[string]int, error) {
 
 // GetLearningInsights generates actionable learning insights from trace history.
 // Analyzes success/failure patterns, performance trends, and quality metrics.
-func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[string]interface{}, error) {
+func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[string]any, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
@@ -566,7 +566,7 @@ func (ts *TraceStore) GetLearningInsights(shardType string, days int) (map[strin
 		days = 7
 	}
 
-	insights := make(map[string]interface{})
+	insights := make(map[string]any)
 	cutoff := time.Now().AddDate(0, 0, -days)
 
 	// Recent activity

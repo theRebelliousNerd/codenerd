@@ -384,7 +384,7 @@ func TestPerformanceThresholdMs_WhenNilMap_ShouldReturn0(t *testing.T) {
 
 func TestWithContext_ShouldReturnNonNilContextLogger(t *testing.T) {
 	logger := &Logger{category: CategoryKernel}
-	ctx := map[string]interface{}{"key": "value"}
+	ctx := map[string]any{"key": "value"}
 	cl := logger.WithContext(ctx)
 	if cl == nil {
 		t.Fatal("WithContext returned nil")
@@ -397,7 +397,7 @@ func TestWithContext_ShouldReturnNonNilContextLogger(t *testing.T) {
 func TestContextLogger_WhenNilInternalLogger_ShouldNotPanic(t *testing.T) {
 	// No-op logger (nil internal logger)
 	logger := &Logger{category: CategoryKernel}
-	cl := logger.WithContext(map[string]interface{}{"key": "value"})
+	cl := logger.WithContext(map[string]any{"key": "value"})
 
 	// All methods should be no-ops (no panic)
 	cl.Debug("debug msg %d", 1)
@@ -415,7 +415,7 @@ func TestContextLogger_WhenActiveLogger_ShouldWriteMessages(t *testing.T) {
 	logLevel = LevelDebug
 	defer func() { logLevel = originalLevel }()
 
-	cl := logger.WithContext(map[string]interface{}{"req_id": "abc"})
+	cl := logger.WithContext(map[string]any{"req_id": "abc"})
 
 	cl.Debug("test debug %s", "msg")
 	cl.Info("test info %s", "msg")
@@ -449,7 +449,7 @@ func TestContextLogger_WhenLevelRestricted_ShouldFilter(t *testing.T) {
 	logLevel = LevelWarn
 	defer func() { logLevel = originalLevel }()
 
-	cl := logger.WithContext(map[string]interface{}{})
+	cl := logger.WithContext(map[string]any{})
 
 	cl.Debug("should not appear")
 	cl.Info("should not appear")
@@ -506,7 +506,7 @@ func TestRequestLogger_FormatMsg_WhenNoFields_ShouldIncludeRequestID(t *testing.
 	rl := &RequestLogger{
 		logger:    &Logger{category: CategoryKernel},
 		requestID: "req-abc",
-		fields:    make(map[string]interface{}),
+		fields:    make(map[string]any),
 	}
 	msg := rl.formatMsg("hello %s", "world")
 	if !strings.Contains(msg, "[req:req-abc]") {
@@ -521,7 +521,7 @@ func TestRequestLogger_FormatMsg_WhenFields_ShouldIncludeFields(t *testing.T) {
 	rl := &RequestLogger{
 		logger:    &Logger{category: CategoryKernel},
 		requestID: "req-xyz",
-		fields:    map[string]interface{}{"op": "read"},
+		fields:    map[string]any{"op": "read"},
 	}
 	msg := rl.formatMsg("test %d", 42)
 	if !strings.Contains(msg, "[req:req-xyz]") {
@@ -540,7 +540,7 @@ func TestRequestLogger_WhenNilInternalLogger_ShouldNotPanic(t *testing.T) {
 	rl := &RequestLogger{
 		logger:    &Logger{category: CategoryKernel}, // nil internal logger
 		requestID: "req-1",
-		fields:    make(map[string]interface{}),
+		fields:    make(map[string]any),
 	}
 
 	// All should be no-ops
@@ -561,7 +561,7 @@ func TestRequestLogger_WhenActiveLogger_ShouldWriteAllLevels(t *testing.T) {
 	rl := &RequestLogger{
 		logger:    &Logger{category: CategoryKernel, logger: inner},
 		requestID: "req-test",
-		fields:    make(map[string]interface{}),
+		fields:    make(map[string]any),
 	}
 
 	rl.Debug("debug msg")
@@ -598,7 +598,7 @@ func TestRequestLogger_WhenLevelRestricted_ShouldFilter(t *testing.T) {
 	rl := &RequestLogger{
 		logger:    &Logger{category: CategoryKernel, logger: inner},
 		requestID: "req-filter",
-		fields:    make(map[string]interface{}),
+		fields:    make(map[string]any),
 	}
 
 	rl.Debug("no")
@@ -660,7 +660,7 @@ func TestLogger_WhenJSONFormat_ShouldWriteJSON(t *testing.T) {
 
 func TestStructuredLog_WhenNilLogger_ShouldNotPanic(t *testing.T) {
 	logger := &Logger{category: CategoryKernel}
-	logger.StructuredLog("info", "test", map[string]interface{}{"key": "val"})
+	logger.StructuredLog("info", "test", map[string]any{"key": "val"})
 }
 
 func TestStructuredLog_WhenJSONFormat_ShouldOutputJSON(t *testing.T) {
@@ -678,7 +678,7 @@ func TestStructuredLog_WhenJSONFormat_ShouldOutputJSON(t *testing.T) {
 		configMu.Unlock()
 	}()
 
-	logger.StructuredLog("info", "test message", map[string]interface{}{"op": "test"})
+	logger.StructuredLog("info", "test message", map[string]any{"op": "test"})
 
 	output := buf.String()
 	if !strings.Contains(output, `"msg"`) {
@@ -704,7 +704,7 @@ func TestStructuredLog_WhenTextFormat_ShouldOutputText(t *testing.T) {
 		configMu.Unlock()
 	}()
 
-	logger.StructuredLog("warn", "fallback test", map[string]interface{}{"k": "v"})
+	logger.StructuredLog("warn", "fallback test", map[string]any{"k": "v"})
 
 	output := buf.String()
 	if !strings.Contains(output, "[warn]") {

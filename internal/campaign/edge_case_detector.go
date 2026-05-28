@@ -603,7 +603,7 @@ func (d *EdgeCaseDetector) matchesPath(candidate, path string) bool {
 }
 
 // parseArg safely extracts a string from an interface{}.
-func (d *EdgeCaseDetector) parseArg(arg interface{}) string {
+func (d *EdgeCaseDetector) parseArg(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v
@@ -614,7 +614,7 @@ func (d *EdgeCaseDetector) parseArg(arg interface{}) string {
 	}
 }
 
-func (d *EdgeCaseDetector) parseNumber(arg interface{}) (float64, bool) {
+func (d *EdgeCaseDetector) parseNumber(arg any) (float64, bool) {
 	switch v := arg.(type) {
 	case int:
 		return float64(v), true
@@ -975,11 +975,11 @@ func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string
 	} else if decision.LineCount > 1000000 {
 		decision.LineCount = 1000000
 	}
-    
-    // Robustness: handle NaN/Inf complexity
-    if math.IsNaN(decision.Complexity) || math.IsInf(decision.Complexity, 0) {
-        decision.Complexity = 0
-    }
+
+	// Robustness: handle NaN/Inf complexity
+	if math.IsNaN(decision.Complexity) || math.IsInf(decision.Complexity, 0) {
+		decision.Complexity = 0
+	}
 
 	// Apply decision logic
 	decision.RecommendedAction, decision.Reasoning = d.determineAction(decision)

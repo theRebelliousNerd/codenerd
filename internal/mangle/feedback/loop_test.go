@@ -134,7 +134,7 @@ func TestBuildEnhancedSystemPrompt(t *testing.T) {
 
 	// Check truncation behavior
 	manyPreds := make([]string, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		manyPreds[i] = "pred(X)"
 	}
 	result = BuildEnhancedSystemPrompt(base, manyPreds)

@@ -245,20 +245,20 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			// py_class(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "py_class",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 			// Check for common base classes
 			if strings.Contains(elem.Body, "BaseModel") || strings.Contains(elem.Body, "pydantic") {
 				facts = append(facts, core.Fact{
 					Predicate: "has_pydantic_base",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 			if strings.Contains(elem.Body, "@dataclass") {
 				facts = append(facts, core.Fact{
 					Predicate: "py_decorator",
-					Args:      []interface{}{elem.Ref, "dataclass"},
+					Args:      []any{elem.Ref, "dataclass"},
 				})
 			}
 
@@ -267,7 +267,7 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			if strings.HasPrefix(elem.Signature, "async ") {
 				facts = append(facts, core.Fact{
 					Predicate: "py_async_def",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -276,7 +276,7 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			for _, dec := range decorators {
 				facts = append(facts, core.Fact{
 					Predicate: "py_decorator",
-					Args:      []interface{}{elem.Ref, dec},
+					Args:      []any{elem.Ref, dec},
 				})
 			}
 
@@ -284,7 +284,7 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			if strings.Contains(elem.Signature, "self") && elem.Type == ElementMethod {
 				facts = append(facts, core.Fact{
 					Predicate: "method_of",
-					Args:      []interface{}{elem.Ref, elem.Parent},
+					Args:      []any{elem.Ref, elem.Parent},
 				})
 			}
 
@@ -292,7 +292,7 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			if strings.Contains(elem.Signature, "->") {
 				facts = append(facts, core.Fact{
 					Predicate: "py_typed_function",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 		}
@@ -304,12 +304,12 @@ func (p *PythonCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 // extractDecorators extracts decorator names from function/class body.
 func (p *PythonCodeParser) extractDecorators(body string) []string {
 	var decorators []string
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "@") {
+		if after, ok := strings.CutPrefix(trimmed, "@"); ok {
 			// Extract decorator name
-			dec := strings.TrimPrefix(trimmed, "@")
+			dec := after
 			// Remove arguments if present
 			if idx := strings.Index(dec, "("); idx > 0 {
 				dec = dec[:idx]

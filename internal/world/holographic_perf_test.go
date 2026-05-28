@@ -75,7 +75,7 @@ func LowPriority() {
 	// Case 2: Limiting
 	// Create more callers than maxPrioritizedCallers (10)
 	manyCallers := make([]PrioritizedCaller, 15)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		manyCallers[i] = PrioritizedCaller{
 			Name:     "HighPriority", // Reuse same function to avoid creating many functions
 			File:     filePath,

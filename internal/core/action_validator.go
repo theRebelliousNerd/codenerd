@@ -34,7 +34,7 @@ type ValidationResult struct {
 	Error string
 
 	// Details contains method-specific information
-	Details map[string]interface{}
+	Details map[string]any
 
 	// Duration is how long validation took
 	Duration time.Duration
@@ -153,7 +153,7 @@ func (r *ValidatorRegistry) Validate(ctx context.Context, req ActionRequest, res
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "no validators registered for action type"},
+			Details:    map[string]any{"reason": "no validators registered for action type"},
 			Timestamp:  time.Now(),
 		}}
 	}
@@ -327,7 +327,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		// action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "action_verified",
-			Args: []interface{}{
+			Args: []any{
 				vr.ActionID,
 				actionTypeStr,
 				vr.Method,
@@ -349,7 +349,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		}
 		facts = append(facts, Fact{
 			Predicate: "action_validation_failed",
-			Args: []interface{}{
+			Args: []any{
 				vr.ActionID,
 				actionTypeStr,
 				errorStr,
@@ -362,7 +362,7 @@ func (vr *ValidationResult) ToFacts() []Fact {
 	// Always emit the method used
 	facts = append(facts, Fact{
 		Predicate: "validation_method_used",
-		Args: []interface{}{
+		Args: []any{
 			vr.ActionID,
 			vr.Method,
 		},

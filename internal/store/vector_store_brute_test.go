@@ -21,7 +21,7 @@ func TestVectorStore_BruteForceMethods(t *testing.T) {
 	// Insert some embeddings
 	store.db.Exec("INSERT INTO vectors (content, metadata, embedding) VALUES ('text', '{\"path\":\"path1\", \"k\":\"v\"}', '[0.1, 0.2, 0.3, 0.4]')")
 	store.db.Exec("INSERT INTO vectors (content, metadata, embedding) VALUES ('text', '{\"path\":\"path2\", \"k\":\"v2\"}', '[0.5, 0.6, 0.7, 0.8]')")
-	
+
 	// Test vectorRecallBruteForce
 	results, err := store.vectorRecallBruteForce("test_query", []float32{0.1, 0.2, 0.3, 0.4}, 10)
 	if err != nil {
@@ -64,7 +64,7 @@ func TestVectorStore_FilterUtils(t *testing.T) {
 
 	// filterByPaths
 	cands := []VectorEntry{
-		{Metadata: map[string]interface{}{"path": "path1"}},
+		{Metadata: map[string]any{"path": "path1"}},
 	}
 	filtered := filterByPaths(cands, nil)
 	if len(filtered) != 0 {

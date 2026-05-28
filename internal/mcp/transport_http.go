@@ -37,10 +37,10 @@ func NewHTTPTransport(baseURL string, timeout time.Duration) *HTTPTransport {
 
 // mcpRequest represents a JSON-RPC style MCP request.
 type mcpRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      int         `json:"id"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	ID      int    `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 // mcpResponse represents a JSON-RPC style MCP response.
@@ -113,7 +113,7 @@ func (t *HTTPTransport) ListTools(ctx context.Context) ([]MCPToolSchema, error) 
 }
 
 // CallTool invokes a tool on the MCP server.
-func (t *HTTPTransport) CallTool(ctx context.Context, name string, args map[string]interface{}) (*MCPCallResult, error) {
+func (t *HTTPTransport) CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error) {
 	t.mu.RLock()
 	if !t.connected {
 		t.mu.RUnlock()
@@ -123,7 +123,7 @@ func (t *HTTPTransport) CallTool(ctx context.Context, name string, args map[stri
 
 	start := time.Now()
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"name":      name,
 		"arguments": args,
 	}
@@ -171,9 +171,9 @@ func (t *HTTPTransport) GetCapabilities(ctx context.Context) (*MCPCapabilities, 
 
 // getCapabilitiesLocked fetches capabilities (must hold lock).
 func (t *HTTPTransport) getCapabilitiesLocked(ctx context.Context) (*MCPCapabilities, error) {
-	resp, err := t.callLocked(ctx, "initialize", map[string]interface{}{
+	resp, err := t.callLocked(ctx, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
+		"capabilities":    map[string]any{},
 		"clientInfo": map[string]string{
 			"name":    "codeNERD",
 			"version": "1.0.0",
@@ -238,14 +238,14 @@ func (t *HTTPTransport) IsConnected() bool {
 }
 
 // call makes a JSON-RPC call to the MCP server.
-func (t *HTTPTransport) call(ctx context.Context, method string, params interface{}) (*mcpResponse, error) {
+func (t *HTTPTransport) call(ctx context.Context, method string, params any) (*mcpResponse, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.callLocked(ctx, method, params)
 }
 
 // callLocked makes a JSON-RPC call (must hold at least read lock).
-func (t *HTTPTransport) callLocked(ctx context.Context, method string, params interface{}) (*mcpResponse, error) {
+func (t *HTTPTransport) callLocked(ctx context.Context, method string, params any) (*mcpResponse, error) {
 	req := mcpRequest{
 		JSONRPC: "2.0",
 		ID:      1,

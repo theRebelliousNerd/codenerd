@@ -54,7 +54,7 @@ func (v *DirectoryValidator) Validate(ctx context.Context, req ActionRequest, re
 			Confidence: 1.0,
 			Method:     ValidationMethodExistence,
 			Error:      "directory does not exist: " + err.Error(),
-			Details:    map[string]interface{}{"path": dirPath},
+			Details:    map[string]any{"path": dirPath},
 		}
 	}
 
@@ -64,7 +64,7 @@ func (v *DirectoryValidator) Validate(ctx context.Context, req ActionRequest, re
 			Confidence: 1.0,
 			Method:     ValidationMethodExistence,
 			Error:      "path is not a directory",
-			Details:    map[string]interface{}{"path": dirPath},
+			Details:    map[string]any{"path": dirPath},
 		}
 	}
 
@@ -72,7 +72,7 @@ func (v *DirectoryValidator) Validate(ctx context.Context, req ActionRequest, re
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     ValidationMethodExistence,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"path":    dirPath,
 			"mode":    info.Mode().String(),
 			"modTime": info.ModTime().Unix(),

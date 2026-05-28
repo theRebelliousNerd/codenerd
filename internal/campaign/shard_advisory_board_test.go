@@ -441,7 +441,7 @@ func TestShardAdvisoryBoard_NullEmptyInputs(t *testing.T) {
 
 func TestShardAdvisoryBoard_TypeCoercion(t *testing.T) {
 	board := NewShardAdvisoryBoard(nil)
-	
+
 	// Malformed vote string
 	cr := ConsultationResponse{FromSpec: "coder", Advice: "VOTE: MAYBE\nREASONING: Not sure", Confidence: 0.8}
 	resp := board.parseAdvisoryResponse(cr)
@@ -463,10 +463,10 @@ func TestShardAdvisoryBoard_TypeCoercion(t *testing.T) {
 
 func TestShardAdvisoryBoard_UserExtremes(t *testing.T) {
 	board := NewShardAdvisoryBoard(nil)
-	
+
 	// Massive phases array
 	var massivePhases []AdvisoryPhase
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		massivePhases = append(massivePhases, AdvisoryPhase{Name: "Phase"})
 	}
 	req1 := AdvisoryRequest{Phases: massivePhases}

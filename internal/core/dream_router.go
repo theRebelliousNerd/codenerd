@@ -30,7 +30,7 @@ type LearningStoreSaver interface {
 
 // ColdStoreSaver is the interface for persisting long-term facts.
 type ColdStoreSaver interface {
-	StoreFact(predicate string, args []interface{}, factType string, importance int) error
+	StoreFact(predicate string, args []any, factType string, importance int) error
 }
 
 // ToolNeed represents a capability gap identified by Dream State.
@@ -117,7 +117,7 @@ func (r *DreamRouter) RouteLearnings(learnings []*DreamLearning) []RouteResult {
 			if r.kernel != nil {
 				auditFact := Fact{
 					Predicate: "dream_learning_confirmed",
-					Args: []interface{}{
+					Args: []any{
 						l.ID,
 						"/" + string(l.Type), // Name constant for Mangle
 						truncateResult(l.Content),
@@ -183,7 +183,7 @@ func (r *DreamRouter) routeToolNeed(l *DreamLearning) RouteResult {
 	if r.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_tool_need",
-			Args: []interface{}{
+			Args: []any{
 				toolName,
 				l.Content,
 				l.Confidence,
@@ -238,7 +238,7 @@ func (r *DreamRouter) routeRiskPattern(l *DreamLearning) RouteResult {
 	if r.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_risk_pattern",
-			Args: []interface{}{
+			Args: []any{
 				riskType,
 				l.Content,
 				l.Confidence,
@@ -254,7 +254,7 @@ func (r *DreamRouter) routeRiskPattern(l *DreamLearning) RouteResult {
 		importance := int(l.Confidence * 10) // 7-10 based on confidence
 		if err := r.coldStore.StoreFact(
 			"learned_risk",
-			[]interface{}{riskType, l.Content, l.Hypothetical},
+			[]any{riskType, l.Content, l.Hypothetical},
 			"risk_pattern",
 			importance,
 		); err != nil {
@@ -280,7 +280,7 @@ func (r *DreamRouter) routePreference(l *DreamLearning) RouteResult {
 		if r.kernel != nil {
 			fact := Fact{
 				Predicate: "dream_preference",
-				Args: []interface{}{
+				Args: []any{
 					l.Content,
 					l.Confidence,
 				},
@@ -302,7 +302,7 @@ func (r *DreamRouter) routePreference(l *DreamLearning) RouteResult {
 
 	if err := r.coldStore.StoreFact(
 		"user_preference",
-		[]interface{}{l.Content, l.SourceShard},
+		[]any{l.Content, l.SourceShard},
 		"preference",
 		importance,
 	); err != nil {

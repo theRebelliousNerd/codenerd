@@ -35,20 +35,20 @@ func (v *VirtualStore) handlePythonEnvSetup(ctx context.Context, req ActionReque
 	logging.VirtualStore("Python env setup: project=%s", projectName)
 
 	facts := []Fact{
-		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/initializing", time.Now().Unix()}},
+		{Predicate: "python_environment", Args: []any{projectName, "", "/initializing", time.Now().Unix()}},
 	}
 
 	if gitURL != "" {
 		facts = append(facts, Fact{
 			Predicate: "python_project_source",
-			Args:      []interface{}{projectName, gitURL, commit, branch},
+			Args:      []any{projectName, gitURL, commit, branch},
 		})
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Python environment initializing for %s", projectName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name": projectName,
 			"git_url":      gitURL,
 			"commit":       commit,
@@ -80,12 +80,12 @@ func (v *VirtualStore) handlePythonEnvExec(ctx context.Context, req ActionReques
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Executing in %s: %s", projectName, command),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name": projectName,
 			"command":      command,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "python_command_executed", Args: []interface{}{projectName, command, time.Now().Unix()}},
+			{Predicate: "python_command_executed", Args: []any{projectName, command, time.Now().Unix()}},
 		},
 	}, nil
 }
@@ -107,7 +107,7 @@ func (v *VirtualStore) handlePythonRunPytest(ctx context.Context, req ActionRequ
 
 	// Optional test arguments
 	var testArgs []string
-	if args, ok := req.Payload["test_args"].([]interface{}); ok {
+	if args, ok := req.Payload["test_args"].([]any); ok {
 		for _, a := range args {
 			if s, ok := a.(string); ok {
 				testArgs = append(testArgs, s)
@@ -118,14 +118,14 @@ func (v *VirtualStore) handlePythonRunPytest(ctx context.Context, req ActionRequ
 	logging.VirtualStore("Python pytest: project=%s, args=%v", projectName, testArgs)
 
 	facts := []Fact{
-		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/testing", time.Now().Unix()}},
-		{Predicate: "pytest_execution", Args: []interface{}{projectName, len(testArgs), time.Now().Unix()}},
+		{Predicate: "python_environment", Args: []any{projectName, "", "/testing", time.Now().Unix()}},
+		{Predicate: "pytest_execution", Args: []any{projectName, len(testArgs), time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Running pytest in %s", projectName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name": projectName,
 			"test_args":    testArgs,
 		},
@@ -153,14 +153,14 @@ func (v *VirtualStore) handlePythonApplyPatch(ctx context.Context, req ActionReq
 	logging.VirtualStore("Python apply patch: project=%s, size=%d", projectName, len(patch))
 
 	facts := []Fact{
-		{Predicate: "python_patch_applied", Args: []interface{}{projectName, len(patch), time.Now().Unix()}},
-		{Predicate: "python_environment", Args: []interface{}{projectName, "", "/patched", time.Now().Unix()}},
+		{Predicate: "python_patch_applied", Args: []any{projectName, len(patch), time.Now().Unix()}},
+		{Predicate: "python_environment", Args: []any{projectName, "", "/patched", time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Patch applied to %s (%d bytes)", projectName, len(patch)),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name": projectName,
 			"patch_size":   len(patch),
 		},
@@ -194,12 +194,12 @@ func (v *VirtualStore) handlePythonSnapshot(ctx context.Context, req ActionReque
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Snapshot created: %s", snapshotName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name":  projectName,
 			"snapshot_name": snapshotName,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "python_snapshot", Args: []interface{}{projectName, snapshotName, time.Now().Unix()}},
+			{Predicate: "python_snapshot", Args: []any{projectName, snapshotName, time.Now().Unix()}},
 		},
 	}, nil
 }
@@ -226,13 +226,13 @@ func (v *VirtualStore) handlePythonRestore(ctx context.Context, req ActionReques
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Restored %s from snapshot %s", projectName, snapshotName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name":  projectName,
 			"snapshot_name": snapshotName,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "python_restored", Args: []interface{}{projectName, snapshotName, time.Now().Unix()}},
-			{Predicate: "python_environment", Args: []interface{}{projectName, "", "/ready", time.Now().Unix()}},
+			{Predicate: "python_restored", Args: []any{projectName, snapshotName, time.Now().Unix()}},
+			{Predicate: "python_environment", Args: []any{projectName, "", "/ready", time.Now().Unix()}},
 		},
 	}, nil
 }
@@ -257,12 +257,12 @@ func (v *VirtualStore) handlePythonTeardown(ctx context.Context, req ActionReque
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Python environment torn down for %s", projectName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"project_name": projectName,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "python_environment", Args: []interface{}{projectName, "", "/terminated", time.Now().Unix()}},
-			{Predicate: "python_teardown_complete", Args: []interface{}{projectName, time.Now().Unix()}},
+			{Predicate: "python_environment", Args: []any{projectName, "", "/terminated", time.Now().Unix()}},
+			{Predicate: "python_teardown_complete", Args: []any{projectName, time.Now().Unix()}},
 		},
 	}, nil
 }
@@ -296,14 +296,14 @@ func (v *VirtualStore) handleSWEBenchSetup(ctx context.Context, req ActionReques
 
 	// Convert test lists
 	var failToPass, passToPass []string
-	if ftp, ok := req.Payload["fail_to_pass"].([]interface{}); ok {
+	if ftp, ok := req.Payload["fail_to_pass"].([]any); ok {
 		for _, t := range ftp {
 			if s, ok := t.(string); ok {
 				failToPass = append(failToPass, s)
 			}
 		}
 	}
-	if ptp, ok := req.Payload["pass_to_pass"].([]interface{}); ok {
+	if ptp, ok := req.Payload["pass_to_pass"].([]any); ok {
 		for _, t := range ptp {
 			if s, ok := t.(string); ok {
 				passToPass = append(passToPass, s)
@@ -313,28 +313,28 @@ func (v *VirtualStore) handleSWEBenchSetup(ctx context.Context, req ActionReques
 
 	// Generate Mangle facts for the instance
 	facts := []Fact{
-		{Predicate: "swebench_instance", Args: []interface{}{instanceID, repo, baseCommit, ""}},
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/initializing", time.Now().Unix()}},
+		{Predicate: "swebench_instance", Args: []any{instanceID, repo, baseCommit, ""}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/initializing", time.Now().Unix()}},
 	}
 
 	// Add test expectations as facts
 	for _, test := range failToPass {
 		facts = append(facts, Fact{
 			Predicate: "swebench_expected_fail_to_pass",
-			Args:      []interface{}{instanceID, test},
+			Args:      []any{instanceID, test},
 		})
 	}
 	for _, test := range passToPass {
 		facts = append(facts, Fact{
 			Predicate: "swebench_expected_pass_to_pass",
-			Args:      []interface{}{instanceID, test},
+			Args:      []any{instanceID, test},
 		})
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("SWE-bench environment initializing for %s (%s@%s)", instanceID, repo, baseCommit[:8]),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id":       instanceID,
 			"repo":              repo,
 			"base_commit":       baseCommit,
@@ -367,14 +367,14 @@ func (v *VirtualStore) handleSWEBenchApplyPatch(ctx context.Context, req ActionR
 
 	// Record patch application attempt
 	facts := []Fact{
-		{Predicate: "swebench_patch_applied", Args: []interface{}{instanceID, len(patch), time.Now().Unix()}},
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/patched", time.Now().Unix()}},
+		{Predicate: "swebench_patch_applied", Args: []any{instanceID, len(patch), time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/patched", time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Patch applied to instance %s (%d bytes)", instanceID, len(patch)),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id": instanceID,
 			"patch_size":  len(patch),
 		},
@@ -399,7 +399,7 @@ func (v *VirtualStore) handleSWEBenchRunTests(ctx context.Context, req ActionReq
 
 	// Optional: specific test names
 	var testNames []string
-	if tn, ok := req.Payload["test_names"].([]interface{}); ok {
+	if tn, ok := req.Payload["test_names"].([]any); ok {
 		for _, t := range tn {
 			if s, ok := t.(string); ok {
 				testNames = append(testNames, s)
@@ -410,13 +410,13 @@ func (v *VirtualStore) handleSWEBenchRunTests(ctx context.Context, req ActionReq
 	logging.VirtualStore("SWE-bench run tests: instance=%s, tests=%d", instanceID, len(testNames))
 
 	facts := []Fact{
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/testing", time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/testing", time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Running tests for instance %s", instanceID),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id": instanceID,
 			"test_count":  len(testNames),
 		},
@@ -448,13 +448,13 @@ func (v *VirtualStore) handleSWEBenchSnapshot(ctx context.Context, req ActionReq
 	logging.VirtualStore("SWE-bench snapshot: instance=%s, name=%s", instanceID, snapshotName)
 
 	facts := []Fact{
-		{Predicate: "swebench_snapshot", Args: []interface{}{instanceID, snapshotName, time.Now().Unix()}},
+		{Predicate: "swebench_snapshot", Args: []any{instanceID, snapshotName, time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Snapshot created: %s", snapshotName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id":   instanceID,
 			"snapshot_name": snapshotName,
 		},
@@ -482,14 +482,14 @@ func (v *VirtualStore) handleSWEBenchRestore(ctx context.Context, req ActionRequ
 	logging.VirtualStore("SWE-bench restore: instance=%s, snapshot=%s", instanceID, snapshotName)
 
 	facts := []Fact{
-		{Predicate: "swebench_restored", Args: []interface{}{instanceID, snapshotName, time.Now().Unix()}},
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/ready", time.Now().Unix()}},
+		{Predicate: "swebench_restored", Args: []any{instanceID, snapshotName, time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/ready", time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Restored instance %s from snapshot %s", instanceID, snapshotName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id":   instanceID,
 			"snapshot_name": snapshotName,
 		},
@@ -524,14 +524,14 @@ func (v *VirtualStore) handleSWEBenchEvaluate(ctx context.Context, req ActionReq
 	// Evaluation result will be populated by actual test execution
 	// For now, record the evaluation attempt
 	facts := []Fact{
-		{Predicate: "swebench_evaluation_started", Args: []interface{}{instanceID, modelName, time.Now().Unix()}},
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/evaluating", time.Now().Unix()}},
+		{Predicate: "swebench_evaluation_started", Args: []any{instanceID, modelName, time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/evaluating", time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Evaluation started for instance %s with model %s", instanceID, modelName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id": instanceID,
 			"model_name":  modelName,
 			"patch_size":  len(patch),
@@ -558,14 +558,14 @@ func (v *VirtualStore) handleSWEBenchTeardown(ctx context.Context, req ActionReq
 	logging.VirtualStore("SWE-bench teardown: instance=%s", instanceID)
 
 	facts := []Fact{
-		{Predicate: "swebench_environment", Args: []interface{}{instanceID, "", "/terminated", time.Now().Unix()}},
-		{Predicate: "swebench_teardown_complete", Args: []interface{}{instanceID, time.Now().Unix()}},
+		{Predicate: "swebench_environment", Args: []any{instanceID, "", "/terminated", time.Now().Unix()}},
+		{Predicate: "swebench_teardown_complete", Args: []any{instanceID, time.Now().Unix()}},
 	}
 
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("SWE-bench environment torn down for instance %s", instanceID),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"instance_id": instanceID,
 		},
 		FactsToAdd: facts,

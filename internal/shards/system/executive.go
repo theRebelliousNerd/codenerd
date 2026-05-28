@@ -15,6 +15,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,7 +40,7 @@ type ActionDecision struct {
 	ID          string
 	Action      string
 	Target      string
-	Payload     map[string]interface{}
+	Payload     map[string]any
 	RawFact     types.Fact
 	Rationale   string
 	DerivedAt   time.Time
@@ -390,7 +391,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
 				_ = e.Kernel.Assert(types.Fact{
 					Predicate: "executive_error",
-					Args:      []interface{}{err.Error(), time.Now().Unix()},
+					Args:      []any{err.Error(), time.Now().Unix()},
 				})
 			}
 		case <-fallbackCh:
@@ -399,7 +400,7 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
 				_ = e.Kernel.Assert(types.Fact{
 					Predicate: "executive_error",
-					Args:      []interface{}{err.Error(), time.Now().Unix()},
+					Args:      []any{err.Error(), time.Now().Unix()},
 				})
 			}
 		case <-heartbeat.C:
@@ -445,7 +446,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 			logging.SystemShardsDebug("[ExecutivePolicy] Strategy activated: %s", s.Name)
 			_ = e.Kernel.Assert(types.Fact{
 				Predicate: "strategy_activated",
-				Args:      []interface{}{s.Name, time.Now().Unix()},
+				Args:      []any{s.Name, time.Now().Unix()},
 			})
 		}
 	}
@@ -456,7 +457,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		logging.SystemShardsDebug("[ExecutivePolicy] Execution blocked: %s", blockReason)
 		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "executive_blocked",
-			Args:      []interface{}{blockReason, time.Now().Unix()},
+			Args:      []any{blockReason, time.Now().Unix()},
 		})
 		return nil // Don't derive actions when blocked
 	}
@@ -523,7 +524,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		actionCopy.Payload = payload
 		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "pending_action",
-			Args:      []interface{}{action.ID, action.Action, target, encodeActionPayload(payload), time.Now().Unix()},
+			Args:      []any{action.ID, action.Action, target, encodeActionPayload(payload), time.Now().Unix()},
 		})
 		// Consume one-shot next_action facts asserted by shards.
 		// Derived next_action from policy are not in EDB, so this is a safe no-op for them.
@@ -543,7 +544,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		if e.config.DebugMode {
 			_ = e.Kernel.Assert(types.Fact{
 				Predicate: "executive_trace",
-				Args: []interface{}{
+				Args: []any{
 					action.Action,
 					action.FromRule,
 					action.Rationale,
@@ -556,7 +557,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	if consumedCurrentIntent {
 		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "executive_processed_intent",
-			Args:      []interface{}{"/current_intent"},
+			Args:      []any{"/current_intent"},
 		})
 	}
 
@@ -636,7 +637,7 @@ func parseIntentTimestamp(intentID string) (int64, bool) {
 	return ts, true
 }
 
-func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string, []interface{}) {
+func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string, []any) {
 	if e.Kernel == nil || intentID == "" {
 		return "", nil
 	}
@@ -659,7 +660,7 @@ func (e *ExecutivePolicyShard) loadClarificationPayload(intentID string) (string
 		}
 	}
 
-	options := make([]interface{}, 0)
+	options := make([]any, 0)
 	if facts, err := e.Kernel.Query("clarification_option"); err == nil {
 		for _, f := range facts {
 			if len(f.Args) < 3 {
@@ -762,13 +763,13 @@ func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapsho
 	}
 	_ = e.Kernel.Assert(types.Fact{
 		Predicate: "learning_candidate_count",
-		Args:      []interface{}{phrase, count},
+		Args:      []any{phrase, count},
 	})
 
 	if count >= threshold {
 		_ = e.Kernel.Assert(types.Fact{
 			Predicate: "learning_candidate",
-			Args: []interface{}{
+			Args: []any{
 				phrase,
 				types.MangleAtom(verb),
 				target,
@@ -778,23 +779,21 @@ func (e *ExecutivePolicyShard) recordNoActionCandidate(intent *userIntentSnapsho
 	}
 }
 
-func copyStringAnyMap(src map[string]interface{}) map[string]interface{} {
+func copyStringAnyMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
-	dst := make(map[string]interface{}, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
+	dst := make(map[string]any, len(src))
+	maps.Copy(dst, src)
 	return dst
 }
 
-func (e *ExecutivePolicyShard) hydrateActionFromIntent(actionType string, target string, payload map[string]interface{}, intent *userIntentSnapshot) (string, map[string]interface{}) {
+func (e *ExecutivePolicyShard) hydrateActionFromIntent(actionType string, target string, payload map[string]any, intent *userIntentSnapshot) (string, map[string]any) {
 	if intent == nil {
 		return target, payload
 	}
 	if payload == nil {
-		payload = map[string]interface{}{}
+		payload = map[string]any{}
 	}
 
 	actionAtom := normalizeAtom(actionType)
@@ -927,7 +926,7 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 			Action:    actionName,
 			DerivedAt: time.Now(),
 			FromRule:  fact.Predicate,
-			Payload:   make(map[string]interface{}),
+			Payload:   make(map[string]any),
 			RawFact:   fact,
 		}
 
@@ -939,10 +938,8 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 		// Extract payload from remaining args
 		if len(fact.Args) > 2 {
 			for i := 2; i < len(fact.Args); i++ {
-				if argMap, ok := fact.Args[i].(map[string]interface{}); ok {
-					for k, v := range argMap {
-						decision.Payload[k] = v
-					}
+				if argMap, ok := fact.Args[i].(map[string]any); ok {
+					maps.Copy(decision.Payload, argMap)
 					continue
 				}
 				key := fmt.Sprintf("arg%d", i-2)
@@ -991,7 +988,7 @@ func (e *ExecutivePolicyShard) queryNextActions() ([]ActionDecision, error) {
 				if !alreadyRecorded {
 					_ = e.Kernel.Assert(types.Fact{
 						Predicate: "no_action_reason",
-						Args:      []interface{}{intent.ID, types.MangleAtom(reason)},
+						Args:      []any{intent.ID, types.MangleAtom(reason)},
 					})
 					if reason == "/no_action_derived" {
 						e.recordNoActionCandidate(intent, reason)
@@ -1034,7 +1031,7 @@ func (e *ExecutivePolicyShard) queryDelegateActions() ([]ActionDecision, error) 
 			continue
 		}
 
-		payload := map[string]interface{}{
+		payload := map[string]any{
 			"delegate_shard": shardType,
 		}
 
@@ -1266,7 +1263,7 @@ func (e *ExecutivePolicyShard) handleAutopoiesis(ctx context.Context) {
 		// Low confidence rules are recorded but require approval
 		if assertErr := e.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",
-			Args: []interface{}{
+			Args: []any{
 				"executive_policy",
 				proposedRule.MangleCode,
 				proposedRule.Rationale,
@@ -1345,16 +1342,16 @@ func (e *ExecutivePolicyShard) parseProposedRule(output string, cases []Unhandle
 		ProposedAt: time.Now(),
 	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "RULE:") {
-			rule.MangleCode = strings.TrimSpace(strings.TrimPrefix(line, "RULE:"))
-		} else if strings.HasPrefix(line, "CONFIDENCE:") {
-			confStr := strings.TrimSpace(strings.TrimPrefix(line, "CONFIDENCE:"))
+		if after, ok := strings.CutPrefix(line, "RULE:"); ok {
+			rule.MangleCode = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(line, "CONFIDENCE:"); ok {
+			confStr := strings.TrimSpace(after)
 			fmt.Sscanf(confStr, "%f", &rule.Confidence)
-		} else if strings.HasPrefix(line, "RATIONALE:") {
-			rule.Rationale = strings.TrimSpace(strings.TrimPrefix(line, "RATIONALE:"))
+		} else if after, ok := strings.CutPrefix(line, "RATIONALE:"); ok {
+			rule.Rationale = strings.TrimSpace(after)
 		}
 	}
 

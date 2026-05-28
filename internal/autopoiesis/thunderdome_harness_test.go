@@ -104,8 +104,8 @@ func CheckNewline(ctx context.Context, input string) (string, error) {
 
 // extractFunctionCall helps debug by finding the line where the tool is called
 func extractFunctionCall(code string) string {
-	lines := strings.Split(code, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(code, "\n")
+	for line := range lines {
 		if strings.Contains(line, "toolErr =") {
 			return strings.TrimSpace(line)
 		}

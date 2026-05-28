@@ -212,8 +212,8 @@ func TestTypeCanary(t *testing.T) {
 // --- Helpers ---
 
 func loadEDBViaEngine(t *testing.T, eng *mangle.Engine, content string) {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -229,7 +229,7 @@ func loadEDBViaEngine(t *testing.T, eng *mangle.Engine, content string) {
 		// Convert ast.Atom args to interface{} for Engine.AddFact
 		// We pass ast.BaseTerm directly to avoid ambiguity in the engine wrapper
 		// (e.g. strings starting with "/" being auto-converted to Atoms)
-		args := make([]interface{}, len(parsedAtom.Args))
+		args := make([]any, len(parsedAtom.Args))
 		for i, arg := range parsedAtom.Args {
 			args[i] = arg
 		}
@@ -246,8 +246,8 @@ func checkGolden(t *testing.T, eng *mangle.Engine, goldenPath string) {
 		t.Fatalf("Failed to read golden file %s: %v", goldenPath, err)
 	}
 
-	lines := strings.Split(string(expectedContent), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(expectedContent), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -281,7 +281,7 @@ func checkGolden(t *testing.T, eng *mangle.Engine, goldenPath string) {
 }
 
 // convertTermToInterface converts AST terms back to Go types for feeding into the Engine wrapper.
-func convertTermToInterface(term ast.BaseTerm) interface{} {
+func convertTermToInterface(term ast.BaseTerm) any {
 	switch c := term.(type) {
 	case ast.Constant:
 		switch c.Type {

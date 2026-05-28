@@ -446,7 +446,7 @@ func TestRuntimeRegistry_List(t *testing.T) {
 	registry := NewRuntimeRegistry()
 
 	// Register multiple tools
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		tool := &GeneratedTool{Name: "tool_" + string(rune('a'+i))}
 		compiled := &CompileResult{Success: true}
 		registry.Register(tool, compiled)
@@ -590,7 +590,7 @@ func compileRuntimeTool(t *testing.T, source, name string) string {
 	if err := os.WriteFile(mainPath, []byte(source), 0644); err != nil {
 		t.Fatalf("failed to write tool source: %v", err)
 	}
-	mod := fmt.Sprintf("module %s\n\ngo 1.23\n", strings.ReplaceAll(name, "-", "_"))
+	mod := fmt.Sprintf("module %s\n\ngo 1.26.0\n", strings.ReplaceAll(name, "-", "_"))
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(mod), 0644); err != nil {
 		t.Fatalf("failed to write go.mod: %v", err)
 	}
@@ -679,11 +679,9 @@ func main() {
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			want := fmt.Sprintf("msg-%d", i)
 			got, err := loop.ExecuteTool(context.Background(), "concurrent_echo_tool", want)
 			if err != nil {
@@ -693,7 +691,7 @@ func main() {
 			if got != want {
 				errs <- fmt.Errorf("mismatch: got=%q want=%q", got, want)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

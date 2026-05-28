@@ -78,7 +78,7 @@ func LoadHybridMangleFile(path string) (HybridLoadResult, error) {
 				child := nodes[i+1]
 				facts = append(facts, Fact{
 					Predicate: "subclass_of",
-					Args:      []interface{}{child, parent},
+					Args:      []any{child, parent},
 				})
 			}
 			continue
@@ -93,7 +93,7 @@ func LoadHybridMangleFile(path string) (HybridLoadResult, error) {
 			// Store canonical intents as EDB facts for later semantic embedding.
 			facts = append(facts, Fact{
 				Predicate: "intent_definition",
-				Args:      []interface{}{intent.Phrase, intent.Verb, intent.Target},
+				Args:      []any{intent.Phrase, intent.Verb, intent.Target},
 			})
 			continue
 

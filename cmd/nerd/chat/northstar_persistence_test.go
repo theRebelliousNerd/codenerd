@@ -2,6 +2,7 @@ package chat
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -133,10 +134,5 @@ func TestAssertNorthstarFacts(t *testing.T) {
 }
 
 func containsFact(facts []string, match string) bool {
-	for _, fact := range facts {
-		if fact == match {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(facts, match)
 }

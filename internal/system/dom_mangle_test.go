@@ -58,7 +58,7 @@ ancestor(X, Y) :-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"test-open", "/open_file", demoFile}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-open", "/open_file", demoFile}}); err != nil {
 		t.Fatalf("open_file: %v", err)
 	}
 	if got := countFacts(t, kernel, "file_in_scope"); got < 1 {
@@ -72,11 +72,11 @@ ancestor(X, Y) :-
 	newRule := "ancestor(X, Y) :-\n\tparent(X, Y).\n"
 	if _, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"test-edit",
 			"/edit_element",
 			ref,
-			map[string]interface{}{"content": newRule},
+			map[string]any{"content": newRule},
 		},
 	}); err != nil {
 		t.Fatalf("edit_element: %v", err)
@@ -84,11 +84,11 @@ ancestor(X, Y) :-
 
 	afterJSON, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"test-get",
 			"/get_element",
 			ref,
-			map[string]interface{}{"include_body": true},
+			map[string]any{"include_body": true},
 		},
 	})
 	if err != nil {
@@ -102,7 +102,7 @@ ancestor(X, Y) :-
 		t.Fatalf("expected edited body to contain %q", "\tparent(X, Y).")
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"test-close", "/close_scope", ""}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"test-close", "/close_scope", ""}}); err != nil {
 		t.Fatalf("close_scope: %v", err)
 	}
 	if got := countFacts(t, kernel, "code_element"); got != 0 {

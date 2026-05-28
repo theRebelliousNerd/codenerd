@@ -59,7 +59,7 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 	// 2. VECTORS: Store user input and response with semantic embeddings
 	// Uses StoreVectorWithEmbedding for true semantic search when embedding engine available
 	ctx := context.Background()
-	userMeta := map[string]interface{}{
+	userMeta := map[string]any{
 		"type":         "user_input",
 		"session_id":   sessionID,
 		"turn":         turnNumber,
@@ -72,7 +72,7 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 		m.localDB.StoreVector(turn.UserInput, userMeta)
 	}
 
-	responseMeta := map[string]interface{}{
+	responseMeta := map[string]any{
 		"type":         "assistant_response",
 		"session_id":   sessionID,
 		"turn":         turnNumber,
@@ -95,7 +95,7 @@ func (m Model) persistTurnToKnowledge(turn ctxcompress.Turn, intent perception.I
 				relation := parts[1]
 				entityB := strings.Join(parts[2:], " ")
 
-				meta := map[string]interface{}{
+				meta := map[string]any{
 					"session_id": sessionID,
 					"turn":       turnNumber,
 					"source":     "memory_operation",

@@ -66,8 +66,8 @@ type TracingClient interface {
 // ShardTraceAccessor provides shards with access to their own historical traces.
 // Enables self-learning by querying past reasoning patterns.
 type ShardTraceAccessor interface {
-	GetMyTraces(limit int) ([]interface{}, error)
-	GetMyFailedTraces(limit int) ([]interface{}, error)
-	GetSimilarTasks(taskPattern string, limit int) ([]interface{}, error)
-	GetSuccessfulPatterns(limit int) ([]interface{}, error)
+	GetMyTraces(limit int) ([]any, error)
+	GetMyFailedTraces(limit int) ([]any, error)
+	GetSimilarTasks(taskPattern string, limit int) ([]any, error)
+	GetSuccessfulPatterns(limit int) ([]any, error)
 }

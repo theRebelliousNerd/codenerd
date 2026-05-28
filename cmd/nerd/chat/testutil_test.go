@@ -843,7 +843,7 @@ func SimulateInput(m Model, input string) (Model, tea.Cmd) {
 
 // AssertNoNilPanic runs an assertion and recovers from panics.
 // Returns an error if a panic occurred.
-func AssertNoNilPanic(fn func()) (panicValue interface{}) {
+func AssertNoNilPanic(fn func()) (panicValue any) {
 	defer func() {
 		panicValue = recover()
 	}()

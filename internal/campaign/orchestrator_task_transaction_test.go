@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -393,8 +394,6 @@ func cloneCampaignForTest(src *Campaign) (*Campaign, error) {
 
 func cloneStringMapForTest(src map[string]string) map[string]string {
 	out := make(map[string]string, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }

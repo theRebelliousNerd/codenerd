@@ -213,11 +213,3 @@ func abs(x float64) float64 {
 	}
 	return x
 }
-
-// min returns the smaller of two ints.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

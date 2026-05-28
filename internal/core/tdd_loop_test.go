@@ -69,11 +69,11 @@ func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	// Default: if querying permitted, return everything permitted
 	if predicate == "permitted" {
 		return []Fact{
-			{Predicate: "permitted", Args: []interface{}{"/run_tests", "_"}},
-			{Predicate: "permitted", Args: []interface{}{"/read_file", "_"}},
-			{Predicate: "permitted", Args: []interface{}{"/write_file", "_"}},
-			{Predicate: "permitted", Args: []interface{}{"/exec_cmd", "_"}},
-			{Predicate: "permitted", Args: []interface{}{"/escalate", "_"}},
+			{Predicate: "permitted", Args: []any{"/run_tests", "_"}},
+			{Predicate: "permitted", Args: []any{"/read_file", "_"}},
+			{Predicate: "permitted", Args: []any{"/write_file", "_"}},
+			{Predicate: "permitted", Args: []any{"/exec_cmd", "_"}},
+			{Predicate: "permitted", Args: []any{"/escalate", "_"}},
 		}, nil
 	}
 	// Return collected facts matching predicate
@@ -375,7 +375,7 @@ func TestTDDLoop_ParseTestOutput_LargeFile(t *testing.T) {
 	// Construct a massive 10MB string
 	var sb strings.Builder
 	line := "some standard output log that is not an error\n"
-	for i := 0; i < 200000; i++ { // approx 10MB
+	for range 200000 { // approx 10MB
 		sb.WriteString(line)
 	}
 	sb.WriteString("--- FAIL: TestLarge (0.00s)\n")
@@ -434,7 +434,7 @@ func TestTDDLoop_Concurrent_Locks(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Spam GetState, InjectPatch, Run concurrently
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -468,11 +468,9 @@ func TestTDDLoop_ExternalStateChange_MidGeneration(t *testing.T) {
 
 	var runErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		runErr = tdd.Run(context.Background())
-	}()
+	})
 
 	// Wait until generatePatch drops the lock and calls LLM
 	<-syncCh

@@ -202,7 +202,7 @@ func (d *Dreamer) assertCriticalPathFactsLocked() {
 	for _, prefix := range criticalPathPrefixes {
 		d.kernel.AssertWithoutEval(Fact{
 			Predicate: "critical_path_prefix",
-			Args:      []interface{}{prefix},
+			Args:      []any{prefix},
 		})
 	}
 	d.kernel.Evaluate()
@@ -287,7 +287,7 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	hypotheticalDesc := fmt.Sprintf("%s:%s", req.Type, req.Target)
 	if assertErr := kernel.Assert(Fact{
 		Predicate: "hypothetical",
-		Args:      []interface{}{hypotheticalDesc},
+		Args:      []any{hypotheticalDesc},
 	}); assertErr != nil {
 		logging.DreamDebug("Failed to assert hypothetical for %s: %v", actionID, assertErr)
 	}
@@ -413,7 +413,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 	projected := []Fact{
 		{
 			Predicate: "projected_action",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/" + string(req.Type)),
 				path,
@@ -426,7 +426,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		logging.DreamDebug("projectEffects: projecting delete_file effects for %s", path)
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/file_missing"),
 				path,
@@ -436,7 +436,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
-				Args: []interface{}{
+				Args: []any{
 					actionID,
 					MangleAtom("/critical_path_hit"),
 					prefix,
@@ -449,7 +449,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		logging.DreamDebug("projectEffects: projecting file modification effects for %s", path)
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/modified"),
 				path,
@@ -457,7 +457,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		})
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/file_exists"),
 				path,
@@ -467,7 +467,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 			logging.DreamDebug("projectEffects: critical path detected: %s", prefix)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
-				Args: []interface{}{
+				Args: []any{
 					actionID,
 					MangleAtom("/critical_path_hit"),
 					prefix,
@@ -480,7 +480,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 		logging.DreamDebug("projectEffects: projecting exec_cmd effects for command: %s", path)
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/exec_cmd"),
 				path,
@@ -490,7 +490,7 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 			logging.Dream("projectEffects: DANGEROUS COMMAND detected: %s", path)
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
-				Args: []interface{}{
+				Args: []any{
 					actionID,
 					MangleAtom("/exec_danger"),
 					path,
@@ -595,7 +595,7 @@ func (d *Dreamer) codeGraphProjections(kernel *RealKernel, actionID, path string
 	for sym := range symbolsInFile {
 		projected = append(projected, Fact{
 			Predicate: "projected_fact",
-			Args: []interface{}{
+			Args: []any{
 				actionID,
 				MangleAtom("/touches_symbol"),
 				sym,
@@ -643,7 +643,7 @@ func (d *Dreamer) codeGraphProjections(kernel *RealKernel, actionID, path string
 			impactedTests++
 			projected = append(projected, Fact{
 				Predicate: "projected_fact",
-				Args: []interface{}{
+				Args: []any{
 					actionID,
 					MangleAtom("/impacts_test"),
 					callerStr,
@@ -721,7 +721,7 @@ func criticalPrefix(path string) string {
 }
 
 // toString converts a fact argument to string, handling MangleAtom.
-func toString(arg interface{}) string {
+func toString(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v

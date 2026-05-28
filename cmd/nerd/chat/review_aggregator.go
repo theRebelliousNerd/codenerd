@@ -143,8 +143,8 @@ func formatSpecialistReviewTask(task SpecialistTask) string {
 func parseShardOutput(output string, shardName string) []ParsedFinding {
 	// Simple parsing - look for patterns like [SEVERITY] file:line - message
 	var findings []ParsedFinding
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -401,14 +401,12 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		}
 
 		// Always spawn ReviewerShard
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			result := spawnWithRetry("reviewer", baseTask)
 			mu.Lock()
 			results = append(results, result)
 			mu.Unlock()
-		}()
+		})
 
 		// Spawn matching specialists
 		for _, spec := range specialists {
@@ -436,9 +434,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 		// Spawn Nemesis adversarial reviewer if enabled
 		// Nemesis generates and executes attack scripts to find where code breaks
 		if m.enableNemesisReview() {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 
 				// Resolve target path for Nemesis
 				nemesisTarget := target
@@ -456,7 +452,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 				mu.Lock()
 				results = append(results, result)
 				mu.Unlock()
-			}()
+			})
 		}
 
 		// Wait for all shards

@@ -354,7 +354,7 @@ func TestLearningStore_RecordLearning_UpdatesStats(t *testing.T) {
 	store := NewLearningStore(tmpDir)
 
 	// Record multiple executions
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		success := i%2 == 0 // 3 successes, 2 failures
 		quality := 0.5 + float64(i)*0.1
 
@@ -543,7 +543,7 @@ func TestPatternDetector_RecordExecution_UpdatesExisting(t *testing.T) {
 	detector := NewPatternDetector()
 
 	// Record same issue multiple times
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		feedback := ExecutionFeedback{
 			ToolName: "test_tool",
 			Success:  true,
@@ -575,7 +575,7 @@ func TestPatternDetector_RecordExecution_HistoryLimit(t *testing.T) {
 	detector := NewPatternDetector()
 
 	// Record more than limit
-	for i := 0; i < 1100; i++ {
+	for range 1100 {
 		feedback := ExecutionFeedback{
 			ToolName: "test_tool",
 			Success:  true,
@@ -602,7 +602,7 @@ func TestPatternDetector_GetPatterns_MinConfidence(t *testing.T) {
 	})
 
 	// 5 occurrences = 0.9 confidence
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		detector.RecordExecution(ExecutionFeedback{
 			ToolName: "tool_high",
 			Quality: &QualityAssessment{
@@ -854,7 +854,7 @@ func TestToolRefiner_MassiveArrays(t *testing.T) {
 
 	feedbackArr := make([]ExecutionFeedback, 10000)
 	patternArr := make([]*DetectedPattern, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		feedbackArr[i] = ExecutionFeedback{Success: true}
 		patternArr[i] = &DetectedPattern{IssueType: IssueSlow, Occurrences: 1}
 	}
@@ -897,13 +897,13 @@ func TestLearningStore_GetAllLearnings_DataRace(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			store.RecordLearning("test_tool", feedback, nil)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			learnings := store.GetAllLearnings()
 			if len(learnings) > 0 {
 				_ = learnings[0].TotalExecutions
@@ -1045,13 +1045,13 @@ func TestLearningStore_Save_NoLockStarvation(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			store.RecordLearning("test_tool", feedback, nil)
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 500; i++ {
+		for range 500 {
 			_ = store.GetAllLearnings()
 		}
 	}()

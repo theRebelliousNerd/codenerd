@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -286,16 +287,17 @@ func executeCacheStats(ctx context.Context, args map[string]any) (string, error)
 		}
 	}
 
-	result := fmt.Sprintf("Cache Statistics:\n")
-	result += fmt.Sprintf("  Total entries: %d\n", len(cache.entries))
-	result += fmt.Sprintf("  Valid entries: %d\n", validCount)
-	result += fmt.Sprintf("  Total size: %d bytes\n", totalSize)
-	result += fmt.Sprintf("  Max size: %d entries\n", cache.maxSize)
-	result += fmt.Sprintf("  TTL: %v\n", cache.ttl)
-	result += fmt.Sprintf("\nBy source:\n")
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf("Cache Statistics:\n"))
+	result.WriteString(fmt.Sprintf("  Total entries: %d\n", len(cache.entries)))
+	result.WriteString(fmt.Sprintf("  Valid entries: %d\n", validCount))
+	result.WriteString(fmt.Sprintf("  Total size: %d bytes\n", totalSize))
+	result.WriteString(fmt.Sprintf("  Max size: %d entries\n", cache.maxSize))
+	result.WriteString(fmt.Sprintf("  TTL: %v\n", cache.ttl))
+	result.WriteString(fmt.Sprintf("\nBy source:\n"))
 	for source, count := range sources {
-		result += fmt.Sprintf("  %s: %d\n", source, count)
+		result.WriteString(fmt.Sprintf("  %s: %d\n", source, count))
 	}
 
-	return result, nil
+	return result.String(), nil
 }

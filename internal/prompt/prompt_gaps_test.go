@@ -71,7 +71,7 @@ func TestConfigFactory_DeterministicOrdering(t *testing.T) {
 
 	// Run multiple times to verify determinism
 	var firstTools []string
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		cfg, err := factory.Generate(ctx, cr, "/a", "/b")
 		if err != nil {
 			t.Fatalf("Generate failed: %v", err)
@@ -139,7 +139,7 @@ func TestConfigFactory_RecursiveGeneration(t *testing.T) {
 
 	// Chain: generate config, use result as input for next
 	result := &CompilationResult{Prompt: "seed"}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		cfg, err := factory.Generate(ctx, result, "/coder")
 		if err != nil {
 			t.Fatalf("Recursive generation failed at iteration %d: %v", i, err)
@@ -218,7 +218,7 @@ func TestTokenBudgetManager_ConcurrentAccess(t *testing.T) {
 	// Reader: call Fit repeatedly
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			_, _ = mgr.Fit(atoms, 10000)
 		}
 	}()
@@ -226,7 +226,7 @@ func TestTokenBudgetManager_ConcurrentAccess(t *testing.T) {
 	// Writer 1: mutate budgets
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			mgr.SetCategoryBudget(CategoryBudget{
 				Category:    CategoryContext,
 				BasePercent: 0.2,
@@ -240,7 +240,7 @@ func TestTokenBudgetManager_ConcurrentAccess(t *testing.T) {
 	// Writer 2: mutate strategy/headroom
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			mgr.SetStrategy(StrategyBalanced)
 			mgr.SetReservedHeadroom(200)
 		}
@@ -342,7 +342,7 @@ func TestResolver_DeepChainNoStackOverflow(t *testing.T) {
 
 	// Build chain: atom_0 <- atom_1 <- atom_2 <- ... <- atom_999
 	atoms := make([]*PromptAtom, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		id := fmt.Sprintf("atom_%d", i)
 		var deps []string
 		if i > 0 {
@@ -396,7 +396,7 @@ func TestResolver_TieBreakerDeterminism(t *testing.T) {
 	}
 
 	var firstOrder []string
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		ordered, err := resolver.Resolve(atoms)
 		if err != nil {
 			t.Fatalf("Resolve failed: %v", err)

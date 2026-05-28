@@ -16,13 +16,13 @@ import (
 type VectorEntry struct {
 	ID         int64
 	Content    string
-	Metadata   map[string]interface{}
+	Metadata   map[string]any
 	CreatedAt  time.Time
 	Similarity float64 // Cosine similarity score from vector search
 }
 
 // StoreVector stores content for semantic retrieval.
-func (s *LocalStore) StoreVector(content string, metadata map[string]interface{}) error {
+func (s *LocalStore) StoreVector(content string, metadata map[string]any) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreVector")
 	defer timer.Stop()
 
@@ -70,7 +70,7 @@ func (s *LocalStore) VectorRecall(query string, limit int) ([]VectorEntry, error
 
 	// Build search query with LIKE for each keyword
 	var conditions []string
-	var args []interface{}
+	var args []any
 	for _, kw := range keywords {
 		conditions = append(conditions, "LOWER(content) LIKE ?")
 		args = append(args, "%"+kw+"%")

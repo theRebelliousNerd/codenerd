@@ -206,7 +206,7 @@ func TestTaxonomyEngine_SchemasLoadedOnce(t *testing.T) {
 		candidates = []VerbEntry{{Verb: "/fix", Priority: 90}}
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, _, _ = engine.ClassifyInput("fix bug", candidates)
 		if !engine.schemasLoaded {
 			t.Fatalf("schemasLoaded flipped to false after call %d", i)

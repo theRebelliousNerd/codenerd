@@ -20,17 +20,17 @@ func NewTaxonomyStore(s *store.LocalStore) *TaxonomyStore {
 
 // StoreVerbDef persists a verb definition.
 func (ts *TaxonomyStore) StoreVerbDef(verb, category, shard string, priority int) error {
-	return ts.store.StoreFact("verb_def", []interface{}{verb, category, shard, priority}, "taxonomy", 100)
+	return ts.store.StoreFact("verb_def", []any{verb, category, shard, priority}, "taxonomy", 100)
 }
 
 // StoreVerbSynonym persists a verb synonym.
 func (ts *TaxonomyStore) StoreVerbSynonym(verb, synonym string) error {
-	return ts.store.StoreFact("verb_synonym", []interface{}{verb, synonym}, "taxonomy", 100)
+	return ts.store.StoreFact("verb_synonym", []any{verb, synonym}, "taxonomy", 100)
 }
 
 // StoreVerbPattern persists a verb regex pattern.
 func (ts *TaxonomyStore) StoreVerbPattern(verb, pattern string) error {
-	return ts.store.StoreFact("verb_pattern", []interface{}{verb, pattern}, "taxonomy", 100)
+	return ts.store.StoreFact("verb_pattern", []any{verb, pattern}, "taxonomy", 100)
 }
 
 // StoreLearnedExemplar persists a learned usage pattern to the knowledge graph.
@@ -39,7 +39,7 @@ func (ts *TaxonomyStore) StoreLearnedExemplar(pattern, verb, target, constraint 
 	// Convert confidence from float (0.0-1.0) to int (0-100) for Mangle schema compatibility
 	confInt := int64(confidence * 100)
 	// We use "taxonomy" as the source so it gets picked up by LoadAllTaxonomyFacts.
-	return ts.store.StoreFact("learned_exemplar", []interface{}{pattern, verb, target, constraint, confInt}, "taxonomy", 100)
+	return ts.store.StoreFact("learned_exemplar", []any{pattern, verb, target, constraint, confInt}, "taxonomy", 100)
 }
 
 // LoadAllTaxonomyFacts loads all taxonomy-related facts from the database.
@@ -75,12 +75,12 @@ func (ts *TaxonomyStore) HydrateEngine(engine *mangle.Engine) error {
 	return engine.AddFacts(facts)
 }
 
-func normalizeTaxonomyFactArgs(predicate string, args []interface{}) []interface{} {
+func normalizeTaxonomyFactArgs(predicate string, args []any) []any {
 	if len(args) == 0 {
 		return args
 	}
 
-	out := make([]interface{}, len(args))
+	out := make([]any, len(args))
 	copy(out, args)
 
 	switch predicate {
@@ -97,7 +97,7 @@ func normalizeTaxonomyFactArgs(predicate string, args []interface{}) []interface
 	return out
 }
 
-func normalizeWholeNumber(v interface{}) interface{} {
+func normalizeWholeNumber(v any) any {
 	switch n := v.(type) {
 	case int:
 		return int64(n)

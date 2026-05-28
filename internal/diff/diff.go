@@ -273,10 +273,7 @@ func (e *Engine) groupIntoHunks(ops []operation, contextLines int) []Hunk {
 				}
 
 				// Add leading context
-				start := i - contextLines
-				if start < 0 {
-					start = 0
-				}
+				start := max(i-contextLines, 0)
 
 				for j := start; j < i; j++ {
 					if ops[j].typ == LineContext {

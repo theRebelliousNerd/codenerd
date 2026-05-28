@@ -194,6 +194,8 @@ func (s *SubAgent) GetResult() (string, error) {
 
 // Run executes the subagent's task asynchronously.
 // Returns immediately; use Wait() or GetResult() for results.
+// Run executes the subagent's task asynchronously.
+// Returns immediately; use Wait() or GetResult() for results.
 func (s *SubAgent) Run(ctx context.Context, task string) {
 	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)
@@ -202,43 +204,52 @@ func (s *SubAgent) Run(ctx context.Context, task string) {
 	s.startTime = time.Now()
 	s.mu.Unlock()
 
-	// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
-	// Only set if the caller didn't provide an explicit hint.
-	if ctx.Value(types.CtxKeyModelCapability) == nil {
-		ctx = context.WithValue(ctx, types.CtxKeyModelCapability, capabilityHintForAgentName(s.config.Name))
-	}
-
-	// Apply timeout
-	if s.config.Timeout > 0 {
-		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, s.config.Timeout)
-		defer timeoutCancel()
-	}
-
 	atomic.StoreInt32(&s.state, int32(SubAgentStateRunning))
 	logging.Session("SubAgent %s starting task: %s", s.config.Name, truncateTask(task))
 
-	// Run the task
-	result, err := s.execute(ctx, task)
+	go func() {
+		// Per-agent capability hint for shared LLM clients (e.g. Codex CLI reasoning multiplexing).
+		// Only set if the caller didn't provide an explicit hint.
+		if ctx.Value(types.CtxKeyModelCapability) == nil {
+			ctx = context.WithValue(ctx, types.CtxKeyModelCapability, capabilityHintForAgentName(s.config.Name))
+		}
 
-	// Store results
-	s.mu.Lock()
-	s.result = result
-	s.err = err
-	s.endTime = time.Now()
-	s.mu.Unlock()
+		// Apply timeout
+		if s.config.Timeout > 0 {
+			var timeoutCancel context.CancelFunc
+			ctx, timeoutCancel = context.WithTimeout(ctx, s.config.Timeout)
+			defer timeoutCancel()
+		}
 
-	if err != nil {
-		atomic.StoreInt32(&s.state, int32(SubAgentStateFailed))
-		logging.Get(logging.CategorySession).Error("SubAgent %s failed: %v", s.config.Name, err)
-	} else {
-		atomic.StoreInt32(&s.state, int32(SubAgentStateCompleted))
-		logging.Session("SubAgent %s completed successfully", s.config.Name)
-	}
+		// Run the task
+		result, err := s.execute(ctx, task)
+
+		// Store results
+		s.mu.Lock()
+		s.result = result
+		s.err = err
+		s.endTime = time.Now()
+		s.mu.Unlock()
+
+		if err != nil {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateFailed))
+			logging.Get(logging.CategorySession).Error("SubAgent %s failed: %v", s.config.Name, err)
+		} else {
+			atomic.StoreInt32(&s.state, int32(SubAgentStateCompleted))
+			logging.Session("SubAgent %s completed successfully", s.config.Name)
+		}
+	}()
 }
 
 // execute runs the clean loop for this subagent.
 func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
+	s.mu.RLock()
+	if s.config.MaxTurns > 0 && s.turnCount >= s.config.MaxTurns {
+		s.mu.RUnlock()
+		return "", fmt.Errorf("subagent has reached maximum turns limit (%d)", s.config.MaxTurns)
+	}
+	s.mu.RUnlock()
+
 	// Inject compiled EffectiveAgentRuntimeConfig and current history into the executor
 	s.mu.RLock()
 	if s.config.EffectiveAgentRuntimeConfig != nil {
@@ -296,7 +307,14 @@ func (s *SubAgent) Stop() error {
 
 // Wait blocks until the subagent completes.
 func (s *SubAgent) Wait() (string, error) {
-	// Poll for completion
+	return s.WaitWithContext(context.Background())
+}
+
+// WaitWithContext blocks until the subagent completes or context is cancelled.
+func (s *SubAgent) WaitWithContext(ctx context.Context) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -305,7 +323,11 @@ func (s *SubAgent) Wait() (string, error) {
 		if state == SubAgentStateCompleted || state == SubAgentStateFailed {
 			return s.GetResult()
 		}
-		<-ticker.C
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -370,10 +392,7 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	// 3. New History = [Summary] + [Recent Turns]
 
 	// Determine split point
-	keepCount := threshold / 2
-	if keepCount < 1 {
-		keepCount = 1
-	}
+	keepCount := max(threshold/2, 1)
 
 	// Index of the first item to KEEP
 	splitIndex := len(s.conversationHistory) - keepCount
@@ -384,16 +403,16 @@ func (s *SubAgent) CompressMemory(ctx context.Context, threshold int) error {
 	// Slice and dice
 	toCompress := s.conversationHistory[:splitIndex]
 	recentTurns := s.conversationHistory[splitIndex:]
-	
+
 	// Release lock during LLM operation!
 	s.mu.Unlock()
 
 	// Run compression
 	summary, err := s.compressor.Compress(ctx, toCompress)
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("SubAgent %s memory compression failed: %v", s.config.Name, err)
 		// Fallback: simple trim to threshold

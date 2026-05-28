@@ -92,7 +92,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				Verified:   true,
 				Confidence: 0.0,
 				Method:     "paranoid_validation_skipped",
-				Details:    map[string]interface{}{"reason": "no expected content or final state for edit operation"},
+				Details:    map[string]any{"reason": "no expected content or final state for edit operation"},
 			}
 		}
 		return ValidationResult{
@@ -113,7 +113,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file does not exist or cannot stat: %v", err),
-			Details:    map[string]interface{}{"check_failed": "existence"},
+			Details:    map[string]any{"check_failed": "existence"},
 		}
 	}
 
@@ -123,7 +123,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      "path is a directory, not a file",
-			Details:    map[string]interface{}{"check_failed": "directory_check"},
+			Details:    map[string]any{"check_failed": "directory_check"},
 		}
 	}
 
@@ -136,7 +136,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file modification time is in the future (negative age): %.1fs", age),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed": "timestamp_freshness",
 				"age_seconds":  age,
 				"modified_at":  modTime.Format(time.RFC3339),
@@ -149,7 +149,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file modification time is stale: %.1fs old (max: %ds)", age, v.MaxStaleSeconds),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed": "timestamp_freshness",
 				"age_seconds":  age,
 				"max_age":      v.MaxStaleSeconds,
@@ -166,7 +166,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file too small: %d bytes (min: %d)", fileSize, v.MinFileSizeBytes),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed": "size_minimum",
 				"actual_size":  fileSize,
 				"min_size":     v.MinFileSizeBytes,
@@ -180,7 +180,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file too large: %d bytes (max: %d)", fileSize, v.MaxFileSizeBytes),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed": "size_maximum",
 				"actual_size":  fileSize,
 				"max_size":     v.MaxFileSizeBytes,
@@ -195,7 +195,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("file size mismatch: got %d bytes, expected %d", fileSize, expectedSize),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed":  "size_match",
 				"actual_size":   fileSize,
 				"expected_size": expectedSize,
@@ -238,7 +238,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      fmt.Sprintf("cannot read file (first attempt): %v", err),
-			Details:    map[string]interface{}{"check_failed": "first_read"},
+			Details:    map[string]any{"check_failed": "first_read"},
 		}
 	}
 
@@ -248,7 +248,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "paranoid_validation",
 			Error:      "content hash mismatch (first read)",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed":  "hash_first_read",
 				"expected_hash": expectedHash,
 				"actual_hash":   firstHashStr,
@@ -275,7 +275,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 1.0,
 				Method:     "paranoid_validation",
 				Error:      fmt.Sprintf("cannot read file (second attempt): %v", err),
-				Details:    map[string]interface{}{"check_failed": "second_read"},
+				Details:    map[string]any{"check_failed": "second_read"},
 			}
 		}
 
@@ -285,7 +285,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 1.0,
 				Method:     "paranoid_validation",
 				Error:      "double-read inconsistency detected (file changed between reads)",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"check_failed": "double_read_consistency",
 					"first_hash":   firstHashStr[:16],
 					"second_hash":  secondHashStr[:16],
@@ -299,7 +299,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 1.0,
 				Method:     "paranoid_validation",
 				Error:      "content hash mismatch (second read)",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"check_failed":  "hash_second_read",
 					"expected_hash": expectedHash,
 					"actual_hash":   secondHashStr,
@@ -313,7 +313,7 @@ func (v *ParanoidFileValidator) Validate(ctx context.Context, req ActionRequest,
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     "paranoid_validation",
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"checks_passed": []string{
 				"existence",
 				"timestamp_freshness",

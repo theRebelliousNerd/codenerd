@@ -127,7 +127,7 @@ func HydrateAtomContextTags(ctx context.Context, db *sql.DB, atoms []*PromptAtom
 			chunk := allTags[i:end]
 
 			query := "INSERT OR IGNORE INTO atom_context_tags (atom_id, dimension, tag) VALUES "
-			args := make([]interface{}, 0, len(chunk)*3)
+			args := make([]any, 0, len(chunk)*3)
 			placeholders := make([]string, len(chunk))
 
 			for j, row := range chunk {

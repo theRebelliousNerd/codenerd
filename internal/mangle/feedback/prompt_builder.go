@@ -252,12 +252,12 @@ func extractRuleFromJSON(response string) string {
 		return ""
 	}
 
-	var obj map[string]interface{}
+	var obj map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &obj); err == nil {
 		return extractRuleString(obj)
 	}
 
-	var list []interface{}
+	var list []any
 	if err := json.Unmarshal([]byte(trimmed), &list); err == nil {
 		for _, item := range list {
 			switch typed := item.(type) {
@@ -265,7 +265,7 @@ func extractRuleFromJSON(response string) string {
 				if candidate := cleanRuleCandidate(typed); candidate != "" {
 					return candidate
 				}
-			case map[string]interface{}:
+			case map[string]any:
 				if candidate := extractRuleString(typed); candidate != "" {
 					return candidate
 				}
@@ -276,7 +276,7 @@ func extractRuleFromJSON(response string) string {
 	return ""
 }
 
-func extractRuleString(payload map[string]interface{}) string {
+func extractRuleString(payload map[string]any) string {
 	if payload == nil {
 		return ""
 	}
@@ -287,7 +287,7 @@ func extractRuleString(payload map[string]interface{}) string {
 			switch typed := value.(type) {
 			case string:
 				return cleanRuleCandidate(typed)
-			case map[string]interface{}:
+			case map[string]any:
 				if candidate := extractRuleString(typed); candidate != "" {
 					return candidate
 				}

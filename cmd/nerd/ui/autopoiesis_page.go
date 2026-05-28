@@ -305,7 +305,7 @@ func (m AutopoiesisPageModel) Update(msg tea.Msg) (AutopoiesisPageModel, tea.Cmd
 
 // formatJSON attempts to format a string as indented JSON.
 func formatJSON(input string) (string, bool) {
-	var obj interface{}
+	var obj any
 	if err := json.Unmarshal([]byte(input), &obj); err != nil {
 		return input, false
 	}

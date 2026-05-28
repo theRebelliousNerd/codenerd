@@ -94,26 +94,26 @@ func (e *CodeElement) ToFacts() []core.Fact {
 	// code_element(ref, elem_type, file, start_line, end_line)
 	facts = append(facts, core.Fact{
 		Predicate: "code_element",
-		Args:      []interface{}{e.Ref, "/" + string(e.Type), e.File, int64(e.StartLine), int64(e.EndLine)},
+		Args:      []any{e.Ref, "/" + string(e.Type), e.File, int64(e.StartLine), int64(e.EndLine)},
 	})
 
 	// element_signature(ref, signature)
 	facts = append(facts, core.Fact{
 		Predicate: "element_signature",
-		Args:      []interface{}{e.Ref, e.Signature},
+		Args:      []any{e.Ref, e.Signature},
 	})
 
 	// element_visibility(ref, visibility)
 	facts = append(facts, core.Fact{
 		Predicate: "element_visibility",
-		Args:      []interface{}{e.Ref, "/" + string(e.Visibility)},
+		Args:      []any{e.Ref, "/" + string(e.Visibility)},
 	})
 
 	// element_parent(ref, parent_ref) - only if has parent
 	if e.Parent != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "element_parent",
-			Args:      []interface{}{e.Ref, e.Parent},
+			Args:      []any{e.Ref, e.Parent},
 		})
 	}
 
@@ -121,7 +121,7 @@ func (e *CodeElement) ToFacts() []core.Fact {
 	for _, action := range e.Actions {
 		facts = append(facts, core.Fact{
 			Predicate: "code_interactable",
-			Args:      []interface{}{e.Ref, "/" + string(action)},
+			Args:      []any{e.Ref, "/" + string(action)},
 		})
 	}
 
@@ -321,19 +321,19 @@ func DetectCodePatterns(content string, elements []CodeElement) CodePatterns {
 	}
 
 	// Check for build tags (both old and new style)
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "// +build ") {
-			tag := strings.TrimPrefix(line, "// +build ")
+		if after, ok := strings.CutPrefix(line, "// +build "); ok {
+			tag := after
 			patterns.BuildTags = append(patterns.BuildTags, tag)
 		}
-		if strings.HasPrefix(line, "//go:build ") {
-			tag := strings.TrimPrefix(line, "//go:build ")
+		if after, ok := strings.CutPrefix(line, "//go:build "); ok {
+			tag := after
 			patterns.BuildTags = append(patterns.BuildTags, tag)
 		}
-		if strings.HasPrefix(line, "//go:embed ") {
-			embed := strings.TrimPrefix(line, "//go:embed ")
+		if after, ok := strings.CutPrefix(line, "//go:embed "); ok {
+			embed := after
 			patterns.EmbedDirectives = append(patterns.EmbedDirectives, embed)
 		}
 	}
@@ -408,42 +408,42 @@ func (p *CodePatterns) ToPatternFacts(file string, elements []CodeElement) []cor
 	if p.IsGenerated {
 		facts = append(facts, core.Fact{
 			Predicate: "generated_code",
-			Args:      []interface{}{file, "/" + p.Generator, p.GeneratorMarker},
+			Args:      []any{file, "/" + p.Generator, p.GeneratorMarker},
 		})
 	}
 
 	if p.HasCGo {
 		facts = append(facts, core.Fact{
 			Predicate: "cgo_code",
-			Args:      []interface{}{file},
+			Args:      []any{file},
 		})
 	}
 
 	for _, tag := range p.BuildTags {
 		facts = append(facts, core.Fact{
 			Predicate: "build_tag",
-			Args:      []interface{}{file, tag},
+			Args:      []any{file, tag},
 		})
 	}
 
 	for _, embed := range p.EmbedDirectives {
 		facts = append(facts, core.Fact{
 			Predicate: "embed_directive",
-			Args:      []interface{}{file, embed},
+			Args:      []any{file, embed},
 		})
 	}
 
 	for _, api := range p.APIClientFuncs {
 		facts = append(facts, core.Fact{
 			Predicate: "api_client_function",
-			Args:      []interface{}{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
+			Args:      []any{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
 		})
 	}
 
 	for _, api := range p.APIHandlerFuncs {
 		facts = append(facts, core.Fact{
 			Predicate: "api_handler_function",
-			Args:      []interface{}{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
+			Args:      []any{api.Ref, api.Endpoint, normalizeHTTPMethodAtom(api.Method)},
 		})
 	}
 

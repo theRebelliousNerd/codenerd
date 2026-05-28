@@ -3,6 +3,7 @@ package shards
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -89,12 +90,7 @@ func (b *BaseShardAgent) SetSessionContext(ctx *types.SessionContext) {
 }
 
 func (b *BaseShardAgent) HasPermission(p types.ShardPermission) bool {
-	for _, perm := range b.config.Permissions {
-		if perm == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(b.config.Permissions, p)
 }
 
 // Execute is a placeholder; specific shards must embed BaseShardAgent and implement this.
@@ -421,7 +417,7 @@ func (s *SystemShard) Execute(ctx context.Context, task string) (string, error) 
 			if s.kernel != nil {
 				if err := s.kernel.Assert(types.Fact{
 					Predicate: "system_heartbeat",
-					Args:      []interface{}{s.id, tick.Unix()},
+					Args:      []any{s.id, tick.Unix()},
 				}); err != nil {
 					logging.Get(logging.CategoryKernel).Warn("failed to assert system_heartbeat: %v", err)
 				}

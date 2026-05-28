@@ -45,8 +45,7 @@ func TestMangleWatcher_StartStop(t *testing.T) {
 		t.Fatalf("Failed to create MangleWatcher: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := mw.Start(ctx); err != nil {
 		t.Fatalf("Failed to start MangleWatcher: %v", err)
@@ -113,8 +112,7 @@ func TestMangleWatcher_GetWatchedDirs(t *testing.T) {
 	}
 	defer mw.watcher.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := mw.Start(ctx); err != nil {
 		t.Fatalf("Failed to start MangleWatcher: %v", err)

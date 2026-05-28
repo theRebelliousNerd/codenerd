@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -243,9 +244,7 @@ func cloneStringMap(src map[string]string) map[string]string {
 		return make(map[string]string)
 	}
 	cloned := make(map[string]string, len(src))
-	for k, v := range src {
-		cloned[k] = v
-	}
+	maps.Copy(cloned, src)
 	return cloned
 }
 

@@ -46,7 +46,7 @@ type MangleAtom string
 // Fact represents a single logical fact (atom) in the EDB.
 type Fact struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 func isValidMangleNameConstant(v string) bool {
@@ -205,7 +205,7 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 // This is the interface-friendly version of Fact for the kernel bridge.
 type KernelFact struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 // ToFact converts a KernelFact to a Fact.

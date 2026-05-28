@@ -6,6 +6,7 @@ package chat
 
 import (
 	"codenerd/cmd/nerd/ui"
+	"codenerd/internal/transparency"
 	"fmt"
 	"strings"
 	"time"
@@ -127,27 +128,92 @@ func (m Model) renderSingleMessage(msg Message) string {
 		rendered.WriteString("\n")
 	}
 
-	// Render active stream if present
-	if m.isStreaming && m.currentStream != "" {
-		rendered.WriteString("\n**nerd:**\n")
-		rendered.WriteString("\n")
-		markdownRendered := m.safeRenderMarkdown(m.currentStream + " █") // Add cursor block
-		rendered.WriteString(markdownRendered)
-		rendered.WriteString("\n")
+	// Render active stream if present. Two layers:
+	//   1. Thought trace (dim+italic, prefixed with 🤔) streams in first
+	//      and stays visible as the model reasons. This matches the
+	//      pattern used for completed messages' ThoughtSummary, so the
+	//      look stays consistent before/after stream end.
+	//   2. Visible surface response streams below it, with the standard
+	//      bold "nerd:" label and a cursor block █ to signal liveness.
+	//
+	// Either layer alone (or both together) is rendered when present.
+	if m.isStreaming {
+		if strings.TrimSpace(m.currentThought) != "" {
+			thoughtStyle := m.styles.Muted.Italic(true)
+			// While streaming, append the same █ cursor we use on
+			// surface output, so users can see thoughts are still
+			// arriving even before any visible answer text begins.
+			cursor := ""
+			if m.currentStream == "" {
+				cursor = " █"
+			}
+			rendered.WriteString(thoughtStyle.Render("🤔 "+m.currentThought+cursor) + "\n\n")
+		}
+		if m.currentStream != "" {
+			rendered.WriteString("\n**nerd:**\n")
+			rendered.WriteString("\n")
+			markdownRendered := m.safeRenderMarkdown(m.currentStream + " █") // Add cursor block
+			rendered.WriteString(markdownRendered)
+			rendered.WriteString("\n")
+		}
 	}
 
 	return rendered.String()
 }
 
+// glassBoxIcon returns a small unicode icon for a Glass Box category.
+// Kept ASCII-friendly so Windows terminals without a Nerd Font still render.
+func glassBoxIcon(c transparency.GlassBoxCategory) string {
+	switch c {
+	case transparency.CategoryPerception:
+		return "🎯"
+	case transparency.CategoryKernel:
+		return "🧠"
+	case transparency.CategoryJIT:
+		return "🧩"
+	case transparency.CategoryShard:
+		return "⚡"
+	case transparency.CategoryControl:
+		return "📦"
+	case transparency.CategoryRouting:
+		return "🛠"
+	default:
+		return "•"
+	}
+}
+
 // renderGlassBoxMessage formats a Glass Box system event for display.
+// Format: "  <icon> <CATEGORY> summary  (durationms)"
+// Icon + category are color-keyed, body is dimmed so the event reads as
+// chrome rather than chat content.
 func (m Model) renderGlassBoxMessage(msg Message) string {
-	// Category prefix with color
-	prefix := m.styles.Muted.Render(msg.GlassBoxCategory.DisplayPrefix())
+	icon := glassBoxIcon(msg.GlassBoxCategory)
+	label := strings.ToUpper(string(msg.GlassBoxCategory))
 
-	// Content with dimmed styling
-	content := m.styles.Muted.Render(msg.Content)
+	// Pick a color per category. Falls back to Muted if a category lacks a
+	// dedicated style. We intentionally keep the palette narrow so the
+	// status line doesn't strobe.
+	var labelStyle lipgloss.Style
+	switch msg.GlassBoxCategory {
+	case transparency.CategoryPerception:
+		labelStyle = m.styles.Success
+	case transparency.CategoryKernel:
+		labelStyle = m.styles.Warning
+	case transparency.CategoryShard:
+		labelStyle = m.styles.Title
+	case transparency.CategoryJIT:
+		labelStyle = m.styles.Info
+	case transparency.CategoryRouting:
+		labelStyle = m.styles.Success
+	case transparency.CategoryControl:
+		labelStyle = m.styles.Info
+	default:
+		labelStyle = m.styles.Muted
+	}
 
-	// Collapsible indicator if message has details (check for newline)
+	renderedLabel := labelStyle.Render(fmt.Sprintf("%s %s", icon, label))
+	body := m.styles.Muted.Render(msg.Content)
+
 	indicator := ""
 	if strings.Contains(msg.Content, "\n") {
 		if msg.IsCollapsed {
@@ -157,7 +223,7 @@ func (m Model) renderGlassBoxMessage(msg Message) string {
 		}
 	}
 
-	return fmt.Sprintf("  %s%s %s\n", prefix, indicator, content)
+	return fmt.Sprintf("  %s%s  %s\n", renderedLabel, indicator, body)
 }
 
 // safeRenderMarkdown renders markdown with panic recovery
@@ -266,10 +332,7 @@ func (m Model) renderHeader() string {
 	)
 
 	// Clamp header and workspace to terminal width to prevent overflow
-	maxW := m.width
-	if maxW < 1 {
-		maxW = 1
-	}
+	maxW := max(m.width, 1)
 	headerStyle := lipgloss.NewStyle().MaxWidth(maxW)
 
 	return lipgloss.JoinVertical(
@@ -352,10 +415,7 @@ func (m Model) renderFooter() string {
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
 		continuationModeStr, paneModeStr, campaignIndicator, continuationIndicator, contextIndicator, memoryIndicator, mouseIndicator, glassIndicator, timestamp, hotkeys))
-	maxW := m.width
-	if maxW < 1 {
-		maxW = 1
-	}
+	maxW := max(m.width, 1)
 	return lipgloss.NewStyle().
 		MarginTop(1).
 		MaxWidth(maxW).
@@ -457,15 +517,48 @@ func (m Model) renderChatView() string {
 
 	inputArea := inputStyle.Render(m.textarea.View())
 
+	// Activity line: transient single-line ping above the input box.
+	// Shows the most recent Glass Box event. Empty when nothing has
+	// happened yet this session, so it disappears entirely.
+	activity := m.renderActivityLine()
+
 	// Footer (with mode indicator)
 	footer := m.renderFooter()
 
 	// Compose full view
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		chatView,
-		inputArea,
-		footer,
-	)
+	parts := []string{header, chatView}
+	if activity != "" {
+		parts = append(parts, activity)
+	}
+	parts = append(parts, inputArea, footer)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderActivityLine returns a single dimmed line showing the most
+// recent Glass Box event, or "" if there's nothing to show or Glass
+// Box is disabled. Designed to live just above the input area as
+// transient chrome — replaced on every new event, cleared on turn
+// end.
+func (m Model) renderActivityLine() string {
+	if !m.glassBoxEnabled || strings.TrimSpace(m.activityLine) == "" {
+		return ""
+	}
+	icon := glassBoxIcon(transparency.GlassBoxCategory(m.activityIconCh))
+	age := ""
+	if !m.activityAt.IsZero() {
+		d := time.Since(m.activityAt)
+		switch {
+		case d < time.Second:
+			age = "now"
+		case d < time.Minute:
+			age = fmt.Sprintf("%ds", int(d.Seconds()))
+		default:
+			age = fmt.Sprintf("%dm", int(d.Minutes()))
+		}
+	}
+	text := fmt.Sprintf("  %s  %s", icon, m.activityLine)
+	if age != "" {
+		text = fmt.Sprintf("%s  · %s ago", text, age)
+	}
+	return m.styles.Muted.Italic(true).Render(text)
 }

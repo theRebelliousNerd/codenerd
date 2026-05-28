@@ -1,6 +1,7 @@
 package verification
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,10 +99,5 @@ func TestTruncateHelpers(t *testing.T) {
 }
 
 func containsViolation(vs []QualityViolation, want QualityViolation) bool {
-	for _, v := range vs {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vs, want)
 }

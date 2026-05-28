@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -194,7 +195,13 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 	// Discover tools if enabled
 	if cfg.AutoDiscoverTools {
 		go func() {
-			if err := m.DiscoverTools(ctx, serverID); err != nil {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Get(logging.CategoryTools).Error("Panic in DiscoverTools background goroutine: %v", r)
+				}
+			}()
+			// Use context.Background() to prevent premature cancellation from Connect's context lifecycle
+			if err := m.DiscoverTools(context.Background(), serverID); err != nil {
 				logging.Get(logging.CategoryTools).Warn("Failed to discover tools from %s: %v", serverID, err)
 			}
 		}()
@@ -351,13 +358,17 @@ func (m *MCPClientManager) processToolSchema(ctx context.Context, serverID strin
 }
 
 // CallTool invokes a tool on an MCP server.
-func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map[string]interface{}) (*MCPCallResult, error) {
+func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map[string]any) (*MCPCallResult, error) {
 	if args == nil {
-		args = make(map[string]interface{})
+		args = make(map[string]any)
 	}
 
+	// Deep copy/clone arguments map before transport call to prevent map race conditions
+	clonedArgs := make(map[string]any, len(args))
+	maps.Copy(clonedArgs, args)
+
 	// Ensure args are serializable to prevent transport panic/error later
-	if _, err := json.Marshal(args); err != nil {
+	if _, err := json.Marshal(clonedArgs); err != nil {
 		return nil, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err)
 	}
 
@@ -379,14 +390,19 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 		}, nil
 	}
 
-	result, err := conn.Transport.CallTool(ctx, toolName, args)
+	result, err := conn.Transport.CallTool(ctx, toolName, clonedArgs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update usage stats
-	if m.store != nil {
+	// Update usage stats defensively with nil checks and panic recovery
+	if m.store != nil && result != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Get(logging.CategoryTools).Error("Panic in RecordToolUsage background goroutine: %v", r)
+				}
+			}()
 			if err := m.store.RecordToolUsage(context.Background(), toolID, result.Success, result.LatencyMs); err != nil {
 				logging.Get(logging.CategoryTools).Debug("Failed to record tool usage: %v", err)
 			}
@@ -471,6 +487,11 @@ func (m *MCPClientManager) updateServerStatus(serverID string, status ServerStat
 	// Update store
 	if m.store != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Get(logging.CategoryTools).Error("Panic in UpdateServerStatus background goroutine: %v", r)
+				}
+			}()
 			if err := m.store.UpdateServerStatus(context.Background(), serverID, status); err != nil {
 				logging.Get(logging.CategoryTools).Debug("Failed to update server status: %v", err)
 			}

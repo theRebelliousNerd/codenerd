@@ -12,7 +12,7 @@ func TestLocalStore_ColdStorage_Extra(t *testing.T) {
 	defer s.Close()
 
 	// 1. Store Fact
-	err = s.StoreFact("test_pred", []interface{}{"arg1"}, "test_type", 10)
+	err = s.StoreFact("test_pred", []any{"arg1"}, "test_type", 10)
 	if err != nil {
 		t.Fatalf("StoreFact failed: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestLocalStore_ColdStorage_Extra(t *testing.T) {
 	if len(allFacts) != 1 {
 		t.Errorf("Expected 1 fact, got %d", len(allFacts))
 	}
-	
+
 	allFactsEmpty, _ := s.LoadAllFacts("")
 	if len(allFactsEmpty) != 1 {
 		t.Errorf("Expected 1 fact, got %d", len(allFactsEmpty))
@@ -74,22 +74,22 @@ func TestLocalStore_ColdStorage_Extra(t *testing.T) {
 	}
 
 	// 6. RestoreArchivedFact
-	err = s.RestoreArchivedFact("test_pred", []interface{}{"arg1"})
+	err = s.RestoreArchivedFact("test_pred", []any{"arg1"})
 	if err != nil {
 		t.Errorf("RestoreArchivedFact failed: %v", err)
 	}
 
 	// 7. DeleteFact
-	err = s.DeleteFact("test_pred", []interface{}{"arg1"})
+	err = s.DeleteFact("test_pred", []any{"arg1"})
 	if err != nil {
 		t.Errorf("DeleteFact failed: %v", err)
 	}
-	
+
 	// 8. MaintenanceCleanup
 	// Insert test data for maintenance
 	s.db.Exec("INSERT INTO archived_facts (predicate, args, archived_at) VALUES ('to_purge', '[]', datetime('now', '-400 days'))")
 	s.db.Exec("INSERT INTO activation_log (fact_id, activation_score, timestamp) VALUES ('fact1', 1.0, datetime('now', '-60 days'))")
-	s.StoreFact("to_archive", []interface{}{}, "fact", 0)
+	s.StoreFact("to_archive", []any{}, "fact", 0)
 	s.db.Exec("UPDATE cold_storage SET last_accessed = datetime('now', '-100 days'), access_count = 1")
 
 	config := MaintenanceConfig{

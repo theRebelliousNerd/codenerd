@@ -213,7 +213,7 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 			},
 		},
 	}
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		provider.atoms["/base"] = ConfigAtom{
 			Tools:    []string{"t1", "t2"},
 			Policies: []string{"p1.mg", "p2.mg"},
@@ -224,7 +224,7 @@ func TestConfigFactory_UserExtremes(t *testing.T) {
 	compilationResult := &CompilationResult{Prompt: "test"}
 
 	intents := make([]string, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		intents[i] = "/base"
 	}
 
@@ -322,14 +322,14 @@ func TestConfigFactory_StateConflicts(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			_, _ = factory.Generate(ctx, compilationResult, "/coder")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			provider.RegisterAtom("/new_intent", ConfigAtom{Tools: []string{"tool"}, Policies: []string{"policy.mg"}})
 		}
 	}()

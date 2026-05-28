@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -688,14 +689,12 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 
 	// Spawn generic shard
 	if shards.ShouldIncludeGenericShard(verb) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			shardStart := time.Now()
 			result, err := m.spawnTask(ctx, shardType, task)
 			duration := time.Since(shardStart)
 			resultsChan <- spawnResult{Name: shardType, Result: result, Err: err, Task: task, Duration: duration}
-		}()
+		})
 	}
 
 	// Spawn specialists in parallel
@@ -1445,13 +1444,10 @@ func discoverFiles(workspace, constraint string) []string {
 
 		// Check if file matches extension filter
 		ext := filepath.Ext(path)
-		for _, allowedExt := range extensions {
-			if ext == allowedExt {
-				// Convert to relative path
-				if relPath, err := filepath.Rel(workspace, path); err == nil {
-					files = append(files, relPath)
-				}
-				break
+		if slices.Contains(extensions, ext) {
+			// Convert to relative path
+			if relPath, err := filepath.Rel(workspace, path); err == nil {
+				files = append(files, relPath)
 			}
 		}
 

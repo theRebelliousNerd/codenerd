@@ -19,7 +19,7 @@ func TestAssert_WhenDuplicateFact_ShouldBeIdempotent(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	fact := Fact{Predicate: "color", Args: []interface{}{"red"}}
+	fact := Fact{Predicate: "color", Args: []any{"red"}}
 
 	if err := k.Assert(fact); err != nil {
 		t.Fatalf("First assert failed: %v", err)
@@ -63,9 +63,9 @@ func TestAssertBatch_WhenMultipleFacts_ShouldAddAll(t *testing.T) {
 	}
 
 	facts := []Fact{
-		{Predicate: "fruit", Args: []interface{}{"apple"}},
-		{Predicate: "fruit", Args: []interface{}{"banana"}},
-		{Predicate: "fruit", Args: []interface{}{"cherry"}},
+		{Predicate: "fruit", Args: []any{"apple"}},
+		{Predicate: "fruit", Args: []any{"banana"}},
+		{Predicate: "fruit", Args: []any{"cherry"}},
 	}
 
 	if err := k.AssertBatch(facts); err != nil {
@@ -89,9 +89,9 @@ func TestAssertBatch_WhenDuplicatesInBatch_ShouldDedup(t *testing.T) {
 	}
 
 	facts := []Fact{
-		{Predicate: "item", Args: []interface{}{"x"}},
-		{Predicate: "item", Args: []interface{}{"x"}}, // duplicate
-		{Predicate: "item", Args: []interface{}{"y"}},
+		{Predicate: "item", Args: []any{"x"}},
+		{Predicate: "item", Args: []any{"x"}}, // duplicate
+		{Predicate: "item", Args: []any{"y"}},
 	}
 
 	if err := k.AssertBatch(facts); err != nil {
@@ -171,9 +171,9 @@ func TestRetract_WhenPredicateExists_ShouldRemoveAll(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "flavor", Args: []interface{}{"sweet"}})
-	k.Assert(Fact{Predicate: "flavor", Args: []interface{}{"sour"}})
-	k.Assert(Fact{Predicate: "size", Args: []interface{}{"big"}})
+	k.Assert(Fact{Predicate: "flavor", Args: []any{"sweet"}})
+	k.Assert(Fact{Predicate: "flavor", Args: []any{"sour"}})
+	k.Assert(Fact{Predicate: "size", Args: []any{"big"}})
 
 	err := k.Retract("flavor")
 	if err != nil {
@@ -223,12 +223,12 @@ func TestRetractExactFact_WhenExactMatch_ShouldRemoveOnly(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "setting", Args: []interface{}{"lang", "go"}})
-	k.Assert(Fact{Predicate: "setting", Args: []interface{}{"lang", "python"}})
-	k.Assert(Fact{Predicate: "setting", Args: []interface{}{"debug", "true"}})
+	k.Assert(Fact{Predicate: "setting", Args: []any{"lang", "go"}})
+	k.Assert(Fact{Predicate: "setting", Args: []any{"lang", "python"}})
+	k.Assert(Fact{Predicate: "setting", Args: []any{"debug", "true"}})
 
 	// Retract only "lang"+"go", not "lang"+"python"
-	err := k.RetractExactFact(Fact{Predicate: "setting", Args: []interface{}{"lang", "go"}})
+	err := k.RetractExactFact(Fact{Predicate: "setting", Args: []any{"lang", "go"}})
 	if err != nil {
 		t.Fatalf("RetractExactFact failed: %v", err)
 	}
@@ -269,16 +269,16 @@ func TestRetractExactFactsBatch_WhenMultiple_ShouldRemoveAll(t *testing.T) {
 	}
 
 	facts := []Fact{
-		{Predicate: "metric", Args: []interface{}{"cpu", "50"}},
-		{Predicate: "metric", Args: []interface{}{"mem", "80"}},
-		{Predicate: "metric", Args: []interface{}{"disk", "30"}},
+		{Predicate: "metric", Args: []any{"cpu", "50"}},
+		{Predicate: "metric", Args: []any{"mem", "80"}},
+		{Predicate: "metric", Args: []any{"disk", "30"}},
 	}
 	k.AssertBatch(facts)
 
 	// Remove two of three
 	toRemove := []Fact{
-		{Predicate: "metric", Args: []interface{}{"cpu", "50"}},
-		{Predicate: "metric", Args: []interface{}{"disk", "30"}},
+		{Predicate: "metric", Args: []any{"cpu", "50"}},
+		{Predicate: "metric", Args: []any{"disk", "30"}},
 	}
 	err := k.RetractExactFactsBatch(toRemove)
 	if err != nil {
@@ -345,9 +345,9 @@ func TestQuery_WhenPatternProvided_ShouldFilterResults(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "coord", Args: []interface{}{"a", "1"}})
-	k.Assert(Fact{Predicate: "coord", Args: []interface{}{"b", "2"}})
-	k.Assert(Fact{Predicate: "coord", Args: []interface{}{"a", "3"}})
+	k.Assert(Fact{Predicate: "coord", Args: []any{"a", "1"}})
+	k.Assert(Fact{Predicate: "coord", Args: []any{"b", "2"}})
+	k.Assert(Fact{Predicate: "coord", Args: []any{"a", "3"}})
 
 	results, err := k.Query(`coord("a", X)`)
 	if err != nil {
@@ -374,11 +374,11 @@ func TestConcurrentAssert_ShouldNotPanic(t *testing.T) {
 	const factsPerGoroutine = 20
 
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		go func(g int) {
 			defer wg.Done()
-			for i := 0; i < factsPerGoroutine; i++ {
-				fact := Fact{Predicate: "concurrent_item", Args: []interface{}{fmt.Sprintf("g%d_i%d", g, i)}}
+			for i := range factsPerGoroutine {
+				fact := Fact{Predicate: "concurrent_item", Args: []any{fmt.Sprintf("g%d_i%d", g, i)}}
 				if err := k.Assert(fact); err != nil {
 					t.Errorf("Assert failed in goroutine %d: %v", g, err)
 				}
@@ -401,15 +401,15 @@ func TestConcurrentAssertAndQuery_ShouldNotRace(t *testing.T) {
 	// Writer goroutine
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
-			k.Assert(Fact{Predicate: "race_item", Args: []interface{}{fmt.Sprintf("item_%d", i)}})
+		for i := range 50 {
+			k.Assert(Fact{Predicate: "race_item", Args: []any{fmt.Sprintf("item_%d", i)}})
 		}
 	}()
 
 	// Reader goroutine
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			_, _ = k.Query("race_item")
 		}
 	}()
@@ -425,8 +425,8 @@ func TestConcurrentRetract_ShouldNotPanic(t *testing.T) {
 	}
 
 	// Add some facts first
-	for i := 0; i < 20; i++ {
-		k.Assert(Fact{Predicate: "temp_item", Args: []interface{}{fmt.Sprintf("item_%d", i)}})
+	for i := range 20 {
+		k.Assert(Fact{Predicate: "temp_item", Args: []any{fmt.Sprintf("item_%d", i)}})
 	}
 
 	var wg sync.WaitGroup
@@ -493,7 +493,7 @@ func TestIsDirty_WhenAssertCalled_ShouldBeTrue(t *testing.T) {
 	}
 
 	// Assert marks dirty
-	k.Assert(Fact{Predicate: "dirty_test", Args: []interface{}{"a"}})
+	k.Assert(Fact{Predicate: "dirty_test", Args: []any{"a"}})
 	if !k.IsDirty() {
 		t.Error("Kernel should be dirty after Assert()")
 	}
@@ -515,7 +515,7 @@ func TestIsDirty_WhenAssertCalled_ShouldBeTrue(t *testing.T) {
 func TestCanonValue_AllTypes(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected string
 	}{
 		{name: "nil", input: nil, expected: "null"},
@@ -539,13 +539,13 @@ func TestCanonValue_AllTypes(t *testing.T) {
 		{name: "json_number_int", input: json.Number("42"), expected: "42"},
 		{name: "json_number_float", input: json.Number("3.14"), expected: "3.14"},
 		{name: "bytes", input: []byte("hi"), expected: `"hi"`},
-		{name: "empty_slice_interface", input: []interface{}{}, expected: "[]"},
-		{name: "slice_interface", input: []interface{}{"a", 1}, expected: `["a",1]`},
+		{name: "empty_slice_interface", input: []any{}, expected: "[]"},
+		{name: "slice_interface", input: []any{"a", 1}, expected: `["a",1]`},
 		{name: "slice_string", input: []string{"x", "y"}, expected: `["x","y"]`},
 		{name: "slice_int", input: []int{1, 2, 3}, expected: "[1,2,3]"},
 		{name: "slice_int64", input: []int64{10, 20}, expected: "[10,20]"},
 		{name: "slice_float64", input: []float64{1.1, 2.2}, expected: "[1.1,2.2]"},
-		{name: "map_string_interface", input: map[string]interface{}{"a": 1}, expected: `{"a":1}`},
+		{name: "map_string_interface", input: map[string]any{"a": 1}, expected: `{"a":1}`},
 		{name: "map_string_string", input: map[string]string{"k": "v"}, expected: `{"k":"v"}`},
 	}
 
@@ -581,7 +581,7 @@ func TestArgsEqual_WhenOneNil_ShouldReturnFalse(t *testing.T) {
 func TestArgsEqual_CrossTypeComparisons(t *testing.T) {
 	tests := []struct {
 		name string
-		a, b interface{}
+		a, b any
 		want bool
 	}{
 		{"string_equal", "hello", "hello", true},
@@ -598,8 +598,8 @@ func TestArgsEqual_CrossTypeComparisons(t *testing.T) {
 		{"float64_equal", 3.14, 3.14, true},
 		{"bool_equal", true, true, true},
 		{"bool_unequal", true, false, false},
-		{"map_equal", map[string]interface{}{"a": 1}, map[string]interface{}{"a": 1}, true},
-		{"slice_equal", []interface{}{"x"}, []interface{}{"x"}, true},
+		{"map_equal", map[string]any{"a": 1}, map[string]any{"a": 1}, true},
+		{"slice_equal", []any{"x"}, []any{"x"}, true},
 		{"type_mismatch", "42", 42, false},
 	}
 
@@ -616,14 +616,14 @@ func TestArgsEqual_CrossTypeComparisons(t *testing.T) {
 func TestArgsSliceEqual(t *testing.T) {
 	tests := []struct {
 		name string
-		a, b []interface{}
+		a, b []any
 		want bool
 	}{
 		{"both_nil", nil, nil, true},
-		{"both_empty", []interface{}{}, []interface{}{}, true},
-		{"equal", []interface{}{"a", 1}, []interface{}{"a", 1}, true},
-		{"length_mismatch", []interface{}{"a"}, []interface{}{"a", "b"}, false},
-		{"value_mismatch", []interface{}{"a"}, []interface{}{"b"}, false},
+		{"both_empty", []any{}, []any{}, true},
+		{"equal", []any{"a", 1}, []any{"a", 1}, true},
+		{"length_mismatch", []any{"a"}, []any{"a", "b"}, false},
+		{"value_mismatch", []any{"a"}, []any{"b"}, false},
 	}
 
 	for _, tc := range tests {
@@ -648,13 +648,13 @@ func TestIsValidMangleNameConstant(t *testing.T) {
 		{"/foo", true},
 		{"/bar_baz", true},
 		{"/true", true},
-		{"foo", false},               // no leading /
-		{"/path/to/file.go", false},  // file extension
-		{"/a/b/c", false},            // too many path segments
-		{"/has space", false},        // whitespace
-		{"/has\ttab", false},         // tab
-		{"/has\nnewline", false},     // newline
-		{"", false},                  // empty
+		{"foo", false},              // no leading /
+		{"/path/to/file.go", false}, // file extension
+		{"/a/b/c", false},           // too many path segments
+		{"/has space", false},       // whitespace
+		{"/has\ttab", false},        // tab
+		{"/has\nnewline", false},    // newline
+		{"", false},                 // empty
 	}
 
 	for _, tc := range tests {
@@ -698,41 +698,41 @@ func TestSanitizeFactForNumericPredicates_AgendaItem(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    Fact
-		wantArg2 interface{}
+		wantArg2 any
 	}{
 		{
 			name:     "high_atom",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "/high", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "/high", "/pending", 0}},
 			wantArg2: int64(80),
 		},
 		{
 			name:     "critical_string",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "critical", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "critical", "/pending", 0}},
 			wantArg2: int64(100),
 		},
 		{
 			name:     "numeric_passthrough",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", int64(75), "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", int64(75), "/pending", 0}},
 			wantArg2: int64(75),
 		},
 		{
 			name:     "low",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "/low", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "/low", "/pending", 0}},
 			wantArg2: int64(25),
 		},
 		{
 			name:     "medium",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "medium", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "medium", "/pending", 0}},
 			wantArg2: int64(50),
 		},
 		{
 			name:     "normal",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "normal", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "normal", "/pending", 0}},
 			wantArg2: int64(50),
 		},
 		{
 			name:     "lowest",
-			input:    Fact{Predicate: "agenda_item", Args: []interface{}{"id1", "desc", "/lowest", "/pending", 0}},
+			input:    Fact{Predicate: "agenda_item", Args: []any{"id1", "desc", "/lowest", "/pending", 0}},
 			wantArg2: int64(10),
 		},
 	}
@@ -749,7 +749,7 @@ func TestSanitizeFactForNumericPredicates_AgendaItem(t *testing.T) {
 }
 
 func TestSanitizeFactForNumericPredicates_AtomPriority(t *testing.T) {
-	fact := Fact{Predicate: "atom_priority", Args: []interface{}{"atom1", "/high"}}
+	fact := Fact{Predicate: "atom_priority", Args: []any{"atom1", "/high"}}
 	result := sanitizeFactForNumericPredicates(fact)
 
 	if result.Args[1] != int64(80) {
@@ -758,7 +758,7 @@ func TestSanitizeFactForNumericPredicates_AtomPriority(t *testing.T) {
 }
 
 func TestSanitizeFactForNumericPredicates_PromptAtom(t *testing.T) {
-	fact := Fact{Predicate: "prompt_atom", Args: []interface{}{"id1", "/category", "/critical", 500, true}}
+	fact := Fact{Predicate: "prompt_atom", Args: []any{"id1", "/category", "/critical", 500, true}}
 	result := sanitizeFactForNumericPredicates(fact)
 
 	if result.Args[2] != int64(100) {
@@ -767,7 +767,7 @@ func TestSanitizeFactForNumericPredicates_PromptAtom(t *testing.T) {
 }
 
 func TestSanitizeFactForNumericPredicates_UnrelatedPredicate_ShouldPassthrough(t *testing.T) {
-	fact := Fact{Predicate: "user_intent", Args: []interface{}{"id1", "/query", "/explain", "target", "constraint"}}
+	fact := Fact{Predicate: "user_intent", Args: []any{"id1", "/query", "/explain", "target", "constraint"}}
 	result := sanitizeFactForNumericPredicates(fact)
 
 	// Should be unchanged
@@ -802,11 +802,11 @@ func TestTransaction_WhenRetractThenAssert_ShouldBeAtomic(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "test_state_atomic", Args: []interface{}{"mode", "old"}})
+	k.Assert(Fact{Predicate: "test_state_atomic", Args: []any{"mode", "old"}})
 
 	tx := k.Transaction()
 	tx.Retract("test_state_atomic")
-	tx.Assert(Fact{Predicate: "test_state_atomic", Args: []interface{}{"mode", "new"}})
+	tx.Assert(Fact{Predicate: "test_state_atomic", Args: []any{"mode", "new"}})
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Transaction commit failed: %v", err)
 	}
@@ -927,8 +927,8 @@ func TestAssertWithoutEval_WhenFollowedByEvaluate_ShouldWork(t *testing.T) {
 		t.Fatalf("Evaluate failed: %v", err)
 	}
 
-	k.AssertWithoutEval(Fact{Predicate: "batch_item", Args: []interface{}{"x"}})
-	k.AssertWithoutEval(Fact{Predicate: "batch_item", Args: []interface{}{"y"}})
+	k.AssertWithoutEval(Fact{Predicate: "batch_item", Args: []any{"x"}})
+	k.AssertWithoutEval(Fact{Predicate: "batch_item", Args: []any{"y"}})
 
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate after AssertWithoutEval failed: %v", err)

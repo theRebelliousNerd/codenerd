@@ -59,7 +59,7 @@ func TestMessageRenderingCache(t *testing.T) {
 	}
 
 	// Verify cache keys are correct
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, exists := m.renderedCache[i]; !exists {
 			t.Errorf("Message %d not in cache", i)
 		}
@@ -98,7 +98,7 @@ func TestAddMessagesHelper(t *testing.T) {
 
 	// Create 10 test messages
 	messages := make([]Message, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		messages[i] = Message{
 			Role:    "user",
 			Content: "Test message",
@@ -134,7 +134,7 @@ func TestViewportPagination(t *testing.T) {
 	}
 
 	// Add 150 messages to exceed the 100-message pagination threshold
-	for i := 0; i < 150; i++ {
+	for range 150 {
 		msg := Message{
 			Role:    "user",
 			Content: "Message",
@@ -172,14 +172,12 @@ func TestGoroutineWaitGroup(t *testing.T) {
 	}
 
 	// Simulate spawning background goroutines
-	for i := 0; i < 3; i++ {
-		m.goroutineWg.Add(1)
-		go func() {
-			defer m.goroutineWg.Done()
+	for range 3 {
+		m.goroutineWg.Go(func() {
 			<-m.shutdownCtx.Done()
 			// Simulate some cleanup work
 			time.Sleep(10 * time.Millisecond)
-		}()
+		})
 	}
 
 	// Trigger shutdown
@@ -218,7 +216,7 @@ func TestShutdownIdempotence(t *testing.T) {
 	}
 
 	// Call Shutdown multiple times
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		(&m).Shutdown()
 	}
 
@@ -237,7 +235,7 @@ func BenchmarkRenderHistoryWithCache(b *testing.B) {
 	}
 
 	// Pre-populate with 50 messages
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		msg := Message{
 			Role:    "assistant",
 			Content: "Test message with **markdown** and `code`",
@@ -269,7 +267,7 @@ func BenchmarkRenderHistoryWithoutCache(b *testing.B) {
 	m.renderer = renderer
 
 	// Add 50 messages directly (bypass cache)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		m.history = append(m.history, Message{
 			Role:    "assistant",
 			Content: "Test message with **markdown** and `code`",
@@ -347,11 +345,4 @@ func TestRenderSingleMessage(t *testing.T) {
 // Helper functions
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr)))
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

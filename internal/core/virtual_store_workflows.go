@@ -50,7 +50,7 @@ func (v *VirtualStore) handleReadErrorLog(ctx context.Context, req ActionRequest
 			Success: true,
 			Output:  "",
 			FactsToAdd: []Fact{
-				{Predicate: "error_log_empty", Args: []interface{}{logType}},
+				{Predicate: "error_log_empty", Args: []any{logType}},
 			},
 		}, nil
 	}
@@ -59,15 +59,15 @@ func (v *VirtualStore) handleReadErrorLog(ctx context.Context, req ActionRequest
 	return ActionResult{
 		Success: true,
 		Output:  logContent,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"log_type": logType,
 			"log_path": logPath,
 			"size":     len(logContent),
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "error_log_read", Args: []interface{}{logType, len(logContent)}},
+			{Predicate: "error_log_read", Args: []any{logType, len(logContent)}},
 			// Fix 15.4: Assert test_state transition
-			{Predicate: "test_state", Args: []interface{}{"/log_read"}},
+			{Predicate: "test_state", Args: []any{"/log_read"}},
 		},
 	}, nil
 }
@@ -91,8 +91,8 @@ func (v *VirtualStore) handleAnalyzeRootCause(ctx context.Context, req ActionReq
 		Success: true,
 		Output:  fmt.Sprintf("Root cause analysis requested for: %s", errorContext),
 		FactsToAdd: []Fact{
-			{Predicate: "analyzing_root_cause", Args: []interface{}{errorContext}},
-			{Predicate: "tdd_phase", Args: []interface{}{"/analyze"}},
+			{Predicate: "analyzing_root_cause", Args: []any{errorContext}},
+			{Predicate: "tdd_phase", Args: []any{"/analyze"}},
 		},
 	}, nil
 }
@@ -113,8 +113,8 @@ func (v *VirtualStore) handleGeneratePatch(ctx context.Context, req ActionReques
 		Success: true,
 		Output:  fmt.Sprintf("Patch generation requested for: %s", targetFile),
 		FactsToAdd: []Fact{
-			{Predicate: "generating_patch", Args: []interface{}{targetFile, patchDesc}},
-			{Predicate: "tdd_phase", Args: []interface{}{"/patch"}},
+			{Predicate: "generating_patch", Args: []any{targetFile, patchDesc}},
+			{Predicate: "tdd_phase", Args: []any{"/patch"}},
 		},
 	}, nil
 }
@@ -133,8 +133,8 @@ func (v *VirtualStore) handleEscalateToUser(ctx context.Context, req ActionReque
 		Output:  fmt.Sprintf("ESCALATION REQUIRED: %s", reason),
 		Error:   "USER_INTERVENTION_REQUIRED",
 		FactsToAdd: []Fact{
-			{Predicate: "escalated_to_user", Args: []interface{}{reason}},
-			{Predicate: "task_blocked", Args: []interface{}{reason}},
+			{Predicate: "escalated_to_user", Args: []any{reason}},
+			{Predicate: "task_blocked", Args: []any{reason}},
 		},
 	}, nil
 }
@@ -159,13 +159,13 @@ func (v *VirtualStore) handleComplete(ctx context.Context, req ActionRequest) (A
 
 func buildTaskCompletionFacts(taskID, summary string) []Fact {
 	facts := []Fact{
-		{Predicate: "task_completed", Args: []interface{}{taskID}},
-		{Predicate: "task_status", Args: []interface{}{taskID, "/completed"}},
+		{Predicate: "task_completed", Args: []any{taskID}},
+		{Predicate: "task_status", Args: []any{taskID, "/completed"}},
 	}
 	if summary != "" {
 		facts = append(facts, Fact{
 			Predicate: "observation",
-			Args:      []interface{}{"/task_summary", summary},
+			Args:      []any{"/task_summary", summary},
 		})
 	}
 	return facts
@@ -178,7 +178,7 @@ func (v *VirtualStore) handleInterrogative(ctx context.Context, req ActionReques
 	}
 
 	question := req.Target
-	options, _ := req.Payload["options"].([]interface{})
+	options, _ := req.Payload["options"].([]any)
 
 	logging.VirtualStoreDebug("Entering interrogative mode: %s", question)
 
@@ -186,14 +186,14 @@ func (v *VirtualStore) handleInterrogative(ctx context.Context, req ActionReques
 		Success: false, // Needs user response
 		Output:  question,
 		Error:   "CLARIFICATION_NEEDED",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"question": question,
 			"options":  options,
 			"mode":     "interrogative",
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "awaiting_clarification", Args: []interface{}{question}},
-			{Predicate: "interrogative_mode", Args: []interface{}{true}},
+			{Predicate: "awaiting_clarification", Args: []any{question}},
+			{Predicate: "interrogative_mode", Args: []any{true}},
 		},
 	}, nil
 }
@@ -211,8 +211,8 @@ func (v *VirtualStore) handleResumeTask(ctx context.Context, req ActionRequest) 
 		Success: true,
 		Output:  fmt.Sprintf("Resuming task: %s", taskID),
 		FactsToAdd: []Fact{
-			{Predicate: "task_resumed", Args: []interface{}{taskID}},
-			{Predicate: "active_task", Args: []interface{}{taskID}},
+			{Predicate: "task_resumed", Args: []any{taskID}},
+			{Predicate: "active_task", Args: []any{taskID}},
 		},
 	}, nil
 }
@@ -253,7 +253,7 @@ func (v *VirtualStore) handleRefreshShardContext(ctx context.Context, req Action
 		}
 		facts = append(facts, Fact{
 			Predicate: "shard_context_refreshed",
-			Args:      []interface{}{shardID, atom, now},
+			Args:      []any{shardID, atom, now},
 		})
 		refreshed++
 	}
@@ -295,7 +295,7 @@ func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest
 			Success: false,
 			Error:   "tool generator not configured",
 			FactsToAdd: []Fact{
-				{Predicate: "tool_generation_failed", Args: []interface{}{req.Target, "no_generator"}},
+				{Predicate: "tool_generation_failed", Args: []any{req.Target, "no_generator"}},
 			},
 		}, nil
 	}
@@ -325,7 +325,7 @@ func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest
 			Success: false,
 			Error:   errMsg,
 			FactsToAdd: []Fact{
-				{Predicate: "tool_generation_failed", Args: []interface{}{toolName, errMsg}},
+				{Predicate: "tool_generation_failed", Args: []any{toolName, errMsg}},
 			},
 		}, nil
 	}
@@ -334,14 +334,14 @@ func (v *VirtualStore) handleGenerateTool(ctx context.Context, req ActionRequest
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Tool %s generated at %s", registeredName, binaryPath),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"tool_name":   registeredName,
 			"binary_path": binaryPath,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "tool_generated", Args: []interface{}{registeredName, generatedAt}},
-			{Predicate: "tool_binary_path", Args: []interface{}{registeredName, binaryPath}},
-			{Predicate: "tool_available", Args: []interface{}{registeredName}},
+			{Predicate: "tool_generated", Args: []any{registeredName, generatedAt}},
+			{Predicate: "tool_binary_path", Args: []any{registeredName, binaryPath}},
+			{Predicate: "tool_available", Args: []any{registeredName}},
 		},
 	}, nil
 }
@@ -361,8 +361,8 @@ func (v *VirtualStore) handleOuroborosDetect(ctx context.Context, req ActionRequ
 		Success: true,
 		Output:  fmt.Sprintf("Tool detection initiated for: %s", taskContext),
 		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/detect"}},
-			{Predicate: "tool_detection_context", Args: []interface{}{taskContext}},
+			{Predicate: "ouroboros_phase", Args: []any{"/detect"}},
+			{Predicate: "tool_detection_context", Args: []any{taskContext}},
 		},
 	}, nil
 }
@@ -380,8 +380,8 @@ func (v *VirtualStore) handleOuroborosGenerate(ctx context.Context, req ActionRe
 		Success: true,
 		Output:  fmt.Sprintf("Tool code generation initiated for: %s", toolName),
 		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/generate"}},
-			{Predicate: "tool_generating", Args: []interface{}{toolName}},
+			{Predicate: "ouroboros_phase", Args: []any{"/generate"}},
+			{Predicate: "tool_generating", Args: []any{toolName}},
 		},
 	}, nil
 }
@@ -403,7 +403,7 @@ func (v *VirtualStore) handleOuroborosCompile(ctx context.Context, req ActionReq
 	delegateReq := ActionRequest{
 		Type:   ActionDelegateToolGenerator,
 		Target: fmt.Sprintf("compile tool %s", toolName),
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"task": fmt.Sprintf("compile tool %s", toolName),
 		},
 	}
@@ -432,7 +432,7 @@ func (v *VirtualStore) handleOuroborosRegister(ctx context.Context, req ActionRe
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "ouroboros_register_failed", Args: []interface{}{toolName, err.Error()}},
+				{Predicate: "ouroboros_register_failed", Args: []any{toolName, err.Error()}},
 			},
 		}, nil
 	}
@@ -442,10 +442,10 @@ func (v *VirtualStore) handleOuroborosRegister(ctx context.Context, req ActionRe
 		Success: true,
 		Output:  fmt.Sprintf("Tool %s registered", toolName),
 		FactsToAdd: []Fact{
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/registered"}},
-			{Predicate: "tool_registered", Args: []interface{}{toolName, registeredAt}},
-			{Predicate: "tool_binary_path", Args: []interface{}{toolName, binaryPath}},
-			{Predicate: "tool_available", Args: []interface{}{toolName}},
+			{Predicate: "ouroboros_phase", Args: []any{"/registered"}},
+			{Predicate: "tool_registered", Args: []any{toolName, registeredAt}},
+			{Predicate: "tool_binary_path", Args: []any{toolName, binaryPath}},
+			{Predicate: "tool_available", Args: []any{toolName}},
 		},
 	}, nil
 }
@@ -465,8 +465,8 @@ func (v *VirtualStore) handleRefineTool(ctx context.Context, req ActionRequest) 
 		Success: true,
 		Output:  fmt.Sprintf("Tool refinement initiated for: %s", toolName),
 		FactsToAdd: []Fact{
-			{Predicate: "tool_refining", Args: []interface{}{toolName, feedback}},
-			{Predicate: "ouroboros_phase", Args: []interface{}{"/refine"}},
+			{Predicate: "tool_refining", Args: []any{toolName, feedback}},
+			{Predicate: "ouroboros_phase", Args: []any{"/refine"}},
 		},
 	}, nil
 }
@@ -490,12 +490,12 @@ func (v *VirtualStore) handleCampaignClarify(ctx context.Context, req ActionRequ
 		Success: false, // Needs user input
 		Output:  question,
 		Error:   "CAMPAIGN_CLARIFICATION_NEEDED",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"campaign_id": campaignID,
 			"question":    question,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_awaiting_clarification", Args: []interface{}{campaignID, question}},
+			{Predicate: "campaign_awaiting_clarification", Args: []any{campaignID, question}},
 		},
 	}, nil
 }
@@ -527,7 +527,7 @@ func (v *VirtualStore) handleCampaignWriteTest(ctx context.Context, req ActionRe
 	if result.Success {
 		result.FactsToAdd = append(result.FactsToAdd, Fact{
 			Predicate: "test_written",
-			Args:      []interface{}{req.Target},
+			Args:      []any{req.Target},
 		})
 	}
 
@@ -561,8 +561,8 @@ func (v *VirtualStore) handleCampaignVerify(ctx context.Context, req ActionReque
 		Success: true,
 		Output:  fmt.Sprintf("Verifying campaign step: %s", stepID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_step_verifying", Args: []interface{}{campaignID, stepID}},
-			{Predicate: "current_phase", Args: []interface{}{"/verify"}},
+			{Predicate: "campaign_step_verifying", Args: []any{campaignID, stepID}},
+			{Predicate: "current_phase", Args: []any{"/verify"}},
 		},
 	}, nil
 }
@@ -588,8 +588,8 @@ func (v *VirtualStore) handleCampaignDocument(ctx context.Context, req ActionReq
 		Success: true,
 		Output:  fmt.Sprintf("Documentation requested for: %s", docTarget),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_documenting", Args: []interface{}{docTarget}},
-			{Predicate: "current_phase", Args: []interface{}{"/document"}},
+			{Predicate: "campaign_documenting", Args: []any{docTarget}},
+			{Predicate: "current_phase", Args: []any{"/document"}},
 		},
 	}, nil
 }
@@ -609,8 +609,8 @@ func (v *VirtualStore) handleCampaignRefactor(ctx context.Context, req ActionReq
 		Success: true,
 		Output:  fmt.Sprintf("Refactoring initiated for: %s", target),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_refactoring", Args: []interface{}{target, refactorType}},
-			{Predicate: "current_phase", Args: []interface{}{"/refactor"}},
+			{Predicate: "campaign_refactoring", Args: []any{target, refactorType}},
+			{Predicate: "current_phase", Args: []any{"/refactor"}},
 		},
 	}, nil
 }
@@ -630,8 +630,8 @@ func (v *VirtualStore) handleCampaignIntegrate(ctx context.Context, req ActionRe
 		Success: true,
 		Output:  fmt.Sprintf("Integration step for: %s", target),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_integrating", Args: []interface{}{campaignID, target}},
-			{Predicate: "current_phase", Args: []interface{}{"/integrate"}},
+			{Predicate: "campaign_integrating", Args: []any{campaignID, target}},
+			{Predicate: "current_phase", Args: []any{"/integrate"}},
 		},
 	}, nil
 }
@@ -651,8 +651,8 @@ func (v *VirtualStore) handleCampaignComplete(ctx context.Context, req ActionReq
 		Success: true,
 		Output:  fmt.Sprintf("Campaign %s completed: %s", campaignID, summary),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_completed", Args: []interface{}{campaignID, summary}},
-			{Predicate: "current_phase", Args: []interface{}{"/complete"}},
+			{Predicate: "campaign_completed", Args: []any{campaignID, summary}},
+			{Predicate: "current_phase", Args: []any{"/complete"}},
 		},
 	}, nil
 }
@@ -671,8 +671,8 @@ func (v *VirtualStore) handleCampaignFinalVerify(ctx context.Context, req Action
 		Success: true,
 		Output:  fmt.Sprintf("Final verification for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_final_verifying", Args: []interface{}{campaignID}},
-			{Predicate: "current_phase", Args: []interface{}{"/final_verify"}},
+			{Predicate: "campaign_final_verifying", Args: []any{campaignID}},
+			{Predicate: "current_phase", Args: []any{"/final_verify"}},
 		},
 	}, nil
 }
@@ -691,8 +691,8 @@ func (v *VirtualStore) handleCampaignCleanup(ctx context.Context, req ActionRequ
 		Success: true,
 		Output:  fmt.Sprintf("Cleanup completed for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_cleaned_up", Args: []interface{}{campaignID}},
-			{Predicate: "current_phase", Args: []interface{}{"/cleanup"}},
+			{Predicate: "campaign_cleaned_up", Args: []any{campaignID}},
+			{Predicate: "current_phase", Args: []any{"/cleanup"}},
 		},
 	}, nil
 }
@@ -711,7 +711,7 @@ func (v *VirtualStore) handleArchiveCampaign(ctx context.Context, req ActionRequ
 		Success: true,
 		Output:  fmt.Sprintf("Campaign %s archived", campaignID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_archived", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_archived", Args: []any{campaignID}},
 		},
 	}, nil
 }
@@ -730,7 +730,7 @@ func (v *VirtualStore) handleShowCampaignStatus(ctx context.Context, req ActionR
 		Success: true,
 		Output:  fmt.Sprintf("Showing status for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_status_requested", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_status_requested", Args: []any{campaignID}},
 		},
 	}, nil
 }
@@ -749,7 +749,7 @@ func (v *VirtualStore) handleShowCampaignProgress(ctx context.Context, req Actio
 		Success: true,
 		Output:  fmt.Sprintf("Showing progress for campaign: %s", campaignID),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_progress_requested", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_progress_requested", Args: []any{campaignID}},
 		},
 	}, nil
 }
@@ -770,7 +770,7 @@ func (v *VirtualStore) handleAskCampaignInterrupt(ctx context.Context, req Actio
 		Output:  fmt.Sprintf("Campaign %s interrupt requested: %s", campaignID, reason),
 		Error:   "CAMPAIGN_INTERRUPT_REQUESTED",
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_interrupt_requested", Args: []interface{}{campaignID, reason}},
+			{Predicate: "campaign_interrupt_requested", Args: []any{campaignID, reason}},
 		},
 	}, nil
 }
@@ -790,7 +790,7 @@ func (v *VirtualStore) handleRunPhaseCheckpoint(ctx context.Context, req ActionR
 		Success: true,
 		Output:  fmt.Sprintf("Checkpoint for phase: %s", phaseID),
 		FactsToAdd: []Fact{
-			{Predicate: "phase_checkpoint", Args: []interface{}{campaignID, phaseID}},
+			{Predicate: "phase_checkpoint", Args: []any{campaignID, phaseID}},
 		},
 	}, nil
 }
@@ -810,8 +810,8 @@ func (v *VirtualStore) handlePauseAndReplan(ctx context.Context, req ActionReque
 		Success: true,
 		Output:  fmt.Sprintf("Campaign %s paused for replanning: %s", campaignID, reason),
 		FactsToAdd: []Fact{
-			{Predicate: "campaign_paused", Args: []interface{}{campaignID, reason}},
-			{Predicate: "campaign_replanning", Args: []interface{}{campaignID}},
+			{Predicate: "campaign_paused", Args: []any{campaignID, reason}},
+			{Predicate: "campaign_replanning", Args: []any{campaignID}},
 		},
 	}, nil
 }
@@ -838,8 +838,8 @@ func (v *VirtualStore) handleCompressContext(ctx context.Context, req ActionRequ
 		Success: true,
 		Output:  fmt.Sprintf("Context compression initiated (target ratio: %.2f)", targetRatio),
 		FactsToAdd: []Fact{
-			{Predicate: "context_compressing", Args: []interface{}{reason, targetRatio}},
-			{Predicate: "compression_requested", Args: []interface{}{"/normal"}},
+			{Predicate: "context_compressing", Args: []any{reason, targetRatio}},
+			{Predicate: "compression_requested", Args: []any{"/normal"}},
 		},
 	}, nil
 }
@@ -856,8 +856,8 @@ func (v *VirtualStore) handleEmergencyCompress(ctx context.Context, req ActionRe
 		Success: true,
 		Output:  "Emergency context compression initiated",
 		FactsToAdd: []Fact{
-			{Predicate: "context_compressing", Args: []interface{}{"emergency", int64(25)}},
-			{Predicate: "compression_requested", Args: []interface{}{"/emergency"}},
+			{Predicate: "context_compressing", Args: []any{"emergency", int64(25)}},
+			{Predicate: "compression_requested", Args: []any{"/emergency"}},
 		},
 	}, nil
 }
@@ -878,12 +878,12 @@ func (v *VirtualStore) handleCreateCheckpoint(ctx context.Context, req ActionReq
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Checkpoint created: %s", checkpointName),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"checkpoint_name": checkpointName,
 			"timestamp":       time.Now().Unix(),
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "checkpoint_created", Args: []interface{}{checkpointName, time.Now().Unix()}},
+			{Predicate: "checkpoint_created", Args: []any{checkpointName, time.Now().Unix()}},
 		},
 	}, nil
 }
@@ -910,8 +910,8 @@ func (v *VirtualStore) handleInvestigateAnomaly(ctx context.Context, req ActionR
 		Success: true,
 		Output:  fmt.Sprintf("Investigating anomaly: %s", anomalyDesc),
 		FactsToAdd: []Fact{
-			{Predicate: "anomaly_investigating", Args: []interface{}{anomalyDesc, severity}},
-			{Predicate: "investigation_phase", Args: []interface{}{"/anomaly"}},
+			{Predicate: "anomaly_investigating", Args: []any{anomalyDesc, severity}},
+			{Predicate: "investigation_phase", Args: []any{"/anomaly"}},
 		},
 	}, nil
 }
@@ -930,8 +930,8 @@ func (v *VirtualStore) handleInvestigateSystemic(ctx context.Context, req Action
 		Success: true,
 		Output:  fmt.Sprintf("Investigating systemic issue: %s", issueDesc),
 		FactsToAdd: []Fact{
-			{Predicate: "systemic_investigating", Args: []interface{}{issueDesc}},
-			{Predicate: "investigation_phase", Args: []interface{}{"/systemic"}},
+			{Predicate: "systemic_investigating", Args: []any{issueDesc}},
+			{Predicate: "investigation_phase", Args: []any{"/systemic"}},
 		},
 	}, nil
 }
@@ -951,7 +951,7 @@ func (v *VirtualStore) handleUpdateWorldModel(ctx context.Context, req ActionReq
 		Success: true,
 		Output:  fmt.Sprintf("World model update: %s", updateType),
 		FactsToAdd: []Fact{
-			{Predicate: "world_model_updating", Args: []interface{}{updateType, scope}},
+			{Predicate: "world_model_updating", Args: []any{updateType, scope}},
 		},
 	}, nil
 }
@@ -982,8 +982,8 @@ func (v *VirtualStore) handleCorrectiveResearch(ctx context.Context, req ActionR
 		Success: true,
 		Output:  fmt.Sprintf("Corrective research initiated for: %s", topic),
 		FactsToAdd: []Fact{
-			{Predicate: "corrective_researching", Args: []interface{}{topic, issueType}},
-			{Predicate: "corrective_phase", Args: []interface{}{"/research"}},
+			{Predicate: "corrective_researching", Args: []any{topic, issueType}},
+			{Predicate: "corrective_phase", Args: []any{"/research"}},
 		},
 	}, nil
 }
@@ -1002,8 +1002,8 @@ func (v *VirtualStore) handleCorrectiveDocs(ctx context.Context, req ActionReque
 		Success: true,
 		Output:  fmt.Sprintf("Corrective documentation initiated for: %s", docTarget),
 		FactsToAdd: []Fact{
-			{Predicate: "corrective_documenting", Args: []interface{}{docTarget}},
-			{Predicate: "corrective_phase", Args: []interface{}{"/docs"}},
+			{Predicate: "corrective_documenting", Args: []any{docTarget}},
+			{Predicate: "corrective_phase", Args: []any{"/docs"}},
 		},
 	}, nil
 }
@@ -1022,8 +1022,8 @@ func (v *VirtualStore) handleCorrectiveDecompose(ctx context.Context, req Action
 		Success: true,
 		Output:  fmt.Sprintf("Decomposing problem for correction: %s", problem),
 		FactsToAdd: []Fact{
-			{Predicate: "corrective_decomposing", Args: []interface{}{problem}},
-			{Predicate: "corrective_phase", Args: []interface{}{"/decompose"}},
+			{Predicate: "corrective_decomposing", Args: []any{problem}},
+			{Predicate: "corrective_phase", Args: []any{"/decompose"}},
 		},
 	}, nil
 }

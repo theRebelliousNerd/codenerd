@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -84,7 +85,7 @@ taskSearch:
 				// Record in kernel
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "task_error",
-					Args:      []interface{}{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), errStr},
+					Args:      []any{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), errStr},
 				})
 			} else {
 				// Backoff before retrying to avoid tight failure loops.
@@ -116,37 +117,37 @@ taskSearch:
 	// Record error taxonomy + retry window for policy/debugging.
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "task_error",
-		Args:      []interface{}{task.ID, errorType, errStr},
+		Args:      []any{task.ID, errorType, errStr},
 	})
 	if logicEscalated {
 		_ = o.kernel.Assert(core.Fact{
 			Predicate: "task_error",
-			Args:      []interface{}{task.ID, "/logic_failure_escalated", logicEscalationReason},
+			Args:      []any{task.ID, "/logic_failure_escalated", logicEscalationReason},
 		})
 		_ = o.kernel.Assert(core.Fact{
 			Predicate: "task_error",
-			Args:      []interface{}{task.ID, "/repro_test_first_required", reproTaskID},
+			Args:      []any{task.ID, "/repro_test_first_required", reproTaskID},
 		})
 	}
 	if !nextRetryAt.IsZero() {
 		_ = o.kernel.RetractFact(core.Fact{
 			Predicate: "task_retry_at",
-			Args:      []interface{}{task.ID},
+			Args:      []any{task.ID},
 		})
 		_ = o.kernel.Assert(core.Fact{
 			Predicate: "task_retry_at",
-			Args:      []interface{}{task.ID, nextRetryAt.Unix()},
+			Args:      []any{task.ID, nextRetryAt.Unix()},
 		})
 	} else {
 		_ = o.kernel.RetractFact(core.Fact{
 			Predicate: "task_retry_at",
-			Args:      []interface{}{task.ID},
+			Args:      []any{task.ID},
 		})
 	}
 
 	o.emitEvent("task_failed", phaseID, task.ID, errStr, nil)
 	if logicEscalated {
-		o.emitEvent("logic_failure_escalated", phaseID, task.ID, "Deterministic logic escalation triggered", map[string]interface{}{
+		o.emitEvent("logic_failure_escalated", phaseID, task.ID, "Deterministic logic escalation triggered", map[string]any{
 			"reason":                logicEscalationReason,
 			"repro_task_id":         reproTaskID,
 			"repro_task_inserted":   reproTaskInserted,
@@ -156,7 +157,7 @@ taskSearch:
 		})
 	}
 	if reproTaskInserted {
-		o.emitEvent("diagnostic_task_inserted", phaseID, reproTaskID, "Inserted repro-test-first diagnostic task", map[string]interface{}{
+		o.emitEvent("diagnostic_task_inserted", phaseID, reproTaskID, "Inserted repro-test-first diagnostic task", map[string]any{
 			"failed_task_id": task.ID,
 			"reason":         logicEscalationReason,
 		})
@@ -203,10 +204,7 @@ func shouldEscalateLogicFailure(attempts []TaskAttempt, now time.Time) (bool, st
 		now = time.Now()
 	}
 
-	start := len(attempts) - logicFailureEscalationWindowAttempts
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(attempts)-logicFailureEscalationWindowAttempts, 0)
 	window := attempts[start:]
 
 	logicFailures := 0
@@ -266,7 +264,7 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 			if o.kernel != nil {
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "task_dependency",
-					Args:      []interface{}{failedTaskID, existing},
+					Args:      []any{failedTaskID, existing},
 				})
 			}
 		}
@@ -313,7 +311,7 @@ func (o *Orchestrator) insertReproDiagnosticTaskLocked(phaseIdx, taskIdx, attemp
 			if o.kernel != nil {
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "task_dependency",
-					Args:      []interface{}{failedTaskID, reproTaskID},
+					Args:      []any{failedTaskID, reproTaskID},
 				})
 			}
 		}
@@ -346,10 +344,8 @@ func ensureTaskDependsOn(task *Task, depID string) bool {
 	if task == nil || depID == "" {
 		return false
 	}
-	for _, dep := range task.DependsOn {
-		if dep == depID {
-			return false
-		}
+	if slices.Contains(task.DependsOn, depID) {
+		return false
 	}
 	task.DependsOn = append(task.DependsOn, depID)
 	return true
@@ -424,10 +420,7 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 		maxBackoff = 5 * time.Minute
 	}
 
-	shift := attemptNum - 1
-	if shift < 0 {
-		shift = 0
-	}
+	shift := max(attemptNum-1, 0)
 	if shift > 10 {
 		shift = 10
 	}

@@ -136,11 +136,11 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Code DOM demo workspace: %s\n", ws)
 	fmt.Printf("Opening: %s\n", demoFile)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", demoFile}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", demoFile}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
-	elementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-elements", "/get_elements", ""}})
+	elementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-elements", "/get_elements", ""}})
 	if err != nil {
 		return fmt.Errorf("get_elements failed: %w", err)
 	}
@@ -180,10 +180,10 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Editing element: %s\n", refToEdit)
 	if _, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"/edit_element",
 			refToEdit,
-			map[string]interface{}{"content": newAdd},
+			map[string]any{"content": newAdd},
 		},
 	}); err != nil {
 		return fmt.Errorf("edit_element failed: %w", err)
@@ -191,10 +191,10 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 
 	afterJSON, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"/get_element",
 			refToEdit,
-			map[string]interface{}{"include_body": true},
+			map[string]any{"include_body": true},
 		},
 	})
 	if err != nil {
@@ -214,7 +214,7 @@ func runDomDemo(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-close", "/close_scope", ""}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-close", "/close_scope", ""}}); err != nil {
 		return fmt.Errorf("close_scope failed: %w", err)
 	}
 
@@ -274,14 +274,14 @@ func runDomInspect(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
 	inScope := scope.GetInScopeFiles()
 	fmt.Printf("Files in scope: %d\n", len(inScope))
 
-	fileElementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-elements", "/get_elements", absTarget}})
+	fileElementsJSON, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-elements", "/get_elements", absTarget}})
 	if err != nil {
 		return fmt.Errorf("get_elements failed: %w", err)
 	}
@@ -348,16 +348,16 @@ func runDomGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
 	out, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"/get_element",
 			ref,
-			map[string]interface{}{"include_body": domGetIncludeBody},
+			map[string]any{"include_body": domGetIncludeBody},
 		},
 	})
 	if err != nil {
@@ -424,17 +424,17 @@ func runDomEdit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
 	fmt.Printf("Editing:   %s\n", ref)
 	if _, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"/edit_element",
 			ref,
-			map[string]interface{}{"content": content},
+			map[string]any{"content": content},
 		},
 	}); err != nil {
 		return fmt.Errorf("edit_element failed: %w", err)
@@ -628,7 +628,7 @@ func printPredicateCounts(kernel core.Kernel, predicates []string) {
 }
 
 func closeScopeQuiet(ctx context.Context, vs *core.VirtualStore) error {
-	_, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-close", "/close_scope", ""}})
+	_, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-close", "/close_scope", ""}})
 	return err
 }
 

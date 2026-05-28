@@ -33,8 +33,8 @@ type AgendaItem struct {
 	Dependencies []string  `json:"dependencies"`
 	EstimatedMin int       `json:"estimated_minutes"`
 	CreatedAt    time.Time `json:"created_at"`
-	StartedAt    time.Time `json:"started_at,omitempty"`
-	CompletedAt  time.Time `json:"completed_at,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	CompletedAt  time.Time `json:"completed_at"`
 }
 
 // Checkpoint represents a session checkpoint.
@@ -111,7 +111,7 @@ type SessionPlannerShard struct {
 	// JIT Prompt Compilation (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
 	// Set via SetPromptAssembler() which accepts interface{}.
-	promptAssembler interface{}
+	promptAssembler any
 }
 
 // NewSessionPlannerShard creates a new Session Planner shard.
@@ -271,8 +271,8 @@ func (s *SessionPlannerShard) Execute(ctx context.Context, task string) (string,
 // initializeFromTask decomposes a high-level goal into agenda items.
 func (s *SessionPlannerShard) initializeFromTask(ctx context.Context, task string) error {
 	// Check if it's a campaign reference
-	if strings.HasPrefix(task, "campaign:") {
-		s.activeCampaign = strings.TrimPrefix(task, "campaign:")
+	if after, ok := strings.CutPrefix(task, "campaign:"); ok {
+		s.activeCampaign = after
 		logging.SystemShards("[SessionPlanner] Loading campaign: %s", s.activeCampaign)
 		return s.loadCampaignAgenda()
 	}
@@ -347,7 +347,7 @@ func (s *SessionPlannerShard) decomposeGoal(ctx context.Context, goal string) er
 	for _, item := range items {
 		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "agenda_item",
-			Args: []interface{}{
+			Args: []any{
 				item.ID,
 				item.Description,
 				item.Priority,
@@ -602,7 +602,7 @@ func (s *SessionPlannerShard) syncTaskStatusToKernel(taskID, newStatus string) {
 		// campaign_task(TaskID, PhaseID, Description, Status, TaskType)
 		newFact := types.Fact{
 			Predicate: "campaign_task",
-			Args: []interface{}{
+			Args: []any{
 				f.Args[0], // TaskID
 				f.Args[1], // PhaseID
 				f.Args[2], // Description
@@ -631,7 +631,7 @@ func (s *SessionPlannerShard) checkBlockedTasks() {
 				// Escalate to user
 				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "escalation_needed",
-					Args: []interface{}{
+					Args: []any{
 						"session_planner",
 						escalationSubject("task_blocked", item.ID),
 						item.Description,
@@ -667,7 +667,7 @@ func (s *SessionPlannerShard) createCheckpoint(trigger string) {
 	// Emit checkpoint fact
 	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "session_checkpoint",
-		Args: []interface{}{
+		Args: []any{
 			checkpoint.ID,
 			checkpoint.ItemsRemaining,
 			checkpoint.Timestamp.Unix(),
@@ -701,7 +701,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 	// Emit summary status fact
 	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "session_planner_status",
-		Args: []interface{}{
+		Args: []any{
 			len(s.agenda),
 			pending,
 			inProgress,
@@ -724,7 +724,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 		// Emit plan_task fact
 		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "plan_task",
-			Args: []interface{}{
+			Args: []any{
 				item.ID,
 				item.Description,
 				item.Status,
@@ -742,7 +742,7 @@ func (s *SessionPlannerShard) emitStatusFacts() {
 	// Emit plan_progress fact
 	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "plan_progress",
-		Args: []interface{}{
+		Args: []any{
 			s.activeCampaign,
 			len(s.agenda),
 			completed,
@@ -794,7 +794,7 @@ func (s *SessionPlannerShard) AddTask(description string, priority int) string {
 
 	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "agenda_item",
-		Args: []interface{}{
+		Args: []any{
 			item.ID,
 			item.Description,
 			item.Priority,
@@ -852,7 +852,7 @@ func (s *SessionPlannerShard) GetCurrentPlan() *PlanView {
 // SetPromptAssembler sets the prompt assembler for JIT prompt compilation.
 // The assembler should be a *articulation.PromptAssembler but is stored as
 // interface{} to avoid import cycles.
-func (s *SessionPlannerShard) SetPromptAssembler(assembler interface{}) {
+func (s *SessionPlannerShard) SetPromptAssembler(assembler any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.promptAssembler = assembler
@@ -862,7 +862,7 @@ func (s *SessionPlannerShard) SetPromptAssembler(assembler interface{}) {
 }
 
 // GetPromptAssembler returns the prompt assembler for JIT prompt compilation.
-func (s *SessionPlannerShard) GetPromptAssembler() interface{} {
+func (s *SessionPlannerShard) GetPromptAssembler() any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.promptAssembler
@@ -1103,7 +1103,7 @@ func (s *SessionPlannerShard) routeControlPacketToKernel(control *articulation.C
 		logging.SystemShards("[SessionPlanner] Self-correction triggered: %s", control.SelfCorrection.Hypothesis)
 		selfCorrFact := core.Fact{
 			Predicate: "self_correction_triggered",
-			Args:      []interface{}{s.ID, control.SelfCorrection.Hypothesis, time.Now().Unix()},
+			Args:      []any{s.ID, control.SelfCorrection.Hypothesis, time.Now().Unix()},
 		}
 		_ = kernel.Assert(selfCorrFact)
 	}

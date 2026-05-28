@@ -416,11 +416,9 @@ func TestFeedbackCollector_ConcurrentWrites(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			rec := &ExecutionRecord{
 				TaskID:      "task-concurrent-" + strconv.Itoa(i),
 				SessionID:   "session-concurrent",
@@ -434,7 +432,7 @@ func TestFeedbackCollector_ConcurrentWrites(t *testing.T) {
 			if err := fc.Record(rec); err != nil {
 				errCh <- err
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)
@@ -554,7 +552,7 @@ func TestStrategyStore_MassiveStrategyCount(t *testing.T) {
 		t.Fatalf("failed to prepare bulk insert: %v", err)
 	}
 
-	for i := 0; i < strategyCount; i++ {
+	for i := range strategyCount {
 		successCount := (i % 10) + 1
 		failureCount := i % 3
 		successRate := float64(successCount) / float64(successCount+failureCount+1)
@@ -716,7 +714,7 @@ func (m *malformedAtomLLMClient) CompleteWithSystem(ctx context.Context, system,
 	return "not yaml and not atom json", nil
 }
 
-func (m *malformedAtomLLMClient) CompleteWithOptions(ctx context.Context, system, user string, opts map[string]interface{}) (string, error) {
+func (m *malformedAtomLLMClient) CompleteWithOptions(ctx context.Context, system, user string, opts map[string]any) (string, error) {
 	return m.CompleteWithSystem(ctx, system, user)
 }
 
@@ -749,7 +747,7 @@ func (m *mockLLMClient) CompleteWithSystem(ctx context.Context, system, user str
 	return "```yaml\n- id: test/evolved/mock\n  category: methodology\n  content: Test content\n```", nil
 }
 
-func (m *mockLLMClient) CompleteWithOptions(ctx context.Context, system, user string, opts map[string]interface{}) (string, error) {
+func (m *mockLLMClient) CompleteWithOptions(ctx context.Context, system, user string, opts map[string]any) (string, error) {
 	return m.CompleteWithSystem(ctx, system, user)
 }
 
@@ -1048,7 +1046,7 @@ func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, writers+readers)
 
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -1069,18 +1067,16 @@ func TestPromptEvolver_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 40; j++ {
+	for range readers {
+		wg.Go(func() {
+			for range 40 {
 				stats := evolver.GetStats()
 				if stats == nil {
 					errCh <- os.ErrInvalid
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -1130,7 +1126,7 @@ func TestPromptEvolver_RecordExecutionTracksAtomUsageAndPromotion(t *testing.T) 
 		t.Fatalf("storeEvolvedAtom failed: %v", err)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		err := evolver.RecordExecution(&ExecutionRecord{
 			TaskID:      "usage-task-" + strconv.Itoa(i),
 			SessionID:   "session-usage",

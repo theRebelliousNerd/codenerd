@@ -5,12 +5,14 @@ import (
 	"testing"
 )
 
+//go:fix inline
 func floatPtr(f float64) *float64 {
-	return &f
+	return new(f)
 }
 
+//go:fix inline
 func intPtr(i int) *int {
-	return &i
+	return new(i)
 }
 
 func TestCompile_FullCoverage(t *testing.T) {
@@ -218,7 +220,7 @@ func TestCompile_FullCoverage(t *testing.T) {
 			spec: Spec{
 				Format: FormatV1,
 				Program: ProgramSpec{
-					Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "float", Float: floatPtr(1.23)}}}}},
+					Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "float", Float: new(1.23)}}}}},
 				},
 			},
 			wantSrc: "p(1.23).",
@@ -228,7 +230,7 @@ func TestCompile_FullCoverage(t *testing.T) {
 			spec: Spec{
 				Format: FormatV1,
 				Program: ProgramSpec{
-					Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "apply", Function: "fn:test", Arity: intPtr(2)}}}}},
+					Clauses: []ClauseSpec{{Head: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "apply", Function: "fn:test", Arity: new(2)}}}}},
 				},
 			},
 			wantErr: "does not match args length",
@@ -479,12 +481,12 @@ func TestBuildCompareOperands_ErrorPaths(t *testing.T) {
 		t.Errorf("expected missing left error, got %v", err)
 	}
 
-    _, _, err = buildCompareOperands(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "bad"}, Right: &ExprSpec{Kind: "number", Value: "1"}})
+	_, _, err = buildCompareOperands(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "bad"}, Right: &ExprSpec{Kind: "number", Value: "1"}})
 	if err == nil {
 		t.Errorf("expected left eval error, got nil")
 	}
 
-    _, _, err = buildCompareOperands(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "number", Value: "1"}, Right: &ExprSpec{Kind: "bad"}})
+	_, _, err = buildCompareOperands(TermSpec{Kind: "eq", Left: &ExprSpec{Kind: "number", Value: "1"}, Right: &ExprSpec{Kind: "bad"}})
 	if err == nil {
 		t.Errorf("expected right eval error, got nil")
 	}
@@ -539,85 +541,82 @@ func TestBuildAtom_ErrorPaths(t *testing.T) {
 }
 
 func TestRenderDecl_ErrorPaths(t *testing.T) {
-    // Already covered partly by others, let's trigger err inside renderDecl manually
-    _, err := renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "bad"}}}})
-    if err == nil {
-        t.Errorf("expected buildAtom error, got nil")
-    }
+	// Already covered partly by others, let's trigger err inside renderDecl manually
+	_, err := renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p", Args: []ExprSpec{{Kind: "bad"}}}})
+	if err == nil {
+		t.Errorf("expected buildAtom error, got nil")
+	}
 
-    _, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Descr: []AtomSpec{{Pred: ""}}})
-    if err == nil {
-        t.Errorf("expected descr build error, got nil")
-    }
+	_, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Descr: []AtomSpec{{Pred: ""}}})
+	if err == nil {
+		t.Errorf("expected descr build error, got nil")
+	}
 
-    _, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "bad"}}}}})
-    if err == nil {
-        t.Errorf("expected bounds build error, got nil")
-    }
+	_, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "bad"}}}}})
+	if err == nil {
+		t.Errorf("expected bounds build error, got nil")
+	}
 
-    _, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Inclusion: []AtomSpec{{Pred: ""}}})
-    if err == nil {
-        t.Errorf("expected inclusion build error, got nil")
-    }
+	_, err = renderDecl(DeclSpec{Atom: AtomSpec{Pred: "p"}, Inclusion: []AtomSpec{{Pred: ""}}})
+	if err == nil {
+		t.Errorf("expected inclusion build error, got nil")
+	}
 }
 
 func TestRenderPackage_ErrorPaths(t *testing.T) {
-    _, err := renderPackage(PackageSpec{Name: "p", Atoms: []AtomSpec{{Pred: ""}}})
-    if err == nil {
-        t.Errorf("expected atoms render error, got nil")
-    }
+	_, err := renderPackage(PackageSpec{Name: "p", Atoms: []AtomSpec{{Pred: ""}}})
+	if err == nil {
+		t.Errorf("expected atoms render error, got nil")
+	}
 }
 
 func TestRenderUse_ErrorPaths(t *testing.T) {
-    _, err := renderUse(UseSpec{Name: "p", Atoms: []AtomSpec{{Pred: ""}}})
-    if err == nil {
-        t.Errorf("expected atoms render error, got nil")
-    }
+	_, err := renderUse(UseSpec{Name: "p", Atoms: []AtomSpec{{Pred: ""}}})
+	if err == nil {
+		t.Errorf("expected atoms render error, got nil")
+	}
 }
-
 
 func TestBuildTransform_ErrorPaths(t *testing.T) {
 	_, err := buildTransform(TransformSpec{Statements: []TransformStmtSpec{}})
 	if err == nil {
 		t.Errorf("expected empty statements error, got nil")
 	}
-    _, err = buildTransform(TransformSpec{Statements: []TransformStmtSpec{{Kind: "do", Fn: ExprSpec{Function: ""}}}})
-    if err == nil {
-        t.Errorf("expected apply fn build error, got nil")
-    }
+	_, err = buildTransform(TransformSpec{Statements: []TransformStmtSpec{{Kind: "do", Fn: ExprSpec{Function: ""}}}})
+	if err == nil {
+		t.Errorf("expected apply fn build error, got nil")
+	}
 }
-
 
 func TestBuildTerm_ErrorPaths(t *testing.T) {
 	_, err := buildTerm(TermSpec{Kind: "not"})
 	if err == nil {
 		t.Errorf("expected not missing atom error, got nil")
 	}
-    _, err = buildTerm(TermSpec{Kind: "not", Atom: &AtomSpec{Pred: ""}})
-    if err == nil {
-        t.Errorf("expected not atom build error, got nil")
-    }
-    _, err = buildTerm(TermSpec{Kind: "atom"})
-    if err == nil {
-        t.Errorf("expected atom missing atom error, got nil")
-    }
+	_, err = buildTerm(TermSpec{Kind: "not", Atom: &AtomSpec{Pred: ""}})
+	if err == nil {
+		t.Errorf("expected not atom build error, got nil")
+	}
+	_, err = buildTerm(TermSpec{Kind: "atom"})
+	if err == nil {
+		t.Errorf("expected atom missing atom error, got nil")
+	}
 }
 
 func TestBuildBaseTerm_ErrorPaths(t *testing.T) {
-    _, err := buildBaseTerm(ExprSpec{Kind: "var", Value: "1bad"})
-    if err == nil {
-        t.Errorf("expected bad var name error, got nil")
-    }
-    _, err = buildBaseTerm(ExprSpec{Kind: "name", Value: "bad name"})
-    if err == nil {
-        t.Errorf("expected bad name error, got nil")
-    }
-    _, err = buildBaseTerm(ExprSpec{Kind: "number", Number: "bad json number"})
-    if err == nil {
-        t.Errorf("expected bad json number error, got nil")
-    }
+	_, err := buildBaseTerm(ExprSpec{Kind: "var", Value: "1bad"})
+	if err == nil {
+		t.Errorf("expected bad var name error, got nil")
+	}
+	_, err = buildBaseTerm(ExprSpec{Kind: "name", Value: "bad name"})
+	if err == nil {
+		t.Errorf("expected bad name error, got nil")
+	}
+	_, err = buildBaseTerm(ExprSpec{Kind: "number", Number: "bad json number"})
+	if err == nil {
+		t.Errorf("expected bad json number error, got nil")
+	}
 }
-
 
 func TestCompile_Options(t *testing.T) {
 	// Full parsing and analysis. This requires a valid semantic tree or it fails.
@@ -675,18 +674,18 @@ func TestCompile_AnalysisError(t *testing.T) {
 
 func TestCompile_ParseError(t *testing.T) {
 	// Provide a valid spec for compiler but that parses to an invalid Mangle string
-    // It's hard to make compiler emit invalid string since the compiler uses Mangle AST stringification
-    // But let's trigger the parse error by passing a bad struct argument that is valid synth but not valid syntax in Mangle if injected raw
-    // wait, buildBaseTerm converts correctly...
-    // Let's rely on testing the error branch in Compile using analysis error instead
+	// It's hard to make compiler emit invalid string since the compiler uses Mangle AST stringification
+	// But let's trigger the parse error by passing a bad struct argument that is valid synth but not valid syntax in Mangle if injected raw
+	// wait, buildBaseTerm converts correctly...
+	// Let's rely on testing the error branch in Compile using analysis error instead
 }
 
 func TestRenderAtomList_Empty(t *testing.T) {
-    str, err := renderAtomList([]AtomSpec{})
-    if err != nil {
-        t.Fatalf("unexpected error: %v", err)
-    }
-    if str != "[]" {
-        t.Errorf("expected [], got %s", str)
-    }
+	str, err := renderAtomList([]AtomSpec{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if str != "[]" {
+		t.Errorf("expected [], got %s", str)
+	}
 }

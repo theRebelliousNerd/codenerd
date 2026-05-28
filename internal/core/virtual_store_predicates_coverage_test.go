@@ -14,11 +14,11 @@ import (
 )
 
 type mockGraphQuery struct {
-	result interface{}
+	result any
 	err    error
 }
 
-func (m *mockGraphQuery) QueryGraph(queryType string, params map[string]interface{}) (interface{}, error) {
+func (m *mockGraphQuery) QueryGraph(queryType string, params map[string]any) (any, error) {
 	return m.result, m.err
 }
 
@@ -30,9 +30,9 @@ type stubKernelTransaction struct {
 	k *stubTransactorKernel
 }
 
-func (s *stubKernelTransaction) Retract(predicate string) {}
-func (s *stubKernelTransaction) RetractFact(fact Fact) {}
-func (s *stubKernelTransaction) RetractExactFact(fact Fact) {}
+func (s *stubKernelTransaction) Retract(predicate string)                           {}
+func (s *stubKernelTransaction) RetractFact(fact Fact)                              {}
+func (s *stubKernelTransaction) RetractExactFact(fact Fact)                         {}
 func (s *stubKernelTransaction) RetractPredicateSet(predicates map[string]struct{}) {}
 func (s *stubKernelTransaction) Assert(fact Fact) {
 	s.k.asserted = append(s.k.asserted, fact)
@@ -126,7 +126,7 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	vs.SetKernel(k)
 
 	// 1. Store and query facts
-	f := Fact{Predicate: "test_pred", Args: []interface{}{"arg1", "/arg2"}}
+	f := Fact{Predicate: "test_pred", Args: []any{"arg1", "/arg2"}}
 	if err := vs.PersistFactsToKnowledge([]Fact{f}, "preference", 5); err != nil {
 		t.Fatalf("failed to persist facts: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	}
 
 	// 2. Persist link & Query Graph
-	meta := map[string]interface{}{"note": "test"}
+	meta := map[string]any{"note": "test"}
 	if err := vs.PersistLink("node_A", "depends_on", "node_B", 1.5, meta); err != nil {
 		t.Fatalf("failed to persist link: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestVirtualStorePredicates_DbOperations(t *testing.T) {
 	}
 
 	// 4. Vector Recall
-	if err := db.StoreVector("golang programming language", map[string]interface{}{"doc_id": "doc_1"}); err != nil {
+	if err := db.StoreVector("golang programming language", map[string]any{"doc_id": "doc_1"}); err != nil {
 		t.Fatalf("failed to store vector: %v", err)
 	}
 	similars, err := vs.RecallSimilar("golang", 5)
@@ -285,10 +285,10 @@ func TestVirtualStorePredicates_GetAtoms(t *testing.T) {
 	vs.SetKernel(k)
 
 	// Populate DB
-	_ = vs.PersistFactsToKnowledge([]Fact{{Predicate: "pred_foo", Args: []interface{}{"val_a"}}}, "preference", 5)
+	_ = vs.PersistFactsToKnowledge([]Fact{{Predicate: "pred_foo", Args: []any{"val_a"}}}, "preference", 5)
 	_ = vs.PersistLink("nA", "r", "nB", 1.0, nil)
 	_ = db.LogActivation("act_foo", 0.8)
-	_ = db.StoreVector("content text", map[string]interface{}{"doc_id": "vec_foo"})
+	_ = db.StoreVector("content text", map[string]any{"doc_id": "vec_foo"})
 	_ = db.StoreSessionTurn("sess_foo", 1, "user", "{}", "response", "[]")
 	trace := &store.ReasoningTrace{
 		ID:            "trace_foo",
@@ -306,7 +306,7 @@ func TestVirtualStorePredicates_GetAtoms(t *testing.T) {
 	_ = db.StoreKnowledgeAtom("strategic/vision", "our vision", 0.9)
 
 	// Helper to get query atom
-	getQueryAtom := func(pred string, args ...interface{}) ast.Atom {
+	getQueryAtom := func(pred string, args ...any) ast.Atom {
 		atom, err := Fact{Predicate: pred, Args: args}.ToAtom()
 		if err != nil {
 			t.Fatalf("failed to convert fact to atom: %v", err)
@@ -353,7 +353,7 @@ func TestVirtualStorePredicates_GetAtoms(t *testing.T) {
 
 func TestQueryArgInt(t *testing.T) {
 	// Parse helper using Fact.ToAtom
-	getTerms := func(args ...interface{}) []ast.BaseTerm {
+	getTerms := func(args ...any) []ast.BaseTerm {
 		atom, err := Fact{Predicate: "dummy", Args: args}.ToAtom()
 		if err != nil {
 			panic(err)
@@ -392,7 +392,7 @@ func TestVirtualStoreGraph(t *testing.T) {
 	vs := NewVirtualStore(nil)
 	vs.SetGraphQuery(nil)
 
-	getQueryAtom := func(pred string, args ...interface{}) ast.Atom {
+	getQueryAtom := func(pred string, args ...any) ast.Atom {
 		atom, err := Fact{Predicate: pred, Args: args}.ToAtom()
 		if err != nil {
 			panic(err)

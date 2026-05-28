@@ -93,7 +93,7 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 			Verified:   true,
 			Confidence: 0.6,
 			Method:     ValidationMethodExistence,
-			Details:    map[string]interface{}{"size": len(actualContent)},
+			Details:    map[string]any{"size": len(actualContent)},
 		}
 	}
 
@@ -107,7 +107,7 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 			Confidence: 1.0,
 			Method:     ValidationMethodHash,
 			Error:      "content hash mismatch",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"expected_hash": hex.EncodeToString(expectedHash[:8]),
 				"actual_hash":   hex.EncodeToString(actualHash[:8]),
 				"expected_size": len(expectedContent),
@@ -120,7 +120,7 @@ func (v *FileWriteValidator) Validate(ctx context.Context, req ActionRequest, re
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     ValidationMethodHash,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"hash": hex.EncodeToString(actualHash[:8]),
 			"size": len(actualContent),
 		},
@@ -192,7 +192,7 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 			Verified:   true,
 			Confidence: 0.5,
 			Method:     ValidationMethodExistence,
-			Details:    map[string]interface{}{"size": len(actualContent)},
+			Details:    map[string]any{"size": len(actualContent)},
 		}
 	}
 
@@ -203,7 +203,7 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 			Confidence: 0.95,
 			Method:     ValidationMethodContentCheck,
 			Error:      "old content still present after edit",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"old_content_preview": truncateStr(oldContent, 100),
 			},
 		}
@@ -216,7 +216,7 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 			Confidence: 0.95,
 			Method:     ValidationMethodContentCheck,
 			Error:      "new content not found after edit",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"new_content_preview": truncateStr(newContent, 100),
 			},
 		}
@@ -226,7 +226,7 @@ func (v *FileEditValidator) Validate(ctx context.Context, req ActionRequest, res
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     ValidationMethodContentCheck,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"old_removed": hasOld && oldContent != "",
 			"new_present": hasNew && newContent != "",
 		},

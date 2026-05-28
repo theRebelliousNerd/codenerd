@@ -206,7 +206,7 @@ func (ctx *pythonExtractionCtx) extractPythonFunction(n *sitter.Node) {
 	// Emit function scope
 	ctx.emit(core.Fact{
 		Predicate: "function_scope",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			int64(ctx.funcStart),
@@ -256,7 +256,7 @@ func (ctx *pythonExtractionCtx) extractPythonAssignment(n *sitter.Node) {
 	if typeClass != "" {
 		ctx.emit(core.Fact{
 			Predicate: "assigns",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/" + typeClass),
 				ctx.path,
@@ -339,7 +339,7 @@ func (ctx *pythonExtractionCtx) extractPythonIfGuard(n *sitter.Node) {
 		// if x is None: return ... (guard return pattern)
 		ctx.emit(core.Fact{
 			Predicate: "guards_return",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/none_check"),
 				ctx.path,
@@ -349,7 +349,7 @@ func (ctx *pythonExtractionCtx) extractPythonIfGuard(n *sitter.Node) {
 		// Emit dominance
 		ctx.emit(core.Fact{
 			Predicate: "guard_dominates",
-			Args: []interface{}{
+			Args: []any{
 				ctx.path,
 				core.MangleAtom("/" + ctx.currentFunc),
 				int64(line),
@@ -360,7 +360,7 @@ func (ctx *pythonExtractionCtx) extractPythonIfGuard(n *sitter.Node) {
 		// if x is not None: ... (block guard pattern)
 		ctx.emit(core.Fact{
 			Predicate: "guards_block",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/none_check"),
 				ctx.path,
@@ -454,7 +454,7 @@ func (ctx *pythonExtractionCtx) extractPythonTryExcept(n *sitter.Node) {
 	// Emit error checked block for the try body
 	ctx.emit(core.Fact{
 		Predicate: "error_checked_block",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/exception"),
 			ctx.path,
 			int64(blockStart),
@@ -487,7 +487,7 @@ func (ctx *pythonExtractionCtx) extractPythonAttribute(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "uses",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			core.MangleAtom("/" + varName),
@@ -537,7 +537,7 @@ func (ctx *pythonExtractionCtx) extractPythonCall(n *sitter.Node) {
 			if varName != "" && varName != "_" {
 				ctx.emit(core.Fact{
 					Predicate: "call_arg",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + callsiteID),
 						int64(argPos),
 						core.MangleAtom("/" + varName),
@@ -686,7 +686,7 @@ func (ctx *jsExtractionCtx) extractJSFunction(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "function_scope",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			int64(ctx.funcStart),
@@ -734,7 +734,7 @@ func (ctx *jsExtractionCtx) extractJSVariableDecl(n *sitter.Node) {
 			if typeClass != "" {
 				ctx.emit(core.Fact{
 					Predicate: "assigns",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + varName),
 						core.MangleAtom("/" + typeClass),
 						ctx.path,
@@ -812,7 +812,7 @@ func (ctx *jsExtractionCtx) extractJSIfGuard(n *sitter.Node) {
 		// if (x === null) return ...
 		ctx.emit(core.Fact{
 			Predicate: "guards_return",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/null_check"),
 				ctx.path,
@@ -821,7 +821,7 @@ func (ctx *jsExtractionCtx) extractJSIfGuard(n *sitter.Node) {
 		})
 		ctx.emit(core.Fact{
 			Predicate: "guard_dominates",
-			Args: []interface{}{
+			Args: []any{
 				ctx.path,
 				core.MangleAtom("/" + ctx.currentFunc),
 				int64(line),
@@ -832,7 +832,7 @@ func (ctx *jsExtractionCtx) extractJSIfGuard(n *sitter.Node) {
 		// if (x !== null) { ... }
 		ctx.emit(core.Fact{
 			Predicate: "guards_block",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/null_check"),
 				ctx.path,
@@ -947,7 +947,7 @@ func (ctx *jsExtractionCtx) extractJSTryCatch(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "error_checked_block",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/exception"),
 			ctx.path,
 			int64(blockStart),
@@ -979,7 +979,7 @@ func (ctx *jsExtractionCtx) extractJSMemberAccess(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "uses",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			core.MangleAtom("/" + varName),
@@ -1022,7 +1022,7 @@ func (ctx *jsExtractionCtx) extractJSOptionalChain(n *sitter.Node) {
 		// Emit as a guarded use (optional chaining is safe by design)
 		ctx.emit(core.Fact{
 			Predicate: "safe_access",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/optional_chain"),
 				ctx.path,
@@ -1072,7 +1072,7 @@ func (ctx *jsExtractionCtx) extractJSCall(n *sitter.Node) {
 			if varName != "" && varName != "_" {
 				ctx.emit(core.Fact{
 					Predicate: "call_arg",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + callsiteID),
 						int64(argPos),
 						core.MangleAtom("/" + varName),
@@ -1192,7 +1192,7 @@ func (ctx *rustExtractionCtx) extractRustFunction(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "function_scope",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			int64(ctx.funcStart),
@@ -1240,7 +1240,7 @@ func (ctx *rustExtractionCtx) extractRustLetBinding(n *sitter.Node) {
 	if typeClass != "" {
 		ctx.emit(core.Fact{
 			Predicate: "assigns",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/" + typeClass),
 				ctx.path,
@@ -1324,7 +1324,7 @@ func (ctx *rustExtractionCtx) extractRustIfGuard(n *sitter.Node) {
 	if isNone && hasReturn {
 		ctx.emit(core.Fact{
 			Predicate: "guards_return",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/option_check"),
 				ctx.path,
@@ -1333,7 +1333,7 @@ func (ctx *rustExtractionCtx) extractRustIfGuard(n *sitter.Node) {
 		})
 		ctx.emit(core.Fact{
 			Predicate: "guard_dominates",
-			Args: []interface{}{
+			Args: []any{
 				ctx.path,
 				core.MangleAtom("/" + ctx.currentFunc),
 				int64(line),
@@ -1343,7 +1343,7 @@ func (ctx *rustExtractionCtx) extractRustIfGuard(n *sitter.Node) {
 	} else if !isNone {
 		ctx.emit(core.Fact{
 			Predicate: "guards_block",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				core.MangleAtom("/option_check"),
 				ctx.path,
@@ -1389,7 +1389,7 @@ func (ctx *rustExtractionCtx) extractRustIfLet(n *sitter.Node) {
 	// if let Some(x) = y is a guard block that protects x
 	ctx.emit(core.Fact{
 		Predicate: "guards_block",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/" + valueText),
 			core.MangleAtom(checkType),
 			ctx.path,
@@ -1401,7 +1401,7 @@ func (ctx *rustExtractionCtx) extractRustIfLet(n *sitter.Node) {
 	// Also emit as safe extraction pattern
 	ctx.emit(core.Fact{
 		Predicate: "safe_access",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/" + valueText),
 			core.MangleAtom("/if_let"),
 			ctx.path,
@@ -1434,7 +1434,7 @@ func (ctx *rustExtractionCtx) extractRustMatch(n *sitter.Node) {
 	// match expressions exhaustively handle all cases - it's safe
 	ctx.emit(core.Fact{
 		Predicate: "safe_access",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/" + varName),
 			core.MangleAtom("/match_exhaustive"),
 			ctx.path,
@@ -1476,7 +1476,7 @@ func (ctx *rustExtractionCtx) extractRustTryOperator(n *sitter.Node) {
 		// ? operator is error checked via propagation
 		ctx.emit(core.Fact{
 			Predicate: "error_checked_return",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + varName),
 				ctx.path,
 				int64(line),
@@ -1533,7 +1533,7 @@ func (ctx *rustExtractionCtx) extractRustFieldAccess(n *sitter.Node) {
 
 	ctx.emit(core.Fact{
 		Predicate: "uses",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			core.MangleAtom("/" + varName),
@@ -1583,7 +1583,7 @@ func (ctx *rustExtractionCtx) extractRustCall(n *sitter.Node) {
 			if varName != "" && varName != "_" {
 				ctx.emit(core.Fact{
 					Predicate: "call_arg",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + callsiteID),
 						int64(argPos),
 						core.MangleAtom("/" + varName),

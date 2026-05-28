@@ -200,12 +200,10 @@ func TestEventThrottler_Allow_WhenDifferentKeys_ShouldAllowBoth(t *testing.T) {
 func TestEventThrottler_Allow_WhenConcurrent_ShouldBeSafe(t *testing.T) {
 	throttler := newEventThrottler(1)
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			throttler.Allow("concurrent_key")
-		}()
+		})
 	}
 	wg.Wait()
 	// No race condition = pass
@@ -832,7 +830,7 @@ func TestDetectionResult_WhenEmptyHref_ShouldOmitInJSON(t *testing.T) {
 	// href has `omitempty` tag
 	jsonStr := string(data)
 	if json.Valid([]byte(jsonStr)) {
-		var raw map[string]interface{}
+		var raw map[string]any
 		if err := json.Unmarshal(data, &raw); err == nil {
 			if _, exists := raw["href"]; exists {
 				t.Error("Expected href to be omitted when empty")
@@ -886,7 +884,7 @@ func TestLink_WhenNotHoneypot_ShouldOmitReasons(t *testing.T) {
 		t.Fatalf("Failed to marshal: %v", err)
 	}
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		t.Fatalf("Failed to unmarshal to map: %v", err)
 	}
@@ -973,7 +971,7 @@ func TestEngineAdapter_AddFacts_WhenEngineNotNil_ShouldDelegate(t *testing.T) {
 
 	// AddFacts should delegate to engine.AddFacts
 	// Since no schemas are loaded, it should return an error about no schemas
-	facts := []mangle.Fact{{Predicate: "test", Args: []interface{}{"a"}}}
+	facts := []mangle.Fact{{Predicate: "test", Args: []any{"a"}}}
 	addErr := adapter.AddFacts(facts)
 	if addErr == nil {
 		t.Error("Expected error when no schemas loaded, got nil")
@@ -998,7 +996,7 @@ func TestSessionManager_ConcurrentAccess_ShouldBeSafe(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(4)
 		go func() {
 			defer wg.Done()

@@ -15,8 +15,8 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Test CountVectorsByMetadata
-	meta1 := map[string]interface{}{"doc_id": "d1"}
-	meta2 := map[string]interface{}{"doc_id": "d2"}
+	meta1 := map[string]any{"doc_id": "d1"}
+	meta2 := map[string]any{"doc_id": "d2"}
 	store.storeVectorKeywordOnly("content 1", meta1)
 	store.storeVectorKeywordOnly("content 2", meta2)
 
@@ -55,7 +55,7 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 	}
 
 	// Test VectorRecallForPromptAtoms with embedding engine
-	metaAtom := map[string]interface{}{"content_type": "prompt_atom"}
+	metaAtom := map[string]any{"content_type": "prompt_atom"}
 	err = store.StoreVectorWithEmbedding(ctx, "atom content", metaAtom)
 	if err != nil {
 		t.Fatalf("StoreVectorWithEmbedding failed: %v", err)
@@ -88,7 +88,7 @@ func TestVectorStore_ExtraMethods(t *testing.T) {
 	store.mu.Unlock()
 
 	// 4. Test storeVectorBatchKeywordOnly
-	batchMeta := []map[string]interface{}{
+	batchMeta := []map[string]any{
 		{"doc_id": "d3"},
 		{"doc_id": "d4"},
 	}

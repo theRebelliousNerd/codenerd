@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -172,9 +173,7 @@ func copyTokenCountsMap(src map[string]TokenCounts) map[string]TokenCounts {
 		return nil
 	}
 	dst := make(map[string]TokenCounts, len(src))
-	for key, counts := range src {
-		dst[key] = counts
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 

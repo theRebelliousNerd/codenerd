@@ -238,7 +238,7 @@ func BenchmarkLogicPane_CircularNavigation(b *testing.B) {
 
 	// Create large trace
 	nodes := make([]*DerivationNode, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		nodes[i] = &DerivationNode{
 			Predicate: "node",
 			Args:      []string{"arg"},

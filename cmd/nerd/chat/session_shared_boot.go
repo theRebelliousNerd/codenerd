@@ -224,9 +224,16 @@ func performSystemBootShared(cfg *config.UserConfig, disableSystemShards []strin
 	}
 
 	glassBoxEventBus := transparency.NewGlassBoxEventBus()
+	glassBoxEventBus.Enable()
 	toolEventBus := transparency.NewToolEventBus()
 
+	if virtualStore != nil {
+		virtualStore.SetGlassBoxBus(glassBoxEventBus)
+		virtualStore.SetToolEventBus(toolEventBus)
+	}
+
 	if shardMgr != nil {
+		shardMgr.SetGlassBoxBus(glassBoxEventBus)
 		// Re-register tactile_router so future on-demand starts inherit the chat-specific
 		// debug and persistence integrations while core backend ownership stays in factory.
 		shardMgr.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {

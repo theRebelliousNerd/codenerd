@@ -481,7 +481,7 @@ func (sc *SemanticClassifier) injectFacts(input string, matches []SemanticMatch)
 
 	facts := make([]core.Fact, 0, len(matches))
 	for _, match := range matches {
-		var targetArg interface{} = match.Target
+		var targetArg any = match.Target
 		if strings.HasPrefix(match.Target, "/") {
 			targetArg = core.MangleAtom(match.Target)
 		}
@@ -495,7 +495,7 @@ func (sc *SemanticClassifier) injectFacts(input string, matches []SemanticMatch)
 		// semantic_match(UserInput, CanonicalSentence, Verb, Target, Rank, Similarity)
 		facts = append(facts, core.Fact{
 			Predicate: "semantic_match",
-			Args: []interface{}{
+			Args: []any{
 				input,
 				match.TextContent,
 				core.MangleAtom(match.Verb),
@@ -896,7 +896,7 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	return nil
 }
 
-func argToString(arg interface{}) string {
+func argToString(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v

@@ -1,5 +1,7 @@
 package chat
 
+import "slices"
+
 import "codenerd/internal/config"
 
 // CommandCategory represents a logical grouping of commands.
@@ -560,10 +562,8 @@ func FindCommand(name string) *CommandInfo {
 		if cmd.Name == name {
 			return cmd
 		}
-		for _, alias := range cmd.Aliases {
-			if alias == name {
-				return cmd
-			}
+		if slices.Contains(cmd.Aliases, name) {
+			return cmd
 		}
 	}
 	return nil

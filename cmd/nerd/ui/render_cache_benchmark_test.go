@@ -68,7 +68,7 @@ func BenchmarkRenderCacheCall(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Simulate the call in LogicPane.renderContent().
-		cacheKey := []interface{}{
+		cacheKey := []any{
 			traceVersion,
 			width,
 			height,
@@ -88,7 +88,7 @@ func BenchmarkRenderTree(b *testing.B) {
 
 	nodeCount := 1000
 	nodes := make([]*DerivationNode, nodeCount)
-	for i := 0; i < nodeCount; i++ {
+	for i := range nodeCount {
 		nodes[i] = &DerivationNode{
 			Predicate:  "test_predicate",
 			Args:       []string{"arg1", "arg2", "arg3"},

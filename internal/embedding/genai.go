@@ -18,8 +18,9 @@ import (
 // The API returns error 400 if more than 100 requests are in one batch.
 const maxBatchSize = 100
 
+//go:fix inline
 func int32Ptr(i int32) *int32 {
-	return &i
+	return new(i)
 }
 
 // GenAIEngine generates embeddings using Google's Gemini API.
@@ -179,7 +180,7 @@ func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, ta
 
 	allEmbeddings := make([][]float32, 0, len(texts))
 
-	for batchIdx := 0; batchIdx < numBatches; batchIdx++ {
+	for batchIdx := range numBatches {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -187,10 +188,7 @@ func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, ta
 		}
 
 		start := batchIdx * maxBatchSize
-		end := start + maxBatchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
+		end := min(start+maxBatchSize, len(texts))
 
 		chunk := texts[start:end]
 		logging.EmbeddingDebug("GenAI.EmbedBatch: processing batch %d/%d with %d texts (indices %d-%d)",

@@ -79,7 +79,6 @@ func TestExtractTarget_WhenFilePath_ShouldExtract(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractTarget(tc.input)
@@ -150,7 +149,6 @@ func TestExtractConstraint_WhenLanguagePresent_ShouldExtract(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := extractConstraint(tc.input)
@@ -243,7 +241,6 @@ func TestRefineCategory_WhenMutationPattern_ShouldReturnMutation(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := refineCategory(tc.input, tc.defaultCategory)
@@ -318,7 +315,6 @@ func TestContainsAny_WhenMatch_ShouldReturnTrue(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := containsAny(tc.s, tc.subs)
@@ -358,7 +354,6 @@ func TestGetShardTypeForVerb_WhenKnownVerb_ShouldReturnShardType(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := GetShardTypeForVerb(tc.verb)
 			if got != tc.want {
@@ -378,7 +373,7 @@ func TestVerbCorpus_ConcurrentAccess_ShouldNotRace(t *testing.T) {
 	defer SetVerbCorpus(original)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -416,7 +411,6 @@ func TestSafeTruncate_WhenShort_ShouldReturnUnchanged(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := safeTruncate(tc.input, tc.limit)
@@ -464,7 +458,6 @@ func TestTruncateForLog_WhenShort_ShouldReturnUnchanged(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := truncateForLog(tc.input, tc.maxLen)
@@ -539,7 +532,6 @@ func TestRequiresJSONOutput_WhenMarkerPresent_ShouldReturnTrue(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := requiresJSONOutput(tc.system, tc.user)
@@ -669,7 +661,6 @@ func TestFocusResolution_ToFact_WhenZeroConfidence_ShouldPreserve(t *testing.T) 
 		t.Errorf("Args[3] = %v, want int64(0)", fact.Args[3])
 	}
 }
-
 
 // =============================================================================
 // GET REGEX CANDIDATES TESTS

@@ -15,7 +15,7 @@ func TestProcessKernelDelegations_Success(t *testing.T) {
 	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
 		if predicate == "delegate_task" {
 			return []types.KernelFact{
-				{Predicate: "delegate_task", Args: []interface{}{"/tool_generator", "my_new_tool", "/pending"}},
+				{Predicate: "delegate_task", Args: []any{"/tool_generator", "my_new_tool", "/pending"}},
 			}, nil
 		}
 		return nil, nil
@@ -78,7 +78,7 @@ func TestProcessKernelDelegations_GenerationFailure(t *testing.T) {
 	kernel.QueryPredicateFunc = func(predicate string) ([]types.KernelFact, error) {
 		if predicate == "delegate_task" {
 			return []types.KernelFact{
-				{Predicate: "delegate_task", Args: []interface{}{"/tool_generator", "fail_tool", "/pending"}},
+				{Predicate: "delegate_task", Args: []any{"/tool_generator", "fail_tool", "/pending"}},
 			}, nil
 		}
 		return nil, nil

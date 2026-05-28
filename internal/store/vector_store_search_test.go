@@ -38,7 +38,7 @@ func TestVectorRecallSemanticByPaths_Comprehensive(t *testing.T) {
 		defer s.Close()
 
 		s.SetEmbeddingEngine(&mockSimpleEngine{})
-		err = s.StoreVectorWithEmbedding(ctx, "content", map[string]interface{}{"path": "/src/file.go"})
+		err = s.StoreVectorWithEmbedding(ctx, "content", map[string]any{"path": "/src/file.go"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
@@ -61,11 +61,11 @@ func TestVectorRecallSemanticByPaths_Comprehensive(t *testing.T) {
 		defer s.Close()
 
 		// Store keyword-only vectors
-		err = s.storeVectorKeywordOnly("hello file1", map[string]interface{}{"path": "/src/file1.go"})
+		err = s.storeVectorKeywordOnly("hello file1", map[string]any{"path": "/src/file1.go"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
-		err = s.storeVectorKeywordOnly("hello file2", map[string]interface{}{"path": "/src/file2.go"})
+		err = s.storeVectorKeywordOnly("hello file2", map[string]any{"path": "/src/file2.go"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
@@ -132,11 +132,11 @@ func TestVectorRecallSemanticByPaths_Comprehensive(t *testing.T) {
 		s.vectorExt = false
 		s.mu.Unlock()
 
-		err = s.StoreVectorWithEmbedding(ctx, "hello file1", map[string]interface{}{"path": "/src/file1.go"})
+		err = s.StoreVectorWithEmbedding(ctx, "hello file1", map[string]any{"path": "/src/file1.go"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
-		err = s.StoreVectorWithEmbedding(ctx, "hello file2", map[string]interface{}{"path": "/src/file2.go"})
+		err = s.StoreVectorWithEmbedding(ctx, "hello file2", map[string]any{"path": "/src/file2.go"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
@@ -165,11 +165,11 @@ func TestVectorRecallSemanticFiltered_Comprehensive(t *testing.T) {
 		defer s.Close()
 
 		// Store keyword-only vectors
-		err = s.storeVectorKeywordOnly("hello campaign1", map[string]interface{}{"campaign": "c1"})
+		err = s.storeVectorKeywordOnly("hello campaign1", map[string]any{"campaign": "c1"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
-		err = s.storeVectorKeywordOnly("hello campaign2", map[string]interface{}{"campaign": "c2"})
+		err = s.storeVectorKeywordOnly("hello campaign2", map[string]any{"campaign": "c2"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
@@ -236,11 +236,11 @@ func TestVectorRecallSemanticFiltered_Comprehensive(t *testing.T) {
 		s.vectorExt = false
 		s.mu.Unlock()
 
-		err = s.StoreVectorWithEmbedding(ctx, "hello campaign1", map[string]interface{}{"campaign": "c1"})
+		err = s.StoreVectorWithEmbedding(ctx, "hello campaign1", map[string]any{"campaign": "c1"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
-		err = s.StoreVectorWithEmbedding(ctx, "hello campaign2", map[string]interface{}{"campaign": "c2"})
+		err = s.StoreVectorWithEmbedding(ctx, "hello campaign2", map[string]any{"campaign": "c2"})
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
@@ -298,7 +298,7 @@ func TestReembedAllVectors_Comprehensive(t *testing.T) {
 
 		// Populate 33 vectors without embeddings
 		for i := 1; i <= 33; i++ {
-			err = s.storeVectorKeywordOnly(fmt.Sprintf("vector %d", i), map[string]interface{}{"num": i})
+			err = s.storeVectorKeywordOnly(fmt.Sprintf("vector %d", i), map[string]any{"num": i})
 			if err != nil {
 				t.Fatalf("Store keyword-only failed at %d: %v", i, err)
 			}
@@ -411,7 +411,7 @@ func TestReembedAllVectorsForce_Comprehensive(t *testing.T) {
 
 		// Populate 33 vectors with embeddings
 		for i := 1; i <= 33; i++ {
-			err = s.StoreVectorWithEmbedding(ctx, fmt.Sprintf("vector %d", i), map[string]interface{}{"num": i, "content_type": "code"})
+			err = s.StoreVectorWithEmbedding(ctx, fmt.Sprintf("vector %d", i), map[string]any{"num": i, "content_type": "code"})
 			if err != nil {
 				t.Fatalf("Store keyword-only failed at %d: %v", i, err)
 			}
@@ -500,11 +500,11 @@ func TestVectorRecallForPromptAtoms_KeywordFilter(t *testing.T) {
 	defer s.Close()
 
 	// Store prompt atom and a non-prompt atom without an engine (keyword fallback)
-	err = s.storeVectorKeywordOnly("prompt atom content", map[string]interface{}{"content_type": "prompt_atom"})
+	err = s.storeVectorKeywordOnly("prompt atom content", map[string]any{"content_type": "prompt_atom"})
 	if err != nil {
 		t.Fatalf("Store prompt atom failed: %v", err)
 	}
-	err = s.storeVectorKeywordOnly("regular content", map[string]interface{}{"content_type": "regular"})
+	err = s.storeVectorKeywordOnly("regular content", map[string]any{"content_type": "regular"})
 	if err != nil {
 		t.Fatalf("Store regular content failed: %v", err)
 	}

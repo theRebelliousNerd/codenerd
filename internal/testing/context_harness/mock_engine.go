@@ -47,7 +47,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	// Create a fact representing this turn
 	turnFact := core.Fact{
 		Predicate: "conversation_turn",
-		Args: []interface{}{
+		Args: []any{
 			turn.TurnID,
 			turn.Speaker,
 			turn.Message,
@@ -61,7 +61,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	for _, file := range turn.Metadata.FilesReferenced {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_file",
-			Args:      []interface{}{turn.TurnID, file},
+			Args:      []any{turn.TurnID, file},
 		})
 	}
 
@@ -69,7 +69,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	for _, errMsg := range turn.Metadata.ErrorMessages {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_error_message",
-			Args:      []interface{}{turn.TurnID, errMsg},
+			Args:      []any{turn.TurnID, errMsg},
 		})
 	}
 
@@ -77,7 +77,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	for _, topic := range turn.Metadata.Topics {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_topic",
-			Args:      []interface{}{turn.TurnID, topic},
+			Args:      []any{turn.TurnID, topic},
 		})
 	}
 
@@ -85,7 +85,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	for _, symbol := range turn.Metadata.SymbolsReferenced {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_symbol",
-			Args:      []interface{}{turn.TurnID, symbol},
+			Args:      []any{turn.TurnID, symbol},
 		})
 	}
 
@@ -93,7 +93,7 @@ func (e *MockContextEngine) CompressTurn(ctx context.Context, turn *Turn) ([]cor
 	if turn.Metadata.IsQuestionReferringBack && turn.Metadata.ReferencesBackToTurn != nil {
 		facts = append(facts, core.Fact{
 			Predicate: "turn_references_back",
-			Args:      []interface{}{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
+			Args:      []any{turn.TurnID, *turn.Metadata.ReferencesBackToTurn},
 		})
 	}
 

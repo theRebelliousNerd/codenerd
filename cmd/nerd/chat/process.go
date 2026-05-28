@@ -137,7 +137,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		lowerTrimmed := strings.ToLower(trimmed)
 		if lowerTrimmed == "hi" || lowerTrimmed == "hello" || lowerTrimmed == "hey" || lowerTrimmed == "sup" || lowerTrimmed == "greetings" || lowerTrimmed == "yo" {
 			logging.Routing("[processInput] PRE-PERCEPTION FAST-PATH: simple greeting | OODA total=%dms", time.Since(oodaStart).Milliseconds())
-			
+
 			// Glass Box: Emit fast-path event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
@@ -148,7 +148,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					TurnID:    m.turnCount,
 				})
 			}
-			
+
 			greetingResp := "Hello! I'm codeNERD. I can help you analyze, test, and refactor your code. What are we working on today?"
 			return responseMsg(m.appendSystemSummary(greetingResp, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
 		}
@@ -291,13 +291,13 @@ func (m Model) processInput(input string) tea.Cmd {
 					tx.Retract("derived_tool_priority")
 					// Assert current intent
 					intentID := "/current_intent"
-					tx.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
-					tx.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+					tx.RetractFact(core.Fact{Predicate: "user_intent", Args: []any{intentID}})
+					tx.RetractFact(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
 					tx.Assert(core.Fact{
 						Predicate: "user_intent",
-						Args:      []interface{}{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
+						Args:      []any{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
 					})
-					tx.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+					tx.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
 					if err := tx.Commit(); err != nil {
 						logging.Routing("[processInput] FAST-PATH async kernel update commit error: %v", err)
 					} else {
@@ -346,12 +346,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			if !intentHandledBySystem {
 				// Use a stable ID so the kernel doesn't accumulate historical intents.
 				intentID := "/current_intent"
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
-				_ = m.kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "user_intent", Args: []any{intentID}})
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
+				_ = m.kernel.RetractFact(core.Fact{Predicate: "executive_processed_intent", Args: []any{intentID}})
 				intentFact := core.Fact{
 					Predicate: "user_intent",
-					Args: []interface{}{
+					Args: []any{
 						intentID,
 						intent.Category,
 						intent.Verb,
@@ -362,7 +362,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if err := m.kernel.Assert(intentFact); err != nil {
 					warnings = append(warnings, fmt.Sprintf("[Kernel] failed to assert user_intent: %v", err))
 				}
-				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
+				_ = m.kernel.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
 
 				// Glass Box: Emit kernel event
 				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
@@ -409,7 +409,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			for _, memOp := range intent.MemoryOperations {
 				switch memOp.Op {
 				case "promote_to_long_term":
-					if err := m.localDB.StoreFact(memOp.Key, []interface{}{memOp.Value}, "learned", 10); err != nil {
+					if err := m.localDB.StoreFact(memOp.Key, []any{memOp.Value}, "learned", 10); err != nil {
 						warnings = append(warnings, fmt.Sprintf("[Memory] failed to store: %v", err))
 					}
 				case "forget":
@@ -805,8 +805,41 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 4. DECISION & ACTION (Kernel -> Executor)
 		// Query for actions derived from the intent
 		var actions []core.Fact
+		kernelStart := time.Now()
 		if m.kernel != nil {
 			actions, _ = m.kernel.Query("next_action")
+		}
+		kernelDur := time.Since(kernelStart)
+		if m.glassBoxEventBus != nil {
+			summary := fmt.Sprintf("next_action: %d derived", len(actions))
+			if len(actions) == 0 {
+				summary = "next_action: no actions"
+			} else if len(actions) > 0 {
+				first := nextActionName(actions[0])
+				if first != "" {
+					summary = fmt.Sprintf("next_action: %s (+%d)", first, len(actions)-1)
+				}
+			}
+			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryKernel,
+				Summary:   summary,
+				Source:    intent.Verb,
+				Duration:  kernelDur,
+				TurnID:    m.turnCount,
+			})
+		}
+
+		// Surface denied actions distinctly — these matter for trust.
+		if m.kernel != nil && m.glassBoxEventBus != nil {
+			if denied, derr := m.kernel.Query("action_denied"); derr == nil && len(denied) > 0 {
+				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					Timestamp: time.Now(),
+					Category:  transparency.CategoryKernel,
+					Summary:   fmt.Sprintf("action_denied: %d blocked", len(denied)),
+					TurnID:    m.turnCount,
+				})
+			}
 		}
 
 		// Execute Info-Gathering Actions (Pre-Articulation)
@@ -830,7 +863,7 @@ func (m Model) processInput(input string) tea.Cmd {
 						// Feed result back to kernel
 						resFact := core.Fact{
 							Predicate: "file_content",
-							Args:      []interface{}{target, content},
+							Args:      []any{target, content},
 						}
 						executionResults = append(executionResults, resFact)
 						// Also allow articulation to see it
@@ -847,7 +880,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if err == nil {
 					resFact := core.Fact{
 						Predicate: "search_results",
-						Args:      []interface{}{intent.Target, strings.Join(matches, ",")},
+						Args:      []any{intent.Target, strings.Join(matches, ",")},
 					}
 					executionResults = append(executionResults, resFact)
 					warnings = append(warnings, fmt.Sprintf("Found %d matches for '%s'", len(matches), intent.Target))
@@ -940,6 +973,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Use full articulation output to capture MemoryOperations
 		// Now with conversation context for fluid follow-up handling
 		streamChan := make(chan string, 100)
+		thoughtsChan := make(chan string, 100)
 		resultChan := make(chan tea.Msg, 1)
 		errChan := make(chan error, 1)
 
@@ -962,8 +996,9 @@ func (m Model) processInput(input string) tea.Cmd {
 
 		go func() {
 			defer streamCancel()
-			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan)
+			artOutput, err := articulateWithConversation(streamCtx, m.client, intent, payloadForArticulation(intent, mangleUpdates), contextFacts, warnings, systemPrompt, convCtx, streamChan, thoughtsChan)
 			close(streamChan)
+			close(thoughtsChan)
 			if err != nil {
 				errChan <- err
 				return
@@ -1072,7 +1107,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					MemoryOperations: memOps,
 					MangleUpdates:    allMangleUpdates,
 				}
-				
+
 				// Note: Compressor call needs ctxcompress.Turn but we don't have all fields easily here
 				// so we'll just log and let the main loop handle compression later or let processInputWithKnowledge handle it.
 				// We actually DO need to construct ctxcompress.Turn here:
@@ -1089,16 +1124,17 @@ func (m Model) processInput(input string) tea.Cmd {
 					baseCtx = context.Background()
 				}
 				compressCtx, cancel := context.WithTimeout(baseCtx, 2*time.Minute)
-		defer cancel()
+				defer cancel()
 				go m.compressor.ProcessTurn(compressCtx, turn)
 			}
 
 			if len(warnings) > 0 {
-				warnStr := "\n\n**System Warnings:**\n"
+				var warnStr strings.Builder
+				warnStr.WriteString("\n\n**System Warnings:**\n")
 				for _, w := range warnings {
-					warnStr += fmt.Sprintf("- %s\n", w)
+					warnStr.WriteString(fmt.Sprintf("- %s\n", w))
 				}
-				response += warnStr
+				response += warnStr.String()
 			}
 
 			if len(artOutput.MangleUpdates) > 0 && m.kernel != nil {
@@ -1113,7 +1149,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if m.kernel != nil {
 					_ = m.kernel.Assert(core.Fact{
 						Predicate: "self_correction_hypothesis",
-						Args:      []interface{}{artOutput.SelfCorrection.Hypothesis},
+						Args:      []any{artOutput.SelfCorrection.Hypothesis},
 					})
 				}
 			}
@@ -1123,10 +1159,9 @@ func (m Model) processInput(input string) tea.Cmd {
 				thoughtSummary = artOutput.Envelope.Control.ReasoningTrace
 			}
 
-			
 			var srPayload *ShardResultPayload
 			// If we had a recent payload we could attach it, but typically articulation doesn't return one directly here.
-			
+
 			resultChan <- assistantMsg{
 				Surface:           m.appendSystemSummary(response, m.collectSystemSummary(streamCtx, baseRoutingCount, baseExecCount)),
 				ShardResult:       srPayload,
@@ -1136,9 +1171,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		}()
 
 		return streamStartMsg{
-			streamChan: streamChan,
-			resultChan: resultChan,
-			errChan:    errChan,
+			streamChan:   streamChan,
+			thoughtsChan: thoughtsChan,
+			resultChan:   resultChan,
+			errChan:      errChan,
 		}
 	}
 }
@@ -1208,7 +1244,7 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 	facts := make([]core.Fact, 0, 1+len(keywords.Weights)+len(keywords.MentionedFiles))
 	facts = append(facts, core.Fact{
 		Predicate: "issue_text",
-		Args:      []interface{}{issueID, issueText},
+		Args:      []any{issueID, issueText},
 	})
 
 	for kw, weight := range keywords.Weights {
@@ -1217,7 +1253,7 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "issue_keyword",
-			Args:      []interface{}{issueID, kw, weight},
+			Args:      []any{issueID, kw, weight},
 		})
 	}
 
@@ -1227,7 +1263,7 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "file_mentioned",
-			Args:      []interface{}{file, issueID},
+			Args:      []any{file, issueID},
 		})
 	}
 
@@ -1246,7 +1282,7 @@ func (m *Model) seedIssueFacts(intent perception.Intent, rawInput string) {
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "tiered_context_file",
-			Args:      []interface{}{issueID, file, "/tier1", relevance, 0},
+			Args:      []any{issueID, file, "/tier1", relevance, 0},
 		})
 	}
 
@@ -1266,7 +1302,7 @@ func (m *Model) seedCampaignFacts() {
 	// current_campaign(CampaignID)
 	facts = append(facts, core.Fact{
 		Predicate: "current_campaign",
-		Args:      []interface{}{c.ID},
+		Args:      []any{c.ID},
 	})
 
 	// Find current phase (first non-completed phase)
@@ -1282,7 +1318,7 @@ func (m *Model) seedCampaignFacts() {
 		// current_phase(PhaseID)
 		facts = append(facts, core.Fact{
 			Predicate: "current_phase",
-			Args:      []interface{}{currentPhase.ID},
+			Args:      []any{currentPhase.ID},
 		})
 
 		// phase_objective(PhaseID, ObjectiveIndex, Description)
@@ -1290,7 +1326,7 @@ func (m *Model) seedCampaignFacts() {
 			objID := fmt.Sprintf("/obj_%s_%d", currentPhase.ID, i)
 			facts = append(facts, core.Fact{
 				Predicate: "phase_objective",
-				Args:      []interface{}{currentPhase.ID, objID, obj.Description},
+				Args:      []any{currentPhase.ID, objID, obj.Description},
 			})
 		}
 
@@ -1300,14 +1336,14 @@ func (m *Model) seedCampaignFacts() {
 				// next_campaign_task(TaskID)
 				facts = append(facts, core.Fact{
 					Predicate: "next_campaign_task",
-					Args:      []interface{}{task.ID},
+					Args:      []any{task.ID},
 				})
 
 				// task_artifact(TaskID, ArtifactType, Path)
 				for _, artifact := range task.Artifacts {
 					facts = append(facts, core.Fact{
 						Predicate: "task_artifact",
-						Args:      []interface{}{task.ID, artifact.Type, artifact.Path},
+						Args:      []any{task.ID, artifact.Type, artifact.Path},
 					})
 				}
 				break // Only the next task

@@ -55,8 +55,8 @@ func TestLogic_Safety(t *testing.T) {
 	}
 
 	// Helper to load EDB
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -65,7 +65,7 @@ func TestLogic_Safety(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to parse atom %s: %v", line, err)
 		}
-		args := make([]interface{}, len(atom.Args))
+		args := make([]any, len(atom.Args))
 		for i, arg := range atom.Args {
 			args[i] = convertTermToInterfaceRepro(arg)
 		}
@@ -157,7 +157,7 @@ func checkPermittedRepro(t *testing.T, eng *mangle.Engine, actionID string, shou
 	}
 }
 
-func convertTermToInterfaceRepro(term ast.BaseTerm) interface{} {
+func convertTermToInterfaceRepro(term ast.BaseTerm) any {
 	switch c := term.(type) {
 	case ast.Constant:
 		switch c.Type {

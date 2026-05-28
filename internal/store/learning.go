@@ -329,7 +329,7 @@ func (ls *LearningStore) Delete(shardType string, factPredicate string, factArgs
 }
 
 // GetStats returns statistics about stored learnings.
-func (ls *LearningStore) GetStats(shardType string) (map[string]interface{}, error) {
+func (ls *LearningStore) GetStats(shardType string) (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.GetStats")
 	defer timer.Stop()
 
@@ -340,7 +340,7 @@ func (ls *LearningStore) GetStats(shardType string) (map[string]interface{}, err
 
 	logging.StoreDebug("Computing learning statistics for shard=%s", shardType)
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	var total int64
 	db.QueryRow(`SELECT COUNT(*) FROM learnings`).Scan(&total)

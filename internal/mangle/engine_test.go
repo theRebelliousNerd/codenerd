@@ -78,8 +78,8 @@ func TestEngineAddFacts(t *testing.T) {
 
 	// Add facts
 	facts := []Fact{
-		{Predicate: "person", Args: []interface{}{"Alice", int64(30)}},
-		{Predicate: "person", Args: []interface{}{"Bob", int64(25)}},
+		{Predicate: "person", Args: []any{"Alice", int64(30)}},
+		{Predicate: "person", Args: []any{"Bob", int64(25)}},
 	}
 	if err := engine.AddFacts(facts); err != nil {
 		t.Fatalf("AddFacts() error = %v", err)
@@ -102,8 +102,8 @@ func TestEngineQuery(t *testing.T) {
 
 	// Add facts
 	facts := []Fact{
-		{Predicate: "person", Args: []interface{}{"Alice", int64(30)}},
-		{Predicate: "person", Args: []interface{}{"Bob", int64(25)}},
+		{Predicate: "person", Args: []any{"Alice", int64(30)}},
+		{Predicate: "person", Args: []any{"Bob", int64(25)}},
 	}
 	if err := engine.AddFacts(facts); err != nil {
 		t.Fatalf("AddFacts() error = %v", err)
@@ -198,22 +198,22 @@ func TestFactString(t *testing.T) {
 	}{
 		{
 			name: "string args",
-			fact: Fact{Predicate: "test", Args: []interface{}{"hello", "world"}},
+			fact: Fact{Predicate: "test", Args: []any{"hello", "world"}},
 			want: `test("hello", "world").`,
 		},
 		{
 			name: "int args",
-			fact: Fact{Predicate: "num", Args: []interface{}{int64(42)}},
+			fact: Fact{Predicate: "num", Args: []any{int64(42)}},
 			want: `num(42).`,
 		},
 		{
 			name: "name constant",
-			fact: Fact{Predicate: "status", Args: []interface{}{"/active"}},
+			fact: Fact{Predicate: "status", Args: []any{"/active"}},
 			want: `status(/active).`,
 		},
 		{
 			name: "mixed args",
-			fact: Fact{Predicate: "record", Args: []interface{}{"Alice", int64(30), "/employee"}},
+			fact: Fact{Predicate: "record", Args: []any{"Alice", int64(30), "/employee"}},
 			want: `record("Alice", 30, /employee).`,
 		},
 	}
@@ -428,7 +428,7 @@ func TestFactLimitEnforcement(t *testing.T) {
 	}
 
 	// Add facts up to the limit
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := engine.AddFact("item", i); err != nil {
 			t.Fatalf("AddFact(%d) should succeed under limit: %v", i, err)
 		}
@@ -467,12 +467,12 @@ func TestDerivedFactsGasLimit(t *testing.T) {
 	// Create a chain long enough to exceed the gas limit
 	// Each fact triggers rule evaluation; a long chain will exceed 5 derived facts
 	edges := []Fact{
-		{Predicate: "edge", Args: []interface{}{"a", "b"}},
-		{Predicate: "edge", Args: []interface{}{"b", "c"}},
-		{Predicate: "edge", Args: []interface{}{"c", "d"}},
-		{Predicate: "edge", Args: []interface{}{"d", "e"}},
-		{Predicate: "edge", Args: []interface{}{"e", "f"}},
-		{Predicate: "edge", Args: []interface{}{"f", "g"}},
+		{Predicate: "edge", Args: []any{"a", "b"}},
+		{Predicate: "edge", Args: []any{"b", "c"}},
+		{Predicate: "edge", Args: []any{"c", "d"}},
+		{Predicate: "edge", Args: []any{"d", "e"}},
+		{Predicate: "edge", Args: []any{"e", "f"}},
+		{Predicate: "edge", Args: []any{"f", "g"}},
 	}
 	err = engine.AddFacts(edges)
 	// With gas limit of 5, this should either succeed partially or return an error
@@ -496,24 +496,22 @@ func TestConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent writers
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		wg.Add(1)
 		go func(gid int) {
 			defer wg.Done()
-			for i := 0; i < factsPerGoroutine; i++ {
+			for i := range factsPerGoroutine {
 				_ = engine.AddFact("concurrent_test", gid*1000+i, "value")
 			}
 		}(g)
 	}
 
 	// Concurrent reader
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+	wg.Go(func() {
+		for range 100 {
 			_, _ = engine.GetFacts("concurrent_test")
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -579,8 +577,8 @@ func TestMapToStructRecursion(t *testing.T) {
 	}
 
 	// Nested map
-	nested := map[string]interface{}{
-		"outer": map[string]interface{}{
+	nested := map[string]any{
+		"outer": map[string]any{
 			"inner": "value",
 		},
 	}
@@ -611,7 +609,7 @@ func TestBatchAtomicity(t *testing.T) {
 	}
 
 	// Pre-fill 3 facts to leave room for only 2 more
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := engine.AddFact("item", i); err != nil {
 			t.Fatalf("Pre-fill AddFact(%d) failed: %v", i, err)
 		}
@@ -619,11 +617,11 @@ func TestBatchAtomicity(t *testing.T) {
 
 	// Try to add a batch of 5 — should fail partway through
 	batch := []Fact{
-		{Predicate: "item", Args: []interface{}{10}},
-		{Predicate: "item", Args: []interface{}{11}},
-		{Predicate: "item", Args: []interface{}{12}}, // This should fail (6th fact, limit=5)
-		{Predicate: "item", Args: []interface{}{13}},
-		{Predicate: "item", Args: []interface{}{14}},
+		{Predicate: "item", Args: []any{10}},
+		{Predicate: "item", Args: []any{11}},
+		{Predicate: "item", Args: []any{12}}, // This should fail (6th fact, limit=5)
+		{Predicate: "item", Args: []any{13}},
+		{Predicate: "item", Args: []any{14}},
 	}
 	err = engine.AddFacts(batch)
 	if err == nil {
@@ -827,10 +825,10 @@ func TestPartialBatchFailure(t *testing.T) {
 
 	// Batch where one fact has arity mismatch
 	batch := []Fact{
-		{Predicate: "record", Args: []interface{}{"a", "good"}},    // valid
-		{Predicate: "record", Args: []interface{}{"b", "good"}},    // valid
-		{Predicate: "record", Args: []interface{}{"bad_arity"}},    // invalid: 1 arg instead of 2
-		{Predicate: "record", Args: []interface{}{"d", "skipped"}}, // never reached
+		{Predicate: "record", Args: []any{"a", "good"}},    // valid
+		{Predicate: "record", Args: []any{"b", "good"}},    // valid
+		{Predicate: "record", Args: []any{"bad_arity"}},    // invalid: 1 arg instead of 2
+		{Predicate: "record", Args: []any{"d", "skipped"}}, // never reached
 	}
 	err = engine.AddFacts(batch)
 	if err == nil {

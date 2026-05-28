@@ -45,8 +45,8 @@ func TestKernelQuery_Execute(t *testing.T) {
 	`)
 	k.Evaluate()
 
-	k.Assert(Fact{Predicate: "test_parent", Args: []interface{}{"alice", "bob"}})
-	k.Assert(Fact{Predicate: "test_parent", Args: []interface{}{"bob", "charlie"}})
+	k.Assert(Fact{Predicate: "test_parent", Args: []any{"alice", "bob"}})
+	k.Assert(Fact{Predicate: "test_parent", Args: []any{"bob", "charlie"}})
 
 	// 1. Execute complex query (recursive join)
 	err := k.Evaluate()
@@ -187,7 +187,7 @@ func TestFactMatchesPattern_StringVsName(t *testing.T) {
 	k2.store.GetFacts(ast.NewQuery(ast.PredicateSym{Symbol: "bar", Arity: 1}), func(a ast.Atom) error {
 		f := atomToFact(a)
 		// Try to match against a string "alice" pattern
-		if factMatchesPattern(f, Fact{Predicate: "bar", Args: []interface{}{"alice"}}) {
+		if factMatchesPattern(f, Fact{Predicate: "bar", Args: []any{"alice"}}) {
 			count++
 		}
 		return nil

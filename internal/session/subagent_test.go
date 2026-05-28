@@ -33,7 +33,7 @@ func TestSubAgent_Run_Success(t *testing.T) {
 
 	agent.Run(context.Background(), "Do the mission")
 
-	result, err := agent.GetResult()
+	result, err := agent.Wait()
 	if err != nil {
 		t.Fatalf("Agent failed: %v", err)
 	}
@@ -129,18 +129,17 @@ func TestSubAgent_DoubleKill(t *testing.T) {
 		},
 	}
 	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
-	
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	
+
+	ctx := t.Context()
+
 	go agent.Run(ctx, "task")
 	time.Sleep(50 * time.Millisecond) // Let it start
-	
+
 	agent.Stop()
 	agent.Stop() // Double Stop
-	
+
 	agent.Wait()
-	
+
 	// Ensure it didn't panic and the state is failed (due to context cancellation via Stop)
 	if agent.GetState() != SubAgentStateFailed {
 		t.Errorf("Expected Failed state, got %v", agent.GetState())
@@ -159,19 +158,19 @@ func TestSubAgent_ContextCancellation(t *testing.T) {
 		},
 	}
 	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	go agent.Run(ctx, "task")
-	
+
 	// Wait a bit to ensure it started
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Cancel the context, which should abort the LLM call and fail the agent
 	cancel()
-	
+
 	agent.Wait()
-	
+
 	if agent.GetState() != SubAgentStateFailed {
 		t.Errorf("Expected Failed state due to context cancellation, got %v", agent.GetState())
 	}
@@ -200,14 +199,14 @@ func (m *mockCompressor) Compress(ctx context.Context, turns []perception.Conver
 
 func TestSubAgent_CompressMemory_ThresholdZero(t *testing.T) {
 	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
-	
+
 	// Add 5 turns
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
 	}
 
 	agent.SetCompressor(&mockCompressor{summary: "compressed"})
-	
+
 	// Gap 1: Threshold 0 (Should default to 10 and do nothing, or if default is <5, it should compress)
 	// We made it default to 10, so with 5 turns it should do nothing.
 	err := agent.CompressMemory(context.Background(), 0)
@@ -222,14 +221,14 @@ func TestSubAgent_CompressMemory_ThresholdZero(t *testing.T) {
 
 func TestSubAgent_CompressMemory_StateConflicts_NoBlock(t *testing.T) {
 	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
-	
-	for i := 0; i < 15; i++ {
+
+	for range 15 {
 		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
 	}
 
 	// Gap 2: Compressor blocks for 100ms
 	agent.SetCompressor(&mockCompressor{summary: "compressed", delay: 100 * time.Millisecond})
-	
+
 	done := make(chan bool)
 	go func() {
 		_ = agent.CompressMemory(context.Background(), 10)
@@ -253,15 +252,15 @@ func TestSubAgent_CompressMemory_StateConflicts_NoBlock(t *testing.T) {
 
 func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
 	agent := NewSubAgent(DefaultSubAgentConfig("test"), &MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{})
-	
-	for i := 0; i < 15; i++ {
+
+	for range 15 {
 		agent.conversationHistory = append(agent.conversationHistory, perception.ConversationTurn{})
 	}
 
 	// Gap 3: Massive 5MB summary
 	massiveSummary := strings.Repeat("A", 5*1024*1024)
 	agent.SetCompressor(&mockCompressor{summary: massiveSummary})
-	
+
 	_ = agent.CompressMemory(context.Background(), 10)
 
 	// Summary should be truncated to 4096 + "..."
@@ -269,7 +268,7 @@ func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
 	if len(summaryTurn.Content) > 5000 {
 		t.Errorf("Summary was not truncated! Length: %d", len(summaryTurn.Content))
 	}
-	
+
 	// Gap 4: Type Coercion. Role is "assistant".
 	if summaryTurn.Role != "assistant" {
 		t.Errorf("Expected role 'assistant', got '%s'", summaryTurn.Role)
@@ -277,11 +276,4 @@ func TestSubAgent_CompressMemory_MassiveSummary(t *testing.T) {
 	if !strings.HasPrefix(summaryTurn.Content, "[MEMORY SUMMARY]") {
 		t.Errorf("Expected prefix '[MEMORY SUMMARY]', got '%s'", summaryTurn.Content[:min(20, len(summaryTurn.Content))])
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

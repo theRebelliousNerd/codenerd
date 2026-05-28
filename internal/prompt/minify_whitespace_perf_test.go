@@ -93,7 +93,7 @@ func TestMinifyWhitespace_Extended(t *testing.T) {
 func BenchmarkMinifyWhitespace_Large(b *testing.B) {
 	// Create a large input: 1000 lines, each with trailing spaces and many newlines
 	var sb strings.Builder
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		sb.WriteString("This is a line with trailing spaces    ")
 		sb.WriteString("\n")
 		if i%10 == 0 {

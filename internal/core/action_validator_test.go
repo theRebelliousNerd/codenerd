@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 )
@@ -15,12 +16,7 @@ type mockValidator struct {
 }
 
 func (m *mockValidator) CanValidate(actionType ActionType) bool {
-	for _, at := range m.canHandle {
-		if at == actionType {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(m.canHandle, actionType)
 }
 
 func (m *mockValidator) Validate(ctx context.Context, req ActionRequest, result ActionResult) ValidationResult {
@@ -362,7 +358,7 @@ func TestValidationResult_ToFacts(t *testing.T) {
 			Confidence: 0.9,
 			Method:     ValidationMethodHash,
 			Error:      "hash mismatch",
-			Details:    map[string]interface{}{"expected": "abc123", "actual": "def456"},
+			Details:    map[string]any{"expected": "abc123", "actual": "def456"},
 			Timestamp:  time.Now(),
 		}
 

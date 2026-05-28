@@ -58,7 +58,7 @@ func (ts *TraceStore) ListTraceEmbeddingCandidates(limit int, skipSuccess bool, 
 		(summary_descriptor IS NULL OR summary_descriptor = '' OR descriptor_version IS NULL OR descriptor_version != ? OR descriptor_hash IS NULL OR descriptor_hash = '')
 		OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
-	args := []interface{}{traceDescriptorVersion}
+	args := []any{traceDescriptorVersion}
 	if expectedModel != "" {
 		where += " OR embedding_model_id != ?"
 		args = append(args, expectedModel)
@@ -212,7 +212,7 @@ func (ts *TraceStore) CountTraceEmbeddingBacklog(expectedModel string, expectedD
 		WHERE (summary_descriptor IS NULL OR summary_descriptor = '' OR descriptor_version IS NULL OR descriptor_version != ? OR descriptor_hash IS NULL OR descriptor_hash = '')
 		   OR (embedding IS NULL OR length(embedding) = 0 OR embedding_model_id IS NULL OR embedding_model_id = '' OR embedding_dim IS NULL OR embedding_dim = 0 OR embedding_task IS NULL OR embedding_task = '')
 	`
-	args := []interface{}{traceDescriptorVersion}
+	args := []any{traceDescriptorVersion}
 	if expectedModel != "" {
 		query += " OR embedding_model_id != ?"
 		args = append(args, expectedModel)

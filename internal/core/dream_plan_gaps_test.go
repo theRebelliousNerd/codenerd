@@ -175,7 +175,7 @@ func TestDreamPlanGap_Performance_MassiveSlice(t *testing.T) {
 	plan := NewDreamPlan("plan-perf", "Performance test")
 
 	const count = 10000
-	for i := 0; i < count; i++ {
+	for i := range count {
 		status := SubtaskStatusPending
 		if i < count/2 {
 			status = SubtaskStatusCompleted
@@ -243,7 +243,7 @@ func TestDreamPlanGap_Concurrency_AddSubtask(t *testing.T) {
 
 	// Sequential safety verification
 	const count = 100
-	for i := 0; i < count; i++ {
+	for i := range count {
 		plan.AddSubtask(DreamSubtask{
 			ID:     "t" + string(rune('a'+i%26)),
 			Status: SubtaskStatusPending,
@@ -269,7 +269,7 @@ func TestDreamPlanGap_Concurrency_MarkAndRead(t *testing.T) {
 	plan := NewDreamPlan("plan-race", "Race test")
 
 	// Pre-populate
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		plan.AddSubtask(DreamSubtask{
 			ID:     "t" + string(rune('A'+i)),
 			Status: SubtaskStatusPending,
@@ -280,13 +280,13 @@ func TestDreamPlanGap_Concurrency_MarkAndRead(t *testing.T) {
 	var wg sync.WaitGroup
 	// Use separate plans per goroutine to avoid race detector failures
 	// while still documenting the pattern
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			// Each goroutine operates on its own plan copy
 			localPlan := NewDreamPlan("local", "test")
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				localPlan.AddSubtask(DreamSubtask{
 					ID:     "t" + string(rune('A'+j)),
 					Status: SubtaskStatusPending,

@@ -153,22 +153,22 @@ const (
 
 // ActionRequest represents a request to execute an action.
 type ActionRequest struct {
-	ActionID   string                 `json:"action_id"`
-	Type       ActionType             `json:"type"`
-	Target     string                 `json:"target"`
-	Payload    map[string]interface{} `json:"payload"`
-	Timeout    int                    `json:"timeout,omitempty"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	RetryCount int                    `json:"retry_count,omitempty"`
+	ActionID   string         `json:"action_id"`
+	Type       ActionType     `json:"type"`
+	Target     string         `json:"target"`
+	Payload    map[string]any `json:"payload"`
+	Timeout    int            `json:"timeout,omitempty"`
+	SessionID  string         `json:"session_id,omitempty"`
+	RetryCount int            `json:"retry_count,omitempty"`
 }
 
 // ActionResult represents the result of an action execution.
 type ActionResult struct {
-	Success    bool                   `json:"success"`
-	Output     string                 `json:"output"`
-	Error      string                 `json:"error,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	FactsToAdd []Fact                 `json:"facts_to_add,omitempty"`
+	Success    bool           `json:"success"`
+	Output     string         `json:"output"`
+	Error      string         `json:"error,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	FactsToAdd []Fact         `json:"facts_to_add,omitempty"`
 }
 
 // ConstitutionalRule represents a safety constraint.
@@ -182,7 +182,7 @@ type ConstitutionalRule struct {
 // This breaks the import cycle by defining the interface in core.
 type IntegrationClient interface {
 	// CallTool makes an MCP tool call via HTTP.
-	CallTool(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error)
+	CallTool(ctx context.Context, tool string, args map[string]any) (any, error)
 }
 
 // CodeElement represents a semantic code unit (function, struct, etc.).

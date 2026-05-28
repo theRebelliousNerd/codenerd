@@ -40,40 +40,40 @@ func TestReviewerCapabilities(t *testing.T) {
 	// --- Scenario A: Hero Risk ---
 	setupHeroRisk := []core.Fact{
 		// git_history(File, Hash, Author, AgeDays (int), Message)
-		{Predicate: "git_history", Args: []interface{}{"hero.go", "hash1", "TheHero", int64(10), "msg"}},
-		{Predicate: "git_history", Args: []interface{}{"hero.go", "hash2", "TheHero", int64(4), "msg"}},
-		{Predicate: "churn_rate", Args: []interface{}{"hero.go", 10}},
-		{Predicate: "cyclomatic_complexity", Args: []interface{}{"hero.go", "ComplexFunc", int64(20)}},
+		{Predicate: "git_history", Args: []any{"hero.go", "hash1", "TheHero", int64(10), "msg"}},
+		{Predicate: "git_history", Args: []any{"hero.go", "hash2", "TheHero", int64(4), "msg"}},
+		{Predicate: "churn_rate", Args: []any{"hero.go", 10}},
+		{Predicate: "cyclomatic_complexity", Args: []any{"hero.go", "ComplexFunc", int64(20)}},
 	}
 
 	// --- Scenario B: Shotgun Surgery ---
 	setupShotgun := []core.Fact{
-		{Predicate: "git_history", Args: []interface{}{"shotgunA.go", "c1", "Auth", int64(1), "m"}},
-		{Predicate: "git_history", Args: []interface{}{"shotgunB.go", "c1", "Auth", int64(1), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunA.go", "c1", "Auth", int64(1), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunB.go", "c1", "Auth", int64(1), "m"}},
 
-		{Predicate: "git_history", Args: []interface{}{"shotgunA.go", "c2", "Auth", int64(2), "m"}},
-		{Predicate: "git_history", Args: []interface{}{"shotgunB.go", "c2", "Auth", int64(2), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunA.go", "c2", "Auth", int64(2), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunB.go", "c2", "Auth", int64(2), "m"}},
 
-		{Predicate: "git_history", Args: []interface{}{"shotgunA.go", "c3", "Auth", int64(3), "m"}},
-		{Predicate: "git_history", Args: []interface{}{"shotgunB.go", "c3", "Auth", int64(3), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunA.go", "c3", "Auth", int64(3), "m"}},
+		{Predicate: "git_history", Args: []any{"shotgunB.go", "c3", "Auth", int64(3), "m"}},
 	}
 
 	// --- Scenario C: Layer Leakage ---
 	setupLayerLeakage := []core.Fact{
-		{Predicate: "symbol_graph", Args: []interface{}{"ID_Lib", "function", "public", "internal/lib/lib.go", int64(1)}},
-		{Predicate: "symbol_graph", Args: []interface{}{"ID_App", "function", "public", "cmd/app/main.go", int64(1)}},
-		{Predicate: "dependency_link", Args: []interface{}{"ID_Lib", "ID_App", "call"}},
+		{Predicate: "symbol_graph", Args: []any{"ID_Lib", "function", "public", "internal/lib/lib.go", int64(1)}},
+		{Predicate: "symbol_graph", Args: []any{"ID_App", "function", "public", "cmd/app/main.go", int64(1)}},
+		{Predicate: "dependency_link", Args: []any{"ID_Lib", "ID_App", "call"}},
 
 		// Mock string_contains because it's not virtual in this test environment
-		{Predicate: "string_contains", Args: []interface{}{"internal/lib/lib.go", "internal/"}},
-		{Predicate: "string_contains", Args: []interface{}{"cmd/app/main.go", "cmd/"}},
+		{Predicate: "string_contains", Args: []any{"internal/lib/lib.go", "internal/"}},
+		{Predicate: "string_contains", Args: []any{"cmd/app/main.go", "cmd/"}},
 	}
 
 	// --- Scenario D: Zombie Test ---
 	setupZombie := []core.Fact{
 		// file_topology(Path, Hash, Language, LastModified, IsTestFile)
-		{Predicate: "file_topology", Args: []interface{}{"test_zombie.go", "hash", core.MangleAtom("/go"), int64(0), core.MangleAtom("/true")}},
-		{Predicate: "symbol_graph", Args: []interface{}{"ID_Test", "function", "public", "test_zombie.go", int64(1)}},
+		{Predicate: "file_topology", Args: []any{"test_zombie.go", "hash", core.MangleAtom("/go"), int64(0), core.MangleAtom("/true")}},
+		{Predicate: "symbol_graph", Args: []any{"ID_Test", "function", "public", "test_zombie.go", int64(1)}},
 	}
 
 	// Assert All

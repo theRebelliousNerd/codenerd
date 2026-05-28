@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,7 +239,7 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			if err := w.performIncrementalScan(ctx); err != nil {
 				_ = w.Kernel.Assert(types.Fact{
 					Predicate: "world_model_error",
-					Args:      []interface{}{err.Error(), time.Now().Unix()},
+					Args:      []any{err.Error(), time.Now().Unix()},
 				})
 			}
 			// Retract trigger
@@ -255,7 +256,7 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 				if err := w.performIncrementalScan(ctx); err != nil {
 					_ = w.Kernel.Assert(types.Fact{
 						Predicate: "world_model_error",
-						Args:      []interface{}{err.Error(), time.Now().Unix()},
+						Args:      []any{err.Error(), time.Now().Unix()},
 					})
 				}
 				// Retract trigger
@@ -276,14 +277,14 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			if err := w.performIncrementalScan(ctx); err != nil {
 				_ = w.Kernel.Assert(types.Fact{
 					Predicate: "world_model_error",
-					Args:      []interface{}{err.Error(), time.Now().Unix()},
+					Args:      []any{err.Error(), time.Now().Unix()},
 				})
 			}
 
 			// Emit heartbeat
 			_ = w.Kernel.Assert(types.Fact{
 				Predicate: "world_model_heartbeat",
-				Args:      []interface{}{w.ID, len(w.files), time.Now().Unix()},
+				Args:      []any{w.ID, len(w.files), time.Now().Unix()},
 			})
 
 			// Check for autopoiesis
@@ -299,7 +300,7 @@ func (w *WorldModelIngestorShard) Execute(ctx context.Context, task string) (str
 			// Emit heartbeat
 			_ = w.Kernel.Assert(types.Fact{
 				Predicate: "world_model_heartbeat",
-				Args:      []interface{}{w.ID, len(w.files), time.Now().Unix()},
+				Args:      []any{w.ID, len(w.files), time.Now().Unix()},
 			})
 
 			// Check for autopoiesis
@@ -378,7 +379,7 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		// Emit file_topology fact
 		ft := types.Fact{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				fileInfo.Path,
 				fileInfo.Hash,
 				fileInfo.Language,
@@ -461,7 +462,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		// Emit updated file_topology fact
 		ft := types.Fact{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				fileInfo.Path,
 				fileInfo.Hash,
 				fileInfo.Language,
@@ -472,7 +473,7 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		// Mark file as modified for impact analysis
 		mod := types.Fact{
 			Predicate: "modified",
-			Args:      []interface{}{fileInfo.Path},
+			Args:      []any{fileInfo.Path},
 		}
 
 		facts = append(facts, ft, mod)
@@ -663,17 +664,17 @@ func (w *WorldModelIngestorShard) buildInterpretationPrompt(cases []UnhandledCas
 
 // applyInterpretation parses LLM output and emits derived facts.
 func (w *WorldModelIngestorShard) applyInterpretation(output string) {
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "FACT:") {
-			factStr := strings.TrimSpace(strings.TrimPrefix(line, "FACT:"))
+		if after, ok := strings.CutPrefix(line, "FACT:"); ok {
+			factStr := strings.TrimSpace(after)
 			// Parse and emit the fact (simplified parsing)
 			if idx := strings.Index(factStr, "("); idx > 0 {
 				predicate := factStr[:idx]
 				f := types.Fact{
 					Predicate: predicate,
-					Args:      []interface{}{factStr}, // Store full fact string
+					Args:      []any{factStr}, // Store full fact string
 				}
 				_ = w.Kernel.Assert(f)
 				w.persistToKnowledge([]types.Fact{f})
@@ -702,9 +703,7 @@ func (w *WorldModelIngestorShard) GetFiles() map[string]FileInfo {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	result := make(map[string]FileInfo)
-	for k, v := range w.files {
-		result[k] = v
-	}
+	maps.Copy(result, w.files)
 	return result
 }
 
@@ -713,9 +712,7 @@ func (w *WorldModelIngestorShard) GetSymbols() map[string]Symbol {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	result := make(map[string]Symbol)
-	for k, v := range w.symbols {
-		result[k] = v
-	}
+	maps.Copy(result, w.symbols)
 	return result
 }
 
@@ -736,12 +733,12 @@ func (w *WorldModelIngestorShard) persistToKnowledge(facts []types.Fact) {
 			if len(f.Args) >= 3 {
 				rel = "depends_on:" + types.ExtractString(f.Args[2])
 			}
-			_ = w.VirtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "world_model"})
+			_ = w.VirtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "world_model"})
 		}
 		if f.Predicate == "symbol_graph" && len(f.Args) >= 4 {
 			symbolID := types.ExtractString(f.Args[0])
 			filePath := types.ExtractString(f.Args[3])
-			_ = w.VirtualStore.PersistLink(symbolID, "defined_in", filePath, 1.0, map[string]interface{}{"source": "world_model"})
+			_ = w.VirtualStore.PersistLink(symbolID, "defined_in", filePath, 1.0, map[string]any{"source": "world_model"})
 		}
 	}
 }

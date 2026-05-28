@@ -58,7 +58,7 @@ func (o *Orchestrator) writeAgentSpec(spec *AgentSpec) error {
 			CreatedAt:   time.Now(),
 			UpdatedAt:   time.Now(),
 			Learnings:   []Learning{},
-			Preferences: make(map[string]interface{}),
+			Preferences: make(map[string]any),
 			Patterns:    []LearnedPattern{},
 		}
 

@@ -25,11 +25,11 @@ func BenchmarkDreamer_CodeGraphProjections(b *testing.B) {
 	facts := make([]Fact, 0, totalSyms*2)
 
 	// code_defines
-	for i := 0; i < totalSyms; i++ {
+	for i := range totalSyms {
 		fileIdx := i / numSymsPerFile
 		facts = append(facts, Fact{
 			Predicate: "code_defines",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("internal/pkg/file_%d.go", fileIdx),
 				fmt.Sprintf("Sym%d", i),
 			},
@@ -40,7 +40,7 @@ func BenchmarkDreamer_CodeGraphProjections(b *testing.B) {
 	for i := 0; i < totalSyms-1; i++ {
 		facts = append(facts, Fact{
 			Predicate: "code_calls",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("Sym%d", i),
 				fmt.Sprintf("Sym%d", i+1),
 			},
@@ -48,10 +48,10 @@ func BenchmarkDreamer_CodeGraphProjections(b *testing.B) {
 	}
 
 	// Add some test files
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		facts = append(facts, Fact{
 			Predicate: "code_defines",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("internal/pkg/file_%d_test.go", i),
 				fmt.Sprintf("TestSym%d", i),
 			},
@@ -59,10 +59,10 @@ func BenchmarkDreamer_CodeGraphProjections(b *testing.B) {
 	}
 
 	// Add calls from tests to syms
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		facts = append(facts, Fact{
 			Predicate: "code_calls",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("TestSym%d", i),
 				fmt.Sprintf("Sym%d", i*10), // Call into source
 			},

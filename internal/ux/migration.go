@@ -52,7 +52,7 @@ func MigratePreferences(workspace string) (*MigrationResult, error) {
 	}
 
 	// Parse existing preferences
-	var rawPrefs map[string]interface{}
+	var rawPrefs map[string]any
 	if err := json.Unmarshal(data, &rawPrefs); err != nil {
 		// Invalid JSON - recreate with existing user settings
 		return createExistingUserPreferences(workspace)
@@ -126,7 +126,7 @@ func createExistingUserPreferences(workspace string) (*MigrationResult, error) {
 }
 
 // migrateFromOldVersion migrates from an older preferences schema.
-func migrateFromOldVersion(workspace string, oldPrefs map[string]interface{}) (*MigrationResult, error) {
+func migrateFromOldVersion(workspace string, oldPrefs map[string]any) (*MigrationResult, error) {
 	result := &MigrationResult{
 		WasMigrated: true,
 		ToVersion:   PreferencesVersion,
@@ -135,8 +135,8 @@ func migrateFromOldVersion(workspace string, oldPrefs map[string]interface{}) (*
 	prefs := DefaultUserPreferences()
 
 	// Preserve agent_selection if it exists
-	if agentSel, ok := oldPrefs["agent_selection"].(map[string]interface{}); ok {
-		if accepted, ok := agentSel["accepted_agents"].([]interface{}); ok {
+	if agentSel, ok := oldPrefs["agent_selection"].(map[string]any); ok {
+		if accepted, ok := agentSel["accepted_agents"].([]any); ok {
 			for _, a := range accepted {
 				if s, ok := a.(string); ok {
 					prefs.AgentSelection.AcceptedAgents = append(prefs.AgentSelection.AcceptedAgents, s)
@@ -144,7 +144,7 @@ func migrateFromOldVersion(workspace string, oldPrefs map[string]interface{}) (*
 			}
 			result.PreservedData = append(result.PreservedData, "accepted_agents")
 		}
-		if rejected, ok := agentSel["rejected_agents"].([]interface{}); ok {
+		if rejected, ok := agentSel["rejected_agents"].([]any); ok {
 			for _, r := range rejected {
 				if s, ok := r.(string); ok {
 					prefs.AgentSelection.RejectedAgents = append(prefs.AgentSelection.RejectedAgents, s)

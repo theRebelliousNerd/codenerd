@@ -3,6 +3,7 @@ package retrieval
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -79,13 +80,7 @@ func TestExtractKeywords_WhenClassDefinition_ShouldExtractAsPrimary(t *testing.T
 	t.Parallel()
 	kw := ExtractKeywords("class MyHandler is broken")
 
-	found := false
-	for _, p := range kw.Primary {
-		if p == "MyHandler" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(kw.Primary, "MyHandler")
 	if !found {
 		t.Errorf("expected MyHandler in Primary, got %v", kw.Primary)
 	}
@@ -117,13 +112,7 @@ func TestExtractKeywords_WhenQuotedIdentifiers_ShouldExtractAsTertiary(t *testin
 	t.Parallel()
 	kw := ExtractKeywords(`the "specialConfig" variable is wrong`)
 
-	found := false
-	for _, ter := range kw.Tertiary {
-		if ter == "specialConfig" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(kw.Tertiary, "specialConfig")
 	if !found {
 		t.Errorf("expected specialConfig in Tertiary, got %v", kw.Tertiary)
 	}

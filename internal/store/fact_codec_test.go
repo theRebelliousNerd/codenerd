@@ -13,7 +13,7 @@ func TestColdStoragePreservesTypedArgs(t *testing.T) {
 	}
 	defer store.Close()
 
-	args := []interface{}{
+	args := []any{
 		types.MangleAtom("/go"),
 		int64(7),
 		float64(3.5),
@@ -61,7 +61,7 @@ func TestWorldCachePreservesTypedArgs(t *testing.T) {
 	facts := []WorldFactInput{
 		{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				"/workspace/main.go",
 				types.MangleAtom("/go"),
 				int64(12),

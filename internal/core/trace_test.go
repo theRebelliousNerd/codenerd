@@ -18,7 +18,7 @@ func TestTrace_Query(t *testing.T) {
 		t.Fatalf("Initial Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "trace_hidden", Args: []interface{}{"ghost"}})
+	k.Assert(Fact{Predicate: "trace_hidden", Args: []any{"ghost"}})
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate after Assert failed: %v", err)
 	}
@@ -59,8 +59,8 @@ func TestTrace_Heuristics(t *testing.T) {
 		t.Fatalf("Initial Evaluate failed: %v", err)
 	}
 
-	k.Assert(Fact{Predicate: "trace_safe", Args: []interface{}{"go_test"}})
-	k.Assert(Fact{Predicate: "trace_rule_meta", Args: []interface{}{"trace_allowed", "permission_gate"}})
+	k.Assert(Fact{Predicate: "trace_safe", Args: []any{"go_test"}})
+	k.Assert(Fact{Predicate: "trace_rule_meta", Args: []any{"trace_allowed", "permission_gate"}})
 	if err := k.Evaluate(); err != nil {
 		t.Fatalf("Evaluate after Assert failed: %v", err)
 	}

@@ -1048,7 +1048,7 @@ func (h *HolographicProvider) parsePriorityFacts(facts []core.Fact) []Prioritize
 }
 
 // stringArg safely extracts a string from an interface{} argument.
-func (h *HolographicProvider) stringArg(arg interface{}) string {
+func (h *HolographicProvider) stringArg(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v
@@ -1058,7 +1058,7 @@ func (h *HolographicProvider) stringArg(arg interface{}) string {
 }
 
 // intArg safely extracts an int from an interface{} argument.
-func (h *HolographicProvider) intArg(arg interface{}, defaultVal int) int {
+func (h *HolographicProvider) intArg(arg any, defaultVal int) int {
 	switch v := arg.(type) {
 	case int:
 		return v
@@ -1380,10 +1380,7 @@ func (h *HolographicProvider) findFunctionEnd(lines []string, startIdx int) int 
 	}
 
 	// Fallback: return a reasonable range
-	endIdx := startIdx + maxCallerBodyLines
-	if endIdx > len(lines)-1 {
-		endIdx = len(lines) - 1
-	}
+	endIdx := min(startIdx+maxCallerBodyLines, len(lines)-1)
 	return endIdx
 }
 

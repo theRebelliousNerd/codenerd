@@ -31,7 +31,7 @@ func (e *mockSimpleEngine) EmbedBatch(ctx context.Context, texts []string) ([][]
 }
 
 func (e *mockSimpleEngine) Dimensions() int { return 4 }
-func (e *mockSimpleEngine) Name() string     { return "simple" }
+func (e *mockSimpleEngine) Name() string    { return "simple" }
 
 // 2. mockTaskAwareEngine implements embedding.EmbeddingEngine and embedding.TaskTypeAwareEngine
 type mockTaskAwareEngine struct {
@@ -101,7 +101,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		defer s.Close()
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"k": "v1"}, {"k": "v2"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"k": "v1"}, {"k": "v2"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -165,7 +165,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -196,7 +196,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -224,7 +224,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "fact"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "fact"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -255,7 +255,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "fact"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "fact"}})
 		if err != nil {
 			t.Errorf("Unexpected error: %v", err)
 		}
@@ -282,7 +282,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if !errors.Is(err, engineErr) {
 			t.Errorf("Expected error %v, got %v", engineErr, err)
 		}
@@ -306,7 +306,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err == nil {
 			t.Error("Expected error on size mismatch, got nil")
 		}
@@ -330,7 +330,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err == nil {
 			t.Error("Expected error on partial failure, got nil")
 		}
@@ -356,7 +356,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "code"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "code"}})
 		if err == nil {
 			t.Error("Expected error on partial failure, got nil")
 		}
@@ -382,7 +382,7 @@ func TestStoreVectorBatchWithEmbedding_Comprehensive(t *testing.T) {
 		}
 		s.SetEmbeddingEngine(engine)
 
-		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]interface{}{{"content_type": "code"}, {"content_type": "fact"}})
+		stored, err := s.StoreVectorBatchWithEmbedding(ctx, []string{"a", "b"}, []map[string]any{{"content_type": "code"}, {"content_type": "fact"}})
 		if err == nil {
 			t.Error("Expected error on partial failure, got nil")
 		}

@@ -251,7 +251,7 @@ func TestVirtualStoreCodeDOM_OpenFile_Detailed(t *testing.T) {
 		return nil
 	}
 	mScope.scopeFactsFunc = func() []Fact {
-		return []Fact{{Predicate: "file_in_scope", Args: []interface{}{"test.go"}}}
+		return []Fact{{Predicate: "file_in_scope", Args: []any{"test.go"}}}
 	}
 	res, err = vs.handleOpenFile(ctx, req)
 	if err != nil {
@@ -325,7 +325,7 @@ func TestVirtualStoreCodeDOM_GetElements_Detailed(t *testing.T) {
 	}
 
 	// 3. Configured - Target Empty with Type Filter
-	req.Payload = map[string]interface{}{"type": "func"}
+	req.Payload = map[string]any{"type": "func"}
 	res, err = vs.handleGetElements(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -429,7 +429,7 @@ func TestVirtualStoreCodeDOM_GetElement_Detailed(t *testing.T) {
 	}
 
 	// With include_body
-	req.Payload = map[string]interface{}{"include_body": true}
+	req.Payload = map[string]any{"include_body": true}
 	res, err = vs.handleGetElement(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -459,7 +459,7 @@ func TestVirtualStoreCodeDOM_EditElement_Detailed(t *testing.T) {
 		Type:      ActionEditElement,
 		Target:    "ref_foo",
 		SessionID: "sess_1",
-		Payload:   map[string]interface{}{"content": "new_body"},
+		Payload:   map[string]any{"content": "new_body"},
 	}
 
 	// 1. Unconfigured CodeScope
@@ -592,14 +592,14 @@ func TestVirtualStoreCodeDOM_EditElement_Detailed(t *testing.T) {
 			Success:       true,
 			LinesAffected: 5,
 			LineCount:     10,
-			Facts:         []Fact{{Predicate: "replaced_something", Args: []interface{}{}}},
+			Facts:         []Fact{{Predicate: "replaced_something", Args: []any{}}},
 		}, nil
 	}
 	mScope.refreshWithRetryFunc = func(maxRetries int) error {
 		return nil
 	}
 	mScope.scopeFactsFunc = func() []Fact {
-		return []Fact{{Predicate: "refreshed_fact", Args: []interface{}{}}}
+		return []Fact{{Predicate: "refreshed_fact", Args: []any{}}}
 	}
 
 	res, err = vs.handleEditElement(ctx, req)
@@ -744,7 +744,7 @@ func TestVirtualStoreCodeDOM_EditLines_Detailed(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionEditLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"start_line": float64(1),
 			"end_line":   float64(5),
 			"content":    "line1\nline2\n",
@@ -865,7 +865,7 @@ func TestVirtualStoreCodeDOM_InsertLines_Detailed(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionInsertLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"after_line": float64(10),
 			"content":    "inserted_line\n",
 		},
@@ -964,7 +964,7 @@ func TestVirtualStoreCodeDOM_DeleteLines_Detailed(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionDeleteLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"start_line": float64(5),
 			"end_line":   float64(10),
 		},
@@ -1063,7 +1063,7 @@ func TestVirtualStoreCodeDOM_ExecTool_Detailed(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionExecTool,
 		Target: "test_tool",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"input": "tool_input",
 		},
 	}

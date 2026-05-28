@@ -339,7 +339,7 @@ func (s *EmbeddedCorpusStore) SearchByCategory(queryEmbedding []float32, categor
 }
 
 // GetStats returns statistics about the embedded corpus.
-func (s *EmbeddedCorpusStore) GetStats() (map[string]interface{}, error) {
+func (s *EmbeddedCorpusStore) GetStats() (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "EmbeddedCorpusStore.GetStats")
 	defer timer.Stop()
 
@@ -350,7 +350,7 @@ func (s *EmbeddedCorpusStore) GetStats() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("embedded corpus store not initialized")
 	}
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	// Total entries
 	var totalEntries int64

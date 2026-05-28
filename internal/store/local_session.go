@@ -124,7 +124,7 @@ func (s *LocalStore) StoreSessionTurn(sessionID string, turnNumber int, userInpu
 }
 
 // GetSessionHistory retrieves session history.
-func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[string]interface{}, error) {
+func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetSessionHistory")
 	defer timer.Stop()
 
@@ -151,7 +151,7 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 	}
 	defer rows.Close()
 
-	var history []map[string]interface{}
+	var history []map[string]any
 	for rows.Next() {
 		var turnNumber int
 		var userInput, intentJSON, response, atomsJSON string
@@ -159,7 +159,7 @@ func (s *LocalStore) GetSessionHistory(sessionID string, limit int) ([]map[strin
 		if err := rows.Scan(&turnNumber, &userInput, &intentJSON, &response, &atomsJSON, &createdAt); err != nil {
 			continue
 		}
-		history = append(history, map[string]interface{}{
+		history = append(history, map[string]any{
 			"turn_number": turnNumber,
 			"user_input":  userInput,
 			"intent":      intentJSON,

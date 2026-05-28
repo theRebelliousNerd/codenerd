@@ -4,6 +4,7 @@ package system
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 )
@@ -112,10 +113,10 @@ func TestExecutivePolicyShard_TrackFailure_ShouldIncrementCounter(t *testing.T) 
 
 func TestParseIntentTimestamp_WhenValidPrefix_ShouldReturnTimestamp(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantTS  int64
-		wantOK  bool
+		name   string
+		input  string
+		wantTS int64
+		wantOK bool
 	}{
 		{"valid timestamp", "/intent_1234567890", 1234567890, true},
 		{"invalid prefix", "/foo_123", 0, false},
@@ -146,7 +147,7 @@ func TestCopyStringAnyMap_WhenEmpty_ShouldReturnEmpty(t *testing.T) {
 }
 
 func TestCopyStringAnyMap_WhenPopulated_ShouldReturnCopy(t *testing.T) {
-	src := map[string]interface{}{
+	src := map[string]any{
 		"key1": "value1",
 		"key2": 42,
 	}
@@ -630,13 +631,7 @@ func TestMangleRepairShard_ExtractPredicatesFromRule_ShouldExtractNames(t *testi
 		t.Run(tt.name, func(t *testing.T) {
 			got := shard.extractPredicatesFromRule(tt.rule)
 			for _, w := range tt.want {
-				found := false
-				for _, g := range got {
-					if g == w {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(got, w)
 				if !found {
 					t.Errorf("missing predicate %q in %v", w, got)
 				}
@@ -736,13 +731,7 @@ func TestMangleRepairShard_ExtractErrorTypes_ShouldDetectDomains(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := shard.extractErrorTypes(tt.errors)
 			for _, w := range tt.want {
-				found := false
-				for _, g := range got {
-					if g == w {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(got, w)
 				if !found {
 					t.Errorf("missing error type %q in %v", w, got)
 				}
@@ -771,7 +760,6 @@ func TestIsIdentChar_ShouldMatchIdentChars(t *testing.T) {
 }
 
 // mockLLMClient is defined in base_coverage_test.go
-
 
 // ─── llmClientAdapter (legislator) ──────────────────────────────────────────
 

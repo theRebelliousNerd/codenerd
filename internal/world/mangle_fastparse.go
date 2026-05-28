@@ -24,7 +24,7 @@ func extractMangleSymbolFacts(path string, content string) []core.Fact {
 		seen[symbolID] = struct{}{}
 		facts = append(facts, core.Fact{
 			Predicate: "symbol_graph",
-			Args:      []interface{}{symbolID, "/predicate", "/public", path, sig},
+			Args:      []any{symbolID, "/predicate", "/public", path, sig},
 		})
 	}
 	return facts

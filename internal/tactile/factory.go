@@ -393,7 +393,7 @@ func (r *RetryExecutor) Execute(ctx context.Context, cmd Command) (*ExecutionRes
 				break
 			default:
 				// Simple sleep - in production, use time.After with context
-				for i := 0; i < delay; i++ {
+				for range delay {
 					if ctx.Err() != nil {
 						break
 					}

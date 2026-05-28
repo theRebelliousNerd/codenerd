@@ -50,7 +50,7 @@ func TestFactEventBus_Subscribe_WhenMultiplePredicates_ShouldReceiveAll(t *testi
 	bus.Publish("next_action")
 
 	received := make(map[string]bool)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case event := <-ch:
 			received[event.Predicate] = true
@@ -99,7 +99,7 @@ func TestFactEventBus_Publish_WhenChannelFull_ShouldNotBlock(t *testing.T) {
 	defer bus.Unsubscribe(ch)
 
 	// Fill the channel buffer (capacity 16)
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		bus.Publish("user_intent")
 	}
 
@@ -152,20 +152,18 @@ func TestFactEventBus_ConcurrentPublishSubscribe_ShouldNotRace(t *testing.T) {
 
 	// Spawn 10 concurrent subscribers
 	channels := make([]chan FactEvent, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		channels[i] = bus.Subscribe([]string{"user_intent", "pending_action"})
 	}
 
 	// Spawn 10 concurrent publishers
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 100 {
 				bus.Publish("user_intent")
 				bus.Publish("pending_action")
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

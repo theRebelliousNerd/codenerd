@@ -52,47 +52,47 @@ func (e FileAuditEvent) ToFacts() []Fact {
 	case FileOpRead:
 		facts = append(facts, Fact{
 			Predicate: "file_read",
-			Args:      []interface{}{e.Path, e.SessionID, timestamp},
+			Args:      []any{e.Path, e.SessionID, timestamp},
 		})
 
 	case FileOpWrite:
 		facts = append(facts, Fact{
 			Predicate: "file_written",
-			Args:      []interface{}{e.Path, e.NewHash, e.SessionID, timestamp},
+			Args:      []any{e.Path, e.NewHash, e.SessionID, timestamp},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []interface{}{e.Path},
+			Args:      []any{e.Path},
 		})
 
 	case FileOpEdit:
 		facts = append(facts, Fact{
 			Predicate: "lines_edited",
-			Args:      []interface{}{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
+			Args:      []any{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []interface{}{e.Path},
+			Args:      []any{e.Path},
 		})
 
 	case FileOpInsert:
 		facts = append(facts, Fact{
 			Predicate: "lines_inserted",
-			Args:      []interface{}{e.Path, int64(e.StartLine), int64(e.LinesAdded), e.SessionID},
+			Args:      []any{e.Path, int64(e.StartLine), int64(e.LinesAdded), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []interface{}{e.Path},
+			Args:      []any{e.Path},
 		})
 
 	case FileOpDelete:
 		facts = append(facts, Fact{
 			Predicate: "lines_deleted",
-			Args:      []interface{}{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
+			Args:      []any{e.Path, int64(e.StartLine), int64(e.EndLine), e.SessionID},
 		})
 		facts = append(facts, Fact{
 			Predicate: "modified",
-			Args:      []interface{}{e.Path},
+			Args:      []any{e.Path},
 		})
 	}
 
@@ -433,10 +433,7 @@ func (e *FileEditor) EditLines(path string, startLine, endLine int, newLines []s
 		return nil, err
 	}
 
-	linesAffected := len(oldContent)
-	if len(newLines) > linesAffected {
-		linesAffected = len(newLines)
-	}
+	linesAffected := max(len(newLines), len(oldContent))
 
 	editResult := &FileResult{
 		Success:       true,

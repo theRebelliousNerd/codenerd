@@ -451,7 +451,7 @@ func TestTransactionManager_Concurrency(t *testing.T) {
 
 	// Run concurrent reads
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			_ = tm.IsTransactionActive()
 			_, _ = tm.GetActiveTransaction()
@@ -461,7 +461,7 @@ func TestTransactionManager_Concurrency(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

@@ -327,7 +327,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 	facts := []core.Fact{
 		{
 			Predicate: "learning_candidate",
-			Args: []interface{}{
+			Args: []any{
 				phrase,
 				core.MangleAtom(verb),
 				target,
@@ -336,7 +336,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 		},
 		{
 			Predicate: "learning_candidate_fact",
-			Args: []interface{}{
+			Args: []any{
 				phrase,
 				core.MangleAtom(verb),
 				target,
@@ -348,7 +348,7 @@ func (m Model) stageLearningCandidateFromFact(fact, reason string) (clarificatio
 	if count > 0 {
 		facts = append(facts, core.Fact{
 			Predicate: "learning_candidate_count",
-			Args:      []interface{}{phrase, count},
+			Args:      []any{phrase, count},
 		})
 	}
 	if err := m.kernel.AssertBatch(facts); err != nil {
@@ -511,7 +511,7 @@ func (m Model) processClarificationResponse(response string, pendingIntent *perc
 		// Inject the clarification fact into the kernel
 		clarificationFact := core.Fact{
 			Predicate: "focus_clarification",
-			Args:      []interface{}{response},
+			Args:      []any{response},
 		}
 		if err := m.kernel.Assert(clarificationFact); err != nil {
 			return errorMsg(fmt.Errorf("failed to inject clarification: %w", err))

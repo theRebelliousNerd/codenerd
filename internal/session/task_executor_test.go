@@ -286,11 +286,11 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 
 	// 2. Massive whitespace, binary/malformed UTF-8 in task strings
 	var massiveWhitespace strings.Builder
-	for i := 0; i < 10000; i++ {
+	for range 10000 {
 		massiveWhitespace.WriteString(" \t\n")
 	}
 	massiveWhitespace.WriteString("real task")
-	
+
 	tasks := []string{
 		massiveWhitespace.String(),
 		"\x00\x01\x02\xff\xfe",
@@ -324,7 +324,7 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 
 	// 1. Massive task payload (e.g., 5MB for speed, testing memory behavior)
 	var massiveTask strings.Builder
-	for i := 0; i < 50000; i++ {
+	for range 50000 {
 		massiveTask.WriteString("This is a very long string used to simulate a massive task payload from the user. ")
 	}
 	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: massiveTask.String()})
@@ -337,7 +337,7 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	errCount := 0
 	var errMu sync.Mutex
 
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -350,7 +350,7 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	
+
 	t.Logf("errCount after 1000 async calls: %d", errCount)
 	if errCount == 0 {
 		t.Error("Expected spawner to reject requests when MaxActiveSubagents is exhausted")
@@ -377,14 +377,14 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 			return &types.LLMToolResponse{Text: "processed"}, nil
 		},
 	}
-	
+
 	spawnerConfig := DefaultSpawnerConfig()
 	spawner := NewSpawner(&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{}, spawnerConfig)
 	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
 
 	t.Run("ExecuteWithContext Data Races", func(t *testing.T) {
 		var wg sync.WaitGroup
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
@@ -404,14 +404,12 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		var waitErr error
 		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_, waitErr = jitExec.WaitForResult(ctx, taskID)
-		}()
+		})
 
 		// Cancel immediately
 		cancel()
@@ -424,13 +422,11 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 
 	t.Run("Results Map Thread Safety", func(t *testing.T) {
 		var wg sync.WaitGroup
-		
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+
+		for range 50 {
+			wg.Go(func() {
 				taskID, _ := jitExec.ExecuteAsync(context.Background(), TaskRequest{IntentVerb: "/research", Task: "test task"})
-				
+
 				// Concurrently poll GetResult and WaitForResult
 				var innerWg sync.WaitGroup
 				innerWg.Add(2)
@@ -446,7 +442,7 @@ func TestJITExecutor_StateConflicts(t *testing.T) {
 					_, _ = jitExec.WaitForResult(ctx, taskID)
 				}()
 				innerWg.Wait()
-			}()
+			})
 		}
 		wg.Wait()
 	})

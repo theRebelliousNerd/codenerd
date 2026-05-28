@@ -68,7 +68,7 @@ type Diagnostic struct {
 func (d Diagnostic) ToFact() Fact {
 	return Fact{
 		Predicate: "diagnostic",
-		Args: []interface{}{
+		Args: []any{
 			"/" + d.Severity,
 			d.FilePath,
 			int64(d.Line),
@@ -90,7 +90,7 @@ type Patch struct {
 func (p Patch) ToFact() Fact {
 	return Fact{
 		Predicate: "patch",
-		Args: []interface{}{
+		Args: []any{
 			p.FilePath,
 			p.OldContent,
 			p.NewContent,
@@ -155,7 +155,7 @@ type TDDStateTransition struct {
 	ToState   TDDState
 	Action    TDDAction
 	Timestamp time.Time
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // NewTDDLoop creates a new TDD loop with default configuration.
@@ -208,7 +208,7 @@ func (t *TDDLoop) GetHistory() []TDDStateTransition {
 }
 
 // transition records a state transition.
-func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[string]interface{}) {
+func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[string]any) {
 	t.history = append(t.history, TDDStateTransition{
 		FromState: t.state,
 		ToState:   newState,
@@ -226,11 +226,11 @@ func (t *TDDLoop) transition(newState TDDState, action TDDAction, meta map[strin
 		tx.Retract("retry_count")
 		tx.Assert(Fact{
 			Predicate: "test_state",
-			Args:      []interface{}{"/" + string(newState)},
+			Args:      []any{"/" + string(newState)},
 		})
 		tx.Assert(Fact{
 			Predicate: "retry_count",
-			Args:      []interface{}{int64(t.retryCount)},
+			Args:      []any{int64(t.retryCount)},
 		})
 		if err := tx.Commit(); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to commit TDD state transition: %v", err)
@@ -353,7 +353,7 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			fmt.Sprintf("tdd-test-%d", time.Now().UnixNano()),
 			"/run_tests",
 			t.config.TestCommand,
@@ -366,7 +366,7 @@ func (t *TDDLoop) runTests(ctx context.Context) error {
 	if err != nil || strings.Contains(output, "FAIL") || strings.Contains(output, "error") || strings.Contains(output, "FAILED") {
 		t.retryCount++
 		t.diagnostics = t.parseTestOutput(output)
-		t.transition(TDDStateFailing, TDDActionRunTests, map[string]interface{}{
+		t.transition(TDDStateFailing, TDDActionRunTests, map[string]any{
 			"error_count": len(t.diagnostics),
 			"retry":       t.retryCount,
 		})
@@ -395,7 +395,7 @@ func (t *TDDLoop) readErrorLog(ctx context.Context) error {
 		}
 	}
 
-	t.transition(TDDStateAnalyzing, TDDActionReadErrorLog, map[string]interface{}{
+	t.transition(TDDStateAnalyzing, TDDActionReadErrorLog, map[string]any{
 		"diagnostic_count": len(t.diagnostics),
 	})
 
@@ -423,13 +423,13 @@ func (t *TDDLoop) analyzeRootCause(ctx context.Context) error {
 	if t.kernel != nil {
 		if err := t.kernel.Assert(Fact{
 			Predicate: "hypothesis",
-			Args:      []interface{}{t.hypothesis},
+			Args:      []any{t.hypothesis},
 		}); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to assert hypothesis: %v", err)
 		}
 	}
 
-	t.transition(TDDStateGenerating, TDDActionAnalyzeRoot, map[string]interface{}{
+	t.transition(TDDStateGenerating, TDDActionAnalyzeRoot, map[string]any{
 		"hypothesis": t.hypothesis,
 	})
 
@@ -451,7 +451,7 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 				},
 			}
 		}
-		t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{"patch_count": 1})
+		t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]any{"patch_count": 1})
 		t.mu.Unlock()
 		return nil
 	}
@@ -502,7 +502,7 @@ func (t *TDDLoop) generatePatch(ctx context.Context) error {
 
 	t.patches = patches
 
-	t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]interface{}{
+	t.transition(TDDStateApplying, TDDActionGeneratePatch, map[string]any{
 		"patch_count": len(t.patches),
 	})
 
@@ -515,8 +515,8 @@ func (t *TDDLoop) parseLLMPatch(response string) []Patch {
 
 	// Simple parsing logic (robustness could be improved)
 	// Expecting blocks separated by FILE:
-	parts := strings.Split(response, "FILE:")
-	for _, part := range parts {
+	parts := strings.SplitSeq(response, "FILE:")
+	for part := range parts {
 		if strings.TrimSpace(part) == "" {
 			continue
 		}
@@ -559,11 +559,11 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 		action := Fact{
 			Predicate: "next_action",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("tdd-edit-%d", time.Now().UnixNano()),
 				"/edit_file",
 				patch.FilePath,
-				map[string]interface{}{
+				map[string]any{
 					"old": patch.OldContent,
 					"new": patch.NewContent,
 				},
@@ -573,7 +573,7 @@ func (t *TDDLoop) applyPatch(ctx context.Context) error {
 		_, err := t.virtualStore.RouteAction(ctx, action)
 		if err != nil {
 			// Mark as needing analysis
-			t.transition(TDDStateAnalyzing, TDDActionApplyPatch, map[string]interface{}{
+			t.transition(TDDStateAnalyzing, TDDActionApplyPatch, map[string]any{
 				"error": err.Error(),
 			})
 			return nil
@@ -592,7 +592,7 @@ func (t *TDDLoop) build(ctx context.Context) error {
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			fmt.Sprintf("tdd-build-%d", time.Now().UnixNano()),
 			"/build_project",
 			t.config.BuildCommand,
@@ -604,7 +604,7 @@ func (t *TDDLoop) build(ctx context.Context) error {
 
 	if err != nil || strings.Contains(output, "error") {
 		t.diagnostics = t.parseBuildOutput(output)
-		t.transition(TDDStateCompileError, TDDActionBuild, map[string]interface{}{
+		t.transition(TDDStateCompileError, TDDActionBuild, map[string]any{
 			"error_count": len(t.diagnostics),
 		})
 		return nil
@@ -625,7 +625,7 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 	// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 	action := Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			fmt.Sprintf("tdd-escalate-%d", time.Now().UnixNano()),
 			"/escalate",
 			reason,
@@ -634,7 +634,7 @@ func (t *TDDLoop) escalate(ctx context.Context) error {
 
 	_, _ = t.virtualStore.RouteAction(ctx, action)
 
-	t.transition(TDDStateEscalated, TDDActionEscalate, map[string]interface{}{
+	t.transition(TDDStateEscalated, TDDActionEscalate, map[string]any{
 		"reason": reason,
 	})
 
@@ -770,7 +770,7 @@ func (t *TDDLoop) SetHypothesis(hypothesis string) {
 	if t.kernel != nil {
 		if err := t.kernel.Assert(Fact{
 			Predicate: "hypothesis",
-			Args:      []interface{}{hypothesis},
+			Args:      []any{hypothesis},
 		}); err != nil {
 			logging.Get(logging.CategoryKernel).Warn("Failed to assert hypothesis: %v", err)
 		}
@@ -783,9 +783,9 @@ func (t *TDDLoop) ToFacts() []Fact {
 	defer t.mu.RUnlock()
 
 	facts := []Fact{
-		{Predicate: "test_state", Args: []interface{}{"/" + string(t.state)}},
-		{Predicate: "retry_count", Args: []interface{}{int64(t.retryCount)}},
-		{Predicate: "max_retries", Args: []interface{}{int64(t.maxRetries)}},
+		{Predicate: "test_state", Args: []any{"/" + string(t.state)}},
+		{Predicate: "retry_count", Args: []any{int64(t.retryCount)}},
+		{Predicate: "max_retries", Args: []any{int64(t.maxRetries)}},
 	}
 
 	for _, diag := range t.diagnostics {
@@ -799,7 +799,7 @@ func (t *TDDLoop) ToFacts() []Fact {
 	if t.hypothesis != "" {
 		facts = append(facts, Fact{
 			Predicate: "hypothesis",
-			Args:      []interface{}{t.hypothesis},
+			Args:      []any{t.hypothesis},
 		})
 	}
 

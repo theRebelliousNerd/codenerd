@@ -18,11 +18,11 @@ func TestIntelligenceWiring(t *testing.T) {
 	facts := []Fact{
 		{
 			Predicate: "intelligence_safety_warning",
-			Args:      []interface{}{"camp1", "critical_file.go", "delete", "no_delete", "critical"},
+			Args:      []any{"camp1", "critical_file.go", "delete", "no_delete", "critical"},
 		},
 		{
 			Predicate: "intelligence_churn_hotspot",
-			Args:      []interface{}{"churn_file.go", 15, "high churn"},
+			Args:      []any{"churn_file.go", 15, "high churn"},
 		},
 	}
 

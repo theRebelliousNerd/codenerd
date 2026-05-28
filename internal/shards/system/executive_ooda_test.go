@@ -21,7 +21,7 @@ func TestExecutiveOODATimeoutEmitsFact(t *testing.T) {
 
 	if err := kernel.Assert(core.Fact{
 		Predicate: "user_intent",
-		Args:      []interface{}{"/current_intent", "/instruction", "/deploy", "", ""},
+		Args:      []any{"/current_intent", "/instruction", "/deploy", "", ""},
 	}); err != nil {
 		t.Fatalf("assert user_intent: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestExecutiveOODATimeoutRespectsBootGuard(t *testing.T) {
 
 	if err := kernel.Assert(core.Fact{
 		Predicate: "user_intent",
-		Args:      []interface{}{"/current_intent", "/instruction", "/deploy", "", ""},
+		Args:      []any{"/current_intent", "/instruction", "/deploy", "", ""},
 	}); err != nil {
 		t.Fatalf("assert user_intent: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestExecutiveQueryNextActions_TranslatesDelegateTask(t *testing.T) {
 
 	if err := kernel.Assert(core.Fact{
 		Predicate: "delegate_task",
-		Args:      []interface{}{"/reviewer", "internal/core/shards/agents.go", "/pending"},
+		Args:      []any{"/reviewer", "internal/core/shards/agents.go", "/pending"},
 	}); err != nil {
 		t.Fatalf("assert delegate_task: %v", err)
 	}

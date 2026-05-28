@@ -84,7 +84,15 @@ var (
 	logQueryErr  error
 )
 
-func requireLiveZAIConfig(t *testing.T) *config.UserConfig {
+// requireLiveLLMConfig validates the .nerd/config.json file is set up for
+// a live-LLM integration test and returns the loaded config. Provider-
+// agnostic: any configured API-mode provider with a valid key is accepted
+// (Gemini, ZAI, Anthropic, etc.). Previously this was named
+// requireLiveZAIConfig and forced provider=="zai", which silently locked
+// every test that called it out of running on Gemini configs (the actual
+// production stack today). We keep the old name as a shim below for
+// callers that still reference it.
+func requireLiveLLMConfig(t *testing.T) *config.UserConfig {
 	t.Helper()
 
 	if os.Getenv("CODENERD_LIVE_LLM") != "1" {
@@ -98,21 +106,27 @@ func requireLiveZAIConfig(t *testing.T) *config.UserConfig {
 
 	engine := cfg.GetEngine()
 	if engine == "claude-cli" || engine == "codex-cli" {
-		t.Skipf("skipping live LLM test: engine=%q (requires API mode with Z.AI)", engine)
+		t.Skipf("skipping live LLM test: engine=%q (this test requires the API engine)", engine)
 	}
 
 	provider, key := cfg.GetActiveProvider()
 	if provider == "" || key == "" {
 		t.Skip("skipping live LLM test: no API key configured")
 	}
-	if provider != "zai" {
-		t.Skipf("skipping live LLM test: provider=%q (expected zai)", provider)
-	}
 	if !cfg.GetLogging().DebugMode {
 		t.Fatalf("logging.debug_mode=false; enable it in .nerd/config.json to assert log warnings/errors")
 	}
 
+	t.Logf("live config: provider=%s model=%s", provider, cfg.Model)
 	return cfg
+}
+
+// requireLiveZAIConfig is a backwards-compatible alias for older tests
+// that still reference the original name. New tests should use
+// requireLiveLLMConfig.
+func requireLiveZAIConfig(t *testing.T) *config.UserConfig {
+	t.Helper()
+	return requireLiveLLMConfig(t)
 }
 
 func envInt(name string, fallback int) int {
@@ -183,10 +197,7 @@ func programTimeoutFor(t liveTimeouts, promptCount int, extra time.Duration) tim
 	if promptCount < 0 {
 		promptCount = 0
 	}
-	total := t.boot + t.scan + t.shutdown + time.Duration(promptCount)*t.response + extra
-	if total < t.response {
-		total = t.response
-	}
+	total := max(t.boot+t.scan+t.shutdown+time.Duration(promptCount)*t.response+extra, t.response)
 	return envDuration("CODENERD_LIVE_PROGRAM_TIMEOUT", total)
 }
 
@@ -444,12 +455,12 @@ type loopReport struct {
 		LoopsDetected  int      `json:"loops_detected"`
 		Affected       []string `json:"affected_actions"`
 	} `json:"summary"`
-	Anomalies []map[string]interface{} `json:"anomalies"`
+	Anomalies []map[string]any `json:"anomalies"`
 }
 
 type logQueryResult struct {
-	Predicate string        `json:"predicate"`
-	Args      []interface{} `json:"args"`
+	Predicate string `json:"predicate"`
+	Args      []any  `json:"args"`
 }
 
 func readLogEntriesSince(t *testing.T, logDir string, since time.Time) []logEntry {
@@ -1012,7 +1023,7 @@ func formatLoopReport(report loopReport, limit int) string {
 	return sb.String()
 }
 
-func formatLoopAnomaly(anomaly map[string]interface{}) string {
+func formatLoopAnomaly(anomaly map[string]any) string {
 	if anomaly == nil {
 		return "unknown anomaly"
 	}
@@ -1030,7 +1041,7 @@ func formatLoopAnomaly(anomaly map[string]interface{}) string {
 	if count := formatJSONValue(anomaly["count"]); count != "" {
 		parts = append(parts, "count="+count)
 	}
-	if root, ok := anomaly["root_cause"].(map[string]interface{}); ok {
+	if root, ok := anomaly["root_cause"].(map[string]any); ok {
 		if diag := formatJSONValue(root["diagnosis"]); diag != "" {
 			parts = append(parts, "cause="+diag)
 		}
@@ -1077,7 +1088,7 @@ func formatLogQueryResult(result logQueryResult) string {
 	return fmt.Sprintf("%s(%s)", result.Predicate, strings.Join(args, ", "))
 }
 
-func formatJSONValue(value interface{}) string {
+func formatJSONValue(value any) string {
 	switch v := value.(type) {
 	case nil:
 		return ""
@@ -1370,10 +1381,7 @@ func TestChatLiveLLM_EventStorm(t *testing.T) {
 	startTime := time.Now().Add(-1 * time.Second)
 	signals := newTestSignals()
 	timeouts := resolveLiveTimeouts()
-	rounds := envInt("CODENERD_LIVE_STORM_ROUNDS", 5)
-	if rounds < 1 {
-		rounds = 1
-	}
+	rounds := max(envInt("CODENERD_LIVE_STORM_ROUNDS", 5), 1)
 	programTimeout := programTimeoutFor(timeouts, rounds, 3*time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), programTimeout)
@@ -1424,10 +1432,7 @@ func TestChatLiveLLM_RaceStorm(t *testing.T) {
 	signals := newTestSignals()
 	timeouts := resolveLiveTimeouts()
 	stormDuration := envDuration("CODENERD_LIVE_STORM_DURATION", 2*time.Minute)
-	senders := envInt("CODENERD_LIVE_STORM_SENDERS", 4)
-	if senders < 1 {
-		senders = 1
-	}
+	senders := max(envInt("CODENERD_LIVE_STORM_SENDERS", 4), 1)
 	prompts := []string{
 		"List two failure modes for long-running TUIs.",
 		"Summarize how codeNERD enforces safety in one paragraph.",

@@ -241,7 +241,6 @@ func TestExtractRuleFromResponse(t *testing.T) {
 	}
 }
 
-
 func TestFeedbackLoop_CanRetryPrompt(t *testing.T) {
 	loop := NewFeedbackLoop(RetryConfig{
 		MaxRetries:    1,
@@ -293,7 +292,7 @@ func TestValidationBudget(t *testing.T) {
 	promptHash := "test123"
 
 	// Should allow retries initially
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		can, _ := budget.CanRetry(promptHash)
 		if !can {
 			t.Errorf("expected to allow retry %d", i+1)
@@ -325,7 +324,7 @@ func TestValidationBudget_SessionLimit(t *testing.T) {
 	budget := NewValidationBudget(config)
 
 	// Use up session budget
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		budget.RecordAttempt("prompt" + string(rune(i)))
 	}
 

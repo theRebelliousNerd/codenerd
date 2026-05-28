@@ -22,10 +22,10 @@ func TestRouterMissingRouteEmitsFailure(t *testing.T) {
 	router.Kernel = kernel
 
 	actionID := "action-missing-route"
-	payload := map[string]interface{}{"intent_id": "/current_intent"}
+	payload := map[string]any{"intent_id": "/current_intent"}
 	if err := kernel.Assert(core.Fact{
 		Predicate: "permitted_action",
-		Args:      []interface{}{actionID, "/nonexistent_action", "", payload, time.Now().Unix()},
+		Args:      []any{actionID, "/nonexistent_action", "", payload, time.Now().Unix()},
 	}); err != nil {
 		t.Fatalf("assert permitted_action: %v", err)
 	}

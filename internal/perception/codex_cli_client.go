@@ -140,7 +140,7 @@ func (c *CodexCLIClient) CompleteWithSystem(ctx context.Context, systemPrompt, u
 func (c *CodexCLIClient) CompleteWithSchema(ctx context.Context, systemPrompt, userPrompt, jsonSchema string) (string, error) {
 	combinedPrompt := c.buildPrompt(systemPrompt, userPrompt)
 
-	var schema map[string]interface{}
+	var schema map[string]any
 	if strings.TrimSpace(jsonSchema) != "" {
 		if err := json.Unmarshal([]byte(jsonSchema), &schema); err != nil {
 			return "", fmt.Errorf("invalid JSON schema for codex-cli: %w", err)
@@ -203,7 +203,7 @@ func (c *CodexCLIClient) CompleteWithStreaming(ctx context.Context, systemPrompt
 	return contentChan, errorChan
 }
 
-func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]interface{}) (string, error) {
+func (c *CodexCLIClient) executeWithFallback(ctx context.Context, prompt string, schema map[string]any) (string, error) {
 	model := c.ModelForContext(ctx)
 	response, err := c.executeCLI(ctx, prompt, model, schema)
 	if err != nil {
@@ -336,7 +336,7 @@ func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schem
 }
 
 // executeCLI runs the codex CLI command with prompt piped to stdin and returns the last message.
-func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, schema map[string]interface{}) (string, error) {
+func (c *CodexCLIClient) executeCLI(ctx context.Context, prompt, model string, schema map[string]any) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -534,7 +534,7 @@ func extractCodexExecAgentMessage(stdout string) string {
 	}
 
 	last := ""
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.HasPrefix(line, "{") {
 			continue
@@ -558,7 +558,7 @@ func extractCodexExecFailureDetail(stdout string) string {
 		return ""
 	}
 
-	for _, line := range strings.Split(stdout, "\n") {
+	for line := range strings.SplitSeq(stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || !strings.HasPrefix(line, "{") {
 			continue

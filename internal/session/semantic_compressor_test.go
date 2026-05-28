@@ -71,8 +71,8 @@ func TestSemanticCompressor_Compress_NullEmpty(t *testing.T) {
 
 	// Gap 1 & 2
 	turns := []perception.ConversationTurn{
-		{Role: "user", Content: "   "},      // Empty content
-		{Role: "", Content: "coerced"},      // Empty role
+		{Role: "user", Content: "   "}, // Empty content
+		{Role: "", Content: "coerced"}, // Empty role
 	}
 
 	summary, err := compressor.Compress(context.Background(), turns)
@@ -126,7 +126,7 @@ func TestSemanticCompressor_Compress_UserRequestExtremes(t *testing.T) {
 
 	// Gap 6 & 7: 100,000 items
 	var turns []perception.ConversationTurn
-	for i := 0; i < 100000; i++ {
+	for range 100000 {
 		turns = append(turns, perception.ConversationTurn{Role: "user", Content: "A very long turn content that goes on and on."})
 	}
 

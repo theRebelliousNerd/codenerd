@@ -47,7 +47,7 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 	uploadBase := strings.Replace(c.baseURL, "/v1beta", "/upload/v1beta", 1)
 	url := fmt.Sprintf("%s/files?key=%s", uploadBase, c.apiKey)
 
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"file": map[string]string{
 			"displayName": filepath.Base(path),
 		},
@@ -105,13 +105,13 @@ func (c *GeminiClient) UploadFile(ctx context.Context, path string, mimeType str
 		return "", fmt.Errorf("upload finalization failed (status %d): %s", respUpload.StatusCode, body)
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.NewDecoder(respUpload.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("failed to parse upload response: %w", err)
 	}
 
 	// Extract URI
-	if fileInfo, ok := result["file"].(map[string]interface{}); ok {
+	if fileInfo, ok := result["file"].(map[string]any); ok {
 		if uri, ok := fileInfo["uri"].(string); ok {
 			logging.PerceptionDebug("[Gemini] UploadFile success: uri=%s", uri)
 			return uri, nil
@@ -156,7 +156,7 @@ func (c *GeminiClient) ListFiles(ctx context.Context) ([]string, error) {
 }
 
 // GetFile retrieves metadata for a file.
-func (c *GeminiClient) GetFile(ctx context.Context, fileNameOrURI string) (interface{}, error) {
+func (c *GeminiClient) GetFile(ctx context.Context, fileNameOrURI string) (any, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key required")
 	}
@@ -314,7 +314,7 @@ func (c *GeminiClient) CreateCachedContent(ctx context.Context, files []string, 
 }
 
 // GetCachedContent retrieves metadata for a cached content.
-func (c *GeminiClient) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+func (c *GeminiClient) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("API key required")
 	}

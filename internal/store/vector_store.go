@@ -69,7 +69,7 @@ func (s *LocalStore) SetEmbeddingEngine(engine embedding.EmbeddingEngine) {
 
 // StoreVectorWithEmbedding stores content with a real vector embedding.
 // This is the new method that replaces StoreVector for semantic search.
-func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content string, metadata map[string]interface{}) error {
+func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content string, metadata map[string]any) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreVectorWithEmbedding")
 	defer timer.Stop()
 
@@ -134,7 +134,7 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 
 // StoreVectorBatchWithEmbedding stores a batch of entries with embeddings.
 // Falls back to keyword-only storage when no embedding engine is configured.
-func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents []string, metadata []map[string]interface{}) (int, error) {
+func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents []string, metadata []map[string]any) (int, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreVectorBatchWithEmbedding")
 	defer timer.Stop()
 
@@ -274,7 +274,7 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 }
 
 // storeVectorKeywordOnly stores content without embeddings (fallback).
-func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]interface{}) error {
+func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]any) error {
 	metaJSON, _ := json.Marshal(metadata)
 
 	_, err := s.db.Exec(
@@ -284,7 +284,7 @@ func (s *LocalStore) storeVectorKeywordOnly(content string, metadata map[string]
 	return err
 }
 
-func (s *LocalStore) storeVectorBatchKeywordOnly(contents []string, metadata []map[string]interface{}) (int, error) {
+func (s *LocalStore) storeVectorBatchKeywordOnly(contents []string, metadata []map[string]any) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -419,7 +419,7 @@ func (s *LocalStore) VectorRecallSemanticByPaths(ctx context.Context, query stri
 
 // VectorRecallSemanticFiltered restricts search to entries whose metadata contain a key/value pair.
 // This reduces scanning cost when the store contains vectors from many campaigns.
-func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query string, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+func (s *LocalStore) VectorRecallSemanticFiltered(ctx context.Context, query string, limit int, metaKey string, metaValue any) ([]VectorEntry, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "VectorRecallSemanticFiltered")
 	defer timer.Stop()
 
@@ -482,7 +482,7 @@ func (s *LocalStore) vectorRecallKeyword(query string, limit int) ([]VectorEntry
 	return s.VectorRecall(query, limit)
 }
 
-func matchesMetadata(meta map[string]interface{}, key string, value interface{}) bool {
+func matchesMetadata(meta map[string]any, key string, value any) bool {
 	if key == "" {
 		return true
 	}
@@ -495,7 +495,7 @@ func matchesMetadata(meta map[string]interface{}, key string, value interface{})
 	return false
 }
 
-func buildPathFilteredQuery(paths []string) (string, []interface{}) {
+func buildPathFilteredQuery(paths []string) (string, []any) {
 	base := "SELECT id, content, embedding, metadata, created_at FROM vectors WHERE embedding IS NOT NULL"
 	if len(paths) == 0 {
 		return base, nil
@@ -503,7 +503,7 @@ func buildPathFilteredQuery(paths []string) (string, []interface{}) {
 	var sb strings.Builder
 	sb.WriteString(base)
 	sb.WriteString(" AND (")
-	args := make([]interface{}, 0, len(paths))
+	args := make([]any, 0, len(paths))
 	for i, p := range paths {
 		if i > 0 {
 			sb.WriteString(" OR ")
@@ -536,7 +536,7 @@ func filterByPaths(entries []VectorEntry, paths []string) []VectorEntry {
 }
 
 // vectorRecallVec performs ANN search via sqlite-vec when available.
-func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit int, allowedPaths []string, metaKey string, metaValue any) ([]VectorEntry, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "vectorRecallVec")
 	defer timer.Stop()
 
@@ -553,7 +553,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 	queryBlob := encodeFloat32Slice(queryVec)
 
 	where := make([]string, 0)
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 
 	// Path filters
 	if len(allowedPaths) > 0 {
@@ -571,7 +571,7 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 	}
 
 	sqlStr := "SELECT rowid, content, metadata, vec_distance_cosine(embedding, ?) AS dist FROM vec_index"
-	args = append([]interface{}{queryBlob}, args...)
+	args = append([]any{queryBlob}, args...)
 	if len(where) > 0 {
 		sqlStr += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -600,13 +600,13 @@ func (s *LocalStore) vectorRecallVec(queryText string, queryVec []float32, limit
 			ID:        id,
 			Content:   content,
 			CreatedAt: time.Now(),
-			Metadata:  make(map[string]interface{}),
+			Metadata:  make(map[string]any),
 		}
 		if len(metaJSON) > 0 {
 			json.Unmarshal(metaJSON, &entry.Metadata)
 		}
 		if entry.Metadata == nil {
-			entry.Metadata = make(map[string]interface{})
+			entry.Metadata = make(map[string]any)
 		}
 		entry.Metadata["similarity"] = 1 - dist
 		results = append(results, entry)
@@ -724,10 +724,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 	backfillCount := 0
 
 	for i := 0; i < len(toInsert); i += batchSize {
-		end := i + batchSize
-		if end > len(toInsert) {
-			end = len(toInsert)
-		}
+		end := min(i+batchSize, len(toInsert))
 		batch := toInsert[i:end]
 
 		// Use a transaction for each batch
@@ -765,7 +762,7 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 }
 
 // CountVectorsByMetadata returns the number of vectors whose metadata contains the key/value pair.
-func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue interface{}) (int, error) {
+func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue any) (int, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "CountVectorsByMetadata")
 	defer timer.Stop()
 
@@ -785,7 +782,7 @@ func (s *LocalStore) CountVectorsByMetadata(metaKey string, metaValue interface{
 }
 
 // VectorContentsByMetadata returns a set of vector contents matching a metadata key/value.
-func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue interface{}) (map[string]struct{}, error) {
+func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue any) (map[string]struct{}, error) {
 	if metaKey == "" {
 		return nil, fmt.Errorf("metadata key is required")
 	}
@@ -813,7 +810,7 @@ func (s *LocalStore) VectorContentsByMetadata(metaKey string, metaValue interfac
 
 // DeleteVectorsByMetadata removes vectors whose metadata contains the key/value pair.
 // Returns the number of rows deleted.
-func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue interface{}) (int64, error) {
+func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue any) (int64, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "DeleteVectorsByMetadata")
 	defer timer.Stop()
 
@@ -837,7 +834,7 @@ func (s *LocalStore) DeleteVectorsByMetadata(metaKey string, metaValue interface
 }
 
 // GetVectorStats returns statistics about stored vectors.
-func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
+func (s *LocalStore) GetVectorStats() (map[string]any, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "GetVectorStats")
 	defer timer.Stop()
 
@@ -846,7 +843,7 @@ func (s *LocalStore) GetVectorStats() (map[string]interface{}, error) {
 
 	logging.StoreDebug("Computing vector store statistics")
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	var totalVectors int64
 	s.db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&totalVectors)
@@ -1065,7 +1062,7 @@ func (s *LocalStore) ReembedAllVectorsForce(ctx context.Context) (int, error) {
 		uniformTask := true
 		for j, v := range batch {
 			texts[j] = v.content
-			var meta map[string]interface{}
+			var meta map[string]any
 			if v.metadata != "" {
 				_ = json.Unmarshal([]byte(v.metadata), &meta)
 			}
@@ -1378,7 +1375,7 @@ func (s *LocalStore) vectorRecallBruteForce(queryText string, queryEmbedding []f
 	for i, c := range candidates {
 		results[i] = c.entry
 		if results[i].Metadata == nil {
-			results[i].Metadata = make(map[string]interface{})
+			results[i].Metadata = make(map[string]any)
 		}
 		results[i].Metadata["similarity"] = c.similarity
 	}
@@ -1453,7 +1450,7 @@ func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedd
 	for i, c := range candidates {
 		results[i] = c.entry
 		if results[i].Metadata == nil {
-			results[i].Metadata = make(map[string]interface{})
+			results[i].Metadata = make(map[string]any)
 		}
 		results[i].Metadata["similarity"] = c.similarity
 	}
@@ -1462,7 +1459,7 @@ func (s *LocalStore) vectorRecallBruteForceByPaths(queryText string, queryEmbedd
 }
 
 // vectorRecallBruteForceFiltered is the fallback cosine similarity search with metadata filtering.
-func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbedding []float32, limit int, metaKey string, metaValue interface{}) ([]VectorEntry, error) {
+func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbedding []float32, limit int, metaKey string, metaValue any) ([]VectorEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -1537,7 +1534,7 @@ func (s *LocalStore) vectorRecallBruteForceFiltered(queryText string, queryEmbed
 	for i, c := range candidates {
 		results[i] = c.entry
 		if results[i].Metadata == nil {
-			results[i].Metadata = make(map[string]interface{})
+			results[i].Metadata = make(map[string]any)
 		}
 		results[i].Metadata["similarity"] = c.similarity
 	}

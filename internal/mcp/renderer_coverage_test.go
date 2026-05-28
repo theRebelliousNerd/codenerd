@@ -270,12 +270,12 @@ func TestRenderJSON_ShouldProduceValidJSON(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
 
-	primary, ok := parsed["primary_tools"].([]interface{})
+	primary, ok := parsed["primary_tools"].([]any)
 	if !ok || len(primary) != 1 {
 		t.Error("expected 1 primary tool")
 	}

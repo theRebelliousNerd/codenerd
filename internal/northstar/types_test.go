@@ -120,7 +120,6 @@ func TestPersona_JSONRoundTrip(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -227,7 +226,6 @@ func TestObservationType_Values(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.expected, func(t *testing.T) {
 			t.Parallel()
 			if string(tc.obsType) != tc.expected {
@@ -295,7 +293,6 @@ func TestAlignmentTrigger_Values(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.expected, func(t *testing.T) {
 			t.Parallel()
 			if string(tc.trigger) != tc.expected {
@@ -320,7 +317,6 @@ func TestAlignmentResult_Values(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.expected, func(t *testing.T) {
 			t.Parallel()
 			if string(tc.result) != tc.expected {
@@ -386,7 +382,6 @@ func TestDriftSeverity_Values(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.expected, func(t *testing.T) {
 			t.Parallel()
 			if string(tc.severity) != tc.expected {

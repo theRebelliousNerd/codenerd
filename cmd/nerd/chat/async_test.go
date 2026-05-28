@@ -138,7 +138,7 @@ func TestConcurrentUpdates(t *testing.T) {
 	iterations := 100
 
 	// Simulate concurrent updates
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -181,7 +181,7 @@ func TestConcurrentViews(t *testing.T) {
 	var wg sync.WaitGroup
 	iterations := 50
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -222,7 +222,7 @@ func TestGoroutineCount_AfterOperations(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	// Create and use multiple models
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		m := NewTestModel()
 
 		// Perform some operations that don't require kernel
@@ -257,11 +257,9 @@ func TestWaitGroup_TracksGoroutines(t *testing.T) {
 	wg := m.goroutineWg
 
 	// Add some work
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(10 * time.Millisecond)
-	}()
+	})
 
 	// Wait should complete
 	done := make(chan struct{})
@@ -288,7 +286,7 @@ func TestStatusChannel_NonBlocking(t *testing.T) {
 	m := NewTestModel()
 
 	// ReportStatus should not block even if channel is full
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		m.ReportStatus("status update")
 	}
 
@@ -433,7 +431,7 @@ func TestShardResultHistory_SlidingWindow(t *testing.T) {
 	m := NewTestModel()
 
 	// Add more than maxHistorySize results
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		m.storeShardResult("test", "task", "result", nil)
 	}
 
@@ -501,7 +499,7 @@ func TestRenderingCache_InvalidationIndex(t *testing.T) {
 	m := NewTestModel()
 
 	// Add messages
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		msg := Message{Role: "user", Content: "test", Time: time.Now()}
 		m = m.addMessage(msg)
 	}

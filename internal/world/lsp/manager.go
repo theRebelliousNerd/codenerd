@@ -115,7 +115,7 @@ func (m *Manager) projectDefinitions() []core.Fact {
 		for _, def := range defs {
 			facts = append(facts, core.Fact{
 				Predicate: "symbol_defined",
-				Args: []interface{}{
+				Args: []any{
 					"/mangle",
 					symbol,
 					def.FilePath,
@@ -145,7 +145,7 @@ func (m *Manager) projectReferences() []core.Fact {
 			kind := referenceKindToAtom(ref.Kind)
 			facts = append(facts, core.Fact{
 				Predicate: "symbol_referenced",
-				Args: []interface{}{
+				Args: []any{
 					"/mangle",
 					symbol,
 					ref.FilePath,
@@ -176,7 +176,7 @@ func (m *Manager) projectDiagnostics() []core.Fact {
 			severity := diagnosticSeverityToAtom(diag.Severity)
 			facts = append(facts, core.Fact{
 				Predicate: "code_diagnostic",
-				Args: []interface{}{
+				Args: []any{
 					diag.FilePath,
 					diag.Line,
 					severity,
@@ -211,7 +211,7 @@ func (m *Manager) GetDefinitions(symbol string) ([]core.Fact, error) {
 	for _, def := range defs {
 		facts = append(facts, core.Fact{
 			Predicate: "symbol_defined",
-			Args: []interface{}{
+			Args: []any{
 				"/mangle",
 				def.Symbol,
 				def.FilePath,
@@ -240,7 +240,7 @@ func (m *Manager) GetReferences(symbol string) ([]core.Fact, error) {
 		kind := referenceKindToAtom(ref.Kind)
 		facts = append(facts, core.Fact{
 			Predicate: "symbol_referenced",
-			Args: []interface{}{
+			Args: []any{
 				"/mangle",
 				ref.Symbol,
 				ref.FilePath,
@@ -272,7 +272,7 @@ func (m *Manager) ValidateCode(filePath, content string) ([]core.Fact, error) {
 		severity := diagnosticSeverityToAtom(diag.Severity)
 		facts = append(facts, core.Fact{
 			Predicate: "code_diagnostic",
-			Args: []interface{}{
+			Args: []any{
 				diag.FilePath,
 				diag.Line,
 				severity,

@@ -115,9 +115,9 @@ func (k *RealKernel) validateLearnedRulesContent(learnedText string, filePath st
 		}
 
 		// Track commented-out rules (potential previous self-healing)
-		if strings.HasPrefix(trimmed, "#") {
+		if after, ok := strings.CutPrefix(trimmed, "#"); ok {
 			// Check if this is a commented-out rule (starts with # and contains :-)
-			commentContent := strings.TrimPrefix(trimmed, "#")
+			commentContent := after
 			commentContent = strings.TrimSpace(commentContent)
 			if strings.Contains(commentContent, ":-") && !strings.HasPrefix(commentContent, "SELF-HEALED") {
 				result.stats.CommentedRules++
@@ -344,7 +344,7 @@ func (k *RealKernel) checkInfiniteLoopRisk(rule string) string {
 		// Rules that fire when something is NOT true (negation as sole/main condition)
 		if strings.HasPrefix(body, "!") || strings.Contains(body, ", !") {
 			positivePredicates := 0
-			for _, part := range strings.Split(body, ",") {
+			for part := range strings.SplitSeq(body, ",") {
 				part = strings.TrimSpace(part)
 				if part != "" && !strings.HasPrefix(part, "!") && strings.Contains(part, "(") {
 					positivePredicates++

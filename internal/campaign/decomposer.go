@@ -801,21 +801,21 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 	// Campaign goal fact already loaded later; still record a preliminary goal signal for selection rules.
 	facts = append(facts, core.Fact{
 		Predicate: "campaign_goal",
-		Args:      []interface{}{campaignID, goal},
+		Args:      []any{campaignID, goal},
 	})
 
 	topics := extractTopicsFromGoal(goal)
 	for _, topic := range topics {
 		facts = append(facts, core.Fact{
 			Predicate: "goal_topic",
-			Args:      []interface{}{campaignID, fmt.Sprintf("/%s", topic)},
+			Args:      []any{campaignID, fmt.Sprintf("/%s", topic)},
 		})
 	}
 
 	for _, fm := range files {
 		facts = append(facts, core.Fact{
 			Predicate: "doc_metadata",
-			Args:      []interface{}{campaignID, fm.Path, fm.Type, fm.SizeBytes, fm.ModifiedAt.Unix()},
+			Args:      []any{campaignID, fm.Path, fm.Type, fm.SizeBytes, fm.ModifiedAt.Unix()},
 		})
 		layer := fm.Layer
 		if layer == "" {
@@ -827,12 +827,12 @@ func (d *Decomposer) seedDocFacts(campaignID, goal string, files []FileMetadata)
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "doc_layer",
-			Args:      []interface{}{fm.Path, layer, confidence},
+			Args:      []any{fm.Path, layer, confidence},
 		})
 		for _, tag := range fm.Tags {
 			facts = append(facts, core.Fact{
 				Predicate: "doc_tag",
-				Args:      []interface{}{fm.Path, fmt.Sprintf("/%s", tag)},
+				Args:      []any{fm.Path, fmt.Sprintf("/%s", tag)},
 			})
 		}
 	}
@@ -1313,7 +1313,7 @@ func deriveTagsFromPath(path string) []string {
 			continue
 		}
 		tags[base] = struct{}{}
-		for _, seg := range strings.Split(base, "-") {
+		for seg := range strings.SplitSeq(base, "-") {
 			if seg != "" {
 				tags[seg] = struct{}{}
 			}
@@ -2016,7 +2016,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, wf := range intel.WorldFacts {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_world_fact",
-			Args:      []interface{}{campaignID, wf.Predicate, wf.Args},
+			Args:      []any{campaignID, wf.Predicate, wf.Args},
 		})
 	}
 
@@ -2024,7 +2024,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, ch := range intel.GitChurnHotspots {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_churn_hotspot",
-			Args:      []interface{}{ch.Path, ch.ChurnRate, ch.Reason},
+			Args:      []any{ch.Path, ch.ChurnRate, ch.Reason},
 		})
 	}
 
@@ -2032,7 +2032,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, lp := range intel.HistoricalPatterns {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_learning_pattern",
-			Args:      []interface{}{lp.ShardType, lp.Description, lp.Confidence},
+			Args:      []any{lp.ShardType, lp.Description, lp.Confidence},
 		})
 	}
 
@@ -2040,7 +2040,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, sw := range intel.SafetyWarnings {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_safety_warning",
-			Args:      []interface{}{campaignID, sw.Path, sw.Action, sw.RuleViolated},
+			Args:      []any{campaignID, sw.Path, sw.Action, sw.RuleViolated},
 		})
 	}
 
@@ -2048,7 +2048,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, tg := range intel.ToolGaps {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_tool_gap",
-			Args:      []interface{}{campaignID, tg.Name, tg.Purpose},
+			Args:      []any{campaignID, tg.Name, tg.Purpose},
 		})
 	}
 
@@ -2056,7 +2056,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, mt := range intel.MCPToolsAvailable {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_mcp_tool",
-			Args:      []interface{}{mt.ToolID, mt.ServerID, mt.Affinity},
+			Args:      []any{mt.ToolID, mt.ServerID, mt.Affinity},
 		})
 	}
 
@@ -2064,7 +2064,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for _, sa := range intel.ShardAdvice {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_shard_advice",
-			Args:      []interface{}{campaignID, sa.FromSpec, sa.Advice, sa.Confidence},
+			Args:      []any{campaignID, sa.FromSpec, sa.Advice, sa.Confidence},
 		})
 	}
 
@@ -2072,7 +2072,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 	for path, coverage := range intel.TestCoverage {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_test_coverage",
-			Args:      []interface{}{path, coverage},
+			Args:      []any{path, coverage},
 		})
 	}
 
@@ -2084,7 +2084,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_code_pattern",
-			Args:      []interface{}{cp.Name, files, cp.Confidence},
+			Args:      []any{cp.Name, files, cp.Confidence},
 		})
 	}
 
@@ -2093,7 +2093,7 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		success := ca.SuccessRate > 0.5 // Consider successful if > 50%
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_previous_campaign",
-			Args:      []interface{}{ca.CampaignID, ca.Goal, success},
+			Args:      []any{ca.CampaignID, ca.Goal, success},
 		})
 	}
 
@@ -2336,7 +2336,7 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 		for _, taskID := range req.CoveredBy {
 			d.kernel.Assert(core.Fact{
 				Predicate: "requirement_coverage",
-				Args:      []interface{}{req.ID, taskID},
+				Args:      []any{req.ID, taskID},
 			})
 		}
 	}

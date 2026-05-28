@@ -457,7 +457,7 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 				logging.Get(logging.CategorySystemShards).Error("[PerceptionFirewall] Error processing input: %v", err)
 				_ = p.Kernel.Assert(types.Fact{
 					Predicate: "perception_error",
-					Args:      []interface{}{err.Error(), time.Now().Unix()},
+					Args:      []any{err.Error(), time.Now().Unix()},
 				})
 			}
 		case <-heartbeat.C:
@@ -558,14 +558,14 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	tx.Retract("campaign_awaiting_clarification")
 	tx.Retract("focus_resolution")
 	tx.Retract("user_input_string")
-	tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []interface{}{intentID}})
-	tx.RetractFact(types.Fact{Predicate: "processed_intent", Args: []interface{}{intentID}})
-	tx.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []interface{}{intentID}})
+	tx.RetractFact(types.Fact{Predicate: "user_intent", Args: []any{intentID}})
+	tx.RetractFact(types.Fact{Predicate: "processed_intent", Args: []any{intentID}})
+	tx.RetractFact(types.Fact{Predicate: "executive_processed_intent", Args: []any{intentID}})
 
 	if phrase != "" {
 		tx.Assert(types.Fact{
 			Predicate: "user_input_string",
-			Args:      []interface{}{phrase},
+			Args:      []any{phrase},
 		})
 	}
 	if err := tx.Commit(); err != nil {
@@ -594,7 +594,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	if unknownReason != "" {
 		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "intent_unknown",
-			Args: []interface{}{
+			Args: []any{
 				truncateForLog(input, 120),
 				types.MangleAtom(unknownReason),
 			},
@@ -604,7 +604,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	if mapped, mapReason := p.classifyVerbMapping(intent.Verb); !mapped {
 		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "intent_unmapped",
-			Args: []interface{}{
+			Args: []any{
 				types.MangleAtom(intent.Verb),
 				types.MangleAtom(mapReason),
 			},
@@ -629,13 +629,13 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 				}
 				_ = p.Kernel.Assert(types.Fact{
 					Predicate: "learning_candidate_count",
-					Args:      []interface{}{phrase, count},
+					Args:      []any{phrase, count},
 				})
 			}
 			if count >= p.config.LearningCandidateThreshold {
 				_ = p.Kernel.Assert(types.Fact{
 					Predicate: "learning_candidate",
-					Args: []interface{}{
+					Args: []any{
 						phrase,
 						types.MangleAtom(intent.Verb),
 						intent.Target,
@@ -649,7 +649,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Emit user_intent/5
 	_ = p.Kernel.Assert(types.Fact{
 		Predicate: "user_intent",
-		Args: []interface{}{
+		Args: []any{
 			intentID,
 			types.MangleAtom(intent.Category),
 			types.MangleAtom(intent.Verb),
@@ -673,7 +673,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		logging.Get(logging.CategorySystemShards).Warn("[PerceptionFirewall] Ambiguous intent detected: confidence=%.2f", intent.Confidence)
 		_ = p.Kernel.Assert(types.Fact{
 			Predicate: "ambiguity_flag",
-			Args: []interface{}{
+			Args: []any{
 				intentID,
 				truncateForLog(input, 120),
 				fmt.Sprintf("confidence=%.2f", intent.Confidence),
@@ -704,7 +704,7 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 	// Mark as processed
 	_ = p.Kernel.Assert(types.Fact{
 		Predicate: "processed_intent",
-		Args:      []interface{}{intentID},
+		Args:      []any{intentID},
 	})
 
 	logging.SystemShards("[PerceptionFirewall] Intent processed: id=%s, verb=%s", intentID, intent.Verb)

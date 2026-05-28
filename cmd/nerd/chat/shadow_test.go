@@ -77,7 +77,7 @@ func TestShadow_GetChildNodes_NextAction(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"test"},
+		Args:      []any{"test"},
 	}
 
 	children := getChildNodes(m.kernel, fact)
@@ -95,7 +95,7 @@ func TestShadow_GetChildNodes_Impacted(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "impacted",
-		Args:      []interface{}{"test"},
+		Args:      []any{"test"},
 	}
 
 	children := getChildNodes(m.kernel, fact)
@@ -113,7 +113,7 @@ func TestShadow_GetChildNodes_ClarificationNeeded(t *testing.T) {
 
 	fact := core.Fact{
 		Predicate: "clarification_needed",
-		Args:      []interface{}{"test"},
+		Args:      []any{"test"},
 	}
 
 	children := getChildNodes(m.kernel, fact)
@@ -132,7 +132,7 @@ func TestShadow_GetChildNodes_Limit(t *testing.T) {
 	// Test with a predicate that might have many children
 	fact := core.Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"test"},
+		Args:      []any{"test"},
 	}
 
 	children := getChildNodes(m.kernel, fact)
@@ -520,7 +520,7 @@ func TestShadow_Performance_BuildTrace(t *testing.T) {
 
 	iterations := 100
 	perf.Track("build_trace_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_ = m.buildDerivationTrace("config_value")
 		}
 	})
@@ -539,7 +539,7 @@ func TestShadow_Performance_RenderLogicPane(t *testing.T) {
 
 	iterations := 100
 	perf.Track("render_logic_pane_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_ = m.renderLogicPane()
 		}
 	})
@@ -647,14 +647,14 @@ func TestShadow_ConcurrentTraceBuilding(t *testing.T) {
 
 	done := make(chan bool)
 	perf.Track("concurrent_traces", func() {
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			go func(idx int) {
 				_ = m.buildDerivationTrace("config_value")
 				done <- true
 			}(i)
 		}
 
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):

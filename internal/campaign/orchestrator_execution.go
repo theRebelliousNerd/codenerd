@@ -196,11 +196,11 @@ func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
 			if campaignID != "" && o.kernel != nil {
 				_ = o.kernel.RetractFact(core.Fact{
 					Predicate: "campaign_heartbeat",
-					Args:      []interface{}{campaignID},
+					Args:      []any{campaignID},
 				})
 				_ = o.kernel.Assert(core.Fact{
 					Predicate: "campaign_heartbeat",
-					Args:      []interface{}{campaignID, time.Now().Unix()},
+					Args:      []any{campaignID, time.Now().Unix()},
 				})
 			}
 		case <-autosaveTicker.C:

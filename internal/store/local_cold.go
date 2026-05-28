@@ -14,7 +14,7 @@ import (
 type StoredFact struct {
 	ID           int64
 	Predicate    string
-	Args         []interface{}
+	Args         []any
 	FactType     string
 	Priority     int
 	CreatedAt    time.Time
@@ -27,7 +27,7 @@ type StoredFact struct {
 type ArchivedFact struct {
 	ID           int64
 	Predicate    string
-	Args         []interface{}
+	Args         []any
 	FactType     string
 	Priority     int
 	CreatedAt    time.Time
@@ -55,7 +55,7 @@ type MaintenanceStats struct {
 }
 
 // StoreFact persists a fact to cold storage.
-func (s *LocalStore) StoreFact(predicate string, args []interface{}, factType string, priority int) error {
+func (s *LocalStore) StoreFact(predicate string, args []any, factType string, priority int) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreFact")
 	defer timer.Stop()
 
@@ -148,11 +148,11 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 	logging.StoreDebug("Loading all facts from cold storage (type filter=%q)", factType)
 
 	var query string
-	var args []interface{}
+	var args []any
 
 	if factType != "" {
 		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage WHERE fact_type = ? ORDER BY priority DESC"
-		args = []interface{}{factType}
+		args = []any{factType}
 	} else {
 		query = "SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count FROM cold_storage ORDER BY priority DESC"
 	}
@@ -183,7 +183,7 @@ func (s *LocalStore) LoadAllFacts(factType string) ([]StoredFact, error) {
 }
 
 // DeleteFact removes a fact by predicate and args.
-func (s *LocalStore) DeleteFact(predicate string, args []interface{}) error {
+func (s *LocalStore) DeleteFact(predicate string, args []any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -345,12 +345,12 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 	logging.StoreDebug("Retrieving all archived facts (type filter=%q)", factType)
 
 	var query string
-	var args []interface{}
+	var args []any
 
 	if factType != "" {
 		query = `SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
 				 FROM archived_facts WHERE fact_type = ? ORDER BY archived_at DESC`
-		args = []interface{}{factType}
+		args = []any{factType}
 	} else {
 		query = `SELECT id, predicate, args, fact_type, priority, created_at, updated_at, last_accessed, access_count, archived_at
 				 FROM archived_facts ORDER BY archived_at DESC`
@@ -382,7 +382,7 @@ func (s *LocalStore) GetAllArchivedFacts(factType string) ([]ArchivedFact, error
 }
 
 // RestoreArchivedFact moves a fact from archive back to cold storage.
-func (s *LocalStore) RestoreArchivedFact(predicate string, args []interface{}) error {
+func (s *LocalStore) RestoreArchivedFact(predicate string, args []any) error {
 	timer := logging.StartTimer(logging.CategoryStore, "RestoreArchivedFact")
 	defer timer.Stop()
 

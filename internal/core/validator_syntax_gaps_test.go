@@ -119,22 +119,18 @@ func TestSyntaxValidator_ConcurrentRegister(t *testing.T) {
 	res := ActionResult{Success: true}
 
 	// Read loop
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+	wg.Go(func() {
+		for range 100 {
 			v.Validate(context.Background(), req, res)
 		}
-	}()
+	})
 
 	// Write loop
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+	wg.Go(func() {
+		for range 100 {
 			v.RegisterParser(".test", func(b []byte) error { return nil })
 		}
-	}()
+	})
 
 	wg.Wait()
 }

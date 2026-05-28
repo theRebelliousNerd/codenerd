@@ -4,34 +4,43 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
-// TestGeminiStructuredOutput tests that Gemini 3 Flash returns valid structured output.
-// Run with: GEMINI_LIVE_TESTS=1 go test -v -run TestGeminiStructuredOutput ./internal/perception/
+// TestGeminiStructuredOutput exercises the structured-output paths
+// against the configured Gemini model.
+//
+// Gating: respects both CODENERD_LIVE_LLM=1 (the global live-LLM gate) and
+// the legacy GEMINI_LIVE_TESTS=1 (kept so older docs / CI scripts that
+// reference it still work). Model selection comes from .nerd/config.json
+// — we used to hardcode "gemini-3-flash-preview" here, which meant the
+// test never caught issues on the model production actually uses (see
+// gemini_live_test.go for the broader live-test surface).
 func TestGeminiStructuredOutput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping live Gemini test in -short mode")
 	}
-	if os.Getenv("GEMINI_LIVE_TESTS") != "1" {
-		t.Skip("GEMINI_LIVE_TESTS not set to 1; skipping live test")
+	if !liveLLMEnabled() && os.Getenv("GEMINI_LIVE_TESTS") != "1" {
+		t.Skip("set CODENERD_LIVE_LLM=1 (or legacy GEMINI_LIVE_TESTS=1) to enable")
 	}
-	// Load API key from config or environment
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		// Try loading from config
-		key, _, err := LoadConfigForTest()
-		if err == nil && key != "" {
-			apiKey = key
-		}
+
+	// Resolve API key + model. Prefer the production config path
+	// (.nerd/config.json) but allow GEMINI_API_KEY env override for
+	// one-off testing without modifying config.
+	apiKey, configModel, _ := LoadConfigForTest()
+	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
+		apiKey = envKey
 	}
 	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set, skipping live test")
+		t.Skip("no gemini_api_key in .nerd/config.json and GEMINI_API_KEY env not set")
 	}
 
 	client := NewGeminiClient(apiKey)
-	client.SetModel("gemini-3-flash-preview")
+	if configModel != "" {
+		client.SetModel(configModel)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -73,7 +82,7 @@ func TestGeminiStructuredOutput(t *testing.T) {
 		t.Logf("Structured response: %s", resp)
 
 		// Verify it's valid JSON
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(resp), &result); err != nil {
 			t.Errorf("Response is not valid JSON: %v\nResponse was: %s", err, resp)
 		}
@@ -87,12 +96,13 @@ func TestGeminiStructuredOutput(t *testing.T) {
 		}
 	})
 
-	// Test 3: Model identification
+	// Test 3: Model identification. We only assert that some Gemini 3.x
+	// model is in use — the specific variant is whatever config says.
 	t.Run("ModelIdentification", func(t *testing.T) {
 		model := client.GetModel()
-		t.Logf("Using model: %s", model)
-		if model != "gemini-3-flash-preview" {
-			t.Errorf("Expected model gemini-3-flash-preview, got %s", model)
+		t.Logf("Using model: %s (from config: %q)", model, configModel)
+		if !strings.HasPrefix(strings.ToLower(model), "gemini-3") {
+			t.Errorf("Expected a Gemini 3.x model, got %s", model)
 		}
 	})
 
@@ -180,24 +190,24 @@ func TestContextFeedbackSchema(t *testing.T) {
 	schema := piggybackEnvelopeRawSchema()
 
 	// Navigate to control_packet.properties
-	controlPacket, ok := schema["properties"].(map[string]interface{})["control_packet"].(map[string]interface{})
+	controlPacket, ok := schema["properties"].(map[string]any)["control_packet"].(map[string]any)
 	if !ok {
 		t.Fatal("Missing control_packet in schema")
 	}
 
-	props, ok := controlPacket["properties"].(map[string]interface{})
+	props, ok := controlPacket["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Missing properties in control_packet")
 	}
 
 	// Verify context_feedback exists
-	contextFeedback, ok := props["context_feedback"].(map[string]interface{})
+	contextFeedback, ok := props["context_feedback"].(map[string]any)
 	if !ok {
 		t.Fatal("Missing context_feedback in control_packet properties")
 	}
 
 	// Verify context_feedback properties
-	cfProps, ok := contextFeedback["properties"].(map[string]interface{})
+	cfProps, ok := contextFeedback["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Missing properties in context_feedback")
 	}
@@ -214,7 +224,7 @@ func TestContextFeedbackSchema(t *testing.T) {
 	switch v := controlPacket["required"].(type) {
 	case []string:
 		required = v
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			s, ok := item.(string)
 			if !ok {

@@ -1068,7 +1068,7 @@ func (g *IntelligenceGatherer) gatherShardAdvice(ctx context.Context, report *In
 // HELPER METHODS
 // =============================================================================
 
-func (g *IntelligenceGatherer) parseAtom(arg interface{}) string {
+func (g *IntelligenceGatherer) parseAtom(arg any) string {
 	if ma, ok := arg.(core.MangleAtom); ok {
 		return string(ma)
 	}
@@ -1078,7 +1078,7 @@ func (g *IntelligenceGatherer) parseAtom(arg interface{}) string {
 	return fmt.Sprintf("%v", arg)
 }
 
-func (g *IntelligenceGatherer) parseArg(arg interface{}) string {
+func (g *IntelligenceGatherer) parseArg(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v
@@ -1089,7 +1089,7 @@ func (g *IntelligenceGatherer) parseArg(arg interface{}) string {
 	}
 }
 
-func (g *IntelligenceGatherer) parseIntArg(arg interface{}) int {
+func (g *IntelligenceGatherer) parseIntArg(arg any) int {
 	switch v := arg.(type) {
 	case int:
 		return v
@@ -1115,7 +1115,7 @@ func (g *IntelligenceGatherer) parseIntArg(arg interface{}) int {
 	}
 }
 
-func (g *IntelligenceGatherer) parseFloatArg(arg interface{}) float64 {
+func (g *IntelligenceGatherer) parseFloatArg(arg any) float64 {
 	switch v := arg.(type) {
 	case float64:
 		return v
@@ -1157,8 +1157,8 @@ func (g *IntelligenceGatherer) calculateToolAffinity(tool *mcp.MCPTool, goal str
 	affinity := 0.0
 
 	// Check for keyword matches
-	keywords := strings.Fields(goalLower)
-	for _, kw := range keywords {
+	keywords := strings.FieldsSeq(goalLower)
+	for kw := range keywords {
 		if len(kw) < 3 {
 			continue
 		}

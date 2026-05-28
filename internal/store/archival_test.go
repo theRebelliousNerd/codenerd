@@ -20,13 +20,13 @@ func TestArchivalTier(t *testing.T) {
 	// Store some test facts
 	facts := []struct {
 		predicate string
-		args      []interface{}
+		args      []any
 		factType  string
 		priority  int
 	}{
-		{"user_preference", []interface{}{"theme", "dark"}, "preference", 10},
-		{"learned_pattern", []interface{}{"bug_fix", "common_error"}, "pattern", 5},
-		{"session_data", []interface{}{"session_123", "state"}, "fact", 1},
+		{"user_preference", []any{"theme", "dark"}, "preference", 10},
+		{"learned_pattern", []any{"bug_fix", "common_error"}, "pattern", 5},
+		{"session_data", []any{"session_123", "state"}, "fact", 1},
 	}
 
 	for _, f := range facts {
@@ -104,7 +104,7 @@ func TestRestoreArchivedFact(t *testing.T) {
 	defer store.Close()
 
 	// Store and archive a fact
-	args := []interface{}{"test_key", "test_value"}
+	args := []any{"test_key", "test_value"}
 	err = store.StoreFact("test_predicate", args, "fact", 5)
 	if err != nil {
 		t.Fatalf("Failed to store fact: %v", err)
@@ -161,14 +161,14 @@ func TestAccessTracking(t *testing.T) {
 	defer store.Close()
 
 	// Store a fact
-	args := []interface{}{"key", "value"}
+	args := []any{"key", "value"}
 	err = store.StoreFact("test_access", args, "fact", 5)
 	if err != nil {
 		t.Fatalf("Failed to store fact: %v", err)
 	}
 
 	// Load it multiple times to track access
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err = store.LoadFacts("test_access")
 		if err != nil {
 			t.Fatalf("Failed to load facts: %v", err)
@@ -202,8 +202,8 @@ func TestMaintenanceCleanup(t *testing.T) {
 	defer store.Close()
 
 	// Create test data
-	for i := 0; i < 5; i++ {
-		args := []interface{}{"key", i}
+	for i := range 5 {
+		args := []any{"key", i}
 		err := store.StoreFact("test_fact", args, "fact", i)
 		if err != nil {
 			t.Fatalf("Failed to store fact: %v", err)
@@ -221,7 +221,7 @@ func TestMaintenanceCleanup(t *testing.T) {
 	}
 
 	// Add some activation logs
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := store.LogActivation("fact_1", 0.5)
 		if err != nil {
 			t.Fatalf("Failed to log activation: %v", err)
@@ -277,8 +277,8 @@ func TestPurgeOldArchivedFacts(t *testing.T) {
 	defer store.Close()
 
 	// Store and archive facts
-	for i := 0; i < 3; i++ {
-		args := []interface{}{"key", i}
+	for i := range 3 {
+		args := []any{"key", i}
 		err := store.StoreFact("test_purge", args, "fact", i)
 		if err != nil {
 			t.Fatalf("Failed to store fact: %v", err)

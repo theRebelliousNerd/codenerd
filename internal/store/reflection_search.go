@@ -77,7 +77,7 @@ func (s *LocalStore) RecallTracesLexical(query string, limit int) ([]TraceRecall
 	}
 
 	var conditions []string
-	var args []interface{}
+	var args []any
 	for _, kw := range keywords {
 		conditions = append(conditions, "LOWER(summary_descriptor) LIKE ?")
 		args = append(args, "%"+strings.ToLower(kw)+"%")
@@ -277,7 +277,7 @@ func (ls *LearningStore) recallLearningsLexicalInShard(shardType string, keyword
 	}
 
 	var conditions []string
-	var args []interface{}
+	var args []any
 	for _, kw := range keywords {
 		conditions = append(conditions, "LOWER(semantic_handle) LIKE ?")
 		args = append(args, "%"+strings.ToLower(kw)+"%")
@@ -347,8 +347,8 @@ func (ls *LearningStore) listShardTypesFromDisk() []string {
 			continue
 		}
 		name := entry.Name()
-		if strings.HasSuffix(name, "_learnings.db") {
-			shardType := strings.TrimSuffix(name, "_learnings.db")
+		if before, ok := strings.CutSuffix(name, "_learnings.db"); ok {
+			shardType := before
 			if shardType != "" {
 				shards = append(shards, shardType)
 			}

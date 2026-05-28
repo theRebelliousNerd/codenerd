@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -336,10 +337,8 @@ func max(a, b float64) float64 {
 }
 
 func appendUnique(slice []string, item string) []string {
-	for _, s := range slice {
-		if s == item {
-			return slice
-		}
+	if slices.Contains(slice, item) {
+		return slice
 	}
 	return append(slice, item)
 }

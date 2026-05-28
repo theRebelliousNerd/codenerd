@@ -79,14 +79,14 @@ type configFile struct {
 // StructuredLogEntry represents a JSON log entry for Mangle parsing
 // Format: log_entry(Timestamp, Category, Level, Message, File, Line)
 type StructuredLogEntry struct {
-	Timestamp int64                  `json:"ts"`               // Unix milliseconds
-	Category  string                 `json:"cat"`              // Log category
-	Level     string                 `json:"lvl"`              // debug/info/warn/error
-	Message   string                 `json:"msg"`              // Log message
-	File      string                 `json:"file"`             // Source file (optional)
-	Line      int                    `json:"line"`             // Source line (optional)
-	RequestID string                 `json:"req,omitempty"`    // Request correlation ID
-	Fields    map[string]interface{} `json:"fields,omitempty"` // Additional structured fields
+	Timestamp int64          `json:"ts"`               // Unix milliseconds
+	Category  string         `json:"cat"`              // Log category
+	Level     string         `json:"lvl"`              // debug/info/warn/error
+	Message   string         `json:"msg"`              // Log message
+	File      string         `json:"file"`             // Source file (optional)
+	Line      int            `json:"line"`             // Source line (optional)
+	RequestID string         `json:"req,omitempty"`    // Request correlation ID
+	Fields    map[string]any `json:"fields,omitempty"` // Additional structured fields
 }
 
 // Logger wraps a standard logger with category and file output
@@ -334,7 +334,7 @@ func (l *Logger) logJSON(level, msg string) {
 }
 
 // Debug logs a debug message (only if level <= debug)
-func (l *Logger) Debug(format string, args ...interface{}) {
+func (l *Logger) Debug(format string, args ...any) {
 	if l.logger == nil || logLevel > LevelDebug {
 		return
 	}
@@ -347,7 +347,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 }
 
 // Info logs an informational message (only if level <= info)
-func (l *Logger) Info(format string, args ...interface{}) {
+func (l *Logger) Info(format string, args ...any) {
 	if l.logger == nil || logLevel > LevelInfo {
 		return
 	}
@@ -360,7 +360,7 @@ func (l *Logger) Info(format string, args ...interface{}) {
 }
 
 // Warn logs a warning message (only if level <= warn)
-func (l *Logger) Warn(format string, args ...interface{}) {
+func (l *Logger) Warn(format string, args ...any) {
 	if l.logger == nil || logLevel > LevelWarn {
 		return
 	}
@@ -373,7 +373,7 @@ func (l *Logger) Warn(format string, args ...interface{}) {
 }
 
 // Error logs an error message (always logged if logger exists)
-func (l *Logger) Error(format string, args ...interface{}) {
+func (l *Logger) Error(format string, args ...any) {
 	if l.logger == nil {
 		return
 	}
@@ -386,7 +386,7 @@ func (l *Logger) Error(format string, args ...interface{}) {
 }
 
 // StructuredLog writes a fully structured log entry with custom fields
-func (l *Logger) StructuredLog(level string, msg string, fields map[string]interface{}) {
+func (l *Logger) StructuredLog(level string, msg string, fields map[string]any) {
 	if l.logger == nil {
 		return
 	}
@@ -416,17 +416,17 @@ func IsJSONFormat() bool {
 }
 
 // WithContext returns a context logger for structured logging
-func (l *Logger) WithContext(ctx map[string]interface{}) *ContextLogger {
+func (l *Logger) WithContext(ctx map[string]any) *ContextLogger {
 	return &ContextLogger{logger: l, context: ctx}
 }
 
 // ContextLogger provides structured logging with key-value context
 type ContextLogger struct {
 	logger  *Logger
-	context map[string]interface{}
+	context map[string]any
 }
 
-func (c *ContextLogger) Debug(format string, args ...interface{}) {
+func (c *ContextLogger) Debug(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelDebug {
 		return
 	}
@@ -434,7 +434,7 @@ func (c *ContextLogger) Debug(format string, args ...interface{}) {
 	c.logger.logger.Printf("[DEBUG] %s | ctx=%v", msg, c.context)
 }
 
-func (c *ContextLogger) Info(format string, args ...interface{}) {
+func (c *ContextLogger) Info(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelInfo {
 		return
 	}
@@ -442,7 +442,7 @@ func (c *ContextLogger) Info(format string, args ...interface{}) {
 	c.logger.logger.Printf("[INFO] %s | ctx=%v", msg, c.context)
 }
 
-func (c *ContextLogger) Warn(format string, args ...interface{}) {
+func (c *ContextLogger) Warn(format string, args ...any) {
 	if c.logger.logger == nil || logLevel > LevelWarn {
 		return
 	}
@@ -450,7 +450,7 @@ func (c *ContextLogger) Warn(format string, args ...interface{}) {
 	c.logger.logger.Printf("[WARN] %s | ctx=%v", msg, c.context)
 }
 
-func (c *ContextLogger) Error(format string, args ...interface{}) {
+func (c *ContextLogger) Error(format string, args ...any) {
 	if c.logger.logger == nil {
 		return
 	}
@@ -477,302 +477,302 @@ func CloseAll() {
 // =============================================================================
 
 // Boot logs to the boot category
-func Boot(format string, args ...interface{}) {
+func Boot(format string, args ...any) {
 	Get(CategoryBoot).Info(format, args...)
 }
 
 // BootDebug logs debug to the boot category
-func BootDebug(format string, args ...interface{}) {
+func BootDebug(format string, args ...any) {
 	Get(CategoryBoot).Debug(format, args...)
 }
 
 // Session logs to the session category
-func Session(format string, args ...interface{}) {
+func Session(format string, args ...any) {
 	Get(CategorySession).Info(format, args...)
 }
 
 // SessionDebug logs debug to the session category
-func SessionDebug(format string, args ...interface{}) {
+func SessionDebug(format string, args ...any) {
 	Get(CategorySession).Debug(format, args...)
 }
 
 // Kernel logs to the kernel category
-func Kernel(format string, args ...interface{}) {
+func Kernel(format string, args ...any) {
 	Get(CategoryKernel).Info(format, args...)
 }
 
 // KernelDebug logs debug to the kernel category
-func KernelDebug(format string, args ...interface{}) {
+func KernelDebug(format string, args ...any) {
 	Get(CategoryKernel).Debug(format, args...)
 }
 
 // API logs to the api category
-func API(format string, args ...interface{}) {
+func API(format string, args ...any) {
 	Get(CategoryAPI).Info(format, args...)
 }
 
 // APIDebug logs debug to the api category
-func APIDebug(format string, args ...interface{}) {
+func APIDebug(format string, args ...any) {
 	Get(CategoryAPI).Debug(format, args...)
 }
 
 // Perception logs to the perception category
-func Perception(format string, args ...interface{}) {
+func Perception(format string, args ...any) {
 	Get(CategoryPerception).Info(format, args...)
 }
 
 // PerceptionDebug logs debug to the perception category
-func PerceptionDebug(format string, args ...interface{}) {
+func PerceptionDebug(format string, args ...any) {
 	Get(CategoryPerception).Debug(format, args...)
 }
 
 // Articulation logs to the articulation category
-func Articulation(format string, args ...interface{}) {
+func Articulation(format string, args ...any) {
 	Get(CategoryArticulation).Info(format, args...)
 }
 
 // ArticulationDebug logs debug to the articulation category
-func ArticulationDebug(format string, args ...interface{}) {
+func ArticulationDebug(format string, args ...any) {
 	Get(CategoryArticulation).Debug(format, args...)
 }
 
 // Routing logs to the routing category
-func Routing(format string, args ...interface{}) {
+func Routing(format string, args ...any) {
 	Get(CategoryRouting).Info(format, args...)
 }
 
 // RoutingDebug logs debug to the routing category
-func RoutingDebug(format string, args ...interface{}) {
+func RoutingDebug(format string, args ...any) {
 	Get(CategoryRouting).Debug(format, args...)
 }
 
 // Tools logs to the tools category
-func Tools(format string, args ...interface{}) {
+func Tools(format string, args ...any) {
 	Get(CategoryTools).Info(format, args...)
 }
 
 // ToolsDebug logs debug to the tools category
-func ToolsDebug(format string, args ...interface{}) {
+func ToolsDebug(format string, args ...any) {
 	Get(CategoryTools).Debug(format, args...)
 }
 
 // VirtualStore logs to the virtual_store category
-func VirtualStore(format string, args ...interface{}) {
+func VirtualStore(format string, args ...any) {
 	Get(CategoryVirtualStore).Info(format, args...)
 }
 
 // VirtualStoreDebug logs debug to the virtual_store category
-func VirtualStoreDebug(format string, args ...interface{}) {
+func VirtualStoreDebug(format string, args ...any) {
 	Get(CategoryVirtualStore).Debug(format, args...)
 }
 
 // Shards logs to the shards category
-func Shards(format string, args ...interface{}) {
+func Shards(format string, args ...any) {
 	Get(CategoryShards).Info(format, args...)
 }
 
 // ShardsDebug logs debug to the shards category
-func ShardsDebug(format string, args ...interface{}) {
+func ShardsDebug(format string, args ...any) {
 	Get(CategoryShards).Debug(format, args...)
 }
 
 // Coder logs to the coder category
-func Coder(format string, args ...interface{}) {
+func Coder(format string, args ...any) {
 	Get(CategoryCoder).Info(format, args...)
 }
 
 // CoderDebug logs debug to the coder category
-func CoderDebug(format string, args ...interface{}) {
+func CoderDebug(format string, args ...any) {
 	Get(CategoryCoder).Debug(format, args...)
 }
 
 // Tester logs to the tester category
-func Tester(format string, args ...interface{}) {
+func Tester(format string, args ...any) {
 	Get(CategoryTester).Info(format, args...)
 }
 
 // TesterDebug logs debug to the tester category
-func TesterDebug(format string, args ...interface{}) {
+func TesterDebug(format string, args ...any) {
 	Get(CategoryTester).Debug(format, args...)
 }
 
 // Reviewer logs to the reviewer category
-func Reviewer(format string, args ...interface{}) {
+func Reviewer(format string, args ...any) {
 	Get(CategoryReviewer).Info(format, args...)
 }
 
 // ReviewerDebug logs debug to the reviewer category
-func ReviewerDebug(format string, args ...interface{}) {
+func ReviewerDebug(format string, args ...any) {
 	Get(CategoryReviewer).Debug(format, args...)
 }
 
 // Researcher logs to the researcher category
-func Researcher(format string, args ...interface{}) {
+func Researcher(format string, args ...any) {
 	Get(CategoryResearcher).Info(format, args...)
 }
 
 // ResearcherDebug logs debug to the researcher category
-func ResearcherDebug(format string, args ...interface{}) {
+func ResearcherDebug(format string, args ...any) {
 	Get(CategoryResearcher).Debug(format, args...)
 }
 
 // SystemShards logs to the system_shards category
-func SystemShards(format string, args ...interface{}) {
+func SystemShards(format string, args ...any) {
 	Get(CategorySystemShards).Info(format, args...)
 }
 
 // SystemShardsDebug logs debug to the system_shards category
-func SystemShardsDebug(format string, args ...interface{}) {
+func SystemShardsDebug(format string, args ...any) {
 	Get(CategorySystemShards).Debug(format, args...)
 }
 
 // Dream logs to the dream category
-func Dream(format string, args ...interface{}) {
+func Dream(format string, args ...any) {
 	Get(CategoryDream).Info(format, args...)
 }
 
 // DreamDebug logs debug to the dream category
-func DreamDebug(format string, args ...interface{}) {
+func DreamDebug(format string, args ...any) {
 	Get(CategoryDream).Debug(format, args...)
 }
 
 // Autopoiesis logs to the autopoiesis category
-func Autopoiesis(format string, args ...interface{}) {
+func Autopoiesis(format string, args ...any) {
 	Get(CategoryAutopoiesis).Info(format, args...)
 }
 
 // AutopoiesisDebug logs debug to the autopoiesis category
-func AutopoiesisDebug(format string, args ...interface{}) {
+func AutopoiesisDebug(format string, args ...any) {
 	Get(CategoryAutopoiesis).Debug(format, args...)
 }
 
 // Campaign logs to the campaign category
-func Campaign(format string, args ...interface{}) {
+func Campaign(format string, args ...any) {
 	Get(CategoryCampaign).Info(format, args...)
 }
 
 // CampaignDebug logs debug to the campaign category
-func CampaignDebug(format string, args ...interface{}) {
+func CampaignDebug(format string, args ...any) {
 	Get(CategoryCampaign).Debug(format, args...)
 }
 
 // Context logs to the context category
-func Context(format string, args ...interface{}) {
+func Context(format string, args ...any) {
 	Get(CategoryContext).Info(format, args...)
 }
 
 // ContextDebug logs debug to the context category
-func ContextDebug(format string, args ...interface{}) {
+func ContextDebug(format string, args ...any) {
 	Get(CategoryContext).Debug(format, args...)
 }
 
 // World logs to the world category
-func World(format string, args ...interface{}) {
+func World(format string, args ...any) {
 	Get(CategoryWorld).Info(format, args...)
 }
 
 // WorldDebug logs debug to the world category
-func WorldDebug(format string, args ...interface{}) {
+func WorldDebug(format string, args ...any) {
 	Get(CategoryWorld).Debug(format, args...)
 }
 
 // Embedding logs to the embedding category
-func Embedding(format string, args ...interface{}) {
+func Embedding(format string, args ...any) {
 	Get(CategoryEmbedding).Info(format, args...)
 }
 
 // EmbeddingDebug logs debug to the embedding category
-func EmbeddingDebug(format string, args ...interface{}) {
+func EmbeddingDebug(format string, args ...any) {
 	Get(CategoryEmbedding).Debug(format, args...)
 }
 
 // Store logs to the store category
-func Store(format string, args ...interface{}) {
+func Store(format string, args ...any) {
 	Get(CategoryStore).Info(format, args...)
 }
 
 // StoreDebug logs debug to the store category
-func StoreDebug(format string, args ...interface{}) {
+func StoreDebug(format string, args ...any) {
 	Get(CategoryStore).Debug(format, args...)
 }
 
 // Browser logs to the browser category
-func Browser(format string, args ...interface{}) {
+func Browser(format string, args ...any) {
 	Get(CategoryBrowser).Info(format, args...)
 }
 
 // BrowserDebug logs debug to the browser category
-func BrowserDebug(format string, args ...interface{}) {
+func BrowserDebug(format string, args ...any) {
 	Get(CategoryBrowser).Debug(format, args...)
 }
 
 // BrowserWarn logs warning to the browser category
-func BrowserWarn(format string, args ...interface{}) {
+func BrowserWarn(format string, args ...any) {
 	Get(CategoryBrowser).Warn(format, args...)
 }
 
 // BrowserError logs error to the browser category
-func BrowserError(format string, args ...interface{}) {
+func BrowserError(format string, args ...any) {
 	Get(CategoryBrowser).Error(format, args...)
 }
 
 // Tactile logs to the tactile category
-func Tactile(format string, args ...interface{}) {
+func Tactile(format string, args ...any) {
 	Get(CategoryTactile).Info(format, args...)
 }
 
 // TactileDebug logs debug to the tactile category
-func TactileDebug(format string, args ...interface{}) {
+func TactileDebug(format string, args ...any) {
 	Get(CategoryTactile).Debug(format, args...)
 }
 
 // TactileWarn logs warning to the tactile category
-func TactileWarn(format string, args ...interface{}) {
+func TactileWarn(format string, args ...any) {
 	Get(CategoryTactile).Warn(format, args...)
 }
 
 // TactileError logs error to the tactile category
-func TactileError(format string, args ...interface{}) {
+func TactileError(format string, args ...any) {
 	Get(CategoryTactile).Error(format, args...)
 }
 
 // JIT logs to the jit category
-func JIT(format string, args ...interface{}) {
+func JIT(format string, args ...any) {
 	Get(CategoryJIT).Info(format, args...)
 }
 
 // JITDebug logs debug to the jit category
-func JITDebug(format string, args ...interface{}) {
+func JITDebug(format string, args ...any) {
 	Get(CategoryJIT).Debug(format, args...)
 }
 
 // JITWarn logs warning to the jit category
-func JITWarn(format string, args ...interface{}) {
+func JITWarn(format string, args ...any) {
 	Get(CategoryJIT).Warn(format, args...)
 }
 
 // JITError logs error to the jit category
-func JITError(format string, args ...interface{}) {
+func JITError(format string, args ...any) {
 	Get(CategoryJIT).Error(format, args...)
 }
 
 // Build logs to the build category
-func Build(format string, args ...interface{}) {
+func Build(format string, args ...any) {
 	Get(CategoryBuild).Info(format, args...)
 }
 
 // BuildDebug logs debug to the build category
-func BuildDebug(format string, args ...interface{}) {
+func BuildDebug(format string, args ...any) {
 	Get(CategoryBuild).Debug(format, args...)
 }
 
 // BuildWarn logs warning to the build category
-func BuildWarn(format string, args ...interface{}) {
+func BuildWarn(format string, args ...any) {
 	Get(CategoryBuild).Warn(format, args...)
 }
 
 // BuildError logs error to the build category
-func BuildError(format string, args ...interface{}) {
+func BuildError(format string, args ...any) {
 	Get(CategoryBuild).Error(format, args...)
 }
 
@@ -781,222 +781,222 @@ func BuildError(format string, args ...interface{}) {
 // =============================================================================
 
 // BootWarn logs warning to the boot category
-func BootWarn(format string, args ...interface{}) {
+func BootWarn(format string, args ...any) {
 	Get(CategoryBoot).Warn(format, args...)
 }
 
 // BootError logs error to the boot category
-func BootError(format string, args ...interface{}) {
+func BootError(format string, args ...any) {
 	Get(CategoryBoot).Error(format, args...)
 }
 
 // SessionWarn logs warning to the session category
-func SessionWarn(format string, args ...interface{}) {
+func SessionWarn(format string, args ...any) {
 	Get(CategorySession).Warn(format, args...)
 }
 
 // SessionError logs error to the session category
-func SessionError(format string, args ...interface{}) {
+func SessionError(format string, args ...any) {
 	Get(CategorySession).Error(format, args...)
 }
 
 // KernelWarn logs warning to the kernel category
-func KernelWarn(format string, args ...interface{}) {
+func KernelWarn(format string, args ...any) {
 	Get(CategoryKernel).Warn(format, args...)
 }
 
 // KernelError logs error to the kernel category
-func KernelError(format string, args ...interface{}) {
+func KernelError(format string, args ...any) {
 	Get(CategoryKernel).Error(format, args...)
 }
 
 // APIWarn logs warning to the api category
-func APIWarn(format string, args ...interface{}) {
+func APIWarn(format string, args ...any) {
 	Get(CategoryAPI).Warn(format, args...)
 }
 
 // APIError logs error to the api category
-func APIError(format string, args ...interface{}) {
+func APIError(format string, args ...any) {
 	Get(CategoryAPI).Error(format, args...)
 }
 
 // PerceptionWarn logs warning to the perception category
-func PerceptionWarn(format string, args ...interface{}) {
+func PerceptionWarn(format string, args ...any) {
 	Get(CategoryPerception).Warn(format, args...)
 }
 
 // PerceptionError logs error to the perception category
-func PerceptionError(format string, args ...interface{}) {
+func PerceptionError(format string, args ...any) {
 	Get(CategoryPerception).Error(format, args...)
 }
 
 // ArticulationWarn logs warning to the articulation category
-func ArticulationWarn(format string, args ...interface{}) {
+func ArticulationWarn(format string, args ...any) {
 	Get(CategoryArticulation).Warn(format, args...)
 }
 
 // ArticulationError logs error to the articulation category
-func ArticulationError(format string, args ...interface{}) {
+func ArticulationError(format string, args ...any) {
 	Get(CategoryArticulation).Error(format, args...)
 }
 
 // RoutingWarn logs warning to the routing category
-func RoutingWarn(format string, args ...interface{}) {
+func RoutingWarn(format string, args ...any) {
 	Get(CategoryRouting).Warn(format, args...)
 }
 
 // RoutingError logs error to the routing category
-func RoutingError(format string, args ...interface{}) {
+func RoutingError(format string, args ...any) {
 	Get(CategoryRouting).Error(format, args...)
 }
 
 // ToolsWarn logs warning to the tools category
-func ToolsWarn(format string, args ...interface{}) {
+func ToolsWarn(format string, args ...any) {
 	Get(CategoryTools).Warn(format, args...)
 }
 
 // ToolsError logs error to the tools category
-func ToolsError(format string, args ...interface{}) {
+func ToolsError(format string, args ...any) {
 	Get(CategoryTools).Error(format, args...)
 }
 
 // VirtualStoreWarn logs warning to the virtual_store category
-func VirtualStoreWarn(format string, args ...interface{}) {
+func VirtualStoreWarn(format string, args ...any) {
 	Get(CategoryVirtualStore).Warn(format, args...)
 }
 
 // VirtualStoreError logs error to the virtual_store category
-func VirtualStoreError(format string, args ...interface{}) {
+func VirtualStoreError(format string, args ...any) {
 	Get(CategoryVirtualStore).Error(format, args...)
 }
 
 // ShardsWarn logs warning to the shards category
-func ShardsWarn(format string, args ...interface{}) {
+func ShardsWarn(format string, args ...any) {
 	Get(CategoryShards).Warn(format, args...)
 }
 
 // ShardsError logs error to the shards category
-func ShardsError(format string, args ...interface{}) {
+func ShardsError(format string, args ...any) {
 	Get(CategoryShards).Error(format, args...)
 }
 
 // CoderWarn logs warning to the coder category
-func CoderWarn(format string, args ...interface{}) {
+func CoderWarn(format string, args ...any) {
 	Get(CategoryCoder).Warn(format, args...)
 }
 
 // CoderError logs error to the coder category
-func CoderError(format string, args ...interface{}) {
+func CoderError(format string, args ...any) {
 	Get(CategoryCoder).Error(format, args...)
 }
 
 // TesterWarn logs warning to the tester category
-func TesterWarn(format string, args ...interface{}) {
+func TesterWarn(format string, args ...any) {
 	Get(CategoryTester).Warn(format, args...)
 }
 
 // TesterError logs error to the tester category
-func TesterError(format string, args ...interface{}) {
+func TesterError(format string, args ...any) {
 	Get(CategoryTester).Error(format, args...)
 }
 
 // ReviewerWarn logs warning to the reviewer category
-func ReviewerWarn(format string, args ...interface{}) {
+func ReviewerWarn(format string, args ...any) {
 	Get(CategoryReviewer).Warn(format, args...)
 }
 
 // ReviewerError logs error to the reviewer category
-func ReviewerError(format string, args ...interface{}) {
+func ReviewerError(format string, args ...any) {
 	Get(CategoryReviewer).Error(format, args...)
 }
 
 // ResearcherWarn logs warning to the researcher category
-func ResearcherWarn(format string, args ...interface{}) {
+func ResearcherWarn(format string, args ...any) {
 	Get(CategoryResearcher).Warn(format, args...)
 }
 
 // ResearcherError logs error to the researcher category
-func ResearcherError(format string, args ...interface{}) {
+func ResearcherError(format string, args ...any) {
 	Get(CategoryResearcher).Error(format, args...)
 }
 
 // SystemShardsWarn logs warning to the system_shards category
-func SystemShardsWarn(format string, args ...interface{}) {
+func SystemShardsWarn(format string, args ...any) {
 	Get(CategorySystemShards).Warn(format, args...)
 }
 
 // SystemShardsError logs error to the system_shards category
-func SystemShardsError(format string, args ...interface{}) {
+func SystemShardsError(format string, args ...any) {
 	Get(CategorySystemShards).Error(format, args...)
 }
 
 // DreamWarn logs warning to the dream category
-func DreamWarn(format string, args ...interface{}) {
+func DreamWarn(format string, args ...any) {
 	Get(CategoryDream).Warn(format, args...)
 }
 
 // DreamError logs error to the dream category
-func DreamError(format string, args ...interface{}) {
+func DreamError(format string, args ...any) {
 	Get(CategoryDream).Error(format, args...)
 }
 
 // AutopoiesisWarn logs warning to the autopoiesis category
-func AutopoiesisWarn(format string, args ...interface{}) {
+func AutopoiesisWarn(format string, args ...any) {
 	Get(CategoryAutopoiesis).Warn(format, args...)
 }
 
 // AutopoiesisError logs error to the autopoiesis category
-func AutopoiesisError(format string, args ...interface{}) {
+func AutopoiesisError(format string, args ...any) {
 	Get(CategoryAutopoiesis).Error(format, args...)
 }
 
 // CampaignWarn logs warning to the campaign category
-func CampaignWarn(format string, args ...interface{}) {
+func CampaignWarn(format string, args ...any) {
 	Get(CategoryCampaign).Warn(format, args...)
 }
 
 // CampaignError logs error to the campaign category
-func CampaignError(format string, args ...interface{}) {
+func CampaignError(format string, args ...any) {
 	Get(CategoryCampaign).Error(format, args...)
 }
 
 // ContextWarn logs warning to the context category
-func ContextWarn(format string, args ...interface{}) {
+func ContextWarn(format string, args ...any) {
 	Get(CategoryContext).Warn(format, args...)
 }
 
 // ContextError logs error to the context category
-func ContextError(format string, args ...interface{}) {
+func ContextError(format string, args ...any) {
 	Get(CategoryContext).Error(format, args...)
 }
 
 // WorldWarn logs warning to the world category
-func WorldWarn(format string, args ...interface{}) {
+func WorldWarn(format string, args ...any) {
 	Get(CategoryWorld).Warn(format, args...)
 }
 
 // WorldError logs error to the world category
-func WorldError(format string, args ...interface{}) {
+func WorldError(format string, args ...any) {
 	Get(CategoryWorld).Error(format, args...)
 }
 
 // EmbeddingWarn logs warning to the embedding category
-func EmbeddingWarn(format string, args ...interface{}) {
+func EmbeddingWarn(format string, args ...any) {
 	Get(CategoryEmbedding).Warn(format, args...)
 }
 
 // EmbeddingError logs error to the embedding category
-func EmbeddingError(format string, args ...interface{}) {
+func EmbeddingError(format string, args ...any) {
 	Get(CategoryEmbedding).Error(format, args...)
 }
 
 // StoreWarn logs warning to the store category
-func StoreWarn(format string, args ...interface{}) {
+func StoreWarn(format string, args ...any) {
 	Get(CategoryStore).Warn(format, args...)
 }
 
 // StoreError logs error to the store category
-func StoreError(format string, args ...interface{}) {
+func StoreError(format string, args ...any) {
 	Get(CategoryStore).Error(format, args...)
 }
 
@@ -1008,7 +1008,7 @@ func StoreError(format string, args ...interface{}) {
 type RequestLogger struct {
 	logger    *Logger
 	requestID string
-	fields    map[string]interface{}
+	fields    map[string]any
 }
 
 // WithRequestID creates a request-scoped logger for distributed tracing
@@ -1016,17 +1016,17 @@ func WithRequestID(category Category, requestID string) *RequestLogger {
 	return &RequestLogger{
 		logger:    Get(category),
 		requestID: requestID,
-		fields:    make(map[string]interface{}),
+		fields:    make(map[string]any),
 	}
 }
 
 // WithField adds a field to the request logger
-func (r *RequestLogger) WithField(key string, value interface{}) *RequestLogger {
+func (r *RequestLogger) WithField(key string, value any) *RequestLogger {
 	r.fields[key] = value
 	return r
 }
 
-func (r *RequestLogger) formatMsg(format string, args ...interface{}) string {
+func (r *RequestLogger) formatMsg(format string, args ...any) string {
 	msg := fmt.Sprintf(format, args...)
 	if len(r.fields) > 0 {
 		return fmt.Sprintf("[req:%s] %s | %v", r.requestID, msg, r.fields)
@@ -1034,28 +1034,28 @@ func (r *RequestLogger) formatMsg(format string, args ...interface{}) string {
 	return fmt.Sprintf("[req:%s] %s", r.requestID, msg)
 }
 
-func (r *RequestLogger) Debug(format string, args ...interface{}) {
+func (r *RequestLogger) Debug(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelDebug {
 		return
 	}
 	r.logger.logger.Printf("[DEBUG] %s", r.formatMsg(format, args...))
 }
 
-func (r *RequestLogger) Info(format string, args ...interface{}) {
+func (r *RequestLogger) Info(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelInfo {
 		return
 	}
 	r.logger.logger.Printf("[INFO] %s", r.formatMsg(format, args...))
 }
 
-func (r *RequestLogger) Warn(format string, args ...interface{}) {
+func (r *RequestLogger) Warn(format string, args ...any) {
 	if r.logger.logger == nil || logLevel > LevelWarn {
 		return
 	}
 	r.logger.logger.Printf("[WARN] %s", r.formatMsg(format, args...))
 }
 
-func (r *RequestLogger) Error(format string, args ...interface{}) {
+func (r *RequestLogger) Error(format string, args ...any) {
 	if r.logger.logger == nil {
 		return
 	}
@@ -1155,7 +1155,7 @@ func logPerformance(category Category, operation string, elapsed time.Duration, 
 		return
 	}
 
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"system":      string(category),
 		"operation":   operation,
 		"duration_ms": elapsedMs,

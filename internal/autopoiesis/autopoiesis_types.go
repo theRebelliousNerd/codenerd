@@ -32,7 +32,7 @@ type KernelInterface = types.KernelInterface
 // PromptAssembler is an interface for JIT prompt compilation.
 // Implemented by articulation.PromptAssembler to avoid import cycles.
 type PromptAssembler interface {
-	AssembleSystemPrompt(ctx context.Context, pc interface{}) (string, error)
+	AssembleSystemPrompt(ctx context.Context, pc any) (string, error)
 	JITReady() bool
 }
 
@@ -273,12 +273,12 @@ type QuickResult struct {
 
 // AgentMemory represents the persistent memory for an agent
 type AgentMemory struct {
-	AgentName   string                 `json:"agent_name"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-	Learnings   []Learning             `json:"learnings"`
-	Preferences map[string]interface{} `json:"preferences"`
-	Patterns    []LearnedPattern       `json:"patterns"`
+	AgentName   string           `json:"agent_name"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	Learnings   []Learning       `json:"learnings"`
+	Preferences map[string]any   `json:"preferences"`
+	Patterns    []LearnedPattern `json:"patterns"`
 }
 
 // Learning represents something the agent has learned

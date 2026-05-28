@@ -514,31 +514,31 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 		shardConfigs := []core.KernelShardConfig{
 			{
-				Domain: "routing",
+				Domain:          "routing",
 				OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"},
 			},
 			{
-				Domain: "world",
+				Domain:          "world",
 				OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"},
 			},
 			{
-				Domain: "tools",
+				Domain:          "tools",
 				OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"},
 			},
 			{
-				Domain: "policy",
+				Domain:          "policy",
 				OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"},
 			},
 			{
-				Domain: "campaign",
+				Domain:          "campaign",
 				OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"},
 			},
 			{
-				Domain: "prompts",
+				Domain:          "prompts",
 				OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"},
 			},
 			{
-				Domain: "cortex",
+				Domain:          "cortex",
 				OwnedPredicates: []string{}, // Catch-all
 			},
 		}
@@ -930,7 +930,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
-		if setter, ok := interface{}(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
+		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(jitCfg)
 		}
 		if browserMgr != nil {
@@ -948,7 +948,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		shard.SetParentKernel(kernel)
 		shard.SetVirtualStore(virtualStore)
 		shard.SetLLMClient(llmClient)
-		if setter, ok := interface{}(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
+		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(jitCfg)
 		}
 		shard.SetWorkspaceRoot(workspace)
@@ -1162,7 +1162,7 @@ func (ka *KernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
 	return result, nil
 }
 
-func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
+func (ka *KernelAdapter) AssertBatch(facts []any) error {
 	var coreFacts []core.Fact
 	for _, f := range facts {
 		switch v := f.(type) {
@@ -1186,7 +1186,7 @@ func (ka *KernelAdapter) AssertBatch(facts []interface{}) error {
 			}
 
 			atom := parsed.Clauses[0].Head
-			args := make([]interface{}, len(atom.Args))
+			args := make([]any, len(atom.Args))
 			for i, arg := range atom.Args {
 				switch t := arg.(type) {
 
@@ -1282,7 +1282,7 @@ func (a *mcpKernelAdapter) Assert(fact string) error {
 	}
 
 	atom := parsed.Clauses[0].Head
-	args := make([]interface{}, len(atom.Args))
+	args := make([]any, len(atom.Args))
 	for i, arg := range atom.Args {
 		switch t := arg.(type) {
 		case ast.Constant:
@@ -1309,7 +1309,7 @@ func (a *mcpKernelAdapter) Assert(fact string) error {
 	}})
 }
 
-func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]interface{}, error) {
+func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]any, error) {
 	// 1. Parse the query pattern to identify variables
 	queryFact, err := core.ParseFactString(predicate)
 	if err != nil {
@@ -1332,9 +1332,9 @@ func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]interface{}, er
 	}
 
 	// 4. Transform facts into variable bindings maps
-	results := make([]map[string]interface{}, 0, len(facts))
+	results := make([]map[string]any, 0, len(facts))
 	for _, f := range facts {
-		binding := make(map[string]interface{})
+		binding := make(map[string]any)
 
 		// If query had variables, extract them
 		if len(variableMap) > 0 {

@@ -217,7 +217,7 @@ func TestSpawner_GenerateConfig_NilJITCompilerFallsBackToEmptyConfig(t *testing.
 
 func TestSpawner_Spawn_EmptyName(t *testing.T) {
 	spawner := NewSpawner(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{}, DefaultSpawnerConfig())
-	
+
 	req := SpawnRequest{
 		Name: "", // Empty name
 		Task: "do something",
@@ -227,7 +227,7 @@ func TestSpawner_Spawn_EmptyName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn should not fail with empty name, but got: %v", err)
 	}
-	
+
 	if agent.GetName() != "" {
 		t.Errorf("Expected agent name to be empty string, got '%s'", agent.GetName())
 	}
@@ -235,30 +235,30 @@ func TestSpawner_Spawn_EmptyName(t *testing.T) {
 
 func TestSpawner_Shutdown_ZeroAgents(t *testing.T) {
 	spawner := NewSpawner(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{}, DefaultSpawnerConfig())
-	
+
 	// Should not block or panic
 	spawner.StopAll()
 }
 
 func TestSpawner_StateConflicts_ShutdownConcurrentSpawn(t *testing.T) {
 	spawner := NewSpawner(&MockKernel{}, &MockVirtualStore{}, &MockLLMClient{}, &MockJITCompiler{}, &MockConfigFactory{}, &MockTransducer{}, DefaultSpawnerConfig())
-	
+
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			spawner.Spawn(context.Background(), SpawnRequest{Name: "concurrent"})
 		}
 	}()
-	
+
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			spawner.StopAll()
 		}
 	}()
-	
+
 	wg.Wait()
 }

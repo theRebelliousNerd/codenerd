@@ -497,14 +497,14 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			// ts_class(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "ts_class",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 			// Check for extends
 			if strings.Contains(elem.Signature, "extends") {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_extends",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -512,7 +512,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			if strings.Contains(elem.Signature, "implements") {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_implements",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -520,7 +520,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			// ts_interface(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "ts_interface",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 			// Extract interface properties for wire name inference
@@ -528,7 +528,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			for _, prop := range props {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_interface_prop",
-					Args:      []interface{}{elem.Ref, prop},
+					Args:      []any{elem.Ref, prop},
 				})
 			}
 
@@ -536,7 +536,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			// ts_type_alias(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "ts_type_alias",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 		case ElementFunction:
@@ -544,7 +544,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			if strings.HasPrefix(elem.Signature, "async ") || strings.Contains(elem.Signature, " async ") {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_async_function",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -553,7 +553,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 				if strings.Contains(elem.Body, "<") && (strings.Contains(elem.Body, "/>") || strings.Contains(elem.Body, "</")) {
 					facts = append(facts, core.Fact{
 						Predicate: "ts_component",
-						Args:      []interface{}{elem.Ref, elem.Name},
+						Args:      []any{elem.Ref, elem.Name},
 					})
 				}
 			}
@@ -563,7 +563,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			for _, hook := range hooks {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_hook",
-					Args:      []interface{}{elem.Ref, hook},
+					Args:      []any{elem.Ref, hook},
 				})
 			}
 
@@ -572,7 +572,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			if elem.Parent != "" {
 				facts = append(facts, core.Fact{
 					Predicate: "method_of",
-					Args:      []interface{}{elem.Ref, elem.Parent},
+					Args:      []any{elem.Ref, elem.Parent},
 				})
 			}
 
@@ -580,7 +580,7 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 			if strings.HasPrefix(elem.Signature, "async ") || strings.Contains(elem.Signature, " async ") {
 				facts = append(facts, core.Fact{
 					Predicate: "ts_async_function",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 		}
@@ -592,8 +592,8 @@ func (p *TypeScriptCodeParser) EmitLanguageFacts(elements []CodeElement) []core.
 // extractInterfaceProps extracts property names from interface body.
 func (p *TypeScriptCodeParser) extractInterfaceProps(body string) []string {
 	var props []string
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// Skip interface declaration line
 		if strings.HasPrefix(trimmed, "interface ") || trimmed == "{" || trimmed == "}" {

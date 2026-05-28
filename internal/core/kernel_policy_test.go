@@ -23,7 +23,7 @@ func TestKernelPolicy_Append(t *testing.T) {
 	k.Evaluate() // Should succeed
 
 	// Assert fact for p
-	k.Assert(Fact{Predicate: "policy_test_p", Args: []interface{}{"foo"}})
+	k.Assert(Fact{Predicate: "policy_test_p", Args: []any{"foo"}})
 
 	// Query q
 	results, err := k.Query("policy_test_q")

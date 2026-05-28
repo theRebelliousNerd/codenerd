@@ -78,8 +78,14 @@ type TransparencyConfig struct {
 	// VerboseErrors shows categorized errors with remediation
 	VerboseErrors bool `json:"verbose_errors"`
 
-	// Glass Box Debug Mode - shows system internals inline in chat
+	// Glass Box Debug Mode - shows system internals inline in chat.
+	// Enabled by default; set GlassBoxDisabled=true to suppress.
 	GlassBoxEnabled bool `json:"glass_box_enabled"`
+
+	// GlassBoxDisabled is an explicit opt-out for the default-on overlay.
+	// Honored at boot in initGlassBox. Mutually exclusive with GlassBoxEnabled:
+	// if both are true, Enabled wins.
+	GlassBoxDisabled bool `json:"glass_box_disabled,omitempty"`
 
 	// GlassBoxCategories filters which event categories are shown
 	// Valid values: "perception", "kernel", "jit", "shard", "control"

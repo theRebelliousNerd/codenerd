@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,8 @@ import (
 // Fact represents a Mangle fact for kernel injection.
 // This mirrors core.Fact but is defined here to avoid import cycles.
 type Fact struct {
-	Predicate string        `json:"predicate"`
-	Args      []interface{} `json:"args"`
+	Predicate string `json:"predicate"`
+	Args      []any  `json:"args"`
 }
 
 // String returns the Datalog string representation of the fact.
@@ -61,7 +62,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_started(SessionID, RequestID, Binary, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "execution_started",
-			Args: []interface{}{
+			Args: []any{
 				e.SessionID,
 				e.Command.RequestID,
 				e.Command.Binary,
@@ -72,7 +73,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_command(RequestID, CommandString)
 		facts = append(facts, Fact{
 			Predicate: "execution_command",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				cmdString,
 			},
@@ -82,7 +83,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		if e.Command.WorkingDirectory != "" {
 			facts = append(facts, Fact{
 				Predicate: "execution_working_dir",
-				Args: []interface{}{
+				Args: []any{
 					e.Command.RequestID,
 					e.Command.WorkingDirectory,
 				},
@@ -97,7 +98,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_completed(RequestID, ExitCode, DurationMs, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "execution_completed",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				int64(e.Result.ExitCode),
 				e.Result.Duration.Milliseconds(),
@@ -108,7 +109,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_output(RequestID, StdoutLen, StderrLen)
 		facts = append(facts, Fact{
 			Predicate: "execution_output",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				int64(len(e.Result.Stdout)),
 				int64(len(e.Result.Stderr)),
@@ -119,17 +120,17 @@ func (e AuditEvent) ToFacts() []Fact {
 		if e.Result.Success && e.Result.ExitCode == 0 {
 			facts = append(facts, Fact{
 				Predicate: "execution_success",
-				Args:      []interface{}{e.Command.RequestID},
+				Args:      []any{e.Command.RequestID},
 			})
 		} else if e.Result.Success && e.Result.ExitCode != 0 {
 			facts = append(facts, Fact{
 				Predicate: "execution_nonzero",
-				Args:      []interface{}{e.Command.RequestID, int64(e.Result.ExitCode)},
+				Args:      []any{e.Command.RequestID, int64(e.Result.ExitCode)},
 			})
 		} else {
 			facts = append(facts, Fact{
 				Predicate: "execution_failure",
-				Args:      []interface{}{e.Command.RequestID, e.Result.Error},
+				Args:      []any{e.Command.RequestID, e.Result.Error},
 			})
 		}
 
@@ -139,7 +140,7 @@ func (e AuditEvent) ToFacts() []Fact {
 			// execution_resource_usage(RequestID, CPUTimeMs, MemoryBytes)
 			facts = append(facts, Fact{
 				Predicate: "execution_resource_usage",
-				Args: []interface{}{
+				Args: []any{
 					e.Command.RequestID,
 					ru.TotalCPUTimeMs(),
 					ru.MaxRSSBytes,
@@ -150,7 +151,7 @@ func (e AuditEvent) ToFacts() []Fact {
 			if ru.DiskReadBytes > 0 || ru.DiskWriteBytes > 0 {
 				facts = append(facts, Fact{
 					Predicate: "execution_io",
-					Args: []interface{}{
+					Args: []any{
 						e.Command.RequestID,
 						ru.DiskReadBytes,
 						ru.DiskWriteBytes,
@@ -163,7 +164,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_sandbox(RequestID, SandboxMode)
 		facts = append(facts, Fact{
 			Predicate: "execution_sandbox",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				"/" + string(e.Result.SandboxUsed),
 			},
@@ -177,7 +178,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_killed(RequestID, Reason, DurationMs)
 		facts = append(facts, Fact{
 			Predicate: "execution_killed",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				e.Result.KillReason,
 				e.Result.Duration.Milliseconds(),
@@ -193,7 +194,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_error(RequestID, ErrorMessage)
 		facts = append(facts, Fact{
 			Predicate: "execution_error",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				errorMsg,
 			},
@@ -203,7 +204,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		// execution_blocked(RequestID, Reason, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "execution_blocked",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				e.BlockReason,
 				timestamp,
@@ -218,7 +219,7 @@ func (e AuditEvent) ToFacts() []Fact {
 		}
 		facts = append(facts, Fact{
 			Predicate: "execution_sandboxed",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				"/" + sandboxMode,
 			},
@@ -229,7 +230,7 @@ func (e AuditEvent) ToFacts() []Fact {
 	for key, value := range e.Command.Tags {
 		facts = append(facts, Fact{
 			Predicate: "execution_tag",
-			Args: []interface{}{
+			Args: []any{
 				e.Command.RequestID,
 				key,
 				value,
@@ -530,13 +531,9 @@ func (m *ExecutionMetrics) Snapshot() ExecutionMetricsSnapshot {
 
 	// Copy maps
 	byBinary := make(map[string]int64)
-	for k, v := range m.executionsByBinary {
-		byBinary[k] = v
-	}
+	maps.Copy(byBinary, m.executionsByBinary)
 	bySession := make(map[string]int64)
-	for k, v := range m.executionsBySession {
-		bySession[k] = v
-	}
+	maps.Copy(bySession, m.executionsBySession)
 
 	// Calculate derived metrics
 	successRate := float64(0)
@@ -635,8 +632,8 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 		RawOutput: output,
 	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 
 		// Go test patterns
@@ -660,7 +657,7 @@ func (a *OutputAnalyzer) AnalyzeTestOutput(output string) TestAnalysis {
 		// Extract timing
 		if strings.Contains(line, "coverage:") {
 			// Parse coverage percentage
-			for _, part := range strings.Fields(line) {
+			for part := range strings.FieldsSeq(line) {
 				if strings.HasSuffix(part, "%") {
 					fmt.Sscanf(part, "%f%%", &analysis.Coverage)
 				}
@@ -689,33 +686,33 @@ func (t TestAnalysis) ToFacts(requestID string) []Fact {
 	facts := []Fact{
 		{
 			Predicate: "test_result",
-			Args:      []interface{}{requestID, int64(t.Passed), int64(t.Failed), int64(t.Skipped)},
+			Args:      []any{requestID, int64(t.Passed), int64(t.Failed), int64(t.Skipped)},
 		},
 	}
 
 	if t.OverallPass {
 		facts = append(facts, Fact{
 			Predicate: "test_state",
-			Args:      []interface{}{"/passing"},
+			Args:      []any{"/passing"},
 		})
 	} else {
 		facts = append(facts, Fact{
 			Predicate: "test_state",
-			Args:      []interface{}{"/failing"},
+			Args:      []any{"/failing"},
 		})
 	}
 
 	for _, name := range t.FailedTests {
 		facts = append(facts, Fact{
 			Predicate: "failed_test",
-			Args:      []interface{}{requestID, name},
+			Args:      []any{requestID, name},
 		})
 	}
 
 	if t.Coverage > 0 {
 		facts = append(facts, Fact{
 			Predicate: "test_coverage",
-			Args:      []interface{}{requestID, t.Coverage},
+			Args:      []any{requestID, t.Coverage},
 		})
 	}
 
@@ -729,8 +726,8 @@ func (a *OutputAnalyzer) AnalyzeBuildOutput(output string) BuildAnalysis {
 		Diagnostics: make([]Diagnostic, 0),
 	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(output, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -796,7 +793,7 @@ func (b BuildAnalysis) ToFacts(requestID string) []Fact {
 	facts := []Fact{
 		{
 			Predicate: "build_result",
-			Args:      []interface{}{requestID, b.Success, int64(b.Errors), int64(b.Warnings)},
+			Args:      []any{requestID, b.Success, int64(b.Errors), int64(b.Warnings)},
 		},
 	}
 
@@ -804,7 +801,7 @@ func (b BuildAnalysis) ToFacts(requestID string) []Fact {
 		severityName := "/" + d.Severity
 		facts = append(facts, Fact{
 			Predicate: "diagnostic",
-			Args:      []interface{}{severityName, d.File, int64(d.Line), d.Message},
+			Args:      []any{severityName, d.File, int64(d.Line), d.Message},
 		})
 	}
 

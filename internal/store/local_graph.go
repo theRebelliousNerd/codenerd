@@ -17,11 +17,11 @@ type KnowledgeLink struct {
 	Relation string
 	EntityB  string
 	Weight   float64
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
 // StoreLink stores a knowledge graph edge.
-func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64, metadata map[string]interface{}) error {
+func (s *LocalStore) StoreLink(entityA, relation, entityB string, weight float64, metadata map[string]any) error {
 	timer := logging.StartTimer(logging.CategoryStore, "StoreLink")
 	defer timer.Stop()
 
@@ -73,11 +73,11 @@ func (s *LocalStore) queryLinksLocked(entity string, direction string) ([]Knowle
 		query = "SELECT entity_a, relation, entity_b, weight, metadata FROM knowledge_graph WHERE entity_a = ? OR entity_b = ?"
 	}
 
-	var args []interface{}
+	var args []any
 	if direction == "both" {
-		args = []interface{}{entity, entity}
+		args = []any{entity, entity}
 	} else {
-		args = []interface{}{entity}
+		args = []any{entity}
 	}
 
 	rows, err := s.db.Query(query, args...)
@@ -196,7 +196,7 @@ func (s *LocalStore) TraversePath(from, to string, maxDepth int) ([]KnowledgeLin
 // knowledge_link facts for injection into the Mangle kernel.
 // This method should be called during kernel initialization or when the knowledge
 // graph is updated to ensure facts are available to Mangle rules.
-func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, args []interface{}) error) (int, error) {
+func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, args []any) error) (int, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "HydrateKnowledgeGraph")
 	defer timer.Stop()
 
@@ -226,7 +226,7 @@ func (s *LocalStore) HydrateKnowledgeGraph(assertFunc func(predicate string, arg
 		}
 
 		// Convert to Mangle fact: knowledge_link(entity_a, relation, entity_b)
-		if err := assertFunc("knowledge_link", []interface{}{entityA, relation, entityB}); err == nil {
+		if err := assertFunc("knowledge_link", []any{entityA, relation, entityB}); err == nil {
 			count++
 		} else {
 			skipped++

@@ -131,7 +131,7 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 	if s.Kernel != nil {
 		_ = s.Kernel.Assert(types.Fact{
 			Predicate: "campaign_runner_heartbeat",
-			Args:      []interface{}{time.Now().Unix()},
+			Args:      []any{time.Now().Unix()},
 		})
 	}
 
@@ -151,13 +151,13 @@ func (s *CampaignRunnerShard) tick(ctx context.Context) {
 				logging.Get(logging.CategorySystemShards).Warn("[CampaignRunner] Campaign %s exited with error: %v", campaignID, err)
 				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "campaign_runner_failure",
-					Args:      []interface{}{campaignID, err.Error(), time.Now().Unix()},
+					Args:      []any{campaignID, err.Error(), time.Now().Unix()},
 				})
 			} else {
 				logging.SystemShards("[CampaignRunner] Campaign %s completed or paused", campaignID)
 				_ = s.Kernel.Assert(types.Fact{
 					Predicate: "campaign_runner_success",
-					Args:      []interface{}{campaignID, time.Now().Unix()},
+					Args:      []any{campaignID, time.Now().Unix()},
 				})
 			}
 		default:
@@ -264,7 +264,7 @@ func (s *CampaignRunnerShard) startCampaign(ctx context.Context, campaignID, wor
 
 	_ = s.Kernel.Assert(types.Fact{
 		Predicate: "campaign_runner_active",
-		Args:      []interface{}{campaignID, time.Now().Unix()},
+		Args:      []any{campaignID, time.Now().Unix()},
 	})
 }
 
@@ -390,9 +390,7 @@ func (m *campaignRunnerConsultationManager) RequestBatchConsultation(ctx context
 			continue
 		}
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 
 			start := time.Now()
 			result, err := m.spawner.SpawnConsultation(ctx, spec, buildCampaignRunnerConsultationPrompt(question, request.Context))
@@ -416,7 +414,7 @@ func (m *campaignRunnerConsultationManager) RequestBatchConsultation(ctx context
 			mu.Lock()
 			responses = append(responses, resp)
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -444,7 +442,7 @@ func buildCampaignRunnerConsultationPrompt(question, consultContext string) stri
 }
 
 func parseCampaignRunnerConsultationConfidence(advice string) float64 {
-	for _, line := range strings.Split(advice, "\n") {
+	for line := range strings.SplitSeq(advice, "\n") {
 		trimmed := strings.TrimSpace(line)
 		upper := strings.ToUpper(trimmed)
 		if !strings.HasPrefix(upper, "CONFIDENCE:") {

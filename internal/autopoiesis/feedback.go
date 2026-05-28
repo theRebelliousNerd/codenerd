@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -194,7 +195,7 @@ func (tr *ToolRefiner) refineWithJIT(ctx context.Context, req RefinementRequest)
 	}
 
 	// Build prompt context for refinement stage
-	pc := map[string]interface{}{
+	pc := map[string]any{
 		"shard_id":        "tool_refiner_" + req.ToolName,
 		"shard_type":      "tool_generator",
 		"stage":           "/refinement",
@@ -581,21 +582,11 @@ func clamp(value, min, max float64) float64 {
 }
 
 func containsIssueType(types []IssueType, t IssueType) bool {
-	for _, it := range types {
-		if it == t {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(types, t)
 }
 
 func contains(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }
 
 func hasSuggestion(suggestions []ImprovementSuggestion, t SuggestionType) bool {

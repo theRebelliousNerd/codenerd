@@ -167,15 +167,15 @@ type CompilationContext struct {
 
 	// SessionContext holds the current session context
 	// Type: *core.SessionContext
-	SessionContext interface{}
+	SessionContext any
 
 	// UserIntent holds the parsed user intent
 	// Type: *core.StructuredIntent
-	UserIntent interface{}
+	UserIntent any
 
 	// Kernel holds a reference to the Mangle kernel for queries
 	// Type: *core.RealKernel
-	Kernel interface{}
+	Kernel any
 
 	// =========================================================================
 	// Activation Scores (from Compression System)
@@ -372,7 +372,7 @@ func (cc *CompilationContext) String() string {
 // TODO: Performance: Re-implement using a streaming FactBuilder to reduce slice allocations.
 // TODO: Reliability: Enforce strict type checking and escaping for all context values to prevent injection.
 
-func (cc *CompilationContext) ToContextFacts() []interface{} {
+func (cc *CompilationContext) ToContextFacts() []any {
 	return cc.GenerateFacts(FactStyle{
 		Predicate:  "compile_context",
 		UseShort:   false,
@@ -447,7 +447,7 @@ func AllContextDimensions() []ContextDimension {
 // hashBufferPool is a sync.Pool for bytes.Buffer used in CompilationContext.Hash
 // to reduce GC pressure during high-frequency compilation requests.
 var hashBufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		buf := new(bytes.Buffer)
 		buf.Grow(256)
 		return buf
@@ -537,9 +537,9 @@ type FactStyle struct {
 }
 
 // GenerateFacts generates Mangle facts representing this context according to the specified style.
-func (cc *CompilationContext) GenerateFacts(style FactStyle) []interface{} {
+func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 	capacity := 9 + len(cc.Frameworks) + 7
-	facts := make([]interface{}, 0, capacity)
+	facts := make([]any, 0, capacity)
 
 	add := func(longDim, shortDim, val string) {
 		if val == "" {

@@ -3,6 +3,7 @@ package system
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -716,11 +717,11 @@ func TestBuildLegislatorSemanticQuery_WhenEmpty_ShouldReturnEmpty(t *testing.T) 
 }
 
 func TestBuildLegislatorSemanticQuery_WhenLong_ShouldTruncate(t *testing.T) {
-	long := ""
-	for i := 0; i < 700; i++ {
-		long += "a"
+	var long strings.Builder
+	for range 700 {
+		long.WriteString("a")
 	}
-	result := buildLegislatorSemanticQuery(long)
+	result := buildLegislatorSemanticQuery(long.String())
 	if len(result) > 600 {
 		t.Errorf("result len = %d, should be truncated to 600", len(result))
 	}

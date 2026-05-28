@@ -312,7 +312,7 @@ func columnExists(db *sql.DB, table, column string) bool {
 		var cid int
 		var name, ctype string
 		var notnull, pk int
-		var dfltValue interface{}
+		var dfltValue any
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
 			continue
 		}

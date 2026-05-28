@@ -80,7 +80,6 @@ func TestMatchSpecialistsForTask_Table(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			// Note: We cannot easily mock os.ReadFile in the current implementation of MatchSpecialistsForTask
 			// without refactoring. However, we can create temporary files.

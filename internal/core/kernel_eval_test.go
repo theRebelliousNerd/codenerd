@@ -8,8 +8,8 @@ func TestKernelEval_Evaluate(t *testing.T) {
 	k := setupMockKernel(t)
 
 	// 1. Assert some base facts
-	k.Assert(Fact{Predicate: "foo", Args: []interface{}{"bar"}})
-	k.Assert(Fact{Predicate: "num", Args: []interface{}{42}})
+	k.Assert(Fact{Predicate: "foo", Args: []any{"bar"}})
+	k.Assert(Fact{Predicate: "num", Args: []any{42}})
 
 	// 2. Define a rule in policy
 	// Explicitly declare predicates for strict mode

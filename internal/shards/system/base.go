@@ -282,7 +282,7 @@ type BaseSystemShard struct {
 	// JIT prompt assembly (Phase 5)
 	// Stored as interface{} to avoid import cycles - should be *articulation.PromptAssembler.
 	// Set via SetPromptAssembler() which accepts interface{}.
-	promptAssembler interface{}
+	promptAssembler any
 	jitConfig       config.JITConfig
 
 	// System shard specific
@@ -503,7 +503,7 @@ func truncateForLog(s string, limit int) string {
 // SetPromptAssembler sets the prompt assembler for JIT compilation.
 // The assembler should be *articulation.PromptAssembler but is stored as interface{}
 // to avoid import cycles.
-func (b *BaseSystemShard) SetPromptAssembler(assembler interface{}) {
+func (b *BaseSystemShard) SetPromptAssembler(assembler any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.promptAssembler = assembler
@@ -527,7 +527,7 @@ func (b *BaseSystemShard) TraceLLMIOEnabled() bool {
 }
 
 // GetPromptAssembler returns the prompt assembler if set.
-func (b *BaseSystemShard) GetPromptAssembler() interface{} {
+func (b *BaseSystemShard) GetPromptAssembler() any {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.promptAssembler
@@ -731,7 +731,7 @@ func (b *BaseSystemShard) EmitHeartbeat() error {
 	}
 	return b.Kernel.Assert(types.Fact{
 		Predicate: "system_heartbeat",
-		Args:      []interface{}{b.ID, time.Now().Unix()},
+		Args:      []any{b.ID, time.Now().Unix()},
 	})
 }
 
@@ -776,12 +776,4 @@ func (b *BaseSystemShard) GuardedLLMCall(ctx context.Context, systemPrompt, user
 	b.CostGuard.RecordCall()
 	logging.SystemShardsDebug("[%s] LLM call succeeded in %v, response_len=%d", b.ID, elapsed, len(result))
 	return result, nil
-}
-
-// min returns the smaller of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

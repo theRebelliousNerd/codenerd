@@ -59,7 +59,7 @@ func TestSpawner_Spawn_ConcurrencyFix(t *testing.T) {
 
 	// Spawn 3 agents concurrently
 	var wg sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -240,10 +240,8 @@ func TestSpawner_Spawn_Concurrent_MaxLimitRace(t *testing.T) {
 	var wg sync.WaitGroup
 	var successes, failures int32
 
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 3 {
+		wg.Go(func() {
 			req := SpawnRequest{Name: "agent", Task: "task", Type: SubAgentTypeEphemeral}
 			_, err := spawner.Spawn(context.Background(), req)
 			if err != nil {
@@ -251,7 +249,7 @@ func TestSpawner_Spawn_Concurrent_MaxLimitRace(t *testing.T) {
 			} else {
 				atomic.AddInt32(&successes, 1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

@@ -34,7 +34,7 @@ func TestKernelConcurrency(t *testing.T) {
 			for j := 0; j < factsPerRoutine; j++ {
 				fact := Fact{
 					Predicate: "concurrent_test",
-					Args:      []interface{}{fmt.Sprintf("worker_%d", id), j},
+					Args:      []any{fmt.Sprintf("worker_%d", id), j},
 				}
 				// Use AssertBatch to avoid race condition in logging.Audit()
 				// which occurs in Assert() outside the lock. AssertBatch does it inside.
@@ -70,18 +70,16 @@ func TestKernelDataConsistency(t *testing.T) {
 	kernel.SetPolicy("")
 
 	// 1. Assert initial state
-	initialFact := Fact{Predicate: "state", Args: []interface{}{"/init"}}
+	initialFact := Fact{Predicate: "state", Args: []any{"/init"}}
 	if err := kernel.Assert(initialFact); err != nil {
 		t.Fatalf("Assert failed: %v", err)
 	}
 
 	var wg sync.WaitGroup
 	// Reader goroutines
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 100 {
 				// Query should never panic and should return valid data
 				facts, err := kernel.Query("state")
 				if err != nil {
@@ -91,16 +89,16 @@ func TestKernelDataConsistency(t *testing.T) {
 					t.Errorf("Query returned empty results")
 				}
 			}
-		}()
+		})
 	}
 
 	// Writer goroutines (Transition state)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 50; j++ {
-				fact := Fact{Predicate: "state", Args: []interface{}{fmt.Sprintf("/update_%d_%d", id, j)}}
+			for j := range 50 {
+				fact := Fact{Predicate: "state", Args: []any{fmt.Sprintf("/update_%d_%d", id, j)}}
 				// Use AssertBatch to minimize locking overhead and potential races in side-effects
 				if err := kernel.AssertBatch([]Fact{fact}); err != nil {
 					t.Errorf("Assert failed: %v", err)
@@ -122,17 +120,15 @@ func TestKernelIdempotencyUnderLoad(t *testing.T) {
 	kernel.SetSchemas("Decl unique_fact(Val).")
 	kernel.SetPolicy("")
 
-	fact := Fact{Predicate: "unique_fact", Args: []interface{}{"/singleton"}}
+	fact := Fact{Predicate: "unique_fact", Args: []any{"/singleton"}}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			if err := kernel.AssertBatch([]Fact{fact}); err != nil {
 				t.Errorf("Assert failed: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -157,8 +153,8 @@ func TestSplitBrainScenarios(t *testing.T) {
 	kernel.SetPolicy("")
 
 	// Simulating two shards reporting different status for the same task
-	shard1Fact := Fact{Predicate: "task_status", Args: []interface{}{"task_1", "/completed"}}
-	shard2Fact := Fact{Predicate: "task_status", Args: []interface{}{"task_1", "/failed"}}
+	shard1Fact := Fact{Predicate: "task_status", Args: []any{"task_1", "/completed"}}
+	shard2Fact := Fact{Predicate: "task_status", Args: []any{"task_1", "/failed"}}
 
 	var wg sync.WaitGroup
 	wg.Add(2)

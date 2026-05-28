@@ -21,7 +21,7 @@ func TestKernelQueryGap_MassiveArity(t *testing.T) {
 	// Build a Decl with 20 arguments (Mangle requires unique argument names)
 	const arity = 20
 	var declArgs []string
-	for i := 0; i < arity; i++ {
+	for i := range arity {
 		// Use unique type-like names: A0, A1, ..., A19
 		declArgs = append(declArgs, fmt.Sprintf("A%d", i))
 	}
@@ -30,7 +30,7 @@ func TestKernelQueryGap_MassiveArity(t *testing.T) {
 
 	// Build a matching fact with unique string values
 	var factArgs []string
-	for i := 0; i < arity; i++ {
+	for i := range arity {
 		factArgs = append(factArgs, fmt.Sprintf("\"val_%d\"", i))
 	}
 	fact := "big_pred(" + strings.Join(factArgs, ", ") + ")."
@@ -66,10 +66,10 @@ func TestKernelQueryGap_QueryAll_LargeEDB(t *testing.T) {
 
 	// Assert 2000 facts with UNIQUE values (Mangle deduplicates identical facts)
 	const factCount = 2000
-	for i := 0; i < factCount; i++ {
+	for i := range factCount {
 		k.AssertWithoutEval(Fact{
 			Predicate: "load_pred",
-			Args:      []interface{}{fmt.Sprintf("item_%04d", i)},
+			Args:      []any{fmt.Sprintf("item_%04d", i)},
 		})
 	}
 	err := k.Evaluate()
@@ -117,7 +117,7 @@ func TestKernelQueryGap_LoadFactsFromFile_LargeFile(t *testing.T) {
 	const fileFactCount = 2000
 	tmpFile := t.TempDir() + "/large.mg"
 	var content strings.Builder
-	for i := 0; i < fileFactCount; i++ {
+	for i := range fileFactCount {
 		content.WriteString(fmt.Sprintf("bigfile_pred(\"key_%04d\", \"val_%04d\").\n", i, i))
 	}
 
@@ -152,10 +152,10 @@ func TestKernelQueryGap_Concurrency_ReadWriteStarvation(t *testing.T) {
 	}
 
 	// Seed with facts
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		k.AssertWithoutEval(Fact{
 			Predicate: "conc_pred",
-			Args:      []interface{}{"item_" + string(rune('a'+i%26))},
+			Args:      []any{"item_" + string(rune('a'+i%26))},
 		})
 	}
 	if err := k.Evaluate(); err != nil {
@@ -167,26 +167,24 @@ func TestKernelQueryGap_Concurrency_ReadWriteStarvation(t *testing.T) {
 	const writers = 5
 
 	// Launch concurrent readers
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 10; j++ {
+	for range readers {
+		wg.Go(func() {
+			for range 10 {
 				_, _ = k.Query("conc_pred")
 				_, _ = k.QueryAll()
 			}
-		}()
+		})
 	}
 
 	// Launch concurrent writers
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			for j := 0; j < 3; j++ {
+			for range 3 {
 				k.Assert(Fact{
 					Predicate: "conc_pred",
-					Args:      []interface{}{"writer_" + string(rune('a'+idx))},
+					Args:      []any{"writer_" + string(rune('a'+idx))},
 				})
 			}
 		}(i)

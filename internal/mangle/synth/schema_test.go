@@ -16,7 +16,7 @@ func TestSchemaV1JSON(t *testing.T) {
 		t.Error("SchemaV1JSON() expected to contain 'format'")
 	}
 
-	var schema map[string]interface{}
+	var schema map[string]any
 	err := json.Unmarshal([]byte(jsonStr), &schema)
 	if err != nil {
 		t.Fatalf("SchemaV1JSON() returned invalid JSON: %v", err)
@@ -26,12 +26,12 @@ func TestSchemaV1JSON(t *testing.T) {
 		t.Errorf("Expected type object, got %v", schema["type"])
 	}
 
-	props, ok := schema["properties"].(map[string]interface{})
+	props, ok := schema["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Expected properties to be an object")
 	}
 
-	format, ok := props["format"].(map[string]interface{})
+	format, ok := props["format"].(map[string]any)
 	if !ok {
 		t.Fatal("Expected format to be an object")
 	}
@@ -51,20 +51,20 @@ func TestSchemaV1SingleClauseJSON(t *testing.T) {
 		t.Fatal("SchemaV1SingleClauseJSON() returned empty string")
 	}
 
-	var schema map[string]interface{}
+	var schema map[string]any
 	err := json.Unmarshal([]byte(jsonStr), &schema)
 	if err != nil {
 		t.Fatalf("SchemaV1SingleClauseJSON() returned invalid JSON: %v", err)
 	}
 
-	props, ok := schema["properties"].(map[string]interface{})
+	props, ok := schema["properties"].(map[string]any)
 	if !ok || props["format"] == nil {
 		t.Fatal("SchemaV1SingleClauseJSON() missing 'format' property")
 	}
 
-	program, _ := props["program"].(map[string]interface{})
-	progProps, _ := program["properties"].(map[string]interface{})
-	clauses, ok := progProps["clauses"].(map[string]interface{})
+	program, _ := props["program"].(map[string]any)
+	progProps, _ := program["properties"].(map[string]any)
+	clauses, ok := progProps["clauses"].(map[string]any)
 	if !ok {
 		t.Fatal("Expected clauses to be defined in schema")
 	}
@@ -90,7 +90,7 @@ func TestBuildSchemaV1(t *testing.T) {
 		t.Errorf("Expected schema type object, got %v", schema["type"])
 	}
 
-	props, ok := schema["properties"].(map[string]interface{})
+	props, ok := schema["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema missing 'properties' map")
 	}
@@ -99,17 +99,17 @@ func TestBuildSchemaV1(t *testing.T) {
 		t.Error("Expected format in properties")
 	}
 
-	program, ok := props["program"].(map[string]interface{})
+	program, ok := props["program"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema missing 'program' property")
 	}
 
-	programProps, ok := program["properties"].(map[string]interface{})
+	programProps, ok := program["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema program missing 'properties' map")
 	}
 
-	clauses, ok := programProps["clauses"].(map[string]interface{})
+	clauses, ok := programProps["clauses"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema program missing 'clauses' property")
 	}
@@ -154,19 +154,19 @@ func TestBuildSchemaV1SingleClause(t *testing.T) {
 		t.Fatal("BuildSchemaV1SingleClause() returned nil")
 	}
 
-	props, ok := schema["properties"].(map[string]interface{})
+	props, ok := schema["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema missing 'properties' map")
 	}
-	program, ok := props["program"].(map[string]interface{})
+	program, ok := props["program"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema missing 'program' property")
 	}
-	programProps, ok := program["properties"].(map[string]interface{})
+	programProps, ok := program["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("Schema program missing 'properties' map")
 	}
-	clauses, ok := programProps["clauses"].(map[string]interface{})
+	clauses, ok := programProps["clauses"].(map[string]any)
 	if !ok {
 		t.Fatal("Expected clauses to be defined in schema")
 	}
@@ -191,7 +191,7 @@ func TestMarshalSchema(t *testing.T) {
 	})
 
 	t.Run("valid schema", func(t *testing.T) {
-		schema := map[string]interface{}{"foo": "bar"}
+		schema := map[string]any{"foo": "bar"}
 		res := marshalSchema(schema)
 		expected := `{"foo":"bar"}`
 		if res != expected {
@@ -200,7 +200,7 @@ func TestMarshalSchema(t *testing.T) {
 	})
 
 	t.Run("unmarshalable schema", func(t *testing.T) {
-		schema := map[string]interface{}{
+		schema := map[string]any{
 			"bad": math.NaN(),
 		}
 		res := marshalSchema(schema)
@@ -211,7 +211,7 @@ func TestMarshalSchema(t *testing.T) {
 
 	t.Run("invalid schema types", func(t *testing.T) {
 		// Test invalid (types that cannot be marshaled to JSON, like function or channel)
-		invalid := map[string]interface{}{"func": func() {}}
+		invalid := map[string]any{"func": func() {}}
 		if marshalSchema(invalid) != "" {
 			t.Error("marshalSchema(invalid) should return empty string on marshal error")
 		}
@@ -231,11 +231,11 @@ func TestBuildSchema(t *testing.T) {
 
 // Helpers testing
 func TestSchemaObject(t *testing.T) {
-	obj := schemaObject(map[string]interface{}{"test": "prop"}, "test")
+	obj := schemaObject(map[string]any{"test": "prop"}, "test")
 	if obj["type"] != "object" {
 		t.Errorf("Expected type=object, got %v", obj["type"])
 	}
-	props := obj["properties"].(map[string]interface{})
+	props := obj["properties"].(map[string]any)
 	if props["test"] != "prop" {
 		t.Errorf("Expected property test=prop, got %v", props["test"])
 	}
@@ -255,7 +255,7 @@ func TestSchemaObject(t *testing.T) {
 }
 
 func TestSchemaArray(t *testing.T) {
-	items := map[string]interface{}{"type": "string"}
+	items := map[string]any{"type": "string"}
 	arr := schemaArray(items)
 	if arr["type"] != "array" {
 		t.Errorf("Expected type=array, got %v", arr["type"])

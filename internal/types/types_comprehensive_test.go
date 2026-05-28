@@ -30,7 +30,7 @@ func TestToAtom_WhenStringArg_ShouldProduceStringConstant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			fact := Fact{Predicate: "test_str", Args: []interface{}{tt.input}}
+			fact := Fact{Predicate: "test_str", Args: []any{tt.input}}
 			atom, err := fact.ToAtom()
 			if err != nil {
 				t.Fatalf("ToAtom() error: %v", err)
@@ -49,7 +49,7 @@ func TestToAtom_WhenNameConstant_ShouldProduceNameType(t *testing.T) {
 	for _, name := range validNames {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			fact := Fact{Predicate: "test_name", Args: []interface{}{name}}
+			fact := Fact{Predicate: "test_name", Args: []any{name}}
 			atom, err := fact.ToAtom()
 			if err != nil {
 				t.Fatalf("ToAtom() error: %v", err)
@@ -61,7 +61,7 @@ func TestToAtom_WhenNameConstant_ShouldProduceNameType(t *testing.T) {
 
 func TestToAtom_WhenMangleAtomValid_ShouldProduceNameType(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test_matom", Args: []interface{}{MangleAtom("/valid")}}
+	fact := Fact{Predicate: "test_matom", Args: []any{MangleAtom("/valid")}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -71,7 +71,7 @@ func TestToAtom_WhenMangleAtomValid_ShouldProduceNameType(t *testing.T) {
 
 func TestToAtom_WhenMangleAtomWithoutSlash_ShouldFallbackToString(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test_matom_fallback", Args: []interface{}{MangleAtom("no-slash")}}
+	fact := Fact{Predicate: "test_matom_fallback", Args: []any{MangleAtom("no-slash")}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -81,7 +81,7 @@ func TestToAtom_WhenMangleAtomWithoutSlash_ShouldFallbackToString(t *testing.T) 
 
 func TestToAtom_WhenMangleAtomInvalid_ShouldReturnError(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test_matom_err", Args: []interface{}{MangleAtom("/bad//name")}}
+	fact := Fact{Predicate: "test_matom_err", Args: []any{MangleAtom("/bad//name")}}
 	_, err := fact.ToAtom()
 	if err == nil {
 		t.Fatal("expected error for invalid MangleAtom, got nil")
@@ -92,21 +92,21 @@ func TestToAtom_WhenIntArg_ShouldProduceNumberType(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		arg  interface{}
+		arg  any
 		want int64
 	}{
 		{"int zero", int(0), 0},
 		{"int positive", int(42), 42},
 		{"int negative", int(-7), -7},
 		{"int64 zero", int64(0), 0},
-		{"int64 large", int64(1<<40), 1 << 40},
+		{"int64 large", int64(1 << 40), 1 << 40},
 		{"int64 negative", int64(-999), -999},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			fact := Fact{Predicate: "test_int", Args: []interface{}{tt.arg}}
+			fact := Fact{Predicate: "test_int", Args: []any{tt.arg}}
 			atom, err := fact.ToAtom()
 			if err != nil {
 				t.Fatalf("ToAtom() error: %v", err)
@@ -133,7 +133,7 @@ func TestToAtom_WhenFloat64Arg_ShouldProduceFloat64Type(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			fact := Fact{Predicate: "test_f64", Args: []interface{}{tt.arg}}
+			fact := Fact{Predicate: "test_f64", Args: []any{tt.arg}}
 			atom, err := fact.ToAtom()
 			if err != nil {
 				t.Fatalf("ToAtom() error: %v", err)
@@ -145,7 +145,7 @@ func TestToAtom_WhenFloat64Arg_ShouldProduceFloat64Type(t *testing.T) {
 
 func TestToAtom_WhenFloat32Arg_ShouldProduceFloat64Type(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test_f32", Args: []interface{}{float32(2.5)}}
+	fact := Fact{Predicate: "test_f32", Args: []any{float32(2.5)}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -157,7 +157,7 @@ func TestToAtom_WhenBoolArg_ShouldProduceTrueOrFalseConstant(t *testing.T) {
 	t.Parallel()
 	t.Run("true", func(t *testing.T) {
 		t.Parallel()
-		fact := Fact{Predicate: "test_bool", Args: []interface{}{true}}
+		fact := Fact{Predicate: "test_bool", Args: []any{true}}
 		atom, err := fact.ToAtom()
 		if err != nil {
 			t.Fatalf("ToAtom() error: %v", err)
@@ -166,7 +166,7 @@ func TestToAtom_WhenBoolArg_ShouldProduceTrueOrFalseConstant(t *testing.T) {
 	})
 	t.Run("false", func(t *testing.T) {
 		t.Parallel()
-		fact := Fact{Predicate: "test_bool", Args: []interface{}{false}}
+		fact := Fact{Predicate: "test_bool", Args: []any{false}}
 		atom, err := fact.ToAtom()
 		if err != nil {
 			t.Fatalf("ToAtom() error: %v", err)
@@ -178,7 +178,7 @@ func TestToAtom_WhenBoolArg_ShouldProduceTrueOrFalseConstant(t *testing.T) {
 func TestToAtom_WhenTimeArg_ShouldProduceTimeType(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
-	fact := Fact{Predicate: "test_time", Args: []interface{}{now}}
+	fact := Fact{Predicate: "test_time", Args: []any{now}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -195,7 +195,7 @@ func TestToAtom_WhenTimeArg_ShouldProduceTimeType(t *testing.T) {
 func TestToAtom_WhenDurationArg_ShouldProduceDurationType(t *testing.T) {
 	t.Parallel()
 	dur := 5 * time.Second
-	fact := Fact{Predicate: "test_dur", Args: []interface{}{dur}}
+	fact := Fact{Predicate: "test_dur", Args: []any{dur}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -211,7 +211,7 @@ func TestToAtom_WhenDurationArg_ShouldProduceDurationType(t *testing.T) {
 
 func TestToAtom_WhenNilArg_ShouldProduceStringFallback(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test_nil", Args: []interface{}{nil}}
+	fact := Fact{Predicate: "test_nil", Args: []any{nil}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -237,7 +237,7 @@ func TestToAtom_WhenNoArgs_ShouldSucceed(t *testing.T) {
 func TestToAtom_WhenUnknownType_ShouldFallbackToStringRepr(t *testing.T) {
 	t.Parallel()
 	type custom struct{ x int }
-	fact := Fact{Predicate: "test_custom", Args: []interface{}{custom{x: 42}}}
+	fact := Fact{Predicate: "test_custom", Args: []any{custom{x: 42}}}
 	atom, err := fact.ToAtom()
 	if err != nil {
 		t.Fatalf("ToAtom() error: %v", err)
@@ -255,7 +255,7 @@ func TestToAtom_WhenMixedArgs_ShouldHandleAllTypes(t *testing.T) {
 	t.Parallel()
 	fact := Fact{
 		Predicate: "mixed",
-		Args: []interface{}{
+		Args: []any{
 			MangleAtom("/active"),
 			"plain",
 			int(1),
@@ -293,7 +293,7 @@ func TestFactString_WhenNoArgs_ShouldProduceEmptyParens(t *testing.T) {
 
 func TestFactString_WhenSingleStringArg_ShouldQuoteIt(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test", Args: []interface{}{"hello"}}
+	fact := Fact{Predicate: "test", Args: []any{"hello"}}
 	want := `test("hello").`
 	got := fact.String()
 	if got != want {
@@ -303,7 +303,7 @@ func TestFactString_WhenSingleStringArg_ShouldQuoteIt(t *testing.T) {
 
 func TestFactString_WhenBoolArgs_ShouldUseMangleConvention(t *testing.T) {
 	t.Parallel()
-	fact := Fact{Predicate: "test", Args: []interface{}{true, false}}
+	fact := Fact{Predicate: "test", Args: []any{true, false}}
 	want := "test(/true, /false)."
 	got := fact.String()
 	if got != want {
@@ -437,7 +437,7 @@ func TestKernelFactToFact_WhenMultipleArgs_ShouldPreserveAll(t *testing.T) {
 	t.Parallel()
 	kf := KernelFact{
 		Predicate: "multi",
-		Args:      []interface{}{"a", int64(1), true},
+		Args:      []any{"a", int64(1), true},
 	}
 	fact := kf.ToFact()
 	if fact.Predicate != "multi" {
@@ -468,7 +468,7 @@ func TestKernelFactToFact_WhenNilArgs_ShouldReturnNilArgs(t *testing.T) {
 
 func TestKernelFactToFact_WhenEmptyArgs_ShouldReturnEmptySlice(t *testing.T) {
 	t.Parallel()
-	kf := KernelFact{Predicate: "empty", Args: []interface{}{}}
+	kf := KernelFact{Predicate: "empty", Args: []any{}}
 	fact := kf.ToFact()
 	if len(fact.Args) != 0 {
 		t.Errorf("expected 0 args, got %d", len(fact.Args))
@@ -481,7 +481,7 @@ func TestKernelFactToFact_WhenEmptyArgs_ShouldReturnEmptySlice(t *testing.T) {
 
 func TestArgName_WhenValidIndex_ShouldExtractName(t *testing.T) {
 	t.Parallel()
-	f := Fact{Predicate: "test", Args: []interface{}{MangleAtom("/coder"), "plain"}}
+	f := Fact{Predicate: "test", Args: []any{MangleAtom("/coder"), "plain"}}
 	if got := ArgName(f, 0); got != "/coder" {
 		t.Errorf("ArgName(f, 0) = %q, want '/coder'", got)
 	}
@@ -492,7 +492,7 @@ func TestArgName_WhenValidIndex_ShouldExtractName(t *testing.T) {
 
 func TestArgName_WhenOutOfBounds_ShouldReturnEmpty(t *testing.T) {
 	t.Parallel()
-	f := Fact{Predicate: "test", Args: []interface{}{"a"}}
+	f := Fact{Predicate: "test", Args: []any{"a"}}
 	if got := ArgName(f, -1); got != "" {
 		t.Errorf("ArgName(f, -1) = %q, want empty", got)
 	}
@@ -507,7 +507,7 @@ func TestArgName_WhenOutOfBounds_ShouldReturnEmpty(t *testing.T) {
 
 func TestArgFloat64_WhenValidIndex_ShouldExtract(t *testing.T) {
 	t.Parallel()
-	f := Fact{Predicate: "test", Args: []interface{}{float64(3.14)}}
+	f := Fact{Predicate: "test", Args: []any{float64(3.14)}}
 	v, ok := ArgFloat64(f, 0)
 	if !ok || v != 3.14 {
 		t.Errorf("ArgFloat64(f, 0) = (%f, %v), want (3.14, true)", v, ok)
@@ -516,7 +516,7 @@ func TestArgFloat64_WhenValidIndex_ShouldExtract(t *testing.T) {
 
 func TestArgFloat64_WhenOutOfBounds_ShouldReturnFalse(t *testing.T) {
 	t.Parallel()
-	f := Fact{Predicate: "test", Args: []interface{}{float64(1.0)}}
+	f := Fact{Predicate: "test", Args: []any{float64(1.0)}}
 	_, ok := ArgFloat64(f, 5)
 	if ok {
 		t.Error("expected false for out of bounds")

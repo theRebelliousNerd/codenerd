@@ -71,7 +71,7 @@ func TestVirtualStoreWorkflows_Integration(t *testing.T) {
 	ctx := context.Background()
 	req := ActionRequest{
 		Type: ActionComplete,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"task_id": "test-task",
 			"summary": "Test complete",
 		},

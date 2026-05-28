@@ -73,7 +73,7 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 				// Seed a replan trigger so Replanner has a hard signal.
 				if err := o.kernel.Assert(core.Fact{
 					Predicate: "replan_trigger",
-					Args:      []interface{}{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},
+					Args:      []any{o.campaign.ID, "/checkpoint_failed", time.Now().Unix()},
 				}); err != nil {
 					logging.CampaignWarn("failed to assert replan_trigger: %v", err)
 				}
@@ -199,7 +199,7 @@ func (o *Orchestrator) triggerRollingWave(ctx context.Context, completedPhase *P
 		// BUG FIX: Action facts require 3+ args (ActionID, Type, Target)
 		_, _ = o.virtualStore.RouteAction(ctx, core.Fact{
 			Predicate: "next_action",
-			Args:      []interface{}{fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano()), "/refresh_scope", o.workspace},
+			Args:      []any{fmt.Sprintf("rolling-wave-%d", time.Now().UnixNano()), "/refresh_scope", o.workspace},
 		})
 	}
 
@@ -305,7 +305,7 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 		}
 		nextRetryAt := time.Now().Add(retryDelay)
 		o.setTaskRetryAt(task.ID, nextRetryAt)
-		o.emitEvent("task_lock_timeout", phaseID, task.ID, "write_set lock timeout", map[string]interface{}{
+		o.emitEvent("task_lock_timeout", phaseID, task.ID, "write_set lock timeout", map[string]any{
 			"write_set":       writeSet,
 			"timeout_ms":      timeout.Milliseconds(),
 			"next_retry_unix": nextRetryAt.Unix(),
@@ -401,11 +401,11 @@ func (o *Orchestrator) setTaskRetryAt(taskID string, retryAt time.Time) {
 
 	_ = o.kernel.RetractFact(core.Fact{
 		Predicate: "task_retry_at",
-		Args:      []interface{}{taskID},
+		Args:      []any{taskID},
 	})
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "task_retry_at",
-		Args:      []interface{}{taskID, retryAt.Unix()},
+		Args:      []any{taskID, retryAt.Unix()},
 	})
 }
 
@@ -427,13 +427,13 @@ func (o *Orchestrator) updateTaskStatus(task *Task, status TaskStatus) {
 	// Update kernel
 	if err := o.kernel.RetractFact(core.Fact{
 		Predicate: "campaign_task",
-		Args:      []interface{}{task.ID},
+		Args:      []any{task.ID},
 	}); err != nil {
 		logging.CampaignWarn("failed to retract campaign_task for %s: %v", task.ID, err)
 	}
 	if err := o.kernel.Assert(core.Fact{
 		Predicate: "campaign_task",
-		Args:      []interface{}{task.ID, task.PhaseID, task.Description, string(status), string(task.Type)},
+		Args:      []any{task.ID, task.PhaseID, task.Description, string(status), string(task.Type)},
 	}); err != nil {
 		logging.CampaignWarn("failed to assert campaign_task for %s: %v", task.ID, err)
 	}
@@ -460,7 +460,7 @@ func (o *Orchestrator) completeTask(task *Task, result any) {
 	}
 	o.kernel.Assert(core.Fact{
 		Predicate: "task_result",
-		Args:      []interface{}{task.ID, "/success", resultSummary},
+		Args:      []any{task.ID, "/success", resultSummary},
 	})
 
 	// Store result for context injection into dependent tasks

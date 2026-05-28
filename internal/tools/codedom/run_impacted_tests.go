@@ -40,7 +40,7 @@ type KernelQuerier interface {
 // FactData represents a fact from the kernel.
 type FactData struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 // ImpactedTestInfo represents a test affected by code changes.
@@ -399,7 +399,7 @@ func parseStringArray(v any) []string {
 	switch arr := v.(type) {
 	case []string:
 		return arr
-	case []interface{}:
+	case []any:
 		var result []string
 		for _, item := range arr {
 			if s, ok := item.(string); ok {

@@ -8,9 +8,9 @@ import (
 func TestDecodeSpecFromPiggybackSurface(t *testing.T) {
 	specJSON := `{"format":"mangle_synth_v1","program":{"clauses":[{"head":{"pred":"next_action","args":[{"kind":"name","value":"/run"}]}}]}}`
 
-	envelope := map[string]interface{}{
-		"control_packet": map[string]interface{}{
-			"intent_classification": map[string]interface{}{
+	envelope := map[string]any{
+		"control_packet": map[string]any{
+			"intent_classification": map[string]any{
 				"category":   "/instruction",
 				"verb":       "/generate",
 				"target":     "mangle",

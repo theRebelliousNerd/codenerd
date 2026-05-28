@@ -76,7 +76,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			Verified:   true,
 			Confidence: 0.0, // Defer to other validators
 			Method:     "enhanced_edit_validation_skipped",
-			Details:    map[string]interface{}{"reason": "missing old or new content"},
+			Details:    map[string]any{"reason": "missing old or new content"},
 		}
 	}
 
@@ -99,7 +99,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "enhanced_edit_validation",
 			Error:      fmt.Sprintf("file not recently modified: %.1fs old", age),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"age_seconds": age,
 				"max_age":     v.MaxStaleSeconds,
 			},
@@ -128,7 +128,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 1.0,
 				Method:     "enhanced_edit_validation",
 				Error:      "old content still present after edit (edit not applied or only partially applied)",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"old_content_preview": truncateStr(oldContent, 100),
 					"check_failed":        "old_content_removal",
 				},
@@ -148,7 +148,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 						Confidence: 0.95,
 						Method:     "enhanced_edit_validation",
 						Error:      "fragment of old content detected (potential partial edit)",
-						Details: map[string]interface{}{
+						Details: map[string]any{
 							"fragment_preview": truncateStr(line, 80),
 							"check_failed":     "old_content_fragment",
 						},
@@ -166,7 +166,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 1.0,
 				Method:     "enhanced_edit_validation",
 				Error:      "new content not found in file (edit not applied)",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"new_content_preview": truncateStr(newContent, 100),
 					"check_failed":        "new_content_presence",
 				},
@@ -196,7 +196,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 					Confidence: 1.0,
 					Method:     "enhanced_edit_validation",
 					Error:      "new content found but does not match exactly (possible encoding/whitespace corruption)",
-					Details: map[string]interface{}{
+					Details: map[string]any{
 						"expected_hash": hex.EncodeToString(expectedHash[:8]),
 						"actual_hash":   hex.EncodeToString(actualHash[:8]),
 						"check_failed":  "new_content_exact_match",
@@ -214,7 +214,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 0.9,
 				Method:     "enhanced_edit_validation",
 				Error:      "context before edit was corrupted or removed",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"context_preview": truncateStr(beforeContext, 80),
 					"check_failed":    "context_before_preservation",
 				},
@@ -229,7 +229,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 				Confidence: 0.9,
 				Method:     "enhanced_edit_validation",
 				Error:      "context after edit was corrupted or removed",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"context_preview": truncateStr(afterContext, 80),
 					"check_failed":    "context_after_preservation",
 				},
@@ -244,7 +244,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "enhanced_edit_validation",
 			Error:      "file contains null bytes (corruption detected)",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"check_failed": "null_byte_detection",
 			},
 		}
@@ -258,7 +258,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 1.0,
 			Method:     "enhanced_edit_validation",
 			Error:      fmt.Sprintf("old content appears %d times (should be 0)", oldCount),
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"old_count":    oldCount,
 				"check_failed": "singularity_check",
 			},
@@ -284,7 +284,7 @@ func (v *EnhancedEditValidator) Validate(ctx context.Context, req ActionRequest,
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     "enhanced_edit_validation",
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"checks_passed": []string{
 				"file_exists",
 				"timestamp_freshness",

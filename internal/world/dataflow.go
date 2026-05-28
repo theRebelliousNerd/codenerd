@@ -160,7 +160,7 @@ func (ctx *extractionContext) emitSameScopeFacts() {
 	// Individual line relationships can be derived from this range
 	ctx.emit(core.Fact{
 		Predicate: "function_scope",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			int64(ctx.funcStart),
@@ -196,7 +196,7 @@ func (ctx *extractionContext) extractAssignment(stmt *ast.AssignStmt) {
 		if typeClass != "" {
 			ctx.emit(core.Fact{
 				Predicate: "assigns",
-				Args: []interface{}{
+				Args: []any{
 					core.MangleAtom("/" + varName),
 					core.MangleAtom("/" + typeClass),
 					ctx.path,
@@ -330,7 +330,7 @@ func (ctx *extractionContext) extractBinaryGuard(expr *ast.BinaryExpr, ifStmt *a
 		if isEqualNil && hasReturn {
 			ctx.emit(core.Fact{
 				Predicate: "guards_return",
-				Args: []interface{}{
+				Args: []any{
 					core.MangleAtom("/" + varName),
 					core.MangleAtom("/nil_check"),
 					ctx.path,
@@ -346,7 +346,7 @@ func (ctx *extractionContext) extractBinaryGuard(expr *ast.BinaryExpr, ifStmt *a
 		if isNotEqualNil {
 			ctx.emit(core.Fact{
 				Predicate: "guards_block",
-				Args: []interface{}{
+				Args: []any{
 					core.MangleAtom("/" + varName),
 					core.MangleAtom("/nil_check"),
 					ctx.path,
@@ -365,7 +365,7 @@ func (ctx *extractionContext) extractBinaryGuard(expr *ast.BinaryExpr, ifStmt *a
 				// error_checked_return pattern: if err != nil { return err }
 				ctx.emit(core.Fact{
 					Predicate: "error_checked_return",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + varName),
 						ctx.path,
 						int64(guardLine),
@@ -375,7 +375,7 @@ func (ctx *extractionContext) extractBinaryGuard(expr *ast.BinaryExpr, ifStmt *a
 				// error_checked_block pattern: if err != nil { ... handle ... }
 				ctx.emit(core.Fact{
 					Predicate: "error_checked_block",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom("/" + varName),
 						ctx.path,
 						int64(blockStart),
@@ -478,7 +478,7 @@ func (ctx *extractionContext) emitDominanceFromEarlyReturn(guardLine int) {
 	// Emit a dominates fact: all lines after guardLine are dominated by this guard
 	ctx.emit(core.Fact{
 		Predicate: "guard_dominates",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			int64(guardLine),
@@ -520,7 +520,7 @@ func (ctx *extractionContext) extractSelectorUse(expr *ast.SelectorExpr) {
 
 	ctx.emit(core.Fact{
 		Predicate: "uses",
-		Args: []interface{}{
+		Args: []any{
 			ctx.path,
 			core.MangleAtom("/" + ctx.currentFunc),
 			core.MangleAtom("/" + varName),
@@ -542,7 +542,7 @@ func (ctx *extractionContext) extractDereference(expr *ast.StarExpr) {
 
 		ctx.emit(core.Fact{
 			Predicate: "uses",
-			Args: []interface{}{
+			Args: []any{
 				ctx.path,
 				core.MangleAtom("/" + ctx.currentFunc),
 				core.MangleAtom("/" + varName),
@@ -584,7 +584,7 @@ func (ctx *extractionContext) extractCallArgs(call *ast.CallExpr) {
 
 		ctx.emit(core.Fact{
 			Predicate: "call_arg",
-			Args: []interface{}{
+			Args: []any{
 				core.MangleAtom("/" + callsiteID),
 				int64(i),
 				core.MangleAtom("/" + varName),

@@ -14,11 +14,3 @@ package perception
 // - client_factory.go     - Provider detection and client factory functions
 // - claude_cli_client.go  - Claude Code CLI subprocess client
 // - codex_cli_client.go   - OpenAI Codex CLI subprocess client
-
-// min returns the minimum of two integers (Go stdlib doesn't have generic min before 1.21)
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

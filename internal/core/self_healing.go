@@ -284,7 +284,7 @@ func (h *SelfHealer) emitMaxRetriesFact(actionID string) {
 
 	fact := Fact{
 		Predicate: "validation_max_retries_reached",
-		Args:      []interface{}{actionID},
+		Args:      []any{actionID},
 	}
 	if err := h.kernel.Assert(fact); err != nil {
 		logging.VirtualStoreDebug("Failed to emit max_retries_reached fact: %v", err)
@@ -307,7 +307,7 @@ func (h *SelfHealer) emitValidationAttemptFact(actionID string, attempt int, suc
 
 	fact := Fact{
 		Predicate: "validation_attempt",
-		Args:      []interface{}{actionID, attempt, boolToAtom(success), time.Now().Unix()},
+		Args:      []any{actionID, attempt, boolToAtom(success), time.Now().Unix()},
 	}
 	if err := h.kernel.Assert(fact); err != nil {
 		logging.VirtualStoreDebug("Failed to emit validation_attempt fact: %v", err)
@@ -322,7 +322,7 @@ func (h *SelfHealer) emitHealingAttemptFact(actionID string, healingType Healing
 
 	fact := Fact{
 		Predicate: "healing_attempt",
-		Args:      []interface{}{actionID, string(healingType), boolToAtom(success), errorMsg, time.Now().Unix()},
+		Args:      []any{actionID, string(healingType), boolToAtom(success), errorMsg, time.Now().Unix()},
 	}
 	if err := h.kernel.Assert(fact); err != nil {
 		logging.VirtualStoreDebug("Failed to emit healing_attempt fact: %v", err)
@@ -337,7 +337,7 @@ func (h *SelfHealer) emitEscalationFact(actionID string, reason string) {
 
 	fact := Fact{
 		Predicate: "action_escalated",
-		Args:      []interface{}{actionID, reason, time.Now().Unix()},
+		Args:      []any{actionID, reason, time.Now().Unix()},
 	}
 	if err := h.kernel.Assert(fact); err != nil {
 		logging.VirtualStoreDebug("Failed to emit action_escalated fact: %v", err)

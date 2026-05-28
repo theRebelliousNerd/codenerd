@@ -242,7 +242,7 @@ func TestSyncEmbeddedToSQLite(t *testing.T) {
 			}
 
 			// For nil engine test, pass nil directly
-			var engineInterface interface{}
+			var engineInterface any
 			if engine != nil {
 				engineInterface = engine
 			}

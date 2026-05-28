@@ -333,7 +333,7 @@ func TestTrimToTokenBudget_WhenZeroBudget_ShouldDefault2000(t *testing.T) {
 func TestTrimToTokenBudget_WhenBudgetExceeded_ShouldTruncate(t *testing.T) {
 	sm := NewShardManager()
 	tools := make([]types.ToolInfo, 0, 100)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		tools = append(tools, types.ToolInfo{
 			Name:        "tool-with-a-really-long-name-that-uses-lots-of-tokens",
 			Description: "This is a very detailed description that should eat up the token budget quickly and cause truncation to occur",

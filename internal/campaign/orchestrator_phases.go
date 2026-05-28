@@ -206,11 +206,11 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 			// Update kernel
 			_ = o.kernel.RetractFact(core.Fact{
 				Predicate: "campaign_phase",
-				Args:      []interface{}{phaseID},
+				Args:      []any{phaseID},
 			})
 			o.kernel.Assert(core.Fact{
 				Predicate: "campaign_phase",
-				Args: []interface{}{
+				Args: []any{
 					phaseID,
 					o.campaign.ID,
 					o.campaign.Phases[i].Name,
@@ -267,11 +267,11 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 			// Update kernel
 			_ = o.kernel.RetractFact(core.Fact{
 				Predicate: "campaign_phase",
-				Args:      []interface{}{phase.ID},
+				Args:      []any{phase.ID},
 			})
 			o.kernel.Assert(core.Fact{
 				Predicate: "campaign_phase",
-				Args: []interface{}{
+				Args: []any{
 					phase.ID,
 					o.campaign.ID,
 					phase.Name,

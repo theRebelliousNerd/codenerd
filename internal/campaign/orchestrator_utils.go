@@ -17,7 +17,7 @@ func (o *Orchestrator) assertCampaignConfigFacts() {
 	campaignID := o.campaign.ID
 	_ = o.kernel.RetractFact(core.Fact{
 		Predicate: "campaign_config",
-		Args:      []interface{}{campaignID},
+		Args:      []any{campaignID},
 	})
 
 	maxRetries := o.config.MaxRetries
@@ -39,7 +39,7 @@ func (o *Orchestrator) assertCampaignConfigFacts() {
 
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "campaign_config",
-		Args:      []interface{}{campaignID, maxRetries, threshold, autoReplan, checkpointOnFail},
+		Args:      []any{campaignID, maxRetries, threshold, autoReplan, checkpointOnFail},
 	})
 }
 
@@ -62,11 +62,11 @@ func (o *Orchestrator) updateFailedTaskCount() {
 
 	_ = o.kernel.RetractFact(core.Fact{
 		Predicate: "failed_campaign_task_count_computed",
-		Args:      []interface{}{campaignID},
+		Args:      []any{campaignID},
 	})
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "failed_campaign_task_count_computed",
-		Args:      []interface{}{campaignID, failedCount},
+		Args:      []any{campaignID, failedCount},
 	})
 }
 
@@ -124,7 +124,7 @@ func (o *Orchestrator) runPhaseCheckpoint(ctx context.Context, phase *Phase) (bo
 		// Record in kernel
 		o.kernel.Assert(core.Fact{
 			Predicate: "phase_checkpoint",
-			Args:      []interface{}{phase.ID, string(obj.VerificationMethod), passed, details, time.Now().Unix()},
+			Args:      []any{phase.ID, string(obj.VerificationMethod), passed, details, time.Now().Unix()},
 		})
 	}
 
@@ -183,11 +183,11 @@ func (o *Orchestrator) updateCampaignStatus(status CampaignStatus) {
 
 	_ = o.kernel.RetractFact(core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{campaignID},
+		Args:      []any{campaignID},
 	})
 	_ = o.kernel.Assert(core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{campaignID, cType, title, source, string(status)},
+		Args:      []any{campaignID, cType, title, source, string(status)},
 	})
 }
 
@@ -205,10 +205,7 @@ func (o *Orchestrator) determineConcurrencyLimit(active map[string]bool, phase *
 				return 1
 			} else if status.QueueUtilization > 0.5 {
 				// Moderate backpressure, reduce parallelism
-				limit = limit / 2
-				if limit < 1 {
-					limit = 1
-				}
+				limit = max(limit/2, 1)
 				logging.CampaignDebug("Reducing concurrency due to spawn queue pressure (%.0f%%)", status.QueueUtilization*100)
 			}
 		}

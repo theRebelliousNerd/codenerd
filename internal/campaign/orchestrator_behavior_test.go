@@ -118,11 +118,11 @@ func TestKernel_ReplanNeededRespectsCampaignConfig(t *testing.T) {
 
 	_ = kernel.Assert(core.Fact{
 		Predicate: "campaign_config",
-		Args:      []interface{}{c.ID, 3, 2, "/true", "/false"},
+		Args:      []any{c.ID, 3, 2, "/true", "/false"},
 	})
 	_ = kernel.Assert(core.Fact{
 		Predicate: "failed_campaign_task_count_computed",
-		Args:      []interface{}{c.ID, 2},
+		Args:      []any{c.ID, 2},
 	})
 
 	facts, _ := kernel.Query("replan_needed")
@@ -143,11 +143,11 @@ func TestKernel_ReplanNeededRespectsCampaignConfig(t *testing.T) {
 	_ = kernel2.LoadFacts(c.ToFacts())
 	_ = kernel2.Assert(core.Fact{
 		Predicate: "campaign_config",
-		Args:      []interface{}{c.ID, 3, 1, "/false", "/false"},
+		Args:      []any{c.ID, 3, 1, "/false", "/false"},
 	})
 	_ = kernel2.Assert(core.Fact{
 		Predicate: "failed_campaign_task_count_computed",
-		Args:      []interface{}{c.ID, 5},
+		Args:      []any{c.ID, 5},
 	})
 	facts2, _ := kernel2.Query("replan_needed")
 	for _, f := range facts2 {
@@ -168,11 +168,11 @@ func TestContextPager_ResetPhaseContextClearsFacts(t *testing.T) {
 	cp := NewContextPager(kernel, &stubLLM{}, 0) // 0 uses default budget
 	_ = kernel.Assert(core.Fact{
 		Predicate: "activation",
-		Args:      []interface{}{"file_pattern(\"**/*\")", 100},
+		Args:      []any{"file_pattern(\"**/*\")", 100},
 	})
 	_ = kernel.Assert(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{"/phase1", "file_topology(\"x\",_,_,_,_)", 120},
+		Args:      []any{"/phase1", "file_topology(\"x\",_,_,_,_)", 120},
 	})
 
 	cp.ResetPhaseContext()

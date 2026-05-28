@@ -42,7 +42,7 @@ type RoutingKernel interface {
 // that support writing derived routing facts back into the Mangle kernel.
 // Type-assert the RoutingKernel to this interface before calling AssertRoutingFact.
 type KernelAsserter interface {
-	AssertRoutingFact(predicate string, args ...interface{}) error
+	AssertRoutingFact(predicate string, args ...any) error
 	RetractRoutingPredicate(predicate string) error
 }
 
@@ -807,13 +807,6 @@ func (k *MangleRoutingKernel) ValidateField(ctx context.Context, field, value st
 	return len(result.Bindings) > 0
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // =============================================================================
 // RealKernelRouter - Adapts core.RealKernel to RoutingKernel interface
 // =============================================================================
@@ -937,7 +930,7 @@ func (k *RealKernelRouter) ValidateField(ctx context.Context, field, value strin
 // NERD-EVOLVE-START: P3_routing_assertion
 // AssertRoutingFact implements KernelAsserter. It writes a derived routing fact
 // into the underlying RealKernel EDB so downstream Mangle rules can consume it.
-func (k *RealKernelRouter) AssertRoutingFact(predicate string, args ...interface{}) error {
+func (k *RealKernelRouter) AssertRoutingFact(predicate string, args ...any) error {
 	if k.kernel == nil {
 		return nil
 	}

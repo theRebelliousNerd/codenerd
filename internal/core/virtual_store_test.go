@@ -50,7 +50,7 @@ func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 	k := &stubKernel{
 		permitted: []Fact{
-			{Predicate: "permitted", Args: []interface{}{"/read_file"}},
+			{Predicate: "permitted", Args: []any{"/read_file"}},
 		},
 	}
 	vs.SetKernel(k)
@@ -58,7 +58,7 @@ func TestRouteActionBlockedWhenNotPermitted(t *testing.T) {
 	// exec_cmd should be blocked because kernel has no permitted(/exec_cmd)
 	_, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"act_1", "/exec_cmd", "echo hi"},
+		Args:      []any{"act_1", "/exec_cmd", "echo hi"},
 	})
 	if err == nil {
 		t.Fatalf("expected exec_cmd to be blocked by kernel permission gate")
@@ -73,7 +73,7 @@ func TestExecCmdDisallowedBinary(t *testing.T) {
 	res, err := vs.handleExecCmd(context.Background(), ActionRequest{
 		Type:   ActionExecCmd,
 		Target: "echo hi",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"binary": "forbidden",
 		},
 	})
@@ -88,7 +88,7 @@ func TestExecCmdDisallowedBinary(t *testing.T) {
 func TestCommandFromActionRequest_PayloadOverridesTarget(t *testing.T) {
 	req := ActionRequest{
 		Target: "go test ./... -count=1",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"command": "go test ./internal/core/... -count=1",
 		},
 	}
@@ -101,7 +101,7 @@ func TestCommandFromActionRequest_PayloadOverridesTarget(t *testing.T) {
 func TestCommandFromActionRequest_TargetFallback(t *testing.T) {
 	req := ActionRequest{
 		Target:  "go test ./internal/core/... -count=1",
-		Payload: map[string]interface{}{},
+		Payload: map[string]any{},
 	}
 	got := commandFromActionRequest(req, "go test ./...")
 	if got != "go test ./internal/core/... -count=1" {
@@ -110,7 +110,7 @@ func TestCommandFromActionRequest_TargetFallback(t *testing.T) {
 }
 
 func TestTimeoutSecondsFromActionRequest_DefaultAndOverrides(t *testing.T) {
-	req := ActionRequest{Payload: map[string]interface{}{}}
+	req := ActionRequest{Payload: map[string]any{}}
 	if got := timeoutSecondsFromActionRequest(req, 300); got != 300 {
 		t.Fatalf("expected default timeout 300, got %d", got)
 	}
@@ -153,7 +153,7 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	if err := db.StoreFact("pref_pred", []interface{}{"a", "b"}, "preference", 10); err != nil {
+	if err := db.StoreFact("pref_pred", []any{"a", "b"}, "preference", 10); err != nil {
 		t.Fatalf("failed to store fact: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestHydrateLearningsPreservesArgs(t *testing.T) {
 			if len(f.Args) != 2 {
 				t.Fatalf("expected learned_preference to have 2 args, got %d", len(f.Args))
 			}
-			if _, ok := f.Args[1].([]interface{}); !ok {
+			if _, ok := f.Args[1].([]any); !ok {
 				t.Fatalf("expected second arg to be []interface{}, got %T", f.Args[1])
 			}
 			found = true
@@ -246,10 +246,10 @@ func TestPermissionCacheOptimization(t *testing.T) {
 	// Set up a kernel with multiple safe actions
 	k := &stubKernel{
 		safe: []Fact{
-			{Predicate: "safe_action", Args: []interface{}{"/read_file"}},
-			{Predicate: "safe_action", Args: []interface{}{"/write_file"}},
-			{Predicate: "safe_action", Args: []interface{}{"/review"}},
-			{Predicate: "safe_action", Args: []interface{}{"/run_tests"}},
+			{Predicate: "safe_action", Args: []any{"/read_file"}},
+			{Predicate: "safe_action", Args: []any{"/write_file"}},
+			{Predicate: "safe_action", Args: []any{"/review"}},
+			{Predicate: "safe_action", Args: []any{"/run_tests"}},
 		},
 	}
 	vs.SetKernel(k)
@@ -280,7 +280,7 @@ func TestPermissionCacheOptimization(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		result := vs.CheckKernelPermitted(tc.action, "test_target", map[string]interface{}{})
+		result := vs.CheckKernelPermitted(tc.action, "test_target", map[string]any{})
 		if result != tc.expected {
 			t.Errorf("CheckKernelPermitted(%q) = %v, expected %v", tc.action, result, tc.expected)
 		}
@@ -311,7 +311,7 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 
 	out, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",
-		Args:      []interface{}{"act_test", "/read_file", filename},
+		Args:      []any{"act_test", "/read_file", filename},
 	})
 	if err != nil {
 		t.Fatalf("RouteAction(read_file) error: %v", err)

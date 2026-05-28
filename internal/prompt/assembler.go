@@ -2,6 +2,8 @@ package prompt
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -255,12 +257,7 @@ func (a *FinalAssembler) assembleSectionWith(
 
 // categoryInOrder checks if a category is in the standard order.
 func (a *FinalAssembler) categoryInOrder(cat AtomCategory) bool {
-	for _, c := range a.categoryOrder {
-		if c == cat {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.categoryOrder, cat)
 }
 
 // categoryHeader returns a markdown header for a category.
@@ -418,9 +415,7 @@ func (te *TemplateEngine) Process(content string, cc *CompilationContext) string
 	te.mu.RLock()
 	// Snapshot function map under lock to avoid holding it during execution
 	funcs := make(map[string]TemplateFunc, len(te.functions))
-	for k, v := range te.functions {
-		funcs[k] = v
-	}
+	maps.Copy(funcs, te.functions)
 	te.mu.RUnlock()
 
 	result := content

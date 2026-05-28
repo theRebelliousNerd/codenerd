@@ -4,6 +4,7 @@ import (
 	"codenerd/internal/core"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -350,14 +351,14 @@ func example() {
 
 func TestSummarizeMultiLangDataFlow(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "assigns", Args: []interface{}{core.MangleAtom("/x"), core.MangleAtom("/nullable"), "test.py", int64(1)}},
-		{Predicate: "assigns", Args: []interface{}{core.MangleAtom("/y"), core.MangleAtom("/option"), "test.rs", int64(2)}},
-		{Predicate: "assigns", Args: []interface{}{core.MangleAtom("/z"), core.MangleAtom("/result"), "test.rs", int64(3)}},
-		{Predicate: "guards_block", Args: []interface{}{core.MangleAtom("/x"), core.MangleAtom("/nil_check"), "test.ts", int64(4), int64(10)}},
-		{Predicate: "guards_return", Args: []interface{}{core.MangleAtom("/x"), core.MangleAtom("/none_check"), "test.py", int64(5)}},
-		{Predicate: "safe_access", Args: []interface{}{core.MangleAtom("/x"), core.MangleAtom("/optional_chain"), "test.ts", int64(6)}},
-		{Predicate: "uses", Args: []interface{}{"test.py", core.MangleAtom("/func"), core.MangleAtom("/x"), int64(7)}},
-		{Predicate: "call_arg", Args: []interface{}{core.MangleAtom("/callsite"), int64(0), core.MangleAtom("/x"), "test.js", int64(8)}},
+		{Predicate: "assigns", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/nullable"), "test.py", int64(1)}},
+		{Predicate: "assigns", Args: []any{core.MangleAtom("/y"), core.MangleAtom("/option"), "test.rs", int64(2)}},
+		{Predicate: "assigns", Args: []any{core.MangleAtom("/z"), core.MangleAtom("/result"), "test.rs", int64(3)}},
+		{Predicate: "guards_block", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/nil_check"), "test.ts", int64(4), int64(10)}},
+		{Predicate: "guards_return", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/none_check"), "test.py", int64(5)}},
+		{Predicate: "safe_access", Args: []any{core.MangleAtom("/x"), core.MangleAtom("/optional_chain"), "test.ts", int64(6)}},
+		{Predicate: "uses", Args: []any{"test.py", core.MangleAtom("/func"), core.MangleAtom("/x"), int64(7)}},
+		{Predicate: "call_arg", Args: []any{core.MangleAtom("/callsite"), int64(0), core.MangleAtom("/x"), "test.js", int64(8)}},
 	}
 
 	summary := SummarizeMultiLangDataFlow(facts)
@@ -415,13 +416,7 @@ func TestCartographer_SupportedLanguages(t *testing.T) {
 	}
 
 	for _, want := range expected {
-		found := false
-		for _, got := range langs {
-			if got == want {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(langs, want)
 		if !found {
 			t.Errorf("Expected language %q in supported list", want)
 		}

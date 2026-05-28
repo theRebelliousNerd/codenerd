@@ -14,7 +14,7 @@ import (
 
 // mockKernel implements KernelQuerier for testing.
 type mockKernel struct {
-	facts     []interface{}
+	facts     []any
 	queryErr  error
 	assertErr error
 }
@@ -33,7 +33,7 @@ func (m *mockKernel) Query(predicate string) ([]Fact, error) {
 	return result, nil
 }
 
-func (m *mockKernel) AssertBatch(facts []interface{}) error {
+func (m *mockKernel) AssertBatch(facts []any) error {
 	if m.assertErr != nil {
 		return m.assertErr
 	}
@@ -63,12 +63,12 @@ func TestJITPromptCompiler_RegisterDB_ClearsCache(t *testing.T) {
 	assert.Equal(t, 0, got)
 }
 
-func atomsToFacts(atoms []*PromptAtom) []interface{} {
-	var facts []interface{}
+func atomsToFacts(atoms []*PromptAtom) []any {
+	var facts []any
 	for _, a := range atoms {
 		facts = append(facts, Fact{
 			Predicate: "selected_atom",
-			Args:      []interface{}{a.ID, "skeleton", 1.0},
+			Args:      []any{a.ID, "skeleton", 1.0},
 		})
 	}
 	return facts
@@ -670,7 +670,7 @@ func TestCompileWithConflicts(t *testing.T) {
 func BenchmarkCompile_SmallCorpus(b *testing.B) {
 	atoms := make([]*PromptAtom, 20)
 	categories := AllCategories()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		atoms[i] = &PromptAtom{
 			ID:         string(rune('a' + i)),
 			Category:   categories[i%len(categories)],
@@ -700,7 +700,7 @@ func BenchmarkCompile_SmallCorpus(b *testing.B) {
 func BenchmarkCompile_MediumCorpus(b *testing.B) {
 	atoms := make([]*PromptAtom, 100)
 	categories := AllCategories()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		atoms[i] = &PromptAtom{
 			ID:         string(rune(i)),
 			Category:   categories[i%len(categories)],
@@ -732,7 +732,7 @@ func BenchmarkCompile_MediumCorpus(b *testing.B) {
 func BenchmarkCompile_LargeCorpus(b *testing.B) {
 	atoms := make([]*PromptAtom, 500)
 	categories := AllCategories()
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		atoms[i] = &PromptAtom{
 			ID:          string(rune(i)),
 			Category:    categories[i%len(categories)],
@@ -769,7 +769,7 @@ func BenchmarkCompile_WithVectorSearch(b *testing.B) {
 	categories := AllCategories()
 	vectorResults := make(map[string]float64)
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		id := string(rune('a' + i))
 		atoms[i] = &PromptAtom{
 			ID:         id,
@@ -810,7 +810,7 @@ func TestCompilePerformance(t *testing.T) {
 
 	atoms := make([]*PromptAtom, 200)
 	categories := AllCategories()
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		atoms[i] = &PromptAtom{
 			ID:          string(rune(i)),
 			Category:    categories[i%len(categories)],
@@ -838,7 +838,7 @@ func TestCompilePerformance(t *testing.T) {
 	start := time.Now()
 	const iterations = 100
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		_, err := compiler.Compile(ctx, cc)
 		require.NoError(t, err)
 	}
@@ -896,14 +896,14 @@ func (m *mockFallbackKernel) Query(predicate string) ([]Fact, error) {
 		if atom.IsMandatory {
 			results = append(results, Fact{
 				Predicate: "selected_result",
-				Args:      []interface{}{atom.ID, atom.Priority, "skeleton"},
+				Args:      []any{atom.ID, atom.Priority, "skeleton"},
 			})
 		}
 	}
 	return results, nil
 }
 
-func (m *mockFallbackKernel) AssertBatch(facts []interface{}) error {
+func (m *mockFallbackKernel) AssertBatch(facts []any) error {
 	return m.assertErr
 }
 
@@ -948,7 +948,7 @@ func TestCompiler_FallbackOnCorruptCorpus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create kernel that selects no atoms (simulating corrupt corpus scenario)
-			kernel := &mockKernel{facts: []interface{}{}}
+			kernel := &mockKernel{facts: []any{}}
 
 			var opts []CompilerOption
 			opts = append(opts, WithKernel(kernel))
@@ -1272,10 +1272,10 @@ func TestCompiler_FallbackStatistics(t *testing.T) {
 
 		// Kernel that selects all atoms with proper source tagging
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_atom", Args: []interface{}{"skeleton-1", "skeleton", 1.0}},
-				Fact{Predicate: "selected_atom", Args: []interface{}{"skeleton-2", "skeleton", 1.0}},
-				Fact{Predicate: "selected_atom", Args: []interface{}{"flesh-1", "flesh", 0.8}},
+			facts: []any{
+				Fact{Predicate: "selected_atom", Args: []any{"skeleton-1", "skeleton", 1.0}},
+				Fact{Predicate: "selected_atom", Args: []any{"skeleton-2", "skeleton", 1.0}},
+				Fact{Predicate: "selected_atom", Args: []any{"flesh-1", "flesh", 0.8}},
 			},
 		}
 

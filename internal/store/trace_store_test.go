@@ -258,7 +258,7 @@ func TestTraceStore_Stats(t *testing.T) {
 	traceStore := store.GetTraceStore()
 
 	// Create multiple traces
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		trace := &ReasoningTrace{
 			ID:            string(rune('a' + i)),
 			ShardID:       "shard_001",
@@ -497,7 +497,7 @@ func TestTraceStore_GetLearningInsights(t *testing.T) {
 
 	// Insert 2 old success traces (first half)
 	oldTimestamp := time.Now().AddDate(0, 0, -5).Format("2006-01-02 15:04:05")
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err = db.Exec(`
 			INSERT INTO reasoning_traces
 			(id, shard_id, shard_type, shard_category, session_id, system_prompt, user_prompt, response, success, duration_ms, created_at)
@@ -510,7 +510,7 @@ func TestTraceStore_GetLearningInsights(t *testing.T) {
 
 	// Insert 2 new success, 1 fail traces (second half)
 	newTimestamp := time.Now().Format("2006-01-02 15:04:05")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		success := i < 2
 		errMsg := ""
 		if !success {
@@ -569,4 +569,3 @@ func TestTraceStore_Close(t *testing.T) {
 	}
 	store.Close()
 }
-

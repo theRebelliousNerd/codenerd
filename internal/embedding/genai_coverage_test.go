@@ -102,7 +102,7 @@ func TestInt32Ptr_ShouldReturnPointerToValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ptr := int32Ptr(tt.input)
+			ptr := new(tt.input)
 			if ptr == nil {
 				t.Fatal("int32Ptr returned nil")
 			}

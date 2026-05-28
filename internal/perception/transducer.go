@@ -364,7 +364,7 @@ func sanitizeFactArg(s string) string {
 func (i Intent) ToFact() core.Fact {
 	return core.Fact{
 		Predicate: "user_intent",
-		Args: []interface{}{
+		Args: []any{
 			core.MangleAtom("/current_intent"), // ID as name constant
 			core.MangleAtom(i.Category),
 			core.MangleAtom(i.Verb),
@@ -388,7 +388,7 @@ type FocusResolution struct {
 func (f FocusResolution) ToFact() core.Fact {
 	return core.Fact{
 		Predicate: "focus_resolution",
-		Args: []interface{}{
+		Args: []any{
 			f.RawReference,
 			f.ResolvedPath,
 			f.SymbolName,

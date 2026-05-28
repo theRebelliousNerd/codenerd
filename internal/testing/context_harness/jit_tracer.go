@@ -214,8 +214,8 @@ func (t *JITTracer) TraceCompilation(snapshot *CompilationSnapshot) {
 						preview = preview[:200] + "..."
 					}
 					// Indent each line
-					lines := strings.Split(preview, "\n")
-					for _, line := range lines {
+					lines := strings.SplitSeq(preview, "\n")
+					for line := range lines {
 						sb.WriteString(fmt.Sprintf("        │ %s\n", line))
 					}
 				}

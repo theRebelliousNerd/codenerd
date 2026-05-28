@@ -103,9 +103,9 @@ func TestIncrementalScan_Basics(t *testing.T) {
 
 func TestGroupFactsByPath(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "file_topology", Args: []interface{}{"/a/b/c.go"}},
-		{Predicate: "symbol_graph", Args: []interface{}{"foo", "bar", "baz", "/a/b/c.go"}},
-		{Predicate: "global_thing", Args: []interface{}{"xyz"}},
+		{Predicate: "file_topology", Args: []any{"/a/b/c.go"}},
+		{Predicate: "symbol_graph", Args: []any{"foo", "bar", "baz", "/a/b/c.go"}},
+		{Predicate: "global_thing", Args: []any{"xyz"}},
 	}
 	out := groupFactsByPath(facts)
 
@@ -119,7 +119,7 @@ func TestGroupFactsByPath(t *testing.T) {
 
 func TestExtractHashFromFacts(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "file_topology", Args: []interface{}{"/a/b/c.go", "hash123"}},
+		{Predicate: "file_topology", Args: []any{"/a/b/c.go", "hash123"}},
 	}
 	hash := extractHashFromFacts(facts)
 	if hash != "hash123" {
@@ -129,9 +129,9 @@ func TestExtractHashFromFacts(t *testing.T) {
 
 func TestDetectProjectLanguage(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "file_topology", Args: []interface{}{"1.go", "hash", core.MangleAtom("/go")}},
-		{Predicate: "file_topology", Args: []interface{}{"2.go", "hash", core.MangleAtom("/go")}},
-		{Predicate: "file_topology", Args: []interface{}{"3.js", "hash", core.MangleAtom("/javascript")}},
+		{Predicate: "file_topology", Args: []any{"1.go", "hash", core.MangleAtom("/go")}},
+		{Predicate: "file_topology", Args: []any{"2.go", "hash", core.MangleAtom("/go")}},
+		{Predicate: "file_topology", Args: []any{"3.js", "hash", core.MangleAtom("/javascript")}},
 	}
 	lang := detectProjectLanguage(facts)
 	if lang != "go" {
@@ -141,9 +141,9 @@ func TestDetectProjectLanguage(t *testing.T) {
 
 func TestDetectEntryPoints(t *testing.T) {
 	facts := []core.Fact{
-		{Predicate: "file_topology", Args: []interface{}{"/path/to/main.go"}},
-		{Predicate: "file_topology", Args: []interface{}{"/path/to/lib.go"}},
-		{Predicate: "symbol_graph", Args: []interface{}{"func:main", "function", "public", "/path/to/lib.go", ""}},
+		{Predicate: "file_topology", Args: []any{"/path/to/main.go"}},
+		{Predicate: "file_topology", Args: []any{"/path/to/lib.go"}},
+		{Predicate: "symbol_graph", Args: []any{"func:main", "function", "public", "/path/to/lib.go", ""}},
 	}
 	eps := detectEntryPoints(facts)
 

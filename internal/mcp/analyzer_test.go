@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,12 +88,7 @@ func TestTruncateDescription(t *testing.T) {
 }
 
 func containsString(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(items, target)
 }
 
 type MockLLMClient struct {
@@ -247,8 +243,8 @@ func TestAnalyzer_UserRequestExtremes_MassiveSchema(t *testing.T) {
 	analyzer := NewToolAnalyzer(nil, nil)
 
 	// Create a massive schema that might break formatJSON
-	massiveMap := make(map[string]interface{})
-	for i := 0; i < 10000; i++ {
+	massiveMap := make(map[string]any)
+	for range 10000 {
 		massiveMap[strings.Repeat("a", 100)] = strings.Repeat("b", 100)
 	}
 	rawJSON, _ := json.Marshal(massiveMap)

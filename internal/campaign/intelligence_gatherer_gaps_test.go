@@ -123,7 +123,7 @@ func TestIntelligenceGatherer_ParseIntArg_Overflow(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected int
 	}{
 		{"max_int64", int64(math.MaxInt64), math.MaxInt32},
@@ -150,7 +150,7 @@ func TestIntelligenceGatherer_ParseAtom_UnexpectedTypes(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		input interface{}
+		input any
 	}{
 		{"boolean_true", true},
 		{"boolean_false", false},
@@ -177,7 +177,7 @@ func TestIntelligenceGatherer_ParseFloatArg_StringFallback(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected float64
 	}{
 		{"string_0.95", "0.95", 0.95},
@@ -281,10 +281,8 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 10
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			gatherer := NewIntelligenceGatherer(nil, nil, nil, nil, nil, nil, nil, nil)
 			gatherer.config.EnableWorldModel = false
 			gatherer.config.EnableGitHistory = false
@@ -314,7 +312,7 @@ func TestIntelligenceGatherer_Concurrency_NoRace(t *testing.T) {
 			if formatted == "" {
 				t.Error("FormatForContext returned empty in concurrent execution")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

@@ -18,6 +18,7 @@
 package tactile
 
 import (
+	"strings"
 	"time"
 )
 
@@ -79,11 +80,12 @@ func (c Command) CommandString() string {
 	if len(c.Arguments) == 0 {
 		return c.Binary
 	}
-	result := c.Binary
+	var result strings.Builder
+	result.WriteString(c.Binary)
 	for _, arg := range c.Arguments {
-		result += " " + arg
+		result.WriteString(" " + arg)
 	}
-	return result
+	return result.String()
 }
 
 // ResourceLimits defines constraints on command execution.

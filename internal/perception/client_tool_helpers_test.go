@@ -9,10 +9,10 @@ func TestMapToolDefinitionsToOpenAI(t *testing.T) {
 		{
 			Name:        "test_tool",
 			Description: "A test tool",
-			InputSchema: map[string]interface{}{
+			InputSchema: map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"arg": map[string]interface{}{"type": "string"},
+				"properties": map[string]any{
+					"arg": map[string]any{"type": "string"},
 				},
 			},
 		},

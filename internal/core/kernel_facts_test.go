@@ -14,11 +14,11 @@ func TestKernelFacts_Index(t *testing.T) {
 	k.Evaluate()
 
 	// 1. Add facts with various types of arguments
-	k.Assert(Fact{Predicate: "user", Args: []interface{}{"alice", 1}})
-	k.Assert(Fact{Predicate: "user", Args: []interface{}{"bob", 2}})
+	k.Assert(Fact{Predicate: "user", Args: []any{"alice", 1}})
+	k.Assert(Fact{Predicate: "user", Args: []any{"bob", 2}})
 
 	// 2. Add duplicate fact - should be ignored
-	err := k.Assert(Fact{Predicate: "user", Args: []interface{}{"alice", 1}})
+	err := k.Assert(Fact{Predicate: "user", Args: []any{"alice", 1}})
 	if err != nil {
 		t.Fatalf("Duplicate assert failed: %v", err)
 	}
@@ -41,9 +41,9 @@ func TestKernelFacts_Retract(t *testing.T) {
 	`)
 	k.Evaluate()
 
-	k.Assert(Fact{Predicate: "temp", Args: []interface{}{"a"}})
-	k.Assert(Fact{Predicate: "temp", Args: []interface{}{"b"}})
-	k.Assert(Fact{Predicate: "perm", Args: []interface{}{"c"}})
+	k.Assert(Fact{Predicate: "temp", Args: []any{"a"}})
+	k.Assert(Fact{Predicate: "temp", Args: []any{"b"}})
+	k.Assert(Fact{Predicate: "perm", Args: []any{"c"}})
 
 	// 1. Retract by predicate
 	err := k.Retract("temp")
@@ -69,11 +69,11 @@ func TestKernelFacts_RetractFact(t *testing.T) {
 	k.Evaluate()
 
 	// RetractFact matches Predicate + First Arg only
-	k.Assert(Fact{Predicate: "tag", Args: []interface{}{"file1", "urgent"}})
-	k.Assert(Fact{Predicate: "tag", Args: []interface{}{"file1", "todo"}})
-	k.Assert(Fact{Predicate: "tag", Args: []interface{}{"file2", "urgent"}})
+	k.Assert(Fact{Predicate: "tag", Args: []any{"file1", "urgent"}})
+	k.Assert(Fact{Predicate: "tag", Args: []any{"file1", "todo"}})
+	k.Assert(Fact{Predicate: "tag", Args: []any{"file2", "urgent"}})
 
-	toRetract := Fact{Predicate: "tag", Args: []interface{}{"file1"}}
+	toRetract := Fact{Predicate: "tag", Args: []any{"file1"}}
 	err := k.RetractFact(toRetract)
 	if err != nil {
 		t.Fatalf("RetractFact failed: %v", err)
@@ -101,8 +101,8 @@ func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
 	k.SetMaxFacts(initialCount + 5)
 
 	// Add facts up to the limit
-	for i := 0; i < 5; i++ {
-		err := k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{fmt.Sprintf("item_%d", i)}})
+	for i := range 5 {
+		err := k.Assert(Fact{Predicate: "test_fact", Args: []any{fmt.Sprintf("item_%d", i)}})
 		if err != nil {
 			t.Fatalf("Assert %d should succeed: %v", i, err)
 		}
@@ -111,7 +111,7 @@ func TestAddFactIfNew_MaxFactsEnforcement(t *testing.T) {
 	// The 6th fact should be rejected (silently - addFactIfNewLocked returns false)
 	// Assert won't error because it just skips, but the fact won't be added
 	beforeCount := k.FactCount()
-	_ = k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{"overflow"}})
+	_ = k.Assert(Fact{Predicate: "test_fact", Args: []any{"overflow"}})
 	afterCount := k.FactCount()
 
 	// The fact count should not increase beyond the limit

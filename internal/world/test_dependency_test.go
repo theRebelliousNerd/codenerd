@@ -49,7 +49,7 @@ func (m *mockKernelQuerier) Query(predicate string) ([]codedom.FactData, error) 
 	return m.facts[predicate], nil
 }
 
-func (m *mockKernelQuerier) addFact(predicate string, args ...interface{}) {
+func (m *mockKernelQuerier) addFact(predicate string, args ...any) {
 	m.facts[predicate] = append(m.facts[predicate], codedom.FactData{
 		Predicate: predicate,
 		Args:      args,
@@ -339,7 +339,7 @@ func TestTestDependencyBuilder_Concurrency(t *testing.T) {
 
 	// Run concurrent reads
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			_ = builder.GetTestFiles()
 			_ = builder.GetTestFunctions()
@@ -350,7 +350,7 @@ func TestTestDependencyBuilder_Concurrency(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

@@ -34,7 +34,7 @@ var DefaultRenderCache = NewRenderCache(100)
 // computeHash computes a FNV-1a hash for cache keys.
 //
 // Supported types are intentionally limited to avoid allocations in hot paths.
-func computeHash(inputs ...interface{}) uint64 {
+func computeHash(inputs ...any) uint64 {
 	h := fnv.New64a()
 	var b [8]byte
 
@@ -113,7 +113,7 @@ func (rc *RenderCache) GetOrCompute(key uint64, compute func() string) string {
 }
 
 // ComputeKey generates a cache key from multiple inputs.
-func ComputeKey(inputs ...interface{}) uint64 {
+func ComputeKey(inputs ...any) uint64 {
 	return computeHash(inputs...)
 }
 
@@ -135,7 +135,7 @@ func NewCachedRender(cache *RenderCache) *CachedRender {
 }
 
 // Render executes the render function with caching.
-func (cr *CachedRender) Render(keyInputs []interface{}, renderFunc func() string) string {
+func (cr *CachedRender) Render(keyInputs []any, renderFunc func() string) string {
 	key := ComputeKey(keyInputs...)
 
 	// Fast path: same as last render.

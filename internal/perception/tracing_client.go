@@ -840,9 +840,9 @@ func (tc *TracingLLMClient) CreateCachedContent(ctx context.Context, files []str
 	return "", fmt.Errorf("underlying client does not implement CacheProvider")
 }
 
-func (tc *TracingLLMClient) GetCachedContent(ctx context.Context, cacheName string) (interface{}, error) {
+func (tc *TracingLLMClient) GetCachedContent(ctx context.Context, cacheName string) (any, error) {
 	if p, ok := tc.underlying.(interface {
-		GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+		GetCachedContent(ctx context.Context, cacheName string) (any, error)
 	}); ok {
 		return p.GetCachedContent(ctx, cacheName)
 	}
@@ -902,9 +902,9 @@ func (tc *TracingLLMClient) ListFiles(ctx context.Context) ([]string, error) {
 	return nil, fmt.Errorf("underlying client does not implement FileProvider")
 }
 
-func (tc *TracingLLMClient) GetFile(ctx context.Context, fileID string) (interface{}, error) {
+func (tc *TracingLLMClient) GetFile(ctx context.Context, fileID string) (any, error) {
 	if p, ok := tc.underlying.(interface {
-		GetFile(ctx context.Context, fileID string) (interface{}, error)
+		GetFile(ctx context.Context, fileID string) (any, error)
 	}); ok {
 		return p.GetFile(ctx, fileID)
 	}

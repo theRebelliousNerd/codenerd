@@ -147,9 +147,9 @@ func (ye *YaegiExecutor) validateImports(code string) error {
 			// Remove quotes
 			pkg := strings.Trim(trimmed, `"`)
 			imports = append(imports, pkg)
-		} else if strings.HasPrefix(trimmed, "import ") {
+		} else if after, ok := strings.CutPrefix(trimmed, "import "); ok {
 			// Single import
-			pkg := strings.TrimPrefix(trimmed, "import ")
+			pkg := after
 			pkg = strings.Trim(pkg, `"`)
 			imports = append(imports, pkg)
 		}

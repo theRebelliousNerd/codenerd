@@ -17,7 +17,7 @@ func TestCortexKernel_InterfaceCast(t *testing.T) {
 	}
 
 	// Verify CortexKernel implements KernelTransactor
-	var transactor interface{} = cortex
+	var transactor any = cortex
 	kt, ok := transactor.(types.KernelTransactor)
 	if !ok {
 		t.Fatal("CortexKernel does not implement types.KernelTransactor")
@@ -40,7 +40,7 @@ func TestCortexKernel_InterfaceCast(t *testing.T) {
 	}
 
 	// Verify transaction roundtrip on the wrapper
-	txWrapper.Assert(types.Fact{Predicate: "test_pred", Args: []interface{}{"assert_from_wrapper"}})
+	txWrapper.Assert(types.Fact{Predicate: "test_pred", Args: []any{"assert_from_wrapper"}})
 	if err := txWrapper.Commit(); err != nil {
 		t.Fatalf("Commit failed on tx wrapper: %v", err)
 	}
@@ -67,13 +67,13 @@ func TestCortexTransaction_RetractExactFact(t *testing.T) {
 	}
 
 	// 1. Assert initial facts to Shard A
-	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []interface{}{"exact_1"}})
-	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []interface{}{"exact_2"}})
-	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []interface{}{"exact_3"}})
+	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []any{"exact_1"}})
+	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []any{"exact_2"}})
+	cortex.Assert(types.Fact{Predicate: "my_exact_pred", Args: []any{"exact_3"}})
 
 	// 2. Retract exact fact within a transaction
 	tx := cortex.Transaction()
-	tx.RetractExactFact(types.Fact{Predicate: "my_exact_pred", Args: []interface{}{"exact_2"}})
+	tx.RetractExactFact(types.Fact{Predicate: "my_exact_pred", Args: []any{"exact_2"}})
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
@@ -113,9 +113,9 @@ func TestCortexTransaction_RetractPredicateSet(t *testing.T) {
 	cortex.RegisterShard(shardB)
 
 	// Assert facts to both shards
-	cortex.Assert(types.Fact{Predicate: "pred_a1", Args: []interface{}{"val_a1"}})
-	cortex.Assert(types.Fact{Predicate: "pred_a2", Args: []interface{}{"val_a2"}})
-	cortex.Assert(types.Fact{Predicate: "pred_b1", Args: []interface{}{"val_b1"}})
+	cortex.Assert(types.Fact{Predicate: "pred_a1", Args: []any{"val_a1"}})
+	cortex.Assert(types.Fact{Predicate: "pred_a2", Args: []any{"val_a2"}})
+	cortex.Assert(types.Fact{Predicate: "pred_b1", Args: []any{"val_b1"}})
 
 	// Retract a predicate set containing predicates from both shards
 	tx := cortex.Transaction()
@@ -156,15 +156,15 @@ func TestCortexTransaction_ConcurrentCommit(t *testing.T) {
 
 	errs := make(chan error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(gID int) {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for j := range opsPerGoroutine {
 				tx := cortex.Transaction()
 				tx.Assert(types.Fact{
 					Predicate: "concurrent_tx_pred",
-					Args:      []interface{}{fmt.Sprintf("g_%d_op_%d", gID, j)},
+					Args:      []any{fmt.Sprintf("g_%d_op_%d", gID, j)},
 				})
 				if err := tx.Commit(); err != nil {
 					errs <- err
@@ -212,7 +212,7 @@ func TestCortexTransaction_ShardCommitFailure(t *testing.T) {
 	}
 
 	tx := cortex.Transaction()
-	tx.Assert(types.Fact{Predicate: "bad_pred", Args: []interface{}{"fail"}})
+	tx.Assert(types.Fact{Predicate: "bad_pred", Args: []any{"fail"}})
 
 	err = tx.Commit()
 	if err == nil {

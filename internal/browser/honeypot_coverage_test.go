@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -56,7 +57,7 @@ func TestCalculateConfidence_WhenOneReason_ShouldReturnBaseConfidence(t *testing
 
 	// Add facts to make exactly one reason match
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "css_property", Args: []interface{}{"conf_elem1", "display", "none"}},
+		{Predicate: "css_property", Args: []any{"conf_elem1", "display", "none"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -76,8 +77,8 @@ func TestCalculateConfidence_WhenMultipleReasons_ShouldIncrease(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "css_property", Args: []interface{}{"conf_elem2", "display", "none"}},
-		{Predicate: "css_property", Args: []interface{}{"conf_elem2", "visibility", "hidden"}},
+		{Predicate: "css_property", Args: []any{"conf_elem2", "display", "none"}},
+		{Predicate: "css_property", Args: []any{"conf_elem2", "visibility", "hidden"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -98,13 +99,13 @@ func TestCalculateConfidence_WhenManyReasons_ShouldCapAtOne(t *testing.T) {
 
 	// Push many different honeypot signals to exceed cap
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "css_property", Args: []interface{}{"conf_elem3", "display", "none"}},
-		{Predicate: "css_property", Args: []interface{}{"conf_elem3", "visibility", "hidden"}},
-		{Predicate: "css_property", Args: []interface{}{"conf_elem3", "opacity", "0"}},
-		{Predicate: "position", Args: []interface{}{"conf_elem3", int64(-9999), int64(0), int64(100), int64(100)}},
-		{Predicate: "position", Args: []interface{}{"conf_elem3_dup", int64(0), int64(0), int64(0), int64(0)}},
-		{Predicate: "attribute", Args: []interface{}{"conf_elem3", "aria-hidden", "true"}},
-		{Predicate: "attribute", Args: []interface{}{"conf_elem3", "tabindex", "-1"}},
+		{Predicate: "css_property", Args: []any{"conf_elem3", "display", "none"}},
+		{Predicate: "css_property", Args: []any{"conf_elem3", "visibility", "hidden"}},
+		{Predicate: "css_property", Args: []any{"conf_elem3", "opacity", "0"}},
+		{Predicate: "position", Args: []any{"conf_elem3", int64(-9999), int64(0), int64(100), int64(100)}},
+		{Predicate: "position", Args: []any{"conf_elem3_dup", int64(0), int64(0), int64(0), int64(0)}},
+		{Predicate: "attribute", Args: []any{"conf_elem3", "aria-hidden", "true"}},
+		{Predicate: "attribute", Args: []any{"conf_elem3", "tabindex", "-1"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestGetHoneypotReasons_WhenOpacityZero_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "css_property", Args: []interface{}{"opacity_elem", "opacity", "0"}},
+		{Predicate: "css_property", Args: []any{"opacity_elem", "opacity", "0"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -144,13 +145,7 @@ func TestGetHoneypotReasons_WhenOpacityZero_ShouldDetect(t *testing.T) {
 	if len(reasons) == 0 {
 		t.Error("Expected opacity=0 to be detected as honeypot")
 	}
-	found := false
-	for _, r := range reasons {
-		if r == "Hidden via opacity:0" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(reasons, "Hidden via opacity:0")
 	if !found {
 		t.Errorf("Expected reason 'Hidden via opacity:0' in %v", reasons)
 	}
@@ -160,7 +155,7 @@ func TestGetHoneypotReasons_WhenAriaHidden_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "attribute", Args: []interface{}{"aria_elem", "aria-hidden", "true"}},
+		{Predicate: "attribute", Args: []any{"aria_elem", "aria-hidden", "true"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -169,13 +164,7 @@ func TestGetHoneypotReasons_WhenAriaHidden_ShouldDetect(t *testing.T) {
 	}
 
 	reasons := detector.getHoneypotReasons("aria_elem")
-	found := false
-	for _, r := range reasons {
-		if r == "Marked as aria-hidden" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(reasons, "Marked as aria-hidden")
 	if !found {
 		t.Errorf("Expected reason 'Marked as aria-hidden' in %v", reasons)
 	}
@@ -185,7 +174,7 @@ func TestGetHoneypotReasons_WhenNegativeTabindex_ShouldDetect(t *testing.T) {
 	detector := helperCreateDetectorWithSchemas(t)
 
 	if err := detector.engine.AddFacts([]mangle.Fact{
-		{Predicate: "attribute", Args: []interface{}{"tabidx_elem", "tabindex", "-1"}},
+		{Predicate: "attribute", Args: []any{"tabidx_elem", "tabindex", "-1"}},
 	}); err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
 	}
@@ -194,13 +183,7 @@ func TestGetHoneypotReasons_WhenNegativeTabindex_ShouldDetect(t *testing.T) {
 	}
 
 	reasons := detector.getHoneypotReasons("tabidx_elem")
-	found := false
-	for _, r := range reasons {
-		if r == "Not keyboard accessible (negative tabindex)" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(reasons, "Not keyboard accessible (negative tabindex)")
 	if !found {
 		t.Errorf("Expected reason 'Not keyboard accessible (negative tabindex)' in %v", reasons)
 	}
@@ -429,7 +412,7 @@ func TestEngineSink_WhenAddFactsFails_ShouldPropagateError(t *testing.T) {
 	expectedErr := errors.New("sink error")
 	sink := &mockEngineSink{addErr: expectedErr}
 
-	err := sink.AddFacts([]mangle.Fact{{Predicate: "test", Args: []interface{}{"a"}}})
+	err := sink.AddFacts([]mangle.Fact{{Predicate: "test", Args: []any{"a"}}})
 	if err == nil {
 		t.Error("Expected error from sink")
 	}

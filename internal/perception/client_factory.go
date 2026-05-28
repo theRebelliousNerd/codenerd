@@ -259,6 +259,15 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 			geminiCfg.ThinkingLevel = config.Gemini.ThinkingLevel
 			geminiCfg.EnableGoogleSearch = config.Gemini.EnableGoogleSearch
 			geminiCfg.EnableURLContext = config.Gemini.EnableURLContext
+			// Respect explicit MaxOutputTokens override. With thinking
+			// mode, the budget covers BOTH thinking and visible output;
+			// truncation in the chat surface usually means thinking ate
+			// too much. The default in DefaultGeminiConfig is already the
+			// Gemini-3 cap (65536), but users can lower this for cost or
+			// keep it pinned at the cap.
+			if config.Gemini.MaxOutputTokens > 0 {
+				geminiCfg.MaxOutputTokens = config.Gemini.MaxOutputTokens
+			}
 		}
 		return NewGeminiClientWithConfig(geminiCfg), nil
 

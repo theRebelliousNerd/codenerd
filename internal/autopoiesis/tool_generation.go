@@ -264,7 +264,7 @@ func (tg *ToolGenerator) regenerateToolCodeWithJIT(
 	logging.AutopoiesisDebug("Regenerating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros refinement stage
-	pc := map[string]interface{}{
+	pc := map[string]any{
 		"shard_id":        "tool_generator_" + need.Name + "_refinement",
 		"shard_type":      "tool_generator",
 		"stage":           stage,
@@ -385,7 +385,7 @@ func (tg *ToolGenerator) generateToolCodeWithJIT(ctx context.Context, need *Tool
 	logging.AutopoiesisDebug("Generating tool code with JIT for stage=%s", stage)
 
 	// Build prompt context for this Ouroboros stage
-	pc := map[string]interface{}{
+	pc := map[string]any{
 		"shard_id":        "tool_generator_" + need.Name,
 		"shard_type":      "tool_generator",
 		"stage":           stage,

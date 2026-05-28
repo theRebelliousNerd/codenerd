@@ -16,10 +16,10 @@ func BenchmarkKernelAssert(b *testing.B) {
 
 	// Load initial facts
 	facts := make([]Fact, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		facts[i] = Fact{
 			Predicate: "test_fact",
-			Args:      []interface{}{fmt.Sprintf("arg_%d", i), i},
+			Args:      []any{fmt.Sprintf("arg_%d", i), i},
 		}
 	}
 	kernel.LoadFacts(facts)
@@ -28,7 +28,7 @@ func BenchmarkKernelAssert(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		kernel.Assert(Fact{
 			Predicate: "dynamic_fact",
-			Args:      []interface{}{fmt.Sprintf("bench_%d", i)},
+			Args:      []any{fmt.Sprintf("bench_%d", i)},
 		})
 	}
 }
@@ -43,10 +43,10 @@ func BenchmarkKernelRetract(b *testing.B) {
 
 	// Load facts
 	facts := make([]Fact, 5000)
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		facts[i] = Fact{
 			Predicate: fmt.Sprintf("pred_%d", i%10),
-			Args:      []interface{}{i},
+			Args:      []any{i},
 		}
 	}
 	kernel.LoadFacts(facts)
@@ -67,10 +67,10 @@ func BenchmarkKernelQuery(b *testing.B) {
 
 	// Load diverse facts
 	facts := make([]Fact, 10000)
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		facts[i] = Fact{
 			Predicate: "test_data",
-			Args:      []interface{}{fmt.Sprintf("key_%d", i), i, float64(i) * 1.5},
+			Args:      []any{fmt.Sprintf("key_%d", i), i, float64(i) * 1.5},
 		}
 	}
 	kernel.LoadFacts(facts)
@@ -91,10 +91,10 @@ func BenchmarkKernelLoadFacts(b *testing.B) {
 		}
 
 		facts := make([]Fact, 1000)
-		for j := 0; j < 1000; j++ {
+		for j := range 1000 {
 			facts[j] = Fact{
 				Predicate: "load_test",
-				Args:      []interface{}{fmt.Sprintf("arg_%d", j), j},
+				Args:      []any{fmt.Sprintf("arg_%d", j), j},
 			}
 		}
 
@@ -109,11 +109,11 @@ func BenchmarkKernelLoadFacts(b *testing.B) {
 func BenchmarkFactMatching(b *testing.B) {
 	fact := Fact{
 		Predicate: "test",
-		Args:      []interface{}{"string", 123, 45.6, MangleAtom("/atom")},
+		Args:      []any{"string", 123, 45.6, MangleAtom("/atom")},
 	}
 	pattern := Fact{
 		Predicate: "test",
-		Args:      []interface{}{"string", 123, 45.6, MangleAtom("/atom")},
+		Args:      []any{"string", 123, 45.6, MangleAtom("/atom")},
 	}
 
 	b.ResetTimer()
@@ -131,10 +131,10 @@ func BenchmarkFactDeduplication(b *testing.B) {
 	defer kernel.Reset()
 
 	facts := make([]Fact, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		facts[i] = Fact{
 			Predicate: "dup_test",
-			Args:      []interface{}{i % 100}, // 10% duplication rate
+			Args:      []any{i % 100}, // 10% duplication rate
 		}
 	}
 
@@ -155,10 +155,10 @@ func BenchmarkKernelAssertBatch(b *testing.B) {
 
 	// Initial load
 	initial := make([]Fact, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		initial[i] = Fact{
 			Predicate: "base_fact",
-			Args:      []interface{}{i},
+			Args:      []any{i},
 		}
 	}
 	kernel.LoadFacts(initial)
@@ -166,10 +166,10 @@ func BenchmarkKernelAssertBatch(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		batch := make([]Fact, 100)
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			batch[j] = Fact{
 				Predicate: "batch_fact",
-				Args:      []interface{}{i*100 + j},
+				Args:      []any{i*100 + j},
 			}
 		}
 		// OPTIMIZATION: Single evaluate() call for all 100 facts
@@ -187,10 +187,10 @@ func BenchmarkKernelAssertLoop(b *testing.B) {
 
 	// Initial load
 	initial := make([]Fact, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		initial[i] = Fact{
 			Predicate: "base_fact",
-			Args:      []interface{}{i},
+			Args:      []any{i},
 		}
 	}
 	kernel.LoadFacts(initial)
@@ -198,10 +198,10 @@ func BenchmarkKernelAssertLoop(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		batch := make([]Fact, 100)
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			batch[j] = Fact{
 				Predicate: "batch_fact",
-				Args:      []interface{}{i*100 + j},
+				Args:      []any{i*100 + j},
 			}
 		}
 		// SLOW PATH: evaluate() called 100 times
@@ -225,10 +225,10 @@ func BenchmarkTypicalWorkflow(b *testing.B) {
 		// Simulate typical workflow
 		// 1. Load initial facts
 		facts := make([]Fact, 500)
-		for j := 0; j < 500; j++ {
+		for j := range 500 {
 			facts[j] = Fact{
 				Predicate: "initial",
-				Args:      []interface{}{j},
+				Args:      []any{j},
 			}
 		}
 		kernel.LoadFacts(facts)
@@ -237,10 +237,10 @@ func BenchmarkTypicalWorkflow(b *testing.B) {
 		kernel.Query("initial")
 
 		// 3. Assert new facts
-		for j := 0; j < 50; j++ {
+		for j := range 50 {
 			kernel.Assert(Fact{
 				Predicate: "dynamic",
-				Args:      []interface{}{j},
+				Args:      []any{j},
 			})
 		}
 

@@ -183,7 +183,7 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			var cid int
 			var name, ctype string
 			var notnull, pk int
-			var dfltValue interface{}
+			var dfltValue any
 			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
 				continue
 			}
@@ -483,7 +483,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 
 		// Build the query
 		query := "INSERT INTO prompt_atoms (atom_id, version, content, token_count, content_hash, description, content_concise, content_min, category, subcategory, priority, is_mandatory, is_exclusive, embedding, embedding_task) VALUES "
-		var vals []interface{}
+		var vals []any
 		var placeholders []string
 
 		for j, atom := range chunk {
@@ -519,7 +519,7 @@ func (l *AtomLoader) ReplaceAtoms(ctx context.Context, db *sql.DB, atoms []*Prom
 	// We will chunk tags insertion similarly. Tag table has 3 columns (atom_id, dimension, tag)
 	// Max chunk size = 999 / 3 = 333
 	tagChunkSize := 300
-	var tagVals []interface{}
+	var tagVals []any
 	var tagPlaceholders []string
 
 	flushTags := func() error {
@@ -891,7 +891,7 @@ func encodeFloat32Slice(vec []float32) []byte {
 }
 
 // nullableString returns nil for empty strings, otherwise the string.
-func nullableString(s string) interface{} {
+func nullableString(s string) any {
 	if s == "" {
 		return nil
 	}
@@ -899,7 +899,7 @@ func nullableString(s string) interface{} {
 }
 
 // toJSONString converts JSON bytes to string, returning nil for empty arrays.
-func toJSONString(data []byte) interface{} {
+func toJSONString(data []byte) any {
 	if len(data) == 0 || string(data) == "[]" || string(data) == "null" {
 		return nil
 	}
@@ -1122,7 +1122,7 @@ func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embed
 
 	// 1. Bulk insert/update atoms
 	placeholders := make([]string, 0, len(atoms))
-	args := make([]interface{}, 0, len(atoms)*16)
+	args := make([]any, 0, len(atoms)*16)
 
 	for i, atom := range atoms {
 		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -1168,7 +1168,7 @@ func storeAtomsChunk(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom, embed
 
 	// 2. Bulk delete context tags
 	deletePlaceholders := make([]string, 0, len(atoms))
-	deleteArgs := make([]interface{}, 0, len(atoms))
+	deleteArgs := make([]any, 0, len(atoms))
 	for _, atom := range atoms {
 		deletePlaceholders = append(deletePlaceholders, "?")
 		deleteArgs = append(deleteArgs, atom.ID)
@@ -1228,7 +1228,7 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 
 		chunk := allTags[i:end]
 		placeholders := make([]string, 0, len(chunk))
-		args := make([]interface{}, 0, len(chunk)*3)
+		args := make([]any, 0, len(chunk)*3)
 
 		for _, t := range chunk {
 			placeholders = append(placeholders, "(?, ?, ?)")

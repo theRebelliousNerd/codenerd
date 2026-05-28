@@ -165,7 +165,7 @@ func TestKernelValidationGap_ValidateLearnedRulesContent_ManyRules(t *testing.T)
 
 	// Generate 1000 rules (reduced from 100,000 for CI safety)
 	var rules strings.Builder
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		rules.WriteString("stress_pred(\"rule_" + strings.Repeat("x", 10) + "\").\n")
 	}
 
@@ -186,16 +186,14 @@ func TestKernelValidationGap_Concurrency_SetSchemasWhileValidate(t *testing.T) {
 	const goroutines = 20
 
 	// Readers: validate rules concurrently
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			_ = k.ValidateLearnedRule("base_pred(\"test\").")
-		}()
+		})
 	}
 
 	// Writers: update schemas concurrently
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -222,7 +220,7 @@ func TestKernelValidationGap_TOCTOU_ValidateLearnedRulesContent(t *testing.T) {
 	// We verify the function handles concurrent calls safely.
 	var wg sync.WaitGroup
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

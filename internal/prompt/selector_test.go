@@ -49,7 +49,7 @@ func (k *validatingKernel) Query(predicate string) ([]Fact, error) {
 	return k.results, nil
 }
 
-func (k *validatingKernel) AssertBatch(facts []interface{}) error {
+func (k *validatingKernel) AssertBatch(facts []any) error {
 	for _, f := range facts {
 		s, ok := f.(string)
 		if !ok {
@@ -179,11 +179,11 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 
 		// Mock kernel returns all atoms as selected
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"identity-1", 100, "mandatory"}},
-				Fact{Predicate: "selected_result", Args: []interface{}{"safety-1", 90, "mandatory"}},
-				Fact{Predicate: "selected_result", Args: []interface{}{"domain-1", 80, "context_match"}},
-				Fact{Predicate: "selected_result", Args: []interface{}{"exemplar-1", 70, "vector_match"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"safety-1", 90, "mandatory"}},
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
+				Fact{Predicate: "selected_result", Args: []any{"exemplar-1", 70, "vector_match"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -227,8 +227,8 @@ func TestAtomSelector_SelectAtoms_Bifurcation(t *testing.T) {
 
 		// Create a kernel that returns skeleton atoms but has no flesh results
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"identity-1", 100, "mandatory"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
 				// No flesh atoms returned
 			},
 		}
@@ -279,8 +279,8 @@ func TestAtomSelector_SelectAtoms_FactsAreMangleParseable(t *testing.T) {
 
 	kernel := &validatingKernel{
 		results: []Fact{
-			{Predicate: "selected_result", Args: []interface{}{identityID, 100, "mandatory"}},
-			{Predicate: "selected_result", Args: []interface{}{evilID, 80, "vector_match"}},
+			{Predicate: "selected_result", Args: []any{identityID, 100, "mandatory"}},
+			{Predicate: "selected_result", Args: []any{evilID, 80, "vector_match"}},
 		},
 	}
 	selector.SetKernel(kernel)
@@ -449,8 +449,8 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 		}
 
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"identity-1", 100, "mandatory"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -500,8 +500,8 @@ func TestAtomSelector_LoadSkeletonAtoms(t *testing.T) {
 		}
 
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"identity-1", 100, "mandatory"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "mandatory"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -527,8 +527,8 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		}
 
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"domain-1", 80, "context_match"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -584,8 +584,8 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		}
 
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"domain-1", 80, "vector_match"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "vector_match"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -612,8 +612,8 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 		}
 
 		kernel := &mockKernel{
-			facts: []interface{}{
-				Fact{Predicate: "selected_result", Args: []interface{}{"domain-1", 80, "context_match"}},
+			facts: []any{
+				Fact{Predicate: "selected_result", Args: []any{"domain-1", 80, "context_match"}},
 			},
 		}
 		selector.SetKernel(kernel)
@@ -629,8 +629,6 @@ func TestAtomSelector_LoadFleshAtoms(t *testing.T) {
 // Findings: nil CompilationContext causes panic in GenerateFacts (known bug).
 // mockKernel has unsynchronized state (production RealKernel uses sync.RWMutex).
 
-
-
 // =========================================================================
 // Benchmarks
 // =========================================================================
@@ -643,7 +641,7 @@ func BenchmarkSelectAtoms(b *testing.B) {
 		CategoryDomain, CategoryLanguage, CategoryExemplar, CategoryContext,
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		atoms[i] = &PromptAtom{
 			ID:       string(rune('a' + i%26)),
 			Priority: i,
@@ -657,7 +655,7 @@ func BenchmarkSelectAtoms(b *testing.B) {
 	for _, a := range atoms {
 		kernel.facts = append(kernel.facts, Fact{
 			Predicate: "selected_result",
-			Args:      []interface{}{a.ID, a.Priority, "benchmark"},
+			Args:      []any{a.ID, a.Priority, "benchmark"},
 		})
 	}
 
@@ -676,7 +674,7 @@ func BenchmarkMergeAtoms(b *testing.B) {
 	selector := NewAtomSelector()
 
 	skeleton := make([]*ScoredAtom, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		skeleton[i] = &ScoredAtom{
 			Atom:     &PromptAtom{ID: string(rune('s' + i)), Category: CategoryIdentity},
 			Combined: float64(i) / 20,
@@ -685,7 +683,7 @@ func BenchmarkMergeAtoms(b *testing.B) {
 	}
 
 	flesh := make([]*ScoredAtom, 80)
-	for i := 0; i < 80; i++ {
+	for i := range 80 {
 		flesh[i] = &ScoredAtom{
 			Atom:     &PromptAtom{ID: string(rune('f' + i)), Category: CategoryDomain},
 			Combined: float64(i) / 80,
@@ -703,7 +701,7 @@ func BenchmarkMergeAtoms(b *testing.B) {
 func TestAtomSelector_ExtractStringArg_UnknownTypes(t *testing.T) {
 	tests := []struct {
 		name    string
-		input   interface{}
+		input   any
 		want    string
 		wantErr bool
 	}{

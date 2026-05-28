@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -150,14 +152,11 @@ func (s *FileScope) Open(path string) error {
 				name := entry.Name()
 				fileExt := strings.ToLower(filepath.Ext(name))
 				// Check if this file has a supported extension for the same language
-				for _, supportedExt := range supportedExts {
-					if fileExt == supportedExt {
-						siblingPath := filepath.Join(pkgDir, name)
-						if !seen[siblingPath] {
-							s.InScope = append(s.InScope, siblingPath)
-							seen[siblingPath] = true
-						}
-						break
+				if slices.Contains(supportedExts, fileExt) {
+					siblingPath := filepath.Join(pkgDir, name)
+					if !seen[siblingPath] {
+						s.InScope = append(s.InScope, siblingPath)
+						seen[siblingPath] = true
 					}
 				}
 			}
@@ -347,12 +346,7 @@ func (s *FileScope) IsInScope(path string) bool {
 	defer s.mu.RUnlock()
 
 	absPath, _ := filepath.Abs(path)
-	for _, f := range s.InScope {
-		if f == absPath {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.InScope, absPath)
 }
 
 // Close clears the current scope.
@@ -431,7 +425,7 @@ func (s *FileScope) loadFile(path string) error {
 		logging.Get(logging.CategoryWorld).Warn("Large file detected: %s (%d lines, %d bytes)", filepath.Base(path), lineCount, byteSize)
 		s.emitFact(core.Fact{
 			Predicate: "large_file_warning",
-			Args:      []interface{}{path, int64(lineCount), byteSize},
+			Args:      []any{path, int64(lineCount), byteSize},
 		})
 	}
 
@@ -441,21 +435,21 @@ func (s *FileScope) loadFile(path string) error {
 		logging.Get(logging.CategoryWorld).Warn("BOM detected in file: %s (%s)", filepath.Base(path), encoding.BOMType)
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []interface{}{path, "/bom_detected"},
+			Args:      []any{path, "/bom_detected"},
 		})
 	}
 	if encoding.MixedLineEnding {
 		logging.Get(logging.CategoryWorld).Warn("Mixed line endings in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []interface{}{path, "/crlf_inconsistent"},
+			Args:      []any{path, "/crlf_inconsistent"},
 		})
 	}
 	if !encoding.IsValidUTF8 {
 		logging.Get(logging.CategoryWorld).Warn("Invalid UTF-8 in file: %s", filepath.Base(path))
 		s.emitFact(core.Fact{
 			Predicate: "encoding_issue",
-			Args:      []interface{}{path, "/non_utf8"},
+			Args:      []any{path, "/non_utf8"},
 		})
 	}
 
@@ -486,7 +480,7 @@ func (s *FileScope) loadFile(path string) error {
 			logging.Get(logging.CategoryWorld).Warn("Generated code detected: %s (generator: %s)", filepath.Base(path), patterns.Generator)
 			s.emitFact(core.Fact{
 				Predicate: "edit_unsafe",
-				Args:      []interface{}{path, "generated_code_will_be_overwritten"},
+				Args:      []any{path, "generated_code_will_be_overwritten"},
 			})
 		}
 	}
@@ -545,16 +539,16 @@ func (s *FileScope) emitFact(fact core.Fact) {
 // emitErrorFact emits an error fact with timestamp.
 func (s *FileScope) emitErrorFact(predicate, path, errMsg string) {
 	ts := time.Now().Unix()
-	var args []interface{}
+	var args []any
 	switch predicate {
 	case "file_not_found":
-		args = []interface{}{path, ts}
+		args = []any{path, ts}
 	case "scope_refresh_failed":
-		args = []interface{}{path, errMsg}
+		args = []any{path, errMsg}
 	case "parse_error":
-		args = []interface{}{path, errMsg, ts}
+		args = []any{path, errMsg, ts}
 	default:
-		args = []interface{}{path, errMsg, ts}
+		args = []any{path, errMsg, ts}
 	}
 	s.emitFact(core.Fact{
 		Predicate: predicate,
@@ -587,7 +581,7 @@ func (s *FileScope) VerifyFileHash(path string) (bool, error) {
 		logging.Get(logging.CategoryWorld).Warn("Hash mismatch detected: %s (expected=%s, actual=%s)", filepath.Base(path), expectedHash[:16], actualHash[:16])
 		s.emitFact(core.Fact{
 			Predicate: "file_hash_mismatch",
-			Args:      []interface{}{path, expectedHash, actualHash},
+			Args:      []any{path, expectedHash, actualHash},
 		})
 		return false, nil
 	}
@@ -618,7 +612,7 @@ func (s *FileScope) ValidateElementRef(ref string) (*CodeElement, error) {
 	if !valid {
 		s.emitFact(core.Fact{
 			Predicate: "element_stale",
-			Args:      []interface{}{ref, "file_modified"},
+			Args:      []any{ref, "file_modified"},
 		})
 		return nil, fmt.Errorf("element stale: file was modified externally")
 	}
@@ -634,7 +628,7 @@ func (s *FileScope) ValidateElementRef(ref string) (*CodeElement, error) {
 // RefreshWithRetry attempts to refresh the scope with retry logic.
 func (s *FileScope) RefreshWithRetry(maxRetries int) error {
 	var lastErr error
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		if err := s.Refresh(); err != nil {
 			lastErr = err
 			// Brief pause before retry
@@ -774,8 +768,8 @@ func (s *FileScope) detectModulePath() error {
 		return err
 	}
 
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "module ") {
 			s.ModulePath = strings.TrimSpace(strings.TrimPrefix(line, "module"))
@@ -797,7 +791,7 @@ func (s *FileScope) emitScopeFacts() {
 	// Emit active_file fact
 	callback(core.Fact{
 		Predicate: "active_file",
-		Args:      []interface{}{s.ActiveFile},
+		Args:      []any{s.ActiveFile},
 	})
 
 	// Emit file_in_scope facts
@@ -810,7 +804,7 @@ func (s *FileScope) emitScopeFacts() {
 		lang := detectLanguage(filepath.Ext(file), file)
 		callback(core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []interface{}{file, hash, "/" + lang, int64(lineCount)},
+			Args:      []any{file, hash, "/" + lang, int64(lineCount)},
 		})
 	}
 
@@ -873,7 +867,7 @@ func detectEncoding(content []byte) EncodingInfo {
 	// Check line endings
 	info.HasCRLF = bytes.Contains(content, []byte{'\r', '\n'})
 	// Check for standalone LF (not preceded by CR)
-	for i := 0; i < len(content); i++ {
+	for i := range content {
 		if content[i] == '\n' {
 			if i == 0 || content[i-1] != '\r' {
 				info.HasLF = true
@@ -906,9 +900,7 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 	inScope := append([]string(nil), s.InScope...)
 	elements := append([]CodeElement(nil), s.Elements...)
 	fileHashes := make(map[string]string, len(s.FileHashes))
-	for k, v := range s.FileHashes {
-		fileHashes[k] = v
-	}
+	maps.Copy(fileHashes, s.FileHashes)
 	s.mu.RUnlock()
 
 	var facts []core.Fact
@@ -917,7 +909,7 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 	if activeFile != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "active_file",
-			Args:      []interface{}{activeFile},
+			Args:      []any{activeFile},
 		})
 	}
 
@@ -931,7 +923,7 @@ func (s *FileScope) ScopeFacts() []core.Fact {
 		lang := detectLanguage(filepath.Ext(file), file)
 		facts = append(facts, core.Fact{
 			Predicate: "file_in_scope",
-			Args:      []interface{}{file, hash, "/" + lang, int64(lineCount)},
+			Args:      []any{file, hash, "/" + lang, int64(lineCount)},
 		})
 	}
 

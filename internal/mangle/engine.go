@@ -79,10 +79,10 @@ type Engine struct {
 
 // Fact represents a single fact in the knowledge graph.
 type Fact struct {
-	Predicate string        `json:"predicate"`
-	Args      []interface{} `json:"args"`
-	Line      int           `json:"line,omitempty"`
-	Timestamp time.Time     `json:"timestamp,omitempty"`
+	Predicate string    `json:"predicate"`
+	Args      []any     `json:"args"`
+	Line      int       `json:"line,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // String returns the Datalog representation of the fact.
@@ -117,8 +117,8 @@ func (f Fact) String() string {
 
 // QueryResult represents the result of a Mangle query.
 type QueryResult struct {
-	Bindings []map[string]interface{} `json:"bindings"`
-	Duration time.Duration            `json:"duration"`
+	Bindings []map[string]any `json:"bindings"`
+	Duration time.Duration    `json:"duration"`
 }
 
 // Stats contains engine statistics.
@@ -410,7 +410,7 @@ func (e *Engine) WarmFromPersistence(ctx context.Context) error {
 }
 
 // AddFact inserts a single fact into the knowledge graph.
-func (e *Engine) AddFact(predicate string, args ...interface{}) error {
+func (e *Engine) AddFact(predicate string, args ...any) error {
 	return e.AddFacts([]Fact{{Predicate: predicate, Args: args}})
 }
 
@@ -508,7 +508,7 @@ func isNilPersistence(p Persistence) bool {
 		return true
 	}
 	val := reflect.ValueOf(p)
-	return val.Kind() == reflect.Ptr && val.IsNil()
+	return val.Kind() == reflect.Pointer && val.IsNil()
 }
 
 func (e *Engine) insertFactLocked(fact Fact) error {
@@ -608,7 +608,7 @@ func (e *Engine) factToAtomLocked(fact Fact) (ast.Atom, error) {
 }
 
 // convertValueToTypedTerm converts a value to a Mangle BaseTerm, enforcing expected type if known.
-func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (ast.BaseTerm, error) {
+func convertValueToTypedTerm(value any, expectedType ast.ConstantType) (ast.BaseTerm, error) {
 	// 1. If we have a strict type expectation, try to coerce or validate
 	switch expectedType {
 	case ast.NameType:
@@ -676,7 +676,7 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 			constants[i] = ast.String(item)
 		}
 		return ast.List(constants), nil
-	case []interface{}:
+	case []any:
 		constants := make([]ast.Constant, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {
@@ -687,7 +687,7 @@ func convertValueToTypedTerm(value interface{}, expectedType ast.ConstantType) (
 	case map[string]string:
 		encoded, _ := json.Marshal(v)
 		return ast.String(string(encoded)), nil
-	case map[string]interface{}:
+	case map[string]any:
 		encoded, _ := json.Marshal(v)
 		return ast.String(string(encoded)), nil
 	default:
@@ -743,11 +743,11 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 	}
 
 	start := time.Now()
-	resultChan := make(chan []map[string]interface{}, 1)
+	resultChan := make(chan []map[string]any, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
-		var results []map[string]interface{}
+		var results []map[string]any
 		err := queryContext.EvalQuery(shape.atom, mode, unionfind.New(), func(fact ast.Atom) error {
 			select {
 			case <-ctx.Done():
@@ -755,7 +755,7 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 			default:
 			}
 
-			row := make(map[string]interface{}, len(shape.variables))
+			row := make(map[string]any, len(shape.variables))
 			for _, binding := range shape.variables {
 				if binding.Index >= len(fact.Args) {
 					continue
@@ -800,7 +800,7 @@ func (e *Engine) GetFacts(predicate string) ([]Fact, error) {
 
 	var results []Fact
 	err := e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
-		args := make([]interface{}, len(atom.Args))
+		args := make([]any, len(atom.Args))
 		for i, arg := range atom.Args {
 			args[i] = convertBaseTermToInterface(arg)
 		}
@@ -946,7 +946,7 @@ func isIdentifier(s string) bool {
 	return true
 }
 
-func convertBaseTermToInterface(term ast.BaseTerm) interface{} {
+func convertBaseTermToInterface(term ast.BaseTerm) any {
 	switch v := term.(type) {
 	case ast.Constant:
 		return constantToInterface(v)
@@ -959,7 +959,7 @@ func convertBaseTermToInterface(term ast.BaseTerm) interface{} {
 	}
 }
 
-func constantToInterface(constant ast.Constant) interface{} {
+func constantToInterface(constant ast.Constant) any {
 	switch constant.Type {
 	case ast.StringType:
 		return constant.Symbol
@@ -1023,7 +1023,7 @@ func canonicalPath(path string) string {
 
 // PushFact is a convenience method for adding a single fact by predicate and args.
 // This method name matches the interface expected by browser automation.
-func (e *Engine) PushFact(predicate string, args ...interface{}) error {
+func (e *Engine) PushFact(predicate string, args ...any) error {
 	return e.AddFact(predicate, args...)
 }
 

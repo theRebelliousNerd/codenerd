@@ -24,12 +24,12 @@ func TestReporterReportJSON(t *testing.T) {
 		t.Fatalf("Report JSON failed: %v", err)
 	}
 
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
 		t.Fatalf("invalid JSON output: %v", err)
 	}
 
-	rawScenario, ok := decoded["Scenario"].(map[string]interface{})
+	rawScenario, ok := decoded["Scenario"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected Scenario object in JSON output")
 	}

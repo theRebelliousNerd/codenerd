@@ -33,7 +33,7 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 	// Action: Compile
 	req := core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"test_compile",      // ID
 			"ouroboros_compile", // Type (ActionOuroborosCompile)
 			"my_test_tool",      // Target
@@ -78,14 +78,14 @@ func TestVirtualStore_CompilationDelegation(t *testing.T) {
 	}
 
 	if !found {
-		allFactsStr := ""
+		var allFactsStr strings.Builder
 		for _, f := range allFacts {
 			// Only show relevant-looking facts
 			if strings.Contains(f.Predicate, "delegat") || strings.Contains(f.Predicate, "execution") {
-				allFactsStr += fmt.Sprintf("\n - %s", f.String())
+				allFactsStr.WriteString(fmt.Sprintf("\n - %s", f.String()))
 			}
 		}
-		t.Errorf("Expected delegation fact for /tool_generator not found. Core facts: %s", allFactsStr)
+		t.Errorf("Expected delegation fact for /tool_generator not found. Core facts: %s", allFactsStr.String())
 	}
 
 	// Double Verify: Check output

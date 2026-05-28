@@ -131,21 +131,21 @@ func (p *MangleCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			// mg_decl(Ref, PredicateName)
 			facts = append(facts, core.Fact{
 				Predicate: "mg_decl",
-				Args:      []interface{}{elem.Ref, elem.Name},
+				Args:      []any{elem.Ref, elem.Name},
 			})
 
 		case ElementMangleRule:
 			// mg_rule(Ref, HeadPredicate)
 			facts = append(facts, core.Fact{
 				Predicate: "mg_rule",
-				Args:      []interface{}{elem.Ref, elem.Name},
+				Args:      []any{elem.Ref, elem.Name},
 			})
 
 			// Detect recursive rules
 			if isRecursiveRule(elem.Body, elem.Name) {
 				facts = append(facts, core.Fact{
 					Predicate: "mg_recursive_rule",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -153,7 +153,7 @@ func (p *MangleCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			if containsNegation(elem.Body) {
 				facts = append(facts, core.Fact{
 					Predicate: "mg_negation_rule",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -161,7 +161,7 @@ func (p *MangleCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			if containsAggregation(elem.Body) {
 				facts = append(facts, core.Fact{
 					Predicate: "mg_aggregation_rule",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -169,14 +169,14 @@ func (p *MangleCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 			// mg_fact(Ref, PredicateName)
 			facts = append(facts, core.Fact{
 				Predicate: "mg_fact",
-				Args:      []interface{}{elem.Ref, elem.Name},
+				Args:      []any{elem.Ref, elem.Name},
 			})
 
 		case ElementMangleQuery:
 			// mg_query(Ref, PredicateName)
 			facts = append(facts, core.Fact{
 				Predicate: "mg_query",
-				Args:      []interface{}{elem.Ref, elem.Name},
+				Args:      []any{elem.Ref, elem.Name},
 			})
 		}
 	}
@@ -187,11 +187,11 @@ func (p *MangleCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact
 // isRecursiveRule checks if a rule body contains the head predicate.
 func isRecursiveRule(body, headPred string) bool {
 	// Look for the predicate name followed by '(' in the body after ":-"
-	idx := strings.Index(body, ":-")
-	if idx == -1 {
+	_, after, ok := strings.Cut(body, ":-")
+	if !ok {
 		return false
 	}
-	ruleBody := body[idx+2:]
+	ruleBody := after
 	// Check if head predicate appears in body
 	return strings.Contains(ruleBody, headPred+"(")
 }
@@ -199,11 +199,11 @@ func isRecursiveRule(body, headPred string) bool {
 // containsNegation checks if a rule body contains negation.
 func containsNegation(body string) bool {
 	// Look for "not " or "!" patterns in the body
-	idx := strings.Index(body, ":-")
-	if idx == -1 {
+	_, after, ok := strings.Cut(body, ":-")
+	if !ok {
 		return false
 	}
-	ruleBody := body[idx+2:]
+	ruleBody := after
 	return strings.Contains(ruleBody, "not ") || strings.Contains(ruleBody, "!")
 }
 

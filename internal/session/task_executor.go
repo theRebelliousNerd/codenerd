@@ -314,8 +314,8 @@ func (j *JITExecutor) intentToAgentName(intent string) string {
 		return "planner"
 	}
 	// /consult/<persona> → <persona>
-	if strings.HasPrefix(intent, "/consult/") {
-		return strings.TrimPrefix(intent, "/consult/")
+	if after, ok := strings.CutPrefix(intent, "/consult/"); ok {
+		return after
 	}
 	return "executor"
 }

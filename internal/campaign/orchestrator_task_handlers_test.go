@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,6 @@ import (
 // -----------------------------------------------------------------------------
 // Marathon 19: Task Handler Gaps (Gaps 1-14)
 // -----------------------------------------------------------------------------
-
 
 func TestExtractCodeBlock_EdgeCases(t *testing.T) {
 	tests := []struct {
@@ -120,8 +120,6 @@ func TestExtractPathFromDescription_EdgeCases(t *testing.T) {
 		})
 	}
 }
-
-
 
 type MockTaskExecutor struct {
 	ExecuteFunc            func(ctx context.Context, req session.TaskRequest) (string, error)
@@ -352,7 +350,7 @@ func TestExecuteCampaignRefTask_FailurePolicyMapping(t *testing.T) {
 			kernel := &MockKernel{}
 			_ = kernel.Assert(core.Fact{
 				Predicate: "campaign",
-				Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusFailed)},
+				Args:      []any{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusFailed)},
 			})
 
 			o := &Orchestrator{
@@ -402,13 +400,7 @@ func TestExecuteCampaignRefTask_FailurePolicyMapping(t *testing.T) {
 				t.Fatalf("expected tool scope override, got %#v", envelope.Inheritance)
 			}
 			if tc.expectedFactHint != "" {
-				found := false
-				for _, f := range envelope.LearnedFacts {
-					if f == tc.expectedFactHint {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(envelope.LearnedFacts, tc.expectedFactHint)
 				if !found {
 					t.Fatalf("expected learned fact %s, got %#v", tc.expectedFactHint, envelope.LearnedFacts)
 				}
@@ -421,11 +413,11 @@ func TestLookupCampaignStatus_UsesLatestFact(t *testing.T) {
 	kernel := &MockKernel{}
 	_ = kernel.Assert(core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusActive)},
+		Args:      []any{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusActive)},
 	})
 	_ = kernel.Assert(core.Fact{
 		Predicate: "campaign",
-		Args:      []interface{}{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusPaused)},
+		Args:      []any{"/child_campaign", string(CampaignTypeFeature), "Child", "", string(StatusPaused)},
 	})
 
 	o := &Orchestrator{kernel: kernel}
@@ -483,7 +475,7 @@ func TestExecuteTask_Dispatch(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Explicit shard override
 	_, _ = o.executeTask(context.Background(), &Task{ID: "t1", Shard: "/custom", Description: "d"})
 	if called != "/custom" {
@@ -557,14 +549,14 @@ func TestExecuteFileTask_ShardFailure_Fallback(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Shard fails -> fallback invoked
 	res, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
 	if err != nil {
 		t.Errorf("Expected fallback success, got %v", err)
 	}
-	
-	if resMap, ok := res.(map[string]interface{}); ok {
+
+	if resMap, ok := res.(map[string]any); ok {
 		if _, exists := resMap["size"]; !exists {
 			t.Errorf("Expected fallback result (size), got %v", resMap)
 		}
@@ -587,12 +579,12 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 			},
 		},
 	}
-	
+
 	res, err := o.executeFileTask(ctx, &Task{ID: "1", Description: "do it", Artifacts: []TaskArtifact{{Path: "test.go"}}})
 	if err != nil {
 		t.Errorf("Expected fallback success, got %v", err)
 	}
-	if resMap, ok := res.(map[string]interface{}); ok {
+	if resMap, ok := res.(map[string]any); ok {
 		if _, exists := resMap["size"]; !exists {
 			t.Errorf("Expected fallback result due to verification failure, got %v", resMap)
 		}
@@ -600,24 +592,23 @@ func TestExecuteFileTask_VerificationFailure(t *testing.T) {
 }
 
 func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	kernel := &MockKernel{
 		Facts: []core.Fact{
-			{Predicate: "has_capability", Args: []interface{}{"git_read"}},
+			{Predicate: "has_capability", Args: []any{"git_read"}},
 		},
 	}
 	o := &Orchestrator{
-		kernel: kernel,
+		kernel:   kernel,
 		campaign: &Campaign{ID: "camp1", Goal: "goal"},
 	}
-	
+
 	resChan := make(chan error)
 	go func() {
 		_, err := o.executeToolCreateTask(ctx, &Task{ID: "1", Description: "git_read"})
 		resChan <- err
 	}()
-	
+
 	err := <-resChan
 	if err != nil {
 		t.Errorf("executeToolCreateTask failed: %v", err)
@@ -626,15 +617,13 @@ func TestExecuteToolCreateTask_Autopoiesis(t *testing.T) {
 	// Context cancellation
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	o2 := &Orchestrator{
-		kernel: &MockKernel{},
+		kernel:   &MockKernel{},
 		campaign: &Campaign{ID: "camp1"},
 	}
-	
+
 	cancel2() // cancel immediately
 	_, err = o2.executeToolCreateTask(ctx2, &Task{ID: "1", Description: "git_read"})
 	if err == nil || err != context.Canceled {
 		t.Errorf("Expected context canceled, got %v", err)
 	}
 }
-
-

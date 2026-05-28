@@ -237,10 +237,10 @@ reachable(X) :- via_edge(X).
 func TestTorture_Parse_DeeplyNestedProgram(t *testing.T) {
 	// Large program with many declarations and rules
 	var sb strings.Builder
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		sb.WriteString("Decl pred_" + string(rune('a'+i%26)) + "(X).\n")
 	}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		sb.WriteString("Decl chain_" + string(rune('a'+i%26)) + "(X, Y).\n")
 	}
 	_, err := parse.Unit(strings.NewReader(sb.String()))
@@ -285,9 +285,9 @@ reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
 `
 	facts := []testFact{
-		{"edge", []interface{}{"a", "b"}},
-		{"edge", []interface{}{"b", "c"}},
-		{"edge", []interface{}{"c", "d"}},
+		{"edge", []any{"a", "b"}},
+		{"edge", []any{"b", "c"}},
+		{"edge", []any{"c", "d"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "reachable")
 	// Expected: (a,b), (a,c), (a,d), (b,c), (b,d), (c,d) = 6
@@ -305,10 +305,10 @@ reachable(X, Y) :- dep(X, Y).
 reachable(X, Z) :- dep(X, Y), reachable(Y, Z).
 `
 	facts := []testFact{
-		{"dep", []interface{}{"A", "B"}},
-		{"dep", []interface{}{"A", "C"}},
-		{"dep", []interface{}{"B", "D"}},
-		{"dep", []interface{}{"C", "D"}},
+		{"dep", []any{"A", "B"}},
+		{"dep", []any{"A", "C"}},
+		{"dep", []any{"B", "D"}},
+		{"dep", []any{"C", "D"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "reachable")
 	// Reachable: (A,B), (A,C), (B,D), (C,D), (A,D) = 5 unique pairs
@@ -336,10 +336,10 @@ Decl regular_user(X).
 regular_user(X) :- user(X), !admin(X).
 `
 	facts := []testFact{
-		{"user", []interface{}{"alice"}},
-		{"user", []interface{}{"bob"}},
-		{"user", []interface{}{"charlie"}},
-		{"admin", []interface{}{"alice"}},
+		{"user", []any{"alice"}},
+		{"user", []any{"bob"}},
+		{"user", []any{"charlie"}},
+		{"admin", []any{"alice"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "regular_user")
 	if len(result) != 2 {
@@ -362,8 +362,8 @@ Decl selected(X).
 selected(X) :- candidate(X), !excluded(X).
 `
 	facts := []testFact{
-		{"candidate", []interface{}{"x"}},
-		{"candidate", []interface{}{"y"}},
+		{"candidate", []any{"x"}},
+		{"candidate", []any{"y"}},
 		// No excluded facts at all
 	}
 	result := evaluateAndQuery(t, program, facts, "selected")
@@ -383,9 +383,9 @@ not_rejected(X) :- candidate(X), !rejected(X).
 confirmed(X) :- not_rejected(X).
 `
 	facts := []testFact{
-		{"candidate", []interface{}{"a"}},
-		{"candidate", []interface{}{"b"}},
-		{"rejected", []interface{}{"b"}},
+		{"candidate", []any{"a"}},
+		{"candidate", []any{"b"}},
+		{"rejected", []any{"b"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "confirmed")
 	if len(result) != 1 {
@@ -407,10 +407,10 @@ fail(Name) :- score(Name, V), V < 60.
 perfect(Name) :- score(Name, V), V = 100.
 `
 	facts := []testFact{
-		{"score", []interface{}{"alice", int64(95)}},
-		{"score", []interface{}{"bob", int64(55)}},
-		{"score", []interface{}{"charlie", int64(100)}},
-		{"score", []interface{}{"dave", int64(60)}},
+		{"score", []any{"alice", int64(95)}},
+		{"score", []any{"bob", int64(55)}},
+		{"score", []any{"charlie", int64(100)}},
+		{"score", []any{"dave", int64(60)}},
 	}
 
 	t.Run("pass", func(t *testing.T) {
@@ -442,9 +442,9 @@ doubled(Name, R) :- input(Name, X), R = fn:mult(X, 2).
 offset(Name, R) :- input(Name, X), R = fn:plus(X, 10).
 `
 	facts := []testFact{
-		{"input", []interface{}{"a", int64(5)}},
-		{"input", []interface{}{"b", int64(0)}},
-		{"input", []interface{}{"c", int64(-3)}},
+		{"input", []any{"a", int64(5)}},
+		{"input", []any{"b", int64(0)}},
+		{"input", []any{"c", int64(-3)}},
 	}
 
 	t.Run("doubled", func(t *testing.T) {
@@ -492,7 +492,7 @@ Decl trigger().
 always(/yes) :- trigger().
 `
 	facts := []testFact{
-		{"trigger", []interface{}{}},
+		{"trigger", []any{}},
 	}
 	result := evaluateAndQuery(t, program, facts, "always")
 	if len(result) != 1 {
@@ -510,10 +510,10 @@ combined(X) :- source_a(X).
 combined(X) :- source_b(X).
 `
 	facts := []testFact{
-		{"source_a", []interface{}{"x"}},
-		{"source_a", []interface{}{"y"}},
-		{"source_b", []interface{}{"y"}}, // duplicate with source_a
-		{"source_b", []interface{}{"z"}},
+		{"source_a", []any{"x"}},
+		{"source_a", []any{"y"}},
+		{"source_b", []any{"y"}}, // duplicate with source_a
+		{"source_b", []any{"z"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "combined")
 	// x, y, z — y deduplicated
@@ -531,10 +531,10 @@ reachable(X, Y) :- edge(X, Y).
 reachable(X, Z) :- edge(X, Y), reachable(Y, Z).
 `
 	var facts []testFact
-	for i := 0; i < 99; i++ {
+	for i := range 99 {
 		from := "node_" + string(rune('0'+(i/10))) + string(rune('0'+(i%10)))
 		to := "node_" + string(rune('0'+((i+1)/10))) + string(rune('0'+((i+1)%10)))
-		facts = append(facts, testFact{"edge", []interface{}{from, to}})
+		facts = append(facts, testFact{"edge", []any{from, to}})
 	}
 	result := evaluateAndQuery(t, program, facts, "reachable")
 	// For a chain of 100 nodes: n*(n-1)/2 = 4950 reachable pairs
@@ -550,7 +550,7 @@ Decl p(X).
 p(X) :- p(X).
 `
 	facts := []testFact{
-		{"p", []interface{}{"seed"}},
+		{"p", []any{"seed"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "p")
 	if len(result) != 1 {
@@ -567,7 +567,7 @@ a(X) :- b(X).
 b(X) :- a(X).
 `
 	facts := []testFact{
-		{"a", []interface{}{"seed"}},
+		{"a", []any{"seed"}},
 	}
 	// b("seed") should be derived from a("seed")
 	resultB := evaluateAndQuery(t, program, facts, "b")
@@ -584,8 +584,8 @@ Decl active_entity(Entity).
 active_entity(E) :- status(E, /active).
 `
 	facts := []testFact{
-		{"status", []interface{}{"server1", "/active"}}, // atom via / prefix
-		{"status", []interface{}{"server2", "/inactive"}},
+		{"status", []any{"server1", "/active"}}, // atom via / prefix
+		{"status", []any{"server2", "/inactive"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "active_entity")
 	if len(result) != 1 {
@@ -605,12 +605,12 @@ path(X, Y, 1) :- edge(X, Y).
 path(X, Z, D) :- edge(X, Y), path(Y, Z, D1), D = fn:plus(D1, 1), D < 5.
 `
 	facts := []testFact{
-		{"edge", []interface{}{"a", "b"}},
-		{"edge", []interface{}{"b", "c"}},
-		{"edge", []interface{}{"c", "d"}},
-		{"edge", []interface{}{"d", "e"}},
-		{"edge", []interface{}{"e", "f"}},
-		{"edge", []interface{}{"f", "g"}},
+		{"edge", []any{"a", "b"}},
+		{"edge", []any{"b", "c"}},
+		{"edge", []any{"c", "d"}},
+		{"edge", []any{"d", "e"}},
+		{"edge", []any{"e", "f"}},
+		{"edge", []any{"f", "g"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "path")
 	// All paths with depth < 5 should be derived; depth 5+ should be cut
@@ -636,8 +636,8 @@ known(X) :- item(X).
 # This tests that the system correctly handles "absence = false"
 `
 	facts := []testFact{
-		{"item", []interface{}{"a"}},
-		{"item", []interface{}{"b"}},
+		{"item", []any{"a"}},
+		{"item", []any{"b"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "known")
 	if len(result) != 2 {
@@ -660,10 +660,10 @@ result(X) :- source1(X).
 result(X) :- source2(X).
 `
 	facts := []testFact{
-		{"source1", []interface{}{"shared"}},
-		{"source2", []interface{}{"shared"}}, // same value
-		{"source1", []interface{}{"only1"}},
-		{"source2", []interface{}{"only2"}},
+		{"source1", []any{"shared"}},
+		{"source2", []any{"shared"}}, // same value
+		{"source1", []any{"only1"}},
+		{"source2", []any{"only2"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "result")
 	if len(result) != 3 {
@@ -685,12 +685,12 @@ eligible(Name, Dept, Budget, Head) :-
     Budget > 50000.
 `
 	facts := []testFact{
-		{"employee", []interface{}{"alice", "eng"}},
-		{"employee", []interface{}{"bob", "sales"}},
-		{"dept_budget", []interface{}{"eng", int64(100000)}},
-		{"dept_budget", []interface{}{"sales", int64(30000)}},
-		{"dept_head", []interface{}{"eng", "carol"}},
-		{"dept_head", []interface{}{"sales", "dave"}},
+		{"employee", []any{"alice", "eng"}},
+		{"employee", []any{"bob", "sales"}},
+		{"dept_budget", []any{"eng", int64(100000)}},
+		{"dept_budget", []any{"sales", int64(30000)}},
+		{"dept_head", []any{"eng", "carol"}},
+		{"dept_head", []any{"sales", "dave"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "eligible")
 	// Only alice in eng (budget 100000 > 50000)
@@ -1494,25 +1494,23 @@ func TestTorture_Concurrency_AddFactAndQuery(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writers
-	for g := 0; g < 5; g++ {
+	for g := range 5 {
 		wg.Add(1)
 		go func(gid int) {
 			defer wg.Done()
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				_ = engine.AddFact("item", gid*1000+i, "val")
 			}
 		}(g)
 	}
 
 	// Readers (concurrent with writers)
-	for g := 0; g < 3; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 50; i++ {
+	for range 3 {
+		wg.Go(func() {
+			for range 50 {
 				_, _ = engine.GetFacts("item")
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -1535,7 +1533,7 @@ func TestTorture_Concurrency_ConcurrentSchemaLoad(t *testing.T) {
 
 	var wg sync.WaitGroup
 	// Multiple goroutines loading schemas concurrently
-	for g := 0; g < 5; g++ {
+	for g := range 5 {
 		wg.Add(1)
 		go func(gid int) {
 			defer wg.Done()
@@ -1565,23 +1563,19 @@ func TestTorture_Concurrency_ClearDuringAddFact(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Writer
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 200; i++ {
+	wg.Go(func() {
+		for i := range 200 {
 			_ = engine.AddFact("item", i)
 		}
-	}()
+	})
 
 	// Clearer (races with writer)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5; i++ {
+	wg.Go(func() {
+		for range 5 {
 			engine.Clear()
 			time.Sleep(time.Millisecond)
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -1609,14 +1603,12 @@ Decl item(X) descr [mode("-")].
 	_ = engine.AddFact("item", "test")
 
 	var wg sync.WaitGroup
-	for g := 0; g < 10; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			_, _ = engine.Query(ctx, "item(X)")
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1796,9 +1788,9 @@ total_items(N) :-
     let N = fn:count().
 `
 	facts := []testFact{
-		{"item", []interface{}{"a"}},
-		{"item", []interface{}{"b"}},
-		{"item", []interface{}{"c"}},
+		{"item", []any{"a"}},
+		{"item", []any{"b"}},
+		{"item", []any{"c"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "total_items")
 	if len(result) != 1 {
@@ -1819,9 +1811,9 @@ total_sales(Total) :-
     let Total = fn:sum(Amount).
 `
 	facts := []testFact{
-		{"sale", []interface{}{int64(10)}},
-		{"sale", []interface{}{int64(20)}},
-		{"sale", []interface{}{int64(30)}},
+		{"sale", []any{int64(10)}},
+		{"sale", []any{int64(20)}},
+		{"sale", []any{int64(30)}},
 	}
 	result := evaluateAndQuery(t, program, facts, "total_sales")
 	if len(result) != 1 {
@@ -1842,11 +1834,11 @@ total_by_region(Region, Total) :-
     let Total = fn:sum(Amount).
 `
 	facts := []testFact{
-		{"sale", []interface{}{"north", int64(100)}},
-		{"sale", []interface{}{"north", int64(200)}},
-		{"sale", []interface{}{"south", int64(50)}},
-		{"sale", []interface{}{"south", int64(75)}},
-		{"sale", []interface{}{"south", int64(25)}},
+		{"sale", []any{"north", int64(100)}},
+		{"sale", []any{"north", int64(200)}},
+		{"sale", []any{"south", int64(50)}},
+		{"sale", []any{"south", int64(75)}},
+		{"sale", []any{"south", int64(25)}},
 	}
 	result := evaluateAndQuery(t, program, facts, "total_by_region")
 	if len(result) != 2 {
@@ -1877,11 +1869,11 @@ event_count(Category, N) :-
     let N = fn:count().
 `
 	facts := []testFact{
-		{"event", []interface{}{"click", "e1"}},
-		{"event", []interface{}{"click", "e2"}},
-		{"event", []interface{}{"click", "e3"}},
-		{"event", []interface{}{"scroll", "e4"}},
-		{"event", []interface{}{"scroll", "e5"}},
+		{"event", []any{"click", "e1"}},
+		{"event", []any{"click", "e2"}},
+		{"event", []any{"click", "e3"}},
+		{"event", []any{"scroll", "e4"}},
+		{"event", []any{"scroll", "e5"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "event_count")
 	if len(result) != 2 {
@@ -1917,11 +1909,11 @@ player_max(Player, Max) :-
     let Max = fn:max(Value).
 `
 	facts := []testFact{
-		{"score", []interface{}{"alice", int64(50)}},
-		{"score", []interface{}{"alice", int64(90)}},
-		{"score", []interface{}{"alice", int64(70)}},
-		{"score", []interface{}{"bob", int64(60)}},
-		{"score", []interface{}{"bob", int64(80)}},
+		{"score", []any{"alice", int64(50)}},
+		{"score", []any{"alice", int64(90)}},
+		{"score", []any{"alice", int64(70)}},
+		{"score", []any{"bob", int64(60)}},
+		{"score", []any{"bob", int64(80)}},
 	}
 
 	t.Run("min", func(t *testing.T) {
@@ -1963,9 +1955,9 @@ item_tags(Item, Tags) :-
     let Tags = fn:collect(Tag).
 `
 	facts := []testFact{
-		{"tag", []interface{}{"doc1", "go"}},
-		{"tag", []interface{}{"doc1", "mangle"}},
-		{"tag", []interface{}{"doc2", "python"}},
+		{"tag", []any{"doc1", "go"}},
+		{"tag", []any{"doc1", "mangle"}},
+		{"tag", []any{"doc2", "python"}},
 	}
 	result := evaluateAndQuery(t, program, facts, "item_tags")
 	if len(result) != 2 {
@@ -2011,11 +2003,11 @@ big_sale_count(Region, N) :-
     let N = fn:count().
 `
 	facts := []testFact{
-		{"sale", []interface{}{"north", int64(100)}},
-		{"sale", []interface{}{"north", int64(20)}},
-		{"sale", []interface{}{"north", int64(200)}},
-		{"sale", []interface{}{"south", int64(30)}},
-		{"sale", []interface{}{"south", int64(75)}},
+		{"sale", []any{"north", int64(100)}},
+		{"sale", []any{"north", int64(20)}},
+		{"sale", []any{"north", int64(200)}},
+		{"sale", []any{"south", int64(30)}},
+		{"sale", []any{"south", int64(75)}},
 	}
 	result := evaluateAndQuery(t, program, facts, "big_sale_count")
 	counts := make(map[string]int64)
@@ -2057,7 +2049,7 @@ derived(X) :- item(X).
 
 	// Apply delta with a single fact
 	err = diffEngine.ApplyDelta([]Fact{
-		{Predicate: "item", Args: []interface{}{"hello"}},
+		{Predicate: "item", Args: []any{"hello"}},
 	})
 	if err != nil {
 		t.Fatalf("ApplyDelta: %v", err)
@@ -2122,7 +2114,7 @@ func TestTorture_Differential_AddFactIncremental(t *testing.T) {
 	}
 
 	// AddFactIncremental is a convenience wrapper
-	err = diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []interface{}{"single"}})
+	err = diffEngine.AddFactIncremental(Fact{Predicate: "item", Args: []any{"single"}})
 	if err != nil {
 		t.Fatalf("AddFactIncremental: %v", err)
 	}
@@ -2149,7 +2141,7 @@ Decl item(X) descr [mode("-")].
 
 	// Add fact via delta
 	err = diffEngine.ApplyDelta([]Fact{
-		{Predicate: "item", Args: []interface{}{"test_value"}},
+		{Predicate: "item", Args: []any{"test_value"}},
 	})
 	if err != nil {
 		t.Fatalf("ApplyDelta: %v", err)
@@ -2211,7 +2203,7 @@ func TestTorture_Differential_SnapshotMutationIsolation(t *testing.T) {
 
 	// Add initial fact
 	_ = diffEngine.ApplyDelta([]Fact{
-		{Predicate: "item", Args: []interface{}{"before_snapshot"}},
+		{Predicate: "item", Args: []any{"before_snapshot"}},
 	})
 
 	// Take snapshot
@@ -2219,7 +2211,7 @@ func TestTorture_Differential_SnapshotMutationIsolation(t *testing.T) {
 
 	// Mutate original after snapshot
 	_ = diffEngine.ApplyDelta([]Fact{
-		{Predicate: "item", Args: []interface{}{"after_snapshot"}},
+		{Predicate: "item", Args: []any{"after_snapshot"}},
 	})
 
 	// Snapshot should NOT see the fact added after it was taken
@@ -2256,9 +2248,9 @@ func TestTorture_Differential_MultipleDeltas(t *testing.T) {
 	}
 
 	// Apply multiple deltas sequentially
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		err := diffEngine.ApplyDelta([]Fact{
-			{Predicate: "counter", Args: []interface{}{fmt.Sprintf("id_%d", i), int64(i)}},
+			{Predicate: "counter", Args: []any{fmt.Sprintf("id_%d", i), int64(i)}},
 		})
 		if err != nil {
 			t.Fatalf("ApplyDelta(%d): %v", i, err)
@@ -2373,10 +2365,10 @@ func TestTorture_ChainedFactStore_EstimateFactCount(t *testing.T) {
 	overlay := factstore.NewSimpleInMemoryStore()
 
 	predSym := ast.PredicateSym{Symbol: "item", Arity: 1}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		base.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String(fmt.Sprintf("base_%d", i))}})
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		overlay.Add(ast.Atom{Predicate: predSym, Args: []ast.BaseTerm{ast.String(fmt.Sprintf("overlay_%d", i))}})
 	}
 
@@ -2619,32 +2611,28 @@ derived(X) :- base(X).
 	}
 
 	// Seed some data
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		_ = eng.AddFact("base", fmt.Sprintf("item_%d", i))
 	}
 
 	var wg sync.WaitGroup
 
 	// Concurrent readers
-	for g := 0; g < 5; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 30; i++ {
+	for range 5 {
+		wg.Go(func() {
+			for range 30 {
 				_, _ = eng.GetFacts("derived")
 			}
-		}()
+		})
 	}
 
 	// Concurrent recompute
-	for g := 0; g < 3; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 10; i++ {
+	for range 3 {
+		wg.Go(func() {
+			for range 10 {
 				_ = eng.RecomputeRules()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -2676,27 +2664,25 @@ func TestTorture_Concurrency_DifferentialDeltaConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent delta applications
-	for g := 0; g < 5; g++ {
+	for g := range 5 {
 		wg.Add(1)
 		go func(gid int) {
 			defer wg.Done()
-			for i := 0; i < 20; i++ {
+			for i := range 20 {
 				_ = diffEngine.ApplyDelta([]Fact{
-					{Predicate: "item", Args: []interface{}{fmt.Sprintf("g%d_i%d", gid, i)}},
+					{Predicate: "item", Args: []any{fmt.Sprintf("g%d_i%d", gid, i)}},
 				})
 			}
 		}(g)
 	}
 
 	// Concurrent snapshots
-	for g := 0; g < 3; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 5; i++ {
+	for range 3 {
+		wg.Go(func() {
+			for range 5 {
 				_ = diffEngine.Snapshot()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

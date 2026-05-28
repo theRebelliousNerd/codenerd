@@ -169,19 +169,19 @@ func TestBuildToolSet_StateConflicts_DuplicateID(t *testing.T) {
 }
 
 type mockKernelWithMangle struct {
-	results []map[string]interface{}
+	results []map[string]any
 }
 
-func (m *mockKernelWithMangle) Assert(fact string) error { return nil }
+func (m *mockKernelWithMangle) Assert(fact string) error  { return nil }
 func (m *mockKernelWithMangle) Retract(fact string) error { return nil }
-func (m *mockKernelWithMangle) Query(query string) ([]map[string]interface{}, error) {
+func (m *mockKernelWithMangle) Query(query string) ([]map[string]any, error) {
 	return m.results, nil
 }
 
 func TestMangleSelect_TypeCoercion_CaseInsensitive(t *testing.T) {
 	compiler := &JITToolCompiler{
 		kernel: &mockKernelWithMangle{
-			results: []map[string]interface{}{
+			results: []map[string]any{
 				{"ToolID": "t1", "RenderMode": "FULL"},
 				{"ToolID": "t2", "RenderMode": "/CONDENSED"},
 			},
@@ -207,6 +207,7 @@ func TestMangleSelect_TypeCoercion_CaseInsensitive(t *testing.T) {
 }
 
 type mockEmptyStore struct{}
+
 func (m *mockEmptyStore) GetAllTools(ctx context.Context) ([]*MCPTool, error) {
 	return []*MCPTool{{ToolID: "t1"}}, nil
 }
@@ -220,10 +221,10 @@ func TestCompile_UserRequestExtremes_NegativeBudget(t *testing.T) {
 		t.Fatalf("failed to init store: %v", err)
 	}
 	defer store.Close()
-	
+
 	// Create a client for the store
 	// For testing, just inject the tools
-	
+
 	compiler := &JITToolCompiler{
 		config: ToolSelectionConfig{TokenBudget: 500},
 		store:  store,
@@ -237,7 +238,7 @@ func TestCompile_UserRequestExtremes_NegativeBudget(t *testing.T) {
 	// We don't have tools in store, but the stats should reflect the coerced budget.
 	// We'll just verify that the context was coerced in the logic.
 	// A trick is to call Compile with empty store and check stats.TokenBudget.
-	
+
 	set, err := compiler.Compile(context.Background(), tcc)
 	if err != nil {
 		t.Fatalf("Compile failed: %v", err)
@@ -259,7 +260,7 @@ func BenchmarkFitBudget_10000Tools(b *testing.B) {
 	// Gap 5: Benchmark performance
 	for i := 0; i < b.N; i++ {
 		result := &CompiledToolSet{}
-		for j := 0; j < 10000; j++ {
+		for range 10000 {
 			result.FullTools = append(result.FullTools, MCPTool{})
 		}
 		stats := &ToolCompilationStats{}

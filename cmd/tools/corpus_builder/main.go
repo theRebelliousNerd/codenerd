@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,14 +135,14 @@ func getAPIKey() string {
 		// Simple extraction - look for genai_api_key or gemini_api_key
 		content := string(data)
 		for _, key := range []string{"genai_api_key", "gemini_api_key"} {
-			if idx := strings.Index(content, key); idx != -1 {
+			if _, after, ok := strings.Cut(content, key); ok {
 				// Find the value after the key
-				rest := content[idx+len(key):]
+				rest := after
 				// Skip ":" and whitespace, find the quoted value
 				if start := strings.Index(rest, `"`); start != -1 {
 					rest = rest[start+1:]
-					if end := strings.Index(rest, `"`); end != -1 {
-						return rest[:end]
+					if before, _, ok := strings.Cut(rest, `"`); ok {
+						return before
 					}
 				}
 			}
@@ -237,12 +238,7 @@ func findMGFiles() ([]string, error) {
 }
 
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }
 
 // extractFromFile parses a single .mg file and extracts DATA facts.
@@ -534,7 +530,7 @@ func factToCorpusEntry(fact core.Fact, sourceFile string) (CorpusEntry, bool) {
 }
 
 // argToString converts a fact argument to a string.
-func argToString(arg interface{}) string {
+func argToString(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		return v
@@ -679,10 +675,7 @@ func generateAndStoreEmbeddings(ctx context.Context, engine embedding.EmbeddingE
 		default:
 		}
 
-		end := i + batchSize
-		if end > total {
-			end = total
-		}
+		end := min(i+batchSize, total)
 		batch := entries[i:end]
 
 		// Collect texts for batch embedding
@@ -760,7 +753,7 @@ func encodeFloat32Slice(vec []float32) []byte {
 }
 
 // nullableString returns nil for empty strings, otherwise the string.
-func nullableString(s string) interface{} {
+func nullableString(s string) any {
 	if s == "" {
 		return nil
 	}

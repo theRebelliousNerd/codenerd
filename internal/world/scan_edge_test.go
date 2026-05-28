@@ -279,7 +279,7 @@ func TestScanDirectory_WhenContextCancelledEarly_ShouldReturnError(t *testing.T)
 
 	tmpDir := t.TempDir()
 	// Create several files to make the scan take time
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		name := filepath.Join(tmpDir, strings.Repeat("x", i+1)+".go")
 		if err := os.WriteFile(name, []byte("package main"), 0644); err != nil {
 			t.Fatalf("Failed to create file: %v", err)
@@ -363,7 +363,6 @@ func TestDetectLanguage_WhenExtendedExtensions_ShouldMatch(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 			got := detectLanguage(tc.ext, tc.path)
@@ -392,7 +391,6 @@ func TestDetectLanguage_WhenUnknownExtension_ShouldReturnUnknown(t *testing.T) {
 	}
 
 	for _, tc := range unknowns {
-		tc := tc
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
 			got := detectLanguage(tc.ext, tc.path)
@@ -431,7 +429,6 @@ func TestIsTestFile_WhenEdgeCases_ShouldHandle(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := isTestFile(tc.path)
@@ -452,7 +449,7 @@ func TestScanDirectory_ConcurrentScanners_ShouldNotRace(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a few test files
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		name := filepath.Join(tmpDir, filepath.Base(t.Name())+"_"+string(rune('a'+i))+".go")
 		if err := os.WriteFile(name, []byte("package main"), 0644); err != nil {
 			t.Fatalf("Failed to create file: %v", err)
@@ -460,10 +457,8 @@ func TestScanDirectory_ConcurrentScanners_ShouldNotRace(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			scanner := NewScanner()
 			result, err := scanner.ScanDirectory(context.Background(), tmpDir)
 			if err != nil {
@@ -473,7 +468,7 @@ func TestScanDirectory_ConcurrentScanners_ShouldNotRace(t *testing.T) {
 			if result.FileCount < 1 {
 				t.Errorf("expected at least 1 file, got %d", result.FileCount)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -495,7 +490,7 @@ func TestFileCache_ConcurrentGetUpdate_ShouldNotRace(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(2)
 		go func(n int) {
 			defer wg.Done()
@@ -523,5 +518,3 @@ func TestScanWorkspace_WhenNonExistentDir_ShouldReturnError(t *testing.T) {
 		t.Error("expected error for non-existent directory")
 	}
 }
-
-

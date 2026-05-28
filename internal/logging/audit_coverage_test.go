@@ -110,7 +110,7 @@ func TestGenerateMangleFact_WhenLLMResponse_ShouldIncludeTokens(t *testing.T) {
 		ShardID:    "coder",
 		Success:    true,
 		DurationMs: 1500,
-		Fields:     map[string]interface{}{"tokens": 500},
+		Fields:     map[string]any{"tokens": 500},
 	}
 	fact := generateMangleFact(event)
 	if !containsSubstring(fact, "llm_call") {
@@ -127,7 +127,7 @@ func TestGenerateMangleFact_WhenFileRead_ShouldIncludeSize(t *testing.T) {
 		EventType: AuditFileRead,
 		Target:    "/path/to/file",
 		Success:   true,
-		Fields:    map[string]interface{}{"size": int64(1024)},
+		Fields:    map[string]any{"size": int64(1024)},
 	}
 	fact := generateMangleFact(event)
 	if !containsSubstring(fact, "file_op") {
@@ -140,7 +140,7 @@ func TestGenerateMangleFact_WhenIntentParsed_ShouldIncludeFields(t *testing.T) {
 		Timestamp: 6000,
 		EventType: AuditIntentParsed,
 		Target:    "auth.go",
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"category":   "mutation",
 			"verb":       "refactor",
 			"confidence": 0.95,
@@ -234,7 +234,7 @@ func TestGenerateMangleFact_WhenCampaignPhase_ShouldIncludePhase(t *testing.T) {
 		EventType: AuditCampaignPhase,
 		SessionID: "campaign-1",
 		Success:   true,
-		Fields:    map[string]interface{}{"phase": "testing"},
+		Fields:    map[string]any{"phase": "testing"},
 	}
 	fact := generateMangleFact(event)
 	if !containsSubstring(fact, "campaign_event") {

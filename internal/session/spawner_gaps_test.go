@@ -29,7 +29,7 @@ func (m *mockJITCompiler) Compile(ctx context.Context, compilationCtx *prompt.Co
 // mockConfigFactory generates an empty config.
 type mockConfigFactory struct{}
 
-type sleepyLLMClient struct{
+type sleepyLLMClient struct {
 	MockLLMClient
 }
 
@@ -48,7 +48,7 @@ func (s *sleepyLLMClient) CompleteWithSystem(ctx context.Context, sys, user stri
 	return `{"surface_response":"done","control_packet":{}}`, nil
 }
 
-type blockyLLMClient struct{
+type blockyLLMClient struct {
 	MockLLMClient
 	block chan struct{}
 }
@@ -112,7 +112,7 @@ func TestSpawner_MaxActiveSubagents_TOCTOU(t *testing.T) {
 	var successfulSpawns int32
 
 	// Thundering herd of 100 requests, limit is 10
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -146,7 +146,7 @@ func TestSpawner_MassiveSpawn_Performance(t *testing.T) {
 
 	var wg sync.WaitGroup
 	start := time.Now()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -199,10 +199,8 @@ func TestSpawner_StopAllConcurrentWithCleanupAndSpawn(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Spawner
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 50; i++ {
+	wg.Go(func() {
+		for i := range 50 {
 			req := SpawnRequest{
 				Name:       fmt.Sprintf("agent-%d", i),
 				Task:       "test",
@@ -211,27 +209,23 @@ func TestSpawner_StopAllConcurrentWithCleanupAndSpawn(t *testing.T) {
 			}
 			_, _ = spawner.Spawn(context.Background(), req)
 		}
-	}()
+	})
 
 	// Stopper
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 10; i++ {
+	wg.Go(func() {
+		for range 10 {
 			spawner.StopAll()
 			time.Sleep(1 * time.Millisecond)
 		}
-	}()
+	})
 
 	// Cleaner
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 10; i++ {
+	wg.Go(func() {
+		for range 10 {
 			spawner.Cleanup()
 			time.Sleep(1 * time.Millisecond)
 		}
-	}()
+	})
 
 	wg.Wait()
 	// Just ensure no panics
@@ -246,7 +240,8 @@ func TestSpawner_GetByNamePredictability(t *testing.T) {
 
 	req1 := SpawnRequest{Name: "duplicate", Task: "test", Type: SubAgentTypeEphemeral}
 	agent1, _ := spawner.Spawn(context.Background(), req1)
-	if agent1 != nil {} // Keep unused warning away
+	if agent1 != nil {
+	} // Keep unused warning away
 
 	// wait for agent to start
 	time.Sleep(10 * time.Millisecond)

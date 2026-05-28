@@ -23,7 +23,7 @@ func BenchmarkReembedAllPromptAtomsForce(b *testing.B) {
 	defer stmt.Close()
 
 	numAtoms := 100
-	for i := 0; i < numAtoms; i++ {
+	for i := range numAtoms {
 		_, err = stmt.Exec(
 			fmt.Sprintf("atom-%d", i),
 			fmt.Sprintf("content for atom %d", i),

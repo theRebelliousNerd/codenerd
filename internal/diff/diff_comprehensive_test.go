@@ -214,7 +214,7 @@ func TestComputeDiff_ShouldPreservePaths(t *testing.T) {
 func TestComputeDiff_WhenLargeFile_ShouldComplete(t *testing.T) {
 	t.Parallel()
 	var oldLines, newLines []string
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		line := fmt.Sprintf("line content number %d with some padding", i)
 		oldLines = append(oldLines, line)
 		newLines = append(newLines, line)
@@ -391,7 +391,7 @@ func TestComputeDiff_WhenConcurrent_ShouldNotRace(t *testing.T) {
 	engine := NewEngine()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

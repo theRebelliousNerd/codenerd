@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -106,17 +107,17 @@ const (
 
 // ReplanResult represents the outcome of replanning.
 type ReplanResult struct {
-	Success       bool
-	ChangeSummary string
-	AddedTasks    []Task
-	RemovedTasks  []string
-	ModifiedTasks []Task
+	Success              bool
+	ChangeSummary        string
+	AddedTasks           []Task
+	RemovedTasks         []string
+	ModifiedTasks        []Task
 	ModifiedDependencies []struct {
 		TaskID     string
 		RemoveDeps []string
 		AddDeps    []string
 	}
-	NewPhases     []Phase
+	NewPhases []Phase
 }
 
 func truncateForPrompt(text string, maxLen int) string {
@@ -342,7 +343,7 @@ JSON only:`, campaign.Title, campaign.CompletedPhases, campaign.TotalPhases, cam
 	}
 	if err := r.kernel.Assert(core.Fact{
 		Predicate: "replan_trigger",
-		Args:      []interface{}{workingCampaign.ID, "/new_requirement", time.Now().Unix()},
+		Args:      []any{workingCampaign.ID, "/new_requirement", time.Now().Unix()},
 	}); err != nil {
 		logging.Get(logging.CategoryCampaign).Warn("ReplanForNewRequirement: failed to assert replan_trigger: %v", err)
 	}
@@ -919,13 +920,7 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 					if len(mod.RemoveDeps) > 0 {
 						var newDeps []string
 						for _, dep := range campaign.Phases[i].Tasks[j].DependsOn {
-							keep := true
-							for _, rm := range mod.RemoveDeps {
-								if dep == rm {
-									keep = false
-									break
-								}
-							}
+							keep := !slices.Contains(mod.RemoveDeps, dep)
 							if keep {
 								newDeps = append(newDeps, dep)
 							}
@@ -934,13 +929,7 @@ func (r *Replanner) applyFixes(campaign *Campaign, fixes *ReplanResult) error {
 					}
 					// Add deps
 					for _, add := range mod.AddDeps {
-						exists := false
-						for _, dep := range campaign.Phases[i].Tasks[j].DependsOn {
-							if dep == add {
-								exists = true
-								break
-							}
-						}
+						exists := slices.Contains(campaign.Phases[i].Tasks[j].DependsOn, add)
 						if !exists {
 							campaign.Phases[i].Tasks[j].DependsOn = append(campaign.Phases[i].Tasks[j].DependsOn, add)
 						}
@@ -1003,6 +992,6 @@ func (r *Replanner) ClearReplanTriggers(campaignID string) error {
 	}
 	return r.kernel.RetractFact(core.Fact{
 		Predicate: "replan_trigger",
-		Args:      []interface{}{campaignID},
+		Args:      []any{campaignID},
 	})
 }

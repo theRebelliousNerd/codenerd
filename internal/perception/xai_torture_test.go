@@ -228,7 +228,7 @@ func TestTorture_PureGo_ExtractJSON(t *testing.T) {
 			if got == "" {
 				t.Fatalf("ExtractCleanJSON() returned empty, want non-empty")
 			}
-			var parsed map[string]interface{}
+			var parsed map[string]any
 			if err := json.Unmarshal([]byte(got), &parsed); err != nil {
 				t.Fatalf("ExtractCleanJSON() returned invalid JSON: %v\nraw: %s", err, got)
 			}
@@ -842,7 +842,7 @@ Output JSON with keys: "category" (one of: query, mutation, instruction), "verb"
 		}
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
 		t.Fatalf("response not valid JSON: %v\nraw: %s", err, truncate(response, 500))
 	}

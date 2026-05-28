@@ -111,8 +111,8 @@ func TestDreamerGap_ComplexTypesInPayload(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionExecCmd,
 		Target: "echo hello",
-		Payload: map[string]interface{}{
-			"nested_map":   map[string]interface{}{"key": "val"},
+		Payload: map[string]any{
+			"nested_map":   map[string]any{"key": "val"},
 			"slice":        []string{"a", "b", "c"},
 			"nil_value":    nil,
 			"int_value":    42,
@@ -217,10 +217,10 @@ func TestDreamerGap_PerformanceFullTableScan(t *testing.T) {
 	ctx := context.Background()
 
 	// Load 1000 code_defines facts to stress the full table scan
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_defines",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("file_%d.go", i),
 				fmt.Sprintf("Symbol_%d", i),
 				"function",
@@ -254,10 +254,10 @@ func TestDreamerGap_KernelCloneCost(t *testing.T) {
 	ctx := context.Background()
 
 	// Load many facts
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		k.AssertWithoutEval(Fact{
 			Predicate: "code_defines",
-			Args: []interface{}{
+			Args: []any{
 				fmt.Sprintf("file_%d.go", i),
 				fmt.Sprintf("Func_%d", i),
 				"function",
@@ -269,7 +269,7 @@ func TestDreamerGap_KernelCloneCost(t *testing.T) {
 	k.Evaluate()
 
 	// Run 10 simulations to measure clone cost
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		result := d.SimulateAction(ctx, ActionRequest{
 			Type:   ActionReadFile,
 			Target: fmt.Sprintf("file_%d.go", i),
@@ -347,7 +347,7 @@ func TestDreamerGap_BoundedDreamCache(t *testing.T) {
 
 	// Store more than the max to trigger eviction
 	const count = dreamCacheMaxSize + 100
-	for i := 0; i < count; i++ {
+	for i := range count {
 		key := fmt.Sprintf("action_%d:target_%d", i, i)
 		cache.Store(key, DreamResult{
 			ActionID: fmt.Sprintf("action_%d", i),
@@ -457,28 +457,24 @@ func TestDreamerGap_ConcurrentSetKernelVsSimulate(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent readers
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 5; j++ {
+	for range 20 {
+		wg.Go(func() {
+			for range 5 {
 				_ = d.SimulateAction(ctx, ActionRequest{
 					Type:   ActionReadFile,
 					Target: "file.go",
 				})
 			}
-		}()
+		})
 	}
 
 	// Concurrent writer
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 5; j++ {
+	for range 3 {
+		wg.Go(func() {
+			for range 5 {
 				d.SetKernel(k) // Re-set to same kernel
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

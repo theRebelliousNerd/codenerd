@@ -94,11 +94,11 @@ type MCPTool struct {
 	UsageCount   int64     `json:"usage_count"`
 	SuccessCount int64     `json:"success_count"`
 	AvgLatencyMs int       `json:"avg_latency_ms"`
-	LastUsed     time.Time `json:"last_used,omitempty"`
+	LastUsed     time.Time `json:"last_used"`
 
 	// Timestamps
 	RegisteredAt time.Time `json:"registered_at"`
-	AnalyzedAt   time.Time `json:"analyzed_at,omitempty"`
+	AnalyzedAt   time.Time `json:"analyzed_at"`
 
 	// Runtime state (not persisted)
 	ServerStatus ServerStatus `json:"-"` // Cached from server
@@ -229,7 +229,7 @@ type MCPTransport interface {
 	ListTools(ctx context.Context) ([]MCPToolSchema, error)
 
 	// CallTool invokes a tool on the MCP server.
-	CallTool(ctx context.Context, name string, args map[string]interface{}) (*MCPCallResult, error)
+	CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error)
 
 	// GetCapabilities returns server capabilities.
 	GetCapabilities(ctx context.Context) (*MCPCapabilities, error)

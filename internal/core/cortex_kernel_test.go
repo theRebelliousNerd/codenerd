@@ -91,7 +91,7 @@ func TestKernelShard_WhenAssertAndQuery_ShouldReturnFacts(t *testing.T) {
 	// Assert a fact
 	fact := types.Fact{
 		Predicate: "test_fact",
-		Args:      []interface{}{"hello"},
+		Args:      []any{"hello"},
 	}
 	if err := shard.Assert(fact); err != nil {
 		t.Fatalf("Assert failed: %v", err)
@@ -112,9 +112,9 @@ func TestKernelShard_WhenAssertBatch_ShouldTrackDirtyCount(t *testing.T) {
 	shard := setupTestShard(t, "test", []string{"batch_pred"})
 
 	facts := []types.Fact{
-		{Predicate: "batch_pred", Args: []interface{}{"a"}},
-		{Predicate: "batch_pred", Args: []interface{}{"b"}},
-		{Predicate: "batch_pred", Args: []interface{}{"c"}},
+		{Predicate: "batch_pred", Args: []any{"a"}},
+		{Predicate: "batch_pred", Args: []any{"b"}},
+		{Predicate: "batch_pred", Args: []any{"c"}},
 	}
 
 	if err := shard.AssertBatch(facts); err != nil {
@@ -134,7 +134,7 @@ func TestKernelShard_WhenRetract_ShouldRemoveFacts(t *testing.T) {
 	shard := setupTestShard(t, "test", []string{"retract_me"})
 
 	// Assert then retract
-	if err := shard.Assert(types.Fact{Predicate: "retract_me", Args: []interface{}{"value"}}); err != nil {
+	if err := shard.Assert(types.Fact{Predicate: "retract_me", Args: []any{"value"}}); err != nil {
 		t.Fatalf("Assert failed: %v", err)
 	}
 
@@ -161,7 +161,7 @@ func TestKernelShard_Metrics_ShouldTrackQueryCount(t *testing.T) {
 	}
 
 	// Query 3 times (results don't matter, just counting)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		shard.Query(fmt.Sprintf("pred_%d", i))
 	}
 
@@ -199,14 +199,14 @@ func TestCortexKernel_WhenRegisterShard_ShouldRoute(t *testing.T) {
 	// Assert via cortex — should route to correct shard
 	if err := cortex.Assert(types.Fact{
 		Predicate: "my_intent",
-		Args:      []interface{}{"test_value"},
+		Args:      []any{"test_value"},
 	}); err != nil {
 		t.Fatalf("Assert my_intent failed: %v", err)
 	}
 
 	if err := cortex.Assert(types.Fact{
 		Predicate: "my_file",
-		Args:      []interface{}{"main.go"},
+		Args:      []any{"main.go"},
 	}); err != nil {
 		t.Fatalf("Assert my_file failed: %v", err)
 	}
@@ -253,9 +253,9 @@ func TestCortexKernel_WhenAssertBatch_ShouldRouteToShards(t *testing.T) {
 	cortex.RegisterShard(otherShard)
 
 	facts := []types.Fact{
-		{Predicate: "alpha", Args: []interface{}{"1"}},
-		{Predicate: "beta", Args: []interface{}{"2"}},
-		{Predicate: "gamma", Args: []interface{}{"3"}},
+		{Predicate: "alpha", Args: []any{"1"}},
+		{Predicate: "beta", Args: []any{"2"}},
+		{Predicate: "gamma", Args: []any{"3"}},
 	}
 
 	if err := cortex.AssertBatch(facts); err != nil {
@@ -281,7 +281,7 @@ func TestCortexKernel_WhenRetract_ShouldRouteToCorrectShard(t *testing.T) {
 	cortex.RegisterShard(shard)
 
 	// Assert then retract via cortex
-	cortex.Assert(types.Fact{Predicate: "ephemeral", Args: []interface{}{"temp"}})
+	cortex.Assert(types.Fact{Predicate: "ephemeral", Args: []any{"temp"}})
 	cortex.Retract("ephemeral")
 
 	facts, _ := shard.Query("ephemeral")
@@ -322,9 +322,9 @@ func TestCortexTransaction_WhenCommit_ShouldBatchMutations(t *testing.T) {
 
 	// Create transaction
 	tx := cortex.Transaction()
-	tx.Assert(types.Fact{Predicate: "intent", Args: []interface{}{"test"}})
-	tx.Assert(types.Fact{Predicate: "file_fact", Args: []interface{}{"main.go"}})
-	tx.Assert(types.Fact{Predicate: "action", Args: []interface{}{"code"}})
+	tx.Assert(types.Fact{Predicate: "intent", Args: []any{"test"}})
+	tx.Assert(types.Fact{Predicate: "file_fact", Args: []any{"main.go"}})
+	tx.Assert(types.Fact{Predicate: "action", Args: []any{"code"}})
 
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Transaction.Commit failed: %v", err)
@@ -349,12 +349,12 @@ func TestCortexTransaction_WhenRetractAndAssert_ShouldOrderCorrectly(t *testing.
 	cortex.RegisterShard(shard)
 
 	// First, put in an old state
-	cortex.Assert(types.Fact{Predicate: "cortex_tx_test_state", Args: []interface{}{"old"}})
+	cortex.Assert(types.Fact{Predicate: "cortex_tx_test_state", Args: []any{"old"}})
 
 	// Transaction: retract old, assert new
 	tx := cortex.Transaction()
 	tx.Retract("cortex_tx_test_state")
-	tx.Assert(types.Fact{Predicate: "cortex_tx_test_state", Args: []interface{}{"new"}})
+	tx.Assert(types.Fact{Predicate: "cortex_tx_test_state", Args: []any{"new"}})
 
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
@@ -370,12 +370,12 @@ func TestCortexTransaction_WhenRetractAndAssert_ShouldOrderCorrectly(t *testing.
 		fmt.Printf("DEBUG: shard total facts: %d\n", len(shard.kernel.facts))
 		fmt.Printf("DEBUG: shard initialized: %v\n", shard.kernel.IsInitialized())
 		fmt.Printf("DEBUG: shard dirty: %v\n", shard.kernel.IsDirty())
-		
+
 		allFacts := shard.kernel.facts
 		for i, f := range allFacts {
 			fmt.Printf("DEBUG: fact %d: %v\n", i, f)
 		}
-		
+
 		t.Fatalf("expected 1 state fact, got %d", len(facts))
 	}
 
@@ -404,14 +404,14 @@ func TestCortexKernel_WhenConcurrentAccess_ShouldNotPanic(t *testing.T) {
 	const opsPerGoroutine = 50
 
 	// Concurrent asserts and queries
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < opsPerGoroutine; j++ {
+			for j := range opsPerGoroutine {
 				fact := types.Fact{
 					Predicate: "concurrent_fact",
-					Args:      []interface{}{fmt.Sprintf("g%d_op%d", id, j)},
+					Args:      []any{fmt.Sprintf("g%d_op%d", id, j)},
 				}
 				cortex.Assert(fact)
 				cortex.Query("concurrent_fact")
@@ -438,14 +438,14 @@ func TestCortexKernel_WhenConcurrentTransactions_ShouldNotDeadlock(t *testing.T)
 		close(done)
 	}()
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < 20; j++ {
+			for j := range 20 {
 				tx := cortex.Transaction()
 				tx.Retract("tx_fact")
-				tx.Assert(types.Fact{Predicate: "tx_fact", Args: []interface{}{fmt.Sprintf("g%d_v%d", id, j)}})
+				tx.Assert(types.Fact{Predicate: "tx_fact", Args: []any{fmt.Sprintf("g%d_v%d", id, j)}})
 				tx.Commit()
 			}
 		}(i)
@@ -480,7 +480,7 @@ func TestRealKernel_IsDirty_WhenAsserted_ShouldBeTrue(t *testing.T) {
 		t.Fatalf("NewRealKernel failed: %v", err)
 	}
 
-	if err := k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{"value"}}); err != nil {
+	if err := k.Assert(Fact{Predicate: "test_fact", Args: []any{"value"}}); err != nil {
 		t.Fatalf("Assert failed: %v", err)
 	}
 
@@ -496,7 +496,7 @@ func TestRealKernel_IsDirty_WhenQueryClears_ShouldBeFalse(t *testing.T) {
 	}
 
 	// Assert makes it dirty
-	k.Assert(Fact{Predicate: "test_fact", Args: []interface{}{"value"}})
+	k.Assert(Fact{Predicate: "test_fact", Args: []any{"value"}})
 
 	// Query triggers lazy eval, clearing dirty flag
 	_, _ = k.Query("test_fact")

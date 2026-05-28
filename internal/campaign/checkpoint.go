@@ -360,9 +360,9 @@ func (cr *CheckpointRunner) detectBuildCommand() string {
 
 // parseTestOutput parses test output to count passed/failed tests.
 func (cr *CheckpointRunner) parseTestOutput(output string) (passed, failed int) {
-	lines := strings.Split(output, "\n")
+	lines := strings.SplitSeq(output, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		lower := strings.ToLower(line)
 
 		// Go test output

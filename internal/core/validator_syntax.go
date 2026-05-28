@@ -66,7 +66,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 			Verified:   true, // Don't double-report failures
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "action already failed"},
+			Details:    map[string]any{"reason": "action already failed"},
 		}
 	}
 
@@ -76,7 +76,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "no target path"},
+			Details:    map[string]any{"reason": "no target path"},
 		}
 	}
 
@@ -90,7 +90,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "no parser for extension: " + ext},
+			Details:    map[string]any{"reason": "no parser for extension: " + ext},
 		}
 	}
 
@@ -123,7 +123,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 			Confidence: 1.0,
 			Method:     ValidationMethodSyntax,
 			Error:      "syntax validation failed",
-			Details: map[string]interface{}{
+			Details: map[string]any{
 				"parse_error": err.Error(),
 				"extension":   ext,
 			},
@@ -134,7 +134,7 @@ func (v *SyntaxValidator) Validate(ctx context.Context, req ActionRequest, resul
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     ValidationMethodSyntax,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"extension": ext,
 			"size":      len(content),
 		},
@@ -157,12 +157,12 @@ func validateGoSyntax(content []byte) error {
 
 // validateJSONSyntax parses JSON content.
 func validateJSONSyntax(content []byte) error {
-	var v interface{}
+	var v any
 	if err := json.Unmarshal(content, &v); err != nil {
 		return err
 	}
 	switch v.(type) {
-	case map[string]interface{}, []interface{}:
+	case map[string]any, []any:
 		return nil
 	default:
 		return fmt.Errorf("JSON root must be an object or array, got %T", v)
@@ -171,12 +171,12 @@ func validateJSONSyntax(content []byte) error {
 
 // validateYAMLSyntax parses YAML content.
 func validateYAMLSyntax(content []byte) error {
-	var v interface{}
+	var v any
 	if err := yaml.Unmarshal(content, &v); err != nil {
 		return err
 	}
 	switch v.(type) {
-	case map[string]interface{}, []interface{}:
+	case map[string]any, []any:
 		return nil
 	default:
 		return fmt.Errorf("YAML root must be an object or array, got %T", v)
@@ -286,7 +286,7 @@ func (v *MangleSyntaxValidator) Validate(ctx context.Context, req ActionRequest,
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "not a Mangle file"},
+			Details:    map[string]any{"reason": "not a Mangle file"},
 		}
 	}
 
@@ -307,7 +307,7 @@ func (v *MangleSyntaxValidator) Validate(ctx context.Context, req ActionRequest,
 			Confidence: 0.9,
 			Method:     ValidationMethodSyntax,
 			Error:      "Mangle syntax issues detected",
-			Details:    map[string]interface{}{"issues": issues},
+			Details:    map[string]any{"issues": issues},
 		}
 	}
 

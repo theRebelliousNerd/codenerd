@@ -58,9 +58,9 @@ other_pred(X, "val") :- valid_pred(X).
 
 	// Verify SELF-HEALED comments for each category of corruption
 	expectedHealMarkers := []string{
-		"# SELF-HEALED: malformed statement:",      // unclosed string, gibberish, missing-dot
-		"# SELF-HEALED: undeclared predicate",      // undeclared_pred fact head not in schema
-		"# SELF-HEALED: rule uses undefined",       // next_action body uses undefined current_time
+		"# SELF-HEALED: malformed statement:", // unclosed string, gibberish, missing-dot
+		"# SELF-HEALED: undeclared predicate", // undeclared_pred fact head not in schema
+		"# SELF-HEALED: rule uses undefined",  // next_action body uses undefined current_time
 	}
 	for _, marker := range expectedHealMarkers {
 		if !strings.Contains(healedText, marker) {
@@ -192,7 +192,7 @@ func TestKernelValidation_AbsurdConcurrencyStress(t *testing.T) {
 	const writers = 10
 
 	// Concurrent Readers
-	for i := 0; i < readers; i++ {
+	for i := range readers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -223,7 +223,7 @@ func TestKernelValidation_AbsurdConcurrencyStress(t *testing.T) {
 	}
 
 	// Concurrent Writers (Schema Hot-reloads)
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -258,8 +258,8 @@ func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
 
 	// 1. Valid transaction
 	tx := k.Transaction()
-	tx.Assert(types.Fact{Predicate: "num_pred", Args: []interface{}{42}})
-	tx.Assert(types.Fact{Predicate: "name_pred", Args: []interface{}{"john"}})
+	tx.Assert(types.Fact{Predicate: "num_pred", Args: []any{42}})
+	tx.Assert(types.Fact{Predicate: "name_pred", Args: []any{"john"}})
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("Failed to commit valid transaction: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
 	// 2. Type Mismatch Assertion
 	tx2 := k.Transaction()
 	// Assert string "not_a_number" into num_pred(Number)
-	tx2.Assert(types.Fact{Predicate: "num_pred", Args: []interface{}{"not_a_number"}})
+	tx2.Assert(types.Fact{Predicate: "num_pred", Args: []any{"not_a_number"}})
 	if err := tx2.Commit(); err != nil {
 		t.Fatalf("Failed to commit transactional assertion: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestKernelValidation_AbsurdTransactionEdgeCases(t *testing.T) {
 
 	// 3. Exact Fact Retraction
 	tx3 := k.Transaction()
-	tx3.RetractExactFact(types.Fact{Predicate: "name_pred", Args: []interface{}{"john"}})
+	tx3.RetractExactFact(types.Fact{Predicate: "name_pred", Args: []any{"john"}})
 	if err := tx3.Commit(); err != nil {
 		t.Fatalf("Failed to commit retraction transaction: %v", err)
 	}

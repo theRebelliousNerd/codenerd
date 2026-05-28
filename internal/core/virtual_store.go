@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"codenerd/internal/tools/core"
 	"codenerd/internal/tools/research"
 	"codenerd/internal/tools/shell"
+	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 
 	"github.com/google/mangle/ast"
@@ -114,6 +116,31 @@ type VirtualStore struct {
 
 	// Transaction Manager - atomic multi-file edits with shadow validation (2PC)
 	transactionMgr *TransactionManager
+
+	// Glass Box + Tool event buses (optional). When set, RouteAction
+	// emits CategoryRouting events on the Glass Box bus and concrete
+	// per-tool execution events on the Tool bus so the TUI can show
+	// "🛠 exec_cmd ls (12ms)" inline. Nil-safe.
+	glassBoxBus  *transparency.GlassBoxEventBus
+	toolEventBus *transparency.ToolEventBus
+}
+
+// SetGlassBoxBus attaches the Glass Box event bus for routing-layer
+// activity. Safe to call before or after actions execute; nil is also
+// safe (events become no-ops).
+func (v *VirtualStore) SetGlassBoxBus(bus *transparency.GlassBoxEventBus) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.glassBoxBus = bus
+}
+
+// SetToolEventBus attaches the always-on tool event bus. Each
+// successful RouteAction emits a ToolEvent with name=req.Type so the
+// TUI prints a "🔧 actionType (xms) output" milestone in chat.
+func (v *VirtualStore) SetToolEventBus(bus *transparency.ToolEventBus) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.toolEventBus = bus
 }
 
 // VirtualStoreConfig holds configuration for the VirtualStore.
@@ -270,7 +297,7 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
 	}
 
 	// Normalize args to Mangle atoms where appropriate (Fix 11.11)
-	normalizedArgs := make([]interface{}, len(tf.Args))
+	normalizedArgs := make([]any, len(tf.Args))
 	for i, arg := range tf.Args {
 		normalizedArgs[i] = v.normalizeAtom(arg)
 	}
@@ -288,7 +315,7 @@ func (v *VirtualStore) injectTactileFact(tf tactile.Fact) {
 }
 
 // normalizeAtom converts known status strings to Mangle atoms.
-func (v *VirtualStore) normalizeAtom(val interface{}) interface{} {
+func (v *VirtualStore) normalizeAtom(val any) any {
 	s, ok := val.(string)
 	if !ok {
 		return val
@@ -493,8 +520,8 @@ func (v *VirtualStore) rebuildPermissionCache() {
 		action := types.ExtractString(f.Args[0])
 		// Store both with and without leading slash for fast lookup
 		cache[action] = true
-		if strings.HasPrefix(action, "/") {
-			cache[strings.TrimPrefix(action, "/")] = true
+		if after, ok := strings.CutPrefix(action, "/"); ok {
+			cache[after] = true
 		} else {
 			cache["/"+action] = true
 		}
@@ -559,7 +586,7 @@ type mcpClientProxy struct {
 	client IntegrationClient
 }
 
-func (p *mcpClientProxy) CallTool(ctx context.Context, tool string, args map[string]interface{}) (res interface{}, err error) {
+func (p *mcpClientProxy) CallTool(ctx context.Context, tool string, args map[string]any) (res any, err error) {
 	// Panic recovery (crashes prevention)
 	defer func() {
 		if r := recover(); r != nil {
@@ -593,11 +620,11 @@ func (p *mcpClientProxy) CallTool(ctx context.Context, tool string, args map[str
 	return sanitizedRes, nil
 }
 
-func (p *mcpClientProxy) sanitizeArgs(args map[string]interface{}) (map[string]interface{}, error) {
+func (p *mcpClientProxy) sanitizeArgs(args map[string]any) (map[string]any, error) {
 	if args == nil {
 		return nil, nil
 	}
-	res := make(map[string]interface{})
+	res := make(map[string]any)
 	for k, v := range args {
 		sV, err := p.sanitizeVal(v)
 		if err != nil {
@@ -608,15 +635,15 @@ func (p *mcpClientProxy) sanitizeArgs(args map[string]interface{}) (map[string]i
 	return res, nil
 }
 
-func (p *mcpClientProxy) sanitizeVal(val interface{}) (interface{}, error) {
+func (p *mcpClientProxy) sanitizeVal(val any) (any, error) {
 	if val == nil {
 		return nil, nil
 	}
 	switch v := val.(type) {
 	case string, int, int32, int64, float32, float64, bool:
 		return v, nil
-	case map[string]interface{}:
-		res := make(map[string]interface{})
+	case map[string]any:
+		res := make(map[string]any)
 		for k, mv := range v {
 			sV, err := p.sanitizeVal(mv)
 			if err != nil {
@@ -625,8 +652,8 @@ func (p *mcpClientProxy) sanitizeVal(val interface{}) (interface{}, error) {
 			res[k] = sV
 		}
 		return res, nil
-	case []interface{}:
-		res := make([]interface{}, len(v))
+	case []any:
+		res := make([]any, len(v))
 		for i, lv := range v {
 			sV, err := p.sanitizeVal(lv)
 			if err != nil {
@@ -641,7 +668,7 @@ func (p *mcpClientProxy) sanitizeVal(val interface{}) (interface{}, error) {
 	}
 }
 
-func (p *mcpClientProxy) sanitizeResult(res interface{}) (interface{}, error) {
+func (p *mcpClientProxy) sanitizeResult(res any) (any, error) {
 	if res == nil {
 		return "", nil
 	}
@@ -653,8 +680,8 @@ func (p *mcpClientProxy) sanitizeResult(res interface{}) (interface{}, error) {
 		return strings.ReplaceAll(string(r), "\x00", ""), nil
 	case int, int32, int64, float32, float64, bool:
 		return r, nil
-	case map[string]interface{}:
-		resMap := make(map[string]interface{})
+	case map[string]any:
+		resMap := make(map[string]any)
 		for k, mv := range r {
 			sV, err := p.sanitizeResult(mv)
 			if err != nil {
@@ -663,8 +690,8 @@ func (p *mcpClientProxy) sanitizeResult(res interface{}) (interface{}, error) {
 			resMap[k] = sV
 		}
 		return resMap, nil
-	case []interface{}:
-		resSlice := make([]interface{}, len(r))
+	case []any:
+		resSlice := make([]any, len(r))
 		for i, lv := range r {
 			sV, err := p.sanitizeResult(lv)
 			if err != nil {
@@ -1148,11 +1175,11 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 					req.Type, req.Target, dreamResult.Reason)
 				v.injectFact(Fact{
 					Predicate: "security_violation",
-					Args:      []interface{}{string(req.Type), req.Target, "dreamer: " + dreamResult.Reason},
+					Args:      []any{string(req.Type), req.Target, "dreamer: " + dreamResult.Reason},
 				})
 				v.injectFact(Fact{
 					Predicate: "dream_blocked_action",
-					Args:      []interface{}{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
+					Args:      []any{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
 				})
 				return "", fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
 			}
@@ -1165,7 +1192,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		logging.Get(logging.CategoryVirtualStore).Warn("Constitutional violation: %s on %s - %v", req.Type, req.Target, err)
 		v.injectFact(Fact{
 			Predicate: "security_violation",
-			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
+			Args:      []any{string(req.Type), req.Target, err.Error()},
 		})
 		return "", err
 	}
@@ -1179,7 +1206,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
 			v.injectFact(Fact{
 				Predicate: "security_violation",
-				Args:      []interface{}{string(req.Type), req.Target, err.Error()},
+				Args:      []any{string(req.Type), req.Target, err.Error()},
 			})
 			return "", err
 		}
@@ -1195,7 +1222,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		logging.Get(logging.CategoryVirtualStore).Error("Action execution failed: %s - %v", req.Type, err)
 		v.injectFact(Fact{
 			Predicate: "execution_error",
-			Args:      []interface{}{string(req.Type), req.Target, err.Error()},
+			Args:      []any{string(req.Type), req.Target, err.Error()},
 		})
 		return "", err
 	}
@@ -1224,7 +1251,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	factsToInject = append(factsToInject, result.FactsToAdd...)
 	factsToInject = append(factsToInject, Fact{
 		Predicate: "execution_result",
-		Args:      []interface{}{req.ActionID, string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
+		Args:      []any{req.ActionID, string(req.Type), req.Target, result.Success, result.Output, completedAt.Unix()},
 	})
 	v.injectFacts(factsToInject)
 	v.maybePruneActionLogs(completedAt)
@@ -1237,13 +1264,71 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 
 	// Audit: Action completed
 	logging.Audit().ActionComplete(string(req.Type), req.Target, actionDuration.Milliseconds(), result.Success, result.Error)
+
+	// TUI visibility: tool execution always shows in chat scrollback,
+	// Glass Box routing event always updates the activity line.
+	v.emitToolAndRoutingEvents(req, result, actionDuration)
+
 	return result.Output, nil
+}
+
+// emitToolAndRoutingEvents pushes a ToolEvent and a Glass Box
+// CategoryRouting event for an executed action. Cheap when both
+// buses are nil. Intentionally non-blocking — both buses already
+// drop on full channels.
+func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result ActionResult, dur time.Duration) {
+	v.mu.RLock()
+	tbus := v.toolEventBus
+	gbus := v.glassBoxBus
+	v.mu.RUnlock()
+
+	// Pretty per-action label. Strips the leading "/" verbs use so
+	// the badge reads "exec_cmd" rather than "/exec_cmd".
+	verb := strings.TrimPrefix(string(req.Type), "/")
+	label := verb
+	if strings.TrimSpace(req.Target) != "" {
+		label = verb + " " + req.Target
+		if len(label) > 80 {
+			label = label[:77] + "..."
+		}
+	}
+
+	if tbus != nil {
+		summary := result.Output
+		if !result.Success {
+			summary = result.Error
+		}
+		if len(summary) > 160 {
+			summary = summary[:157] + "..."
+		}
+		tbus.Emit(transparency.ToolEvent{
+			ToolName:  verb,
+			Result:    summary,
+			Success:   result.Success,
+			Duration:  dur,
+			Timestamp: time.Now(),
+		})
+	}
+
+	if gbus != nil {
+		summary := label
+		if !result.Success {
+			summary = label + " ❌"
+		}
+		gbus.Emit(transparency.GlassBoxEvent{
+			Timestamp: time.Now(),
+			Category:  transparency.CategoryRouting,
+			Summary:   summary,
+			Source:    string(req.Type),
+			Duration:  dur,
+		})
+	}
 }
 
 // parseActionFact converts a Fact to an ActionRequest.
 func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 	req := ActionRequest{
-		Payload: make(map[string]interface{}),
+		Payload: make(map[string]any),
 	}
 
 	// Bug #4 fix: Add detailed logging for malformed action facts
@@ -1290,10 +1375,8 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 	// Remaining args go into payload
 	for i := 3; i < len(action.Args); i++ {
 		// If the argument is a map, merge it into the payload
-		if argMap, ok := action.Args[i].(map[string]interface{}); ok {
-			for k, v := range argMap {
-				req.Payload[k] = v
-			}
+		if argMap, ok := action.Args[i].(map[string]any); ok {
+			maps.Copy(req.Payload, argMap)
 			continue
 		}
 
@@ -1696,7 +1779,7 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 	pruneByCount("lsp_diagnostic", 200)
 }
 
-func unixSecondsArgAt(args []interface{}, idx int) (int64, bool) {
+func unixSecondsArgAt(args []any, idx int) (int64, bool) {
 	if idx < 0 || len(args) <= idx {
 		return 0, false
 	}
@@ -1771,16 +1854,16 @@ func (v *VirtualStore) clearCodeDOMFacts() {
 
 func (v *VirtualStore) parseBuildDiagnostics(output string) []Fact {
 	facts := make([]Fact, 0)
-	lines := strings.Split(output, "\n")
+	lines := strings.SplitSeq(output, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		// Parse Go-style errors: file.go:line:col: message
 		if strings.Contains(line, ":") && (strings.Contains(line, "error") || strings.Contains(line, "warning")) {
 			parts := strings.SplitN(line, ":", 4)
 			if len(parts) >= 4 {
 				facts = append(facts, Fact{
 					Predicate: "diagnostic",
-					Args:      []interface{}{"/error", parts[0], parts[1], parts[3]},
+					Args:      []any{"/error", parts[0], parts[1], parts[3]},
 				})
 			}
 		}
@@ -1804,7 +1887,7 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 // CheckKernelPermitted consults the kernel to verify if the specific action is permitted.
 // It checks the safe_action cache first, then consults permitted(Action, Target, Payload).
 // Default deny when the kernel is unavailable or queries fail.
-func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload map[string]interface{}) bool {
+func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload map[string]any) bool {
 	v.mu.RLock()
 	k := v.kernel
 	cache := v.permittedCache
@@ -1818,8 +1901,8 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 
 	wantType := actionType
 	altType := actionType
-	if strings.HasPrefix(actionType, "/") {
-		altType = strings.TrimPrefix(actionType, "/")
+	if after, ok := strings.CutPrefix(actionType, "/"); ok {
+		altType = after
 	} else {
 		wantType = "/" + actionType
 	}

@@ -208,10 +208,7 @@ func (p *ToolPregenerator) PregenerateTools(ctx context.Context, gaps []ToolGap)
 	}
 
 	// Limit to max tools (clamp negative values to 0)
-	maxTools := p.config.MaxToolsToGenerate
-	if maxTools < 0 {
-		maxTools = 0
-	}
+	maxTools := max(p.config.MaxToolsToGenerate, 0)
 	if len(toGenerate) > maxTools {
 		logging.Campaign("Limiting tool generation from %d to %d", len(toGenerate), maxTools)
 		// Keep highest priority gaps

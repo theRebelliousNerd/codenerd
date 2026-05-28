@@ -47,7 +47,7 @@ func (m *DreamPlanManager) StorePlan(plan *DreamPlan) {
 	if m.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_plan",
-			Args:      []interface{}{plan.ID, plan.Hypothetical, string(plan.Status), plan.CreatedAt.Unix()},
+			Args:      []any{plan.ID, plan.Hypothetical, string(plan.Status), plan.CreatedAt.Unix()},
 		}
 		if err := m.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan fact: %v", err)
@@ -61,7 +61,7 @@ func (m *DreamPlanManager) StorePlan(plan *DreamPlan) {
 			}
 			stFact := Fact{
 				Predicate: "dream_plan_subtask",
-				Args: []interface{}{
+				Args: []any{
 					plan.ID,
 					subtask.Order,
 					"/" + shardType, // Name constant for Mangle
@@ -114,7 +114,7 @@ func (m *DreamPlanManager) ApprovePlan() error {
 	if m.kernel != nil {
 		fact := Fact{
 			Predicate: "dream_plan_approved",
-			Args:      []interface{}{m.currentPlan.ID, now.Unix()},
+			Args:      []any{m.currentPlan.ID, now.Unix()},
 		}
 		if err := m.kernel.Assert(fact); err != nil {
 			logging.Get(logging.CategoryDream).Error("Failed to assert dream_plan_approved fact: %v", err)
@@ -210,7 +210,7 @@ func (m *DreamPlanManager) MarkSubtaskComplete(id, result string) bool {
 			if s.ID == id {
 				fact := Fact{
 					Predicate: "dream_plan_step_completed",
-					Args:      []interface{}{m.currentPlan.ID, s.Order, truncateResult(result), time.Now().Unix()},
+					Args:      []any{m.currentPlan.ID, s.Order, truncateResult(result), time.Now().Unix()},
 				}
 				if err := m.kernel.Assert(fact); err != nil {
 					logging.Get(logging.CategoryDream).Error("Failed to assert step completion fact: %v", err)

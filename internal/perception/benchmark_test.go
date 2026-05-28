@@ -113,28 +113,28 @@ func BenchmarkTaxonomy_ClassifyInput_PreFix(b *testing.B) {
 
 		facts := []mangle.Fact{}
 		for _, entry := range DefaultTaxonomyData {
-			facts = append(facts, mangle.Fact{Predicate: "verb_def", Args: []interface{}{entry.Verb, entry.Category, entry.ShardType, entry.Priority}})
+			facts = append(facts, mangle.Fact{Predicate: "verb_def", Args: []any{entry.Verb, entry.Category, entry.ShardType, entry.Priority}})
 			for _, syn := range entry.Synonyms {
-				facts = append(facts, mangle.Fact{Predicate: "verb_synonym", Args: []interface{}{entry.Verb, syn}})
+				facts = append(facts, mangle.Fact{Predicate: "verb_synonym", Args: []any{entry.Verb, syn}})
 			}
 			for _, pat := range entry.Patterns {
-				facts = append(facts, mangle.Fact{Predicate: "verb_pattern", Args: []interface{}{entry.Verb, pat}})
+				facts = append(facts, mangle.Fact{Predicate: "verb_pattern", Args: []any{entry.Verb, pat}})
 			}
 		}
 
 		input := inputs[i%len(inputs)]
-		for _, token := range strings.Fields(strings.ToLower(input)) {
+		for token := range strings.FieldsSeq(strings.ToLower(input)) {
 			token = strings.Trim(token, ".,!?;:\"'()[]{}<>")
 			if token == "" {
 				continue
 			}
-			facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []interface{}{token}})
+			facts = append(facts, mangle.Fact{Predicate: "context_token", Args: []any{token}})
 		}
-		facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []interface{}{input}})
+		facts = append(facts, mangle.Fact{Predicate: "user_input_string", Args: []any{input}})
 		for _, cand := range candidates {
 			facts = append(facts, mangle.Fact{
 				Predicate: "candidate_intent",
-				Args:      []interface{}{cand.Verb, int64(cand.Priority)},
+				Args:      []any{cand.Verb, int64(cand.Priority)},
 			})
 		}
 		_ = engine.engine.AddFacts(facts)

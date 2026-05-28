@@ -43,7 +43,7 @@ func NewDebugTracer() *DebugTracer {
 }
 
 // Trace logs a debug event if verbose mode is enabled.
-func (t *DebugTracer) Trace(category, format string, args ...interface{}) {
+func (t *DebugTracer) Trace(category, format string, args ...any) {
 	if !t.enabled {
 		return
 	}
@@ -64,32 +64,32 @@ func (t *DebugTracer) TracePhase(phase string) {
 }
 
 // TraceAPI logs API-related events.
-func (t *DebugTracer) TraceAPI(format string, args ...interface{}) {
+func (t *DebugTracer) TraceAPI(format string, args ...any) {
 	t.Trace("API", format, args...)
 }
 
 // TraceShard logs shard-related events.
-func (t *DebugTracer) TraceShard(format string, args ...interface{}) {
+func (t *DebugTracer) TraceShard(format string, args ...any) {
 	t.Trace("SHARD", format, args...)
 }
 
 // TraceKernel logs Mangle kernel events.
-func (t *DebugTracer) TraceKernel(format string, args ...interface{}) {
+func (t *DebugTracer) TraceKernel(format string, args ...any) {
 	t.Trace("KERNEL", format, args...)
 }
 
 // TraceContext logs context creation/cancellation.
-func (t *DebugTracer) TraceContext(format string, args ...interface{}) {
+func (t *DebugTracer) TraceContext(format string, args ...any) {
 	t.Trace("CONTEXT", format, args...)
 }
 
 // TraceError logs errors.
-func (t *DebugTracer) TraceError(format string, args ...interface{}) {
+func (t *DebugTracer) TraceError(format string, args ...any) {
 	t.Trace("ERROR", format, args...)
 }
 
 // TraceTool logs tool invocation.
-func (t *DebugTracer) TraceTool(format string, args ...interface{}) {
+func (t *DebugTracer) TraceTool(format string, args ...any) {
 	t.Trace("TOOL", format, args...)
 }
 

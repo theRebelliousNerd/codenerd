@@ -233,9 +233,9 @@ func TestGetContext_EmptyPackageDirectory(t *testing.T) {
 func TestParsePriorityFacts_EmptyArguments(t *testing.T) {
 	h := &HolographicProvider{}
 	facts := []core.Fact{
-		{Predicate: "context_priority_file", Args: []interface{}{"", "", 50}},
-		{Predicate: "context_priority_file", Args: []interface{}{"file.go", "", 50}}, // Valid file but empty function name
-		{Predicate: "context_priority_file", Args: []interface{}{}},
+		{Predicate: "context_priority_file", Args: []any{"", "", 50}},
+		{Predicate: "context_priority_file", Args: []any{"file.go", "", 50}}, // Valid file but empty function name
+		{Predicate: "context_priority_file", Args: []any{}},
 	}
 	callers := h.parsePriorityFacts(facts)
 	// Should not crash and returns empty callers
@@ -294,7 +294,7 @@ func TestGetContext_UnknownExtension(t *testing.T) {
 
 func TestBuildGoContext_MassivePackageDir(t *testing.T) {
 	dir := t.TempDir()
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		os.WriteFile(filepath.Join(dir, fmt.Sprintf("file_%d.go", i)), []byte("package main\n"), 0644)
 	}
 	targetFile := filepath.Join(dir, "target.go")
@@ -313,13 +313,13 @@ func TestBuildGoContext_MassivePackageDir(t *testing.T) {
 func TestFetchFunctionBody_MassiveFile(t *testing.T) {
 	dir := t.TempDir()
 	hugeFile := filepath.Join(dir, "huge.go")
-	
+
 	f, err := os.Create(hugeFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.WriteString("package huge\n")
-	for i := 0; i < 50000; i++ {
+	for range 50000 {
 		f.WriteString("// Pad pad pad pad pad pad pad pad\n")
 	}
 	f.WriteString("func targetFunc() {}\n")
@@ -339,15 +339,15 @@ func TestFetchFunctionBody_MassiveFile(t *testing.T) {
 func TestExtractLineRange_HugeFunction(t *testing.T) {
 	h := &HolographicProvider{}
 	var sb strings.Builder
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		sb.WriteString(fmt.Sprintf("line %d\n", i+1))
 	}
-	
+
 	result, err := h.extractLineRange(sb.String(), 1, 5000)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	lines := strings.Split(result, "\n")
 	if len(lines) > 55 {
 		t.Errorf("Expected truncation, got %d lines", len(lines))
@@ -359,14 +359,14 @@ func TestExtractLineRange_HugeFunction(t *testing.T) {
 
 func TestQueryRelationships_DeeplyRecursiveGraph(t *testing.T) {
 	ctx := &HolographicContext{}
-	
-	for i := 0; i < 5000; i++ {
+
+	for i := range 5000 {
 		ctx.CallGraph = append(ctx.CallGraph, CallEdge{
 			Caller: fmt.Sprintf("caller_%d", i),
 			Callee: "target",
 		})
 	}
-	
+
 	prompt := ctx.FormatForPrompt()
 	if strings.Contains(prompt, "caller_50") {
 		t.Error("Expected call relationships to be truncated in prompt")
@@ -376,7 +376,7 @@ func TestQueryRelationships_DeeplyRecursiveGraph(t *testing.T) {
 func TestResolvePrioritizedCallers_MassiveFactCount(t *testing.T) {
 	h := &HolographicProvider{}
 	var callers []PrioritizedCaller
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		callers = append(callers, PrioritizedCaller{
 			File:     fmt.Sprintf("file_%d.go", i),
 			Name:     fmt.Sprintf("func_%d", i),
@@ -384,12 +384,12 @@ func TestResolvePrioritizedCallers_MassiveFactCount(t *testing.T) {
 			Depth:    1,
 		})
 	}
-	
+
 	resolved, err := h.ResolvePrioritizedCallers(context.Background(), callers)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	if len(resolved) > 10 {
 		t.Errorf("Expected callers to be limited, got %d", len(resolved))
 	}
@@ -399,9 +399,9 @@ func TestBuildGoContext_FileDeletedConcurrently(t *testing.T) {
 	dir := t.TempDir()
 	targetFile := filepath.Join(dir, "target.go")
 	os.WriteFile(targetFile, []byte("package main\n"), 0644)
-	
+
 	h := NewHolographicProvider(nil, dir)
-	
+
 	os.Remove(targetFile)
 	ctx, err := h.GetContext(targetFile)
 	// It logs an error but returns partial context
@@ -418,19 +418,17 @@ func TestResolvePrioritizedCallers_ConcurrentAccess(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "target.go")
 	os.WriteFile(file, []byte("package main\nfunc foo() {}\n"), 0644)
-	
+
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			callers := []PrioritizedCaller{
 				{File: file, Name: "foo", Priority: 50, Depth: 1},
 			}
 			// This tests if fileContentCache is safe or instantiated per call
 			// Currently, ResolvePrioritizedCallers instantiates a new cache per call, so it's safe.
 			h.ResolvePrioritizedCallers(context.Background(), callers)
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -439,11 +437,11 @@ func TestBuildWithImpactPriorities_ContextCancellation(t *testing.T) {
 	h := &HolographicProvider{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
-	
+
 	callers := []PrioritizedCaller{
 		{File: "dummy.go", Name: "foo", Priority: 50, Depth: 1},
 	}
-	
+
 	_, err := h.ResolvePrioritizedCallers(ctx, callers)
 	if err != context.Canceled {
 		t.Errorf("Expected context.Canceled, got %v", err)
@@ -453,8 +451,8 @@ func TestBuildWithImpactPriorities_ContextCancellation(t *testing.T) {
 func TestParsePriorityFacts_ConflictingFacts(t *testing.T) {
 	h := &HolographicProvider{}
 	facts := []core.Fact{
-		{Predicate: "context_priority_file", Args: []interface{}{"file.go", "func1", 50}},
-		{Predicate: "context_priority_file", Args: []interface{}{"file.go", "func1", 100}}, // Conflicting
+		{Predicate: "context_priority_file", Args: []any{"file.go", "func1", 50}},
+		{Predicate: "context_priority_file", Args: []any{"file.go", "func1", 100}}, // Conflicting
 	}
 	callers := h.parsePriorityFacts(facts)
 	if len(callers) != 1 {
@@ -515,7 +513,7 @@ func TestHolographicProviderStringArg(t *testing.T) {
 
 	tests := []struct {
 		name string
-		arg  interface{}
+		arg  any
 		want string
 	}{
 		{name: "string", arg: "hello", want: "hello"},
@@ -538,7 +536,7 @@ func TestHolographicProviderIntArg(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		arg        interface{}
+		arg        any
 		defaultVal int
 		want       int
 	}{
@@ -896,7 +894,7 @@ func TestGetContextWithContext_Cancellation(t *testing.T) {
 func TestFetchFunctionBody_LargeFileHandling(t *testing.T) {
 	dir := t.TempDir()
 	largeFile := filepath.Join(dir, "large_file.go")
-	
+
 	// Create a 6MB file (exceeding our 5MB limit)
 	content := make([]byte, 6*1024*1024)
 	err := os.WriteFile(largeFile, content, 0644)
@@ -913,9 +911,9 @@ func TestFetchFunctionBody_LargeFileHandling(t *testing.T) {
 
 func TestFetchFunctionBody_PathTraversalGuard(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	h := NewHolographicProvider(nil, dir)
-	
+
 	// Try a path traversal attempt outside the workspace
 	_, err := h.fetchFunctionBody("../outside.go", "Func", nil)
 	if err == nil || !strings.Contains(err.Error(), "security violation") {
@@ -925,27 +923,27 @@ func TestFetchFunctionBody_PathTraversalGuard(t *testing.T) {
 
 func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	dir := t.TempDir()
-	
+
 	// Write 110 dummy Go files (exceeding our limit of 100)
-	for i := 0; i < 110; i++ {
+	for i := range 110 {
 		filePath := filepath.Join(dir, fmt.Sprintf("file_%d.go", i))
 		err := os.WriteFile(filePath, []byte("package main\n"), 0644)
 		if err != nil {
 			t.Fatalf("Failed to write dummy sibling file: %v", err)
 		}
 	}
-	
+
 	h := NewHolographicProvider(nil, dir)
 	hc := &HolographicContext{
 		PackageImports: make(map[string][]string),
 	}
-	
+
 	targetPath := filepath.Join(dir, "file_0.go")
 	err := h.buildGoContextWithContext(context.Background(), hc, targetPath)
 	if err != nil {
 		t.Fatalf("buildGoContext failed: %v", err)
 	}
-	
+
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))

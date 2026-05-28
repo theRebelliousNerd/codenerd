@@ -65,7 +65,7 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 			Verified:   true,
 			Confidence: 0.0,
 			Method:     ValidationMethodSkipped,
-			Details:    map[string]interface{}{"reason": "cannot determine file path"},
+			Details:    map[string]any{"reason": "cannot determine file path"},
 		}
 	}
 
@@ -107,7 +107,7 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 				Confidence: 1.0,
 				Method:     ValidationMethodCodeDOMRefresh,
 				Error:      "Go syntax error after CodeDOM edit",
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"parse_error": err.Error(),
 				},
 			}
@@ -123,7 +123,7 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 					Confidence: 0.85,
 					Method:     ValidationMethodCodeDOMRefresh,
 					Error:      "target element no longer exists after edit",
-					Details:    map[string]interface{}{"ref": ref},
+					Details:    map[string]any{"ref": ref},
 				}
 			}
 		}
@@ -133,7 +133,7 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 		Verified:   true,
 		Confidence: 1.0,
 		Method:     ValidationMethodCodeDOMRefresh,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"file": filePath,
 			"size": len(content),
 		},
@@ -257,7 +257,7 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 					Confidence: 0.9,
 					Method:     ValidationMethodContentCheck,
 					Error:      "inserted content not found in file",
-					Details:    map[string]interface{}{"content_preview": truncateStr(normalizedNew, 100)},
+					Details:    map[string]any{"content_preview": truncateStr(normalizedNew, 100)},
 				}
 			}
 		}
@@ -288,7 +288,7 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 				Verified:   true,
 				Confidence: 0.8,
 				Method:     ValidationMethodContentCheck,
-				Details: map[string]interface{}{
+				Details: map[string]any{
 					"expected_deleted": expectedDeleted,
 					"current_lines":    len(lines),
 				},
@@ -300,7 +300,7 @@ func (v *LineEditValidator) Validate(ctx context.Context, req ActionRequest, res
 		Verified:   true,
 		Confidence: 0.85,
 		Method:     ValidationMethodContentCheck,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"file":       filePath,
 			"line_count": strings.Count(string(content), "\n") + 1,
 		},

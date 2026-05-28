@@ -55,7 +55,7 @@ func buildLargePrompt(paragraphs int) string {
 		"Teams reported frequent context switching and degraded flow when build feedback exceeds one minute."
 
 	var sb strings.Builder
-	for i := 0; i < paragraphs; i++ {
+	for i := range paragraphs {
 		sb.WriteString(base)
 		sb.WriteString(fmt.Sprintf(" Paragraph %d emphasizes offline reliability and Windows-first constraints.", i+1))
 		sb.WriteString("\n")

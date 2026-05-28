@@ -469,23 +469,23 @@ next_action(/complete) :-
 		{
 			name: "failing with retries remaining",
 			facts: []testFact{
-				{"test_state", []interface{}{"/failing"}},
-				{"retry_count", []interface{}{int64(1)}},
+				{"test_state", []any{"/failing"}},
+				{"retry_count", []any{int64(1)}},
 			},
 			expected: "/read_error_log",
 		},
 		{
 			name: "failing with max retries exceeded",
 			facts: []testFact{
-				{"test_state", []interface{}{"/failing"}},
-				{"retry_count", []interface{}{int64(3)}},
+				{"test_state", []any{"/failing"}},
+				{"retry_count", []any{int64(3)}},
 			},
 			expected: "/escalate_to_user",
 		},
 		{
 			name: "tests passing",
 			facts: []testFact{
-				{"test_state", []interface{}{"/passing"}},
+				{"test_state", []any{"/passing"}},
 			},
 			expected: "/complete",
 		},
@@ -531,7 +531,7 @@ context_atom(Fact) :-
     Score > 30.
 `
 	facts := []testFact{
-		{"new_fact", []interface{}{"important_fact"}},
+		{"new_fact", []any{"important_fact"}},
 	}
 
 	result := evaluateAndQuery(t, program, facts, "context_atom")
@@ -564,7 +564,7 @@ safe_to_commit() :- !has_block_commit().
 
 	t.Run("errors block commit", func(t *testing.T) {
 		facts := []testFact{
-			{"diagnostic", []interface{}{"/error", "test.go", int64(10), "E001", "syntax error"}},
+			{"diagnostic", []any{"/error", "test.go", int64(10), "E001", "syntax error"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "block_commit")
 		if len(result) == 0 {
@@ -600,22 +600,22 @@ delegate_task(/reviewer, Task, /pending) :-
 	}{
 		{
 			name:     "research delegates to researcher",
-			intent:   testFact{"user_intent", []interface{}{"id1", "/query", "/research", "API docs", ""}},
+			intent:   testFact{"user_intent", []any{"id1", "/query", "/research", "API docs", ""}},
 			expected: "/researcher",
 		},
 		{
 			name:     "implement delegates to coder",
-			intent:   testFact{"user_intent", []interface{}{"id2", "/mutation", "/implement", "auth feature", ""}},
+			intent:   testFact{"user_intent", []any{"id2", "/mutation", "/implement", "auth feature", ""}},
 			expected: "/coder",
 		},
 		{
 			name:     "test delegates to tester",
-			intent:   testFact{"user_intent", []interface{}{"id3", "/instruction", "/test", "unit tests", ""}},
+			intent:   testFact{"user_intent", []any{"id3", "/instruction", "/test", "unit tests", ""}},
 			expected: "/tester",
 		},
 		{
 			name:     "review delegates to reviewer",
-			intent:   testFact{"user_intent", []interface{}{"id4", "/query", "/review", "code review", ""}},
+			intent:   testFact{"user_intent", []any{"id4", "/query", "/review", "code review", ""}},
 			expected: "/reviewer",
 		},
 	}
@@ -659,9 +659,9 @@ impacted(X) :- dependency_link(X, Z, _), impacted(Z).
 	// A -> B -> C, and C is modified
 	// Both A and B should be impacted
 	facts := []testFact{
-		{"modified", []interface{}{"C"}},
-		{"dependency_link", []interface{}{"A", "B", "import1"}},
-		{"dependency_link", []interface{}{"B", "C", "import2"}},
+		{"modified", []any{"C"}},
+		{"dependency_link", []any{"A", "B", "import1"}},
+		{"dependency_link", []any{"B", "C", "import2"}},
 	}
 
 	result := evaluateAndQuery(t, program, facts, "impacted")
@@ -734,8 +734,8 @@ dangerous_action(/delete_file).
 
 	t.Run("dangerous action with approval is permitted", func(t *testing.T) {
 		facts := []testFact{
-			{"admin_override", []interface{}{"admin_user"}},
-			{"signed_approval", []interface{}{"/delete_file"}},
+			{"admin_override", []any{"admin_user"}},
+			{"signed_approval", []any{"/delete_file"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "permitted")
 		found := false
@@ -780,10 +780,10 @@ phase_eligible(PhaseID) :-
 	// Phase 2 depends on Phase 1 (hard dependency)
 	// Phase 1 is not complete, so Phase 2 should not be eligible
 	facts := []testFact{
-		{"campaign", []interface{}{"campaign1", "/feature", "Test Feature", "spec.md", "/active"}},
-		{"campaign_phase", []interface{}{"phase1", "campaign1", "Design", int64(1), "/in_progress", "design_profile"}},
-		{"campaign_phase", []interface{}{"phase2", "campaign1", "Implement", int64(2), "/pending", "impl_profile"}},
-		{"phase_dependency", []interface{}{"phase2", "phase1", "/hard"}},
+		{"campaign", []any{"campaign1", "/feature", "Test Feature", "spec.md", "/active"}},
+		{"campaign_phase", []any{"phase1", "campaign1", "Design", int64(1), "/in_progress", "design_profile"}},
+		{"campaign_phase", []any{"phase2", "campaign1", "Implement", int64(2), "/pending", "impl_profile"}},
+		{"phase_dependency", []any{"phase2", "phase1", "/hard"}},
 	}
 
 	result := evaluateAndQuery(t, program, facts, "phase_eligible")
@@ -799,10 +799,10 @@ phase_eligible(PhaseID) :-
 
 	// Now complete phase1 and check again
 	facts2 := []testFact{
-		{"campaign", []interface{}{"campaign1", "/feature", "Test Feature", "spec.md", "/active"}},
-		{"campaign_phase", []interface{}{"phase1", "campaign1", "Design", int64(1), "/completed", "design_profile"}},
-		{"campaign_phase", []interface{}{"phase2", "campaign1", "Implement", int64(2), "/pending", "impl_profile"}},
-		{"phase_dependency", []interface{}{"phase2", "phase1", "/hard"}},
+		{"campaign", []any{"campaign1", "/feature", "Test Feature", "spec.md", "/active"}},
+		{"campaign_phase", []any{"phase1", "campaign1", "Design", int64(1), "/completed", "design_profile"}},
+		{"campaign_phase", []any{"phase2", "campaign1", "Implement", int64(2), "/pending", "impl_profile"}},
+		{"phase_dependency", []any{"phase2", "phase1", "/hard"}},
 	}
 
 	result2 := evaluateAndQuery(t, program, facts2, "phase_eligible")
@@ -826,7 +826,7 @@ phase_eligible(PhaseID) :-
 
 type testFact struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 func findMangleFile(t *testing.T, filename string) string {
@@ -915,7 +915,7 @@ func evaluateAndQuery(t *testing.T, program string, facts []testFact, queryPred 
 	for sym := range programInfo.Decls {
 		if sym.Symbol == queryPred {
 			store.GetFacts(ast.NewQuery(sym), func(a ast.Atom) error {
-				args := make([]interface{}, len(a.Args))
+				args := make([]any, len(a.Args))
 				for i, arg := range a.Args {
 					args[i] = termToValue(arg)
 				}
@@ -959,7 +959,7 @@ func factToAtom(t *testing.T, programInfo *analysis.ProgramInfo, f testFact) ast
 	return ast.Atom{Predicate: predSym, Args: terms}
 }
 
-func valueToTerm(t *testing.T, value interface{}) ast.BaseTerm {
+func valueToTerm(t *testing.T, value any) ast.BaseTerm {
 	t.Helper()
 
 	switch v := value.(type) {
@@ -989,7 +989,7 @@ func valueToTerm(t *testing.T, value interface{}) ast.BaseTerm {
 	}
 }
 
-func termToValue(term ast.BaseTerm) interface{} {
+func termToValue(term ast.BaseTerm) any {
 	switch t := term.(type) {
 	case ast.Constant:
 		switch t.Type {
@@ -1036,8 +1036,8 @@ func TestEngineWithRealPolicy(t *testing.T) {
 
 	// Add test facts
 	err = eng.AddFacts([]Fact{
-		{Predicate: "test_state", Args: []interface{}{"/failing"}},
-		{Predicate: "retry_count", Args: []interface{}{int64(1)}},
+		{Predicate: "test_state", Args: []any{"/failing"}},
+		{Predicate: "retry_count", Args: []any{int64(1)}},
 	})
 	if err != nil {
 		t.Fatalf("Failed to add facts: %v", err)
@@ -1068,8 +1068,8 @@ modified(Path) :-
     file_topology(Path, _, _, _, _).
 `
 	facts := []testFact{
-		{"file_topology", []interface{}{"main.go", "abc123", "/go", int64(1699000000), "/false"}},
-		{"file_topology", []interface{}{"main_test.go", "def456", "/go", int64(1699000001), "/true"}},
+		{"file_topology", []any{"main.go", "abc123", "/go", int64(1699000000), "/false"}},
+		{"file_topology", []any{"main_test.go", "def456", "/go", int64(1699000001), "/true"}},
 	}
 
 	// Test is_test_file derivation
@@ -1102,7 +1102,7 @@ safe_to_commit() :- !has_block_commit().
 `
 	t.Run("errors block commit", func(t *testing.T) {
 		facts := []testFact{
-			{"diagnostic", []interface{}{"/error", "main.go", int64(10), "E001", "undefined variable"}},
+			{"diagnostic", []any{"/error", "main.go", int64(10), "E001", "undefined variable"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "block_commit")
 		if len(result) == 0 {
@@ -1112,7 +1112,7 @@ safe_to_commit() :- !has_block_commit().
 
 	t.Run("warnings only do not block", func(t *testing.T) {
 		facts := []testFact{
-			{"diagnostic", []interface{}{"/warning", "main.go", int64(5), "W001", "unused variable"}},
+			{"diagnostic", []any{"/warning", "main.go", int64(5), "W001", "unused variable"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "safe_to_commit")
 		// With only 1 warning, should be safe (need 2 to block)
@@ -1153,7 +1153,7 @@ delegate_task(/tester, Target, /pending) :-
 `
 	t.Run("query intent classification", func(t *testing.T) {
 		facts := []testFact{
-			{"user_intent", []interface{}{"intent1", "/query", "/explain", "auth.go", ""}},
+			{"user_intent", []any{"intent1", "/query", "/explain", "auth.go", ""}},
 		}
 		result := evaluateAndQuery(t, program, facts, "is_query")
 		if len(result) == 0 {
@@ -1163,7 +1163,7 @@ delegate_task(/tester, Target, /pending) :-
 
 	t.Run("mutation delegates to coder", func(t *testing.T) {
 		facts := []testFact{
-			{"user_intent", []interface{}{"intent2", "/mutation", "/implement", "auth feature", ""}},
+			{"user_intent", []any{"intent2", "/mutation", "/implement", "auth feature", ""}},
 		}
 		result := evaluateAndQuery(t, program, facts, "delegate_task")
 		found := false
@@ -1201,8 +1201,8 @@ public_api_changed() :-
 `
 	t.Run("direct impact", func(t *testing.T) {
 		facts := []testFact{
-			{"dependency_link", []interface{}{"handler.go", "auth.go", "pkg/auth"}},
-			{"modified", []interface{}{"auth.go"}},
+			{"dependency_link", []any{"handler.go", "auth.go", "pkg/auth"}},
+			{"modified", []any{"auth.go"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "impacted")
 		if len(result) == 0 {
@@ -1213,9 +1213,9 @@ public_api_changed() :-
 	t.Run("transitive impact chain", func(t *testing.T) {
 		// A -> B -> C, C modified => A and B impacted
 		facts := []testFact{
-			{"dependency_link", []interface{}{"A.go", "B.go", "pkg/b"}},
-			{"dependency_link", []interface{}{"B.go", "C.go", "pkg/c"}},
-			{"modified", []interface{}{"C.go"}},
+			{"dependency_link", []any{"A.go", "B.go", "pkg/b"}},
+			{"dependency_link", []any{"B.go", "C.go", "pkg/c"}},
+			{"modified", []any{"C.go"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "impacted")
 		impactedFiles := make(map[string]bool)
@@ -1236,8 +1236,8 @@ public_api_changed() :-
 
 	t.Run("public api change detection", func(t *testing.T) {
 		facts := []testFact{
-			{"symbol_graph", []interface{}{"func:Handler", "/function", "/public", "handler.go", "Handler(w, r)"}},
-			{"modified", []interface{}{"handler.go"}},
+			{"symbol_graph", []any{"func:Handler", "/function", "/public", "handler.go", "Handler(w, r)"}},
+			{"modified", []any{"handler.go"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "public_api_changed")
 		if len(result) == 0 {
@@ -1266,7 +1266,7 @@ confident_resolution(Ref) :-
 `
 	t.Run("high confidence needs no clarification", func(t *testing.T) {
 		facts := []testFact{
-			{"focus_resolution", []interface{}{"auth", "pkg/auth/auth.go", "Auth", int64(95)}},
+			{"focus_resolution", []any{"auth", "pkg/auth/auth.go", "Auth", int64(95)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "confident_resolution")
 		if len(result) == 0 {
@@ -1276,7 +1276,7 @@ confident_resolution(Ref) :-
 
 	t.Run("low confidence needs clarification", func(t *testing.T) {
 		facts := []testFact{
-			{"focus_resolution", []interface{}{"handler", "pkg/http/handler.go", "Handler", int64(60)}},
+			{"focus_resolution", []any{"handler", "pkg/http/handler.go", "Handler", int64(60)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "clarification_needed")
 		if len(result) == 0 {
@@ -1304,8 +1304,8 @@ promote_to_long_term(/style_preference, Pattern) :-
 `
 	t.Run("pattern detected after threshold", func(t *testing.T) {
 		facts := []testFact{
-			{"rejection", []interface{}{"task1", "/style", "no_comments"}},
-			{"rejection_count", []interface{}{"/style", "no_comments", int64(3)}},
+			{"rejection", []any{"task1", "/style", "no_comments"}},
+			{"rejection_count", []any{"/style", "no_comments", int64(3)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "preference_signal")
 		if len(result) == 0 {
@@ -1315,7 +1315,7 @@ promote_to_long_term(/style_preference, Pattern) :-
 
 	t.Run("promotion to long term memory", func(t *testing.T) {
 		facts := []testFact{
-			{"rejection_count", []interface{}{"/style", "no_tests", int64(5)}},
+			{"rejection_count", []any{"/style", "no_tests", int64(5)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "promote_to_long_term")
 		if len(result) == 0 {
@@ -1354,22 +1354,22 @@ active_strategy(/direct_edit) :-
 	}{
 		{
 			name:     "test request uses TDD",
-			intent:   testFact{"user_intent", []interface{}{"id1", "/instruction", "/test", "auth.go", ""}},
+			intent:   testFact{"user_intent", []any{"id1", "/instruction", "/test", "auth.go", ""}},
 			expected: "/tdd",
 		},
 		{
 			name:     "fix request uses TDD",
-			intent:   testFact{"user_intent", []interface{}{"id2", "/mutation", "/fix", "bug in auth", ""}},
+			intent:   testFact{"user_intent", []any{"id2", "/mutation", "/fix", "bug in auth", ""}},
 			expected: "/tdd",
 		},
 		{
 			name:     "explain request uses research",
-			intent:   testFact{"user_intent", []interface{}{"id3", "/query", "/explain", "auth flow", ""}},
+			intent:   testFact{"user_intent", []any{"id3", "/query", "/explain", "auth flow", ""}},
 			expected: "/research",
 		},
 		{
 			name:     "implement request uses direct_edit",
-			intent:   testFact{"user_intent", []interface{}{"id4", "/mutation", "/implement", "new feature", ""}},
+			intent:   testFact{"user_intent", []any{"id4", "/mutation", "/implement", "new feature", ""}},
 			expected: "/direct_edit",
 		},
 	}

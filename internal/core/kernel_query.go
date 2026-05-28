@@ -144,7 +144,7 @@ func factMatchesPattern(f Fact, pattern Fact) bool {
 	return true
 }
 
-func patternArgMatches(pattern interface{}, value interface{}) bool {
+func patternArgMatches(pattern any, value any) bool {
 	// Variables are represented as strings like "?X" by atomToFact/baseTermToValue.
 	if s, ok := pattern.(string); ok && strings.HasPrefix(s, "?") {
 		return true
@@ -191,7 +191,7 @@ func patternArgMatches(pattern interface{}, value interface{}) bool {
 	return false
 }
 
-func normalizeQueryValue(v interface{}) interface{} {
+func normalizeQueryValue(v any) any {
 	switch t := v.(type) {
 	case int:
 		return int64(t)
@@ -404,7 +404,7 @@ func ParseSingleFact(content string) (Fact, error) {
 
 // atomToFact converts a Mangle AST Atom back to our Fact type.
 func atomToFact(a ast.Atom) Fact {
-	args := make([]interface{}, len(a.Args))
+	args := make([]any, len(a.Args))
 	for i, term := range a.Args {
 		args[i] = baseTermToValue(term)
 	}
@@ -415,7 +415,7 @@ func atomToFact(a ast.Atom) Fact {
 }
 
 // baseTermToValue extracts the Go value from a Mangle BaseTerm.
-func baseTermToValue(term ast.BaseTerm) interface{} {
+func baseTermToValue(term ast.BaseTerm) any {
 	switch t := term.(type) {
 	case ast.Constant:
 		switch t.Type {
@@ -500,7 +500,7 @@ func (k *RealKernel) UpdateSystemFacts() error {
 
 	tx := k.Transaction()
 	tx.Retract("current_time")
-	tx.Assert(Fact{Predicate: "current_time", Args: []interface{}{now}})
+	tx.Assert(Fact{Predicate: "current_time", Args: []any{now}})
 
 	workspaceRoot := strings.TrimSpace(k.workspaceRoot)
 	if workspaceRoot == "" {
@@ -532,16 +532,16 @@ func (k *RealKernel) UpdateSystemFacts() error {
 	tx.Retract("git_branch")
 
 	if branch != "" {
-		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"branch", branch}})
-		tx.Assert(Fact{Predicate: "git_branch", Args: []interface{}{branch}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"branch", branch}})
+		tx.Assert(Fact{Predicate: "git_branch", Args: []any{branch}})
 	}
 	if len(modifiedFiles) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"modified_files", strings.Join(modifiedFiles, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"modified_files", strings.Join(modifiedFiles, "\n")}})
 	}
 	if len(recentCommits) > 0 {
-		tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"recent_commits", strings.Join(recentCommits, "\n")}})
+		tx.Assert(Fact{Predicate: "git_state", Args: []any{"recent_commits", strings.Join(recentCommits, "\n")}})
 	}
-	tx.Assert(Fact{Predicate: "git_state", Args: []interface{}{"unstaged_count", strconv.Itoa(unstagedCount)}})
+	tx.Assert(Fact{Predicate: "git_state", Args: []any{"unstaged_count", strconv.Itoa(unstagedCount)}})
 
 	return tx.Commit()
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -401,9 +402,9 @@ func TestLimitedWriter_WhenMultipleWrites_ShouldTrackCumulative(t *testing.T) {
 	var buf bytes.Buffer
 	lw := &limitedWriter{w: &buf, max: 10}
 
-	lw.Write([]byte("12345"))  // 5 bytes, under limit
-	lw.Write([]byte("67890"))  // 5 more, exactly at limit
-	lw.Write([]byte("extra"))  // over limit
+	lw.Write([]byte("12345")) // 5 bytes, under limit
+	lw.Write([]byte("67890")) // 5 more, exactly at limit
+	lw.Write([]byte("extra")) // over limit
 
 	if buf.Len() != 10 {
 		t.Errorf("expected 10 bytes in buffer, got %d", buf.Len())
@@ -690,13 +691,7 @@ func TestCompositeExecutor_RegisterExecutor_ShouldAddExecutor(t *testing.T) {
 	composite.RegisterExecutor([]SandboxMode{SandboxMode("custom")}, direct)
 
 	caps := composite.Capabilities()
-	found := false
-	for _, mode := range caps.SupportedSandboxModes {
-		if mode == SandboxMode("custom") {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(caps.SupportedSandboxModes, SandboxMode("custom"))
 	if !found {
 		t.Error("expected 'custom' in supported sandbox modes after registration")
 	}
@@ -868,13 +863,7 @@ func TestDirectExecutor_BuildEnvironment_ShouldIncludeAllowedVars(t *testing.T) 
 	env := executor.buildEnvironment([]string{"CUSTOM=value"})
 
 	// Should contain CUSTOM=value from cmdEnv
-	found := false
-	for _, v := range env {
-		if v == "CUSTOM=value" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(env, "CUSTOM=value")
 	if !found {
 		t.Error("expected CUSTOM=value in environment")
 	}

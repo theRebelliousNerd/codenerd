@@ -93,7 +93,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 				id := fmt.Sprintf("package:%s", name)
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "package", "public", path, fmt.Sprintf("package %s", name)},
+					Args:      []any{id, "package", "public", path, fmt.Sprintf("package %s", name)},
 				})
 			}
 
@@ -120,7 +120,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 
@@ -149,7 +149,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "method", visibility, path, signature},
+					Args:      []any{id, "method", visibility, path, signature},
 				})
 			}
 
@@ -201,7 +201,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 												}
 												facts = append(facts, Fact{
 													Predicate: "symbol_graph",
-													Args:      []interface{}{fieldID, "field", fieldVis, path, fmt.Sprintf("%s %s", fieldName, fieldType)},
+													Args:      []any{fieldID, "field", fieldVis, path, fmt.Sprintf("%s %s", fieldName, fieldType)},
 												})
 											}
 										}
@@ -238,7 +238,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 											}
 											facts = append(facts, Fact{
 												Predicate: "symbol_graph",
-												Args:      []interface{}{methodID, "interface_method", methodVis, path, methodSig},
+												Args:      []any{methodID, "interface_method", methodVis, path, methodSig},
 											})
 										}
 									}
@@ -249,7 +249,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 						id := fmt.Sprintf("%s:%s", kind, name)
 						facts = append(facts, Fact{
 							Predicate: "symbol_graph",
-							Args:      []interface{}{id, kind, visibility, path, signature},
+							Args:      []any{id, kind, visibility, path, signature},
 						})
 					}
 				}
@@ -264,7 +264,7 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 						importPath := strings.Trim(getText(pathNode), "\"")
 						facts = append(facts, Fact{
 							Predicate: "dependency_link",
-							Args:      []interface{}{path, fmt.Sprintf("pkg:%s", importPath), importPath},
+							Args:      []any{path, fmt.Sprintf("pkg:%s", importPath), importPath},
 						})
 					}
 				}
@@ -330,7 +330,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "class", visibility, path, signature},
+					Args:      []any{id, "class", visibility, path, signature},
 				})
 			}
 		case "function_definition":
@@ -353,7 +353,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 		case "import_statement", "import_from_statement":
@@ -363,7 +363,7 @@ func (p *TreeSitterParser) extractPythonSymbols(node *sitter.Node, path, content
 					moduleName := getText(child)
 					facts = append(facts, Fact{
 						Predicate: "dependency_link",
-						Args:      []interface{}{path, fmt.Sprintf("mod:%s", moduleName), moduleName},
+						Args:      []any{path, fmt.Sprintf("mod:%s", moduleName), moduleName},
 					})
 				}
 			}
@@ -434,7 +434,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 		case "struct_item":
@@ -450,7 +450,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "struct", visibility, path, signature},
+					Args:      []any{id, "struct", visibility, path, signature},
 				})
 			}
 		case "enum_item":
@@ -465,7 +465,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "enum", visibility, path, signature},
+					Args:      []any{id, "enum", visibility, path, signature},
 				})
 			}
 		case "mod_item":
@@ -480,7 +480,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "module", visibility, path, signature},
+					Args:      []any{id, "module", visibility, path, signature},
 				})
 			}
 		case "use_declaration":
@@ -492,7 +492,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 					crateName := parts[0]
 					facts = append(facts, Fact{
 						Predicate: "dependency_link",
-						Args:      []interface{}{path, fmt.Sprintf("crate:%s", crateName), usePath},
+						Args:      []any{path, fmt.Sprintf("crate:%s", crateName), usePath},
 					})
 				}
 			}
@@ -555,7 +555,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "class", visibility, path, signature},
+					Args:      []any{id, "class", visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -574,7 +574,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 		case "lexical_declaration":
@@ -594,7 +594,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 							}
 							facts = append(facts, Fact{
 								Predicate: "symbol_graph",
-								Args:      []interface{}{id, "function", visibility, path, signature},
+								Args:      []any{id, "function", visibility, path, signature},
 							})
 						}
 					}
@@ -606,7 +606,7 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				source := strings.Trim(getText(sourceNode), "\"'")
 				facts = append(facts, Fact{
 					Predicate: "dependency_link",
-					Args:      []interface{}{path, fmt.Sprintf("mod:%s", source), source},
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
 				})
 			}
 		}
@@ -668,7 +668,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "class", visibility, path, signature},
+					Args:      []any{id, "class", visibility, path, signature},
 				})
 			}
 		case "function_declaration":
@@ -687,7 +687,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 		case "interface_declaration":
@@ -702,7 +702,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				}
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []interface{}{id, "interface", visibility, path, signature},
+					Args:      []any{id, "interface", visibility, path, signature},
 				})
 			}
 		case "import_statement":
@@ -711,7 +711,7 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				source := strings.Trim(getText(sourceNode), "\"'")
 				facts = append(facts, Fact{
 					Predicate: "dependency_link",
-					Args:      []interface{}{path, fmt.Sprintf("mod:%s", source), source},
+					Args:      []any{path, fmt.Sprintf("mod:%s", source), source},
 				})
 			}
 		}

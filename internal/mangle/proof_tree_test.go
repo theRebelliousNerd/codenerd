@@ -83,12 +83,12 @@ func TestProofTreeTracer_TraceQuery(t *testing.T) {
 func TestProofTreeTracer_RenderASCII(t *testing.T) {
 	// Setup a fake derivation tree manually
 	root := &DerivationNode{
-		Fact:     Fact{Predicate: "impacted", Args: []interface{}{"main.go"}},
+		Fact:     Fact{Predicate: "impacted", Args: []any{"main.go"}},
 		Source:   SourceIDB,
 		RuleName: "impacted",
 		Children: []*DerivationNode{
 			{
-				Fact:   Fact{Predicate: "dependency_link", Args: []interface{}{"main.go", "lib.go", "import"}},
+				Fact:   Fact{Predicate: "dependency_link", Args: []any{"main.go", "lib.go", "import"}},
 				Source: SourceEDB,
 			},
 		},

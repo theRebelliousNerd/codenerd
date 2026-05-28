@@ -50,7 +50,7 @@ func NewScannerWithConfig(cfg ScannerConfig) *Scanner {
 	return &Scanner{
 		config: cfg,
 		parserPool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				logging.WorldDebug("Creating new TreeSitterParser in pool")
 				return NewTreeSitterParser()
 			},
@@ -268,7 +268,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			dirResults <- dirScanResult{
 				fact: core.Fact{
 					Predicate: "directory",
-					Args:      []interface{}{canonicalScanPath(root, path), name},
+					Args:      []any{canonicalScanPath(root, path), name},
 				},
 			}
 			logging.WorldDebug("Indexed directory: %s", path)
@@ -328,7 +328,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			// break session restore / cross-machine context reuse.
 			fact := core.Fact{
 				Predicate: "file_topology",
-				Args: []interface{}{
+				Args: []any{
 					canonicalScanPath(root, path),
 					hash,
 					core.MangleAtom("/" + lang),

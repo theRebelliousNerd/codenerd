@@ -13,7 +13,7 @@ func TestVirtualStoreCodeDOM_HandleOpenFile(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionOpenFile,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"path": "test.go",
 		},
 	}
@@ -51,7 +51,7 @@ func TestVirtualStoreCodeDOM_HandleEditLines(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionEditLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"start_line": 1,
 			"end_line":   5,
 			"new_lines":  []string{"// edited"},
@@ -74,7 +74,7 @@ func TestVirtualStoreCodeDOM_HandleInsertLines(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionInsertLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"after_line": 0,
 			"new_lines":  []string{"// header"},
 		},
@@ -96,7 +96,7 @@ func TestVirtualStoreCodeDOM_HandleDeleteLines(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionDeleteLines,
 		Target: "test.go",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"start_line": 1,
 			"end_line":   3,
 		},

@@ -47,10 +47,10 @@ func TestGuardianConfig_MassiveThresholds(t *testing.T) {
 	config := DefaultGuardianConfig()
 	config.BlockThreshold = 1.7976931348623157e+308 // Max float64
 	config.WarningThreshold = -1.7976931348623157e+308
-	
+
 	store := newTestStore(t)
 	guardian := NewGuardian(store, config)
-	
+
 	severity := guardian.scoreToSeverity(1.0)
 	if severity != DriftMinor {
 		// Just ensuring it doesn't crash
@@ -87,22 +87,19 @@ func TestGuardian_SetLLMClient(t *testing.T) {
 	}
 }
 
-
 func TestGuardian_Initialize_Concurrent(t *testing.T) {
 	t.Parallel()
 	store := newTestStore(t)
 	guardian := NewGuardian(store, DefaultGuardianConfig())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			_ = guardian.Initialize()
-		}()
+		})
 	}
 	wg.Wait()
-	
+
 	// Ensure no race conditions and it's properly initialized
 	if guardian.GetState() == nil {
 		t.Error("expected state to be loaded after concurrent initialization")
@@ -473,7 +470,7 @@ func TestGuardian_CheckAlignment_EmptyResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error when LLM returns whitespace: %v", err)
 	}
-	
+
 	if check == nil {
 		t.Fatalf("expected check to be returned, got nil")
 	}
@@ -757,7 +754,7 @@ func TestGuardian_ShouldCheckNow_Periodic(t *testing.T) {
 	}
 
 	// Increment tasks
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		store.IncrementTaskCount()
 	}
 	guardian.state.TasksSinceCheck = 3
@@ -867,7 +864,6 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := truncate(tc.input, tc.maxLen)
@@ -1034,7 +1030,6 @@ func TestGuardian_ParseAlignmentResponse(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -1088,7 +1083,7 @@ func TestGuardian_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			guardian.HasVision()
 			guardian.GetVision()
@@ -1098,7 +1093,7 @@ func TestGuardian_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):

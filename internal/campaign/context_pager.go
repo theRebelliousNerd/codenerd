@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -145,7 +146,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		for _, doc := range scoped {
 			facts = append(facts, core.Fact{
 				Predicate: "phase_context_atom",
-				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
+				Args:      []any{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
 			})
 		}
 		if err := cp.kernel.AssertBatch(facts); err != nil {
@@ -163,7 +164,7 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		for _, artifact := range task.Artifacts {
 			artifactFacts = append(artifactFacts, core.Fact{
 				Predicate: "phase_context_atom",
-				Args:      []interface{}{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 100},
+				Args:      []any{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 100},
 			})
 			artifactCount++
 		}
@@ -277,7 +278,7 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	logging.CampaignDebug("Retracting phase-specific context atoms")
 	_ = cp.kernel.RetractFact(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{phase.ID},
+		Args:      []any{phase.ID},
 	})
 
 	// 5. Reduce activation of phase-specific facts
@@ -285,14 +286,14 @@ Summary:`, phase.Name, strings.Join(accomplishments, "\n"))
 	postFacts := make([]core.Fact, 0, 1+len(phaseFacts))
 	postFacts = append(postFacts, core.Fact{
 		Predicate: "context_compression",
-		Args:      []interface{}{phase.ID, summary, len(phaseFacts), now.Unix()},
+		Args:      []any{phase.ID, summary, len(phaseFacts), now.Unix()},
 	})
 	for _, fact := range phaseFacts {
 		if len(fact.Args) >= 2 {
 			factPredicate := types.ExtractString(fact.Args[1])
 			postFacts = append(postFacts, core.Fact{
 				Predicate: "activation",
-				Args:      []interface{}{factPredicate, -100},
+				Args:      []any{factPredicate, -100},
 			})
 		}
 	}
@@ -328,7 +329,7 @@ func (cp *ContextPager) PrefetchNextTasks(ctx context.Context, tasks []Task, lim
 		for _, artifact := range task.Artifacts {
 			facts = append(facts, core.Fact{
 				Predicate: "activation",
-				Args:      []interface{}{fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 50},
+				Args:      []any{fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 50},
 			})
 			prefetchedCount++
 		}
@@ -373,7 +374,7 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 		if _, ok := allFacts[pred]; ok {
 			cp.kernel.Assert(core.Fact{
 				Predicate: "activation",
-				Args:      []interface{}{pred, -200}, // Heavy suppression
+				Args:      []any{pred, -200}, // Heavy suppression
 			})
 			suppressedCount++
 		}
@@ -411,7 +412,7 @@ func (cp *ContextPager) boostPattern(pattern string, boost int) {
 	// The actual file matching is done by the kernel's spreading activation
 	cp.kernel.Assert(core.Fact{
 		Predicate: "activation",
-		Args:      []interface{}{fmt.Sprintf("file_pattern(%q)", pattern), boost},
+		Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), boost},
 	})
 }
 
@@ -420,7 +421,7 @@ func (cp *ContextPager) suppressSchema(schema string) {
 	logging.CampaignDebug("Suppressing schema %q with activation=-100", schema)
 	cp.kernel.Assert(core.Fact{
 		Predicate: "activation",
-		Args:      []interface{}{schema, -100},
+		Args:      []any{schema, -100},
 	})
 }
 
@@ -501,18 +502,5 @@ func normalizeLayerName(name string) string {
 
 // contains checks if a slice contains a string.
 func contains(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-// min returns the minimum of two ints.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	return slices.Contains(slice, s)
 }

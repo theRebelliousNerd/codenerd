@@ -49,8 +49,8 @@ func TestSelector_SelectAtoms_NilInputs(t *testing.T) {
 func TestSelector_SelectAtoms_NilElements(t *testing.T) {
 	// GAP A5: Inject nil pointers into candidate slices.
 	selector := NewAtomSelector()
-	selector.SetKernel(&mockKernel{facts: []interface{}{
-		Fact{Predicate: "selected_result", Args: []interface{}{"a", 100, "skeleton"}},
+	selector.SetKernel(&mockKernel{facts: []any{
+		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
 	}})
 
 	atoms := []*PromptAtom{
@@ -94,7 +94,7 @@ func TestSelector_ExtractStringArg_UnknownTypes(t *testing.T) {
 	// GAP B2: Pass unsupported Go types to extractStringArg.
 	tests := []struct {
 		name  string
-		input interface{}
+		input any
 	}{
 		{"nil", nil},
 		{"string", "hello"},
@@ -179,7 +179,7 @@ func TestSelector_MangleQuoteString_SpecialChars(t *testing.T) {
 func TestSelector_MassiveAtomCorpus(t *testing.T) {
 	// GAP C1: 1000 candidate atoms (scaled down from 100k for test speed).
 	atoms := make([]*PromptAtom, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		atoms[i] = &PromptAtom{
 			ID:          strings.Repeat("atom-", 1) + string(rune(i%26+'a')),
 			Category:    CategoryContext,
@@ -195,8 +195,8 @@ func TestSelector_MassiveAtomCorpus(t *testing.T) {
 	})
 
 	selector := NewAtomSelector()
-	selector.SetKernel(&mockKernel{facts: []interface{}{
-		Fact{Predicate: "selected_result", Args: []interface{}{"identity-1", 100, "skeleton"}},
+	selector.SetKernel(&mockKernel{facts: []any{
+		Fact{Predicate: "selected_result", Args: []any{"identity-1", 100, "skeleton"}},
 	}})
 
 	result, err := selector.SelectAtoms(context.Background(), atoms, NewCompilationContext())
@@ -246,7 +246,7 @@ func TestSelector_MassiveContextDimensions(t *testing.T) {
 	// GAP C4: Supply CompilationContext with many frameworks.
 	cc := NewCompilationContext()
 	frameworks := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		frameworks[i] = "/framework-" + string(rune(i%26+'a'))
 	}
 	cc = cc.WithLanguage("/go", frameworks...)
@@ -256,8 +256,8 @@ func TestSelector_MassiveContextDimensions(t *testing.T) {
 	}
 
 	selector := NewAtomSelector()
-	selector.SetKernel(&mockKernel{facts: []interface{}{
-		Fact{Predicate: "selected_result", Args: []interface{}{"a", 100, "skeleton"}},
+	selector.SetKernel(&mockKernel{facts: []any{
+		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
 	}})
 
 	result, err := selector.SelectAtoms(context.Background(), atoms, cc)
@@ -270,7 +270,7 @@ func TestSelector_MassiveContextDimensions(t *testing.T) {
 func TestSelector_MergeAtoms_SortDeterminism(t *testing.T) {
 	// GAP C5: Provide identical scores and assert sort doesn't cause jitter.
 	skeleton := make([]*ScoredAtom, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		skeleton[i] = &ScoredAtom{
 			Atom:       &PromptAtom{ID: "atom-" + string(rune(i+'a')), Category: CategoryIdentity},
 			LogicScore: 1.0,
@@ -307,8 +307,8 @@ func TestSelector_InventedContexts(t *testing.T) {
 	}
 
 	selector := NewAtomSelector()
-	selector.SetKernel(&mockKernel{facts: []interface{}{
-		Fact{Predicate: "selected_result", Args: []interface{}{"a", 100, "skeleton"}},
+	selector.SetKernel(&mockKernel{facts: []any{
+		Fact{Predicate: "selected_result", Args: []any{"a", 100, "skeleton"}},
 	}})
 
 	// Must not panic
@@ -375,15 +375,13 @@ func TestSelector_ConcurrentSelectAtoms(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 10
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			selector := NewAtomSelector()
 			selector.SetKernel(&mockKernel{facts: atomsToFacts(atoms)})
 			cc := NewCompilationContext().WithTokenBudget(10000, 1000)
 			_, _ = selector.SelectAtoms(context.Background(), atoms, cc)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -457,7 +455,7 @@ func TestSelector_ConcurrentContextMutation(t *testing.T) {
 	// Goroutine 1: select atoms
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			_, _ = selector.SelectAtoms(context.Background(), atoms, cc)
 		}
 	}()
@@ -465,7 +463,7 @@ func TestSelector_ConcurrentContextMutation(t *testing.T) {
 	// Goroutine 2: mutate context (different context each time to be safe)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			// Create new contexts rather than mutating shared one
 			_ = NewCompilationContext().WithLanguage("/python")
 		}
@@ -490,7 +488,7 @@ func TestSelector_KernelIsolation(t *testing.T) {
 		selector := NewAtomSelector()
 		selector.SetKernel(&mockKernel{facts: atomsToFacts(atoms)})
 		cc := NewCompilationContext().WithShard("/coder", "", "").WithTokenBudget(10000, 1000)
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			_, _ = selector.SelectAtoms(context.Background(), atoms, cc)
 		}
 	}()
@@ -500,7 +498,7 @@ func TestSelector_KernelIsolation(t *testing.T) {
 		selector := NewAtomSelector()
 		selector.SetKernel(&mockKernel{facts: atomsToFacts(atoms)})
 		cc := NewCompilationContext().WithShard("/tester", "", "").WithTokenBudget(10000, 1000)
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			_, _ = selector.SelectAtoms(context.Background(), atoms, cc)
 		}
 	}()

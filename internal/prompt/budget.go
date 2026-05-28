@@ -379,10 +379,14 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 		if atom == nil || atom.Atom == nil {
 			continue
 		}
-		if atom.Atom.TokenCount < 0 {
-			atom.Atom.TokenCount = 0
+		// Deep copy to prevent side-effects on the caller's shared PromptAtom objects
+		clonedAtom := *atom.Atom
+		if clonedAtom.TokenCount < 0 {
+			clonedAtom.TokenCount = 0
 		}
-		sortedAtoms = append(sortedAtoms, atom)
+		clonedOrdered := *atom
+		clonedOrdered.Atom = &clonedAtom
+		sortedAtoms = append(sortedAtoms, &clonedOrdered)
 	}
 
 	// Sort atoms: Priority -> Category -> Score
@@ -395,7 +399,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 		return int(PriorityConditional) + 1
 	}
 
-	sort.Slice(sortedAtoms, func(i, j int) bool {
+	sort.SliceStable(sortedAtoms, func(i, j int) bool {
 		catI := sortedAtoms[i].Atom.Category
 		catJ := sortedAtoms[j].Atom.Category
 
@@ -439,20 +443,27 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 	// Helper to get token count for a mode
 	getTokenCount := func(atom *PromptAtom, mode string) int {
+		var cnt int
 		switch mode {
 		case "concise":
 			if atom.ContentConcise != "" {
-				return EstimateTokens(atom.ContentConcise)
+				cnt = EstimateTokens(atom.ContentConcise)
+			} else {
+				cnt = atom.TokenCount
 			}
-			return atom.TokenCount
 		case "min":
 			if atom.ContentMin != "" {
-				return EstimateTokens(atom.ContentMin)
+				cnt = EstimateTokens(atom.ContentMin)
+			} else {
+				cnt = atom.TokenCount
 			}
-			return atom.TokenCount
 		default:
-			return atom.TokenCount
+			cnt = atom.TokenCount
 		}
+		if cnt < 0 {
+			return 0
+		}
+		return cnt
 	}
 
 	// Iterate through sorted atoms in contiguous category chunks
@@ -490,16 +501,6 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 			mode := "standard"
 			tokens := int64(getTokenCount(oa.Atom, mode))
 
-			// Mandatory atoms: strict inclusion if configured?
-			// If hasAlloc is false, it means category is not in budget map.
-			// Existing logic skipped such categories entirely in Pass 1.
-			// So even Mandatory atoms were skipped in Pass 1.
-			// We should skip them here too to match behavior, adding to unselected.
-			if !hasAlloc {
-				unselected = append(unselected, oa)
-				continue
-			}
-
 			if oa.Atom.IsMandatory {
 				// Enforce absolute totalBudget cap even for mandatory atoms.
 				// Without this guard, a single oversized mandatory atom can
@@ -520,6 +521,11 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				catTokens += tokens
 				usedTokens += tokens
 				atomsIncluded++
+				continue
+			}
+
+			if !hasAlloc {
+				unselected = append(unselected, oa)
 				continue
 			}
 
@@ -587,7 +593,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	var remaining int64 = int64(availableBudget) - usedTokens
 	if remaining > 0 && len(unselected) > 0 {
 		// Sort unselected by Score descending
-		sort.Slice(unselected, func(i, j int) bool {
+		sort.SliceStable(unselected, func(i, j int) bool {
 			return unselected[i].Score > unselected[j].Score
 		})
 
@@ -781,20 +787,24 @@ func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget in
 	}
 
 	for _, oa := range atoms {
+		if oa == nil || oa.Atom == nil {
+			continue
+		}
 		cat := oa.Atom.Category
 		usage := report.CategoryUsage[cat]
-		usage.Used += oa.Atom.TokenCount
+		tokenCount := max(oa.Atom.TokenCount, 0)
+		usage.Used += tokenCount
 		usage.AtomCount++
 		if budget, ok := m.budgets[cat]; ok {
 			usage.Priority = budget.Priority
 		}
 		report.CategoryUsage[cat] = usage
-		report.UsedTokens += oa.Atom.TokenCount
+		report.UsedTokens += tokenCount
 
 		if oa.Atom.IsMandatory {
-			report.MandatoryTokens += oa.Atom.TokenCount
+			report.MandatoryTokens += tokenCount
 		} else {
-			report.OptionalTokens += oa.Atom.TokenCount
+			report.OptionalTokens += tokenCount
 		}
 	}
 

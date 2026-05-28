@@ -38,7 +38,7 @@ func (v *VirtualStore) handleOpenFile(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "scope_open_failed", Args: []interface{}{path, err.Error()}},
+				{Predicate: "scope_open_failed", Args: []any{path, err.Error()}},
 			},
 		}, nil
 	}
@@ -52,7 +52,7 @@ func (v *VirtualStore) handleOpenFile(ctx context.Context, req ActionRequest) (A
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Opened %s with %d files in scope", path, len(inScopeFiles)),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"active_file":    path,
 			"in_scope_count": len(inScopeFiles),
 			"in_scope":       inScopeFiles,
@@ -102,7 +102,7 @@ func (v *VirtualStore) handleGetElements(ctx context.Context, req ActionRequest)
 	return ActionResult{
 		Success: true,
 		Output:  string(output),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"count": len(elements),
 		},
 	}, nil
@@ -141,7 +141,7 @@ func (v *VirtualStore) handleGetElement(ctx context.Context, req ActionRequest) 
 	return ActionResult{
 		Success: true,
 		Output:  string(output),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"ref":        elem.Ref,
 			"type":       elem.Type,
 			"file":       elem.File,
@@ -190,7 +190,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 			Success: false,
 			Error:   fmt.Sprintf("failed to verify file hash: %v", hashErr),
 			FactsToAdd: []Fact{
-				{Predicate: "element_edit_blocked", Args: []interface{}{ref, "hash_verification_failed"}},
+				{Predicate: "element_edit_blocked", Args: []any{ref, "hash_verification_failed"}},
 			},
 		}, nil
 	}
@@ -201,8 +201,8 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 				Success: false,
 				Error:   "file was modified externally and refresh failed",
 				FactsToAdd: []Fact{
-					{Predicate: "element_edit_blocked", Args: []interface{}{ref, "concurrent_modification"}},
-					{Predicate: "file_modified_externally", Args: []interface{}{elem.File}},
+					{Predicate: "element_edit_blocked", Args: []any{ref, "concurrent_modification"}},
+					{Predicate: "file_modified_externally", Args: []any{elem.File}},
 				},
 			}, nil
 		}
@@ -213,7 +213,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 				Success: false,
 				Error:   fmt.Sprintf("element %s no longer exists after refresh", ref),
 				FactsToAdd: []Fact{
-					{Predicate: "element_stale", Args: []interface{}{ref, "not_found_after_refresh"}},
+					{Predicate: "element_stale", Args: []any{ref, "not_found_after_refresh"}},
 				},
 			}, nil
 		}
@@ -231,15 +231,15 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 	factsToAdd := make([]Fact, 0, len(result.Facts)+8)
 	factsToAdd = append(factsToAdd, result.Facts...)
 	factsToAdd = append(factsToAdd,
-		Fact{Predicate: "element_modified", Args: []interface{}{ref, req.SessionID, time.Now().Unix()}},
-		Fact{Predicate: "modified", Args: []interface{}{elem.File}},
+		Fact{Predicate: "element_modified", Args: []any{ref, req.SessionID, time.Now().Unix()}},
+		Fact{Predicate: "modified", Args: []any{elem.File}},
 	)
 
 	// Refresh scope to update line numbers with retry
 	if err := scope.RefreshWithRetry(3); err != nil {
 		factsToAdd = append(factsToAdd, Fact{
 			Predicate: "scope_refresh_failed",
-			Args:      []interface{}{elem.File, err.Error()},
+			Args:      []any{elem.File, err.Error()},
 		})
 	} else {
 		// Replace previous Code DOM state with the refreshed scope.
@@ -250,7 +250,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Replaced element %s (%d lines affected)", ref, result.LinesAffected),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"ref":            ref,
 			"lines_affected": result.LinesAffected,
 			"new_line_count": result.LineCount,
@@ -315,7 +315,7 @@ func (v *VirtualStore) handleCloseScope(ctx context.Context, req ActionRequest) 
 		Success: true,
 		Output:  "Scope closed",
 		FactsToAdd: []Fact{
-			{Predicate: "scope_closed", Args: []interface{}{}},
+			{Predicate: "scope_closed", Args: []any{}},
 		},
 	}, nil
 }
@@ -367,7 +367,7 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 		if err := scope.RefreshWithRetry(3); err != nil {
 			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
-				Args:      []interface{}{path, err.Error()},
+				Args:      []any{path, err.Error()},
 			})
 		} else {
 			// Replace previous Code DOM state with the refreshed scope.
@@ -379,7 +379,7 @@ func (v *VirtualStore) handleEditLines(ctx context.Context, req ActionRequest) (
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Edited lines %d-%d in %s", int(startLine), int(endLine), path),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"path":           path,
 			"start_line":     int(startLine),
 			"end_line":       int(endLine),
@@ -431,7 +431,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 		if err := scope.RefreshWithRetry(3); err != nil {
 			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
-				Args:      []interface{}{path, err.Error()},
+				Args:      []any{path, err.Error()},
 			})
 		} else {
 			// Replace previous Code DOM state with the refreshed scope.
@@ -443,7 +443,7 @@ func (v *VirtualStore) handleInsertLines(ctx context.Context, req ActionRequest)
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Inserted %d lines after line %d in %s", result.LinesAffected, int(afterLine), path),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"path":        path,
 			"after_line":  int(afterLine),
 			"lines_added": result.LinesAffected,
@@ -492,7 +492,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 		if err := scope.RefreshWithRetry(3); err != nil {
 			factsToAdd = append(factsToAdd, Fact{
 				Predicate: "scope_refresh_failed",
-				Args:      []interface{}{path, err.Error()},
+				Args:      []any{path, err.Error()},
 			})
 		} else {
 			// Replace previous Code DOM state with the refreshed scope.
@@ -504,7 +504,7 @@ func (v *VirtualStore) handleDeleteLines(ctx context.Context, req ActionRequest)
 	return ActionResult{
 		Success: true,
 		Output:  fmt.Sprintf("Deleted lines %d-%d from %s", int(startLine), int(endLine), path),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"path":          path,
 			"start_line":    int(startLine),
 			"end_line":      int(endLine),
@@ -538,7 +538,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   "tool executor not configured",
 			FactsToAdd: []Fact{
-				{Predicate: "tool_exec_failed", Args: []interface{}{req.Target, "no_executor"}},
+				{Predicate: "tool_exec_failed", Args: []any{req.Target, "no_executor"}},
 			},
 		}, nil
 	}
@@ -562,7 +562,7 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   fmt.Sprintf("tool not found: %s", toolName),
 			FactsToAdd: []Fact{
-				{Predicate: "tool_not_found", Args: []interface{}{toolName}},
+				{Predicate: "tool_not_found", Args: []any{toolName}},
 			},
 		}, nil
 	}
@@ -582,12 +582,12 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 			Output:  output, // Might have partial output
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "tool_exec_failed", Args: []interface{}{toolName, err.Error()}},
+				{Predicate: "tool_exec_failed", Args: []any{toolName, err.Error()}},
 			},
 		}, nil
 	}
 
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"tool_name":     toolName,
 		"tool_hash":     toolInfo.Hash,
 		"execute_count": toolInfo.ExecuteCount + 1,
@@ -604,8 +604,8 @@ func (v *VirtualStore) handleExecTool(ctx context.Context, req ActionRequest) (A
 		Output:   output,
 		Metadata: metadata,
 		FactsToAdd: []Fact{
-			{Predicate: "tool_executed", Args: []interface{}{toolName, output}},
-			{Predicate: "tool_exec_success", Args: []interface{}{toolName}},
+			{Predicate: "tool_executed", Args: []any{toolName, output}},
+			{Predicate: "tool_exec_success", Args: []any{toolName}},
 		},
 	}, nil
 }

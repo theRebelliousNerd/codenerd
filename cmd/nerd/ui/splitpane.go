@@ -9,16 +9,16 @@ import (
 
 	"codenerd/internal/mangle"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/atotto/clipboard"
 )
 
 // Pre-computed indentation strings to avoid repeated allocation
 var indentCache [50]string
 
 func init() {
-	for i := 0; i < len(indentCache); i++ {
+	for i := range len(indentCache) {
 		indentCache[i] = strings.Repeat("  ", i)
 	}
 }
@@ -450,7 +450,7 @@ func (p *LogicPane) renderContent() string {
 
 	// Use cache if available
 	if p.renderCache != nil {
-		cacheKey := []interface{}{
+		cacheKey := []any{
 			p.traceVersion,
 			p.Width,
 			p.Height,
@@ -713,10 +713,7 @@ func (p *LogicPane) writeNode(sb *strings.Builder, node *DerivationNode, selecte
 	// Activation bar
 	activationBar := ""
 	if p.ShowActivation && node.Activation > 0 {
-		barWidth := int(node.Activation * 10)
-		if barWidth > 10 {
-			barWidth = 10
-		}
+		barWidth := min(int(node.Activation*10), 10)
 		activationBar = fmt.Sprintf(" [%s%s]",
 			strings.Repeat("█", barWidth),
 			strings.Repeat("░", 10-barWidth))

@@ -285,10 +285,7 @@ func (le *LimitsEnforcer) EstimateCapacity(activeShards int) (slots int, reason 
 
 	// If memory is high, reduce effective capacity
 	if memUtil > 0.7 {
-		slots = slots / 2
-		if slots < 1 {
-			slots = 1
-		}
+		slots = max(slots/2, 1)
 		return slots, "reduced due to high memory (>70%)"
 	}
 
@@ -329,8 +326,8 @@ func (le *LimitsEnforcer) CheckAll(activeShards int) error {
 }
 
 // GetStatus returns a summary of current limit utilization.
-func (le *LimitsEnforcer) GetStatus() map[string]interface{} {
-	return map[string]interface{}{
+func (le *LimitsEnforcer) GetStatus() map[string]any {
+	return map[string]any{
 		"memory_mb":           le.GetMemoryUsage(),
 		"memory_limit_mb":     le.config.MaxTotalMemoryMB,
 		"memory_utilization":  le.GetMemoryUtilization(),

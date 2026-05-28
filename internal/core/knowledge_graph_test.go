@@ -58,7 +58,7 @@ func TestKnowledgeGraphHydration(t *testing.T) {
 
 	// Initialize with a dummy fact
 	err = kernel.LoadFacts([]Fact{
-		{Predicate: "test_init", Args: []interface{}{"/true"}},
+		{Predicate: "test_init", Args: []any{"/true"}},
 	})
 	if err != nil {
 		t.Fatalf("Failed to initialize test kernel: %v", err)

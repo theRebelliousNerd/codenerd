@@ -303,11 +303,7 @@ func (m *JITPageModel) SetSize(w, h int) {
 	chromeH := 2
 
 	filterBarHeight := 4
-	paneH := h - 3 - chromeH - filterBarHeight
-
-	if paneH < 5 {
-		paneH = 5
-	}
+	paneH := max(h-3-chromeH-filterBarHeight, 5)
 
 	listPaneWidth := int(float64(w) * 0.35)
 	viewPaneWidth := w - listPaneWidth

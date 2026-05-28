@@ -111,7 +111,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			// go_struct(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "go_struct",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 			// Extract struct tags from body for wire name inference
@@ -120,7 +120,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 				// go_tag(Ref, TagContent)
 				facts = append(facts, core.Fact{
 					Predicate: "go_tag",
-					Args:      []interface{}{elem.Ref, tag},
+					Args:      []any{elem.Ref, tag},
 				})
 			}
 
@@ -128,7 +128,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			// go_interface(Ref)
 			facts = append(facts, core.Fact{
 				Predicate: "go_interface",
-				Args:      []interface{}{elem.Ref},
+				Args:      []any{elem.Ref},
 			})
 
 		case ElementFunction, ElementMethod:
@@ -137,7 +137,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 				// go_goroutine(Ref)
 				facts = append(facts, core.Fact{
 					Predicate: "go_goroutine",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -145,7 +145,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.Contains(elem.Signature, "context.Context") || strings.Contains(elem.Signature, "ctx context") {
 				facts = append(facts, core.Fact{
 					Predicate: "go_uses_context",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 
@@ -153,7 +153,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 			if strings.Contains(elem.Signature, "error") {
 				facts = append(facts, core.Fact{
 					Predicate: "go_returns_error",
-					Args:      []interface{}{elem.Ref},
+					Args:      []any{elem.Ref},
 				})
 			}
 		}
@@ -162,7 +162,7 @@ func (p *GoCodeParser) EmitLanguageFacts(elements []CodeElement) []core.Fact {
 		if elem.Type == ElementMethod && elem.Parent != "" {
 			facts = append(facts, core.Fact{
 				Predicate: "method_of",
-				Args:      []interface{}{elem.Ref, elem.Parent},
+				Args:      []any{elem.Ref, elem.Parent},
 			})
 		}
 	}
@@ -409,8 +409,8 @@ func (p *GoCodeParser) extractStructTags(body string) []string {
 	var tags []string
 
 	// Simple regex-free extraction of backtick-quoted tags
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
 		// Look for backtick-quoted strings (struct tags)
 		start := strings.Index(line, "`")
 		if start == -1 {
@@ -444,11 +444,11 @@ func extractReceiverTypeInfo(expr ast.Expr) (typeName string, isPointer bool) {
 // containsGoRoutineCall detects goroutine spawning patterns.
 func containsGoRoutineCall(body string) bool {
 	// Look for "go someFunc(" or "go obj.Method("
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(body, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "go ") {
-			rest := strings.TrimPrefix(trimmed, "go ")
+		if after, ok := strings.CutPrefix(trimmed, "go "); ok {
+			rest := after
 			// Should have a function call after "go "
 			if strings.Contains(rest, "(") {
 				return true

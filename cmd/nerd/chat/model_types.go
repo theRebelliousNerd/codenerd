@@ -151,6 +151,14 @@ const (
 	ContinuationModeBreakpoint                         // C: Auto for reads, pause before mutations
 )
 
+// streamKind enumerates the kinds of chunks delivered on a streamChunkMsg.
+// Zero value is surface (i.e. visible response text) so any caller that
+// doesn't set kind explicitly gets the legacy behaviour.
+const (
+	streamKindSurface streamKind = iota
+	streamKindThought
+)
+
 // String returns the display name for each mode
 func (m ContinuationMode) String() string {
 	names := []string{"Auto", "Confirm", "Breakpoint"}
@@ -214,8 +222,13 @@ type Model struct {
 	showSystemActions bool
 
 	// Streaming UI state
-	isStreaming   bool
-	currentStream string
+	isStreaming    bool
+	currentStream  string
+	// currentThought accumulates the model's streaming thinking trace
+	// (Gemini 3 thought parts) so the TUI can render reasoning as it
+	// arrives, above the visible answer. Cleared on streamEndMsg /
+	// streamErrorMsg the same way currentStream is.
+	currentThought string
 
 	// Usage Page
 	usagePage ui.UsagePageModel
@@ -364,6 +377,13 @@ type Model struct {
 	// Status Tracking
 	statusMessage string      // Current operation description
 	statusChan    chan string // Channel for streaming status updates
+
+	// Activity line (transient): the last Glass Box ping. Rendered as a
+	// single dimmed line just above the input box. Updated every time
+	// a Glass Box event lands and cleared when the turn ends.
+	activityLine   string
+	activityIconCh string // icon for the current activity (for the indicator)
+	activityAt     time.Time
 
 	// Glass Box Debug Mode - shows system internals inline in chat
 	glassBoxEnabled   bool                              // Runtime toggle
@@ -590,18 +610,30 @@ type (
 		ThoughtSummary    string
 	}
 
+	// streamKind tags a streaming chunk so the TUI can render thought
+	// traces (model reasoning) differently from the visible surface
+	// response. The zero value (streamKindSurface) preserves the
+	// pre-thoughts behaviour for any code paths that don't set it.
+	streamKind uint8
+
 	// Streaming messages
 	streamStartMsg struct {
-		streamChan chan string
-		resultChan chan tea.Msg
-		errChan    chan error
+		streamChan   chan string
+		thoughtsChan chan string // optional; nil if backend has no thoughts stream
+		resultChan   chan tea.Msg
+		errChan      chan error
 	}
 	streamChunkMsg struct {
 		chunk string
 		sub   chan string
+		// kind distinguishes thought-trace chunks (rendered dim/italic
+		// above the visible answer) from surface chunks (the actual
+		// response). Zero value = surface, for backward compatibility
+		// with the pre-thoughts code paths.
+		kind streamKind
 	}
-	streamEndMsg   struct{}
-	cmdMsg         struct{ cmd tea.Cmd }
+	streamEndMsg struct{}
+	cmdMsg       struct{ cmd tea.Cmd }
 
 	// Memory sampling message
 	memUsageMsg struct {

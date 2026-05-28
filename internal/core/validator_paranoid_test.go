@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
@@ -60,7 +61,7 @@ func TestParanoidValidator_ValidateSuccess(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -94,7 +95,7 @@ func TestParanoidValidator_ValidateMismatch(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": expectedContent,
 		},
 	}
@@ -126,7 +127,7 @@ func TestParanoidValidator_ValidateStale(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -161,7 +162,7 @@ func TestParanoidValidator_DoubleReadRaceCondition(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": initialContent, // We expect initial, but disk has final
 		},
 	}
@@ -187,7 +188,7 @@ func TestParanoidValidator_EditFileSkipped(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionEditFile,
 		Target: "some/file.txt",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			// No "content" key
 			"diff": "some diff",
 		},
@@ -232,7 +233,7 @@ func TestParanoidValidator_SymlinkToDirectory(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: linkPath, // Target is the symlink
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": "test",
 		},
 	}
@@ -273,7 +274,7 @@ func TestParanoidValidator_SymlinkToFile(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: linkPath,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -295,7 +296,7 @@ func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 
 	// Create content larger than 100 bytes
 	content := ""
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		content += "0123456789" // 200 bytes total
 	}
 
@@ -308,7 +309,7 @@ func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -331,13 +332,7 @@ func TestParanoidValidator_ContentSamplingRuns(t *testing.T) {
 	// size_match, first_read, hash_first_read, double_read_consistency, hash_second_read
 	expected := []string{"existence", "hash_first_read"}
 	for _, exp := range expected {
-		found := false
-		for _, c := range checks {
-			if c == exp {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(checks, exp)
 		if !found {
 			t.Errorf("Expected '%s' to be in checks_passed, got %v", exp, checks)
 		}
@@ -351,7 +346,7 @@ func TestParanoidValidator_EmptyTargetPath(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: "", // Empty path
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": "test content",
 		},
 	}
@@ -380,7 +375,7 @@ func TestParanoidValidator_MissingContentKey(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"notContent": "wrong key", // Missing "content" key
 		},
 	}
@@ -435,7 +430,7 @@ func TestParanoidValidator_ContentWrongType(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": 123, // Integer instead of string
 		},
 	}
@@ -458,7 +453,7 @@ func TestParanoidValidator_TargetIsDirectory(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: tmpDir, // Directory instead of file
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": "test",
 		},
 	}
@@ -480,7 +475,7 @@ func TestParanoidValidator_NonExistentFile(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: "/nonexistent/path/to/file.txt",
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": "test",
 		},
 	}
@@ -510,7 +505,7 @@ func TestParanoidValidator_FileSizeBelowMin(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -539,7 +534,7 @@ func TestParanoidValidator_FileSizeExceedsMax(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -575,7 +570,7 @@ func TestParanoidValidator_ReadPermissionDenied(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -595,7 +590,7 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 
 	// Create content > 100 bytes
 	content := ""
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		content += "0123456789" // 200 bytes
 	}
 
@@ -611,7 +606,7 @@ func TestParanoidValidator_ContentSampling(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": content,
 		},
 	}
@@ -643,7 +638,7 @@ func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
 
 	// Construct content where one byte at a sampling point is wrong.
 	validContent := ""
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		validContent += "0123456789" // 200 bytes
 	}
 
@@ -661,7 +656,7 @@ func TestParanoidValidator_ContentSamplingFailure(t *testing.T) {
 	req := ActionRequest{
 		Type:   ActionWriteFile,
 		Target: path,
-		Payload: map[string]interface{}{
+		Payload: map[string]any{
 			"content": validContent, // We expect valid content
 		},
 	}

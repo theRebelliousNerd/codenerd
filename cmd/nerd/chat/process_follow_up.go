@@ -242,7 +242,7 @@ section above to provide accurate, specific answers. Reference the actual findin
 or metrics from that result.`
 
 	artOutput, err := articulateWithConversation(ctx, m.client, intent,
-		payloadForArticulation(intent, nil), contextFacts, nil, systemPrompt, convCtx, nil)
+		payloadForArticulation(intent, nil), contextFacts, nil, systemPrompt, convCtx, nil, nil)
 	if err != nil {
 		return errorMsg(fmt.Errorf("follow-up articulation failed: %w", err))
 	}

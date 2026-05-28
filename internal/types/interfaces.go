@@ -84,16 +84,16 @@ type ToolResultsProvider interface {
 
 // ToolDefinition describes a tool that the LLM can invoke.
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema"` // JSON Schema for parameters
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"` // JSON Schema for parameters
 }
 
 // ToolCall represents a tool invocation requested by the LLM.
 type ToolCall struct {
-	ID    string                 `json:"id"`    // Unique ID for this tool use
-	Name  string                 `json:"name"`  // Tool name to invoke
-	Input map[string]interface{} `json:"input"` // Tool arguments
+	ID    string         `json:"id"`    // Unique ID for this tool use
+	Name  string         `json:"name"`  // Tool name to invoke
+	Input map[string]any `json:"input"` // Tool arguments
 }
 
 // UsageMetadata captures token usage metrics from the LLM.
@@ -118,7 +118,6 @@ type LLMToolResponse struct {
 	// ThoughtSignature is an encrypted blob for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
 	ThoughtSignature string `json:"thought_signature,omitempty"`
-
 
 	// Grounding metadata (from Google Search / URL Context)
 	// GroundingSources lists URLs used to ground the response
@@ -203,7 +202,7 @@ type GraphQuery interface {
 	// queryType: e.g., "dependencies", "symbols", "callers"
 	// params: query-specific parameters
 	// Returns: structured result (e.g., []string, []Symbol, etc.)
-	QueryGraph(queryType string, params map[string]interface{}) (interface{}, error)
+	QueryGraph(queryType string, params map[string]any) (any, error)
 }
 
 // GroundingProvider is an optional interface for LLM clients that support
@@ -346,7 +345,7 @@ type FileProvider interface {
 	ListFiles(ctx context.Context) ([]string, error)
 
 	// GetFile retrieves metadata for an uploaded file.
-	GetFile(ctx context.Context, fileID string) (interface{}, error)
+	GetFile(ctx context.Context, fileID string) (any, error)
 }
 
 // CacheProvider is an optional interface for LLM clients that support
@@ -359,7 +358,7 @@ type CacheProvider interface {
 	CreateCachedContent(ctx context.Context, files []string, ttl int) (string, error)
 
 	// GetCachedContent retrieves metadata for a cached content.
-	GetCachedContent(ctx context.Context, cacheName string) (interface{}, error)
+	GetCachedContent(ctx context.Context, cacheName string) (any, error)
 
 	// DeleteCachedContent deletes a context cache.
 	DeleteCachedContent(ctx context.Context, cacheName string) error

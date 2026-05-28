@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -101,7 +102,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			// New Holographic Atom
 			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
-				Args: []interface{}{
+				Args: []any{
 					path,
 					core.MangleAtom(id),
 					core.MangleAtom("/function"),
@@ -127,7 +128,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 			// New Holographic Atom
 			facts = append(facts, core.Fact{
 				Predicate: "code_defines",
-				Args: []interface{}{
+				Args: []any{
 					path,
 					core.MangleAtom(id),
 					core.MangleAtom(typeType),
@@ -159,7 +160,7 @@ func (c *Cartographer) mapGoFile(path string) ([]core.Fact, error) {
 				// code_calls(Caller, Callee)
 				facts = append(facts, core.Fact{
 					Predicate: "code_calls",
-					Args: []interface{}{
+					Args: []any{
 						core.MangleAtom(currentFunction),
 						core.MangleAtom(callee),
 					},
@@ -204,10 +205,5 @@ func (c *Cartographer) SupportedLanguages() []string {
 // IsLanguageSupported checks if a file's language is supported for data flow extraction.
 func (c *Cartographer) IsLanguageSupported(path string) bool {
 	lang := DetectLanguage(path)
-	for _, supported := range c.SupportedLanguages() {
-		if lang == supported {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.SupportedLanguages(), lang)
 }

@@ -16,6 +16,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"sync"
@@ -298,7 +299,7 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 		actionID := types.ExtractString(fact.Args[0])
 		actionType := types.ExtractString(fact.Args[1])
 		target := types.ExtractString(fact.Args[2])
-		payload := map[string]interface{}{}
+		payload := map[string]any{}
 		if len(fact.Args) > 3 {
 			payload, _ = decodeActionPayload(fact.Args[3])
 		}
@@ -314,12 +315,12 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			// Primary permitted stream for tactile router
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permitted_action",
-				Args:      []interface{}{actionID, actionType, target, encodeActionPayload(payload), ts},
+				Args:      []any{actionID, actionType, target, encodeActionPayload(payload), ts},
 			})
 			// Emit canonical permission result for policy observability.
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, types.MangleAtom("/permit"), reason, ts},
+				Args:      []any{actionID, types.MangleAtom("/permit"), reason, ts},
 			})
 			c.mu.Lock()
 			c.permitted = append(c.permitted, actionType)
@@ -333,25 +334,25 @@ func (c *ConstitutionGateShard) processPendingActions(ctx context.Context) error
 			ts := time.Now().Unix()
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "permission_check_result",
-				Args:      []interface{}{actionID, types.MangleAtom("/deny"), reason, ts},
+				Args:      []any{actionID, types.MangleAtom("/deny"), reason, ts},
 			})
 
 			// Emit routing_result failure so waiting shards can observe denial
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "routing_result",
-				Args:      []interface{}{actionID, types.MangleAtom("/failure"), reason, ts},
+				Args:      []any{actionID, types.MangleAtom("/failure"), reason, ts},
 			})
 
 			// Emit security_violation fact
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "security_violation",
-				Args:      []interface{}{actionType, reason, time.Now().Unix()},
+				Args:      []any{actionType, reason, time.Now().Unix()},
 			})
 
 			// Emit appeal_available fact for Mangle policies
 			_ = c.Kernel.Assert(types.Fact{
 				Predicate: "appeal_available",
-				Args:      []interface{}{actionID, actionType, target, reason},
+				Args:      []any{actionID, actionType, target, reason},
 			})
 
 			// Check if we should escalate to user
@@ -414,7 +415,7 @@ func (c *ConstitutionGateShard) prunePermissionCheckResults() {
 }
 
 // checkPermitted determines if an action is permitted under constitutional rules.
-func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string, payload map[string]interface{}) (bool, string) {
+func (c *ConstitutionGateShard) checkPermitted(ctx context.Context, actionType, target string, payload map[string]any) (bool, string) {
 	// 0. Check for active overrides from appeals
 	c.mu.RLock()
 	if override, exists := c.activeOverrides[actionType]; exists {
@@ -547,7 +548,7 @@ func (c *ConstitutionGateShard) escalateToUser(ctx context.Context, actionType, 
 	// Emit an escalation fact for the UI layer to handle
 	_ = c.Kernel.Assert(types.Fact{
 		Predicate: "escalation_needed",
-		Args: []interface{}{
+		Args: []any{
 			"constitution_gate",
 			escalationSubject(actionType, target),
 			reason,
@@ -692,7 +693,7 @@ func (c *ConstitutionGateShard) handleAutopoiesis(ctx context.Context) {
 		// Escalate for human approval
 		if assertErr := c.Kernel.Assert(types.Fact{
 			Predicate: "rule_proposal_pending",
-			Args: []interface{}{
+			Args: []any{
 				"constitution_gate",
 				proposedRule.MangleCode,
 				proposedRule.Rationale,
@@ -876,7 +877,7 @@ func (c *ConstitutionGateShard) SubmitAppeal(actionID, justification, requester 
 	if c.Kernel != nil {
 		_ = c.Kernel.Assert(types.Fact{
 			Predicate: "appeal_pending",
-			Args:      []interface{}{actionID, violation.ActionType, justification, time.Now().Unix()},
+			Args:      []any{actionID, violation.ActionType, justification, time.Now().Unix()},
 		})
 	}
 
@@ -919,7 +920,7 @@ func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID strin
 		if c.Kernel != nil {
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "appeal_granted",
-				Args:      []interface{}{actionID, appeal.ActionType, approver, time.Now().Unix()},
+				Args:      []any{actionID, appeal.ActionType, approver, time.Now().Unix()},
 			})
 
 			// If temporary, emit expiration timestamp (computed: now + duration)
@@ -928,7 +929,7 @@ func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID strin
 				expirationTime := time.Now().Unix() + int64(duration.Seconds())
 				_ = c.Kernel.Assert(core.Fact{
 					Predicate: "temporary_override",
-					Args:      []interface{}{appeal.ActionType, expirationTime},
+					Args:      []any{appeal.ActionType, expirationTime},
 				})
 			}
 		}
@@ -939,7 +940,7 @@ func (c *ConstitutionGateShard) HandleAppeal(ctx context.Context, actionID strin
 		if c.Kernel != nil {
 			_ = c.Kernel.Assert(core.Fact{
 				Predicate: "appeal_denied",
-				Args:      []interface{}{actionID, appeal.ActionType, decision.Reason, time.Now().Unix()},
+				Args:      []any{actionID, appeal.ActionType, decision.Reason, time.Now().Unix()},
 			})
 		}
 	}
@@ -980,9 +981,7 @@ func (c *ConstitutionGateShard) GetActiveOverrides() map[string]AppealDecision {
 	defer c.mu.RUnlock()
 
 	overrides := make(map[string]AppealDecision, len(c.activeOverrides))
-	for k, v := range c.activeOverrides {
-		overrides[k] = v
-	}
+	maps.Copy(overrides, c.activeOverrides)
 	return overrides
 }
 

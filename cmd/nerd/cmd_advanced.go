@@ -179,7 +179,7 @@ func runDreamState(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("   ✓ Response:\n")
 		// Indent the response
-		for _, line := range strings.Split(truncateResponse(result, 500), "\n") {
+		for line := range strings.SplitSeq(truncateResponse(result, 500), "\n") {
 			fmt.Printf("     %s\n", line)
 		}
 		fmt.Println()
@@ -258,7 +258,7 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	// Assert the hypothetical to kernel
 	hypFact := core.Fact{
 		Predicate: "hypothetical",
-		Args:      []interface{}{change},
+		Args:      []any{change},
 	}
 	if err := cortex.Kernel.Assert(hypFact); err != nil {
 		logging.KernelWarn("failed to assert hypothetical fact: %v", err)

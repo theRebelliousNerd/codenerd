@@ -37,7 +37,7 @@ Decl persona_tool_allowed(Persona, Tool).
 		// Test that /coder persona gets write_file permission
 		// persona(/coder) :- user_intent(_, _, /fix, _, _).
 		facts := []testFact{
-			{"user_intent", []interface{}{"id1", "/command", "/fix", "file.go", "/none"}},
+			{"user_intent", []any{"id1", "/command", "/fix", "file.go", "/none"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "persona_tool_allowed")
 
@@ -62,7 +62,7 @@ Decl persona_tool_allowed(Persona, Tool).
 
 	t.Run("code_modified_recently derivation", func(t *testing.T) {
 		facts := []testFact{
-			{"file_edited", []interface{}{"main.go"}},
+			{"file_edited", []any{"main.go"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "code_modified_recently")
 		if len(result) == 0 {
@@ -72,7 +72,7 @@ Decl persona_tool_allowed(Persona, Tool).
 
 	t.Run("tests_run_recently derivation", func(t *testing.T) {
 		facts := []testFact{
-			{"action_verified", []interface{}{"act1", "/run_tests", "/output_scan", int64(100), int64(12345)}},
+			{"action_verified", []any{"act1", "/run_tests", "/output_scan", int64(100), int64(12345)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "tests_run_recently")
 		if len(result) == 0 {
@@ -82,7 +82,7 @@ Decl persona_tool_allowed(Persona, Tool).
 
 	t.Run("test_passed_after_fix derivation", func(t *testing.T) {
 		facts := []testFact{
-			{"action_verified", []interface{}{"act1", "/run_tests", "/output_scan", int64(100), int64(12345)}},
+			{"action_verified", []any{"act1", "/run_tests", "/output_scan", int64(100), int64(12345)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "test_passed_after_fix")
 		if len(result) == 0 {
@@ -92,7 +92,7 @@ Decl persona_tool_allowed(Persona, Tool).
 
 	t.Run("diagnostic_active derivation", func(t *testing.T) {
 		facts := []testFact{
-			{"diagnostic", []interface{}{"/error", "main.go", int64(10), "E01", "syntax error"}},
+			{"diagnostic", []any{"/error", "main.go", int64(10), "E01", "syntax error"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "diagnostic_active")
 
@@ -119,7 +119,7 @@ Decl persona_tool_allowed(Persona, Tool).
 
 	t.Run("code_quality_issue derivation", func(t *testing.T) {
 		facts := []testFact{
-			{"diagnostic", []interface{}{"/warning", "main.go", int64(5), "W01", "unused var"}},
+			{"diagnostic", []any{"/warning", "main.go", int64(5), "W01", "unused var"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "code_quality_issue")
 
@@ -147,7 +147,7 @@ Decl persona_tool_allowed(Persona, Tool).
 		// We assert file_edited -> code_modified_recently
 		// We verify tdd_state(/green) is derived (assuming no test_failed facts)
 		facts := []testFact{
-			{"file_edited", []interface{}{"main.go"}},
+			{"file_edited", []any{"main.go"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "tdd_state")
 
@@ -169,7 +169,7 @@ Decl persona_tool_allowed(Persona, Tool).
 	t.Run("test_failed derivation", func(t *testing.T) {
 		// test_failed(Path, Name, Msg) :- pytest_failure(Name, _, Path, _, Msg).
 		facts := []testFact{
-			{"pytest_failure", []interface{}{"test_foo", "/assertion", "foo_test.py", int64(10), "assert 1 == 2"}},
+			{"pytest_failure", []any{"test_foo", "/assertion", "foo_test.py", int64(10), "assert 1 == 2"}},
 		}
 		result := evaluateAndQuery(t, program, facts, "test_failed")
 

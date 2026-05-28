@@ -51,7 +51,7 @@ func Echo(ctx context.Context, input string) (string, error) {
 	}
 
 	// Create go.mod to ensure build works in module mode
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module echo_tool\n\ngo 1.23\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module echo_tool\n\ngo 1.26.0\n"), 0644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func main() {
 	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(source), 0644); err != nil {
 		t.Fatalf("Failed to write source: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module env_tool\n\ngo 1.23\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module env_tool\n\ngo 1.26.0\n"), 0644); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 

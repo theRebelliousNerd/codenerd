@@ -387,7 +387,7 @@ func TestTracingLLMClient_ConcurrentContext(t *testing.T) {
 	client := NewTracingLLMClient(underlying, nil)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

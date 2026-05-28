@@ -25,7 +25,7 @@ import (
 // Fact represents a logic fact (predicate + args).
 type Fact struct {
 	Predicate string
-	Args      []interface{}
+	Args      []any
 }
 
 // KernelQuerier defines the interface for querying the Mangle kernel.
@@ -35,7 +35,7 @@ type KernelQuerier interface {
 	Query(predicate string) ([]Fact, error)
 
 	// AssertBatch adds multiple facts efficiently.
-	AssertBatch(facts []interface{}) error
+	AssertBatch(facts []any) error
 }
 
 // KernelRetracter is an optional extension of KernelQuerier for predicate retraction.
@@ -48,7 +48,7 @@ type KernelRetracter interface {
 type VectorSearcher interface {
 	// Search performs semantic search and returns atom IDs with scores.
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
-	
+
 	// EmbedQuery generates an embedding vector for the given query.
 	EmbedQuery(ctx context.Context, query string) ([]float32, error)
 }
@@ -172,8 +172,8 @@ func (s *CompilationStats) String() string {
 }
 
 // ToLogFields returns the stats as a map for structured logging.
-func (s *CompilationStats) ToLogFields() map[string]interface{} {
-	return map[string]interface{}{
+func (s *CompilationStats) ToLogFields() map[string]any {
+	return map[string]any{
 		"duration_ms":      s.Duration.Milliseconds(),
 		"collect_ms":       s.CollectAtomsMs,
 		"select_ms":        s.SelectAtomsMs,
@@ -481,7 +481,7 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	}
 	c.cacheMu.Unlock()
 	// Singleflight to prevent Thundering Herd
-	v, err, shared := c.compileGroup.Do(cacheKey, func() (interface{}, error) {
+	v, err, shared := c.compileGroup.Do(cacheKey, func() (any, error) {
 		atomic.AddInt64(&c.cacheMiss, 1)
 
 		// Start comprehensive timing after validation
@@ -1119,7 +1119,7 @@ func (c *JITPromptCompiler) logCompilationManifest(stats *CompilationStats, resu
 		droppedIDs = append(droppedIDs, entry.ID)
 	}
 
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"context_hash":   manifest.ContextHash,
 		"shard_id":       stats.ShardID,
 		"intent_verb":    stats.IntentVerb,
@@ -1756,8 +1756,8 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 
 // toInterfaceSlice converts a string slice to an interface slice.
 // Used to pass context facts to the kernel's AssertBatch method.
-func toInterfaceSlice(strs []string) []interface{} {
-	result := make([]interface{}, len(strs))
+func toInterfaceSlice(strs []string) []any {
+	result := make([]any, len(strs))
 	for i, s := range strs {
 		result[i] = s
 	}

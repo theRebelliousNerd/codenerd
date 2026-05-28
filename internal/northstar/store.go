@@ -533,7 +533,7 @@ func (s *Store) RecordDriftEvent(drift *DriftEvent) error {
 	if err != nil {
 		return err
 	}
-	var relatedCheck interface{}
+	var relatedCheck any
 	if drift.RelatedCheck != "" {
 		relatedCheck = drift.RelatedCheck
 	}
@@ -706,7 +706,7 @@ func (s *Store) lookupVisionCreatedAt() (time.Time, error) {
 	return createdAt, nil
 }
 
-func marshalJSONString(field string, value interface{}) (string, error) {
+func marshalJSONString(field string, value any) (string, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return "", fmt.Errorf("marshal %s: %w", field, err)
@@ -714,7 +714,7 @@ func marshalJSONString(field string, value interface{}) (string, error) {
 	return string(raw), nil
 }
 
-func unmarshalJSONField(field string, raw sql.NullString, dest interface{}) error {
+func unmarshalJSONField(field string, raw sql.NullString, dest any) error {
 	if !raw.Valid || raw.String == "" {
 		return nil
 	}

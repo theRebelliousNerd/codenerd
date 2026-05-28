@@ -31,10 +31,7 @@ func FilterMangleUpdates(kernel Kernel, updates []string, policy MangleUpdatePol
 		maxUpdates = len(updates)
 	}
 
-	factCap := len(updates)
-	if factCap > maxUpdates {
-		factCap = maxUpdates
-	}
+	factCap := min(len(updates), maxUpdates)
 	facts := make([]Fact, 0, factCap)
 	blocked := make([]MangleUpdateBlock, 0)
 

@@ -207,13 +207,13 @@ func (sv *SchemaValidator) validateHeadArity(line, headName string) error {
 
 	// Extract actual arity from the line: predicate_name(arg1, arg2, ...)
 	// Find the opening paren after the predicate name
-	headIdx := strings.Index(line, headName)
-	if headIdx < 0 {
+	_, after, ok := strings.Cut(line, headName)
+	if !ok {
 		return nil
 	}
 
 	// Find the argument list
-	afterHead := line[headIdx+len(headName):]
+	afterHead := after
 	parenStart := strings.Index(afterHead, "(")
 	if parenStart < 0 {
 		return nil

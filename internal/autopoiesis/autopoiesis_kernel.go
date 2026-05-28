@@ -48,14 +48,14 @@ func (o *Orchestrator) syncExistingToolsToKernel() {
 		}
 		timestamp := tool.RegisteredAt.Unix()
 
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_registered", Args: []interface{}{tool.Name, timestamp}})
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_hash", Args: []interface{}{tool.Name, tool.Hash}})
-		allFacts = append(allFacts, KernelFact{Predicate: "tool_capability", Args: []interface{}{tool.Name, normalizeCapabilityName(tool.Name)}})
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_registered", Args: []any{tool.Name, timestamp}})
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_hash", Args: []any{tool.Name, tool.Hash}})
+		allFacts = append(allFacts, KernelFact{Predicate: "tool_capability", Args: []any{tool.Name, normalizeCapabilityName(tool.Name)}})
 		if tool.Description != "" {
-			allFacts = append(allFacts, KernelFact{Predicate: "tool_description", Args: []interface{}{tool.Name, tool.Description}})
+			allFacts = append(allFacts, KernelFact{Predicate: "tool_description", Args: []any{tool.Name, tool.Description}})
 		}
 		if tool.BinaryPath != "" {
-			allFacts = append(allFacts, KernelFact{Predicate: "tool_binary_path", Args: []interface{}{tool.Name, tool.BinaryPath}})
+			allFacts = append(allFacts, KernelFact{Predicate: "tool_binary_path", Args: []any{tool.Name, tool.BinaryPath}})
 		}
 	}
 
@@ -77,7 +77,7 @@ func (o *Orchestrator) GetKernel() KernelInterface {
 // =============================================================================
 
 // assertToKernel safely asserts a fact to the kernel if attached.
-func (o *Orchestrator) assertToKernel(predicate string, args ...interface{}) error {
+func (o *Orchestrator) assertToKernel(predicate string, args ...any) error {
 	o.mu.RLock()
 	kernel := o.kernel
 	o.mu.RUnlock()
@@ -198,7 +198,7 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 		// Prune old learnings for this tool (functional update)
 		_ = o.kernel.RetractFact(KernelFact{
 			Predicate: "tool_learning",
-			Args:      []interface{}{learning.ToolName}, // Match by ToolName
+			Args:      []any{learning.ToolName}, // Match by ToolName
 		})
 
 		// Assert new learning
@@ -212,7 +212,7 @@ func (o *Orchestrator) SyncLearningsToKernel() {
 		// Prune known issues
 		_ = o.kernel.RetractFact(KernelFact{
 			Predicate: "tool_known_issue",
-			Args:      []interface{}{learning.ToolName},
+			Args:      []any{learning.ToolName},
 		})
 
 		for _, issue := range learning.KnownIssues {

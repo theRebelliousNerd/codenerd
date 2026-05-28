@@ -15,9 +15,9 @@ import (
 func TestErrorCategory_Prefix_WhenAllCategories_ShouldReturnCorrectPrefix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		cat      ErrorCategory
-		wantPfx  string
+		name    string
+		cat     ErrorCategory
+		wantPfx string
 	}{
 		{"Safety", ErrorCategorySafety, "[SAFETY]"},
 		{"Config", ErrorCategoryConfig, "[CONFIG]"},
@@ -83,9 +83,9 @@ func TestClassifyError_WhenNil_ShouldReturnNil(t *testing.T) {
 func TestClassifyError_WhenVariousPatterns_ShouldClassifyCorrectly(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		errMsg   string
-		wantCat  ErrorCategory
+		name    string
+		errMsg  string
+		wantCat ErrorCategory
 	}{
 		{"Permission", "permission denied", ErrorCategorySafety},
 		{"Blocked", "action blocked by constitutional gate", ErrorCategorySafety},
@@ -525,7 +525,7 @@ func TestSafetyReporter_GetRecentViolations_ShouldReturnMostRecent(t *testing.T)
 	t.Parallel()
 	r := NewSafetyReporter()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		r.ReportViolation("action", "target", "rule")
 	}
 

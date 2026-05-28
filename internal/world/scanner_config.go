@@ -23,10 +23,7 @@ type ScannerConfig struct {
 
 // DefaultScannerConfig returns sane defaults for large repositories.
 func DefaultScannerConfig() ScannerConfig {
-	workers := runtime.NumCPU()
-	if workers > 20 {
-		workers = 20
-	}
+	workers := min(runtime.NumCPU(), 20)
 	if workers < 4 {
 		workers = 4
 	}
@@ -85,8 +82,8 @@ func isIgnoredRel(rel, name string, patterns []string) bool {
 				return true
 			}
 			// Handle directory globs like "vendor/*"
-			if strings.HasSuffix(p, "/*") {
-				prefix := strings.TrimSuffix(p, "/*")
+			if before, ok := strings.CutSuffix(p, "/*"); ok {
+				prefix := before
 				if strings.HasPrefix(rel, prefix+"/") {
 					return true
 				}

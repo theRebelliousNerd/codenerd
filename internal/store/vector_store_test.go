@@ -15,7 +15,7 @@ func TestVectorStore_KeywordOnly(t *testing.T) {
 	ctx := context.Background()
 
 	// Store with no embedding engine (should fallback to keyword)
-	meta := map[string]interface{}{"type": "test"}
+	meta := map[string]any{"type": "test"}
 	err = store.StoreVectorWithEmbedding(ctx, "hello world", meta)
 	if err != nil {
 		t.Fatalf("StoreVectorWithEmbedding failed: %v", err)
@@ -97,7 +97,7 @@ func TestVectorStore_Batch(t *testing.T) {
 	ctx := context.Background()
 
 	contents := []string{"a", "b", "c"}
-	metas := []map[string]interface{}{nil, nil, nil}
+	metas := []map[string]any{nil, nil, nil}
 
 	count, err := store.StoreVectorBatchWithEmbedding(ctx, contents, metas)
 	if err != nil {
@@ -128,9 +128,9 @@ func TestVectorRecallSemanticFiltered(t *testing.T) {
 	ctx := context.Background()
 
 	// Store items with metadata
-	store.StoreVectorWithEmbedding(ctx, "item1", map[string]interface{}{"type": "A"})
-	store.StoreVectorWithEmbedding(ctx, "item2", map[string]interface{}{"type": "B"})
-	store.StoreVectorWithEmbedding(ctx, "item3", map[string]interface{}{"type": "A"})
+	store.StoreVectorWithEmbedding(ctx, "item1", map[string]any{"type": "A"})
+	store.StoreVectorWithEmbedding(ctx, "item2", map[string]any{"type": "B"})
+	store.StoreVectorWithEmbedding(ctx, "item3", map[string]any{"type": "A"})
 
 	// Filter by type=A
 	results, err := store.VectorRecallSemanticFiltered(ctx, "query", 10, "type", "A")
@@ -160,8 +160,8 @@ func TestVectorRecallSemanticByPaths(t *testing.T) {
 	ctx := context.Background()
 
 	// Store items with path metadata
-	store.StoreVectorWithEmbedding(ctx, "file1 content", map[string]interface{}{"path": "/src/file1.go"})
-	store.StoreVectorWithEmbedding(ctx, "file2 content", map[string]interface{}{"path": "/src/file2.go"})
+	store.StoreVectorWithEmbedding(ctx, "file1 content", map[string]any{"path": "/src/file1.go"})
+	store.StoreVectorWithEmbedding(ctx, "file2 content", map[string]any{"path": "/src/file2.go"})
 
 	// Search allowed paths
 	allowed := []string{"/src/file1.go"}
@@ -250,9 +250,9 @@ func TestVectorContentsByMetadata(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 
-	store.StoreVectorWithEmbedding(ctx, "c1", map[string]interface{}{"k": "v"})
-	store.StoreVectorWithEmbedding(ctx, "c2", map[string]interface{}{"k": "v"})
-	store.StoreVectorWithEmbedding(ctx, "c3", map[string]interface{}{"k": "other"})
+	store.StoreVectorWithEmbedding(ctx, "c1", map[string]any{"k": "v"})
+	store.StoreVectorWithEmbedding(ctx, "c2", map[string]any{"k": "v"})
+	store.StoreVectorWithEmbedding(ctx, "c3", map[string]any{"k": "other"})
 
 	contents, err := store.VectorContentsByMetadata("k", "v")
 	if err != nil {
@@ -278,8 +278,8 @@ func TestDeleteVectorsByMetadata(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 
-	store.StoreVectorWithEmbedding(ctx, "c1", map[string]interface{}{"tag": "del"})
-	store.StoreVectorWithEmbedding(ctx, "c2", map[string]interface{}{"tag": "keep"})
+	store.StoreVectorWithEmbedding(ctx, "c1", map[string]any{"tag": "del"})
+	store.StoreVectorWithEmbedding(ctx, "c2", map[string]any{"tag": "keep"})
 
 	deleted, err := store.DeleteVectorsByMetadata("tag", "del")
 	if err != nil {
@@ -304,17 +304,17 @@ func TestMatchesMetadata(t *testing.T) {
 	// But wait, my test files are `package store`, so I can access unexported members.
 
 	tests := []struct {
-		meta  map[string]interface{}
+		meta  map[string]any
 		key   string
-		value interface{}
+		value any
 		want  bool
 	}{
-		{map[string]interface{}{"a": "b"}, "a", "b", true},
-		{map[string]interface{}{"a": "b"}, "a", "c", false},
-		{map[string]interface{}{"a": 1}, "a", 1, true},
-		{map[string]interface{}{"a": 1}, "a", "1", true}, // String conversion check
+		{map[string]any{"a": "b"}, "a", "b", true},
+		{map[string]any{"a": "b"}, "a", "c", false},
+		{map[string]any{"a": 1}, "a", 1, true},
+		{map[string]any{"a": 1}, "a", "1", true}, // String conversion check
 		{nil, "a", "b", false},
-		{map[string]interface{}{"a": "b"}, "", "b", true}, // Empty key returns true
+		{map[string]any{"a": "b"}, "", "b", true}, // Empty key returns true
 	}
 
 	for _, tt := range tests {
@@ -333,9 +333,9 @@ func TestMetadataJsonHandling(t *testing.T) {
 	ctx := context.Background()
 	store.SetEmbeddingEngine(&MockEmbeddingEngine{})
 
-	complexMeta := map[string]interface{}{
-		"nested": map[string]interface{}{"foo": "bar"},
-		"list":   []interface{}{1, 2, 3},
+	complexMeta := map[string]any{
+		"nested": map[string]any{"foo": "bar"},
+		"list":   []any{1, 2, 3},
 		"bool":   true,
 	}
 
@@ -356,7 +356,7 @@ func TestMetadataJsonHandling(t *testing.T) {
 	gotMeta := results[0].Metadata
 
 	// Check nested map
-	nested, ok := gotMeta["nested"].(map[string]interface{})
+	nested, ok := gotMeta["nested"].(map[string]any)
 	if !ok {
 		t.Error("Failed to retrieve nested map")
 	} else if nested["foo"] != "bar" {

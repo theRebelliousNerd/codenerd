@@ -9,7 +9,7 @@ import (
 
 var (
 	piggybackSchemaOnce sync.Once
-	piggybackSchemaRaw  map[string]interface{}
+	piggybackSchemaRaw  map[string]any
 )
 
 // piggybackEnvelopeRawSchema returns the raw JSON schema for PiggybackEnvelope.
@@ -17,15 +17,15 @@ var (
 //
 // IMPORTANT: This schema MUST match articulation/schema.go PiggybackEnvelopeSchema.
 // We parse the canonical schema constant to avoid schema drift (wiring gap class).
-func piggybackEnvelopeRawSchema() map[string]interface{} {
+func piggybackEnvelopeRawSchema() map[string]any {
 	piggybackSchemaOnce.Do(func() {
 		// Best-effort parse; fallback to a minimal schema if something goes wrong.
 		if err := json.Unmarshal([]byte(articulation.PiggybackEnvelopeSchema), &piggybackSchemaRaw); err != nil {
-			piggybackSchemaRaw = map[string]interface{}{
+			piggybackSchemaRaw = map[string]any{
 				"type": "object",
-				"properties": map[string]interface{}{
-					"control_packet": map[string]interface{}{"type": "object"},
-					"surface_response": map[string]interface{}{
+				"properties": map[string]any{
+					"control_packet": map[string]any{"type": "object"},
+					"surface_response": map[string]any{
 						"type": "string",
 					},
 				},
@@ -66,7 +66,7 @@ func BuildOpenAIPiggybackEnvelopeSchema() *ZAIResponseFormat {
 // Gemini uses generationConfig.responseMimeType = "application/json" with a separate
 // responseJsonSchema field that takes the raw schema object.
 // See: https://ai.google.dev/gemini-api/docs/structured-output
-func BuildGeminiPiggybackEnvelopeSchema() map[string]interface{} {
+func BuildGeminiPiggybackEnvelopeSchema() map[string]any {
 	return piggybackEnvelopeRawSchema()
 }
 

@@ -36,7 +36,7 @@ func TestLogicPaneSetTraceMangle(t *testing.T) {
 	child := &mangle.DerivationNode{
 		Fact: mangle.Fact{
 			Predicate: "child_pred",
-			Args:      []interface{}{1},
+			Args:      []any{1},
 		},
 		RuleName: "child_rule",
 		Source:   mangle.SourceIDB,
@@ -45,7 +45,7 @@ func TestLogicPaneSetTraceMangle(t *testing.T) {
 	root := &mangle.DerivationNode{
 		Fact: mangle.Fact{
 			Predicate: "root_pred",
-			Args:      []interface{}{"arg"},
+			Args:      []any{"arg"},
 		},
 		RuleName: "root_rule",
 		Source:   mangle.SourceEDB,

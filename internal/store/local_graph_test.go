@@ -15,7 +15,7 @@ func TestStoreLink(t *testing.T) {
 	defer store.Close()
 
 	// Store a link
-	err = store.StoreLink("entityA", "related_to", "entityB", 1.5, map[string]interface{}{"source": "manual"})
+	err = store.StoreLink("entityA", "related_to", "entityB", 1.5, map[string]any{"source": "manual"})
 	if err != nil {
 		t.Fatalf("StoreLink failed: %v", err)
 	}
@@ -131,14 +131,14 @@ func TestTraversePathDeadlock(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			store.StoreLink("X", "rel", "Y", 1.0, nil)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			store.TraversePath("A", "C", 5)
 		}
 	}()
@@ -154,7 +154,7 @@ func TestJSONMetadataSilentFailure(t *testing.T) {
 	defer store.Close()
 
 	// Create a cyclic map that will fail json.Marshal
-	cyclicMap := make(map[string]interface{})
+	cyclicMap := make(map[string]any)
 	cyclicMap["self"] = cyclicMap
 
 	err = store.StoreLink("A", "rel", "B", 1.0, cyclicMap)
@@ -208,10 +208,10 @@ func TestMassiveGraphTraversal(t *testing.T) {
 
 	// Create a graph with branching factor 5 up to depth 4 (5 + 25 + 125 + 625 = 780 nodes)
 	// We want to ensure TraversePath can handle it quickly and returns.
-	
-	for depth := 0; depth < 4; depth++ {
+
+	for depth := range 4 {
 		// Just build a flat graph, it's easier and tests the queue
-		for branch := 0; branch < 100; branch++ {
+		for branch := range 100 {
 			store.StoreLink(fmt.Sprintf("N%d", depth), "next", fmt.Sprintf("N%d_%d", depth+1, branch), 1.0, nil)
 		}
 	}

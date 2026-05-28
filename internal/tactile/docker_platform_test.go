@@ -3,6 +3,7 @@ package tactile
 import (
 	"context"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
@@ -61,13 +62,7 @@ func TestDockerExecutor_BuildDockerArgs_WhenNilSandbox_ShouldUseDefaults(t *test
 	args := executor.buildDockerArgs(cmd)
 
 	// Should contain default image (alpine:latest from config)
-	found := false
-	for _, arg := range args {
-		if arg == "alpine:latest" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(args, "alpine:latest")
 	if !found {
 		t.Errorf("expected default image 'alpine:latest' in args, got %v", args)
 	}
@@ -337,13 +332,7 @@ func TestDockerExecutor_BuildDockerArgs_WhenStdinProvided_ShouldAddInteractiveFl
 
 	args := executor.buildDockerArgs(cmd)
 
-	found := false
-	for _, arg := range args {
-		if arg == "-i" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(args, "-i")
 	if !found {
 		t.Error("expected -i flag for stdin")
 	}

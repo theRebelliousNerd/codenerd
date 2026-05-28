@@ -96,7 +96,7 @@ func (d *dummyValidator) Validate(ctx context.Context, req ActionRequest, res Ac
 // TEST_GAP: User Request Extremes
 func TestActionValidator_MassiveValidators(t *testing.T) {
 	r := NewValidatorRegistry()
-	for i := 0; i < 2000; i++ {
+	for i := range 2000 {
 		r.Register(&dummyValidator{priority: i})
 	}
 	req := ActionRequest{Type: ActionExecCmd}
@@ -108,8 +108,8 @@ func TestActionValidator_MassiveValidators(t *testing.T) {
 }
 
 func TestValidationResult_ToFacts_MassiveDetails(t *testing.T) {
-	details := make(map[string]interface{})
-	for i := 0; i < 1000; i++ {
+	details := make(map[string]any)
+	for i := range 1000 {
 		details["key"+itoaValidator(i)] = "value"
 	}
 	vr := ValidationResult{
@@ -131,18 +131,16 @@ func TestActionValidator_ConcurrentRegister(t *testing.T) {
 	req := ActionRequest{Type: ActionExecCmd}
 	res := ActionResult{}
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			r.Register(&dummyValidator{priority: idx})
 		}(i)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			r.Validate(context.Background(), req, res)
-		}()
+		})
 	}
 	wg.Wait()
 }

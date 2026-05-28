@@ -74,10 +74,7 @@ func runKnowledgeList(cmd *cobra.Command, args []string) error {
 	fmt.Println("📚 Knowledge Base")
 	fmt.Println(strings.Repeat("─", 60))
 
-	limit := 10
-	if len(atoms) < limit {
-		limit = len(atoms)
-	}
+	limit := min(len(atoms), 10)
 
 	for i := 0; i < limit; i++ {
 		atom := atoms[i]

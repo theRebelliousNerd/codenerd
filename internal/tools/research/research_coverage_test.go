@@ -77,10 +77,10 @@ type mockThinkingClient struct {
 	thoughtSignature string
 }
 
-func (m *mockThinkingClient) IsThinkingEnabled() bool        { return m.thinkingEnabled }
-func (m *mockThinkingClient) GetThinkingLevel() string       { return m.thinkingLevel }
-func (m *mockThinkingClient) GetLastThoughtSummary() string  { return m.thoughtSummary }
-func (m *mockThinkingClient) GetLastThinkingTokens() int     { return m.thinkingTokens }
+func (m *mockThinkingClient) IsThinkingEnabled() bool         { return m.thinkingEnabled }
+func (m *mockThinkingClient) GetThinkingLevel() string        { return m.thinkingLevel }
+func (m *mockThinkingClient) GetLastThoughtSummary() string   { return m.thoughtSummary }
+func (m *mockThinkingClient) GetLastThinkingTokens() int      { return m.thinkingTokens }
 func (m *mockThinkingClient) GetLastThoughtSignature() string { return m.thoughtSignature }
 
 // =============================================================================
@@ -1111,10 +1111,10 @@ func TestNewThinkingHelper_WhenBasicClient_ShouldNotBeThinking(t *testing.T) {
 func TestNewThinkingHelper_WhenThinkingClient_ShouldBeThinking(t *testing.T) {
 	t.Parallel()
 	client := &mockThinkingClient{
-		thinkingEnabled: true,
-		thinkingLevel:   "high",
-		thoughtSummary:  "I analyzed the problem",
-		thinkingTokens:  500,
+		thinkingEnabled:  true,
+		thinkingLevel:    "high",
+		thoughtSummary:   "I analyzed the problem",
+		thinkingTokens:   500,
 		thoughtSignature: "sig-abc-123",
 	}
 	helper := NewThinkingHelper(client)
@@ -1294,8 +1294,8 @@ func TestCleanMarkdown_WhenWhitespaceLines_ShouldTrim(t *testing.T) {
 	t.Parallel()
 	input := "  line1  \n  line2  "
 	result := cleanMarkdown(input)
-	lines := strings.Split(result, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(result, "\n")
+	for line := range lines {
 		if line != strings.TrimSpace(line) {
 			t.Errorf("line not trimmed: %q", line)
 		}
@@ -1628,7 +1628,7 @@ func TestParseDuckDuckGoResults_WhenMaxResultsReached_ShouldStop(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
 	sb.WriteString("<html><body>")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		sb.WriteString(fmt.Sprintf(`<div class="result results_links"><a class="result__a" href="https://ex%d.com">Title %d</a></div>`, i, i))
 	}
 	sb.WriteString("</body></html>")

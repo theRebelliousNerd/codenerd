@@ -216,7 +216,7 @@ func (m Model) analyzeNorthstarDocs(docPaths []string) tea.Cmd {
 
 		// Parse insights from response
 		var insights []string
-		for _, line := range strings.Split(response, "\n") {
+		for line := range strings.SplitSeq(response, "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" && !strings.HasPrefix(line, "#") {
 				// Remove leading bullets or numbers

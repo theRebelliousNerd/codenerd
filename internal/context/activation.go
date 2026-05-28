@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/logging"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -890,11 +891,8 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 	// Check if fact's turn ID matches any referenced turn
 	if len(fact.Args) > 0 {
 		if turnID, ok := fact.Args[0].(int); ok {
-			for _, refTurnID := range ae.backReferenceContext.ReferencedTurnIDs {
-				if turnID == refTurnID {
-					score += 50.0 // Primary reference gets 50 points
-					break
-				}
+			if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
+				score += 50.0
 			}
 		}
 	}
@@ -950,11 +948,8 @@ func (ae *ActivationEngine) computeBackReferenceScore(fact core.Fact) float64 {
 		// Only apply predicate boost if this fact is from a referenced turn
 		if len(fact.Args) > 0 {
 			if turnID, ok := fact.Args[0].(int); ok {
-				for _, refTurnID := range ae.backReferenceContext.ReferencedTurnIDs {
-					if turnID == refTurnID {
-						score += boost
-						break
-					}
+				if slices.Contains(ae.backReferenceContext.ReferencedTurnIDs, turnID) {
+					score += boost
 				}
 			}
 		}
@@ -1024,11 +1019,11 @@ func factKey(f core.Fact) string {
 
 // extractPredicate extracts the predicate name from a fact key.
 func extractPredicate(key string) string {
-	idx := strings.Index(key, "(")
-	if idx == -1 {
+	before, _, ok := strings.Cut(key, "(")
+	if !ok {
 		return key
 	}
-	return key[:idx]
+	return before
 }
 
 // lookupPriority returns the priority for a predicate name.
@@ -1111,7 +1106,7 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 
 	// Apply depth-limited spreading
 	if depth > 0 {
-		for d := 0; d < depth; d++ {
+		for d := range depth {
 			for i := range scored {
 				// Spread activation to dependencies
 				key := factKey(scored[i].Fact)
@@ -1208,8 +1203,8 @@ func (ae *ActivationEngine) NewSession() {
 }
 
 // GetSessionStats returns statistics about the current session.
-func (ae *ActivationEngine) GetSessionStats() map[string]interface{} {
-	return map[string]interface{}{
+func (ae *ActivationEngine) GetSessionStats() map[string]any {
+	return map[string]any{
 		"session_id":      ae.sessionID,
 		"session_started": ae.sessionStarted,
 		"session_facts":   len(ae.sessionFacts),

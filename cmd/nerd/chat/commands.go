@@ -28,6 +28,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -166,13 +167,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		} else {
 			newModel := parts[1]
 			// Validate model
-			valid := false
-			for _, mName := range available {
-				if mName == newModel {
-					valid = true
-					break
-				}
-			}
+			valid := slices.Contains(available, newModel)
 			if !valid {
 				// Also support matching without provider prefix for openrouter
 				if activeProvider == "openrouter" {
@@ -853,13 +848,7 @@ Press **Enter** to begin...`,
 				// Set model
 				newModel := parts[2]
 				// Validate model
-				valid := false
-				for _, mName := range available {
-					if mName == newModel {
-						valid = true
-						break
-					}
-				}
+				valid := slices.Contains(available, newModel)
 				if !valid {
 					// Also support matching without provider prefix for openrouter
 					if activeProvider == "openrouter" {
@@ -1451,10 +1440,10 @@ You have an existing Northstar definition. What would you like to do?
 							})
 						} else {
 							m = m.addMessage(Message{
-								Role:    "assistant",
+								Role: "assistant",
 								Content: fmt.Sprintf("✓ Confirmed learning candidate %d: `%s` -> `%s` successfully!",
 									id, targetCand.Phrase, targetCand.Verb),
-								Time:    time.Now(),
+								Time: time.Now(),
 							})
 						}
 					}

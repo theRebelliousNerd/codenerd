@@ -274,7 +274,7 @@ func parseAtomYAMLFile(path string) ([]atomDefinition, []issue) {
 	return nil, []issue{{Severity: severityError, File: path, Message: "YAML parse failed (check unknown fields, types, or structure)"}}
 }
 
-func decodeKnownFields(data []byte, out interface{}) error {
+func decodeKnownFields(data []byte, out any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(out); err != nil {
@@ -285,7 +285,7 @@ func decodeKnownFields(data []byte, out interface{}) error {
 		return err
 	}
 	// Disallow multiple YAML documents in a single file (hard to lint consistently).
-	var extra interface{}
+	var extra any
 	if err := dec.Decode(&extra); err == nil {
 		return fmt.Errorf("multiple YAML documents are not supported")
 	} else if !errors.Is(err, io.EOF) {

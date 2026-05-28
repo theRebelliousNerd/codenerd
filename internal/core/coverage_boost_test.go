@@ -125,7 +125,7 @@ func TestParseIntentDirective_WhenValid_ShouldParse(t *testing.T) {
 		{`INTENT: "fix the bug" -> /fix "target"`, true, "/fix"},
 		{`INTENT: "explain" -> /explain`, true, "/explain"},
 		{`INTENT: "no arrow"`, false, ""},
-		{`INTENT: -> /fix`, false, ""},           // empty phrase
+		{`INTENT: -> /fix`, false, ""},             // empty phrase
 		{`INTENT: "" -> /fix "target"`, false, ""}, // empty phrase after quote strip
 	}
 	for _, tt := range tests {
@@ -163,7 +163,7 @@ func TestParsePromptDirective_WhenValid_ShouldParse(t *testing.T) {
 		{`PROMPT: /role_coder [role] -> "You are a coder."`, true, "role_coder"},
 		{`PROMPT: sys [system] -> "System prompt"`, true, "sys"},
 		{`PROMPT: no_arrow`, false, ""},
-		{`PROMPT: id -> ""`, false, ""},   // empty content
+		{`PROMPT: id -> ""`, false, ""},     // empty content
 		{`PROMPT: -> "content"`, false, ""}, // no ID
 	}
 	for _, tt := range tests {
@@ -327,7 +327,7 @@ func TestSelfHealer_GetHealingAttempts_WhenNoAttempts_ShouldReturnZero(t *testin
 // =============================================================================
 
 func TestConvertCoreFactToMangle_WhenCalled_ShouldPreserveFields(t *testing.T) {
-	f := Fact{Predicate: "test_pred", Args: []interface{}{"arg1", 42}}
+	f := Fact{Predicate: "test_pred", Args: []any{"arg1", 42}}
 	m := convertCoreFactToMangle(f)
 
 	if m.Predicate != "test_pred" {
@@ -618,7 +618,7 @@ func TestValidationResult_ToFacts_WhenFailed_ShouldReturnValidationFailed(t *tes
 		Confidence: 0.8,
 		Method:     ValidationMethodSyntax,
 		Error:      "syntax error",
-		Details:    map[string]interface{}{"line": 42},
+		Details:    map[string]any{"line": 42},
 		Timestamp:  time.Now(),
 	}
 	facts := vr.ToFacts()
@@ -714,7 +714,7 @@ func TestAutopoiesisBridge_AssertFact_WhenValid_ShouldSucceed(t *testing.T) {
 
 	err := bridge.AssertFact(types.KernelFact{
 		Predicate: "test_bridge_fact",
-		Args:      []interface{}{"value1"},
+		Args:      []any{"value1"},
 	})
 	if err != nil {
 		t.Errorf("AssertFact failed: %v", err)
@@ -746,7 +746,7 @@ func TestAutopoiesisBridge_RetractFact_WhenNotPresent_ShouldNotError(t *testing.
 
 	err := bridge.RetractFact(types.KernelFact{
 		Predicate: "nonexistent_retract",
-		Args:      []interface{}{"x"},
+		Args:      []any{"x"},
 	})
 	// Should not error even if fact doesn't exist
 	if err != nil {
@@ -788,7 +788,7 @@ func TestRealKernel_GetBaseFacts_WhenEmpty_ShouldReturnEmptySlice(t *testing.T) 
 
 func TestRealKernel_GetBaseFacts_WhenFilled_ShouldReturnCopy(t *testing.T) {
 	k := setupMockKernel(t)
-	k.Assert(Fact{Predicate: "base_test_fact", Args: []interface{}{"val1"}})
+	k.Assert(Fact{Predicate: "base_test_fact", Args: []any{"val1"}})
 
 	facts1 := k.GetBaseFacts()
 	facts2 := k.GetBaseFacts()

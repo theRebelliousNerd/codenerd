@@ -1,7 +1,7 @@
 package core
 
 import (
-		"testing"
+	"testing"
 	"time"
 )
 
@@ -17,7 +17,7 @@ func TestRoutingPerformanceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create kernel: %v", err)
 	}
-	
+
 	// Create a dummy policy and schemas for the test
 	schemas := `Decl user_intent(ID.Type<string>, Category.Type<n>, Verb.Type<n>, Target.Type<string>, Constraint.Type<string>).
 Decl file_topology(Path.Type<string>, Hash.Type<string>, Language.Type<n>, LastModified.Type<int>, IsTestFile.Type<bool>).
@@ -32,23 +32,23 @@ Decl context_atom(Fact.Type<Any>).
 
 	// For a real performance test, we'd mock the transduction LLM call or just test the kernel evaluation logic.
 	// Since "Transduction" usually involves an LLM, we can test the "Spreading Activation" logic via Mangle.
-	
+
 	policy := `
 activation(Fact, 100) :- file_topology(Fact, _, _, _, _).
 activation(FileB, 50) :- activation(FileA, Score), Score > 40, dependency_link(FileA, FileB, _).
 context_atom(Fact) :- activation(Fact, Score), Score > 30.
 `
-	
+
 	// Load the policy and schemas together for evaluation
 	kernel.schemas = schemas
 	kernel.policy = policy
-	
+
 	// Pre-load a few thousand facts to simulate a real codebase
 	var facts []Fact
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		facts = append(facts, Fact{
 			Predicate: "file_topology",
-			Args: []interface{}{
+			Args: []any{
 				"path/to/file_" + string(rune(i)) + ".go",
 				"hash",
 				"/go",
@@ -57,7 +57,7 @@ context_atom(Fact) :- activation(Fact, Score), Score > 30.
 			},
 		})
 	}
-	
+
 	err = kernel.LoadFacts(facts)
 	if err != nil {
 		t.Fatalf("Failed to load facts: %v", err)

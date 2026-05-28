@@ -331,10 +331,7 @@ func searchFile(path string, re *regexp.Regexp, contextLines, maxMatches int) ([
 
 			// Add context lines if requested
 			if contextLines > 0 {
-				start := len(lines) - contextLines - 1
-				if start < 0 {
-					start = 0
-				}
+				start := max(len(lines)-contextLines-1, 0)
 				for i := start; i < len(lines)-1; i++ {
 					match.Context = append(match.Context, fmt.Sprintf("-%d: %s", len(lines)-1-i, strings.TrimSpace(lines[i])))
 				}

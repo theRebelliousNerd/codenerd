@@ -170,7 +170,7 @@ func decodeFloat32Slice(blob []byte) []float32 {
 	}
 	n := len(blob) / 4
 	vec := make([]float32, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		bits := binary.LittleEndian.Uint32(blob[i*4 : (i+1)*4])
 		vec[i] = math.Float32frombits(bits)
 	}

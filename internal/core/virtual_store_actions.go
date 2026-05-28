@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -92,7 +93,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 	if b, ok := req.Payload["binary"].(string); ok {
 		binary = b
 	}
-	if a, ok := req.Payload["args"].([]interface{}); ok {
+	if a, ok := req.Payload["args"].([]any); ok {
 		args = make([]string, len(a))
 		for i, arg := range a {
 			args[i] = fmt.Sprintf("%v", arg)
@@ -155,7 +156,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "cmd_failed", Args: []interface{}{binary, err.Error()}},
+				{Predicate: "cmd_failed", Args: []any{binary, err.Error()}},
 			},
 		}, nil // Return nil error but unsuccessful result
 	}
@@ -165,7 +166,7 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		Success: true,
 		Output:  result.Output(),
 		FactsToAdd: []Fact{
-			{Predicate: "cmd_succeeded", Args: []interface{}{binary, result.Output()}},
+			{Predicate: "cmd_succeeded", Args: []any{binary, result.Output()}},
 		},
 	}, nil
 }
@@ -196,7 +197,7 @@ func (v *VirtualStore) handleExecCmdModern(ctx context.Context, binary string, a
 	actionResult := ActionResult{
 		Success: result.Success && result.ExitCode == 0,
 		Output:  result.Output(),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"exit_code":    result.ExitCode,
 			"duration_ms":  result.Duration.Milliseconds(),
 			"killed":       result.Killed,
@@ -237,7 +238,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+				{Predicate: "file_read_error", Args: []any{path, err.Error()}},
 			},
 		}, nil
 	}
@@ -256,7 +257,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 				Success: false,
 				Error:   err.Error(),
 				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
 				},
 			}, nil
 		}
@@ -269,7 +270,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 				Success: false,
 				Error:   err.Error(),
 				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
 				},
 			}, nil
 		}
@@ -282,7 +283,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 				Success: false,
 				Error:   err.Error(),
 				FactsToAdd: []Fact{
-					{Predicate: "file_read_error", Args: []interface{}{path, err.Error()}},
+					{Predicate: "file_read_error", Args: []any{path, err.Error()}},
 				},
 			}, nil
 		}
@@ -293,14 +294,14 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	timestamp := time.Now().Unix()
 
 	facts := []Fact{
-		{Predicate: "file_content", Args: []interface{}{path, content}},
-		{Predicate: "file_read", Args: []interface{}{path, req.SessionID, timestamp}},
+		{Predicate: "file_content", Args: []any{path, content}},
+		{Predicate: "file_read", Args: []any{path, req.SessionID, timestamp}},
 	}
 
 	if truncated {
 		facts = append(facts, Fact{
 			Predicate: "file_truncated",
-			Args:      []interface{}{path, int64(MaxFileSize)},
+			Args:      []any{path, int64(MaxFileSize)},
 		})
 	}
 
@@ -308,7 +309,7 @@ func (v *VirtualStore) handleReadFile(ctx context.Context, req ActionRequest) (A
 	return ActionResult{
 		Success: true,
 		Output:  content,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"path":      path,
 			"size":      info.Size(),
 			"modified":  modTime,
@@ -332,7 +333,7 @@ func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) 
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "dir_read_error", Args: []interface{}{dirPath, err.Error()}},
+				{Predicate: "dir_read_error", Args: []any{dirPath, err.Error()}},
 			},
 		}, nil
 	}
@@ -374,7 +375,7 @@ func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) 
 	return ActionResult{
 		Success: true,
 		Output:  sb.String(),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"path":        dirPath,
 			"is_dir":      true,
 			"dir_count":   len(dirs),
@@ -382,7 +383,7 @@ func (v *VirtualStore) handleReadDirectory(ctx context.Context, dirPath string) 
 			"total_count": len(entries),
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "dir_read", Args: []interface{}{dirPath, int64(len(entries))}},
+			{Predicate: "dir_read", Args: []any{dirPath, int64(len(entries))}},
 		},
 	}, nil
 }
@@ -428,7 +429,7 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "file_write_error", Args: []interface{}{path, err.Error()}},
+				{Predicate: "file_write_error", Args: []any{path, err.Error()}},
 			},
 		}, nil
 	}
@@ -443,8 +444,8 @@ func (v *VirtualStore) handleWriteFile(ctx context.Context, req ActionRequest) (
 		Success: true,
 		Output:  fmt.Sprintf("Written %d bytes to %s", len(content), path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_written", Args: []interface{}{path, hashStr, req.SessionID, timestamp}},
-			{Predicate: "modified", Args: []interface{}{path}},
+			{Predicate: "file_written", Args: []any{path, hashStr, req.SessionID, timestamp}},
+			{Predicate: "modified", Args: []any{path}},
 		},
 	}, nil
 }
@@ -488,7 +489,7 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   "old content not found in file",
 			FactsToAdd: []Fact{
-				{Predicate: "edit_failed", Args: []interface{}{path, "pattern_not_found"}},
+				{Predicate: "edit_failed", Args: []any{path, "pattern_not_found"}},
 			},
 		}, nil
 	}
@@ -509,8 +510,8 @@ func (v *VirtualStore) handleEditFile(ctx context.Context, req ActionRequest) (A
 		Success: true,
 		Output:  fmt.Sprintf("Edited %s", path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_edited", Args: []interface{}{path}},
-			{Predicate: "modified", Args: []interface{}{path}},
+			{Predicate: "file_edited", Args: []any{path}},
+			{Predicate: "modified", Args: []any{path}},
 		},
 	}, nil
 }
@@ -531,7 +532,7 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 			Success: false,
 			Error:   "delete_file requires 'confirmed: true' in payload",
 			FactsToAdd: []Fact{
-				{Predicate: "delete_blocked", Args: []interface{}{path, "no_confirmation"}},
+				{Predicate: "delete_blocked", Args: []any{path, "no_confirmation"}},
 			},
 		}, nil
 	}
@@ -550,7 +551,7 @@ func (v *VirtualStore) handleDeleteFile(ctx context.Context, req ActionRequest) 
 		Success: true,
 		Output:  fmt.Sprintf("Deleted %s", path),
 		FactsToAdd: []Fact{
-			{Predicate: "file_deleted", Args: []interface{}{path}},
+			{Predicate: "file_deleted", Args: []any{path}},
 		},
 	}, nil
 }
@@ -596,7 +597,7 @@ func (v *VirtualStore) handleSearchCode(ctx context.Context, req ActionRequest) 
 				lineNum := i + 1
 				facts = append(facts, Fact{
 					Predicate: "search_result",
-					Args: []interface{}{
+					Args: []any{
 						relPath,
 						lineNum,
 						strings.TrimSpace(line),
@@ -720,8 +721,8 @@ func (v *VirtualStore) handleRunTests(ctx context.Context, req ActionRequest) (A
 		Output:  output,
 		Error:   errString(err),
 		FactsToAdd: []Fact{
-			{Predicate: "test_state", Args: []interface{}{testState}},
-			{Predicate: "test_output", Args: []interface{}{output}},
+			{Predicate: "test_state", Args: []any{testState}},
+			{Predicate: "test_output", Args: []any{output}},
 		},
 	}, nil
 }
@@ -757,7 +758,7 @@ func (v *VirtualStore) handleBuildProject(ctx context.Context, req ActionRequest
 	}
 
 	facts := []Fact{
-		{Predicate: "build_result", Args: []interface{}{success, output}},
+		{Predicate: "build_result", Args: []any{success, output}},
 	}
 
 	if !success {
@@ -787,7 +788,7 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 	operation := req.Target
 	args := []string{operation}
 
-	if extraArgs, ok := req.Payload["args"].([]interface{}); ok {
+	if extraArgs, ok := req.Payload["args"].([]any); ok {
 		for _, a := range extraArgs {
 			args = append(args, fmt.Sprintf("%v", a))
 		}
@@ -822,7 +823,7 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 		Output:  output,
 		Error:   errString(err),
 		FactsToAdd: []Fact{
-			{Predicate: "git_result", Args: []interface{}{operation, err == nil, output}},
+			{Predicate: "git_result", Args: []any{operation, err == nil, output}},
 		},
 	}, nil
 }
@@ -830,12 +831,10 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 func (v *VirtualStore) handleShowDiff(ctx context.Context, req ActionRequest) (ActionResult, error) {
 	diffRef := strings.TrimSpace(req.Target)
 
-	payload := make(map[string]interface{})
-	for k, val := range req.Payload {
-		payload[k] = val
-	}
+	payload := make(map[string]any)
+	maps.Copy(payload, req.Payload)
 	if _, ok := payload["args"]; !ok && diffRef != "" {
-		payload["args"] = []interface{}{diffRef}
+		payload["args"] = []any{diffRef}
 	}
 
 	return v.handleGitOperation(ctx, ActionRequest{
@@ -859,12 +858,12 @@ func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionReques
 			Success: true,
 			Output:  "Deep impact analysis skipped (code graph not configured)",
 			FactsToAdd: []Fact{
-				{Predicate: "impact_radius", Args: []interface{}{req.Target, 0}},
+				{Predicate: "impact_radius", Args: []any{req.Target, 0}},
 			},
 		}, nil
 	}
 
-	result, err := codeGraph.CallTool(ctx, "impact-analysis", map[string]interface{}{
+	result, err := codeGraph.CallTool(ctx, "impact-analysis", map[string]any{
 		"file": req.Target,
 	})
 	if err != nil {
@@ -876,16 +875,16 @@ func (v *VirtualStore) handleAnalyzeImpact(ctx context.Context, req ActionReques
 
 	facts := []Fact{}
 
-	if data, ok := result.(map[string]interface{}); ok {
-		if direct, ok := data["direct_dependents"].([]interface{}); ok {
+	if data, ok := result.(map[string]any); ok {
+		if direct, ok := data["direct_dependents"].([]any); ok {
 			facts = append(facts, Fact{
 				Predicate: "impact_radius",
-				Args:      []interface{}{req.Target, len(direct)},
+				Args:      []any{req.Target, len(direct)},
 			})
 			for _, dep := range direct {
 				facts = append(facts, Fact{
 					Predicate: "impacted",
-					Args:      []interface{}{dep},
+					Args:      []any{dep},
 				})
 			}
 		}
@@ -925,7 +924,7 @@ func (v *VirtualStore) handleBrowse(ctx context.Context, req ActionRequest) (Act
 		Output:  "",
 		Error:   "browser operations must be executed via TactileRouterShard - use shard-based browser automation",
 		FactsToAdd: []Fact{
-			{Predicate: "browser_routing", Args: []interface{}{operation, "/requires_shard"}},
+			{Predicate: "browser_routing", Args: []any{operation, "/requires_shard"}},
 		},
 	}, nil
 }
@@ -972,7 +971,7 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "research_failed", Args: []interface{}{query, err.Error()}},
+				{Predicate: "research_failed", Args: []any{query, err.Error()}},
 			},
 		}, nil
 	}
@@ -981,7 +980,7 @@ func (v *VirtualStore) handleResearch(ctx context.Context, req ActionRequest) (A
 		Success: true,
 		Output:  result.Result,
 		FactsToAdd: []Fact{
-			{Predicate: "research_completed", Args: []interface{}{query, len(result.Result)}},
+			{Predicate: "research_completed", Args: []any{query, len(result.Result)}},
 		},
 	}, nil
 }
@@ -1057,7 +1056,7 @@ func (v *VirtualStore) handleModularTool(ctx context.Context, req ActionRequest)
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "tool_failed", Args: []interface{}{toolName, err.Error()}},
+				{Predicate: "tool_failed", Args: []any{toolName, err.Error()}},
 			},
 		}, nil
 	}
@@ -1066,7 +1065,7 @@ func (v *VirtualStore) handleModularTool(ctx context.Context, req ActionRequest)
 		Success: true,
 		Output:  result.Result,
 		FactsToAdd: []Fact{
-			{Predicate: "tool_executed", Args: []interface{}{toolName, result.DurationMs}},
+			{Predicate: "tool_executed", Args: []any{toolName, result.DurationMs}},
 		},
 	}, nil
 }
@@ -1107,7 +1106,7 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 			Success: false,
 			Error:   err.Error(),
 			FactsToAdd: []Fact{
-				{Predicate: "delegation_failed", Args: []interface{}{shardType, err.Error()}},
+				{Predicate: "delegation_failed", Args: []any{shardType, err.Error()}},
 			},
 		}, nil
 	}
@@ -1117,7 +1116,7 @@ func (v *VirtualStore) handleDelegate(ctx context.Context, req ActionRequest) (A
 		Success: true,
 		Output:  result,
 		FactsToAdd: []Fact{
-			{Predicate: "delegation_result", Args: []interface{}{shardType, result}},
+			{Predicate: "delegation_result", Args: []any{shardType, result}},
 		},
 	}, nil
 }
@@ -1134,10 +1133,8 @@ func (v *VirtualStore) handleDelegateAlias(ctx context.Context, req ActionReques
 		return ActionResult{Success: false, Error: "delegate task is empty"}, nil
 	}
 
-	payload := make(map[string]interface{})
-	for k, val := range req.Payload {
-		payload[k] = val
-	}
+	payload := make(map[string]any)
+	maps.Copy(payload, req.Payload)
 	payload["task"] = task
 
 	return v.handleDelegate(ctx, ActionRequest{
@@ -1153,18 +1150,18 @@ func (v *VirtualStore) handleAskUser(ctx context.Context, req ActionRequest) (Ac
 		return ActionResult{Success: false, Error: err.Error()}, nil
 	}
 	question := req.Target
-	options, _ := req.Payload["options"].([]interface{})
+	options, _ := req.Payload["options"].([]any)
 
 	return ActionResult{
 		Success: false,
 		Output:  question,
 		Error:   "USER_INPUT_REQUIRED",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"question": question,
 			"options":  options,
 		},
 		FactsToAdd: []Fact{
-			{Predicate: "awaiting_user_input", Args: []interface{}{question}},
+			{Predicate: "awaiting_user_input", Args: []any{question}},
 		},
 	}, nil
 }
@@ -1181,8 +1178,8 @@ func (v *VirtualStore) handleEscalate(ctx context.Context, req ActionRequest) (A
 		Output:  fmt.Sprintf("ESCALATION: %s", reason),
 		Error:   "ESCALATION_REQUIRED",
 		FactsToAdd: []Fact{
-			{Predicate: "escalated", Args: []interface{}{reason}},
-			{Predicate: "task_blocked", Args: []interface{}{reason}},
+			{Predicate: "escalated", Args: []any{reason}},
+			{Predicate: "task_blocked", Args: []any{reason}},
 		},
 	}, nil
 }

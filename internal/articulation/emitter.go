@@ -241,7 +241,7 @@ type ToolRequest struct {
 	ToolName string `json:"tool_name"`
 	// ToolArgs contains the arguments for the tool invocation.
 	// The structure depends on the tool's schema.
-	ToolArgs map[string]interface{} `json:"tool_args"`
+	ToolArgs map[string]any `json:"tool_args"`
 	// Purpose explains why this tool is being invoked (for debugging/learning).
 	Purpose string `json:"purpose,omitempty"`
 	// Required indicates if this tool call is blocking (true) or best-effort (false).
@@ -267,7 +267,7 @@ func (tr *ToolRequest) UnmarshalJSON(data []byte) error {
 		} else {
 			var s string
 			if err := json.Unmarshal(aux.Required, &s); err == nil {
-				s = strings.Trim(strings.ToLower(s), `"` + "\t\n\r ")
+				s = strings.Trim(strings.ToLower(s), `"`+"\t\n\r ")
 				switch s {
 				case "true", "1", "yes", "y", "on":
 					tr.Required = true
@@ -333,7 +333,7 @@ func (ic *IntentClassification) UnmarshalJSON(data []byte) error {
 		} else {
 			var s string
 			if err := json.Unmarshal(aux.Confidence, &s); err == nil {
-				s = strings.Trim(strings.ToLower(s), `"` + "\t\n\r ")
+				s = strings.Trim(strings.ToLower(s), `"`+"\t\n\r ")
 				switch s {
 				case "high":
 					ic.Confidence = 0.9
@@ -697,39 +697,39 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 }
 
 // schemaAllowedKeys defines the schema of allowed keys for PiggybackEnvelope recursive validation.
-var schemaAllowedKeys = map[string]interface{}{
-	"control_packet": map[string]interface{}{
-		"intent_classification": map[string]interface{}{
+var schemaAllowedKeys = map[string]any{
+	"control_packet": map[string]any{
+		"intent_classification": map[string]any{
 			"category":   nil,
 			"verb":       nil,
 			"target":     nil,
 			"constraint": nil,
 			"confidence": nil,
 		},
-		"mangle_updates":    nil,
-		"memory_operations": map[string]interface{}{
+		"mangle_updates": nil,
+		"memory_operations": map[string]any{
 			"op":    nil,
 			"key":   nil,
 			"value": nil,
 		},
-		"self_correction": map[string]interface{}{
+		"self_correction": map[string]any{
 			"triggered":  nil,
 			"hypothesis": nil,
 		},
 		"reasoning_trace": nil,
-		"knowledge_requests": map[string]interface{}{
+		"knowledge_requests": map[string]any{
 			"specialist": nil,
 			"query":      nil,
 			"purpose":    nil,
 			"priority":   nil,
 		},
-		"context_feedback": map[string]interface{}{
+		"context_feedback": map[string]any{
 			"overall_usefulness": nil,
 			"helpful_facts":      nil,
 			"noise_facts":        nil,
 			"missing_context":    nil,
 		},
-		"tool_requests": map[string]interface{}{
+		"tool_requests": map[string]any{
 			"id":        nil,
 			"tool_name": nil,
 			"tool_args": nil, // Allow any keys inside tool_args
@@ -742,26 +742,26 @@ var schemaAllowedKeys = map[string]interface{}{
 
 // checkUnknownFields recursively validates that the decoded generic JSON structure only contains keys
 // that exist in the allowed schema keys.
-func checkUnknownFields(val interface{}, allowedKeys map[string]interface{}) error {
+func checkUnknownFields(val any, allowedKeys map[string]any) error {
 	if allowedKeys == nil {
 		return nil
 	}
 	switch v := val.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for k, item := range v {
 			allowedSub, exists := allowedKeys[k]
 			if !exists {
 				return fmt.Errorf("json: unknown field %q", k)
 			}
 			if allowedSub != nil {
-				if subMap, ok := allowedSub.(map[string]interface{}); ok {
+				if subMap, ok := allowedSub.(map[string]any); ok {
 					if err := checkUnknownFields(item, subMap); err != nil {
 						return err
 					}
 				}
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			if err := checkUnknownFields(item, allowedKeys); err != nil {
 				return err
@@ -784,7 +784,7 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 	// Create a helper to decode with proper settings (strict vs tolerant)
 	decodeObj := func(r string) error {
 		if rp.RequireValidJSON {
-			var generic interface{}
+			var generic any
 			if err := json.Unmarshal([]byte(r), &generic); err == nil {
 				if err := checkUnknownFields(generic, schemaAllowedKeys); err != nil {
 					return err

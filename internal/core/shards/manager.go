@@ -2,8 +2,10 @@ package shards
 
 import (
 	"codenerd/internal/logging"
+	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 	"sync"
+	"time"
 )
 
 // =============================================================================
@@ -66,6 +68,46 @@ type ShardManager struct {
 	jitRegistrar   types.JITDBRegistrar   // Callback to register agent DBs with JIT compiler
 	jitUnregistrar types.JITDBUnregistrar // Callback to unregister agent DBs when shard deactivates
 	activeJITDBs   map[string]string      // Tracks which shards have registered JIT DBs (shardID -> typeName)
+
+	// Optional Glass Box event bus for TUI activity overlay. When set,
+	// the manager emits shard lifecycle events (spawn / completion) so
+	// the chat can show "⚡ Spawned reviewer (3.2s)" inline.
+	glassBoxBus *transparency.GlassBoxEventBus
+}
+
+// SetGlassBoxBus attaches the optional Glass Box event bus. Safe to
+// call before or after shards spawn; nil is also safe (events become
+// no-ops).
+func (sm *ShardManager) SetGlassBoxBus(bus *transparency.GlassBoxEventBus) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.glassBoxBus = bus
+}
+
+// truncateForEvent shortens a value for inclusion in a Glass Box
+// event detail. Long shard outputs would otherwise dominate the
+// scrollback line.
+func truncateForEvent(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-3] + "..."
+}
+
+// emitShardEvent fires a CategoryShard Glass Box event. Cheap to
+// call when the bus is nil (returns immediately).
+func (sm *ShardManager) emitShardEvent(summary, details, source string, dur time.Duration) {
+	if sm.glassBoxBus == nil {
+		return
+	}
+	sm.glassBoxBus.Emit(transparency.GlassBoxEvent{
+		Timestamp: time.Now(),
+		Category:  transparency.CategoryShard,
+		Summary:   summary,
+		Details:   details,
+		Source:    source,
+		Duration:  dur,
+	})
 }
 
 func NewShardManager() *ShardManager {
@@ -287,7 +329,7 @@ func (sm *ShardManager) ToFacts() []types.Fact {
 	for name, cfg := range sm.profiles {
 		facts = append(facts, types.Fact{
 			Predicate: "shard_profile",
-			Args:      []interface{}{name, string(cfg.Type)},
+			Args:      []any{name, string(cfg.Type)},
 		})
 	}
 

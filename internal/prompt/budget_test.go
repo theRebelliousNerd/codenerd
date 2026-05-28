@@ -416,7 +416,7 @@ func TestClamp(t *testing.T) {
 func BenchmarkFit_SmallSet(b *testing.B) {
 	atoms := make([]*OrderedAtom, 20)
 	categories := AllCategories()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), TokenCount: 100 + i*10, Category: categories[i%len(categories)]},
 			Score: float64(i) / 20.0,
@@ -435,7 +435,7 @@ func BenchmarkFit_SmallSet(b *testing.B) {
 func BenchmarkFit_MediumSet(b *testing.B) {
 	atoms := make([]*OrderedAtom, 100)
 	categories := AllCategories()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), TokenCount: 50 + i*5, Category: categories[i%len(categories)]},
 			Score: float64(i) / 100.0,
@@ -454,7 +454,7 @@ func BenchmarkFit_MediumSet(b *testing.B) {
 func BenchmarkFit_LargeSet(b *testing.B) {
 	atoms := make([]*OrderedAtom, 500)
 	categories := AllCategories()
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), TokenCount: 100, Category: categories[i%len(categories)]},
 			Score: float64(i) / 500.0,
@@ -473,7 +473,7 @@ func BenchmarkFit_LargeSet(b *testing.B) {
 func BenchmarkGenerateReport(b *testing.B) {
 	atoms := make([]*OrderedAtom, 50)
 	categories := AllCategories()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		atoms[i] = &OrderedAtom{
 			Atom: &PromptAtom{
 				ID:          string(rune(i)),
@@ -511,7 +511,7 @@ func TestTokenBudgetManager_Fit_Extremes(t *testing.T) {
 		// Build > maxAtomsInput atoms to exercise the truncation guard.
 		count := maxAtomsInput + 1234
 		atoms := make([]*OrderedAtom, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			atoms[i] = &OrderedAtom{
 				Atom: &PromptAtom{
 					ID:         "atom",

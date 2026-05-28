@@ -61,6 +61,9 @@ func (r *Registry) Register(tool *Tool) error {
 // MustRegister registers a tool and panics on error.
 // Use this for static tool registration at init time.
 func (r *Registry) MustRegister(tool *Tool) {
+	if tool == nil {
+		panic("failed to register tool: tool cannot be nil")
+	}
 	if err := r.Register(tool); err != nil {
 		panic(fmt.Sprintf("failed to register tool %s: %v", tool.Name, err))
 	}
@@ -89,8 +92,11 @@ func (r *Registry) GetByCategory(category ToolCategory) []*Tool {
 	tools := make([]*Tool, len(r.byCategory[category]))
 	copy(tools, r.byCategory[category])
 
-	// Sort by priority (highest first)
-	sort.Slice(tools, func(i, j int) bool {
+	// Sort by priority (highest first) using stable sort to prevent random tie-breaks
+	sort.SliceStable(tools, func(i, j int) bool {
+		if tools[i].Priority == tools[j].Priority {
+			return tools[i].Name < tools[j].Name
+		}
 		return tools[i].Priority > tools[j].Priority
 	})
 
@@ -163,6 +169,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 
 // ExecuteTool runs a specific tool with the given arguments.
 func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]any) (*ToolResult, error) {
+	if tool == nil {
+		return nil, ErrToolNil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -197,10 +206,17 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 // intentionally lenient: properties with no declared Type are not checked, and
 // numeric types accept both Go ints and JSON-unmarshaled float64.
 func (r *Registry) validateArgs(tool *Tool, args map[string]any) error {
+	if tool == nil {
+		return ErrToolNil
+	}
 	for _, required := range tool.Schema.Required {
 		if _, ok := args[required]; !ok {
 			return fmt.Errorf("%w: %s", ErrMissingRequiredArg, required)
 		}
+	}
+
+	if tool.Schema.Properties == nil {
+		return nil
 	}
 
 	// Coarse type check for declared properties. Skip silently when no

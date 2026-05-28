@@ -593,7 +593,7 @@ func (ps *PredicateSelector) indexPredicateVectors() bool {
 
 	ctx := context.Background()
 	contents := make([]string, 0, len(predicates))
-	metadata := make([]map[string]interface{}, 0, len(predicates))
+	metadata := make([]map[string]any, 0, len(predicates))
 	for _, p := range predicates {
 		content := predicateVectorContent(p)
 		if existingContents != nil {
@@ -602,7 +602,7 @@ func (ps *PredicateSelector) indexPredicateVectors() bool {
 			}
 		}
 		contents = append(contents, content)
-		metadata = append(metadata, map[string]interface{}{
+		metadata = append(metadata, map[string]any{
 			predicateVectorMetaKey: predicateVectorMetaValue,
 			"name":                 p.Name,
 			"arity":                p.Arity,
@@ -651,7 +651,7 @@ func predicateVectorContent(p core.PredicateInfo) string {
 	return sb.String()
 }
 
-func parsePredicateMeta(meta map[string]interface{}, content string) (string, int, bool) {
+func parsePredicateMeta(meta map[string]any, content string) (string, int, bool) {
 	var name string
 	var arity int
 
@@ -688,7 +688,7 @@ func parsePredicateMeta(meta map[string]interface{}, content string) (string, in
 	return name, arity, true
 }
 
-func similarityFromMetadata(meta map[string]interface{}) float64 {
+func similarityFromMetadata(meta map[string]any) float64 {
 	switch v := meta["similarity"].(type) {
 	case float64:
 		return clampSimilarity(v)

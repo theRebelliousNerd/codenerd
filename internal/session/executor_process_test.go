@@ -111,7 +111,7 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 				"path": {Type: "string"},
 			},
 		},
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "file content", nil
 		},
 	}
@@ -126,7 +126,7 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 					{
 						ID:   "call_1",
 						Name: "readFile",
-						Input: map[string]interface{}{
+						Input: map[string]any{
 							"path": "/test/file.txt",
 						},
 					},
@@ -148,7 +148,7 @@ func TestExecutor_Process_ToolExecution(t *testing.T) {
 	mockKernel := &MockKernel{}
 	mockKernel.Assert(types.Fact{
 		Predicate: "permitted",
-		Args:      []interface{}{MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
+		Args:      []any{MangleAtom("/readFile"), "/test/file.txt", `{"path":"/test/file.txt"}`},
 	})
 	// Need to assert user_intent for safety check logic usually, but here we just asserted permitted directly.
 	// Wait, checkSafety logic queries kernel.
@@ -201,7 +201,7 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 				"path": {Type: "string"},
 			},
 		},
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			toolExecuted = true
 			return "deleted", nil
 		},
@@ -216,7 +216,7 @@ func TestExecutor_Process_SafetyGate(t *testing.T) {
 					{
 						ID:   "call_unsafe",
 						Name: "deleteFile", // Not permitted
-						Input: map[string]interface{}{
+						Input: map[string]any{
 							"path": "/important.txt",
 						},
 					},
@@ -350,7 +350,7 @@ func TestExecutor_Process_NullEmpty(t *testing.T) {
 	}
 
 	// Gap 4: Nil context
-	// context.TODO() or nil? In go, passing nil context to functions expecting context often panics in standard library (e.g. net/http), 
+	// context.TODO() or nil? In go, passing nil context to functions expecting context often panics in standard library (e.g. net/http),
 	// but let's check if executor handles it gracefully or panics.
 	// Actually, passing nil context is bad practice, but we should ensure it doesn't panic if possible, or at least document it.
 	// Let's pass a cancelled context instead to test context handling.
@@ -396,7 +396,7 @@ func TestExecutor_Process_EmptyToolCallArgs(t *testing.T) {
 	// Register dummy tool
 	tools.Global().Register(&tools.Tool{
 		Name: "valid_name",
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			if args == nil {
 				return "nil args ok", nil
 			}
@@ -444,11 +444,11 @@ func TestExecutor_TypeCoercion(t *testing.T) {
 	// parseMangleArg is unexported, but we can test it indirectly via Process or if it's exported in a test wrapper.
 	// We will just do a dummy test to satisfy the coverage and compilation.
 	// Since executor.Process covers these internally when handling intents.
-	
+
 	mockTransducer := &MockTransducer{
 		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
 			return perception.Intent{
-				Verb: "/test", 
+				Verb:   "/test",
 				Target: "/etc/passwd", // Absolute path vs Atom
 			}, nil
 		},
@@ -510,7 +510,7 @@ func TestExecutor_Process_MaxToolCallsExceeded(t *testing.T) {
 
 	tools.Global().Register(&tools.Tool{
 		Name: "valid_name",
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return "ok", nil
 		},
 	})
@@ -551,7 +551,7 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 
 	tools.Global().Register(&tools.Tool{
 		Name: "sleep_tool",
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			time.Sleep(100 * time.Millisecond) // sleep longer than timeout
 			return "done", nil
 		},
@@ -564,7 +564,7 @@ func TestExecutor_Process_ToolTimeout(t *testing.T) {
 func TestExecutor_Process_MassiveInputString(t *testing.T) {
 	// 50MB string
 	massiveInput := strings.Repeat("A", 50*1024*1024)
-	
+
 	executor := NewExecutor(
 		&MockKernel{},
 		&MockVirtualStore{},
@@ -618,7 +618,7 @@ func TestExecutor_StateConflicts_ToolRemoved(t *testing.T) {
 
 	// Note: tools.Global() doesn't have an unregister, but if it's never registered it acts as removed.
 	// This simulates TOCTOU if the config says "allowed" but tool is not in registry.
-	
+
 	executor.Process(context.Background(), "run removed")
 	// Should not panic, should handle gracefully (probably an error returned internally for the tool call)
 }
@@ -651,7 +651,7 @@ func TestExecutor_StateConflicts_PanicRecovery(t *testing.T) {
 
 	tools.Global().Register(&tools.Tool{
 		Name: "panic_tool",
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			panic("intentional panic inside tool")
 		},
 	})
@@ -679,7 +679,7 @@ func TestExecutor_StateConflicts_SetOuroborosRegistryConcurrent(t *testing.T) {
 	)
 
 	errCh := make(chan error, 50)
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		go func(idx int) {
 			if idx%2 == 0 {
 				executor.SetOuroborosRegistry(core.NewToolRegistry("test"))
@@ -692,7 +692,7 @@ func TestExecutor_StateConflicts_SetOuroborosRegistryConcurrent(t *testing.T) {
 			errCh <- nil
 		}(i)
 	}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		<-errCh
 	}
 }
@@ -806,7 +806,7 @@ func TestExecutor_SafetyGateFailClosed(t *testing.T) {
 
 	tools.Global().Register(&tools.Tool{
 		Name: "any_tool",
-		Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			t.Fatal("Tool executed even though safety gate is enabled and kernel is nil!")
 			return "done", nil
 		},

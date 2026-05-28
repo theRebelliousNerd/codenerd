@@ -797,7 +797,7 @@ func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 		logging.ContextDebug("Memory op: promote_to_long_term key=%s", op.Key)
 		// Store in cold storage
 		if c.store != nil {
-			c.store.StoreFact(op.Key, []interface{}{op.Value}, "preference", 10)
+			c.store.StoreFact(op.Key, []any{op.Value}, "preference", 10)
 		}
 	case "forget":
 		logging.ContextDebug("Memory op: forget key=%s", op.Key)
@@ -807,7 +807,7 @@ func (c *Compressor) processMemoryOperation(op perception.MemoryOperation) {
 		logging.ContextDebug("Memory op: store_vector key=%s", op.Key)
 		// Store in vector memory
 		if c.store != nil {
-			c.store.StoreVector(op.Value, map[string]interface{}{"key": op.Key})
+			c.store.StoreVector(op.Value, map[string]any{"key": op.Key})
 		}
 	}
 }
@@ -1174,7 +1174,7 @@ func (c *Compressor) GetContextString(ctx context.Context) (string, error) {
 // =============================================================================
 
 // GetMetrics returns compression metrics.
-func (c *Compressor) GetMetrics() map[string]interface{} {
+func (c *Compressor) GetMetrics() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -1183,7 +1183,7 @@ func (c *Compressor) GetMetrics() map[string]interface{} {
 		ratio = float64(c.totalOriginalTokens) / float64(c.totalCompressedTokens)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"turn_number":             c.turnNumber,
 		"recent_turns":            len(c.recentTurns),
 		"compressed_segments":     len(c.rollingSummary.Segments),
@@ -1447,14 +1447,6 @@ func (c *Compressor) trimToTokens(s string, maxTokens int) string {
 	return strings.TrimSpace(string(runes[:cut]))
 }
 
-// min returns the minimum of two ints.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // LoadPrioritiesFromCorpus loads predicate priorities from the kernel's corpus.
 // GAP-003 FIX: This enables activation engine to use corpus-defined priorities.
 func (c *Compressor) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpus) error {
@@ -1548,7 +1540,7 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 
 	// parsePriority converts /pN atom to numeric score.
 	// "/p100" -> 100.0, "/p95" -> 95.0, etc. Returns 0 on parse failure.
-	parsePriority := func(priorityArg interface{}) float64 {
+	parsePriority := func(priorityArg any) float64 {
 		var s string
 		switch v := priorityArg.(type) {
 		case string:

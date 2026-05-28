@@ -15,7 +15,7 @@ import (
 type KernelInterface interface {
 	Assert(fact string) error
 	Retract(fact string) error
-	Query(query string) ([]map[string]interface{}, error)
+	Query(query string) ([]map[string]any, error)
 }
 
 // JITToolCompiler compiles a context-aware tool set for LLM consumption.

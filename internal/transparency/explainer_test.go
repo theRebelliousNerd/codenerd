@@ -45,7 +45,7 @@ func TestExplainerExplainDecision(t *testing.T) {
 }
 
 func TestQuickExplain(t *testing.T) {
-	text := QuickExplain("next_action", []interface{}{"/test"})
+	text := QuickExplain("next_action", []any{"/test"})
 	if !strings.Contains(text, "Next action will be") {
 		t.Fatalf("expected quick explain output")
 	}
@@ -72,14 +72,14 @@ func buildTestTrace() *mangle.DerivationTrace {
 	child := &mangle.DerivationNode{
 		Fact: mangle.Fact{
 			Predicate: "permitted",
-			Args:      []interface{}{"/test"},
+			Args:      []any{"/test"},
 		},
 		Source: mangle.SourceEDB,
 	}
 	root := &mangle.DerivationNode{
 		Fact: mangle.Fact{
 			Predicate: "next_action",
-			Args:      []interface{}{"/test"},
+			Args:      []any{"/test"},
 		},
 		Source:   mangle.SourceIDB,
 		RuleName: "strategy_selector",

@@ -178,10 +178,10 @@ func (t *SSETransport) readLoop(ctx context.Context, body io.ReadCloser) {
 			continue
 		}
 
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
-		} else if strings.HasPrefix(line, "data: ") {
-			eventData.WriteString(strings.TrimPrefix(line, "data: "))
+		if after, ok := strings.CutPrefix(line, "event: "); ok {
+			eventType = after
+		} else if after, ok := strings.CutPrefix(line, "data: "); ok {
+			eventData.WriteString(after)
 			eventData.WriteByte('\n')
 		} else if strings.HasPrefix(line, ":") {
 			// Comment, ignore
@@ -245,7 +245,7 @@ func (t *SSETransport) handleEvent(eventType, data string) {
 }
 
 // call makes a JSON-RPC call.
-func (t *SSETransport) call(ctx context.Context, method string, params interface{}) (*mcpResponse, error) {
+func (t *SSETransport) call(ctx context.Context, method string, params any) (*mcpResponse, error) {
 	t.mu.Lock()
 	id := t.nextID
 	t.nextID++
@@ -338,9 +338,9 @@ func (t *SSETransport) GetCapabilities(ctx context.Context) (*MCPCapabilities, e
 	}
 	t.mu.RUnlock()
 
-	resp, err := t.call(ctx, "initialize", map[string]interface{}{
+	resp, err := t.call(ctx, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
+		"capabilities":    map[string]any{},
 		"clientInfo": map[string]string{
 			"name":    "codeNERD",
 			"version": "1.0.0",
@@ -387,10 +387,10 @@ func (t *SSETransport) ListTools(ctx context.Context) ([]MCPToolSchema, error) {
 }
 
 // CallTool invokes a tool on the MCP server.
-func (t *SSETransport) CallTool(ctx context.Context, name string, args map[string]interface{}) (*MCPCallResult, error) {
+func (t *SSETransport) CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error) {
 	start := time.Now()
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"name":      name,
 		"arguments": args,
 	}

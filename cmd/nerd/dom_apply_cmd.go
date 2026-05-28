@@ -96,12 +96,12 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []interface{}{"dom-open", "/open_file", absTarget}}); err != nil {
+	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
 	// Resolve edits and collect touched files.
-	var payloadEdits []interface{}
+	var payloadEdits []any
 	touchedFiles := make(map[string]struct{})
 	for i, e := range plan.Edits {
 		ref := strings.TrimSpace(e.Ref)
@@ -128,7 +128,7 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 		}
 		touchedFiles[elem.File] = struct{}{}
 
-		payloadEdits = append(payloadEdits, map[string]interface{}{
+		payloadEdits = append(payloadEdits, map[string]any{
 			"ref":     ref,
 			"content": content,
 		})
@@ -154,10 +154,10 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Applying:  edit_elements\n")
 	out, err := vs.RouteAction(ctx, core.Fact{
 		Predicate: "next_action",
-		Args: []interface{}{
+		Args: []any{
 			"/edit_elements",
 			"",
-			map[string]interface{}{
+			map[string]any{
 				"edits": payloadEdits,
 			},
 		},

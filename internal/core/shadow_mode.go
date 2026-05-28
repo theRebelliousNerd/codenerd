@@ -86,7 +86,7 @@ const (
 type SimulatedEffect struct {
 	ActionID   string
 	Predicate  string
-	Args       []interface{}
+	Args       []any
 	IsPositive bool // true for assertion, false for retraction
 }
 
@@ -147,7 +147,7 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 	// Add shadow_state fact
 	shadowStateFact := Fact{
 		Predicate: "shadow_state",
-		Args:      []interface{}{simID, simID, "/valid"},
+		Args:      []any{simID, simID, "/valid"},
 	}
 	shadowKernel.Assert(shadowStateFact)
 
@@ -212,7 +212,7 @@ func (sm *ShadowMode) SimulateAction(ctx context.Context, action SimulatedAction
 	for _, effect := range effects {
 		effectFact := Fact{
 			Predicate: "simulated_effect",
-			Args:      []interface{}{action.ID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
+			Args:      []any{action.ID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
 		}
 		sm.shadowKernel.Assert(effectFact)
 	}
@@ -254,7 +254,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "modified",
-			Args:       []interface{}{action.Target},
+			Args:       []any{action.Target},
 			IsPositive: true,
 		})
 
@@ -265,7 +265,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 				effects = append(effects, SimulatedEffect{
 					ActionID:   action.ID,
 					Predicate:  "impacted",
-					Args:       []interface{}{dep.Args[0]},
+					Args:       []any{dep.Args[0]},
 					IsPositive: true,
 				})
 			}
@@ -276,7 +276,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "deleted_file",
-			Args:       []interface{}{action.Target},
+			Args:       []any{action.Target},
 			IsPositive: true,
 		})
 
@@ -285,13 +285,13 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "modified",
-			Args:       []interface{}{action.Target},
+			Args:       []any{action.Target},
 			IsPositive: true,
 		})
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "refactored",
-			Args:       []interface{}{action.Target},
+			Args:       []any{action.Target},
 			IsPositive: true,
 		})
 
@@ -300,7 +300,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "exec_result",
-			Args:       []interface{}{action.Target, "/pending"},
+			Args:       []any{action.Target, "/pending"},
 			IsPositive: true,
 		})
 
@@ -309,7 +309,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		effects = append(effects, SimulatedEffect{
 			ActionID:   action.ID,
 			Predicate:  "commit_pending",
-			Args:       []interface{}{action.Target},
+			Args:       []any{action.Target},
 			IsPositive: true,
 		})
 	}
@@ -544,14 +544,14 @@ func (sm *ShadowMode) ToFacts() []Fact {
 	}
 	facts = append(facts, Fact{
 		Predicate: "shadow_state",
-		Args:      []interface{}{sim.ID, sim.ID, isValid},
+		Args:      []any{sim.ID, sim.ID, isValid},
 	})
 
 	// Add simulated_effect facts
 	for _, effect := range sim.Effects {
 		facts = append(facts, Fact{
 			Predicate: "simulated_effect",
-			Args:      []interface{}{effect.ActionID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
+			Args:      []any{effect.ActionID, effect.Predicate, fmt.Sprintf("%v", effect.Args)},
 		})
 	}
 

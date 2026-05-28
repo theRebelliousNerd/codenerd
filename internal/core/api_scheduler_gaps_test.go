@@ -146,7 +146,7 @@ func TestAPISchedulerGap_CheckpointMassivePayload(t *testing.T) {
 	scheduler.RegisterShard("test", "test")
 
 	// Store 1000 checkpoint entries
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		scheduler.SaveCheckpoint("test", fmt.Sprintf("key_%d", i), fmt.Sprintf("value_%d_data_%s", i, "padding"))
 	}
 
@@ -176,20 +176,20 @@ func TestAPISchedulerGap_Race_RegisterUnregister(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent register/unregister for same IDs
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(2)
 		id := fmt.Sprintf("shard_%d", i%3) // Overlapping IDs
 
 		go func(shardID string) {
 			defer wg.Done()
-			for j := 0; j < 20; j++ {
+			for range 20 {
 				scheduler.RegisterShard(shardID, "test")
 			}
 		}(id)
 
 		go func(shardID string) {
 			defer wg.Done()
-			for j := 0; j < 20; j++ {
+			for range 20 {
 				scheduler.UnregisterShard(shardID)
 			}
 		}(id)
@@ -252,14 +252,14 @@ func TestAPISchedulerGap_ExtremeLoad_ManyShards(t *testing.T) {
 		SlotAcquireTimeout:    30 * time.Second,
 	})
 
-	for i := 0; i < numShards; i++ {
+	for i := range numShards {
 		scheduler.RegisterShard(fmt.Sprintf("shard_%d", i), "test")
 	}
 
 	var wg sync.WaitGroup
 	ctx := context.Background()
 
-	for i := 0; i < numShards; i++ {
+	for i := range numShards {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -449,7 +449,7 @@ func TestAPISchedulerGap_Streaming_RapidCancel(t *testing.T) {
 			go func() {
 				defer close(content)
 				defer close(errCh)
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					select {
 					case content <- fmt.Sprintf("chunk_%d", i):
 						time.Sleep(10 * time.Millisecond)

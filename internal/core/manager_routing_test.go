@@ -55,10 +55,10 @@ func TestShardManager_AssertToolRoutingContext(t *testing.T) {
 	sm.SetParentKernel(cortex)
 
 	// Inject tool registrations into the mock kernel to simulate real workspace facts
-	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []interface{}{"git_diff", int64(0)}})
-	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []interface{}{"ripgrep", int64(0)}})
-	cortex.Assert(types.Fact{Predicate: "tool_description", Args: []interface{}{"git_diff", "Computes changes"}})
-	cortex.Assert(types.Fact{Predicate: "tool_binary_path", Args: []interface{}{"git_diff", "/usr/bin/git"}})
+	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []any{"git_diff", int64(0)}})
+	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []any{"ripgrep", int64(0)}})
+	cortex.Assert(types.Fact{Predicate: "tool_description", Args: []any{"git_diff", "Computes changes"}})
+	cortex.Assert(types.Fact{Predicate: "tool_binary_path", Args: []any{"git_diff", "/usr/bin/git"}})
 
 	// Run assertToolRoutingContext via ShardManager
 	query := shards.ToolRelevanceQuery{
@@ -123,10 +123,10 @@ func TestShardManager_ConcurrentToolQueries(t *testing.T) {
 	sm.SetParentKernel(cortex)
 
 	// Pre-populate some tools and relevance scores
-	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []interface{}{"tool_alpha", int64(0)}})
-	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []interface{}{"tool_beta", int64(0)}})
-	cortex.Assert(types.Fact{Predicate: "tool_base_relevance", Args: []interface{}{"/coder", "tool_alpha", int64(95)}})
-	cortex.Assert(types.Fact{Predicate: "tool_base_relevance", Args: []interface{}{"/coder", "tool_beta", int64(40)}})
+	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []any{"tool_alpha", int64(0)}})
+	cortex.Assert(types.Fact{Predicate: "tool_registered", Args: []any{"tool_beta", int64(0)}})
+	cortex.Assert(types.Fact{Predicate: "tool_base_relevance", Args: []any{"/coder", "tool_alpha", int64(95)}})
+	cortex.Assert(types.Fact{Predicate: "tool_base_relevance", Args: []any{"/coder", "tool_beta", int64(40)}})
 
 	var wg sync.WaitGroup
 	const concurrentUsers = 30
@@ -134,11 +134,11 @@ func TestShardManager_ConcurrentToolQueries(t *testing.T) {
 
 	errs := make(chan error, concurrentUsers*queriesPerUser)
 
-	for i := 0; i < concurrentUsers; i++ {
+	for i := range concurrentUsers {
 		wg.Add(1)
 		go func(userID int) {
 			defer wg.Done()
-			for j := 0; j < queriesPerUser; j++ {
+			for j := range queriesPerUser {
 				ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 				_ = ctx // Context can be used if we spawn async, here we query relevance
 				query := shards.ToolRelevanceQuery{

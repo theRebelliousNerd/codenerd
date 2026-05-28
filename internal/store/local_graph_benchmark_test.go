@@ -33,8 +33,8 @@ func BenchmarkTraversePath(b *testing.B) {
 	// Node-i-j connects to Node-i+1-j and Node-i-j+1
 	// Create paths from 0-0 to 9-9.
 
-	for i := 0; i < 10; i++ {
-		for j := 0; j < 10; j++ {
+	for i := range 10 {
+		for j := range 10 {
 			curr := fmt.Sprintf("%d-%d", i, j)
 			if i < 9 {
 				next := fmt.Sprintf("%d-%d", i+1, j)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -557,13 +558,7 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 					existing.ShouldExecute = ShouldSpecialistExecuteTask(agentLower, score)
 				}
 				// Add file if not already present
-				fileExists := false
-				for _, f := range existing.Files {
-					if f == file {
-						fileExists = true
-						break
-					}
-				}
+				fileExists := slices.Contains(existing.Files, file)
 				if !fileExists {
 					existing.Files = append(existing.Files, file)
 				}

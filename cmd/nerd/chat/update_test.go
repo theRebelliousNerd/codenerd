@@ -590,7 +590,7 @@ func TestUpdate_Performance_Rapid(t *testing.T) {
 	start := time.Now()
 	iterations := 1000
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		newModel, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 		m = newModel.(Model)
 	}
@@ -627,7 +627,7 @@ func TestUpdate_Performance_WithHistory(t *testing.T) {
 	start := time.Now()
 	iterations := 100
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		newModel, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 		m = newModel.(Model)
 	}
@@ -655,7 +655,7 @@ func TestUpdate_NoGoroutineLeakOnQuit(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	// Create and shutdown multiple models
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		m := NewTestModel()
 		m.Shutdown()
 	}

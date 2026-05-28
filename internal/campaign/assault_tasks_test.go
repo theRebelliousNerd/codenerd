@@ -77,7 +77,7 @@ func TestOrchestrator_ExecuteAssaultDiscoverTask(t *testing.T) {
 		t.Fatalf("executeAssaultDiscoverTask failed: %v", err)
 	}
 
-	resMap, ok := res.(map[string]interface{})
+	resMap, ok := res.(map[string]any)
 	if !ok {
 		t.Fatalf("expected map result, got %T", res)
 	}
@@ -223,7 +223,7 @@ func TestDiscoverGoTargets_EmptyIncludesExcludes_Ignored(t *testing.T) {
 		Include: nil,
 		Exclude: []string{""}, // Empty string exclude should be ignored
 	}
-	
+
 	// Should not panic or fail due to nil/empty strings
 	targets, err := orch.discoverGoTargets(context.Background(), cfg)
 	if err != nil {
@@ -264,7 +264,7 @@ func TestLLMAssaultRemediationPlan_NilClient_ReturnsEmpty(t *testing.T) {
 		llmClient: nil, // Nil client
 	}
 	cfg := AssaultConfig{}
-	
+
 	tasks := orch.llmAssaultRemediationPlan(context.Background(), cfg, "summary")
 	if len(tasks) > 0 {
 		t.Errorf("expected empty task list for nil client, got %d tasks", len(tasks))
@@ -344,6 +344,7 @@ type dummyExecutor struct {
 	res *tactile.ExecutionResult
 	err error
 }
+
 func (d *dummyExecutor) Execute(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
 	return d.res, d.err
 }
@@ -358,7 +359,7 @@ func TestRunCommandStage_InfiniteStdout_TruncatesCleanly(t *testing.T) {
 			Truncated: true,
 		},
 	}
-	
+
 	tmpLog := filepath.Join(os.TempDir(), "infinite_stdout_test.log")
 	defer os.Remove(tmpLog)
 
@@ -374,7 +375,7 @@ func TestBuildAssaultSummary_TokenLimitEnforcement_MassiveFailures(t *testing.T)
 		failures[i] = assaultFailure{Target: "target"}
 	}
 	summary := buildAssaultSummary(10000, 9000, failures, 10)
-	
+
 	lines := strings.Split(summary, "\n")
 	if len(lines) > 15 {
 		t.Errorf("expected summary to be truncated to 10 failures, but had %d lines", len(lines))
@@ -419,7 +420,7 @@ func TestAssaultBatchTask_TargetDeletedMidFlight_GracefulSkip(t *testing.T) {
 		},
 		err: fmt.Errorf("no such file or directory"),
 	}
-	
+
 	tmpLog := filepath.Join(os.TempDir(), "missing_dir.log")
 	defer os.Remove(tmpLog)
 
@@ -434,15 +435,15 @@ func TestAssaultBatchTask_TargetDeletedMidFlight_GracefulSkip(t *testing.T) {
 
 func TestAppendJSONL_ConcurrencyStress_NoInterleaving(t *testing.T) {
 	tmpFile := filepath.Join(t.TempDir(), "stress.jsonl")
-	
+
 	const numGoroutines = 100
 	const writesPer = 50
-	
+
 	errCh := make(chan error, numGoroutines)
-	
-	for i := 0; i < numGoroutines; i++ {
+
+	for i := range numGoroutines {
 		go func(gID int) {
-			for j := 0; j < writesPer; j++ {
+			for j := range writesPer {
 				record := assaultResult{Target: fmt.Sprintf("t_%d_%d", gID, j)}
 				if err := appendJSONL(tmpFile, record); err != nil {
 					errCh <- err
@@ -452,13 +453,13 @@ func TestAppendJSONL_ConcurrencyStress_NoInterleaving(t *testing.T) {
 			errCh <- nil
 		}(i)
 	}
-	
-	for i := 0; i < numGoroutines; i++ {
+
+	for range numGoroutines {
 		if err := <-errCh; err != nil {
 			t.Fatalf("concurrent append error: %v", err)
 		}
 	}
-	
+
 	results, err := readAssaultResults(tmpFile)
 	if err != nil {
 		t.Fatalf("failed to read results: %v", err)
@@ -477,19 +478,19 @@ func TestExecuteAssaultTriageTask_Idempotency_NoDuplicateTasks(t *testing.T) {
 			},
 		},
 	}
-	
+
 	assaultDir, _ := orch.assaultDir()
 	resultsDir := filepath.Join(assaultDir, "results")
 	os.MkdirAll(resultsDir, 0755)
-	
+
 	tmpFile := filepath.Join(resultsDir, "test.jsonl")
 	os.WriteFile(tmpFile, []byte("{\"target\":\"t1\", \"exit_code\":1}\n"), 0644)
-	
+
 	res, err := orch.executeAssaultTriageTask(context.Background(), &Task{})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	resMap := res.(map[string]interface{})
+	resMap := res.(map[string]any)
 	if resMap["status"] != "already_triaged" {
 		t.Errorf("expected already_triaged, got %v", resMap["status"])
 	}
@@ -498,13 +499,13 @@ func TestExecuteAssaultTriageTask_Idempotency_NoDuplicateTasks(t *testing.T) {
 func TestExecuteAssaultBatchTask_ContextCancellation_ImmediateExit(t *testing.T) {
 	orch := &Orchestrator{
 		workspace: t.TempDir(),
-		campaign: &Campaign{ID: "/c_cancel"},
+		campaign:  &Campaign{ID: "/c_cancel"},
 	}
-	
+
 	assaultDir, _ := orch.assaultDir()
 	batchDir := filepath.Join(assaultDir, "batches")
 	os.MkdirAll(batchDir, 0755)
-	
+
 	bf := assaultBatchFile{
 		CampaignID: "/c_cancel",
 		BatchID:    "b_1",
@@ -513,12 +514,12 @@ func TestExecuteAssaultBatchTask_ContextCancellation_ImmediateExit(t *testing.T)
 	bfPath := filepath.Join(batchDir, "b_1.json")
 	data, _ := json.Marshal(bf)
 	os.WriteFile(bfPath, data, 0644)
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
-	
+
 	relPath, _ := filepath.Rel(orch.workspace, bfPath)
-	
+
 	task := &Task{
 		Artifacts: []TaskArtifact{{Type: "/assault_batch", Path: relPath}},
 	}

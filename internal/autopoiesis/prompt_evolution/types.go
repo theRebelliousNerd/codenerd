@@ -243,7 +243,7 @@ type GeneratedAtom struct {
 	UsageCount   int       `json:"usage_count"`
 	SuccessCount int       `json:"success_count"`
 	CreatedAt    time.Time `json:"created_at"`
-	PromotedAt   time.Time `json:"promoted_at,omitempty"`
+	PromotedAt   time.Time `json:"promoted_at"`
 }
 
 // SuccessRate returns the success rate of this atom.

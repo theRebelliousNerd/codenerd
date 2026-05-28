@@ -214,16 +214,16 @@ func (tr *ToolRegistry) UnregisterTool(name string) error {
 		var errs []error
 
 		// Retract facts specific to this tool using the tool name as first argument
-		if err := tr.kernel.RetractFact(Fact{Predicate: "registered_tool", Args: []interface{}{name}}); err != nil {
+		if err := tr.kernel.RetractFact(Fact{Predicate: "registered_tool", Args: []any{name}}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to retract registered_tool: %w", err))
 		}
-		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_registered", Args: []interface{}{name}}); err != nil {
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_registered", Args: []any{name}}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to retract tool_registered: %w", err))
 		}
-		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_hash", Args: []interface{}{name}}); err != nil {
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_hash", Args: []any{name}}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to retract tool_hash: %w", err))
 		}
-		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_capability", Args: []interface{}{name}}); err != nil {
+		if err := tr.kernel.RetractFact(Fact{Predicate: "tool_capability", Args: []any{name}}); err != nil {
 			errs = append(errs, fmt.Errorf("failed to retract tool_capability: %w", err))
 		}
 
@@ -243,25 +243,25 @@ func collectToolFacts(tool *Tool) []Fact {
 	facts := []Fact{
 		{
 			Predicate: "registered_tool",
-			Args:      []interface{}{tool.Name, tool.Command, tool.ShardAffinity},
+			Args:      []any{tool.Name, tool.Command, tool.ShardAffinity},
 		},
 		{
 			Predicate: "tool_registered",
-			Args:      []interface{}{tool.Name, tool.RegisteredAt.Format(time.RFC3339)},
+			Args:      []any{tool.Name, tool.RegisteredAt.Format(time.RFC3339)},
 		},
 	}
 
 	if tool.Hash != "" {
 		facts = append(facts, Fact{
 			Predicate: "tool_hash",
-			Args:      []interface{}{tool.Name, tool.Hash},
+			Args:      []any{tool.Name, tool.Hash},
 		})
 	}
 
 	for _, cap := range tool.Capabilities {
 		facts = append(facts, Fact{
 			Predicate: "tool_capability",
-			Args:      []interface{}{tool.Name, cap},
+			Args:      []any{tool.Name, cap},
 		})
 	}
 

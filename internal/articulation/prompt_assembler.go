@@ -3,8 +3,10 @@ package articulation
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -325,7 +327,7 @@ func shouldForceMangleLanguage(shardType string) bool {
 // 2. Shard-specific template (from kernel or fallback)
 // 3. Kernel-derived context atoms
 // 4. Session context
-func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input interface{}) (string, error) {
+func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input any) (string, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "AssembleSystemPrompt")
 	defer timer.Stop()
 
@@ -337,7 +339,7 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input inter
 	switch v := input.(type) {
 	case *PromptContext:
 		pc = v
-	case map[string]interface{}:
+	case map[string]any:
 		var err error
 		pc, err = pa.mapToPromptContext(v)
 		if err != nil {
@@ -353,14 +355,19 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input inter
 
 	logging.Articulation("Assembling system prompt for shard=%s (type=%s)", pc.ShardID, pc.ShardType)
 
-	// Try JIT compilation if enabled
-	if pa.JITReady() {
+	// Try JIT compilation if enabled (safely access compiler under read lock)
+	pa.mu.RLock()
+	compiler := pa.jitCompiler
+	useJIT := pa.useJIT
+	pa.mu.RUnlock()
+
+	if useJIT && compiler != nil {
 		cc := pa.toCompilationContext(pc)
-		result, err := pa.jitCompiler.Compile(ctx, cc)
+		result, err := compiler.Compile(ctx, cc)
 		if err == nil {
 			// Ensure Piggyback Protocol is present when required
 			if shouldAppendPiggybackProtocol(cc.ShardType, result.Prompt) &&
-				!strings.Contains(result.Prompt, "\"control_packet\"") {
+				(!strings.Contains(result.Prompt, "control_packet") || !strings.Contains(result.Prompt, "surface_response")) {
 				logging.Articulation("JIT prompt missing Piggyback Protocol - appending mandatory suffix")
 				result.Prompt += "\n\n" + PiggybackProtocolSuffix
 			}
@@ -374,7 +381,7 @@ func (pa *PromptAssembler) AssembleSystemPrompt(ctx context.Context, input inter
 		if len(reason) > 400 {
 			reason = reason[:400]
 		}
-		_ = pa.jitCompiler.AssertFacts([]string{
+		_ = compiler.AssertFacts([]string{
 			fmt.Sprintf("jit_fallback(%s, %q).", cc.ShardType, reason),
 		})
 		logging.Get(logging.CategoryArticulation).Warn("JIT compilation failed, falling back to legacy assembler: %v", err)
@@ -480,23 +487,25 @@ func (pa *PromptAssembler) queryShardTemplate(shardType string) (string, error) 
 
 	// Look for matching shard type
 	// Expected format: shard_prompt_base(/shardType, "template string")
+	var matches []string
 	shardAtom := "/" + shardType
 	for _, fact := range facts {
 		if len(fact.Args) < 2 {
 			continue
 		}
 
-		factType, ok := fact.Args[0].(string)
-		if !ok {
-			continue
-		}
-
+		factType := types.ExtractString(fact.Args[0])
 		if factType == shardAtom || factType == shardType {
-			if template, ok := fact.Args[1].(string); ok {
-				logging.ArticulationDebug("Found kernel template for %s (%d bytes)", shardType, len(template))
-				return template, nil
+			if template := types.ExtractString(fact.Args[1]); template != "" {
+				matches = append(matches, template)
 			}
 		}
+	}
+
+	if len(matches) > 0 {
+		sort.Strings(matches)
+		logging.ArticulationDebug("Found %d matching kernel templates for %s, selected alphabetically", len(matches), shardType)
+		return matches[0], nil
 	}
 
 	logging.ArticulationDebug("No kernel template found for %s, using fallback", shardType)
@@ -544,17 +553,25 @@ func (pa *PromptAssembler) queryContextAtoms(shardID string) ([]string, error) {
 	}
 
 	var atoms []string
+	seen := make(map[string]struct{})
 	for _, fact := range facts {
 		if len(fact.Args) < 2 {
 			continue
 		}
 
-		if atom, ok := fact.Args[1].(string); ok {
-			atoms = append(atoms, atom)
+		atom := types.ExtractString(fact.Args[1])
+		if atom != "" {
+			if _, exists := seen[atom]; !exists {
+				seen[atom] = struct{}{}
+				atoms = append(atoms, atom)
+			}
 		}
 	}
 
-	logging.ArticulationDebug("Found %d injectable context atoms for shard=%s", len(atoms), shardID)
+	// Deterministically sort atoms alphabetically to prevent random prompt ordering
+	sort.Strings(atoms)
+
+	logging.ArticulationDebug("Found %d unique injectable context atoms for shard=%s", len(atoms), shardID)
 	return atoms, nil
 }
 
@@ -576,7 +593,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Current diagnostics (highest priority)
 	if len(ctx.CurrentDiagnostics) > 0 {
 		sb.WriteString("\nCURRENT BUILD/LINT ERRORS (must address):\n")
-		for _, diag := range ctx.CurrentDiagnostics {
+		maxCount := 20
+		for i, diag := range ctx.CurrentDiagnostics {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more build/lint errors\n", len(ctx.CurrentDiagnostics)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  %s\n", diag))
 		}
 	}
@@ -587,7 +609,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		if ctx.TDDRetryCount > 0 {
 			sb.WriteString(fmt.Sprintf("  TDD Retry: %d (fix root cause, not symptoms)\n", ctx.TDDRetryCount))
 		}
-		for _, test := range ctx.FailingTests {
+		maxCount := 20
+		for i, test := range ctx.FailingTests {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more failing tests\n", len(ctx.FailingTests)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", test))
 		}
 	}
@@ -595,7 +622,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Recent findings from other shards
 	if len(ctx.RecentFindings) > 0 {
 		sb.WriteString("\nRECENT FINDINGS:\n")
-		for _, finding := range ctx.RecentFindings {
+		maxCount := 20
+		for i, finding := range ctx.RecentFindings {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more findings\n", len(ctx.RecentFindings)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", finding))
 		}
 	}
@@ -603,7 +635,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Reflection hits (System 2 memory)
 	if len(ctx.ReflectionHits) > 0 {
 		sb.WriteString("\nREFLECTION HITS:\n")
-		for _, hit := range ctx.ReflectionHits {
+		maxCount := 20
+		for i, hit := range ctx.ReflectionHits {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more reflection hits\n", len(ctx.ReflectionHits)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", hit))
 		}
 	}
@@ -611,7 +648,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Impacted files
 	if len(ctx.ImpactedFiles) > 0 {
 		sb.WriteString("\nIMPACTED FILES:\n")
-		for _, file := range ctx.ImpactedFiles {
+		maxCount := 20
+		for i, file := range ctx.ImpactedFiles {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more impacted files\n", len(ctx.ImpactedFiles)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", file))
 		}
 	}
@@ -630,7 +672,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 		}
 		if len(ctx.GitRecentCommits) > 0 {
 			sb.WriteString("  Recent commits (context for why code exists):\n")
-			for _, commit := range ctx.GitRecentCommits {
+			maxCount := 20
+			for i, commit := range ctx.GitRecentCommits {
+				if i >= maxCount {
+					sb.WriteString(fmt.Sprintf("    - ... and %d more commits\n", len(ctx.GitRecentCommits)-maxCount))
+					break
+				}
 				sb.WriteString(fmt.Sprintf("    - %s\n", commit))
 			}
 		}
@@ -655,7 +702,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Prior shard outputs (cross-shard context)
 	if len(ctx.PriorShardOutputs) > 0 {
 		sb.WriteString("\nPRIOR SHARD RESULTS:\n")
-		for _, output := range ctx.PriorShardOutputs {
+		maxCount := 20
+		for i, output := range ctx.PriorShardOutputs {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more prior shard results\n", len(ctx.PriorShardOutputs)-maxCount))
+				break
+			}
 			status := "SUCCESS"
 			if !output.Success {
 				status = "FAILED"
@@ -668,7 +720,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Recent actions
 	if len(ctx.RecentActions) > 0 {
 		sb.WriteString("\nRECENT SESSION ACTIONS:\n")
-		for _, action := range ctx.RecentActions {
+		maxCount := 20
+		for i, action := range ctx.RecentActions {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more recent actions\n", len(ctx.RecentActions)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", action))
 		}
 	}
@@ -676,10 +733,19 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Domain knowledge (Type B specialists)
 	if len(ctx.KnowledgeAtoms) > 0 || len(ctx.SpecialistHints) > 0 {
 		sb.WriteString("\nDOMAIN KNOWLEDGE:\n")
-		for _, atom := range ctx.KnowledgeAtoms {
+		maxCount := 20
+		for i, atom := range ctx.KnowledgeAtoms {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more knowledge atoms\n", len(ctx.KnowledgeAtoms)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s\n", atom))
 		}
-		for _, hint := range ctx.SpecialistHints {
+		for i, hint := range ctx.SpecialistHints {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more hints\n", len(ctx.SpecialistHints)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - HINT: %s\n", hint))
 		}
 	}
@@ -687,7 +753,12 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Available tools (Ouroboros-generated)
 	if len(ctx.AvailableTools) > 0 {
 		sb.WriteString("\nAVAILABLE TOOLS:\n")
-		for _, tool := range ctx.AvailableTools {
+		maxCount := 20
+		for i, tool := range ctx.AvailableTools {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  - ... and %d more tools\n", len(ctx.AvailableTools)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  - %s: %s\n", tool.Name, tool.Description))
 			if tool.BinaryPath != "" {
 				sb.WriteString(fmt.Sprintf("    Binary: %s\n", tool.BinaryPath))
@@ -698,10 +769,19 @@ func (pa *PromptAssembler) buildSessionContext(pc *PromptContext) string {
 	// Safety constraints
 	if len(ctx.BlockedActions) > 0 || len(ctx.SafetyWarnings) > 0 {
 		sb.WriteString("\nSAFETY CONSTRAINTS:\n")
-		for _, blocked := range ctx.BlockedActions {
+		maxCount := 20
+		for i, blocked := range ctx.BlockedActions {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  BLOCKED: ... and %d more blocked actions\n", len(ctx.BlockedActions)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  BLOCKED: %s\n", blocked))
 		}
-		for _, warning := range ctx.SafetyWarnings {
+		for i, warning := range ctx.SafetyWarnings {
+			if i >= maxCount {
+				sb.WriteString(fmt.Sprintf("  WARNING: ... and %d more safety warnings\n", len(ctx.SafetyWarnings)-maxCount))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", warning))
 		}
 	}
@@ -1118,7 +1198,7 @@ func (a *PromptAssemblerAdapter) JITReady() bool {
 
 // mapToPromptContext converts a generic map to a PromptContext.
 // This supports the interface-based dependency injection used by autopoiesis.
-func (pa *PromptAssembler) mapToPromptContext(m map[string]interface{}) (*PromptContext, error) {
+func (pa *PromptAssembler) mapToPromptContext(m map[string]any) (*PromptContext, error) {
 	pc := &PromptContext{}
 
 	if v, ok := m["shard_id"].(string); ok {
@@ -1171,9 +1251,7 @@ func (pa *PromptAssembler) mapToPromptContext(m map[string]interface{}) (*Prompt
 			if pc.SessionCtx.ExtraContext == nil {
 				pc.SessionCtx.ExtraContext = extraContext
 			} else {
-				for k, v := range extraContext {
-					pc.SessionCtx.ExtraContext[k] = v
-				}
+				maps.Copy(pc.SessionCtx.ExtraContext, extraContext)
 			}
 		}
 	}

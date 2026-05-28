@@ -20,7 +20,7 @@ func TestZAIClient_Complete_Success(t *testing.T) {
 			t.Error("Expected test-key authorization")
 		}
 
-		var body map[string]interface{}
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 
 		// Response

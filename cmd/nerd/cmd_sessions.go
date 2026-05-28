@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	nerdinit "codenerd/internal/init"
@@ -83,13 +84,7 @@ func runSessionsLoad(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list sessions: %w", err)
 	}
 
-	found := false
-	for _, s := range sessions {
-		if s == sessionID {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(sessions, sessionID)
 
 	if !found {
 		return fmt.Errorf("session '%s' not found. Use 'nerd sessions list' to see available sessions", sessionID)

@@ -286,14 +286,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		// Handle kernel assertion errors
 		if err := sm.kernel.Assert(types.Fact{
 			Predicate: "active_shard",
-			Args:      []interface{}{id, shardTypeAtom},
+			Args:      []any{id, shardTypeAtom},
 		}); err != nil {
 			logging.Get(logging.CategoryShards).Error("Failed to assert active_shard for %s: %v", id, err)
 		}
 
 		if err := sm.kernel.Assert(types.Fact{
 			Predicate: "shard_status",
-			Args:      []interface{}{id, "/running", task},
+			Args:      []any{id, "/running", task},
 		}); err != nil {
 			logging.Get(logging.CategoryShards).Error("Failed to assert shard_status for %s: %v", id, err)
 		}
@@ -325,6 +325,16 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 
 	logging.Audit().ShardSpawn(id, typeName)
 
+	// Glass Box: spawn ping (transient). The matching completion event
+	// fires below with the actual duration so the scrollback shows the
+	// full lifecycle.
+	taskSummary := task
+	if len(taskSummary) > 60 {
+		taskSummary = taskSummary[:57] + "..."
+	}
+	sm.emitShardEvent(fmt.Sprintf("Spawning %s", typeName), taskSummary, id, 0)
+	spawnStart := time.Now()
+
 	sessionID := sm.sessionID
 	if sessionID == "" {
 		sessionID = "current-session"
@@ -342,14 +352,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 					// Handle kernel retraction errors
 					if err := sm.kernel.RetractFact(types.Fact{
 						Predicate: "active_shard",
-						Args:      []interface{}{id, shardTypeAtom},
+						Args:      []any{id, shardTypeAtom},
 					}); err != nil {
 						logging.Get(logging.CategoryShards).Error("Failed to retract active_shard for %s (panic cleanup): %v", id, err)
 					}
 
 					if err := sm.kernel.RetractFact(types.Fact{
 						Predicate: "shard_status",
-						Args:      []interface{}{id, "/running", task},
+						Args:      []any{id, "/running", task},
 					}); err != nil {
 						logging.Get(logging.CategoryShards).Error("Failed to retract shard_status for %s (panic cleanup): %v", id, err)
 					}
@@ -382,6 +392,16 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		}
 		logging.Audit().ShardComplete(id, task, 0, err == nil, errMsg)
 
+		// Glass Box: completion ping with timing. Errors get a distinct
+		// summary so the milestone line in scrollback reads as a fault
+		// tombstone rather than a quiet finish.
+		dur := time.Since(spawnStart)
+		if err != nil {
+			sm.emitShardEvent(fmt.Sprintf("%s failed", typeName), errMsg, id, dur)
+		} else {
+			sm.emitShardEvent(fmt.Sprintf("%s done", typeName), truncateForEvent(res, 120), id, dur)
+		}
+
 		// Record the result before cleanup so synchronous callers don't block on kernel churn.
 		sm.recordResult(id, res, err)
 
@@ -389,14 +409,14 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			// Handle kernel retraction errors
 			if err := sm.kernel.RetractFact(types.Fact{
 				Predicate: "active_shard",
-				Args:      []interface{}{id, shardTypeAtom},
+				Args:      []any{id, shardTypeAtom},
 			}); err != nil {
 				logging.Get(logging.CategoryShards).Error("Failed to retract active_shard for %s: %v", id, err)
 			}
 
 			if err := sm.kernel.RetractFact(types.Fact{
 				Predicate: "shard_status",
-				Args:      []interface{}{id, "/running", task},
+				Args:      []any{id, "/running", task},
 			}); err != nil {
 				logging.Get(logging.CategoryShards).Error("Failed to retract shard_status for %s: %v", id, err)
 			}
@@ -555,23 +575,23 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 
 	facts = append(facts, types.Fact{
 		Predicate: "shard_executed",
-		Args:      []interface{}{shardID, shardType, task, timestamp},
+		Args:      []any{shardID, shardType, task, timestamp},
 	})
 
 	facts = append(facts, types.Fact{
 		Predicate: "last_shard_execution",
-		Args:      []interface{}{shardID, shardType, task},
+		Args:      []any{shardID, shardType, task},
 	})
 
 	if err != nil {
 		facts = append(facts, types.Fact{
 			Predicate: "shard_error",
-			Args:      []interface{}{shardID, err.Error()},
+			Args:      []any{shardID, err.Error()},
 		})
 	} else {
 		facts = append(facts, types.Fact{
 			Predicate: "shard_success",
-			Args:      []interface{}{shardID},
+			Args:      []any{shardID},
 		})
 
 		output := result
@@ -580,13 +600,13 @@ func (sm *ShardManager) ResultToFacts(shardID, shardType, task, result string, e
 		}
 		facts = append(facts, types.Fact{
 			Predicate: "shard_output",
-			Args:      []interface{}{shardID, output},
+			Args:      []any{shardID, output},
 		})
 
 		summary := sm.extractSummary(shardType, result)
 		facts = append(facts, types.Fact{
 			Predicate: "recent_shard_context",
-			Args:      []interface{}{shardType, task, summary, timestamp},
+			Args:      []any{shardType, task, summary, timestamp},
 		})
 	}
 

@@ -55,7 +55,7 @@ func (m *mockKernel) Query(query string) ([]types.Fact, error) {
 	return filtered, nil
 }
 
-func (m *mockKernel) addFact(predicate string, args ...interface{}) {
+func (m *mockKernel) addFact(predicate string, args ...any) {
 	m.facts[predicate] = append(m.facts[predicate], types.Fact{
 		Predicate: predicate,
 		Args:      args,
@@ -455,7 +455,7 @@ func TestNewPromptAssemblerWithJIT(t *testing.T) {
 	tests := []struct {
 		name        string
 		kernel      KernelQuerier
-		jitCompiler interface{} // Use interface to allow nil
+		jitCompiler any // Use interface to allow nil
 		wantErr     bool
 		wantJIT     bool
 	}{
@@ -732,7 +732,7 @@ func TestPromptAssembler_MassiveContextInjection(t *testing.T) {
 		t.Fatalf("NewPromptAssembler() error = %v", err)
 	}
 
-	for i := 0; i < 15000; i++ {
+	for range 15000 {
 		mk.addFact("injectable_context", "coder-123", "Some atom text context")
 	}
 
@@ -740,7 +740,7 @@ func TestPromptAssembler_MassiveContextInjection(t *testing.T) {
 		ShardID:   "coder-123",
 		ShardType: "coder",
 	}
-	
+
 	// Should not OOM or take forever
 	_, err = pa.AssembleSystemPrompt(context.Background(), pc)
 	if err != nil {
@@ -764,12 +764,12 @@ func TestPromptAssembler_ExtremelyLongSessionCtx(t *testing.T) {
 			CurrentDiagnostics: []string{massiveStr},
 		},
 	}
-	
+
 	res, err := pa.AssembleSystemPrompt(context.Background(), pc)
 	if err != nil {
 		t.Fatalf("AssembleSystemPrompt() error = %v", err)
 	}
-	
+
 	// If the prompt assembler truncates, it's fine. If not, just ensure it works without crashing.
 	if len(res) < 10*1024*1024 {
 		// Just confirming it succeeded
@@ -833,10 +833,10 @@ func TestPromptAssembler_StateConflicts_ConflictingShardPromptBase(t *testing.T)
 
 func TestPromptAssembler_StateConflicts_JITRaceCondition(t *testing.T) {
 	mk := newMockKernel()
-	
+
 	// Create a dummy JIT compiler
-	jit := &prompt.JITPromptCompiler{} 
-	
+	jit := &prompt.JITPromptCompiler{}
+
 	pa, err := NewPromptAssemblerWithJIT(mk, jit)
 	if err != nil {
 		t.Fatalf("NewPromptAssemblerWithJIT() error = %v", err)
@@ -875,9 +875,9 @@ func TestPromptAssembler_TypeCoercion_MapTypeAssertions(t *testing.T) {
 	}
 
 	// JSON unmarshals numbers as float64 into interface{}
-	inputMap := map[string]interface{}{
-		"shard_id":   "coder-123",
-		"shard_type": "coder",
+	inputMap := map[string]any{
+		"shard_id":       "coder-123",
+		"shard_type":     "coder",
 		"semantic_top_k": float64(5.0), // Should coerce nicely or fail gracefully
 	}
 
@@ -923,7 +923,7 @@ func TestPromptAssembler_MissingPiggybackEnvelope(t *testing.T) {
 	// if the template happens to contain the substring "control_packet" as a normal word,
 	// the naive check might skip appending the Piggyback Protocol Suffix.
 	mk.addFact("shard_prompt_base", "/coder", "Here is a template that mentions control_packet in text.")
-	
+
 	res, err := pa.AssembleSystemPrompt(context.Background(), pc)
 	if err != nil {
 		t.Fatalf("AssembleSystemPrompt failed: %v", err)

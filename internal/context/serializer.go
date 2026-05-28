@@ -272,7 +272,7 @@ func ExtractAtomsFromControlPacket(packet *perception.ControlPacket) ([]core.Fac
 	if packet.IntentClassification.Category != "" {
 		facts = append(facts, core.Fact{
 			Predicate: "user_intent",
-			Args: []interface{}{
+			Args: []any{
 				"/current_intent",
 				packet.IntentClassification.Category,
 				packet.IntentClassification.Verb,
@@ -328,8 +328,8 @@ func ParseMangleAtom(atom string) (core.Fact, error) {
 }
 
 // parseArgs parses a comma-separated argument list.
-func parseArgs(argsStr string) []interface{} {
-	var args []interface{}
+func parseArgs(argsStr string) []any {
+	var args []any
 
 	if strings.TrimSpace(argsStr) == "" {
 		return args
@@ -386,7 +386,7 @@ func splitArgs(s string) []string {
 }
 
 // parseArgValue converts a string argument to the appropriate Go type.
-func parseArgValue(s string) interface{} {
+func parseArgValue(s string) any {
 	s = strings.TrimSpace(s)
 
 	// Name constant (starts with /)
@@ -425,7 +425,7 @@ func parseArgValue(s string) interface{} {
 }
 
 // formatArg formats an argument for serialization.
-func formatArg(arg interface{}) string {
+func formatArg(arg any) string {
 	switch v := arg.(type) {
 	case string:
 		if strings.HasPrefix(v, "/") {

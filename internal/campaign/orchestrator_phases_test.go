@@ -19,7 +19,7 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	// 1. Success case
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "current_phase",
-		Args:      []interface{}{"/phase_1"},
+		Args:      []any{"/phase_1"},
 	})
 
 	orch := &Orchestrator{
@@ -39,7 +39,7 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	mockKernel.Facts = nil
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "current_phase",
-		Args:      []interface{}{"/phase_99"},
+		Args:      []any{"/phase_99"},
 	})
 	phase = orch.getCurrentPhase()
 	if phase != nil {
@@ -72,9 +72,9 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 	}
 
 	// Inject eligible_task facts
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []interface{}{"/task_1"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []interface{}{"/task_3"}})
-	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []interface{}{"/task_4"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_1"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_3"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_4"}})
 
 	orch := &Orchestrator{
 		kernel:   mockKernel,
@@ -131,7 +131,7 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 	// 1. Success
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "next_campaign_task",
-		Args:      []interface{}{"/task_2"},
+		Args:      []any{"/task_2"},
 	})
 
 	orch := &Orchestrator{
@@ -152,7 +152,7 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 	mockKernel.Facts = nil
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "next_campaign_task",
-		Args:      []interface{}{"/task_99"},
+		Args:      []any{"/task_99"},
 	})
 	task = orch.getNextTask(phase)
 	if task != nil {
@@ -247,7 +247,7 @@ func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
 	// 2. Blocked
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "campaign_blocked",
-		Args:      []interface{}{"some_id", "/security_violation"},
+		Args:      []any{"some_id", "/security_violation"},
 	})
 
 	if reason := orch.getCampaignBlockReason(); reason != "/security_violation" {

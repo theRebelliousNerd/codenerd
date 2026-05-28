@@ -184,7 +184,7 @@ func (tm *TransactionManager) AddEdit(ctx context.Context, edit FileEdit) error 
 	}
 	if assertErr := tm.kernel.Assert(Fact{
 		Predicate: "pending_mutation",
-		Args:      []interface{}{mutationID, edit.FilePath, oldContent, newContent},
+		Args:      []any{mutationID, edit.FilePath, oldContent, newContent},
 	}); assertErr != nil {
 		logging.KernelDebug("Failed to assert pending_mutation for %s: %v", edit.FilePath, assertErr)
 	}
@@ -389,7 +389,7 @@ func (tm *TransactionManager) Commit(ctx context.Context) error {
 		if edit.EditType != EditTypeDelete {
 			tm.kernel.Assert(Fact{
 				Predicate: "file_written",
-				Args:      []interface{}{edit.FilePath, edit.NewHash, txn.ID, time.Now().Unix()},
+				Args:      []any{edit.FilePath, edit.NewHash, txn.ID, time.Now().Unix()},
 			})
 		}
 	}
@@ -505,14 +505,14 @@ func (tm *TransactionManager) ToFacts() []Fact {
 	// Add transaction_state fact
 	facts = append(facts, Fact{
 		Predicate: "transaction_state",
-		Args:      []interface{}{txn.ID, string(txn.Status)},
+		Args:      []any{txn.ID, string(txn.Status)},
 	})
 
 	// Add plan_edit facts for each edit
 	for _, edit := range txn.Edits {
 		facts = append(facts, Fact{
 			Predicate: "plan_edit",
-			Args:      []interface{}{edit.FilePath},
+			Args:      []any{edit.FilePath},
 		})
 	}
 

@@ -536,7 +536,7 @@ func (d *DiffApprovalView) filterHunkLines(lines []DiffLine) []DiffLine {
 	// and convert them to context lines or skip them
 	filtered := make([]DiffLine, 0, len(lines))
 
-	for i := 0; i < len(lines); i++ {
+	for i := range lines {
 		line := lines[i]
 
 		// Always keep context lines
@@ -613,7 +613,7 @@ func isWhitespaceOnlyChange(a, b string) bool {
 
 // renderDiffLine renders a single diff line with appropriate styling
 // wordDiffs is optional - if provided, word-level highlights will be applied
-func (d *DiffApprovalView) renderDiffLine(line DiffLine, wordDiffs interface{}) string {
+func (d *DiffApprovalView) renderDiffLine(line DiffLine, wordDiffs any) string {
 	var style lipgloss.Style
 	var prefix string
 
@@ -661,7 +661,7 @@ func (d *DiffApprovalView) renderWordDiffPair(removed, added DiffLine) string {
 }
 
 // renderLineWithWordHighlights renders a line with word-level change highlighting
-func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs interface{}, isRemoved bool) string {
+func (d *DiffApprovalView) renderLineWithWordHighlights(line DiffLine, wordDiffs any, isRemoved bool) string {
 	// Import the diff package types
 	// For now, we'll do basic rendering with full line styling
 	// In a full implementation, we'd parse wordDiffs and apply different colors to changed words

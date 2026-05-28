@@ -123,6 +123,14 @@ type CodexCLIConfig struct {
 // Built-in Tools:
 //   - GoogleSearch: Enables grounding responses with Google Search results
 //   - URLContext: Allows including URLs for context (max 20 URLs, 34MB each)
+//
+// Output Budget:
+//   - MaxOutputTokens caps the response budget. Counts toward the same pool
+//     thinking tokens consume, so when ThinkingLevel="high" the model can
+//     burn most of the budget on thinking and leave very little for the
+//     visible answer — which manifests as truncated piggyback envelopes.
+//     If you see truncation in the chat surface, raise MaxOutputTokens or
+//     lower ThinkingLevel to "medium".
 type GeminiProviderConfig struct {
 	// EnableThinking enables thinking/reasoning mode
 	EnableThinking bool `json:"enable_thinking,omitempty"`
@@ -130,6 +138,12 @@ type GeminiProviderConfig struct {
 	// ThinkingLevel for Gemini 3: "minimal", "low", "medium", "high" (MUST be lowercase)
 	// Default: "high" when thinking is enabled
 	ThinkingLevel string `json:"thinking_level,omitempty"`
+
+	// MaxOutputTokens caps the response budget (visible output + thinking).
+	// 0 / unset means use the model's default. Gemini 3 supports up to
+	// 65536. Lower this when you want to constrain cost; raise it (within
+	// the model cap) when high-thinking calls are getting truncated.
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
 
 	// EnableGoogleSearch enables Google Search grounding
 	// Responses will be grounded with real-time search results
@@ -147,6 +161,7 @@ func DefaultGeminiProviderConfig() *GeminiProviderConfig {
 	return &GeminiProviderConfig{
 		EnableThinking:     true,
 		ThinkingLevel:      "high", // Dynamic reasoning - maximizes reasoning depth
+		MaxOutputTokens:    65536,  // Gemini 3 max; counts thinking + visible output together
 		EnableGoogleSearch: true,
 		EnableURLContext:   true,
 	}

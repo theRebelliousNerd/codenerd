@@ -84,7 +84,7 @@ type GeminiConfig struct {
 
 	// Thinking mode settings (Gemini 3)
 	EnableThinking bool   // Set true to enable thinking/reasoning mode
-	ThinkingLevel  string // For Gemini 3: "minimal", "low", "medium", "high" (lowercase required, default: "high")
+	ThinkingLevel  string // For Gemini 3: "minimal", "low", "medium" (API default), "high" — lowercase required
 
 	// Built-in tools
 	EnableGoogleSearch bool     // Enable Google Search grounding
@@ -123,9 +123,9 @@ type ZAIResponseFormat struct {
 
 // ZAIJSONSchema defines the structured output schema.
 type ZAIJSONSchema struct {
-	Name   string                 `json:"name"`
-	Strict bool                   `json:"strict"`
-	Schema map[string]interface{} `json:"schema"`
+	Name   string         `json:"name"`
+	Strict bool           `json:"strict"`
+	Schema map[string]any `json:"schema"`
 }
 
 // ZAIThinking enables extended reasoning mode.
@@ -152,7 +152,7 @@ type ZAIRequest struct {
 	ResponseFormat *ZAIResponseFormat `json:"response_format,omitempty"` // Structured output
 	Thinking       *ZAIThinking       `json:"thinking,omitempty"`        // Extended reasoning
 	Tools          []OpenAITool       `json:"tools,omitempty"`
-	ToolChoice     interface{}        `json:"tool_choice,omitempty"`
+	ToolChoice     any                `json:"tool_choice,omitempty"`
 }
 
 // ZAIResponse represents the API response structure (Enhanced for v1.2.0).
@@ -191,27 +191,27 @@ type ZAIResponse struct {
 
 // AnthropicMessage represents a message (supports both text and tool results).
 type AnthropicMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // Can be string or []AnthropicContentBlock
+	Role    string `json:"role"`
+	Content any    `json:"content"` // Can be string or []AnthropicContentBlock
 }
 
 // AnthropicContentBlock represents a content block in a message.
 type AnthropicContentBlock struct {
-	Type      string                 `json:"type"`                  // "text", "tool_use", "tool_result"
-	Text      string                 `json:"text,omitempty"`        // For text blocks
-	ID        string                 `json:"id,omitempty"`          // For tool_use blocks
-	Name      string                 `json:"name,omitempty"`        // For tool_use blocks
-	Input     map[string]interface{} `json:"input,omitempty"`       // For tool_use blocks
-	ToolUseID string                 `json:"tool_use_id,omitempty"` // For tool_result blocks
-	Content   string                 `json:"content,omitempty"`     // For tool_result blocks (result content)
-	IsError   bool                   `json:"is_error,omitempty"`    // For tool_result blocks
+	Type      string         `json:"type"`                  // "text", "tool_use", "tool_result"
+	Text      string         `json:"text,omitempty"`        // For text blocks
+	ID        string         `json:"id,omitempty"`          // For tool_use blocks
+	Name      string         `json:"name,omitempty"`        // For tool_use blocks
+	Input     map[string]any `json:"input,omitempty"`       // For tool_use blocks
+	ToolUseID string         `json:"tool_use_id,omitempty"` // For tool_result blocks
+	Content   string         `json:"content,omitempty"`     // For tool_result blocks (result content)
+	IsError   bool           `json:"is_error,omitempty"`    // For tool_result blocks
 }
 
 // AnthropicTool represents a tool definition for Anthropic API.
 type AnthropicTool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	InputSchema map[string]interface{} `json:"input_schema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 // AnthropicRequest represents the Anthropic API request.
@@ -285,9 +285,9 @@ type OpenAITool struct {
 
 // OpenAIFunction represents the function definition.
 type OpenAIFunction struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
 // OpenAIToolCall represents a tool call invocation in the response.
@@ -324,7 +324,7 @@ type OpenAIRequest struct {
 	StreamOptions  *OpenAIStreamOptions `json:"stream_options,omitempty"`
 	ResponseFormat *ZAIResponseFormat   `json:"response_format,omitempty"`
 	Tools          []OpenAITool         `json:"tools,omitempty"`
-	ToolChoice     interface{}          `json:"tool_choice,omitempty"`
+	ToolChoice     any                  `json:"tool_choice,omitempty"`
 }
 
 // OpenAIResponse represents the API response.
@@ -396,15 +396,15 @@ type GeminiPart struct {
 
 // GeminiFunctionCall represents a function call from the model.
 type GeminiFunctionCall struct {
-	Name             string                 `json:"name"`
-	Args             map[string]interface{} `json:"args"`
-	ThoughtSignature string                 `json:"thoughtSignature,omitempty"`
+	Name             string         `json:"name"`
+	Args             map[string]any `json:"args"`
+	ThoughtSignature string         `json:"thoughtSignature,omitempty"`
 }
 
 // GeminiFunctionResponse represents a tool result sent back to the model.
 type GeminiFunctionResponse struct {
-	Name     string                 `json:"name"`
-	Response map[string]interface{} `json:"response"`
+	Name     string         `json:"name"`
+	Response map[string]any `json:"response"`
 }
 
 // GeminiThinkingConfig configures thinking/reasoning mode.
@@ -415,18 +415,18 @@ type GeminiThinkingConfig struct {
 
 // GeminiGenerationConfig represents generation parameters.
 type GeminiGenerationConfig struct {
-	Temperature      float64                `json:"temperature,omitempty"`
-	MaxOutputTokens  int                    `json:"maxOutputTokens,omitempty"`
-	ResponseMimeType string                 `json:"responseMimeType,omitempty"`
-	ResponseSchema   map[string]interface{} `json:"responseJsonSchema,omitempty"`
-	ThinkingConfig   *GeminiThinkingConfig  `json:"thinkingConfig,omitempty"` // Thinking mode settings
+	Temperature      float64               `json:"temperature,omitempty"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`
+	ResponseMimeType string                `json:"responseMimeType,omitempty"`
+	ResponseSchema   map[string]any        `json:"responseJsonSchema,omitempty"`
+	ThinkingConfig   *GeminiThinkingConfig `json:"thinkingConfig,omitempty"` // Thinking mode settings
 }
 
 // GeminiRequest represents the Gemini API request.
 type GeminiRequest struct {
 	Contents          []GeminiContent        `json:"contents"`
 	SystemInstruction *GeminiContent         `json:"systemInstruction,omitempty"`
-	GenerationConfig  GeminiGenerationConfig `json:"generationConfig,omitempty"`
+	GenerationConfig  GeminiGenerationConfig `json:"generationConfig"`
 	Tools             []GeminiTool           `json:"tools,omitempty"`
 	// ThoughtSignature is required for multi-turn function calling (Gemini 3)
 	// Must be passed back in subsequent turns for reasoning continuity
@@ -455,9 +455,9 @@ type GeminiTool struct {
 
 // GeminiFunctionDeclaration represents a function declaration.
 type GeminiFunctionDeclaration struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
 // GeminiGroundingChunk represents a chunk of grounding data from Google Search.
@@ -491,7 +491,7 @@ type GeminiGroundingMetadata struct {
 	GroundingSupports []GeminiGroundingSupport `json:"groundingSupports,omitempty"`
 	WebSearchQueries  []string                 `json:"webSearchQueries,omitempty"`
 	SearchEntryPoint  *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitempty"`
-	RetrievalMetadata map[string]interface{}   `json:"retrievalMetadata,omitempty"`
+	RetrievalMetadata map[string]any           `json:"retrievalMetadata,omitempty"`
 }
 
 // GeminiResponseCandidate represents a single response candidate.

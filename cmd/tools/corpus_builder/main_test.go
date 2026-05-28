@@ -17,7 +17,7 @@ func TestCleanRegexForEmbedding(t *testing.T) {
 func TestFactToCorpusEntryIntentDefinition(t *testing.T) {
 	fact := core.Fact{
 		Predicate: "intent_definition",
-		Args: []interface{}{
+		Args: []any{
 			"How many files?",
 			core.MangleAtom("/stats"),
 			"count",

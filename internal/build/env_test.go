@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"codenerd/internal/config"
@@ -160,13 +161,7 @@ func TestLoadBuildConfig_SqliteHeaders(t *testing.T) {
 		if got, want := cfg.EnvVars["GOFLAGS"], "-tags=sqlite_vec"; got != want {
 			t.Fatalf("cfg.EnvVars[GOFLAGS] = %q, want %q", got, want)
 		}
-		found := false
-		for _, pkg := range cfg.CGOPackages {
-			if pkg == "sqlite-vec" {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(cfg.CGOPackages, "sqlite-vec")
 		if !found {
 			t.Fatalf("cfg.CGOPackages missing sqlite-vec: %v", cfg.CGOPackages)
 		}

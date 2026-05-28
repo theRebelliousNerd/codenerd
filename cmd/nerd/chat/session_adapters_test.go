@@ -21,7 +21,7 @@ import (
 
 // shardManagerObserverSpawner wraps ShardManager for observer spawning.
 type shardManagerObserverSpawner struct {
-	shardMgr interface{} // *coreshards.ShardManager when non-nil
+	shardMgr any // *coreshards.ShardManager when non-nil
 }
 
 var errShardManagerNotAvailable = errors.New("shard manager not available")
@@ -37,7 +37,7 @@ func (s *shardManagerObserverSpawner) SpawnObserver(ctx context.Context, observe
 
 // shardManagerConsultationSpawner wraps ShardManager for consultation spawning.
 type shardManagerConsultationSpawner struct {
-	shardMgr interface{} // *coreshards.ShardManager when non-nil
+	shardMgr any // *coreshards.ShardManager when non-nil
 }
 
 // SpawnConsultation spawns a specialist consultation for the given task.
@@ -64,7 +64,7 @@ func TestSessionKernelAdapter_LoadFacts(t *testing.T) {
 	adapter := &sessionKernelAdapter{kernel: m.kernel}
 
 	facts := []types.Fact{
-		{Predicate: "test_fact", Args: []interface{}{"arg1", "arg2"}},
+		{Predicate: "test_fact", Args: []any{"arg1", "arg2"}},
 	}
 
 	err := adapter.LoadFacts(facts)
@@ -117,7 +117,7 @@ func TestSessionKernelAdapter_Assert(t *testing.T) {
 
 	adapter := &sessionKernelAdapter{kernel: m.kernel}
 
-	fact := types.Fact{Predicate: "test_asserted", Args: []interface{}{"value1"}}
+	fact := types.Fact{Predicate: "test_asserted", Args: []any{"value1"}}
 	err := adapter.Assert(fact)
 	if err != nil {
 		t.Logf("Assert returned error: %v", err)
@@ -135,7 +135,7 @@ func TestSessionKernelAdapter_Retract(t *testing.T) {
 	adapter := &sessionKernelAdapter{kernel: m.kernel}
 
 	// First assert a fact
-	fact := types.Fact{Predicate: "test_to_retract", Args: []interface{}{"value"}}
+	fact := types.Fact{Predicate: "test_to_retract", Args: []any{"value"}}
 	_ = adapter.Assert(fact)
 
 	// Then retract
@@ -155,7 +155,7 @@ func TestSessionKernelAdapter_RetractFact(t *testing.T) {
 
 	adapter := &sessionKernelAdapter{kernel: m.kernel}
 
-	fact := types.Fact{Predicate: "test_retract_fact", Args: []interface{}{"value"}}
+	fact := types.Fact{Predicate: "test_retract_fact", Args: []any{"value"}}
 	_ = adapter.Assert(fact)
 
 	err := adapter.RetractFact(fact)
@@ -221,8 +221,8 @@ func TestSessionKernelAdapter_RetractExactFactsBatch(t *testing.T) {
 	adapter := &sessionKernelAdapter{kernel: m.kernel}
 
 	facts := []types.Fact{
-		{Predicate: "batch_fact1", Args: []interface{}{"a"}},
-		{Predicate: "batch_fact2", Args: []interface{}{"b"}},
+		{Predicate: "batch_fact1", Args: []any{"a"}},
+		{Predicate: "batch_fact2", Args: []any{"b"}},
 	}
 
 	err := adapter.RetractExactFactsBatch(facts)
@@ -783,7 +783,7 @@ func TestSessionAdapters_Integration(t *testing.T) {
 
 	// Test kernel adapter flow
 	perf.Track("kernel_adapter_flow", func() {
-		fact := types.Fact{Predicate: "integration_test", Args: []interface{}{"value"}}
+		fact := types.Fact{Predicate: "integration_test", Args: []any{"value"}}
 		_ = kernelAdapter.Assert(fact)
 		_, _ = kernelAdapter.Query("integration_test")
 		_ = kernelAdapter.Retract("integration_test")
@@ -850,7 +850,7 @@ func TestSessionVirtualStoreAdapter_LargeFile(t *testing.T) {
 
 	// Create file with many lines
 	var lines []string
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		lines = append(lines, strings.Repeat("x", 100))
 	}
 	content := strings.Join(lines, "\n")
@@ -917,14 +917,14 @@ func TestSessionAdapters_Performance(t *testing.T) {
 	iterations := 100
 
 	perf.Track("query_100x", func() {
-		for i := 0; i < iterations; i++ {
+		for range iterations {
 			_, _ = kernelAdapter.Query("config_value")
 		}
 	})
 
 	perf.Track("assert_retract_100x", func() {
-		for i := 0; i < iterations; i++ {
-			fact := types.Fact{Predicate: "perf_test", Args: []interface{}{i}}
+		for i := range iterations {
+			fact := types.Fact{Predicate: "perf_test", Args: []any{i}}
 			_ = kernelAdapter.Assert(fact)
 			_ = kernelAdapter.Retract("perf_test")
 		}

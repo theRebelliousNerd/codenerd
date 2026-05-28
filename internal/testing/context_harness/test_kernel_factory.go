@@ -105,12 +105,12 @@ func parseMangleFact(factStr string) (core.Fact, error) {
 }
 
 // parseArgs parses comma-separated arguments.
-func parseArgs(argsStr string) []interface{} {
+func parseArgs(argsStr string) []any {
 	if argsStr == "" {
 		return nil
 	}
 
-	var args []interface{}
+	var args []any
 	var current []byte
 	inString := false
 	stringChar := byte(0)
@@ -150,7 +150,7 @@ func parseArgs(argsStr string) []interface{} {
 }
 
 // parseValue attempts to parse a value as int, otherwise returns string.
-func parseValue(s string) interface{} {
+func parseValue(s string) any {
 	// Try int
 	var i int
 	if _, err := fmt.Sscanf(s, "%d", &i); err == nil {

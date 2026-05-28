@@ -115,7 +115,7 @@ func (v *VirtualStore) PersistFactsToKnowledge(facts []Fact, factType string, pr
 }
 
 // PersistLink stores a relationship into the knowledge graph table.
-func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight float64, meta map[string]interface{}) error {
+func (v *VirtualStore) PersistLink(entityA, relation, entityB string, weight float64, meta map[string]any) error {
 	logging.VirtualStoreDebug("PersistLink: %s -[%s]-> %s (weight=%.2f)", entityA, relation, entityB, weight)
 
 	v.mu.RLock()
@@ -157,7 +157,7 @@ func (v *VirtualStore) QueryKnowledgeGraph(entity, direction string) ([]Fact, er
 	for _, link := range links {
 		facts = append(facts, Fact{
 			Predicate: "knowledge_link",
-			Args:      []interface{}{link.EntityA, link.Relation, link.EntityB},
+			Args:      []any{link.EntityA, link.Relation, link.EntityB},
 		})
 	}
 	return facts, nil
@@ -183,7 +183,7 @@ func (v *VirtualStore) QueryActivations(limit int, minScore float64) ([]Fact, er
 	for factID, score := range activations {
 		facts = append(facts, Fact{
 			Predicate: "activation",
-			Args:      []interface{}{factID, score},
+			Args:      []any{factID, score},
 		})
 	}
 	return facts, nil
@@ -209,7 +209,7 @@ func (v *VirtualStore) RecallSimilar(query string, topK int) ([]Fact, error) {
 	for i, entry := range entries {
 		facts = append(facts, Fact{
 			Predicate: "similar_content",
-			Args:      []interface{}{i, entry.Content},
+			Args:      []any{i, entry.Content},
 		})
 	}
 	return facts, nil
@@ -238,7 +238,7 @@ func (v *VirtualStore) QuerySession(sessionID string, limit int) ([]Fact, error)
 		response, _ := turn["response"].(string)
 		facts = append(facts, Fact{
 			Predicate: "session_turn",
-			Args:      []interface{}{sessionID, turnNum, userInput, response},
+			Args:      []any{sessionID, turnNum, userInput, response},
 		})
 	}
 	return facts, nil
@@ -294,7 +294,7 @@ func (v *VirtualStore) QueryTraces(shardType string, limit int) ([]Fact, error) 
 
 		facts = append(facts, Fact{
 			Predicate: "reasoning_trace",
-			Args: []interface{}{
+			Args: []any{
 				trace.ID,
 				shardAtom,
 				categoryAtom,
@@ -361,7 +361,7 @@ func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
 	facts := []Fact{
 		{
 			Predicate: "trace_stats",
-			Args: []interface{}{
+			Args: []any{
 				shardType,
 				successCount,
 				failCount,
@@ -376,7 +376,7 @@ func (v *VirtualStore) QueryTraceStats(shardType string) ([]Fact, error) {
 }
 
 // toAtomOrString converts string to MangleAtom if it starts with /.
-func toAtomOrString(v interface{}) interface{} {
+func toAtomOrString(v any) any {
 	if s, ok := v.(string); ok && strings.HasPrefix(s, "/") {
 		return MangleAtom(s)
 	}
@@ -407,9 +407,9 @@ func (v *VirtualStore) HydrateKnowledgeGraph(ctx context.Context) (int, error) {
 	}
 
 	// Create assertion function that wraps kernel.Assert
-	assertFunc := func(predicate string, args []interface{}) error {
+	assertFunc := func(predicate string, args []any) error {
 		// Convert args to MangleAtom if needed
-		safeArgs := make([]interface{}, len(args))
+		safeArgs := make([]any, len(args))
 		for i, arg := range args {
 			safeArgs[i] = toAtomOrString(arg)
 		}
@@ -457,7 +457,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	// Helper to assert with atom conversion
 	assertLearned := func(metaPred string, fact Fact) error {
 		// Convert args
-		safeArgs := make([]interface{}, len(fact.Args))
+		safeArgs := make([]any, len(fact.Args))
 		for i, arg := range fact.Args {
 			safeArgs[i] = toAtomOrString(arg)
 		}
@@ -467,7 +467,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 
 		return kernel.Assert(Fact{
 			Predicate: metaPred,
-			Args:      []interface{}{predArg, safeArgs},
+			Args:      []any{predArg, safeArgs},
 		})
 	}
 
@@ -512,7 +512,7 @@ func (v *VirtualStore) HydrateLearnings(ctx context.Context) (int, error) {
 	if err == nil {
 		for _, fact := range activations {
 			// Activations are direct facts, not meta-facts
-			safeArgs := make([]interface{}, len(fact.Args))
+			safeArgs := make([]any, len(fact.Args))
 			for i, arg := range fact.Args {
 				safeArgs[i] = toAtomOrString(arg)
 			}
@@ -898,7 +898,7 @@ func queryArgInt(args []ast.BaseTerm, idx int) (int, bool) {
 	}
 }
 
-func appendAtom(atoms []ast.Atom, predicate string, args ...interface{}) []ast.Atom {
+func appendAtom(atoms []ast.Atom, predicate string, args ...any) []ast.Atom {
 	atom, err := Fact{Predicate: predicate, Args: args}.ToAtom()
 	if err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Virtual predicate %s atom conversion failed: %v", predicate, err)
@@ -947,7 +947,7 @@ func (v *VirtualStore) QueryStrategicKnowledge(category string) ([]Fact, error) 
 		subcategory := strings.TrimPrefix(atom.Concept, "strategic/")
 		facts = append(facts, Fact{
 			Predicate: "strategic_knowledge",
-			Args:      []interface{}{subcategory, atom.Content, atom.Confidence},
+			Args:      []any{subcategory, atom.Content, atom.Confidence},
 		})
 	}
 

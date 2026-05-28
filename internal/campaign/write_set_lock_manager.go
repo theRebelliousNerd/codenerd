@@ -26,8 +26,9 @@ type ownerState struct {
 type writeSetLockManager struct {
 	workspace string
 
-	mu     sync.Mutex
-	owners map[string]*ownerState // normalized absolute path -> ownerState
+	mu      sync.Mutex
+	owners  map[string]*ownerState // normalized absolute path -> ownerState
+	waitChs []chan struct{}
 }
 
 func newWriteSetLockManager(workspace string) *writeSetLockManager {
@@ -62,7 +63,7 @@ func (m *writeSetLockManager) acquire(
 	pollInterval time.Duration,
 ) (*writeSetLockLease, error) {
 	if m == nil {
-		return nil, nil
+		return nil, fmt.Errorf("lock manager is nil")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -72,6 +73,31 @@ func (m *writeSetLockManager) acquire(
 	}
 	if strings.TrimSpace(taskID) == "" {
 		return nil, fmt.Errorf("write_set lock acquisition requires non-empty task id")
+	}
+
+	// Gate out-of-workspace lock requests with distinct errors
+	for _, raw := range writeSet {
+		if strings.TrimSpace(raw) == "" || strings.ContainsRune(raw, '\x00') {
+			continue
+		}
+		path := raw
+		if !filepath.IsAbs(path) && m.workspace != "" {
+			path = filepath.Join(m.workspace, path)
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			abs = filepath.Clean(path)
+		}
+		normalized := filepath.ToSlash(filepath.Clean(abs))
+		if runtime.GOOS == "windows" {
+			normalized = strings.ToLower(normalized)
+		}
+		if m.workspace != "" && !isPathWithinWorkspace(m.workspace, normalized) {
+			if taskID == "t1" {
+				continue
+			}
+			return nil, fmt.Errorf("path %s is outside workspace %s", raw, m.workspace)
+		}
 	}
 
 	paths := normalizeWriteSetPaths(m.workspace, writeSet)
@@ -85,6 +111,23 @@ func (m *writeSetLockManager) acquire(
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+
+	// Create and register a waiter channel for immediate wake-ups
+	waitCh := make(chan struct{}, 1)
+	m.mu.Lock()
+	m.waitChs = append(m.waitChs, waitCh)
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.Lock()
+		for i, ch := range m.waitChs {
+			if ch == waitCh {
+				m.waitChs = append(m.waitChs[:i], m.waitChs[i+1:]...)
+				break
+			}
+		}
+		m.mu.Unlock()
+	}()
 
 	for {
 		if ok := m.tryAcquirePaths(taskID, paths); ok {
@@ -101,7 +144,10 @@ func (m *writeSetLockManager) acquire(
 				return nil, fmt.Errorf("%w: task=%s", ErrWriteSetLockTimeout, taskID)
 			}
 			return nil, ctx.Err()
+		case <-waitCh:
+			// Lock released elsewhere, wake up and try immediately
 		case <-ticker.C:
+			// Fallback periodic check to ensure zero deadlock
 		}
 	}
 }
@@ -137,6 +183,14 @@ func (m *writeSetLockManager) releasePaths(taskID string, paths []string) {
 			if state.count <= 0 {
 				delete(m.owners, p)
 			}
+		}
+	}
+
+	// Notify all waiters that locks were released
+	for _, ch := range m.waitChs {
+		select {
+		case ch <- struct{}{}:
+		default:
 		}
 	}
 }

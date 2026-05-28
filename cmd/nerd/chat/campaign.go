@@ -271,7 +271,7 @@ func (m *Model) captureCampaignIntent(goal, clarifierAnswers string) {
 	campaignID := fmt.Sprintf("campaign_%d", time.Now().UnixNano())
 	if err := m.kernel.Assert(core.Fact{
 		Predicate: "campaign_intent_capture",
-		Args: []interface{}{
+		Args: []any{
 			campaignID,
 			goal,
 			clarifierAnswers,

@@ -28,7 +28,7 @@ func NewLocalStoreGraphAdapter(store *LocalStore) *LocalStoreGraphAdapter {
 //   - "incoming": params["arg"] = entity name → returns incoming links as []string
 //   - "path": params["arg"] = "from->to" → returns path existence as bool
 //   - "relations": params["arg"] = entity name → returns all connected entities (both directions)
-func (a *LocalStoreGraphAdapter) QueryGraph(queryType string, params map[string]interface{}) (interface{}, error) {
+func (a *LocalStoreGraphAdapter) QueryGraph(queryType string, params map[string]any) (any, error) {
 	entity, _ := params["arg"].(string)
 	if entity == "" {
 		return nil, fmt.Errorf("query_graph: missing or empty 'arg' parameter")

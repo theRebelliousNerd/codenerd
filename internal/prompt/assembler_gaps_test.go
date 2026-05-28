@@ -251,7 +251,7 @@ func TestAssembler_MassiveAtomCount(t *testing.T) {
 	categories := AllCategories()
 
 	atoms := make([]*OrderedAtom, 1000) // 1000 for test speed; pattern holds for 10k
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		atoms[i] = &OrderedAtom{
 			Atom:  &PromptAtom{ID: string(rune(i)), Category: categories[i%len(categories)], Content: "Content"},
 			Order: i,
@@ -299,14 +299,14 @@ func TestTemplate_ConcurrentRegistration(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			_ = te.Process("{{language}}", cc)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			te.RegisterFunction("dynamic", func(cc *CompilationContext, args ...string) string {
 				return "dynamic"
 			})
@@ -330,14 +330,14 @@ func TestAssembler_SetCategoryOrder_Concurrency(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			_, _ = assembler.Assemble(atoms, NewCompilationContext())
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			assembler.SetCategoryOrder([]AtomCategory{CategoryIdentity, CategoryProtocol})
 		}
 	}()
@@ -356,14 +356,12 @@ func TestAssembler_ConcurrentSharedContext(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 10
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			// Each goroutine gets its own context to avoid the shared mutation race
 			cc := NewCompilationContext()
 			_, _ = assembler.Assemble(atoms, cc)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -401,11 +399,4 @@ func TestTemplate_ContextMutation(t *testing.T) {
 	if cc.TokenBudget != origBudget {
 		t.Errorf("TokenBudget mutated: %d -> %d", origBudget, cc.TokenBudget)
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

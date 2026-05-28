@@ -3,6 +3,7 @@ package build
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,13 +136,7 @@ func TestGetBuildEnv_WhenUserConfigBuildEnvVars_ShouldInclude(t *testing.T) {
 
 	env := GetBuildEnv(userCfg, root)
 
-	found := false
-	for _, e := range env {
-		if e == "CGO_CFLAGS=-Icustom-path" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(env, "CGO_CFLAGS=-Icustom-path")
 	if !found {
 		t.Error("GetBuildEnv should include build config env vars")
 	}

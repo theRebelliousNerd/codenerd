@@ -251,7 +251,7 @@ func joinArgs(args []string) string {
 func sanitizeFactForMangle(fact types.Fact) types.Fact {
 	sanitized := types.Fact{
 		Predicate: fact.Predicate,
-		Args:      make([]interface{}, len(fact.Args)),
+		Args:      make([]any, len(fact.Args)),
 	}
 
 	for i, arg := range fact.Args {

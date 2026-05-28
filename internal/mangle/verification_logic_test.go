@@ -35,7 +35,7 @@ Decl next_action(Action).
 	// Verify that test_passed_after_fix is derived even with 80% confidence (standard success)
 	t.Run("test_passed_after_fix with 80 confidence", func(t *testing.T) {
 		facts := []testFact{
-			{"action_verified", []interface{}{"act1", "/run_tests", "/output_scan", int64(80), int64(12345)}},
+			{"action_verified", []any{"act1", "/run_tests", "/output_scan", int64(80), int64(12345)}},
 		}
 		result := evaluateAndQuery(t, program, facts, "test_passed_after_fix")
 		if len(result) == 0 {

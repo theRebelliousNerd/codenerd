@@ -16,7 +16,7 @@ func (k *predicateKernel) Query(predicate string) ([]Fact, error) {
 	return k.facts[predicate], nil
 }
 
-func (k *predicateKernel) AssertBatch(facts []interface{}) error {
+func (k *predicateKernel) AssertBatch(facts []any) error {
 	// No-op for this test.
 	return nil
 }
@@ -25,12 +25,12 @@ func TestCollectKernelInjectedAtoms(t *testing.T) {
 	kernel := &predicateKernel{
 		facts: map[string][]Fact{
 			"injectable_context": {
-				{Predicate: "injectable_context", Args: []interface{}{"coder-123", "Ctx A"}},
-				{Predicate: "injectable_context", Args: []interface{}{"/coder", "Ctx B"}},
-				{Predicate: "injectable_context", Args: []interface{}{"*", "Global Ctx"}},
+				{Predicate: "injectable_context", Args: []any{"coder-123", "Ctx A"}},
+				{Predicate: "injectable_context", Args: []any{"/coder", "Ctx B"}},
+				{Predicate: "injectable_context", Args: []any{"*", "Global Ctx"}},
 			},
 			"specialist_knowledge": {
-				{Predicate: "specialist_knowledge", Args: []interface{}{"coder", "Auth", "Use JWT refresh tokens."}},
+				{Predicate: "specialist_knowledge", Args: []any{"coder", "Auth", "Use JWT refresh tokens."}},
 			},
 		},
 	}

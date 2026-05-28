@@ -36,7 +36,7 @@ func BenchmarkHydrateAtomContextTags(b *testing.B) {
 	// Insert test data
 	numAtoms := 1000
 	atoms := make([]*PromptAtom, numAtoms)
-	for i := 0; i < numAtoms; i++ {
+	for i := range numAtoms {
 		id := fmt.Sprintf("atom_%d", i)
 		_, err := db.Exec("INSERT INTO prompt_atoms (atom_id) VALUES (?)", id)
 		if err != nil {

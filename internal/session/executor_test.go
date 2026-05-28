@@ -17,7 +17,7 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_1",
 		Name: "readFile",
-		Args: map[string]interface{}{
+		Args: map[string]any{
 			"path": "secret.txt",
 		},
 	}
@@ -51,7 +51,7 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	// We use string "/readFile" which matches fmt.Sprintf("%v", arg) check
 	mockKernel.facts = append(mockKernel.facts, types.Fact{
 		Predicate: "permitted",
-		Args: []interface{}{
+		Args: []any{
 			"/readFile",
 			target,
 			payload,
@@ -66,7 +66,7 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	// 4. Case: Mismatch Target
 	mockKernel.facts = []types.Fact{{
 		Predicate: "permitted",
-		Args: []interface{}{
+		Args: []any{
 			"/readFile",
 			"other.txt", // Different target
 			payload,
@@ -101,7 +101,7 @@ func TestExecutor_EmptyToolCallName(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_1",
 		Name: "", // Empty name
-		Args: map[string]interface{}{"path": "test.txt"},
+		Args: map[string]any{"path": "test.txt"},
 	}
 
 	// Empty name should be treated as "/" atom and denied by default
@@ -141,7 +141,7 @@ func TestExecutor_ExtractTargetMultipleKeys(t *testing.T) {
 	}
 
 	// Test with multiple target keys - should return first match
-	args := map[string]interface{}{
+	args := map[string]any{
 		"query": "SELECT * FROM users", // First in candidate order that exists
 		"path":  "/home/user/file.txt", // "path" comes before "query" in candidates
 	}
@@ -160,7 +160,7 @@ func TestExecutor_ExtractTargetNoMatch(t *testing.T) {
 		config: DefaultExecutorConfig(),
 	}
 
-	args := map[string]interface{}{
+	args := map[string]any{
 		"unknown_key": "some_value",
 		"other_key":   123,
 	}
@@ -176,7 +176,7 @@ func TestExecutor_PermittedFactIncorrectArity(t *testing.T) {
 	mockKernel := &MockKernel{
 		facts: []types.Fact{{
 			Predicate: "permitted",
-			Args:      []interface{}{"/readFile", "test.txt"}, // Only 2 args instead of 3
+			Args:      []any{"/readFile", "test.txt"}, // Only 2 args instead of 3
 		}},
 	}
 	executor := &Executor{
@@ -187,7 +187,7 @@ func TestExecutor_PermittedFactIncorrectArity(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_1",
 		Name: "readFile",
-		Args: map[string]interface{}{"path": "test.txt"},
+		Args: map[string]any{"path": "test.txt"},
 	}
 
 	// Should not match due to incorrect arity
@@ -211,7 +211,7 @@ func TestExecutor_ArgsMarshalFailure(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_marshal_fail",
 		Name: "someTool",
-		Args: map[string]interface{}{
+		Args: map[string]any{
 			"bad_arg": ch,
 		},
 	}
@@ -235,7 +235,7 @@ func TestExecutor_KernelAssertFailure(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_assert_fail",
 		Name: "someTool",
-		Args: map[string]interface{}{"p": "v"},
+		Args: map[string]any{"p": "v"},
 	}
 
 	allowed := executor.checkSafety(toolCall)
@@ -257,7 +257,7 @@ func TestExecutor_KernelQueryFailure(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_query_fail",
 		Name: "someTool",
-		Args: map[string]interface{}{"p": "v"},
+		Args: map[string]any{"p": "v"},
 	}
 
 	allowed := executor.checkSafety(toolCall)
@@ -281,7 +281,7 @@ func TestExecutor_RetractFactFailure(t *testing.T) {
 		RetractError: fmt.Errorf("retract failed"),
 		facts: []types.Fact{{
 			Predicate: "permitted",
-			Args: []interface{}{
+			Args: []any{
 				"/readFile",
 				target,
 				payload,
@@ -296,7 +296,7 @@ func TestExecutor_RetractFactFailure(t *testing.T) {
 	toolCall := ToolCall{
 		ID:   "call_retract_fail",
 		Name: "readFile",
-		Args: map[string]interface{}{"path": "test.txt"},
+		Args: map[string]any{"path": "test.txt"},
 	}
 
 	allowed := executor.checkSafety(toolCall)

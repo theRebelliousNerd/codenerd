@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/logging"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -172,8 +173,8 @@ func extractStepsFromPerspective(perspective string) []string {
 
 	// If no numbered steps found, try to parse paragraphs as implicit steps
 	if len(steps) == 0 {
-		paragraphs := strings.Split(perspective, "\n\n")
-		for _, para := range paragraphs {
+		paragraphs := strings.SplitSeq(perspective, "\n\n")
+		for para := range paragraphs {
 			para = strings.TrimSpace(para)
 			if len(para) > 20 && len(para) < 500 && isActionableStep(para) {
 				steps = append(steps, para)
@@ -269,10 +270,8 @@ func inferShardType(action, originalShardType string) string {
 
 	// Otherwise, infer from action
 	for shardType, keywords := range shardTypeKeywords {
-		for _, keyword := range keywords {
-			if action == keyword {
-				return shardType
-			}
+		if slices.Contains(keywords, action) {
+			return shardType
 		}
 	}
 

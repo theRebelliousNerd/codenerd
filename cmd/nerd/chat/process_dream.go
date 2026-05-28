@@ -343,7 +343,7 @@ Format your response as a structured analysis.`
 	if m.kernel != nil {
 		dreamFact := core.Fact{
 			Predicate: "dream_state",
-			Args:      []interface{}{hypothetical, time.Now().Unix()},
+			Args:      []any{hypothetical, time.Now().Unix()},
 		}
 		_ = m.kernel.Assert(dreamFact)
 	}
@@ -503,9 +503,9 @@ func formatDreamStateResponse(hypothetical string, consultations []DreamConsulta
 // extractToolMentions finds tool/command references in shard output.
 func extractToolMentions(text string) []string {
 	tools := make([]string, 0)
-	lines := strings.Split(text, "\n")
+	lines := strings.SplitSeq(text, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		lower := strings.ToLower(line)
 		// Look for tool-related lines
 		if strings.Contains(lower, "tool") ||
@@ -527,9 +527,9 @@ func extractToolMentions(text string) []string {
 // extractConcerns finds risk/concern mentions in shard output.
 func extractConcerns(text string) []string {
 	concerns := make([]string, 0)
-	lines := strings.Split(text, "\n")
+	lines := strings.SplitSeq(text, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		lower := strings.ToLower(line)
 		// Look for concern-related lines
 		if strings.Contains(lower, "risk") ||
@@ -738,13 +738,13 @@ func (m Model) loadWorkspaceFacts(ctx context.Context, intent perception.Intent,
 					if len(f.Args) >= 3 {
 						rel = "depends_on:" + types.ExtractString(f.Args[2])
 					}
-					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]interface{}{"source": "scan"})
+					_ = m.virtualStore.PersistLink(a, rel, b, 1.0, map[string]any{"source": "scan"})
 				}
 			case "symbol_graph":
 				if len(f.Args) >= 4 {
 					sid := types.ExtractString(f.Args[0])
 					file := types.ExtractString(f.Args[3])
-					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]interface{}{"source": "scan"})
+					_ = m.virtualStore.PersistLink(sid, "defined_in", file, 1.0, map[string]any{"source": "scan"})
 				}
 			}
 		}
@@ -1039,7 +1039,7 @@ func parseExecutionResults(facts []core.Fact) []systemExecutionResult {
 	return results
 }
 
-func parseBool(value interface{}) bool {
+func parseBool(value any) bool {
 	switch v := value.(type) {
 	case bool:
 		return v

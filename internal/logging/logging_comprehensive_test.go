@@ -70,7 +70,7 @@ func TestStructuredLogEntry_WhenAllFields_ShouldMarshalCorrectly(t *testing.T) {
 		Level:    "INFO",
 		Category: string(CategoryKernel),
 		Message:  "test message",
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"key": "value",
 		},
 	}
@@ -409,7 +409,7 @@ func TestConcurrentWrites_WhenMultipleGoroutines_ShouldNotRace(t *testing.T) {
 	categories := []Category{CategoryBoot, CategoryKernel, CategoryShards, CategorySession}
 
 	for _, cat := range categories {
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			wg.Add(1)
 			go func(c Category, idx int) {
 				defer wg.Done()
@@ -562,7 +562,7 @@ func TestGenerateMangleFact_WhenLLMEvent_ShouldIncludeTokens(t *testing.T) {
 		ShardID:    "coder-1",
 		Success:    true,
 		DurationMs: 1500,
-		Fields:     map[string]interface{}{"tokens": 500},
+		Fields:     map[string]any{"tokens": 500},
 	}
 
 	fact := generateMangleFact(event)
@@ -580,7 +580,7 @@ func TestGenerateMangleFact_WhenFileEvent_ShouldIncludeSize(t *testing.T) {
 		Timestamp: 5000,
 		Target:    "main.go",
 		Success:   true,
-		Fields:    map[string]interface{}{"size": int64(1024)},
+		Fields:    map[string]any{"size": int64(1024)},
 	}
 
 	fact := generateMangleFact(event)
@@ -644,7 +644,7 @@ func TestGenerateMangleFact_WhenCampaignEvent_ShouldIncludePhase(t *testing.T) {
 		Timestamp: 9000,
 		SessionID: "campaign-1",
 		Success:   true,
-		Fields:    map[string]interface{}{"phase": "planning"},
+		Fields:    map[string]any{"phase": "planning"},
 	}
 
 	fact := generateMangleFact(event)
@@ -738,6 +738,6 @@ func TestCloseAll_WhenCalledMultipleTimes_ShouldNotPanic(t *testing.T) {
 
 func TestCloseAll_WhenNeverInitialized_ShouldNotPanic(t *testing.T) {
 	resetLoggingState(t)
-	CloseAll()  // Should not panic
+	CloseAll()   // Should not panic
 	CloseAudit() // Should not panic
 }

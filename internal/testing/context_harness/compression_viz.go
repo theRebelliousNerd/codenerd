@@ -79,7 +79,7 @@ func (v *CompressionVisualizer) VisualizeCompression(event *CompressionEvent) {
 	lines := strings.Split(event.OriginalText, "\n")
 	maxLines := 30
 	if len(lines) > maxLines {
-		for i := 0; i < maxLines; i++ {
+		for i := range maxLines {
 			sb.WriteString(fmt.Sprintf("%3d│ %s\n", i+1, lines[i]))
 		}
 		sb.WriteString(fmt.Sprintf("... (%d more lines)\n", len(lines)-maxLines))

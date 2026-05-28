@@ -230,7 +230,7 @@ func (m *mockTransport) ListTools(ctx context.Context) ([]MCPToolSchema, error) 
 	return m.tools, nil
 }
 
-func (m *mockTransport) CallTool(ctx context.Context, name string, args map[string]interface{}) (*MCPCallResult, error) {
+func (m *mockTransport) CallTool(ctx context.Context, name string, args map[string]any) (*MCPCallResult, error) {
 	if m.callErr != nil {
 		return nil, m.callErr
 	}
@@ -416,7 +416,7 @@ func TestCallTool_WhenUnserializableArgs_ShouldError(t *testing.T) {
 	}
 
 	// Channels can't be serialized to JSON
-	args := map[string]interface{}{"ch": make(chan int)}
+	args := map[string]any{"ch": make(chan int)}
 	_, err := mgr.CallTool(context.Background(), "srv/tool", args)
 	if err == nil {
 		t.Fatal("expected error for unserializable args")

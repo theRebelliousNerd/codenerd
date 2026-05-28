@@ -61,7 +61,7 @@ func TestHoneypotLogic(t *testing.T) {
 			facts: []mangle.Fact{
 				// Explicitly using /atoms to match rule expectations and demonstrate Type Canary compliance.
 				// The engine auto-promotes "display" -> /display, but explicit is better for "Testudo".
-				{Predicate: "css_property", Args: []interface{}{"/e1", "/display", "/none"}},
+				{Predicate: "css_property", Args: []any{"/e1", "/display", "/none"}},
 			},
 			query:    "is_honeypot(X)", // Variable X will bind to /e1
 			expected: 1,
@@ -69,7 +69,7 @@ func TestHoneypotLogic(t *testing.T) {
 		{
 			name: "Offscreen X",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"/e2", -2000, 0, 10, 10}},
+				{Predicate: "position", Args: []any{"/e2", -2000, 0, 10, 10}},
 			},
 			query:    "is_honeypot(X)",
 			expected: 1,
@@ -77,7 +77,7 @@ func TestHoneypotLogic(t *testing.T) {
 		{
 			name: "Zero Size",
 			facts: []mangle.Fact{
-				{Predicate: "position", Args: []interface{}{"/e3", 0, 0, 1, 1}},
+				{Predicate: "position", Args: []any{"/e3", 0, 0, 1, 1}},
 			},
 			query:    "is_honeypot(X)",
 			expected: 1,
@@ -85,8 +85,8 @@ func TestHoneypotLogic(t *testing.T) {
 		{
 			name: "High Confidence (Hidden + Zero Size)",
 			facts: []mangle.Fact{
-				{Predicate: "css_property", Args: []interface{}{"/e5", "/display", "/none"}},
-				{Predicate: "position", Args: []interface{}{"/e5", 0, 0, 1, 1}},
+				{Predicate: "css_property", Args: []any{"/e5", "/display", "/none"}},
+				{Predicate: "position", Args: []any{"/e5", 0, 0, 1, 1}},
 			},
 			query:    "high_confidence_honeypot(X)",
 			expected: 1,

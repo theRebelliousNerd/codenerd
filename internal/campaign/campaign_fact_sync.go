@@ -25,7 +25,7 @@ func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSum
 		if revisionSummary != "" {
 			if err := kernel.Assert(core.Fact{
 				Predicate: "plan_revision",
-				Args:      []interface{}{next.ID, next.RevisionNumber, revisionSummary, time.Now().Unix()},
+				Args:      []any{next.ID, next.RevisionNumber, revisionSummary, time.Now().Unix()},
 			}); err != nil {
 				return fmt.Errorf("assert plan revision: %w", err)
 			}
@@ -39,7 +39,7 @@ func syncCampaignFacts(kernel core.Kernel, previous, next *Campaign, revisionSum
 	if revisionSummary != "" {
 		tx.Assert(core.Fact{
 			Predicate: "plan_revision",
-			Args:      []interface{}{next.ID, next.RevisionNumber, revisionSummary, time.Now().Unix()},
+			Args:      []any{next.ID, next.RevisionNumber, revisionSummary, time.Now().Unix()},
 		})
 	}
 
@@ -62,86 +62,86 @@ func retractCampaignFacts(kernel core.Kernel, campaign *Campaign) error {
 		return nil
 	}
 
-	if err := retract(core.Fact{Predicate: "campaign", Args: []interface{}{campaign.ID}}); err != nil {
+	if err := retract(core.Fact{Predicate: "campaign", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
-	if err := retract(core.Fact{Predicate: "campaign_metadata", Args: []interface{}{campaign.ID}}); err != nil {
+	if err := retract(core.Fact{Predicate: "campaign_metadata", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
-	if err := retract(core.Fact{Predicate: "campaign_goal", Args: []interface{}{campaign.ID}}); err != nil {
+	if err := retract(core.Fact{Predicate: "campaign_goal", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
-	if err := retract(core.Fact{Predicate: "campaign_progress", Args: []interface{}{campaign.ID}}); err != nil {
+	if err := retract(core.Fact{Predicate: "campaign_progress", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
-	if err := retract(core.Fact{Predicate: "source_document", Args: []interface{}{campaign.ID}}); err != nil {
+	if err := retract(core.Fact{Predicate: "source_document", Args: []any{campaign.ID}}); err != nil {
 		return err
 	}
 
 	for _, profile := range campaign.ContextProfiles {
-		if err := retract(core.Fact{Predicate: "context_profile", Args: []interface{}{profile.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "context_profile", Args: []any{profile.ID}}); err != nil {
 			return err
 		}
 	}
 
 	for _, phase := range campaign.Phases {
-		if err := retract(core.Fact{Predicate: "campaign_phase", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "campaign_phase", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
-		if err := retract(core.Fact{Predicate: "phase_category", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "phase_category", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
-		if err := retract(core.Fact{Predicate: "phase_objective", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "phase_objective", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
-		if err := retract(core.Fact{Predicate: "phase_dependency", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "phase_dependency", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
-		if err := retract(core.Fact{Predicate: "phase_estimate", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "phase_estimate", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
-		if err := retract(core.Fact{Predicate: "context_compression", Args: []interface{}{phase.ID}}); err != nil {
+		if err := retract(core.Fact{Predicate: "context_compression", Args: []any{phase.ID}}); err != nil {
 			return err
 		}
 
 		for _, task := range phase.Tasks {
-			if err := retract(core.Fact{Predicate: "campaign_task", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "campaign_task", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_priority", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_priority", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_order", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_order", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_dependency", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_dependency", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_soft_dependency", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_soft_dependency", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "requires_resource", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "requires_resource", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_sub_campaign", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_sub_campaign", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_artifact", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_artifact", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_inference", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_inference", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_attempt", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_attempt", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_retry_at", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_retry_at", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_error", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_error", Args: []any{task.ID}}); err != nil {
 				return err
 			}
-			if err := retract(core.Fact{Predicate: "task_write_target", Args: []interface{}{task.ID}}); err != nil {
+			if err := retract(core.Fact{Predicate: "task_write_target", Args: []any{task.ID}}); err != nil {
 				return err
 			}
 		}
@@ -155,38 +155,38 @@ func queueCampaignFactRetractions(tx *types.KernelTx, campaign *Campaign) {
 		return
 	}
 
-	tx.RetractFact(core.Fact{Predicate: "campaign", Args: []interface{}{campaign.ID}})
-	tx.RetractFact(core.Fact{Predicate: "campaign_metadata", Args: []interface{}{campaign.ID}})
-	tx.RetractFact(core.Fact{Predicate: "campaign_goal", Args: []interface{}{campaign.ID}})
-	tx.RetractFact(core.Fact{Predicate: "campaign_progress", Args: []interface{}{campaign.ID}})
-	tx.RetractFact(core.Fact{Predicate: "source_document", Args: []interface{}{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign_metadata", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign_goal", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "campaign_progress", Args: []any{campaign.ID}})
+	tx.RetractFact(core.Fact{Predicate: "source_document", Args: []any{campaign.ID}})
 
 	for _, profile := range campaign.ContextProfiles {
-		tx.RetractFact(core.Fact{Predicate: "context_profile", Args: []interface{}{profile.ID}})
+		tx.RetractFact(core.Fact{Predicate: "context_profile", Args: []any{profile.ID}})
 	}
 
 	for _, phase := range campaign.Phases {
-		tx.RetractFact(core.Fact{Predicate: "campaign_phase", Args: []interface{}{phase.ID}})
-		tx.RetractFact(core.Fact{Predicate: "phase_category", Args: []interface{}{phase.ID}})
-		tx.RetractFact(core.Fact{Predicate: "phase_objective", Args: []interface{}{phase.ID}})
-		tx.RetractFact(core.Fact{Predicate: "phase_dependency", Args: []interface{}{phase.ID}})
-		tx.RetractFact(core.Fact{Predicate: "phase_estimate", Args: []interface{}{phase.ID}})
-		tx.RetractFact(core.Fact{Predicate: "context_compression", Args: []interface{}{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "campaign_phase", Args: []any{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "phase_category", Args: []any{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "phase_objective", Args: []any{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "phase_dependency", Args: []any{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "phase_estimate", Args: []any{phase.ID}})
+		tx.RetractFact(core.Fact{Predicate: "context_compression", Args: []any{phase.ID}})
 
 		for _, task := range phase.Tasks {
-			tx.RetractFact(core.Fact{Predicate: "campaign_task", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_priority", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_order", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_dependency", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_soft_dependency", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "requires_resource", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_sub_campaign", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_artifact", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_inference", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_attempt", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_retry_at", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_error", Args: []interface{}{task.ID}})
-			tx.RetractFact(core.Fact{Predicate: "task_write_target", Args: []interface{}{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "campaign_task", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_priority", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_order", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_dependency", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_soft_dependency", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "requires_resource", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_sub_campaign", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_artifact", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_inference", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_attempt", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_retry_at", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_error", Args: []any{task.ID}})
+			tx.RetractFact(core.Fact{Predicate: "task_write_target", Args: []any{task.ID}})
 		}
 	}
 }

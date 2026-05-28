@@ -8,8 +8,10 @@
 package build
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"codenerd/internal/config"
@@ -198,9 +200,7 @@ func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildCon
 	// Load explicit build config from user config if present.
 	if userCfg != nil && userCfg.Build != nil {
 		if userCfg.Build.EnvVars != nil {
-			for k, v := range userCfg.Build.EnvVars {
-				cfg.EnvVars[k] = v
-			}
+			maps.Copy(cfg.EnvVars, userCfg.Build.EnvVars)
 		}
 		cfg.GoFlags = append(cfg.GoFlags, userCfg.Build.GoFlags...)
 		cfg.CGOPackages = append(cfg.CGOPackages, userCfg.Build.CGOPackages...)
@@ -228,13 +228,7 @@ func loadBuildConfig(userCfg *config.UserConfig, workspaceRoot string) *BuildCon
 			cfg.EnvVars["GOFLAGS"] = "-tags=sqlite_vec"
 		}
 		// Add sqlite-vec to CGO packages if missing
-		already := false
-		for _, p := range cfg.CGOPackages {
-			if p == "sqlite-vec" {
-				already = true
-				break
-			}
-		}
+		already := slices.Contains(cfg.CGOPackages, "sqlite-vec")
 		if !already {
 			cfg.CGOPackages = append(cfg.CGOPackages, "sqlite-vec")
 		}

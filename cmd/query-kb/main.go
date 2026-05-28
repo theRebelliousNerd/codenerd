@@ -90,7 +90,7 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 		var cid int
 		var name, typ string
 		var notNull, pk int
-		var dflt interface{}
+		var dflt any
 		schemaRows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk)
 		fmt.Fprintf(w, "  - %s (%s)\n", name, typ)
 	}
@@ -112,8 +112,8 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 	i := 0
 	for rows.Next() {
 		// Scan all columns dynamically
-		values := make([]interface{}, len(cols))
-		valuePtrs := make([]interface{}, len(cols))
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
 		for i := range values {
 			valuePtrs[i] = &values[i]
 		}

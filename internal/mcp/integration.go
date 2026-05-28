@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
@@ -12,7 +13,7 @@ import (
 // IntegrationClient is the interface that VirtualStore expects.
 // We define it here to avoid import cycles (mirrors core.IntegrationClient).
 type IntegrationClient interface {
-	CallTool(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error)
+	CallTool(ctx context.Context, tool string, args map[string]any) (any, error)
 }
 
 // IntegrationAdapter adapts MCPClientManager to the IntegrationClient interface.
@@ -32,7 +33,7 @@ func NewIntegrationAdapter(manager *MCPClientManager, serverID string) *Integrat
 
 // CallTool implements IntegrationClient by routing to the bound server.
 // The tool parameter is the tool name; we construct the full toolID as serverID/tool.
-func (a *IntegrationAdapter) CallTool(ctx context.Context, tool string, args map[string]interface{}) (interface{}, error) {
+func (a *IntegrationAdapter) CallTool(ctx context.Context, tool string, args map[string]any) (any, error) {
 	if a.manager == nil {
 		return nil, fmt.Errorf("MCP manager not configured")
 	}
@@ -62,6 +63,7 @@ func (a *IntegrationAdapter) CallTool(ctx context.Context, tool string, args map
 // MCPIntegrationBridge provides a high-level interface for wiring MCP into the system.
 // It manages the lifecycle and provides adapters for VirtualStore.
 type MCPIntegrationBridge struct {
+	mu          sync.RWMutex
 	manager     *MCPClientManager
 	store       *MCPToolStore
 	compiler    *JITToolCompiler
@@ -125,6 +127,9 @@ func (b *MCPIntegrationBridge) GetRenderer() *ToolRenderer {
 // GetAdapter returns an IntegrationAdapter for a specific server.
 // Creates the adapter if it doesn't exist.
 func (b *MCPIntegrationBridge) GetAdapter(serverID string) *IntegrationAdapter {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if adapter, ok := b.adapters[serverID]; ok {
 		return adapter
 	}

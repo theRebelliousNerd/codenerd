@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -74,7 +75,7 @@ type ShardExecutionState struct {
 	TotalWaitTime time.Duration // Total time spent waiting for slots
 	StartTime     time.Time
 	LastAPICall   time.Time
-	Checkpoint    map[string]interface{} // Shard-specific state for resume
+	Checkpoint    map[string]any // Shard-specific state for resume
 	Error         error
 }
 
@@ -161,7 +162,7 @@ func (s *APIScheduler) RegisterShard(shardID, shardType string) *ShardExecutionS
 		ShardType:  shardType,
 		Phase:      PhaseInitializing,
 		StartTime:  time.Now(),
-		Checkpoint: make(map[string]interface{}),
+		Checkpoint: make(map[string]any),
 	}
 	s.shardStates[shardID] = state
 
@@ -410,7 +411,7 @@ func (s *APIScheduler) ReleaseAPISlot(shardID string) {
 }
 
 // SaveCheckpoint stores shard-specific state for resume after yielding.
-func (s *APIScheduler) SaveCheckpoint(shardID string, key string, value interface{}) {
+func (s *APIScheduler) SaveCheckpoint(shardID string, key string, value any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -424,7 +425,7 @@ func (s *APIScheduler) SaveCheckpoint(shardID string, key string, value interfac
 }
 
 // LoadCheckpoint retrieves saved state.
-func (s *APIScheduler) LoadCheckpoint(shardID string, key string) (interface{}, bool) {
+func (s *APIScheduler) LoadCheckpoint(shardID string, key string) (any, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -448,10 +449,8 @@ func (s *APIScheduler) GetShardState(shardID string) (*ShardExecutionState, bool
 	// Return a deep copy to avoid races
 	stateCopy := *state
 	// Deep copy the checkpoint map
-	stateCopy.Checkpoint = make(map[string]interface{}, len(state.Checkpoint))
-	for k, v := range state.Checkpoint {
-		stateCopy.Checkpoint[k] = v
-	}
+	stateCopy.Checkpoint = make(map[string]any, len(state.Checkpoint))
+	maps.Copy(stateCopy.Checkpoint, state.Checkpoint)
 	return &stateCopy, true
 }
 

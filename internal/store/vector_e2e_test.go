@@ -72,7 +72,7 @@ func normalizeVector(v []float32) []float32 {
 	return out
 }
 
-// TestE2E_VectorRecallSemantic rigorously validates the interaction between 
+// TestE2E_VectorRecallSemantic rigorously validates the interaction between
 // our Store layer and the compiled sqlite-vec bindings.
 func TestE2E_VectorRecallSemantic(t *testing.T) {
 	ctx := context.Background()
@@ -93,7 +93,7 @@ func TestE2E_VectorRecallSemantic(t *testing.T) {
 
 	// Inject 3 perfectly orthogonal documents
 	docs := []string{"Doc A", "Doc B", "Doc C"}
-	meta := []map[string]interface{}{
+	meta := []map[string]any{
 		{"id": "a"}, {"id": "b"}, {"id": "c"},
 	}
 
@@ -134,7 +134,7 @@ func TestE2E_VectorRecallSemantic(t *testing.T) {
 	if filteredResults[0].Content != "Doc B" {
 		t.Errorf("Expected 'Doc B', got %q", filteredResults[0].Content)
 	}
-	
+
 	// Ensure distance is also perfect for filtered
 	sim2 := filteredResults[0].Metadata["similarity"].(float64)
 	if sim2 < 0.99 {

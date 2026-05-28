@@ -6,7 +6,7 @@ import (
 
 type MockGraph struct{}
 
-func (m *MockGraph) QueryGraph(queryType string, params map[string]interface{}) (interface{}, error) {
+func (m *MockGraph) QueryGraph(queryType string, params map[string]any) (any, error) {
 	if queryType == "dependencies" {
 		return []string{"dep1", "dep2"}, nil
 	}

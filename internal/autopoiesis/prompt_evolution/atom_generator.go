@@ -391,8 +391,8 @@ func extractRefinedStrategy(s string) string {
 	}
 
 	for _, marker := range markers {
-		if idx := strings.Index(s, marker); idx != -1 {
-			content := s[idx+len(marker):]
+		if _, after, ok := strings.Cut(s, marker); ok {
+			content := after
 			// Take until next section or end
 			if nextSection := strings.Index(content, "\n## "); nextSection != -1 {
 				content = content[:nextSection]

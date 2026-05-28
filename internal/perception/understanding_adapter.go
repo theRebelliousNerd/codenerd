@@ -221,7 +221,7 @@ func computeStabilityScore(verbHistory []string) int {
 	}
 	matches := 0
 	total := len(verbHistory) - 1
-	for i := 0; i < total; i++ {
+	for i := range total {
 		if verbHistory[i] == verbHistory[i+1] {
 			matches++
 		}
@@ -266,13 +266,13 @@ func (t *UnderstandingTransducer) assertStabilityFacts(input string, prior *Unde
 	// Note: llm_call_deferred is derived, not asserted — no retract needed
 
 	// Assert current stability score
-	tx.Assert(core.Fact{Predicate: "intent_stability", Args: []interface{}{int64(stabilityScore)}})
+	tx.Assert(core.Fact{Predicate: "intent_stability", Args: []any{int64(stabilityScore)}})
 
 	// Assert prior understanding if available
 	if prior != nil {
 		tx.Assert(core.Fact{
 			Predicate: "intent_prior",
-			Args: []interface{}{
+			Args: []any{
 				"/" + sanitizeAtomString(prior.SemanticType),
 				"/" + sanitizeAtomString(prior.ActionType),
 				"/" + sanitizeAtomString(prior.Domain),
@@ -282,7 +282,7 @@ func (t *UnderstandingTransducer) assertStabilityFacts(input string, prior *Unde
 
 	// Assert topic change signal if detected
 	if topicChange {
-		tx.Assert(core.Fact{Predicate: "topic_change_detected", Args: []interface{}{}})
+		tx.Assert(core.Fact{Predicate: "topic_change_detected", Args: []any{}})
 	}
 
 	if err := tx.Commit(); err != nil {

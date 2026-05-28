@@ -14,7 +14,7 @@ func TestLocalVector_StoreVector(t *testing.T) {
 	defer store.Close()
 
 	// 1. Store vector
-	metadata := map[string]interface{}{"key": "value"}
+	metadata := map[string]any{"key": "value"}
 	err = store.StoreVector("test content", metadata)
 	if err != nil {
 		t.Errorf("StoreVector failed: %v", err)

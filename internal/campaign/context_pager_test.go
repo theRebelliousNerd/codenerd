@@ -5,6 +5,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -74,7 +75,7 @@ func TestActivatePhase(t *testing.T) {
 	// REMEDIATED: TEST_GAP: Performance/Extremes - scopedDocsForPhase with 1,000,000 phase_context_scope facts to check linear scan performance.
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{"test_phase", "scoped_doc.md"},
+		Args:      []any{"test_phase", "scoped_doc.md"},
 	})
 
 	phase := &Phase{
@@ -221,7 +222,7 @@ func TestCompressPhase(t *testing.T) {
 	// Simulate existing phase atoms
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{phaseID, "some_atom", 100},
+		Args:      []any{phaseID, "some_atom", 100},
 	})
 
 	// TEST_GAP: Null/Empty - CompressPhase with nil phase
@@ -310,7 +311,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 	// 11,000 tasks * ~1KB description = ~11MB
 	var tasks []Task
 	longDesc := strings.Repeat("A", 1024)
-	for i := 0; i < 11000; i++ {
+	for i := range 11000 {
 		tasks = append(tasks, Task{
 			ID:          fmt.Sprintf("task%d", i),
 			Description: longDesc,
@@ -327,7 +328,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 	// Simulate existing phase atoms
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{phaseID, "some_atom", 100},
+		Args:      []any{phaseID, "some_atom", 100},
 	})
 
 	// Run Compression
@@ -408,9 +409,9 @@ func TestPruneIrrelevant(t *testing.T) {
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
 
 	// Setup some facts to prune
-	kernel.Assert(core.Fact{Predicate: "dom_node", Args: []interface{}{"div"}})
-	kernel.Assert(core.Fact{Predicate: "visible_text", Args: []interface{}{"hello"}})
-	kernel.Assert(core.Fact{Predicate: "other_fact", Args: []interface{}{"keep"}})
+	kernel.Assert(core.Fact{Predicate: "dom_node", Args: []any{"div"}})
+	kernel.Assert(core.Fact{Predicate: "visible_text", Args: []any{"hello"}})
+	kernel.Assert(core.Fact{Predicate: "other_fact", Args: []any{"keep"}})
 
 	// Profile that does NOT require browser
 	profile := &ContextProfile{
@@ -454,7 +455,7 @@ func TestContextPager_ResetFailure(t *testing.T) {
 	kernel := &MockKernel{RetractErr: fmt.Errorf("transaction commit failed")}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
 
-	kernel.Assert(core.Fact{Predicate: "activation", Args: []interface{}{"file1.go", 100}})
+	kernel.Assert(core.Fact{Predicate: "activation", Args: []any{"file1.go", 100}})
 
 	// Should not panic, but log an error and continue
 	cp.ResetPhaseContext()
@@ -470,11 +471,11 @@ func TestContextPager_NilLLMClient(t *testing.T) {
 	cp := NewContextPager(kernel, nil, 100000)
 
 	phase := &Phase{
-		ID:   "phase1",
-		Name: "Phase",
+		ID:    "phase1",
+		Name:  "Phase",
 		Tasks: []Task{{ID: "task1", Status: TaskCompleted, Description: "done"}},
 	}
-	
+
 	summary, _, _, err := cp.CompressPhase(context.Background(), phase)
 	if err != nil {
 		t.Fatalf("Expected graceful handling, got error: %v", err)
@@ -492,7 +493,7 @@ func TestContextPager_MalformedProfileID(t *testing.T) {
 	longID := strings.Repeat("A", 10000)
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{longID, "schema1", "", ""},
+		Args:      []any{longID, "schema1", "", ""},
 	})
 
 	prof, err := cp.getContextProfile(longID)
@@ -502,12 +503,12 @@ func TestContextPager_MalformedProfileID(t *testing.T) {
 	if prof.RequiredSchemas[0] != "schema1" {
 		t.Errorf("Expected schema1, got %v", prof.RequiredSchemas)
 	}
-	
+
 	// Non-UTF8
 	binaryID := string([]byte{0xff, 0xfe, 0xfd})
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{binaryID, "schema2", "", ""},
+		Args:      []any{binaryID, "schema2", "", ""},
 	})
 
 	prof2, err := cp.getContextProfile(binaryID)
@@ -522,16 +523,16 @@ func TestContextPager_MalformedProfileID(t *testing.T) {
 func TestContextPager_GetUsageConcurrent(t *testing.T) {
 	kernel := &ThreadSafeMockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
-	
+
 	phase := &Phase{
-		ID:   "test-phase",
-		Name: "Test Phase",
+		ID:    "test-phase",
+		Name:  "Test Phase",
 		Tasks: []Task{{Description: "Task 1", Artifacts: []TaskArtifact{{Path: "file1.go"}}}},
 	}
 
 	var wg sync.WaitGroup
 	// Concurrently SetBudget, ActivatePhase, and GetUsage
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -555,25 +556,25 @@ func TestGetContextProfile_Malformed(t *testing.T) {
 	// 1. Not enough arguments
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{"short_profile", "schema1"},
+		Args:      []any{"short_profile", "schema1"},
 	})
 
 	// 2. Nil arguments
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{"nil_profile", nil, nil, nil},
+		Args:      []any{"nil_profile", nil, nil, nil},
 	})
 
 	// 3. Non-string arguments
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{"type_profile", 123, true, 45.6},
+		Args:      []any{"type_profile", 123, true, 45.6},
 	})
 
 	// 4. Non-comma-separated strings
 	kernel.Assert(core.Fact{
 		Predicate: "context_profile",
-		Args:      []interface{}{"space_profile", "schema1 schema2", "tool1", "pattern1"},
+		Args:      []any{"space_profile", "schema1 schema2", "tool1", "pattern1"},
 	})
 
 	// Test 1: Short Profile (Should return error because it's skipped in loop)
@@ -664,15 +665,13 @@ func TestActivatePhase_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	// Run 10 goroutines concurrently calling ActivatePhase
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			err := cp.ActivatePhase(ctx, phase)
 			if err != nil {
 				t.Errorf("ActivatePhase failed: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -770,7 +769,7 @@ func TestCompressPhase_EmptyAccomplishments(t *testing.T) {
 
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{phaseID, "some_atom", 100},
+		Args:      []any{phaseID, "some_atom", 100},
 	})
 
 	summary, count, _, err := cp.CompressPhase(ctx, phase)
@@ -813,7 +812,7 @@ func TestActivatePhase_ExtremeTaskCount(t *testing.T) {
 
 	taskCount := 10000
 	phase.Tasks = make([]Task, taskCount)
-	for i := 0; i < taskCount; i++ {
+	for i := range taskCount {
 		phase.Tasks[i] = Task{
 			ID: fmt.Sprintf("task_%d", i),
 			Artifacts: []TaskArtifact{
@@ -864,7 +863,7 @@ func TestCompressPhase_MassiveOutput(t *testing.T) {
 	// 11,000 tasks * ~1KB description = ~11MB
 	var tasks []Task
 	longDesc := strings.Repeat("A", 1024)
-	for i := 0; i < 11000; i++ {
+	for i := range 11000 {
 		tasks = append(tasks, Task{
 			ID:          fmt.Sprintf("task%d", i),
 			Description: longDesc,
@@ -881,7 +880,7 @@ func TestCompressPhase_MassiveOutput(t *testing.T) {
 	// Simulate existing phase atoms
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_atom",
-		Args:      []interface{}{phaseID, "some_atom", 100},
+		Args:      []any{phaseID, "some_atom", 100},
 	})
 
 	// Run Compression
@@ -955,10 +954,10 @@ func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 	kernel.Facts = make([]core.Fact, 0, numFacts+2)
 
 	// Pre-populate with a large number of irrelevant facts
-	for i := 0; i < numFacts; i++ {
+	for range numFacts {
 		kernel.Facts = append(kernel.Facts, core.Fact{
 			Predicate: "phase_context_scope",
-			Args:      []interface{}{"other_phase", "irrelevant_doc.md"},
+			Args:      []any{"other_phase", "irrelevant_doc.md"},
 		})
 	}
 
@@ -968,7 +967,7 @@ func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 	for _, doc := range expectedDocs {
 		kernel.Facts = append(kernel.Facts, core.Fact{
 			Predicate: "phase_context_scope",
-			Args:      []interface{}{targetPhase, doc},
+			Args:      []any{targetPhase, doc},
 		})
 	}
 
@@ -982,13 +981,7 @@ func TestScopedDocsForPhase_PerformanceExtremes(t *testing.T) {
 
 	// Verify the correct docs were returned
 	for _, expected := range expectedDocs {
-		found := false
-		for _, doc := range docs {
-			if doc == expected {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(docs, expected)
 		if !found {
 			t.Errorf("Expected doc %s not found in result", expected)
 		}
@@ -1010,7 +1003,7 @@ func TestActivatePhase_ExtremeArtifacts(t *testing.T) {
 	// Create a phase with 100,000 artifacts
 	numArtifacts := 100000
 	artifacts := make([]TaskArtifact, numArtifacts)
-	for i := 0; i < numArtifacts; i++ {
+	for i := range numArtifacts {
 		artifacts[i] = TaskArtifact{Path: fmt.Sprintf("src/file_%d.go", i)}
 	}
 
@@ -1060,37 +1053,37 @@ func TestScopedDocsForPhase_TypeCoercion(t *testing.T) {
 	// 1. Int as phase, string as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{123, "doc_int.md"},
+		Args:      []any{123, "doc_int.md"},
 	})
 
 	// 2. Bool as phase, string as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{true, "doc_bool.md"},
+		Args:      []any{true, "doc_bool.md"},
 	})
 
 	// 3. String as phase, int as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{"test_phase", 456},
+		Args:      []any{"test_phase", 456},
 	})
 
 	// 4. String as phase, bool as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{"test_phase", false},
+		Args:      []any{"test_phase", false},
 	})
 
 	// 5. String as phase, nil as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{"test_phase", nil},
+		Args:      []any{"test_phase", nil},
 	})
 
 	// 6. Mangle Atom as phase, Mangle Atom as doc
 	kernel.Assert(core.Fact{
 		Predicate: "phase_context_scope",
-		Args:      []interface{}{types.MangleAtom("/atom_phase"), types.MangleAtom("/atom_doc")},
+		Args:      []any{types.MangleAtom("/atom_phase"), types.MangleAtom("/atom_doc")},
 	})
 
 	// Test 1: Int as phase
