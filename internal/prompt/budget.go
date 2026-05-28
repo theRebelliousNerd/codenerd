@@ -502,13 +502,28 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 				// Enforce absolute totalBudget cap even for mandatory atoms.
 				// Without this guard, a single oversized mandatory atom can
 				// blow the context window (e.g. a 2M-token atom against an
-				// 8K budget). Log a warning and skip if it would overflow.
-				if tokens > int64(totalBudget) ||
-					usedTokens > math.MaxInt64-tokens ||
+				// 8K budget).
+				//
+				// Distinguish two failure modes in the log so triage is
+				// actionable. A single atom larger than the entire budget
+				// is a content problem (atom needs to be split / minified);
+				// cumulative saturation is a config problem (budget too
+				// small for the mandatory skeleton). Earlier this used a
+				// single message that conflated both and gave no signal of
+				// which was happening.
+				if tokens > int64(totalBudget) {
+					logging.Get(logging.CategoryContext).Warn(
+						"Mandatory atom %s rejected: single-atom size %d exceeds total budget %d — atom too large, split or minify it",
+						oa.Atom.ID, tokens, totalBudget,
+					)
+					unselected = append(unselected, oa)
+					continue
+				}
+				if usedTokens > math.MaxInt64-tokens ||
 					usedTokens+tokens > int64(totalBudget) {
 					logging.Get(logging.CategoryContext).Warn(
-						"Mandatory atom %s (%d tokens) exceeds total budget %d (used=%d); skipping",
-						oa.Atom.ID, tokens, totalBudget, usedTokens,
+						"Mandatory atom %s (%d tokens) skipped: budget saturated by earlier atoms (used=%d/%d) — increase TokenBudget in JIT config",
+						oa.Atom.ID, tokens, usedTokens, totalBudget,
 					)
 					unselected = append(unselected, oa)
 					continue

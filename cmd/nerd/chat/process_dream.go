@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"
+	"codenerd/internal/config"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -942,11 +943,18 @@ OUTPUT:
 
 	if m.jitCompiler != nil {
 		semanticQuery := fmt.Sprintf("Translate %s shard output into actionable summary", normalizeShardType(shardType))
+		// Derive the JIT budget from the user's actual context-window config
+		// instead of hardcoding 12000/2000. Earlier the hardcode produced
+		// AvailableTokens=10000 — too small to seat all mandatory atoms on
+		// a model like Gemini 3.5-flash (1M context, 65K output reserve),
+		// so mandatory atoms in late categories were being dropped at the
+		// "exceeds total budget" check (.nerd/logs/2026-05-28_context.log:138-186).
+		tokenBudget, reservedTokens := translatorJITBudget(m.Config)
 		cc := prompt.NewCompilationContext().
 			WithOperationalMode("/active").
 			WithIntent("/translate", "").
 			WithShard("/analysis_translator", "analysis_translator", "Analysis Translator").
-			WithTokenBudget(12000, 2000).
+			WithTokenBudget(tokenBudget, reservedTokens).
 			WithSemanticQuery(semanticQuery, 8)
 
 		if res, err := m.jitCompiler.Compile(ctx, cc); err == nil && res != nil && strings.TrimSpace(res.Prompt) != "" {
@@ -958,6 +966,44 @@ OUTPUT:
 
 %s`, campaign.AnalysisLogic, userPrompt)
 	return stevenMoorePersona, fallbackPrompt
+}
+
+// translatorJITBudget derives (TokenBudget, ReservedTokens) for the
+// analysis-translator JIT compilation from the user's loaded config so
+// the prompt can seat its full mandatory-atom skeleton on large-context
+// models like Gemini 3.5-flash. Falls back to a 60k/8k pair when no
+// config is loaded — same shape as the original 12k/2k hardcode but
+// large enough that all ~30 mandatory atoms fit.
+func translatorJITBudget(cfg *config.UserConfig) (int, int) {
+	const (
+		fallbackBudget   = 60000
+		fallbackReserved = 8000
+		maxBudget        = 200000 // cap so JIT doesn't try to fit 1M tokens
+	)
+	if cfg == nil {
+		return fallbackBudget, fallbackReserved
+	}
+	ctxCfg := cfg.GetContextWindowConfig()
+	if ctxCfg.MaxTokens <= 0 {
+		return fallbackBudget, fallbackReserved
+	}
+	// Use up to one-eighth of the input window for the translator prompt
+	// (translation summaries are short; we don't need the full window).
+	budget := ctxCfg.MaxTokens / 8
+	if budget > maxBudget {
+		budget = maxBudget
+	}
+	if budget < fallbackBudget {
+		budget = fallbackBudget
+	}
+	reserved := ctxCfg.OutputReserve / 8
+	if reserved < fallbackReserved {
+		reserved = fallbackReserved
+	}
+	if reserved >= budget {
+		reserved = budget / 10
+	}
+	return budget, reserved
 }
 
 func (m Model) interpretShardOutput(ctx context.Context, input, shardType, task, result string) (string, error) {
