@@ -151,6 +151,13 @@ func (h *HolographicProvider) GetContextWithContext(ctx context.Context, filePat
 
 // getContextInternal is the shared cancellable context generator.
 func (h *HolographicProvider) getContextInternal(ctx context.Context, filePath string) (*HolographicContext, error) {
+	if filePath == "" {
+		return &HolographicContext{
+			TargetFile:     "",
+			PackageImports: make(map[string][]string),
+		}, nil
+	}
+
 	logging.WorldDebug("HolographicProvider: generating context for %s", filepath.Base(filePath))
 
 	hc := &HolographicContext{
@@ -241,6 +248,12 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		// Skip huge sibling files to prevent OOM/memory starvation
+		if info, statErr := os.Stat(goFile); statErr == nil && info.Size() > 5*1024*1024 { // 5MB limit
+			logging.Get(logging.CategoryWorld).Warn("buildGoContext: skipping huge sibling file: %s (%d bytes)", goFile, info.Size())
+			continue
 		}
 
 		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
@@ -1013,6 +1026,11 @@ func (h *HolographicProvider) parsePriorityFacts(facts []core.Fact) []Prioritize
 
 		// Skip if we don't have at least a file
 		if caller.File == "" {
+			continue
+		}
+
+		// Skip if the function name is empty for predicates expecting it
+		if fact.Predicate != "relevant_context_file" && caller.Name == "" {
 			continue
 		}
 

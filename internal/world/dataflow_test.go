@@ -683,6 +683,8 @@ func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
 
 	testFile := filepath.Join(tmpDir, "coercion.go")
 	testCode := `package test
+	type Inner struct { Field *int }
+	type Outer struct { In *Inner }
 	func testIdioms() {
 		m := make(map[string]int)
 		val, ok := m["key"]
@@ -692,6 +694,9 @@ func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
 		var a [5]*int
 		a[0] = nil
 
+		var o Outer
+		o.In.Field = nil
+
 		nil := 1
 		if nil == 1 {
 			return
@@ -700,7 +705,7 @@ func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
 	_ = os.WriteFile(testFile, []byte(testCode), 0644)
 	facts, _ := extractor.ExtractDataFlow(testFile)
 
-	var hasOkBoolean, hasArrayIndex bool
+	var hasOkBoolean, hasArrayIndex, hasNestedSelector bool
 	for _, f := range facts {
 		if f.Predicate == "assigns" && len(f.Args) > 1 {
 			varName := string(f.Args[0].(core.MangleAtom))
@@ -711,6 +716,9 @@ func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
 			if varName == "/a[]" {
 				hasArrayIndex = true
 			}
+			if varName == "/o.In.Field" {
+				hasNestedSelector = true
+			}
 		}
 	}
 
@@ -719,6 +727,9 @@ func TestDataFlowExtractor_TypeCoercion(t *testing.T) {
 	}
 	if !hasArrayIndex {
 		t.Error("Expected array index assignment to be tracked")
+	}
+	if !hasNestedSelector {
+		t.Error("Expected nested selector assignment o.In.Field to be tracked")
 	}
 }
 

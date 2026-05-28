@@ -175,21 +175,9 @@ func (ctx *extractionContext) extractAssignment(stmt *ast.AssignStmt) {
 
 	// Handle each LHS variable
 	for i, lhs := range stmt.Lhs {
-		var varName string
-		switch l := lhs.(type) {
-		case *ast.Ident:
-			varName = l.Name
-		case *ast.IndexExpr:
-			if ident, ok := l.X.(*ast.Ident); ok {
-				varName = ident.Name + "[]"
-			}
-		case *ast.SelectorExpr:
-			if ident, ok := l.X.(*ast.Ident); ok {
-				varName = ident.Name + "." + l.Sel.Name
-			}
-		}
+		varName := ctx.extractVarStr(lhs)
 
-		// Skip blank identifier
+		// Skip blank or empty identifier
 		if varName == "" || varName == "_" {
 			continue
 		}
@@ -440,7 +428,7 @@ func (ctx *extractionContext) isErrorCheck(expr *ast.BinaryExpr) bool {
 	return isErrorVar && ctx.isNilComparison(expr)
 }
 
-// extractVarStr recursively unwraps nested SelectorExpr or Ident structures.
+// extractVarStr recursively unwraps nested SelectorExpr, IndexExpr, or Ident structures.
 func (ctx *extractionContext) extractVarStr(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
@@ -451,6 +439,11 @@ func (ctx *extractionContext) extractVarStr(expr ast.Expr) string {
 		base := ctx.extractVarStr(e.X)
 		if base != "" {
 			return base + "." + e.Sel.Name
+		}
+	case *ast.IndexExpr:
+		base := ctx.extractVarStr(e.X)
+		if base != "" {
+			return base + "[]"
 		}
 	}
 	return ""

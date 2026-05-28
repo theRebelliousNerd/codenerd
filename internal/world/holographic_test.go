@@ -234,6 +234,7 @@ func TestParsePriorityFacts_EmptyArguments(t *testing.T) {
 	h := &HolographicProvider{}
 	facts := []core.Fact{
 		{Predicate: "context_priority_file", Args: []interface{}{"", "", 50}},
+		{Predicate: "context_priority_file", Args: []interface{}{"file.go", "", 50}}, // Valid file but empty function name
 		{Predicate: "context_priority_file", Args: []interface{}{}},
 	}
 	callers := h.parsePriorityFacts(facts)
