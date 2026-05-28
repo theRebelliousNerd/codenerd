@@ -42,10 +42,10 @@ func TestResponseProcessor_Boundary_NullFields(t *testing.T) {
 // TestResponseProcessor_Boundary_TypeCoercion verifies that type mismatches
 // cause JSON parsing failures (and fallback if allowed), rather than panics.
 func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
-	// Case 1: String confidence instead of float
+	// Case 1: String confidence instead of float (coerced successfully)
 	t.Run("StringConfidence", func(t *testing.T) {
 		rp := NewResponseProcessor()
-		rp.RequireValidJSON = true // We expect an error here
+		rp.RequireValidJSON = true
 
 		raw := `{
 			"control_packet": {
@@ -61,13 +61,16 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 			"surface_response": "ok"
 		}`
 
-		_, err := rp.Process(raw)
-		if err == nil {
-			t.Fatal("Expected error for string confidence, got nil")
+		res, err := rp.Process(raw)
+		if err != nil {
+			t.Fatalf("Expected no error for string confidence, got: %v", err)
+		}
+		if res.Control.IntentClassification.Confidence != 0.9 {
+			t.Errorf("Expected coerced confidence 0.9, got %v", res.Control.IntentClassification.Confidence)
 		}
 	})
 
-	// Case 2: String mangle_updates instead of array
+	// Case 2: String mangle_updates instead of array (coerced successfully)
 	t.Run("StringMangleUpdates", func(t *testing.T) {
 		rp := NewResponseProcessor()
 		rp.RequireValidJSON = true
@@ -81,20 +84,23 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 					"constraint": "none",
 					"confidence": 1.0
 				},
-				"mangle_updates": "a()."
+				"mangle_updates": "a().."
 			},
 			"surface_response": "ok"
 		}`
 
-		_, err := rp.Process(raw)
-		if err == nil {
-			t.Fatal("Expected error for string mangle_updates, got nil")
+		res, err := rp.Process(raw)
+		if err != nil {
+			t.Fatalf("Expected no error for string mangle_updates, got: %v", err)
+		}
+		if len(res.Control.MangleUpdates) != 1 || res.Control.MangleUpdates[0] != "a().." {
+			t.Errorf("Expected coerced mangle_updates [a()..], got %v", res.Control.MangleUpdates)
 		}
 	})
 
 	// Case 3: Fallback enabled behavior — when strict JSON parsing fails
-	// (here because mangle_updates is the wrong type), the response
-	// processor now SALVAGES surface_response from the partial envelope
+	// (here because mangle_updates is an object type {}, which is a true coercion failure),
+	// the response processor now SALVAGES surface_response from the partial envelope
 	// instead of dumping the raw JSON to the user. That's the whole point
 	// of the salvage path: never show users bare control_packet text.
 	t.Run("FallbackOnCoercionFailure", func(t *testing.T) {
@@ -102,7 +108,7 @@ func TestResponseProcessor_Boundary_TypeCoercion(t *testing.T) {
 		rp.RequireValidJSON = false
 
 		raw := `{
-			"control_packet": { "mangle_updates": "wrong_type" },
+			"control_packet": { "mangle_updates": {} },
 			"surface_response": "ok"
 		}`
 

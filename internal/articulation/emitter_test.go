@@ -219,13 +219,12 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 	  "surface_response": "hello"
 	}`
 
-	_, err := rp.Process(raw1)
-	if err == nil {
-		t.Fatal("Expected error for stringified float, got nil")
+	res1, err := rp.Process(raw1)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified float, got: %v", err)
 	}
-	// Check for unmarshal error
-	if !strings.Contains(err.Error(), "cannot unmarshal") {
-		t.Errorf("Unexpected error message: %v", err)
+	if res1.Control.IntentClassification.Confidence != 0.9 {
+		t.Errorf("Expected confidence 0.9, got %v", res1.Control.IntentClassification.Confidence)
 	}
 
 	// Case 2: String for array
@@ -244,9 +243,57 @@ func TestResponseProcessor_Process_TypeCoercion(t *testing.T) {
 	  "surface_response": "hello"
 	}`
 
-	_, err = rp.Process(raw2)
-	if err == nil {
-		t.Fatal("Expected error for stringified array, got nil")
+	res2, err := rp.Process(raw2)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified array, got: %v", err)
+	}
+	if len(res2.Control.MangleUpdates) != 1 || res2.Control.MangleUpdates[0] != "a()." {
+		t.Errorf("Expected mangle_updates [a().], got %v", res2.Control.MangleUpdates)
+	}
+
+	// Case 3: Descriptive string for float
+	raw3 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain",
+	      "confidence": "high"
+	    }
+	  },
+	  "surface_response": "hello"
+	}`
+	res3, err := rp.Process(raw3)
+	if err != nil {
+		t.Fatalf("Expected no error for descriptive float, got: %v", err)
+	}
+	if res3.Control.IntentClassification.Confidence != 0.9 {
+		t.Errorf("Expected confidence 0.9 for 'high', got %v", res3.Control.IntentClassification.Confidence)
+	}
+
+	// Case 4: Stringified boolean in ToolRequests
+	raw4 := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain"
+	    },
+	    "tool_requests": [
+	      {
+	        "id": "req_1",
+	        "tool_name": "read_file",
+	        "tool_args": {},
+	        "required": "true"
+	      }
+	    ]
+	  },
+	  "surface_response": "hello"
+	}`
+	res4, err := rp.Process(raw4)
+	if err != nil {
+		t.Fatalf("Expected no error for stringified bool, got: %v", err)
+	}
+	if len(res4.Control.ToolRequests) != 1 || !res4.Control.ToolRequests[0].Required {
+		t.Errorf("Expected ToolRequest Required to be true, got false or missing")
 	}
 }
 
@@ -436,13 +483,41 @@ func TestResponseProcessor_Process_TypeCoercionResilience(t *testing.T) {
 	rp := NewResponseProcessor()
 	rp.RequireValidJSON = false
 	
-	// JSON decoder in Go can parse "stringified" floats automatically into float64
-	// But it does NOT automatically parse "stringified" booleans into bool unless customized.
 	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":"0.95"}},"surface_response":"hi"}`
 	
-	// This will fail strict JSON processing due to string instead of float for confidence
-	res, _ := rp.Process(raw)
-	if res.ParseMethod != "fallback" {
-		t.Fatalf("Expected fallback because Go's default json.Unmarshal fails on string-to-float")
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Expected process to succeed, got: %v", err)
+	}
+	if res.ParseMethod != "json" {
+		t.Fatalf("Expected json parsing for string-to-float coercion, got %s", res.ParseMethod)
+	}
+	if res.Control.IntentClassification.Confidence != 0.95 {
+		t.Fatalf("Expected coerced confidence 0.95, got %v", res.Control.IntentClassification.Confidence)
+	}
+}
+
+func TestResponseProcessor_StrictSchemaUnknownFields(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.RequireValidJSON = true
+
+	// Strict mode with unknown fields inside control_packet
+	raw := `{
+	  "control_packet": {
+	    "intent_classification": {
+	      "category": "/query",
+	      "verb": "/explain"
+	    },
+	    "hacker_injected_field": "exploit"
+	  },
+	  "surface_response": "hello"
+	}`
+
+	_, err := rp.Process(raw)
+	if err == nil {
+		t.Fatal("Expected strict mode to fail with unknown fields, but it succeeded")
+	}
+	if !strings.Contains(err.Error(), "unknown field") {
+		t.Errorf("Expected error to mention unknown field, got: %v", err)
 	}
 }

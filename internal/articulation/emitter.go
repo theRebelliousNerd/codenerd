@@ -3,6 +3,7 @@ package articulation
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"codenerd/internal/logging"
@@ -191,9 +192,41 @@ type ControlPacket struct {
 	// This replaces native LLM function calling, enabling:
 	// 1. Coexistence with Gemini's built-in tools (Google Search, URL Context)
 	// 2. Dynamic tool discovery (includes Ouroboros-generated tools)
-	// 3. Unified tool interface across all providers
-	// 4. Full debugging visibility of tool invocations
+	// 4. Unified tool interface across all providers
+	// 5. Full debugging visibility of tool invocations
 	ToolRequests []ToolRequest `json:"tool_requests,omitempty"`
+}
+
+// UnmarshalJSON implements a custom unmarshaler for ControlPacket to tolerate single string mangle_updates.
+func (cp *ControlPacket) UnmarshalJSON(data []byte) error {
+	type Alias ControlPacket
+	var aux struct {
+		MangleUpdates json.RawMessage `json:"mangle_updates"`
+		Alias
+	}
+	aux.Alias = Alias(*cp)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*cp = ControlPacket(aux.Alias)
+	if len(aux.MangleUpdates) > 0 {
+		var slice []string
+		if err := json.Unmarshal(aux.MangleUpdates, &slice); err == nil {
+			cp.MangleUpdates = slice
+		} else {
+			var single string
+			if err := json.Unmarshal(aux.MangleUpdates, &single); err == nil {
+				if single != "" {
+					cp.MangleUpdates = []string{single}
+				} else {
+					cp.MangleUpdates = []string{}
+				}
+			} else {
+				return fmt.Errorf("mangle_updates is neither a string nor a slice of strings: %s", string(aux.MangleUpdates))
+			}
+		}
+	}
+	return nil
 }
 
 // ToolRequest represents a structured request for tool execution.
@@ -213,6 +246,47 @@ type ToolRequest struct {
 	Purpose string `json:"purpose,omitempty"`
 	// Required indicates if this tool call is blocking (true) or best-effort (false).
 	Required bool `json:"required,omitempty"`
+}
+
+// UnmarshalJSON implements a custom unmarshaler for ToolRequest to tolerate stringified booleans.
+func (tr *ToolRequest) UnmarshalJSON(data []byte) error {
+	type Alias ToolRequest
+	var aux struct {
+		Required json.RawMessage `json:"required"`
+		Alias
+	}
+	aux.Alias = Alias(*tr)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*tr = ToolRequest(aux.Alias)
+	if len(aux.Required) > 0 {
+		var b bool
+		if err := json.Unmarshal(aux.Required, &b); err == nil {
+			tr.Required = b
+		} else {
+			var s string
+			if err := json.Unmarshal(aux.Required, &s); err == nil {
+				s = strings.Trim(strings.ToLower(s), `"` + "\t\n\r ")
+				switch s {
+				case "true", "1", "yes", "y", "on":
+					tr.Required = true
+				case "false", "0", "no", "n", "off":
+					tr.Required = false
+				default:
+					return fmt.Errorf("invalid string value for required: %q", s)
+				}
+			} else {
+				var i int
+				if err := json.Unmarshal(aux.Required, &i); err == nil {
+					tr.Required = (i != 0)
+				} else {
+					return fmt.Errorf("required is neither a boolean, string, nor integer: %s", string(aux.Required))
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // KnowledgeRequest represents a request for specialist consultation or research.
@@ -238,6 +312,48 @@ type IntentClassification struct {
 	Target     string  `json:"target"`
 	Constraint string  `json:"constraint"`
 	Confidence float64 `json:"confidence"`
+}
+
+// UnmarshalJSON implements a custom unmarshaler for IntentClassification to tolerate stringified floats/confidence levels.
+func (ic *IntentClassification) UnmarshalJSON(data []byte) error {
+	type Alias IntentClassification
+	var aux struct {
+		Confidence json.RawMessage `json:"confidence"`
+		Alias
+	}
+	aux.Alias = Alias(*ic)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*ic = IntentClassification(aux.Alias)
+	if len(aux.Confidence) > 0 {
+		var f float64
+		if err := json.Unmarshal(aux.Confidence, &f); err == nil {
+			ic.Confidence = f
+		} else {
+			var s string
+			if err := json.Unmarshal(aux.Confidence, &s); err == nil {
+				s = strings.Trim(strings.ToLower(s), `"` + "\t\n\r ")
+				switch s {
+				case "high":
+					ic.Confidence = 0.9
+				case "medium", "med":
+					ic.Confidence = 0.5
+				case "low":
+					ic.Confidence = 0.1
+				default:
+					if parsed, err := strconv.ParseFloat(s, 64); err == nil {
+						ic.Confidence = parsed
+					} else {
+						return fmt.Errorf("invalid string value for confidence: %q", s)
+					}
+				}
+			} else {
+				return fmt.Errorf("confidence is neither a float nor a string: %s", string(aux.Confidence))
+			}
+		}
+	}
+	return nil
 }
 
 // MemoryOperation represents a directive to the Cold Storage.
@@ -580,6 +696,81 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 	}
 }
 
+// schemaAllowedKeys defines the schema of allowed keys for PiggybackEnvelope recursive validation.
+var schemaAllowedKeys = map[string]interface{}{
+	"control_packet": map[string]interface{}{
+		"intent_classification": map[string]interface{}{
+			"category":   nil,
+			"verb":       nil,
+			"target":     nil,
+			"constraint": nil,
+			"confidence": nil,
+		},
+		"mangle_updates":    nil,
+		"memory_operations": map[string]interface{}{
+			"op":    nil,
+			"key":   nil,
+			"value": nil,
+		},
+		"self_correction": map[string]interface{}{
+			"triggered":  nil,
+			"hypothesis": nil,
+		},
+		"reasoning_trace": nil,
+		"knowledge_requests": map[string]interface{}{
+			"specialist": nil,
+			"query":      nil,
+			"purpose":    nil,
+			"priority":   nil,
+		},
+		"context_feedback": map[string]interface{}{
+			"overall_usefulness": nil,
+			"helpful_facts":      nil,
+			"noise_facts":        nil,
+			"missing_context":    nil,
+		},
+		"tool_requests": map[string]interface{}{
+			"id":        nil,
+			"tool_name": nil,
+			"tool_args": nil, // Allow any keys inside tool_args
+			"purpose":   nil,
+			"required":  nil,
+		},
+	},
+	"surface_response": nil,
+}
+
+// checkUnknownFields recursively validates that the decoded generic JSON structure only contains keys
+// that exist in the allowed schema keys.
+func checkUnknownFields(val interface{}, allowedKeys map[string]interface{}) error {
+	if allowedKeys == nil {
+		return nil
+	}
+	switch v := val.(type) {
+	case map[string]interface{}:
+		for k, item := range v {
+			allowedSub, exists := allowedKeys[k]
+			if !exists {
+				return fmt.Errorf("json: unknown field %q", k)
+			}
+			if allowedSub != nil {
+				if subMap, ok := allowedSub.(map[string]interface{}); ok {
+					if err := checkUnknownFields(item, subMap); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if err := checkUnknownFields(item, allowedKeys); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // parseJSON attempts direct JSON parsing.
 func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 	timer := logging.StartTimer(logging.CategoryArticulation, "parseJSON")
@@ -589,14 +780,38 @@ func (rp *ResponseProcessor) parseJSON(s string) (PiggybackEnvelope, error) {
 	logging.ArticulationDebug("parseJSON: input length=%d bytes", len(s))
 
 	var envelope PiggybackEnvelope
-	if err := json.Unmarshal([]byte(s), &envelope); err != nil {
+
+	// Create a helper to decode with proper settings (strict vs tolerant)
+	decodeObj := func(r string) error {
+		if rp.RequireValidJSON {
+			var generic interface{}
+			if err := json.Unmarshal([]byte(r), &generic); err == nil {
+				if err := checkUnknownFields(generic, schemaAllowedKeys); err != nil {
+					return err
+				}
+			} else {
+				decoder := json.NewDecoder(strings.NewReader(r))
+				if err := decoder.Decode(&generic); err == nil {
+					if err := checkUnknownFields(generic, schemaAllowedKeys); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		decoder := json.NewDecoder(strings.NewReader(r))
+		if rp.RequireValidJSON {
+			decoder.DisallowUnknownFields()
+		}
+		return decoder.Decode(&envelope)
+	}
+
+	if err := decodeObj(s); err != nil {
 		logging.ArticulationDebug("parseJSON: direct unmarshal failed: %v", err)
 		// Be tolerant of leading text or trailing decorations by decoding the
 		// first JSON object we can find (streaming decoder stops at end of object).
 		if idx := strings.Index(s, "{"); idx >= 0 {
 			logging.ArticulationDebug("parseJSON: found '{' at index %d, trying streaming decoder", idx)
-			decoder := json.NewDecoder(strings.NewReader(s[idx:]))
-			if derr := decoder.Decode(&envelope); derr != nil {
+			if derr := decodeObj(s[idx:]); derr != nil {
 				logging.ArticulationDebug("parseJSON: streaming decode also failed: %v", derr)
 				return PiggybackEnvelope{}, err
 			}

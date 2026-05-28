@@ -1,5 +1,7 @@
 package articulation
 
+import "strings"
+
 // maxJSONDepth is the maximum nesting depth for JSON object extraction.
 // Prevents CPU/memory exhaustion on deeply nested garbage like {"a":{"a":{"a":...}}}.
 const maxJSONDepth = 200
@@ -71,7 +73,27 @@ func findJSONCandidates(s string) []string {
 					// Found a complete top-level object - check size cap
 					candidateLen := i + 1 - start
 					if candidateLen <= maxJSONCandidateSize {
-						candidates = append(candidates, s[start:i+1])
+						candStr := s[start:i+1]
+						if strings.Contains(candStr, `"surface_response"`) {
+							candidates = append(candidates, candStr)
+						} else {
+							const maxNoiseCandidates = 50
+							noiseCount := 0
+							for _, c := range candidates {
+								if !strings.Contains(c, `"surface_response"`) {
+									noiseCount++
+								}
+							}
+							if noiseCount >= maxNoiseCandidates {
+								for idx, c := range candidates {
+									if !strings.Contains(c, `"surface_response"`) {
+										candidates = append(candidates[:idx], candidates[idx+1:]...)
+										break
+									}
+								}
+							}
+							candidates = append(candidates, candStr)
+						}
 					}
 					start = -1
 				}
