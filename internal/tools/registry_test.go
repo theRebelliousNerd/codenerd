@@ -12,6 +12,11 @@ import (
 // TODO: TEST_GAP: User Request Extremes - What if FilterByIntent is called with an empty string, or an unknown hallucinated intent?
 // TODO: TEST_GAP: State Conflicts - Are there race conditions when concurrently calling Register, Get, and Execute across multiple goroutines?
 
+// TODO: QA Issue: Null/Undefined/Empty - Registering a nil *Tool pointer causes a panic before validation.
+// TODO: QA Issue: Null/Undefined/Empty - Passing nil context or nil args to Execute can crash underlying tools.
+// TODO: QA Issue: Type Coercion - validateArgs only checks for key existence, completely ignoring tool.Schema.Properties type definitions, leading to silent type assertion failures in tools.
+// TODO: QA Issue: State Conflicts - GetByCategory returns a shallow copy of tool pointers. Mutating a tool after retrieval causes data races.
+
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()
 	if reg == nil {
