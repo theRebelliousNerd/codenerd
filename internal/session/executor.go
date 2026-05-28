@@ -48,6 +48,28 @@ type SessionPersister interface {
 	StoreCompressedState(sessionID string, turnNumber int, stateJSON string, ratio float64) error
 }
 
+// InteractiveExecutiveGate is the optional capability a VirtualStore can expose
+// to bring the Dreamer destructive-action gate and the post-action validator
+// registry onto the interactive tool-execution path. The clean executor runs
+// modular tools directly via tools.Global(), bypassing RouteAction, so without
+// this seam those executive layers never fire on a live coding turn.
+//
+// The executor type-asserts e.virtualStore against this interface; when the
+// store does not implement it (e.g. a nil store or a stub adapter), the gate is
+// simply skipped and behavior is identical to before — a graceful fallback.
+//
+// Implemented by *core.VirtualStore (see virtual_store_interactive_gate.go).
+type InteractiveExecutiveGate interface {
+	// PreflightDestructiveToolCall runs the Dreamer safety simulation BEFORE a
+	// destructive tool executes. A non-nil error means the action is unsafe and
+	// must be blocked.
+	PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error
+	// ValidateInteractiveToolResult runs post-action validators AFTER the tool
+	// executes and asserts validation facts to the kernel. A non-nil error means
+	// a validator failed with high confidence (the side effect did not land).
+	ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error
+}
+
 // MangleAtom wraps a string as a Mangle name constant (avoids core import).
 type MangleAtom string
 
@@ -1109,6 +1131,18 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		}
 	}
 
+	// PRE-execution executive gate: run the Dreamer destructive-action
+	// simulation before the tool mutates anything. This brings the VirtualStore
+	// safety gate (otherwise reachable only via RouteAction) onto the
+	// interactive coding path. Skipped gracefully when the store doesn't
+	// implement InteractiveExecutiveGate.
+	if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil {
+		if blockErr := gate.PreflightDestructiveToolCall(ctx, call.ID, call.Name, call.Args); blockErr != nil {
+			logging.Get(logging.CategorySession).Warn("Interactive executive gate BLOCKED tool %s: %v", call.Name, blockErr)
+			return "", fmt.Errorf("tool call blocked by executive gate: %w", blockErr)
+		}
+	}
+
 	// Apply timeout to tool execution
 	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
 	defer cancel()
@@ -1124,6 +1158,18 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 		}
 		if result.Error != nil {
 			return "", fmt.Errorf("modular tool returned error: %w", result.Error)
+		}
+
+		// POST-execution validation: verify the side effect actually landed
+		// (file written, build passed, etc.) and assert validation facts to the
+		// kernel so policy (e.g. task_complete/1) can reason over them. A
+		// high-confidence validator failure is surfaced as an error so the model
+		// sees the work did not take and can retry. Skipped gracefully when the
+		// store doesn't implement InteractiveExecutiveGate.
+		if gate, ok := e.virtualStore.(InteractiveExecutiveGate); ok && gate != nil {
+			if valErr := gate.ValidateInteractiveToolResult(toolCtx, call.ID, call.Name, call.Args, result.Result, true); valErr != nil {
+				return "", fmt.Errorf("post-action validation failed: %w", valErr)
+			}
 		}
 		return result.Result, nil
 	}

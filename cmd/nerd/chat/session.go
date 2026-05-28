@@ -1953,6 +1953,27 @@ func (a *sessionVirtualStoreAdapter) ReadRaw(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// PreflightDestructiveToolCall delegates to the real VirtualStore's Dreamer
+// gate, satisfying session.InteractiveExecutiveGate so the interactive
+// executor's tool loop can run the safety simulation before destructive tool
+// calls. Nil store => allow (fail-open), preserving prior behavior.
+func (a *sessionVirtualStoreAdapter) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
+	if a.vs == nil {
+		return nil
+	}
+	return a.vs.PreflightDestructiveToolCall(ctx, actionID, toolName, args)
+}
+
+// ValidateInteractiveToolResult delegates to the real VirtualStore's post-action
+// validator registry, satisfying session.InteractiveExecutiveGate. Nil store =>
+// no validation (preserves prior behavior).
+func (a *sessionVirtualStoreAdapter) ValidateInteractiveToolResult(ctx context.Context, actionID, toolName string, args map[string]any, output string, success bool) error {
+	if a.vs == nil {
+		return nil
+	}
+	return a.vs.ValidateInteractiveToolResult(ctx, actionID, toolName, args, output, success)
+}
+
 // sessionLLMAdapter adapts perception.LLMClient to types.LLMClient.
 type sessionLLMAdapter struct {
 	client perception.LLMClient
