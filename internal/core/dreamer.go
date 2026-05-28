@@ -223,17 +223,48 @@ func (d *Dreamer) getKernel() *RealKernel {
 // Results are cached by action type + target to avoid redundant kernel clones.
 func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamResult {
 	if ctx == nil {
-		ctx = context.Background()
+		return DreamResult{
+			ActionID: fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano()),
+			Request:  req,
+			Unsafe:   true,
+			Reason:   "nil context provided",
+		}
 	}
 
 	timer := logging.StartTimer(logging.CategoryDream, fmt.Sprintf("SimulateAction(%s)", req.Type))
 	actionID := fmt.Sprintf("dream:%s:%d", req.Type, time.Now().UnixNano())
 	logging.Dream("SimulateAction: starting simulation for %s (target=%s)", req.Type, req.Target)
 
+	result := DreamResult{
+		ActionID: actionID,
+		Request:  req,
+	}
+
+	// Enforce strict target path length limit (4096 bytes) and action validations
+	if len(req.Target) > 4096 {
+		result.Unsafe = true
+		result.Reason = "target path exceeds maximum length of 4096 bytes"
+		timer.Stop()
+		return result
+	}
+
+	if req.Type == "" {
+		result.Unsafe = true
+		result.Reason = "empty action type"
+		timer.Stop()
+		return result
+	}
+
+	// Safely retrieve cache and kernel pointers under a read lock
+	d.mu.RLock()
+	cache := d.cache
+	kernel := d.kernel
+	d.mu.RUnlock()
+
 	// Check cache first — avoid cloning the 277KB kernel for repeated actions
 	cacheKey := dreamCacheKey(req)
-	if d.cache != nil {
-		if cached, ok := d.cache.Get(cacheKey); ok {
+	if cache != nil {
+		if cached, ok := cache.Get(cacheKey); ok {
 			// Return cached verdict with fresh ActionID
 			cached.ActionID = actionID
 			cached.Request = req
@@ -243,13 +274,7 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		}
 	}
 
-	result := DreamResult{
-		ActionID: actionID,
-		Request:  req,
-	}
-
 	// No kernel available -> fail closed (safety system must not default-allow on internal failure).
-	kernel := d.getKernel()
 	if kernel == nil {
 		result.Unsafe = true
 		result.Reason = "dreamer kernel unavailable"
@@ -296,8 +321,8 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 	}
 
 	// Cache the verdict
-	if d.cache != nil {
-		d.cache.Store(cacheKey, result)
+	if cache != nil {
+		cache.Store(cacheKey, result)
 	}
 
 	timer.Stop()

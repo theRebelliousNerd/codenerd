@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -655,6 +656,9 @@ func payloadInt(v any) (int, bool) {
 	case int64:
 		return int(x), true
 	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return 0, false
+		}
 		return int(x), true
 	case json.Number:
 		i, err := x.Int64()

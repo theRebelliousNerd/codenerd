@@ -1256,6 +1256,9 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 
 	// First arg is ActionID
 	req.ActionID = types.ExtractString(action.Args[0])
+	if req.ActionID == "" {
+		return req, fmt.Errorf("invalid action fact: ActionID cannot be empty")
+	}
 
 	// Second arg is action type
 	actionType, ok := action.Args[1].(string)
@@ -1265,6 +1268,9 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 	// Strip leading slash if present (Mangle name constants)
 	actionType = strings.TrimPrefix(actionType, "/")
 	req.Type = ActionType(actionType)
+	if req.Type == "" {
+		return req, fmt.Errorf("invalid action fact: Type cannot be empty")
+	}
 
 	// Third arg is target
 	target, ok := action.Args[2].(string)
@@ -1272,6 +1278,14 @@ func (v *VirtualStore) parseActionFact(action Fact) (ActionRequest, error) {
 		target = types.ExtractString(action.Args[2])
 	}
 	req.Target = target
+
+	// Strict check: target must not be empty for file operations
+	if req.Target == "" {
+		switch req.Type {
+		case ActionReadFile, ActionWriteFile, ActionEditFile, ActionDeleteFile, ActionFSRead, ActionFSWrite:
+			return req, fmt.Errorf("invalid action fact: target path cannot be empty for file operations")
+		}
+	}
 
 	// Remaining args go into payload
 	for i := 3; i < len(action.Args); i++ {

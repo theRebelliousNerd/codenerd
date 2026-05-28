@@ -324,12 +324,17 @@ func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *File
 		}
 		if len(fact.Args) >= 3 {
 			file := d.parseArg(fact.Args[0])
+			callee := d.parseArg(fact.Args[1])
 			imported := d.parseArg(fact.Args[2])
+
+			if file == callee || file == imported {
+				continue
+			}
 
 			if d.matchesPath(file, path) {
 				decision.Dependencies = append(decision.Dependencies, imported)
 			}
-			if d.matchesPath(d.parseArg(fact.Args[1]), path) || strings.HasSuffix(imported, filepath.Base(path)) {
+			if d.matchesPath(callee, path) || strings.HasSuffix(imported, filepath.Base(path)) {
 				decision.Dependents = append(decision.Dependents, file)
 			}
 		}
@@ -855,6 +860,10 @@ func (d *EdgeCaseDetector) precacheFacts(ctx context.Context) *cachedFacts {
 				file := d.parseArg(fact.Args[0])
 				callee := d.parseArg(fact.Args[1])
 				imported := d.parseArg(fact.Args[2])
+
+				if file == callee || file == imported {
+					continue
+				}
 
 				fileBase := filepath.Base(file)
 				calleeBase := filepath.Base(callee)

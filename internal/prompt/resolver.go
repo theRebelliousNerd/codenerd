@@ -104,7 +104,12 @@ func (r *DependencyResolver) topologicalSort(
 		if _, ok := inDegree[sa.Atom.ID]; !ok {
 			inDegree[sa.Atom.ID] = 0
 		}
+		seenDeps := make(map[string]bool)
 		for _, depID := range sa.Atom.DependsOn {
+			if seenDeps[depID] {
+				continue
+			}
+			seenDeps[depID] = true
 			if _, ok := atomMap[depID]; ok {
 				inDegree[sa.Atom.ID]++
 			}
@@ -131,7 +136,12 @@ func (r *DependencyResolver) topologicalSort(
 	// Build reverse dependency map (atom -> atoms that depend on it)
 	dependents := make(map[string][]*ScoredAtom)
 	for _, sa := range atoms {
+		seenDeps := make(map[string]bool)
 		for _, depID := range sa.Atom.DependsOn {
+			if seenDeps[depID] {
+				continue
+			}
+			seenDeps[depID] = true
 			if _, ok := atomMap[depID]; ok {
 				dependents[depID] = append(dependents[depID], sa)
 			}
