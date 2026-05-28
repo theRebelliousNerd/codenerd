@@ -297,6 +297,74 @@ func (de *DifferentialEngine) AddFactIncremental(fact Fact) error {
 	return de.ApplyDelta([]Fact{fact})
 }
 
+// ApplyAtomDelta is a variant of ApplyDelta that accepts already-converted
+// ast.Atoms instead of high-level Fact records. Use this from callers that
+// have their own (kernel-specific) Fact→Atom conversion and need to preserve
+// the exact encoding semantics — for example, the codeNERD kernel uses
+// types.Fact.ToAtom() which differs from Engine.factToAtomLocked's
+// Auto-Atomizer heuristics.
+//
+// Behaviour is identical to ApplyDelta otherwise: insert into the appropriate
+// stratum store (by predicate), then re-evaluate derived strata from the
+// minimum changed stratum upwards.
+func (de *DifferentialEngine) ApplyAtomDelta(atoms []ast.Atom) error {
+	de.mu.Lock()
+	defer de.mu.Unlock()
+
+	minChangedStratum := -1
+	for _, atom := range atoms {
+		s, ok := de.predStratum[atom.Predicate]
+		if !ok {
+			s = 0
+		}
+		layer := de.strataStores[s]
+		layer.mu.Lock()
+		if layer.store.Add(atom) {
+			if minChangedStratum == -1 || s < minChangedStratum {
+				minChangedStratum = s
+			}
+		}
+		layer.mu.Unlock()
+	}
+
+	if minChangedStratum == -1 {
+		return nil
+	}
+
+	if !de.config.AutoEval {
+		return nil
+	}
+
+	for s := minChangedStratum; s < len(de.strataStores); s++ {
+		rules := de.strataRules[s]
+		if len(rules) == 0 {
+			continue
+		}
+		baseStores := make([]factstore.FactStore, 0, s)
+		for i := range s {
+			baseStores = append(baseStores, de.strataStores[i].store)
+		}
+		chain := &ChainedFactStore{
+			base:    baseStores,
+			overlay: de.strataStores[s].store,
+		}
+		subsetInfo := *de.programInfo
+		subsetInfo.Rules = rules
+		subStrata, subPredToStratum, stratErr := analysis.Stratify(analysis.Program{
+			EdbPredicates: subsetInfo.EdbPredicates,
+			IdbPredicates: subsetInfo.IdbPredicates,
+			Rules:         rules,
+		})
+		if stratErr != nil {
+			return fmt.Errorf("differential stratification for stratum %d failed: %w", s, stratErr)
+		}
+		if _, err := mengine.EvalStratifiedProgramWithStats(&subsetInfo, subStrata, subPredToStratum, chain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // CopyAllFactsTo materializes the union of every stratum store into the
 // provided destination FactStore. The destination receives one Add() call per
 // unique atom across all strata, so callers can use it as a flat read view

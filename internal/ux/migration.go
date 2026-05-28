@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/config"
+	"codenerd/internal/features"
 )
 
 // MigrationResult contains information about a preferences migration.
@@ -187,8 +188,8 @@ func IsFirstRun(workspace string) bool {
 
 // ShouldShowOnboarding determines if onboarding should be shown.
 func ShouldShowOnboarding(workspace string) bool {
-	// Check environment variable override
-	if os.Getenv("NERD_SKIP_ONBOARDING") == "1" {
+	// Check feature flag override (env var > .nerd/config.json > default).
+	if features.IsOnboardingSkipped() {
 		return false
 	}
 

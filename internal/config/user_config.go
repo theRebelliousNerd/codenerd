@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"codenerd/internal/features"
 )
 
 // UserConfig holds ALL codeNERD configuration from .nerd/config.json.
@@ -171,6 +173,19 @@ type UserConfig struct {
 
 	// Guidance configuration for contextual help
 	Guidance *GuidanceConfig `json:"guidance,omitempty"`
+
+	// =========================================================================
+	// FEATURE FLAGS
+	// =========================================================================
+	//
+	// Modernization toggles: DifferentialEngine, FlightRecorder, Provenance,
+	// system shards, dark mode, onboarding, taxonomy-fast, etc. Each field
+	// is a pointer so we can distinguish "user wrote `false`" from "key
+	// absent → use default". After LoadUserConfig parses the file it
+	// installs this block into the `internal/features` package's
+	// process-wide active pointer so low-level call sites (kernel, world
+	// scanner, main.go boot) can consult it without re-reading config.json.
+	Features *features.FeaturesConfig `json:"features,omitempty"`
 }
 
 // GetContextWindowConfig returns the context window config with defaults.
@@ -402,6 +417,12 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse user config: %w", err)
 	}
+
+	// Make feature toggles visible to leaf packages (internal/core,
+	// internal/observability, internal/world, ...) that cannot import
+	// internal/config. Nil is fine: SetActive(nil) resets the registry
+	// so accessors fall back to compile-time defaults.
+	features.SetActive(cfg.Features)
 
 	return cfg, nil
 }

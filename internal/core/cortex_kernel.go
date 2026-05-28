@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codenerd/internal/features"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 
@@ -51,27 +52,87 @@ type CortexKernel struct {
 
 	// Event bus for fact mutations — aggregates events from all domain shards
 	eventBus *FactEventBus
+
+	// factRouter, when non-nil, partitions the predicate space across shards
+	// so a write to a non-owning shard is forwarded to the predicate's owner.
+	// Only constructed when features.IsPerShardFactsEnabled() is true. nil
+	// preserves the legacy single-store path byte-for-byte.
+	factRouter *ShardFactRouter
 }
 
 // NewCortexKernel creates a new hierarchical kernel hub.
 // The cortexDomain is the name of the catch-all shard for unowned predicates.
+//
+// When features.IsPerShardFactsEnabled() is true, the cortex constructs a
+// ShardFactRouter and installs it on every shard it registers. When the
+// flag is false the router is never built, so direct shard mutations stay
+// on their inner kernel and behavior matches pre-Track-D code exactly.
 func NewCortexKernel(cortexDomain string) *CortexKernel {
-	return &CortexKernel{
+	c := &CortexKernel{
 		shards:         make(map[string]*KernelShard),
 		predicateOwner: make(map[string]string),
 		cortexDomain:   cortexDomain,
 		eventBus:       NewFactEventBus(),
 	}
+	if features.IsPerShardFactsEnabled() {
+		c.factRouter = NewShardFactRouter()
+	}
+	return c
+}
+
+// FactRouter returns the per-shard fact router, or nil when the per-shard
+// facts feature flag is disabled. Exposed for observability and tests.
+func (c *CortexKernel) FactRouter() *ShardFactRouter {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.factRouter
+}
+
+// SetFactRouter installs a router on the cortex and propagates it to every
+// already-registered shard. Intended for tests that need to enable per-shard
+// routing without flipping the feature flag globally. Passing nil disables
+// routing and clears the router from every shard.
+func (c *CortexKernel) SetFactRouter(r *ShardFactRouter) {
+	c.mu.Lock()
+	c.factRouter = r
+	shards := make([]*KernelShard, 0, len(c.shards))
+	for _, s := range c.shards {
+		shards = append(shards, s)
+	}
+	c.mu.Unlock()
+	// Push to shards outside the cortex lock to avoid lock-order inversion
+	// with KernelShard.mu (which SetRouter takes).
+	for _, s := range shards {
+		s.SetRouter(r)
+	}
+	// Re-register every shard's owned predicates with the new router.
+	if r != nil {
+		for _, s := range shards {
+			preds := s.OwnedPredicateList()
+			if len(preds) == 0 {
+				continue
+			}
+			if err := r.RegisterOwner(s, preds); err != nil {
+				logging.Get(logging.CategoryKernel).Warn(
+					"[cortex] SetFactRouter: re-register '%s' failed: %v", s.Domain(), err)
+			}
+		}
+	}
 }
 
 // RegisterShard adds a domain shard to the cortex.
 // The shard's owned predicates are indexed for fast routing.
+//
+// When the per-shard fact router is active (i.e. the feature flag was on at
+// cortex construction, or SetFactRouter was called), the shard is also
+// registered with the router and the router pointer is installed on the
+// shard. This is what lets a direct shard.Assert call from outside the
+// cortex still land in the predicate's authoritative store.
 func (c *CortexKernel) RegisterShard(shard *KernelShard) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	domain := shard.Domain()
 	if _, exists := c.shards[domain]; exists {
+		c.mu.Unlock()
 		return fmt.Errorf("domain %s already registered", domain)
 	}
 
@@ -87,8 +148,20 @@ func (c *CortexKernel) RegisterShard(shard *KernelShard) error {
 		c.predicateOwner[pred] = domain
 	}
 
-	logging.Kernel("[cortex] registered shard '%s' (owned=%d predicates)",
-		domain, len(shard.ownedPredicates))
+	// Snapshot the router under the cortex lock; release before touching the
+	// shard to keep cortex.mu and shard.mu lock orders disjoint.
+	router := c.factRouter
+	c.mu.Unlock()
+
+	if router != nil {
+		if err := router.RegisterOwner(shard, shard.OwnedPredicateList()); err != nil {
+			return fmt.Errorf("failed to register shard '%s' with fact router: %w", domain, err)
+		}
+		shard.SetRouter(router)
+	}
+
+	logging.Kernel("[cortex] registered shard '%s' (owned=%d predicates, router=%v)",
+		domain, len(shard.ownedPredicates), router != nil)
 	return nil
 }
 

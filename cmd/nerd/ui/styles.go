@@ -11,6 +11,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
+
+	"codenerd/internal/features"
 )
 
 // Theme holds the current color scheme
@@ -151,8 +153,10 @@ func DetectTheme() Theme {
 		}
 	}
 
-	// Check for explicit dark mode preference
-	if os.Getenv("CODENERD_DARK_MODE") == "1" {
+	// Check for explicit dark mode preference. Resolved via internal/features
+	// so .nerd/config.json's `features.dark_mode` and the legacy
+	// CODENERD_DARK_MODE env var both work (env wins).
+	if features.IsDarkModeEnabled() {
 		return DarkTheme()
 	}
 

@@ -64,6 +64,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"codenerd/internal/config"
+	"codenerd/internal/features"
 	"codenerd/internal/logging"
 	"codenerd/internal/observability"
 )
@@ -324,14 +325,24 @@ func main() {
 		_ = logging.Initialize(ws)
 	}
 
+	// Eagerly load .nerd/config.json so the internal/features registry is
+	// populated before any feature-gated boot check (FlightRecorder below,
+	// system shards in the chat session, etc.) reads it. Errors are
+	// tolerated — accessors fall back to compile-time defaults when no
+	// active config is present.
+	if _, err := config.GlobalConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load user config (using defaults): %v\n", err)
+	}
+
 	// F7+G2: one-shot runtime metrics snapshot + Green Tea GC verification.
 	observability.LogStartupMetrics()
 
-	// G1: optional process-lifetime trace ring buffer. Enabled by
-	// NERD_FLIGHTREC=1; defaults to 64 MiB / 30 s window. The runtime
-	// stops the recorder automatically at process exit, so callers do
-	// not need to invoke Stop() for correctness.
-	if os.Getenv("NERD_FLIGHTREC") == "1" {
+	// G1: optional process-lifetime trace ring buffer. Resolved via
+	// internal/features so .nerd/config.json's `features.flight_recorder`
+	// key or the NERD_FLIGHTREC env var (env wins) controls boot. Defaults
+	// to 64 MiB / 30 s window. The runtime stops the recorder automatically
+	// at process exit, so callers do not need to invoke Stop() for correctness.
+	if features.IsFlightRecorderEnabled() {
 		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
 		} else {

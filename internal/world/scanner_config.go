@@ -1,12 +1,12 @@
 package world
 
 import (
-	"os"
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
+
+	"codenerd/internal/features"
 )
 
 // ScannerConfig controls workspace scanning performance and scope.
@@ -22,19 +22,19 @@ type ScannerConfig struct {
 }
 
 // DefaultScannerConfig returns sane defaults for large repositories.
+// Tunables (worker count, max AST file size) come from the
+// internal/features registry, which honours .nerd/config.json keys and
+// the NERD_FAST_SCAN_WORKERS / NERD_FAST_AST_MAX_BYTES env vars
+// (env wins over config, config wins over compile-time defaults).
 func DefaultScannerConfig() ScannerConfig {
 	workers := max(min(runtime.NumCPU(), 20), 4)
-	if env := os.Getenv("NERD_FAST_SCAN_WORKERS"); env != "" {
-		if v, err := strconv.Atoi(env); err == nil && v > 0 {
-			workers = v
-		}
+	if w := features.FastScanWorkers(); w > 0 {
+		workers = w
 	}
 
 	maxBytes := int64(2 * 1024 * 1024) // 2MB default
-	if env := os.Getenv("NERD_FAST_AST_MAX_BYTES"); env != "" {
-		if v, err := strconv.ParseInt(env, 10, 64); err == nil && v > 0 {
-			maxBytes = v
-		}
+	if b := features.FastASTMaxBytes(); b > 0 {
+		maxBytes = b
 	}
 
 	return ScannerConfig{

@@ -15,6 +15,7 @@ import (
 	"codenerd/internal/core"
 	coreshards "codenerd/internal/core/shards"
 	"codenerd/internal/embedding"
+	"codenerd/internal/features"
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/logging"
 	"codenerd/internal/northstar"
@@ -329,6 +330,15 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 
 		// NewRealKernel now properly returns errors instead of panicking.
 		// The kernel is already evaluated during construction.
+		// Auto-enable provenance recording when the user has set
+		// features.provenance=true (or CODENERD_PROVENANCE=1). This lets
+		// /explain return precise proof trees from session start without
+		// the first call paying for a forced re-eval. The reset is
+		// observed by the next Evaluate() below.
+		if features.IsProvenanceEnabled() {
+			kernel.EnableProvenance()
+			logStep("Provenance recording enabled via features flag")
+		}
 		logStep("Evaluating kernel rules...")
 		if err := kernel.Evaluate(); err != nil {
 			return bootCompleteMsg{err: fmt.Errorf("kernel boot failed: %w", err)}
@@ -936,30 +946,38 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 
 		shards.RegisterSystemShardProfiles(shardMgr)
 
-		// HEAVY OPERATION: Start System Shards (Async but setup overhead)
-		logStep("Starting system shards...")
-		ctx := context.Background()
-		disabled := make(map[string]struct{})
-		for _, name := range disableSystemShards {
-			disabled[name] = struct{}{}
-		}
-		if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
-			for token := range strings.SplitSeq(env, ",") {
-				name := strings.TrimSpace(token)
-				if name != "" {
-					disabled[name] = struct{}{}
+		// Master switch for system shards. When features.IsSystemShardsEnabled
+		// returns false (CODENERD_SYSTEM_SHARDS=0 or config sets it false),
+		// skip the entire boot block. The legacy NERD_DISABLE_SYSTEM_SHARDS
+		// env var is still respected per-shard below.
+		if !features.IsSystemShardsEnabled() {
+			logStep("System shards disabled via feature flag; skipping boot")
+		} else {
+			// HEAVY OPERATION: Start System Shards (Async but setup overhead)
+			logStep("Starting system shards...")
+			ctx := context.Background()
+			disabled := make(map[string]struct{})
+			for _, name := range disableSystemShards {
+				disabled[name] = struct{}{}
+			}
+			if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
+				for token := range strings.SplitSeq(env, ",") {
+					name := strings.TrimSpace(token)
+					if name != "" {
+						disabled[name] = struct{}{}
+					}
 				}
 			}
-		}
-		for name := range disabled {
-			shardMgr.DisableSystemShard(name)
-		}
-		if err := shardMgr.StartSystemShards(ctx); err != nil {
-			initialMessages = append(initialMessages, Message{
-				Role:    "assistant",
-				Content: fmt.Sprintf("Failed to start system shards: %v", err),
-				Time:    time.Now(),
-			})
+			for name := range disabled {
+				shardMgr.DisableSystemShard(name)
+			}
+			if err := shardMgr.StartSystemShards(ctx); err != nil {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("Failed to start system shards: %v", err),
+					Time:    time.Now(),
+				})
+			}
 		}
 
 		logStep("Creating shadow mode & scanner...")

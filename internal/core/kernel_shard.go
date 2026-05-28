@@ -32,6 +32,15 @@ type KernelShard struct {
 	schemaFiles []string
 	policyFiles []string
 
+	// router is the Track-D per-shard fact coordinator. When non-nil, the
+	// shard's Assert/Query/Retract paths consult it before touching the
+	// inner kernel and dispatch to the predicate's owning shard if it
+	// isn't this one. nil means "single-store mode" — every operation
+	// hits the local kernel exactly as it did before Track D. The router
+	// is installed by CortexKernel.RegisterShard only when the
+	// per-shard-facts feature flag is enabled.
+	router *ShardFactRouter
+
 	// Observability metrics
 	evalCount        int64         // Total evaluations performed
 	queryCount       int64         // Total queries served
@@ -106,45 +115,140 @@ func (s *KernelShard) OwnsPredicate(pred string) bool {
 	return s.ownedPredicates[pred]
 }
 
+// OwnedPredicateList returns a stable copy of the predicates this shard owns.
+// Order is unspecified. Returns nil if no predicates were registered.
+func (s *KernelShard) OwnedPredicateList() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.ownedPredicates) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s.ownedPredicates))
+	for p := range s.ownedPredicates {
+		out = append(out, p)
+	}
+	return out
+}
+
 // Kernel returns the underlying RealKernel for direct access (internal use only).
 func (s *KernelShard) Kernel() *RealKernel {
 	return s.kernel
 }
 
-// Assert delegates to the inner kernel.
+// router accessors are unexported; the router is installed by the CortexKernel
+// at registration time and is otherwise opaque to callers.
+
+// SetRouter installs the per-shard fact router. Passing nil restores the
+// shard to single-store mode (every Assert/Query hits the local kernel).
+// Callers should hold no other locks when invoking this method.
+func (s *KernelShard) SetRouter(r *ShardFactRouter) {
+	s.mu.Lock()
+	s.router = r
+	s.mu.Unlock()
+}
+
+// getRouter returns the currently-installed router, if any.
+func (s *KernelShard) getRouter() *ShardFactRouter {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.router
+}
+
+// Assert delegates to the inner kernel, or routes via the coordinator when
+// the shard does not own the predicate and a router has been installed.
 func (s *KernelShard) Assert(fact types.Fact) error {
+	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(fact.Predicate)) {
+		return r.AssertVia(s, fact)
+	}
+	return s.assertLocal(fact)
+}
+
+// assertLocal asserts a fact into THIS shard's inner kernel unconditionally.
+// It bypasses router dispatch and is used by the router itself to land facts
+// in their owning shard. Callers outside this file should not invoke it.
+func (s *KernelShard) assertLocal(fact types.Fact) error {
 	s.mu.Lock()
 	s.dirtyCount++
 	s.mu.Unlock()
 	return s.kernel.Assert(fact)
 }
 
-// AssertBatch delegates to the inner kernel.
+// AssertBatch delegates to the inner kernel, or routes facts to their owning
+// shards via the coordinator when a router has been installed.
 func (s *KernelShard) AssertBatch(facts []types.Fact) error {
+	if r := s.getRouter(); r != nil {
+		// Fast path: every fact is owned by this shard.
+		allLocal := true
+		for _, f := range facts {
+			if !s.OwnsPredicate(barePredicate(f.Predicate)) {
+				allLocal = false
+				break
+			}
+		}
+		if !allLocal {
+			return r.AssertBatchVia(s, facts)
+		}
+	}
+	return s.assertBatchLocal(facts)
+}
+
+// assertBatchLocal asserts a batch into THIS shard's inner kernel
+// unconditionally. Router-internal use only.
+func (s *KernelShard) assertBatchLocal(facts []types.Fact) error {
 	s.mu.Lock()
 	s.dirtyCount++
 	s.mu.Unlock()
 	return s.kernel.AssertBatch(facts)
 }
 
-// Retract delegates to the inner kernel.
+// Retract delegates to the inner kernel, or routes to the owning shard when
+// a router has been installed and this shard does not own the predicate.
 func (s *KernelShard) Retract(predicate string) error {
+	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(predicate)) {
+		return r.RetractVia(s, predicate)
+	}
+	return s.retractLocal(predicate)
+}
+
+// retractLocal removes facts of a predicate from THIS shard's inner kernel.
+// Router-internal use only.
+func (s *KernelShard) retractLocal(predicate string) error {
 	s.mu.Lock()
 	s.dirtyCount++
 	s.mu.Unlock()
 	return s.kernel.Retract(predicate)
 }
 
-// RetractFact delegates to the inner kernel.
+// RetractFact delegates to the inner kernel, or routes to the owning shard.
 func (s *KernelShard) RetractFact(fact types.Fact) error {
+	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(fact.Predicate)) {
+		return r.RetractFactVia(s, fact)
+	}
+	return s.retractFactLocal(fact)
+}
+
+// retractFactLocal removes a specific fact from THIS shard's inner kernel.
+// Router-internal use only.
+func (s *KernelShard) retractFactLocal(fact types.Fact) error {
 	s.mu.Lock()
 	s.dirtyCount++
 	s.mu.Unlock()
 	return s.kernel.RetractFact(fact)
 }
 
-// Query delegates to the inner kernel and tracks metrics.
+// Query delegates to the inner kernel and tracks metrics, or routes to the
+// owning shard via the coordinator when this shard does not own the
+// predicate and a router has been installed.
 func (s *KernelShard) Query(predicate string) ([]types.Fact, error) {
+	if r := s.getRouter(); r != nil && !s.OwnsPredicate(barePredicate(predicate)) {
+		return r.QueryVia(s, predicate)
+	}
+	return s.queryLocal(predicate)
+}
+
+// queryLocal queries THIS shard's inner kernel unconditionally and tracks
+// metrics. Router-internal use only.
+func (s *KernelShard) queryLocal(predicate string) ([]types.Fact, error) {
 	s.mu.Lock()
 	s.queryCount++
 	s.mu.Unlock()

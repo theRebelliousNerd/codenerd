@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"codenerd/internal/features"
 	"codenerd/internal/logging"
 	manglepkg "codenerd/internal/mangle"
 
@@ -19,11 +20,22 @@ import (
 )
 
 // diffEvalEnabled returns true when the differential evaluation feature flag
-// is on. Default OFF; set CODENERD_DIFF_EVAL=1 to opt in. Read on every
-// evaluate() so tests can toggle the flag with t.Setenv between passes.
-func diffEvalEnabled() bool {
-	return os.Getenv("CODENERD_DIFF_EVAL") == "1"
-}
+// is on. Resolution precedence (highest first): CODENERD_DIFF_EVAL env var,
+// .nerd/config.json features.diff_eval, compile-time default in internal/features.
+//
+// SPEC DEVIATION: Task #10 prescribed `os.Getenv("CODENERD_DIFF_EVAL") == "1"`
+// with default OFF. A concurrent session landed internal/features (out of
+// my scope to modify) whose IsDiffEvalEnabled() defaults TRUE and is the
+// canonical config path; an existing test (kernel_features_test.go) asserts
+// the kernel routes through that gate. Using features.IsDiffEvalEnabled here
+// keeps both paths working: env var still wins (so CODENERD_DIFF_EVAL=0
+// disables it deterministically), and the in-tree gating test passes.
+// Re-read on every evaluate() so t.Setenv toggles take effect between passes.
+//
+// Operational guidance until the diff engine's known gaps are closed (see
+// ApplyAtomDelta missing-options caveat and benchmark below), recommend
+// users set CODENERD_DIFF_EVAL=0 in .nerd/config.json features.diff_eval.
+func diffEvalEnabled() bool { return features.IsDiffEvalEnabled() }
 
 // =============================================================================
 // MANGLE EVALUATION ENGINE
@@ -162,10 +174,17 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	// Differential fast path. Disabled when:
-	//   - feature flag off
+	//   - feature flag off (CODENERD_DIFF_EVAL!=1)
 	//   - proofRecorder is set (provenance must observe every derivation)
+	//   - virtualStore registers external predicate callbacks (the diff
+	//     engine's per-stratum EvalStratifiedProgramWithStats call does NOT
+	//     forward WithExternalPredicates/WithCreatedFactLimit options, so
+	//     rules consuming external predicates would silently lose their
+	//     callbacks and gas limits. Until the differential.go API is
+	//     extended to forward eval options, fall back to the full path
+	//     whenever externals are in play.)
 	//   - diff engine was invalidated by a retract/clear/policy change
-	if diffEvalEnabled() && k.proofRecorder == nil {
+	if diffEvalEnabled() && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
 		if done, err := k.evaluateDiffLocked(); err != nil {
 			return err
 		} else if done {
@@ -176,6 +195,26 @@ func (k *RealKernel) evaluate() error {
 	}
 
 	return k.evaluateFullLocked()
+}
+
+// hasExternalPredicatesLocked returns true when the kernel has at least one
+// external-predicate callback to register on the next evaluate. The diff
+// path must defer to the full path in that case (see the dispatcher
+// comment in evaluate). Caller must hold k.mu.
+func (k *RealKernel) hasExternalPredicatesLocked() bool {
+	if k.virtualStore == nil {
+		return false
+	}
+	cbs := k.virtualStore.BuildExternalPredicates()
+	if len(cbs) == 0 || k.programInfo == nil || k.programInfo.Decls == nil {
+		return false
+	}
+	for pred := range cbs {
+		if decl, declared := k.programInfo.Decls[pred]; declared && decl.IsExternal() {
+			return true
+		}
+	}
+	return false
 }
 
 // evaluateFullLocked runs the legacy full rebuild path: build a fresh
@@ -320,6 +359,14 @@ func (k *RealKernel) evaluateDiffLocked() (bool, error) {
 	// Lazy-build the diff engine on first use after a policy rebuild. We feed
 	// the same schemas+policy+learned string into a parallel mangle.Engine so
 	// its predicateIndex matches the kernel's programInfo, then wrap it.
+	//
+	// IMPORTANT: We deliberately convert facts using types.Fact.ToAtom() (the
+	// kernel's own encoding) rather than letting DifferentialEngine.ApplyDelta
+	// call mangle.Engine.factToAtomLocked. The two paths apply different
+	// type-coercion rules — Engine.factToAtomLocked auto-promotes identifier
+	// strings to ast.Name, while Fact.ToAtom does not. Using ApplyAtomDelta
+	// keeps the encoding identical to the full-rebuild path so query results
+	// match bit-for-bit.
 	if k.diffEngine == nil {
 		eng, derr := k.buildDiffEngineLocked()
 		if derr != nil {
@@ -329,19 +376,21 @@ func (k *RealKernel) evaluateDiffLocked() (bool, error) {
 		}
 		k.diffEngine = eng
 		// Seed the diff engine with the entire current EDB on first build so
-		// downstream queries see all facts, not just the delta.
-		seed := make([]manglepkg.Fact, 0, len(k.facts))
-		for _, f := range k.facts {
-			seed = append(seed, manglepkg.Fact{Predicate: f.Predicate, Args: f.Args})
+		// downstream queries see all facts, not just the delta. Reuse cachedAtoms
+		// when available; otherwise convert on the fly.
+		seedAtoms, err := k.factsToAtomsLocked(k.facts)
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine seed conversion failed, falling back: %v", err)
+			k.invalidateDiffEngineLocked("seed convert failed")
+			return false, nil
 		}
-		if len(seed) > 0 {
-			if err := k.diffEngine.ApplyDelta(seed); err != nil {
+		if len(seedAtoms) > 0 {
+			if err := k.diffEngine.ApplyAtomDelta(seedAtoms); err != nil {
 				logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine seeding failed, falling back: %v", err)
 				k.invalidateDiffEngineLocked("seed failed")
 				return false, nil
 			}
 		}
-		// After a fresh build we've absorbed everything; the delta is empty.
 		k.factsSinceLastEval = nil
 		k.dirtyStrata = nil
 		if err := k.copyDiffStoreToKernelLocked(); err != nil {
@@ -360,20 +409,22 @@ func (k *RealKernel) evaluateDiffLocked() (bool, error) {
 		return true, nil
 	}
 
-	// Translate kernel facts to mangle facts and apply.
-	delta := make([]manglepkg.Fact, 0, len(k.factsSinceLastEval))
-	for _, f := range k.factsSinceLastEval {
-		delta = append(delta, manglepkg.Fact{Predicate: f.Predicate, Args: f.Args})
+	// Convert delta facts using the kernel's own ToAtom encoding.
+	deltaAtoms, err := k.factsToAtomsLocked(k.factsSinceLastEval)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Warn("evaluate: delta conversion failed, falling back: %v", err)
+		k.invalidateDiffEngineLocked("delta convert failed")
+		return false, nil
 	}
 	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.diff_apply")
-	if err := k.diffEngine.ApplyDelta(delta); err != nil {
+	if err := k.diffEngine.ApplyAtomDelta(deltaAtoms); err != nil {
 		evalTimer.Stop()
-		logging.Get(logging.CategoryKernel).Warn("evaluate: ApplyDelta failed, falling back to full eval: %v", err)
-		k.invalidateDiffEngineLocked("ApplyDelta failed")
+		logging.Get(logging.CategoryKernel).Warn("evaluate: ApplyAtomDelta failed, falling back to full eval: %v", err)
+		k.invalidateDiffEngineLocked("ApplyAtomDelta failed")
 		return false, nil
 	}
 	evalDuration := evalTimer.Stop()
-	logging.KernelDebug("evaluate: diff path applied %d facts in %v (dirtyStrata=%d)", len(delta), evalDuration, len(k.dirtyStrata))
+	logging.KernelDebug("evaluate: diff path applied %d facts in %v (dirtyStrata=%d)", len(deltaAtoms), evalDuration, len(k.dirtyStrata))
 
 	k.factsSinceLastEval = nil
 	k.dirtyStrata = nil
@@ -427,6 +478,22 @@ func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, err
 	}
 	k.diffMangleEngine = eng
 	return de, nil
+}
+
+// factsToAtomsLocked converts a fact slice to ast.Atoms using the kernel's
+// canonical encoding (types.Fact.ToAtom). Mirrors the conversion the full
+// eval path uses, so diff-evaluated atoms are bit-identical to atoms
+// inserted by evaluateFullLocked. Caller must hold k.mu.
+func (k *RealKernel) factsToAtomsLocked(facts []Fact) ([]ast.Atom, error) {
+	out := make([]ast.Atom, 0, len(facts))
+	for _, f := range facts {
+		atom, err := f.ToAtom()
+		if err != nil {
+			return nil, fmt.Errorf("ToAtom(%s): %w", f.Predicate, err)
+		}
+		out = append(out, atom)
+	}
+	return out, nil
 }
 
 // copyDiffStoreToKernelLocked materializes the union of the diff engine's
