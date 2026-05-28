@@ -14,6 +14,21 @@
 # Status: /pending, /in_progress, /completed, /failed
 Decl delegate_task(ShardType, TaskDescription, Status) bound [/name, /string, /name].
 
+# delegation_candidate(IntentID, ShardType, Confidence) - EDB asserted by Go.
+# Step 4: Go computes the verb->shard lookup (GetShardTypeForVerb, which reads
+# the perception taxonomy corpus that is intentionally siloed from this kernel)
+# and the perception confidence, then passes BOTH into the kernel as a fact so
+# the DELEGATION DECISION (the confidence gate) can live in policy. ShardType is
+# /none when no shard maps to the verb. Confidence is a 0-100 integer (Go scales
+# the 0.0-1.0 float, matching the action_verified convention).
+Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/string, /name, /number].
+
+# should_delegate(ShardType) - derived: the current intent should be delegated to
+# ShardType. Replaces the hardcoded `shardType != "" && intent.Confidence >= 0.5`
+# boolean at cmd/nerd/chat/process.go. Queried by Go, which falls back to the
+# legacy Go boolean if the kernel is unavailable or returns nothing.
+Decl should_delegate(ShardType) bound [/name].
+
 # spawn_subagent(Persona) - derived: subagent should be spawned
 Decl spawn_subagent(Persona) bound [/string].
 

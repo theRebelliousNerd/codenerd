@@ -327,6 +327,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("delegate_task")
 			_ = m.kernel.Retract("trace_recall_result")
 			_ = m.kernel.Retract("learning_recall_result")
+			// Step 4: clear the prior turn's delegation decision input so stale
+			// confidence cannot leak into this turn's should_delegate gate.
+			_ = m.kernel.Retract("delegation_candidate")
 
 			// NERD-EVOLVE-START: P3_routing_assertion
 			// Retract per-turn perception routing facts so stale values from the
@@ -523,7 +526,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		if shardType != "" && intent.Confidence >= 0.5 {
+		if m.shouldDelegate(shardType, intent.Confidence) {
 			needsWsScan := m.needsWorkspaceScanForDelegation(intent)
 			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",
 				shardType, intent.Verb, intent.Target, intent.Confidence, needsWsScan, workspaceScanned, time.Since(oodaStart).Milliseconds())

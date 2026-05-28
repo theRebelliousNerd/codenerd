@@ -130,6 +130,20 @@ intent_requires_tool_call(Verb) :-
     action_mapping(Verb, Action),
     side_effecting_action(Action).
 
+# Step 4: DELEGATION DECISION (confidence gate moved from Go to policy).
+# Go computes the verb->shard lookup and the perception confidence and asserts
+# delegation_candidate(/current_intent, ShardType, Conf). This rule applies the
+# gate: delegate only to a real shard (not /none) when confidence is at least 50
+# (== the legacy intent.Confidence >= 0.5 boundary). The verb->shard LOOKUP
+# itself stays in Go (GetShardTypeForVerb) because its source data (verb_def) is
+# siloed in the perception taxonomy engine, not this kernel; only the DECISION
+# migrates. Go queries should_delegate and falls back to the legacy boolean if
+# the kernel is unavailable or returns nothing.
+should_delegate(ShardType) :-
+    delegation_candidate(/current_intent, ShardType, Conf),
+    /none != ShardType,
+    Conf >= 50.
+
 # Derive next_action from intent and mapping
 # Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
 next_action(Action) :-

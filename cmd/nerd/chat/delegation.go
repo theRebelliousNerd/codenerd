@@ -58,6 +58,67 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 	return m.taskExecutor.ExecuteWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, priority)
 }
 
+// shouldDelegate decides whether the current intent should be delegated to a
+// shard. The verb->shard LOOKUP (shardType) is computed in Go by the caller
+// (GetShardTypeForVerb reads the perception taxonomy corpus, which is siloed
+// from the executive kernel). The DELEGATION DECISION — the confidence gate —
+// is migrated to Mangle (Step 4): Go asserts delegation_candidate with the
+// shard and confidence, then queries should_delegate.
+//
+// Fail-safe: if the kernel is nil, the assert/query errors, or the kernel
+// returns no should_delegate fact, fall back to the legacy Go boolean
+// (shardType != "" && confidence >= 0.5). This guarantees a kernel hiccup can
+// never silently disable all delegation — it degrades to the prior behavior.
+func (m *Model) shouldDelegate(shardType string, confidence float64) bool {
+	legacy := shardType != "" && confidence >= 0.5
+
+	if m.kernel == nil {
+		return legacy
+	}
+
+	// ShardType atom; /none signals "no shard mapped" so the Mangle rule can
+	// reject it without depending on string emptiness.
+	shardAtomStr := "/none"
+	if shardType != "" {
+		if strings.HasPrefix(shardType, "/") {
+			shardAtomStr = shardType
+		} else {
+			shardAtomStr = "/" + shardType
+		}
+	}
+
+	// Scale the 0.0-1.0 confidence float to a 0-100 integer (matches the
+	// action_verified convention; the Mangle gate compares Conf >= 50).
+	confInt := int64(confidence * 100)
+
+	candidate := core.Fact{
+		Predicate: "delegation_candidate",
+		Args:      []any{"/current_intent", types.MangleAtom(shardAtomStr), confInt},
+	}
+	// Retract any stale candidate from a prior turn before asserting this one,
+	// so a leftover high-confidence fact cannot leak into this decision.
+	_ = m.kernel.RetractFact(core.Fact{Predicate: "delegation_candidate", Args: []any{"/current_intent"}})
+	if err := m.kernel.Assert(candidate); err != nil {
+		logging.Routing("[shouldDelegate] assert delegation_candidate failed, using legacy gate: %v", err)
+		return legacy
+	}
+
+	facts, err := m.kernel.Query("should_delegate")
+	if err != nil {
+		logging.Routing("[shouldDelegate] query should_delegate failed, using legacy gate: %v", err)
+		return legacy
+	}
+	if len(facts) == 0 {
+		// No derivation: either no shard mapped or below threshold. The Mangle
+		// rule and the legacy boolean agree on this, so returning the kernel's
+		// "no" is correct; but if the kernel somehow lost the candidate fact we
+		// just asserted, fall back rather than wrongly suppressing delegation.
+		return legacy
+	}
+	// should_delegate(ShardType) derived -> delegate.
+	return true
+}
+
 // shardTypeToTaskRequest maps a shard/persona name OR an intent verb into a
 // TaskRequest. The executor requires IntentVerb to start with "/", so persona
 // names get mapped to their canonical intent (and recorded as Persona for
