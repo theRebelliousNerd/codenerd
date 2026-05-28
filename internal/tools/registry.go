@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -31,6 +32,9 @@ func NewRegistry() *Registry {
 // Register adds a tool to the registry.
 // Returns an error if a tool with the same name already exists.
 func (r *Registry) Register(tool *Tool) error {
+	if tool == nil {
+		return ErrToolNil
+	}
 	if err := tool.Validate(); err != nil {
 		return fmt.Errorf("invalid tool: %w", err)
 	}
@@ -143,6 +147,12 @@ func (r *Registry) Count() int {
 // Execute runs a tool by name with the given arguments.
 // Returns ErrToolNotFound if the tool doesn't exist.
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]any) (*ToolResult, error) {
+	// Defensive: a nil context can panic downstream when consumers call
+	// ctx.Err() or ctx.Done(). Fall back to a background context.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	tool := r.Get(name)
 	if tool == nil {
 		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
@@ -153,6 +163,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 
 // ExecuteTool runs a specific tool with the given arguments.
 func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]any) (*ToolResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	start := time.Now()
 
 	// Validate required arguments
@@ -179,19 +192,81 @@ func (r *Registry) ExecuteTool(ctx context.Context, tool *Tool, args map[string]
 	}, err
 }
 
-// validateArgs checks that all required arguments are present.
+// validateArgs checks that all required arguments are present and (best-effort)
+// that provided arguments match their declared JSON Schema type. Validation is
+// intentionally lenient: properties with no declared Type are not checked, and
+// numeric types accept both Go ints and JSON-unmarshaled float64.
 func (r *Registry) validateArgs(tool *Tool, args map[string]any) error {
 	for _, required := range tool.Schema.Required {
 		if _, ok := args[required]; !ok {
 			return fmt.Errorf("%w: %s", ErrMissingRequiredArg, required)
 		}
 	}
+
+	// Coarse type check for declared properties. Skip silently when no
+	// Property is declared for a key (extra args are allowed by convention).
+	for key, value := range args {
+		prop, ok := tool.Schema.Properties[key]
+		if !ok || prop.Type == "" || value == nil {
+			continue
+		}
+		if !valueMatchesSchemaType(value, prop.Type) {
+			return fmt.Errorf("%w: %s expected %s, got %T",
+				ErrInvalidArgType, key, prop.Type, value)
+		}
+	}
 	return nil
 }
 
+// valueMatchesSchemaType returns true if v satisfies the JSON-Schema type
+// string. It accepts the type variations real callers produce (e.g. JSON
+// unmarshaling yields float64 for both "integer" and "number").
+func valueMatchesSchemaType(v any, schemaType string) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch schemaType {
+	case "string":
+		return rv.Kind() == reflect.String
+	case "integer":
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return true
+		case reflect.Float32, reflect.Float64:
+			// Accept whole-number floats — JSON unmarshal always yields float64.
+			return rv.Float() == float64(int64(rv.Float()))
+		}
+		return false
+	case "number":
+		switch rv.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+			return true
+		}
+		return false
+	case "boolean":
+		return rv.Kind() == reflect.Bool
+	case "array":
+		return rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array
+	case "object":
+		return rv.Kind() == reflect.Map || rv.Kind() == reflect.Struct
+	default:
+		// Unknown schema type: don't reject.
+		return true
+	}
+}
+
 // FilterByIntent returns tools that match the given intent.
-// This maps intents to categories for tool selection.
+// This maps intents to categories for tool selection. An empty or unknown
+// intent returns all registered tools as a safe fallback so callers never get
+// an empty toolbox just because an intent was missing or hallucinated.
 func (r *Registry) FilterByIntent(intent string) []*Tool {
+	if intent == "" {
+		return r.All()
+	}
 	category := intentToCategory(intent)
 	if category == "" {
 		return r.All()
@@ -199,7 +274,8 @@ func (r *Registry) FilterByIntent(intent string) []*Tool {
 	return r.GetByCategory(category)
 }
 
-// intentToCategory maps intent verbs to tool categories.
+// intentToCategory maps intent verbs to tool categories. Returns the empty
+// string for unknown intents so FilterByIntent can fall back to All().
 func intentToCategory(intent string) ToolCategory {
 	switch intent {
 	case "/research", "/explore", "/learn", "/document":
@@ -212,8 +288,11 @@ func intentToCategory(intent string) ToolCategory {
 		return CategoryReview
 	case "/attack", "/break", "/nemesis":
 		return CategoryAttack
-	default:
+	case "/general":
 		return CategoryGeneral
+	default:
+		// Unknown intent — let FilterByIntent fall back to All().
+		return ""
 	}
 }
 

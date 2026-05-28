@@ -21,4 +21,7 @@ var (
 
 	// ErrInvalidArgType is returned when an argument has the wrong type.
 	ErrInvalidArgType = errors.New("invalid argument type")
+
+	// ErrToolNil is returned when a nil *Tool is passed to Register.
+	ErrToolNil = errors.New("tool cannot be nil")
 )
