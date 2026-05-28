@@ -102,6 +102,7 @@ func BenchmarkKernelLoadFacts(b *testing.B) {
 		kernel.LoadFacts(facts)
 		b.StopTimer()
 		kernel.Reset()
+		b.StartTimer() // b.Loop() requires timer running at loop boundary
 	}
 }
 
@@ -252,5 +253,6 @@ func BenchmarkTypicalWorkflow(b *testing.B) {
 
 		b.StopTimer()
 		kernel.Reset()
+		b.StartTimer() // b.Loop() requires timer running at loop boundary
 	}
 }

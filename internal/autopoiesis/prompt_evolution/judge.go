@@ -96,9 +96,8 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 			continue
 		}
 
-		wg.Add(1)
-		go func(idx int, ex *ExecutionRecord) {
-			defer wg.Done()
+		idx, ex := i, exec
+		wg.Go(func() {
 			sem <- struct{}{}        // acquire token
 			defer func() { <-sem }() // release token
 
@@ -111,7 +110,7 @@ func (tj *TaskJudge) EvaluateBatch(ctx context.Context, execs []*ExecutionRecord
 
 			verdicts[idx] = verdict
 			ex.Verdict = verdict // Attach verdict to execution record
-		}(i, exec)
+		})
 	}
 	wg.Wait()
 

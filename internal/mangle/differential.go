@@ -297,6 +297,33 @@ func (de *DifferentialEngine) AddFactIncremental(fact Fact) error {
 	return de.ApplyDelta([]Fact{fact})
 }
 
+// CopyAllFactsTo materializes the union of every stratum store into the
+// provided destination FactStore. The destination receives one Add() call per
+// unique atom across all strata, so callers can use it as a flat read view
+// of the derived knowledge base. Used by the codeNERD kernel to keep its
+// existing Query/QueryAll path working over a diff-evaluated world.
+func (de *DifferentialEngine) CopyAllFactsTo(dest factstore.FactStore) error {
+	de.mu.RLock()
+	defer de.mu.RUnlock()
+	for _, layer := range de.strataStores {
+		if layer == nil {
+			continue
+		}
+		layer.mu.RLock()
+		for _, predSym := range layer.store.ListPredicates() {
+			if err := layer.store.GetFacts(ast.Atom{Predicate: predSym}, func(a ast.Atom) error {
+				dest.Add(a)
+				return nil
+			}); err != nil {
+				layer.mu.RUnlock()
+				return err
+			}
+		}
+		layer.mu.RUnlock()
+	}
+	return nil
+}
+
 // ApplyDelta applies a set of new facts and re-evaluates necessary strata.
 func (de *DifferentialEngine) ApplyDelta(facts []Fact) error {
 	de.mu.Lock()

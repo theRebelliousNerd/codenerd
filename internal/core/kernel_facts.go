@@ -428,7 +428,44 @@ func (k *RealKernel) addFactIfNewLocked(f Fact) bool {
 	k.facts = append(k.facts, f)
 	k.cachedAtoms = append(k.cachedAtoms, atom)
 	k.factIndex[key] = struct{}{}
+
+	// Track per-fact delta for the differential-eval fast path.
+	// Only meaningful when the diff engine is active; otherwise these slices
+	// just grow and get reset on the next full evaluate(). Cost is negligible
+	// vs. ToAtom(), which we already paid above.
+	if diffEvalEnabled() {
+		k.factsSinceLastEval = append(k.factsSinceLastEval, f)
+		k.markStratumDirtyLocked(atom.Predicate)
+	}
 	return true
+}
+
+// markStratumDirtyLocked sets the stratum that owns predicateSym and every
+// stratum that depends on it (i.e. all higher-numbered strata) as dirty.
+// This is the correct-but-pessimistic policy from the task: marking
+// [s, maxStratum] guarantees no derived fact in a dependent stratum is left
+// stale, at the cost of re-evaluating some strata that may not actually
+// depend on the changed one. Caller must hold k.mu.
+func (k *RealKernel) markStratumDirtyLocked(predicate ast.PredicateSym) {
+	if k.predToStratum == nil {
+		return
+	}
+	s, ok := k.predToStratum[predicate]
+	if !ok {
+		// Unknown predicate: treat conservatively as stratum 0 so it
+		// triggers a full re-eval of derived strata.
+		s = 0
+	}
+	if k.dirtyStrata == nil {
+		k.dirtyStrata = make(map[int]bool)
+	}
+	maxStratum := len(k.strata) - 1
+	if maxStratum < s {
+		maxStratum = s
+	}
+	for i := s; i <= maxStratum; i++ {
+		k.dirtyStrata[i] = true
+	}
 }
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.

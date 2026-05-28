@@ -40,10 +40,8 @@ func (m *Model) handleKnowledgeRequests(
 	var wg sync.WaitGroup
 
 	for _, req := range requests {
-		wg.Add(1)
-		go func(r articulation.KnowledgeRequest) {
-			defer wg.Done()
-
+		r := req
+		wg.Go(func() {
 			// Resolve specialist type
 			shardType := r.Specialist
 			if shardType == "_any_specialist" {
@@ -78,7 +76,7 @@ If you need to search documentation or the web, do so to provide accurate inform
 				Timestamp:  time.Now(),
 				Error:      err,
 			}
-		}(req)
+		})
 	}
 
 	// Wait for all specialists to complete

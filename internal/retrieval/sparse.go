@@ -294,10 +294,8 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 			continue
 		}
 
-		wg.Add(1)
-		go func(kw string) {
-			defer wg.Done()
-
+		kw := keyword
+		wg.Go(func() {
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
@@ -310,7 +308,7 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 			// Cache the result
 			r.cache.Set(kw, hits)
 			results <- hits
-		}(keyword)
+		})
 	}
 
 	// Wait and collect results
@@ -353,9 +351,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	// Worker pool
 	var wg sync.WaitGroup
 	for i := 0; i < r.parallelism; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for path := range files {
 				select {
 				case <-ctx.Done():
@@ -421,7 +417,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 					mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 
 	// Walk directory

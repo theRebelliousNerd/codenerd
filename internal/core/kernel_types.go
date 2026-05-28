@@ -80,6 +80,32 @@ type RealKernel struct {
 	// EnableProvenance(). The recorder is reset at the start of every
 	// evaluate() to bound memory usage.
 	proofRecorder *provenance.MemoryRecorder
+
+	// =========================================================================
+	// Differential evaluation (Task #10)
+	// =========================================================================
+	// Feature-flagged via CODENERD_DIFF_EVAL=1 (default OFF). When ON and the
+	// policy is stable, evaluate() routes through diffEngine.ApplyDelta with
+	// only the facts asserted since the previous evaluate, instead of rebuilding
+	// the full SimpleInMemoryStore from scratch every time. The diff engine
+	// keeps a per-stratum fact cache so unrelated strata are not re-derived.
+	//
+	// Invariants:
+	//   * diffEngine is nil when the flag is OFF, when policyDirty is true,
+	//     or when proofRecorder is set (provenance needs to observe every
+	//     derivation, so we fall back to full eval in that case).
+	//   * dirtyStrata is the set of strata that have received new facts since
+	//     the last evaluate(); cleared after a successful ApplyDelta.
+	//   * factsSinceLastEval is the ordered list of new facts since the last
+	//     evaluate(); cleared after a successful ApplyDelta. Retract/Clear/
+	//     Reset paths set diffEngine = nil to force a full rebuild on the next
+	//     evaluate (we cannot incrementally un-derive without DRed-style
+	//     bookkeeping).
+	//   * All fields below are guarded by k.mu.
+	diffEngine          *mangle.DifferentialEngine
+	diffMangleEngine    *mangle.Engine // base engine the DifferentialEngine wraps
+	dirtyStrata         map[int]bool
+	factsSinceLastEval  []Fact
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

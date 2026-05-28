@@ -256,10 +256,9 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	newFacts = append(newFacts, dirFacts...)
 
 	for _, p := range pathsToParse {
+		path := p
 		info := currentFiles[p]
-		wg.Add(1)
-		go func(path string, info os.FileInfo) {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -352,7 +351,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			newFacts = append(newFacts, ft)
 			newFacts = append(newFacts, additional...)
 			mu.Unlock()
-		}(p, info)
+		})
 	}
 
 	wg.Wait()

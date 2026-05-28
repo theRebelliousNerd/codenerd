@@ -284,9 +284,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 		// This blocks filepath.Walk when worker pool is full, preventing unbounded goroutine spawning
 		sem <- struct{}{}
 
-		wg.Add(1)
-		go func(path string, info os.FileInfo) {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }() // Release token
 
 			fileStart := time.Now()
@@ -405,7 +403,7 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			}
 
 			logging.WorldDebug("Indexed file: %s (lang=%s, symbols=%d, took %v)", filepath.Base(path), lang, len(additionalFacts), time.Since(fileStart))
-		}(path, info)
+		})
 
 		return nil
 	})

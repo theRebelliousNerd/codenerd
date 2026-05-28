@@ -29,9 +29,8 @@ func main() {
 
 		for _, entry := range entries {
 			if filepath.Ext(entry.Name()) == ".db" {
-				wg.Add(1)
-				go func(e os.DirEntry) {
-					defer wg.Done()
+				e := entry
+				wg.Go(func() {
 					dbPath := filepath.Join(shardsDir, e.Name())
 
 					// We cannot intercept stdout securely concurrently using os.Stdout pipe
@@ -45,7 +44,7 @@ func main() {
 					mu.Lock()
 					os.Stdout.Write(buf.Bytes())
 					mu.Unlock()
-				}(entry)
+				})
 			}
 		}
 		wg.Wait()

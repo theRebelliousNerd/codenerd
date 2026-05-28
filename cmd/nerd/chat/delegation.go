@@ -699,16 +699,15 @@ func (m Model) executeParallelMode(ctx context.Context, verb, shardType, task, t
 
 	// Spawn specialists in parallel
 	for _, spec := range specialists {
-		wg.Add(1)
-		go func(s shards.SpecialistMatch) {
-			defer wg.Done()
+		s := spec
+		wg.Go(func() {
 			shardStart := time.Now()
 			specTask := fmt.Sprintf("%s files:%s context:[matched for %s]",
 				strings.TrimPrefix(verb, "/"), strings.Join(s.Files, ","), s.Reason)
 			result, err := m.spawnTask(ctx, s.AgentName, specTask)
 			duration := time.Since(shardStart)
 			resultsChan <- spawnResult{Name: s.AgentName, Result: result, Err: err, Task: specTask, Duration: duration}
-		}(spec)
+		})
 	}
 
 	go func() { wg.Wait(); close(resultsChan) }()
@@ -1027,9 +1026,8 @@ func (m Model) gatherSpecialistAdvice(ctx context.Context, verb string, files []
 	logging.Shards("Gathering advice for %s on %d files", verb, len(files))
 
 	for _, spec := range specialists {
-		wg.Add(1)
-		go func(s shards.SpecialistMatch) {
-			defer wg.Done()
+		s := spec
+		wg.Go(func() {
 			// Advisory task prompt
 			adviceTask := fmt.Sprintf(`ADVISORY REQUEST: Provide domain-specific advice for a %s operation.
 
@@ -1049,7 +1047,7 @@ Keep your advice concise and actionable. Do NOT make changes yourself - just adv
 
 			result, err := m.spawnTask(ctx, s.AgentName, adviceTask)
 			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
-		}(spec)
+		})
 	}
 
 	go func() { wg.Wait(); close(resultsChan) }()
@@ -1075,9 +1073,8 @@ func (m Model) gatherSpecialistCritique(ctx context.Context, verb string, files 
 	}
 
 	for _, spec := range specialists {
-		wg.Add(1)
-		go func(s shards.SpecialistMatch) {
-			defer wg.Done()
+		s := spec
+		wg.Go(func() {
 			// Critique task prompt
 			critiqueTask := fmt.Sprintf(`CRITIQUE REQUEST: Review the following %s result from your domain expertise perspective.
 
@@ -1101,7 +1098,7 @@ Be concise. Focus on domain-specific insights others might miss.`,
 
 			result, err := m.spawnTask(ctx, s.AgentName, critiqueTask)
 			resultsChan <- adviceResult{Name: s.AgentName, Reason: s.Reason, Result: result, Err: err}
-		}(spec)
+		})
 	}
 
 	go func() { wg.Wait(); close(resultsChan) }()

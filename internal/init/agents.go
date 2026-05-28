@@ -652,10 +652,8 @@ func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string
 	fmt.Printf("   Creating %d agent KBs in parallel (max %d workers)...\n", len(agents), maxWorkers)
 
 	for idx, agent := range agents {
-		wg.Add(1)
-		go func(idx int, agent RecommendedAgent) {
-			defer wg.Done()
-
+		idx, agent := idx, agent
+		wg.Go(func() {
 			// Acquire semaphore
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -727,7 +725,7 @@ func (i *Initializer) createAgentsParallel(ctx context.Context, shardsDir string
 			}
 
 			i.sendAgentProgress(agent.Name, agent.Type, "ready", stats.TotalAtoms)
-		}(idx, agent)
+		})
 	}
 
 	wg.Wait()

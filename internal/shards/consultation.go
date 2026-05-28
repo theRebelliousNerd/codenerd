@@ -141,9 +141,8 @@ func (m *ConsultationManager) RequestBatchConsultation(ctx context.Context, ques
 	errors := make(chan error, len(specialists))
 
 	for _, spec := range specialists {
-		wg.Add(1)
-		go func(specialist string) {
-			defer wg.Done()
+		specialist := spec
+		wg.Go(func() {
 			req := ConsultationRequest{
 				FromSpec: "system",
 				ToSpec:   specialist,
@@ -157,7 +156,7 @@ func (m *ConsultationManager) RequestBatchConsultation(ctx context.Context, ques
 				return
 			}
 			results <- *resp
-		}(spec)
+		})
 	}
 
 	go func() {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	manglepkg "codenerd/internal/mangle"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -16,6 +17,13 @@ import (
 	"codeberg.org/TauCeti/mangle-go/parse"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
+
+// diffEvalEnabled returns true when the differential evaluation feature flag
+// is on. Default OFF; set CODENERD_DIFF_EVAL=1 to opt in. Read on every
+// evaluate() so tests can toggle the flag with t.Setenv between passes.
+func diffEvalEnabled() bool {
+	return os.Getenv("CODENERD_DIFF_EVAL") == "1"
+}
 
 // =============================================================================
 // MANGLE EVALUATION ENGINE
@@ -131,12 +139,21 @@ func (k *RealKernel) rebuildProgram() error {
 
 // evaluate populates the store with facts and evaluates to fixpoint.
 // Uses cached programInfo for efficiency.
+//
+// When the differential-eval feature flag is on (CODENERD_DIFF_EVAL=1), a
+// stable policy and a non-invalidated diff engine, this routes to
+// evaluateDiff(), which uses DifferentialEngine.ApplyDelta on the facts
+// asserted since the last evaluate(). Otherwise the full-rebuild path runs.
 func (k *RealKernel) evaluate() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "evaluate")
+	defer timer.Stop()
 
-	// Rebuild program if policy changed
+	// Rebuild program if policy changed. This must happen before the diff
+	// engine is consulted, because a policy change invalidates the cached
+	// stratification and stratum stores inside the diff engine.
 	if k.policyDirty || k.programInfo == nil {
 		logging.KernelDebug("evaluate: policy dirty or programInfo nil, rebuilding program")
+		k.invalidateDiffEngineLocked("policy rebuild")
 		if err := k.rebuildProgram(); err != nil {
 			return err
 		}
@@ -144,6 +161,27 @@ func (k *RealKernel) evaluate() error {
 		logging.KernelDebug("evaluate: using cached programInfo")
 	}
 
+	// Differential fast path. Disabled when:
+	//   - feature flag off
+	//   - proofRecorder is set (provenance must observe every derivation)
+	//   - diff engine was invalidated by a retract/clear/policy change
+	if diffEvalEnabled() && k.proofRecorder == nil {
+		if done, err := k.evaluateDiffLocked(); err != nil {
+			return err
+		} else if done {
+			k.initialized = true
+			logging.KernelDebug("evaluate: complete via differential path")
+			return nil
+		}
+	}
+
+	return k.evaluateFullLocked()
+}
+
+// evaluateFullLocked runs the legacy full rebuild path: build a fresh
+// SimpleInMemoryStore from cachedAtoms and run EvalStratifiedProgramWithStats
+// from scratch. Caller must hold k.mu.
+func (k *RealKernel) evaluateFullLocked() error {
 	// Create fresh store and populate with EDB facts
 	// OPTIMIZATION: Use cached atoms instead of converting every time
 	logging.KernelDebug("evaluate: populating store with %d EDB facts", len(k.facts))
@@ -241,18 +279,190 @@ func (k *RealKernel) evaluate() error {
 		strataCount, totalDuration, evalDuration)
 
 	k.initialized = true
-	timer.Stop()
-	logging.KernelDebug("evaluate: complete, kernel initialized")
+	// Reset the diff-engine delta buffer: any facts asserted before now were
+	// just included in the full rebuild, so they are no longer "since last
+	// eval". The diff engine itself is rebuilt lazily in evaluateDiffLocked.
+	k.factsSinceLastEval = nil
+	k.dirtyStrata = nil
+	logging.KernelDebug("evaluate: full path complete, kernel initialized")
+	return nil
+}
+
+// invalidateDiffEngineLocked drops the cached differential engine and any
+// pending delta. The next evaluate() call will either fall back to the full
+// path or rebuild the diff engine from the freshly-rebuilt program. Callers
+// must hold k.mu.
+//
+// Called from:
+//   - Retract paths (cannot incrementally un-derive)
+//   - Policy change (programInfo replaced; stratification may differ)
+//   - Clear / Reset (EDB wiped)
+func (k *RealKernel) invalidateDiffEngineLocked(reason string) {
+	if k.diffEngine == nil && k.diffMangleEngine == nil && k.dirtyStrata == nil && k.factsSinceLastEval == nil {
+		return
+	}
+	logging.KernelDebug("evaluate: invalidating diff engine (%s)", reason)
+	k.diffEngine = nil
+	k.diffMangleEngine = nil
+	k.dirtyStrata = nil
+	k.factsSinceLastEval = nil
+}
+
+// evaluateDiffLocked tries the differential-eval fast path. Returns
+// (handled=true, nil) if it completed the evaluation; (handled=false, nil) if
+// the caller should fall back to the full path; or (handled=false, err) on a
+// real error. Caller must hold k.mu.
+func (k *RealKernel) evaluateDiffLocked() (bool, error) {
+	if k.programInfo == nil {
+		return false, nil
+	}
+
+	// Lazy-build the diff engine on first use after a policy rebuild. We feed
+	// the same schemas+policy+learned string into a parallel mangle.Engine so
+	// its predicateIndex matches the kernel's programInfo, then wrap it.
+	if k.diffEngine == nil {
+		eng, derr := k.buildDiffEngineLocked()
+		if derr != nil {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine build failed, falling back to full eval: %v", derr)
+			k.invalidateDiffEngineLocked("build failed")
+			return false, nil
+		}
+		k.diffEngine = eng
+		// Seed the diff engine with the entire current EDB on first build so
+		// downstream queries see all facts, not just the delta.
+		seed := make([]manglepkg.Fact, 0, len(k.facts))
+		for _, f := range k.facts {
+			seed = append(seed, manglepkg.Fact{Predicate: f.Predicate, Args: f.Args})
+		}
+		if len(seed) > 0 {
+			if err := k.diffEngine.ApplyDelta(seed); err != nil {
+				logging.Get(logging.CategoryKernel).Warn("evaluate: diff engine seeding failed, falling back: %v", err)
+				k.invalidateDiffEngineLocked("seed failed")
+				return false, nil
+			}
+		}
+		// After a fresh build we've absorbed everything; the delta is empty.
+		k.factsSinceLastEval = nil
+		k.dirtyStrata = nil
+		if err := k.copyDiffStoreToKernelLocked(); err != nil {
+			logging.Get(logging.CategoryKernel).Warn("evaluate: diff store copy failed, falling back: %v", err)
+			k.invalidateDiffEngineLocked("copy failed")
+			return false, nil
+		}
+		return true, nil
+	}
+
+	// No new facts since the last evaluate? Nothing to do.
+	if len(k.factsSinceLastEval) == 0 {
+		logging.KernelDebug("evaluate: diff path - no new facts, no-op")
+		// Still publish the existing store contents as k.store (it's already
+		// the diff-engine union from the previous pass).
+		return true, nil
+	}
+
+	// Translate kernel facts to mangle facts and apply.
+	delta := make([]manglepkg.Fact, 0, len(k.factsSinceLastEval))
+	for _, f := range k.factsSinceLastEval {
+		delta = append(delta, manglepkg.Fact{Predicate: f.Predicate, Args: f.Args})
+	}
+	evalTimer := logging.StartTimer(logging.CategoryKernel, "evaluate.diff_apply")
+	if err := k.diffEngine.ApplyDelta(delta); err != nil {
+		evalTimer.Stop()
+		logging.Get(logging.CategoryKernel).Warn("evaluate: ApplyDelta failed, falling back to full eval: %v", err)
+		k.invalidateDiffEngineLocked("ApplyDelta failed")
+		return false, nil
+	}
+	evalDuration := evalTimer.Stop()
+	logging.KernelDebug("evaluate: diff path applied %d facts in %v (dirtyStrata=%d)", len(delta), evalDuration, len(k.dirtyStrata))
+
+	k.factsSinceLastEval = nil
+	k.dirtyStrata = nil
+
+	if err := k.copyDiffStoreToKernelLocked(); err != nil {
+		logging.Get(logging.CategoryKernel).Warn("evaluate: diff store copy failed, falling back: %v", err)
+		k.invalidateDiffEngineLocked("copy failed")
+		return false, nil
+	}
+	return true, nil
+}
+
+// buildDiffEngineLocked instantiates a parallel mangle.Engine seeded with the
+// same schemas+policy+learned source as the kernel, then wraps it in a
+// DifferentialEngine. The mangle.Engine's predicate index drives
+// factToAtomLocked inside ApplyDelta. Caller must hold k.mu.
+func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, error) {
+	cfg := manglepkg.DefaultConfig()
+	// The kernel enforces its own derived-fact limit on the full path; mirror
+	// it onto the diff engine so the two paths cannot diverge in safety.
+	if k.derivedFactLimit > 0 {
+		cfg.DerivedFactsLimit = k.derivedFactLimit
+	}
+	cfg.AutoEval = true
+	eng, err := manglepkg.NewEngine(cfg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("diff: NewEngine: %w", err)
+	}
+
+	// Construct schemas+policy+learned in the same order rebuildProgram uses.
+	var sb strings.Builder
+	if k.schemas != "" {
+		sb.WriteString(k.schemas)
+		sb.WriteString("\n")
+	}
+	if k.policy != "" {
+		sb.WriteString(k.policy)
+		sb.WriteString("\n")
+	}
+	if k.learned != "" {
+		sb.WriteString("# Learned Rules (Autopoiesis Layer - Stratified Trust)\n")
+		sb.WriteString(k.learned)
+	}
+	if err := eng.LoadSchemaString(sb.String()); err != nil {
+		return nil, fmt.Errorf("diff: LoadSchemaString: %w", err)
+	}
+
+	de, err := manglepkg.NewDifferentialEngine(eng)
+	if err != nil {
+		return nil, fmt.Errorf("diff: NewDifferentialEngine: %w", err)
+	}
+	k.diffMangleEngine = eng
+	return de, nil
+}
+
+// copyDiffStoreToKernelLocked materializes the union of the diff engine's
+// per-stratum stores into k.store so the read path (Query, QueryCallback,
+// QueryAll) is unchanged. This is the simplest correct integration; a more
+// efficient future variant would expose a chained view directly. Caller must
+// hold k.mu.
+func (k *RealKernel) copyDiffStoreToKernelLocked() error {
+	if k.diffEngine == nil {
+		return fmt.Errorf("copyDiffStoreToKernel: diff engine is nil")
+	}
+	dest := factstore.NewSimpleInMemoryStore()
+	if err := k.diffEngine.CopyAllFactsTo(dest); err != nil {
+		return err
+	}
+	k.store = dest
 	return nil
 }
 
 // rebuild invalidates cached atoms and marks the kernel for lazy re-evaluation.
 // Callers should not expect the store to be up-to-date after this call;
 // the next Query/QueryAll will trigger evaluate() on demand.
+//
+// IMPORTANT: rebuild() is the funnel for retract paths (Retract,
+// RetractFact, RetractExactFact, RetractExactFactsBatch,
+// RemoveFactsByPredicateSet, LoadFactsSeq's seq path). A retract may have
+// removed an EDB fact whose derived consequences are still cached inside the
+// diff engine's stratum stores. Differential evaluation cannot incrementally
+// un-derive without DRed-style bookkeeping, so the safe and correct policy is
+// to invalidate the diff engine here and force a full rebuild on the next
+// evaluate(). Callers must hold k.mu.
 func (k *RealKernel) rebuild() error {
 	logging.KernelDebug("rebuild: invalidating cached atoms, marking factsDirty")
 	k.cachedAtoms = nil
 	k.factsDirty.Store(true)
+	k.invalidateDiffEngineLocked("retract path / rebuild")
 	return nil
 }
 
@@ -314,6 +524,7 @@ func (k *RealKernel) Clear() {
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
+	k.invalidateDiffEngineLocked("Clear")
 	logging.KernelDebug("Kernel cleared (facts removed, schemas/policy retained)")
 }
 
@@ -326,6 +537,7 @@ func (k *RealKernel) Reset() {
 	k.factIndex = make(map[string]struct{})
 	k.store = factstore.NewSimpleInMemoryStore()
 	k.initialized = false
+	k.invalidateDiffEngineLocked("Reset")
 	// Keep schemas, policy, learned - only reset facts
 	logging.KernelDebug("Kernel reset (facts cleared, policy retained)")
 }
@@ -436,4 +648,5 @@ func (k *RealKernel) ClearSchemas() {
 	k.policy = ""
 	k.programInfo = nil
 	k.policyDirty = true
+	k.invalidateDiffEngineLocked("ClearSchemas")
 }

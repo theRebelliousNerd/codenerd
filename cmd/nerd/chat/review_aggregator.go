@@ -410,10 +410,8 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 
 		// Spawn matching specialists
 		for _, spec := range specialists {
-			wg.Add(1)
-			go func(s SpecialistMatch) {
-				defer wg.Done()
-
+			s := spec
+			wg.Go(func() {
 				// Load knowledge base for this specialist
 				knowledge, err := loadAndQueryKnowledgeBase(ctx, s.KnowledgePath, s.Files)
 				if err != nil {
@@ -428,7 +426,7 @@ func (m Model) spawnMultiShardReview(target string, opts reviewCommandOptions) t
 				mu.Lock()
 				results = append(results, result)
 				mu.Unlock()
-			}(spec)
+			})
 		}
 
 		// Spawn Nemesis adversarial reviewer if enabled

@@ -65,6 +65,7 @@ import (
 
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/observability"
 )
 
 var (
@@ -314,6 +315,43 @@ func init() {
 }
 
 func main() {
+	// Ensure file-based logging is up before we emit startup metrics so
+	// the boot category captures the snapshot. Initialize is idempotent
+	// (sync.Once-guarded), so subsequent callers in PersistentPreRunE /
+	// interactive chat see a no-op.
+	ws, _ := os.Getwd()
+	if ws != "" {
+		_ = logging.Initialize(ws)
+	}
+
+	// F7+G2: one-shot runtime metrics snapshot + Green Tea GC verification.
+	observability.LogStartupMetrics()
+
+	// G1: optional process-lifetime trace ring buffer. Enabled by
+	// NERD_FLIGHTREC=1; defaults to 64 MiB / 30 s window. The runtime
+	// stops the recorder automatically at process exit, so callers do
+	// not need to invoke Stop() for correctness.
+	if os.Getenv("NERD_FLIGHTREC") == "1" {
+		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
+		} else {
+			// On panic in the root command, persist the trace ring to
+			// disk before unwinding so post-mortem analysis is possible.
+			defer func() {
+				if r := recover(); r != nil {
+					nerdDir := ws
+					if nerdDir == "" {
+						nerdDir, _ = os.Getwd()
+					}
+					if path, err := observability.DumpFlightRecord(nerdDir); err == nil {
+						fmt.Fprintf(os.Stderr, "Flight trace dumped to %s\n", path)
+					}
+					panic(r)
+				}
+			}()
+		}
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
