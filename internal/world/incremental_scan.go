@@ -39,8 +39,13 @@ type IncrementalResult struct {
 	ProjectLanguage string
 }
 
+// fileFingerprint returns a cheap content-identity hint built from size +
+// mtime. The mtime is captured at NANOSECOND resolution so back-to-back
+// writes within the same second (formatter on save, go-generate loops)
+// still invalidate the cache. Earlier this used Unix() (second
+// resolution), which let stale facts persist across rapid edits.
 func fileFingerprint(info os.FileInfo) string {
-	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().Unix())
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
 }
 
 // ScanWorkspaceIncremental performs a fast, cache-aware scan.
@@ -150,7 +155,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					Path:        path,
 					Lang:        lang,
 					Size:        info.Size(),
-					ModTime:     info.ModTime().Unix(),
+					ModTime:     info.ModTime().UnixNano(),
 					Hash:        extractHashFromFacts(facts),
 					Fingerprint: fp,
 				}); err != nil {
@@ -200,7 +205,10 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 	newFiles := make([]string, 0)
 	for path, info := range currentFiles {
 		if prev, ok := prevEntries[path]; ok {
-			if prev.ModTime == info.ModTime().Unix() && prev.Size == info.Size() {
+			// Nanosecond comparison — see fileFingerprint comment. First scan
+			// after upgrade may flag every row as changed (one-time re-scan);
+			// steady state stabilises after that.
+			if prev.ModTime == info.ModTime().UnixNano() && prev.Size == info.Size() {
 				continue
 			}
 			changed = append(changed, path)
@@ -282,7 +290,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					path,
 					hash,
 					core.MangleAtom("/" + lang),
-					info.ModTime().Unix(),
+					info.ModTime().UnixNano(),
 					core.MangleAtom(isTestStr),
 				},
 			}
@@ -331,7 +339,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					Path:        path,
 					Lang:        lang,
 					Size:        info.Size(),
-					ModTime:     info.ModTime().Unix(),
+					ModTime:     info.ModTime().UnixNano(),
 					Hash:        hash,
 					Fingerprint: fp,
 				}); err != nil {

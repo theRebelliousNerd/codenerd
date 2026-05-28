@@ -1262,6 +1262,9 @@ func (i *Initializer) createCoreShardKnowledgeBases(ctx context.Context, nerdDir
 			registry := tools.NewRegistry()
 			if err := research.RegisterAll(registry); err == nil {
 				researchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+				// Always release the timer goroutine; previously cancel was
+				// never called, leaking one timer per shard per init pass.
+				defer cancel()
 				for _, topic := range shard.Topics {
 					result, err := registry.Execute(researchCtx, "context7_fetch", map[string]any{"topic": topic})
 					if err == nil && result.Result != "" && len(result.Result) > 100 {

@@ -1404,10 +1404,14 @@ tools/.traces/
 // Uses Gemini 3 Flash Preview as the default model with thinking mode and grounding tools.
 func (i *Initializer) createDefaultConfig(path string) error {
 	cfg := &config.UserConfig{
-		// Default to Gemini 3 Flash Preview - 1M context, thinking, grounding
+		// Default to Gemini 3.5 Flash — 1M context, thinking, grounding.
+		// Engine="api" matches the SetEngine() whitelist
+		// (api | claude-cli | codex-cli); "gemini" would fail validation.
+		// Model matches DefaultGeminiConfig() so fresh-init agrees with
+		// the runtime fallback in client_gemini.go.
 		Provider: "gemini",
-		Model:    "gemini-3-flash-preview",
-		Engine:   "gemini",
+		Model:    "gemini-3.5-flash",
+		Engine:   "api",
 		Theme:    "light",
 
 		// Gemini-specific settings: high thinking (dynamic), search grounding, URL context
@@ -1445,7 +1449,7 @@ func (i *Initializer) createDefaultConfig(path string) error {
 
 		// Shard profiles are populated dynamically below,
 		DefaultShard: &config.ShardProfile{
-			Model:                 "gemini-3-flash-preview",
+			Model:                 "gemini-3.5-flash",
 			Temperature:           0.7,
 			TopP:                  0.9,
 			MaxContextTokens:      1048576,

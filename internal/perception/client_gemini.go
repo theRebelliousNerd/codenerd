@@ -124,7 +124,9 @@ func NewGeminiClient(apiKey string) *GeminiClient {
 func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 	model := strings.TrimSpace(config.Model)
 	if model == "" {
-		model = "gemini-3-flash-preview"
+		// Match DefaultGeminiConfig() so the runtime fallback and the
+		// constructor agree on the canonical default.
+		model = "gemini-3.5-flash"
 	}
 
 	maxOutputTokens := config.MaxOutputTokens

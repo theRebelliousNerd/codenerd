@@ -160,6 +160,10 @@ func (o *Orchestrator) recoverJournalSequence(campaignID string) {
 	if err != nil {
 		return
 	}
+	// Deferred close — earlier the close was only reached on the happy
+	// path after all the break-on-error edges; deferring makes the
+	// recovery code safe against future refactors that add early returns.
+	defer func() { _ = f.Close() }()
 
 	validLines := make([]string, 0)
 	var lastSeq uint64
@@ -204,7 +208,6 @@ func (o *Orchestrator) recoverJournalSequence(campaignID string) {
 	if scanErr := scanner.Err(); scanErr != nil {
 		needsTruncate = true
 	}
-	_ = f.Close()
 
 	if needsTruncate {
 		_ = o.writeJournalLinesAtomic(path, validLines)

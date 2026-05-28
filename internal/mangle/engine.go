@@ -257,7 +257,14 @@ func (e *Engine) evalWithGasLimit() (mengine.Stats, error) {
 	if derivedThisRound > 0 {
 		logging.KernelDebug("Evaluation derived %d new facts (total derived: %d, limit: %d)",
 			derivedThisRound, e.derivedCount, e.config.DerivedFactsLimit)
-		logging.Get(logging.CategoryKernel).Info("Mangle Inference: +%d facts, total %d", derivedThisRound, e.derivedCount)
+		// Only fire Info-level inference when the round is substantial.
+		// Per-iteration Info noise was drowning the kernel log: every OODA
+		// tick (often many per second) emitted at least one Info line even
+		// when only 1-2 facts were derived. Threshold chosen to surface
+		// large derivation cascades while keeping the steady state quiet.
+		if derivedThisRound >= 100 {
+			logging.Get(logging.CategoryKernel).Info("Mangle Inference: +%d facts, total %d", derivedThisRound, e.derivedCount)
+		}
 	}
 
 	return stats, nil

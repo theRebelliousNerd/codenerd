@@ -2028,43 +2028,61 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		})
 	}
 
-	// Historical patterns from learning store
+	// Historical patterns from learning store. Schema wants
+	// (ShardType, Predicate, Confidence) — earlier this passed Description
+	// in the Predicate slot, which still type-checked as /string but caused
+	// downstream rules that filtered on predicate-name patterns to miss.
 	for _, lp := range intel.HistoricalPatterns {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_learning_pattern",
-			Args:      []any{lp.ShardType, lp.Description, lp.Confidence},
+			Args:      []any{lp.ShardType, lp.Predicate, lp.Confidence},
 		})
 	}
 
-	// Safety warnings from constitutional gate
+	// Safety warnings from constitutional gate. Schema is 5-tuple
+	// (CampaignID, Path, Action, RuleViolated, Severity) — earlier the
+	// emission was 4-tuple and Mangle silently dropped the row with an
+	// arity error in the kernel log.
 	for _, sw := range intel.SafetyWarnings {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_safety_warning",
-			Args:      []any{campaignID, sw.Path, sw.Action, sw.RuleViolated},
+			Args:      []any{campaignID, sw.Path, sw.Action, sw.RuleViolated, sw.Severity},
 		})
 	}
 
-	// Tool gaps
+	// Tool gaps. Schema is 5-tuple
+	// (CampaignID, Capability, RequiredBy, Priority, Confidence) bound
+	// [/string, /string, /string, /number, /number]. autopoiesis.ToolNeed
+	// has Name+Purpose+Priority+Confidence; map Name→Capability and use
+	// Purpose as a single-string RequiredBy summary (the schema is a
+	// string, not a list, so we collapse the requirements down).
 	for _, tg := range intel.ToolGaps {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_tool_gap",
-			Args:      []any{campaignID, tg.Name, tg.Purpose},
+			Args:      []any{campaignID, tg.Name, tg.Purpose, tg.Priority, tg.Confidence},
 		})
 	}
 
-	// MCP tools available
+	// MCP tools available. Schema is 4-tuple (ToolID, ServerID, Name, Affinity).
 	for _, mt := range intel.MCPToolsAvailable {
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_mcp_tool",
-			Args:      []any{mt.ToolID, mt.ServerID, mt.Affinity},
+			Args:      []any{mt.ToolID, mt.ServerID, mt.Name, mt.Affinity},
 		})
 	}
 
-	// Shard advice
+	// Shard advice. Schema is 5-tuple
+	// (CampaignID, ShardName, Vote, Confidence, Advice). Vote is sourced
+	// from the metadata["vote"] hint if present, otherwise marked as the
+	// generic "advisory" tag so the row still satisfies /string binding.
 	for _, sa := range intel.ShardAdvice {
+		vote := "advisory"
+		if v, ok := sa.Metadata["vote"]; ok && v != "" {
+			vote = v
+		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_shard_advice",
-			Args:      []any{campaignID, sa.FromSpec, sa.Advice, sa.Confidence},
+			Args:      []any{campaignID, sa.FromSpec, vote, sa.Confidence, sa.Advice},
 		})
 	}
 
@@ -2076,7 +2094,10 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		})
 	}
 
-	// Code patterns detected
+	// Code patterns detected. Schema is 4-tuple
+	// (Name, Type, File, Confidence) — earlier the Type slot was dropped,
+	// so the policy rule that branches on "anti-pattern" vs "design" never
+	// fired.
 	for _, cp := range intel.CodePatterns {
 		files := ""
 		if len(cp.Files) > 0 {
@@ -2084,16 +2105,19 @@ func (d *Decomposer) seedIntelligenceFacts(campaignID string, intel *Intelligenc
 		}
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_code_pattern",
-			Args:      []any{cp.Name, files, cp.Confidence},
+			Args:      []any{cp.Name, cp.Type, files, cp.Confidence},
 		})
 	}
 
-	// Previous campaign artifacts (for reuse)
+	// Previous campaign artifacts. Schema is 4-tuple
+	// (CampaignID, Goal, TaskCount, SuccessRate) bound
+	// [/string, /string, /number, /number]. Earlier the third arg was a
+	// derived bool which violated the /number binding and the row was
+	// rejected by the kernel.
 	for _, ca := range intel.PreviousCampaigns {
-		success := ca.SuccessRate > 0.5 // Consider successful if > 50%
 		facts = append(facts, core.Fact{
 			Predicate: "intelligence_previous_campaign",
-			Args:      []any{ca.CampaignID, ca.Goal, success},
+			Args:      []any{ca.CampaignID, ca.Goal, ca.TaskCount, ca.SuccessRate},
 		})
 	}
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 )
@@ -323,25 +324,35 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		errorStr = errorStr[:1024]
 	}
 
+	// Schema (schemas_execution.mg) declares ActionType and Method as
+	// /name and Reason as /name. The raw strings ("exec_cmd", "hash",
+	// "hash mismatch") would otherwise be ingested as /string and the
+	// row would fail schema validation. Coerce explicitly here.
+	actionTypeAtom := MangleAtom("/" + sanitizeAtomTail(actionTypeStr))
+	methodAtom := MangleAtom("/" + sanitizeAtomTail(vr.Method))
+
 	if vr.Verified {
 		// action_verified(ActionID, ActionType, Method, Confidence, Timestamp)
 		facts = append(facts, Fact{
 			Predicate: "action_verified",
 			Args: []any{
 				vr.ActionID,
-				actionTypeStr,
-				vr.Method,
+				actionTypeAtom,
+				methodAtom,
 				int64(confidence * 100), // Scale 0.0-1.0 → 0-100 integer per schema
 				vr.Timestamp.Unix(),
 			},
 		})
 	} else {
-		// action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp)
-		detailsStr := ""
+		// action_validation_failed(ActionID, ActionType, Reason, Details, Timestamp).
+		// The error text is free-form so we derive a stable /name category
+		// for Reason and stash the full text in Details (/string).
+		reasonAtom := MangleAtom("/" + categorizeValidationError(errorStr))
+		detailsStr := errorStr
 		if vr.Details != nil {
 			// Simple serialization for Mangle
 			for k, v := range vr.Details {
-				detailsStr += fmt.Sprintf("%s=%v;", k, v)
+				detailsStr += fmt.Sprintf("; %s=%v", k, v)
 			}
 		}
 		if len(detailsStr) > 1024 {
@@ -351,8 +362,8 @@ func (vr *ValidationResult) ToFacts() []Fact {
 			Predicate: "action_validation_failed",
 			Args: []any{
 				vr.ActionID,
-				actionTypeStr,
-				errorStr,
+				actionTypeAtom,
+				reasonAtom,
 				detailsStr,
 				vr.Timestamp.Unix(),
 			},
@@ -369,4 +380,51 @@ func (vr *ValidationResult) ToFacts() []Fact {
 	})
 
 	return facts
+}
+
+// sanitizeAtomTail produces a safe single-segment Mangle name-constant
+// tail by stripping leading slashes, replacing path separators and
+// whitespace with underscores, and lowercasing the rest. Used when
+// schemas require /name slots but the source is a free-form ActionType
+// or method string.
+func sanitizeAtomTail(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	s = strings.TrimLeft(s, "/")
+	mapped := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			r == '_', r == '-':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + ('a' - 'A')
+		case r == ' ', r == '\t', r == '\n', r == '\r', r == '/', r == '.':
+			return '_'
+		default:
+			return '_'
+		}
+	}, s)
+	if mapped == "" {
+		return "unknown"
+	}
+	return mapped
+}
+
+// categorizeValidationError extracts a /name-friendly category from a
+// free-form validation error message (e.g. "hash mismatch" → "hash",
+// "regex: invalid pattern" → "regex"). Falls back to "generic" for
+// empty or non-classifiable errors. Keeps the /name slot bounded to a
+// small enum so policy rules can branch on it without exploding the
+// stratum count.
+func categorizeValidationError(msg string) string {
+	if msg == "" {
+		return "generic"
+	}
+	first := msg
+	if i := strings.IndexAny(msg, ": \t"); i > 0 {
+		first = msg[:i]
+	}
+	return sanitizeAtomTail(first)
 }

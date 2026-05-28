@@ -135,13 +135,34 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	// Resolve .nerd directory for JIT prompt system
 	nerdDir := filepath.Join(cwd, ".nerd")
 
+	// Load user config up-front so the VirtualStore honors the user's
+	// allowed_binaries / allowed_env_vars whitelist. Previously the store
+	// was built from DefaultVirtualStoreConfig (which re-adds bash/sh/cmd
+	// regardless of the user's policy).
+	userCfgPath := filepath.Join(nerdDir, "config.json")
+	appCfg, _ := config.LoadUserConfig(userCfgPath)
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	exec := appCfg.GetExecution()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	if len(exec.AllowedBinaries) > 0 {
+		vsCfg.AllowedBinaries = exec.AllowedBinaries
+	}
+	if len(exec.AllowedEnvVars) > 0 {
+		vsCfg.AllowedEnvVars = exec.AllowedEnvVars
+	}
+	if exec.WorkingDirectory != "" {
+		vsCfg.WorkingDir = exec.WorkingDirectory
+	}
+
 	// Initialize components
 	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
 	executor := tactile.NewDirectExecutor()
-	virtualStore := core.NewVirtualStore(executor)
+	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX: Wire persistence layers
@@ -179,12 +200,7 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
-	// Initialize limits enforcer and spawn queue
-	userCfgPath := filepath.Join(nerdDir, "config.json")
-	appCfg, _ := config.LoadUserConfig(userCfgPath)
-	if appCfg == nil {
-		appCfg = config.DefaultUserConfig()
-	}
+	// Initialize limits enforcer and spawn queue (appCfg loaded above)
 	coreLimits := appCfg.GetCoreLimits()
 	jitCfg := appCfg.GetEffectiveJITConfig()
 	// Configure global LLM API concurrency
@@ -605,12 +621,33 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	}
 	// Wrap with APIScheduler to enforce concurrency limits (max 5 for Z.AI)
 	llmClient := core.NewScheduledLLMCall("campaign-resume", rawLLMClient)
+
+	// Load user config first so the VirtualStore honors the user's
+	// allowed_binaries / allowed_env_vars whitelist (see runCampaignStart
+	// for why).
+	cfgPath := config.DefaultUserConfigPath()
+	appCfg, _ := config.LoadUserConfig(cfgPath)
+	if appCfg == nil {
+		appCfg = config.DefaultUserConfig()
+	}
+	exec := appCfg.GetExecution()
+	vsCfg := core.DefaultVirtualStoreConfig()
+	if len(exec.AllowedBinaries) > 0 {
+		vsCfg.AllowedBinaries = exec.AllowedBinaries
+	}
+	if len(exec.AllowedEnvVars) > 0 {
+		vsCfg.AllowedEnvVars = exec.AllowedEnvVars
+	}
+	if exec.WorkingDirectory != "" {
+		vsCfg.WorkingDir = exec.WorkingDirectory
+	}
+
 	kern, err := core.NewRealKernel()
 	if err != nil {
 		return fmt.Errorf("failed to create kernel: %w", err)
 	}
 	executor := tactile.NewDirectExecutor()
-	virtualStore := core.NewVirtualStore(executor)
+	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
 	virtualStore.DisableBootGuard() // CLI commands are user-initiated, disable boot guard
 
 	// FIX(BUG-005): Hydrate modular tools so JITExecutor can use them
@@ -621,12 +658,7 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 	shardMgr := coreshards.NewShardManager()
 	shardMgr.SetParentKernel(kern)
 
-	// Initialize limits enforcer and spawn queue
-	cfgPath := config.DefaultUserConfigPath()
-	appCfg, _ := config.LoadUserConfig(cfgPath)
-	if appCfg == nil {
-		appCfg = config.DefaultUserConfig()
-	}
+	// Initialize limits enforcer and spawn queue (appCfg loaded above)
 	coreLimits := appCfg.GetCoreLimits()
 	jitCfg := appCfg.GetEffectiveJITConfig()
 

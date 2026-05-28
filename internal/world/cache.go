@@ -93,6 +93,14 @@ func (c *FileCache) Save() error {
 }
 
 // Get returns the hash if the file hasn't changed.
+//
+// ModTime is compared at nanosecond resolution. Earlier this used Unix()
+// (second resolution) — fast write-write cycles (formatter rewrites on
+// IDE save, go-generate loops, test fixtures regenerated in-place)
+// landed within the same second and bypassed invalidation, returning
+// stale hashes whose facts then drifted from disk content. UnixNano
+// gives 1-ns resolution which matches the OS stat granularity on all
+// supported platforms.
 func (c *FileCache) Get(path string, info os.FileInfo) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -103,7 +111,7 @@ func (c *FileCache) Get(path string, info os.FileInfo) (string, bool) {
 	}
 
 	// Check if file matches cache
-	if entry.ModTime == info.ModTime().Unix() && entry.Size == info.Size() {
+	if entry.ModTime == info.ModTime().UnixNano() && entry.Size == info.Size() {
 		return entry.Hash, true
 	}
 
@@ -117,7 +125,7 @@ func (c *FileCache) Update(path string, info os.FileInfo, hash string) {
 
 	c.Entries[path] = CacheEntry{
 		Hash:    hash,
-		ModTime: info.ModTime().Unix(),
+		ModTime: info.ModTime().UnixNano(),
 		Size:    info.Size(),
 	}
 	c.Dirty = true

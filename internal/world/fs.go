@@ -324,13 +324,18 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			// Store workspace-relative path as canonical identity. Absolute
 			// scanner paths make the knowledge store machine-dependent and
 			// break session restore / cross-machine context reuse.
+			// LastModified is captured at nanosecond resolution so two writes
+			// to the same file within one second invalidate downstream caches.
+			// schemas_world.mg declares the slot bound /number, which Mangle
+			// treats as any int64; the value is not compared to thresholds in
+			// any policy rule, so widening the magnitude is safe.
 			fact := core.Fact{
 				Predicate: "file_topology",
 				Args: []any{
 					canonicalScanPath(root, path),
 					hash,
 					core.MangleAtom("/" + lang),
-					info.ModTime().Unix(),
+					info.ModTime().UnixNano(),
 					core.MangleAtom(isTestStr),
 				},
 			}

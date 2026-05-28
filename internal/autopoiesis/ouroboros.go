@@ -72,6 +72,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -620,10 +621,16 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 
 	nextStepID := fmt.Sprintf("%s_next", stepID)
 
+	// Loc slot is bound /string in schemas_state.mg (see core/defaults/
+	// schemas_state.mg:27); convert the line-count int explicitly so the
+	// row satisfies the binding instead of being silently rejected.
+	locStr := strconv.Itoa(loc)
+	zeroLocStr := "0"
+
 	// Assert Current State (baseline stability 0.0 for new tool)
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []any{stepID, 0.0, 0},
+		Args:      []any{stepID, 0.0, zeroLocStr},
 	})
 	// Assert base_stability for penalty calculations
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
@@ -634,7 +641,7 @@ func (o *OuroborosLoop) simulateTransition(ctx context.Context, stepID string, n
 	// Assert Proposed State
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "state",
-		Args:      []any{nextStepID, stability, loc},
+		Args:      []any{nextStepID, stability, locStr},
 	})
 	_ = diffEngine.AddFactIncremental(mangle.Fact{
 		Predicate: "proposed",
@@ -765,9 +772,10 @@ func (o *OuroborosLoop) commitTool(ctx context.Context, tool *GeneratedTool, res
 	h := sha256.Sum256([]byte(tool.Code))
 	hashStr := hex.EncodeToString(h[:])
 
+	// Loc is bound /string — see comment in SimulateAction above.
 	_ = o.engine.AddFacts([]mangle.Fact{
 		{Predicate: "history", Args: []any{nextStepID, hashStr}},
-		{Predicate: "state", Args: []any{nextStepID, 1.0, strings.Count(tool.Code, "\n")}},
+		{Predicate: "state", Args: []any{nextStepID, 1.0, strconv.Itoa(strings.Count(tool.Code, "\n"))}},
 	})
 	logging.AutopoiesisDebug("Mangle history updated for %s", nextStepID)
 

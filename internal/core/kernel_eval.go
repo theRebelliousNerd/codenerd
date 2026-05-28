@@ -95,14 +95,17 @@ func (k *RealKernel) rebuildProgram() error {
 	parseTimer.Stop()
 	logging.KernelDebug("rebuildProgram: parsed %d clauses", len(parsed.Clauses))
 
-	// Analyze
+	// Diagnostic for duplicate `Decl permitted(` lines (which would create
+	// schema-inconsistency errors at analyze time). Route through the
+	// kernel logger instead of stdout so it doesn't break TUI rendering or
+	// JSON-log piping.
 	if count := strings.Count(programStr, "Decl permitted("); count > 1 {
-		fmt.Printf("DEBUG: Found %d 'Decl permitted(' in programStr!\n", count)
+		logging.KernelDebug("rebuildProgram: %d 'Decl permitted(' lines detected — schema may be inconsistent", count)
 		lines := strings.Split(programStr, "\n")
 		for i, line := range lines {
 			if strings.Contains(line, "Decl permitted(") {
 				start := max(i-2, 0)
-				fmt.Printf("MATCH AT LINE %d:\n%s\n", i, strings.Join(lines[start:i+1], "\n"))
+				logging.KernelDebug("rebuildProgram: Decl permitted match at line %d:\n%s", i, strings.Join(lines[start:i+1], "\n"))
 			}
 		}
 	}

@@ -118,14 +118,26 @@ func (s *LocalStore) StoreVectorWithEmbedding(ctx context.Context, content strin
 	}
 
 	// If sqlite-vec is available, store in vec_index for fast ANN.
+	// Errors here MUST be checked: silently dropping the vec_index insert
+	// produces the "ANN drift" pathology — `vectors` has the row but
+	// vec_index doesn't, so ANN search returns nothing while brute-force
+	// returns the result. The earlier `_, _ = ...` swallowed both
+	// LastInsertId failures and vec_index Exec failures.
 	if s.vectorExt {
-		id, _ := res.LastInsertId()
-		vecBlob := encodeFloat32Slice(embeddingVec)
-		_, _ = s.db.Exec(
-			"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
-			id, vecBlob, content, string(metaJSON),
-		)
-		logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
+		id, lidErr := res.LastInsertId()
+		if lidErr != nil {
+			logging.Get(logging.CategoryStore).Warn("vec_index skipped: LastInsertId failed: %v (vectors row %s persists; ANN index drift)", lidErr, content)
+		} else {
+			vecBlob := encodeFloat32Slice(embeddingVec)
+			if _, vecErr := s.db.Exec(
+				"INSERT OR REPLACE INTO vec_index (rowid, embedding, content, metadata) VALUES (?, ?, ?, ?)",
+				id, vecBlob, content, string(metaJSON),
+			); vecErr != nil {
+				logging.Get(logging.CategoryStore).Warn("vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
+			} else {
+				logging.StoreDebug("Vector also indexed in sqlite-vec for ANN search")
+			}
+		}
 	}
 
 	logging.StoreDebug("Vector stored successfully with embedding")
@@ -255,9 +267,15 @@ func (s *LocalStore) StoreVectorBatchWithEmbedding(ctx context.Context, contents
 			continue
 		}
 		if vecEnabled {
-			id, _ := res.LastInsertId()
-			vecBlob := encodeFloat32Slice(embeddings[i])
-			_, _ = vecStmt.Exec(id, vecBlob, content, string(metaJSON))
+			id, lidErr := res.LastInsertId()
+			if lidErr != nil {
+				logging.Get(logging.CategoryStore).Warn("batch vec_index skipped: LastInsertId failed for row %d: %v (ANN drift)", i, lidErr)
+			} else {
+				vecBlob := encodeFloat32Slice(embeddings[i])
+				if _, vecErr := vecStmt.Exec(id, vecBlob, content, string(metaJSON)); vecErr != nil {
+					logging.Get(logging.CategoryStore).Warn("batch vec_index insert failed for rowid=%d: %v (ANN drift)", id, vecErr)
+				}
+			}
 		}
 		stored++
 	}
@@ -667,12 +685,15 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 
 	logging.StoreDebug("Starting backfill of existing embeddings into sqlite-vec index")
 
-	// Phase 1: Read all rows into memory (quick read, then release rows)
+	// Phase 1: Read all rows into memory (quick read, then release rows).
+	// rows is closed deterministically once the scan loop exits so the
+	// connection returns to the pool before the transaction phase begins.
 	rows, err := s.db.Query("SELECT id, content, embedding, metadata FROM vectors WHERE embedding IS NOT NULL")
 	if err != nil {
 		logging.Get(logging.CategoryStore).Warn("Failed to query embeddings for backfill: %v", err)
 		return
 	}
+	defer rows.Close()
 
 	type embeddingRow struct {
 		id       int64
@@ -710,7 +731,11 @@ func (s *LocalStore) backfillVecIndex(dim int) {
 			metaJSON: string(metaJSON),
 		})
 	}
-	rows.Close() // Close rows before transaction
+	if rowsErr := rows.Err(); rowsErr != nil {
+		logging.Get(logging.CategoryStore).Warn("vec backfill: row iteration error: %v", rowsErr)
+	}
+	// Release the connection before starting the transaction phase.
+	rows.Close()
 
 	if len(toInsert) == 0 {
 		logging.StoreDebug("No embeddings to backfill into vec_index")

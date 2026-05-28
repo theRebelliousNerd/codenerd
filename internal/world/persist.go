@@ -41,7 +41,7 @@ func PersistFastSnapshotToDB(db *store.LocalStore, facts []core.Fact) error {
 			}
 			fp = fileFingerprint(info)
 			meta.Size = info.Size()
-			meta.ModTime = info.ModTime().Unix()
+			meta.ModTime = info.ModTime().UnixNano()
 			meta.Fingerprint = fp
 		}
 		if err := db.UpsertWorldFile(meta); err != nil {
