@@ -1045,8 +1045,20 @@ func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRunt
 	return false
 }
 
+// maxPayloadBytes caps the JSON-serialized tool args we'll push into the
+// Mangle kernel. Large blobs (file dumps, base64 images) bloat the fact store
+// and the permitted/pending_action comparison would never match anyway.
+const maxPayloadBytes = 100 * 1024 // 100 KB
+
 // checkSafety verifies a tool call against the Constitutional Gate.
 func (e *Executor) checkSafety(call ToolCall) bool {
+	// Categorically reject empty tool names — they would assert "/" as the
+	// action atom, which is meaningless and bypasses meaningful policy match.
+	if strings.TrimSpace(call.Name) == "" {
+		logging.Get(logging.CategorySession).Warn("Safety check denied: empty tool call name")
+		return false
+	}
+
 	if e.kernel == nil {
 		// If the safety gate is enabled, missing kernel must FAIL CLOSED.
 		// Otherwise the agent effectively runs in "god mode" on kernel init failure.
@@ -1065,11 +1077,27 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	}
 	actionAtom := types.MangleAtom(actionName)
 
+	// Normalize nil Args to empty map so json.Marshal produces "{}" instead
+	// of "null" — the permitted facts written by policy use "{}" for no-arg
+	// actions, so matching depends on this consistency.
+	if call.Args == nil {
+		call.Args = map[string]interface{}{}
+	}
+
 	// Extract target and serialize payload
 	target := e.extractTarget(call.Args)
 	payloadBytes, err := json.Marshal(call.Args)
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
+		return false
+	}
+	// Reject oversized payloads outright. Truncating would silently break the
+	// permitted-fact comparison (truncated payload != permitted payload), so
+	// the safer contract is: refuse loudly.
+	if len(payloadBytes) > maxPayloadBytes {
+		logging.Get(logging.CategorySession).Error(
+			"Safety check denied: payload too large for kernel (%d bytes > %d)",
+			len(payloadBytes), maxPayloadBytes)
 		return false
 	}
 	payload := string(payloadBytes)
