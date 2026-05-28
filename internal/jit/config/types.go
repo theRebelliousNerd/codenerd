@@ -7,30 +7,33 @@ import (
 
 // EffectiveAgentRuntimeConfig defines the configuration for a JIT-driven dynamic agent.
 // This struct maps the output of the JIT compiler to the Universal Executor.
+//
+// YAML tags use snake_case so specialist config files at
+// .nerd/agents/<name>/config.yaml can use the natural YAML convention.
 type EffectiveAgentRuntimeConfig struct {
-	IdentityPrompt string
-	IntentVerb     string
-	Persona        string
-	AllowedTools   []string
-	Policies       []string
-	Model          string
-	ToolLoop       ToolLoopConfig
-	Safety         SafetyConfig
-	Workspace      WorkspaceConfig
+	IdentityPrompt string           `yaml:"identity_prompt" json:"identity_prompt"`
+	IntentVerb     string           `yaml:"intent_verb" json:"intent_verb"`
+	Persona        string           `yaml:"persona" json:"persona"`
+	AllowedTools   []string         `yaml:"allowed_tools" json:"allowed_tools"`
+	Policies       []string         `yaml:"policies" json:"policies"`
+	Model          string           `yaml:"model" json:"model"`
+	ToolLoop       ToolLoopConfig   `yaml:"tool_loop" json:"tool_loop"`
+	Safety         SafetyConfig     `yaml:"safety" json:"safety"`
+	Workspace      WorkspaceConfig  `yaml:"workspace" json:"workspace"`
 }
 
 type ToolLoopConfig struct {
-	MaxIterations   int
-	MaxTotalCalls   int
-	FailOnToolError bool
+	MaxIterations   int  `yaml:"max_iterations" json:"max_iterations"`
+	MaxTotalCalls   int  `yaml:"max_total_calls" json:"max_total_calls"`
+	FailOnToolError bool `yaml:"fail_on_tool_error" json:"fail_on_tool_error"`
 }
 
 type SafetyConfig struct {
-	RequirePolicyEnforcement bool
+	RequirePolicyEnforcement bool `yaml:"require_policy_enforcement" json:"require_policy_enforcement"`
 }
 
 type WorkspaceConfig struct {
-	RootPath string
+	RootPath string `yaml:"root_path" json:"root_path"`
 }
 
 // Validate ensures the configuration is complete and usable.

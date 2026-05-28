@@ -30,15 +30,15 @@ func TestLoadSpecialistConfig(t *testing.T) {
 	}
 
 	configFile := filepath.Join(configDir, "config.yaml")
+	// Matches the current EffectiveAgentRuntimeConfig yaml shape: flat
+	// allowed_tools/policies, no nested Tools or Policies.Files wrappers,
+	// no Mode field (Mode was removed in the cleanup pass).
 	configContent := `
 identity_prompt: "You are a test agent."
-tools:
-  allowed_tools:
-    - "read_file"
+allowed_tools:
+  - "read_file"
 policies:
-  files:
-    - "policy/test.mg"
-mode: "SingleTurn"
+  - "policy/test.mg"
 `
 	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
 		t.Fatal(err)

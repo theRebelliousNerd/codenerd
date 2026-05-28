@@ -309,8 +309,10 @@ func extractContext(text, match string, contextChars int) string {
 }
 
 // BuildValidator specifically validates build command results.
+// Embeds *ExecutionValidator (not by value) because ExecutionValidator
+// contains a sync.RWMutex that must not be copied.
 type BuildValidator struct {
-	ExecutionValidator
+	*ExecutionValidator
 }
 
 // NewBuildValidator creates a validator specialized for build commands.
@@ -332,7 +334,7 @@ func NewBuildValidator() *BuildValidator {
 		_ = exec.AddFailurePattern(p)
 	}
 
-	return &BuildValidator{ExecutionValidator: *exec}
+	return &BuildValidator{ExecutionValidator: exec}
 }
 
 // CanValidate returns true for build action types.
@@ -347,8 +349,10 @@ func (v *BuildValidator) Name() string { return "build_validator" }
 func (v *BuildValidator) Priority() int { return 8 }
 
 // TestValidator specifically validates test command results.
+// Embeds *ExecutionValidator (not by value) because ExecutionValidator
+// contains a sync.RWMutex that must not be copied.
 type TestValidator struct {
-	ExecutionValidator
+	*ExecutionValidator
 }
 
 // NewTestValidator creates a validator specialized for test commands.
@@ -368,7 +372,7 @@ func NewTestValidator() *TestValidator {
 		_ = exec.AddFailurePattern(p)
 	}
 
-	return &TestValidator{ExecutionValidator: *exec}
+	return &TestValidator{ExecutionValidator: exec}
 }
 
 // CanValidate returns true for test action types.

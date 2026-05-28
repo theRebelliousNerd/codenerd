@@ -1,3 +1,11 @@
+//go:build ignore
+// +build ignore
+
+// scratch_cleanup.go is a one-off diagnostic script that exercises the
+// tool-execution store's AutoCleanup path with a tiny synthetic dataset.
+// Excluded from normal builds via the ignore tag; run with:
+//
+//	go run scratch_cleanup.go
 package main
 
 import (

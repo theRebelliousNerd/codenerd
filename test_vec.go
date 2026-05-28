@@ -1,3 +1,12 @@
+//go:build ignore
+// +build ignore
+
+// test_vec.go is a one-off diagnostic script that verifies sqlite-vec is
+// loadable and inspects the intent_embeddings.db tables. It lives at the
+// repo root so it shares the cgo build env with cmd/nerd. Excluded from
+// normal builds via the ignore tag; run with:
+//
+//	go run test_vec.go
 package main
 
 import (

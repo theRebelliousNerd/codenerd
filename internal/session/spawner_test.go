@@ -79,6 +79,11 @@ func TestSpawner_Spawn_MaxLimit(t *testing.T) {
 		t.Fatalf("First spawn failed: %v", err)
 	}
 
+	// Spawn() creates and registers but does not start execution. Production
+	// callers explicitly `go agent.Run(ctx, task)`. Mirror that or the agent
+	// stays in Idle and never transitions to Running.
+	go a1.Run(context.Background(), req1.Task)
+
 	// Wait for agent1 to be running
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -137,6 +142,12 @@ func TestSpawner_Lifecycle(t *testing.T) {
 		t.Fatalf("Spawn failed: %v", err)
 	}
 
+	// Spawner.Spawn() creates and registers but does not start execution —
+	// production callers (e.g. JITExecutor.executeAsyncInternal) explicitly
+	// start the agent with `go agent.Run(ctx, task)`. Mirror that contract
+	// here, otherwise the agent stays in Idle and Wait() polls forever.
+	go agent.Run(context.Background(), req.Task)
+
 	// Test GetByName
 	t.Logf("Agent ID: %s, Name: %s", agent.GetID(), agent.GetName())
 	a2, ok := spawner.GetByName("agent1")
@@ -156,14 +167,24 @@ func TestSpawner_Lifecycle(t *testing.T) {
 		t.Errorf("Stop failed: %v", err)
 	}
 
-	// Wait for it to stop/fail
-	agent.Wait()
+	// Wait for it to stop/fail (bounded so a regression doesn't hang the suite).
+	done := make(chan struct{})
+	go func() {
+		agent.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("agent.Wait did not return within 2s after Stop; final state=%v", agent.GetState())
+	}
 
 	state := agent.GetState()
-	// Depending on timing, it might be Completed (if 50ms passed) or Failed/Completed (if cancelled)
-	// Actually Stop() calls agent.Stop() which cancels context.
-	// So LLM should return ctx.Err(), loop handles it.
-
+	// After Stop() the mock LLM returns ctx.Err(), so the agent finishes
+	// either Completed (if it raced past the LLM call) or Failed.
+	if state != SubAgentStateCompleted && state != SubAgentStateFailed {
+		t.Errorf("expected Completed or Failed after Stop, got %v", state)
+	}
 	t.Logf("Final state: %v", state)
 }
 
