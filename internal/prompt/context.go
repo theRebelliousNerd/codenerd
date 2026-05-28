@@ -198,6 +198,20 @@ type CompilationContext struct {
 	// for knowledge consultation. Populated at runtime from .nerd/agents.json.
 	// Used by the capability/knowledge_discovery atom template.
 	AvailableSpecialists string
+
+	// AvailableTools is the runtime-resolved list of tool names this turn is
+	// permitted to invoke (e.g. ["write_file", "edit_file", "run_command"]).
+	// Populated from EffectiveAgentRuntimeConfig.AllowedTools so prompt atoms
+	// can reference the actually-allowed surface via {{available_tools}}
+	// rather than hardcoding tool names in Go strings or atom YAML.
+	AvailableTools []string
+
+	// PreviousAttemptNoToolCall is set by the session executor when the model's
+	// previous turn produced narrative-only text for an intent that the kernel
+	// derived intent_requires_tool_call/1 for. Activates the
+	// world_state "no_tool_call_retry" so the JIT selects the
+	// system/tool_nudge/no_tool_call_retry atom.
+	PreviousAttemptNoToolCall bool
 }
 
 // NewCompilationContext creates a new CompilationContext with defaults.
@@ -226,8 +240,8 @@ func NewCompilationContextWithBudget(tokenBudget int) *CompilationContext {
 // WorldStates returns the world state strings for atom matching.
 // These are derived from the boolean/numeric world model fields.
 func (cc *CompilationContext) WorldStates() []string {
-	// Optimization: Pre-allocate with max possible capacity (7) to avoid reallocations
-	states := make([]string, 0, 7)
+	// Optimization: Pre-allocate with max possible capacity (8) to avoid reallocations
+	states := make([]string, 0, 8)
 
 	if cc.FailingTestCount > 0 {
 		states = append(states, "failing_tests")
@@ -255,6 +269,10 @@ func (cc *CompilationContext) WorldStates() []string {
 
 	if cc.HasReflectionHits {
 		states = append(states, "reflection_hits")
+	}
+
+	if cc.PreviousAttemptNoToolCall {
+		states = append(states, "no_tool_call_retry")
 	}
 
 	return states
@@ -329,6 +347,10 @@ func (cc *CompilationContext) Clone() *CompilationContext {
 	if cc.Frameworks != nil {
 		clone.Frameworks = make([]string, len(cc.Frameworks))
 		copy(clone.Frameworks, cc.Frameworks)
+	}
+	if cc.AvailableTools != nil {
+		clone.AvailableTools = make([]string, len(cc.AvailableTools))
+		copy(clone.AvailableTools, cc.AvailableTools)
 	}
 
 	return &clone

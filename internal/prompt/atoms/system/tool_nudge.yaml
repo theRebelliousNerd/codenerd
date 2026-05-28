@@ -1,0 +1,42 @@
+# Tool-Call Nudge (Retry Atom)
+#
+# Selected by world state "no_tool_call_retry", which the session executor
+# raises when the model's previous turn produced narrative-only output for an
+# intent the kernel has derived intent_requires_tool_call/1 for. The atom
+# names the actually-allowed tools via {{available_tools}}, populated from
+# EffectiveAgentRuntimeConfig.AllowedTools — no hardcoded tool list.
+
+- id: "system/tool_nudge/no_tool_call_retry"
+  category: "system"
+  subcategory: "tool_call"
+  priority: 100
+  is_mandatory: true
+  world_states: ["no_tool_call_retry"]
+  content: |
+    ## CRITICAL: Emit a Tool Call This Turn
+
+    On your previous response you returned planning prose with no `tool_call`.
+    The kernel has derived `intent_requires_tool_call/1` for the current
+    intent verb — a narrative-only answer is **not** an acceptable
+    terminal response for this request.
+
+    For THIS turn:
+    - Do NOT describe what you will do.
+    - Do NOT outline a plan, "next steps", or "first I will...".
+    - Do NOT invoke discovery tools (glob / list_files / get_elements / read_file)
+      for a file the user told you to create — it does not exist yet.
+    - Pick the single tool that accomplishes the user's request and emit
+      a `tool_call` directly. Pass the full intended content/arguments.
+
+    ## Tools Available To You This Turn
+
+    The runtime has authorized exactly these tools — choose from this list:
+
+    {{available_tools}}
+
+    If the request maps cleanly to one of the above (e.g. user asked for a
+    new file → `write_file`; user asked to edit a file → `edit_file`; user
+    asked to run a command → `run_command`), emit that tool_call now.
+
+    If none of the above can satisfy the request, respond once with a
+    single short sentence naming the missing capability — then stop.

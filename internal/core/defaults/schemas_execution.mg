@@ -65,6 +65,19 @@ Decl safe_action(ActionType) bound [/name].
 # ActionType: /analyze_code, /fs_read, /search_files, /exec_cmd, /run_tests, etc.
 Decl action_mapping(IntentVerb, ActionType) bound [/name, /name].
 
+# side_effecting_action(ActionType) - actions that mutate file system, process state,
+# or otherwise require a real tool invocation to complete. Used by
+# intent_requires_tool_call/1 to decide whether a narrative-only LLM response
+# is acceptable for a given intent verb.
+Decl side_effecting_action(ActionType) bound [/name].
+
+# intent_requires_tool_call(IntentVerb) - derived predicate: true when the
+# intent's verb maps to a side-effecting action. The session executor queries
+# this after the first LLM turn — when true and zero tool_calls were emitted,
+# it recompiles the prompt with the system/tool_nudge/no_tool_call_retry
+# atom (selected by world state "no_tool_call_retry") and retries once.
+Decl intent_requires_tool_call(IntentVerb) bound [/name].
+
 # tool_invocation(ToolName, Input, Timestamp) - Tool execution record
 # Records tool invocations for transparency/observability display
 Decl tool_invocation(ToolName, Input, Timestamp) bound [/name, /string, /number].

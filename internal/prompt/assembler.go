@@ -397,6 +397,28 @@ func (te *TemplateEngine) registerDefaults() {
 		}
 		return cc.AvailableSpecialists
 	}
+
+	// {{available_tools}} - bullet list of tool names this turn is permitted to
+	// invoke. Sourced from CompilationContext.AvailableTools, which the
+	// session executor populates from EffectiveAgentRuntimeConfig.AllowedTools.
+	// Prompt atoms (e.g. system/tool_nudge/no_tool_call_retry) reference this
+	// so the model sees the actual allowed surface — not a hardcoded list.
+	te.functions["available_tools"] = func(cc *CompilationContext, args ...string) string {
+		if cc == nil || len(cc.AvailableTools) == 0 {
+			return "- (no tools were resolved for this turn — emit a final answer)"
+		}
+		var b strings.Builder
+		b.Grow(len(cc.AvailableTools) * 24)
+		for i, t := range cc.AvailableTools {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString("- `")
+			b.WriteString(t)
+			b.WriteByte('`')
+		}
+		return b.String()
+	}
 }
 
 // RegisterFunction adds a custom template function.

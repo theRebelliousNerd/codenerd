@@ -320,7 +320,7 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 	// 5+6. LLM ↔ tools loop. The model may request tools, we execute them, then
 	// feed the results back as a new turn — repeated until the model returns a
 	// final answer with no tool calls, or we hit the iteration cap.
-	llmResponse, toolErrs, err := e.runToolLoop(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig, result)
+	llmResponse, toolErrs, err := e.runToolLoop(ctx, compileResult.Prompt, input, EffectiveAgentRuntimeConfig, compilationCtx, result)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
 	}
@@ -821,6 +821,7 @@ func (e *Executor) runToolLoop(
 	ctx context.Context,
 	systemPrompt, userInput string,
 	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
 	result *ExecutionResult,
 ) (*types.LLMToolResponse, []string, error) {
 	llmResponse, err := e.generateResponse(ctx, systemPrompt, userInput, cfg)
@@ -828,9 +829,41 @@ func (e *Executor) runToolLoop(
 		return nil, nil, err
 	}
 
-	// No tools requested: done.
+	// No tools requested.
+	//
+	// Previously this was an unconditional early-return: the model could
+	// reply with planning-only text ("I am creating the file...") and the
+	// loop would exit with that text as the final answer — the orchestrator
+	// would then mark the step "Complete" while no work had actually
+	// happened (.nerd/logs/2026-05-28 shows the symptom: a /create intent
+	// that produces zero side-effects and reports success).
+	//
+	// Mitigation, neuro-symbolic: ask the kernel whether the current
+	// intent's verb requires a tool_call (Mangle rule
+	// intent_requires_tool_call/1, derived from action_mapping/2 +
+	// side_effecting_action/1). If yes, recompile the prompt with the
+	// world_state "no_tool_call_retry" activation flag so the JIT injects
+	// the system/tool_nudge/no_tool_call_retry atom (which references the
+	// runtime's actually-allowed tools via {{available_tools}}, not a
+	// hardcoded Go string), then reissue once.
 	if len(llmResponse.ToolCalls) == 0 {
-		return llmResponse, nil, nil
+		if e.intentRequiresToolCall(result.Intent.Verb) {
+			logging.Get(logging.CategorySession).Warn(
+				"runToolLoop: intent_requires_tool_call(%q) derived true but model returned no tool_calls; recompiling prompt with no-tool-retry nudge atom",
+				result.Intent.Verb,
+			)
+			retried, retryErr := e.retryWithNoToolNudge(ctx, userInput, cfg, compilationCtx)
+			if retryErr == nil && retried != nil && len(retried.ToolCalls) > 0 {
+				llmResponse = retried
+			} else {
+				if retryErr != nil {
+					logging.Get(logging.CategorySession).Warn("runToolLoop: no-tool-retry path failed: %v", retryErr)
+				}
+				return llmResponse, nil, nil
+			}
+		} else {
+			return llmResponse, nil, nil
+		}
 	}
 
 	// Piggyback Protocol path: execute tools but don't continue the loop here.
@@ -946,6 +979,71 @@ func (e *Executor) runToolLoop(
 
 	logging.Get(logging.CategorySession).Warn("Max tool iterations reached: %d", maxIter)
 	return currentResponse, toolErrs, nil
+}
+
+// intentRequiresToolCall asks the Mangle kernel whether the supplied intent
+// verb requires a real tool_call to make progress. The decision logic lives
+// entirely in the policy corpus (delegation.mg → intent_requires_tool_call/1
+// derived from action_mapping/2 + side_effecting_action/1) — this Go helper
+// just queries it. When the kernel is unavailable or the query fails, we
+// conservatively return false so we never block a final answer on missing
+// policy.
+func (e *Executor) intentRequiresToolCall(verb string) bool {
+	if e.kernel == nil || verb == "" {
+		return false
+	}
+	// Mangle atom constants are lowercase and slash-prefixed. The intent verb
+	// arrives here as "/create", "/document", etc. — exactly the form the
+	// policy expects.
+	q := fmt.Sprintf("intent_requires_tool_call(%s)", verb)
+	facts, err := e.kernel.Query(q)
+	if err != nil {
+		logging.Get(logging.CategorySession).Debug(
+			"intentRequiresToolCall: kernel query %q failed: %v (defaulting to false)", q, err,
+		)
+		return false
+	}
+	return len(facts) > 0
+}
+
+// retryWithNoToolNudge recompiles the prompt with the world_state
+// "no_tool_call_retry" raised (and the actually-allowed tool list threaded
+// through) and reissues the LLM turn exactly once.
+//
+// The decision about what the retry says lives in the prompt-atom corpus
+// (system/tool_nudge/no_tool_call_retry.yaml), not in Go. The atom uses
+// {{available_tools}} to render the runtime's permitted-tool surface so the
+// model sees the real allowed set, not a hardcoded triple of
+// write_file/edit_file/run_command. Go's responsibility is limited to:
+//   - cloning the original CompilationContext,
+//   - setting the activation flag + AvailableTools slice,
+//   - asking the JIT compiler to recompile,
+//   - reissuing the LLM call.
+func (e *Executor) retryWithNoToolNudge(
+	ctx context.Context,
+	userInput string,
+	cfg *config.EffectiveAgentRuntimeConfig,
+	compilationCtx *prompt.CompilationContext,
+) (*types.LLMToolResponse, error) {
+	if e.jitCompiler == nil || compilationCtx == nil {
+		return nil, errors.New("no-tool-retry path requires JIT compiler and compilation context")
+	}
+
+	retryCtx := compilationCtx.Clone()
+	retryCtx.PreviousAttemptNoToolCall = true
+	if cfg != nil && len(cfg.AllowedTools) > 0 {
+		retryCtx.AvailableTools = slices.Clone(cfg.AllowedTools)
+	}
+
+	compileResult, err := e.jitCompiler.Compile(ctx, retryCtx)
+	if err != nil {
+		return nil, fmt.Errorf("no-tool-retry: JIT recompile failed: %w", err)
+	}
+	if compileResult == nil || strings.TrimSpace(compileResult.Prompt) == "" {
+		return nil, errors.New("no-tool-retry: JIT recompile produced empty prompt")
+	}
+
+	return e.generateResponse(ctx, compileResult.Prompt, userInput, cfg)
 }
 
 // executeToolBatchPiggyback handles the single-turn Piggyback path. Tools are

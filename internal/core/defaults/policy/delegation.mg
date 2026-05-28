@@ -107,6 +107,29 @@ action_mapping(/tool_status, /delegate_tool_generator).
 # Diff actions
 action_mapping(/diff, /show_diff).
 
+# =============================================================================
+# Side-effecting actions: producing file/process/system mutations or requiring
+# real tool execution to make any observable progress. The executor uses this
+# set (via intent_requires_tool_call/1) to decide whether the LLM's
+# narrative-only first turn is acceptable. Delegation actions are included
+# because the delegated shard's purpose is to mutate state — the orchestrating
+# turn must still emit a tool_call (write_file / edit_file / run_command /
+# delegate_*). Pure analysis verbs (/explain, /analyze, /research) intentionally
+# omitted: a prose answer there is a valid terminal response.
+side_effecting_action(/delegate_coder).
+side_effecting_action(/delegate_researcher).
+side_effecting_action(/delegate_tool_generator).
+side_effecting_action(/fs_write).
+side_effecting_action(/exec_cmd).
+side_effecting_action(/run_tests).
+side_effecting_action(/show_diff).
+
+# Derive whether the current intent's verb requires a tool_call this turn.
+# Used by internal/session/executor.go:runToolLoop to gate the no-tool retry.
+intent_requires_tool_call(Verb) :-
+    action_mapping(Verb, Action),
+    side_effecting_action(Action).
+
 # Derive next_action from intent and mapping
 # Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
 next_action(Action) :-
