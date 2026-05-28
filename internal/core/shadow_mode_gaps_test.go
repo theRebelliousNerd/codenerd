@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,9 @@ func TestShadowMode_EmptyDescription(t *testing.T) {
 }
 
 // REMEDIATED: TEST_GAP: Null/Empty
+// After validation hardening, empty action details are now rejected with an
+// error rather than silently producing a "safe" no-op result. This test
+// pins that contract.
 func TestShadowMode_EmptyActionDetails(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -34,20 +38,15 @@ func TestShadowMode_EmptyActionDetails(t *testing.T) {
 		// Missing ID, Type, Target
 	}
 
-	result, err := shadow.SimulateAction(ctx, action)
-	if err != nil {
-		t.Fatalf("SimulateAction failed on empty action: %v", err)
-	}
-
-	if !result.IsSafe {
-		t.Error("Empty action incorrectly marked as unsafe")
-	}
-	if len(result.Effects) > 0 {
-		t.Errorf("Empty action should produce no effects, got %d", len(result.Effects))
+	_, err := shadow.SimulateAction(ctx, action)
+	if err == nil {
+		t.Fatal("Expected error for empty action details, got nil")
 	}
 }
 
 // REMEDIATED: TEST_GAP: Type Coercion / Data Malformation
+// After validation hardening, unknown action types are now explicitly
+// rejected by SimulateAction rather than silently producing no effects.
 func TestShadowMode_InvalidActionType(t *testing.T) {
 	k := setupMockKernel(t)
 	shadow := NewShadowMode(k)
@@ -60,14 +59,9 @@ func TestShadowMode_InvalidActionType(t *testing.T) {
 		Type: SimActionType("ActionQuantumLeap"), // Not a real type
 	}
 
-	result, err := shadow.SimulateAction(ctx, action)
-	if err != nil {
-		t.Fatalf("SimulateAction failed on invalid type: %v", err)
-	}
-
-	// Currently the system ignores unknown types and returns safe. This is a potential risk.
-	if len(result.Effects) > 0 {
-		t.Errorf("Unknown action type should produce no effects, got %d", len(result.Effects))
+	_, err := shadow.SimulateAction(ctx, action)
+	if err == nil {
+		t.Fatal("Expected error for unsupported action Type, got nil")
 	}
 }
 
@@ -172,10 +166,15 @@ func TestShadowMode_ConcurrentWhatIf(t *testing.T) {
 	var mu sync.Mutex
 
 	for i := 0; i < 20; i++ {
+		i := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			action := SimulatedAction{Type: ActionTypeExec}
+			action := SimulatedAction{
+				ID:     fmt.Sprintf("whatif-%d", i),
+				Type:   ActionTypeExec,
+				Target: "echo",
+			}
 			_, err := shadow.WhatIf(ctx, action)
 			mu.Lock()
 			if err == nil {
@@ -211,6 +210,44 @@ func TestShadowMode_MemoryLeakOnAbort(t *testing.T) {
 
 	if exists {
 		t.Error("Simulation map is NOT clearing memory, causing a leak.")
+	}
+}
+
+// TestSimulation_ExcessiveActionsLimit verifies the hard cap on actions per
+// simulation (MaxSimActions). Once a simulation reaches the cap, further
+// SimulateAction calls must be rejected to prevent unbounded slice growth.
+func TestSimulation_ExcessiveActionsLimit(t *testing.T) {
+	k := setupMockKernel(t)
+	shadow := NewShadowMode(k)
+
+	ctx := context.Background()
+	if _, err := shadow.StartSimulation(ctx, "Cap Test"); err != nil {
+		t.Fatalf("StartSimulation failed: %v", err)
+	}
+
+	// Manually inflate the action list to one shy of the cap to keep the
+	// test fast — appending MaxSimActions real actions is wasteful here.
+	shadow.mu.Lock()
+	sim := shadow.simulations[shadow.activeSimID]
+	for i := 0; i < MaxSimActions-1; i++ {
+		sim.Actions = append(sim.Actions, SimulatedAction{ID: "pad", Type: ActionTypeExec})
+	}
+	shadow.mu.Unlock()
+
+	// One more should still succeed (boundary at the cap).
+	atCap := SimulatedAction{ID: "at-cap", Type: ActionTypeExec, Target: "echo"}
+	if _, err := shadow.SimulateAction(ctx, atCap); err != nil {
+		t.Fatalf("Action at cap-1 should succeed, got: %v", err)
+	}
+
+	// The next call must be rejected.
+	overCap := SimulatedAction{ID: "over-cap", Type: ActionTypeExec, Target: "echo"}
+	_, err := shadow.SimulateAction(ctx, overCap)
+	if err == nil {
+		t.Fatal("Expected error after exceeding MaxSimActions, got nil")
+	}
+	if !strings.Contains(err.Error(), "max actions limit") {
+		t.Errorf("Expected 'max actions limit' error, got: %v", err)
 	}
 }
 

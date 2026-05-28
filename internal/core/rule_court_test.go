@@ -91,6 +91,74 @@ func TestRuleCourt_RatifyAskUserVeto(t *testing.T) {
 }
 
 
+// TestRuleCourt_NilKernel verifies that RatifyRule rejects a nil kernel
+// argument with a clean error instead of panicking with a nil dereference.
+func TestRuleCourt_NilKernel(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("RatifyRule(nil, ...) panicked: %v", r)
+		}
+	}()
+	err := RatifyRule(nil, `allowed("action").`)
+	if err == nil {
+		t.Fatal("Expected error for nil kernel, got nil")
+	}
+	if !strings.Contains(err.Error(), "no kernel available") {
+		t.Errorf("Expected 'no kernel available' error, got: %v", err)
+	}
+}
+
+// TestRuleCourt_WhitespaceOnly verifies that rules consisting entirely of
+// exotic whitespace (zero-width space, non-breaking space, tabs, newlines)
+// are either trimmed to empty (and rejected) or rejected by the compiler.
+// Either outcome is acceptable; the contract is that no such rule is
+// silently ratified.
+func TestRuleCourt_WhitespaceOnly(t *testing.T) {
+	k := setupMockKernel(t)
+	court := NewRuleCourt(k)
+
+	cases := []string{
+		" \t \n \r ",       // standard whitespace — trimmed to empty
+		"​​",     // zero-width spaces only
+		"  ",     // non-breaking spaces only
+		"​   \t", // mixed exotic + standard
+	}
+
+	for _, rule := range cases {
+		err := court.RatifyRule(rule)
+		if err == nil {
+			t.Errorf("Expected rejection for whitespace-only rule %q, got nil", rule)
+		}
+	}
+}
+
+// TestRuleCourt_NullBytes verifies that rules containing null bytes or
+// otherwise UTF-8-malformed sequences are rejected as syntax errors by the
+// sandbox compiler rather than crashing the Mangle parser or the Go
+// runtime.
+func TestRuleCourt_NullBytes(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("RatifyRule with null bytes panicked: %v", r)
+		}
+	}()
+	k := setupMockKernel(t)
+	court := NewRuleCourt(k)
+
+	cases := []string{
+		"allowed(\"\x00\").",     // null byte inside a string literal
+		"allow\x00ed(\"x\").",    // null byte in identifier
+		"allowed(\"\xff\xfe\").", // invalid UTF-8 sequence
+	}
+
+	for _, rule := range cases {
+		err := court.RatifyRule(rule)
+		if err == nil {
+			t.Errorf("Expected rejection for malformed rule %q, got nil", rule)
+		}
+	}
+}
+
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify RatifyRule handles a nil kernel parameter gracefully without panicking.
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify RatifyRule rejects rules that consist entirely of zero-width spaces or non-breaking spaces, not just standard whitespace.
 // TODO: TEST_GAP: [Type Coercion] Verify RatifyRule handles rules with null bytes (\x00) or invalid UTF-8 sequences as syntax errors rather than crashing the parser.

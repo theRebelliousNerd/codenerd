@@ -223,11 +223,12 @@ func TestComputeDiff_EmptyLines(t *testing.T) {
 }
 
 func TestComputeDiff_LargeFile(t *testing.T) {
-	// Generate large content
+	// Generate large content. Note: avoid NUL bytes (rune(0)) because the diff
+	// engine now short-circuits binary payloads via NUL-byte detection.
 	var oldLines, newLines []string
 	for i := 0; i < 1000; i++ {
-		oldLines = append(oldLines, "line "+string(rune(i)))
-		newLines = append(newLines, "line "+string(rune(i)))
+		oldLines = append(oldLines, "line "+string(rune(i+1)))
+		newLines = append(newLines, "line "+string(rune(i+1)))
 	}
 	// Modify middle section
 	newLines[500] = "CHANGED LINE"
@@ -326,7 +327,8 @@ func BenchmarkComputeDiff_Small(b *testing.B) {
 func BenchmarkComputeDiff_Large(b *testing.B) {
 	var lines []string
 	for i := 0; i < 1000; i++ {
-		lines = append(lines, "line content here "+string(rune(i)))
+		// Skip rune(0) (NUL) — flagged as binary by the engine.
+		lines = append(lines, "line content here "+string(rune(i+1)))
 	}
 	oldContent := strings.Join(lines, "\n")
 	lines[500] = "CHANGED"
@@ -351,6 +353,119 @@ func BenchmarkComputeDiff_WithCache(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		engine.ComputeDiff("old.txt", "new.txt", oldContent, newContent)
+	}
+}
+
+// =============================================================================
+// Boundary Analysis Coverage (QA 2026-05-24 diff_boundary_analysis)
+// =============================================================================
+
+// TestComputeDiff_EmptyStrings covers the both-empty edge case: it must not panic,
+// must mark both IsNew and IsDelete, and must produce zero hunks.
+func TestComputeDiff_EmptyStrings(t *testing.T) {
+	engine := NewEngine()
+	d := engine.ComputeDiff("a.txt", "b.txt", "", "")
+	if d == nil {
+		t.Fatal("expected non-nil diff for empty/empty")
+	}
+	if !d.IsNew {
+		t.Error("expected IsNew=true when old content is empty")
+	}
+	if !d.IsDelete {
+		t.Error("expected IsDelete=true when new content is empty")
+	}
+	if len(d.Hunks) != 0 {
+		t.Errorf("expected 0 hunks for empty/empty, got %d", len(d.Hunks))
+	}
+}
+
+// TestComputeDiff_BinaryContent verifies binary payloads (NUL bytes) short-circuit
+// before reaching diffmatchpatch and are flagged IsBinary=true.
+func TestComputeDiff_BinaryContent(t *testing.T) {
+	engine := NewEngine()
+	old := string([]byte{0x48, 0x00, 0x49, 0xFF})
+	new := string([]byte{0x48, 0x00, 0x4A, 0xFF})
+	d := engine.ComputeDiff("a.bin", "b.bin", old, new)
+	if d == nil {
+		t.Fatal("expected non-nil diff for binary content")
+	}
+	if !d.IsBinary {
+		t.Error("expected IsBinary=true when content contains NUL bytes")
+	}
+	if len(d.Hunks) != 0 {
+		t.Errorf("expected 0 hunks for binary content (short-circuit), got %d", len(d.Hunks))
+	}
+
+	// Also verify the case where only one side is binary.
+	d2 := engine.ComputeDiff("a.txt", "b.bin", "text\n", string([]byte{0x00, 0x01}))
+	if !d2.IsBinary {
+		t.Error("expected IsBinary=true when only the new side contains NUL bytes")
+	}
+}
+
+// TestComputeDiff_HugeContext verifies the contextLines clamp in convertToHunks.
+// Negative values must not panic / index out-of-range, and MaxInt-sized values
+// must not cause the hunk grouper to allocate unbounded leading-context slices.
+func TestComputeDiff_HugeContext(t *testing.T) {
+	engine := NewEngine()
+
+	// Negative -> clamped to 0
+	{
+		ops := []operation{
+			{typ: LineContext, oldLine: 0, newLine: 0, content: "ctx1"},
+			{typ: LineRemoved, oldLine: 1, newLine: -1, content: "del"},
+			{typ: LineAdded, oldLine: -1, newLine: 1, content: "add"},
+			{typ: LineContext, oldLine: 2, newLine: 2, content: "ctx2"},
+		}
+		hunks := engine.groupIntoHunks(ops, -1)
+		// Clamp to 0 means trailing-context check should immediately close the hunk
+		// once we hit context after the change; we still expect at least one hunk.
+		if len(hunks) == 0 {
+			t.Error("expected at least one hunk even with negative contextLines")
+		}
+	}
+
+	// Massive contextLines -> clamped to maxContextLines via convertToHunks
+	{
+		old := "line1\nline2\nCHANGED_OLD\nline4\nline5\n"
+		new := "line1\nline2\nCHANGED_NEW\nline4\nline5\n"
+		d := engine.ComputeDiff("a.txt", "b.txt", old, new)
+		if d == nil {
+			t.Fatal("expected non-nil diff")
+		}
+		// Sanity: the public path uses defaultContextLines, so this just confirms
+		// no panic. We also drive convertToHunks directly with an absurd value.
+		a, b, lineArray := engine.dmp.DiffLinesToChars(old, new)
+		diffs := engine.dmp.DiffMain(a, b, false)
+		diffs = engine.dmp.DiffCleanupSemantic(diffs)
+		diffs = engine.dmp.DiffCharsToLines(diffs, lineArray)
+		// Must not panic and must return some hunks.
+		hunks := engine.convertToHunks(diffs, 1_000_000)
+		if len(hunks) == 0 {
+			t.Error("expected hunks with extreme contextLines (clamped)")
+		}
+	}
+}
+
+// TestComputeDiff_EmptyPaths verifies that empty path strings don't break
+// FileDiff construction or the cache path-rewrite logic on a cache hit.
+func TestComputeDiff_EmptyPaths(t *testing.T) {
+	engine := NewEngine()
+	d := engine.ComputeDiff("", "", "old\n", "new\n")
+	if d == nil {
+		t.Fatal("expected non-nil diff with empty paths")
+	}
+	if d.OldPath != "" || d.NewPath != "" {
+		t.Errorf("expected empty paths to be preserved, got %q -> %q", d.OldPath, d.NewPath)
+	}
+	if len(d.Hunks) == 0 {
+		t.Error("expected hunks even when paths are empty")
+	}
+
+	// Hit the cache with empty paths to make sure the path-rewrite branch works.
+	d2 := engine.ComputeDiff("", "", "old\n", "new\n")
+	if d2 == nil || len(d2.Hunks) != len(d.Hunks) {
+		t.Error("cached call with empty paths produced inconsistent result")
 	}
 }
 

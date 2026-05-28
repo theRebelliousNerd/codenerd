@@ -5,9 +5,38 @@ package diff
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
+
+// diffTimeout bounds the cost of pathological diff inputs while remaining
+// generous enough for typical code review diffs. Set to 0 to disable.
+const diffTimeout = 5 * time.Second
+
+// defaultContextLines is the fallback number of context lines for hunks.
+const defaultContextLines = 3
+
+// maxContextLines clamps absurd contextLines values from callers (or fuzzers).
+const maxContextLines = 1000
+
+// containsNullByte reports whether s contains a NUL byte, which is the
+// conventional sentinel used to flag binary payloads in diff tooling.
+func containsNullByte(s string) bool {
+	return strings.IndexByte(s, 0x00) >= 0
+}
+
+// clampContextLines bounds contextLines to [0, maxContextLines] so callers
+// cannot drive groupIntoHunks into a degenerate or pathological state.
+func clampContextLines(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > maxContextLines {
+		return maxContextLines
+	}
+	return n
+}
 
 // LineType represents the type of diff line
 type LineType int
@@ -60,8 +89,9 @@ type cacheKey struct {
 // NewEngine creates a new diff engine with optimal settings
 func NewEngine() *Engine {
 	dmp := diffmatchpatch.New()
-	// Optimize for code diffs
-	dmp.DiffTimeout = 0 // Disable timeout for accuracy
+	// Bound pathological inputs (e.g., massive minified single-line files)
+	// while remaining generous enough for typical code diffs.
+	dmp.DiffTimeout = diffTimeout
 	return &Engine{
 		dmp:   dmp,
 		cache: sync.Map{},
@@ -88,6 +118,15 @@ func (e *Engine) ComputeDiff(oldPath, newPath, oldContent, newContent string) *F
 		fileDiff.IsDelete = true
 	}
 
+	// Short-circuit binary content: a NUL byte in either side is the standard
+	// signal that this is not a text payload. Sending it through diffmatchpatch
+	// yields garbage hunks and (for very large blobs) ruinous memory/time use,
+	// so we flag IsBinary=true and return an empty hunk list instead.
+	if containsNullByte(oldContent) || containsNullByte(newContent) {
+		fileDiff.IsBinary = true
+		return fileDiff
+	}
+
 	// Check cache
 	oldHash := hash(oldContent)
 	newHash := hash(newContent)
@@ -110,8 +149,8 @@ func (e *Engine) ComputeDiff(oldPath, newPath, oldContent, newContent string) *F
 	diffs = e.dmp.DiffCleanupSemantic(diffs)
 	diffs = e.dmp.DiffCharsToLines(diffs, lineArray)
 
-	// Convert to hunks
-	hunks := e.convertToHunks(diffs, 3) // 3 lines of context
+	// Convert to hunks (default context, clamped to safe bounds)
+	hunks := e.convertToHunks(diffs, defaultContextLines)
 	fileDiff.Hunks = hunks
 
 	// Cache result
@@ -125,11 +164,15 @@ func ComputeDiff(oldPath, newPath, oldContent, newContent string) *FileDiff {
 	return DefaultEngine.ComputeDiff(oldPath, newPath, oldContent, newContent)
 }
 
-// convertToHunks converts diffmatchpatch diffs to our Hunk format with context grouping
+// convertToHunks converts diffmatchpatch diffs to our Hunk format with context grouping.
+// contextLines is clamped to [0, maxContextLines] to guard against pathological inputs
+// (negative values, MaxInt, fuzzer-generated extremes).
 func (e *Engine) convertToHunks(diffs []diffmatchpatch.Diff, contextLines int) []Hunk {
 	if len(diffs) == 0 {
 		return nil
 	}
+
+	contextLines = clampContextLines(contextLines)
 
 	// Convert diffs to lines with types
 	operations := e.diffsToOperations(diffs)

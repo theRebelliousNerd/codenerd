@@ -5,11 +5,27 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"codenerd/internal/types"
 )
+
+// MaxSimActions is the hard cap on the number of actions a single simulation
+// may accumulate. Exceeding this returns an error from SimulateAction to
+// prevent unbounded slice growth (OOM / GC pressure) under adversarial loads.
+const MaxSimActions = 10000
+
+// validSimActionTypes is the allow-list of recognized action types.
+// SimulateAction rejects any action whose Type is not in this set.
+var validSimActionTypes = map[SimActionType]struct{}{
+	ActionTypeFileWrite:  {},
+	ActionTypeFileDelete: {},
+	ActionTypeExec:       {},
+	ActionTypeRefactor:   {},
+	ActionTypeGitCommit:  {},
+}
 
 // ShadowMode represents a counterfactual simulation environment.
 // It maintains a separate kernel instance to test hypothetical changes.
@@ -140,6 +156,24 @@ func (sm *ShadowMode) StartSimulation(ctx context.Context, description string) (
 
 // SimulateAction tests an action in the shadow environment.
 func (sm *ShadowMode) SimulateAction(ctx context.Context, action SimulatedAction) (*SimulationResult, error) {
+	// Validate inputs before acquiring the lock — these checks are pure and
+	// failing fast avoids contending on the global mutex for malformed input.
+	if action.ID == "" {
+		return nil, fmt.Errorf("invalid action: empty ID")
+	}
+	if action.Type == "" {
+		return nil, fmt.Errorf("invalid action: empty Type")
+	}
+	if _, ok := validSimActionTypes[action.Type]; !ok {
+		return nil, fmt.Errorf("invalid action: unsupported Type %q", action.Type)
+	}
+	// Reject null bytes in the target string before asserting into the shadow
+	// kernel — Mangle string literals tokenize on these and can produce
+	// confusing parse errors or silently truncated facts.
+	if strings.ContainsRune(action.Target, '\x00') {
+		return nil, fmt.Errorf("invalid action: target contains null byte")
+	}
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -159,6 +193,12 @@ func (sm *ShadowMode) SimulateAction(ctx context.Context, action SimulatedAction
 		sim.ErrorMessage = "simulation timed out"
 		return nil, ctx.Err()
 	default:
+	}
+
+	// Hard cap on actions per simulation to prevent OOM / GC pressure from
+	// unbounded slice growth under adversarial or runaway loops.
+	if len(sim.Actions) >= MaxSimActions {
+		return nil, fmt.Errorf("simulation %s exceeded max actions limit (%d)", sm.activeSimID, MaxSimActions)
 	}
 
 	action.Timestamp = time.Now()

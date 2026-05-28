@@ -1,9 +1,19 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
+	"unicode/utf8"
 )
+
+// ratifyEvalTimeout bounds sandbox.Evaluate() during rule ratification. A
+// proposed rule that cannot reach fixpoint within this window is treated as
+// a VETO — Mangle evaluation should be polynomial in fact count, so anything
+// substantially slower is either a runaway recursion or an adversarial
+// rule. Exposed as a var so tests may shorten it.
+var ratifyEvalTimeout = 5 * time.Second
 
 // RuleCourt validates proposed policy rules before they are learned.
 type RuleCourt struct {
@@ -32,6 +42,17 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 		return fmt.Errorf("no kernel available for ratification")
 	}
 
+	// Reject malformed input before the parser sees it. The Mangle parser
+	// tolerates embedded null bytes and invalid UTF-8 inside string literals,
+	// which can produce facts that are unsafe to round-trip through downstream
+	// systems. Catch both here as syntactic violations.
+	if strings.ContainsRune(newRule, '\x00') {
+		return fmt.Errorf("rule rejected by sandbox compiler: contains null byte")
+	}
+	if !utf8.ValidString(newRule) {
+		return fmt.Errorf("rule rejected by sandbox compiler: invalid UTF-8 sequence")
+	}
+
 	// Build sandbox with current schemas/policy/learned rules
 	sandbox, err := NewRealKernel()
 	if err != nil {
@@ -47,11 +68,30 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 		_ = sandbox.LoadFacts(facts)
 	}
 
-	if err := sandbox.Evaluate(); err != nil {
-		return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
+	// Bounded sandbox.Evaluate() — runaway derivation (e.g., cyclic recursive
+	// rules) is treated as a VETO so a hallucinated rule cannot hang the
+	// ratification loop indefinitely. Evaluate itself does not accept a
+	// context, so we run it in a goroutine and race the result against a
+	// timeout.
+	evalCtx, cancel := context.WithTimeout(context.Background(), ratifyEvalTimeout)
+	defer cancel()
+	evalDone := make(chan error, 1)
+	go func() {
+		evalDone <- sandbox.Evaluate()
+	}()
+	select {
+	case err := <-evalDone:
+		if err != nil {
+			return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
+		}
+	case <-evalCtx.Done():
+		return fmt.Errorf("VETO: sandbox evaluation timed out after %s (possible runaway recursion)", ratifyEvalTimeout)
 	}
 
-	// Liveness check: only veto if the rule eliminates an existing permitted action set.
+	// Liveness check: only veto if the rule eliminates an existing permitted
+	// action set. If the base kernel itself has no permitted actions (e.g.,
+	// during quiescent boot or a schema-less bootstrap), we cannot infer
+	// anything about deadlock from this query alone and skip the veto.
 	basePermitted, baseErr := kernel.Query("permitted")
 	permitted, err := sandbox.Query("permitted")
 	if err != nil {
