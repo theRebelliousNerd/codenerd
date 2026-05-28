@@ -35,9 +35,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}()
 
 	var (
-		tiCmd tea.Cmd
-		vpCmd tea.Cmd
-		spCmd tea.Cmd
+		tiCmd      tea.Cmd
+		vpCmd      tea.Cmd
+		spCmd      tea.Cmd
+		persistCmd tea.Cmd // async session-state save; see saveSessionStateCmd
 	)
 
 	switch msg := msg.(type) {
@@ -212,14 +213,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m = m.pushAssistantMsgWithThought(msg.Surface, msg.ThoughtSummary)
-		m.saveSessionState()
+		persistCmd = m.saveSessionStateCmd()
 
 	case responseMsg:
 		m.isLoading = false
 		m.turnCount++
 		m = m.pushAssistantMsg(string(msg))
-		// Persist session after each response
-		m.saveSessionState()
+		// Persist session after each response (off the UI event loop).
+		persistCmd = m.saveSessionStateCmd()
 
 	case alignmentCheckMsg:
 		m.isLoading = false
@@ -253,7 +254,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.saveSessionState()
+		persistCmd = m.saveSessionStateCmd()
 
 	case clarificationMsg:
 		// Enter clarification mode (Pause)
@@ -566,8 +567,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Build summary message from result
 		m = m.pushAssistantMsg(m.renderInitComplete(msg.result))
-		// Persist session after init
-		m.saveSessionState()
+		// Persist session after init (off the UI event loop).
+		persistCmd = m.saveSessionStateCmd()
 
 	case scanCompleteMsg:
 		startupScan := m.isBooting && m.bootStage == BootStageScanning
@@ -596,7 +597,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.saveSessionState()
+		persistCmd = m.saveSessionStateCmd()
 
 		// If this was the startup scan, unlock chat input now that we're green.
 		if startupScan {
@@ -609,6 +610,7 @@ The kernel has been updated with fresh codebase facts.`, msg.fileCount, msg.dire
 			// a project-aware welcome message. If it fails, the user sees a
 			// warning but can still use slash commands.
 			return m, tea.Batch(
+				persistCmd,
 				checkFirstRun(m.workspace),
 				m.performWelcomeHealthCheck(msg),
 			)
@@ -640,7 +642,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.saveSessionState()
+		persistCmd = m.saveSessionStateCmd()
 
 	case reembedCompleteMsg:
 		m.isLoading = false
@@ -669,7 +671,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		}
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
-		m.saveSessionState()
+		persistCmd = m.saveSessionStateCmd()
 
 	case statusMsg:
 		m.statusMessage = string(msg)
@@ -802,17 +804,28 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			// Wire Consultation Manager (cross-specialist collaboration protocol)
 			m.consultationMgr = c.ConsultationMgr
 
-			// Initialize Dream State learning collector and router (§8.3.1)
+			// Initialize Dream State learning collector and reuse the
+			// Dream subsystem singletons already constructed by the
+			// system factory (internal/system/factory.go). Constructing
+			// them a second time here used to spawn a parallel
+			// DreamRouter/DreamPlanManager that bypassed the VirtualStore
+			// wiring and caused duplicate "Creating DreamRouter" /
+			// "Creating DreamPlanManager" boot log lines.
 			m.dreamCollector = core.NewDreamLearningCollector()
-			m.dreamRouter = core.NewDreamRouter(m.kernel, m.learningStore, m.localDB)
-
-			// Wire Dream → Ouroboros tool need bridge (§8.3.1)
-			if c.DreamToolQ != nil {
-				m.dreamRouter.SetOuroborosQueue(c.DreamToolQ)
+			if m.virtualStore != nil {
+				if dreamer := m.virtualStore.GetDreamer(); dreamer != nil {
+					m.dreamRouter = dreamer.GetDreamRouter()
+					m.dreamPlanManager = dreamer.GetDreamPlanManager()
+				}
 			}
 
-			// Initialize Dream Plan Manager for dream-to-execute pipeline (§8.3.2)
-			m.dreamPlanManager = core.NewDreamPlanManager(m.kernel)
+			// Wire Dream → Ouroboros tool need bridge (§8.3.1).
+			// The factory creates the router but does not have access to
+			// the Ouroboros queue, so we connect it here on the singleton
+			// instance.
+			if c.DreamToolQ != nil && m.dreamRouter != nil {
+				m.dreamRouter.SetOuroborosQueue(c.DreamToolQ)
+			}
 
 			// Boot already hydrated session state; trust the boot payload instead of
 			// re-hydrating and minting a second session identity here.
@@ -956,19 +969,52 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		if historyUpdated {
 			m.viewport.SetContent(m.renderHistory())
 			m.viewport.GotoBottom()
-			m.saveSessionState()
+			persistCmd = m.saveSessionStateCmd()
 		}
 
 		// Re-process the original input with knowledge context
 		// The knowledge is now available via m.pendingKnowledge which
 		// will be injected into SessionContext by buildSessionContext()
-		return m, m.processInputWithKnowledge(msg.OriginalInput)
+		return m, tea.Batch(persistCmd, m.processInputWithKnowledge(msg.OriginalInput))
 
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
-	return m, tea.Batch(tiCmd, vpCmd, spCmd)
+	return m, tea.Batch(tiCmd, vpCmd, spCmd, persistCmd)
+}
+
+// sessionStatePersistedMsg is dispatched after asynchronous session-state
+// persistence completes. The Update() handler treats it as a no-op signal;
+// it exists purely so saveSessionStateCmd can return a tea.Msg.
+type sessionStatePersistedMsg struct{}
+
+// saveSessionStateCmd persists session state off the Bubbletea event loop.
+//
+// Previously the UI Update() handler invoked m.saveSessionState() synchronously
+// at the end of several message branches. saveSessionState calls
+// compressor.GetState() (which executes context.GetHighActivationFacts — ~322ms
+// against a busy kernel) and then localDB.StoreCompressedState (synchronous
+// SQLite write). Together they blocked Update() for ~360ms — roughly 22 frames
+// at 60fps — visibly stalling input and rendering.
+//
+// We snapshot the receiver and run the entire persistence step in a goroutine
+// scheduled by Bubbletea. The Cmd returns a no-op message so the runtime knows
+// the work is done; nothing in the UI depends on the persistence result.
+func (m Model) saveSessionStateCmd() tea.Cmd {
+	if m.workspace == "" || m.sessionID == "" {
+		return nil
+	}
+	// Snapshot history into a fresh slice to avoid racing with subsequent
+	// m.addMessage() appends on the next Update() tick.
+	historySnapshot := make([]Message, len(m.history))
+	copy(historySnapshot, m.history)
+	snapshot := m
+	snapshot.history = historySnapshot
+	return func() tea.Msg {
+		snapshot.saveSessionState()
+		return sessionStatePersistedMsg{}
+	}
 }
 
 // updateContinuationFacts asserts/retracts continuation facts in the kernel.

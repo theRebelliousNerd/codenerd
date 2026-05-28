@@ -81,7 +81,14 @@ func (g *Guardian) Initialize() error {
 	if vision != nil {
 		logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian initialized with vision: %s", truncate(vision.Mission, 50))
 	} else {
-		logging.Get(logging.CategoryNorthstar).Info("Northstar Guardian initialized (no vision defined)")
+		visionPath := "<unknown>"
+		if g.store != nil {
+			visionPath = g.store.Path()
+		}
+		logging.Get(logging.CategoryNorthstar).Warn(
+			"Northstar Guardian initialized without a vision file — all alignment checks will be skipped. Configure vision at %s to enable enforcement.",
+			visionPath,
+		)
 	}
 
 	g.refreshKernelFacts()
