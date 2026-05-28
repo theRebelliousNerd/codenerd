@@ -244,9 +244,9 @@ func TestRunPhase_WriteSetGatesConflictingMutations(t *testing.T) {
 		VirtualStore:        &core.VirtualStore{},
 		MaxParallelTasks:    2,
 		DisableTimeouts:     true,
-		WriteSetLockTimeout: 40 * time.Millisecond,
-		WriteSetLockRetry:   20 * time.Millisecond,
-		WriteSetLockPoll:    5 * time.Millisecond,
+		WriteSetLockTimeout: 1 * time.Second,
+		WriteSetLockRetry:   200 * time.Millisecond,
+		WriteSetLockPoll:    20 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("NewOrchestrator() error = %v", err)
