@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -372,10 +373,14 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 		return nil, fmt.Errorf("invalid arguments: cannot serialize to JSON: %w", err)
 	}
 
-	// Parse tool ID to get server and tool name
 	serverID, toolName := parseToolID(toolID)
 	if serverID == "" {
 		return nil, fmt.Errorf("invalid tool ID: %s", toolID)
+	}
+
+	// Sanitize MCP tool names against directory traversal
+	if strings.Contains(toolName, "..") || strings.ContainsAny(toolName, "/\\") {
+		return nil, fmt.Errorf("invalid tool name: directory traversal detected")
 	}
 
 	m.mu.RLock()
@@ -392,7 +397,21 @@ func (m *MCPClientManager) CallTool(ctx context.Context, toolID string, args map
 
 	result, err := conn.Transport.CallTool(ctx, toolName, clonedArgs)
 	if err != nil {
-		return nil, err
+		// Map unhandled protocol errors cleanly
+		if err == context.DeadlineExceeded {
+			return nil, fmt.Errorf("MCP protocol error: tool execution timed out: %w", err)
+		}
+		if err == context.Canceled {
+			return nil, fmt.Errorf("MCP protocol error: tool execution canceled: %w", err)
+		}
+		return nil, fmt.Errorf("MCP protocol error: %w", err)
+	}
+
+	// Cap MCP context memory windows during multi-turn exchanges
+	const maxContextWindowBytes = 500 * 1024
+	if len(result.Output) > maxContextWindowBytes {
+		truncMsg := []byte("\n...[output truncated due to MCP context memory window limit]")
+		result.Output = append(result.Output[:maxContextWindowBytes], truncMsg...)
 	}
 
 	// Update usage stats defensively with nil checks and panic recovery

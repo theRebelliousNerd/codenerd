@@ -4,7 +4,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/google/mangle/builtin"
+	"codeberg.org/TauCeti/mangle-go/builtin"
 )
 
 func main() {

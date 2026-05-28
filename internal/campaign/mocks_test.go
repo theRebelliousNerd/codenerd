@@ -5,7 +5,7 @@ import (
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 	"context"
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"sync"
 )
 

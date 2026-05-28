@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 func Compile(spec Spec, options Options) (Result, error) {

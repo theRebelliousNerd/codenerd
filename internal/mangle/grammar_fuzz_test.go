@@ -1,7 +1,7 @@
 package mangle_test
 
 import (
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/parse"
 	"testing"
 )
 

@@ -23,7 +23,7 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // TaskDelegator is a minimal interface for task delegation.
@@ -205,6 +205,53 @@ func NewVirtualStoreWithConfig(executor tactile.Executor, config VirtualStoreCon
 
 	logging.VirtualStore("VirtualStore initialized successfully")
 	return vs
+}
+
+// Close releases all resources held by the VirtualStore, verifying FFI memory cleanup.
+func (v *VirtualStore) Close() error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	// Verify FFI memory cleanup for Transaction Manager
+	if v.transactionMgr != nil {
+		if v.transactionMgr.IsTransactionActive() {
+			v.transactionMgr.Abort(context.Background(), "virtual_store_closed")
+		}
+	}
+
+	// Close learning store
+	if v.learningStore != nil {
+		if closer, ok := any(v.learningStore).(interface{ Close() error }); ok {
+			closer.Close()
+		}
+	}
+
+	// Close local DB
+	if v.localDB != nil {
+		if closer, ok := any(v.localDB).(interface{ Close() error }); ok {
+			closer.Close()
+		}
+	}
+
+	// Disconnect MCP clients if they support closing
+	for _, client := range v.mcpClients {
+		if closer, ok := client.(interface{ Close() error }); ok {
+			closer.Close()
+		}
+	}
+
+	// Clean up Modern Executor
+	if v.modernExecutor != nil {
+		if closer, ok := v.modernExecutor.(interface{ Close() error }); ok {
+			closer.Close()
+		}
+	}
+
+	// Clear memory caches
+	v.permittedCache = nil
+
+	logging.VirtualStore("VirtualStore closed and FFI memory cleaned up")
+	return nil
 }
 
 // initModernExecutor sets up the modern tactile executor with audit logging.

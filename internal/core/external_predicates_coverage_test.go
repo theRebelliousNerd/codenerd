@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 func TestVirtualExternalPredicate_ShouldPushdown(t *testing.T) {

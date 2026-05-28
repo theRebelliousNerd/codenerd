@@ -14,7 +14,7 @@ import (
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 // Mock implementation of types.Kernel

@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"reflect"
 	"sort"
 	"strconv"
@@ -11,12 +12,51 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // =============================================================================
 // FACT MANAGEMENT
 // =============================================================================
+
+// LoadFactsSeq adds facts to the EDB from an iterator and rebuilds the program.
+func (k *RealKernel) LoadFactsSeq(seq iter.Seq[Fact]) error {
+	timer := logging.StartTimer(logging.CategoryKernel, "LoadFactsSeq")
+
+	var added int
+	var prevCount int
+
+	k.mu.Lock()
+	prevCount = len(k.facts)
+	k.mu.Unlock()
+
+	for f := range seq {
+		f = sanitizeFactForNumericPredicates(f)
+		k.mu.Lock()
+		if k.addFactIfNewLocked(f) {
+			added++
+		}
+		k.mu.Unlock()
+	}
+
+	k.mu.RLock()
+	newCount := len(k.facts)
+	k.mu.RUnlock()
+
+	logging.KernelDebug("LoadFactsSeq: added %d facts, EDB: %d -> %d facts", added, prevCount, newCount)
+
+	if added > 0 {
+		k.mu.Lock()
+		err := k.rebuild()
+		k.mu.Unlock()
+		if err != nil {
+			logging.Get(logging.CategoryKernel).Error("LoadFactsSeq: rebuild failed: %v", err)
+			return err
+		}
+	}
+	timer.Stop()
+	return nil
+}
 
 // LoadFacts adds facts to the EDB and rebuilds the program.
 func (k *RealKernel) LoadFacts(facts []Fact) error {
@@ -1205,12 +1245,26 @@ func parsePriorityString(atom string, original any) any {
 }
 
 // GetFactsSnapshot returns a copy of the current facts (thread-safe).
+// Deprecated: use GetFactsSnapshotSeq for memory efficiency.
 func (k *RealKernel) GetFactsSnapshot() []Fact {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	snapshot := make([]Fact, len(k.facts))
 	copy(snapshot, k.facts)
 	return snapshot
+}
+
+// GetFactsSnapshotSeq returns an iterator of the current facts (thread-safe).
+func (k *RealKernel) GetFactsSnapshotSeq() iter.Seq[Fact] {
+	return func(yield func(Fact) bool) {
+		k.mu.RLock()
+		defer k.mu.RUnlock()
+		for _, f := range k.facts {
+			if !yield(f) {
+				return
+			}
+		}
+	}
 }
 
 // FactCount returns the number of facts in the EDB.
@@ -1221,12 +1275,18 @@ func (k *RealKernel) FactCount() int {
 }
 
 // GetAllFacts returns all facts in the EDB (thread-safe snapshot).
+// Deprecated: use GetAllFactsSeq for memory efficiency.
 func (k *RealKernel) GetAllFacts() []Fact {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	result := make([]Fact, len(k.facts))
 	copy(result, k.facts)
 	return result
+}
+
+// GetAllFactsSeq returns all facts in the EDB as an iterator (thread-safe snapshot).
+func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
+	return k.GetFactsSnapshotSeq()
 }
 
 // IsDirty returns whether the kernel's EDB has been mutated since the last evaluation.

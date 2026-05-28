@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/parse"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

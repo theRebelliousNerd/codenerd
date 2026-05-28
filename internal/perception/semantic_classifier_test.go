@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"codenerd/internal/core"
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	_ "github.com/mattn/go-sqlite3"
 )
 

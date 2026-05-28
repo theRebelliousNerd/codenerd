@@ -8,9 +8,9 @@ import (
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/factstore"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 ) // =============================================================================
 // TYPE ALIASES - Import from internal/types to break import cycles
 // =============================================================================

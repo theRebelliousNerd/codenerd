@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"strings"
 	"time"
 

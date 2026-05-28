@@ -1,6 +1,6 @@
 package core
 
-import "github.com/google/mangle/analysis"
+import "codeberg.org/TauCeti/mangle-go/analysis"
 
 // GetBaseFacts returns the raw EDB facts loaded into the kernel.
 // This is useful for debugging and proof tree generation.

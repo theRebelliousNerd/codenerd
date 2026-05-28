@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iter"
 	"math"
 	"os"
 	"path/filepath"
@@ -18,14 +19,14 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/ast"
-	_ "github.com/google/mangle/builtin"
-	mengine "github.com/google/mangle/engine"
-	"github.com/google/mangle/factstore"
-	_ "github.com/google/mangle/packages"
-	"github.com/google/mangle/parse"
-	"github.com/google/mangle/unionfind"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	_ "codeberg.org/TauCeti/mangle-go/builtin"
+	mengine "codeberg.org/TauCeti/mangle-go/engine"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+	_ "codeberg.org/TauCeti/mangle-go/packages"
+	"codeberg.org/TauCeti/mangle-go/parse"
+	"codeberg.org/TauCeti/mangle-go/unionfind"
 )
 
 // Config holds Mangle engine configuration.
@@ -1057,8 +1058,36 @@ func (e *Engine) QueryFacts(predicate string, args ...string) []Fact {
 	return filtered
 }
 
-// EvaluateRule evaluates a specific rule and returns matching facts.
-func (e *Engine) EvaluateRule(predicate string) []Fact {
-	facts, _ := e.GetFacts(predicate)
-	return facts
+// GetFactsSeq retrieves all facts for a given predicate as an iterator.
+func (e *Engine) GetFactsSeq(predicate string) iter.Seq[Fact] {
+	return func(yield func(Fact) bool) {
+		e.mu.RLock()
+		sym, ok := e.predicateIndex[predicate]
+		e.mu.RUnlock()
+
+		if !ok {
+			return
+		}
+
+		_ = e.store.GetFacts(ast.NewQuery(sym), func(atom ast.Atom) error {
+			args := make([]any, len(atom.Args))
+			for i, arg := range atom.Args {
+				args[i] = convertBaseTermToInterface(arg)
+			}
+			fact := Fact{
+				Predicate: predicate,
+				Args:      args,
+				Timestamp: time.Now(), // We don't store timestamp in EDB currently
+			}
+			if !yield(fact) {
+				return fmt.Errorf("stop iteration")
+			}
+			return nil
+		})
+	}
+}
+
+// EvaluateRule evaluates a specific rule and returns matching facts as an iterator.
+func (e *Engine) EvaluateRule(predicate string) iter.Seq[Fact] {
+	return e.GetFactsSeq(predicate)
 }

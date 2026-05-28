@@ -57,10 +57,11 @@ func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error
 	// Query for honeypot elements using Mangle rules
 	logging.BrowserDebug("Evaluating is_honeypot rule")
 	honeypots := d.engine.EvaluateRule("is_honeypot")
-	logging.BrowserDebug("Found %d potential honeypot elements", len(honeypots))
 
 	var results []DetectionResult
-	for _, hp := range honeypots {
+	count := 0
+	for hp := range honeypots {
+		count++
 		if len(hp.Args) > 0 {
 			elemID := types.ExtractString(hp.Args[0])
 			result := DetectionResult{
@@ -72,6 +73,7 @@ func (d *HoneypotDetector) AnalyzePage(page *rod.Page) ([]DetectionResult, error
 			results = append(results, result)
 		}
 	}
+	logging.BrowserDebug("Found %d potential honeypot elements", count)
 
 	logging.Browser("Honeypot analysis complete: %d elements detected", len(results))
 	return results, nil

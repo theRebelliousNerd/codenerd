@@ -10,7 +10,7 @@ import (
 
 	"codenerd/internal/store"
 	"codenerd/internal/types"
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 type mockGraphQuery struct {

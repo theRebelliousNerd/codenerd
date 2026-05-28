@@ -1,8 +1,8 @@
 package mangle
 
 import (
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
 	"strings"
 	"testing"
 )

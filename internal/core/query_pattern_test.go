@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/google/mangle/factstore"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 func TestKernelQueryPatternFiltering(t *testing.T) {

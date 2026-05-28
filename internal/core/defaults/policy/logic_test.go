@@ -8,8 +8,8 @@ import (
 
 	"codenerd/internal/mangle"
 
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/parse"
 	"go.uber.org/goleak"
 )
 

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // MockIntegrationClient implements core.IntegrationClient for testing.

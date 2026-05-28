@@ -11,7 +11,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 var _ types.KernelTransactor = (*CortexKernel)(nil)

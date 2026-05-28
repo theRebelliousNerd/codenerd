@@ -1,8 +1,8 @@
 package mangle
 
 import (
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/factstore"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 	"testing"
 )
 

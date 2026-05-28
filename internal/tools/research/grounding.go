@@ -294,7 +294,7 @@ var CommonDocURLs = map[string][]string{
 		"https://react.dev/learn",
 	},
 	"mangle": {
-		"https://github.com/google/mangle",
+		"https://codeberg.org/TauCeti/mangle-go",
 	},
 	"rod": {
 		"https://go-rod.github.io/",

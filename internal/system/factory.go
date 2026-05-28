@@ -3,7 +3,7 @@
 package system
 
 import (
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/autopoiesis"
@@ -39,8 +39,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/parse"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver for project corpus
 )
 

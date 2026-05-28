@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"codenerd/internal/articulation"
 	"codenerd/internal/campaign"

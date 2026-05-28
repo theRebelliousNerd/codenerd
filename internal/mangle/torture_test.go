@@ -27,9 +27,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/factstore"
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================

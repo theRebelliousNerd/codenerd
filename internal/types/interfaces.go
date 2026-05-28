@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"context"
 )

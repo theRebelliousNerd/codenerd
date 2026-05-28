@@ -4,13 +4,12 @@
 package retrieval
 
 import (
-	"bufio"
+	"bytes"
 	"container/list"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -337,154 +336,145 @@ func (r *SparseRetriever) SearchKeywords(ctx context.Context, keywords *IssueKey
 	return allHits, nil
 }
 
-// searchSingleKeyword uses ripgrep to search for a single keyword.
+// searchSingleKeyword uses native Go scanning to search for a single keyword.
 func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword string) ([]KeywordHit, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.searchTimeout)
 	defer cancel()
 
-	// Build ripgrep command. Use --json so we don't have to parse a
-	// colon-delimited "file:line:col:text" stream — that format breaks on
-	// Windows because absolute paths contain a drive-letter colon
-	// ("C:\repo\foo.go:12:3:text"), which the naive splitter mis-parses.
-	args := []string{
-		"--json",
-		"--color=never",
-		"-i", // Case insensitive
-		"-w", // Word boundary
-	}
-
-	// Add exclude patterns
-	for _, pattern := range r.excludePatterns {
-		args = append(args, "-g", "!"+pattern)
-	}
-
-	// Add keyword and directory
-	args = append(args, regexp.QuoteMeta(keyword), r.workDir)
-
-	cmd := exec.CommandContext(ctx, "rg", args...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start ripgrep: %w", err)
-	}
-
-	hits := r.parseRipgrepStream(stdout, keyword)
-
-	err = cmd.Wait()
-	if err != nil {
-		// Exit code 1 means no matches (not an error)
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return hits, nil
-		}
-		return nil, fmt.Errorf("ripgrep failed for %q: %w", keyword, err)
-	}
-
-	return hits, nil
-}
-
-// rgJSONEvent is the envelope ripgrep emits with --json. We only need the
-// "match" event type; "begin", "end", and "summary" are ignored.
-type rgJSONEvent struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-}
-
-type rgJSONText struct {
-	Text  string `json:"text"`
-	Bytes string `json:"bytes"` // ripgrep emits base64 here when text isn't valid UTF-8
-}
-
-type rgJSONSubmatch struct {
-	Start int `json:"start"`
-	End   int `json:"end"`
-}
-
-type rgJSONMatchData struct {
-	Path       rgJSONText       `json:"path"`
-	Lines      rgJSONText       `json:"lines"`
-	LineNumber int              `json:"line_number"`
-	Submatches []rgJSONSubmatch `json:"submatches"`
-}
-
-// maxHitsPerKeyword caps the number of KeywordHits returned per ripgrep
-// invocation. ripgrep can return millions of matches on a hot keyword like
-// "self" in a large repo; without a cap we risk OOM and unbounded slice growth.
-const maxHitsPerKeyword = 10000
-
-// parseRipgrepJSON parses ripgrep --json output into KeywordHits.
-// Deprecated: use parseRipgrepStream for O(1) memory streaming. Kept for test compatibility.
-func (r *SparseRetriever) parseRipgrepJSON(output []byte, keyword string) []KeywordHit {
-	return r.parseRipgrepStream(strings.NewReader(string(output)), keyword)
-}
-
-// parseRipgrepStream parses ripgrep --json stream into KeywordHits.
-// Each line of output is a JSON object; we only extract "match" events.
-// This is Windows-safe because the path is a structured field, not a
-// colon-separated token.
-//
-// Output is capped at maxHitsPerKeyword to prevent unbounded memory growth.
-func (r *SparseRetriever) parseRipgrepStream(reader io.Reader, keyword string) []KeywordHit {
 	var hits []KeywordHit
 	hitCounts := make(map[string]int)
+	var mu sync.Mutex
 
-	scanner := bufio.NewScanner(reader)
-	// ripgrep can emit very long lines (large matched lines). Grow the buffer.
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	kwBytes := []byte(strings.ToLower(keyword))
 
-	for scanner.Scan() {
-		if len(hits) >= maxHitsPerKeyword {
-			logging.Context("SparseRetriever: hit cap (%d) reached for keyword %q, truncating", maxHitsPerKeyword, keyword)
-			break
-		}
-		raw := scanner.Bytes()
-		if len(raw) == 0 {
-			continue
-		}
-		var evt rgJSONEvent
-		if err := json.Unmarshal(raw, &evt); err != nil {
-			continue
-		}
-		if evt.Type != "match" {
-			continue
-		}
-		var data rgJSONMatchData
-		if err := json.Unmarshal(evt.Data, &data); err != nil {
-			continue
-		}
-		filePath := data.Path.Text
-		if filePath == "" {
-			continue
-		}
-		colNum := 0
-		if len(data.Submatches) > 0 {
-			// Convert byte offset to a 1-based column for parity with the
-			// previous text-mode behavior.
-			colNum = data.Submatches[0].Start + 1
-		}
-		contextLine := strings.TrimRight(data.Lines.Text, "\r\n")
-		contextLine = strings.TrimSpace(contextLine)
+	// Channel for files to process
+	files := make(chan string, 1000)
 
-		hitCounts[filePath]++
+	// Worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < r.parallelism; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range files {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 
-		hits = append(hits, KeywordHit{
-			FilePath: filePath,
-			Keyword:  keyword,
-			Line:     data.LineNumber,
-			Column:   colNum,
-			Context:  contextLine,
-			Count:    hitCounts[filePath],
-		})
+				data, err := os.ReadFile(path)
+				if err != nil {
+					continue
+				}
+
+				// Convert to lower for case-insensitive search
+				lowerData := bytes.ToLower(data)
+				offsets := ScanBuffer(lowerData, kwBytes)
+
+				if len(offsets) == 0 {
+					continue
+				}
+
+				// Map byte offsets to lines and columns
+				lines := bytes.Split(data, []byte("\n"))
+				lineOffsets := make([]int, len(lines))
+				currentOffset := 0
+				for i, line := range lines {
+					lineOffsets[i] = currentOffset
+					currentOffset += len(line) + 1 // +1 for \n
+				}
+
+				var localHits []KeywordHit
+				for _, offset := range offsets {
+					// Word boundary check
+					if !isWordBoundary(lowerData, offset, len(kwBytes)) {
+						continue
+					}
+
+					// Find line
+					lineIdx := sort.SearchInts(lineOffsets, offset+1) - 1
+					if lineIdx < 0 {
+						lineIdx = 0
+					}
+					
+					colNum := offset - lineOffsets[lineIdx] + 1
+					contextLine := strings.TrimRight(string(lines[lineIdx]), "\r\n")
+					contextLine = strings.TrimSpace(contextLine)
+
+					localHits = append(localHits, KeywordHit{
+						FilePath: path,
+						Keyword:  keyword,
+						Line:     lineIdx + 1,
+						Column:   colNum,
+						Context:  contextLine,
+					})
+				}
+
+				if len(localHits) > 0 {
+					mu.Lock()
+					for _, h := range localHits {
+						hitCounts[h.FilePath]++
+						h.Count = hitCounts[h.FilePath]
+						hits = append(hits, h)
+					}
+					mu.Unlock()
+				}
+			}
+		}()
 	}
 
-	if err := scanner.Err(); err != nil {
-		logging.Context("SparseRetriever: scanner error during ripgrep JSON stream parsing: %v", err)
+	// Walk directory
+	err := filepath.WalkDir(r.workDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		
+		// Check exclusions
+		for _, pattern := range r.excludePatterns {
+			matched, _ := filepath.Match(pattern, d.Name())
+			if matched {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		if !d.IsDir() {
+			files <- path
+		}
+		return nil
+	})
+
+	close(files)
+	wg.Wait()
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return hits, fmt.Errorf("search timeout for keyword %q", keyword)
 	}
 
-	return hits
+	return hits, err
+}
+
+func isWordBoundary(data []byte, offset, kwLen int) bool {
+	if offset > 0 {
+		prev := data[offset-1]
+		if isAlphanumeric(prev) {
+			return false
+		}
+	}
+	if offset+kwLen < len(data) {
+		next := data[offset+kwLen]
+		if isAlphanumeric(next) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlphanumeric(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
 // RankFiles ranks files by keyword relevance.

@@ -63,9 +63,9 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	sandbox.SetLearned(kernel.GetLearned())
 
 	// Hydrate with current facts for liveness checks
-	facts := kernel.GetFactsSnapshot()
-	if len(facts) > 0 {
-		_ = sandbox.LoadFacts(facts)
+	// Use memory-efficient sequence iterator to avoid allocating huge Fact arrays
+	if kernel.FactCount() > 0 {
+		_ = sandbox.LoadFactsSeq(kernel.GetFactsSnapshotSeq())
 	}
 
 	// Bounded sandbox.Evaluate() — runaway derivation (e.g., cyclic recursive

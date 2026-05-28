@@ -16,7 +16,7 @@ import (
 	"codenerd/internal/session"
 	"codenerd/internal/types"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // =============================================================================

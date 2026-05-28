@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 // mockDreamPlanKernel implements Kernel interface for testing

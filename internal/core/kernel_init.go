@@ -9,8 +9,8 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/factstore"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // filterBootFacts removes ephemeral facts from boot facts to ensure quiescent boot.

@@ -32,7 +32,7 @@
 // - Database Interaction: Manages in-memory `factstore` and interacts with `Persistence` for lazy loading.
 //
 // Dependencies & Dependents:
-// - Dependencies: `github.com/google/mangle/*`, `internal/mangle/engine.go`
+// - Dependencies: `codeberg.org/TauCeti/mangle-go/*`, `internal/mangle/engine.go`
 // - Is a Dependency for: Future optimizations of `mangling` and `simulation` features.
 //
 // Deployment & Operations:
@@ -67,11 +67,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/ast"
-	mengine "github.com/google/mangle/engine"
-	"github.com/google/mangle/factstore"
-	"github.com/google/mangle/unionfind"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	mengine "codeberg.org/TauCeti/mangle-go/engine"
+	"codeberg.org/TauCeti/mangle-go/factstore"
+	"codeberg.org/TauCeti/mangle-go/unionfind"
 )
 
 // KnowledgeGraph represents a stratum of the knowledge base.
@@ -376,7 +376,7 @@ func (de *DifferentialEngine) ApplyDelta(facts []Fact) error {
 			// We might need to construct a `ProgramInfo` subset.
 			// Or use a lower level loop.
 
-			// Looking at `differential.go` imports: `mengine "github.com/google/mangle/engine"`.
+			// Looking at `differential.go` imports: `mengine "codeberg.org/TauCeti/mangle-go/engine"`.
 			// `mengine.Eval` or similar?
 
 			// Fallback: Use `baseEngine.programInfo` but trust that iterating strata sequentially

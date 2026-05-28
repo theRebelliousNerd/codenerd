@@ -3,7 +3,7 @@
 package chat
 
 import (
-	"github.com/google/mangle/analysis"
+	"codeberg.org/TauCeti/mangle-go/analysis"
 
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/articulation"

@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/mangle/analysis"
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================

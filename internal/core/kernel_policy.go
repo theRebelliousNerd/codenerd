@@ -12,7 +12,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle/feedback"
 
-	"github.com/google/mangle/factstore"
+	"codeberg.org/TauCeti/mangle-go/factstore"
 )
 
 // unsafeNegationPattern matches negated atoms with anonymous variables

@@ -3,8 +3,8 @@ package core
 import (
 	"codenerd/internal/logging"
 
-	"github.com/google/mangle/ast"
-	"github.com/google/mangle/engine"
+	"codeberg.org/TauCeti/mangle-go/ast"
+	"codeberg.org/TauCeti/mangle-go/engine"
 )
 
 // =============================================================================

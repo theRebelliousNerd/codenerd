@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // DreamResult captures the speculative evaluation of a single action.

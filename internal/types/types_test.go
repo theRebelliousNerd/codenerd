@@ -3,7 +3,7 @@ package types
 import (
 	"testing"
 
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 func TestIsValidMangleNameConstant(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
-	"github.com/google/mangle/parse"
+	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================

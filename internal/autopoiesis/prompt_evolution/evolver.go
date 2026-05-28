@@ -369,7 +369,7 @@ func (pe *PromptEvolver) marshalGeneratedAtom(ga *GeneratedAtom) ([]byte, error)
 		UsageCount   int                `yaml:"usage_count"`
 		SuccessCount int                `yaml:"success_count"`
 		CreatedAt    time.Time          `yaml:"created_at"`
-		PromotedAt   time.Time          `yaml:"promoted_at,omitzero"`
+		PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
 	}{
 		Atom:         ga.Atom,
 		Source:       ga.Source,
@@ -634,7 +634,7 @@ func (pe *PromptEvolver) loadAtomsFromDir(dir string, promoted bool) {
 			UsageCount   int                `yaml:"usage_count"`
 			SuccessCount int                `yaml:"success_count"`
 			CreatedAt    time.Time          `yaml:"created_at"`
-			PromotedAt   time.Time          `yaml:"promoted_at,omitzero"`
+			PromotedAt   time.Time          `yaml:"promoted_at,omitempty"`
 		}
 
 		if err := yaml.Unmarshal(data, &wrapper); err != nil {

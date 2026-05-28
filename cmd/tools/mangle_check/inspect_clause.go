@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/google/mangle/ast"
+	"codeberg.org/TauCeti/mangle-go/ast"
 	"reflect"
 )
 

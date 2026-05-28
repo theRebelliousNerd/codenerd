@@ -21,7 +21,7 @@
 // Architectural Context:
 // - Component Type: CLI Command
 // - Deployment: Built into `nerd` binary.
-// - Dependencies: Relies on `github.com/google/mangle/parse` (via `internal/mangle` wrapper if avail).
+// - Dependencies: Relies on `codeberg.org/TauCeti/mangle-go/parse` (via `internal/mangle` wrapper if avail).
 //
 // Dependencies & Dependents:
 // - Dependencies: `github.com/spf13/cobra`, `internal/mangle`.
