@@ -113,8 +113,17 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 	// Create transport based on protocol
 	var transport MCPTransport
 	timeout, err := time.ParseDuration(cfg.Timeout)
-	if err != nil {
+	if err != nil || timeout <= 0 {
+		// Fall back to default for: parse errors, empty string ("0s" parses
+		// fine but produces a useless zero/negative timeout), and explicit
+		// non-positive values like "-1s".
 		timeout = 30 * time.Second
+	}
+
+	// Reject explicitly empty protocol — switch below would also reject it,
+	// but this surfaces a clearer error message.
+	if cfg.Protocol == "" {
+		return fmt.Errorf("protocol cannot be empty for server: %s", serverID)
 	}
 
 	switch Protocol(cfg.Protocol) {
@@ -197,6 +206,10 @@ func (m *MCPClientManager) Connect(ctx context.Context, serverID string) error {
 
 // Disconnect closes connection to a specific MCP server.
 func (m *MCPClientManager) Disconnect(serverID string) error {
+	if serverID == "" {
+		return fmt.Errorf("server ID cannot be empty")
+	}
+
 	m.mu.Lock()
 	conn, ok := m.servers[serverID]
 	if !ok {
