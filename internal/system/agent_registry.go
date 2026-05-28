@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"codenerd/internal/sqlpragmas"
 )
 
 // AgentOnDisk represents a user-defined agent discovered under .nerd/agents/.
@@ -227,6 +229,7 @@ func countAgentAtoms(dbPath string) (int, error) {
 		return 0, err
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileQuery)
 
 	for _, query := range []string{"SELECT COUNT(*) FROM knowledge_atoms", "SELECT COUNT(*) FROM prompt_atoms"} {
 		var count int

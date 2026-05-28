@@ -18,6 +18,7 @@ import (
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 
 	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/yaml.v3"
@@ -709,6 +710,7 @@ func LoadAgentPrompts(ctx context.Context, agentName string, nerdDir string, emb
 		return 0, fmt.Errorf("failed to open agent knowledge database: %w", err)
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	// Ensure prompt_atoms table exists in this knowledge DB
 	// This is safe to call multiple times (CREATE TABLE IF NOT EXISTS)
@@ -830,6 +832,7 @@ func RegisterAgentDBWithJIT(compiler *JITPromptCompiler, agentName, dbPath strin
 	if err != nil {
 		return fmt.Errorf("failed to open agent knowledge database %s: %w", dbPath, err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	// Verify the connection is valid
 	if pingErr := db.Ping(); pingErr != nil {
@@ -955,6 +958,7 @@ func SyncEmbeddedToSQLite(ctx context.Context, dbPath string, engine embedding.E
 		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 	// Ensure schema exists
 	loader := NewAtomLoader(engine)

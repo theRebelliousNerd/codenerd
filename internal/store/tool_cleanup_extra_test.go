@@ -4,7 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	
+
 	"codenerd/internal/types"
 )
 
@@ -25,13 +25,13 @@ func (m *mockCleanupLLMClient) CompleteWithSystem(ctx context.Context, system, p
 func (m *mockCleanupLLMClient) CompleteWithStreaming(ctx context.Context, system string, prompt string, requireJSON bool) (<-chan string, <-chan error) {
 	ch := make(chan string, 1)
 	errCh := make(chan error, 1)
-	
+
 	if m.err != nil {
 		errCh <- m.err
 	} else {
 		ch <- m.response
 	}
-	
+
 	close(ch)
 	close(errCh)
 	return ch, errCh
@@ -55,7 +55,7 @@ func TestToolStore_AutoCleanup_And_CleanupBySizeLimit(t *testing.T) {
 		AutoCleanupThreshold: 0.5,
 		CleanupMode:          "size",
 	}
-	
+
 	// Add an execution with size 60 to trigger size limit (60 > 50)
 	exec := ToolExecution{
 		CallID:           "c1",
@@ -145,7 +145,7 @@ func TestToolStore_GetToolStatsSummary_And_Intelligent(t *testing.T) {
 	mockLLM := &mockCleanupLLMClient{
 		response: `{"delete_stale":{"before_runtime_hours":10,"min_references":0}}`,
 	}
-	
+
 	// Add an old execution to be deleted
 	oldExec := ToolExecution{
 		CallID:           "old1",
@@ -173,9 +173,9 @@ func TestToolStore_ToolStoreMissingMethods(t *testing.T) {
 	defer s.Close()
 
 	exec := ToolExecution{
-		CallID:           "c4",
-		SessionID:        "s4",
-		ToolName:         "mytool",
+		CallID:    "c4",
+		SessionID: "s4",
+		ToolName:  "mytool",
 	}
 	s.Store(exec)
 
@@ -214,7 +214,7 @@ func TestToolStore_ToolStoreMissingMethods(t *testing.T) {
 	if overallStats.TotalExecutions != 1 {
 		t.Errorf("expected 1 total exec, got %d", overallStats.TotalExecutions)
 	}
-	
+
 	// Check DefaultCleanupConfig doesn't panic
 	cfg := DefaultCleanupConfig()
 	if cfg.MaxRuntimeHours == 0 {

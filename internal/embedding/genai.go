@@ -7,6 +7,7 @@ import (
 
 	"codenerd/internal/logging"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/genai"
 )
 
@@ -17,6 +18,13 @@ import (
 // maxBatchSize is the maximum number of texts allowed in a single GenAI batch request.
 // The API returns error 400 if more than 100 requests are in one batch.
 const maxBatchSize = 100
+
+// batchParallelism bounds the number of concurrent EmbedContent calls when a
+// caller-provided slice exceeds maxBatchSize. Tuned for shared HTTP transport
+// and Gemini's typical per-key concurrency budget; raising it without the
+// pooled transport in internal/perception/transport.go will starve other
+// callers and provoke 429s.
+const batchParallelism = 6
 
 //go:fix inline
 func int32Ptr(i int32) *int32 {
@@ -174,32 +182,53 @@ func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, ta
 		return e.embedBatchChunk(ctx, texts, taskType)
 	}
 
-	// Chunk into batches of maxBatchSize and process sequentially
+	// Chunk into batches of maxBatchSize and process in parallel.
+	// Order is preserved by writing each chunk's result into a fixed slot of
+	// chunkResults indexed by the batch position, then flattening after Wait.
 	numBatches := (len(texts) + maxBatchSize - 1) / maxBatchSize
-	logging.Embedding("GenAI.EmbedBatch: chunking %d texts into %d batches of up to %d items", len(texts), numBatches, maxBatchSize)
+	logging.Embedding("GenAI.EmbedBatch: chunking %d texts into %d batches of up to %d items (parallelism=%d)", len(texts), numBatches, maxBatchSize, batchParallelism)
 
-	allEmbeddings := make([][]float32, 0, len(texts))
+	chunkResults := make([][][]float32, numBatches)
 
+	eg, gctx := errgroup.WithContext(ctx)
+	eg.SetLimit(batchParallelism)
+
+	parallelStart := time.Now()
 	for batchIdx := range numBatches {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
+		batchIdx := batchIdx // capture before goroutine launch
 		start := batchIdx * maxBatchSize
 		end := min(start+maxBatchSize, len(texts))
-
 		chunk := texts[start:end]
-		logging.EmbeddingDebug("GenAI.EmbedBatch: processing batch %d/%d with %d texts (indices %d-%d)",
-			batchIdx+1, numBatches, len(chunk), start, end-1)
 
-		chunkEmbeddings, err := e.embedBatchChunk(ctx, chunk, taskType)
-		if err != nil {
-			return nil, fmt.Errorf("batch %d/%d failed: %w", batchIdx+1, numBatches, err)
-		}
+		eg.Go(func() error {
+			// errgroup.WithContext cancels gctx on first error; check before
+			// issuing the HTTP call so queued goroutines bail out fast.
+			select {
+			case <-gctx.Done():
+				return gctx.Err()
+			default:
+			}
 
-		allEmbeddings = append(allEmbeddings, chunkEmbeddings...)
+			logging.EmbeddingDebug("GenAI.EmbedBatch: processing batch %d/%d with %d texts (indices %d-%d)",
+				batchIdx+1, numBatches, len(chunk), start, end-1)
+
+			chunkEmbeddings, err := e.embedBatchChunk(gctx, chunk, taskType)
+			if err != nil {
+				return fmt.Errorf("batch %d/%d failed: %w", batchIdx+1, numBatches, err)
+			}
+			chunkResults[batchIdx] = chunkEmbeddings
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	parallelLatency := time.Since(parallelStart)
+
+	allEmbeddings := make([][]float32, 0, len(texts))
+	for _, chunk := range chunkResults {
+		allEmbeddings = append(allEmbeddings, chunk...)
 	}
 
 	dimensions := 0
@@ -207,8 +236,8 @@ func (e *GenAIEngine) embedBatchWithTask(ctx context.Context, texts []string, ta
 		dimensions = len(allEmbeddings[0])
 	}
 
-	logging.Embedding("GenAI.EmbedBatch: completed successfully, processed %d texts in %d batches, dimensions=%d",
-		len(texts), numBatches, dimensions)
+	logging.Embedding("GenAI.EmbedBatch: completed successfully, processed %d texts in %d parallel batches (parallelism=%d), wall_time=%v, dimensions=%d",
+		len(texts), numBatches, batchParallelism, parallelLatency, dimensions)
 
 	return allEmbeddings, nil
 }
@@ -268,4 +297,77 @@ func (e *GenAIEngine) Name() string {
 func (e *GenAIEngine) Close() error {
 	// GenAI client doesn't require explicit cleanup
 	return nil
+}
+
+// EmbedBatchJob submits an asynchronous embedding batch job via
+// client.Batches.CreateEmbeddings. Returns the job handle so callers can poll
+// with client.Batches.Get(...) and read results from BatchJob.Dest once the
+// job reaches JobStateSucceeded.
+//
+// Use this for large-corpus reembed paths (e.g. corpus_builder ingest of
+// thousands of atoms). For smaller batches the synchronous EmbedBatch with
+// parallelism=6 is faster and avoids the polling round-trip.
+//
+// NOTE: CreateEmbeddings is only supported on the Gemini Developer API
+// backend; calling it against BackendVertexAI returns an error from the SDK.
+// The implementation is marked experimental by the SDK (v1.58) and may
+// change. TaskType and OutputDimensionality are carried inside the
+// per-batch Config field on EmbedContentBatch, not on the job-level
+// CreateEmbeddingsBatchJobConfig.
+func (e *GenAIEngine) EmbedBatchJob(ctx context.Context, texts []string, taskType string) (*genai.BatchJob, error) {
+	timer := logging.StartTimer(logging.CategoryEmbedding, "GenAI.EmbedBatchJob")
+	defer timer.Stop()
+
+	if len(texts) == 0 {
+		return nil, fmt.Errorf("EmbedBatchJob: texts must be non-empty")
+	}
+
+	if taskType == "" {
+		taskType = e.taskType
+	}
+	taskType = normalizeTaskType(taskType)
+
+	logging.Embedding("GenAI.EmbedBatchJob: submitting async batch for %d texts (task_type=%s, model=%s)",
+		len(texts), taskType, e.model)
+
+	contents := make([]*genai.Content, len(texts))
+	for i, text := range texts {
+		contents[i] = genai.NewContentFromText(text, genai.RoleUser)
+	}
+
+	cfg := &genai.EmbedContentConfig{
+		OutputDimensionality: new(int32(3072)),
+	}
+	if taskType != "" {
+		cfg.TaskType = taskType
+	}
+
+	model := e.model
+	src := &genai.EmbeddingsBatchJobSource{
+		InlinedRequests: &genai.EmbedContentBatch{
+			Contents: contents,
+			Config:   cfg,
+		},
+	}
+
+	jobCfg := &genai.CreateEmbeddingsBatchJobConfig{
+		DisplayName: fmt.Sprintf("codenerd-embed-%d", time.Now().UnixNano()),
+	}
+
+	apiStart := time.Now()
+	job, err := e.client.Batches.CreateEmbeddings(ctx, &model, src, jobCfg)
+	apiLatency := time.Since(apiStart)
+
+	if err != nil {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.EmbedBatchJob: submission failed after %v: %v", apiLatency, err)
+		return nil, fmt.Errorf("GenAI embed batch job submit failed: %w", err)
+	}
+
+	jobName := ""
+	if job != nil {
+		jobName = job.Name
+	}
+	logging.Embedding("GenAI.EmbedBatchJob: submitted job=%s in %v", jobName, apiLatency)
+
+	return job, nil
 }

@@ -18,7 +18,9 @@ import (
 	"codenerd/internal/core/shards"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
+
 	"golang.org/x/sync/errgroup"
 )
 
@@ -1283,6 +1285,7 @@ func (c *JITPromptCompiler) RegisterDB(name, dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database %s: %w", dbPath, err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	// Verify connection is valid
 	if pingErr := db.Ping(); pingErr != nil {

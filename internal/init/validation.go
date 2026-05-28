@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
@@ -84,6 +85,7 @@ func ValidateAgentDB(dbPath string) (*ValidationResult, error) {
 		return result, nil
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileQuery)
 
 	// Check schema version
 	result.SchemaVersion = getSchemaVersion(db)

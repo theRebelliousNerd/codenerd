@@ -117,7 +117,7 @@ func (k *RealKernel) LoadFacts(facts []Fact) error {
 		logging.Get(logging.CategoryKernel).Error("LoadFacts: evaluate failed: %v", err)
 		return err
 	}
-	k.factsDirty = false
+	k.factsDirty.Store(false)
 
 	timer.Stop()
 	return nil
@@ -443,7 +443,7 @@ func (k *RealKernel) Assert(fact Fact) error {
 		k.mu.Unlock()
 		return nil
 	}
-	k.factsDirty = true
+	k.factsDirty.Store(true)
 	logging.KernelDebug("Assert: fact added successfully, total facts=%d", len(k.facts))
 	k.mu.Unlock()
 
@@ -484,7 +484,7 @@ func (k *RealKernel) AssertBatch(facts []Fact) error {
 	}
 
 	// Mark dirty for lazy evaluation (single evaluate on next query)
-	k.factsDirty = true
+	k.factsDirty.Store(true)
 
 	logging.KernelDebug("AssertBatch: successfully added %d/%d facts, total facts=%d",
 		addedCount, len(facts), len(k.facts))
@@ -537,7 +537,7 @@ func (k *RealKernel) Evaluate() error {
 		logging.Get(logging.CategoryKernel).Error("Evaluate: failed: %v", err)
 		return err
 	}
-	k.factsDirty = false
+	k.factsDirty.Store(false)
 
 	timer.Stop()
 	return nil
@@ -1292,9 +1292,7 @@ func (k *RealKernel) GetAllFactsSeq() iter.Seq[Fact] {
 // IsDirty returns whether the kernel's EDB has been mutated since the last evaluation.
 // When true, the next Query/QueryAll will trigger a lazy re-evaluation.
 func (k *RealKernel) IsDirty() bool {
-	k.mu.RLock()
-	defer k.mu.RUnlock()
-	return k.factsDirty
+	return k.factsDirty.Load()
 }
 
 // LoadSchemas replaces the kernel's schema content and marks it for reparse.

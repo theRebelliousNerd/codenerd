@@ -11,6 +11,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 )
 
 // FeedbackCollector records and manages execution feedback.
@@ -44,6 +45,7 @@ func NewFeedbackCollector(nerdDir string) (*FeedbackCollector, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open evolution database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	fc := &FeedbackCollector{
 		db:        db,

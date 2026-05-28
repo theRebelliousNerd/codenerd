@@ -51,12 +51,10 @@ func NewOpenAIClient(apiKey string) *OpenAIClient {
 // NewOpenAIClientWithConfig creates a new OpenAI client with custom config.
 func NewOpenAIClientWithConfig(config OpenAIConfig) *OpenAIClient {
 	return &OpenAIClient{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		apiKey:     config.APIKey,
+		baseURL:    config.BaseURL,
+		model:      config.Model,
+		httpClient: NewSharedHTTPClient(config.Timeout),
 	}
 }
 

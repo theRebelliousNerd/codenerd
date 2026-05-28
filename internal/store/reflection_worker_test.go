@@ -84,13 +84,13 @@ func TestReflectionWorker_LocalStore_ManualProcess(t *testing.T) {
 	store.SetEmbeddingEngine(mockEngine)
 
 	store.GetTraceStore().StoreReasoningTrace(&ReasoningTrace{
-		ID:            "trace1",
-		ShardID:       "shard1",
-		ShardType:     "coder",
-		TaskContext:   "Context",
-		Success:       true,
-		QualityScore:  0.9,
-		CreatedAt:     time.Now(),
+		ID:           "trace1",
+		ShardID:      "shard1",
+		ShardType:    "coder",
+		TaskContext:  "Context",
+		Success:      true,
+		QualityScore: 0.9,
+		CreatedAt:    time.Now(),
 	})
 
 	store.processReflectionCycle()
@@ -134,7 +134,7 @@ func TestReflectionWorker_LearningStore_ManualProcess(t *testing.T) {
 
 func TestApplyRecencyWeight(t *testing.T) {
 	now := time.Now()
-	
+
 	// age is 0 days -> same score (within tolerance)
 	val1 := applyRecencyWeight(0.8, now, 14)
 	if val1 < 0.79 || val1 > 0.8 {

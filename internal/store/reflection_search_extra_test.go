@@ -16,11 +16,11 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 	// 1. Setup trace for Lexical search
 	s := ls.GetTraceStore()
 	trace := &ReasoningTrace{
-		ID:           "trace1",
-		SessionID:    "session1",
-		ShardType:    "coder",
-		Success:      true,
-		CreatedAt:    time.Now(),
+		ID:        "trace1",
+		SessionID: "session1",
+		ShardType: "coder",
+		Success:   true,
+		CreatedAt: time.Now(),
 	}
 	err = s.StoreReasoningTrace(trace)
 	if err != nil {
@@ -78,7 +78,7 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 	// 2. Setup LearningStore for Lexical search
 	tempDir, _ := os.MkdirTemp("", "learning_search_test")
 	defer os.RemoveAll(tempDir)
-	
+
 	learnStore, _ := NewLearningStore(tempDir)
 	defer learnStore.Close()
 
@@ -134,7 +134,7 @@ func TestLocalStore_ReflectionSearch_Extra(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ensureLearningVecTable failed: %v", err)
 		}
-		
+
 		// Insert into learnings_vec
 		queryBlob := encodeFloat32Slice([]float32{0.1, 0.2, 0.3, 0.4})
 		_, err = db.Exec("INSERT INTO learnings_vec (learning_id, embedding) VALUES (?, ?)", cands[0].ID, queryBlob)

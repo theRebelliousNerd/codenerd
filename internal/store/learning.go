@@ -90,6 +90,7 @@ func (ls *LearningStore) getDB(shardType string) (*sql.DB, error) {
 		logging.Get(logging.CategoryStore).Error("Failed to open learnings db for %s: %v", shardType, err)
 		return nil, fmt.Errorf("failed to open learnings db: %w", err)
 	}
+	ApplyDefaultPragmas(db, ProfileHot)
 
 	// Initialize schema
 	if err := ls.initializeSchema(db); err != nil {

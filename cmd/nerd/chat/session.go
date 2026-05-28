@@ -32,6 +32,7 @@ import (
 	// "codenerd/internal/shards/tester"
 	// "codenerd/internal/shards/tool_generator"
 	shardsystem "codenerd/internal/shards/system"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
 	"codenerd/internal/tactile"
@@ -58,7 +59,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -118,7 +119,7 @@ func InitChat(cfg Config) Model {
 	var renderer *glamour.TermRenderer
 	if styles.Theme.IsDark {
 		renderer, _ = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(80),
 		)
 	} else {
@@ -593,6 +594,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 					if err != nil {
 						logging.Boot("Warning: Failed to open corpus DB for migrations: %v", err)
 					} else {
+						sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 						loader := prompt.NewAtomLoader(nil)
 						if err := loader.EnsureSchema(context.Background(), db); err != nil {
 							logging.Boot("Warning: Failed to ensure corpus schema: %v", err)

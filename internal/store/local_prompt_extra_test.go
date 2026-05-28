@@ -12,15 +12,15 @@ func TestLocalStore_PromptAtoms_Extra(t *testing.T) {
 	defer s.Close()
 
 	atom := &PromptAtom{
-		AtomID:      "test-atom-1",
-		Version:     1,
-		Content:     "Hello World",
-		TokenCount:  2,
-		Category:    "test-cat",
-		Subcategory: "test-subcat",
+		AtomID:           "test-atom-1",
+		Version:          1,
+		Content:          "Hello World",
+		TokenCount:       2,
+		Category:         "test-cat",
+		Subcategory:      "test-subcat",
 		OperationalModes: []string{"/active"},
-		IsExclusive: "group1",
-		EmbeddingTask: "RETRIEVAL_DOCUMENT",
+		IsExclusive:      "group1",
+		EmbeddingTask:    "RETRIEVAL_DOCUMENT",
 	}
 
 	// 1. StorePromptAtom
@@ -28,7 +28,7 @@ func TestLocalStore_PromptAtoms_Extra(t *testing.T) {
 	if err != nil {
 		t.Errorf("StorePromptAtom failed: %v", err)
 	}
-	
+
 	// Update
 	atom.Version = 2
 	err = s.StorePromptAtom(atom)
@@ -67,7 +67,7 @@ func TestLocalStore_PromptAtoms_Extra(t *testing.T) {
 	if len(atomsByCat) != 1 {
 		t.Errorf("Expected 1 atom by cat, got %d", len(atomsByCat))
 	}
-	
+
 	atomsByCatEmpty, _ := s.LoadPromptAtomsByCategory("non-existent")
 	if len(atomsByCatEmpty) != 0 {
 		t.Errorf("Expected 0 atoms")
@@ -78,13 +78,13 @@ func TestLocalStore_PromptAtoms_Extra(t *testing.T) {
 	if err != nil {
 		t.Errorf("DeletePromptAtom failed: %v", err)
 	}
-	
+
 	// Delete non-existent
 	err = s.DeletePromptAtom("test-atom-1")
 	if err != nil {
 		t.Errorf("DeletePromptAtom non-existent failed: %v", err)
 	}
-	
+
 	gotAfterDelete, _ := s.GetPromptAtom("test-atom-1")
 	if gotAfterDelete != nil {
 		t.Errorf("Expected nil after deletion")

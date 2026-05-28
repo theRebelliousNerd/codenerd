@@ -50,12 +50,10 @@ func NewAnthropicClient(apiKey string) *AnthropicClient {
 // NewAnthropicClientWithConfig creates a new Anthropic client with custom config.
 func NewAnthropicClientWithConfig(config AnthropicConfig) *AnthropicClient {
 	return &AnthropicClient{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		apiKey:     config.APIKey,
+		baseURL:    config.BaseURL,
+		model:      config.Model,
+		httpClient: NewSharedHTTPClient(config.Timeout),
 	}
 }
 

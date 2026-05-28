@@ -25,6 +25,7 @@ import (
 	"database/sql"
 	"strings"
 
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"codenerd/internal/tactile"
 	"codenerd/internal/usage"
@@ -822,6 +823,7 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	if _, statErr := os.Stat(corpusPath); statErr == nil {
 		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
 		if dbErr == nil {
+			sqlpragmas.ApplyDefaultPragmas(projectDB, sqlpragmas.ProfileHot)
 			// Ensure schema/migrations are applied (safe/idempotent).
 			if err := atomLoader.EnsureSchema(ctx, projectDB); err != nil {
 				logging.Get(logging.CategoryContext).Warn("Failed to ensure project corpus schema: %v", err)
@@ -1084,6 +1086,7 @@ func IngestHybridPrompts(ctx context.Context, workspace string, kernel SystemKer
 		return 0, fmt.Errorf("failed to open hybrid prompt corpus DB: %w", err)
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 	if err := atomLoader.EnsureSchema(ctx, db); err != nil {
 		return 0, fmt.Errorf("failed to ensure hybrid prompt corpus schema: %w", err)

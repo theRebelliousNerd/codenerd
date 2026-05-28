@@ -105,6 +105,11 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
 		cfg.MaxParallelTasks, cfg.CheckpointOnFail, cfg.AutoReplan, cfg.CampaignTimeout, cfg.TaskTimeout)
 
+	// pauseCh starts CLOSED (state = running/resumed) so the runPhase loop's
+	// `select { case <-o.pauseCh: ... }` returns immediately when not paused.
+	initialPauseCh := make(chan struct{})
+	close(initialPauseCh)
+
 	o := &Orchestrator{
 		kernel:           cfg.Kernel,
 		llmClient:        cfg.LLMClient,
@@ -122,6 +127,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		config:           cfg,
 		promptProvider:   NewStaticPromptProvider(),
 		writeSetLocks:    newWriteSetLockManager(cfg.Workspace),
+		pauseCh:          initialPauseCh,
 	}
 
 	// Initialize sub-components

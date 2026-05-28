@@ -65,6 +65,7 @@ func NewLearnedCorpusStore(dbPath string, engine embedding.EmbeddingEngine) (*Le
 		logging.Get(logging.CategoryStore).Error("Failed to open learned corpus database: %v", err)
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	ApplyDefaultPragmas(db, ProfileHot)
 
 	// Verify connection
 	if err := db.Ping(); err != nil {

@@ -48,14 +48,12 @@ func NewOpenRouterClient(apiKey string) *OpenRouterClient {
 // NewOpenRouterClientWithConfig creates a new OpenRouter client with custom config.
 func NewOpenRouterClientWithConfig(config OpenRouterConfig) *OpenRouterClient {
 	return &OpenRouterClient{
-		apiKey:   config.APIKey,
-		baseURL:  config.BaseURL,
-		model:    config.Model,
-		siteURL:  config.SiteURL,
-		siteName: config.SiteName,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		apiKey:     config.APIKey,
+		baseURL:    config.BaseURL,
+		model:      config.Model,
+		siteURL:    config.SiteURL,
+		siteName:   config.SiteName,
+		httpClient: NewSharedHTTPClient(config.Timeout),
 	}
 }
 

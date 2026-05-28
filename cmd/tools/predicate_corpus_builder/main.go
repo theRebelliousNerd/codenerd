@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 
+	"codenerd/internal/store"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -996,6 +998,7 @@ func createDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	store.ApplyDefaultPragmas(db, store.ProfileBulkBuild)
 
 	// Create schema
 	schema := `

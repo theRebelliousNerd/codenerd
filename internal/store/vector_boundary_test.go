@@ -49,7 +49,7 @@ func TestVectorDimensionBoundaryTransition(t *testing.T) {
 
 	// Phase 1: Initialize with 3072 dimensions (e.g. Gemini)
 	engine3072 := &mockDimensionEngine{dim: 3072}
-	
+
 	store, err := NewLocalStore(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create LocalStore: %v", err)
@@ -64,7 +64,7 @@ func TestVectorDimensionBoundaryTransition(t *testing.T) {
 	for i := range vec3072 {
 		vec3072[i] = 0.5
 	}
-	
+
 	// Encode and manually insert into vec_index to prove the schema matches
 	encoded3072 := encodeFloat32Slice(vec3072)
 	_, err = store.db.Exec("INSERT INTO vec_index (embedding, content, metadata) VALUES (?, ?, ?)", encoded3072, "test3072", "{}")
@@ -74,7 +74,7 @@ func TestVectorDimensionBoundaryTransition(t *testing.T) {
 
 	// Phase 2: Switch to 768 dimensions (e.g. Ollama nomic-embed-text)
 	engine768 := &mockDimensionEngine{dim: 768}
-	
+
 	// Setting the new engine MUST drop the old 3072 table and recreate as 768
 	store.SetEmbeddingEngine(engine768)
 
@@ -103,7 +103,7 @@ func TestLearningDimensionBoundaryTransition(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test_learning_boundary.db")
 
 	engine3072 := &mockDimensionEngine{dim: 3072}
-	
+
 	ls, err := NewLearnedCorpusStore(dbPath, engine3072)
 	if err != nil {
 		t.Fatalf("Failed to create LearnedCorpusStore: %v", err)
@@ -134,7 +134,7 @@ func TestLearningDimensionBoundaryTransition(t *testing.T) {
 
 	vec768 := make([]float32, 768)
 	encoded768 := encodeFloat32Slice(vec768)
-	
+
 	// Should succeed on 768 table
 	_, err = ls.db.Exec("INSERT INTO vec_learned (embedding, pattern, verb) VALUES (?, ?, ?)", encoded768, "pattern", "verb")
 	if err != nil {

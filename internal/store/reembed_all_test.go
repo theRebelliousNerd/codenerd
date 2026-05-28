@@ -22,7 +22,7 @@ func TestReembedAllDBsForce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to insert prompt atom: %v", err)
 	}
-	
+
 	// Create a shard learning DB
 	shardsDir := filepath.Join(tempDir, "shards")
 	if err := os.MkdirAll(shardsDir, 0755); err != nil {

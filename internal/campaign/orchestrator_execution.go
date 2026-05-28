@@ -42,7 +42,17 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	o.cancelFunc = cancel
 	o.isRunning = true
-	o.isPaused = false
+	// Reset pause state at run-start: ensure pauseCh is closed (resumed).
+	if o.isPaused {
+		if o.pauseCh != nil {
+			close(o.pauseCh)
+		}
+		o.isPaused = false
+	} else if o.pauseCh == nil {
+		// Defensive: ensure pauseCh exists and is closed (resumed).
+		o.pauseCh = make(chan struct{})
+		close(o.pauseCh)
+	}
 	o.updateCampaignStatus(StatusActive)
 	o.mu.Unlock()
 
@@ -84,13 +94,20 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		default:
 		}
 
-		// Check if paused
+		// Check if paused — block on pauseCh instead of busy-waiting.
 		o.mu.RLock()
 		paused := o.isPaused
+		pauseCh := o.pauseCh
 		o.mu.RUnlock()
 		if paused {
-			logging.CampaignDebug("Campaign paused, waiting...")
-			time.Sleep(100 * time.Millisecond)
+			logging.CampaignDebug("Campaign paused, waiting on pauseCh...")
+			select {
+			case <-ctx.Done():
+				logging.Campaign("Campaign execution cancelled during pause")
+				return ctx.Err()
+			case <-pauseCh:
+				// Resumed
+			}
 			continue
 		}
 

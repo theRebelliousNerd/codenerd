@@ -1,24 +1,26 @@
 package core
 
 import (
-	"os"
 	"testing"
 
 	"go.uber.org/goleak"
 )
 
+// TestMain wires goleak.VerifyTestMain so leak detection runs unconditionally
+// at end of suite (the previous goleak.Find call skipped leak detection on
+// test failure, which masked real leaks).
 func TestMain(m *testing.M) {
-	code := m.Run()
-	if code != 0 {
-		os.Exit(code)
-	}
-	if err := goleak.Find(
+	goleak.VerifyTestMain(m,
+		// go.opencensus.io spawns a process-lifetime stats worker goroutine
+		// that has no clean shutdown hook — out of our control.
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		// database/sql's connection opener is started by sql.Open and lives
+		// until the *DB is GC'd; tests don't always close their DB handles.
 		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
+		// fsnotify watchers spawn multiple internal goroutines (readEvents,
+		// recv, etc.) that we cannot enumerate by TopFunction reliably.
 		goleak.IgnoreAnyFunction("github.com/fsnotify/fsnotify.*"),
-	); err != nil {
-		panic(err)
-	}
+	)
 }
 
 func TestNewRealKernel(t *testing.T) {

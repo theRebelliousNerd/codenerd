@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -64,7 +64,7 @@ func NewPatternsTab(styles Styles) *PatternsTab {
 	l.SetFilteringEnabled(true)
 
 	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(80),
 	)
 
@@ -124,7 +124,7 @@ func (p *PatternsTab) SetSize(w, h int) {
 
 	if w > minTermWidth {
 		p.renderer, _ = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle("dark"),
 			glamour.WithWordWrap(w-listHeightPadding),
 		)
 	}

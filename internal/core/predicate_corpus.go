@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"codenerd/internal/core/defaults"
+	"codenerd/internal/sqlpragmas"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -100,6 +101,7 @@ func NewPredicateCorpus() (*PredicateCorpus, error) {
 		os.Remove(tempPath)
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileReadOnly)
 
 	return &PredicateCorpus{
 		db:       db,
@@ -113,6 +115,7 @@ func NewPredicateCorpusFromPath(path string) (*PredicateCorpus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileReadOnly)
 
 	return &PredicateCorpus{
 		db: db,

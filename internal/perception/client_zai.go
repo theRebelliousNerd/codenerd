@@ -152,12 +152,10 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		config.StreamingTimeout = defaults.StreamingTimeout
 	}
 	client := &ZAIClient{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		apiKey:           config.APIKey,
+		baseURL:          config.BaseURL,
+		model:            config.Model,
+		httpClient:       NewSharedHTTPClient(config.Timeout),
 		semDisabled:      config.DisableSemaphore,
 		rateLimitDelay:   config.RateLimitDelay,
 		retryBackoffBase: config.RetryBackoffBase,

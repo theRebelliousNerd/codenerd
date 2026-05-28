@@ -34,24 +34,11 @@ func (k *RealKernel) Query(predicate string) ([]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "Query")
 	// Suppress per-query debug logging for idle queries; only log at trace level
 
-	k.mu.RLock()
-
-	// Lazy evaluation: if facts changed since last evaluate, do it now
-	for k.factsDirty {
-		k.mu.RUnlock()
-		k.mu.Lock()
-		// Double-check after lock upgrade (another goroutine may have evaluated)
-		if k.factsDirty {
-			logging.Kernel("kernel.lazy_evaluate triggered by Query | factsDirty=true")
-			if err := k.evaluate(); err != nil {
-				k.mu.Unlock()
-				return nil, fmt.Errorf("lazy evaluation failed: %w", err)
-			}
-			k.factsDirty = false
-		}
-		k.mu.Unlock()
-		k.mu.RLock()
+	// Lazy evaluation under singleflight; no lock-upgrade dance.
+	if err := k.ensureEvaluated(); err != nil {
+		return nil, err
 	}
+	k.mu.RLock()
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -212,23 +199,10 @@ func (k *RealKernel) QueryCallback(predicate string, cb func(Fact) error) error 
 	timer := logging.StartTimer(logging.CategoryKernel, "QueryCallback")
 	logging.KernelDebug("QueryCallback: predicate=%s", predicate)
 
-	k.mu.RLock()
-
-	// Lazy evaluation: if facts changed since last evaluate, do it now
-	for k.factsDirty {
-		k.mu.RUnlock()
-		k.mu.Lock()
-		if k.factsDirty {
-			logging.Kernel("kernel.lazy_evaluate triggered by QueryCallback | factsDirty=true")
-			if err := k.evaluate(); err != nil {
-				k.mu.Unlock()
-				return fmt.Errorf("lazy evaluation failed: %w", err)
-			}
-			k.factsDirty = false
-		}
-		k.mu.Unlock()
-		k.mu.RLock()
+	if err := k.ensureEvaluated(); err != nil {
+		return err
 	}
+	k.mu.RLock()
 	defer k.mu.RUnlock()
 
 	if !k.initialized {
@@ -301,23 +275,10 @@ func (k *RealKernel) QueryAll() (map[string][]Fact, error) {
 	timer := logging.StartTimer(logging.CategoryKernel, "QueryAll")
 	logging.KernelDebug("QueryAll: retrieving all derived facts")
 
-	k.mu.RLock()
-
-	// Lazy evaluation: if facts changed since last evaluate, do it now
-	for k.factsDirty {
-		k.mu.RUnlock()
-		k.mu.Lock()
-		if k.factsDirty {
-			logging.Kernel("kernel.lazy_evaluate triggered by QueryAll | factsDirty=true")
-			if err := k.evaluate(); err != nil {
-				k.mu.Unlock()
-				return nil, fmt.Errorf("lazy evaluation failed: %w", err)
-			}
-			k.factsDirty = false
-		}
-		k.mu.Unlock()
-		k.mu.RLock()
+	if err := k.ensureEvaluated(); err != nil {
+		return nil, err
 	}
+	k.mu.RLock()
 	defer k.mu.RUnlock()
 
 	if !k.initialized {

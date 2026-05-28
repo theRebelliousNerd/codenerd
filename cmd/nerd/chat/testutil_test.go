@@ -24,7 +24,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 )
 
 // =============================================================================
@@ -374,7 +374,7 @@ func NewTestModel(opts ...TestModelOption) Model {
 
 	// Try to initialize glamour renderer (may fail in test environment)
 	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(80),
 	)
 	m.renderer = renderer

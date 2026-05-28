@@ -77,6 +77,7 @@ func NewToolStore(dbPath string) (*ToolStore, error) {
 
 	// Required for concurrent safety in SQLite and to ensure memory dbs don't spawn multiple instances
 	db.SetMaxOpenConns(1)
+	ApplyDefaultPragmas(db, ProfileHot)
 
 	store := &ToolStore{db: db, dbPath: dbPath}
 	if err := store.initialize(); err != nil {

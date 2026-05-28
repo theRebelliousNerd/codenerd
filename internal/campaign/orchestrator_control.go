@@ -4,11 +4,18 @@ import (
 	"codenerd/internal/logging"
 )
 
-// Pause pauses campaign execution.
+// Pause pauses campaign execution. Replaces pauseCh with a fresh open
+// channel so the phase scheduler loop blocks on it until Resume() closes
+// the channel (replaces the prior 100 ms busy-wait sleep).
 func (o *Orchestrator) Pause() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	logging.Campaign("Pausing campaign: %s", o.campaign.ID)
+	if !o.isPaused {
+		// Only swap when transitioning resumed → paused, else we'd leak
+		// the previous open channel.
+		o.pauseCh = make(chan struct{})
+	}
 	o.isPaused = true
 	o.updateCampaignStatus(StatusPaused)
 	if err := o.saveCampaign(); err != nil {
@@ -16,11 +23,17 @@ func (o *Orchestrator) Pause() {
 	}
 }
 
-// Resume resumes paused campaign execution.
+// Resume resumes paused campaign execution. Closes pauseCh, which wakes
+// any phase scheduler currently parked in its pause-select.
 func (o *Orchestrator) Resume() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	logging.Campaign("Resuming campaign: %s", o.campaign.ID)
+	if o.isPaused && o.pauseCh != nil {
+		// Guard against double-close: only close if non-nil and we know
+		// we just transitioned out of paused state.
+		close(o.pauseCh)
+	}
 	o.isPaused = false
 	o.updateCampaignStatus(StatusActive)
 }

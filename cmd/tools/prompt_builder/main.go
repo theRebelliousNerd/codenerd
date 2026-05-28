@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"codenerd/internal/embedding"
+	"codenerd/internal/store"
 
 	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/yaml.v3"
@@ -436,6 +437,7 @@ func createDatabase(outputPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	store.ApplyDefaultPragmas(db, store.ProfileBulkBuild)
 
 	// Create schema that matches the runtime loader/compiler expectations.
 	schema := `

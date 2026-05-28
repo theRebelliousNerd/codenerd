@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 
 	"github.com/google/uuid"
 )
@@ -41,6 +42,7 @@ func NewStrategyStore(nerdDir string) (*StrategyStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open strategies database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	ss := &StrategyStore{
 		db:        db,

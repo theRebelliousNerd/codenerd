@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"codenerd/internal/store"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -35,6 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	store.ApplyDefaultPragmas(db, store.ProfileQuery)
 
 	if showAtoms {
 		fmt.Println("\n" + strings.Repeat("=", 80))

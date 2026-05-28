@@ -35,12 +35,21 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 		default:
 		}
 
-		// Respect pause (no new work scheduled while paused)
+		// Respect pause (no new work scheduled while paused).
+		// Snapshot pauseCh under the same lock that guards isPaused; on
+		// resume the channel is closed, which wakes the select below.
 		o.mu.RLock()
 		paused := o.isPaused
+		pauseCh := o.pauseCh
 		o.mu.RUnlock()
 		if paused {
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				logging.Campaign("Phase %s cancelled during pause", phase.Name)
+				return ctx.Err()
+			case <-pauseCh:
+				// Resumed; fall through to schedule
+			}
 			continue
 		}
 

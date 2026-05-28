@@ -4,6 +4,7 @@ package init
 import (
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	"codenerd/internal/world"
 	"context"
@@ -935,6 +936,7 @@ func (i *Initializer) initializePromptDatabase(ctx context.Context, nerdDir stri
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 	atomLoader := prompt.NewAtomLoader(nil)
 	if err := atomLoader.EnsureSchema(ctx, db); err != nil {

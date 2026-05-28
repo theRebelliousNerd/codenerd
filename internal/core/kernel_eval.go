@@ -13,6 +13,7 @@ import (
 	"codeberg.org/TauCeti/mangle-go/engine"
 	"codeberg.org/TauCeti/mangle-go/factstore"
 	"codeberg.org/TauCeti/mangle-go/parse"
+	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
 // =============================================================================
@@ -171,6 +172,16 @@ func (k *RealKernel) evaluate() error {
 		engine.WithCreatedFactLimit(derivedFactLimit), // Hard cap: max 500K derived facts
 	}
 
+	// Optional provenance recording (Codeberg mangle-go DerivationRecorder).
+	// Reset on every evaluate() so the recorder only holds events from the
+	// most recent fixpoint pass; otherwise long-lived sessions would grow
+	// unboundedly large recorder buffers.
+	if k.proofRecorder != nil {
+		k.proofRecorder = provenance.NewMemoryRecorder()
+		evalOpts = append(evalOpts, engine.WithDerivationRecorder(k.proofRecorder))
+		logging.KernelDebug("evaluate: provenance recording enabled for this pass")
+	}
+
 	// #17: Register external predicates instead of virtualFactStore wrapping
 	// Only register callbacks for predicates that have a matching Decl with
 	// external() descriptor in the current program. This avoids validation
@@ -228,7 +239,42 @@ func (k *RealKernel) evaluate() error {
 func (k *RealKernel) rebuild() error {
 	logging.KernelDebug("rebuild: invalidating cached atoms, marking factsDirty")
 	k.cachedAtoms = nil
-	k.factsDirty = true
+	k.factsDirty.Store(true)
+	return nil
+}
+
+// ensureEvaluated runs evaluate() if facts have changed since the last
+// evaluation. Replaces the historical RLock→Unlock→Lock→RLock dance in
+// Query/QueryCallback/QueryAll with a single-flight pattern guarded by
+// evalSingleflight.
+//
+// Concurrency: callers MUST NOT hold k.mu when invoking this. After this
+// returns nil, callers should take k.mu.RLock() to read the store.
+// Another writer may dirty the kernel between ensureEvaluated and the
+// subsequent RLock, but that race already existed in the previous
+// implementation and is handled by readers checking k.initialized.
+func (k *RealKernel) ensureEvaluated() error {
+	if !k.factsDirty.Load() {
+		return nil
+	}
+	k.evalSingleflight.Lock()
+	defer k.evalSingleflight.Unlock()
+	// Double-check: another goroutine may have evaluated while we waited.
+	if !k.factsDirty.Load() {
+		return nil
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.factsDirty.Load() {
+		// Re-check under kernel lock to avoid evaluating against a half-mutated
+		// EDB if a writer slipped in between the singleflight lock and here.
+		return nil
+	}
+	logging.Kernel("kernel.lazy_evaluate triggered | factsDirty=true")
+	if err := k.evaluate(); err != nil {
+		return fmt.Errorf("lazy evaluation failed: %w", err)
+	}
+	k.factsDirty.Store(false)
 	return nil
 }
 
@@ -296,13 +342,15 @@ func (k *RealKernel) Clone() *RealKernel {
 		manglePath:        k.manglePath,
 		workspaceRoot:     k.workspaceRoot,
 		policyDirty:       k.policyDirty,
-		factsDirty:        k.factsDirty,
+		// factsDirty is atomic.Bool — cannot be copied by value; set on the clone below.
 		userLearnedPath:   k.userLearnedPath,
 		predicateCorpus:   k.predicateCorpus,   // Share corpus (read-only)
 		repairInterceptor: k.repairInterceptor, // Share interceptor
 		virtualStore:      k.virtualStore,
 		simulateCommitErr: k.simulateCommitErr,
 	}
+	// Mirror atomic factsDirty state onto the clone (atomic.Bool can't be copied).
+	clone.factsDirty.Store(k.factsDirty.Load())
 
 	// Deep copy facts
 	for i, f := range k.facts {

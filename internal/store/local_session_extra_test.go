@@ -35,7 +35,7 @@ func TestLocalStore_Session_Extra(t *testing.T) {
 	if err != nil {
 		t.Errorf("StoreSessionTurn failed: %v", err)
 	}
-	
+
 	// Update session turn (conflict resolution)
 	err = s.StoreSessionTurn("session-1", 1, "hello2", "", "", "")
 	if err != nil {
@@ -49,7 +49,7 @@ func TestLocalStore_Session_Extra(t *testing.T) {
 	if len(history) != 1 {
 		t.Errorf("Expected 1 turn, got %d", len(history))
 	}
-	
+
 	history2, _ := s.GetSessionHistory("session-1", 0) // default limit
 	if len(history2) != 1 {
 		t.Errorf("Expected 1 turn with default limit")
@@ -60,13 +60,13 @@ func TestLocalStore_Session_Extra(t *testing.T) {
 	if err != nil {
 		t.Errorf("StoreCompressedState failed: %v", err)
 	}
-	
+
 	// empty sessionID / stateJSON
 	err = s.StoreCompressedState("", 1, "test", 0.5)
 	if err != nil {
 		t.Errorf("StoreCompressedState empty session failed: %v", err)
 	}
-	
+
 	stateJSON, turn, ratio, err := s.LoadLatestCompressedState("session-1")
 	if err != nil {
 		t.Errorf("LoadLatestCompressedState failed: %v", err)
@@ -74,13 +74,13 @@ func TestLocalStore_Session_Extra(t *testing.T) {
 	if stateJSON != `{"state":"test"}` || turn != 1 || ratio != 0.5 {
 		t.Errorf("Loaded compressed state unexpected")
 	}
-	
+
 	// empty sessionID
 	sJSON, _, _, _ := s.LoadLatestCompressedState("")
 	if sJSON != "" {
 		t.Errorf("Expected empty string for empty sessionID")
 	}
-	
+
 	// no rows
 	sJSON, _, _, _ = s.LoadLatestCompressedState("non-existent")
 	if sJSON != "" {

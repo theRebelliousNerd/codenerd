@@ -6,14 +6,14 @@ import (
 
 // A dummy type for reflection testing
 type dummyTrace struct {
-	ID        string
-	ShardID   string
-	Success   bool
+	ID      string
+	ShardID string
+	Success bool
 }
 
 func TestLocalStore_StoreReasoningTrace_Reflection(t *testing.T) {
 	s := &LocalStore{traceStore: &TraceStore{}}
-	
+
 	// Should fail with non-struct
 	err := s.StoreReasoningTrace(123)
 	if err == nil {
@@ -39,7 +39,7 @@ func TestLocalStore_TraceDelegations(t *testing.T) {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer s.Close()
-	
+
 	// Create required tables manually if they aren't created by NewLocalStore
 	_, err = s.db.Exec(`CREATE TABLE IF NOT EXISTS task_verifications (
 		id INTEGER PRIMARY KEY,
@@ -81,7 +81,7 @@ func TestLocalStore_TraceDelegations(t *testing.T) {
 	if len(stats) != 1 {
 		t.Errorf("expected 1 stats record, got %d", len(stats))
 	}
-	
+
 	// Try empty history to cover default limit
 	s.GetVerificationHistory("session-2", 0)
 

@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 )
 
 // MCPToolStore provides SQLite-backed storage for MCP servers and tools.
@@ -31,27 +31,24 @@ func NewMCPToolStore(dbPath string, embedder embedding.EmbeddingEngine) (*MCPToo
 	if dbPath == "" {
 		return nil, fmt.Errorf("dbPath cannot be empty")
 	}
-	sep := "?"
-	if strings.Contains(dbPath, "?") {
-		sep = "&"
-	}
-	db, err := sql.Open("sqlite3", dbPath+sep+"_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
-	store := &MCPToolStore{
+	s := &MCPToolStore{
 		db:       db,
 		embedder: embedder,
 		dbPath:   dbPath,
 	}
 
-	if err := store.initialize(); err != nil {
+	if err := s.initialize(); err != nil {
 		db.Close()
 		return nil, err
 	}
 
-	return store, nil
+	return s, nil
 }
 
 // initialize creates the database schema.

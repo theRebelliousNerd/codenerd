@@ -75,7 +75,7 @@ func TestLocalStore_Knowledge_Extra(t *testing.T) {
 	if err != nil {
 		t.Errorf("KnowledgeStore.StoreAtom failed: %v", err)
 	}
-	
+
 	// Ensure table existence check for prefix
 	emptyKs, _ := NewKnowledgeStore(":memory:")
 	emptyKs.db.Exec("DROP TABLE knowledge_atoms")

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"codenerd/internal/store"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -62,6 +64,7 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 		return
 	}
 	defer db.Close()
+	store.ApplyDefaultPragmas(db, store.ProfileQuery)
 
 	// Check table schema
 	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")

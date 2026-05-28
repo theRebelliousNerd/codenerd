@@ -569,6 +569,7 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
+	ApplyDefaultPragmas(db, ProfileBulkBuild)
 
 	currentVersion := GetSchemaVersion(db)
 	result.FromVersion = currentVersion
@@ -676,6 +677,7 @@ func CheckMigrationNeeded(dbPath string) (bool, int, error) {
 		return false, 0, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
+	ApplyDefaultPragmas(db, ProfileQuery)
 
 	currentVersion := GetSchemaVersion(db)
 	needed := currentVersion < CurrentSchemaVersion

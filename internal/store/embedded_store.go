@@ -91,6 +91,9 @@ func NewEmbeddedCorpusStore() (*EmbeddedCorpusStore, error) {
 		return nil, fmt.Errorf("failed to open corpus database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
+	// Embedded corpus is opened "?mode=ro" — use ReadOnly profile to skip
+	// WAL pragmas that would fail on a read-only connection.
+	ApplyDefaultPragmas(db, ProfileReadOnly)
 
 	// Verify database is accessible
 	if err := db.Ping(); err != nil {

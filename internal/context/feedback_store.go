@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 )
 
 // =============================================================================
@@ -63,20 +64,21 @@ func NewContextFeedbackStore(dbPath string) (*ContextFeedbackStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open feedback database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
-	store := &ContextFeedbackStore{
+	s := &ContextFeedbackStore{
 		db:            db,
 		cache:         make(map[string]float64),
 		minSamples:    10,                 // Conservative: 10 samples before affecting scoring
 		decayHalfLife: 7 * 24 * time.Hour, // 7-day half-life for decay
 	}
 
-	if err := store.initSchema(); err != nil {
+	if err := s.initSchema(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
-	return store, nil
+	return s, nil
 }
 
 // initSchema creates the database tables if they don't exist.

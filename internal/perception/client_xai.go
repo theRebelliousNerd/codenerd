@@ -43,12 +43,10 @@ func NewXAIClient(apiKey string) *XAIClient {
 // NewXAIClientWithConfig creates a new xAI client with custom config.
 func NewXAIClientWithConfig(config XAIConfig) *XAIClient {
 	return &XAIClient{
-		apiKey:  config.APIKey,
-		baseURL: config.BaseURL,
-		model:   config.Model,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		apiKey:     config.APIKey,
+		baseURL:    config.BaseURL,
+		model:      config.Model,
+		httpClient: NewSharedHTTPClient(config.Timeout),
 	}
 }
 

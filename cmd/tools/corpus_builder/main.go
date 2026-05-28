@@ -23,6 +23,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
+	"codenerd/internal/sqlpragmas"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -590,6 +591,7 @@ func createDatabase() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 	// Create schema
 	schema := `

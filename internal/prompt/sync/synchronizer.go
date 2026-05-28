@@ -12,6 +12,7 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -126,6 +127,7 @@ func (s *AgentSynchronizer) syncAgent(ctx context.Context, agentID string, yamlP
 		return false, fmt.Errorf("db open failed: %w", err)
 	}
 	defer db.Close()
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 	// 3. Ensure Table Schema (including sync metadata)
 	if err := s.atomLoader.EnsureSchema(ctx, db); err != nil {

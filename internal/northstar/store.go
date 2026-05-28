@@ -1,6 +1,7 @@
 package northstar
 
 import (
+	"codenerd/internal/sqlpragmas"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -28,24 +29,30 @@ func NewStore(nerdDir string) (*Store, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on")
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
+	// Northstar schema declares FOREIGN KEYs; enable enforcement here
+	// (the previous DSN _foreign_keys=on baked this in).
+	if _, fkErr := db.Exec("PRAGMA foreign_keys = ON"); fkErr != nil {
+		_ = fkErr // best-effort; tracked by store debug logs
+	}
 
-	store := &Store{
+	s := &Store{
 		db:     db,
 		dbPath: dbPath,
 	}
 
-	if err := store.initSchema(); err != nil {
+	if err := s.initSchema(); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
 			return nil, fmt.Errorf("failed to initialize schema: %w (close error: %v)", err, closeErr)
 		}
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
-	return store, nil
+	return s, nil
 }
 
 // Close closes the database connection.

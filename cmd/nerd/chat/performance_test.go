@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"codenerd/cmd/nerd/ui"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 )
 
 // TestMessageRenderingCache verifies that the rendering cache prevents redundant markdown rendering
@@ -23,7 +23,7 @@ func TestMessageRenderingCache(t *testing.T) {
 
 	// Initialize glamour renderer (needed for safeRenderMarkdown)
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(80),
 	)
 	if err != nil {
@@ -261,7 +261,7 @@ func BenchmarkRenderHistoryWithoutCache(b *testing.B) {
 
 	// Create renderer
 	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(80),
 	)
 	m.renderer = renderer
@@ -292,7 +292,7 @@ func TestRenderSingleMessage(t *testing.T) {
 	}
 
 	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle("dark"),
 		glamour.WithWordWrap(80),
 	)
 	if err != nil {

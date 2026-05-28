@@ -258,15 +258,25 @@ func (o *Orchestrator) HandleNewRequirement(ctx context.Context, requirement str
 
 	o.emitEvent("new_requirement_received", "", "", requirement, nil)
 
-	// Pause temporarily to safely modify plan
+	// Pause temporarily to safely modify plan.
+	// Manage both isPaused and pauseCh so the scheduler loop's select on
+	// pauseCh stays consistent with the boolean flag.
 	o.mu.Lock()
 	wasPaused := o.isPaused
+	if !o.isPaused {
+		// Transition resumed → paused: open a fresh pauseCh.
+		o.pauseCh = make(chan struct{})
+	}
 	o.isPaused = true
 	logging.CampaignDebug("Temporarily pausing campaign to integrate new requirement")
 	o.mu.Unlock()
 
 	defer func() {
 		o.mu.Lock()
+		// Restore previous state. If we were the ones that paused, close pauseCh.
+		if !wasPaused && o.isPaused && o.pauseCh != nil {
+			close(o.pauseCh)
+		}
 		o.isPaused = wasPaused
 		logging.CampaignDebug("Resuming campaign after requirement integration")
 		o.mu.Unlock()

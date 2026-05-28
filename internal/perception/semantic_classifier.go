@@ -33,6 +33,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
+	"codenerd/internal/sqlpragmas"
 	storepkg "codenerd/internal/store"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -652,11 +653,12 @@ func NewEmbeddedCorpusStoreWithCache(dimensions int, cachePath string) (*Embedde
 			return store, nil
 		}
 
-		db, err := sql.Open("sqlite3", cachePath+"?_journal_mode=WAL")
+		db, err := sql.Open("sqlite3", cachePath)
 		if err != nil {
 			logging.Get(logging.CategoryEmbedding).Warn("Failed to open embedding cache DB: %v (cache disabled)", err)
 			return store, nil
 		}
+		sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileHot)
 
 		// Create cache table
 		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS embedding_cache (

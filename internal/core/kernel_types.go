@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"sync"
+	"sync/atomic"
 
 	"codenerd/internal/mangle"
 	"codenerd/internal/types"
@@ -11,6 +12,7 @@ import (
 	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
+	"codeberg.org/TauCeti/mangle-go/provenance"
 ) // =============================================================================
 // TYPE ALIASES - Import from internal/types to break import cycles
 // =============================================================================
@@ -58,7 +60,11 @@ type RealKernel struct {
 	manglePath        string                 // Path to mangle files directory
 	workspaceRoot     string                 // Explicit workspace root (for .nerd paths)
 	policyDirty       bool                   // True when schemas/policy changed and need reparse
-	factsDirty        bool                   // True when EDB facts changed and need re-evaluation (lazy eval)
+	factsDirty        atomic.Bool            // True when EDB facts changed and need re-evaluation (lazy eval).
+	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
+	// holding the kernel mutex when no facts have changed since the last evaluate.
+	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.
+	evalSingleflight sync.Mutex // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
 	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
 	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
@@ -67,6 +73,13 @@ type RealKernel struct {
 	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
 	simulateCommitErr error                  // TEST ONLY: Simulates a transaction commit failure
 	eventBus          *FactEventBus           // Pub/sub for fact mutations — replaces polling in system shards
+
+	// proofRecorder, when non-nil, captures derivation events during evaluate()
+	// so Explain() can answer "why was this fact derived?" via the Codeberg
+	// mangle-go fork's provenance package. Off by default — enable via
+	// EnableProvenance(). The recorder is reset at the start of every
+	// evaluate() to bound memory usage.
+	proofRecorder *provenance.MemoryRecorder
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

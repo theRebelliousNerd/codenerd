@@ -150,9 +150,7 @@ func NewGeminiClientWithConfig(config GeminiConfig) *GeminiClient {
 		model:                 model,
 		maxOutputTokens:       maxOutputTokens,
 		maxOutputTokensConfig: maxOutputTokensConfigured,
-		httpClient: &http.Client{
-			Timeout: config.Timeout,
-		},
+		httpClient:            NewSharedHTTPClient(config.Timeout),
 		// Thinking mode
 		enableThinking: config.EnableThinking || isGemini3Model(model),
 		thinkingLevel:  thinkingLevel,

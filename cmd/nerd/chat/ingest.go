@@ -12,6 +12,7 @@ import (
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/prompt"
+	"codenerd/internal/sqlpragmas"
 	"codenerd/internal/store"
 	nerdsystem "codenerd/internal/system"
 
@@ -83,6 +84,7 @@ func (m Model) ingestAgentDocs(agentName, docPath string) tea.Cmd {
 			return responseMsg(fmt.Sprintf("Ingest failed: open agent DB: %v", err))
 		}
 		defer db.Close()
+		sqlpragmas.ApplyDefaultPragmas(db, sqlpragmas.ProfileBulkBuild)
 
 		atomLoader := prompt.NewAtomLoader(embeddingEngine)
 		if err := atomLoader.EnsureSchema(ctx, db); err != nil {

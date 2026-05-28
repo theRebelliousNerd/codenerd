@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
+	"charm.land/glamour/v2"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -111,7 +111,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update renderer word wrap
 		if m.renderer != nil {
 			m.renderer, _ = glamour.NewTermRenderer(
-				glamour.WithAutoStyle(),
+				glamour.WithStandardStyle("dark"),
 				glamour.WithWordWrap(chatWidth-4),
 			)
 			// Re-render history with new wrapping
