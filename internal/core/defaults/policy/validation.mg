@@ -90,15 +90,32 @@ action_complete_verified(ActionID) :-
     side_effect_attempted(ActionID, _),
     critical_action_resolved(ActionID).
 
-# A side-effecting action that RAN but is NOT yet positively verified complete,
-# and has not been escalated for user intervention. This is the "do not report
-# done yet" signal: its existence means the turn produced mutating work whose
-# success the kernel cannot confirm. Negation is safe: ActionID is bound by the
-# positive side_effect_attempted atom before the negated atoms.
+# A side-effecting action that RAN but is in VALIDATION LIMBO: it produced no
+# positive validation (action_validated / critical_action_resolved), AND it did
+# not explicitly FAIL validation, AND it was not escalated. This is the genuinely
+# new "no-opinion" signal — the turn produced mutating work whose success the
+# kernel can neither confirm nor refute.
+#
+# Step 3 soundness refinement: the FAILED case is DELIBERATELY EXCLUDED here
+# (via !action_failed_validation). Failures already have their own handling —
+# the existing block_action(/validation_pending) clause, needs_self_healing
+# (retry/rollback/escalate), and Step 1's synchronous >=0.8-confidence error
+# return. Folding failures into this limbo predicate would make it
+# session-sticky over routine build/test failures (which never clear, since
+# retries get fresh ActionIDs and validation facts are not retracted per turn),
+# and any HARD consumer of it (e.g. a permitted/3 guard) would then brick the
+# whole session after the first failed build — denying the very corrective edit
+# needed to recover. By scoping this to the no-opinion case only, the predicate
+# stays a safe, soft signal: it reflects actions that simply lack a validator
+# opinion, not actions known to be broken.
+#
+# Negation is safe: ActionID is bound by the positive side_effect_attempted atom
+# before each negated atom.
 Decl unvalidated_side_effect(ActionID, ActionType) bound [/string, /name].
 unvalidated_side_effect(ActionID, ActionType) :-
     side_effect_attempted(ActionID, ActionType),
     !action_complete_verified(ActionID),
+    !action_failed_validation(ActionID),
     !action_escalated(ActionID, _, _).
 
 # =============================================================================
@@ -165,12 +182,20 @@ block_action(/validation_pending) :-
     !action_validated(ActionID),
     !needs_self_healing(ActionID, _).
 
-# Step 2: Block "done"/subsequent actions while a side-effecting action RAN but
-# is not yet positively verified complete. The clause above only covers the
-# explicitly-FAILED-and-unhealable case; this covers the no-opinion / middling
-# case (the action executed but produced no positive action_validated /
-# critical_action_resolved fact). Consumed by ExecutivePolicyShard.checkBarriers
-# (internal/shards/system/executive.go) which queries block_action/1.
+# Step 2/3: Surface a soft barrier while a side-effecting action is in
+# validation limbo (ran, no validator opinion, not failed). The clause above
+# only covers the explicitly-FAILED-and-unhealable case; this covers the
+# no-opinion case.
+#
+# This is wired to the SOFT consumer ON PURPOSE. ExecutivePolicyShard.checkBarriers
+# (internal/shards/system/executive.go) queries block_action/1 from an
+# ASYNCHRONOUS event/tick loop (evaluatePolicy) — it adjusts executive strategy
+# and asserts executive_blocked, but does NOT synchronously hard-gate an
+# in-flight interactive tool call. That graceful-degradation property is exactly
+# why the no-opinion signal belongs here and NOT on the synchronous permitted/3
+# path: a hard permitted/3 deny over this session-sticky state would brick the
+# whole session on the first un-opinionated side effect (Step 3 investigated and
+# rejected that approach — see the unvalidated_side_effect soundness note above).
 block_action(/validation_pending) :-
     unvalidated_side_effect(ActionID, _).
 
