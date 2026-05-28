@@ -381,8 +381,24 @@ func NewLearningStore(storePath string) *LearningStore {
 	return store
 }
 
+// maxLearningListLen caps the length of unbounded slices on ToolLearning so a
+// single misbehaving tool can't grow them without limit. Once the cap is hit,
+// new entries are silently dropped (a debug line records the drop).
+const maxLearningListLen = 100
+
 // RecordLearning updates learnings for a tool
 func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeedback, patterns []*DetectedPattern) {
+	// Guard: nil feedback would panic on feedback.Success below.
+	if feedback == nil {
+		logging.AutopoiesisDebug("RecordLearning: nil feedback, skipping (tool=%q)", toolName)
+		return
+	}
+	// Guard: empty toolName produces useless empty-key entries.
+	if strings.TrimSpace(toolName) == "" {
+		logging.AutopoiesisDebug("RecordLearning: empty toolName, skipping")
+		return
+	}
+
 	logging.AutopoiesisDebug("Recording learning for tool: %s (success=%v)", toolName, feedback.Success)
 
 	ls.mu.Lock()
@@ -413,15 +429,20 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 	}
 
 	if feedback.Quality != nil {
-		if !math.IsNaN(feedback.Quality.Score) {
+		// Reject NaN/Inf scores so the running average never becomes poisoned.
+		if !math.IsNaN(feedback.Quality.Score) && !math.IsInf(feedback.Quality.Score, 0) {
 			learning.AverageQuality = (learning.AverageQuality*float64(learning.TotalExecutions-1) +
 				feedback.Quality.Score) / float64(learning.TotalExecutions)
 		}
 
-		// Track known issues
+		// Track known issues (capped to prevent unbounded growth)
 		newIssues := 0
 		for _, issue := range feedback.Quality.Issues {
 			if !containsIssueType(learning.KnownIssues, issue.Type) {
+				if len(learning.KnownIssues) >= maxLearningListLen {
+					logging.AutopoiesisDebug("KnownIssues cap reached for %s, dropping %v", toolName, issue.Type)
+					continue
+				}
 				learning.KnownIssues = append(learning.KnownIssues, issue.Type)
 				newIssues++
 			}
@@ -431,12 +452,16 @@ func (ls *LearningStore) RecordLearning(toolName string, feedback *ExecutionFeed
 		}
 	}
 
-	// Extract anti-patterns from patterns
+	// Extract anti-patterns from patterns (capped to prevent unbounded growth)
 	newPatterns := 0
 	for _, p := range patterns {
 		if p.Confidence > 0.7 {
 			antiPattern := fmt.Sprintf("%s: %s", p.IssueType, p.PatternID)
 			if !contains(learning.AntiPatterns, antiPattern) {
+				if len(learning.AntiPatterns) >= maxLearningListLen {
+					logging.AutopoiesisDebug("AntiPatterns cap reached for %s, dropping %q", toolName, antiPattern)
+					continue
+				}
 				learning.AntiPatterns = append(learning.AntiPatterns, antiPattern)
 				newPatterns++
 			}

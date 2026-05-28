@@ -4,6 +4,8 @@ package autopoiesis
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -909,6 +911,116 @@ func TestLearningStore_GetAllLearnings_DataRace(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+}
+
+// =============================================================================
+// QA boundary remediation: nil/empty/NaN/Inf/cap guards on RecordLearning
+// =============================================================================
+
+func TestRecordLearning_NilFeedback(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+
+	// Must not panic and must not create an empty record.
+	store.RecordLearning("any_tool", nil, nil)
+
+	if got := store.GetLearning("any_tool"); got != nil {
+		t.Fatalf("expected no learning recorded for nil feedback, got %+v", got)
+	}
+}
+
+func TestRecordLearning_EmptyToolName(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+
+	feedback := &ExecutionFeedback{Success: true, Quality: &QualityAssessment{Score: 0.5}}
+
+	for _, tn := range []string{"", "   ", "\t\n"} {
+		store.RecordLearning(tn, feedback, nil)
+		if got := store.GetLearning(tn); got != nil {
+			t.Errorf("expected no learning for blank tool name %q, got %+v", tn, got)
+		}
+	}
+
+	if all := store.GetAllLearnings(); len(all) != 0 {
+		t.Errorf("expected empty store after blank-name records, got %d", len(all))
+	}
+}
+
+func TestRecordLearning_NaNScore(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+
+	// Seed with a valid score so AverageQuality has a known value.
+	store.RecordLearning("nan_tool", &ExecutionFeedback{
+		Success: true,
+		Quality: &QualityAssessment{Score: 0.5},
+	}, nil)
+
+	// Now poison with NaN / +Inf / -Inf and verify the running average never goes bad.
+	nan := math.NaN()
+	pInf := math.Inf(1)
+	nInf := math.Inf(-1)
+	for _, bad := range []float64{nan, pInf, nInf} {
+		store.RecordLearning("nan_tool", &ExecutionFeedback{
+			Success: true,
+			Quality: &QualityAssessment{Score: bad},
+		}, nil)
+	}
+
+	learning := store.GetLearning("nan_tool")
+	if learning == nil {
+		t.Fatal("expected learning to exist")
+	}
+	if math.IsNaN(learning.AverageQuality) || math.IsInf(learning.AverageQuality, 0) {
+		t.Errorf("AverageQuality is poisoned: %v", learning.AverageQuality)
+	}
+}
+
+func TestRecordLearning_AntiPatternsCap(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "learning-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	store := NewLearningStore(tmpDir)
+
+	feedback := &ExecutionFeedback{Success: true, Quality: &QualityAssessment{Score: 0.5}}
+
+	// Push past the cap with unique pattern IDs (all high-confidence).
+	patterns := make([]*DetectedPattern, 250)
+	for i := range patterns {
+		patterns[i] = &DetectedPattern{
+			PatternID:  fmt.Sprintf("p_%d", i),
+			IssueType:  IssueSlow,
+			Confidence: 0.9,
+		}
+	}
+	store.RecordLearning("cap_tool", feedback, patterns)
+
+	learning := store.GetLearning("cap_tool")
+	if learning == nil {
+		t.Fatal("expected learning recorded")
+	}
+	if got := len(learning.AntiPatterns); got > maxLearningListLen {
+		t.Errorf("AntiPatterns length %d exceeds cap %d", got, maxLearningListLen)
+	}
 }
 
 func TestLearningStore_Save_NoLockStarvation(t *testing.T) {
