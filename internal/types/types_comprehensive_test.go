@@ -209,14 +209,19 @@ func TestToAtom_WhenDurationArg_ShouldProduceDurationType(t *testing.T) {
 	}
 }
 
-func TestToAtom_WhenNilArg_ShouldProduceStringFallback(t *testing.T) {
+// Renamed from TestToAtom_WhenNilArg_ShouldProduceStringFallback. The
+// fallback behavior was intentionally removed: a nil arg used to coerce
+// to the string "<nil>", and a struct pointer would coerce to its hex
+// memory address "0x7ff…" which then poisoned downstream Mangle rules
+// when numeric builtins ran on that string. ToAtom now returns a
+// structured error naming the predicate and arg index so the offending
+// call site is identifiable at assertion time.
+func TestToAtom_WhenNilArg_ShouldReturnError(t *testing.T) {
 	t.Parallel()
 	fact := Fact{Predicate: "test_nil", Args: []any{nil}}
-	atom, err := fact.ToAtom()
-	if err != nil {
-		t.Fatalf("ToAtom() error: %v", err)
+	if _, err := fact.ToAtom(); err == nil {
+		t.Fatal("ToAtom() with nil arg should return error, got nil")
 	}
-	assertStringConstant(t, atom.Args[0], "<nil>")
 }
 
 func TestToAtom_WhenNoArgs_ShouldSucceed(t *testing.T) {
@@ -234,20 +239,15 @@ func TestToAtom_WhenNoArgs_ShouldSucceed(t *testing.T) {
 	}
 }
 
-func TestToAtom_WhenUnknownType_ShouldFallbackToStringRepr(t *testing.T) {
+// Renamed from TestToAtom_WhenUnknownType_ShouldFallbackToStringRepr.
+// See the comment on TestToAtom_WhenNilArg_ShouldReturnError above for
+// why the silent fmt.Sprintf("%v", v) fallback was removed.
+func TestToAtom_WhenUnknownType_ShouldReturnError(t *testing.T) {
 	t.Parallel()
 	type custom struct{ x int }
 	fact := Fact{Predicate: "test_custom", Args: []any{custom{x: 42}}}
-	atom, err := fact.ToAtom()
-	if err != nil {
-		t.Fatalf("ToAtom() error: %v", err)
-	}
-	c, ok := atom.Args[0].(ast.Constant)
-	if !ok {
-		t.Fatalf("expected constant, got %T", atom.Args[0])
-	}
-	if c.Type != ast.StringType {
-		t.Errorf("expected StringType for unknown type, got %v", c.Type)
+	if _, err := fact.ToAtom(); err == nil {
+		t.Fatal("ToAtom() with unknown arg type should return error, got nil")
 	}
 }
 

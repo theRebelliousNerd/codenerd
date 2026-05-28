@@ -5,6 +5,7 @@ package types
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -189,6 +190,27 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 			} else {
 				terms = append(terms, ast.FalseConstant)
 			}
+		case map[string]any, []any, []string, []int, []int64, []float64:
+			// Containers — serialize to JSON. Many call sites (pending_action,
+			// virtual_store payloads, intent metadata) pass containers as
+			// opaque /string-shaped blobs; rejecting them here would break
+			// production assert paths. JSON keeps the content reproducible
+			// for downstream consumers without leaking pointer-shaped data.
+			b, err := json.Marshal(v)
+			if err != nil {
+				return ast.Atom{}, fmt.Errorf(
+					"Fact(%s): container arg at index %d failed JSON-encode: %w",
+					f.Predicate, len(terms), err)
+			}
+			terms = append(terms, ast.String(string(b)))
+		case nil:
+			// Explicit nil: caller almost certainly intended a typed value;
+			// reject loudly so the offending assert site is identified
+			// instead of poisoning the kernel with the literal string
+			// "<nil>" (which then breaks numeric rules at eval time).
+			return ast.Atom{}, fmt.Errorf(
+				"Fact(%s): nil arg at index %d — assert with a typed value",
+				f.Predicate, len(terms))
 		default:
 			// Unknown argument type. The fallback used to silently coerce
 			// via fmt.Sprintf("%v", v), which for struct pointers /
@@ -199,15 +221,20 @@ func (f Fact) ToAtom() (ast.Atom, error) {
 			// dies with "value 0x... (1) is not a number". The diff
 			// engine then falls back to full eval and dies the same way.
 			//
-			// Return a structured error so the offending caller is
-			// identified at the assertion site instead of after the
-			// kernel re-evaluates 38k+ facts and crashes one of its
-			// downstream rules. The error includes the predicate and
-			// argument index so the assertion site can be located even
-			// if the actual value is opaque.
+			// Best-effort: if the value JSON-encodes to something sensible
+			// (a struct with public fields, a wrapped scalar), use that.
+			// Pointers, channels, funcs, and unexported-only structs will
+			// produce "null" or empty objects — bounce those with a
+			// structured error naming the predicate and arg index so the
+			// offending caller is identifiable at assert time.
+			b, jerr := json.Marshal(v)
+			if jerr == nil && len(b) > 0 && string(b) != "null" && string(b) != "{}" {
+				terms = append(terms, ast.String(string(b)))
+				break
+			}
 			return ast.Atom{}, fmt.Errorf(
 				"Fact(%s): unsupported arg type %T at index %d (value %v); "+
-					"assert with string/int/int64/float64/bool/time/MangleAtom only",
+					"assert with string/int/int64/float64/bool/time/MangleAtom or a JSON-encodable container",
 				f.Predicate, v, len(terms), v)
 		}
 	}

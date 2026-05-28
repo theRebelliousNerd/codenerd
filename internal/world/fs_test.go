@@ -381,11 +381,14 @@ func TestFileTopologyFactStructure(t *testing.T) {
 		t.Errorf("Language = %q, want '/go'", langStr)
 	}
 
-	// Verify timestamp arg
+	// Verify timestamp arg. Schema slot is /number; we emit at nanosecond
+	// resolution (info.ModTime().UnixNano()) so back-to-back writes within
+	// one second invalidate downstream caches — see fs.go for the
+	// rationale. Range-check is therefore at the UnixNano scale.
 	ts, ok := fact.Args[3].(int64)
 	if !ok {
 		t.Error("Args[3] (timestamp) is not an int64")
-	} else if ts < time.Now().Add(-1*time.Hour).Unix() || ts > time.Now().Unix() {
+	} else if ts < time.Now().Add(-1*time.Hour).UnixNano() || ts > time.Now().UnixNano() {
 		t.Errorf("Timestamp %d is not within expected range", ts)
 	}
 
