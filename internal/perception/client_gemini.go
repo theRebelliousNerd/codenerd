@@ -350,6 +350,24 @@ func (c *GeminiClient) SetCachedContent(name string) {
 // SHARED REQUEST HELPERS
 // =============================================================================
 
+// isTransientGeminiStatus reports whether an HTTP status from the Gemini API
+// is a transient, retryable server-side condition. 429 (rate limit) is handled
+// separately with its own message; this covers the 5xx family — most importantly
+// 503 UNAVAILABLE ("model is currently experiencing high demand"), which is the
+// single most common transient Gemini failure. These are safe to retry with
+// backoff rather than surfacing as a hard error that collapses the turn.
+func isTransientGeminiStatus(code int) bool {
+	switch code {
+	case http.StatusInternalServerError, // 500
+		http.StatusBadGateway,         // 502
+		http.StatusServiceUnavailable, // 503
+		http.StatusGatewayTimeout:     // 504
+		return true
+	default:
+		return false
+	}
+}
+
 // rateLimit enforces minimum inter-request spacing to avoid 429 responses.
 // Must be called before each API request.
 func (c *GeminiClient) rateLimit() {
@@ -503,6 +521,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			lastErr = fmt.Errorf("rate limit exceeded (429)")
+			continue
+		}
+
+		if isTransientGeminiStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 
@@ -759,6 +782,11 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 			continue
 		}
 
+		if isTransientGeminiStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			continue
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			bodyStr := string(body)
 			if resp.StatusCode == http.StatusBadRequest {
@@ -966,6 +994,13 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limit exceeded (429): %s", strings.TrimSpace(string(body)))
+			continue
+		}
+
+		if isTransientGeminiStatus(resp.StatusCode) {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 
