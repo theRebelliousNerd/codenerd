@@ -7,6 +7,7 @@ import (
 	"codenerd/internal/types"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,16 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrLLMUnavailable is a sentinel marking a transient model-side failure
+// (the 5xx family, most commonly 503 UNAVAILABLE "high demand") that survived
+// all retries. It is wrapped into the returned error via %w at the transient
+// retry sites so callers up the chain can distinguish a temporarily-unreachable
+// model from a genuine parse/ambiguity failure using errors.Is. This is the
+// linchpin of the "transient failure must be distinguishable from user
+// ambiguity" guarantee: without it, a 503 is laundered into "I don't understand
+// you" at the perception firewall.
+var ErrLLMUnavailable = errors.New("llm temporarily unavailable")
 
 // GeminiClient implements LLMClient for Google Gemini API.
 type GeminiClient struct {
@@ -525,7 +536,11 @@ func (c *GeminiClient) CompleteWithSystem(ctx context.Context, systemPrompt, use
 		}
 
 		if isTransientGeminiStatus(resp.StatusCode) {
-			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the
+			// whole chain (through the post-loop "max retries exceeded: %w"). This
+			// lets the perception firewall report /llm_unavailable rather than
+			// laundering a transient 503 into a "you were unclear" clarification.
+			lastErr = fmt.Errorf("transient server error (%d): %s: %w", resp.StatusCode, strings.TrimSpace(string(body)), ErrLLMUnavailable)
 			continue
 		}
 
@@ -783,7 +798,11 @@ func (c *GeminiClient) CompleteWithSchema(ctx context.Context, systemPrompt, use
 		}
 
 		if isTransientGeminiStatus(resp.StatusCode) {
-			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the
+			// whole chain (through the post-loop "max retries exceeded: %w"). This
+			// lets the perception firewall report /llm_unavailable rather than
+			// laundering a transient 503 into a "you were unclear" clarification.
+			lastErr = fmt.Errorf("transient server error (%d): %s: %w", resp.StatusCode, strings.TrimSpace(string(body)), ErrLLMUnavailable)
 			continue
 		}
 
@@ -1000,7 +1019,11 @@ func (c *GeminiClient) runStreamingRequest(ctx context.Context, systemPrompt, us
 		if isTransientGeminiStatus(resp.StatusCode) {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			resp.Body.Close()
-			lastErr = fmt.Errorf("transient server error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			// Wrap the sentinel so errors.Is(err, ErrLLMUnavailable) holds up the
+			// whole chain (through the post-loop "max retries exceeded: %w"). This
+			// lets the perception firewall report /llm_unavailable rather than
+			// laundering a transient 503 into a "you were unclear" clarification.
+			lastErr = fmt.Errorf("transient server error (%d): %s: %w", resp.StatusCode, strings.TrimSpace(string(body)), ErrLLMUnavailable)
 			continue
 		}
 

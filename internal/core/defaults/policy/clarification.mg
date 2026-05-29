@@ -39,7 +39,15 @@ clarification_question(/current_intent, Question) :-
     intent_unmapped(Verb, /unknown_verb),
     Question = "I don't recognize that action. What would you like me to do?".
 
-clarification_question(/current_intent, "Could you rephrase what you'd like me to do?") :-
+# /llm_unavailable: the model was transiently unreachable (a 503/5xx that
+# survived retries). This is an infrastructure hiccup, NOT user ambiguity, so
+# the message must not imply the user was unclear.
+clarification_question(/current_intent, "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment.") :-
+    intent_unknown(_, /llm_unavailable).
+
+# /llm_failed: the model call failed for a non-transient reason. Still not the
+# user's fault, so avoid blaming their phrasing; invite a retry.
+clarification_question(/current_intent, "Something went wrong on my end while processing that. Please try again.") :-
     intent_unknown(_, /llm_failed).
 
 clarification_question(/current_intent, "I'm not confident I understood correctly. Could you clarify?") :-

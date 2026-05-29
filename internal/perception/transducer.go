@@ -321,6 +321,15 @@ type Intent struct {
 	Ambiguity        []string          // Ambiguous parts that need clarification
 	Response         string            // Natural language response (Piggyback Protocol)
 	MemoryOperations []MemoryOperation // Memory operations for learning/forgetting (Cold Storage)
+
+	// TransientFailure marks an intent that is degraded because the language
+	// model was temporarily unreachable (a transient 5xx / 503 that survived
+	// retries), NOT because the user was ambiguous. The perception firewall
+	// reads this to assert intent_unknown(_, /llm_unavailable) instead of the
+	// misleading /heuristic_low (user-ambiguity) reason. It is the in-struct
+	// carrier for the ErrLLMUnavailable signal across the nil-error contract of
+	// ParseIntentWithContext / ParseIntentWithGCD.
+	TransientFailure bool
 }
 
 // ConversationTurn represents a single turn in conversation history.

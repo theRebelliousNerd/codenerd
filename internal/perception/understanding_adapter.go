@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -446,11 +447,29 @@ func (t *UnderstandingTransducer) ParseIntentWithContext(ctx context.Context, in
 		logging.Perception("[ParseIntentWithContext] LLM understanding FAILED after %dms: %v",
 			time.Since(llmStart).Milliseconds(), err)
 		logging.Get(logging.CategoryPerception).Warn("LLM classification failed: %v", err)
-		return Intent{
+		// Distinguish a transient model outage (503/5xx that survived retries)
+		// from a genuine inability to understand the user. We still return a
+		// degraded /explain intent with a nil error to preserve the established
+		// contract (callers do not expect ParseIntentWithContext to error here),
+		// but we mark TransientFailure so the perception firewall can assert
+		// intent_unknown(_, /llm_unavailable) instead of laundering this into a
+		// "you were unclear" (/heuristic_low) clarification.
+		degraded := Intent{
 			Verb:     "/explain",
 			Category: "/query",
 			Response: fmt.Sprintf("I had trouble understanding that: %v", err),
-		}, nil
+		}
+		if errors.Is(err, ErrLLMUnavailable) {
+			degraded.TransientFailure = true
+			// On the live interactive path the canonical user-facing wording comes
+			// from clarification.mg's clarification_question(_, /llm_unavailable)
+			// rule (the kernel is the single source of truth). We set the same text
+			// verbatim here only as a degraded fallback for any code path that reads
+			// intent.Response directly, so the user never sees the misleading
+			// "I had trouble understanding that" framing for a transient outage.
+			degraded.Response = "I couldn't reach the language model just now - it may be briefly overloaded. Please try again in a moment."
+		}
+		return degraded, nil
 	}
 	logging.Perception("[ParseIntentWithContext] LLM understanding: %dms", time.Since(llmStart).Milliseconds())
 

@@ -587,6 +587,13 @@ func (p *PerceptionFirewallShard) Perceive(ctx context.Context, input string, hi
 		if intent.Confidence > 0.4 {
 			intent.Confidence = 0.4
 		}
+	} else if intent.TransientFailure {
+		// The transducer swallowed a transient model outage (503/5xx) into a
+		// degraded /explain intent with a nil error, so parseFailed is false.
+		// Surface it as /llm_unavailable so clarification tells the user the
+		// model was briefly unreachable rather than implying they were unclear.
+		// (The degraded intent already carries Confidence 0, so no clamp needed.)
+		unknownReason = "/llm_unavailable"
 	} else if intent.Confidence < p.config.AmbiguityThreshold {
 		unknownReason = "/heuristic_low"
 	}
