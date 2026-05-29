@@ -258,6 +258,44 @@ func TestStep3_UnvalidatedSideEffect_NoOpinionPartition(t *testing.T) {
 	})
 }
 
+// -----------------------------------------------------------------------------
+// unresolved_failure/1 — twin of the Step 3 escalation bug.
+//   action_failed_validation AND !action_resolved AND !action_is_escalated
+// An escalated failure must be EXCLUDED (it's being handled, not unresolved).
+// This rule had the same !action_escalated(ActionID, _, _) wildcard-negation bug
+// the Step 3 unvalidated_side_effect rule had; the fix reuses the same
+// action_is_escalated/1 projection. Regression-guards that fix.
+// -----------------------------------------------------------------------------
+
+func TestValidation_UnresolvedFailure_ExcludesEscalated(t *testing.T) {
+	// Positive control: a genuine unresolved failure — validation failed, the
+	// action is neither validated/healed (so !action_resolved holds) nor
+	// escalated. unresolved_failure MUST derive. This also proves the test fact
+	// loads and the rule's base path fires, so a "not derived" in the negative
+	// case below is real exclusion, not a silent load failure.
+	t.Run("positive_control_unresolved_derives", func(t *testing.T) {
+		k := setupMockKernel(t)
+		// action_validation_failed(ActionID/string, ActionType/name, Reason/name, Details/string, Ts/number)
+		mustAssert(t, k, "action_validation_failed", "r-1", types.MangleAtom("/write_file"), types.MangleAtom("/hash_mismatch"), "content hash mismatch", int64(1))
+		if !queryDerived(t, k, "unresolved_failure(r-1)") {
+			t.Error("unresolved_failure NOT derived for a genuine unresolved (non-escalated) failure")
+		}
+	})
+
+	// The bug case: SAME failure, now ESCALATED for the same id. !action_is_escalated
+	// must exclude it. Before the fix (!action_escalated(ActionID, _, _)) this
+	// wrongly still derived.
+	t.Run("excluded_when_escalated", func(t *testing.T) {
+		k := setupMockKernel(t)
+		mustAssert(t, k, "action_validation_failed", "r-2", types.MangleAtom("/write_file"), types.MangleAtom("/hash_mismatch"), "content hash mismatch", int64(1))
+		// action_escalated(ActionID/string, Reason/name, Ts/number)
+		mustAssert(t, k, "action_escalated", "r-2", types.MangleAtom("/max_retries"), int64(1))
+		if queryDerived(t, k, "unresolved_failure(r-2)") {
+			t.Error("unresolved_failure derived for an ESCALATED failure (should be excluded; escalation-negation regression)")
+		}
+	})
+}
+
 // mustAssert asserts a fact and fails the test on error. Keeps the table cases
 // readable while preserving the exact arg types production uses.
 func mustAssert(t *testing.T, k *RealKernel, predicate string, args ...any) {

@@ -292,8 +292,19 @@ action_resolved(ActionID) :-
 critical_action_resolved(ActionID) :-
     critical_action_validated(ActionID).
 
-# Unresolved failures for monitoring
+# Unresolved failures for monitoring.
+#
+# Escalation is negated via the single-arg projection action_is_escalated/1
+# (defined above for unvalidated_side_effect), NOT directly over the 3-arg
+# action_escalated literal. Negating the multi-arg literal with anonymous
+# wildcards (!action_escalated(ActionID, _, _)) does NOT exclude in this Mangle
+# fork — with the escalation fact present at fixpoint the negated atom fails to
+# suppress the head, so an escalated failure was still wrongly reported as
+# unresolved. (Same root cause and fix as the unvalidated_side_effect escalation
+# arm; verified by a clean batch eval that ruled out incremental-eval staleness.)
+# !action_resolved(ActionID) is left as-is: it is already a single-arg IDB
+# negation, the proven-working shape.
 unresolved_failure(ActionID) :-
     action_failed_validation(ActionID),
     !action_resolved(ActionID),
-    !action_escalated(ActionID, _, _).
+    !action_is_escalated(ActionID).
