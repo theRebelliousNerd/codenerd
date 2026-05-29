@@ -111,12 +111,26 @@ action_complete_verified(ActionID) :-
 #
 # Negation is safe: ActionID is bound by the positive side_effect_attempted atom
 # before each negated atom.
+#
+# Escalation is negated via the single-arg projection action_is_escalated/1
+# rather than directly over the 3-arg action_escalated literal. Negating the
+# multi-arg literal with anonymous wildcards (!action_escalated(ActionID, _, _))
+# does NOT exclude in this Mangle fork: with the escalation fact present at
+# fixpoint (verified by a clean batch eval, so it is not incremental-eval
+# staleness), the negated multi-arg-with-wildcards atom failed to suppress the
+# head and unvalidated_side_effect was still derived. Projecting to a single-arg
+# IDB and negating that is the proven-working shape — it is exactly how
+# action_failed_validation/1 (the analogous single-arg projection of a multi-arg
+# EDB) is negated in the same rule, and that arm excludes correctly.
+action_is_escalated(ActionID) :-
+    action_escalated(ActionID, _, _).
+
 Decl unvalidated_side_effect(ActionID, ActionType) bound [/string, /name].
 unvalidated_side_effect(ActionID, ActionType) :-
     side_effect_attempted(ActionID, ActionType),
     !action_complete_verified(ActionID),
     !action_failed_validation(ActionID),
-    !action_escalated(ActionID, _, _).
+    !action_is_escalated(ActionID).
 
 # =============================================================================
 # SECTION 2: VALIDATION FAILURE DERIVATION
