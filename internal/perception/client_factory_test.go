@@ -6,6 +6,12 @@ import (
 	"codenerd/internal/config"
 )
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for `NewClientFromConfig` receiving a `nil` config pointer.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for `providerKeyFieldName` when passing an empty string or undefined string.
+// TODO: TEST_GAP: [Type Coercion] Testing behavior when string inputs simulate invalid or partially formed integer configurations implicitly mapped by upstream config loaders.
+// TODO: TEST_GAP: [User Request Extremes] Testing massive strings for models or keys in `NewClientFromConfig` and massive strings in `providerKeyFieldName`.
+// TODO: TEST_GAP: [State Conflicts] Testing concurrency behavior of reading env variables while they are modified by other tests/goroutines (though Go limits os.Setenv concurrency safety natively, the package logic still lacks assertions for TOC/TOU or env reset behavior).
+
 func TestNewClientFromConfig_Engines(t *testing.T) {
 	// 1. Claude CLI
 	cfg := &ProviderConfig{
