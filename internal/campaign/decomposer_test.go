@@ -107,6 +107,11 @@ func (m *mockLLMClient) SchemaCapable() bool {
 // TODO: TEST_GAP: [User Request Extremes] Verify validation logic prevents the LLM from hallucinating non-existent subsystems, tools, or coding languages in the plan.
 // TODO: TEST_GAP: [State Conflicts] Verify Decomposer handles concurrent calls to setter methods (SetPromptProvider, SetShardLister) while Decompose is running without data races.
 // TODO: TEST_GAP: [State Conflicts] Verify readDocumentsFromDir handles Time-of-Check/Time-of-Use (TOC/TOU) race conditions where a file is deleted after metadata is gathered but before reading content.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify readDocumentsFromDir safely handles empty directories without panicking.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify seedDocFacts gracefully handles a nil or empty files slice.
+// TODO: TEST_GAP: [Type Coercion] Verify Decompose gracefully handles poorly typed JSON inputs that slip past the validation layer.
+// TODO: TEST_GAP: [User Request Extremes] Verify Decompose safely handles an insanely long goal string (e.g., frontier coding benchmarks) by truncating.
+// TODO: TEST_GAP: [State Conflicts] Verify readDocumentsFromDir pipeline handles files deleted in the middle of directory iteration.
 func TestNewDecomposer(t *testing.T) {
 	mockKernel := &core.RealKernel{} // Minimal struct
 	mockClient := &mockLLMClient{}
