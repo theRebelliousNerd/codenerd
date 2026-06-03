@@ -262,3 +262,17 @@ func TestSpawner_StateConflicts_ShutdownConcurrentSpawn(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TODO: TEST_GAP: Null/Undefined/Empty - Nil context in Spawn operations causes context.WithCancel(nil) panic in SubAgent.Run()
+// TODO: TEST_GAP: Null/Undefined/Empty - Empty Task string ("") behavior should be validated
+// TODO: TEST_GAP: Null/Undefined/Empty - Empty/Nil configuration files for specialists
+// TODO: TEST_GAP: Null/Undefined/Empty - Null JIT Compiler & Config Factory Interplay
+// TODO: TEST_GAP: Type Coercion - Invalid YAML Types in Specialist Config (e.g. string for Timeout, arrays for objects)
+// TODO: TEST_GAP: Type Coercion - Intent Category/Verb with unexpected characters (e.g. control chars, null bytes, emojis)
+// TODO: TEST_GAP: User Request Extremes - Massive Task payloads (e.g. 50MB string)
+// TODO: TEST_GAP: User Request Extremes - Sub-zero or zero Max Active Subagents behavior
+// TODO: TEST_GAP: User Request Extremes - Max Config Size Boundary (1048576 vs 1048577 bytes)
+// TODO: TEST_GAP: User Request Extremes - Frontier Coding Benchmark with 10,000+ concurrent agents causing lock contention
+// TODO: TEST_GAP: State Conflicts - Rapid spawn and immediate context cancellation
+// TODO: TEST_GAP: State Conflicts - Concurrent Cleanup() and Stop()
+// TODO: TEST_GAP: State Conflicts - Zombie Agents (Leaked memory/goroutines after completion if Cleanup() is never called)
