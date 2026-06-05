@@ -6,6 +6,12 @@ import (
 	"codenerd/internal/config"
 )
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify NewClientFromConfig handles a completely nil ProviderConfig pointer gracefully without panicking.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify fallback behavior when APIKey is an empty string for providers that require authentication.
+// TODO: TEST_GAP: [Type Coercion] Verify handling of unexpected casing (e.g., "AnThroPic") or padding in the Provider string to ensure correct provider resolution.
+// TODO: TEST_GAP: [User Request Extremes] Verify NewClientFromConfig handles extreme string lengths (e.g., 50MB) for Engine, Provider, and APIKey fields without OOM.
+// TODO: TEST_GAP: [State Conflicts] Verify thread safety of NewClientFromConfig if invoked concurrently with shared ProviderConfig pointers that might be mutated elsewhere.
+
 func TestNewClientFromConfig_Engines(t *testing.T) {
 	// 1. Claude CLI
 	cfg := &ProviderConfig{
