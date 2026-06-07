@@ -626,6 +626,17 @@ func registerRuntimeToolForLoop(t *testing.T, loop *OuroborosLoop, name, binaryP
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig handles MaxIters=0 or negative correctly without infinite looping or false success.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig rejects or sanitizes need.Name if it consists entirely of zero-width characters (e.g., \u200B).
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify ExecuteWithConfig properly aborts if the context is already canceled before execution begins.
+// TODO: TEST_GAP: [Type Coercion] Verify SafetyChecker handles invalid UTF-8 byte sequences gracefully without crashing parser.ParseFile.
+// TODO: TEST_GAP: [Type Coercion] Verify state updates handle tool names with hyphens/spaces gracefully without Mangle Atom syntax errors.
+// TODO: TEST_GAP: [User Request Extremes] Verify ExecuteWithConfig handles a 50MB need.Purpose string without causing OOM or massive I/O blocks.
+// TODO: TEST_GAP: [User Request Extremes] Verify SafetyChecker completes within a strict timeout when fed a 5MB Go source string AST, avoiding CPU exhaustion.
+// TODO: TEST_GAP: [User Request Extremes] Verify ExecuteTool uses an io.LimitReader to cap output if a generated tool streams infinite garbage bytes to stdout.
+// TODO: TEST_GAP: [State Conflicts] Verify ExecuteWithConfig correctly handles 50 concurrent goroutines attempting to generate the exact same tool.
+// TODO: TEST_GAP: [State Conflicts] Verify ExecuteTool safely completes execution even if a concurrent ExecuteWithConfig hot-reloads the tool binary mid-execution.
+
 func TestOuroborosLoop_Execute_NilNeed(t *testing.T) {
 	loop := NewOuroborosLoop(&MockLLMClient{}, DefaultOuroborosConfig(t.TempDir()))
 	result := loop.Execute(context.Background(), nil)
