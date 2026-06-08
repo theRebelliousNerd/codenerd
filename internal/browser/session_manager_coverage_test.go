@@ -16,6 +16,10 @@ import (
 
 // --- Config Tests ---
 
+// TODO: TEST_GAP: Null/Undefined/Empty inputs (e.g., config zero-values, nil pointer receivers for exported methods)
+// TODO: TEST_GAP: Type Coercion (e.g., strings containing invalid JSON when unmarshalling sessions, numeric strings instead of int for timeouts)
+// TODO: TEST_GAP: User request Extremes (e.g., 100k+ concurrent session start/attach requests, huge DOM sizes forcing rod to OOM or timeout, malformed debugger URLs)
+// TODO: TEST_GAP: State Conflicts (e.g., race conditions between Start/Shutdown, accessing page of deleted session, network partitions dropping CDP connection silently)
 func TestDefaultConfig_WhenCalled_ShouldReturnSensibleDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 
