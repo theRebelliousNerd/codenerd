@@ -515,7 +515,11 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		}
 
 		// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
-		var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
+		// The interactive turn's clients register HIGH default slot priority: a
+		// user staring at a spinner must never be queued behind background
+		// learning/consolidation calls (the scheduler wakes waiters in priority
+		// order, FIFO within a priority).
+		var llmClient perception.LLMClient = core.NewScheduledLLMCallWithPriority("main", rawLLMClient, types.PriorityHigh)
 		var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("chat_shards", rawLLMClient)
 		shardMgr.SetLLMClient(shardLLMClient)
 		if perception.SharedTaxonomy != nil {
@@ -532,7 +536,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		var classificationClient perception.LLMClient
 		if provCfg, provErr := perception.DetectProvider(); provErr == nil {
 			if cc, ccErr := perception.NewClassificationClientFromConfig(provCfg); ccErr == nil && cc != nil {
-				classificationClient = core.NewScheduledLLMCall("classification", cc)
+				classificationClient = core.NewScheduledLLMCallWithPriority("classification", cc, types.PriorityHigh)
 				logging.Boot("Classification client enabled (fast model tier for perception)")
 			}
 		}

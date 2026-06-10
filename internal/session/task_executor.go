@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
@@ -58,6 +59,42 @@ type TaskResult struct {
 	Completed bool
 }
 
+// presetIntentForTask builds the pre-classified intent for a delegated task.
+// Returns nil when no verb is known, in which case the executor falls back to
+// perceiving the task text.
+func presetIntentForTask(intentVerb, task string) *perception.Intent {
+	intentVerb = strings.TrimSpace(intentVerb)
+	if intentVerb == "" || !strings.HasPrefix(intentVerb, "/") {
+		return nil
+	}
+	return &perception.Intent{
+		Category:   categoryForIntentVerb(intentVerb),
+		Verb:       intentVerb,
+		Target:     "",
+		Constraint: "",
+		// The routing layer already decided this verb; the executor must not
+		// second-guess it.
+		Confidence: 1.0,
+		Response:   "",
+		IsQuestion: false,
+	}
+}
+
+// categoryForIntentVerb maps an intent verb to its category for preset
+// intents. Mirrors the perception taxonomy defaults; unknown verbs (including
+// /consult/<specialist>) are queries, which is the safe default — queries
+// never trigger the mutation-only machinery.
+func categoryForIntentVerb(verb string) string {
+	switch verb {
+	case "/fix", "/refactor", "/create", "/write", "/delete", "/implement",
+		"/test", "/git", "/migrate", "/optimize", "/document", "/format",
+		"/scaffold", "/campaign", "/assault", "/init", "/generate_tool", "/commit":
+		return "/mutation"
+	default:
+		return "/query"
+	}
+}
+
 // JITExecutor implements TaskExecutor using the new JIT-driven architecture.
 // It replaces ShardManager by routing all tasks through the clean execution loop.
 type JITExecutor struct {
@@ -101,6 +138,17 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 
 	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", req.IntentVerb, len(req.Task), priority)
 
+	// Propagate the caller's priority to the API scheduler. Without this the
+	// priority parameter was accepted and dropped — user-initiated shard work
+	// (PriorityHigh from the chat turn) queued for LLM slots at the same
+	// priority as background learning.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Value(types.CtxKeyPriority) == nil {
+		ctx = context.WithValue(ctx, types.CtxKeyPriority, priority)
+	}
+
 	// Dream mode tasks are speculative and should always use a subagent
 	// to avoid side effects and allow for parallelism.
 	if sessionCtx != nil && sessionCtx.DreamMode {
@@ -112,12 +160,13 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 		return j.executeWithSubagent(ctx, req, sessionCtx)
 	}
 
-	// Use inline execution for simple tasks
-	// NOTE: SetSessionContext is not thread-safe. For true concurrent execution,
-	// tasks MUST use subagents.
+	// Inline execution runs on an ISOLATED clone of the session executor.
+	// Running directly on the shared executor (the old behavior) raced on
+	// SetSessionContext and appended every delegated task to the session's
+	// conversation history, contaminating later turns.
+	exec := j.executor.CloneForTask()
 	if sessionCtx != nil {
-		j.executor.SetSessionContext(sessionCtx)
-		defer j.executor.SetSessionContext(nil)
+		exec.SetSessionContext(sessionCtx)
 	}
 
 	inlineTask := strings.TrimSpace(req.Task)
@@ -132,7 +181,9 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 		}
 	}
 
-	result, err := j.executor.Process(ctx, inlineTask)
+	// The routing layer already classified this task — run with the preset
+	// intent instead of re-perceiving the synthetic task string.
+	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask))
 	if err != nil {
 		return "", fmt.Errorf("execution failed: %w", err)
 	}
@@ -158,13 +209,14 @@ func (j *JITExecutor) SpawnConsultation(ctx context.Context, specialistName, tas
 func (j *JITExecutor) executeAsyncInternal(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext) (string, error) {
 	logging.Session("JITExecutor.ExecuteAsync: intent=%s", req.IntentVerb)
 
-	// Spawn subagent via Spawner
+	// Spawn subagent via Spawner. Timeout comes from the central LLM timeout
+	// config (user-tunable) instead of a hardcoded magic number.
 	spawnReq := SpawnRequest{
 		Name:           j.intentToAgentName(req.IntentVerb),
 		Task:           req.Task,
 		Type:           SubAgentTypeEphemeral,
 		IntentVerb:     req.IntentVerb,
-		Timeout:        30 * time.Minute,
+		Timeout:        appconfig.GetLLMTimeouts().ShardExecutionTimeout,
 		SessionContext: sessionCtx,
 	}
 

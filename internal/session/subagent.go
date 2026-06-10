@@ -73,6 +73,13 @@ type SubAgentConfig struct {
 	// EffectiveAgentRuntimeConfig from JIT provides identity, tools, and policies.
 	EffectiveAgentRuntimeConfig *config.EffectiveAgentRuntimeConfig
 
+	// IntentVerb is the already-classified intent this subagent serves (e.g.
+	// "/review"). When set, the executor runs with a preset intent instead of
+	// re-perceiving the machine-generated task string — saving one
+	// classification LLM call per task and pinning the JIT persona to the
+	// verb the routing layer actually chose.
+	IntentVerb string
+
 	// Timeout for the entire subagent execution.
 	Timeout time.Duration
 
@@ -256,10 +263,12 @@ func (s *SubAgent) execute(ctx context.Context, task string) (string, error) {
 		s.executor.SetAgentConfig(s.config.EffectiveAgentRuntimeConfig)
 	}
 	s.executor.SetHistory(s.conversationHistory)
+	intentVerb := s.config.IntentVerb
 	s.mu.RUnlock()
 
-	// For single-turn execution, process the task
-	result, err := s.executor.Process(ctx, task)
+	// For single-turn execution, process the task. When the spawner recorded
+	// the routed intent verb, run with a preset intent — no re-perception.
+	result, err := s.executor.ProcessWithIntent(ctx, task, presetIntentForTask(intentVerb, task))
 
 	// Sync history back from executor
 	s.mu.Lock()

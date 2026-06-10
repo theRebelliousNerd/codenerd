@@ -174,7 +174,13 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		sb.WriteString("(Use this context to understand follow-up questions)\n\n")
 		for _, turn := range convCtx.RecentTurns {
 			if turn.Role == "user" {
-				sb.WriteString(fmt.Sprintf("**User**: %s\n", turn.Content))
+				// Cap replayed user content: a single giant paste must not be
+				// re-sent verbatim in every subsequent articulation prompt.
+				content := turn.Content
+				if len(content) > 2000 {
+					content = content[:2000] + "\n... (truncated)"
+				}
+				sb.WriteString(fmt.Sprintf("**User**: %s\n", content))
 			} else {
 				// Truncate long assistant responses
 				content := turn.Content
@@ -199,10 +205,18 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 		sb.WriteString(fmt.Sprintf("**Task**: %s\n", sr.Task))
 		sb.WriteString(fmt.Sprintf("**Turn**: %d\n\n", sr.TurnNumber))
 
-		// Include structured findings if available (for reviewer)
+		// Include structured findings if available (for reviewer).
+		// Capped: a large review can emit hundreds of findings; replaying all
+		// of them in every articulation prompt blows the token budget for
+		// diminishing returns.
 		if len(sr.Findings) > 0 {
+			const maxFindingsInPrompt = 40
 			sb.WriteString("### All Findings (use for follow-up queries)\n")
 			for i, finding := range sr.Findings {
+				if i >= maxFindingsInPrompt {
+					sb.WriteString(fmt.Sprintf("... and %d more findings (ask to filter by severity or file)\n", len(sr.Findings)-maxFindingsInPrompt))
+					break
+				}
 				sb.WriteString(fmt.Sprintf("%d. ", i+1))
 				for k, v := range finding {
 					sb.WriteString(fmt.Sprintf("%s=%v ", k, v))
@@ -255,9 +269,25 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	}
 
 	if len(contextFacts) > 0 {
+		// Capped: spreading activation can derive hundreds of context_to_inject
+		// facts on a large workspace; an unbounded dump starves the model's
+		// output budget and buries the relevant facts.
+		const (
+			maxContextFactsInPrompt = 80
+			maxContextFactChars     = 12 * 1024
+		)
 		sb.WriteString("Context Facts:\n")
+		written := 0
+		chars := 0
 		for _, f := range contextFacts {
-			sb.WriteString("- " + f.String() + "\n")
+			if written >= maxContextFactsInPrompt || chars >= maxContextFactChars {
+				sb.WriteString(fmt.Sprintf("- ... (%d more context facts omitted)\n", len(contextFacts)-written))
+				break
+			}
+			line := "- " + f.String() + "\n"
+			sb.WriteString(line)
+			written++
+			chars += len(line)
 		}
 		sb.WriteString("\n")
 	}
@@ -374,7 +404,13 @@ func articulateWithConversation(ctx context.Context, client perception.LLMClient
 	processor := articulation.NewResponseProcessor()
 	result, err := processor.Process(raw)
 	if err != nil {
-		return nil, fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, raw)
+		// Truncate the raw response in the error: it surfaces in the TUI error
+		// display and logs, and a malformed response can be tens of KB.
+		preview := raw
+		if len(preview) > 600 {
+			preview = preview[:600] + "... (truncated)"
+		}
+		return nil, fmt.Errorf("piggyback JSON invalid: %w (raw=%s)", err, preview)
 	}
 
 	// Build output

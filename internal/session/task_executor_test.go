@@ -64,20 +64,23 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	}
 }
 
-func TestJITExecutor_ExecuteWithContext_PreservesInlineIntent(t *testing.T) {
-	var observedInput string
+func TestJITExecutor_ExecuteWithContext_PresetIntentSkipsPerception(t *testing.T) {
+	var llmUserPrompt string
+	transducerCalls := 0
 
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			llmUserPrompt = user
 			return &types.LLMToolResponse{Text: "review complete"}, nil
 		},
 		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			llmUserPrompt = user
 			return "review complete", nil
 		},
 	}
 	mockTransducer := &MockTransducer{
 		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
-			observedInput = input
+			transducerCalls++
 			return perception.Intent{Verb: "/review", Category: "/query"}, nil
 		},
 	}
@@ -109,8 +112,57 @@ func TestJITExecutor_ExecuteWithContext_PreservesInlineIntent(t *testing.T) {
 	if result != "review complete" {
 		t.Fatalf("expected review result, got %q", result)
 	}
-	if observedInput != "review internal/core/shards/agents.go" {
-		t.Fatalf("expected inline input to preserve intent, got %q", observedInput)
+	// The routing layer already classified this task: the executor must NOT
+	// burn a perception call re-classifying the synthetic task string.
+	if transducerCalls != 0 {
+		t.Fatalf("transducer called %d times for a preset-intent task, want 0", transducerCalls)
+	}
+	// The task text (with the intent word prefix) still reaches the model.
+	if llmUserPrompt != "review internal/core/shards/agents.go" {
+		t.Fatalf("expected task text to reach the LLM, got %q", llmUserPrompt)
+	}
+}
+
+func TestJITExecutor_ExecuteWithContext_InlineRunIsIsolated(t *testing.T) {
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			return &types.LLMToolResponse{Text: "done"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			return "done", nil
+		},
+	}
+	mockTransducer := &MockTransducer{}
+
+	executor := NewExecutor(
+		&MockKernel{},
+		&MockVirtualStore{},
+		mockLLM,
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		mockTransducer,
+	)
+	spawner := NewSpawner(
+		&MockKernel{},
+		&MockVirtualStore{},
+		mockLLM,
+		&MockJITCompiler{},
+		&MockConfigFactory{},
+		mockTransducer,
+		DefaultSpawnerConfig(),
+	)
+
+	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
+
+	if _, err := jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/review", Task: "some file"}, nil, types.PriorityNormal); err != nil {
+		t.Fatalf("ExecuteWithContext failed: %v", err)
+	}
+
+	// The delegated task must NOT leak into the shared session executor's
+	// conversation history (the old behavior contaminated perception and
+	// articulation context for unrelated later turns).
+	if got := len(executor.GetHistory()); got != 0 {
+		t.Fatalf("shared executor history polluted by inline task: %d turns, want 0", got)
 	}
 }
 

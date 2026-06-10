@@ -972,8 +972,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 4.5 SYSTEM ACTION HANDLING: Surface kernel-driven delegations and execution results.
-		if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
-			return msg
+		// Skipped for direct-answer turns: delegate_task cannot derive for them
+		// (wants_direct_answer guard in delegation.mg) and the handler's
+		// result-poll would add up to 1.2s of dead wait before articulation.
+		if !answerDirectly {
+			if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
+				return msg
+			}
 		}
 
 		// 5. CONTEXT SELECTION (Spreading Activation)

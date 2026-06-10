@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codenerd/internal/articulation"
@@ -196,6 +197,28 @@ func (e *Executor) SetSessionContext(ctx *types.SessionContext) {
 	e.sessionContext = ctx
 }
 
+// CloneForTask returns a fresh executor sharing this executor's dependencies
+// (kernel, store, clients, compilers) but with ISOLATED per-run state: empty
+// conversation history, no session context, no turn persistence.
+//
+// Inline task execution used to run directly on the shared session executor,
+// which (a) was not thread-safe (SetSessionContext races) and (b) appended
+// every delegated task and its output to the session's conversation history,
+// contaminating perception and articulation context for unrelated later
+// turns. Cloning costs one struct allocation and removes both failure modes.
+func (e *Executor) CloneForTask() *Executor {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	clone := NewExecutor(e.kernel, e.virtualStore, e.llmClient, e.jitCompiler, e.configFactory, e.transducer)
+	clone.config = e.config
+	clone.ouroborosRegistry = e.ouroborosRegistry
+	// Deliberately NOT copied: conversationHistory, sessionContext,
+	// sessionPersister/sessionID (task runs must not be recorded as session
+	// turns), EffectiveAgentRuntimeConfig (set per task by the caller).
+	return clone
+}
+
 // SetConfig updates the executor configuration.
 func (e *Executor) SetConfig(cfg ExecutorConfig) {
 	e.mu.Lock()
@@ -270,8 +293,28 @@ type ExecutionResult struct {
 //  5. Execute: Route tool calls through VirtualStore
 //  6. Articulate: Response to user
 func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult, error) {
+	return e.ProcessWithIntent(ctx, input, nil)
+}
+
+// taskIntentCounter feeds unique task-scoped intent IDs (see ProcessWithIntent).
+var taskIntentCounter uint64
+
+// ProcessWithIntent runs the clean loop with an optional pre-classified
+// intent. When preset is non-nil the OBSERVE phase is skipped entirely:
+//
+//   - No perception LLM call is made. Delegated tasks arrive with their
+//     intent verb already decided by the routing layer; re-classifying the
+//     machine-generated task string burned a classification call per
+//     delegation AND could select the wrong persona prompt when the
+//     re-classification disagreed with the original routing.
+//
+//   - The intent fact is asserted under a unique task-scoped ID (and
+//     retracted afterwards) instead of /current_intent. SubAgents share the
+//     session kernel; writing /current_intent from a concurrent task would
+//     clobber the interactive turn's routing facts mid-flight.
+func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *perception.Intent) (*ExecutionResult, error) {
 	start := time.Now()
-	logging.Session("Processing input: %d chars", len(input))
+	logging.Session("Processing input: %d chars (preset_intent=%v)", len(input), preset != nil)
 
 	if strings.TrimSpace(input) == "" {
 		return nil, errors.New("empty input provided")
@@ -285,26 +328,45 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 
 	result := &ExecutionResult{}
 
-	// 1. OBSERVE: Transducer converts NL → Intent
-	intent, err := e.observe(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("observation failed: %w", err)
+	// 1. OBSERVE: Transducer converts NL → Intent (skipped for preset intents)
+	var intent perception.Intent
+	if preset != nil {
+		intent = *preset
+	} else {
+		observed, err := e.observe(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("observation failed: %w", err)
+		}
+		intent = observed
 	}
 	result.Intent = intent
 
-	// Assert intent to kernel for Mangle policy evaluation
+	// Assert intent to kernel for Mangle policy evaluation. Interactive runs
+	// own /current_intent; task runs get a unique ID that is cleaned up when
+	// the run ends so concurrent subagents can never fight over routing facts.
+	intentID := "/current_intent"
+	if preset != nil {
+		intentID = fmt.Sprintf("/task_intent_%d", atomic.AddUint64(&taskIntentCounter, 1))
+	}
 	if e.kernel != nil {
-		if assertErr := e.kernel.Assert(types.Fact{
+		intentFact := types.Fact{
 			Predicate: "user_intent",
 			Args: []any{
-				types.MangleAtom("/current_intent"),
+				types.MangleAtom(intentID),
 				types.MangleAtom(intent.Category),
 				types.MangleAtom(intent.Verb),
 				intent.Target,
 				intent.Constraint,
 			},
-		}); assertErr != nil {
+		}
+		if assertErr := e.kernel.Assert(intentFact); assertErr != nil {
 			logging.Get(logging.CategorySession).Warn("Failed to assert intent: %v", assertErr)
+		} else if preset != nil {
+			defer func() {
+				if retractErr := e.kernel.RetractFact(intentFact); retractErr != nil {
+					logging.SessionDebug("Failed to retract task intent %s: %v", intentID, retractErr)
+				}
+			}()
 		}
 	}
 
@@ -319,13 +381,15 @@ func (e *Executor) Process(ctx context.Context, input string) (*ExecutionResult,
 			Prompt: "You are an AI assistant helping with software development.",
 		}
 	} else {
-		compileResult, err = e.jitCompiler.Compile(ctx, compilationCtx)
-		if err != nil {
-			logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", err)
+		compiled, compileErr := e.jitCompiler.Compile(ctx, compilationCtx)
+		if compileErr != nil {
+			logging.Get(logging.CategorySession).Warn("JIT compilation failed, using baseline: %v", compileErr)
 			// Fall back to baseline prompt if JIT fails
 			compileResult = &prompt.CompilationResult{
 				Prompt: "You are an AI assistant helping with software development.",
 			}
+		} else {
+			compileResult = compiled
 		}
 	}
 
