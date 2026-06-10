@@ -13,17 +13,28 @@ import (
 	"time"
 
 	"codenerd/internal/articulation"
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // =============================================================================
 // KNOWLEDGE REQUEST HANDLING (LLM-First Knowledge Discovery)
 // =============================================================================
 
+// maxKnowledgeRequestsPerTurn caps how many specialist consultations a single
+// turn may spawn. Each consultation is a full subagent execution (JIT compile
+// + tool loop); honoring an unbounded list multiplies turn latency without
+// bound on slow providers.
+const maxKnowledgeRequestsPerTurn = 2
+
 // handleKnowledgeRequests spawns specialists in parallel to gather knowledge
 // requested by the LLM. Returns a knowledgeGatheredMsg when all specialists
-// have responded, which will trigger re-processing with enriched context.
+// have responded; the Update handler then synthesizes a final answer with ONE
+// follow-up LLM call (synthesizeWithKnowledge) — it does NOT re-enter the
+// processInput pipeline.
 func (m *Model) handleKnowledgeRequests(
 	ctx context.Context,
 	requests []articulation.KnowledgeRequest,
@@ -31,6 +42,14 @@ func (m *Model) handleKnowledgeRequests(
 	interimResponse string,
 ) knowledgeGatheredMsg {
 	m.awaitingKnowledge = true
+
+	if len(requests) > maxKnowledgeRequestsPerTurn {
+		logging.Get(logging.CategoryContext).Info(
+			"Knowledge requests capped: %d requested, honoring first %d",
+			len(requests), maxKnowledgeRequestsPerTurn,
+		)
+		requests = requests[:maxKnowledgeRequestsPerTurn]
+	}
 
 	// Show status to user
 	m.ReportStatus(fmt.Sprintf("Gathering knowledge from %d specialist(s)...", len(requests)))
@@ -112,6 +131,59 @@ If you need to search documentation or the web, do so to provide accurate inform
 		Results:         results,
 		OriginalInput:   originalInput,
 		InterimResponse: interimResponse,
+	}
+}
+
+// synthesizeWithKnowledge produces the final answer after specialist
+// consultations with ONE LLM call. This replaces the old behavior of
+// re-running the entire processInput pipeline (perception again, the full
+// DECIDE waterfall again, articulation again) with the gathered knowledge
+// appended to the input — which doubled or tripled turn cost and re-rolled
+// the routing dice mid-turn.
+func (m *Model) synthesizeWithKnowledge(originalInput string, results []KnowledgeResult) tea.Cmd {
+	return func() (msg tea.Msg) {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.API("PANIC in synthesizeWithKnowledge (recovered): %v", r)
+				msg = errorMsg(fmt.Errorf("internal error (recovered panic): %v", r))
+			}
+		}()
+
+		baseCtx := m.shutdownCtx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(baseCtx, config.GetLLMTimeouts().ArticulationTimeout)
+		defer cancel()
+
+		var sb strings.Builder
+		sb.WriteString("The user asked:\n\n")
+		sb.WriteString(originalInput)
+		sb.WriteString("\n\n---\nSpecialist consultations returned the following knowledge:\n\n")
+		gathered := 0
+		for _, kr := range results {
+			if kr.Error != nil || strings.TrimSpace(kr.Response) == "" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("### From %s (query: %s)\n%s\n\n", kr.Specialist, kr.Query, kr.Response))
+			gathered++
+		}
+		if gathered == 0 {
+			sb.WriteString("(All consultations failed — answer from your own knowledge and say what could not be verified.)\n")
+		}
+		sb.WriteString("---\n\nAnswer the user's question directly and completely using this knowledge. Cite which specialist informed which part when relevant. Do not describe the consultation process.")
+
+		systemPrompt := "You are codeNERD answering a user's question after consulting internal specialists." + "\n\n" + stevenMoorePersona
+
+		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, sb.String())
+		if err != nil {
+			return errorMsg(fmt.Errorf("knowledge synthesis failed: %w", err))
+		}
+		logging.Get(logging.CategoryContext).Info(
+			"Knowledge synthesis complete: %d specialist responses, %d chars answer",
+			gathered, len(response),
+		)
+		return assistantMsg{Surface: response}
 	}
 }
 

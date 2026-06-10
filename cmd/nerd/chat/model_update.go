@@ -930,8 +930,12 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 		return m, nil
 
 	case knowledgeGatheredMsg:
-		// Knowledge gathering from specialists is complete.
-		// Store results and re-process with enriched context.
+		// Knowledge gathering from specialists is complete. Synthesize the
+		// final answer with ONE follow-up LLM call. (This used to re-enter the
+		// entire processInput pipeline — perception again, the full DECIDE
+		// waterfall again, articulation again — doubling turn cost and
+		// re-rolling routing mid-turn. The synthesis call is bounded and
+		// deterministic.)
 		m.awaitingKnowledge = false
 
 		// Store gathered knowledge for this turn and for history
@@ -972,10 +976,7 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 			persistCmd = m.saveSessionStateCmd()
 		}
 
-		// Re-process the original input with knowledge context
-		// The knowledge is now available via m.pendingKnowledge which
-		// will be injected into SessionContext by buildSessionContext()
-		return m, tea.Batch(persistCmd, m.processInputWithKnowledge(msg.OriginalInput))
+		return m, tea.Batch(persistCmd, m.synthesizeWithKnowledge(msg.OriginalInput, msg.Results))
 
 	}
 

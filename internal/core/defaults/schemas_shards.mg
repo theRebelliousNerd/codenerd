@@ -29,6 +29,32 @@ Decl delegation_candidate(IntentID, ShardType, Confidence) bound [/string, /name
 # legacy Go boolean if the kernel is unavailable or returns nothing.
 Decl should_delegate(ShardType) bound [/name].
 
+# -----------------------------------------------------------------------------
+# 6.0.1 Routing Arbitration (single decision point per turn)
+# Rules live in policy/routing_arbitration.mg. Go asserts the per-turn EDB
+# (user_intent, intent_signal, delegation_candidate, multi_step_signal), queries
+# route_decision once, and executes exactly one lane. This replaces the old
+# scattered Go gates (follow-up substring detector, stability bypass, ad-hoc
+# confidence booleans) that made identical inputs route differently depending
+# on hidden session state.
+# -----------------------------------------------------------------------------
+
+# route_decision(Route, ShardType) - derived: the single routing outcome for
+# the current turn. Route: /respond_directly, /clarify, /multi_step, /delegate.
+# ShardType carries the target shard for /delegate and is /none otherwise.
+Decl route_decision(Route, ShardType) bound [/name, /name].
+
+# wants_direct_answer() - derived: the user is asking for an answer (question or
+# conversation), so the turn must terminate in prose, not shard work.
+Decl wants_direct_answer().
+
+# conversational_verb(Verb) - vocabulary: verbs whose outcome is always prose.
+Decl conversational_verb(Verb) bound [/name].
+
+# workhorse_verb(Verb) - vocabulary: verbs that delegate to a shard even when
+# the request is phrased as a question ("can you review my code?").
+Decl workhorse_verb(Verb) bound [/name].
+
 # spawn_subagent(Persona) - derived: subagent should be spawned
 Decl spawn_subagent(Persona) bound [/string].
 

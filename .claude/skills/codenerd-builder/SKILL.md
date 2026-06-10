@@ -11,6 +11,8 @@ Build the codeNERD high-assurance Logic-First CLI coding agent.
 >
 > **Quiescent Boot (Dec 2024):** Sessions start fresh. Ephemeral facts (`user_intent`, `next_action`, etc.) are filtered at kernel boot. Use `/sessions` to load previous sessions explicitly.
 >
+> **Routing Arbitration (Jun 2026):** Interactive-turn routing is now a SINGLE kernel decision. Perception (running on a fast classification model tier — `classification_model` in config, wired in `cmd/nerd/chat/session.go`) emits typed facts (`user_intent`, `intent_signal(/is_question)`, `delegation_candidate`, `multi_step_signal`); `policy/routing_arbitration.mg` derives exactly one `route_decision/2` lane: `/respond_directly`, `/clarify`, `/multi_step`, or `/delegate`. Questions terminate in prose — never shard delegation (`wants_direct_answer` also guards `delegate_task`). The pre-perception follow-up substring detector and the perception stability bypass were **deleted** (they re-routed identical inputs based on hidden session state). Knowledge requests are capped at 2 and synthesized with one follow-up LLM call (`synthesizeWithKnowledge`) — the pipeline is never re-entered. The verification retry loop (`VerifyWithRetry`) applies to `/mutation` intents only. Go's `Model.decideRoute` (cmd/nerd/chat/delegation.go) ferries facts in and the lane out; legacy Go gates remain only as nil-kernel fallbacks.
+>
 > **Stability Notice:** This codebase is under active development. Code snippets illustrate architectural patterns but may not match current implementations exactly. Always read the actual source files.
 
 ## Build Instructions

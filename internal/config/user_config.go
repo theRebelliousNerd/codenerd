@@ -40,6 +40,16 @@ type UserConfig struct {
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
 
+	// ClassificationModel is the fast/cheap model used for perception intent
+	// classification (the transducer's Understand call). Every interactive turn
+	// pays this call before anything else happens, so it should be the
+	// provider's fastest tier, NOT the main model. When empty, codeNERD picks a
+	// per-provider default (Anthropic: claude-haiku-4-5, Gemini:
+	// gemini-3.1-flash-lite, OpenAI: gpt-4o-mini); providers without a known
+	// fast tier (zai, xai, openrouter) fall back to the main client unless this
+	// is set explicitly. The main Model setting never applies to classification.
+	ClassificationModel string `json:"classification_model,omitempty"`
+
 	// =========================================================================
 	// CLI ENGINE CONFIGURATION
 	// =========================================================================

@@ -2,6 +2,7 @@ package perception
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -106,6 +107,49 @@ func TestTaxonomyEngine_GetVerbs_Defaults(t *testing.T) {
 	}
 	if !found {
 		t.Error("/fix verb not found in default taxonomy")
+	}
+}
+
+// TestTaxonomyEngine_GetVerbs_ShardTypesNormalized guards the slash-prefix
+// normalization: the taxonomy stores Mangle name constants ("/reviewer") but
+// every Go consumer compares against bare names ("reviewer"). Before the fix,
+// GetShardTypeForVerb leaked "/reviewer" into shardTypeToTaskRequest, which
+// mistook it for an intent verb and ran delegated tasks with a default
+// persona.
+func TestTaxonomyEngine_GetVerbs_ShardTypesNormalized(t *testing.T) {
+	engine, err := NewTaxonomyEngine()
+	if err != nil {
+		t.Skip("Skipping due to initialization failure")
+	}
+
+	verbs, err := engine.GetVerbs()
+	if err != nil {
+		t.Fatalf("GetVerbs failed: %v", err)
+	}
+	if len(verbs) == 0 {
+		t.Fatal("expected default verbs")
+	}
+
+	for _, v := range verbs {
+		if strings.HasPrefix(v.ShardType, "/") {
+			t.Errorf("verb %s: ShardType %q not normalized to bare name", v.Verb, v.ShardType)
+		}
+		if v.ShardType == "none" {
+			t.Errorf("verb %s: ShardType \"none\" should normalize to empty string", v.Verb)
+		}
+	}
+
+	// Spot-check the canonical mappings.
+	want := map[string]string{
+		"/review":  "reviewer",
+		"/fix":     "coder",
+		"/test":    "tester",
+		"/explain": "", // /none → ""
+	}
+	for _, v := range verbs {
+		if expected, ok := want[v.Verb]; ok && v.ShardType != expected {
+			t.Errorf("verb %s: ShardType = %q, want %q", v.Verb, v.ShardType, expected)
+		}
 	}
 }
 

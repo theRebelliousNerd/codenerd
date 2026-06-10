@@ -36,6 +36,11 @@ type ProviderConfig struct {
 	Model          string // Optional model override
 	Context7APIKey string // Context7 API key for research
 
+	// ClassificationModel is the dedicated fast model for perception intent
+	// classification. Unlike Model, this never defaults to the main model:
+	// classification is on the critical path of every turn and must stay cheap.
+	ClassificationModel string
+
 	// CLI Engine Configuration (takes precedence over Provider when set)
 	Engine    string                  // "api", "claude-cli", "codex-cli"
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
@@ -87,12 +92,13 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 	}
 
 	return &ProviderConfig{
-		Engine:         "api",
-		Provider:       Provider(providerStr),
-		APIKey:         apiKey,
-		Model:          userCfg.Model,
-		Context7APIKey: context7Key,
-		Gemini:         userCfg.GetGeminiConfig(),
+		Engine:              "api",
+		Provider:            Provider(providerStr),
+		APIKey:              apiKey,
+		Model:               userCfg.Model,
+		ClassificationModel: userCfg.ClassificationModel,
+		Context7APIKey:      context7Key,
+		Gemini:              userCfg.GetGeminiConfig(),
 	}, nil
 }
 
@@ -156,12 +162,18 @@ func NewClientFromEnv() (LLMClient, error) {
 // NERD-EVOLVE-START: P1P2-model-tiering
 // NewClassificationClientFromConfig creates an LLM client for intent
 // classification (P2 model tiering). The model is determined by:
-//  1. cfg.Model — the user's configured model from config.json (preferred)
-//  2. Per-provider defaults if no model is configured:
+//  1. cfg.ClassificationModel — explicit user override from config.json
+//  2. Per-provider fast-tier defaults:
 //     - Anthropic: claude-haiku-4-5 with prompt caching enabled (P1+P2)
 //     - Gemini: gemini-3.1-flash-lite
 //     - OpenAI: gpt-4o-mini
-//  3. All others: returns nil (caller should fall back to main LLMClient)
+//  3. Providers without a known fast tier (zai, xai, openrouter): returns nil
+//     unless ClassificationModel is set (caller falls back to main LLMClient).
+//
+// The main cfg.Model setting deliberately does NOT apply here: classification
+// runs on every interactive turn before anything else can happen, so routing
+// it to the user's (typically large, slow) main model put minutes of latency
+// in front of every prompt. That was the old behavior and it was a bug.
 //
 // When nil is returned, no error is set — the caller should treat nil as
 // "use main client" and not fail.
@@ -175,41 +187,68 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		return nil, nil
 	}
 
+	model := cfg.ClassificationModel
+
 	switch cfg.Provider {
 	case ProviderAnthropic:
 		haikuCfg := DefaultAnthropicConfig(cfg.APIKey)
-		if cfg.Model != "" {
-			haikuCfg.Model = cfg.Model
-		} else {
-			haikuCfg.Model = "claude-haiku-4-5"
+		haikuCfg.Model = "claude-haiku-4-5"
+		if model != "" {
+			haikuCfg.Model = model
 		}
 		client := NewAnthropicClientWithConfig(haikuCfg)
 		client.EnableSystemCaching() // P1: cache the static perception system prompt
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=anthropic model=%s (configured=%v)", haikuCfg.Model, cfg.Model != "")
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=anthropic model=%s (configured=%v)", haikuCfg.Model, model != "")
 		return client, nil
 
 	case ProviderGemini:
 		flashCfg := DefaultGeminiConfig(cfg.APIKey)
-		if cfg.Model != "" {
-			flashCfg.Model = cfg.Model
-		} else {
-			flashCfg.Model = "gemini-3.1-flash-lite"
+		flashCfg.Model = "gemini-3.1-flash-lite"
+		if model != "" {
+			flashCfg.Model = model
 		}
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=gemini model=%s (configured=%v)", flashCfg.Model, cfg.Model != "")
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=gemini model=%s (configured=%v)", flashCfg.Model, model != "")
 		return NewGeminiClientWithConfig(flashCfg), nil
 
 	case ProviderOpenAI:
 		client := NewOpenAIClient(cfg.APIKey)
-		if cfg.Model != "" {
-			client.SetModel(cfg.Model)
-		} else {
-			client.SetModel("gpt-4o-mini")
+		client.SetModel("gpt-4o-mini")
+		if model != "" {
+			client.SetModel(model)
 		}
-		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", cfg.Model, cfg.Model != "")
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openai model=%s (configured=%v)", model, model != "")
+		return client, nil
+
+	case ProviderZAI:
+		// Z.AI has no universally-available fast tier we can assume; honor an
+		// explicit classification_model only.
+		if model == "" {
+			return nil, nil
+		}
+		client := NewZAIClient(cfg.APIKey)
+		client.SetModel(model)
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=zai model=%s", model)
+		return client, nil
+
+	case ProviderXAI:
+		if model == "" {
+			return nil, nil
+		}
+		client := NewXAIClient(cfg.APIKey)
+		client.SetModel(model)
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=xai model=%s", model)
+		return client, nil
+
+	case ProviderOpenRouter:
+		if model == "" {
+			return nil, nil
+		}
+		client := NewOpenRouterClient(cfg.APIKey)
+		client.SetModel(model)
+		logging.Get(logging.CategoryPerception).Debug("Classification client: provider=openrouter model=%s", model)
 		return client, nil
 
 	default:
-		// ZAI, XAI, OpenRouter: no well-known fast tier; fall back to main client.
 		return nil, nil
 	}
 }

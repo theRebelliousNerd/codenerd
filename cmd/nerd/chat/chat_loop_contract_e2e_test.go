@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 
@@ -219,7 +218,7 @@ func (t *chatLoopTransducer) ResolveFocus(_ context.Context, _ string, _ []strin
 	return perception.FocusResolution{}, nil
 }
 
-func (t *chatLoopTransducer) SetPromptAssembler(_ *articulation.PromptAssembler) {}
+func (t *chatLoopTransducer) SetPromptAssembler(_ perception.PromptAssembler) {}
 
 func (t *chatLoopTransducer) SetStrategicContext(_ string) {}
 
@@ -413,6 +412,9 @@ func TestE2E_ChatLoop_PerceptionPanic_RecoveredAsErrorAndIdle(t *testing.T) {
 	if cmd2 != nil {
 		msg2 := runBatchAndCollect(t, cmd2, 10*time.Second)
 		if msg2 != nil {
+			// /explain with a non-meta target ends in the streaming
+			// articulation lane; resolve it to the terminal message.
+			msg2 = resolveStream(t, msg2, 10*time.Second)
 			updated2, _ := m.Update(msg2)
 			m = updated2.(Model)
 			assertIdle(t, m)
@@ -738,6 +740,11 @@ func TestE2E_ChatLoop_AmbiguousIntent_ClarificationThenResume(t *testing.T) {
 	if msg == nil {
 		t.Fatal("processInput returned nil")
 	}
+
+	// When the clarifier shard is unavailable (mock setup), the turn falls
+	// through to the streaming articulation lane; resolve it so the message
+	// classification below sees the terminal message.
+	msg = resolveStream(t, msg, 10*time.Second)
 
 	// Check if clarification was triggered
 	_, isClarification := msg.(clarificationMsg)

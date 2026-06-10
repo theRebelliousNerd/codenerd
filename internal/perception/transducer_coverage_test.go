@@ -1322,114 +1322,74 @@ func TestBuildOpenRouterPiggybackEnvelopeSchema_ShouldReturnJSONSchema(t *testin
 }
 
 // =============================================================================
-// STABILITY FILTER TESTS
+// CLASSIFICATION MODEL TIERING TESTS
 // =============================================================================
 
-func TestComputeStabilityScore_WhenAllSame_ShouldReturn100(t *testing.T) {
+// TestNewClassificationClientFromConfig_MainModelDoesNotLeak guards the fix
+// for the latency bug where a configured main model silently became the
+// classification model. With Model set but ClassificationModel empty, the
+// fast-tier default must win.
+func TestNewClassificationClientFromConfig_MainModelDoesNotLeak(t *testing.T) {
 	t.Parallel()
 
-	score := computeStabilityScore([]string{"fix", "fix", "fix", "fix", "fix"})
-	if score != 100 {
-		t.Errorf("score = %d, want 100", score)
+	cfg := &ProviderConfig{
+		Provider: ProviderAnthropic,
+		APIKey:   "test-key",
+		Model:    "claude-opus-4-8", // big main model — must NOT be used for classification
+	}
+	client, err := NewClassificationClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil classification client for anthropic")
+	}
+	type modeled interface{ GetModel() string }
+	mc, ok := client.(modeled)
+	if !ok {
+		t.Fatalf("client %T does not expose GetModel", client)
+	}
+	if got := mc.GetModel(); got != "claude-haiku-4-5" {
+		t.Errorf("classification model = %q, want fast-tier default %q (main model must not leak)", got, "claude-haiku-4-5")
 	}
 }
 
-func TestComputeStabilityScore_WhenAlternating_ShouldReturn0(t *testing.T) {
-	t.Parallel()
-
-	score := computeStabilityScore([]string{"fix", "test", "fix", "test"})
-	if score != 0 {
-		t.Errorf("score = %d, want 0", score)
-	}
-}
-
-func TestComputeStabilityScore_WhenTooShort_ShouldReturn0(t *testing.T) {
-	t.Parallel()
-
-	cases := [][]string{
-		{},
-		{"fix"},
-	}
-
-	for _, history := range cases {
-		score := computeStabilityScore(history)
-		if score != 0 {
-			t.Errorf("computeStabilityScore(%v) = %d, want 0", history, score)
-		}
-	}
-}
-
-func TestComputeStabilityScore_WhenMixed_ShouldCalculateCorrectly(t *testing.T) {
-	t.Parallel()
-
-	// [fix, fix, fix, test, fix] -> pairs: (fix,fix)✓ (fix,fix)✓ (fix,test)✗ (test,fix)✗ = 2/4 = 50
-	score := computeStabilityScore([]string{"fix", "fix", "fix", "test", "fix"})
-	if score != 50 {
-		t.Errorf("score = %d, want 50", score)
-	}
-}
-
-func TestLikelyTopicChange_WhenQuestionMark_ShouldReturnTrue(t *testing.T) {
-	t.Parallel()
-
-	if !likelyTopicChange("what is this?", nil) {
-		t.Error("expected true for question mark input")
-	}
-}
-
-func TestLikelyTopicChange_WhenTopicShiftKeyword_ShouldReturnTrue(t *testing.T) {
-	t.Parallel()
-
-	keywords := []string{"explain this", "what is it", "how does it work", "why is it", "describe the code", "show me", "tell me", "help me"}
-	for _, kw := range keywords {
-		if !likelyTopicChange(kw, nil) {
-			t.Errorf("expected true for %q", kw)
-		}
-	}
-}
-
-func TestLikelyTopicChange_WhenLengthSpike_ShouldReturnTrue(t *testing.T) {
-	t.Parallel()
-
-	// Average length is 10, input is 40 (4x > 3x threshold)
-	history := []int{10, 10, 10}
-	longInput := strings.Repeat("a", 40)
-	if !likelyTopicChange(longInput, history) {
-		t.Error("expected true for message length spike")
-	}
-}
-
-func TestLikelyTopicChange_WhenNoSignals_ShouldReturnFalse(t *testing.T) {
-	t.Parallel()
-
-	if likelyTopicChange("fix the bug", []int{15, 15, 15}) {
-		t.Error("expected false when no topic change signals")
-	}
-}
-
-func TestSanitizeAtomString_WhenSpecialChars_ShouldSanitize(t *testing.T) {
+// TestNewClassificationClientFromConfig_ExplicitOverride confirms the
+// classification_model config field is honored, including on providers with
+// no built-in fast tier (Z.AI).
+func TestNewClassificationClientFromConfig_ExplicitOverride(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name  string
-		input string
-		want  string
+		provider Provider
+		model    string
 	}{
-		{"spaces_to_underscores", "hello world", "hello_world"},
-		{"dashes_to_underscores", "my-domain", "my_domain"},
-		{"special_chars_removed", "test!@#$%^&*()+=123", "test123"},
-		{"empty_to_unknown", "", "unknown"},
-		{"whitespace_only_to_unknown", "   ", "unknown"},
-		{"mixed_case_lowered", "TestDomain", "testdomain"},
-		{"preserves_underscores", "my_domain_name", "my_domain_name"},
+		{ProviderAnthropic, "claude-haiku-4-5"},
+		{ProviderZAI, "glm-4.5-air"},
+		{ProviderXAI, "grok-3-mini"},
+		{ProviderOpenRouter, "google/gemini-flash"},
 	}
-
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(string(tc.provider), func(t *testing.T) {
 			t.Parallel()
-			got := sanitizeAtomString(tc.input)
-			if got != tc.want {
-				t.Errorf("sanitizeAtomString(%q) = %q, want %q", tc.input, got, tc.want)
+			cfg := &ProviderConfig{
+				Provider:            tc.provider,
+				APIKey:              "test-key",
+				Model:               "some-big-main-model",
+				ClassificationModel: tc.model,
+			}
+			client, err := NewClassificationClientFromConfig(cfg)
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+			if client == nil {
+				t.Fatalf("expected non-nil classification client for %s with explicit classification_model", tc.provider)
+			}
+			type modeled interface{ GetModel() string }
+			if mc, ok := client.(modeled); ok {
+				if got := mc.GetModel(); got != tc.model {
+					t.Errorf("classification model = %q, want %q", got, tc.model)
+				}
 			}
 		})
 	}
@@ -1468,33 +1428,6 @@ func TestUnderstandingTransducer_ResolveFocus_WhenNoCandidates_ShouldReturnRefer
 	}
 	if focus.ConfidencePercent != 30 {
 		t.Errorf("ConfidencePercent = %d, want 30", focus.ConfidencePercent)
-	}
-}
-
-// =============================================================================
-// UNDERSTANDING TRANSDUCER - VERB/CATEGORY HISTORY TESTS
-// =============================================================================
-
-func TestUnderstandingTransducer_UpdateVerbHistory_WhenMaxReached_ShouldTrim(t *testing.T) {
-	tr := &UnderstandingTransducer{}
-	for i := range 10 {
-		tr.updateVerbHistory(fmt.Sprintf("verb_%d", i))
-	}
-	if len(tr.verbHistory) != 5 {
-		t.Errorf("verbHistory length = %d, want 5 (max)", len(tr.verbHistory))
-	}
-	if tr.lastVerb != "verb_9" {
-		t.Errorf("lastVerb = %q, want %q", tr.lastVerb, "verb_9")
-	}
-}
-
-func TestUnderstandingTransducer_UpdateMsgLenHistory_WhenMaxReached_ShouldTrim(t *testing.T) {
-	tr := &UnderstandingTransducer{}
-	for i := range 10 {
-		tr.updateMsgLenHistory(strings.Repeat("a", i*10))
-	}
-	if len(tr.msgLenHistory) != 5 {
-		t.Errorf("msgLenHistory length = %d, want 5 (max)", len(tr.msgLenHistory))
 	}
 }
 

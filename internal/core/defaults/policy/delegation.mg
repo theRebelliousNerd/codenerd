@@ -3,27 +3,40 @@
 
 
 # Section 8: Shard Delegation
+#
+# Every user_intent-driven delegation is guarded by !wants_direct_answer()
+# (policy/routing_arbitration.mg): when the user is asking a QUESTION, the
+# kernel must not derive shard delegations from the same intent — the turn
+# terminates in prose. Without this guard, "what is X?" classified as
+# /research or /analyze spawned researcher/reviewer shards through the
+# handleSystemDelegations path even after routing chose a direct answer.
 
 # Delegate to researcher for init/explore
 delegate_task(/researcher, "Initialize codebase analysis", /pending) :-
-    user_intent(/current_intent, _, /init, _, _).
+    user_intent(/current_intent, _, /init, _, _),
+    !wants_direct_answer().
 
 delegate_task(/researcher, Task, /pending) :-
-    user_intent(/current_intent, _, /research, Task, _).
+    user_intent(/current_intent, _, /research, Task, _),
+    !wants_direct_answer().
 
 delegate_task(/researcher, Task, /pending) :-
-    user_intent(/current_intent, /query, /explore, Task, _).
+    user_intent(/current_intent, /query, /explore, Task, _),
+    !wants_direct_answer().
 
 # Delegate to coder for coding tasks
 delegate_task(/coder, Task, /pending) :-
-    user_intent(/current_intent, /mutation, /implement, Task, _).
+    user_intent(/current_intent, /mutation, /implement, Task, _),
+    !wants_direct_answer().
 
 delegate_task(/coder, Task, /pending) :-
-    user_intent(/current_intent, /mutation, /refactor, Task, _).
+    user_intent(/current_intent, /mutation, /refactor, Task, _),
+    !wants_direct_answer().
 
 # Delegate to tester for test tasks
 delegate_task(/tester, Task, /pending) :-
-    user_intent(/current_intent, _, /test, Task, _).
+    user_intent(/current_intent, _, /test, Task, _),
+    !wants_direct_answer().
 
 delegate_task(/tester, "Generate tests for impacted code", /pending) :-
     impacted(File),
@@ -31,7 +44,8 @@ delegate_task(/tester, "Generate tests for impacted code", /pending) :-
 
 # Delegate to reviewer for review tasks
 delegate_task(/reviewer, Task, /pending) :-
-    user_intent(/current_intent, _, /review, Task, _).
+    user_intent(/current_intent, _, /review, Task, _),
+    !wants_direct_answer().
 
 # Section 10: Tool Capability Mapping & Action Mapping
 
@@ -170,15 +184,26 @@ should_delegate(ShardType) :-
 # in Go). Go's detectMultiStepTask computes the individual signals from the
 # (quote-stripped) input — campaign verb, multi-step keyword match, verb-count
 # >= 3, compound-pattern regex — and asserts one multi_step_signal fact per
-# detected signal. This rule ORs them: the request is multi-step if ANY signal
-# fired, reproducing the legacy boolean exactly. The regex/keyword/verb-count
-# MATCHING itself stays in Go (Mangle is not used for fuzzy/NL pattern banks per
-# the repo guardrails); only the combination DECISION lives here, so policy can
-# later tune it (e.g. require >=2 signals, or admit the LLM perception signal)
-# without a Go change. Go queries is_multi_step and falls back to the legacy
-# boolean if the kernel is unavailable or returns nothing.
+# detected signal. The regex/keyword/verb-count MATCHING itself stays in Go
+# (Mangle is not used for fuzzy/NL pattern banks per the repo guardrails); only
+# the combination DECISION lives here. Go queries is_multi_step and falls back
+# to the legacy boolean if the kernel is unavailable or returns nothing.
+#
+# Tuned (routing reliability): the original rule ORed ALL signals, so a single
+# weak keyword hit ("also", "then ", a numbered list in pasted text) decomposed
+# trivial requests into multi-step shard pipelines. Strong signals (an explicit
+# campaign verb, a compound action pattern like "fix X and test it") decide
+# alone; the weak keyword signal only counts when corroborated by a high verb
+# count.
 is_multi_step() :-
-    multi_step_signal(_).
+    multi_step_signal(/campaign_verb).
+
+is_multi_step() :-
+    multi_step_signal(/compound_pattern).
+
+is_multi_step() :-
+    multi_step_signal(/keyword_match),
+    multi_step_signal(/verb_count_high).
 
 # Derive next_action from intent and mapping
 # Guard: Only derive if intent hasn't been processed by executive (prevents infinite loop)
@@ -198,13 +223,16 @@ next_action(/fs_write) :-
 
 # Review delegation - high confidence triggers immediate delegation
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(/current_intent, _, /review, Target, _).
+    user_intent(/current_intent, _, /review, Target, _),
+    !wants_direct_answer().
 
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(/current_intent, _, /security, Target, _).
+    user_intent(/current_intent, _, /security, Target, _),
+    !wants_direct_answer().
 
 delegate_task(/reviewer, Target, /pending) :-
-    user_intent(/current_intent, _, /analyze, Target, _).
+    user_intent(/current_intent, _, /analyze, Target, _),
+    !wants_direct_answer().
 
 # Tool generator delegation - autopoiesis operations
 delegate_task(/tool_generator, Target, /pending) :-

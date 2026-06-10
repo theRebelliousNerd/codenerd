@@ -58,6 +58,42 @@ func setupRoutingModel(t *testing.T, intent perception.Intent) (Model, *chatLoop
 	return m, tr
 }
 
+// resolveStream pumps the streaming articulation lane to completion. The
+// articulation path returns a streamStartMsg whose goroutine delivers the
+// terminal message on resultChan/errChan; the live TUI pumps these via
+// waitForStreamChunk. Tests must do the same or the model looks "hung"
+// (isLoading=true) when the turn legitimately ended in articulation.
+// Non-stream messages pass through unchanged.
+func resolveStream(t *testing.T, msg tea.Msg, timeout time.Duration) tea.Msg {
+	t.Helper()
+	sm, ok := msg.(streamStartMsg)
+	if !ok {
+		return msg
+	}
+	streamCh := sm.streamChan
+	thoughtsCh := sm.thoughtsChan
+	deadline := time.After(timeout)
+	for {
+		select {
+		case _, open := <-streamCh:
+			if !open {
+				streamCh = nil // disable this select arm
+			}
+		case _, open := <-thoughtsCh:
+			if !open {
+				thoughtsCh = nil
+			}
+		case res := <-sm.resultChan:
+			return res
+		case err := <-sm.errChan:
+			return errorMsg(err)
+		case <-deadline:
+			t.Fatalf("resolveStream: articulation stream did not complete within %v", timeout)
+			return nil
+		}
+	}
+}
+
 // routeInput submits text through the full handleSubmit→processInput→Update
 // pipeline and captures the outcome.
 func routeInput(t *testing.T, m Model, input string) routingOutcome {
@@ -80,6 +116,10 @@ func routeInput(t *testing.T, m Model, input string) routingOutcome {
 	if msg == nil {
 		t.Fatal("processInput returned nil message")
 	}
+
+	// The articulation lane streams; resolve it to its terminal message so the
+	// outcome reflects end-of-turn state, not mid-stream state.
+	msg = resolveStream(t, msg, 15*time.Second)
 
 	// Feed through Update to apply state changes
 	updated, _ := m.Update(msg)
@@ -715,8 +755,11 @@ func TestE2E_TaskRouting_ArbitrationMatrix(t *testing.T) {
 				Category: "/query", Verb: "/dream", Target: "delete auth middleware",
 				Confidence: 0.92, Response: "Hypothetically...",
 			},
-			// dream handler → assistantMsg or errorMsg (infrastructure missing in mock)
-			expectedType:   "delegation",
+			// /dream is always-conversational and the intent carries a ready
+			// surface response, so the pre-perception willConverse fast-path
+			// returns it directly. handleDreamState only runs when perception
+			// produced no usable response.
+			expectedType:   "responseMsg",
 			forbidCampaign: true, forbidClarify: true, forbidSubtasks: true,
 		},
 		{

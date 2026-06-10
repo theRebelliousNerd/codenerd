@@ -323,9 +323,6 @@ func (k *RealKernel) loadMangleFiles() error {
 		// NERD-EVOLVE-START: context_compilation_schemas_c1_c4
 		"schemas_context.mg", // Context Compilation Pipeline (C1+C4)
 		// NERD-EVOLVE-END: context_compilation_schemas_c1_c4
-		// NERD-EVOLVE-START: stability_filter
-		"schemas_perception_latency.mg", // Perception Stability & Bypass (W3)
-		// NERD-EVOLVE-END: stability_filter
 	}
 
 	loadedSchemaBytes := 0

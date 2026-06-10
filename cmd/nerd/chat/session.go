@@ -522,11 +522,30 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			perception.SharedTaxonomy.SetClient(llmClient)
 		}
 
+		// Classification client (P2 model tiering): perception's intent
+		// classification runs on EVERY turn before anything else can happen, so
+		// it gets the provider's fast tier (Haiku / Flash-Lite / 4o-mini, or the
+		// user's classification_model). Falls back to the main client when the
+		// provider has no known fast tier. Previously the TUI never wired this,
+		// so every turn paid a full main-model call just to classify intent.
+		logStep("Configuring classification model tier...")
+		var classificationClient perception.LLMClient
+		if provCfg, provErr := perception.DetectProvider(); provErr == nil {
+			if cc, ccErr := perception.NewClassificationClientFromConfig(provCfg); ccErr == nil && cc != nil {
+				classificationClient = core.NewScheduledLLMCall("classification", cc)
+				logging.Boot("Classification client enabled (fast model tier for perception)")
+			}
+		}
+		perceptionClient := llmClient
+		if classificationClient != nil {
+			perceptionClient = classificationClient
+		}
+
 		// Initialize backend components that depend on the scheduled client.
 		// Use LLM-first UnderstandingTransducer for intent classification.
 		// The LLM describes intent, the harness validates and routes.
 		logStep("Creating LLM-first transducer...")
-		transducer := perception.NewUnderstandingTransducer(llmClient)
+		transducer := perception.NewUnderstandingTransducer(perceptionClient)
 		// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
 		// Previously, InitPerceptionLayer existed but was never wired, leaving semantic intent
 		// classification dormant even when embeddings are configured.
@@ -844,6 +863,12 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			shard := shardsystem.NewPerceptionFirewallShardWithConfig(perceptionCfg)
 			shard.SetParentKernel(kernel)
 			shard.SetLLMClient(llmClient)
+			// Model tiering: classification runs on the fast tier when available
+			// (mirrors the transducer wiring above — the firewall is the primary
+			// perception path on interactive turns).
+			if classificationClient != nil {
+				shard.SetClassificationClient(classificationClient)
+			}
 			if localDB != nil {
 				shard.SetLearningCandidateStore(localDB)
 			}
