@@ -30,9 +30,9 @@ type classifierPattern struct {
 
 // NewErrorClassifier creates a classifier for Mangle compiler errors.
 func NewErrorClassifier() *ErrorClassifier {
-	ec := &ErrorClassifier{}
-	ec.compilePatterns()
-	return ec
+	return &ErrorClassifier{
+		patterns: defaultClassifierPatterns,
+	}
 }
 
 // Classify parses a Mangle error message and returns structured errors.
@@ -90,104 +90,101 @@ func (ec *ErrorClassifier) ClassifyWithContext(errMsg, code string) []Validation
 	return errors
 }
 
-func (ec *ErrorClassifier) compilePatterns() {
-	ec.patterns = []classifierPattern{
-		// Stratification error
-		{
-			regex:    regexp.MustCompile(`(?i)stratification|cyclic.*negation|cannot.*stratif|negative.*cycle`),
-			category: CategoryStratification,
-			msgBuilder: func(matches []string) string {
-				return "Stratification violation: rule creates cyclic negation dependency"
-			},
-			suggestion: "Break the cycle by adding a base case or using a helper predicate without negation",
-			correct:    "losing(X) :- position(X), !has_move(X). has_move(X) :- move(X, _).",
+var defaultClassifierPatterns = []classifierPattern{
+	// Stratification error
+	{
+		regex:    regexp.MustCompile(`(?i)stratification|cyclic.*negation|cannot.*stratif|negative.*cycle`),
+		category: CategoryStratification,
+		msgBuilder: func(matches []string) string {
+			return "Stratification violation: rule creates cyclic negation dependency"
 		},
-		// Undeclared predicate
-		{
-			regex:    regexp.MustCompile(`(?i)undeclared.*predicate|unknown.*predicate|predicate.*not.*declared|no.*declaration.*for`),
-			category: CategoryUndeclaredPredicate,
-			msgBuilder: func(matches []string) string {
-				return "Undeclared predicate: predicate used but not declared in schemas"
-			},
-			suggestion: "Use only predicates declared in schemas, or add a Decl statement",
+		suggestion: "Break the cycle by adding a base case or using a helper predicate without negation",
+		correct:    "losing(X) :- position(X), !has_move(X). has_move(X) :- move(X, _).",
+	},
+	// Undeclared predicate
+	{
+		regex:    regexp.MustCompile(`(?i)undeclared.*predicate|unknown.*predicate|predicate.*not.*declared|no.*declaration.*for`),
+		category: CategoryUndeclaredPredicate,
+		msgBuilder: func(matches []string) string {
+			return "Undeclared predicate: predicate used but not declared in schemas"
 		},
-		// Parse error with line:col format
-		{
-			regex:    regexp.MustCompile(`(\d+):(\d+)\s*(?:parse error|syntax error|no viable alternative|expected|mismatched input|token recognition error)`),
-			category: CategoryParse,
-			msgBuilder: func(matches []string) string {
-				return "Parse error at line " + matches[1] + ", column " + matches[2]
-			},
-			suggestion: "Check syntax near the indicated position - common issues: missing period, unbalanced parentheses, invalid characters",
+		suggestion: "Use only predicates declared in schemas, or add a Decl statement",
+	},
+	// Parse error with line:col format
+	{
+		regex:    regexp.MustCompile(`(\d+):(\d+)\s*(?:parse error|syntax error|no viable alternative|expected|mismatched input|token recognition error)`),
+		category: CategoryParse,
+		msgBuilder: func(matches []string) string {
+			return "Parse error at line " + matches[1] + ", column " + matches[2]
 		},
-		// Expected base term
-		{
-			regex:    regexp.MustCompile(`expected base term got ([a-z_]+)\(`),
-			category: CategorySyntax,
-			msgBuilder: func(matches []string) string {
-				return "Unexpected predicate call where base term expected: " + matches[1]
-			},
-			suggestion: "A base term (variable, constant, or atom) was expected, not a predicate call",
+		suggestion: "Check syntax near the indicated position - common issues: missing period, unbalanced parentheses, invalid characters",
+	},
+	// Expected base term
+	{
+		regex:    regexp.MustCompile(`expected base term got ([a-z_]+)\(`),
+		category: CategorySyntax,
+		msgBuilder: func(matches []string) string {
+			return "Unexpected predicate call where base term expected: " + matches[1]
 		},
-		// Token recognition error (often backslash issues)
-		{
-			regex:    regexp.MustCompile(`token recognition error at: '([^']*)'`),
-			category: CategorySyntax,
-			msgBuilder: func(matches []string) string {
-				return "Unrecognized token: " + matches[1]
-			},
-			suggestion: "Check for invalid characters or escape sequences (e.g., \\+ should be !)",
+		suggestion: "A base term (variable, constant, or atom) was expected, not a predicate call",
+	},
+	// Token recognition error (often backslash issues)
+	{
+		regex:    regexp.MustCompile(`token recognition error at: '([^']*)'`),
+		category: CategorySyntax,
+		msgBuilder: func(matches []string) string {
+			return "Unrecognized token: " + matches[1]
 		},
-		// No viable alternative
-		{
-			regex:    regexp.MustCompile(`no viable alternative at input '([^']*)'`),
-			category: CategoryParse,
-			msgBuilder: func(matches []string) string {
-				return "Parser couldn't process: " + matches[1]
-			},
-			suggestion: "Check syntax around this text - ensure proper Mangle grammar",
+		suggestion: "Check for invalid characters or escape sequences (e.g., \\+ should be !)",
+	},
+	// No viable alternative
+	{
+		regex:    regexp.MustCompile(`no viable alternative at input '([^']*)'`),
+		category: CategoryParse,
+		msgBuilder: func(matches []string) string {
+			return "Parser couldn't process: " + matches[1]
 		},
-		// Mismatched input
-		{
-			regex:    regexp.MustCompile(`mismatched input '([^']*)' expecting '([^']*)'`),
-			category: CategorySyntax,
-			msgBuilder: func(matches []string) string {
-				return "Found '" + matches[1] + "' but expected '" + matches[2] + "'"
-			},
-			suggestion: "Replace the mismatched token with the expected one",
+		suggestion: "Check syntax around this text - ensure proper Mangle grammar",
+	},
+	// Mismatched input
+	{
+		regex:    regexp.MustCompile(`mismatched input '([^']*)' expecting '([^']*)'`),
+		category: CategorySyntax,
+		msgBuilder: func(matches []string) string {
+			return "Found '" + matches[1] + "' but expected '" + matches[2] + "'"
 		},
-		// Safety violation (variable binding)
-		{
-			regex:    regexp.MustCompile(`(?i)unsafe.*variable|variable.*not.*bound|unbound.*variable`),
-			category: CategoryUnboundNegation,
-			msgBuilder: func(matches []string) string {
-				return "Unsafe variable: variable appears in head or negation but not bound in positive body"
-			},
-			suggestion: "Ensure all variables in the head appear in at least one positive body predicate",
-			correct:    "safe(X) :- source(X), !blocked(X)",
+		suggestion: "Replace the mismatched token with the expected one",
+	},
+	// Safety violation (variable binding)
+	{
+		regex:    regexp.MustCompile(`(?i)unsafe.*variable|variable.*not.*bound|unbound.*variable`),
+		category: CategoryUnboundNegation,
+		msgBuilder: func(matches []string) string {
+			return "Unsafe variable: variable appears in head or negation but not bound in positive body"
 		},
-		// Type mismatch
-		{
-			regex:    regexp.MustCompile(`(?i)type.*mismatch|incompatible.*types|expected.*type.*got`),
-			category: CategoryTypeMismatch,
-			msgBuilder: func(matches []string) string {
-				return "Type mismatch in predicate arguments"
-			},
-			suggestion: "Check argument types match the predicate declaration (atom vs string, int vs float)",
+		suggestion: "Ensure all variables in the head appear in at least one positive body predicate",
+		correct:    "safe(X) :- source(X), !blocked(X)",
+	},
+	// Type mismatch
+	{
+		regex:    regexp.MustCompile(`(?i)type.*mismatch|incompatible.*types|expected.*type.*got`),
+		category: CategoryTypeMismatch,
+		msgBuilder: func(matches []string) string {
+			return "Type mismatch in predicate arguments"
 		},
-		// Arity mismatch
-		{
-			regex:    regexp.MustCompile(`(?i)arity.*mismatch|wrong.*number.*arguments|expected.*\d+.*arguments`),
-			category: CategorySyntax,
-			msgBuilder: func(matches []string) string {
-				return "Wrong number of arguments to predicate"
-			},
-			suggestion: "Check the predicate declaration for correct arity",
+		suggestion: "Check argument types match the predicate declaration (atom vs string, int vs float)",
+	},
+	// Arity mismatch
+	{
+		regex:    regexp.MustCompile(`(?i)arity.*mismatch|wrong.*number.*arguments|expected.*\d+.*arguments`),
+		category: CategorySyntax,
+		msgBuilder: func(matches []string) string {
+			return "Wrong number of arguments to predicate"
 		},
-	}
+		suggestion: "Check the predicate declaration for correct arity",
+	},
 }
 
-// extractLineCol attempts to extract line and column numbers from an error message.
 func extractLineCol(errMsg string) (line, col int) {
 	// Pattern: "123:45" at start or after space
 	matches := lineColPattern.FindStringSubmatch(errMsg)
