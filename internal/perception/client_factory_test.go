@@ -11,6 +11,9 @@ import (
 // TODO: TEST_GAP: [Type Coercion] Testing behavior when string inputs simulate invalid or partially formed integer configurations implicitly mapped by upstream config loaders.
 // TODO: TEST_GAP: [User Request Extremes] Testing massive strings for models or keys in `NewClientFromConfig` and massive strings in `providerKeyFieldName`.
 // TODO: TEST_GAP: [State Conflicts] Testing concurrency behavior of reading env variables while they are modified by other tests/goroutines (though Go limits os.Setenv concurrency safety natively, the package logic still lacks assertions for TOC/TOU or env reset behavior).
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify fallback behavior when APIKey is an empty string for providers that require authentication.
+// TODO: TEST_GAP: [Type Coercion] Verify handling of unexpected casing (e.g., "AnThroPic") or padding in the Provider string to ensure correct provider resolution.
+// TODO: TEST_GAP: [State Conflicts] Verify thread safety of NewClientFromConfig if invoked concurrently with shared ProviderConfig pointers that might be mutated elsewhere.
 
 func TestNewClientFromConfig_Engines(t *testing.T) {
 	// 1. Claude CLI
