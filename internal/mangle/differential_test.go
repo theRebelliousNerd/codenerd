@@ -265,3 +265,26 @@ func TestNewKnowledgeGraph(t *testing.T) {
 		t.Error("Expected KnowledgeGraph.isFrozen to be false by default")
 	}
 }
+
+// =============================================================================
+// Boundary Analysis Coverage (QA 2026-06-01 mangle_differential_boundary_analysis)
+// =============================================================================
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify empty query string to Query() returns typed error instead of crashing/panicking.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify fully bound query (no variables) correctly returns an empty slice or single empty binding.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify calling AddFactIncremental with an empty Predicate or nil/empty Args slice gracefully errors.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify DifferentialEngine gracefully handles being instantiated on a baseEngine with a fully empty schema.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify virtual predicate lazy loaders handle being passed an empty string key without repeated failing I/O.
+// TODO: TEST_GAP: [Type Coercion] Verify Go strings passed via AddFactIncremental correctly map to Mangle Name/Atom vs String per schema without silent mismatches.
+// TODO: TEST_GAP: [Type Coercion] Verify passing unsupported Go types (like slices or maps) into Fact.Args results in ErrUnsupportedType and not a panic.
+// TODO: TEST_GAP: [Type Coercion] Verify numeric boundary overflows (like massive float64) are caught during AddFactIncremental if Mangle expects ints.
+// TODO: TEST_GAP: [Type Coercion] Verify conflicting declarations between the base schema and incremental additions are caught or handled without panicking.
+// TODO: TEST_GAP: [User Request Extremes] Verify deep graph recursion or infinite loops are halted successfully via context cancellation without leaking goroutines.
+// TODO: TEST_GAP: [User Request Extremes] Verify context cancellation on a query with thousands of results successfully aborts and reaps the background goroutine.
+// TODO: TEST_GAP: [User Request Extremes] Verify performance/memory impact of adding 500,000 incremental facts via sequential AddFactIncremental calls.
+// TODO: TEST_GAP: [User Request Extremes] Verify snapshotting 5,000 times does not lead to OOM due to unintended deep copies of the overlay store.
+// TODO: TEST_GAP: [User Request Extremes] Verify loading massive virtual files (e.g. 2GB) correctly enforces limits and doesn't crash the orchestrator.
+// TODO: TEST_GAP: [State Conflicts] Verify data race safety when multiple goroutines concurrently call AddFactIncremental on the same DifferentialEngine.
+// TODO: TEST_GAP: [State Conflicts] Verify race condition safety if Snapshot() is called exactly while an AddFactIncremental is partially mutating the overlay store.
+// TODO: TEST_GAP: [State Conflicts] Verify ChainedFactStore iteration safety during a Query if another goroutine concurrently modifies the overlay store.
+// TODO: TEST_GAP: [State Conflicts] Verify consequences and prevention of modifying the immutable baseEngine directly after it has been wrapped by DifferentialEngine.
