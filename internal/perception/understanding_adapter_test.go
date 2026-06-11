@@ -355,15 +355,6 @@ func TestUnderstandingTransducer_ParseIntent_LargeInput(t *testing.T) {
 	}
 }
 
-// TEST_GAP_EXTREME_02: AssertStabilityFacts_NovelDomain
-func TestUnderstandingTransducer_AssertStabilityFacts_NovelDomain(t *testing.T) {
-	// sanitizeAtomString testing implicitly through assertStabilityFacts
-	res := sanitizeAtomString("Blargh Code! \n  Yes")
-	if res != "blargh_code___yes" {
-		t.Errorf("Sanitize failed: got %q", res)
-	}
-}
-
 // TEST_GAP_CONCURRENCY: Concurrency
 func TestUnderstandingTransducer_Concurrency(t *testing.T) {
 	mockClient := &mockLLMClientUT{

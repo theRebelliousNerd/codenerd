@@ -4,19 +4,19 @@
 // # File Index
 //
 // Input Processing:
-//   - process.go            - Main processInput(), processInputWithKnowledge(), seed functions
+//   - process.go            - Main processInput(), seed functions
 //
 // Dream State:
 //   - process_dream.go      - handleDreamState(), formatDreamStateResponse(), system delegation
 //
-// Follow-Up Detection:
-//   - process_follow_up.go  - detectFollowUpQuestion(), handleFollowUpQuestion(), formatFinding()
+// Conversation Helpers:
+//   - process_follow_up.go  - getRecentTurns(), createAgentFromPrompt()
 //
 // Continuation Protocol:
 //   - process_continuation.go - checkContinuation(), executeSubtask(), isMutationOperation()
 //
 // Knowledge Handling:
-//   - process_knowledge.go  - handleKnowledgeRequests(), matchSpecialistForQuery()
+//   - process_knowledge.go  - handleKnowledgeRequests(), synthesizeWithKnowledge(), matchSpecialistForQuery()
 //
 // Background Sync:
 //   - process_sync.go       - checkWorkspaceSync()
@@ -115,20 +115,15 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		// =====================================================================
-		// 0. FOLLOW-UP DETECTION (Pre-Perception)
-		// =====================================================================
-		// Check if this is a follow-up question about the last shard result.
-		// This must happen BEFORE perception to inject proper context.
-		followUpStart := time.Now()
-		isFollowUp, followUpType := detectFollowUpQuestion(input, m.lastShardResult)
-		if isFollowUp && m.lastShardResult != nil {
-			logging.Routing("[processInput] follow-up detected (%s): %dms, bypassing perception",
-				followUpType, time.Since(followUpStart).Milliseconds())
-			// Handle follow-up directly with conversation context
-			return m.handleFollowUpQuestion(ctx, input, followUpType)
-		}
-		logging.Routing("[processInput] follow-up check: %dms (not a follow-up)", time.Since(followUpStart).Milliseconds())
+		// NOTE: the pre-perception follow-up substring detector that used to
+		// live here was removed deliberately. It hijacked any input containing
+		// "what is the"/"that"/"this" whenever a shard had run earlier in the
+		// session, answering about the LAST SHARD RESULT instead of the actual
+		// question — identical inputs routed differently depending on hidden
+		// state. Follow-ups now flow through perception (which sees the
+		// conversation history) and the articulation path (which carries
+		// lastShardResult in ConversationContext), so they still work — through
+		// the same single pipeline as everything else.
 
 		// =====================================================================
 		// 0.5 FAST-PATH GREETING DETECTION (Pre-Perception)
@@ -281,6 +276,9 @@ func (m Model) processInput(input string) tea.Cmd {
 					tx.Retract("delegate_task")
 					tx.Retract("trace_recall_result")
 					tx.Retract("learning_recall_result")
+					tx.Retract("delegation_candidate")
+					tx.Retract("multi_step_signal")
+					tx.Retract("intent_signal")
 					tx.Retract("current_understanding")
 					tx.Retract("llm_suggested_mode")
 					tx.Retract("candidate_mode")
@@ -332,6 +330,9 @@ func (m Model) processInput(input string) tea.Cmd {
 			_ = m.kernel.Retract("delegation_candidate")
 			// Step 5: clear the prior turn's multi-step signals.
 			_ = m.kernel.Retract("multi_step_signal")
+			// Routing arbitration: clear the prior turn's perception signals so
+			// a stale /is_question cannot flip this turn's route_decision.
+			_ = m.kernel.Retract("intent_signal")
 
 			// NERD-EVOLVE-START: P3_routing_assertion
 			// Retract per-turn perception routing facts so stale values from the
@@ -441,9 +442,32 @@ func (m Model) processInput(input string) tea.Cmd {
 			return cmd()
 		}
 
+		// =====================================================================
+		// 1.3.5 ROUTING ARBITRATION (Kernel) — the single DECIDE point
+		// =====================================================================
+		// The kernel derives exactly one lane for this turn
+		// (policy/routing_arbitration.mg): respond_directly, clarify,
+		// multi_step, or delegate. Questions and conversation terminate in
+		// prose — no clarifier shards, no decomposition, no delegation, no
+		// autopoiesis analysis. RouteLegacy (kernel unavailable/no opinion)
+		// preserves the legacy Go gates below.
+		route := m.decideRoute(input, intent, shardType)
+		answerDirectly := route.Kind == RouteRespondDirectly
+		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
+			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
+		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
+			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				Timestamp: time.Now(),
+				Category:  transparency.CategoryKernel,
+				Summary:   fmt.Sprintf("Route: %s (verb=%s, question=%v)", route.Kind, intent.Verb, intent.IsQuestion),
+				Details:   "Kernel routing arbitration (route_decision/2, policy/routing_arbitration.mg)",
+				TurnID:    m.turnCount,
+			})
+		}
+
 		// 1.4 AUTO-CLARIFICATION: If the request looks like a campaign/plan ask, run the clarifier shard
 		logging.Routing("[processInput] DECIDE phase starting at %dms", time.Since(oodaStart).Milliseconds())
-		if m.shouldAutoClarify(&intent, input) {
+		if !answerDirectly && m.shouldAutoClarify(&intent, input) {
 			logging.Routing("[processInput] DECIDE: auto-clarify triggered")
 			m.ReportStatus("Clarifier: generating questions...")
 			if res, err := m.runClarifierShard(ctx, input); err == nil && res != "" {
@@ -466,7 +490,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4.1 GENERAL CLARIFICATION: Guard ambiguous intents before delegation.
-		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok {
+		if question, options, ok := m.shouldClarifyFromKernel(&intent, input); ok && !answerDirectly {
 			return clarificationMsg{
 				Question:      question,
 				Options:       options,
@@ -476,7 +500,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.4.2 FALLBACK CLARIFICATION: Heuristic-only check if kernel has no question.
-		if m.shouldClarifyIntent(&intent, input) {
+		if !answerDirectly && m.shouldClarifyIntent(&intent, input) {
 			logging.Routing("[processInput] DECIDE: fallback clarification triggered | verb=%s target=%q confidence=%.2f isConversational=%v | REASON: actionable intent with low confidence or missing target",
 				intent.Verb, intent.Target, intent.Confidence, isConversationalIntent(intent))
 			m.ReportStatus("Clarifier: resolving ambiguity...")
@@ -493,8 +517,16 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.5 MULTI-STEP TASK DETECTION: Check if task requires multiple steps
-		// This implements autonomous multi-step execution without campaigns
-		isMultiStep := m.detectMultiStepTask(input, intent)
+		// This implements autonomous multi-step execution without campaigns.
+		// The kernel's route decision is authoritative; the legacy detector
+		// only runs when the kernel had no opinion.
+		isMultiStep := false
+		switch route.Kind {
+		case RouteMultiStep:
+			isMultiStep = true
+		case RouteLegacy:
+			isMultiStep = m.detectMultiStepTask(input, intent)
+		}
 		if isMultiStep {
 			m.ReportStatus("Multi-step: decomposing task...")
 			steps := decomposeTask(input, intent, m.workspace)
@@ -528,7 +560,11 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 		}
 
-		if m.shouldDelegate(shardType, intent.Confidence) {
+		delegateNow := route.Kind == RouteDelegate
+		if route.Kind == RouteLegacy {
+			delegateNow = m.shouldDelegate(shardType, intent.Confidence)
+		}
+		if delegateNow {
 			needsWsScan := m.needsWorkspaceScanForDelegation(intent)
 			logging.Routing("[processInput] ACT: delegating | shard=%s verb=%s target=%q confidence=%.2f | needsWorkspaceScan=%v alreadyScanned=%v | elapsed=%dms",
 				shardType, intent.Verb, intent.Target, intent.Confidence, needsWsScan, workspaceScanned, time.Since(oodaStart).Milliseconds())
@@ -543,8 +579,12 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Build session context for shard injection (Blackboard Pattern)
 			sessionCtx := m.buildSessionContext(ctx)
 
-			// Use verification loop if available (quality-enforcing retry)
-			if m.verifier != nil {
+			// Use verification loop if available (quality-enforcing retry).
+			// Scoped to MUTATIONS: each verification attempt re-runs the shard
+			// plus an extra LLM verification call (up to 3x), which is worth it
+			// when code was written but a pure latency amplifier for read-only
+			// query work (reviews, analyses, benchmarks).
+			if m.verifier != nil && shouldVerifyDelegation(intent) {
 				// Set session context for verification persistence
 				m.verifier.SetSessionContext(m.sessionID, m.turnCount)
 
@@ -743,8 +783,10 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 1.8 AUTOPOIESIS CHECK: Analyze for complexity, persistence, and tool needs
-		// This implements §8.3: Self-modification capabilities
-		if m.autopoiesis != nil {
+		// This implements §8.3: Self-modification capabilities.
+		// Skipped for direct-answer turns: a question never warrants campaign
+		// suggestions or clarifier shard spawns.
+		if m.autopoiesis != nil && !answerDirectly {
 			autoResult := m.autopoiesis.QuickAnalyze(ctx, input, intent.Target)
 
 			// Auto-trigger campaign for complex tasks
@@ -930,8 +972,13 @@ func (m Model) processInput(input string) tea.Cmd {
 		}
 
 		// 4.5 SYSTEM ACTION HANDLING: Surface kernel-driven delegations and execution results.
-		if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
-			return msg
+		// Skipped for direct-answer turns: delegate_task cannot derive for them
+		// (wants_direct_answer guard in delegation.mg) and the handler's
+		// result-poll would add up to 1.2s of dead wait before articulation.
+		if !answerDirectly {
+			if msg := m.handleSystemDelegations(ctx, input, intent, baseRoutingCount, baseExecCount); msg != nil {
+				return msg
+			}
 		}
 
 		// 5. CONTEXT SELECTION (Spreading Activation)
@@ -1049,7 +1096,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			}
 
 			// KNOWLEDGE REQUEST HANDLING
-			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge && len(m.pendingKnowledge) == 0 {
+			// The gathered results are synthesized into a final answer with one
+			// follow-up LLM call (see knowledgeGatheredMsg in model_update.go) —
+			// the pipeline is never re-entered, so a knowledge round cannot loop.
+			// The old `len(m.pendingKnowledge) == 0` guard is gone with it: it
+			// silently disabled knowledge gathering for the whole session after
+			// its first use (pendingKnowledge was never cleared).
+			if len(artOutput.KnowledgeRequests) > 0 && !m.awaitingKnowledge {
 				logging.Get(logging.CategoryContext).Info(
 					"LLM requested knowledge: %d specialists to consult",
 					len(artOutput.KnowledgeRequests),
@@ -1181,40 +1234,6 @@ func (m Model) processInput(input string) tea.Cmd {
 			resultChan:   resultChan,
 			errChan:      errChan,
 		}
-	}
-}
-
-// processInputWithKnowledge re-processes input after knowledge gathering.
-// The gathered knowledge is already stored in m.pendingKnowledge and will be
-// injected into SessionContext by buildSessionContext(), making it available
-// to the articulation layer for synthesizing an informed response.
-func (m Model) processInputWithKnowledge(input string) tea.Cmd {
-	return func() tea.Msg {
-		// Add context about gathered knowledge to the input
-		var knowledgeSummary strings.Builder
-		if len(m.pendingKnowledge) > 0 {
-			knowledgeSummary.WriteString("\n\n---\n**Gathered Knowledge from Specialists:**\n\n")
-			for _, kr := range m.pendingKnowledge {
-				if kr.Error == nil && kr.Response != "" {
-					knowledgeSummary.WriteString(fmt.Sprintf("### From %s\n", kr.Specialist))
-					knowledgeSummary.WriteString(fmt.Sprintf("**Query:** %s\n\n", kr.Query))
-					knowledgeSummary.WriteString(kr.Response)
-					knowledgeSummary.WriteString("\n\n")
-				}
-			}
-			knowledgeSummary.WriteString("---\n\n")
-			knowledgeSummary.WriteString("When responding:\n")
-			knowledgeSummary.WriteString("1. Provide a short **Knowledge Summary** section that synthesizes the gathered specialist responses.\n")
-			knowledgeSummary.WriteString("2. Then answer the user's question.\n")
-		}
-
-		// Augment the input with gathered knowledge context
-		enrichedInput := input + knowledgeSummary.String()
-
-		// Re-run the full processing pipeline with enriched context
-		// processInput will detect that pendingKnowledge is non-empty and
-		// skip further knowledge gathering (preventing infinite loops)
-		return m.processInput(enrichedInput)()
 	}
 }
 

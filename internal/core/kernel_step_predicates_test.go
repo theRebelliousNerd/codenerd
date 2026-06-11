@@ -97,46 +97,43 @@ func TestStep4_ShouldDelegate_BindsShardType(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Step 5: is_multi_step/0 — ORs multi_step_signal/1 (fires iff any signal)
+// Step 5: is_multi_step/0 — strong signals decide alone; the weak keyword
+// signal needs corroboration (keyword_match AND verb_count_high). The original
+// OR-everything rule decomposed trivial requests on a single "also"/"then "
+// substring hit; this table pins the tightened contract.
 // -----------------------------------------------------------------------------
 
-func TestStep5_IsMultiStep_OrsSignals(t *testing.T) {
-	t.Run("no_signal_not_derived", func(t *testing.T) {
-		k := setupMockKernel(t)
-		// Positive control is the sibling subtest below: with the SAME kernel
-		// setup minus any signal, is_multi_step must stay false.
-		if queryDerived(t, k, "is_multi_step") {
-			t.Error("is_multi_step derived with zero multi_step_signal facts")
-		}
-	})
+func TestStep5_IsMultiStep_SignalCombination(t *testing.T) {
+	cases := []struct {
+		name      string
+		signals   []string
+		wantDeriv bool
+	}{
+		{"no_signal_not_derived", nil, false},
+		{"campaign_verb_alone_derives", []string{"/campaign_verb"}, true},
+		{"compound_pattern_alone_derives", []string{"/compound_pattern"}, true},
+		{"weak_keyword_alone_not_derived", []string{"/keyword_match"}, false},
+		{"verb_count_alone_not_derived", []string{"/verb_count_high"}, false},
+		{"keyword_plus_verb_count_derives", []string{"/keyword_match", "/verb_count_high"}, true},
+		{"all_signals_derive", []string{"/campaign_verb", "/verb_count_high", "/compound_pattern", "/keyword_match"}, true},
+	}
 
-	t.Run("one_signal_derived", func(t *testing.T) {
-		k := setupMockKernel(t)
-		if err := k.Assert(Fact{
-			Predicate: "multi_step_signal",
-			Args:      []any{types.MangleAtom("/keyword_match")},
-		}); err != nil {
-			t.Fatalf("assert multi_step_signal failed: %v", err)
-		}
-		if !queryDerived(t, k, "is_multi_step") {
-			t.Error("is_multi_step not derived with one multi_step_signal present")
-		}
-	})
-
-	t.Run("multiple_signals_still_derived", func(t *testing.T) {
-		k := setupMockKernel(t)
-		for _, sig := range []string{"/campaign_verb", "/verb_count_high", "/compound_pattern"} {
-			if err := k.Assert(Fact{
-				Predicate: "multi_step_signal",
-				Args:      []any{types.MangleAtom(sig)},
-			}); err != nil {
-				t.Fatalf("assert multi_step_signal %s failed: %v", sig, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := setupMockKernel(t)
+			for _, sig := range tc.signals {
+				if err := k.Assert(Fact{
+					Predicate: "multi_step_signal",
+					Args:      []any{types.MangleAtom(sig)},
+				}); err != nil {
+					t.Fatalf("assert multi_step_signal %s failed: %v", sig, err)
+				}
 			}
-		}
-		if !queryDerived(t, k, "is_multi_step") {
-			t.Error("is_multi_step not derived with multiple signals present")
-		}
-	})
+			if got := queryDerived(t, k, "is_multi_step"); got != tc.wantDeriv {
+				t.Errorf("is_multi_step derived=%v, want %v (signals=%v)", got, tc.wantDeriv, tc.signals)
+			}
+		})
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -292,6 +289,136 @@ func TestValidation_UnresolvedFailure_ExcludesEscalated(t *testing.T) {
 		mustAssert(t, k, "action_escalated", "r-2", types.MangleAtom("/max_retries"), int64(1))
 		if queryDerived(t, k, "unresolved_failure(r-2)") {
 			t.Error("unresolved_failure derived for an ESCALATED failure (should be excluded; escalation-negation regression)")
+		}
+	})
+}
+
+// -----------------------------------------------------------------------------
+// Routing Arbitration: route_decision/2 — the single DECIDE point per turn
+// (policy/routing_arbitration.mg). EDB mirrors production exactly:
+//   user_intent(/current_intent, Category, Verb, Target, Constraint)
+//   intent_signal(/is_question)
+//   delegation_candidate(/current_intent, Shard, Conf)
+//   multi_step_signal(Signal)
+// -----------------------------------------------------------------------------
+
+// assertIntent asserts a production-shaped user_intent fact.
+func assertIntent(t *testing.T, k *RealKernel, category, verb, target string) {
+	t.Helper()
+	mustAssert(t, k, "user_intent",
+		"/current_intent",
+		types.MangleAtom(category),
+		types.MangleAtom(verb),
+		target,
+		"none",
+	)
+}
+
+// TestRouting_QuestionAnswersDirectly is the headline regression: "what is the
+// JIT system?" — a /query question that perception may classify as /explain,
+// /analyze, or /research — must terminate in prose, never in shard delegation.
+func TestRouting_QuestionAnswersDirectly(t *testing.T) {
+	for _, verb := range []string{"/explain", "/analyze", "/research", "/explore"} {
+		t.Run(verb, func(t *testing.T) {
+			k := setupMockKernel(t)
+			assertIntent(t, k, "/query", verb, "jit system")
+			mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
+			// High-confidence shard candidate exists (the old behavior would delegate).
+			mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/reviewer"), int64(88))
+
+			if !queryDerived(t, k, "route_decision(/respond_directly, /none)") {
+				t.Error("route_decision(/respond_directly) not derived for a question")
+			}
+			if queryDerived(t, k, "route_decision(/delegate, /reviewer)") {
+				t.Error("route_decision(/delegate) derived for a question — the 20-minute-question bug is back")
+			}
+			// The kernel-side delegation path must be suppressed too: without
+			// this, handleSystemDelegations spawns shards from delegate_task even
+			// after routing chose a direct answer.
+			if queryDerived(t, k, "delegate_task") {
+				t.Error("delegate_task derived for a question (system delegation leak)")
+			}
+		})
+	}
+}
+
+// TestRouting_ConversationalVerbsAlwaysDirect: greetings/help answer directly
+// even without the is_question signal.
+func TestRouting_ConversationalVerbsAlwaysDirect(t *testing.T) {
+	for _, verb := range []string{"/greet", "/converse", "/help", "/knowledge", "/explain"} {
+		t.Run(verb, func(t *testing.T) {
+			k := setupMockKernel(t)
+			assertIntent(t, k, "/query", verb, "none")
+			if !queryDerived(t, k, "route_decision(/respond_directly, /none)") {
+				t.Errorf("route_decision(/respond_directly) not derived for conversational verb %s", verb)
+			}
+		})
+	}
+}
+
+// TestRouting_WorkhorseQuestionStillDelegates: "can you review my code?" is an
+// action request despite the question phrasing — workhorse verbs delegate.
+func TestRouting_WorkhorseQuestionStillDelegates(t *testing.T) {
+	k := setupMockKernel(t)
+	assertIntent(t, k, "/query", "/review", "internal/core/kernel.go")
+	mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
+	mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/reviewer"), int64(88))
+
+	if queryDerived(t, k, "route_decision(/respond_directly, /none)") {
+		t.Error("respond_directly derived for a workhorse verb — reviews would stop running")
+	}
+	if !queryDerived(t, k, "route_decision(/delegate, /reviewer)") {
+		t.Error("route_decision(/delegate, /reviewer) not derived for high-confidence /review")
+	}
+}
+
+// TestRouting_MutationLanes: delegation for confident mutations, clarification
+// for uncertain ones, decomposition for multi-step ones.
+func TestRouting_MutationLanes(t *testing.T) {
+	t.Run("confident_mutation_delegates", func(t *testing.T) {
+		k := setupMockKernel(t)
+		assertIntent(t, k, "/mutation", "/fix", "README.md")
+		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(93))
+		if !queryDerived(t, k, "route_decision(/delegate, /coder)") {
+			t.Error("route_decision(/delegate, /coder) not derived for confident /fix")
+		}
+		if queryDerived(t, k, "route_decision(/clarify, /none)") {
+			t.Error("clarify wrongly derived for confident mutation")
+		}
+	})
+
+	t.Run("uncertain_mutation_clarifies", func(t *testing.T) {
+		k := setupMockKernel(t)
+		assertIntent(t, k, "/mutation", "/fix", "none")
+		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(40))
+		if !queryDerived(t, k, "route_decision(/clarify, /none)") {
+			t.Error("route_decision(/clarify) not derived for low-confidence mutation")
+		}
+		if queryDerived(t, k, "route_decision(/delegate, /coder)") {
+			t.Error("delegate wrongly derived below the confidence gate")
+		}
+	})
+
+	t.Run("multi_step_mutation_decomposes", func(t *testing.T) {
+		k := setupMockKernel(t)
+		assertIntent(t, k, "/mutation", "/create", "auth middleware")
+		mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+		mustAssert(t, k, "delegation_candidate", "/current_intent", types.MangleAtom("/coder"), int64(95))
+		if !queryDerived(t, k, "route_decision(/multi_step, /none)") {
+			t.Error("route_decision(/multi_step) not derived for compound mutation")
+		}
+	})
+
+	t.Run("multi_step_question_does_not_decompose", func(t *testing.T) {
+		k := setupMockKernel(t)
+		assertIntent(t, k, "/query", "/explain", "the kernel and the JIT")
+		mustAssert(t, k, "intent_signal", types.MangleAtom("/is_question"))
+		mustAssert(t, k, "multi_step_signal", types.MangleAtom("/compound_pattern"))
+		if queryDerived(t, k, "route_decision(/multi_step, /none)") {
+			t.Error("multi_step derived for a question — questions answer in one pass")
+		}
+		if !queryDerived(t, k, "route_decision(/respond_directly, /none)") {
+			t.Error("respond_directly not derived for multi-part question")
 		}
 	})
 }

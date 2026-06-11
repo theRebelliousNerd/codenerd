@@ -330,6 +330,14 @@ type Intent struct {
 	// carrier for the ErrLLMUnavailable signal across the nil-error contract of
 	// ParseIntentWithContext / ParseIntentWithGCD.
 	TransientFailure bool
+
+	// IsQuestion is true when the user is asking a question (wants an answer)
+	// rather than requesting an action (wants work done). Carried from the
+	// Understanding signals so routing arbitration can send questions to a
+	// direct answer instead of shard delegation. "Can you review my code?" is
+	// a request for action (false); "what is the JIT system?" is a question
+	// (true).
+	IsQuestion bool
 }
 
 // ConversationTurn represents a single turn in conversation history.

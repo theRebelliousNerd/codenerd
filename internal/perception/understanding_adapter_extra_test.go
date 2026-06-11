@@ -37,7 +37,7 @@ func TestUnderstandingTransducer_SettersAndGetters(t *testing.T) {
 	// SetKernel
 	kernel := &core.RealKernel{}
 	tr.SetKernel(kernel)
-	if tr.rawKernel != kernel {
+	if tr.kernel == nil {
 		t.Errorf("SetKernel failed")
 	}
 
@@ -50,53 +50,41 @@ func TestUnderstandingTransducer_SettersAndGetters(t *testing.T) {
 	}
 }
 
-func TestUnderstandingTransducer_likelyTopicChange(t *testing.T) {
-	// Signal 1: Question marks
-	if !likelyTopicChange("what is this?", nil) {
-		t.Errorf("expected true for question mark")
+// TestUnderstandingTransducer_IsQuestionMapping guards the IsQuestion carrier:
+// the routing arbitration policy depends on this signal to send questions to a
+// direct answer instead of shard delegation.
+func TestUnderstandingTransducer_IsQuestionMapping(t *testing.T) {
+	tr := &UnderstandingTransducer{}
+
+	// Explicit signal wins.
+	u := &Understanding{
+		ActionType:   "investigate",
+		SemanticType: "state",
+		Signals:      Signals{IsQuestion: true},
+	}
+	if intent := tr.understandingToIntent(u); !intent.IsQuestion {
+		t.Error("IsQuestion signal not carried into Intent")
 	}
 
-	// Signal 2: Keywords
-	if !likelyTopicChange("explain this code", nil) {
-		t.Errorf("expected true for 'explain'")
+	// Interrogative semantic type is a backup signal.
+	u = &Understanding{
+		ActionType:   "explain",
+		SemanticType: "definition",
+		Signals:      Signals{IsQuestion: false},
 	}
-	if likelyTopicChange("fix the tests", nil) {
-		t.Errorf("expected false for 'fix'")
-	}
-
-	// Signal 3: Length spike
-	history := []int{10, 10, 10}
-	if !likelyTopicChange("this is a very long message that should trigger a spike because it is more than 30 characters", history) {
-		t.Errorf("expected true for length spike")
-	}
-}
-
-func TestUnderstandingTransducer_computeStabilityScore(t *testing.T) {
-	if score := computeStabilityScore([]string{"fix", "fix", "fix"}); score != 100 {
-		t.Errorf("expected 100, got %d", score)
-	}
-	if score := computeStabilityScore([]string{"fix", "test", "fix"}); score != 0 {
-		t.Errorf("expected 0, got %d", score)
-	}
-	if score := computeStabilityScore([]string{"fix", "fix", "test", "test"}); score != 66 {
-		// 3 pairs: (fix,fix)=1, (fix,test)=0, (test,test)=1 -> 2/3 = 66
-		t.Errorf("expected 66, got %d", score)
-	}
-	if score := computeStabilityScore([]string{}); score != 0 {
-		t.Errorf("expected 0 for empty")
-	}
-}
-
-func TestUnderstandingTransducer_assertStabilityFacts(t *testing.T) {
-	mockClient := &baseMockLLMClient{}
-	tr := NewUnderstandingTransducer(mockClient).(*UnderstandingTransducer)
-
-	// Without kernel
-	if tr.assertStabilityFacts("test", nil, nil, nil) {
-		t.Errorf("expected false without kernel")
+	if intent := tr.understandingToIntent(u); !intent.IsQuestion {
+		t.Error("interrogative semantic_type (definition) should set IsQuestion")
 	}
 
-	// We can't easily test the true kernel tx behavior here without a full Mangle engine setup.
+	// Action requests stay non-question.
+	u = &Understanding{
+		ActionType:   "modify",
+		SemanticType: "state",
+		Signals:      Signals{IsQuestion: false},
+	}
+	if intent := tr.understandingToIntent(u); intent.IsQuestion {
+		t.Error("action request wrongly marked as question")
+	}
 }
 
 func TestUnderstandingTransducer_ResolveFocus(t *testing.T) {

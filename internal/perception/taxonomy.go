@@ -279,7 +279,15 @@ func (t *TaxonomyEngine) getVerbsLocked() ([]VerbEntry, error) {
 			ShardType: types.ExtractString(fact.Args[2]),
 			Priority:  toInt(fact.Args[3]),
 		}
-		if v.ShardType == "/none" {
+		// Normalize shard types to bare names ("reviewer", not "/reviewer").
+		// The taxonomy stores Mangle name constants, but every Go consumer
+		// (process.go shardType comparisons, personaToIntent, ShardResult
+		// payloads) expects the bare form. Without this, slash-prefixed values
+		// leak into shardTypeToTaskRequest where they are mistaken for intent
+		// verbs, so delegated tasks run with a default persona instead of the
+		// shard the taxonomy mapped.
+		v.ShardType = strings.TrimPrefix(v.ShardType, "/")
+		if v.ShardType == "none" {
 			v.ShardType = ""
 		}
 

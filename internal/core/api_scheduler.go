@@ -77,6 +77,13 @@ type ShardExecutionState struct {
 	LastAPICall   time.Time
 	Checkpoint    map[string]any // Shard-specific state for resume
 	Error         error
+
+	// DefaultPriority is used for slot arbitration when the request context
+	// carries no explicit CtxKeyPriority. Interactive callers (the chat
+	// turn's perception/articulation clients) register as PriorityHigh so a
+	// user staring at a spinner is never queued behind background learning
+	// or consolidation work.
+	DefaultPriority types.SpawnPriority
 }
 
 // -----------------------------------------------------------------------------
@@ -108,7 +115,8 @@ type APIScheduler struct {
 	mu          sync.RWMutex
 	shardStates map[string]*ShardExecutionState
 	waitQueue   []*waitingEntry // Shards waiting for slots (for logging/metrics)
-	waiters     []chan struct{} // Waiter list for dynamic scheduling and reconfiguration
+	waiters     []*schedWaiter  // Waiter list: highest priority first, FIFO within priority
+	waiterSeq   uint64          // Monotonic sequence for FIFO tie-breaking
 
 	// Metrics
 	totalAPICalls      int64
@@ -128,6 +136,48 @@ type waitingEntry struct {
 	priority  types.SpawnPriority
 }
 
+// schedWaiter is a queued slot request. Wake-up order is highest priority
+// first, FIFO (by seq) within the same priority. Before this existed, the
+// priority was parsed from the context and then ignored — waiters woke in
+// strict FIFO order, so an interactive turn could queue behind a pile of
+// background learning calls for minutes.
+type schedWaiter struct {
+	ch       chan struct{}
+	priority types.SpawnPriority
+	seq      uint64
+}
+
+// popNextWaiterLocked removes and returns the next waiter to wake:
+// highest priority, then earliest sequence. Caller must hold s.mu.
+// Returns nil when no waiters are queued.
+func (s *APIScheduler) popNextWaiterLocked() *schedWaiter {
+	if len(s.waiters) == 0 {
+		return nil
+	}
+	best := 0
+	for i := 1; i < len(s.waiters); i++ {
+		w := s.waiters[i]
+		b := s.waiters[best]
+		if w.priority > b.priority || (w.priority == b.priority && w.seq < b.seq) {
+			best = i
+		}
+	}
+	w := s.waiters[best]
+	s.waiters = append(s.waiters[:best], s.waiters[best+1:]...)
+	return w
+}
+
+// removeWaiterLocked removes a specific waiter (by channel identity).
+// Caller must hold s.mu.
+func (s *APIScheduler) removeWaiterLocked(ch chan struct{}) {
+	for i, w := range s.waiters {
+		if w.ch == ch {
+			s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
+			return
+		}
+	}
+}
+
 // NewAPIScheduler creates a new scheduler.
 func NewAPIScheduler(config APISchedulerConfig) *APIScheduler {
 	if config.MaxConcurrentAPICalls <= 0 {
@@ -142,13 +192,20 @@ func NewAPIScheduler(config APISchedulerConfig) *APIScheduler {
 		slots:       make(chan struct{}, config.MaxConcurrentAPICalls),
 		shardStates: make(map[string]*ShardExecutionState),
 		waitQueue:   make([]*waitingEntry, 0),
-		waiters:     make([]chan struct{}, 0),
+		waiters:     make([]*schedWaiter, 0),
 		stopCh:      make(chan struct{}),
 	}
 }
 
 // RegisterShard creates state tracking for a new shard.
 func (s *APIScheduler) RegisterShard(shardID, shardType string) *ShardExecutionState {
+	return s.RegisterShardWithPriority(shardID, shardType, types.PriorityNormal)
+}
+
+// RegisterShardWithPriority creates state tracking with a default slot
+// priority. Interactive callers register PriorityHigh so user-facing calls
+// jump the queue ahead of background work.
+func (s *APIScheduler) RegisterShardWithPriority(shardID, shardType string, priority types.SpawnPriority) *ShardExecutionState {
 	if shardID == "" {
 		logging.Get(logging.CategoryShards).Error("APIScheduler: attempt to register shard with empty ID")
 		return nil
@@ -158,15 +215,16 @@ func (s *APIScheduler) RegisterShard(shardID, shardType string) *ShardExecutionS
 	defer s.mu.Unlock()
 
 	state := &ShardExecutionState{
-		ShardID:    shardID,
-		ShardType:  shardType,
-		Phase:      PhaseInitializing,
-		StartTime:  time.Now(),
-		Checkpoint: make(map[string]any),
+		ShardID:         shardID,
+		ShardType:       shardType,
+		Phase:           PhaseInitializing,
+		StartTime:       time.Now(),
+		Checkpoint:      make(map[string]any),
+		DefaultPriority: priority,
 	}
 	s.shardStates[shardID] = state
 
-	logging.Shards("APIScheduler: registered shard %s (type=%s)", shardID, shardType)
+	logging.Shards("APIScheduler: registered shard %s (type=%s, default_priority=%d)", shardID, shardType, priority)
 	return state
 }
 
@@ -200,13 +258,11 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	state.Phase = PhaseWaitingForSlot
 	waitStart := time.Now()
 
-	// Determine initial priority bucket
-	// We map the request Context to a SpawnPriority if possible
-	// For now, default to Normal
-	initialPriority := types.PriorityNormal
-
-	// If the request context is associated with a high-priority shard (e.g. system), boost it.
-	// This requires inspecting the context values set by ShardManager.Spawn
+	// Determine the priority bucket: an explicit context priority (set by
+	// ShardManager.Spawn for prioritized spawns) wins; otherwise fall back to
+	// the priority the shard registered with (interactive clients register
+	// high), defaulting to Normal.
+	initialPriority := state.DefaultPriority
 	if prioVal := ctx.Value(types.CtxKeyPriority); prioVal != nil {
 		if p, ok := prioVal.(types.SpawnPriority); ok {
 			initialPriority = p
@@ -248,7 +304,8 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 
 	// Otherwise, we must queue up and wait!
 	w := make(chan struct{})
-	s.waiters = append(s.waiters, w)
+	s.waiterSeq++
+	s.waiters = append(s.waiters, &schedWaiter{ch: w, priority: initialPriority, seq: s.waiterSeq})
 	s.mu.Unlock()
 
 	atomic.AddInt32(&s.currentlyWaiting, 1)
@@ -326,12 +383,7 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		state.Error = waitCtx.Err()
 
 		// Remove our waiter channel from the list
-		for i, waiter := range s.waiters {
-			if waiter == w {
-				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-				break
-			}
-		}
+		s.removeWaiterLocked(w)
 
 		// Remove from wait queue
 		for i, e := range s.waitQueue {
@@ -349,12 +401,7 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	case <-s.stopCh:
 		// Clean up wait queue on scheduler stop
 		s.mu.Lock()
-		for i, waiter := range s.waiters {
-			if waiter == w {
-				s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-				break
-			}
-		}
+		s.removeWaiterLocked(w)
 		for i, e := range s.waitQueue {
 			if e.shardID == shardID {
 				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
@@ -392,10 +439,8 @@ func (s *APIScheduler) ReleaseAPISlot(shardID string) {
 		state.APICallCount++
 	}
 
-	// Wake up first waiter if any
-	if len(s.waiters) > 0 {
-		w := s.waiters[0]
-		s.waiters = s.waiters[1:]
+	// Wake the highest-priority waiter if any (FIFO within priority)
+	if w := s.popNextWaiterLocked(); w != nil {
 		atomic.AddInt32(&s.currentlyExecuting, 1)
 
 		// Align len(s.slots)
@@ -404,7 +449,7 @@ func (s *APIScheduler) ReleaseAPISlot(shardID string) {
 		default:
 		}
 
-		close(w)
+		close(w.ch)
 	}
 
 	logging.ShardsDebug("APIScheduler: shard %s released slot (total_calls=%d)", shardID, atomic.LoadInt64(&s.totalAPICalls))
@@ -575,10 +620,12 @@ func (s *APIScheduler) UpdateMaxConcurrentAPICalls(newMax int) {
 	}
 	s.slots = newSlots
 
-	// Wake up as many waiters as new capacity allows
+	// Wake up as many waiters as new capacity allows (priority order)
 	for int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls && len(s.waiters) > 0 {
-		w := s.waiters[0]
-		s.waiters = s.waiters[1:]
+		w := s.popNextWaiterLocked()
+		if w == nil {
+			break
+		}
 		atomic.AddInt32(&s.currentlyExecuting, 1)
 
 		// Fill s.slots non-blocking
@@ -587,7 +634,7 @@ func (s *APIScheduler) UpdateMaxConcurrentAPICalls(newMax int) {
 		default:
 		}
 
-		close(w)
+		close(w.ch)
 	}
 
 	logging.Shards("APIScheduler: dynamically updated MaxConcurrentAPICalls from %d to %d (executing=%d)", oldMax, newMax, currentExecuting)

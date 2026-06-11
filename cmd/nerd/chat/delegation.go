@@ -58,6 +58,174 @@ func (m *Model) spawnTaskWithContext(ctx context.Context, shardType string, task
 	return m.taskExecutor.ExecuteWithContext(ctx, shardTypeToTaskRequest(shardType, task), sessionCtx, priority)
 }
 
+// =============================================================================
+// ROUTING ARBITRATION — the single DECIDE point per turn
+// =============================================================================
+
+// RouteKind enumerates the routing lanes derivable by
+// policy/routing_arbitration.mg.
+type RouteKind int
+
+const (
+	// RouteLegacy means the kernel was unavailable or produced no decision;
+	// callers fall back to the legacy Go booleans (shouldDelegate,
+	// detectMultiStepTask) so a kernel hiccup never bricks routing.
+	RouteLegacy RouteKind = iota
+	// RouteRespondDirectly terminates the turn in prose: no clarifier shards,
+	// no decomposition, no delegation, no autopoiesis analysis.
+	RouteRespondDirectly
+	// RouteClarify asks the user before acting (low-confidence mutation).
+	RouteClarify
+	// RouteMultiStep decomposes the request into sequential subtasks.
+	RouteMultiStep
+	// RouteDelegate hands the task to a single shard.
+	RouteDelegate
+)
+
+// String renders the lane for logs and Glass Box events.
+func (k RouteKind) String() string {
+	switch k {
+	case RouteRespondDirectly:
+		return "respond_directly"
+	case RouteClarify:
+		return "clarify"
+	case RouteMultiStep:
+		return "multi_step"
+	case RouteDelegate:
+		return "delegate"
+	default:
+		return "legacy"
+	}
+}
+
+// RouteDecision is the arbitration outcome for one turn.
+type RouteDecision struct {
+	Kind  RouteKind
+	Shard string // bare shard name for RouteDelegate ("coder"), "" otherwise
+}
+
+// decideRoute asserts this turn's routing EDB (delegation candidate,
+// multi-step signals, perception signals) and asks the kernel for the single
+// route_decision. All lane logic lives in policy/routing_arbitration.mg; this
+// helper only ferries facts in and the decision out.
+//
+// Precedence when several lanes derive: respond_directly > multi_step >
+// delegate > clarify (respond_directly is mutually exclusive by construction;
+// multi_step/delegate can co-derive and decomposition wins, matching the
+// legacy waterfall order).
+//
+// Fail-safe: a nil kernel, assert/query error, or empty derivation returns
+// RouteLegacy and the caller uses the legacy Go gates.
+func (m *Model) decideRoute(input string, intent perception.Intent, shardType string) RouteDecision {
+	legacy := RouteDecision{Kind: RouteLegacy}
+	if m.kernel == nil {
+		return legacy
+	}
+
+	shardAtomStr := "/none"
+	if shardType != "" {
+		if strings.HasPrefix(shardType, "/") {
+			shardAtomStr = shardType
+		} else {
+			shardAtomStr = "/" + shardType
+		}
+	}
+	confInt := int64(intent.Confidence * 100)
+
+	// Refresh the per-turn EDB. Retract-before-assert so stale facts from the
+	// previous turn can never influence this decision.
+	_ = m.kernel.Retract("delegation_candidate")
+	_ = m.kernel.Retract("multi_step_signal")
+	_ = m.kernel.Retract("intent_signal")
+
+	if err := m.kernel.Assert(core.Fact{
+		Predicate: "delegation_candidate",
+		Args:      []any{"/current_intent", types.MangleAtom(shardAtomStr), confInt},
+	}); err != nil {
+		logging.Routing("[decideRoute] assert delegation_candidate failed, using legacy gates: %v", err)
+		return legacy
+	}
+	for _, sig := range multiStepSignals(input, intent) {
+		if err := m.kernel.Assert(core.Fact{
+			Predicate: "multi_step_signal",
+			Args:      []any{types.MangleAtom(sig)},
+		}); err != nil {
+			logging.Routing("[decideRoute] assert multi_step_signal failed, using legacy gates: %v", err)
+			return legacy
+		}
+	}
+	if intent.IsQuestion {
+		if err := m.kernel.Assert(core.Fact{
+			Predicate: "intent_signal",
+			Args:      []any{types.MangleAtom("/is_question")},
+		}); err != nil {
+			logging.Routing("[decideRoute] assert intent_signal failed, using legacy gates: %v", err)
+			return legacy
+		}
+	}
+
+	facts, err := m.kernel.Query("route_decision")
+	if err != nil {
+		logging.Routing("[decideRoute] query route_decision failed, using legacy gates: %v", err)
+		return legacy
+	}
+	if len(facts) == 0 {
+		// No lane derived (e.g. /query non-question with no shard mapping).
+		// That is a legitimate "no opinion": fall through to the legacy gates,
+		// which for this shape end at articulation anyway.
+		logging.Routing("[decideRoute] no route_decision derived (verb=%s question=%v shard=%s conf=%d) — legacy gates",
+			intent.Verb, intent.IsQuestion, shardAtomStr, confInt)
+		return legacy
+	}
+
+	derived := make(map[string]string, len(facts)) // route -> shard
+	for _, f := range facts {
+		if len(f.Args) != 2 {
+			continue
+		}
+		route := types.ExtractString(f.Args[0])
+		shard := strings.TrimPrefix(types.ExtractString(f.Args[1]), "/")
+		if shard == "none" {
+			shard = ""
+		}
+		if _, seen := derived[route]; !seen {
+			derived[route] = shard
+		}
+	}
+
+	var decision RouteDecision
+	switch {
+	case hasRoute(derived, "/respond_directly"):
+		decision = RouteDecision{Kind: RouteRespondDirectly}
+	case hasRoute(derived, "/multi_step"):
+		decision = RouteDecision{Kind: RouteMultiStep}
+	case hasRoute(derived, "/delegate"):
+		decision = RouteDecision{Kind: RouteDelegate, Shard: derived["/delegate"]}
+	case hasRoute(derived, "/clarify"):
+		decision = RouteDecision{Kind: RouteClarify}
+	default:
+		return legacy
+	}
+
+	logging.Routing("[decideRoute] kernel decision: %s shard=%q (verb=%s question=%v candidates=%v)",
+		decision.Kind, decision.Shard, intent.Verb, intent.IsQuestion, derived)
+	return decision
+}
+
+func hasRoute(derived map[string]string, route string) bool {
+	_, ok := derived[route]
+	return ok
+}
+
+// shouldVerifyDelegation scopes the quality-verification retry loop to
+// mutations. Verification re-runs the shard up to 3 times with an extra LLM
+// verification call per attempt — worth it when code was written, pure
+// overhead (and a major latency amplifier) for read-only query work like
+// reviews and analyses.
+func shouldVerifyDelegation(intent perception.Intent) bool {
+	return intent.Category == "/mutation"
+}
+
 // shouldDelegate decides whether the current intent should be delegated to a
 // shard. The verb->shard LOOKUP (shardType) is computed in Go by the caller
 // (GetShardTypeForVerb reads the perception taxonomy corpus, which is siloed
@@ -1396,11 +1564,16 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 
 	// Multi-step indicators — only counted when they appear OUTSIDE
 	// quoted content (which is why we use the stripped string).
+	//
+	// Tuned (routing reliability): the old list included conversational filler
+	// ("also", "then ", "first", "1.") that fired on ordinary prose and pasted
+	// snippets, decomposing single-step requests. Only explicit sequencing
+	// phrases remain; /keyword_match is additionally a WEAK signal that the
+	// kernel only honors when corroborated by /verb_count_high (delegation.mg).
 	multiStepKeywords := []string{
-		"and then", "after that", "next ", "then ",
-		"first", "second", "third", "finally",
-		"step 1", "step 2", "1.", "2.", "3.",
-		"also", "additionally", "furthermore",
+		"and then", "after that", "and after",
+		"step 1", "step 2", "step 3",
+		"first,", "second,", "third,", "finally,",
 	}
 	for _, keyword := range multiStepKeywords {
 		if strings.Contains(lower, keyword) {
@@ -1432,10 +1605,10 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 	// Check for compound tasks (review + test, fix + test, etc.).
 	// All patterns use word-boundary anchors so 'create.*test' only matches
 	// when 'create' is actually present as a token, not as a substring inside
-	// a longer word.
+	// a longer word. `tests?` covers the plural ("fix it and run the tests").
 	compoundPatterns := []string{
-		`\breview\b.*\btest\b`, `\bfix\b.*\btest\b`, `\brefactor\b.*\btest\b`,
-		`\bcreate\b.*\btest\b`, `\bimplement\b.*\btest\b`,
+		`\breview\b.*\btests?\b`, `\bfix\b.*\btests?\b`, `\brefactor\b.*\btests?\b`,
+		`\bcreate\b.*\btests?\b`, `\bimplement\b.*\btests?\b`,
 	}
 	for _, pattern := range compoundPatterns {
 		if matched, _ := regexp.MatchString(pattern, lower); matched {
@@ -1453,12 +1626,12 @@ func multiStepSignals(input string, intent perception.Intent) []string {
 // is_multi_step.
 //
 // Fail-safe: if the kernel is nil, the assert/query errors, or the kernel
-// returns nothing, fall back to the legacy Go boolean (any signal present == the
-// original short-circuit behavior). A kernel hiccup can never silently disable
-// multi-step detection.
+// returns nothing, fall back to a legacy Go boolean that mirrors the policy
+// combination (strong signal alone, or weak keyword corroborated by verb
+// count). A kernel hiccup can never silently disable multi-step detection.
 func (m *Model) detectMultiStepTask(input string, intent perception.Intent) bool {
 	signals := multiStepSignals(input, intent)
-	legacy := len(signals) > 0
+	legacy := legacyMultiStepDecision(signals)
 
 	if m.kernel == nil {
 		return legacy
@@ -1482,13 +1655,26 @@ func (m *Model) detectMultiStepTask(input string, intent perception.Intent) bool
 		return legacy
 	}
 	if len(facts) == 0 {
-		// is_multi_step() is a 0-ary signal: it fires iff at least one
-		// multi_step_signal exists. When there are no signals, both the kernel
-		// and legacy agree on false. If signals existed but the kernel returned
-		// nothing (lost fact), fall back rather than wrongly suppressing.
+		// No derivation: the combination rule said no (e.g. a weak keyword
+		// signal without corroboration). The legacy boolean mirrors the same
+		// combination, so falling back keeps behavior identical while still
+		// covering the lost-fact edge case.
 		return legacy
 	}
 	return true
+}
+
+// legacyMultiStepDecision mirrors policy/delegation.mg's is_multi_step
+// combination for the kernel-unavailable fallback: strong signals decide
+// alone, the weak keyword signal needs the verb-count corroboration.
+func legacyMultiStepDecision(signals []string) bool {
+	has := func(want string) bool {
+		return slices.Contains(signals, want)
+	}
+	if has("/campaign_verb") || has("/compound_pattern") {
+		return true
+	}
+	return has("/keyword_match") && has("/verb_count_high")
 }
 
 // decomposeTask breaks a complex task into discrete steps using the encyclopedic corpus.

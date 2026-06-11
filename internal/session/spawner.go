@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	appconfig "codenerd/internal/config"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
@@ -149,17 +150,18 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 
 	// Phase 3: Build subagent configuration
 	subCfg := SubAgentConfig{
-		ID:             fmt.Sprintf("%s-%d-%d", req.Name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
-		Name:           req.Name,
-		Type:           req.Type,
-		EffectiveAgentRuntimeConfig:    EffectiveAgentRuntimeConfig,
-		Timeout:        req.Timeout,
-		MaxTurns:       100,
-		SessionContext: req.SessionContext,
+		ID:                          fmt.Sprintf("%s-%d-%d", req.Name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
+		Name:                        req.Name,
+		Type:                        req.Type,
+		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
+		IntentVerb:                  req.IntentVerb,
+		Timeout:                     req.Timeout,
+		MaxTurns:                    100,
+		SessionContext:              req.SessionContext,
 	}
 
 	if subCfg.Timeout == 0 {
-		subCfg.Timeout = 30 * time.Minute
+		subCfg.Timeout = appconfig.GetLLMTimeouts().ShardExecutionTimeout
 	}
 
 	// Phase 4: Create subagent
@@ -227,12 +229,13 @@ func (s *Spawner) SpawnSpecialist(ctx context.Context, name string, task string)
 
 	// Build config
 	subCfg := SubAgentConfig{
-		ID:          fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
-		Name:        name,
-		Type:        SubAgentTypePersistent, // Specialists are persistent
+		ID:                          fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), atomic.AddUint64(&spawnerCounter, 1)),
+		Name:                        name,
+		Type:                        SubAgentTypePersistent, // Specialists are persistent
 		EffectiveAgentRuntimeConfig: EffectiveAgentRuntimeConfig,
-		Timeout:     30 * time.Minute,
-		MaxTurns:    100,
+		IntentVerb:                  "/consult/" + name,
+		Timeout:                     appconfig.GetLLMTimeouts().ShardExecutionTimeout,
+		MaxTurns:                    100,
 	}
 
 	// Create and start

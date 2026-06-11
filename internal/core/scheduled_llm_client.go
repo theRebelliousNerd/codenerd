@@ -734,11 +734,19 @@ func (c *ScheduledLLMCall) CompleteWithRetry(ctx context.Context, systemPrompt, 
 // -----------------------------------------------------------------------------
 
 func NewScheduledLLMCall(shardID string, client LLMClient) *ScheduledLLMCall {
+	return NewScheduledLLMCallWithPriority(shardID, client, types.PriorityNormal)
+}
+
+// NewScheduledLLMCallWithPriority creates a scheduled wrapper whose calls
+// default to the given slot priority. Use PriorityHigh for interactive
+// clients (the chat turn's perception/articulation path) so a user waiting
+// on a response is never queued behind background shard work.
+func NewScheduledLLMCallWithPriority(shardID string, client LLMClient, priority types.SpawnPriority) *ScheduledLLMCall {
 	scheduler := GetAPIScheduler()
 
 	// Register shard if not already registered
 	if _, ok := scheduler.GetShardState(shardID); !ok {
-		scheduler.RegisterShard(shardID, "unknown")
+		scheduler.RegisterShardWithPriority(shardID, "unknown", priority)
 	}
 
 	if disabler, ok := client.(semaphoreDisabler); ok {

@@ -30,6 +30,12 @@ Decl multi_step_signal(Signal) bound [/name].
 # kernel is unavailable or returns nothing.
 Decl is_multi_step().
 
+# intent_signal(Signal) - EDB asserted by Go per turn (retract-before-assert).
+# Carries perception's boolean understanding signals into policy so routing
+# arbitration can reason over them.
+# Signal: /is_question (user wants an answer, not work performed)
+Decl intent_signal(Signal) bound [/name].
+
 # =============================================================================
 # SECTION 2: FOCUS RESOLUTION (§1.2)
 # =============================================================================

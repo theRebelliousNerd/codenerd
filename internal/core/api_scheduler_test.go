@@ -491,3 +491,147 @@ func TestNoDoubleLimiting(t *testing.T) {
 //   TestAPISchedulerGap_Streaming_NilChannelsFromUnderlying (Nil Channels)
 //   TestAPISchedulerGap_Streaming_RapidCancel (Goroutine Leak)
 //   TestAPISchedulerGap_GlobalConfig_SyncOnce (sync.Once guard)
+
+// TestAPIScheduler_PriorityWakeOrder proves slot hand-off is priority-aware:
+// a high-priority waiter (interactive turn) is woken before earlier-queued
+// normal/low-priority waiters (background work). Before the fix, the parsed
+// priority was ignored and waiters woke strictly FIFO.
+func TestAPIScheduler_PriorityWakeOrder(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    10 * time.Second,
+	})
+
+	scheduler.RegisterShard("holder", "test")
+	scheduler.RegisterShardWithPriority("background-1", "test", types.PriorityLow)
+	scheduler.RegisterShardWithPriority("background-2", "test", types.PriorityLow)
+	scheduler.RegisterShardWithPriority("interactive", "test", types.PriorityHigh)
+
+	ctx := context.Background()
+
+	// Occupy the only slot.
+	if err := scheduler.AcquireAPISlot(ctx, "holder"); err != nil {
+		t.Fatalf("holder acquire failed: %v", err)
+	}
+
+	// enqueueWaiter blocks in AcquireAPISlot and records its wake order.
+	var order []string
+	var orderMu sync.Mutex
+	var wg sync.WaitGroup
+	enqueue := func(shardID string) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := scheduler.AcquireAPISlot(ctx, shardID); err != nil {
+				t.Errorf("%s acquire failed: %v", shardID, err)
+				return
+			}
+			orderMu.Lock()
+			order = append(order, shardID)
+			orderMu.Unlock()
+			scheduler.ReleaseAPISlot(shardID)
+		}()
+		// Give the goroutine time to enter the wait queue so enqueue order is
+		// deterministic.
+		waitForQueued(t, scheduler, shardID)
+	}
+
+	// Background waiters queue FIRST; the interactive waiter queues LAST.
+	enqueue("background-1")
+	enqueue("background-2")
+	enqueue("interactive")
+
+	// Release the slot: the interactive waiter must wake first despite being
+	// queued last.
+	scheduler.ReleaseAPISlot("holder")
+	wg.Wait()
+
+	if len(order) != 3 {
+		t.Fatalf("expected 3 completions, got %d (%v)", len(order), order)
+	}
+	if order[0] != "interactive" {
+		t.Fatalf("wake order = %v, want interactive first (priority scheduling broken)", order)
+	}
+	// Background waiters keep FIFO order among themselves.
+	if order[1] != "background-1" || order[2] != "background-2" {
+		t.Errorf("background wake order = %v, want FIFO within priority", order[1:])
+	}
+}
+
+// waitForQueued polls until the shard appears in the scheduler's wait queue.
+func waitForQueued(t *testing.T, s *APIScheduler, shardID string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.RLock()
+		for _, e := range s.waitQueue {
+			if e.shardID == shardID {
+				s.mu.RUnlock()
+				return
+			}
+		}
+		s.mu.RUnlock()
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("shard %s never entered the wait queue", shardID)
+}
+
+// TestAPIScheduler_ContextPriorityOverridesDefault proves an explicit
+// CtxKeyPriority beats the registered default.
+func TestAPIScheduler_ContextPriorityOverridesDefault(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    10 * time.Second,
+	})
+	scheduler.RegisterShard("holder", "test")
+	scheduler.RegisterShardWithPriority("normally-low", "test", types.PriorityLow)
+	scheduler.RegisterShardWithPriority("normally-high", "test", types.PriorityHigh)
+
+	ctx := context.Background()
+	if err := scheduler.AcquireAPISlot(ctx, "holder"); err != nil {
+		t.Fatalf("holder acquire failed: %v", err)
+	}
+
+	var order []string
+	var orderMu sync.Mutex
+	var wg sync.WaitGroup
+
+	// normally-high queues first but is demoted to low via context.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		demoted := context.WithValue(ctx, types.CtxKeyPriority, types.PriorityLow)
+		if err := scheduler.AcquireAPISlot(demoted, "normally-high"); err != nil {
+			t.Errorf("normally-high acquire failed: %v", err)
+			return
+		}
+		orderMu.Lock()
+		order = append(order, "normally-high")
+		orderMu.Unlock()
+		scheduler.ReleaseAPISlot("normally-high")
+	}()
+	waitForQueued(t, scheduler, "normally-high")
+
+	// normally-low queues second but is promoted to critical via context.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		promoted := context.WithValue(ctx, types.CtxKeyPriority, types.PriorityCritical)
+		if err := scheduler.AcquireAPISlot(promoted, "normally-low"); err != nil {
+			t.Errorf("normally-low acquire failed: %v", err)
+			return
+		}
+		orderMu.Lock()
+		order = append(order, "normally-low")
+		orderMu.Unlock()
+		scheduler.ReleaseAPISlot("normally-low")
+	}()
+	waitForQueued(t, scheduler, "normally-low")
+
+	scheduler.ReleaseAPISlot("holder")
+	wg.Wait()
+
+	if len(order) != 2 || order[0] != "normally-low" {
+		t.Fatalf("wake order = %v, want context-promoted shard first", order)
+	}
+}
