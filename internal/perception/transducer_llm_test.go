@@ -346,6 +346,10 @@ func TestSanitizeFactArg_Unicode(t *testing.T) {
 // INPUT: `[{"intent": "fix"}]`
 // EXPECTED: Should either return the array string or handle it gracefully. Currently returns empty string.
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify the Understand method behaves gracefully and rejects inputs when the history array contains malformed turns (e.g. empty role or content).
+// TODO: TEST_GAP: [Type Coercion] Verify that ExtractCleanJSON successfully parses and type coerces mixed string/numeric constraint configurations nested inside a stringified JSON property without panicking.
+// TODO: TEST_GAP: [User Request Extremes] Verify the NewLLMTransducer handles a prompt parameter exceeding 10MB without causing OOM or massive performance degradation during processing.
+// TODO: TEST_GAP: [State Conflicts] Verify concurrent read/write behavior during kernel schema validation and routing derivation using 1,000 parallel goroutines checking different action and semantic types.
 func TestExtractJSON_EmptyAndWhitespace(t *testing.T) {
 	// Test empty input
 	if got := ExtractCleanJSON(""); got != "" {
