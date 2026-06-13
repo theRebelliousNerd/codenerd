@@ -1,11 +1,11 @@
 package campaign
 
 import (
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/types"
 	"context"
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"sync"
 )
 
@@ -103,11 +103,12 @@ func (m *MockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
 type MockKernelTx struct {
 	k *MockKernel
 }
-func (tx *MockKernelTx) Retract(predicate string) {}
-func (tx *MockKernelTx) RetractFact(fact core.Fact) {}
-func (tx *MockKernelTx) RetractExactFact(fact core.Fact) {}
+
+func (tx *MockKernelTx) Retract(predicate string)                           {}
+func (tx *MockKernelTx) RetractFact(fact core.Fact)                         {}
+func (tx *MockKernelTx) RetractExactFact(fact core.Fact)                    {}
 func (tx *MockKernelTx) RetractPredicateSet(predicates map[string]struct{}) {}
-func (tx *MockKernelTx) Assert(fact core.Fact) {}
+func (tx *MockKernelTx) Assert(fact core.Fact)                              {}
 func (tx *MockKernelTx) Commit() error {
 	if tx.k.AssertErr != nil {
 		return tx.k.AssertErr
@@ -149,7 +150,7 @@ func (m *MockTransducer) ResolveFocus(ctx context.Context, reference string, can
 }
 
 func (m *MockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
-func (m *MockTransducer) SetStrategicContext(context string)                  {}
+func (m *MockTransducer) SetStrategicContext(context string)               {}
 
 // --- MockLLMClient ---
 

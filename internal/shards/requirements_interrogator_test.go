@@ -110,4 +110,3 @@ func TestExtractQuestions(t *testing.T) {
 		t.Errorf("unexpected question: %q", questions[0])
 	}
 }
-

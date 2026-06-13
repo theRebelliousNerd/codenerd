@@ -130,7 +130,7 @@ type ZAIJSONSchema struct {
 
 // ZAIThinking enables extended reasoning mode.
 type ZAIThinking struct {
-	Type         string `json:"type"`                    // "enabled"
+	Type         string `json:"type"`                   // "enabled"
 	BudgetTokens int    `json:"budget_tokens,omitzero"` // Optional token budget
 }
 
@@ -197,7 +197,7 @@ type AnthropicMessage struct {
 
 // AnthropicContentBlock represents a content block in a message.
 type AnthropicContentBlock struct {
-	Type      string         `json:"type"`                  // "text", "tool_use", "tool_result"
+	Type      string         `json:"type"`                 // "text", "tool_use", "tool_result"
 	Text      string         `json:"text,omitzero"`        // For text blocks
 	ID        string         `json:"id,omitzero"`          // For tool_use blocks
 	Name      string         `json:"name,omitzero"`        // For tool_use blocks

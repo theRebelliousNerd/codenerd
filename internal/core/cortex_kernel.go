@@ -699,12 +699,12 @@ func (c *CortexKernel) LoadFactsFromFile(path string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	parsedFacts, err := ParseFactsFromString(string(bytes))
 	if err != nil {
 		return err
 	}
-	
+
 	// Convert core.Fact to types.Fact since Cortex uses types.Fact
 	var typeFacts []types.Fact
 	for _, f := range parsedFacts {
@@ -713,7 +713,7 @@ func (c *CortexKernel) LoadFactsFromFile(path string) error {
 			Args:      f.Args,
 		})
 	}
-	
+
 	return c.LoadFacts(typeFacts)
 }
 

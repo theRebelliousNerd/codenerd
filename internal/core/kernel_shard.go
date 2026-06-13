@@ -21,12 +21,12 @@ import (
 // (e.g., ROUTING, WORLD, TOOLS, POLICY) and evaluates independently.
 type KernelShard struct {
 	mu     sync.RWMutex
-	domain string       // Domain name (e.g., "routing", "world", "tools", "policy")
-	kernel *RealKernel  // The underlying kernel instance
+	domain string      // Domain name (e.g., "routing", "world", "tools", "policy")
+	kernel *RealKernel // The underlying kernel instance
 
 	// Domain ownership
-	ownedPredicates map[string]bool      // Predicates this shard is authoritative for
-	exportedPreds   []string             // Predicate names exported to the cortex
+	ownedPredicates map[string]bool // Predicates this shard is authoritative for
+	exportedPreds   []string        // Predicate names exported to the cortex
 
 	// Schema/policy files loaded by this shard
 	schemaFiles []string

@@ -57,14 +57,14 @@ type RealKernel struct {
 	loadedPolicyFiles map[string]struct{} // Idempotency: policy modules loaded via LoadPolicyFile (keyed by case-insensitive basename)
 	schemaValidator   *mangle.SchemaValidator
 	initialized       bool
-	manglePath        string                 // Path to mangle files directory
-	workspaceRoot     string                 // Explicit workspace root (for .nerd paths)
-	policyDirty       bool                   // True when schemas/policy changed and need reparse
-	factsDirty        atomic.Bool            // True when EDB facts changed and need re-evaluation (lazy eval).
+	manglePath        string      // Path to mangle files directory
+	workspaceRoot     string      // Explicit workspace root (for .nerd paths)
+	policyDirty       bool        // True when schemas/policy changed and need reparse
+	factsDirty        atomic.Bool // True when EDB facts changed and need re-evaluation (lazy eval).
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.
-	evalSingleflight sync.Mutex // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
+	evalSingleflight  sync.Mutex             // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
 	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
 	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
 	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
@@ -72,7 +72,7 @@ type RealKernel struct {
 	derivedFactLimit  int                    // Configurable limit for derived facts (0 = use default)
 	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
 	simulateCommitErr error                  // TEST ONLY: Simulates a transaction commit failure
-	eventBus          *FactEventBus           // Pub/sub for fact mutations — replaces polling in system shards
+	eventBus          *FactEventBus          // Pub/sub for fact mutations — replaces polling in system shards
 
 	// proofRecorder, when non-nil, captures derivation events during evaluate()
 	// so Explain() can answer "why was this fact derived?" via the Codeberg
@@ -102,10 +102,10 @@ type RealKernel struct {
 	//     evaluate (we cannot incrementally un-derive without DRed-style
 	//     bookkeeping).
 	//   * All fields below are guarded by k.mu.
-	diffEngine          *mangle.DifferentialEngine
-	diffMangleEngine    *mangle.Engine // base engine the DifferentialEngine wraps
-	dirtyStrata         map[int]bool
-	factsSinceLastEval  []Fact
+	diffEngine         *mangle.DifferentialEngine
+	diffMangleEngine   *mangle.Engine // base engine the DifferentialEngine wraps
+	dirtyStrata        map[int]bool
+	factsSinceLastEval []Fact
 }
 
 // StartupValidationResult contains statistics from startup learned rule validation.

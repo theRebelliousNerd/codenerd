@@ -84,18 +84,18 @@ func analyzeFrame(view string, w, h int) FrameProbe {
 	viewLower := strings.ToLower(view)
 
 	return FrameProbe{
-		Width:     w,
-		Height:    h,
-		View:      view,
-		Lines:     lines,
-		MaxWidth:  maxWidth,
-		LineCount: len(lines),
-		HasHeader: strings.Contains(view, "codeNERD"),
-		HasFooter: strings.Contains(viewLower, "help") || strings.Contains(viewLower, "mode"),
-		HasInput:  strings.Contains(view, "Test input") || strings.Contains(view, "│") || strings.Contains(view, "╭"),
-		HasError:  strings.Contains(view, "Error"),
-		HasReady:  strings.Contains(view, "Ready"),
-		HasStop:   strings.Contains(view, "STOP"),
+		Width:      w,
+		Height:     h,
+		View:       view,
+		Lines:      lines,
+		MaxWidth:   maxWidth,
+		LineCount:  len(lines),
+		HasHeader:  strings.Contains(view, "codeNERD"),
+		HasFooter:  strings.Contains(viewLower, "help") || strings.Contains(viewLower, "mode"),
+		HasInput:   strings.Contains(view, "Test input") || strings.Contains(view, "│") || strings.Contains(view, "╭"),
+		HasError:   strings.Contains(view, "Error"),
+		HasReady:   strings.Contains(view, "Ready"),
+		HasStop:    strings.Contains(view, "STOP"),
 		HasSpinner: false, // spinner state is non-deterministic
 	}
 }
@@ -990,4 +990,3 @@ func TestE2E_TUI_BossFight_FrameFuzzer(t *testing.T) {
 		t.Errorf("unknown viewMode: %d", m.viewMode)
 	}
 }
-

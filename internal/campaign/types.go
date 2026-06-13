@@ -265,7 +265,7 @@ type Task struct {
 
 	// Provenance
 	InferredFrom    string  `json:"inferred_from,omitzero"` // What this was derived from
-	InferenceConf   float64 `json:"inference_confidence"`    // Confidence of inference
+	InferenceConf   float64 `json:"inference_confidence"`   // Confidence of inference
 	InferenceReason string  `json:"inference_reason,omitzero"`
 
 	// Execution tracking
@@ -371,7 +371,7 @@ type Requirement struct {
 	CampaignID  string   `json:"campaign_id"`
 	Description string   `json:"description"`
 	Priority    string   `json:"priority"`
-	Source      string   `json:"source"`               // Which document this came from
+	Source      string   `json:"source"`              // Which document this came from
 	CoveredBy   []string `json:"covered_by,omitzero"` // Task IDs that cover this
 }
 

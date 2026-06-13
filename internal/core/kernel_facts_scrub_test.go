@@ -22,12 +22,12 @@ func TestLooksLikePointerHex(t *testing.T) {
 	no := []string{
 		"",
 		"0",
-		"0x",         // too short
-		"0xz",        // non-hex
-		"7ff63be77",  // no 0x prefix
-		"0x7ff 63b",  // space inside
+		"0x",        // too short
+		"0xz",       // non-hex
+		"7ff63be77", // no 0x prefix
+		"0x7ff 63b", // space inside
 		"path/to/file",
-		"\"0x7ff63be770e0\"", // quoted — sanitizer sees the raw string, not the encoded form
+		"\"0x7ff63be770e0\"",       // quoted — sanitizer sees the raw string, not the encoded form
 		"0x7ff63be770e0abc1234567", // too long (>20)
 		"42",
 		"hello",

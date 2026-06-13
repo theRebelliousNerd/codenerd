@@ -18,7 +18,7 @@ var logsCmd = &cobra.Command{
 	Long:  "Scans the .nerd/logs directory for [WARN] and [ERROR] entries and groups them by category.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		logsDir := filepath.Join(".nerd", "logs")
-		
+
 		files, err := os.ReadDir(logsDir)
 		if err != nil {
 			return fmt.Errorf("failed to read logs directory %s: %w", logsDir, err)
@@ -76,19 +76,19 @@ var logsCmd = &cobra.Command{
 
 			for _, c := range categories {
 				fmt.Printf("\nCategory: [%s] (%d entries)\n", c, len(data[c]))
-				
+
 				// Deduplicate
 				unique := make(map[string]int)
 				for _, msg := range data[c] {
 					unique[msg]++
 				}
-				
+
 				var uniqueMsgs []string
 				for msg := range unique {
 					uniqueMsgs = append(uniqueMsgs, msg)
 				}
 				sort.Strings(uniqueMsgs)
-				
+
 				for _, msg := range uniqueMsgs {
 					count := unique[msg]
 					if count > 1 {

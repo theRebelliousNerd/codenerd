@@ -12,8 +12,8 @@ import (
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
 
-	"github.com/charmbracelet/x/ansi"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TODO: IMPROVEMENT: Add test coverage for edge cases and error states (e.g., empty data, rapid tab switching).

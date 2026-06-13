@@ -46,7 +46,7 @@ func TestNormalizeRuleInput(t *testing.T) {
 			expected: `foo :- !bar, !baz.`,
 		},
 		{
-			name:     "backslash inside string - windows path",
+			name: "backslash inside string - windows path",
 			// \t and \f are known escapes, so they are not double-escaped
 			input:    `foo :- bar("C:\path\to\file").`,
 			expected: `foo :- bar("C:\\path\to\file").`,

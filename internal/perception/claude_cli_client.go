@@ -70,7 +70,7 @@ type ClaudeCodeCLIClient struct {
 // - An object with content[].text (when tools are enabled)
 // When using --json-schema, the output is in structured_output instead.
 type claudeCLIResponse struct {
-	Type    string          `json:"type"`              // "result" for success
+	Type    string          `json:"type"`             // "result" for success
 	Subtype string          `json:"subtype,omitzero"` // "success" or "error"
 	IsError bool            `json:"is_error,omitzero"`
 	Result  json.RawMessage `json:"result"` // string OR object with content[]

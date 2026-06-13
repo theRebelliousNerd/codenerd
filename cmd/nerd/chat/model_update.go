@@ -13,10 +13,10 @@ import (
 	"codenerd/internal/transparency"
 	"codenerd/internal/ux"
 
+	"charm.land/glamour/v2"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"charm.land/glamour/v2"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

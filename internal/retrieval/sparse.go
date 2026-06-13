@@ -394,7 +394,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 					if lineIdx < 0 {
 						lineIdx = 0
 					}
-					
+
 					colNum := offset - lineOffsets[lineIdx] + 1
 					contextLine := strings.TrimRight(string(lines[lineIdx]), "\r\n")
 					contextLine = strings.TrimSpace(contextLine)
@@ -426,7 +426,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		if err != nil {
 			return nil
 		}
-		
+
 		// Check exclusions
 		for _, pattern := range r.excludePatterns {
 			matched, _ := filepath.Match(pattern, d.Name())

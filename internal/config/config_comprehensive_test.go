@@ -449,7 +449,7 @@ func TestGetActiveProvider_WhenExplicitProvider_ShouldUseMatchingKey(t *testing.
 			name:     "openrouter with key",
 			provider: "openrouter",
 			cfg: &UserConfig{
-				Provider:        "openrouter",
+				Provider:         "openrouter",
 				OpenRouterAPIKey: "or-key",
 			},
 			wantProv: "openrouter",

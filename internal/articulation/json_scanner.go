@@ -73,7 +73,7 @@ func findJSONCandidates(s string) []string {
 					// Found a complete top-level object - check size cap
 					candidateLen := i + 1 - start
 					if candidateLen <= maxJSONCandidateSize {
-						candStr := s[start:i+1]
+						candStr := s[start : i+1]
 						if strings.Contains(candStr, `"surface_response"`) {
 							candidates = append(candidates, candStr)
 						} else {

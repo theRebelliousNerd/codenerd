@@ -141,7 +141,7 @@ type DependencyInfo struct {
 	Name         string `json:"name"`
 	Version      string `json:"version,omitzero"`
 	MajorVersion string `json:"major_version,omitzero"` // D4: Major version for version-specific agents
-	Type         string `json:"type"`                    // direct, dev, transitive
+	Type         string `json:"type"`                   // direct, dev, transitive
 }
 
 // UserPreferences represents user coding preferences (learned via autopoiesis).

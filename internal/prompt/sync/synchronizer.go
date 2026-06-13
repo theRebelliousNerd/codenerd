@@ -191,4 +191,3 @@ func setLastSyncHash(db *sql.DB, agentID string, hash string) error {
 		"yaml_hash_"+agentID, hash)
 	return err
 }
-

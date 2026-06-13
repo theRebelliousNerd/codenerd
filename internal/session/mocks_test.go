@@ -173,7 +173,7 @@ func (m *MockTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 }
 
 func (m *MockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
-func (m *MockTransducer) SetStrategicContext(context string)                  {}
+func (m *MockTransducer) SetStrategicContext(context string)               {}
 
 // --- MockJITCompiler ---
 

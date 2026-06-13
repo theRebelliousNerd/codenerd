@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
-	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
 // =============================================================================

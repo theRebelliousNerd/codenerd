@@ -126,8 +126,6 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 // COSINE SIMILARITY UTILITY
 // =============================================================================
 
-
-
 // FindTopK returns the indices of the top K most similar vectors to the query.
 // Uses cosine similarity.
 func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, error) {

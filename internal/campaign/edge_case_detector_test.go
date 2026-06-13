@@ -332,7 +332,6 @@ func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
 // Test determineAction with `LineCount = math.MaxInt32`.
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
 
-
 func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
 	detector := NewEdgeCaseDetector(nil, nil)
 	ctx := context.Background()

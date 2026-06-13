@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"codenerd/internal/core"
 	"codeberg.org/TauCeti/mangle-go/analysis"
+	"codenerd/internal/core"
 	_ "github.com/mattn/go-sqlite3"
 )
 

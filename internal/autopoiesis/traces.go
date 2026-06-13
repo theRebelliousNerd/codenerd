@@ -605,8 +605,6 @@ type LoggingValidation struct {
 	Warnings []string `json:"warnings"`
 }
 
-
-
 // ensureLoggingImport adds the logging import if not present
 func (li *LogInjector) ensureLoggingImport(code string) string {
 	// Check if we have structured logging

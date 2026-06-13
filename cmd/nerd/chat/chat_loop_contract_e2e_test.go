@@ -439,8 +439,11 @@ func TestE2E_ChatLoop_NotReady_FailsFastWithoutSpinnerHang(t *testing.T) {
 			errStr: "transducer not initialized",
 		},
 		{
-			name:   "nil_client",
-			setup:  func(m *Model) { m.transducer = &chatLoopTransducer{intent: perception.Intent{Verb: "/explain"}}; m.client = nil },
+			name: "nil_client",
+			setup: func(m *Model) {
+				m.transducer = &chatLoopTransducer{intent: perception.Intent{Verb: "/explain"}}
+				m.client = nil
+			},
 			errStr: "LLM client not initialized",
 		},
 	}

@@ -95,7 +95,7 @@ func (i *Initializer) detectDependencies() []DependencyInfo {
 		"github.com/chromedp/chromedp":       "chromedp",
 		"github.com/playwright-community":    "playwright",
 		"google/mangle":                      "mangle",
-		"codeberg.org/TauCeti/mangle-go":           "mangle",
+		"codeberg.org/TauCeti/mangle-go":     "mangle",
 		"github.com/sashabaranov/go-openai":  "openai",
 		"github.com/anthropics/anthropic":    "anthropic",
 		"github.com/charmbracelet/bubbletea": "bubbletea",

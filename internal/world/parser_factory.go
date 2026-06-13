@@ -13,10 +13,10 @@ import (
 // parse requests to the appropriate parser based on file extension.
 //
 // This factory enables the polyglot CodeDOM by:
-//   1. Registering parsers for specific file extensions
-//   2. Routing parse requests to the correct parser
-//   3. Aggregating language facts from all parsers
-//   4. Providing a unified interface for the rest of the system
+//  1. Registering parsers for specific file extensions
+//  2. Routing parse requests to the correct parser
+//  3. Aggregating language facts from all parsers
+//  4. Providing a unified interface for the rest of the system
 type ParserFactory struct {
 	mu          sync.RWMutex
 	parsers     map[string]CodeParser // extension -> parser (e.g., ".go" -> GoCodeParser)
