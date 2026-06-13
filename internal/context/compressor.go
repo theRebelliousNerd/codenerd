@@ -1438,17 +1438,21 @@ func (c *Compressor) trimToTokens(s string, maxTokens int) string {
 	}
 
 	runes := []rune(s)
+	// Find the largest prefix length whose token count is still within budget.
+	// Invariant: CountString(runes[:low]) <= maxTokens (true at low=0). The +1
+	// bias on mid guarantees progress and prevents the previous off-by-one that
+	// could return a prefix one token over budget.
 	low, high := 0, len(runes)
 	for low < high {
-		mid := (low + high) / 2
-		if c.counter.CountString(string(runes[:mid])) > maxTokens {
-			high = mid - 1
+		mid := (low + high + 1) / 2
+		if c.counter.CountString(string(runes[:mid])) <= maxTokens {
+			low = mid
 		} else {
-			low = mid + 1
+			high = mid - 1
 		}
 	}
 
-	cut := max(1, high)
+	cut := max(1, low)
 	return strings.TrimSpace(string(runes[:cut]))
 }
 
