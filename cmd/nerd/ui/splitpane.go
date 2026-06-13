@@ -12,6 +12,7 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/atotto/clipboard"
 )
 
 // Pre-computed indentation strings to avoid repeated allocation
