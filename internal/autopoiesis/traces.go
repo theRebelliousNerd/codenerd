@@ -54,47 +54,6 @@ var (
 	}
 )
 
-// Pre-compiled regular expressions for performance
-var (
-	importPatternRe       = regexp.MustCompile(`import\s*\(\s*\n`)
-	singleImportPatternRe = regexp.MustCompile(`import\s+"([^"]+)"`)
-	funcPatternRe         = regexp.MustCompile(`(func\s+\w+\s*\([^)]*\)\s*(?:\([^)]*\)\s*)?\{)\n`)
-	entryPatternRe        = regexp.MustCompile(`(\[TOOL_ENTRY\][^\n]+\n)`)
-	errorReturnPatternRe  = regexp.MustCompile(`return\s+([^,\n]+),\s*(fmt\.Errorf|errors\.New|err)\b`)
-	httpPatternRe         = regexp.MustCompile(`(http\.(Get|Post|Do)\([^)]+\))`)
-	forPatternRe          = regexp.MustCompile(`(for\s+[^{]+\{)\n`)
-	hasErrorLogPattern    = regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`)
-	stepPatternRe         = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
-	assumptionPattern1    = regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	assumptionPattern2    = regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	assumptionPattern3    = regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	alternativePattern1   = regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`)
-	alternativePattern2   = regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`)
-	alternativePattern3   = regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`)
-	decisionPattern1      = regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`)
-	decisionPattern2      = regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`)
-)
-
-var (
-	importPatternRE     = regexp.MustCompile(`import\s*\(\s*\n`)
-	singleImportRE      = regexp.MustCompile(`import\s+"([^"]+)"`)
-	funcPatternRE       = regexp.MustCompile(`(func\s+\w+\s*\([^)]*\)\s*(?:\([^)]*\)\s*)?\{)\n`)
-	entryPatternRE      = regexp.MustCompile(`(\[TOOL_ENTRY\][^\n]+\n)`)
-	errorReturnRE       = regexp.MustCompile(`return\s+([^,\n]+),\s*(fmt\.Errorf|errors\.New|err)\b`)
-	httpPatternRE       = regexp.MustCompile(`(http\.(Get|Post|Do)\([^)]+\))`)
-	forPatternRE        = regexp.MustCompile(`(for\s+[^{]+\{)\n`)
-	hasErrorLoggingRE   = regexp.MustCompile(`if\s+err\s*!=\s*nil.*log\.`)
-	stepPatternRE       = regexp.MustCompile(`(?m)^(?:\d+\.|[-*])\s*(.+)$`)
-	assumePatternRE     = regexp.MustCompile(`(?i)assum(?:e|ing|ption)\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	expectPatternRE     = regexp.MustCompile(`(?i)expect(?:ing)?\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	presumePatternRE    = regexp.MustCompile(`(?i)presume\s+(?:that\s+)?(.+?)(?:\.|$)`)
-	insteadOfPatternRE  = regexp.MustCompile(`(?i)instead\s+of\s+(.+?),?\s+(?:I|we)\s+(.+?)(?:\.|$)`)
-	ratherThanPatternRE = regexp.MustCompile(`(?i)rather\s+than\s+(.+?),?\s+(.+?)(?:\.|$)`)
-	couldAlsoPatternRE  = regexp.MustCompile(`(?i)could\s+(?:also|alternatively)\s+(.+?)\s+but\s+(.+?)(?:\.|$)`)
-	decidedPatternRE    = regexp.MustCompile(`(?i)(?:decided|choosing|chose|will use)\s+(.+?)\s+(?:because|since|as)\s+(.+?)(?:\.|$)`)
-	forUsingPatternRE   = regexp.MustCompile(`(?i)(?:for|using)\s+(.+?)\s+(?:because|since)\s+(.+?)(?:\.|$)`)
-)
-
 // =============================================================================
 // REASONING TRACE - CAPTURE THE "WHY" OF TOOL GENERATION
 // =============================================================================
@@ -648,8 +607,6 @@ type LoggingValidation struct {
 	Warnings []string `json:"warnings"`
 }
 
-
-
 // ensureLoggingImport adds the logging import if not present
 func (li *LogInjector) ensureLoggingImport(code string) string {
 	// Check if we have structured logging
@@ -768,7 +725,7 @@ func (li *LogInjector) injectIterationLogging(code string, toolName string) stri
 
 	// Find for loops and add iteration logging
 	counter := 0
-	return forPatternRe.ReplaceAllStringFunc(code, func(match string) string {
+	return forPattern.ReplaceAllStringFunc(code, func(match string) string {
 		counter++
 		if strings.Contains(code, fmt.Sprintf("_loopIter%d", counter)) {
 			return match
