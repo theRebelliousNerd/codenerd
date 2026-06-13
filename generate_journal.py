@@ -3,7 +3,7 @@ import sys
 content = """---
 surface: "Orchestrator-Executor Boundary"
 mode: "boundary"
-subsystems_tested: ["internal/campaign", "internal/session"]
+subsystems_tested: ["mcp", "core.VirtualStore"]
 blast_radius: "critical"
 remediated: false
 ---

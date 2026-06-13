@@ -6,6 +6,7 @@ package mcp_test
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 	"fmt"
 	"net/http"

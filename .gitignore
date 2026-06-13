@@ -115,3 +115,6 @@ config.json
 !.quality_assurance/remediation/
 .quality_assurance/remediation/*
 !.quality_assurance/remediation/*.md
+
+# Campaign assault test scratch output (written by assault_tasks_test.go)
+internal/campaign/.nerd/campaigns/c_test_triage/

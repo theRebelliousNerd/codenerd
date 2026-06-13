@@ -236,6 +236,9 @@ func TestDiscoverGoTargets_EmptyIncludesExcludes_Ignored(t *testing.T) {
 
 func TestExecuteAssaultTriageTask_MissingArtifacts_HandlesEmptyLog(t *testing.T) {
 	orch := &Orchestrator{
+		// Use a temp workspace so triage artifacts are written under t.TempDir()
+		// rather than polluting the repo's working tree (.nerd/campaigns/...).
+		workspace: t.TempDir(),
 		campaign: &Campaign{
 			ID: "/c_test_triage",
 			Phases: []Phase{
