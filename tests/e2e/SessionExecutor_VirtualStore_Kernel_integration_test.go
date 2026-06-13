@@ -760,28 +760,34 @@ func TestE2E_Smoke_HappyPathPipeline(t *testing.T) {
 }
 
 func TestE2E_ContractViolation_ZeroResultQueryHandling(t *testing.T) {
-	exec, kernel, llm := setupTestExecutor(t)
+	exec, _, llm := setupTestExecutor(t)
 
-	kernel.queryResults["permitted"] = []types.Fact{} // Empty result set
-
-	tools.Global().Register(&tools.Tool{Name: "restricted_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
-		return "success", nil
+	// Tool authorization is config-driven (EffectiveAgentRuntimeConfig.AllowedTools)
+	// rather than gated on a kernel "permitted" query. A tool the LLM tries to
+	// call that is absent from the allowlist must be blocked: it never executes,
+	// and Process still completes successfully (the call is dropped, not turned
+	// into an error). "unconfigured_tool" is deliberately not in the mock config
+	// factory's AllowedTools.
+	executed := false
+	tools.Global().Register(&tools.Tool{Name: "unconfigured_tool", Execute: func(ctx context.Context, args map[string]interface{}) (string, error) {
+		executed = true
+		return "should not run", nil
 	}})
-
-	cfg := session.DefaultExecutorConfig()
-	exec.SetConfig(cfg)
 
 	llm.completeFunc = func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error) {
 		return &types.LLMToolResponse{
-			Text: "Running restricted",
+			Text: "Running unconfigured tool",
 			ToolCalls: []types.ToolCall{
-				{Name: "restricted_tool"},
+				{Name: "unconfigured_tool"},
 			},
 		}, nil
 	}
 
-	_, err := exec.Process(context.Background(), "run zero result")
-	if err == nil {
-		t.Fatalf("Expected denial error due to zero results, got nil")
+	_, err := exec.Process(context.Background(), "run unconfigured tool")
+	if err != nil {
+		t.Fatalf("Process should succeed with the unconfigured tool blocked, got: %v", err)
+	}
+	if executed {
+		t.Fatalf("unconfigured_tool is not in AllowedTools and must not execute")
 	}
 }

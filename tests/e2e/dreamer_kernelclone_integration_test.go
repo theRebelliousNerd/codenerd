@@ -31,7 +31,7 @@ func setupDreamerTestKernel(t *testing.T, policy string) *core.RealKernel {
 // TestE2E_Dreamer_Smoke_SafeAction tests a baseline safe action.
 func TestE2E_Dreamer_Smoke_SafeAction(t *testing.T) {
 	policy := `
-	panic_state(Id, "modifying critical file") :- projected_action(Id, /edit_file, "/etc/passwd").
+	panic_state(Id, "modifying critical file") :- projected_action(Id, /edit_file, /etc/passwd).
 	`
 	kernel := setupDreamerTestKernel(t, policy)
 	dreamer := core.NewDreamer(kernel)
@@ -50,7 +50,7 @@ func TestE2E_Dreamer_Smoke_SafeAction(t *testing.T) {
 // TestE2E_Dreamer_Smoke_UnsafeAction tests a baseline unsafe action that triggers a panic_state.
 func TestE2E_Dreamer_Smoke_UnsafeAction(t *testing.T) {
 	policy := `
-	panic_state(Id, "modifying critical file") :- projected_action(Id, /edit_file, "/etc/passwd").
+	panic_state(Id, "modifying critical file") :- projected_action(Id, /edit_file, /etc/passwd).
 	`
 	kernel := setupDreamerTestKernel(t, policy)
 	dreamer := core.NewDreamer(kernel)
@@ -118,7 +118,7 @@ func TestE2E_Dreamer_Contract_MissingPredicate(t *testing.T) {
 // when invoked concurrently across multiple goroutines, a common failure point for FFI bounds.
 func TestE2E_Dreamer_StateCorruption_ConcurrentRace(t *testing.T) {
 	policy := `
-	panic_state(Id, "concurrent crash") :- projected_action(Id, /edit_file, "/etc/passwd").
+	panic_state(Id, "concurrent crash") :- projected_action(Id, /edit_file, /etc/passwd).
 	`
 	kernel := setupDreamerTestKernel(t, policy)
 
@@ -326,7 +326,7 @@ func TestE2E_Dreamer_StateCorruption_SharedMemoryMutations(t *testing.T) {
 // TestE2E_Dreamer_Semantic_MalformedTarget tests Mangle injection attempts in the target path.
 func TestE2E_Dreamer_Semantic_MalformedTarget(t *testing.T) {
 	policy := `
-	panic_state(Id, "injection hit") :- projected_action(Id, /edit_file, "/etc/passwd").
+	panic_state(Id, "injection hit") :- projected_action(Id, /edit_file, /etc/passwd).
 	`
 	kernel := setupDreamerTestKernel(t, policy)
 	dreamer := core.NewDreamer(kernel)

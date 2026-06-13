@@ -792,7 +792,9 @@ func TestE2E_SessionKernel_CrossSubAgentStateBleed_Simulated(t *testing.T) {
 	foundA := false
 	for _, atom := range res {
 		if len(atom.Args) > 0 {
-			if fmt.Sprintf("%v", atom.Args[0]) == "\"/agentA/file\"" {
+			// Match on substring rather than an exact quoted form so the test is
+			// robust to how the kernel renders string constants in query results.
+			if strings.Contains(fmt.Sprintf("%v", atom.Args[0]), "/agentA/file") {
 				foundA = true
 			}
 		}
