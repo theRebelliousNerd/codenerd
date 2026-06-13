@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -985,5 +987,8 @@ func (tc *TraceCollector) save() {
 	}
 
 	path := filepath.Join(tc.storePath, "reasoning_traces.json")
-	os.WriteFile(path, data, 0644)
+	// Surface persistence failures instead of silently dropping the traces.
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		logging.AutopoiesisError("TraceCollector.save: write %s: %v", path, err)
+	}
 }

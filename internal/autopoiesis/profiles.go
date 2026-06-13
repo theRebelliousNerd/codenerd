@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"codenerd/internal/logging"
 )
 
 // =============================================================================
@@ -347,14 +349,24 @@ func (ps *ProfileStore) load() {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, &ps.profiles)
+	if err := json.Unmarshal(data, &ps.profiles); err != nil {
+		logging.AutopoiesisError("ProfileStore.load: corrupt %s: %v", path, err)
+	}
 }
 
 func (ps *ProfileStore) save() {
 	if err := os.MkdirAll(ps.storePath, 0755); err != nil {
+		logging.AutopoiesisError("ProfileStore.save: mkdir %s: %v", ps.storePath, err)
 		return
 	}
 	path := filepath.Join(ps.storePath, "quality_profiles.json")
-	data, _ := json.MarshalIndent(ps.profiles, "", "  ")
-	os.WriteFile(path, data, 0644)
+	data, err := json.MarshalIndent(ps.profiles, "", "  ")
+	if err != nil {
+		logging.AutopoiesisError("ProfileStore.save: marshal: %v", err)
+		return
+	}
+	// Surface persistence failures instead of silently dropping the profiles.
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		logging.AutopoiesisError("ProfileStore.save: write %s: %v", path, err)
+	}
 }

@@ -75,7 +75,10 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 	var tables []string
 	for rows.Next() {
 		var name string
-		rows.Scan(&name)
+		if err := rows.Scan(&name); err != nil {
+			fmt.Fprintf(w, "Error scanning table row: %v\n", err)
+			continue
+		}
 		tables = append(tables, name)
 	}
 	rows.Close()
@@ -93,7 +96,10 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 		var name, typ string
 		var notNull, pk int
 		var dflt any
-		schemaRows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk)
+		if err := schemaRows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			fmt.Fprintf(w, "  - <scan error: %v>\n", err)
+			continue
+		}
 		fmt.Fprintf(w, "  - %s (%s)\n", name, typ)
 	}
 	schemaRows.Close()
@@ -158,7 +164,10 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 		for vecRows.Next() {
 			var id int
 			var content, metadata string
-			vecRows.Scan(&id, &content, &metadata)
+			if err := vecRows.Scan(&id, &content, &metadata); err != nil {
+				fmt.Fprintf(w, "  <scan error: %v>\n", err)
+				continue
+			}
 			if len(content) > 100 {
 				content = content[:100] + "..."
 			}
