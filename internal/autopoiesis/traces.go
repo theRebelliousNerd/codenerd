@@ -55,38 +55,6 @@ var (
 )
 
 // =============================================================================
-// GLOBAL REGEX PATTERNS (Performance Optimization)
-// =============================================================================
-var (
-	importPattern       = regexp.MustCompile("import\\s*\\(\\s*\\n")
-	singleImportPattern = regexp.MustCompile("import\\s+\"([^\"]+)\"")
-	funcPattern         = regexp.MustCompile("(func\\s+\\w+\\s*\\([^)]*\\)\\s*(?:\\([^)]*\\)\\s*)?\\{)\\n")
-	entryPattern        = regexp.MustCompile("(\\[TOOL_ENTRY\\][^\\n]+\\n)")
-	errorReturnPattern  = regexp.MustCompile("return\\s+([^,\\n]+),\\s*(fmt\\.Errorf|errors\\.New|err)\\b")
-	httpPattern         = regexp.MustCompile("(http\\.(Get|Post|Do)\\([^)]+\\))")
-	forPattern          = regexp.MustCompile("(for\\s+[^{]+\\{)\\n")
-	hasErrorPattern     = regexp.MustCompile("if\\s+err\\s*!=\\s*nil.*log\\.")
-	stepPattern         = regexp.MustCompile("(?m)^(?:\\d+\\.|[-*])\\s*(.+)$")
-
-	assumptionPatterns = []*regexp.Regexp{
-		regexp.MustCompile("(?i)assum(?:e|ing|ption)\\s+(?:that\\s+)?(.+?)(?:\\.|$)"),
-		regexp.MustCompile("(?i)expect(?:ing)?\\s+(?:that\\s+)?(.+?)(?:\\.|$)"),
-		regexp.MustCompile("(?i)presume\\s+(?:that\\s+)?(.+?)(?:\\.|$)"),
-	}
-
-	alternativePatterns = []*regexp.Regexp{
-		regexp.MustCompile("(?i)instead\\s+of\\s+(.+?),?\\s+(?:I|we)\\s+(.+?)(?:\\.|$)"),
-		regexp.MustCompile("(?i)rather\\s+than\\s+(.+?),?\\s+(.+?)(?:\\.|$)"),
-		regexp.MustCompile("(?i)could\\s+(?:also|alternatively)\\s+(.+?)\\s+but\\s+(.+?)(?:\\.|$)"),
-	}
-
-	decisionPatterns = []*regexp.Regexp{
-		regexp.MustCompile("(?i)(?:decided|choosing|chose|will use)\\s+(.+?)\\s+(?:because|since|as)\\s+(.+?)(?:\\.|$)"),
-		regexp.MustCompile("(?i)(?:for|using)\\s+(.+?)\\s+(?:because|since)\\s+(.+?)(?:\\.|$)"),
-	}
-)
-
-// =============================================================================
 // REASONING TRACE - CAPTURE THE "WHY" OF TOOL GENERATION
 // =============================================================================
 
