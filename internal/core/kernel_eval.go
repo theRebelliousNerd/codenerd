@@ -15,7 +15,6 @@ import (
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/engine"
 	"codeberg.org/TauCeti/mangle-go/factstore"
-	"codeberg.org/TauCeti/mangle-go/parse"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
@@ -87,7 +86,7 @@ func (k *RealKernel) rebuildProgram() error {
 
 	// Parse
 	parseTimer := logging.StartTimer(logging.CategoryKernel, "rebuildProgram.parse")
-	parsed, err := parse.Unit(strings.NewReader(programStr))
+	parsed, err := parseUnit(strings.NewReader(programStr))
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("rebuildProgram: parse failed: %v", err)
 		return fmt.Errorf("failed to parse program: %w", err)

@@ -109,22 +109,24 @@ func (t *Tracker) Track(ctx context.Context, model, provider string, input, outp
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Extract context metadata
+	// Extract context metadata. Use the comma-ok form: context values are
+	// untyped (any), so a caller that stores a non-string under these keys must
+	// degrade to "unknown" rather than panic the whole tracker.
 	shardType := "unknown"
-	if val := ctx.Value("shard_type"); val != nil {
-		shardType = val.(string)
+	if val, ok := ctx.Value("shard_type").(string); ok {
+		shardType = val
 	}
 	// Fallback to "ephemeral" if not specified but tracking is active?
 	// Or maybe "chat" if it came from the main loop.
 
 	shardName := "unknown"
-	if val := ctx.Value("shard_name"); val != nil {
-		shardName = val.(string)
+	if val, ok := ctx.Value("shard_name").(string); ok {
+		shardName = val
 	}
 
 	sessionID := "unknown"
-	if val := ctx.Value("session_id"); val != nil {
-		sessionID = val.(string)
+	if val, ok := ctx.Value("session_id").(string); ok {
+		sessionID = val
 	}
 
 	// Update Aggregates

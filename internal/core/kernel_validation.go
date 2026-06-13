@@ -7,8 +7,6 @@ import (
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
-
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================
@@ -440,7 +438,7 @@ func checkSyntax(ruleText string) error {
 	programText := ruleText
 
 	// Try parsing
-	_, err := parse.Unit(strings.NewReader(programText))
+	_, err := parseUnit(strings.NewReader(programText))
 	if err != nil {
 		// CRITICAL: Return ONLY the first line of error to prevent multi-line
 		// error messages from corrupting the healed file.

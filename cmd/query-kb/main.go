@@ -137,13 +137,19 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 
 	// Count total
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM knowledge_atoms").Scan(&count)
-	fmt.Fprintf(w, "\nTotal knowledge_atoms: %d\n", count)
+	if err := db.QueryRow("SELECT COUNT(*) FROM knowledge_atoms").Scan(&count); err != nil {
+		fmt.Fprintf(w, "\nError counting knowledge_atoms: %v\n", err)
+	} else {
+		fmt.Fprintf(w, "\nTotal knowledge_atoms: %d\n", count)
+	}
 
 	// Check vectors table
 	var vecCount int
-	db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&vecCount)
-	fmt.Fprintf(w, "Total vectors: %d\n", vecCount)
+	if err := db.QueryRow("SELECT COUNT(*) FROM vectors").Scan(&vecCount); err != nil {
+		fmt.Fprintf(w, "Error counting vectors (table may not exist): %v\n", err)
+	} else {
+		fmt.Fprintf(w, "Total vectors: %d\n", vecCount)
+	}
 
 	// Sample vectors
 	vecRows, err := db.Query("SELECT id, content, metadata FROM vectors LIMIT 5")

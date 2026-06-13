@@ -19,7 +19,6 @@ import (
 
 	"codenerd/internal/logging"
 
-	"codeberg.org/TauCeti/mangle-go/parse"
 	"codeberg.org/TauCeti/mangle-go/provenance"
 )
 
@@ -90,7 +89,7 @@ func (k *RealKernel) Explain(goalStr string, opts ExplainOptions) ([]*provenance
 	// Parse the goal. The provenance API wants an ast.Atom, not a Fact —
 	// the Mangle parser handles the round-trip for us via parse.Unit.
 	programStr := goalStr + "."
-	parsed, err := parse.Unit(strings.NewReader(programStr))
+	parsed, err := parseUnit(strings.NewReader(programStr))
 	if err != nil {
 		return nil, fmt.Errorf("Explain: failed to parse goal %q: %w", goalStr, err)
 	}

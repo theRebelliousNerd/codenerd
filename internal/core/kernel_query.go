@@ -13,7 +13,6 @@ import (
 	"codenerd/internal/logging"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================
@@ -414,7 +413,7 @@ func ParseFactString(factStr string) (Fact, error) {
 		return Fact{}, fmt.Errorf("cannot parse empty fact string")
 	}
 	programStr := factStr + "."
-	parsed, err := parse.Unit(strings.NewReader(programStr))
+	parsed, err := parseUnit(strings.NewReader(programStr))
 	if err != nil {
 		return Fact{}, fmt.Errorf("failed to parse fact string: %w", err)
 	}
@@ -434,7 +433,7 @@ func ParseFactString(factStr string) (Fact, error) {
 // ParseFactsFromString parses multiple facts from a string (one per line or separated by '.').
 func ParseFactsFromString(content string) ([]Fact, error) {
 	// Parse as a Mangle program
-	parsed, err := parse.Unit(strings.NewReader(content))
+	parsed, err := parseUnit(strings.NewReader(content))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse facts: %w", err)
 	}
