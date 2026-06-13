@@ -565,7 +565,13 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		}
 		stats.TokenBudget = budget
 
-		fitted, err := c.budgetMgr.Fit(ordered, budget)
+		// Defensive: a zero-value or partially-constructed compiler may have no
+		// budget manager. Fall back to a default rather than nil-panicking.
+		budgetMgr := c.budgetMgr
+		if budgetMgr == nil {
+			budgetMgr = NewTokenBudgetManager()
+		}
+		fitted, err := budgetMgr.Fit(ordered, budget)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fit budget: %w", err)
 		}

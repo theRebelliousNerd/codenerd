@@ -834,8 +834,13 @@ func TestPromptAssembler_StateConflicts_ConflictingShardPromptBase(t *testing.T)
 func TestPromptAssembler_StateConflicts_JITRaceCondition(t *testing.T) {
 	mk := newMockKernel()
 
-	// Create a dummy JIT compiler
-	jit := &prompt.JITPromptCompiler{}
+	// Use a fully-constructed compiler (NOT a zero-value struct literal): this
+	// test exercises the AssembleSystemPrompt / SetJITCompiler(nil) race, so the
+	// compiler must be valid to avoid masking that with a nil-field panic.
+	jit, err := prompt.NewJITPromptCompiler()
+	if err != nil {
+		t.Fatalf("NewJITPromptCompiler() error = %v", err)
+	}
 
 	pa, err := NewPromptAssemblerWithJIT(mk, jit)
 	if err != nil {
