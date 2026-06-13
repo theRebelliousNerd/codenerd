@@ -256,50 +256,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Async kernel update: assert user_intent in background so kernel state
 			// eventually reflects this turn. Non-blocking.
 			if m.kernel != nil {
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logging.Routing("[processInput] FAST-PATH async kernel update recovered panic: %v", r)
-						}
-					}()
-					tx := m.kernel.Transaction()
-					// Retract stale facts from previous turns
-					tx.Retract("shard_result")
-					tx.Retract("pending_test")
-					tx.Retract("pending_review")
-					tx.Retract("interrupt_requested")
-					tx.Retract("execution_result")
-					tx.Retract("routing_result")
-					tx.Retract("pending_action")
-					tx.Retract("delegate_task")
-					tx.Retract("trace_recall_result")
-					tx.Retract("learning_recall_result")
-					tx.Retract("delegation_candidate")
-					tx.Retract("multi_step_signal")
-					tx.Retract("intent_signal")
-					tx.Retract("current_understanding")
-					tx.Retract("llm_suggested_mode")
-					tx.Retract("candidate_mode")
-					tx.Retract("best_candidate_priority")
-					tx.Retract("derived_mode")
-					tx.Retract("derived_primary_shard")
-					tx.Retract("derived_context_priority")
-					tx.Retract("derived_tool_priority")
-					// Assert current intent
-					intentID := "/current_intent"
-					tx.RetractFact(core.Fact{Predicate: "user_intent", Args: []any{intentID}})
-					tx.RetractFact(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
-					tx.Assert(core.Fact{
-						Predicate: "user_intent",
-						Args:      []any{intentID, intent.Category, intent.Verb, intent.Target, intent.Constraint},
-					})
-					tx.Assert(core.Fact{Predicate: "processed_intent", Args: []any{intentID}})
-					if err := tx.Commit(); err != nil {
-						logging.Routing("[processInput] FAST-PATH async kernel update commit error: %v", err)
-					} else {
-						logging.Routing("[processInput] FAST-PATH async kernel update complete")
-					}
-				}()
+				go m.fastPathKernelUpdate(intent)
 			}
 
 			return responseMsg(m.appendSystemSummary(intent.Response, m.collectSystemSummary(ctx, baseRoutingCount, baseExecCount)))
