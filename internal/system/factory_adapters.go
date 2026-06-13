@@ -263,11 +263,10 @@ func (a *mcpKernelAdapter) Query(predicate string) ([]map[string]any, error) {
 }
 
 func (a *mcpKernelAdapter) Retract(fact string) error {
-	// Parse string fact into core.Fact
-	input := fact
-	if !strings.HasSuffix(input, ".") {
-		input += "."
-	}
+	// Parse string fact into core.Fact. core.ParseFactString already appends the
+	// trailing "." that the Mangle parser requires, so the input must NOT carry
+	// one — otherwise the parser sees a doubled ".." and rejects the fact.
+	input := strings.TrimSuffix(strings.TrimSpace(fact), ".")
 
 	parsed, err := core.ParseFactString(input)
 	if err != nil {
