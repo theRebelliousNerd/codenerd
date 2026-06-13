@@ -447,8 +447,13 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	close(files)
 	wg.Wait()
 
-	if ctx.Err() == context.DeadlineExceeded {
-		return hits, fmt.Errorf("search timeout for keyword %q", keyword)
+	// Surface context cancellation/timeout as an error so callers can
+	// distinguish an interrupted search from a genuinely empty result set.
+	if cerr := ctx.Err(); cerr != nil {
+		if cerr == context.DeadlineExceeded {
+			return hits, fmt.Errorf("search timeout for keyword %q", keyword)
+		}
+		return hits, fmt.Errorf("search for keyword %q canceled: %w", keyword, cerr)
 	}
 
 	return hits, err
