@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -393,7 +394,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 					if lineIdx < 0 {
 						lineIdx = 0
 					}
-					
+
 					colNum := offset - lineOffsets[lineIdx] + 1
 					contextLine := strings.TrimRight(string(lines[lineIdx]), "\r\n")
 					contextLine = strings.TrimSpace(contextLine)
@@ -425,7 +426,7 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 		if err != nil {
 			return nil
 		}
-		
+
 		// Check exclusions
 		for _, pattern := range r.excludePatterns {
 			matched, _ := filepath.Match(pattern, d.Name())
@@ -446,11 +447,55 @@ func (r *SparseRetriever) searchSingleKeyword(ctx context.Context, keyword strin
 	close(files)
 	wg.Wait()
 
-	if ctx.Err() == context.DeadlineExceeded {
-		return hits, fmt.Errorf("search timeout for keyword %q", keyword)
+	// Surface context cancellation/timeout as an error so callers can
+	// distinguish an interrupted search from a genuinely empty result set.
+	if cerr := ctx.Err(); cerr != nil {
+		if cerr == context.DeadlineExceeded {
+			return hits, fmt.Errorf("search timeout for keyword %q", keyword)
+		}
+		return hits, fmt.Errorf("search for keyword %q canceled: %w", keyword, cerr)
 	}
 
 	return hits, err
+}
+
+// parseRipgrepOutput parses grep/ripgrep "--vimgrep" style output of the form
+// "path:line:col:content" into KeywordHits. Lines that do not contain at least
+// the four colon-separated fields are skipped. Line and column numbers are
+// parsed best-effort (defaulting to 0 when non-numeric) so that partially
+// malformed matches are still surfaced rather than silently dropped. Each hit
+// carries a per-file 1-based occurrence Count, enabling downstream ranking to
+// weight files with denser keyword coverage.
+//
+// Note: Windows drive-letter paths (e.g. "C:\\repo\\file.go:1:2:text") are
+// counted as matches but the drive letter is treated as the leading field;
+// callers that need exact Windows path fidelity should normalize upstream.
+func (r *SparseRetriever) parseRipgrepOutput(output, keyword string) []KeywordHit {
+	var hits []KeywordHit
+	counts := make(map[string]int)
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" {
+			continue
+		}
+		// path:line:col:content — keep content intact even if it embeds colons.
+		parts := strings.SplitN(line, ":", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		filePath := parts[0]
+		lineNum, _ := strconv.Atoi(parts[1])
+		colNum, _ := strconv.Atoi(parts[2])
+		counts[filePath]++
+		hits = append(hits, KeywordHit{
+			FilePath: filePath,
+			Keyword:  keyword,
+			Line:     lineNum,
+			Column:   colNum,
+			Context:  strings.TrimRight(parts[3], "\r\n"),
+			Count:    counts[filePath],
+		})
+	}
+	return hits
 }
 
 func isWordBoundary(data []byte, offset, kwLen int) bool {

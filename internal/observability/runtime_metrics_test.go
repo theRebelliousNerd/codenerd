@@ -75,10 +75,10 @@ func TestShortMetric(t *testing.T) {
 		in, want string
 	}{
 		{"/sched/goroutines:goroutines", "goroutines"},
-		{"/gc/heap/goal:bytes", "heap_goal"},                 // generic leaf disambiguated
-		{"/cpu/classes/gc/total:cpu-seconds", "gc_total"},    // generic leaf disambiguated
-		{"/memory/classes/total:bytes", "classes_total"},     // generic leaf disambiguated
-		{"/gc/cycles/total:gc-cycles", "cycles_total"},       // generic leaf disambiguated
+		{"/gc/heap/goal:bytes", "heap_goal"},              // generic leaf disambiguated
+		{"/cpu/classes/gc/total:cpu-seconds", "gc_total"}, // generic leaf disambiguated
+		{"/memory/classes/total:bytes", "classes_total"},  // generic leaf disambiguated
+		{"/gc/cycles/total:gc-cycles", "cycles_total"},    // generic leaf disambiguated
 		{"/sched/gomaxprocs:threads", "gomaxprocs"},
 	}
 	for _, c := range cases {

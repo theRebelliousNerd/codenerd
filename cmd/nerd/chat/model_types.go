@@ -31,13 +31,13 @@ import (
 	"codenerd/internal/verification"
 	"codenerd/internal/world"
 
+	"charm.land/glamour/v2"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"charm.land/glamour/v2"
 )
 
 const (
@@ -222,8 +222,8 @@ type Model struct {
 	showSystemActions bool
 
 	// Streaming UI state
-	isStreaming    bool
-	currentStream  string
+	isStreaming   bool
+	currentStream string
 	// currentThought accumulates the model's streaming thinking trace
 	// (Gemini 3 thought parts) so the TUI can render reasoning as it
 	// arrives, above the visible answer. Cleared on streamEndMsg /

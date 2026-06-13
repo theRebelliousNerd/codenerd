@@ -1,0 +1,17 @@
+{
+  "session_id": "sess_1779727339543289196",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "System Ready",
+      "time": "2026-05-25T16:42:19.542475964Z"
+    },
+    {
+      "role": "assistant",
+      "content": "**Scan complete**\n\n| Metric | Value |\n|--------|-------|\n| Files indexed | 10 |\n| Directories | 0 |\n| Facts generated | 100 |\n| Duration | 1.00s |\n\nThe kernel has been updated with fresh codebase facts.",
+      "time": "2026-05-25T16:42:19.551566876Z"
+    }
+  ],
+  "created_at": "2026-05-25T16:42:19.553432713Z",
+  "updated_at": "2026-05-25T16:42:19.553432817Z"
+}

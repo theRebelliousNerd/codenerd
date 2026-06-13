@@ -39,16 +39,19 @@ type EmbeddingConfig struct {
 // ContextWindowConfig configures the semantic compression context window.
 //
 // Token Budget Architecture:
-//   Total Model Context = InputBudget + OutputReserve + ThinkingReserve + ToolUseBuffer
+//
+//	Total Model Context = InputBudget + OutputReserve + ThinkingReserve + ToolUseBuffer
 //
 // Where InputBudget is further divided by reserve percentages:
-//   InputBudget = CoreReserve + AtomReserve + HistoryReserve + WorkingReserve
+//
+//	InputBudget = CoreReserve + AtomReserve + HistoryReserve + WorkingReserve
 //
 // Example for 200k context window:
-//   MaxTokens: 200000 (input budget for context/prompt)
-//   OutputReserve: 8000 (max response tokens)
-//   ThinkingReserve: 0 (disabled by default, enable for extended thinking models)
-//   ToolUseBuffer: 4000 (for tool call/response cycles)
+//
+//	MaxTokens: 200000 (input budget for context/prompt)
+//	OutputReserve: 8000 (max response tokens)
+//	ThinkingReserve: 0 (disabled by default, enable for extended thinking models)
+//	ToolUseBuffer: 4000 (for tool call/response cycles)
 type ContextWindowConfig struct {
 	// Maximum tokens for input/context (prompt + context atoms + history)
 	// This is the budget for what we SEND to the model, not the model's total context window.

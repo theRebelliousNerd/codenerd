@@ -17,7 +17,6 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
-	"codenerd/internal/articulation"
 )
 
 // --- Mocks ---
@@ -46,10 +45,9 @@ func (m *oerMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 func (m *oerMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *oerMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *oerMockTransducer) SetStrategicContext(context string) {}
-func (m *oerMockTransducer) GetContext() string { return "mock_context" }
-
+func (m *oerMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *oerMockTransducer) SetStrategicContext(context string)               {}
+func (m *oerMockTransducer) GetContext() string                               { return "mock_context" }
 
 type oerMockJITCompiler struct {
 	promptToReturn *prompt.CompilationResult
@@ -60,10 +58,10 @@ func (m *oerMockJITCompiler) Compile(ctx context.Context, cc *prompt.Compilation
 }
 
 type oerMockConfigFactory struct {
-	configToReturn *config.AgentConfig
+	configToReturn *config.EffectiveAgentRuntimeConfig
 }
 
-func (m *oerMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *oerMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return m.configToReturn, nil
 }
 
@@ -130,7 +128,6 @@ func (m *oerMockLLMClient) CompleteWithStreaming(ctx context.Context, prompt str
 	return ch, errCh
 }
 
-
 func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Executor, *session.JITExecutor) {
 	t.Helper()
 	kernel, _ := core.NewRealKernel()
@@ -143,7 +140,7 @@ func setupRaceEnvironment(t *testing.T, llmDelay time.Duration) (*session.Execut
 
 	transducer := &oerMockTransducer{intentToReturn: "/fix"}
 	compiler := &oerMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oerMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oerMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
@@ -187,7 +184,7 @@ func TestE2E_OrchestratorExecutor_StateCorruption_ContextBleed(t *testing.T) {
 
 			// We must use a short task name so needsSubagent is false, forcing inline execution.
 			// "/fix" is treated as inline.
-			_, err := jitExecutor.ExecuteWithContext(ctx, "/fix", fmt.Sprintf("execute task %d", taskID), taskCtx, types.PriorityNormal)
+			_, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("execute task %d", taskID)}, taskCtx, types.PriorityNormal)
 			if err != nil {
 				t.Errorf("Task %d failed: %v", taskID, err)
 			}
@@ -237,7 +234,7 @@ func TestE2E_OrchestratorExecutor_ResourceExhaustion_Spawns(t *testing.T) {
 			defer wg.Done()
 
 			// Use "/research" to force Subagent isolation
-			_, err := jitExecutor.ExecuteAsync(ctx, "/research", fmt.Sprintf("search stuff %d", taskID))
+			_, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: fmt.Sprintf("search stuff %d", taskID)})
 			if err == nil {
 				atomic.AddInt32(&successfulSpawns, 1)
 			}
@@ -264,7 +261,7 @@ func TestE2E_OrchestratorExecutor_Temporal_WaitCancellation(t *testing.T) {
 	_, jitExecutor := setupRaceEnvironment(t, 2*time.Second)
 
 	// Start a long async task
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", "long task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "long task"})
 	if err != nil {
 		t.Fatalf("Failed to start async task: %v", err)
 	}
@@ -298,7 +295,7 @@ func TestE2E_OrchestratorExecutor_Cascading_AsyncPanic(t *testing.T) {
 	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
 
 	// Start task that normally works
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", "panic task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "panic task"})
 	if err != nil {
 		t.Fatalf("Failed to start async task: %v", err)
 	}
@@ -355,13 +352,13 @@ func TestE2E_OrchestratorExecutor_Recovery_Retry(t *testing.T) {
 	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
 
 	// Turn 1
-	res1, err := jitExecutor.Execute(ctx, "/fix", "flaky task")
+	res1, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "flaky task"})
 	if err != nil {
 		t.Fatalf("Execute 1 failed: %v", err)
 	}
 
 	// Turn 2
-	res2, err := jitExecutor.Execute(ctx, "/fix", "flaky task")
+	res2, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "flaky task"})
 	if err != nil {
 		t.Fatalf("Execute 2 failed: %v", err)
 	}
@@ -390,7 +387,7 @@ func TestE2E_OrchestratorExecutor_StateCorruption_DoubleSpawn(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id, err := jitExecutor.ExecuteAsync(ctx, "/research", "identical task")
+			id, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "identical task"})
 			if err == nil {
 				ids <- id
 			}
@@ -420,7 +417,7 @@ func TestE2E_OrchestratorExecutor_E2E_ResultCaching(t *testing.T) {
 	ctx := context.Background()
 	_, jitExecutor := setupRaceEnvironment(t, 2*time.Millisecond)
 
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", "caching task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "caching task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -457,7 +454,7 @@ func TestE2E_OrchestratorExecutor_Contract_NilContext(t *testing.T) {
 	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
 
 	// This should not panic
-	res, err := jitExecutor.ExecuteWithContext(ctx, "/fix", "nil context task", nil, types.PriorityNormal)
+	res, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "nil context task"}, nil, types.PriorityNormal)
 
 	if err != nil {
 		t.Fatalf("ExecuteWithContext failed with nil session context: %v", err)
@@ -481,7 +478,7 @@ func TestE2E_OrchestratorExecutor_Temporal_CancelBeforeSpawn(t *testing.T) {
 
 	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
 
-	_, err := jitExecutor.ExecuteAsync(ctx, "/research", "cancelled task")
+	_, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "cancelled task"})
 
 	if err == nil {
 		t.Log("KNOWN: ExecuteAsync does not currently check context cancellation before spawning")
@@ -507,13 +504,13 @@ func TestE2E_OrchestratorExecutor_Cascading_ExtremePayload(t *testing.T) {
 	payload := payloadBuilder.String()
 
 	// Execute inline
-	_, err := jitExecutor.Execute(ctx, "/fix", payload)
+	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: payload})
 	if err != nil {
 		t.Fatalf("Failed to execute massive payload inline: %v", err)
 	}
 
 	// Execute async
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", payload)
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: payload})
 	if err != nil {
 		t.Fatalf("Failed to execute massive payload async: %v", err)
 	}
@@ -540,7 +537,7 @@ func TestE2E_OrchestratorExecutor_Recovery_FailedAsync(t *testing.T) {
 
 	_, jitExecutor := setupRaceEnvironment(t, 50*time.Millisecond)
 
-	taskID, err := jitExecutor.ExecuteAsync(timeoutCtx, "/research", "doomed task")
+	taskID, err := jitExecutor.ExecuteAsync(timeoutCtx, session.TaskRequest{IntentVerb: "/research", Task: "doomed task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -552,7 +549,7 @@ func TestE2E_OrchestratorExecutor_Recovery_FailedAsync(t *testing.T) {
 	}
 
 	// Now prove the system is still healthy
-	res, err := jitExecutor.Execute(ctx, "/fix", "healthy task")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "healthy task"})
 	if err != nil {
 		t.Fatalf("Follow-up task failed after previous task timeout: %v", err)
 	}
@@ -581,7 +578,7 @@ func TestE2E_OrchestratorExecutor_StateCorruption_ResultDataRace(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", fmt.Sprintf("race task %d", id))
+			taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: fmt.Sprintf("race task %d", id)})
 			if err == nil {
 				// Immediately poll GetResult to try and trigger a read/write data race
 				jitExecutor.GetResult(taskID)
@@ -603,7 +600,7 @@ func TestE2E_OrchestratorExecutor_Boundary_SpawnerReaper(t *testing.T) {
 	ctx := context.Background()
 	_, jitExecutor := setupRaceEnvironment(t, 50*time.Millisecond)
 
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/research", "reaper task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/research", Task: "reaper task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -635,19 +632,19 @@ func TestE2E_OrchestratorExecutor_Contract_InlinePrefixing(t *testing.T) {
 	_, jitExecutor := setupRaceEnvironment(t, 1*time.Millisecond)
 
 	// Task without intent prefix
-	_, err := jitExecutor.Execute(ctx, "/fix", "do something")
+	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "do something"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
 	// Task with intent prefix already there
-	_, err = jitExecutor.Execute(ctx, "/fix", "fix do something")
+	_, err = jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "fix do something"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
 	// Empty task
-	_, err = jitExecutor.Execute(ctx, "/fix", "")
+	_, err = jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: ""})
 	if err != nil {
 		t.Fatalf("Execute failed on empty task: %v", err)
 	}

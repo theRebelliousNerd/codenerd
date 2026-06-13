@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"codeberg.org/TauCeti/mangle-go/analysis"
-	"codeberg.org/TauCeti/mangle-go/parse"
 )
 
 // =============================================================================
@@ -191,7 +190,7 @@ func (sv *SchemaValidator) HotLoadRule(rule string) error {
 	if !strings.HasSuffix(trimmed, ".") {
 		trimmed += "."
 	}
-	if _, err := parse.Unit(strings.NewReader(trimmed)); err != nil {
+	if _, err := ParseUnit(strings.NewReader(trimmed)); err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}
 	return sv.ValidateLearnedRule(trimmed)
@@ -305,7 +304,7 @@ func (sv *SchemaValidator) ValidateRules(rules []string) []error {
 // Returns errors for each invalid rule.
 func (sv *SchemaValidator) ValidateProgram(programText string) error {
 	// Parse the program to extract individual rules
-	parsed, err := parse.Unit(strings.NewReader(programText))
+	parsed, err := ParseUnit(strings.NewReader(programText))
 	if err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}

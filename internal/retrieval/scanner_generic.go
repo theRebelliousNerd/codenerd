@@ -20,7 +20,7 @@ func ScanBuffer(buf []byte, keyword []byte) []int {
 		if idx == -1 {
 			break
 		}
-		
+
 		matchPos := pos + idx
 		offsets = append(offsets, matchPos)
 		pos = matchPos + len(keyword)

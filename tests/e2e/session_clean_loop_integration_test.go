@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -49,7 +48,7 @@ func (m *sclMockTransducer) ResolveFocus(ctx context.Context, reference string, 
 	return perception.FocusResolution{}, nil
 }
 
-func (m *sclMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
+func (m *sclMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 
 func (m *sclMockTransducer) SetStrategicContext(context string) {}
 
@@ -79,12 +78,12 @@ func (m *sclMockJITCompiler) Compile(ctx context.Context, cc *prompt.Compilation
 }
 
 type sclMockConfigFactory struct {
-	configToReturn *config.AgentConfig
+	configToReturn *config.EffectiveAgentRuntimeConfig
 	errToReturn    error
 	panicMode      bool
 }
 
-func (m *sclMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *sclMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.panicMode {
 		panic("mock config factory panic")
 	}
@@ -201,7 +200,7 @@ func setupExecutor(t *testing.T, tr *sclMockTransducer, jc *sclMockJITCompiler, 
 func TestE2E_SessionExecutor_Smoke_PipelineCompletes(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Smoke test response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -223,7 +222,7 @@ func TestE2E_SessionExecutor_Smoke_PipelineCompletes(t *testing.T) {
 func TestE2E_SessionExecutor_TransducerEmptyIntent_GracefulFallback(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: ""}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Handled empty intent"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -237,7 +236,7 @@ func TestE2E_SessionExecutor_TransducerEmptyIntent_GracefulFallback(t *testing.T
 func TestE2E_SessionExecutor_JITCompilerHangs_ContextTimeout(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{delay: 10 * time.Second}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -256,10 +255,8 @@ func TestE2E_SessionExecutor_LLMHallucinatesUnconfiguredTool_Blocks(t *testing.T
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "compiled prompt"}}
 
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
-		Tools: config.ToolSet{
-			AllowedTools: []string{"dummy_tool"},
-		},
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"dummy_tool"},
 	}}
 
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
@@ -284,7 +281,7 @@ func TestE2E_SessionExecutor_LLMHallucinatesUnconfiguredTool_Blocks(t *testing.T
 func TestE2E_SessionExecutor_JITCompilerFails_FallsBackToBaseline(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{errToReturn: fmt.Errorf("JIT failure")}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Baseline response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -324,7 +321,7 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "concurrent response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -351,7 +348,7 @@ func TestE2E_SessionExecutor_ConcurrentProcess_NoPanic(t *testing.T) {
 func TestE2E_SessionExecutor_ContextCancellation_MidFlight_NoStateLeak(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	lc := &sclMockLLMClient{delay: 10 * time.Second}
 
@@ -384,8 +381,8 @@ func TestE2E_SessionExecutor_ContextCancellation_MidFlight_NoStateLeak(t *testin
 func TestE2E_SessionExecutor_InfiniteToolLoop_MaxToolCalls(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"dummy_tool"},
 	}}
 	lc := &sclMockLLMClient{infiniteLoopMode: true}
 
@@ -405,8 +402,8 @@ func TestE2E_SessionExecutor_InfiniteToolLoop_MaxToolCalls(t *testing.T) {
 func TestE2E_SessionExecutor_ToolExecutionHangs_TimeoutEnforced(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"hanging_tool"}},
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"hanging_tool"},
 	}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
 		Text: "Called hanging tool",
@@ -432,7 +429,7 @@ func TestE2E_SessionExecutor_ToolExecutionHangs_TimeoutEnforced(t *testing.T) {
 func TestE2E_SessionExecutor_MultiTurnAccumulation_NoLeak(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -492,7 +489,7 @@ func TestE2E_SessionExecutor_PartialPipelineFailure(t *testing.T) {
 func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "fast response"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -516,7 +513,7 @@ func TestE2E_SessionExecutor_TaxonomyQueue_NoBlocking(t *testing.T) {
 func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: ""}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -537,7 +534,7 @@ func TestE2E_SessionExecutor_EmptyLLMResponse_HandledGracefully(t *testing.T) {
 func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "handled"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -556,8 +553,8 @@ func TestE2E_SessionExecutor_LargePayload_Truncation(t *testing.T) {
 func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"dummy_tool"},
 	}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{
 		Text: "Calling with bad args",
@@ -584,8 +581,8 @@ func TestE2E_SessionExecutor_InvalidToolArguments_JSONFallback(t *testing.T) {
 func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"dummy_tool"}},
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"dummy_tool"},
 	}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "turn"}}
 
@@ -595,7 +592,7 @@ func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 		t.Fatalf("Err: %v", err)
 	}
 
-	if len(cf.configToReturn.Tools.AllowedTools) != 1 {
+	if len(cf.configToReturn.AllowedTools) != 1 {
 		t.Errorf("Config was unexpectedly mutated!")
 	}
 }
@@ -606,7 +603,7 @@ func TestE2E_SessionExecutor_ConfigMutation_Immutable(t *testing.T) {
 func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{errToReturn: fmt.Errorf("JIT totally failed")}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Survived the crash"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)
@@ -628,7 +625,7 @@ func TestE2E_SessionExecutor_FallbackToBaseline_OnCompilationFailure(t *testing.
 func TestE2E_SessionExecutor_LoggingPanic_Recovery(t *testing.T) {
 	tr := &sclMockTransducer{intentToReturn: "/coder"}
 	jc := &sclMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "prompt"}}
-	cf := &sclMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	cf := &sclMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &sclMockLLMClient{responseToReturn: &types.LLMToolResponse{Text: "Logging is safe"}}
 
 	exec := setupExecutor(t, tr, jc, cf, lc)

@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
-
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -25,7 +23,7 @@ import (
 
 // talMockLLMClient counts LLM invocations atomically so we can detect double-Run.
 type talMockLLMClient struct {
-	callCount int64 // atomic
+	callCount int64         // atomic
 	blockCh   chan struct{} // if non-nil, block until closed
 	delay     time.Duration
 }
@@ -108,17 +106,17 @@ type talMockConfigFactory struct {
 	failOnGenerate bool
 }
 
-func (m *talMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *talMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.failOnGenerate {
 		return nil, fmt.Errorf("config factory failure")
 	}
-	return &config.AgentConfig{
-		Tools:    config.ToolSet{AllowedTools: []string{"mock_tool"}},
-		Policies: config.PolicySet{Files: []string{}},
+	return &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"mock_tool"},
+		Policies:     []string{},
 	}, nil
 }
 
-func (m *talMockConfigFactory) RegisterSpecialist(name string, config *config.AgentConfig) error {
+func (m *talMockConfigFactory) RegisterSpecialist(name string, config *config.EffectiveAgentRuntimeConfig) error {
 	return nil
 }
 
@@ -146,19 +144,19 @@ func (m *talMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 func (m *talMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *talMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *talMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *talMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *talMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
 // SETUP
 // =============================================================================
 
 type talEnv struct {
-	executor    *session.JITExecutor
-	spawner     *session.Spawner
-	llm         *talMockLLMClient
-	vstore      *talMockVirtualStore
-	cfgFactory  *talMockConfigFactory
+	executor   *session.JITExecutor
+	spawner    *session.Spawner
+	llm        *talMockLLMClient
+	vstore     *talMockVirtualStore
+	cfgFactory *talMockConfigFactory
 }
 
 func setupTALEnvironment(t *testing.T) *talEnv {
@@ -205,7 +203,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_SingleRun(t *testing.T) {
 	defer cancel()
 
 	// Execute async task
-	taskID, err := env.executor.ExecuteAsync(ctx, "/fix", "touch sentinel file")
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "touch sentinel file"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -263,7 +261,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_ResultLifecycle(t *testing.T) {
 	}
 
 	// Start async task (LLM will block)
-	taskID, err := env.executor.ExecuteAsync(ctx, "/fix", "blocked task")
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "blocked task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -312,7 +310,7 @@ func TestE2E_TaskExecutor_WaitForResult_Cancellation_StopsAgent(t *testing.T) {
 	defer parentCancel()
 
 	// Spawn a task that will block forever
-	taskID, err := env.executor.ExecuteAsync(parentCtx, "/fix", "will block forever")
+	taskID, err := env.executor.ExecuteAsync(parentCtx, session.TaskRequest{IntentVerb: "/fix", Task: "will block forever"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -390,7 +388,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_ContextBackground(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	taskID, err := env.executor.ExecuteAsync(ctx, "/fix", "context test")
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "context test"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -434,7 +432,7 @@ func TestE2E_TaskExecutor_Cleanup_RemovesCompletedAgent(t *testing.T) {
 	defer cancel()
 
 	// Run and complete a task
-	taskID, err := env.executor.ExecuteAsync(ctx, "/fix", "quick task")
+	taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "quick task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -498,7 +496,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_CapacityLimit(t *testing.T) {
 	// Spawn up to the limit
 	var taskIDs []string
 	for i := 0; i < 3; i++ {
-		taskID, err := taskExec.ExecuteAsync(ctx, "/fix", fmt.Sprintf("task %d", i))
+		taskID, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("task %d", i)})
 		if err != nil {
 			t.Fatalf("ExecuteAsync #%d failed: %v", i, err)
 		}
@@ -513,7 +511,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_CapacityLimit(t *testing.T) {
 	t.Logf("Active agents after spawning 3: %d", len(active))
 
 	// Next spawn should fail — capacity exceeded
-	_, err := taskExec.ExecuteAsync(ctx, "/fix", "one too many")
+	_, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "one too many"})
 	if err == nil {
 		t.Error("Expected capacity error when exceeding maxActiveSubagents, got nil")
 	} else {
@@ -542,7 +540,7 @@ func TestE2E_TaskExecutor_ExecuteAsync_Concurrent(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			taskID, err := env.executor.ExecuteAsync(ctx, "/fix", fmt.Sprintf("concurrent task %d", idx))
+			taskID, err := env.executor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("concurrent task %d", idx)})
 			taskIDs[idx] = taskID
 			errors[idx] = err
 		}(i)

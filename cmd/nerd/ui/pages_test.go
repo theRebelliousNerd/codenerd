@@ -13,6 +13,7 @@ import (
 	"codenerd/internal/usage"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TODO: IMPROVEMENT: Add test coverage for edge cases and error states (e.g., empty data, rapid tab switching).
@@ -227,9 +228,12 @@ func TestAutopoiesisPageModelJSONRendering(t *testing.T) {
 	model.UpdateContent(patterns, nil)
 
 	view := model.View()
-	// glamour/chroma might add colors, but the text content should be preserved (though potentially with extra spaces/newlines)
-	if !strings.Contains(view, "\"key\": \"value\"") {
-		t.Errorf("expected formatted JSON content in view, got: %s", view)
+	// glamour/chroma wraps each JSON token in ANSI color codes, which would
+	// otherwise split the literal substring. Strip control codes first so the
+	// assertion checks the actual rendered text content.
+	plainView := ansi.Strip(view)
+	if !strings.Contains(plainView, "\"key\": \"value\"") {
+		t.Errorf("expected formatted JSON content in view, got: %s", plainView)
 	}
 
 	// Case 2: Invalid JSON (Plain text)

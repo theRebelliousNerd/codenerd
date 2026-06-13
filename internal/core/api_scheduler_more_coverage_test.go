@@ -79,7 +79,7 @@ func TestAPIScheduler_StopInterrupted(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond) // let it start waiting
-	s.Stop()                         // interrupt wait
+	s.Stop()                          // interrupt wait
 
 	err := <-errChan
 	if err == nil || err.Error() != "scheduler stopped" {

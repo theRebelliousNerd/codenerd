@@ -101,7 +101,7 @@ type GeneratedTool struct {
 	SourceGap string `json:"source_gap"` // Which gap this resolves
 
 	// Status
-	Status     string `json:"status"`                // "pending", "validated", "ready", "failed"
+	Status     string `json:"status"`               // "pending", "validated", "ready", "failed"
 	RegistryID string `json:"registry_id,omitzero"` // ID in tool registry
 }
 

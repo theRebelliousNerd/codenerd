@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -62,10 +61,10 @@ func (m *scbMockVirtualStore) ReadRaw(path string) ([]byte, error) {
 
 type scbMockConfigFactory struct{}
 
-func (m *scbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-	return &config.AgentConfig{}, nil
+func (m *scbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
-func (m *scbMockConfigFactory) RegisterSpecialist(name string, config *config.AgentConfig) error {
+func (m *scbMockConfigFactory) RegisterSpecialist(name string, config *config.EffectiveAgentRuntimeConfig) error {
 	return nil
 }
 
@@ -89,8 +88,8 @@ func (m *scbMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 func (m *scbMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *scbMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *scbMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *scbMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *scbMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
 // Helper

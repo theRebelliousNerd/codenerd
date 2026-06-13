@@ -586,5 +586,3 @@ func BenchmarkToContextFacts(b *testing.B) {
 		cc.ToContextFacts()
 	}
 }
-
-

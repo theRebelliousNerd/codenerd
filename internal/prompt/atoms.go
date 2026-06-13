@@ -442,8 +442,8 @@ func (a *PromptAtom) ToFact() core.Fact {
 		Args: []any{
 			a.ID,
 			"/" + string(a.Category),
-			a.Priority,    // index 2 per schema
-			a.TokenCount,  // index 3 per schema
+			a.Priority,   // index 2 per schema
+			a.TokenCount, // index 3 per schema
 			core.MangleAtom(mandatory),
 		},
 	}

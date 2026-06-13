@@ -13,7 +13,7 @@ import (
 type ToolDefinition struct {
 	Name          string   `json:"name"`
 	DisplayName   string   `json:"display_name,omitzero"` // Human-readable name (optional)
-	Category      string   `json:"category"`               // build, test, lint, format, deps, git, docker, security, code_analysis, etc
+	Category      string   `json:"category"`              // build, test, lint, format, deps, git, docker, security, code_analysis, etc
 	Description   string   `json:"description"`
 	ShardAffinity string   `json:"shard_affinity,omitzero"` // Which shard primarily uses this (TesterShard, CoderShard, ReviewerShard, ResearcherShard)
 	Conditions    []string `json:"conditions,omitzero"`     // Required conditions (e.g., "go.mod exists", "docker available")

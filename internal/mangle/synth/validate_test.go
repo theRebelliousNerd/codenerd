@@ -343,9 +343,9 @@ func TestValidateDeclSpec(t *testing.T) {
 		{
 			name: "valid",
 			spec: DeclSpec{
-				Atom:  AtomSpec{Pred: "valid"},
-				Descr: []AtomSpec{{Pred: "descr"}},
-				Bounds: []BoundSpec{{Terms: []ExprSpec{{Kind: "var", Value: "A"}}}},
+				Atom:      AtomSpec{Pred: "valid"},
+				Descr:     []AtomSpec{{Pred: "descr"}},
+				Bounds:    []BoundSpec{{Terms: []ExprSpec{{Kind: "var", Value: "A"}}}},
 				Inclusion: []AtomSpec{{Pred: "incl"}},
 			},
 			wantErr: false,

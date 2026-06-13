@@ -122,4 +122,3 @@ func TestMaxBatchSize_ShouldBe100(t *testing.T) {
 		t.Errorf("maxBatchSize = %d, want 100", maxBatchSize)
 	}
 }
-

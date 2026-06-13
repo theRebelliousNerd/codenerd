@@ -148,7 +148,8 @@ func TestKernelDifferentialEval(t *testing.T) {
 // the legacy path does both, so the ratio is what we care about.
 //
 // Run with:
-//   go test -bench BenchmarkKernelDifferentialEval -benchmem -run=^$ ./internal/core/
+//
+//	go test -bench BenchmarkKernelDifferentialEval -benchmem -run=^$ ./internal/core/
 func BenchmarkKernelDifferentialEval(b *testing.B) {
 	policy := `
 	Decl bench_thing(Name).

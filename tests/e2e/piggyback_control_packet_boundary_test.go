@@ -163,17 +163,17 @@ func TestE2E_Piggyback_MalformedAtomString_NoPanic(t *testing.T) {
 	}
 
 	malformed := []string{
-		``,                             // empty
-		`(`,                            // unclosed paren
-		`)`,                            // unopened paren
-		`task_status(`,                 // incomplete
-		`task_status(, , ,)`,           // empty args
-		`task_status("unclosed`,        // unclosed string
-		strings.Repeat("x", 100000),    // very long
-		`task_status(/a, /b). evil()`,  // injection attempt
-		"task_status(/a, /b)\x00evil",  // null byte injection
-		`task_status(/*/, /b)`,         // comment injection
-		`task_status(/a) :- boom(X).`,  // rule injection
+		``,                            // empty
+		`(`,                           // unclosed paren
+		`)`,                           // unopened paren
+		`task_status(`,                // incomplete
+		`task_status(, , ,)`,          // empty args
+		`task_status("unclosed`,       // unclosed string
+		strings.Repeat("x", 100000),   // very long
+		`task_status(/a, /b). evil()`, // injection attempt
+		"task_status(/a, /b)\x00evil", // null byte injection
+		`task_status(/*/, /b)`,        // comment injection
+		`task_status(/a) :- boom(X).`, // rule injection
 	}
 
 	for i, update := range malformed {

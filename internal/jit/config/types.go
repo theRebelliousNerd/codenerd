@@ -11,15 +11,15 @@ import (
 // YAML tags use snake_case so specialist config files at
 // .nerd/agents/<name>/config.yaml can use the natural YAML convention.
 type EffectiveAgentRuntimeConfig struct {
-	IdentityPrompt string           `yaml:"identity_prompt" json:"identity_prompt"`
-	IntentVerb     string           `yaml:"intent_verb" json:"intent_verb"`
-	Persona        string           `yaml:"persona" json:"persona"`
-	AllowedTools   []string         `yaml:"allowed_tools" json:"allowed_tools"`
-	Policies       []string         `yaml:"policies" json:"policies"`
-	Model          string           `yaml:"model" json:"model"`
-	ToolLoop       ToolLoopConfig   `yaml:"tool_loop" json:"tool_loop"`
-	Safety         SafetyConfig     `yaml:"safety" json:"safety"`
-	Workspace      WorkspaceConfig  `yaml:"workspace" json:"workspace"`
+	IdentityPrompt string          `yaml:"identity_prompt" json:"identity_prompt"`
+	IntentVerb     string          `yaml:"intent_verb" json:"intent_verb"`
+	Persona        string          `yaml:"persona" json:"persona"`
+	AllowedTools   []string        `yaml:"allowed_tools" json:"allowed_tools"`
+	Policies       []string        `yaml:"policies" json:"policies"`
+	Model          string          `yaml:"model" json:"model"`
+	ToolLoop       ToolLoopConfig  `yaml:"tool_loop" json:"tool_loop"`
+	Safety         SafetyConfig    `yaml:"safety" json:"safety"`
+	Workspace      WorkspaceConfig `yaml:"workspace" json:"workspace"`
 }
 
 type ToolLoopConfig struct {

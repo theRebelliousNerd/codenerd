@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"codenerd/internal/mangle"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/parse"
+	"codenerd/internal/mangle"
 	"go.uber.org/goleak"
 )
 

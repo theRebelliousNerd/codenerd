@@ -89,7 +89,7 @@ func (p *StreamParser) ProcessChunk(chunk string) string {
 			// End of string reached
 			if c == '"' {
 				p.inSurface = false
-				// We don't advance lastEmittedIndex past the quote because 
+				// We don't advance lastEmittedIndex past the quote because
 				// we don't care about the rest of the JSON padding
 				break
 			}

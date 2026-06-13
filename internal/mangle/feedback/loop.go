@@ -1,12 +1,12 @@
 package feedback
 
 import (
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"codeberg.org/TauCeti/mangle-go/analysis"
 	"strings"
 	"time"
 
@@ -232,7 +232,7 @@ func (fl *FeedbackLoop) GenerateAndValidate(
 			} else {
 				synthErr = specErr
 			}
-			
+
 			if synthErr != nil && fl.synthMode == SynthModeRequire {
 				lastErrors = []ValidationError{{
 					Category: CategoryParse,

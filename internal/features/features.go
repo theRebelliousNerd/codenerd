@@ -347,4 +347,4 @@ var errBadInt = newErr("features: invalid integer override")
 type featuresErr string
 
 func (e featuresErr) Error() string { return string(e) }
-func newErr(s string) error          { return featuresErr(s) }
+func newErr(s string) error         { return featuresErr(s) }

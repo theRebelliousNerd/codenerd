@@ -51,7 +51,7 @@ func TestStep4_ShouldDelegate_ConfidenceGate(t *testing.T) {
 		wantDeriv bool
 	}{
 		{"above_threshold_60", "/coder", 60, true},
-		{"exact_threshold_50", "/coder", 50, true},  // Conf >= 50 is inclusive
+		{"exact_threshold_50", "/coder", 50, true}, // Conf >= 50 is inclusive
 		{"just_below_threshold_49", "/coder", 49, false},
 		{"below_threshold_40", "/coder", 40, false},
 		{"none_shard_high_conf", "/none", 90, false}, // /none rejected regardless of conf

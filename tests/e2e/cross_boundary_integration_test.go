@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"codenerd/internal/core"
-	"codenerd/internal/articulation"
+	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
-	"codenerd/internal/jit/config"
 	"codenerd/internal/tactile"
 	"codenerd/internal/types"
 )
@@ -27,12 +26,12 @@ import (
 // cbMockLLMClient is a cross-boundary mock that supports both core.LLMClient
 // and types.LLMClient (they are aliases). It records all prompts for inspection.
 type cbMockLLMClient struct {
-	mu             sync.Mutex
-	responses      []string
-	idx            int
+	mu              sync.Mutex
+	responses       []string
+	idx             int
 	promptsReceived []string
-	delay          time.Duration
-	toolResponse   *types.LLMToolResponse
+	delay           time.Duration
+	toolResponse    *types.LLMToolResponse
 }
 
 func (m *cbMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -114,8 +113,8 @@ func (m *cbMockTransducer) ParseIntentWithGCD(ctx context.Context, input string,
 func (m *cbMockTransducer) ResolveFocus(ctx context.Context, ref string, cands []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *cbMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *cbMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *cbMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *cbMockTransducer) SetStrategicContext(ctx string)                   {}
 
 type cbMockJITCompiler struct{ result *prompt.CompilationResult }
 
@@ -126,13 +125,15 @@ func (m *cbMockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationC
 	return &prompt.CompilationResult{Prompt: "test prompt"}, nil
 }
 
-type cbMockConfigFactory struct{ cfg *config.AgentConfig }
+type cbMockConfigFactory struct {
+	cfg *config.EffectiveAgentRuntimeConfig
+}
 
-func (m *cbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *cbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.cfg != nil {
 		return m.cfg, nil
 	}
-	return &config.AgentConfig{}, nil
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
 
 // =============================================================================
@@ -489,7 +490,7 @@ func TestE2E_CrossBoundary_Executor_MultiTurn_ConversationDrift(t *testing.T) {
 
 	tr := &cbMockTransducer{intents: allIntents}
 	jc := &cbMockJITCompiler{result: &prompt.CompilationResult{Prompt: "test prompt"}}
-	cf := &cbMockConfigFactory{cfg: &config.AgentConfig{}}
+	cf := &cbMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &cbMockLLMClient{}
 
 	exec := session.NewExecutor(kernel, nil, lc, jc, cf, tr)
@@ -639,7 +640,7 @@ func TestE2E_CrossBoundary_Executor_DualRegistryToolRouting(t *testing.T) {
 
 	tr := &cbMockTransducer{intents: []perception.Intent{{Verb: "/coder", Target: "test"}}}
 	jc := &cbMockJITCompiler{}
-	cf := &cbMockConfigFactory{cfg: &config.AgentConfig{}}
+	cf := &cbMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{}}
 	lc := &cbMockLLMClient{}
 
 	exec := session.NewExecutor(kernel, vs, lc, jc, cf, tr)

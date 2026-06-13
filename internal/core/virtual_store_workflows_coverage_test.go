@@ -645,9 +645,15 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	}
 
 	// 5. handleOuroborosRegister
+	// Create a real executable on disk so RegisterTool's binary-existence
+	// check passes regardless of host layout (e.g. /bin/my_tool never exists).
+	toolBin := filepath.Join(t.TempDir(), "my_tool")
+	if err := os.WriteFile(toolBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("failed to create temp tool binary: %v", err)
+	}
 	// Case 5a: registry nil
 	vs.toolRegistry = nil
-	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"binary_path": "/bin/my_tool", "shard_affinity": "coder"}}
+	req = ActionRequest{Target: "my_tool", Payload: map[string]any{"binary_path": toolBin, "shard_affinity": "coder"}}
 	res, err = vs.handleOuroborosRegister(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -673,7 +679,7 @@ func TestVirtualStoreWorkflows_Ouroboros(t *testing.T) {
 	}
 
 	// Case 5c: Registration success with empty shard affinity (defaults to "coder")
-	req.Payload = map[string]any{"binary_path": "/bin/my_tool"}
+	req.Payload = map[string]any{"binary_path": toolBin}
 	res, err = vs.handleOuroborosRegister(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

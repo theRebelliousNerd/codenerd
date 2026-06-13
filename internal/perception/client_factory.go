@@ -50,7 +50,6 @@ type ProviderConfig struct {
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
 }
 
-
 // LoadConfigJSON loads provider configuration from a JSON config file.
 // This now delegates to the unified config.LoadUserConfig().
 func LoadConfigJSON(path string) (*ProviderConfig, error) {

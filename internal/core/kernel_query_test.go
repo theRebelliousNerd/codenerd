@@ -1,9 +1,9 @@
 package core
 
 import (
-	"fmt"
 	"codeberg.org/TauCeti/mangle-go/ast"
 	"codeberg.org/TauCeti/mangle-go/factstore"
+	"fmt"
 	"os"
 	"testing"
 )

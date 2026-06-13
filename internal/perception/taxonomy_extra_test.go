@@ -53,7 +53,7 @@ func TestLearnedCorpusStore_Search(t *testing.T) {
 	// Add dummy entry
 	s.entries = append(s.entries, CorpusEntry{TextContent: "test", Verb: "/test"})
 	s.embeddings["test"] = []float32{1.0, 0.0, 0.0, 0.0}
-	
+
 	res, err := s.Search([]float32{1.0, 0.0, 0.0, 0.0}, 5)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -62,4 +62,3 @@ func TestLearnedCorpusStore_Search(t *testing.T) {
 		t.Errorf("expected 1 result, got %d", len(res))
 	}
 }
-

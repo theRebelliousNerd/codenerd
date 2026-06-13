@@ -393,7 +393,7 @@ func TestE2E_ShadowMode_CommitSimulation_SafetyBoundary(t *testing.T) {
 				defer wg.Done()
 				defer func() {
 					if r := recover(); r != nil {
-					atomic.AddInt64(&panicCount, 1)
+						atomic.AddInt64(&panicCount, 1)
 						t.Logf("PANIC in WhatIf goroutine %d: %v", idx, r)
 					}
 				}()
@@ -504,7 +504,7 @@ func TestE2E_ShadowMode_CommitSimulation_SafetyBoundary(t *testing.T) {
 		result, simErr := sm.SimulateAction(ctx, core.SimulatedAction{
 			ID:          "bypass_1",
 			Type:        core.ActionTypeFileWrite,
-			Target:      "/etc/shadow",  // Obviously dangerous target
+			Target:      "/etc/shadow", // Obviously dangerous target
 			Description: "write to system file",
 		})
 		if simErr != nil {

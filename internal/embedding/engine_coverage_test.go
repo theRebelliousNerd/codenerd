@@ -345,9 +345,9 @@ func TestFindTopK_WhenSorted_ShouldReturnDescendingSimilarity(t *testing.T) {
 func TestFindTopK_WhenDimensionMismatch_ShouldSkipMismatchedVectors(t *testing.T) {
 	query := []float32{1.0, 0.0}
 	corpus := [][]float32{
-		{1.0, 0.0},       // matches dimensions
-		{1.0, 0.0, 0.0},  // dimension mismatch - should be skipped
-		{0.5, 0.5},       // matches dimensions
+		{1.0, 0.0},      // matches dimensions
+		{1.0, 0.0, 0.0}, // dimension mismatch - should be skipped
+		{0.5, 0.5},      // matches dimensions
 	}
 
 	results, err := FindTopK(query, corpus, 5)
@@ -384,7 +384,7 @@ func TestFindTopK_WhenAllMismatched_ShouldReturnEmpty(t *testing.T) {
 	query := []float32{1.0, 0.0}
 	corpus := [][]float32{
 		{1.0, 0.0, 0.0}, // 3D vs 2D
-		{1.0},            // 1D vs 2D
+		{1.0},           // 1D vs 2D
 	}
 
 	results, err := FindTopK(query, corpus, 5)

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/glamour/v2"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"charm.land/glamour/v2"
 	"github.com/charmbracelet/lipgloss"
 )
 

@@ -552,6 +552,11 @@ func TestParanoidValidator_ReadPermissionDenied(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping read permission test on Windows")
 	}
+	if os.Geteuid() == 0 {
+		// root bypasses filesystem read permission bits, so an "unreadable"
+		// file is still readable and the validator legitimately verifies it.
+		t.Skip("Skipping read permission test when running as root")
+	}
 
 	v := NewParanoidFileValidator()
 	tmpDir := t.TempDir()

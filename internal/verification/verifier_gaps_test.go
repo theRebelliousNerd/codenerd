@@ -37,10 +37,10 @@ func TestIsReviewTask_WhenEdgeCases_ShouldClassifyCorrectly(t *testing.T) {
 
 		// Edge cases
 		{"", false},
-		{"REVIEW uppercase", true},        // case insensitive
+		{"REVIEW uppercase", true}, // case insensitive
 		{"Review Mixed Case", true},
-		{"prereview setup", true},           // substring match: "prereview setup" contains "review "
-		{"the analysis is done", false},     // "analyze" embedded differently
+		{"prereview setup", true},       // substring match: "prereview setup" contains "review "
+		{"the analysis is done", false}, // "analyze" embedded differently
 	}
 
 	for _, tc := range tests {

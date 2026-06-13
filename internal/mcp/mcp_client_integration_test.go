@@ -6,8 +6,8 @@ package mcp_test
 
 import (
 	"context"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -216,7 +216,7 @@ func (s *MCPClientIntegrationSuite) TestCallTool_NilArgs() {
 	// CallTool with nil args
 	ctx := context.Background()
 	s.Require().NoError(s.client.Connect(ctx, "test-server"))
-	
+
 	result, err := s.client.CallTool(ctx, "test-server/ping", nil) // ping doesn't take args
 	// Wait, the mock server doesn't have a "ping" tool, it has a "ping" method.
 	// We'll call a non-existent tool with nil args, it should fail with "Method not found" from server,
@@ -236,7 +236,7 @@ func (s *MCPClientIntegrationSuite) TestDiscoverTools_EmptyList() {
 			Method  string `json:"method"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		
+
 		resp := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -257,7 +257,7 @@ func (s *MCPClientIntegrationSuite) TestDiscoverTools_EmptyList() {
 
 	ctx := context.Background()
 	s.Require().NoError(s.client.Connect(ctx, "empty"))
-	
+
 	// DiscoverTools should not error if the list is empty
 	err := s.client.DiscoverTools(ctx, "empty")
 	s.Require().NoError(err)
@@ -286,10 +286,10 @@ func (s *MCPClientIntegrationSuite) TestCallTool_InvalidArgsTypes() {
 func (s *MCPClientIntegrationSuite) TestListTools_Extremes() {
 	// Directly inject 10000 tools into a server connection
 	s.Require().NoError(s.client.Connect(context.Background(), "test-server"))
-	
+
 	conn, ok := s.client.ServersForTest()["test-server"]
 	s.Require().True(ok)
-	
+
 	tools := make([]*mcp.MCPTool, 10000)
 	for i := 0; i < 10000; i++ {
 		tools[i] = &mcp.MCPTool{Name: fmt.Sprintf("t%d", i)}
@@ -339,7 +339,7 @@ func (s *MCPClientIntegrationSuite) TestCallToolConcurrentDisconnect() {
 	s.Require().NoError(s.client.Connect(context.Background(), "test-server"))
 
 	var wg sync.WaitGroup
-	
+
 	// We want to trigger CallTool while Disconnect happens
 	wg.Add(1)
 	go func() {

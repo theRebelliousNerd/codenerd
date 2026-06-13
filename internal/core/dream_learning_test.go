@@ -31,10 +31,10 @@ func TestDreamLearningCollector_ExtractLearnings(t *testing.T) {
 	// Use path/file details and project-specific terms to ensure high novelty
 	consultations := []DreamConsultation{
 		{
-			ShardName:       "specialist-knowledge",
-			ShardType:       "knowledge_specialist",
-			Perspective:     "approach:\n1. We need a tool called 'file_scanner'.\n2. implement procedural step in path/helper.go using mangle.\n3. Never do X because it might break deployment.",
-			Concerns:        []string{"Stability risk"},
+			ShardName:   "specialist-knowledge",
+			ShardType:   "knowledge_specialist",
+			Perspective: "approach:\n1. We need a tool called 'file_scanner'.\n2. implement procedural step in path/helper.go using mangle.\n3. Never do X because it might break deployment.",
+			Concerns:    []string{"Stability risk"},
 		},
 	}
 

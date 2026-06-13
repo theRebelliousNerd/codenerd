@@ -299,7 +299,7 @@ func (e *Engine) LoadSchema(path string) error {
 
 // LoadSchemaString loads and compiles a Mangle schema from string.
 func (e *Engine) LoadSchemaString(schema string) error {
-	unit, err := parse.Unit(bytes.NewReader([]byte(schema)))
+	unit, err := ParseUnit(bytes.NewReader([]byte(schema)))
 	if err != nil {
 		logging.Get(logging.CategoryKernel).Error("Failed to parse schema: %v", err)
 		return fmt.Errorf("failed to parse schema: %w", err)
@@ -909,10 +909,10 @@ func parseQueryShape(query string) (*queryShape, error) {
 		clean = strings.TrimSpace(clean[:len(clean)-1])
 	}
 
-	atom, err := parse.Atom(clean)
+	atom, err := ParseAtom(clean)
 	if err != nil {
 		// Attempt again with a trailing period
-		atom, err = parse.Atom(clean + ".")
+		atom, err = ParseAtom(clean + ".")
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse query %q: %w", query, err)
 		}

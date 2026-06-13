@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/cmd/nerd/ui"
 	"charm.land/glamour/v2"
+	"codenerd/cmd/nerd/ui"
 )
 
 // TestMessageRenderingCache verifies that the rendering cache prevents redundant markdown rendering

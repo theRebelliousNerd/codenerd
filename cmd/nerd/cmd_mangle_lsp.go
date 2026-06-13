@@ -29,12 +29,12 @@
 // - Is a Dependency for: External editors (VSCode, Neovim, etc.)
 //
 // Deployment & Operations:
-// - Editor Configuration: Add to editor's LSP client config:
-//   {
+//   - Editor Configuration: Add to editor's LSP client config:
+//     {
 //     "command": "nerd",
 //     "args": ["mangle-lsp"],
 //     "filetypes": ["mangle"]
-//   }
+//     }
 //
 // Code Quality Mandate:
 // All code in this file must be production-ready. This includes complete error

@@ -127,7 +127,7 @@ func TestGeminiClient_CountTokens(t *testing.T) {
 		// Verify contents
 		require.NotNil(t, reqBody.SystemInstruction)
 		assert.Equal(t, "system prompt text", reqBody.SystemInstruction.Parts[0].Text)
-		
+
 		require.Len(t, reqBody.Contents, 1)
 		assert.Equal(t, "user prompt text", reqBody.Contents[0].Parts[0].Text)
 
@@ -152,7 +152,7 @@ func TestGeminiClient_CountTokens(t *testing.T) {
 
 	// Execute CountTokens
 	tokens, err := client.CountTokens(context.Background(), "system prompt text", "user prompt text")
-	
+
 	// Assertions
 	require.NoError(t, err)
 	assert.Equal(t, 42, tokens)
@@ -176,7 +176,7 @@ func TestGeminiClient_CountTokens_APIError(t *testing.T) {
 	}
 
 	tokens, err := client.CountTokens(context.Background(), "system", "user")
-	
+
 	require.Error(t, err)
 	assert.Equal(t, 0, tokens)
 	assert.Contains(t, err.Error(), "status 500")

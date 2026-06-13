@@ -53,8 +53,8 @@ type Orchestrator struct {
 	lastPhaseID  string
 
 	// Execution tracking
-	isRunning  bool
-	isPaused   bool
+	isRunning bool
+	isPaused  bool
 	// pauseCh signals pause state transitions to the phase scheduler loop.
 	// Closed channel = running/resumed. Open channel = paused. Recreated by
 	// Pause(), closed by Resume(). Always read while holding o.mu.

@@ -18,7 +18,6 @@ import (
 // - code_calls(Caller, Callee)
 // - code_implements(Struct, Interface)
 //
-//
 // Data flow facts (via MultiLangDataFlowExtractor):
 // - assigns(Var, TypeClass, File, Line)
 // - guards_return(Var, GuardType, File, Line)

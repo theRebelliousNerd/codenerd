@@ -95,10 +95,10 @@ func TestIsConversationalIntent_WhenGreeting_ShouldReturnTrue(t *testing.T) {
 // the fix for the "hi" → clarification bug.
 func TestShouldClarifyIntent_WhenConversational_ShouldReturnFalse(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
+		name   string
+		input  string
 		intent perception.Intent
-		want  bool
+		want   bool
 	}{
 		{
 			name:  "converse with low confidence should not clarify",

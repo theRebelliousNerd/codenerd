@@ -20,15 +20,15 @@ import (
 
 // routingOutcome captures the observable result of a routing decision.
 type routingOutcome struct {
-	MsgType     string    // fmt.Sprintf("%T", msg)
-	RawMsg      tea.Msg   // the actual message
-	Model       Model     // model after Update
-	IsLoading   bool      // m.isLoading after Update
-	HasError    bool      // m.err != nil after Update
-	HasCampaign bool      // m.activeCampaign != nil
-	HasSubtasks bool      // len(m.pendingSubtasks) > 0
-	HasClarify  bool      // m.inputMode == InputModeClarification
-	HistoryLen  int       // len(m.history)
+	MsgType     string  // fmt.Sprintf("%T", msg)
+	RawMsg      tea.Msg // the actual message
+	Model       Model   // model after Update
+	IsLoading   bool    // m.isLoading after Update
+	HasError    bool    // m.err != nil after Update
+	HasCampaign bool    // m.activeCampaign != nil
+	HasSubtasks bool    // len(m.pendingSubtasks) > 0
+	HasClarify  bool    // m.inputMode == InputModeClarification
+	HistoryLen  int     // len(m.history)
 }
 
 // setupRoutingModel creates a Model wired for routing arbitration tests.
@@ -745,8 +745,8 @@ func TestE2E_TaskRouting_ArbitrationMatrix(t *testing.T) {
 				Confidence: 0.9, Response: "Starting.",
 			},
 			// assault detection → campaign path
-			expectedType:   "Msg",
-			forbidClarify:  true, forbidSubtasks: true,
+			expectedType:  "Msg",
+			forbidClarify: true, forbidSubtasks: true,
 		},
 		{
 			name:  "dream_hypothetical",

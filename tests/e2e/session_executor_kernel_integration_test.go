@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
@@ -89,8 +88,8 @@ func (m *sekMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 	return intent, nil, err
 }
 
-func (m *sekMockTransducer) SetStrategicContext(context string)                         {}
-func (m *sekMockTransducer) SetPromptAssembler(assembler *articulation.PromptAssembler) {}
+func (m *sekMockTransducer) SetStrategicContext(context string)                      {}
+func (m *sekMockTransducer) SetPromptAssembler(assembler perception.PromptAssembler) {}
 
 func (m *sekMockTransducer) ResolveFocus(ctx context.Context, input string, history []string) (perception.FocusResolution, error) {
 
@@ -793,7 +792,9 @@ func TestE2E_SessionKernel_CrossSubAgentStateBleed_Simulated(t *testing.T) {
 	foundA := false
 	for _, atom := range res {
 		if len(atom.Args) > 0 {
-			if fmt.Sprintf("%v", atom.Args[0]) == "\"/agentA/file\"" {
+			// Match on substring rather than an exact quoted form so the test is
+			// robust to how the kernel renders string constants in query results.
+			if strings.Contains(fmt.Sprintf("%v", atom.Args[0]), "/agentA/file") {
 				foundA = true
 			}
 		}

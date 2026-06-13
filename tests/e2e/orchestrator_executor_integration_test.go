@@ -5,10 +5,10 @@ package e2e_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
-	"strings"
 
 	"codenerd/internal/core"
 	"codenerd/internal/jit/config"
@@ -16,7 +16,6 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/types"
-	"codenerd/internal/articulation"
 )
 
 // --- Mocks ---
@@ -48,10 +47,9 @@ func (m *oeMockTransducer) ParseIntentWithGCD(ctx context.Context, input string,
 func (m *oeMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *oeMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *oeMockTransducer) SetStrategicContext(context string) {}
-func (m *oeMockTransducer) GetContext() string { return "mock_context" }
-
+func (m *oeMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *oeMockTransducer) SetStrategicContext(context string)               {}
+func (m *oeMockTransducer) GetContext() string                               { return "mock_context" }
 
 type oeMockJITCompiler struct {
 	promptToReturn *prompt.CompilationResult
@@ -63,11 +61,11 @@ func (m *oeMockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationC
 }
 
 type oeMockConfigFactory struct {
-	configToReturn *config.AgentConfig
+	configToReturn *config.EffectiveAgentRuntimeConfig
 	errToReturn    error
 }
 
-func (m *oeMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *oeMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	return m.configToReturn, m.errToReturn
 }
 
@@ -141,7 +139,6 @@ func (m *oeMockLLMClient) CompleteWithStreaming(ctx context.Context, systemPromp
 	return ch, errCh
 }
 
-
 // setupTestEnvironment sets up the dependencies for the Executor and JITExecutor.
 func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor) {
 	t.Helper()
@@ -152,16 +149,16 @@ func setupTestEnvironment(t *testing.T) (*session.Executor, *session.JITExecutor
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
-
 	return executor, jitExecutor
 }
+
 // ============================================================================
 // 1. Smoke Test
 // ============================================================================
@@ -170,7 +167,7 @@ func TestE2E_OrchestratorExecutor_Smoke(t *testing.T) {
 	ctx := context.Background()
 	_, jitExecutor := setupTestEnvironment(t)
 
-	result, err := jitExecutor.Execute(ctx, "/fix", "fix the bug")
+	result, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "fix the bug"})
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -205,7 +202,7 @@ func TestE2E_OrchestratorExecutor_ConcurrentInlineSetSessionContext_StateCorrupt
 				},
 			}
 
-			_, err := jitExecutor.ExecuteWithContext(ctx, "/fix", fmt.Sprintf("Task %d", taskID), sessionCtx, types.PriorityNormal)
+			_, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("Task %d", taskID)}, sessionCtx, types.PriorityNormal)
 			if err != nil {
 				errors <- err
 			}
@@ -229,13 +226,13 @@ func TestE2E_OrchestratorExecutor_ContextLeak_DreamModeBypass(t *testing.T) {
 	executor, jitExecutor := setupTestEnvironment(t)
 
 	criticalCtx := &types.SessionContext{
-		DreamMode: false,
+		DreamMode:    false,
 		ExtraContext: map[string]string{"mode": "critical_sandbox"},
 	}
 	executor.SetSessionContext(criticalCtx)
 
 	permissiveCtx := &types.SessionContext{
-		DreamMode: false,
+		DreamMode:    false,
 		ExtraContext: map[string]string{"mode": "unrestricted"},
 	}
 
@@ -245,7 +242,7 @@ func TestE2E_OrchestratorExecutor_ContextLeak_DreamModeBypass(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		time.Sleep(10 * time.Millisecond)
-		res, err := jitExecutor.ExecuteWithContext(ctx, "/fix", "critical task", criticalCtx, types.PriorityNormal)
+		res, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "critical task"}, criticalCtx, types.PriorityNormal)
 		if err != nil {
 			t.Errorf("ExecuteWithContext failed: %v", err)
 		}
@@ -256,7 +253,7 @@ func TestE2E_OrchestratorExecutor_ContextLeak_DreamModeBypass(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		res, err := jitExecutor.ExecuteWithContext(ctx, "/fix", "permissive task", permissiveCtx, types.PriorityNormal)
+		res, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "permissive task"}, permissiveCtx, types.PriorityNormal)
 		if err != nil {
 			t.Errorf("ExecuteWithContext failed: %v", err)
 		}
@@ -285,7 +282,7 @@ func TestE2E_OrchestratorExecutor_ResourceExhaustion_ConcurrentTasks(t *testing.
 		wg.Add(1)
 		go func(taskID int) {
 			defer wg.Done()
-			_, err := jitExecutor.Execute(ctx, "/fix", fmt.Sprintf("Task %d", taskID))
+			_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("Task %d", taskID)})
 			if err != nil {
 				errors <- err
 			}
@@ -317,19 +314,18 @@ func TestE2E_OrchestratorExecutor_Cancellation_DoesNotHang(t *testing.T) {
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
-
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
-	_, err := jitExecutor.Execute(ctx, "/fix", "slow task")
+	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "slow task"})
 	duration := time.Since(start)
 
 	if err == nil {
@@ -354,9 +350,9 @@ func TestE2E_OrchestratorExecutor_Cascading_ContextCorruption(t *testing.T) {
 	}
 	executor.SetSessionContext(initialCtx)
 
-	_, _ = jitExecutor.Execute(ctx, "/fix", "trigger error")
+	_, _ = jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "trigger error"})
 
-	res, err := jitExecutor.Execute(ctx, "/fix", "succeed me")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "succeed me"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -376,9 +372,9 @@ func TestE2E_OrchestratorExecutor_Recovery_AfterFailure(t *testing.T) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Millisecond)
 	defer cancel()
 
-	_, _ = jitExecutor.Execute(timeoutCtx, "/fix", "fail me")
+	_, _ = jitExecutor.Execute(timeoutCtx, session.TaskRequest{IntentVerb: "/fix", Task: "fail me"})
 
-	res, err := jitExecutor.Execute(ctx, "/fix", "succeed me")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "succeed me"})
 	if err != nil {
 		t.Errorf("System failed to recover: %v", err)
 	}
@@ -399,7 +395,7 @@ func TestE2E_OrchestratorExecutor_E2E_DataIntegrity(t *testing.T) {
 		ExtraContext: map[string]string{"key": "value"},
 	})
 
-	_, err := jitExecutor.Execute(ctx, "/fix", "preserve context")
+	_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "preserve context"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -414,7 +410,7 @@ func TestE2E_OrchestratorExecutor_MultiTurn_HistoryAccumulation(t *testing.T) {
 	executor, jitExecutor := setupTestEnvironment(t)
 
 	for i := 0; i < 3; i++ {
-		res, err := jitExecutor.Execute(ctx, "/fix", fmt.Sprintf("Turn %d", i))
+		res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: fmt.Sprintf("Turn %d", i)})
 		if err != nil {
 			t.Fatalf("Turn %d failed: %v", i, err)
 		}
@@ -423,9 +419,12 @@ func TestE2E_OrchestratorExecutor_MultiTurn_HistoryAccumulation(t *testing.T) {
 		}
 	}
 
-	history := executor.GetHistory()
-	if len(history) != 6 {
-		t.Errorf("Expected 6 history turns, got %d", len(history))
+	// JITExecutor now runs each task on an isolated executor clone
+	// (CloneForTask) to prevent cross-turn history contamination, so the shared
+	// executor must NOT accumulate per-task turns. The earlier expectation of 6
+	// accumulated turns asserted the old, since-fixed shared-history behavior.
+	if got := len(executor.GetHistory()); got != 0 {
+		t.Errorf("shared executor should stay isolated from per-task turns, got %d history entries", got)
 	}
 }
 
@@ -443,15 +442,14 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{errToReturn: fmt.Errorf("JIT failed")}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
-
-	res, err := jitExecutor.Execute(ctx, "/fix", "trigger error")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "trigger error"})
 	if err == nil && res != "mock response" {
 		if res != "" {
 			t.Logf("Fallback response correctly returned on compilation failure")
@@ -462,7 +460,6 @@ func TestE2E_OrchestratorExecutor_PartialFailure_JITCompilationFails(t *testing.
 		}
 	}
 }
-
 
 // ============================================================================
 // 11. Orchestrator-Executor Specific Contract: JIT Config Poisoning
@@ -477,7 +474,7 @@ func TestE2E_OrchestratorExecutor_ConfigPoisoning(t *testing.T) {
 	}
 	executor.SetSessionContext(initialCtx)
 
-	res, err := jitExecutor.Execute(ctx, "/fix", "poison config")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "poison config"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -503,13 +500,12 @@ func TestE2E_OrchestratorExecutor_ConcurrentCancellation_GoroutineLeaks(t *testi
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/research"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
-
 
 	var wg sync.WaitGroup
 	numTasks := 10
@@ -522,7 +518,7 @@ func TestE2E_OrchestratorExecutor_ConcurrentCancellation_GoroutineLeaks(t *testi
 			taskCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 			defer cancel()
 
-			_, err := jitExecutor.Execute(taskCtx, "/research", fmt.Sprintf("long task %d", taskID))
+			_, err := jitExecutor.Execute(taskCtx, session.TaskRequest{IntentVerb: "/research", Task: fmt.Sprintf("long task %d", taskID)})
 			if err == nil {
 				t.Errorf("Expected context cancellation error")
 			}
@@ -553,7 +549,7 @@ func TestE2E_OrchestratorExecutor_NestedExecution_PanicRecovery(t *testing.T) {
 	tasks := []string{"setup", "trigger_panic", "recovery_check"}
 
 	for i, task := range tasks {
-		res, err := jitExecutor.Execute(ctx, "/fix", task)
+		res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: task})
 		if err != nil {
 			t.Fatalf("Task %d (%s) failed: %v", i, task, err)
 		}
@@ -577,7 +573,7 @@ func TestE2E_OrchestratorExecutor_TokenBudget_OOMPrevention(t *testing.T) {
 	}
 	massiveTask += " end"
 
-	res, err := jitExecutor.Execute(ctx, "/fix", massiveTask)
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: massiveTask})
 	if err != nil {
 		t.Fatalf("System failed to handle massive task string: %v", err)
 	}
@@ -600,13 +596,13 @@ func TestE2E_OrchestratorExecutor_SessionState_Isolation(t *testing.T) {
 		},
 	}
 
-	_, err := jitExecutor.ExecuteWithContext(ctx, "/fix", "admin action", customCtx, types.PriorityHigh)
+	_, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "admin action"}, customCtx, types.PriorityHigh)
 	if err != nil {
 		t.Fatalf("ExecuteWithContext failed: %v", err)
 	}
 
 	blankCtx := &types.SessionContext{}
-	_, err = jitExecutor.ExecuteWithContext(ctx, "/fix", "guest action", blankCtx, types.PriorityNormal)
+	_, err = jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "guest action"}, blankCtx, types.PriorityNormal)
 	if err != nil {
 		t.Fatalf("ExecuteWithContext failed: %v", err)
 	}
@@ -631,20 +627,24 @@ func TestE2E_OrchestratorExecutor_TransducerFailure_GracefulHandling(t *testing.
 
 	transducer := &oeMockTransducer{intentToReturn: "", delay: 1 * time.Millisecond}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
-
-	res, err := jitExecutor.Execute(ctx, "", "unknown intent")
+	res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "", Task: "unknown intent"})
+	// An empty/unresolvable intent verb is now handled deterministically: the
+	// executor either rejects it with a clear validation error or returns a
+	// non-empty fallback response. What must NOT happen is a panic or a silent
+	// empty success.
 	if err != nil {
-		t.Fatalf("Expected system to handle empty intent, got: %v", err)
-	}
-	if res == "" {
-		t.Fatalf("Expected valid fallback response")
+		if !strings.Contains(err.Error(), "intent verb") {
+			t.Fatalf("expected an intent-verb validation error, got: %v", err)
+		}
+	} else if res == "" {
+		t.Fatalf("expected a non-empty fallback response when no error is returned")
 	}
 }
 
@@ -660,19 +660,18 @@ func TestE2E_OrchestratorExecutor_LateCancellation(t *testing.T) {
 	}
 	transducer := &oeMockTransducer{intentToReturn: "/fix"}
 	compiler := &oeMockJITCompiler{promptToReturn: &prompt.CompilationResult{Prompt: "default prompt"}}
-	configFactory := &oeMockConfigFactory{configToReturn: &config.AgentConfig{}}
+	configFactory := &oeMockConfigFactory{configToReturn: &config.EffectiveAgentRuntimeConfig{}}
 
 	executor := session.NewExecutor(kernel, virtualStore, llm, compiler, configFactory, transducer)
 
 	spawner := session.NewSpawner(kernel, virtualStore, llm, compiler, configFactory, transducer, session.DefaultSpawnerConfig())
 	jitExecutor := session.NewJITExecutor(executor, spawner, transducer)
 
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := jitExecutor.Execute(ctx, "/fix", "task")
+		_, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "task"})
 		errChan <- err
 	}()
 
@@ -700,17 +699,26 @@ func TestE2E_OrchestratorExecutor_ContextSwapping_Integrity(t *testing.T) {
 	ctx2 := &types.SessionContext{ExtraContext: map[string]string{"id": "B"}}
 	ctx3 := &types.SessionContext{ExtraContext: map[string]string{"id": "C"}}
 
-	_, err := jitExecutor.ExecuteWithContext(ctx, "/fix", "task 1", ctx1, types.PriorityNormal)
-	if err != nil { t.Fatalf("Task 1 failed: %v", err) }
+	_, err := jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "task 1"}, ctx1, types.PriorityNormal)
+	if err != nil {
+		t.Fatalf("Task 1 failed: %v", err)
+	}
 
-	_, err = jitExecutor.ExecuteWithContext(ctx, "/fix", "task 2", ctx2, types.PriorityNormal)
-	if err != nil { t.Fatalf("Task 2 failed: %v", err) }
+	_, err = jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "task 2"}, ctx2, types.PriorityNormal)
+	if err != nil {
+		t.Fatalf("Task 2 failed: %v", err)
+	}
 
-	_, err = jitExecutor.ExecuteWithContext(ctx, "/fix", "task 3", ctx3, types.PriorityNormal)
-	if err != nil { t.Fatalf("Task 3 failed: %v", err) }
+	_, err = jitExecutor.ExecuteWithContext(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "task 3"}, ctx3, types.PriorityNormal)
+	if err != nil {
+		t.Fatalf("Task 3 failed: %v", err)
+	}
 
-	if executor.GetHistory() == nil || len(executor.GetHistory()) != 6 {
-		t.Fatalf("Sequential context swapping corrupted history. Expected 6 turns, got %d", len(executor.GetHistory()))
+	// Each ExecuteWithContext runs on an isolated executor clone, so swapping
+	// session contexts across tasks cannot corrupt the shared executor's
+	// history — it stays empty rather than accumulating the three turns.
+	if got := len(executor.GetHistory()); got != 0 {
+		t.Fatalf("context swapping should not contaminate the shared executor, got %d history entries", got)
 	}
 }
 
@@ -725,7 +733,7 @@ func TestE2E_OrchestratorExecutor_RapidIntentSwitching(t *testing.T) {
 	intents := []string{"/fix", "/test", "/review", "/implement", "/refactor"}
 
 	for i, intent := range intents {
-		res, err := jitExecutor.Execute(ctx, intent, fmt.Sprintf("Action %d", i))
+		res, err := jitExecutor.Execute(ctx, session.TaskRequest{IntentVerb: intent, Task: fmt.Sprintf("Action %d", i)})
 		if err != nil {
 			t.Fatalf("Execution failed for intent %s: %v", intent, err)
 		}
@@ -743,7 +751,7 @@ func TestE2E_OrchestratorExecutor_AsyncExecution_TaskTracking(t *testing.T) {
 	ctx := context.Background()
 	_, jitExecutor := setupTestEnvironment(t)
 
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/fix", "async task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "async task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -773,7 +781,7 @@ func TestE2E_OrchestratorExecutor_AsyncExecution_WaitForResult(t *testing.T) {
 	ctx := context.Background()
 	_, jitExecutor := setupTestEnvironment(t)
 
-	taskID, err := jitExecutor.ExecuteAsync(ctx, "/fix", "async wait task")
+	taskID, err := jitExecutor.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: "async wait task"})
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
