@@ -200,7 +200,7 @@ func TestParserFactory_Registration(t *testing.T) {
 }
 
 // TestParserFactory_Parse tests factory-based parsing.
-func TestParserFactory_Parse(t *testing.T) {
+func TestParserFactory_Parse_Legacy(t *testing.T) {
 	tmpDir := t.TempDir()
 	goFile := filepath.Join(tmpDir, "main.go")
 	goContent := `package main
