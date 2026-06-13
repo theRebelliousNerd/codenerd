@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +33,17 @@ type MCPToolStore struct {
 func NewMCPToolStore(dbPath string, embedder embedding.EmbeddingEngine) (*MCPToolStore, error) {
 	if dbPath == "" {
 		return nil, fmt.Errorf("dbPath cannot be empty")
+	}
+	// Ensure the parent directory exists for on-disk databases. SQLite will not
+	// create missing directories, so a caller passing e.g. "<ws>/.nerd/x.db" on a
+	// fresh workspace would otherwise fail with "unable to open database file".
+	// In-memory databases ("file::memory:" / ":memory:") have no directory.
+	if !strings.Contains(dbPath, ":memory:") {
+		if dir := filepath.Dir(dbPath); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, fmt.Errorf("failed to create database directory %s: %w", dir, err)
+			}
+		}
 	}
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
