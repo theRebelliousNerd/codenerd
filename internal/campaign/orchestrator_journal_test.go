@@ -1,0 +1,6 @@
+package campaign
+
+// TODO: TEST_GAP: Null/Undefined/Empty - What happens if the campaignID passed to recoverJournalSequence is an empty string? Does it recover the `.journal.jsonl` file properly? What if payload is nil or an empty struct in appendJournalEventLocked?
+// TODO: TEST_GAP: Type Coercion - What happens if the JSON serialization of `payload` fails in `appendJournalEventLocked`? The sequence `seq` has already been incremented via `seq := o.journalSeq.Add(1)`, which will result in missing sequence numbers in the file. Does recoverJournalSequence handle this gap, or will it permanently truncate the rest of the journal?
+// TODO: TEST_GAP: User Request Extremes - What happens if an event's payload size exceeds the 8MB buffer limit of `scanner.Buffer(..., 8*1024*1024)` in `recoverJournalSequence`? It will cause the scanner to fail, setting `needsTruncate = true` and permanently deleting everything after it.
+// TODO: TEST_GAP: State Conflicts - `appendJournalEventLocked` generates sequences atomically but does NOT hold a mutex while writing to the file! Concurrent calls to `appendJournalEventLocked` can lead to sequence numbers being written out of order if OS scheduling interleaves them. `recoverJournalSequence` enforces `ev.Seq != lastSeq+1` causing valid concurrent appends to be permanently truncated!
