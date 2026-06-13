@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"codenerd/internal/core"
+
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
@@ -520,7 +521,6 @@ func TestE2E_MCPVirtualStore_ClientReplacement_Recovery(t *testing.T) {
 		t.Fatalf("Expected 'recovered', got: %v", res2)
 	}
 }
-
 
 // ============================================================================
 // 16. Pipeline Simulation: Complete Routing Chain

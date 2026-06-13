@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -41,8 +40,8 @@ func (m *tsfMockLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, 
 		return &types.LLMToolResponse{
 			ToolCalls: []types.ToolCall{
 				{
-					Name: m.toolCallName,
-				Input: map[string]interface{}{"target": "test"},
+					Name:  m.toolCallName,
+					Input: map[string]interface{}{"target": "test"},
 				},
 			},
 		}, nil
@@ -76,20 +75,20 @@ func (m *tsfMockVirtualStore) Exec(ctx context.Context, cmd string, env []string
 func (m *tsfMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
 
 type tsfMockConfigFactory struct {
-	cfg *config.AgentConfig
+	cfg *config.EffectiveAgentRuntimeConfig
 	err error
 }
 
-func (m *tsfMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *tsfMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	if m.cfg != nil {
 		return m.cfg, nil
 	}
-	return &config.AgentConfig{}, nil
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
-func (m *tsfMockConfigFactory) RegisterSpecialist(name string, config *config.AgentConfig) error {
+func (m *tsfMockConfigFactory) RegisterSpecialist(name string, config *config.EffectiveAgentRuntimeConfig) error {
 	return nil
 }
 
@@ -113,8 +112,8 @@ func (m *tsfMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 func (m *tsfMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *tsfMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *tsfMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *tsfMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *tsfMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
 // 1. Empty Config = All Tools Allowed (Documents Current Behavior)
@@ -125,7 +124,7 @@ func (m *tsfMockTransducer) SetStrategicContext(ctx string)                     
 // isToolAllowed returns true for ALL tools. This is a fail-open design.
 func TestE2E_ToolSafety_EmptyConfig_AllToolsAllowed(t *testing.T) {
 	// Empty config = no AllowedTools list
-	emptyCfg := &config.AgentConfig{}
+	emptyCfg := &config.EffectiveAgentRuntimeConfig{}
 
 	// isToolAllowed(name, cfg) with empty AllowedTools returns true
 	// We verify this behavior through the Executor.
@@ -148,7 +147,7 @@ func TestE2E_ToolSafety_EmptyConfig_AllToolsAllowed(t *testing.T) {
 	t.Logf("Tools executed: %v", vstore.executedTools)
 
 	// Document the behavior
-	t.Log("NOTE: With empty AgentConfig.Tools.AllowedTools AND SafetyGate=false, " +
+	t.Log("NOTE: With empty EffectiveAgentRuntimeConfig.AllowedTools AND SafetyGate=false, " +
 		"ALL tool calls are allowed. This is the current fail-open design.")
 }
 
@@ -163,8 +162,8 @@ func TestE2E_ToolSafety_SafetyGateEnabled_NilKernel_BlocksTool(t *testing.T) {
 	llm := &tsfMockLLMClient{toolCallName: "any_tool"}
 	vstore := &tsfMockVirtualStore{}
 	jit := &tsfMockJITCompiler{}
-	cfgFactory := &tsfMockConfigFactory{cfg: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"any_tool"}},
+	cfgFactory := &tsfMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"any_tool"},
 	}}
 	trans := &tsfMockTransducer{}
 
@@ -200,8 +199,8 @@ func TestE2E_ToolSafety_RestrictedConfig_BlocksUnlisted(t *testing.T) {
 	llm := &tsfMockLLMClient{toolCallName: "forbidden_tool"}
 	vstore := &tsfMockVirtualStore{}
 	jit := &tsfMockJITCompiler{}
-	cfgFactory := &tsfMockConfigFactory{cfg: &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"safe_tool_1", "safe_tool_2"}},
+	cfgFactory := &tsfMockConfigFactory{cfg: &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"safe_tool_1", "safe_tool_2"},
 	}}
 	trans := &tsfMockTransducer{}
 

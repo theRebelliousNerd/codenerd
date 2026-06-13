@@ -91,8 +91,8 @@ func TestE2E_Perception_Stateful_StabilityBypassTopicShift(t *testing.T) {
 
 	// Turn 6 must NOT reuse previous fix/modify understanding
 	if intent6.Verb == "/fix" {
-		t.Logf("STABILITY BYPASS BUG: Turn 6 reused /fix verb from prior turns "+
-			"despite clear topic shift to architecture question. "+
+		t.Logf("STABILITY BYPASS BUG: Turn 6 reused /fix verb from prior turns " +
+			"despite clear topic shift to architecture question. " +
 			"Stability filter failed to gate the bypass on topic change.")
 	}
 	if intent6.Category == "/mutation" {

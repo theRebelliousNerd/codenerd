@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/session"
@@ -89,8 +88,8 @@ func (m *sekMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 	return intent, nil, err
 }
 
-func (m *sekMockTransducer) SetStrategicContext(context string)                         {}
-func (m *sekMockTransducer) SetPromptAssembler(assembler *articulation.PromptAssembler) {}
+func (m *sekMockTransducer) SetStrategicContext(context string)                      {}
+func (m *sekMockTransducer) SetPromptAssembler(assembler perception.PromptAssembler) {}
 
 func (m *sekMockTransducer) ResolveFocus(ctx context.Context, input string, history []string) (perception.FocusResolution, error) {
 

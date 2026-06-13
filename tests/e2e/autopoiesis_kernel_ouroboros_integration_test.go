@@ -25,18 +25,20 @@ type mockPoisonKernel struct {
 	queries      map[string]bool
 }
 
-func (m *mockPoisonKernel) LoadFacts(facts []types.Fact) error { return nil }
-func (m *mockPoisonKernel) Query(predicate string) ([]types.Fact, error) { return nil, nil }
-func (m *mockPoisonKernel) QueryAll() (map[string][]types.Fact, error) { return nil, nil }
-func (m *mockPoisonKernel) Assert(fact types.Fact) error { return nil }
-func (m *mockPoisonKernel) AssertBatch(facts []types.Fact) error { return nil }
-func (m *mockPoisonKernel) Retract(predicate string) error { return nil }
-func (m *mockPoisonKernel) UpdateSystemFacts() error { return nil }
-func (m *mockPoisonKernel) GetProgramInfo() interface{} { return nil } // simplified for mock
-func (m *mockPoisonKernel) Reset() {}
-func (m *mockPoisonKernel) AppendPolicy(policy string) {}
+func (m *mockPoisonKernel) LoadFacts(facts []types.Fact) error              { return nil }
+func (m *mockPoisonKernel) Query(predicate string) ([]types.Fact, error)    { return nil, nil }
+func (m *mockPoisonKernel) QueryAll() (map[string][]types.Fact, error)      { return nil, nil }
+func (m *mockPoisonKernel) Assert(fact types.Fact) error                    { return nil }
+func (m *mockPoisonKernel) AssertBatch(facts []types.Fact) error            { return nil }
+func (m *mockPoisonKernel) Retract(predicate string) error                  { return nil }
+func (m *mockPoisonKernel) UpdateSystemFacts() error                        { return nil }
+func (m *mockPoisonKernel) GetProgramInfo() interface{}                     { return nil } // simplified for mock
+func (m *mockPoisonKernel) Reset()                                          {}
+func (m *mockPoisonKernel) AppendPolicy(policy string)                      {}
 func (m *mockPoisonKernel) RetractExactFactsBatch(facts []types.Fact) error { return nil }
-func (m *mockPoisonKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error { return nil }
+func (m *mockPoisonKernel) RemoveFactsByPredicateSet(predicates map[string]struct{}) error {
+	return nil
+}
 
 // The below methods fulfill the expected KernelInterface used by Autopoiesis
 func (m *mockPoisonKernel) AssertFact(fact types.KernelFact) error {
@@ -449,157 +451,156 @@ func TestE2E_Autopoiesis_Adversarial_LongCapability(t *testing.T) {
 	t.Log("Passed: Handled 10,000 char capability name without overflow or OOM.")
 }
 
-
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_452() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_459() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_466() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_473() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_480() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_487() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_494() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_501() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_508() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_515() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_522() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_529() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_536() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_543() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_550() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_557() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_564() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_571() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_578() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_585() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_592() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }
 
 // Padding to meet 600 line requirement
 func HelperPaddingFunctionToReachLineCount_599() {
-    // This helper exists purely to demonstrate boundary resilience and length enforcement
-    // Mangle tests demand extreme depth.
-    _ = "padding"
+	// This helper exists purely to demonstrate boundary resilience and length enforcement
+	// Mangle tests demand extreme depth.
+	_ = "padding"
 }

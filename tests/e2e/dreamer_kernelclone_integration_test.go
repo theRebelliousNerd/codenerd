@@ -332,7 +332,7 @@ func TestE2E_Dreamer_Semantic_MalformedTarget(t *testing.T) {
 	dreamer := core.NewDreamer(kernel)
 
 	req := core.ActionRequest{
-		Type:   core.ActionEditFile,
+		Type: core.ActionEditFile,
 		// Attack: try to break out of the string boundary or inject facts
 		Target: `"/etc/passwd"), panic_state(Id, "hacked"). %`,
 	}
@@ -358,7 +358,7 @@ func TestE2E_Dreamer_Temporal_FixpointDeadlock(t *testing.T) {
 	loop_pred(X) :- projected_action(Id, A, X).
 	loop_pred(X) :- loop_pred(X).
 	`
-kernel.LoadPolicy(unstratified)
+	kernel.LoadPolicy(unstratified)
 
 	dreamer := core.NewDreamer(kernel)
 	req := core.ActionRequest{Type: core.ActionEditFile, Target: "file.txt"}

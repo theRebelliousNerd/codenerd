@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
@@ -64,10 +63,10 @@ func (m *sciMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil,
 
 type sciMockConfigFactory struct{}
 
-func (m *sciMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-	return &config.AgentConfig{}, nil
+func (m *sciMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return &config.EffectiveAgentRuntimeConfig{}, nil
 }
-func (m *sciMockConfigFactory) RegisterSpecialist(name string, config *config.AgentConfig) error {
+func (m *sciMockConfigFactory) RegisterSpecialist(name string, config *config.EffectiveAgentRuntimeConfig) error {
 	return nil
 }
 
@@ -91,8 +90,8 @@ func (m *sciMockTransducer) ParseIntentWithGCD(ctx context.Context, input string
 func (m *sciMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *sciMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *sciMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *sciMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *sciMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
 // TestE2E_SessionContext_ConcurrentExecute_NoBleed
@@ -128,7 +127,7 @@ func TestE2E_SessionContext_ConcurrentExecute_NoBleed(t *testing.T) {
 
 			uniqueTask := fmt.Sprintf("task_with_unique_marker_%d_%d", idx, time.Now().UnixNano())
 
-			taskID, err := taskExec.ExecuteAsync(ctx, "/fix", uniqueTask)
+			taskID, err := taskExec.ExecuteAsync(ctx, session.TaskRequest{IntentVerb: "/fix", Task: uniqueTask})
 			if err != nil {
 				errors[idx] = err
 				return

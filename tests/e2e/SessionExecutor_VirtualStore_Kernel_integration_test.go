@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"codenerd/internal/articulation"
 	"codenerd/internal/jit/config"
 	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/tools"
 	"codenerd/internal/types"
+
 	"codeberg.org/TauCeti/mangle-go/analysis"
 )
 
@@ -131,12 +131,12 @@ func (m *mockJITCompiler) Compile(ctx context.Context, cc *prompt.CompilationCon
 // mockConfigFactory
 type mockConfigFactory struct{}
 
-func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-	return &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{
+func (m *mockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{
 			"read_file", "write_file", "shell_exec", "mock_tool", "blocking_tool", "huge_tool",
 			"restricted_tool", "race_tool", "heavy_tool", "leaky_tool", "timing_tool",
-		}},
+		},
 	}, nil
 }
 
@@ -500,9 +500,9 @@ func (m *mockTransducer) ParseIntentWithGCD(ctx context.Context, input string, h
 func (m *mockTransducer) ResolveFocus(ctx context.Context, input string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *mockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *mockTransducer) SetStrategicContext(context string)                  {}
-func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo { return nil }
+func (m *mockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *mockTransducer) SetStrategicContext(context string)               {}
+func (m *mockKernel) GetProgramInfo() *analysis.ProgramInfo                { return nil }
 
 func TestE2E_ContractViolation_TypeSafetyMangleStringVsAtom(t *testing.T) {
 	exec, kernel, llm := setupTestExecutor(t)

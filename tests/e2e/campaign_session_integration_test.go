@@ -4,12 +4,12 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
-	"strings"
-	"errors"
-	"fmt"
 
 	"codenerd/internal/campaign"
 	"codenerd/internal/core"
@@ -19,7 +19,6 @@ import (
 	"codenerd/internal/prompt"
 	"codenerd/internal/session"
 	"codenerd/internal/tactile"
-	"codenerd/internal/articulation"
 	"codenerd/internal/types"
 )
 
@@ -46,22 +45,21 @@ func (m *campaignMockVirtualStore) Exec(ctx context.Context, cmd string, env []s
 }
 func (m *campaignMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, nil }
 
-
 type campaignMockConfigFactory struct {
-	agentConfig *config.AgentConfig
+	agentConfig *config.EffectiveAgentRuntimeConfig
 }
 
-func (m *campaignMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
+func (m *campaignMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
 	if m.agentConfig != nil {
 		return m.agentConfig, nil
 	}
-	return &config.AgentConfig{
-		Tools:    config.ToolSet{AllowedTools: []string{"mock_tool"}},
-		Policies: config.PolicySet{Files: []string{}},
+	return &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"mock_tool"},
+		Policies:     []string{},
 	}, nil
 }
 
-func (m *campaignMockConfigFactory) RegisterSpecialist(name string, config *config.AgentConfig) error {
+func (m *campaignMockConfigFactory) RegisterSpecialist(name string, config *config.EffectiveAgentRuntimeConfig) error {
 	return nil
 }
 
@@ -133,9 +131,9 @@ func setupCampaignEnvironment(t *testing.T) (*campaign.Orchestrator, *campaignMo
 
 func createDummyCampaign(id string) *campaign.Campaign {
 	return &campaign.Campaign{
-		ID:    id,
-		Title: "Test Campaign",
-		Type:  campaign.CampaignTypeAdversarialAssault,
+		ID:     id,
+		Title:  "Test Campaign",
+		Type:   campaign.CampaignTypeAdversarialAssault,
 		Status: campaign.StatusActive,
 		Phases: []campaign.Phase{
 			{
@@ -154,7 +152,6 @@ func createDummyCampaign(id string) *campaign.Campaign {
 		},
 	}
 }
-
 
 // campaignMockLLMClient implements types.LLMClient
 
@@ -188,12 +185,12 @@ func (m *campaignMockTransducer) ResolveFocus(ctx context.Context, reference str
 }
 
 type campaignMockLLMClient struct {
-	responses []string
-	idx       int
-	mu        sync.Mutex
-	delay     time.Duration
+	responses    []string
+	idx          int
+	mu           sync.Mutex
+	delay        time.Duration
 	completeFunc func(ctx context.Context, prompt string, input string) (*types.LLMToolResponse, error)
-	piggyback bool
+	piggyback    bool
 }
 
 func (m *campaignMockLLMClient) Complete(ctx context.Context, prompt string) (string, error) {
@@ -249,10 +246,12 @@ func (m *campaignMockLLMClient) CompleteWithStreaming(ctx context.Context, syste
 	close(errCh)
 	return ch, errCh
 }
-func (m *campaignMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *campaignMockTransducer) SetStrategicContext(ctx string) {}
-func (m *campaignMockTransducer) ClearStrategicContext() {}
-func (m *campaignMockTransducer) Transduce(ctx context.Context, input string) ([]core.Fact, error) { return nil, nil }
+func (m *campaignMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *campaignMockTransducer) SetStrategicContext(ctx string)                   {}
+func (m *campaignMockTransducer) ClearStrategicContext()                           {}
+func (m *campaignMockTransducer) Transduce(ctx context.Context, input string) ([]core.Fact, error) {
+	return nil, nil
+}
 
 // =============================================================================
 // 1. HAPPY PATH SMOKE TESTS (Baseline)
@@ -397,7 +396,6 @@ func TestE2E_CampaignSession_Contract_ContextBleed(t *testing.T) {
 	_ = orch.Run(ctx)
 }
 
-
 // TestE2E_CampaignSession_Contract_AsyncSubagentExecutionCompletesCorrectly (P1)
 // Verifies correct asynchronous routing and execution through subagents for complex intents.
 func TestE2E_CampaignSession_Contract_AsyncSubagentExecutionCompletesCorrectly(t *testing.T) {
@@ -455,7 +453,6 @@ func TestE2E_CampaignSession_Contract_ToolErrorPropagation(t *testing.T) {
 
 	_ = orch.Run(ctx)
 }
-
 
 // =============================================================================
 // 3. STATE CORRUPTION TESTS
@@ -518,7 +515,6 @@ func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite(t *testing.
 	t.Log("KNOWN: Verifies that context overwriting causes VirtualStore to execute tools on incorrect targets.")
 }
 
-
 // =============================================================================
 // 4. RESOURCE EXHAUSTION TESTS
 // =============================================================================
@@ -572,7 +568,6 @@ func TestE2E_CampaignSession_ResourceExhaustion_MassiveTaskResultPayload(t *test
 
 	_ = orch.Run(ctx)
 }
-
 
 // =============================================================================
 // 5. TEMPORAL FAILURE TESTS
@@ -701,7 +696,6 @@ func TestE2E_CampaignSession_Cascading_SpawnerExhaustionCausesReplan(t *testing.
 	_ = orch.Run(ctx)
 }
 
-
 // =============================================================================
 // 7. RECOVERY TESTS
 // =============================================================================
@@ -772,7 +766,7 @@ func TestE2E_CampaignSession_Recovery_ContextPagingLimitsExceeded(t *testing.T) 
 // E2E Tests require robust validation of the contract between Session and Campaign Orchestrator.
 // 35. TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2
 func TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -790,7 +784,7 @@ func TestE2E_CampaignSession_StateCorruption_GhostFacts_Variant2(t *testing.T) {
 
 // 36. TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2
 func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -808,7 +802,7 @@ func TestE2E_CampaignSession_StateCorruption_SharedResourceOverwrite_Variant2(t 
 
 // 37. TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits_Variant2
 func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -826,7 +820,7 @@ func TestE2E_CampaignSession_ResourceExhaustion_TaskSpamLimits_Variant2(t *testi
 
 // 38. TestE2E_CampaignSession_ResourceExhaustion_MassiveTaskResultPayload_Variant2
 func TestE2E_CampaignSession_ResourceExhaustion_MassiveTaskResultPayload_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -844,7 +838,7 @@ func TestE2E_CampaignSession_ResourceExhaustion_MassiveTaskResultPayload_Variant
 
 // 39. TestE2E_CampaignSession_Temporal_TaskRetryLogicOnTimeout_Variant2
 func TestE2E_CampaignSession_Temporal_TaskRetryLogicOnTimeout_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -862,7 +856,7 @@ func TestE2E_CampaignSession_Temporal_TaskRetryLogicOnTimeout_Variant2(t *testin
 
 // 40. TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad_Variant2
 func TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -880,7 +874,7 @@ func TestE2E_CampaignSession_Temporal_HeartbeatMaintainedDuringHeavyLLMLoad_Vari
 
 // 41. TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines_Variant2
 func TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -898,7 +892,7 @@ func TestE2E_CampaignSession_Temporal_ContextCancellationLeaksGoroutines_Variant
 
 // 42. TestE2E_CampaignSession_Cascading_ContextBleedCausesWrongFileEdit_Variant2
 func TestE2E_CampaignSession_Cascading_ContextBleedCausesWrongFileEdit_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -916,7 +910,7 @@ func TestE2E_CampaignSession_Cascading_ContextBleedCausesWrongFileEdit_Variant2(
 
 // 43. TestE2E_CampaignSession_Cascading_SpawnerExhaustionCausesReplan_Variant2
 func TestE2E_CampaignSession_Cascading_SpawnerExhaustionCausesReplan_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -934,7 +928,7 @@ func TestE2E_CampaignSession_Cascading_SpawnerExhaustionCausesReplan_Variant2(t 
 
 // 44. TestE2E_CampaignSession_Recovery_ReplanTriggeredByCheckpointFailure_Variant2
 func TestE2E_CampaignSession_Recovery_ReplanTriggeredByCheckpointFailure_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -952,7 +946,7 @@ func TestE2E_CampaignSession_Recovery_ReplanTriggeredByCheckpointFailure_Variant
 
 // 45. TestE2E_CampaignSession_Recovery_ContextPagingLimitsExceeded_Variant2
 func TestE2E_CampaignSession_Recovery_ContextPagingLimitsExceeded_Variant2(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -970,7 +964,7 @@ func TestE2E_CampaignSession_Recovery_ContextPagingLimitsExceeded_Variant2(t *te
 
 // 46. TestE2E_CampaignSession_EndToEndDataIntegrity_Variant3
 func TestE2E_CampaignSession_EndToEndDataIntegrity_Variant3(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")
@@ -988,7 +982,7 @@ func TestE2E_CampaignSession_EndToEndDataIntegrity_Variant3(t *testing.T) {
 
 // 47. TestE2E_CampaignSession_MultiTurnAccumulation_Variant3
 func TestE2E_CampaignSession_MultiTurnAccumulation_Variant3(t *testing.T) {
-		// E2E validation
+	// E2E validation
 	orch, _, _, _, _ := setupCampaignEnvironment(t)
 
 	camp := createDummyCampaign("/campaign_padding")

@@ -102,9 +102,9 @@ func (m *pbMockVirtualStore) ReadRaw(path string) ([]byte, error) { return nil, 
 // pbMockConfigFactory returns a config with AllowedTools restricted to only e2e_safe_tool.
 type pbMockConfigFactory struct{}
 
-func (m *pbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.AgentConfig, error) {
-	return &config.AgentConfig{
-		Tools: config.ToolSet{AllowedTools: []string{"e2e_safe_tool"}},
+func (m *pbMockConfigFactory) Generate(ctx context.Context, result *prompt.CompilationResult, intents ...string) (*config.EffectiveAgentRuntimeConfig, error) {
+	return &config.EffectiveAgentRuntimeConfig{
+		AllowedTools: []string{"e2e_safe_tool"},
 	}, nil
 }
 
@@ -130,8 +130,8 @@ func (m *pbMockTransducer) ParseIntentWithGCD(ctx context.Context, input string,
 func (m *pbMockTransducer) ResolveFocus(ctx context.Context, reference string, candidates []string) (perception.FocusResolution, error) {
 	return perception.FocusResolution{}, nil
 }
-func (m *pbMockTransducer) SetPromptAssembler(pa *articulation.PromptAssembler) {}
-func (m *pbMockTransducer) SetStrategicContext(ctx string)                      {}
+func (m *pbMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
+func (m *pbMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
 // BUILD ADVERSARIAL PIGGYBACK ENVELOPE
