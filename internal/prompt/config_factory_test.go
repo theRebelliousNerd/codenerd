@@ -18,6 +18,15 @@ func (m *MockConfigAtomProvider) GetAtom(intent string) (ConfigAtom, bool) {
 	return atom, ok
 }
 
+
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing test for NewConfigFactory(nil) which would panic when Generate() is called.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Missing test for ConfigAtom.Merge behavior when Tools or Policies are explicitly nil versus empty slices, ensuring it doesn't panic and returns initialized slices if expected.
+// TODO: TEST_GAP: [Type Coercion] Missing test for intent strings containing null bytes (\x00) or non-UTF8 sequences. Ensure GetAtom safely handles these without panicking or returning unexpected fallback atoms.
+// TODO: TEST_GAP: [User Request Extremes] Missing test for GenerateFallback with a massive fallbackIdentity string (e.g., 50MB) to ensure it doesn't cause OOM when constructing the EffectiveAgentRuntimeConfig.
+// TODO: TEST_GAP: [User Request Extremes] Missing test for uniqueStrings performance/OOM when handling a ConfigAtom with millions of duplicated tool strings.
+// TODO: TEST_GAP: [State Conflicts] Missing test verifying that mutating a slice (e.g., Tools) of a ConfigAtom *after* passing it to RegisterAtom does not cause race conditions when Generate() concurrently reads from it.
+
 func TestConfigFactory_Generate(t *testing.T) {
 
 	provider := &MockConfigAtomProvider{
