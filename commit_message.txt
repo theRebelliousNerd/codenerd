@@ -1,10 +1,5 @@
-⚡ Optimize regex compilation in autopoiesis traces
+🧪 [testing] Add tests for CountTODOs in holographic_formatting.go
 
-💡 What: Refactored regexp.MustCompile calls inside repeatedly called functions in `internal/autopoiesis/traces.go` into global variables initialized once at package startup.
-
-🎯 Why: Calling `regexp.MustCompile` repeatedly inside functions like `injectAPICallLogging` is a known anti-pattern that drastically reduces performance and leads to unnecessary CPU cycles and memory allocations during active tracing.
-
-📊 Measured Improvement:
-Before: ~929ms for 100,000 executions.
-After: ~119ms for 100,000 executions.
-A ~87% reduction in execution time.
+🎯 **What:** The testing gap addressed is the lack of unit tests for the `CountTODOs` utility function located in `internal/world/holographic_formatting.go`.
+📊 **Coverage:** A new file `internal/world/holographic_formatting_test.go` was created with comprehensive table-driven tests that cover empty strings, strings without TODOs, multiple distinct tags (TODO, FIXME, HACK, XXX, BUG), case insensitivity, inline tags, and mixed-text tags.
+✨ **Result:** Test coverage for `internal/world/holographic_formatting.go` is improved by ensuring the `todoPattern` regex behaves as expected in various real-world scenarios.
