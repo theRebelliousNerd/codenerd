@@ -151,6 +151,164 @@ func (a *learningStoreAdapter) Close() error {
 // are replaced by the JIT clean loop architecture. Their functionality is now
 // provided by JIT-compiled prompts with persona atoms and ConfigFactory.
 
+type shardFactoryRegistrar struct {
+	sm  *coreshards.ShardManager
+	ctx RegistryContext
+}
+
+func (r *shardFactoryRegistrar) getLearningStore() core.LearningStore {
+	if r.ctx.VirtualStore != nil {
+		ls := r.ctx.VirtualStore.GetLearningStore()
+		if ls != nil {
+			return &learningStoreAdapter{store: ls}
+		}
+	}
+	return nil
+}
+
+func (r *shardFactoryRegistrar) createAssembler() *articulation.PromptAssembler {
+	if r.ctx.Kernel == nil {
+		return nil
+	}
+	pa, err := articulation.NewPromptAssembler(r.ctx.Kernel)
+	if err != nil {
+		return nil
+	}
+	if r.ctx.JITCompiler != nil {
+		jitCfg := r.ctx.JITConfig
+		if jitCfg.TokenBudget == 0 && jitCfg.ReservedTokens == 0 && jitCfg.SemanticTopK == 0 && !jitCfg.Enabled && !jitCfg.FallbackEnabled {
+			jitCfg = config.DefaultJITConfig()
+		}
+		pa.SetJITCompiler(r.ctx.JITCompiler)
+		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
+		pa.EnableJIT(jitCfg.Enabled)
+	}
+	return pa
+}
+
+func (r *shardFactoryRegistrar) withJITConfig(agent types.ShardAgent) types.ShardAgent {
+	if setter, ok := agent.(interface{ SetJITConfig(config.JITConfig) }); ok {
+		setter.SetJITConfig(r.ctx.JITConfig)
+	}
+	return agent
+}
+
+func (r *shardFactoryRegistrar) registerEphemeralShards() {
+	r.sm.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := NewRequirementsInterrogatorShard()
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetParentKernel(r.ctx.Kernel)
+		return r.withJITConfig(shard)
+	})
+}
+
+func (r *shardFactoryRegistrar) registerSystemShards() {
+	r.sm.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewPerceptionFirewallShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetVirtualStore(r.ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
+		shard.SetLearningStore(r.getLearningStore()) // FIX: Enable learning persistence
+		shard.SetPromptAssembler(r.createAssembler())
+		// NERD-EVOLVE-START: P1P2-model-tiering
+		if r.ctx.ClassificationClient != nil {
+			shard.SetClassificationClient(r.ctx.ClassificationClient)
+		}
+		// NERD-EVOLVE-END: P1P2-model-tiering
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewWorldModelIngestorShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+}
+
+func (r *shardFactoryRegistrar) registerLogicShards() {
+	r.sm.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewExecutivePolicyShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetLearningStore(r.getLearningStore()) // FIX: Enable strategy pattern learning
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("constitution_gate", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewConstitutionGateShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("legislator", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewLegislatorShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("mangle_repair", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewMangleRepairShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetPromptAssembler(r.createAssembler())
+
+		var realKernel *core.RealKernel
+		if rk, ok := r.ctx.Kernel.(*core.RealKernel); ok {
+			realKernel = rk
+		} else if ck, ok := r.ctx.Kernel.(*core.CortexKernel); ok {
+			realKernel = ck.GetPrimaryRealKernel()
+		}
+		if realKernel != nil {
+			if corpus := realKernel.GetPredicateCorpus(); corpus != nil {
+				shard.SetCorpus(corpus)
+			}
+			realKernel.SetRepairInterceptor(shard)
+		}
+		return r.withJITConfig(shard)
+	})
+}
+
+func (r *shardFactoryRegistrar) registerPlanningShards() {
+	r.sm.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewTactileRouterShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewCampaignRunnerShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetVirtualStore(r.ctx.VirtualStore)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetWorkspaceRoot(r.ctx.Workspace)
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+
+	r.sm.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
+		shard := system.NewSessionPlannerShard()
+		shard.SetParentKernel(r.ctx.Kernel)
+		shard.SetLLMClient(r.ctx.LLMClient)
+		shard.SetVirtualStore(r.ctx.VirtualStore) // FIX: Enable codebase scanning for planning
+		shard.SetPromptAssembler(r.createAssembler())
+		return r.withJITConfig(shard)
+	})
+}
+
 // RegisterAllShardFactories registers all specialized shard factories with the shard manager.
 // This should be called during application initialization after creating the shard manager.
 func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext) {
@@ -159,190 +317,15 @@ func RegisterAllShardFactories(sm *coreshards.ShardManager, ctx RegistryContext)
 		sm.SetVirtualStore(ctx.VirtualStore)
 	}
 
-	// Helper to safely get LearningStore as interface (all shards use core.LearningStore)
-	getLearningStore := func() core.LearningStore {
-		if ctx.VirtualStore != nil {
-			ls := ctx.VirtualStore.GetLearningStore()
-			if ls != nil {
-				return &learningStoreAdapter{store: ls}
-			}
-		}
-		return nil
+	registrar := &shardFactoryRegistrar{
+		sm:  sm,
+		ctx: ctx,
 	}
 
-	// Helper to create PromptAssembler with JIT support
-	createAssembler := func() *articulation.PromptAssembler {
-		if ctx.Kernel == nil {
-			return nil
-		}
-		// Assuming core.Kernel satisfies articulation.KernelQuerier (Fact types act effectively aliased)
-		// We might need an adapter if strict go interfaces complain, but for now we try direct.
-		// If direct fails compilation, we'll wrap it.
-		// prompt.NewPromptAssembler takes articulation.KernelQuerier.
-		pa, err := articulation.NewPromptAssembler(ctx.Kernel)
-		if err != nil {
-			return nil
-		}
-		if ctx.JITCompiler != nil {
-			jitCfg := ctx.JITConfig
-			if jitCfg.TokenBudget == 0 && jitCfg.ReservedTokens == 0 && jitCfg.SemanticTopK == 0 && !jitCfg.Enabled && !jitCfg.FallbackEnabled {
-				jitCfg = config.DefaultJITConfig()
-			}
-			pa.SetJITCompiler(ctx.JITCompiler)
-			pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-			pa.EnableJIT(jitCfg.Enabled)
-		}
-		return pa
-	}
-
-	withJITConfig := func(agent types.ShardAgent) types.ShardAgent {
-		if setter, ok := agent.(interface{ SetJITConfig(config.JITConfig) }); ok {
-			setter.SetJITConfig(ctx.JITConfig)
-		}
-		return agent
-	}
-
-	// =========================================================================
-	// DOMAIN SHARDS REMOVED - JIT CLEAN LOOP ARCHITECTURE
-	// =========================================================================
-	// The following domain shards have been replaced by the JIT clean loop:
-	// - coder: Now handled by session.Executor with /coder persona atoms
-	// - reviewer: Now handled by session.Executor with /reviewer persona atoms
-	// - tester: Now handled by session.Executor with /tester persona atoms
-	// - researcher: Now handled by session.Executor with /researcher persona atoms
-	// - tool_generator: Now handled by Ouroboros via VirtualStore
-	// - nemesis: Now handled by Thunderdome adversarial testing
-	//
-	// The JIT prompt compiler assembles the appropriate persona, skills, and
-	// context based on user intent. ConfigFactory provides tool sets per intent.
-	// =========================================================================
-
-	// Register Requirements Interrogator (Socratic clarifier) - still needed for clarification
-	sm.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := NewRequirementsInterrogatorShard()
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetParentKernel(ctx.Kernel)
-		return withJITConfig(shard)
-	})
-
-	// =========================================================================
-	// Type 1: System Shards (Permanent, Continuous)
-	// =========================================================================
-
-	// Register Perception Firewall - AUTO-START, LLM-primary
-	sm.RegisterShard("perception_firewall", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewPerceptionFirewallShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetVirtualStore(ctx.VirtualStore)    // FIX: Enable .gitignore/safety rules access
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable learning persistence
-		shard.SetPromptAssembler(createAssembler())
-		// NERD-EVOLVE-START: P1P2-model-tiering
-		// Inject classification client if available (enables model tiering for perception).
-		if ctx.ClassificationClient != nil {
-			shard.SetClassificationClient(ctx.ClassificationClient)
-		}
-		// NERD-EVOLVE-END: P1P2-model-tiering
-		return withJITConfig(shard)
-	})
-
-	// Register World Model Ingestor - ON-DEMAND, Hybrid
-	sm.RegisterShard("world_model_ingestor", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewWorldModelIngestorShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetPromptAssembler(createAssembler())
-		return withJITConfig(shard)
-	})
-
-	// Register Executive Policy - AUTO-START, Logic-primary
-	sm.RegisterShard("executive_policy", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewExecutivePolicyShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetLearningStore(getLearningStore()) // FIX: Enable strategy pattern learning
-		shard.SetPromptAssembler(createAssembler())
-		return withJITConfig(shard)
-	})
-
-	// Register Constitution Gate - AUTO-START, Logic-primary (SAFETY-CRITICAL)
-	sm.RegisterShard("constitution_gate", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewConstitutionGateShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetPromptAssembler(createAssembler())
-		return withJITConfig(shard)
-	})
-
-	// Register Legislator - ON-DEMAND, Logic-primary (learned constraints)
-	sm.RegisterShard("legislator", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewLegislatorShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetPromptAssembler(createAssembler())
-		return withJITConfig(shard)
-	})
-
-	// Register Mangle Repair - AUTO-START, Logic-primary (self-healing rules)
-	sm.RegisterShard("mangle_repair", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewMangleRepairShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetPromptAssembler(createAssembler())
-		// Wire the predicate corpus from kernel for schema validation
-		// Also wire the shard as the kernel's learned rule interceptor
-		var realKernel *core.RealKernel
-		if rk, ok := ctx.Kernel.(*core.RealKernel); ok {
-			realKernel = rk
-		} else if ck, ok := ctx.Kernel.(*core.CortexKernel); ok {
-			realKernel = ck.GetPrimaryRealKernel()
-		}
-		if realKernel != nil {
-			if corpus := realKernel.GetPredicateCorpus(); corpus != nil {
-				shard.SetCorpus(corpus)
-			}
-			// Wire repair interceptor for learned rule validation/repair before persistence
-			realKernel.SetRepairInterceptor(shard)
-		}
-		return withJITConfig(shard)
-	})
-
-	// Register Tactile Router - ON-DEMAND, Logic-primary
-	sm.RegisterShard("tactile_router", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewTactileRouterShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetPromptAssembler(createAssembler())
-		// BrowserManager will be injected separately if available
-		return withJITConfig(shard)
-	})
-
-	// Register Campaign Runner - AUTO-START supervisor for long-horizon campaigns
-	sm.RegisterShard("campaign_runner", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewCampaignRunnerShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetVirtualStore(ctx.VirtualStore)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetWorkspaceRoot(ctx.Workspace)
-		shard.SetPromptAssembler(createAssembler())
-		// Shared ShardManager is injected in system factory to avoid cycles.
-		return withJITConfig(shard)
-	})
-
-	// Register Session Planner - ON-DEMAND, LLM-primary
-	sm.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
-		shard := system.NewSessionPlannerShard()
-		shard.SetParentKernel(ctx.Kernel)
-		shard.SetLLMClient(ctx.LLMClient)
-		shard.SetVirtualStore(ctx.VirtualStore) // FIX: Enable codebase scanning for planning
-		shard.SetPromptAssembler(createAssembler())
-		return withJITConfig(shard)
-	})
+	registrar.registerEphemeralShards()
+	registrar.registerSystemShards()
+	registrar.registerLogicShards()
+	registrar.registerPlanningShards()
 
 	// Define shard profiles with proper configurations
 	defineShardProfiles(sm)
