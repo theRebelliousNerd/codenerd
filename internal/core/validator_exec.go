@@ -35,22 +35,15 @@ func truncateOutputForRegex(output string) string {
 
 // ExecutionValidator verifies that shell commands executed successfully
 // by analyzing output for failure patterns, even when exit code is 0.
-type ExecutionValidator struct {
-	mu sync.RWMutex
-	// failurePatterns are regex patterns that indicate failure
-	failurePatterns []*regexp.Regexp
-	// successPatterns are patterns that indicate success (optional confirmation)
-	successPatterns []*regexp.Regexp
-}
 
-// NewExecutionValidator creates a new execution validator with common failure patterns.
-func NewExecutionValidator() *ExecutionValidator {
-	v := &ExecutionValidator{
-		failurePatterns: make([]*regexp.Regexp, 0),
-		successPatterns: make([]*regexp.Regexp, 0),
-	}
+var (
+	commonFailurePatterns []*regexp.Regexp
+	buildFailurePatterns  []*regexp.Regexp
+	testFailurePatterns   []*regexp.Regexp
+)
 
-	// Common failure patterns (case insensitive via (?i))
+func init() {
+	// Common failure patterns
 	failurePatternStrs := []string{
 		`(?i)panic:`,
 		`(?i)fatal:`,
@@ -82,14 +75,52 @@ func NewExecutionValidator() *ExecutionValidator {
 		`(?i)EPERM`,
 		`(?i)ENOMEM`,
 	}
-
 	for _, p := range failurePatternStrs {
-		re, err := regexp.Compile(p)
-		if err == nil {
-			v.failurePatterns = append(v.failurePatterns, re)
-		}
+		commonFailurePatterns = append(commonFailurePatterns, regexp.MustCompile(p))
 	}
 
+	// Build-specific failure patterns
+	buildPatterns := []string{
+		`(?i)compilation failed`,
+		`(?i)build failed`,
+		`(?i)linker error`,
+		`(?i)undefined reference`,
+		`(?i)unresolved external`,
+		`(?i)cannot find -l`,
+		`(?i)missing required`,
+	}
+	for _, p := range buildPatterns {
+		buildFailurePatterns = append(buildFailurePatterns, regexp.MustCompile(p))
+	}
+
+	// Test-specific failure patterns
+	testPatterns := []string{
+		`(?i)tests? failed`,
+		`(?i)FAIL\s+`,
+		`(?i)assertion failed`,
+		`(?i)expected .* but got`,
+		`(?i)test case.*failed`,
+	}
+	for _, p := range testPatterns {
+		testFailurePatterns = append(testFailurePatterns, regexp.MustCompile(p))
+	}
+}
+
+type ExecutionValidator struct {
+	mu sync.RWMutex
+	// failurePatterns are regex patterns that indicate failure
+	failurePatterns []*regexp.Regexp
+	// successPatterns are patterns that indicate success (optional confirmation)
+	successPatterns []*regexp.Regexp
+}
+
+// NewExecutionValidator creates a new execution validator with common failure patterns.
+func NewExecutionValidator() *ExecutionValidator {
+	v := &ExecutionValidator{
+		// Copy global patterns so AddFailurePattern can mutate safely for this instance
+		failurePatterns: append([]*regexp.Regexp{}, commonFailurePatterns...),
+		successPatterns: make([]*regexp.Regexp, 0),
+	}
 	return v
 }
 
@@ -312,22 +343,9 @@ type BuildValidator struct {
 // NewBuildValidator creates a validator specialized for build commands.
 func NewBuildValidator() *BuildValidator {
 	exec := NewExecutionValidator()
-
-	// Add build-specific failure patterns
-	buildPatterns := []string{
-		`(?i)compilation failed`,
-		`(?i)build failed`,
-		`(?i)linker error`,
-		`(?i)undefined reference`,
-		`(?i)unresolved external`,
-		`(?i)cannot find -l`,
-		`(?i)missing required`,
-	}
-
-	for _, p := range buildPatterns {
-		_ = exec.AddFailurePattern(p)
-	}
-
+	exec.mu.Lock()
+	exec.failurePatterns = append(exec.failurePatterns, buildFailurePatterns...)
+	exec.mu.Unlock()
 	return &BuildValidator{ExecutionValidator: exec}
 }
 
@@ -352,20 +370,9 @@ type TestValidator struct {
 // NewTestValidator creates a validator specialized for test commands.
 func NewTestValidator() *TestValidator {
 	exec := NewExecutionValidator()
-
-	// Add test-specific failure patterns
-	testPatterns := []string{
-		`(?i)tests? failed`,
-		`(?i)FAIL\s+`,
-		`(?i)assertion failed`,
-		`(?i)expected .* but got`,
-		`(?i)test case.*failed`,
-	}
-
-	for _, p := range testPatterns {
-		_ = exec.AddFailurePattern(p)
-	}
-
+	exec.mu.Lock()
+	exec.failurePatterns = append(exec.failurePatterns, testFailurePatterns...)
+	exec.mu.Unlock()
 	return &TestValidator{ExecutionValidator: exec}
 }
 
