@@ -20,12 +20,14 @@ var (
 )
 
 type specialistCacheEntry struct {
-	modTime time.Time
-	content string
+	modTime     time.Time
+	content     string
+	lastChecked time.Time
 }
 
+const specialistCacheTTL = 5 * time.Second
+
 // InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
 // This enables the LLM to know what domain experts are available for consultation.
 // Reads from .nerd/agents.json and formats as a markdown list for template injection.
 func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
@@ -43,24 +45,22 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 
 	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
 
+	// 1. Fast path: check TTL
+	specialistCacheMu.RLock()
+	entry, found := specialistCache[registryPath]
+	specialistCacheMu.RUnlock()
+
+	if found && time.Since(entry.lastChecked) < specialistCacheTTL {
+		ctx.AvailableSpecialists = entry.content
+		return nil
+	}
+
 	stat, err := os.Stat(registryPath)
 	if err != nil {
-		// Graceful degradation - no custom specialists available, but we'll still add core shards
-		data := []byte("{}")
-
-		// Parse the agent registry (which is empty)
-		var registry struct {
-			Agents []struct {
-				Name        string `json:"name"`
-				Type        string `json:"type"`
-				Status      string `json:"status"`
-				Description string `json:"description"`
-				Topics      string `json:"topics"`
-			} `json:"agents"`
-		}
-		_ = json.Unmarshal(data, &registry)
-
+		// File doesn't exist or is inaccessible. We still cache this "negative" result.
+		// Graceful degradation - no custom specialists available, but we'll still add core shards.
 		var specialists []string
+
 		// Add core shards as implicit specialists (from centralized definitions)
 		for name, desc := range shards.CoreShardDescriptions {
 			specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
@@ -74,25 +74,38 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		}
 
 		ctx.AvailableSpecialists = result
+
+		// Cache the negative result so we don't reconstruct it or os.Stat on every compilation
+		specialistCacheMu.Lock()
+		specialistCache[registryPath] = specialistCacheEntry{
+			modTime:     time.Time{}, // zero time for not found
+			content:     result,
+			lastChecked: time.Now(),
+		}
+		specialistCacheMu.Unlock()
+
 		return nil
 	}
 
 	modTime := stat.ModTime()
 
-	// Check cache
-	specialistCacheMu.RLock()
-	entry, found := specialistCache[registryPath]
-	specialistCacheMu.RUnlock()
-
+	// If file exists, check if modTime matches cached modTime
 	if found && !modTime.After(entry.modTime) {
+		// Content is fresh, just update the TTL
+		specialistCacheMu.Lock()
+		if e, ok := specialistCache[registryPath]; ok {
+			e.lastChecked = time.Now()
+			specialistCache[registryPath] = e
+		}
+		specialistCacheMu.Unlock()
+
 		ctx.AvailableSpecialists = entry.content
 		return nil
 	}
 
-	// Cache miss or stale - read file
+	// Cache miss or file was modified - read file
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
-		// Should be rare since Stat succeeded, but possible
 		logging.Get(logging.CategoryJIT).Warn("Failed to read agents.json: %v", err)
 		data = []byte("{}") // Proceed with empty registry to inject core shards
 	}
@@ -139,11 +152,12 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		result = strings.Join(specialists, "\n")
 	}
 
-	// Update cache
+	// Update cache with the new content
 	specialistCacheMu.Lock()
 	specialistCache[registryPath] = specialistCacheEntry{
-		modTime: modTime,
-		content: result,
+		modTime:     modTime,
+		content:     result,
+		lastChecked: time.Now(),
 	}
 	specialistCacheMu.Unlock()
 
@@ -152,8 +166,6 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 	return nil
 }
 
-// toInterfaceSlice converts a string slice to an interface slice.
-// Used to pass context facts to the kernel's AssertBatch method.
 func toInterfaceSlice(strs []string) []any {
 	result := make([]any, len(strs))
 	for i, s := range strs {
