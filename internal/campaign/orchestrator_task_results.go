@@ -2,7 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/logging"
-	"fmt"
+	"strings"
 )
 
 // storeTaskResult stores a task's result for context injection into dependent tasks.
@@ -97,11 +97,34 @@ func (o *Orchestrator) buildTaskInput(task *Task) string {
 
 	// Inject context from dependent tasks specified in ContextFrom
 	if len(task.ContextFrom) > 0 {
+		type contextData struct {
+			depID  string
+			result string
+		}
+
+		contexts := make([]contextData, 0, len(task.ContextFrom))
+		var totalLen int = len(input)
+
 		for _, depID := range task.ContextFrom {
 			if result, ok := o.getTaskResult(depID); ok && result != "" {
-				input += fmt.Sprintf("\n\n=== CONTEXT FROM TASK %s ===\n%s", depID, result)
+				contexts = append(contexts, contextData{depID, result})
+				totalLen += 29 + len(depID) + len(result) // length of "\n\n=== CONTEXT FROM TASK  ===\n" is 29
 				logging.CampaignDebug("Injected context from task %s (%d bytes)", depID, len(result))
 			}
+		}
+
+		if len(contexts) > 0 {
+			var builder strings.Builder
+			builder.Grow(totalLen)
+			builder.WriteString(input)
+
+			for _, ctx := range contexts {
+				builder.WriteString("\n\n=== CONTEXT FROM TASK ")
+				builder.WriteString(ctx.depID)
+				builder.WriteString(" ===\n")
+				builder.WriteString(ctx.result)
+			}
+			return builder.String()
 		}
 	}
 
