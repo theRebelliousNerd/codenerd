@@ -63,143 +63,165 @@ func DefaultConfig() *Config {
 		Name:    "codeNERD",
 		Version: "1.5.0",
 
-		LLM: LLMConfig{
-			Provider: "zai",
-			Model:    "glm-4.7", // Z.AI GLM-4.7 - Default for codeNERD
-			BaseURL:  "https://api.z.ai/api/coding/paas/v4",
-			Timeout:  "120s",
-		},
-
-		Mangle: MangleConfig{
-			SchemaPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
-			PolicyPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
-			FactLimit:    1000000,
-			QueryTimeout: "30s",
-		},
-
-		Memory: MemoryConfig{
-			WorkingMemorySize: 20000,
-			DatabasePath:      "data/codenerd.db",
-			SessionTTL:        "24h",
-			ContextWindow: ContextWindowConfig{
-				MaxTokens:              128000,
-				CoreReservePercent:     5,
-				AtomReservePercent:     30,
-				HistoryReservePercent:  15,
-				WorkingReservePercent:  50,
-				RecentTurnWindow:       5,
-				CompressionThreshold:   0.60,
-				TargetCompressionRatio: 100.0,
-				ActivationThreshold:    30.0,
-			},
-		},
-
-		// Embedding engine defaults (Ollama for local, fast embeddings)
-		Embedding: EmbeddingConfig{
-			Provider:       "ollama",                 // Default to local Ollama
-			OllamaEndpoint: "http://localhost:11434", // Ollama default port
-			OllamaModel:    "embeddinggemma",         // embeddinggemma for local embeddings
-			GenAIModel:     "gemini-embedding-001",   // GenAI default model
-			TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
-		},
-
-		Reflection: DefaultReflectionConfig(),
-
-		// Integrations: No default MCP servers - user configures external servers as needed.
-		// Internal capabilities (code analysis, browser automation) use internal packages directly.
-		Integrations: IntegrationsConfig{
-			Servers: make(map[string]MCPServerIntegration),
-		},
-
-		Execution: ExecutionConfig{
-			AllowedBinaries: []string{
-				"go", "git", "grep", "ls", "mkdir", "cp", "mv",
-				"npm", "npx", "node", "python", "python3", "pip",
-				"cargo", "rustc", "make", "cmake",
-			},
-			DefaultTimeout:   "10m", // 10 minutes - covers LLM ops which can take 60-300+ seconds
-			WorkingDirectory: ".",
-			AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
-		},
-
+		LLM:            defaultLLMConfig(),
+		Mangle:         defaultMangleConfig(),
+		Memory:         defaultMemoryConfig(),
+		Embedding:      defaultEmbeddingConfig(),
+		Reflection:     DefaultReflectionConfig(),
+		Integrations:   defaultIntegrationsConfig(),
+		Execution:      defaultExecutionConfig(),
 		ToolGeneration: DefaultToolGenerationConfig(),
+		Transparency:   *DefaultTransparencyConfig(),
+		Logging:        defaultLoggingConfig(),
+		CoreLimits:     defaultCoreLimits(),
+		DefaultShard:   defaultShardProfile(),
+		ShardProfiles:  defaultShardProfiles(),
+	}
+}
 
-		Transparency: *DefaultTransparencyConfig(),
+func defaultLLMConfig() LLMConfig {
+	return LLMConfig{
+		Provider: "zai",
+		Model:    "glm-4.7", // Z.AI GLM-4.7 - Default for codeNERD
+		BaseURL:  "https://api.z.ai/api/coding/paas/v4",
+		Timeout:  "120s",
+	}
+}
 
-		Logging: LoggingConfig{
-			Level:  "info",
-			Format: "text",
-			File:   "codenerd.log",
+func defaultMangleConfig() MangleConfig {
+	return MangleConfig{
+		SchemaPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
+		PolicyPath:   "", // Empty triggers embedded defaults + .nerd/mangle extensions
+		FactLimit:    1000000,
+		QueryTimeout: "30s",
+	}
+}
+
+func defaultMemoryConfig() MemoryConfig {
+	return MemoryConfig{
+		WorkingMemorySize: 20000,
+		DatabasePath:      "data/codenerd.db",
+		SessionTTL:        "24h",
+		ContextWindow: ContextWindowConfig{
+			MaxTokens:              128000,
+			CoreReservePercent:     5,
+			AtomReservePercent:     30,
+			HistoryReservePercent:  15,
+			WorkingReservePercent:  50,
+			RecentTurnWindow:       5,
+			CompressionThreshold:   0.60,
+			TargetCompressionRatio: 100.0,
+			ActivationThreshold:    30.0,
 		},
+	}
+}
 
-		// Core resource limits (enforced system-wide)
-		CoreLimits: CoreLimits{
-			MaxTotalMemoryMB:      12288,  // 12GB RAM limit
-			MaxConcurrentShards:   4,      // Max 4 parallel shards
-			MaxSessionDurationMin: 120,    // 2 hour sessions
-			MaxFactsInKernel:      250000, // Increase working-set ceiling with larger RAM
-			MaxDerivedFactsLimit:  100000, // Mangle gas limit scales with fact budget
+func defaultEmbeddingConfig() EmbeddingConfig {
+	return EmbeddingConfig{
+		Provider:       "ollama",                 // Default to local Ollama
+		OllamaEndpoint: "http://localhost:11434", // Ollama default port
+		OllamaModel:    "embeddinggemma",         // embeddinggemma for local embeddings
+		GenAIModel:     "gemini-embedding-001",   // GenAI default model
+		TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
+	}
+}
+
+func defaultIntegrationsConfig() IntegrationsConfig {
+	return IntegrationsConfig{
+		Servers: make(map[string]MCPServerIntegration),
+	}
+}
+
+func defaultExecutionConfig() ExecutionConfig {
+	return ExecutionConfig{
+		AllowedBinaries: []string{
+			"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+			"npm", "npx", "node", "python", "python3", "pip",
+			"cargo", "rustc", "make", "cmake",
 		},
+		DefaultTimeout:   "10m", // 10 minutes - covers LLM ops which can take 60-300+ seconds
+		WorkingDirectory: ".",
+		AllowedEnvVars:   []string{"PATH", "HOME", "GOPATH", "GOROOT"},
+	}
+}
 
-		// Default shard settings (fallback for undefined shard types)
-		DefaultShard: ShardProfile{
-			Model:                 "glm-4.7", // Inherit from main LLM config
+func defaultLoggingConfig() LoggingConfig {
+	return LoggingConfig{
+		Level:  "info",
+		Format: "text",
+		File:   "codenerd.log",
+	}
+}
+
+func defaultCoreLimits() CoreLimits {
+	return CoreLimits{
+		MaxTotalMemoryMB:      12288,  // 12GB RAM limit
+		MaxConcurrentShards:   4,      // Max 4 parallel shards
+		MaxSessionDurationMin: 120,    // 2 hour sessions
+		MaxFactsInKernel:      250000, // Increase working-set ceiling with larger RAM
+		MaxDerivedFactsLimit:  100000, // Mangle gas limit scales with fact budget
+	}
+}
+
+func defaultShardProfile() ShardProfile {
+	return ShardProfile{
+		Model:                 "glm-4.7", // Inherit from main LLM config
+		Temperature:           0.7,
+		TopP:                  0.9,
+		MaxContextTokens:      20000,
+		MaxOutputTokens:       4000,
+		MaxExecutionTimeSec:   300, // 5 min
+		MaxRetries:            3,
+		MaxFactsInShardKernel: 20000,
+		EnableLearning:        true,
+	}
+}
+
+func defaultShardProfiles() map[string]ShardProfile {
+	return map[string]ShardProfile{
+		"coder": {
+			Model:                 "glm-4.7", // Z.AI GLM-4.7 for code generation
 			Temperature:           0.7,
+			TopP:                  0.9,
+			MaxContextTokens:      30000, // More context for code
+			MaxOutputTokens:       6000,
+			MaxExecutionTimeSec:   600, // 10 min
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 30000,
+			EnableLearning:        true,
+		},
+		"tester": {
+			Model:                 "glm-4.7", // Z.AI GLM-4.7 for test generation
+			Temperature:           0.5,       // Lower temp for precise tests
 			TopP:                  0.9,
 			MaxContextTokens:      20000,
 			MaxOutputTokens:       4000,
-			MaxExecutionTimeSec:   300, // 5 min
+			MaxExecutionTimeSec:   300,
 			MaxRetries:            3,
 			MaxFactsInShardKernel: 20000,
 			EnableLearning:        true,
 		},
-
-		// Per-shard profiles (custom settings per shard type)
-		ShardProfiles: map[string]ShardProfile{
-			"coder": {
-				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code generation
-				Temperature:           0.7,
-				TopP:                  0.9,
-				MaxContextTokens:      30000, // More context for code
-				MaxOutputTokens:       6000,
-				MaxExecutionTimeSec:   600, // 10 min
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 30000,
-				EnableLearning:        true,
-			},
-			"tester": {
-				Model:                 "glm-4.7", // Z.AI GLM-4.7 for test generation
-				Temperature:           0.5,       // Lower temp for precise tests
-				TopP:                  0.9,
-				MaxContextTokens:      20000,
-				MaxOutputTokens:       4000,
-				MaxExecutionTimeSec:   300,
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 20000,
-				EnableLearning:        true,
-			},
-			"reviewer": {
-				Model:                 "glm-4.7", // Z.AI GLM-4.7 for code review
-				Temperature:           0.3,       // Very low temp for rigorous analysis
-				TopP:                  0.9,
-				MaxContextTokens:      40000, // Max context for full codebase
-				MaxOutputTokens:       8000,
-				MaxExecutionTimeSec:   900, // 15 min
-				MaxRetries:            2,
-				MaxFactsInShardKernel: 30000,
-				EnableLearning:        false, // No learning for safety-critical
-			},
-			"researcher": {
-				Model:                 "glm-4.7", // Z.AI GLM-4.7 for research
-				Temperature:           0.6,
-				TopP:                  0.95,
-				MaxContextTokens:      25000,
-				MaxOutputTokens:       5000,
-				MaxExecutionTimeSec:   600, // 10 min for deep research
-				MaxRetries:            3,
-				MaxFactsInShardKernel: 25000,
-				EnableLearning:        true,
-			},
+		"reviewer": {
+			Model:                 "glm-4.7", // Z.AI GLM-4.7 for code review
+			Temperature:           0.3,       // Very low temp for rigorous analysis
+			TopP:                  0.9,
+			MaxContextTokens:      40000, // Max context for full codebase
+			MaxOutputTokens:       8000,
+			MaxExecutionTimeSec:   900, // 15 min
+			MaxRetries:            2,
+			MaxFactsInShardKernel: 30000,
+			EnableLearning:        false, // No learning for safety-critical
+		},
+		"researcher": {
+			Model:                 "glm-4.7", // Z.AI GLM-4.7 for research
+			Temperature:           0.6,
+			TopP:                  0.95,
+			MaxContextTokens:      25000,
+			MaxOutputTokens:       5000,
+			MaxExecutionTimeSec:   600, // 10 min for deep research
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 25000,
+			EnableLearning:        true,
 		},
 	}
 }
