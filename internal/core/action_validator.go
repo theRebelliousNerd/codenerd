@@ -348,12 +348,19 @@ func (vr *ValidationResult) ToFacts() []Fact {
 		// The error text is free-form so we derive a stable /name category
 		// for Reason and stash the full text in Details (/string).
 		reasonAtom := MangleAtom("/" + categorizeValidationError(errorStr))
-		detailsStr := errorStr
-		if vr.Details != nil {
+		var detailsStr string
+		if len(vr.Details) > 0 {
+			var sb strings.Builder
+			// Estimate roughly: length of error + average 32 bytes per map entry
+			sb.Grow(len(errorStr) + len(vr.Details)*32)
+			sb.WriteString(errorStr)
 			// Simple serialization for Mangle
 			for k, v := range vr.Details {
-				detailsStr += fmt.Sprintf("; %s=%v", k, v)
+				fmt.Fprintf(&sb, "; %s=%v", k, v)
 			}
+			detailsStr = sb.String()
+		} else {
+			detailsStr = errorStr
 		}
 		if len(detailsStr) > 1024 {
 			detailsStr = detailsStr[:1024]
