@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -668,6 +669,26 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 // collectKernelInjectedAtoms queries runtime context predicates and turns them into ephemeral PromptAtoms.
 // This lets JIT prompts include spreading-activation context and specialist knowledge without legacy injection.
+
+// extractStringArgFast uses type switches for common primitives to avoid reflection
+// and allocation overhead in hot loops, falling back to extractStringArg for complex types.
+func extractStringArgFast(arg any) (string, error) {
+	switch v := arg.(type) {
+	case string:
+		return v, nil
+	case int:
+		return strconv.Itoa(v), nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	default:
+		return extractStringArg(arg)
+	}
+}
+
 func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) ([]*PromptAtom, error) {
 	if c.kernel == nil || cc == nil {
 		return nil, nil
@@ -700,15 +721,13 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
-		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
-		// Replace with type switches for common primitives to avoid reflection overhead in hot loops.
-		factShardID, err := extractStringArg(fact.Args[0])
+		factShardID, err := extractStringArgFast(fact.Args[0])
 		if err != nil || !matchesShard(factShardID) {
 			continue
 		}
 		if atom, ok := fact.Args[1].(string); ok && strings.TrimSpace(atom) != "" {
 			ctxAtoms = append(ctxAtoms, atom)
-		} else if atomStr, err := extractStringArg(fact.Args[1]); err == nil && strings.TrimSpace(atomStr) != "" {
+		} else if atomStr, err := extractStringArgFast(fact.Args[1]); err == nil && strings.TrimSpace(atomStr) != "" {
 			ctxAtoms = append(ctxAtoms, atomStr)
 		}
 	}
@@ -741,12 +760,12 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			if len(fact.Args) < 3 {
 				continue
 			}
-			factShardID, err := extractStringArg(fact.Args[0])
+			factShardID, err := extractStringArgFast(fact.Args[0])
 			if err != nil || !matchesShard(factShardID) {
 				continue
 			}
-			topic, err1 := extractStringArg(fact.Args[1])
-			body, err2 := extractStringArg(fact.Args[2])
+			topic, err1 := extractStringArgFast(fact.Args[1])
+			body, err2 := extractStringArgFast(fact.Args[2])
 			if err1 == nil && err2 == nil && strings.TrimSpace(topic) != "" && strings.TrimSpace(body) != "" {
 				blocks = append(blocks, block{topic: topic, content: body})
 			}
