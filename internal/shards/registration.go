@@ -382,6 +382,18 @@ func RegisterSystemShardProfiles(sm *coreshards.ShardManager) {
 
 // defineSystemShardProfiles registers Type 1 system shard profiles.
 func defineSystemShardProfiles(sm *coreshards.ShardManager) {
+	definePerceptionFirewallProfile(sm)
+	defineWorldModelIngestorProfile(sm)
+	defineExecutivePolicyProfile(sm)
+	defineConstitutionGateProfile(sm)
+	defineMangleRepairProfile(sm)
+	defineTactileRouterProfile(sm)
+	defineSessionPlannerProfile(sm)
+	defineCampaignRunnerProfile(sm)
+	defineLegislatorProfile(sm)
+}
+
+func definePerceptionFirewallProfile(sm *coreshards.ShardManager) {
 	// Perception Firewall - AUTO-START, LLM for NL understanding
 	sm.DefineProfile("perception_firewall", types.ShardConfig{
 		Name:        "perception_firewall",
@@ -397,7 +409,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityBalanced,
 		},
 	})
+}
 
+func defineWorldModelIngestorProfile(sm *coreshards.ShardManager) {
 	// World Model Ingestor - ON-DEMAND, Hybrid
 	sm.DefineProfile("world_model_ingestor", types.ShardConfig{
 		Name:        "world_model_ingestor",
@@ -414,7 +428,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityHighSpeed,
 		},
 	})
+}
 
+func defineExecutivePolicyProfile(sm *coreshards.ShardManager) {
 	// Executive Policy - AUTO-START, Pure logic (no LLM by default)
 	sm.DefineProfile("executive_policy", types.ShardConfig{
 		Name:        "executive_policy",
@@ -429,7 +445,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 		MemoryLimit: 7000,
 		Model:       types.ModelConfig{}, // No LLM needed for core logic
 	})
+}
 
+func defineConstitutionGateProfile(sm *coreshards.ShardManager) {
 	// Constitution Gate - AUTO-START, Pure logic (SAFETY-CRITICAL)
 	sm.DefineProfile("constitution_gate", types.ShardConfig{
 		Name:        "constitution_gate",
@@ -442,7 +460,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 		MemoryLimit: 2500,
 		Model:       types.ModelConfig{}, // No LLM - safety MUST be deterministic
 	})
+}
 
+func defineMangleRepairProfile(sm *coreshards.ShardManager) {
 	// Mangle Repair - AUTO-START, learned rule validation/repair
 	sm.DefineProfile("mangle_repair", types.ShardConfig{
 		Name:        "mangle_repair",
@@ -457,7 +477,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityHighReasoning,
 		},
 	})
+}
 
+func defineTactileRouterProfile(sm *coreshards.ShardManager) {
 	// Tactile Router - ON-DEMAND, Pure logic
 	sm.DefineProfile("tactile_router", types.ShardConfig{
 		Name:        "tactile_router",
@@ -472,7 +494,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 		MemoryLimit: 6000,
 		Model:       types.ModelConfig{}, // No LLM needed
 	})
+}
 
+func defineSessionPlannerProfile(sm *coreshards.ShardManager) {
 	// Session Planner - ON-DEMAND, LLM for goal decomposition
 	sm.DefineProfile("session_planner", types.ShardConfig{
 		Name:        "session_planner",
@@ -488,7 +512,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityHighReasoning,
 		},
 	})
+}
 
+func defineCampaignRunnerProfile(sm *coreshards.ShardManager) {
 	// Campaign Runner - ON-DEMAND, supervisor (uses orchestrator + shards)
 	// NOTE: Changed to ON-DEMAND to prevent automatic campaign execution on boot
 	sm.DefineProfile("campaign_runner", types.ShardConfig{
@@ -506,7 +532,9 @@ func defineSystemShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityBalanced,
 		},
 	})
+}
 
+func defineLegislatorProfile(sm *coreshards.ShardManager) {
 	// Legislator - ON-DEMAND, Logic-primary for learned constraints
 	sm.DefineProfile("legislator", types.ShardConfig{
 		Name:        "legislator",
