@@ -15,6 +15,7 @@ import (
 //
 // This is intentionally deterministic (no LLM decomposition) to avoid exploding
 // a 50k-file repo into per-file tasks.
+
 func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaign {
 	cfg = cfg.Normalize()
 
@@ -46,13 +47,23 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		Confidence:      1.0,
 		ContextBudget:   cfg.ContextBudget,
 		Phases:          make([]Phase, 0, 4),
-		ContextProfiles: make([]ContextProfile, 0, 4),
+		ContextProfiles: buildContextProfiles(campaignID),
 		TotalPhases:     0,
 		TotalTasks:      0,
 		Assault:         &cfg,
 	}
 
-	// Minimal context profiles (used primarily for prompt assembly and future paging).
+	c.Phases = buildAssaultPhases(campaignID, c.ContextProfiles)
+	c.TotalPhases = len(c.Phases)
+	for _, p := range c.Phases {
+		c.TotalTasks += len(p.Tasks)
+	}
+
+	return c
+}
+
+func buildContextProfiles(campaignID string) []ContextProfile {
+	profiles := make([]ContextProfile, 0, 4)
 	for i := range 4 {
 		profileID := fmt.Sprintf("/profile_%s_%d", campaignID[10:], i)
 		profile := ContextProfile{
@@ -61,9 +72,12 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 			RequiredTools:   []string{"exec_cmd", "run_tests", "build_project"},
 			FocusPatterns:   []string{"**/*"},
 		}
-		c.ContextProfiles = append(c.ContextProfiles, profile)
+		profiles = append(profiles, profile)
 	}
+	return profiles
+}
 
+func buildAssaultPhases(campaignID string, profiles []ContextProfile) []Phase {
 	phase0 := Phase{
 		ID:             fmt.Sprintf("/phase_%s_%d", campaignID[10:], 0),
 		CampaignID:     campaignID,
@@ -71,7 +85,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		Order:          0,
 		Category:       "/analysis",
 		Status:         PhasePending,
-		ContextProfile: c.ContextProfiles[0].ID,
+		ContextProfile: profiles[0].ID,
 		Objectives: []PhaseObjective{{
 			Type:               ObjectiveResearch,
 			Description:        "Discover targets and generate batched assault tasks",
@@ -96,7 +110,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		Order:          1,
 		Category:       "/test",
 		Status:         PhasePending,
-		ContextProfile: c.ContextProfiles[1].ID,
+		ContextProfile: profiles[1].ID,
 		Objectives: []PhaseObjective{{
 			Type:               ObjectiveTest,
 			Description:        "Execute assault batches and persist results",
@@ -117,7 +131,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		Order:          2,
 		Category:       "/review",
 		Status:         PhasePending,
-		ContextProfile: c.ContextProfiles[2].ID,
+		ContextProfile: profiles[2].ID,
 		Objectives: []PhaseObjective{{
 			Type:               ObjectiveReview,
 			Description:        "Summarize assault results and propose remediation tasks",
@@ -146,7 +160,7 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		Order:          3,
 		Category:       "/remediation",
 		Status:         PhasePending,
-		ContextProfile: c.ContextProfiles[3].ID,
+		ContextProfile: profiles[3].ID,
 		Objectives: []PhaseObjective{{
 			Type:               ObjectiveModify,
 			Description:        "Apply fixes driven by triage findings",
@@ -166,11 +180,5 @@ func NewAdversarialAssaultCampaign(workspace string, cfg AssaultConfig) *Campaig
 		}},
 	}
 
-	c.Phases = append(c.Phases, phase0, phase1, phase2, phase3)
-	c.TotalPhases = len(c.Phases)
-	for _, p := range c.Phases {
-		c.TotalTasks += len(p.Tasks)
-	}
-
-	return c
+	return []Phase{phase0, phase1, phase2, phase3}
 }
