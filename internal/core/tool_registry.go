@@ -177,6 +177,16 @@ func (tr *ToolRegistry) ExecuteRegisteredTool(ctx context.Context, toolName stri
 
 	logging.Tools("ExecuteRegisteredTool: executing tool=%s exec_count=%d args=%v", toolName, execCount, args)
 
+	// Security Validation
+	if err := secureValidateCommand(tool.Command); err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: security validation failed for command %s: %v", tool.Command, err)
+		return "", fmt.Errorf("security validation failed: %w", err)
+	}
+	if err := secureValidateArgs(args); err != nil {
+		logging.ToolsError("ExecuteRegisteredTool: security validation failed for args: %v", err)
+		return "", fmt.Errorf("security validation failed: %w", err)
+	}
+
 	startTime := time.Now()
 	cmd := exec.CommandContext(ctx, tool.Command, args...)
 	if tr.workDir != "" {
@@ -525,6 +535,37 @@ func (tr *ToolRegistry) BuildToolCatalog(shardType string) string {
 }
 
 // isCommandName checks if a string is a command name (not a path)
+// secureValidateCommand checks for common command injection and traversal vectors
+func secureValidateCommand(command string) error {
+	if strings.Contains(command, "..") {
+		return fmt.Errorf("security violation: command path contains traversal components")
+	}
+
+	normalized := strings.ReplaceAll(command, "\\", "/")
+	base := strings.ToLower(filepath.Base(normalized))
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	forbiddenShells := []string{"sh", "bash", "zsh", "cmd", "powershell", "pwsh", "csh", "ksh", "dash"}
+	for _, shell := range forbiddenShells {
+		if base == shell {
+			return fmt.Errorf("security violation: direct execution of shell (%s) is forbidden", base)
+		}
+	}
+	return nil
+}
+
+// secureValidateArgs checks arguments for dangerous payloads
+func secureValidateArgs(args []string) error {
+	for _, arg := range args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("security violation: null byte in argument")
+		}
+	}
+	return nil
+}
+
 func isCommandName(s string) bool {
 	return !filepath.IsAbs(s) && !strings.Contains(s, string(filepath.Separator))
 }
