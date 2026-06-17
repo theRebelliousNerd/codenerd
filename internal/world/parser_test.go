@@ -1086,3 +1086,163 @@ pub struct User {
 		}
 	}
 }
+
+func TestNewMangleCodeParser(t *testing.T) {
+	projectRoot := "/test/root"
+	parser := NewMangleCodeParser(projectRoot)
+
+	if parser == nil {
+		t.Fatal("NewMangleCodeParser returned nil")
+	}
+
+	if parser.projectRoot != projectRoot {
+		t.Errorf("Expected projectRoot %q, got %q", projectRoot, parser.projectRoot)
+	}
+
+	if parser.Language() != "mg" {
+		t.Errorf("Expected Language 'mg', got %q", parser.Language())
+	}
+
+	exts := parser.SupportedExtensions()
+	expectedExts := []string{".mg", ".dl", ".mangle"}
+	if len(exts) != len(expectedExts) {
+		t.Errorf("Expected %d supported extensions, got %d", len(expectedExts), len(exts))
+	}
+	for i, ext := range exts {
+		if ext != expectedExts[i] {
+			t.Errorf("Expected extension %q at index %d, got %q", expectedExts[i], i, ext)
+		}
+	}
+}
+
+func TestMangleCodeParser_Helpers(t *testing.T) {
+	t.Run("isRecursiveRule", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			body     string
+			headPred string
+			want     bool
+		}{
+			{
+				name:     "recursive rule",
+				body:     "ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).",
+				headPred: "ancestor",
+				want:     true,
+			},
+			{
+				name:     "non-recursive rule",
+				body:     "ancestor(X, Y) :- parent(X, Y).",
+				headPred: "ancestor",
+				want:     false,
+			},
+			{
+				name:     "invalid body",
+				body:     "invalid rule without :-",
+				headPred: "test",
+				want:     false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := isRecursiveRule(tt.body, tt.headPred); got != tt.want {
+					t.Errorf("isRecursiveRule() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("containsNegation", func(t *testing.T) {
+		tests := []struct {
+			name string
+			body string
+			want bool
+		}{
+			{
+				name: "with 'not'",
+				body: "orphan(X) :- person(X), not parent(_, X).",
+				want: true,
+			},
+			{
+				name: "with '!'",
+				body: "rule(X) :- fact(X), !other(X).",
+				want: true,
+			},
+			{
+				name: "without negation",
+				body: "rule(X) :- fact(X).",
+				want: false,
+			},
+			{
+				name: "invalid body",
+				body: "invalid rule without :-",
+				want: false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := containsNegation(tt.body); got != tt.want {
+					t.Errorf("containsNegation() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("containsAggregation", func(t *testing.T) {
+		tests := []struct {
+			name string
+			body string
+			want bool
+		}{
+			{
+				name: "with pipe operator",
+				body: "total(Count) :- fact(X) |> let Count = fn:count().",
+				want: true,
+			},
+			{
+				name: "with fn:collect",
+				body: "collect(Res) :- fact(X), let Res = fn:collect(X).",
+				want: true,
+			},
+			{
+				name: "with fn:sum",
+				body: "sum(Res) :- fact(X), let Res = fn:sum(X).",
+				want: true,
+			},
+			{
+				name: "with fn:count",
+				body: "count(Res) :- fact(X), let Res = fn:count(X).",
+				want: true,
+			},
+			{
+				name: "with fn:max",
+				body: "max(Res) :- fact(X), let Res = fn:max(X).",
+				want: true,
+			},
+			{
+				name: "with fn:min",
+				body: "min(Res) :- fact(X), let Res = fn:min(X).",
+				want: true,
+			},
+			{
+				name: "with fn:group_by",
+				body: "group(Res) :- fact(X), let Res = fn:group_by(X).",
+				want: true,
+			},
+			{
+				name: "without aggregation",
+				body: "rule(X) :- fact(X).",
+				want: false,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := containsAggregation(tt.body); got != tt.want {
+					t.Errorf("containsAggregation() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+}
