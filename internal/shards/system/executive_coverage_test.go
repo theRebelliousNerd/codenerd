@@ -314,9 +314,9 @@ func TestNormalizeAtom_ShouldAddSlashPrefix(t *testing.T) {
 }
 
 func TestBuildVerbPatterns_ShouldReturnNonEmpty(t *testing.T) {
-	patterns := buildVerbPatterns()
+	patterns := globalVerbPatterns
 	if len(patterns) == 0 {
-		t.Error("buildVerbPatterns should return non-empty map")
+		t.Error("globalVerbPatterns should be non-empty map")
 	}
 
 	expectedVerbs := []string{"explain", "review", "fix", "refactor", "create", "delete", "test", "search", "debug", "implement", "run", "research"}

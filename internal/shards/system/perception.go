@@ -130,7 +130,7 @@ func NewPerceptionFirewallShardWithConfig(cfg PerceptionConfig) *PerceptionFirew
 		BaseSystemShard: base,
 		config:          cfg,
 		pendingInputs:   make(chan string, cfg.MaxQueueSize),
-		verbPatterns:    buildVerbPatterns(),
+		verbPatterns:    globalVerbPatterns,
 		// patternSuccess, patternFailure, corrections are in BaseSystemShard
 	}
 
@@ -379,36 +379,22 @@ func (p *PerceptionFirewallShard) recordLearningCandidate(phrase, verb, target, 
 }
 
 var (
-	globalVerbPatterns     map[string]*regexp.Regexp
-	globalVerbPatternsOnce sync.Once
-	pathPattern            = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
+	globalVerbPatterns = map[string]*regexp.Regexp{
+		"explain":   regexp.MustCompile(`(?i)(explain|describe|what is|how does|tell me about)`),
+		"review":    regexp.MustCompile(`(?i)(review|check|analyze|audit|inspect)`),
+		"fix":       regexp.MustCompile(`(?i)(fix|repair|resolve|correct|patch)`),
+		"refactor":  regexp.MustCompile(`(?i)(refactor|clean up|improve|optimize)`),
+		"create":    regexp.MustCompile(`(?i)(create|make|generate|build|write|add)`),
+		"delete":    regexp.MustCompile(`(?i)(delete|remove|drop|clear)`),
+		"test":      regexp.MustCompile(`(?i)(test|verify|validate|check)`),
+		"search":    regexp.MustCompile(`(?i)(search|find|look for|locate|grep)`),
+		"debug":     regexp.MustCompile(`(?i)(debug|troubleshoot|diagnose|trace)`),
+		"implement": regexp.MustCompile(`(?i)(implement|build|develop|code)`),
+		"run":       regexp.MustCompile(`(?i)(run|execute|start|launch)`),
+		"research":  regexp.MustCompile(`(?i)(research|investigate|explore|learn about)`),
+	}
+	pathPattern = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
 )
-
-func buildVerbPatterns() map[string]*regexp.Regexp {
-	globalVerbPatternsOnce.Do(func() {
-		patterns := map[string]string{
-			"explain":   `(?i)(explain|describe|what is|how does|tell me about)`,
-			"review":    `(?i)(review|check|analyze|audit|inspect)`,
-			"fix":       `(?i)(fix|repair|resolve|correct|patch)`,
-			"refactor":  `(?i)(refactor|clean up|improve|optimize)`,
-			"create":    `(?i)(create|make|generate|build|write|add)`,
-			"delete":    `(?i)(delete|remove|drop|clear)`,
-			"test":      `(?i)(test|verify|validate|check)`,
-			"search":    `(?i)(search|find|look for|locate|grep)`,
-			"debug":     `(?i)(debug|troubleshoot|diagnose|trace)`,
-			"implement": `(?i)(implement|build|develop|code)`,
-			"run":       `(?i)(run|execute|start|launch)`,
-			"research":  `(?i)(research|investigate|explore|learn about)`,
-		}
-
-		globalVerbPatterns = make(map[string]*regexp.Regexp, len(patterns))
-		for verb, pattern := range patterns {
-			globalVerbPatterns[verb] = regexp.MustCompile(pattern)
-		}
-	})
-
-	return globalVerbPatterns
-}
 
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
