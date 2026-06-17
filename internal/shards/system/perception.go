@@ -396,6 +396,9 @@ var (
 	pathPattern = regexp.MustCompile(`(?:in\s+|at\s+|file\s+|path\s+)?([a-zA-Z0-9_\-./]+\.[a-zA-Z]+)`)
 )
 
+func buildVerbPatterns() map[string]*regexp.Regexp {
+	return globalVerbPatterns
+}
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")
