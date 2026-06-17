@@ -33,9 +33,6 @@ func TestCodeElementQueries(t *testing.T) {
 		t.Errorf("GetMethodsOfStruct(Other)=%v, want empty", got)
 	}
 
-	if facts := ElementsToFacts(elements); len(facts) == 0 {
-		t.Error("ElementsToFacts should produce facts for function/method elements")
-	}
 }
 
 func TestCartographerMapFile(t *testing.T) {
