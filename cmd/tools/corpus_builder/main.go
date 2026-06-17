@@ -17,7 +17,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -239,7 +238,13 @@ func findMGFiles() ([]string, error) {
 }
 
 func contains(slice []string, item string) bool {
-	return slices.Contains(slice, item)
+	normItem := filepath.ToSlash(item)
+	for _, s := range slice {
+		if filepath.ToSlash(s) == normItem {
+			return true
+		}
+	}
+	return false
 }
 
 // extractFromFile parses a single .mg file and extracts DATA facts.

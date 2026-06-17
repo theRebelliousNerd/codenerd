@@ -21,14 +21,14 @@ This repo exists to make that split real in production: creative power with dete
 - Internal prompt atoms live under `internal/prompt/atoms/<category>/`.
 - Project-specific or user-agent prompt atoms live under `.nerd/agents/`.
 - Always look for wiring gaps before deleting "unused" code. This codebase frequently has partially wired features and dormant integration points.
-- Keep root-level agent guidance concise. Put subsystem detail in READMEs, skill references, or freshly introduced scoped docs if they are deliberately brought back.
+- Keep root-level agent guidance concise. Put subsystem detail in scoped `agents.md` files or skill references.
 - Push to GitHub regularly and use conventional commits.
 
 ## Maintenance Rule For This File
 
 - Keep this file focused on repo-wide instructions, not subsystem encyclopedias.
 - Preserve the north star, hard requirements, live command snippets, and a current file map.
-- Move deep reference material into skills, READMEs, or deliberately reintroduced scoped docs rather than growing this file again.
+- Move deep reference material into scoped docs such as `internal/mangle/agents.md`, `internal/prompt/agents.md`, and `internal/core/agents.md`.
 - When editing this file, verify that every path and command still works.
 
 ## Quick Commands
@@ -89,9 +89,9 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 
 ## When Working In Specific Areas
 
-- Prompt or shard-behavior changes: read `internal/prompt/README.md` and the prompt-architect skill references first.
-- Mangle logic changes: use `.claude/skills/mangle-programming/references/` or `.codex/skills/mangle-programming/` before editing `.mg` files.
-- Core runtime or execution changes: read `internal/core/README.md`, `internal/session/README.md`, and `internal/shards/README.md`.
+- Prompt or shard-behavior changes: read `internal/prompt/agents.md` first.
+- Mangle logic changes: read `internal/mangle/agents.md` before editing `.mg` files.
+- Core runtime or execution changes: read `internal/core/agents.md` and `internal/session/README.md`.
 - Integration or "code exists but doesn't run" issues: audit wiring before deleting code or declaring a system unused.
 - Specialized references live under `.claude/skills/` and `.codex/skills/`.
 
@@ -102,7 +102,7 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 - Negation only works when variables are already bound by positive atoms.
 - Aggregation must use `|> do ... let ...` pipeline syntax.
 - Do not use Mangle for fuzzy matching or large natural-language pattern banks. Use embeddings or other retrieval first, then assert structured facts into the kernel.
-- For deeper syntax, failure modes, and examples, use the Mangle skill references instead of expanding this root file.
+- For deeper syntax, failure modes, and examples, use `internal/mangle/agents.md` and the Mangle skill references instead of expanding this root file.
 
 ## Development Guidelines
 

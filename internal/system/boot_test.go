@@ -21,6 +21,7 @@ func TestBootCortexEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BootCortex: %v", err)
 	}
+	defer cortex.Close()
 	if cortex == nil {
 		t.Fatal("BootCortex returned nil cortex")
 	}

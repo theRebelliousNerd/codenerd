@@ -13,6 +13,7 @@ func TestNewMCPIntegrationBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMCPIntegrationBridge: %v", err)
 	}
+	defer bridge.Close()
 
 	if bridge.GetManager() == nil {
 		t.Error("GetManager returned nil")

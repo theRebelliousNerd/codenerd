@@ -11,6 +11,7 @@ func TestStoreServersAndToolsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMCPToolStore: %v", err)
 	}
+	defer store.Close()
 	ctx := context.Background()
 
 	// Empty store returns no servers/tools (cross-boundary: store -> sqlite).
