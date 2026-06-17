@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/logging"
@@ -416,6 +417,10 @@ func (s *AtomSelector) SelectAtoms(
 		return nil, nil
 	}
 
+	if cc == nil {
+		cc = NewCompilationContext()
+	}
+
 	atoms = filterAtomsForStructuredOutput(atoms, cc)
 	if len(atoms) == 0 {
 		return nil, nil
@@ -423,26 +428,41 @@ func (s *AtomSelector) SelectAtoms(
 
 	forcedMandatory := selectMangleMandatoryIDs(cc, atoms)
 
+	var skeleton, flesh []*ScoredAtom
+	var skeletonErr, fleshErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL)
 	// =========================================================================
-	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
-	if err != nil {
-		return nil, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", err)
+	go func() {
+		defer wg.Done()
+		skeleton, skeletonErr = s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
+	}()
+
+	// =========================================================================
+	// PHASE 2: Load Flesh (probabilistic, degradable)
+	// =========================================================================
+	go func() {
+		defer wg.Done()
+		flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+	}()
+
+	wg.Wait()
+
+	if skeletonErr != nil {
+		return nil, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", skeletonErr)
 	}
 
 	logging.Get(logging.CategoryContext).Debug(
 		"Phase 1 complete: %d skeleton atoms loaded", len(skeleton),
 	)
 
-	// =========================================================================
-	// PHASE 2: Load Flesh (probabilistic, degradable)
-	// =========================================================================
-	flesh, err := s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
-	if err != nil {
+	if fleshErr != nil {
 		// Flesh failure is NOT critical - continue with skeleton only
 		logging.Get(logging.CategoryContext).Warn(
-			"Flesh atoms failed, continuing with skeleton only: %v", err,
+			"Flesh atoms failed, continuing with skeleton only: %v", fleshErr,
 		)
 		flesh = nil
 	}
@@ -481,6 +501,10 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 		return nil, 0, nil
 	}
 
+	if cc == nil {
+		cc = NewCompilationContext()
+	}
+
 	atoms = filterAtomsForStructuredOutput(atoms, cc)
 	if len(atoms) == 0 {
 		return nil, 0, nil
@@ -492,39 +516,51 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	// The actual vector search happens inside loadFleshAtoms
 	var vectorMs int64
 
+	var skeleton, flesh []*ScoredAtom
+	var skeletonErr, fleshErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+
 	// =========================================================================
 	// PHASE 1: Load Skeleton (deterministic, CRITICAL) - no vector search
-	// TODO: Performance: Phase 1 (Skeleton) and Phase 2 (Flesh) are independent and can be executed concurrently to reduce total selection time.
 	// =========================================================================
-	skeleton, err := s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
-	if err != nil {
-		return nil, 0, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", err)
+	go func() {
+		defer wg.Done()
+		skeleton, skeletonErr = s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
+	}()
+
+	// =========================================================================
+	// PHASE 2: Load Flesh (probabilistic, degradable) - includes vector search
+	// =========================================================================
+	go func() {
+		defer wg.Done()
+		if s.vectorSearcher != nil && cc != nil && cc.SemanticQuery != "" {
+			vectorStart := time.Now()
+			flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+			vectorMs = time.Since(vectorStart).Milliseconds()
+
+			logging.Get(logging.CategoryJIT).Debug(
+				"Vector-enabled flesh loading took %dms", vectorMs,
+			)
+		} else {
+			flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+		}
+	}()
+
+	wg.Wait()
+
+	if skeletonErr != nil {
+		return nil, 0, fmt.Errorf("CRITICAL: skeleton atoms failed: %w", skeletonErr)
 	}
 
 	logging.Get(logging.CategoryJIT).Debug(
 		"Phase 1 complete: %d skeleton atoms loaded", len(skeleton),
 	)
 
-	// =========================================================================
-	// PHASE 2: Load Flesh (probabilistic, degradable) - includes vector search
-	// =========================================================================
-	var flesh []*ScoredAtom
-	if s.vectorSearcher != nil && cc != nil && cc.SemanticQuery != "" {
-		vectorStart := time.Now()
-		flesh, err = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
-		vectorMs = time.Since(vectorStart).Milliseconds()
-
-		logging.Get(logging.CategoryJIT).Debug(
-			"Vector-enabled flesh loading took %dms", vectorMs,
-		)
-	} else {
-		flesh, err = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
-	}
-
-	if err != nil {
+	if fleshErr != nil {
 		// Flesh failure is NOT critical - continue with skeleton only
 		logging.Get(logging.CategoryJIT).Warn(
-			"Flesh atoms failed, continuing with skeleton only: %v", err,
+			"Flesh atoms failed, continuing with skeleton only: %v", fleshErr,
 		)
 		flesh = nil
 	}
@@ -601,7 +637,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	// Filter to skeleton atoms only
 	var skeletonAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if isSkeletonCategory(atom.Category) {
+		if atom != nil && isSkeletonCategory(atom.Category) {
 			skeletonAtoms = append(skeletonAtoms, atom)
 		}
 	}
@@ -719,7 +755,7 @@ func (s *AtomSelector) loadFleshAtoms(
 	// Filter to flesh atoms only
 	var fleshAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if !isSkeletonCategory(atom.Category) {
+		if atom != nil && !isSkeletonCategory(atom.Category) {
 			fleshAtoms = append(fleshAtoms, atom)
 		}
 	}
