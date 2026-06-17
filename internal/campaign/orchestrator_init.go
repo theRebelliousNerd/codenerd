@@ -24,82 +24,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 
 	nerdDir := filepath.Join(cfg.Workspace, ".nerd")
 
-	// Apply timeout defaults unless explicitly disabled.
-	if cfg.DisableTimeouts {
-		cfg.CampaignTimeout = 0
-		cfg.TaskTimeout = 0
-	} else {
-		if cfg.CampaignTimeout == 0 {
-			cfg.CampaignTimeout = 4 * time.Hour
-		}
-		if cfg.TaskTimeout == 0 {
-			cfg.TaskTimeout = 30 * time.Minute
-		}
-	}
-	if cfg.MaxRetries == 0 {
-		cfg.MaxRetries = 3
-	}
-	if cfg.ReplanThreshold == 0 {
-		cfg.ReplanThreshold = 3
-	}
-	if cfg.HeartbeatEvery == 0 {
-		cfg.HeartbeatEvery = 15 * time.Second
-	}
-	if cfg.AutosaveEvery == 0 {
-		cfg.AutosaveEvery = time.Minute
-	}
-	if cfg.TaskResultCacheLimit == 0 {
-		cfg.TaskResultCacheLimit = 100
-	}
-	if cfg.RetryBackoffBase == 0 {
-		cfg.RetryBackoffBase = 5 * time.Second
-	}
-	if cfg.RetryBackoffMax == 0 {
-		cfg.RetryBackoffMax = 5 * time.Minute
-	}
-	if cfg.WriteSetLockTimeout <= 0 {
-		cfg.WriteSetLockTimeout = 15 * time.Second
-	}
-	if cfg.WriteSetLockRetry <= 0 {
-		cfg.WriteSetLockRetry = 500 * time.Millisecond
-	}
-	if cfg.WriteSetLockPoll <= 0 {
-		cfg.WriteSetLockPoll = defaultWriteSetLockPollInterval
-	}
-	if cfg.RiskGateThreshold <= 0 {
-		cfg.RiskGateThreshold = defaultRiskGateThreshold
-	}
-	if cfg.RiskGateThreshold < defaultRiskGateThreshold {
-		cfg.RiskGateThreshold = defaultRiskGateThreshold
-	}
-	if cfg.RiskGateMode == "" {
-		cfg.RiskGateMode = RiskGateModeAuto
-	}
-	if cfg.AdvisoryGateToggle == "" {
-		cfg.AdvisoryGateToggle = RiskGateToggleAuto
-	}
-	if cfg.EdgeGateToggle == "" {
-		cfg.EdgeGateToggle = RiskGateToggleAuto
-	}
-	if cfg.NorthstarGateToggle == "" {
-		cfg.NorthstarGateToggle = RiskGateToggleAuto
-	}
-	if cfg.RiskIntelligenceTimeout <= 0 {
-		cfg.RiskIntelligenceTimeout = defaultRiskIntelligenceTimeout
-	}
-	// Default on for deterministic auto-wiring in the common zero-config path.
-	if !cfg.EnableRiskAutoWiring &&
-		cfg.RiskGateMode == RiskGateModeAuto &&
-		cfg.CampaignRiskOverride == nil &&
-		len(cfg.TaskRiskOverrides) == 0 {
-		cfg.EnableRiskAutoWiring = true
-	}
-	// Default on in zero-config path.
-	if !cfg.GlobalRiskGate &&
-		cfg.RiskGateMode == RiskGateModeAuto &&
-		cfg.CampaignRiskOverride == nil {
-		cfg.GlobalRiskGate = true
-	}
+	applyOrchestratorDefaults(&cfg)
 
 	logging.Campaign("Initializing campaign orchestrator for workspace: %s", cfg.Workspace)
 	logging.CampaignDebug("Orchestrator config: maxParallel=%d, checkpointOnFail=%v, autoReplan=%v, campaignTimeout=%v, taskTimeout=%v",
@@ -144,30 +69,7 @@ func NewOrchestrator(cfg OrchestratorConfig) (*Orchestrator, error) {
 		o.transducer = perception.NewUnderstandingTransducer(cfg.LLMClient)
 	}
 
-	// Wire intelligence integration components
-	o.intelligenceGatherer = cfg.IntelligenceGatherer
-	o.advisoryBoard = cfg.AdvisoryBoard
-	o.edgeCaseDetector = cfg.EdgeCaseDetector
-	o.toolPregenerator = cfg.ToolPregenerator
-	o.configuredNorthstarObserver = o.northstarObserver
-
-	// Wire intelligence components into decomposer for campaign planning
-	if cfg.IntelligenceGatherer != nil {
-		o.decomposer.SetIntelligenceGatherer(cfg.IntelligenceGatherer)
-		logging.CampaignDebug("IntelligenceGatherer wired into decomposer")
-	}
-	if cfg.AdvisoryBoard != nil {
-		o.decomposer.SetAdvisoryBoard(cfg.AdvisoryBoard)
-		logging.CampaignDebug("AdvisoryBoard wired into decomposer")
-	}
-	if cfg.EdgeCaseDetector != nil {
-		o.decomposer.SetEdgeCaseDetector(cfg.EdgeCaseDetector)
-		logging.CampaignDebug("EdgeCaseDetector wired into decomposer")
-	}
-	if cfg.ToolPregenerator != nil {
-		o.decomposer.SetToolPregenerator(cfg.ToolPregenerator)
-		logging.CampaignDebug("ToolPregenerator wired into decomposer")
-	}
+	wireIntelligenceComponents(o, cfg)
 
 	if cfg.MaxParallelTasks > 0 {
 		o.maxParallelTasks = cfg.MaxParallelTasks
@@ -370,4 +272,110 @@ func (o *Orchestrator) SetToolPregenerator(pregenerator *ToolPregenerator) {
 		o.decomposer.SetToolPregenerator(pregenerator)
 	}
 	logging.Campaign("ToolPregenerator set on orchestrator")
+}
+
+func applyOrchestratorDefaults(cfg *OrchestratorConfig) {
+	// Apply timeout defaults unless explicitly disabled.
+	if cfg.DisableTimeouts {
+		cfg.CampaignTimeout = 0
+		cfg.TaskTimeout = 0
+	} else {
+		if cfg.CampaignTimeout == 0 {
+			cfg.CampaignTimeout = 4 * time.Hour
+		}
+		if cfg.TaskTimeout == 0 {
+			cfg.TaskTimeout = 30 * time.Minute
+		}
+	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 3
+	}
+	if cfg.ReplanThreshold == 0 {
+		cfg.ReplanThreshold = 3
+	}
+	if cfg.HeartbeatEvery == 0 {
+		cfg.HeartbeatEvery = 15 * time.Second
+	}
+	if cfg.AutosaveEvery == 0 {
+		cfg.AutosaveEvery = time.Minute
+	}
+	if cfg.TaskResultCacheLimit == 0 {
+		cfg.TaskResultCacheLimit = 100
+	}
+	if cfg.RetryBackoffBase == 0 {
+		cfg.RetryBackoffBase = 5 * time.Second
+	}
+	if cfg.RetryBackoffMax == 0 {
+		cfg.RetryBackoffMax = 5 * time.Minute
+	}
+	if cfg.WriteSetLockTimeout <= 0 {
+		cfg.WriteSetLockTimeout = 15 * time.Second
+	}
+	if cfg.WriteSetLockRetry <= 0 {
+		cfg.WriteSetLockRetry = 500 * time.Millisecond
+	}
+	if cfg.WriteSetLockPoll <= 0 {
+		cfg.WriteSetLockPoll = defaultWriteSetLockPollInterval
+	}
+	if cfg.RiskGateThreshold <= 0 {
+		cfg.RiskGateThreshold = defaultRiskGateThreshold
+	}
+	if cfg.RiskGateThreshold < defaultRiskGateThreshold {
+		cfg.RiskGateThreshold = defaultRiskGateThreshold
+	}
+	if cfg.RiskGateMode == "" {
+		cfg.RiskGateMode = RiskGateModeAuto
+	}
+	if cfg.AdvisoryGateToggle == "" {
+		cfg.AdvisoryGateToggle = RiskGateToggleAuto
+	}
+	if cfg.EdgeGateToggle == "" {
+		cfg.EdgeGateToggle = RiskGateToggleAuto
+	}
+	if cfg.NorthstarGateToggle == "" {
+		cfg.NorthstarGateToggle = RiskGateToggleAuto
+	}
+	if cfg.RiskIntelligenceTimeout <= 0 {
+		cfg.RiskIntelligenceTimeout = defaultRiskIntelligenceTimeout
+	}
+	// Default on for deterministic auto-wiring in the common zero-config path.
+	if !cfg.EnableRiskAutoWiring &&
+		cfg.RiskGateMode == RiskGateModeAuto &&
+		cfg.CampaignRiskOverride == nil &&
+		len(cfg.TaskRiskOverrides) == 0 {
+		cfg.EnableRiskAutoWiring = true
+	}
+	// Default on in zero-config path.
+	if !cfg.GlobalRiskGate &&
+		cfg.RiskGateMode == RiskGateModeAuto &&
+		cfg.CampaignRiskOverride == nil {
+		cfg.GlobalRiskGate = true
+	}
+}
+
+func wireIntelligenceComponents(o *Orchestrator, cfg OrchestratorConfig) {
+	// Wire intelligence integration components
+	o.intelligenceGatherer = cfg.IntelligenceGatherer
+	o.advisoryBoard = cfg.AdvisoryBoard
+	o.edgeCaseDetector = cfg.EdgeCaseDetector
+	o.toolPregenerator = cfg.ToolPregenerator
+	o.configuredNorthstarObserver = o.northstarObserver
+
+	// Wire intelligence components into decomposer for campaign planning
+	if cfg.IntelligenceGatherer != nil {
+		o.decomposer.SetIntelligenceGatherer(cfg.IntelligenceGatherer)
+		logging.CampaignDebug("IntelligenceGatherer wired into decomposer")
+	}
+	if cfg.AdvisoryBoard != nil {
+		o.decomposer.SetAdvisoryBoard(cfg.AdvisoryBoard)
+		logging.CampaignDebug("AdvisoryBoard wired into decomposer")
+	}
+	if cfg.EdgeCaseDetector != nil {
+		o.decomposer.SetEdgeCaseDetector(cfg.EdgeCaseDetector)
+		logging.CampaignDebug("EdgeCaseDetector wired into decomposer")
+	}
+	if cfg.ToolPregenerator != nil {
+		o.decomposer.SetToolPregenerator(cfg.ToolPregenerator)
+		logging.CampaignDebug("ToolPregenerator wired into decomposer")
+	}
 }
