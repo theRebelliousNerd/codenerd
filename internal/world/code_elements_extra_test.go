@@ -3,6 +3,7 @@ package world
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -59,5 +60,69 @@ func TestCartographerMapFile(t *testing.T) {
 	_ = os.WriteFile(other, []byte("hello"), 0o644)
 	if f, err := c.MapFile(other); err != nil || len(f) != 0 {
 		t.Errorf("MapFile(.txt)=(%d facts,%v), want (0,nil)", len(f), err)
+	}
+}
+
+func TestGetMethodsOfStruct(t *testing.T) {
+	elements := []CodeElement{
+		{Ref: "fn:main", Type: ElementFunction, File: "a.go", StartLine: 1, EndLine: 5},
+		{Ref: "struct:MyStruct", Type: ElementStruct, File: "a.go", StartLine: 7, EndLine: 10},
+		{Ref: "method:MyStruct.Method1", Type: ElementMethod, Parent: "struct:MyStruct", File: "a.go", StartLine: 12, EndLine: 15},
+		{Ref: "method:MyStruct.Method2", Type: ElementMethod, Parent: "struct:MyStruct", File: "a.go", StartLine: 17, EndLine: 20},
+		{Ref: "method:OtherStruct.Method", Type: ElementMethod, Parent: "struct:OtherStruct", File: "b.go", StartLine: 5, EndLine: 10},
+		{Ref: "struct:OtherStruct", Type: ElementStruct, File: "b.go", StartLine: 1, EndLine: 4},
+	}
+
+	tests := []struct {
+		name      string
+		structRef string
+		want      []CodeElement
+	}{
+		{
+			name:      "Struct with multiple methods",
+			structRef: "struct:MyStruct",
+			want: []CodeElement{
+				{Ref: "method:MyStruct.Method1", Type: ElementMethod, Parent: "struct:MyStruct", File: "a.go", StartLine: 12, EndLine: 15},
+				{Ref: "method:MyStruct.Method2", Type: ElementMethod, Parent: "struct:MyStruct", File: "a.go", StartLine: 17, EndLine: 20},
+			},
+		},
+		{
+			name:      "Struct with one method",
+			structRef: "struct:OtherStruct",
+			want: []CodeElement{
+				{Ref: "method:OtherStruct.Method", Type: ElementMethod, Parent: "struct:OtherStruct", File: "b.go", StartLine: 5, EndLine: 10},
+			},
+		},
+		{
+			name:      "Struct with no methods",
+			structRef: "struct:MissingStruct",
+			want:      nil,
+		},
+		{
+			name:      "Empty elements",
+			structRef: "struct:MyStruct",
+			want:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var testElements []CodeElement
+			if tt.name != "Empty elements" {
+				testElements = elements
+			}
+
+			got := GetMethodsOfStruct(testElements, tt.structRef)
+
+			// DeepEqual treats nil slice and empty slice as not equal,
+			// but our function returns a nil slice if nothing appended
+			if len(got) == 0 && len(tt.want) == 0 {
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetMethodsOfStruct() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
