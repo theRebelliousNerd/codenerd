@@ -57,6 +57,61 @@ func estimateAtomTokens(atom *PromptAtom) int {
 	return EstimateTokens(atom.Content)
 }
 
+// factBuilder is a specialized buffer for constructing Mangle facts efficiently
+// without excessive string allocations.
+type factBuilder struct {
+	strings.Builder
+	numBuf [32]byte
+}
+
+// Reset clears the builder for reuse.
+func (b *factBuilder) Reset() {
+	b.Builder.Reset()
+}
+
+// WriteInt formats an integer directly into the builder without allocating a string.
+func (b *factBuilder) WriteInt(n int) {
+	b.Write(strconv.AppendInt(b.numBuf[:0], int64(n), 10))
+}
+
+// WriteQuotedString writes a Mangle-quoted string directly to the builder.
+func (b *factBuilder) WriteQuotedString(s string) {
+	const hex = "0123456789abcdef"
+	if s == "" {
+		b.WriteString("\"\"")
+		return
+	}
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString("\\\"")
+		case '\\':
+			b.WriteString("\\\\")
+		case '\n':
+			b.WriteString("\\n")
+		case '\t':
+			b.WriteString("\\t")
+		default:
+			if r >= 0x20 && r <= 0x7e {
+				b.WriteRune(r)
+				continue
+			}
+			if r >= 0 && r <= 0xff {
+				b.WriteString("\\x")
+				bt := byte(r)
+				b.WriteByte(hex[bt>>4])
+				b.WriteByte(hex[bt&0x0f])
+				continue
+			}
+			b.WriteString("\\u{")
+			b.WriteString(strconv.FormatInt(int64(r), 16))
+			b.WriteByte('}')
+		}
+	}
+	b.WriteByte('"')
+}
+
 func mangleQuoteString(s string) string {
 	// Mangle short strings can be single or double quoted. We standardize on
 	// double quotes and escape using the escapes supported by the Mangle lexer:
@@ -864,7 +919,6 @@ func (s *AtomSelector) mergeAtoms(skeleton, flesh []*ScoredAtom) []*ScoredAtom {
 }
 
 // buildContextFacts builds Mangle facts from context and atoms.
-// TODO: Performance: Replace fmt.Sprintf with a specialized FactBuilder or buffer pool to reduce allocation pressure in hot loops.
 // This function allocates thousands of strings per compilation.
 func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*PromptAtom, forcedMandatory map[string]struct{}) ([]any, error) {
 	// Generate base context facts using the unified generator
@@ -879,6 +933,8 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 	facts := make([]any, 0, len(baseFacts)+len(atoms)*15)
 	facts = append(facts, baseFacts...)
 
+	var fb factBuilder
+
 	// Candidate Facts
 	for _, atom := range atoms {
 		id := atom.ID
@@ -888,11 +944,35 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				isMandatory = true
 			}
 		}
-		facts = append(facts, "atom("+mangleQuoteString(id)+")")
-		facts = append(facts, "atom_category("+mangleQuoteString(id)+", "+mangleQuoteString(string(atom.Category))+")")
-		facts = append(facts, "atom_priority("+mangleQuoteString(id)+", "+strconv.Itoa(atom.Priority)+")")
+
+		fb.Reset()
+		fb.WriteString("atom(")
+		fb.WriteQuotedString(id)
+		fb.WriteString(")")
+		facts = append(facts, fb.String())
+
+		fb.Reset()
+		fb.WriteString("atom_category(")
+		fb.WriteQuotedString(id)
+		fb.WriteString(", ")
+		fb.WriteQuotedString(string(atom.Category))
+		fb.WriteString(")")
+		facts = append(facts, fb.String())
+
+		fb.Reset()
+		fb.WriteString("atom_priority(")
+		fb.WriteQuotedString(id)
+		fb.WriteString(", ")
+		fb.WriteInt(atom.Priority)
+		fb.WriteString(")")
+		facts = append(facts, fb.String())
+
 		if isMandatory {
-			facts = append(facts, "is_mandatory("+mangleQuoteString(id)+")")
+			fb.Reset()
+			fb.WriteString("is_mandatory(")
+			fb.WriteQuotedString(id)
+			fb.WriteString(")")
+			facts = append(facts, fb.String())
 		}
 
 		// GAP-FIX: Emit unified prompt_atom/5 fact required by jit_selection.mg
@@ -925,7 +1005,19 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		// errors. ContentHash is not part of the prompt_atom schema; if
 		// it needs to flow into the kernel, add a dedicated predicate
 		// like prompt_atom_hash(AtomID, Hash) with its own Decl.
-		facts = append(facts, "prompt_atom("+mangleQuoteString(id)+", "+mangleNormalizeNameConst(category)+", "+strconv.Itoa(atom.Priority)+", "+strconv.Itoa(atom.TokenCount)+", "+isMandatoryAtom+")")
+		fb.Reset()
+		fb.WriteString("prompt_atom(")
+		fb.WriteQuotedString(id)
+		fb.WriteString(", ")
+		fb.WriteString(mangleNormalizeNameConst(category))
+		fb.WriteString(", ")
+		fb.WriteInt(atom.Priority)
+		fb.WriteString(", ")
+		fb.WriteInt(atom.TokenCount)
+		fb.WriteString(", ")
+		fb.WriteString(isMandatoryAtom)
+		fb.WriteString(")")
+		facts = append(facts, fb.String())
 
 		// Tags helper		// CRITICAL: Use atoms (unquoted /dim, /value) to match current_context format
 		// current_context(/shard, /coder) must match atom_tag(ID, /shard, /coder)
@@ -947,7 +1039,15 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 				if atomDim == "" || atomVal == "" {
 					continue
 				}
-				facts = append(facts, "atom_tag("+mangleQuoteString(id)+", "+atomDim+", "+atomVal+")")
+				fb.Reset()
+				fb.WriteString("atom_tag(")
+				fb.WriteQuotedString(id)
+				fb.WriteString(", ")
+				fb.WriteString(atomDim)
+				fb.WriteString(", ")
+				fb.WriteString(atomVal)
+				fb.WriteString(")")
+				facts = append(facts, fb.String())
 			}
 		}
 		addTags("mode", atom.OperationalModes)
@@ -965,14 +1065,26 @@ func (s *AtomSelector) buildContextFacts(cc *CompilationContext, atoms []*Prompt
 		// Dependencies - needed for atom_requires() in jit_compiler.mg
 		for _, dep := range atom.DependsOn {
 			if dep != "" {
-				facts = append(facts, "atom_requires("+mangleQuoteString(id)+", "+mangleQuoteString(dep)+")")
+				fb.Reset()
+				fb.WriteString("atom_requires(")
+				fb.WriteQuotedString(id)
+				fb.WriteString(", ")
+				fb.WriteQuotedString(dep)
+				fb.WriteString(")")
+				facts = append(facts, fb.String())
 			}
 		}
 
 		// Conflicts - needed for atom_conflicts() in jit_compiler.mg
 		for _, conflict := range atom.ConflictsWith {
 			if conflict != "" {
-				facts = append(facts, "atom_conflicts("+mangleQuoteString(id)+", "+mangleQuoteString(conflict)+")")
+				fb.Reset()
+				fb.WriteString("atom_conflicts(")
+				fb.WriteQuotedString(id)
+				fb.WriteString(", ")
+				fb.WriteQuotedString(conflict)
+				fb.WriteString(")")
+				facts = append(facts, fb.String())
 			}
 		}
 	}
