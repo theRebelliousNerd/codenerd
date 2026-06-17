@@ -46,234 +46,245 @@ func (t *ToolDefinition) IsMCPTool() bool {
 
 // GetLanguageTools returns tool definitions for a language
 func GetLanguageTools(language string) []ToolDefinition {
-	tools := make([]ToolDefinition, 0)
-
 	switch language {
 	case "go", "golang":
-		tools = []ToolDefinition{
-			{
-				Name:          "go_build",
-				DisplayName:   "Go Build",
-				Category:      "build",
-				Description:   "Build Go project",
-				Command:       "go build ./...",
-				WorkingDir:    ".",
-				InputType:     "args",
-				OutputType:    "stdout",
-				ShardAffinity: "CoderShard",
-				Conditions:    []string{"go.mod exists"},
-			},
-			{
-				Name:          "go_test",
-				DisplayName:   "Go Test",
-				Category:      "test",
-				Description:   "Run Go tests",
-				Command:       "go test -v ./...",
-				WorkingDir:    ".",
-				InputType:     "args",
-				OutputType:    "stdout",
-				ShardAffinity: "TesterShard",
-				Conditions:    []string{"go.mod exists"},
-			},
-			{
-				Name:          "go_lint",
-				DisplayName:   "GolangCI-Lint",
-				Category:      "lint",
-				Description:   "Run golangci-lint",
-				Command:       "golangci-lint run",
-				WorkingDir:    ".",
-				InputType:     "args",
-				OutputType:    "stdout",
-				ShardAffinity: "ReviewerShard",
-				Conditions:    []string{"go.mod exists", "golangci-lint installed"},
-			},
-			{
-				Name:          "go_fmt",
-				DisplayName:   "Go Format",
-				Category:      "format",
-				Description:   "Format Go code",
-				Command:       "go fmt ./...",
-				WorkingDir:    ".",
-				InputType:     "args",
-				OutputType:    "stdout",
-				ShardAffinity: "CoderShard",
-				Conditions:    []string{"go.mod exists"},
-			},
-			{
-				Name:          "go_mod_tidy",
-				DisplayName:   "Go Mod Tidy",
-				Category:      "deps",
-				Description:   "Tidy Go modules",
-				Command:       "go mod tidy",
-				WorkingDir:    ".",
-				InputType:     "none",
-				OutputType:    "stdout",
-				ShardAffinity: "CoderShard",
-				Conditions:    []string{"go.mod exists"},
-			},
-			{
-				Name:          "go_vet",
-				DisplayName:   "Go Vet",
-				Category:      "lint",
-				Description:   "Run go vet",
-				Command:       "go vet ./...",
-				WorkingDir:    ".",
-				InputType:     "args",
-				OutputType:    "stdout",
-				ShardAffinity: "ReviewerShard",
-				Conditions:    []string{"go.mod exists"},
-			},
-		}
-
+		return getGoTools()
 	case "python":
-		tools = []ToolDefinition{
-			{
-				Name:        "pytest",
-				Category:    "test",
-				Description: "Run pytest",
-				Command:     "pytest -v",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "black",
-				Category:    "format",
-				Description: "Format Python code with black",
-				Command:     "black .",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "mypy",
-				Category:    "typecheck",
-				Description: "Type check with mypy",
-				Command:     "mypy .",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "pylint",
-				Category:    "lint",
-				Description: "Lint Python code",
-				Command:     "pylint **/*.py",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "pip_install",
-				Category:    "dependencies",
-				Description: "Install Python dependencies",
-				Command:     "pip install -r requirements.txt",
-				WorkingDir:  ".",
-				InputType:   "none",
-				OutputType:  "stdout",
-			},
-		}
-
+		return getPythonTools()
 	case "typescript", "javascript":
-		tools = []ToolDefinition{
-			{
-				Name:        "npm_test",
-				Category:    "test",
-				Description: "Run npm tests",
-				Command:     "npm test",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "npm_build",
-				Category:    "build",
-				Description: "Build npm project",
-				Command:     "npm run build",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "eslint",
-				Category:    "lint",
-				Description: "Lint JavaScript/TypeScript",
-				Command:     "eslint .",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "prettier",
-				Category:    "format",
-				Description: "Format code with prettier",
-				Command:     "prettier --write .",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "tsc",
-				Category:    "typecheck",
-				Description: "TypeScript type checker",
-				Command:     "tsc --noEmit",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-		}
-
+		return getTypeScriptTools()
 	case "rust":
-		tools = []ToolDefinition{
-			{
-				Name:        "cargo_build",
-				Category:    "build",
-				Description: "Build Rust project",
-				Command:     "cargo build",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "cargo_test",
-				Category:    "test",
-				Description: "Run Rust tests",
-				Command:     "cargo test",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "cargo_check",
-				Category:    "check",
-				Description: "Check Rust code",
-				Command:     "cargo check",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "cargo_clippy",
-				Category:    "lint",
-				Description: "Lint Rust code with clippy",
-				Command:     "cargo clippy",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-			{
-				Name:        "cargo_fmt",
-				Category:    "format",
-				Description: "Format Rust code",
-				Command:     "cargo fmt",
-				WorkingDir:  ".",
-				InputType:   "args",
-				OutputType:  "stdout",
-			},
-		}
+		return getRustTools()
+	default:
+		return []ToolDefinition{}
 	}
+}
 
-	return tools
+func getGoTools() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Name:          "go_build",
+			DisplayName:   "Go Build",
+			Category:      "build",
+			Description:   "Build Go project",
+			Command:       "go build ./...",
+			WorkingDir:    ".",
+			InputType:     "args",
+			OutputType:    "stdout",
+			ShardAffinity: "CoderShard",
+			Conditions:    []string{"go.mod exists"},
+		},
+		{
+			Name:          "go_test",
+			DisplayName:   "Go Test",
+			Category:      "test",
+			Description:   "Run Go tests",
+			Command:       "go test -v ./...",
+			WorkingDir:    ".",
+			InputType:     "args",
+			OutputType:    "stdout",
+			ShardAffinity: "TesterShard",
+			Conditions:    []string{"go.mod exists"},
+		},
+		{
+			Name:          "go_lint",
+			DisplayName:   "GolangCI-Lint",
+			Category:      "lint",
+			Description:   "Run golangci-lint",
+			Command:       "golangci-lint run",
+			WorkingDir:    ".",
+			InputType:     "args",
+			OutputType:    "stdout",
+			ShardAffinity: "ReviewerShard",
+			Conditions:    []string{"go.mod exists", "golangci-lint installed"},
+		},
+		{
+			Name:          "go_fmt",
+			DisplayName:   "Go Format",
+			Category:      "format",
+			Description:   "Format Go code",
+			Command:       "go fmt ./...",
+			WorkingDir:    ".",
+			InputType:     "args",
+			OutputType:    "stdout",
+			ShardAffinity: "CoderShard",
+			Conditions:    []string{"go.mod exists"},
+		},
+		{
+			Name:          "go_mod_tidy",
+			DisplayName:   "Go Mod Tidy",
+			Category:      "deps",
+			Description:   "Tidy Go modules",
+			Command:       "go mod tidy",
+			WorkingDir:    ".",
+			InputType:     "none",
+			OutputType:    "stdout",
+			ShardAffinity: "CoderShard",
+			Conditions:    []string{"go.mod exists"},
+		},
+		{
+			Name:          "go_vet",
+			DisplayName:   "Go Vet",
+			Category:      "lint",
+			Description:   "Run go vet",
+			Command:       "go vet ./...",
+			WorkingDir:    ".",
+			InputType:     "args",
+			OutputType:    "stdout",
+			ShardAffinity: "ReviewerShard",
+			Conditions:    []string{"go.mod exists"},
+		},
+	}
+}
+
+func getPythonTools() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Name:        "pytest",
+			Category:    "test",
+			Description: "Run pytest",
+			Command:     "pytest -v",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "black",
+			Category:    "format",
+			Description: "Format Python code with black",
+			Command:     "black .",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "mypy",
+			Category:    "typecheck",
+			Description: "Type check with mypy",
+			Command:     "mypy .",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "pylint",
+			Category:    "lint",
+			Description: "Lint Python code",
+			Command:     "pylint **/*.py",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "pip_install",
+			Category:    "dependencies",
+			Description: "Install Python dependencies",
+			Command:     "pip install -r requirements.txt",
+			WorkingDir:  ".",
+			InputType:   "none",
+			OutputType:  "stdout",
+		},
+	}
+}
+
+func getTypeScriptTools() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Name:        "npm_test",
+			Category:    "test",
+			Description: "Run npm tests",
+			Command:     "npm test",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "npm_build",
+			Category:    "build",
+			Description: "Build npm project",
+			Command:     "npm run build",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "eslint",
+			Category:    "lint",
+			Description: "Lint JavaScript/TypeScript",
+			Command:     "eslint .",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "prettier",
+			Category:    "format",
+			Description: "Format code with prettier",
+			Command:     "prettier --write .",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "tsc",
+			Category:    "typecheck",
+			Description: "TypeScript type checker",
+			Command:     "tsc --noEmit",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+	}
+}
+
+func getRustTools() []ToolDefinition {
+	return []ToolDefinition{
+		{
+			Name:        "cargo_build",
+			Category:    "build",
+			Description: "Build Rust project",
+			Command:     "cargo build",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "cargo_test",
+			Category:    "test",
+			Description: "Run Rust tests",
+			Command:     "cargo test",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "cargo_check",
+			Category:    "check",
+			Description: "Check Rust code",
+			Command:     "cargo check",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "cargo_clippy",
+			Category:    "lint",
+			Description: "Lint Rust code with clippy",
+			Command:     "cargo clippy",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+		{
+			Name:        "cargo_fmt",
+			Category:    "format",
+			Description: "Format Rust code",
+			Command:     "cargo fmt",
+			WorkingDir:  ".",
+			InputType:   "args",
+			OutputType:  "stdout",
+		},
+	}
 }
 
 // GetFrameworkTools returns tool definitions for a framework
