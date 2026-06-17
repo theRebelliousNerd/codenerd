@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -265,5 +267,31 @@ func syncDirIfSupported(dir string) error {
 		return err
 	}
 	defer d.Close()
-	return d.Sync()
+	return ignoreUnsupportedSyncError(d.Sync())
+}
+
+func ignoreUnsupportedSyncError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Check for standard ErrUnsupported added in Go 1.21
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil
+	}
+
+	// errors.Is automatically unwraps os.PathError to check the inner error.
+	// We do not reassign err to keep the original os.PathError context for other errors.
+	if errors.Is(err, syscall.EINVAL) {
+		return nil
+	}
+
+	// ENOTSUP and EOPNOTSUPP are not defined on Windows.
+	// We can check by string match if ErrUnsupported/EINVAL don't catch it.
+	errStr := err.Error()
+	if strings.Contains(errStr, "operation not supported") || strings.Contains(errStr, "not supported") {
+		return nil
+	}
+
+	return err
 }
