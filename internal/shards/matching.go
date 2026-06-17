@@ -442,28 +442,9 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 		config = DefaultVerbConfigs["/review"]
 	}
 
-	// Build set of available agents for quick lookup
-	availableAgents := make(map[string]RegisteredAgent)
-	for _, agent := range registry.Agents {
-		typ := strings.ToLower(strings.TrimSpace(agent.Type))
-		status := strings.ToLower(strings.TrimSpace(agent.Status))
-		// ShardTypeUser is an alias for persistent specialists
-		if (typ == "persistent" || typ == "user" || typ == "") && status == "ready" {
-			availableAgents[strings.ToLower(agent.Name)] = agent
-		}
-	}
-
-	// Build exclude set
-	excludeSet := make(map[string]bool)
-	for _, p := range config.ExcludePatterns {
-		excludeSet[p] = true
-	}
-
-	// Build prefer set with bonus scoring
-	preferSet := make(map[string]bool)
-	for _, p := range config.PreferPatterns {
-		preferSet[p] = true
-	}
+	availableAgents := getAvailableAgents(registry)
+	excludeSet := buildPatternSet(config.ExcludePatterns)
+	preferSet := buildPatternSet(config.PreferPatterns)
 
 	// Track matches per agent
 	agentMatches := make(map[string]*SpecialistMatch)
@@ -485,44 +466,7 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 				continue
 			}
 
-			score := 0.0
-			matches := false
-
-			// Check file extension specifically for .mg files -> Mangle
-			if ext == ".mg" && tech.ShardName == "mangle" {
-				score += 0.5
-				matches = true
-			}
-
-			// Check file patterns
-			for _, pattern := range tech.FilePatterns {
-				if strings.Contains(lowerFile, strings.ToLower(pattern)) {
-					score += 0.3
-					matches = true
-					break
-				}
-			}
-
-			// Check import hints
-			for _, imp := range tech.ImportHints {
-				if strings.Contains(content, imp) {
-					score += 0.4
-					matches = true
-					break
-				}
-			}
-
-			// Check content hints
-			hintMatches := 0
-			for _, hint := range tech.ContentHints {
-				if strings.Contains(lowerContent, strings.ToLower(hint)) {
-					hintMatches++
-				}
-			}
-			if len(tech.ContentHints) > 0 && hintMatches > 0 {
-				score += float64(hintMatches) / float64(len(tech.ContentHints)) * 0.3
-				matches = true
-			}
+			score, matches := calculateMatchScore(content, lowerFile, lowerContent, ext, tech)
 
 			// Apply preference bonus
 			if preferSet[tech.ShardName] {
@@ -533,56 +477,137 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 				continue
 			}
 
-			// Map pattern to actual agent name
-			agentName := AgentPatternMapping[tech.ShardName]
-			if agentName == "" {
-				// Capitalize first letter
-				name := tech.ShardName
-				if len(name) > 0 {
-					agentName = strings.ToUpper(name[:1]) + name[1:] + "Expert"
-				}
-			}
+			agentName := getAgentNameForTech(tech.ShardName)
+			agentLower := strings.ToLower(agentName)
 
 			// Check if this agent is available
-			agentLower := strings.ToLower(agentName)
 			agent, available := availableAgents[agentLower]
 			if !available {
 				continue
 			}
 
-			// Update or create match
-			if existing, ok := agentMatches[agentLower]; ok {
-				if score > existing.Score {
-					existing.Score = score
-					// Update ShouldExecute based on new score
-					existing.ShouldExecute = ShouldSpecialistExecuteTask(agentLower, score)
-				}
-				// Add file if not already present
-				fileExists := slices.Contains(existing.Files, file)
-				if !fileExists {
-					existing.Files = append(existing.Files, file)
-				}
-			} else {
-				// Get classification for this specialist
-				var classification *SpecialistClassification
-				if class, ok := GetSpecialistClassification(agentLower); ok {
-					classification = &class
-				}
-
-				agentMatches[agentLower] = &SpecialistMatch{
-					AgentName:      agent.Name,
-					KnowledgePath:  agent.KnowledgePath,
-					Files:          []string{file},
-					Score:          score,
-					Reason:         tech.Description,
-					Classification: classification,
-					ShouldExecute:  ShouldSpecialistExecuteTask(agentLower, score),
-				}
-			}
+			updateAgentMatch(agentMatches, agentLower, agent, score, file, tech)
 		}
 	}
 
-	// Convert to slice and sort by score
+	return finalizeMatches(agentMatches, config.MaxSpecialists)
+}
+
+// getAvailableAgents builds a set of available agents from the registry for quick lookup.
+func getAvailableAgents(registry *AgentRegistry) map[string]RegisteredAgent {
+	availableAgents := make(map[string]RegisteredAgent)
+	for _, agent := range registry.Agents {
+		typ := strings.ToLower(strings.TrimSpace(agent.Type))
+		status := strings.ToLower(strings.TrimSpace(agent.Status))
+		// ShardTypeUser is an alias for persistent specialists
+		if (typ == "persistent" || typ == "user" || typ == "") && status == "ready" {
+			availableAgents[strings.ToLower(agent.Name)] = agent
+		}
+	}
+	return availableAgents
+}
+
+// buildPatternSet builds a boolean map from a list of patterns for quick lookup.
+func buildPatternSet(patterns []string) map[string]bool {
+	patternSet := make(map[string]bool)
+	for _, p := range patterns {
+		patternSet[p] = true
+	}
+	return patternSet
+}
+
+// calculateMatchScore determines the matching score for a file against a specific technology pattern.
+func calculateMatchScore(content, lowerFile, lowerContent, ext string, tech TechnologyPattern) (float64, bool) {
+	score := 0.0
+	matches := false
+
+	// Check file extension specifically for .mg files -> Mangle
+	if ext == ".mg" && tech.ShardName == "mangle" {
+		score += 0.5
+		matches = true
+	}
+
+	// Check file patterns
+	for _, pattern := range tech.FilePatterns {
+		if strings.Contains(lowerFile, strings.ToLower(pattern)) {
+			score += 0.3
+			matches = true
+			break
+		}
+	}
+
+	// Check import hints
+	for _, imp := range tech.ImportHints {
+		if strings.Contains(content, imp) {
+			score += 0.4
+			matches = true
+			break
+		}
+	}
+
+	// Check content hints
+	hintMatches := 0
+	for _, hint := range tech.ContentHints {
+		if strings.Contains(lowerContent, strings.ToLower(hint)) {
+			hintMatches++
+		}
+	}
+	if len(tech.ContentHints) > 0 && hintMatches > 0 {
+		score += float64(hintMatches) / float64(len(tech.ContentHints)) * 0.3
+		matches = true
+	}
+
+	return score, matches
+}
+
+// getAgentNameForTech returns the actual agent name for a given technology pattern shard name.
+func getAgentNameForTech(shardName string) string {
+	agentName := AgentPatternMapping[shardName]
+	if agentName == "" {
+		// Capitalize first letter
+		name := shardName
+		if len(name) > 0 {
+			agentName = strings.ToUpper(name[:1]) + name[1:] + "Expert"
+		}
+	}
+	return agentName
+}
+
+// updateAgentMatch updates or creates a new specialist match in the tracking map.
+func updateAgentMatch(agentMatches map[string]*SpecialistMatch, agentLower string, agent RegisteredAgent, score float64, file string, tech TechnologyPattern) {
+	if existing, ok := agentMatches[agentLower]; ok {
+		if score > existing.Score {
+			existing.Score = score
+			// Update ShouldExecute based on new score
+			existing.ShouldExecute = ShouldSpecialistExecuteTask(agentLower, score)
+		}
+		// Add file if not already present
+		fileExists := slices.Contains(existing.Files, file)
+		if !fileExists {
+			existing.Files = append(existing.Files, file)
+		}
+	} else {
+		// Get classification for this specialist
+		var classification *SpecialistClassification
+		if class, ok := GetSpecialistClassification(agentLower); ok {
+			classification = &class
+		}
+
+		agentMatches[agentLower] = &SpecialistMatch{
+			AgentName:      agent.Name,
+			KnowledgePath:  agent.KnowledgePath,
+			Files:          []string{file},
+			Score:          score,
+			Reason:         tech.Description,
+			Classification: classification,
+			ShouldExecute:  ShouldSpecialistExecuteTask(agentLower, score),
+		}
+	}
+}
+
+// finalizeMatches normalizes, sorts, and truncates the matched specialists.
+func finalizeMatches(agentMatches map[string]*SpecialistMatch, maxSpecialists int) []SpecialistMatch {
+	// Convert to slice and normalize score
 	var matches []SpecialistMatch
 	for _, m := range agentMatches {
 		if m.Score > 1.0 {
@@ -601,8 +626,8 @@ func MatchSpecialistsForTask(ctx context.Context, verb string, files []string, r
 	}
 
 	// Limit to max specialists
-	if config.MaxSpecialists > 0 && len(matches) > config.MaxSpecialists {
-		matches = matches[:config.MaxSpecialists]
+	if maxSpecialists > 0 && len(matches) > maxSpecialists {
+		matches = matches[:maxSpecialists]
 	}
 
 	return matches
