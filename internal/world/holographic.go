@@ -8,7 +8,9 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -126,13 +128,17 @@ type CallEdge struct {
 type HolographicProvider struct {
 	kernel  *core.RealKernel
 	workDir string
+
+	regexCache   map[string][]*regexp.Regexp
+	regexCacheMu sync.RWMutex
 }
 
 // NewHolographicProvider creates a new holographic context provider.
 func NewHolographicProvider(kernel *core.RealKernel, workDir string) *HolographicProvider {
 	return &HolographicProvider{
-		kernel:  kernel,
-		workDir: workDir,
+		kernel:     kernel,
+		workDir:    workDir,
+		regexCache: make(map[string][]*regexp.Regexp),
 	}
 }
 
