@@ -279,6 +279,10 @@ func (k *RealKernel) loadMangleFiles() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "loadMangleFiles")
 	logging.Kernel("Loading Mangle files (schemas, policy, learned rules)")
 
+	var schemasBuilder strings.Builder
+	var policyBuilder strings.Builder
+	var learnedBuilder strings.Builder
+
 	// 1. LOAD BAKED-IN CORE (Immutable Physics)
 	// Always load these. They are the "Constitution".
 	logging.KernelDebug("Loading baked-in core (Constitution)...")
@@ -286,7 +290,7 @@ func (k *RealKernel) loadMangleFiles() error {
 	// Load Core Schemas (Modular)
 	// Load the index file first (contains core predicates and documentation)
 	if data, err := coreLogic.ReadFile("defaults/schemas.mg"); err == nil {
-		k.schemas = string(data)
+		schemasBuilder.Write(data)
 		logging.KernelDebug("Loaded schema index (%d bytes)", len(data))
 	} else {
 		logging.Get(logging.CategoryKernel).Error("Failed to load schema index: %v", err)
@@ -329,7 +333,10 @@ func (k *RealKernel) loadMangleFiles() error {
 	for _, schemaFile := range schemaFiles {
 		path := "defaults/" + schemaFile
 		if data, err := coreLogic.ReadFile(path); err == nil {
-			k.schemas += "\n\n# Schema Module: " + schemaFile + "\n" + string(data)
+			schemasBuilder.WriteString("\n\n# Schema Module: ")
+			schemasBuilder.WriteString(schemaFile)
+			schemasBuilder.WriteString("\n")
+			schemasBuilder.Write(data)
 			loadedSchemaBytes += len(data)
 			logging.KernelDebug("Loaded schema module: %s (%d bytes)", schemaFile, len(data))
 		} else {
@@ -348,7 +355,10 @@ func (k *RealKernel) loadMangleFiles() error {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".mg") {
 				path := policyDir + "/" + entry.Name()
 				if data, err := coreLogic.ReadFile(path); err == nil {
-					k.policy += "\n\n# Policy Module: " + entry.Name() + "\n" + string(data)
+					policyBuilder.WriteString("\n\n# Policy Module: ")
+					policyBuilder.WriteString(entry.Name())
+					policyBuilder.WriteString("\n")
+					policyBuilder.Write(data)
 					loadedPolicyBytes += len(data)
 					logging.KernelDebug("Loaded policy module: %s (%d bytes)", entry.Name(), len(data))
 				} else {
@@ -382,7 +392,8 @@ func (k *RealKernel) loadMangleFiles() error {
 	loadedModules := 0
 	for _, mod := range coreModules {
 		if data, err := coreLogic.ReadFile("defaults/" + mod); err == nil {
-			k.policy += "\n\n" + string(data)
+			policyBuilder.WriteString("\n\n")
+			policyBuilder.Write(data)
 			k.loadedPolicyFiles[strings.ToLower(mod)] = struct{}{}
 			loadedModules++
 			logging.KernelDebug("Loaded core module: %s (%d bytes)", mod, len(data))
@@ -397,7 +408,7 @@ func (k *RealKernel) loadMangleFiles() error {
 
 	// Load base learned rules (if any)
 	if data, err := coreLogic.ReadFile("defaults/learned.mg"); err == nil {
-		k.learned = string(data)
+		learnedBuilder.Write(data)
 		logging.KernelDebug("Loaded base learned rules (%d bytes)", len(data))
 	} else {
 		logging.KernelDebug("No base learned rules found (this is normal for fresh installs)")
@@ -422,7 +433,8 @@ func (k *RealKernel) loadMangleFiles() error {
 		extPath := filepath.Join(wsPath, "extensions.mg")
 		if _, err := os.Stat(extPath); err == nil {
 			if res, err := LoadHybridMangleFile(extPath); err == nil {
-				k.schemas += "\n\n# User Extensions\n" + res.Logic
+				schemasBuilder.WriteString("\n\n# User Extensions\n")
+				schemasBuilder.WriteString(res.Logic)
 				k.bootFacts = append(k.bootFacts, res.Facts...)
 				k.bootIntents = append(k.bootIntents, res.Intents...)
 				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
@@ -437,7 +449,8 @@ func (k *RealKernel) loadMangleFiles() error {
 		policyPath := filepath.Join(wsPath, "policy_overrides.mg")
 		if _, err := os.Stat(policyPath); err == nil {
 			if res, err := LoadHybridMangleFile(policyPath); err == nil {
-				k.policy += "\n\n# User Policy Overrides\n" + res.Logic
+				policyBuilder.WriteString("\n\n# User Policy Overrides\n")
+				policyBuilder.WriteString(res.Logic)
 				k.bootFacts = append(k.bootFacts, res.Facts...)
 				k.bootIntents = append(k.bootIntents, res.Intents...)
 				k.bootPrompts = append(k.bootPrompts, res.Prompts...)
@@ -465,10 +478,20 @@ func (k *RealKernel) loadMangleFiles() error {
 
 			// Track path and content for self-healing
 			k.userLearnedPath = learnedPath
+			// Finalize schemas and policy before validator usage
+			if learnedBuilder.Len() > 0 {
+				k.learned = learnedBuilder.String()
+			}
+			if schemasBuilder.Len() > 0 {
+				k.schemas = schemasBuilder.String()
+			}
+			if policyBuilder.Len() > 0 {
+				k.policy = policyBuilder.String()
+			}
 
 			// Initialize schema validator early so we can heal user rules before appending
 			if k.schemas != "" && k.schemaValidator == nil {
-				k.schemaValidator = mangle.NewSchemaValidator(k.schemas, k.learned+"\n"+userLearnedContent)
+				k.schemaValidator = mangle.NewSchemaValidator(k.schemas, learnedBuilder.String()+"\n"+userLearnedContent)
 				if err := k.schemaValidator.LoadDeclaredPredicates(); err != nil {
 					logging.Get(logging.CategoryKernel).Warn("Failed to load schema validator: %v", err)
 				}
@@ -480,12 +503,24 @@ func (k *RealKernel) loadMangleFiles() error {
 			}
 
 			// Append healed user rules to base learned rules
-			k.learned += "\n\n# User Learned Rules\n" + userLearnedContent
+			learnedBuilder.WriteString("\n\n# User Learned Rules\n")
+			learnedBuilder.WriteString(userLearnedContent)
 		}
 	}
 	logging.KernelDebug("Loaded %d user extension files", userExtensionsLoaded)
+	// Finalize strings if not already done
+	if learnedBuilder.Len() > 0 {
+		k.learned = learnedBuilder.String()
+	}
+	if schemasBuilder.Len() > 0 {
+		k.schemas = schemasBuilder.String()
+	}
+	if policyBuilder.Len() > 0 {
+		k.policy = policyBuilder.String()
+	}
 
 	// Ensure schema validator reflects the final schemas + learned rules.
+
 	k.refreshSchemaValidatorLocked()
 
 	timer.Stop()
