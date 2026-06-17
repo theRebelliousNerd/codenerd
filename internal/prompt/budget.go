@@ -88,6 +88,7 @@ type TokenBudgetManager struct {
 
 	// Reserved headroom (tokens kept as buffer)
 	reservedHeadroom int
+	headroomExplicit bool
 }
 
 // AllocationStrategy defines how tokens are distributed.
@@ -339,6 +340,7 @@ func (m *TokenBudgetManager) SetReservedHeadroom(tokens int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reservedHeadroom = tokens
+	m.headroomExplicit = true
 }
 
 // Fit selects atoms that fit within the total budget.
@@ -367,7 +369,7 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	}
 
 	headroom := m.reservedHeadroom
-	if headroom >= totalBudget {
+	if !m.headroomExplicit && totalBudget <= 250 {
 		headroom = 0
 	}
 	availableBudget := totalBudget - headroom
