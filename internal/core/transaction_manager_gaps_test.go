@@ -603,10 +603,9 @@ func TestTransactionManagerGap_Prepare_ContextCancellation(t *testing.T) {
 		return
 	}
 
-	// If Prepare returned a result, check for warnings (known bug: ctx errors
-	// are added as warnings, not failures)
-	if result != nil && len(result.Warnings) > 0 {
-		t.Logf("KNOWN BUG: Prepare added context error as warning instead of failing: %v", result.Warnings)
+	// Verify that if a result is returned, it should not happen when context is canceled
+	if result != nil {
+		t.Errorf("Expected Prepare to fail with context cancellation, but it returned a result")
 	}
 }
 
