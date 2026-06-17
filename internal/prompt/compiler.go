@@ -740,7 +740,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			sb.WriteString("\n")
 		}
 		content := sb.String()
-		id := fmt.Sprintf("kernel/context/%s", HashContent(content)[:8])
+		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
 		pa.Priority = 95
@@ -781,7 +781,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 				sb.WriteString("\n\n")
 			}
 			content := strings.TrimRight(sb.String(), "\n")
-			id := fmt.Sprintf("kernel/knowledge/%s", HashContent(content)[:8])
+			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
 			pa.Priority = 90
