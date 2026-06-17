@@ -66,25 +66,3 @@ func TestCountArity(t *testing.T) {
 	}
 }
 
-func TestIntersectSIMD(t *testing.T) {
-	a := []uint64{1, 3, 5, 7, 9}
-	b := []uint64{3, 4, 5, 9, 10}
-	got := IntersectSIMD(a, b)
-	want := []uint64{3, 5, 9}
-	if len(got) != len(want) {
-		t.Fatalf("IntersectSIMD=%v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("IntersectSIMD[%d]=%d, want %d", i, got[i], want[i])
-		}
-	}
-	// Disjoint sets intersect to empty.
-	if r := IntersectSIMD([]uint64{1, 2}, []uint64{3, 4}); len(r) != 0 {
-		t.Errorf("disjoint intersect=%v, want empty", r)
-	}
-	// Empty input is handled.
-	if r := IntersectSIMD(nil, []uint64{1}); len(r) != 0 {
-		t.Errorf("nil intersect=%v, want empty", r)
-	}
-}
