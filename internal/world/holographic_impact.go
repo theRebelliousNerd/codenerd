@@ -417,24 +417,43 @@ func (h *HolographicProvider) extractFunctionBodyRegex(content, funcName string)
 		return "", fmt.Errorf("empty function name")
 	}
 
-	// Common function patterns
-	escapedName := regexp.QuoteMeta(funcName)
-	patterns := []string{
-		// Go: func Name(...)
-		`^func\s+(\([^)]*\)\s+)?` + escapedName + `\s*\(`,
-		// Python: def name(...)
-		`^def\s+` + escapedName + `\s*\(`,
-		// JavaScript/TypeScript: function name(...) or name(...) =>
-		`(function\s+` + escapedName + `|` + escapedName + `\s*[:=]\s*(async\s+)?(\([^)]*\)|[^=])\s*=>)`,
-		// Java/C#: modifier type name(...)
-		`(public|private|protected)?\s*\w+\s+` + escapedName + `\s*\(`,
-	}
+	// Check cache first
+	h.regexCacheMu.RLock()
+	compiled, ok := h.regexCache[funcName]
+	h.regexCacheMu.RUnlock()
 
-	var compiled []*regexp.Regexp
-	for _, pattern := range patterns {
-		if re, err := regexp.Compile(pattern); err == nil {
-			compiled = append(compiled, re)
+	if !ok {
+		// Common function patterns
+		escapedName := regexp.QuoteMeta(funcName)
+		patterns := []string{
+			// Go: func Name(...)
+			`^func\s+(\([^)]*\)\s+)?` + escapedName + `\s*\(`,
+			// Python: def name(...)
+			`^def\s+` + escapedName + `\s*\(`,
+			// JavaScript/TypeScript: function name(...) or name(...) =>
+			`(function\s+` + escapedName + `|` + escapedName + `\s*[:=]\s*(async\s+)?(\([^)]*\)|[^=])\s*=>)`,
+			// Java/C#: modifier type name(...)
+			`(public|private|protected)?\s*\w+\s+` + escapedName + `\s*\(`,
 		}
+
+		compiled = make([]*regexp.Regexp, 0, len(patterns))
+		for _, pattern := range patterns {
+			if re, err := regexp.Compile(pattern); err == nil {
+				compiled = append(compiled, re)
+			}
+		}
+
+		h.regexCacheMu.Lock()
+		if h.regexCache == nil {
+			h.regexCache = make(map[string][]*regexp.Regexp)
+		}
+		// Simple cache eviction to prevent unbounded memory growth
+		if len(h.regexCache) > 1000 {
+			// Clear cache when it gets too large
+			h.regexCache = make(map[string][]*regexp.Regexp)
+		}
+		h.regexCache[funcName] = compiled
+		h.regexCacheMu.Unlock()
 	}
 
 	lines := strings.Split(content, "\n")
