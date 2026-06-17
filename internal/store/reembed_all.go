@@ -41,6 +41,34 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 	logging.Store("Starting force re-embed across %d root(s) with engine=%s dims=%d",
 		len(roots), engine.Name(), engine.Dimensions())
 
+	dbPaths := discoverDatabases(roots)
+
+	if len(dbPaths) == 0 {
+		logging.StoreDebug("No .db files found under roots: %v", roots)
+		result.Duration = time.Since(start)
+		return result, nil
+	}
+
+	logging.Store("Discovered %d database(s) to re-embed", len(dbPaths))
+
+	dbCount, totalVectors, totalAtoms, totalTraces, localSkipped := processLocalStores(ctx, dbPaths, engine, progress)
+	totalLearnings, learningSkipped := processLearningStores(ctx, roots, engine)
+
+	result.DBCount = dbCount
+	result.VectorsDone = totalVectors
+	result.AtomsDone = totalAtoms
+	result.TracesDone = totalTraces
+	result.LearningsDone = totalLearnings
+	result.Skipped = append(localSkipped, learningSkipped...)
+	result.Duration = time.Since(start)
+
+	logging.Store("ReembedAllDBsForce complete: dbs=%d vectors=%d atoms=%d traces=%d learnings=%d skipped=%d duration=%s",
+		result.DBCount, result.VectorsDone, result.AtomsDone, result.TracesDone, result.LearningsDone, len(result.Skipped), result.Duration)
+
+	return result, nil
+}
+
+func discoverDatabases(roots []string) []string {
 	seen := make(map[string]struct{})
 	var dbPaths []string
 	for _, root := range roots {
@@ -64,19 +92,11 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 			return nil
 		})
 	}
+	return dbPaths
+}
 
-	if len(dbPaths) == 0 {
-		logging.StoreDebug("No .db files found under roots: %v", roots)
-		result.Duration = time.Since(start)
-		return result, nil
-	}
-
-	logging.Store("Discovered %d database(s) to re-embed", len(dbPaths))
-
-	totalVectors := 0
-	totalAtoms := 0
-	totalTraces := 0
-	dbCount := 0
+func processLocalStores(ctx context.Context, dbPaths []string, engine embedding.EmbeddingEngine, progress ReembedProgressFn) (int, int, int, int, []string) {
+	var totalVectors, totalAtoms, totalTraces, dbCount int
 	var skipped []string
 
 	for i, dbPath := range dbPaths {
@@ -118,6 +138,10 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 		_ = ls.Close()
 	}
 
+	return dbCount, totalVectors, totalAtoms, totalTraces, skipped
+}
+
+func processLearningStores(ctx context.Context, roots []string, engine embedding.EmbeddingEngine) (int, []string) {
 	learningRoots := make(map[string]struct{})
 	for _, root := range roots {
 		if root == "" {
@@ -130,6 +154,7 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 	}
 
 	totalLearnings := 0
+	var skipped []string
 	for shardsDir := range learningRoots {
 		learningStore, err := NewLearningStore(shardsDir)
 		if err != nil {
@@ -147,16 +172,5 @@ func ReembedAllDBsForce(ctx context.Context, roots []string, engine embedding.Em
 		_ = learningStore.Close()
 	}
 
-	result.DBCount = dbCount
-	result.VectorsDone = totalVectors
-	result.AtomsDone = totalAtoms
-	result.TracesDone = totalTraces
-	result.LearningsDone = totalLearnings
-	result.Skipped = skipped
-	result.Duration = time.Since(start)
-
-	logging.Store("ReembedAllDBsForce complete: dbs=%d vectors=%d atoms=%d traces=%d learnings=%d skipped=%d duration=%s",
-		result.DBCount, result.VectorsDone, result.AtomsDone, result.TracesDone, result.LearningsDone, len(result.Skipped), result.Duration)
-
-	return result, nil
+	return totalLearnings, skipped
 }
