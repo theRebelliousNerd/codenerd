@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNewCodeElementParserWithRoot(t *testing.T) {
+func TestNewCodeElementParserWithRoot_Basic(t *testing.T) {
 	rootPath := "/fake/project/root"
 	parser := NewCodeElementParserWithRoot(rootPath)
 
