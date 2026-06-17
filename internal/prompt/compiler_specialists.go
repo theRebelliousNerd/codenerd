@@ -24,95 +24,50 @@ type specialistCacheEntry struct {
 	content string
 }
 
-// InjectAvailableSpecialists populates the context with discovered specialists.
-// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
-// This enables the LLM to know what domain experts are available for consultation.
-// Reads from .nerd/agents.json and formats as a markdown list for template injection.
-func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
-	if ctx == nil {
-		return nil
-	}
+type agentRegistry struct {
+	Agents []struct {
+		Name        string `json:"name"`
+		Type        string `json:"type"`
+		Status      string `json:"status"`
+		Description string `json:"description"`
+		Topics      string `json:"topics"`
+	} `json:"agents"`
+}
+
+func getWorkspace(workspace string) string {
 	if workspace == "" {
 		if cwd, err := os.Getwd(); err == nil {
-			workspace = cwd
+			return cwd
 		}
 	}
-	if workspace == "" {
-		return nil
-	}
+	return workspace
+}
 
-	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
-
-	stat, err := os.Stat(registryPath)
-	if err != nil {
-		// Graceful degradation - no custom specialists available, but we'll still add core shards
-		data := []byte("{}")
-
-		// Parse the agent registry (which is empty)
-		var registry struct {
-			Agents []struct {
-				Name        string `json:"name"`
-				Type        string `json:"type"`
-				Status      string `json:"status"`
-				Description string `json:"description"`
-				Topics      string `json:"topics"`
-			} `json:"agents"`
-		}
-		_ = json.Unmarshal(data, &registry)
-
-		var specialists []string
-		// Add core shards as implicit specialists (from centralized definitions)
-		for name, desc := range shards.CoreShardDescriptions {
-			specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
-		}
-
-		var result string
-		if len(specialists) == 0 {
-			result = "No specialists available. Use **researcher** for general knowledge gathering."
-		} else {
-			result = strings.Join(specialists, "\n")
-		}
-
-		ctx.AvailableSpecialists = result
-		return nil
-	}
-
-	modTime := stat.ModTime()
-
-	// Check cache
+func getCachedSpecialists(registryPath string, modTime time.Time) (string, bool) {
 	specialistCacheMu.RLock()
+	defer specialistCacheMu.RUnlock()
 	entry, found := specialistCache[registryPath]
-	specialistCacheMu.RUnlock()
-
 	if found && !modTime.After(entry.modTime) {
-		ctx.AvailableSpecialists = entry.content
-		return nil
+		return entry.content, true
 	}
+	return "", false
+}
 
-	// Cache miss or stale - read file
+func loadAgentRegistry(registryPath string) agentRegistry {
+	var registry agentRegistry
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
-		// Should be rare since Stat succeeded, but possible
 		logging.Get(logging.CategoryJIT).Warn("Failed to read agents.json: %v", err)
-		data = []byte("{}") // Proceed with empty registry to inject core shards
+		data = []byte("{}")
 	}
 
-	// Parse the agent registry
-	var registry struct {
-		Agents []struct {
-			Name        string `json:"name"`
-			Type        string `json:"type"`
-			Status      string `json:"status"`
-			Description string `json:"description"`
-			Topics      string `json:"topics"`
-		} `json:"agents"`
-	}
 	if err := json.Unmarshal(data, &registry); err != nil {
 		logging.Get(logging.CategoryJIT).Warn("Failed to parse agents.json: %v", err)
-		// Proceed anyway to at least inject core shards
 	}
+	return registry
+}
 
-	// Build specialist descriptions
+func formatSpecialists(registry agentRegistry) string {
 	var specialists []string
 	for _, agent := range registry.Agents {
 		if agent.Status != "ready" {
@@ -127,28 +82,61 @@ func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error
 		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", agent.Name, desc))
 	}
 
-	// Add core shards as implicit specialists (from centralized definitions)
 	for name, desc := range shards.CoreShardDescriptions {
 		specialists = append(specialists, fmt.Sprintf("- **%s**: %s", name, desc))
 	}
 
-	var result string
 	if len(specialists) == 0 {
-		result = "No specialists available. Use **researcher** for general knowledge gathering."
-	} else {
-		result = strings.Join(specialists, "\n")
+		return "No specialists available. Use **researcher** for general knowledge gathering."
 	}
+	return strings.Join(specialists, "\n")
+}
 
-	// Update cache
+func updateSpecialistCache(registryPath string, modTime time.Time, content string) {
 	specialistCacheMu.Lock()
+	defer specialistCacheMu.Unlock()
 	specialistCache[registryPath] = specialistCacheEntry{
 		modTime: modTime,
-		content: result,
+		content: content,
 	}
-	specialistCacheMu.Unlock()
+}
 
+// InjectAvailableSpecialists populates the context with discovered specialists.
+// TODO: Performance: This reads a file on EVERY compilation. Implement in-memory caching with filesystem watcher or TTL.
+// This enables the LLM to know what domain experts are available for consultation.
+// Reads from .nerd/agents.json and formats as a markdown list for template injection.
+func InjectAvailableSpecialists(ctx *CompilationContext, workspace string) error {
+	if ctx == nil {
+		return nil
+	}
+
+	workspace = getWorkspace(workspace)
+	if workspace == "" {
+		return nil
+	}
+
+	registryPath := filepath.Join(workspace, ".nerd", "agents.json")
+
+	stat, err := os.Stat(registryPath)
+	if err != nil {
+		ctx.AvailableSpecialists = formatSpecialists(agentRegistry{})
+		return nil
+	}
+
+	modTime := stat.ModTime()
+	if content, hit := getCachedSpecialists(registryPath, modTime); hit {
+		ctx.AvailableSpecialists = content
+		return nil
+	}
+
+	registry := loadAgentRegistry(registryPath)
+	result := formatSpecialists(registry)
+
+	updateSpecialistCache(registryPath, modTime, result)
 	ctx.AvailableSpecialists = result
-	logging.Get(logging.CategoryJIT).Debug("Injected %d available specialists into context", len(specialists))
+
+	// approximate length without counting
+	logging.Get(logging.CategoryJIT).Debug("Injected available specialists into context")
 	return nil
 }
 
