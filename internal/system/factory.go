@@ -380,73 +380,96 @@ func BootCortex(ctx context.Context, workspace string, apiKey string, disableSys
 
 // BootCortexWithConfig initializes the system with a configuration object.
 // This allows for dependency injection during testing.
-func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) {
-	workspace := cfg.Workspace
-	apiKey := cfg.APIKey
-	disableSystemShards := cfg.DisableSystemShards
 
-	if workspace == "" {
+type bootContext struct {
+	ctx                          context.Context
+	cfg                          BootConfig
+	workspace                    string
+	apiKey                       string
+	appCfg                       *config.UserConfig
+	jitCfg                       config.JITConfig
+	llmClient                    perception.LLMClient
+	shardLLMClient               perception.LLMClient
+	providerCfgForClassification *perception.ProviderConfig
+	localDB                      *store.LocalStore
+	learningStore                *store.LearningStore
+	kernel                       SystemKernel
+	transducer                   perception.Transducer
+	virtualStore                 *core.VirtualStore
+	embeddingEngine              embedding.EmbeddingEngine
+	atomLoader                   *prompt.AtomLoader
+	jitCompiler                  *prompt.JITPromptCompiler
+	promptAssembler              *articulation.PromptAssembler
+	shardManager                 *coreshards.ShardManager
+	executor                     tactile.Executor
+	sessionExecutor              *session.Executor
+	sessionSpawner               *session.Spawner
+	taskExecutor                 session.TaskExecutor
+	poiesis                      *autopoiesis.Orchestrator
+	browserMgr                   *browser.SessionManager
+	scanner                      *world.Scanner
+	tracker                      *usage.Tracker
+}
+
+func initCoreComponents(bctx *bootContext) error {
+	bctx.workspace = bctx.cfg.Workspace
+	bctx.apiKey = bctx.cfg.APIKey
+
+	if bctx.workspace == "" {
 		if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
-			workspace = root
+			bctx.workspace = root
 		} else {
-			workspace, _ = os.Getwd()
+			bctx.workspace, _ = os.Getwd()
 		}
 	}
 	if perception.SharedTaxonomy != nil {
-		perception.SharedTaxonomy.SetWorkspace(workspace)
+		perception.SharedTaxonomy.SetWorkspace(bctx.workspace)
 	}
 
-	// 0. Initialize Logging System (critical for debugging)
-	if err := logging.Initialize(workspace); err != nil {
-		// Non-fatal - continue without file logging
+	if err := logging.Initialize(bctx.workspace); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize logging: %v\n", err)
 	}
 
-	// 1. Initialize Usage Tracker
-	tracker, err := usage.NewTracker(workspace)
+	tracker, err := usage.NewTracker(bctx.workspace)
 	if err != nil {
-		// Non-fatal, but worth logging
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize usage tracker: %v\n", err)
 	}
+	bctx.tracker = tracker
 
-	// 2. Load user config for limits and provider selection
-	userCfgPath := filepath.Join(workspace, ".nerd", "config.json")
+	userCfgPath := filepath.Join(bctx.workspace, ".nerd", "config.json")
 	var appCfg *config.UserConfig
-	if cfg.UserConfigOverride != nil {
-		appCfg = cfg.UserConfigOverride
+	if bctx.cfg.UserConfigOverride != nil {
+		appCfg = bctx.cfg.UserConfigOverride
 	} else {
 		appCfg, _ = config.LoadUserConfig(userCfgPath)
 	}
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
 	}
-	coreLimits := appCfg.GetCoreLimits()
-	jitCfg := appCfg.GetEffectiveJITConfig()
+	bctx.appCfg = appCfg
+	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
-	// Configure global LLM API concurrency before any scheduled calls
 	schedulerCfg := core.DefaultAPISchedulerConfig()
 	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
 	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
+	return nil
+}
 
-	// 3. Initialize LLM client using workspace config/env detection
+func initPerceptionLayer(bctx *bootContext) error {
+	userCfgPath := filepath.Join(bctx.workspace, ".nerd", "config.json")
 	var baseLLMClient perception.LLMClient
-	// NERD-EVOLVE-START: P1P2-model-tiering
-	var providerCfgForClassification *perception.ProviderConfig // captured for classification client
-	// NERD-EVOLVE-END: P1P2-model-tiering
-	if cfg.LLMClientOverride != nil {
-		baseLLMClient = cfg.LLMClientOverride
+	if bctx.cfg.LLMClientOverride != nil {
+		baseLLMClient = bctx.cfg.LLMClientOverride
 	}
-	if baseLLMClient == nil && strings.TrimSpace(apiKey) != "" {
-		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(apiKey))
+	if baseLLMClient == nil && strings.TrimSpace(bctx.apiKey) != "" {
+		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(bctx.apiKey))
 	}
 	if baseLLMClient == nil {
 		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
 				baseLLMClient = client
-				// NERD-EVOLVE-START: P1P2-model-tiering
-				providerCfgForClassification = providerCfg
-				// NERD-EVOLVE-END: P1P2-model-tiering
+				bctx.providerCfgForClassification = providerCfg
 			}
 		}
 	}
@@ -456,30 +479,26 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 	if baseLLMClient == nil {
-		// Hard cutover: Do not silently fallback to an unconfigured ZAI client.
-		// If no client is configured locally or in environment, inject a deterministic
-		// erroring client so non-LLM commands can still boot without later panicking.
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
 		logging.Get(logging.CategoryContext).Error("%v", err)
 		baseLLMClient = &missingLLMClient{err: err}
 	}
 
-	// Tracing Layer (if local DB available)
-	var rawLLMClient perception.LLMClient = baseLLMClient
-	localDBPath := filepath.Join(workspace, ".nerd", "knowledge.db")
+	localDBPath := filepath.Join(bctx.workspace, ".nerd", "knowledge.db")
 	var localDB *store.LocalStore
+	var rawLLMClient perception.LLMClient = baseLLMClient
 	if db, err := store.NewLocalStore(localDBPath); err == nil {
 		localDB = db
-		// Wrap with tracing
 		traceStore := createTraceStoreAdapter(db)
 		rawLLMClient = perception.NewTracingLLMClient(baseLLMClient, traceStore)
 	}
+	bctx.localDB = localDB
 
-	// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
-	var llmClient perception.LLMClient = core.NewScheduledLLMCall("main", rawLLMClient)
-	var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("shards", rawLLMClient)
+	bctx.llmClient = core.NewScheduledLLMCall("main", rawLLMClient)
+	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", rawLLMClient)
+
 	if perception.SharedTaxonomy != nil {
-		perception.SharedTaxonomy.SetClient(llmClient)
+		perception.SharedTaxonomy.SetClient(bctx.llmClient)
 		if localDB != nil {
 			taxStore := perception.NewTaxonomyStore(localDB)
 			perception.SharedTaxonomy.SetStore(taxStore)
@@ -492,202 +511,138 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 
-	// Learning Layer - Autopoiesis persistence (§8.3)
-	learningStorePath := filepath.Join(workspace, ".nerd", "shards")
-	var learningStore *store.LearningStore
+	bctx.transducer = perception.NewUnderstandingTransducer(bctx.llmClient)
+	return nil
+}
+
+func initStorageLayer(bctx *bootContext) error {
+	learningStorePath := filepath.Join(bctx.workspace, ".nerd", "shards")
 	if ls, err := store.NewLearningStore(learningStorePath); err == nil {
-		learningStore = ls
+		bctx.learningStore = ls
 	} else {
-		// Non-fatal, but worth logging
 		fmt.Fprintf(os.Stderr, "Warning: Failed to initialize learning store: %v\n", err)
 	}
+	return nil
+}
 
-	transducer := perception.NewUnderstandingTransducer(llmClient)
-	var kernel SystemKernel
-	if cfg.KernelOverride != nil {
-		kernel = cfg.KernelOverride
+func initKernel(bctx *bootContext) error {
+	if bctx.cfg.KernelOverride != nil {
+		bctx.kernel = bctx.cfg.KernelOverride
 	} else {
 		cortex := core.NewCortexKernel("cortex")
-
 		shardConfigs := []core.KernelShardConfig{
-			{
-				Domain:          "routing",
-				OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"},
-			},
-			{
-				Domain:          "world",
-				OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"},
-			},
-			{
-				Domain:          "tools",
-				OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"},
-			},
-			{
-				Domain:          "policy",
-				OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"},
-			},
-			{
-				Domain:          "campaign",
-				OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"},
-			},
-			{
-				Domain:          "prompts",
-				OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"},
-			},
-			{
-				Domain:          "cortex",
-				OwnedPredicates: []string{}, // Catch-all
-			},
+			{Domain: "routing", OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"}},
+			{Domain: "world", OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"}},
+			{Domain: "tools", OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"}},
+			{Domain: "policy", OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"}},
+			{Domain: "campaign", OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"}},
+			{Domain: "prompts", OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"}},
+			{Domain: "cortex", OwnedPredicates: []string{}},
 		}
 
 		for _, scfg := range shardConfigs {
-			scfg.WorkspaceRoot = workspace
+			scfg.WorkspaceRoot = bctx.workspace
 			shard, err := core.NewKernelShard(scfg)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
+				return fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
 			}
 			if err := cortex.RegisterShard(shard); err != nil {
-				return nil, fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
+				return fmt.Errorf("failed to register shard %s: %w", scfg.Domain, err)
 			}
 		}
 
 		if err := cortex.Evaluate(); err != nil {
-			return nil, fmt.Errorf("failed to boot cortex kernel: %w", err)
+			return fmt.Errorf("failed to boot cortex kernel: %w", err)
 		}
-		kernel = cortex
+		bctx.kernel = cortex
 	}
-	// Ensure Perception layer subsystems (semantic classifier, etc.) are initialized.
-	if err := perception.InitPerceptionLayer(kernel, appCfg); err != nil {
+
+	if err := perception.InitPerceptionLayer(bctx.kernel, bctx.appCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Perception init failed: %v\n", err)
 	}
 
-	// Load persisted world facts if available.
-	// Prefer LocalStore world cache (fast depth) and fall back to scan.mg.
 	loadedWorld := false
-	if localDB != nil {
-		if cached, err := localDB.LoadAllWorldFacts("fast"); err == nil && len(cached) > 0 {
+	if bctx.localDB != nil {
+		if cached, err := bctx.localDB.LoadAllWorldFacts("fast"); err == nil && len(cached) > 0 {
 			facts := make([]core.Fact, 0, len(cached))
 			for _, cf := range cached {
 				facts = append(facts, core.Fact{Predicate: cf.Predicate, Args: cf.Args})
 			}
-			if err := kernel.LoadFacts(facts); err == nil {
+			if err := bctx.kernel.LoadFacts(facts); err == nil {
 				loadedWorld = true
 			}
 		}
 	}
 	if !loadedWorld {
-		scanPath := filepath.Join(workspace, ".nerd", "mangle", "scan.mg")
+		scanPath := filepath.Join(bctx.workspace, ".nerd", "mangle", "scan.mg")
 		if _, statErr := os.Stat(scanPath); statErr == nil {
-			if loadErr := kernel.LoadFactsFromFile(scanPath); loadErr != nil {
+			if loadErr := bctx.kernel.LoadFactsFromFile(scanPath); loadErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to load scan facts: %v\n", loadErr)
 			}
 		}
 	}
+	return nil
+}
 
-	executor := tactile.NewDirectExecutor()
+func initExecutionLayer(bctx *bootContext) error {
+	bctx.executor = tactile.NewDirectExecutor()
 	vsCfg := core.DefaultVirtualStoreConfig()
-	vsCfg.WorkingDir = workspace
-	virtualStore := core.NewVirtualStoreWithConfig(executor, vsCfg)
-	virtualStore.SetKernel(kernel)
-	virtualStore.DisableBootGuard() // BootCortex is always user-initiated (CLI commands)
-	if localDB != nil {
-		virtualStore.SetLocalDB(localDB)
-		// Wire knowledge graph query bridge for Mangle query_graph virtual predicate.
-		if gqAdapter := store.NewLocalStoreGraphAdapter(localDB); gqAdapter != nil {
-			virtualStore.SetGraphQuery(gqAdapter)
+	vsCfg.WorkingDir = bctx.workspace
+	bctx.virtualStore = core.NewVirtualStoreWithConfig(bctx.executor, vsCfg)
+	bctx.virtualStore.SetKernel(bctx.kernel)
+	bctx.virtualStore.DisableBootGuard()
+
+	if bctx.localDB != nil {
+		bctx.virtualStore.SetLocalDB(bctx.localDB)
+		if gqAdapter := store.NewLocalStoreGraphAdapter(bctx.localDB); gqAdapter != nil {
+			bctx.virtualStore.SetGraphQuery(gqAdapter)
 		}
 	}
-	if learningStore != nil {
-		virtualStore.SetLearningStore(learningStore)
+	if bctx.learningStore != nil {
+		bctx.virtualStore.SetLearningStore(bctx.learningStore)
 	}
 
-	// Wire Dream subsystem components for learning persistence
-	// DreamRouter routes confirmed dream learnings to LearningStore and ColdStore
 	var dreamColdStore core.ColdStoreSaver
-	if localDB != nil {
-		dreamColdStore = localDB // LocalStore satisfies ColdStoreSaver interface
+	if bctx.localDB != nil {
+		dreamColdStore = bctx.localDB
 	}
 	var dreamLearningSaver core.LearningStoreSaver
-	if learningStore != nil {
-		dreamLearningSaver = learningStore // LearningStore satisfies LearningStoreSaver interface
-	}
-	dreamRouter := core.NewDreamRouter(kernel, dreamLearningSaver, dreamColdStore)
-	virtualStore.SetDreamRouter(dreamRouter)
-
-	// DreamPlanManager handles plan lifecycle (store, approve, execute, track)
-	dreamPlanMgr := core.NewDreamPlanManager(kernel)
-	virtualStore.SetDreamPlanManager(dreamPlanMgr)
-
-	// Wire TransactionManager for atomic multi-file edits and ShadowMode
-	{
-		var realKernel *core.RealKernel
-		if rk, ok := kernel.(*core.RealKernel); ok {
-			realKernel = rk
-		} else if ck, ok := kernel.(*core.CortexKernel); ok {
-			realKernel = ck.GetPrimaryRealKernel()
-		}
-		if realKernel != nil {
-			transactionMgr := core.NewTransactionManager(realKernel, workspace)
-			virtualStore.SetTransactionManager(transactionMgr)
-		}
+	if bctx.learningStore != nil {
+		dreamLearningSaver = bctx.learningStore
 	}
 
-	// Hydrate modular tools so tools.Global() works for session.Executor
-	if err := virtualStore.HydrateModularTools(); err != nil {
+	dreamRouter := core.NewDreamRouter(bctx.kernel, dreamLearningSaver, dreamColdStore)
+	bctx.virtualStore.SetDreamRouter(dreamRouter)
+
+	dreamPlanMgr := core.NewDreamPlanManager(bctx.kernel)
+	bctx.virtualStore.SetDreamPlanManager(dreamPlanMgr)
+
+	var realKernel *core.RealKernel
+	if rk, ok := bctx.kernel.(*core.RealKernel); ok {
+		realKernel = rk
+	} else if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
+		realKernel = ck.GetPrimaryRealKernel()
+	}
+	if realKernel != nil {
+		transactionMgr := core.NewTransactionManager(realKernel, bctx.workspace)
+		bctx.virtualStore.SetTransactionManager(transactionMgr)
+	}
+
+	if err := bctx.virtualStore.HydrateModularTools(); err != nil {
 		logging.Get(logging.CategorySession).Warn("Failed to hydrate modular tools: %v", err)
-		// Don't fail - tools will just be unavailable
 	}
 
-	// Wire Code DOM (CodeScope + FileEditor) for semantic editing workflows.
-	worldCfg := appCfg.GetWorldConfig()
-	virtualStore.SetCodeScope(NewHolographicCodeScope(workspace, kernel, localDB, worldCfg.DeepWorkers))
+	worldCfg := bctx.appCfg.GetWorldConfig()
+	bctx.virtualStore.SetCodeScope(NewHolographicCodeScope(bctx.workspace, bctx.kernel, bctx.localDB, worldCfg.DeepWorkers))
 	fileEditor := tactile.NewFileEditor()
-	fileEditor.SetWorkingDir(workspace)
-	virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
+	fileEditor.SetWorkingDir(bctx.workspace)
+	bctx.virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
-	shardManager := coreshards.NewShardManager()
-	shardManager.SetParentKernel(kernel)
-	shardManager.SetLLMClient(shardLLMClient)
-	virtualStore.SetShardManager(shardManager)
+	return nil
+}
 
-	// Limits enforcement and spawn queue backpressure (config-driven)
-	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
-		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
-		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
-		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
-		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
-		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
-	})
-	shardManager.SetLimitsEnforcer(limitsEnforcer)
-
-	spawnQueue := coreshards.NewSpawnQueue(shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
-	shardManager.SetSpawnQueue(spawnQueue)
-	_ = spawnQueue.Start()
-	// 3. Autopoiesis & Tools
-	autopoiesisConfig := autopoiesis.DefaultConfig(workspace)
-	poiesis := autopoiesis.NewOrchestrator(llmClient, autopoiesisConfig)
-	bridge := core.NewAutopoiesisBridge(kernel)
-	poiesis.SetKernel(bridge)
-
-	// Wire Ouroboros as ToolGenerator AND ToolExecutor for coder shard self-tool routing
-	if ouroborosLoop := poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
-		virtualStore.SetToolGenerator(ouroborosLoop)
-		virtualStore.SetToolExecutor(ouroborosLoop)
-	}
-	// 4. Browser Physics
-	browserCfg := browser.DefaultConfig()
-	browserCfg.SessionStore = filepath.Join(workspace, ".nerd", "browser", "sessions.json")
-	var browserMgr *browser.SessionManager
-	// We need a Mangle engine for the browser manager
-	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
-		browserMgr = browser.NewSessionManager(browserCfg, engine)
-		// Browser will be started lazily when needed
-	}
-
-	// 5. JIT Prompt Compiler & Distributed Storage
-	// Initialize Embedding Engine (required for AtomLoader)
-	var embeddingEngine embedding.EmbeddingEngine
-	embedCfg := appCfg.GetEmbeddingConfig()
+func initIntelligenceLayer(bctx *bootContext) error {
+	embedCfg := bctx.appCfg.GetEmbeddingConfig()
 	engineCfg := embedding.Config{
 		Provider:       embedCfg.Provider,
 		OllamaEndpoint: embedCfg.OllamaEndpoint,
@@ -696,70 +651,53 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		GenAIModel:     embedCfg.GenAIModel,
 		TaskType:       embedCfg.TaskType,
 	}
-	// Back-compat: if provider is genai and no key set in config, fall back to CLI key.
-	if engineCfg.Provider == "genai" && engineCfg.GenAIAPIKey == "" && apiKey != "" {
-		engineCfg.GenAIAPIKey = apiKey
+	if engineCfg.Provider == "genai" && engineCfg.GenAIAPIKey == "" && bctx.apiKey != "" {
+		engineCfg.GenAIAPIKey = bctx.apiKey
 	}
-	// If provider omitted, use embedding defaults (ollama keyword/vec).
 	if engineCfg.Provider == "" {
 		engineCfg = embedding.DefaultConfig()
 	}
 	if engine, err := embedding.NewEngine(engineCfg); err == nil {
-		// Perform health check to fail fast instead of blocking for 35+ minutes
-		// when embedding service is unavailable (BUG-001 fix)
 		if checker, ok := engine.(embedding.HealthChecker); ok {
-			if err := checker.HealthCheck(ctx); err != nil {
-				logging.Get(logging.CategoryEmbedding).Warn("Embedding engine health check failed: %v (semantic features disabled)", err)
-				fmt.Fprintf(os.Stderr, "Warning: Embedding engine unavailable: %v (semantic features disabled)\n", err)
-				// Don't assign embeddingEngine - leave nil for graceful degradation
+			if err := checker.HealthCheck(bctx.ctx); err != nil {
+				logging.Get(logging.CategoryEmbedding).Warn("Embedding engine health check failed: %v", err)
+				fmt.Fprintf(os.Stderr, "Warning: Embedding engine unavailable: %v\n", err)
 			} else {
-				embeddingEngine = engine
+				bctx.embeddingEngine = engine
 			}
 		} else {
-			// Engine doesn't support health check - use it directly
-			embeddingEngine = engine
+			bctx.embeddingEngine = engine
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v (semantic features degrade)\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: Failed to init embedding engine: %v\n", err)
 	}
 
-	// Initialize Atom Loader
-	atomLoader := prompt.NewAtomLoader(embeddingEngine)
+	bctx.atomLoader = prompt.NewAtomLoader(bctx.embeddingEngine)
 
-	// Enable semantic vector operations on the LocalStore if possible.
-	if localDB != nil && embeddingEngine != nil {
-		localDB.SetEmbeddingEngine(embeddingEngine)
-		localDB.SetReflectionConfig(appCfg.GetReflectionConfig())
+	if bctx.localDB != nil && bctx.embeddingEngine != nil {
+		bctx.localDB.SetEmbeddingEngine(bctx.embeddingEngine)
+		bctx.localDB.SetReflectionConfig(bctx.appCfg.GetReflectionConfig())
+	}
+	if bctx.learningStore != nil && bctx.embeddingEngine != nil {
+		bctx.learningStore.SetEmbeddingEngine(bctx.embeddingEngine)
+		bctx.learningStore.SetReflectionConfig(bctx.appCfg.GetReflectionConfig())
 	}
 
-	// Enable semantic vector operations on the LearningStore if possible.
-	if learningStore != nil && embeddingEngine != nil {
-		learningStore.SetEmbeddingEngine(embeddingEngine)
-		learningStore.SetReflectionConfig(appCfg.GetReflectionConfig())
-	}
-
-	// 5a. MCP Integration (JIT Tool Compiler)
-	// Wire MCP clients dynamically - supports arbitrary servers from config.
-	integrationsCfg := appCfg.GetIntegrations()
+	integrationsCfg := bctx.appCfg.GetIntegrations()
 	serverConfigs := integrationsCfg.ToMCPServerConfigs()
 	if len(serverConfigs) > 0 {
-		// Create LLM client adapter for tool analysis
 		var mcpLLMClient mcp.LLMClient
-		if llmClient != nil {
-			mcpLLMClient = &perceptionLLMAdapter{client: llmClient}
+		if bctx.llmClient != nil {
+			mcpLLMClient = &perceptionLLMAdapter{client: bctx.llmClient}
 		}
-
-		mcpBridge, err := mcp.NewMCPIntegrationBridge(workspace, newMCPKernelAdapter(kernel), embeddingEngine, mcpLLMClient, serverConfigs)
+		mcpBridge, err := mcp.NewMCPIntegrationBridge(bctx.workspace, newMCPKernelAdapter(bctx.kernel), bctx.embeddingEngine, mcpLLMClient, serverConfigs)
 		if err != nil {
 			logging.Get(logging.CategoryTools).Warn("Failed to init MCP bridge: %v", err)
 		} else {
-			// Wire ALL configured MCP servers dynamically
 			for serverID := range serverConfigs {
-				virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
+				bctx.virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
 				logging.Get(logging.CategoryTools).Info("Wired MCP integration: %s", serverID)
 			}
-
-			// Connect to auto-connect servers in background
 			go func() {
 				if err := mcpBridge.ConnectAll(context.Background()); err != nil {
 					logging.Get(logging.CategoryTools).Warn("MCP auto-connect failed: %v", err)
@@ -768,49 +706,40 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		}
 	}
 
-	// Ingest any PROMPT directives extracted from hybrid .mg files into the
-	// project prompt corpus so JIT can pick them up.
-	if count, err := IngestHybridPrompts(ctx, workspace, kernel, atomLoader); err != nil {
+	if count, err := IngestHybridPrompts(bctx.ctx, bctx.workspace, bctx.kernel, bctx.atomLoader); err != nil {
 		logging.Get(logging.CategoryContext).Warn("Failed to ingest hybrid prompts: %v", err)
 	} else if count > 0 {
 		logging.Get(logging.CategoryContext).Info("Ingested %d hybrid PROMPT atoms during boot", count)
 	}
 
-	// Sync Agents (Distributed Storage)
-	// This ensures .nerd/shards/*.db are up-to-date with .nerd/agents/*.yaml
-	synchronizer := prsync.NewAgentSynchronizer(workspace, atomLoader)
-	if err := synchronizer.SyncAll(ctx); err != nil {
+	synchronizer := prsync.NewAgentSynchronizer(bctx.workspace, bctx.atomLoader)
+	if err := synchronizer.SyncAll(bctx.ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Agent sync failed: %v\n", err)
 	}
 
-	// Initialize JIT Prompt Compiler
-	// Load embedded corpus from internal/prompt/atoms/ (baked into binary)
 	embeddedCorpus, err := prompt.LoadEmbeddedCorpus()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load embedded corpus: %w", err)
+		return fmt.Errorf("failed to load embedded corpus: %w", err)
 	}
 
-	// Build compiler options
 	compilerCfg := prompt.DefaultCompilerConfig()
-	if jitCfg.TokenBudget > 0 {
-		compilerCfg.DefaultTokenBudget = jitCfg.TokenBudget
+	if bctx.jitCfg.TokenBudget > 0 {
+		compilerCfg.DefaultTokenBudget = bctx.jitCfg.TokenBudget
 	}
-	compilerCfg.DebugMode = jitCfg.DebugMode
+	compilerCfg.DebugMode = bctx.jitCfg.DebugMode
 	compilerOpts := []prompt.CompilerOption{
-		prompt.WithKernel(NewKernelAdapter(kernel)),
+		prompt.WithKernel(NewKernelAdapter(bctx.kernel)),
 		prompt.WithEmbeddedCorpus(embeddedCorpus),
 		prompt.WithConfig(compilerCfg),
 	}
 
-	// Wire default vector searcher for semantic flesh selection when embeddings are available.
 	var defaultVectorSearcher *prompt.CompilerVectorSearcher
-	if embeddingEngine != nil {
-		defaultVectorSearcher = prompt.NewCompilerVectorSearcher(embeddingEngine)
+	if bctx.embeddingEngine != nil {
+		defaultVectorSearcher = prompt.NewCompilerVectorSearcher(bctx.embeddingEngine)
 		compilerOpts = append(compilerOpts, prompt.WithVectorSearcher(defaultVectorSearcher))
 	}
 
-	// Load project corpus.db if it exists (user-defined atoms)
-	corpusPath := filepath.Join(workspace, ".nerd", "prompts", "corpus.db")
+	corpusPath := filepath.Join(bctx.workspace, ".nerd", "prompts", "corpus.db")
 	if wrote, err := prompt.MaterializeDefaultPromptCorpus(corpusPath); err != nil {
 		logging.Get(logging.CategoryContext).Warn("Failed to materialize default prompt corpus: %v", err)
 	} else if wrote {
@@ -820,18 +749,15 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 		projectDB, dbErr := sql.Open("sqlite3", corpusPath)
 		if dbErr == nil {
 			sqlpragmas.ApplyDefaultPragmas(projectDB, sqlpragmas.ProfileHot)
-			// Ensure schema/migrations are applied (safe/idempotent).
-			if err := atomLoader.EnsureSchema(ctx, projectDB); err != nil {
+			if err := bctx.atomLoader.EnsureSchema(bctx.ctx, projectDB); err != nil {
 				logging.Get(logging.CategoryContext).Warn("Failed to ensure project corpus schema: %v", err)
 				_ = projectDB.Close()
 			} else {
-				// Backfill normalized tags from embedded atoms when missing.
 				if embeddedCorpus != nil {
-					if err := prompt.HydrateAtomContextTags(ctx, projectDB, embeddedCorpus.All()); err != nil {
+					if err := prompt.HydrateAtomContextTags(bctx.ctx, projectDB, embeddedCorpus.All()); err != nil {
 						logging.Get(logging.CategoryContext).Warn("Failed to hydrate project corpus tags: %v", err)
 					}
 				}
-
 				compilerOpts = append(compilerOpts, prompt.WithProjectDB(projectDB))
 				logging.Get(logging.CategoryContext).Info("Registered project corpus: %s", corpusPath)
 			}
@@ -842,214 +768,270 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 
 	jitCompiler, err := prompt.NewJITPromptCompiler(compilerOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init JIT compiler: %w", err)
+		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
+	bctx.jitCompiler = jitCompiler
 
-	// Inject stores for semantic knowledge bridging
-	if localDB != nil {
-		jitCompiler.SetLocalDB(localDB)
+	if bctx.localDB != nil {
+		bctx.jitCompiler.SetLocalDB(bctx.localDB)
 	}
-	if learningStore != nil {
-		jitCompiler.SetLearningStore(learningStore)
+	if bctx.learningStore != nil {
+		bctx.jitCompiler.SetLearningStore(bctx.learningStore)
 	}
 	if defaultVectorSearcher != nil {
-		defaultVectorSearcher.SetCompiler(jitCompiler)
-	}
-	var promptAssembler *articulation.PromptAssembler
-	if pa, err := articulation.NewPromptAssembler(kernel); err == nil {
-		pa.SetJITCompiler(jitCompiler)
-		pa.SetJITBudgets(jitCfg.TokenBudget, jitCfg.ReservedTokens, jitCfg.SemanticTopK, jitCfg.ReservedTokensFallbackRatio)
-		pa.EnableJIT(jitCfg.Enabled)
-		promptAssembler = pa
-		transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(pa))
-		// Wire JIT-capable prompt assembly into autopoiesis tool generation/refinement.
-		poiesis.SetPromptAssembler(pa)
+		defaultVectorSearcher.SetCompiler(bctx.jitCompiler)
 	}
 
-	// 5b. Register discovered user agents with JIT compiler and ShardManager
-	// This wires up agents from .nerd/agents/{name}/prompts.yaml
+	if pa, err := articulation.NewPromptAssembler(bctx.kernel); err == nil {
+		pa.SetJITCompiler(bctx.jitCompiler)
+		pa.SetJITBudgets(bctx.jitCfg.TokenBudget, bctx.jitCfg.ReservedTokens, bctx.jitCfg.SemanticTopK, bctx.jitCfg.ReservedTokensFallbackRatio)
+		pa.EnableJIT(bctx.jitCfg.Enabled)
+		bctx.promptAssembler = pa
+		bctx.transducer.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(pa))
+		if bctx.poiesis != nil {
+			bctx.poiesis.SetPromptAssembler(pa)
+		}
+	}
+
 	discoveredAgents := synchronizer.GetDiscoveredAgents()
 	if len(discoveredAgents) > 0 {
 		agentsOnDisk := make([]AgentOnDisk, 0, len(discoveredAgents))
 		for _, a := range discoveredAgents {
 			agentsOnDisk = append(agentsOnDisk, AgentOnDisk{ID: a.ID, DBPath: a.DBPath})
 		}
-		if _, err := SyncAgentRegistryFromDiscovered(workspace, agentsOnDisk); err != nil {
+		if _, err := SyncAgentRegistryFromDiscovered(bctx.workspace, agentsOnDisk); err != nil {
 			logging.Get(logging.CategoryContext).Warn("Failed to sync .nerd/agents.json from .nerd/agents: %v", err)
 		}
 	}
+
+	bctx.shardManager = coreshards.NewShardManager()
+	bctx.shardManager.SetParentKernel(bctx.kernel)
+	bctx.shardManager.SetLLMClient(bctx.shardLLMClient)
+	bctx.virtualStore.SetShardManager(bctx.shardManager)
+
 	for _, agent := range discoveredAgents {
-		// Register agent DB with JIT compiler for dynamic prompt compilation
-		if err := prompt.RegisterAgentDBWithJIT(jitCompiler, agent.ID, agent.DBPath); err != nil {
+		if err := prompt.RegisterAgentDBWithJIT(bctx.jitCompiler, agent.ID, agent.DBPath); err != nil {
 			logging.Get(logging.CategoryContext).Warn("Failed to register agent %s with JIT: %v", agent.ID, err)
 		} else {
 			logging.Get(logging.CategoryContext).Info("Registered user agent '%s' with JIT compiler", agent.ID)
 		}
-
-		// Register agent profile with ShardManager as Type U (user-defined)
 		cfg := coreshards.DefaultSpecialistConfig(agent.ID, agent.DBPath)
 		cfg.Type = types.ShardTypeUser
-		shardManager.DefineProfile(agent.ID, cfg)
+		bctx.shardManager.DefineProfile(agent.ID, cfg)
 	}
 	if len(discoveredAgents) > 0 {
 		logging.Get(logging.CategoryContext).Info("Registered %d user-defined agents", len(discoveredAgents))
 	}
 
-	// Register Shards (The Critical Fix)
-	regCtx := shards.RegistryContext{
-		Kernel:       kernel,
-		LLMClient:    llmClient,
-		VirtualStore: virtualStore,
-		Workspace:    workspace,
-		JITCompiler:  jitCompiler,
-		JITConfig:    jitCfg,
+	return nil
+}
+
+func initAutopoiesisAndBrowser(bctx *bootContext) error {
+	autopoiesisConfig := autopoiesis.DefaultConfig(bctx.workspace)
+	bctx.poiesis = autopoiesis.NewOrchestrator(bctx.llmClient, autopoiesisConfig)
+	bridge := core.NewAutopoiesisBridge(bctx.kernel)
+	bctx.poiesis.SetKernel(bridge)
+
+
+	if ouroborosLoop := bctx.poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
+		bctx.virtualStore.SetToolGenerator(ouroborosLoop)
+		bctx.virtualStore.SetToolExecutor(ouroborosLoop)
 	}
-	// NERD-EVOLVE-START: P1P2-model-tiering
-	// Build a classification client (Haiku/Flash) for perception tiering.
-	// NewClassificationClientFromConfig returns nil for CLI engines and unknown providers,
-	// in which case the perception shard falls back to the main LLMClient.
-	if providerCfgForClassification != nil {
-		if classClient, classErr := perception.NewClassificationClientFromConfig(providerCfgForClassification); classErr == nil && classClient != nil {
+
+	browserCfg := browser.DefaultConfig()
+	browserCfg.SessionStore = filepath.Join(bctx.workspace, ".nerd", "browser", "sessions.json")
+	if engine, err := mangle.NewEngine(mangle.DefaultConfig(), nil); err == nil {
+		bctx.browserMgr = browser.NewSessionManager(browserCfg, engine)
+	}
+	return nil
+}
+
+func initShardManagement(bctx *bootContext) error {
+	coreLimits := bctx.appCfg.GetCoreLimits()
+	limitsEnforcer := core.NewLimitsEnforcer(core.LimitsConfig{
+		MaxTotalMemoryMB:      coreLimits.MaxTotalMemoryMB,
+		MaxConcurrentShards:   coreLimits.MaxConcurrentShards,
+		MaxSessionDurationMin: coreLimits.MaxSessionDurationMin,
+		MaxFactsInKernel:      coreLimits.MaxFactsInKernel,
+		MaxDerivedFactsLimit:  coreLimits.MaxDerivedFactsLimit,
+	})
+	bctx.shardManager.SetLimitsEnforcer(limitsEnforcer)
+
+	spawnQueue := coreshards.NewSpawnQueue(bctx.shardManager, limitsEnforcer, coreshards.DefaultSpawnQueueConfig())
+	bctx.shardManager.SetSpawnQueue(spawnQueue)
+	_ = spawnQueue.Start()
+
+	regCtx := shards.RegistryContext{
+		Kernel:       bctx.kernel,
+		LLMClient:    bctx.llmClient,
+		VirtualStore: bctx.virtualStore,
+		Workspace:    bctx.workspace,
+		JITCompiler:  bctx.jitCompiler,
+		JITConfig:    bctx.jitCfg,
+	}
+	if bctx.providerCfgForClassification != nil {
+		if classClient, classErr := perception.NewClassificationClientFromConfig(bctx.providerCfgForClassification); classErr == nil && classClient != nil {
 			regCtx.ClassificationClient = classClient
 		}
 	}
-	// NERD-EVOLVE-END: P1P2-model-tiering
-	shards.RegisterAllShardFactories(shardManager, regCtx)
+	shards.RegisterAllShardFactories(bctx.shardManager, regCtx)
 
-	// Wire JIT Registrars for future dynamic registration
-	shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(jitCompiler))
-	shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(jitCompiler))
+	bctx.shardManager.SetJITRegistrar(prompt.CreateJITDBRegistrar(bctx.jitCompiler))
+	bctx.shardManager.SetJITUnregistrar(prompt.CreateJITDBUnregistrar(bctx.jitCompiler))
 
-	// Overwrite System Shards (Manual Injection if needed, but RegistryContext handles most)
-	// However, TactileRouter needs BrowserManager which isn't in RegistryContext yet
-	// So we manually re-register TactileRouter to inject BrowserManager
-	shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
+	bctx.shardManager.RegisterShard("tactile_router", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewTactileRouterShard()
-		shard.SetParentKernel(kernel)
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
+		shard.SetParentKernel(bctx.kernel)
+		shard.SetVirtualStore(bctx.virtualStore)
+		shard.SetLLMClient(bctx.llmClient)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
-			setter.SetJITConfig(jitCfg)
+			setter.SetJITConfig(bctx.jitCfg)
 		}
-		if browserMgr != nil {
-			shard.SetBrowserManager(browserMgr)
+		if bctx.browserMgr != nil {
+			shard.SetBrowserManager(bctx.browserMgr)
 		}
-		if promptAssembler != nil {
-			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(promptAssembler))
+		if bctx.promptAssembler != nil {
+			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(bctx.promptAssembler))
 		}
 		return shard
 	})
 
-	// CampaignRunner needs access to the shared ShardManager; inject it here.
-	shardManager.RegisterShard("campaign_runner", func(id string, _ types.ShardConfig) types.ShardAgent {
+	bctx.shardManager.RegisterShard("campaign_runner", func(id string, _ types.ShardConfig) types.ShardAgent {
 		shard := system.NewCampaignRunnerShard()
-		shard.SetParentKernel(kernel)
-		shard.SetVirtualStore(virtualStore)
-		shard.SetLLMClient(llmClient)
+		shard.SetParentKernel(bctx.kernel)
+		shard.SetVirtualStore(bctx.virtualStore)
+		shard.SetLLMClient(bctx.llmClient)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
-			setter.SetJITConfig(jitCfg)
+			setter.SetJITConfig(bctx.jitCfg)
 		}
-		shard.SetWorkspaceRoot(workspace)
-		shard.SetShardManager(shardManager)
-		if promptAssembler != nil {
-			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(promptAssembler))
+		shard.SetWorkspaceRoot(bctx.workspace)
+		shard.SetShardManager(bctx.shardManager)
+		if bctx.promptAssembler != nil {
+			shard.SetPromptAssembler(articulation.NewPromptAssemblerAdapter(bctx.promptAssembler))
 		}
 		return shard
 	})
 
-	// 6. Start System Shards
 	disabledSet := make(map[string]struct{})
-	for _, name := range disableSystemShards {
+	for _, name := range bctx.cfg.DisableSystemShards {
 		disabledSet[name] = struct{}{}
 	}
-	if env := os.Getenv("NERD_DISABLE_SYSTEM_SHARDS"); env != "" {
-		// Parse env var... simplistic split
-		// (omitted for brevity, rely on caller to pass parsed list if possible)
-	}
-
 	for name := range disabledSet {
-		shardManager.DisableSystemShard(name)
+		bctx.shardManager.DisableSystemShard(name)
 	}
 
-	if err := shardManager.StartSystemShards(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start system shards: %w", err)
+	if err := bctx.shardManager.StartSystemShards(bctx.ctx); err != nil {
+		return fmt.Errorf("failed to start system shards: %w", err)
 	}
+	return nil
+}
 
-	// 7. World Model Scanning
-	scanner := world.NewScannerWithConfig(world.ScannerConfig{
+func initFinalExecutors(bctx *bootContext) error {
+	worldCfg := bctx.appCfg.GetWorldConfig()
+	bctx.scanner = world.NewScannerWithConfig(world.ScannerConfig{
 		MaxConcurrency:  worldCfg.FastWorkers,
 		IgnorePatterns:  worldCfg.IgnorePatterns,
 		MaxASTFileBytes: worldCfg.MaxFastASTBytes,
 	})
 
-	// 8. Create JITExecutor for CLI commands
-	// This enables CLI spawn commands to work without domain shards.
-	// Create adapters for session package interfaces
-	sessionKernel := &sessionKernelAdapter{kernel: kernel}
-	sessionVS := &sessionVirtualStoreAdapter{vs: virtualStore}
-	sessionLLM := &sessionLLMAdapter{client: llmClient}
+	sessionKernel := &sessionKernelAdapter{kernel: bctx.kernel}
+	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}
+	sessionLLM := &sessionLLMAdapter{client: bctx.llmClient}
 
-	// Create ConfigFactory with default config atoms
 	configFactory := prompt.NewDefaultConfigFactory()
 
-	// Create the clean execution loop components
-	sessionExecutor := session.NewExecutor(
+	bctx.sessionExecutor = session.NewExecutor(
 		sessionKernel,
 		sessionVS,
 		sessionLLM,
-		jitCompiler,
+		bctx.jitCompiler,
 		configFactory,
-		transducer,
+		bctx.transducer,
 	)
-	// Wire session turn persistence for cross-session continuity
-	if localDB != nil {
-		sessionExecutor.SetSessionPersister(localDB)
+	if bctx.localDB != nil {
+		bctx.sessionExecutor.SetSessionPersister(bctx.localDB)
 	}
 
-	sessionSpawner := session.NewSpawner(
+	bctx.sessionSpawner = session.NewSpawner(
 		sessionKernel,
 		sessionVS,
 		sessionLLM,
-		jitCompiler,
+		bctx.jitCompiler,
 		configFactory,
-		transducer,
+		bctx.transducer,
 		session.DefaultSpawnerConfig(),
 	)
 
-	// Create JITExecutor and wire to VirtualStore
-	taskExecutor := session.NewJITExecutor(sessionExecutor, sessionSpawner, transducer)
-	virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: taskExecutor})
-
+	bctx.taskExecutor = session.NewJITExecutor(bctx.sessionExecutor, bctx.sessionSpawner, bctx.transducer)
+	bctx.virtualStore.SetTaskExecutor(&taskDelegatorAdapter{executor: bctx.taskExecutor})
 	logging.Get(logging.CategorySession).Info("JITExecutor wired in BootCortex")
+	return nil
+}
+
+// BootCortexWithConfig initializes the system with a configuration object.
+// This allows for dependency injection during testing.
+func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) {
+	bctx := &bootContext{
+		ctx: ctx,
+		cfg: cfg,
+	}
+
+	if err := initCoreComponents(bctx); err != nil {
+		return nil, err
+	}
+	if err := initPerceptionLayer(bctx); err != nil {
+		return nil, err
+	}
+	if err := initStorageLayer(bctx); err != nil {
+		return nil, err
+	}
+	if err := initKernel(bctx); err != nil {
+		return nil, err
+	}
+	if err := initExecutionLayer(bctx); err != nil {
+		return nil, err
+	}
+	if err := initAutopoiesisAndBrowser(bctx); err != nil {
+		return nil, err
+	}
+	if err := initIntelligenceLayer(bctx); err != nil {
+		return nil, err
+	}
+	if err := initShardManagement(bctx); err != nil {
+		return nil, err
+	}
+	if err := initFinalExecutors(bctx); err != nil {
+		return nil, err
+	}
 
 	var realKernel *core.RealKernel
-	if rk, ok := kernel.(*core.RealKernel); ok {
+	if rk, ok := bctx.kernel.(*core.RealKernel); ok {
 		realKernel = rk
-	} else if ck, ok := kernel.(*core.CortexKernel); ok {
+	} else if ck, ok := bctx.kernel.(*core.CortexKernel); ok {
 		realKernel = ck.GetPrimaryRealKernel()
 	}
 
 	return &Cortex{
-		Kernel:          kernel,
+		Kernel:          bctx.kernel,
 		RealKernel:      realKernel,
-		LLMClient:       llmClient,
-		ShardManager:    shardManager,
-		TaskExecutor:    taskExecutor,
-		SessionExecutor: sessionExecutor,
-		SessionSpawner:  sessionSpawner,
-		VirtualStore:    virtualStore,
-		Executor:        executor,
-		Transducer:      transducer,
-		Orchestrator:    poiesis,
-		BrowserManager:  browserMgr,
-		Scanner:         scanner,
-		UsageTracker:    tracker,
-		LocalDB:         localDB,
-		LearningStore:   learningStore,
-		EmbeddingEngine: embeddingEngine,
-		Workspace:       workspace,
-		JITCompiler:     jitCompiler,
-		PromptAssembler: promptAssembler,
+		LLMClient:       bctx.llmClient,
+		ShardManager:    bctx.shardManager,
+		TaskExecutor:    bctx.taskExecutor,
+		SessionExecutor: bctx.sessionExecutor,
+		SessionSpawner:  bctx.sessionSpawner,
+		VirtualStore:    bctx.virtualStore,
+		Executor:        bctx.executor,
+		Transducer:      bctx.transducer,
+		Orchestrator:    bctx.poiesis,
+		BrowserManager:  bctx.browserMgr,
+		Scanner:         bctx.scanner,
+		UsageTracker:    bctx.tracker,
+		LocalDB:         bctx.localDB,
+		LearningStore:   bctx.learningStore,
+		EmbeddingEngine: bctx.embeddingEngine,
+		Workspace:       bctx.workspace,
+		JITCompiler:     bctx.jitCompiler,
+		PromptAssembler: bctx.promptAssembler,
 	}, nil
 }
 
