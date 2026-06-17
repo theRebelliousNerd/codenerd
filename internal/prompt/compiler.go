@@ -700,8 +700,6 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 		if len(fact.Args) < 2 {
 			continue
 		}
-		// TODO: Performance: extractStringArg uses fmt.Sprintf which is slow and generates garbage.
-		// Replace with type switches for common primitives to avoid reflection overhead in hot loops.
 		factShardID, err := extractStringArg(fact.Args[0])
 		if err != nil || !matchesShard(factShardID) {
 			continue
@@ -721,7 +719,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 			sb.WriteString("\n")
 		}
 		content := sb.String()
-		id := fmt.Sprintf("kernel/context/%s", HashContent(content)[:8])
+		id := "kernel/context/" + HashContent(content)[:8]
 		pa := NewPromptAtom(id, CategoryContext, content)
 		pa.IsMandatory = true
 		pa.Priority = 95
@@ -762,7 +760,7 @@ func (c *JITPromptCompiler) collectKernelInjectedAtoms(cc *CompilationContext) (
 				sb.WriteString("\n\n")
 			}
 			content := strings.TrimRight(sb.String(), "\n")
-			id := fmt.Sprintf("kernel/knowledge/%s", HashContent(content)[:8])
+			id := "kernel/knowledge/" + HashContent(content)[:8]
 			pa := NewPromptAtom(id, CategoryKnowledge, content)
 			pa.IsMandatory = true
 			pa.Priority = 90
