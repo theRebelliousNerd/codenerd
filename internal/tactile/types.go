@@ -365,7 +365,7 @@ func DefaultExecutorConfig() ExecutorConfig {
 		DefaultTimeout:     30 * time.Second,
 		MaxTimeout:         10 * time.Minute,
 		MaxOutputBytes:     10 * 1024 * 1024, // 10MB
-		AllowedEnvironment: []string{"PATH", "HOME", "GOPATH", "GOROOT", "GOBIN", "USER", "LANG", "LC_ALL"},
+		AllowedEnvironment: []string{"PATH", "HOME", "GOPATH", "GOROOT", "GOBIN", "USER", "LANG", "LC_ALL", "TEMP", "TMP", "USERPROFILE", "SystemRoot", "SystemDrive", "GOCACHE", "LOCALAPPDATA", "APPDATA"},
 		DefaultLimits: &ResourceLimits{
 			TimeoutMs:      30000,
 			MaxOutputBytes: 10 * 1024 * 1024,

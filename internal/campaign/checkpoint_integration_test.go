@@ -100,6 +100,9 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyBuilds)
 
 		require.NoError(t, err)
+		if !passed {
+			t.Logf("VerifyBuilds failed, details: %s", details)
+		}
 		require.True(t, passed, "Build should pass")
 		require.Contains(t, details, "Build succeeded")
 	})
@@ -124,6 +127,9 @@ func TestCheckpointRunner_Integration(t *testing.T) {
 		passed, details, err := runner.Run(ctx, nil, campaign.VerifyTestsPass)
 
 		require.NoError(t, err)
+		if !passed {
+			t.Logf("VerifyTestsPass failed, details: %s", details)
+		}
 		require.True(t, passed, "Tests should pass")
 		require.Contains(t, details, "All 1 tests passed")
 	})
