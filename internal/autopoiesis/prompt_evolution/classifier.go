@@ -1,6 +1,8 @@
 package prompt_evolution
 
 import (
+	"sync"
+
 	"context"
 	"regexp"
 	"strings"
@@ -283,13 +285,36 @@ func (pc *ProblemClassifier) applyKeywordBoosters(text string, currentType Probl
 	return currentType, currentScore
 }
 
+var (
+	regexCache   = make(map[string]*regexp.Regexp)
+	regexCacheMu sync.RWMutex
+)
+
 // compileAll compiles multiple regex patterns.
 func compileAll(patterns ...string) []*regexp.Regexp {
 	result := make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {
-		if r, err := regexp.Compile(p); err == nil {
-			result = append(result, r)
+		regexCacheMu.RLock()
+		r, ok := regexCache[p]
+		regexCacheMu.RUnlock()
+
+		if ok {
+			if r != nil {
+				result = append(result, r)
+			}
+			continue
 		}
+
+		r, err := regexp.Compile(p)
+
+		regexCacheMu.Lock()
+		if err == nil {
+			regexCache[p] = r
+			result = append(result, r)
+		} else {
+			regexCache[p] = nil
+		}
+		regexCacheMu.Unlock()
 	}
 	return result
 }
