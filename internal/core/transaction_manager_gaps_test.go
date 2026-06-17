@@ -565,7 +565,7 @@ func TestTransactionManagerGap_ManyEdits_Stress(t *testing.T) {
 
 // TestTransactionManagerGap_Prepare_ContextCancellation verifies that
 // Prepare respects context cancellation. The current implementation
-// treats SimulateAction errors as warnings, which is a known bug.
+// aborts the transaction when SimulateAction fails due to context cancellation.
 // This test documents the behavior.
 func TestTransactionManagerGap_Prepare_ContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -603,11 +603,7 @@ func TestTransactionManagerGap_Prepare_ContextCancellation(t *testing.T) {
 		return
 	}
 
-	// If Prepare returned a result, check for warnings (known bug: ctx errors
-	// are added as warnings, not failures)
-	if result != nil && len(result.Warnings) > 0 {
-		t.Logf("KNOWN BUG: Prepare added context error as warning instead of failing: %v", result.Warnings)
-	}
+	t.Errorf("Expected context error, got nil error and result: %+v", result)
 }
 
 // ============================================================================
