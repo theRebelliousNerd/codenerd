@@ -61,3 +61,57 @@ func TestCartographerMapFile(t *testing.T) {
 		t.Errorf("MapFile(.txt)=(%d facts,%v), want (0,nil)", len(f), err)
 	}
 }
+
+func TestNewCodeElementParserWithFactory(t *testing.T) {
+	factory := NewParserFactory("/test/root")
+	parser := NewCodeElementParserWithFactory(factory)
+
+	if parser == nil {
+		t.Fatal("expected parser to be created")
+	}
+	if parser.Factory() != factory {
+		t.Errorf("expected parser to have the provided factory")
+	}
+	if parser.projectRoot != "/test/root" {
+		t.Errorf("expected project root to be '/test/root', got '%s'", parser.projectRoot)
+	}
+}
+
+func TestNewCodeElementParserWithRoot(t *testing.T) {
+	root := "/test/root"
+	parser := NewCodeElementParserWithRoot(root)
+
+	if parser == nil {
+		t.Fatal("expected parser to be created")
+	}
+	factory := parser.Factory()
+	if factory == nil {
+		t.Fatal("expected default factory to be created")
+	}
+	if factory.ProjectRoot() != root {
+		t.Errorf("expected factory project root to be '%s', got '%s'", root, factory.ProjectRoot())
+	}
+	if parser.projectRoot != root {
+		t.Errorf("expected parser project root to be '%s', got '%s'", root, parser.projectRoot)
+	}
+}
+
+func TestCodeElementParser_Factory(t *testing.T) {
+	factory := NewParserFactory("/test/root")
+	parser := NewCodeElementParserWithFactory(factory)
+
+	if got := parser.Factory(); got != factory {
+		t.Errorf("Factory() returned %v, want %v", got, factory)
+	}
+}
+
+func TestCodeElementParser_ParseFile_NoFactory(t *testing.T) {
+	parser := &CodeElementParser{} // no factory
+
+	_, err := parser.ParseFile("test.go")
+	if err == nil {
+		t.Error("expected error when parsing without a factory")
+	} else if err.Error() != "ParserFactory is required but not configured for CodeElementParser" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
