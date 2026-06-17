@@ -26,6 +26,10 @@ func TestGlobTool_Definition(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Tests missing for args=nil map resulting in zero value lookups without panic.
+// TODO: TEST_GAP: Null/Undefined/Empty - Tests missing for pattern consisting entirely of whitespace.
+// TODO: TEST_GAP: Type Coercion - Tests missing for JSON float64 to int casting failures for max_results failing silently and ignoring LLM configs.
+// TODO: TEST_GAP: User Request Extremes - Tests missing for executing massive directory traversals without proper context cancellation checks.
 func TestGlobTool_Execute_MissingPattern(t *testing.T) {
 	t.Parallel()
 
@@ -122,6 +126,11 @@ func TestGrepTool_Definition(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: Null/Undefined/Empty - Tests missing for nil map lookup.
+// TODO: TEST_GAP: Type Coercion - Tests missing for JSON float64 to int casting on max_results and context_lines resulting in silent truncation of LLM requests.
+// TODO: TEST_GAP: User Request Extremes - Tests missing for ReDoS / Catastrophic Backtracking on complex regex strings.
+// TODO: TEST_GAP: User Request Extremes - Tests missing for cancellation enforcement during file enumeration and scanning (ctx.Done()).
+// TODO: TEST_GAP: State Conflicts - Tests missing for concurrent modifications (file deleted/permissions changed) between finding files and opening them in searchFile.
 func TestGrepTool_Execute_MissingPattern(t *testing.T) {
 	t.Parallel()
 
