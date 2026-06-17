@@ -397,3 +397,12 @@ func BinaryInput(ctx context.Context, input string) (string, error) {
 // TODO: TEST_GAP: [User Request Extremes] Verify runAttack does not OOM the host when a tool outputs 1GB of binary data to stdout/stderr. Enforce a LimitReader on the exec.Cmd output pipes.
 // TODO: TEST_GAP: [User Request Extremes] Verify prepareArena aborts and returns an error if go test -c takes longer than a strict internal timeout (e.g., 30s), preventing infinite compilation attacks.
 // TODO: TEST_GAP: [State Conflicts] Verify prepareArena uses a cryptographically secure random identifier (UUID or crypto/rand) to guarantee zero collisions under extreme concurrency, rather than relying solely on UnixNano().
+// TODO: TEST_GAP: [Type Coercion] Verify what happens if the input attack vector is missing completely or has incorrect fields in thunderdome_harness_test.go Battle.
+// TODO: TEST_GAP: [Type Coercion] Verify handling of structured types like structs or []byte as input to entry point tools in thunderdome_harness_test.go.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Battle handles an empty attacks slice gracefully.
+// TODO: TEST_GAP: [User Request Extremes] Verify Battle properly processes massive Stdout/Stderr tool output without causing host OOMs.
+// TODO: TEST_GAP: [State Conflicts] Verify Battle arena preparation behaves deterministically under intense parallel spawning to rule out file collisions.
+// TODO: TEST_GAP: [Behavioral Edge Case] Verify Battle handles tools that catch their own panics (using recover()) internally instead of returning an error.
+// TODO: TEST_GAP: [Behavioral Edge Case] Verify Battle detects panics resulting from deep recursion (Go runtime stack overflow) properly instead of marking it a survival/timeout.
+// TODO: TEST_GAP: [Input Boundary] Verify tool execution properly handles and identifies tools that panic when an empty string ("") is supplied as the attack input.
+// TODO: TEST_GAP: [Network Access] Verify that Battle sandbox environments successfully block or detect network exfiltration from the generated tools.
