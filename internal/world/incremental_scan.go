@@ -258,6 +258,7 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var updates []store.FileUpdates
 	newFacts := make([]core.Fact, 0, len(dirFacts)+len(pathsToParse)*2)
 
 	// Always refresh directory facts on delta scans.
@@ -328,49 +329,52 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 					}
 				}
 			}
-
 			// Update file cache entry.
 			cache.Update(path, info, hash)
 
-			// Persist to DB (fast depth).
+			mu.Lock()
+			newFacts = append(newFacts, ft)
+			newFacts = append(newFacts, additional...)
 			if db != nil {
 				fp := fileFingerprint(info)
-				if err := db.UpsertWorldFile(store.WorldFileMeta{
+				meta := store.WorldFileMeta{
 					Path:        path,
 					Lang:        lang,
 					Size:        info.Size(),
 					ModTime:     info.ModTime().UnixNano(),
 					Hash:        hash,
 					Fingerprint: fp,
-				}); err != nil {
-					logging.WorldWarn("ScanWorkspaceIncremental: failed to upsert world file %s: %v", path, err)
 				}
 				inputs := make([]store.WorldFactInput, 0, 1+len(additional))
 				inputs = append(inputs, store.WorldFactInput{Predicate: ft.Predicate, Args: ft.Args})
 				for _, f := range additional {
 					inputs = append(inputs, store.WorldFactInput{Predicate: f.Predicate, Args: f.Args})
 				}
-				if err := db.ReplaceWorldFactsForFile(path, "fast", fp, inputs); err != nil {
-					logging.WorldWarn("ScanWorkspaceIncremental: failed to replace world facts for file %s: %v", path, err)
-				}
+				updates = append(updates, store.FileUpdates{
+					Meta:  meta,
+					Facts: inputs,
+				})
 			}
-
-			mu.Lock()
-			newFacts = append(newFacts, ft)
-			newFacts = append(newFacts, additional...)
 			mu.Unlock()
+
 		})
 	}
 
 	wg.Wait()
 
-	// Handle deletions: drop from DB and cache.
-	for _, p := range deleted {
-		if db != nil {
-			if err := db.DeleteWorldFile(p); err != nil {
-				logging.WorldWarn("ScanWorkspaceIncremental: failed to delete world file %s: %v", p, err)
-			}
+	if db != nil {
+		if err := db.UpdateWorldFilesAndFacts("fast", updates); err != nil {
+			logging.WorldWarn("ScanWorkspaceIncremental: failed to batch update files and facts: %v", err)
 		}
+	}
+
+	// Handle deletions: drop from DB and cache.
+	if db != nil && len(deleted) > 0 {
+		if err := db.DeleteWorldFiles(deleted); err != nil {
+			logging.WorldWarn("ScanWorkspaceIncremental: failed to batch delete world files: %v", err)
+		}
+	}
+	for _, p := range deleted {
 		cache.mu.Lock()
 		delete(cache.Entries, p)
 		cache.Dirty = true
