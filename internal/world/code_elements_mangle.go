@@ -222,6 +222,23 @@ func parseManglePredicateAndArity(head string) (pred string, arity int) {
 		h = strings.TrimSpace(after)
 	}
 
+	pred, rest := extractManglePredicateName(h)
+	if pred == "" {
+		return "", 0
+	}
+	if rest == "" && strings.HasPrefix(rest, "()") {
+		return pred, 0
+	}
+	if !strings.HasPrefix(rest, "(") {
+		return pred, 0
+	}
+
+	argsStr := extractMangleArgsString(rest)
+	arity = calculateMangleArity(argsStr)
+	return pred, arity
+}
+
+func extractManglePredicateName(h string) (pred string, rest string) {
 	// Predicate name up to '(' or whitespace.
 	nameEnd := 0
 	for nameEnd < len(h) {
@@ -232,13 +249,13 @@ func parseManglePredicateAndArity(head string) (pred string, arity int) {
 		nameEnd++
 	}
 	pred = strings.TrimSpace(h[:nameEnd])
-	if pred == "" {
-		return "", 0
-	}
+	rest = strings.TrimSpace(h[nameEnd:])
+	return pred, rest
+}
 
-	rest := strings.TrimSpace(h[nameEnd:])
+func extractMangleArgsString(rest string) string {
 	if !strings.HasPrefix(rest, "(") {
-		return pred, 0
+		return ""
 	}
 
 	// Find matching ')'.
@@ -279,22 +296,25 @@ func parseManglePredicateAndArity(head string) (pred string, arity int) {
 		}
 	}
 	if closeIdx == -1 {
-		return pred, 0
+		return ""
 	}
 
-	args := strings.TrimSpace(rest[1:closeIdx])
+	return strings.TrimSpace(rest[1:closeIdx])
+}
+
+func calculateMangleArity(args string) int {
 	if args == "" {
-		return pred, 0
+		return 0
 	}
 
 	// Count top-level commas in args, respecting nested structures/types.
-	arity = 1
+	arity := 1
 	angleDepth := 0
 	parenDepth := 0
 	bracketDepth := 0
 	braceDepth := 0
-	inString = false
-	escape = false
+	inString := false
+	escape := false
 	for i := 0; i < len(args); i++ {
 		b := args[i]
 		if inString {
@@ -345,7 +365,7 @@ func parseManglePredicateAndArity(head string) (pred string, arity int) {
 		}
 	}
 
-	return pred, arity
+	return arity
 }
 
 func (p *CodeElementParser) parseMangleFile(path string) ([]CodeElement, error) {
