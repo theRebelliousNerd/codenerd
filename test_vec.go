@@ -20,8 +20,8 @@ import (
 
 func main() {
 	vec.Auto()
-	
-	db, err := sql.Open("sqlite3", "C:/CodeProjects/codeNERD/.nerd/intent_embeddings.db")
+
+	db, err := sql.Open("sqlite3", "./.nerd/intent_embeddings.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,29 +35,33 @@ func main() {
 	}
 	fmt.Printf("sqlite-vec loaded successfully! version: %s\n", vecVersion)
 
-	// List vector tables
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table'")
+	// List vector tables, pulling sql text in the same query to avoid N+1 lookups
+	rows, err := db.Query("SELECT name, coalesce(sql, '') FROM sqlite_master WHERE type='table'")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		var sqlText string
+		rows.Scan(&name, &sqlText)
+
+		tables = append(tables, name)
+	}
+	rows.Close() // Close rows early before iterating inner queries
 
 	fmt.Println("\nTables in intent_embeddings.db:")
 	count := 0
-	for rows.Next() {
-		var name string
-		rows.Scan(&name)
-		
-		// Check if it's a vec0 table or normal table
-		var sqlText string
-		db.QueryRow("SELECT sql FROM sqlite_master WHERE name=?", name).Scan(&sqlText)
-		
+
+	for _, name := range tables {
 		fmt.Printf("- %s\n", name)
 		var rowCount int
 		db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", name)).Scan(&rowCount)
 		fmt.Printf("  Row count: %d\n", rowCount)
 		count++
 	}
+
 	if count == 0 {
 		fmt.Println("No tables found.")
 	}
