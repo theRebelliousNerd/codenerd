@@ -52,159 +52,16 @@ type RouterConfig struct {
 
 // DefaultRouterConfig returns sensible defaults.
 func DefaultRouterConfig() RouterConfig {
+	var routes []ToolRoute
+	routes = append(routes, systemAndControlRoutes()...)
+	routes = append(routes, fileAndCodeRoutes()...)
+	routes = append(routes, executionAndEnvRoutes()...)
+	routes = append(routes, networkAndGitRoutes()...)
+	routes = append(routes, agenticAndCampaignRoutes()...)
+
 	return RouterConfig{
-		DefaultRoutes: []ToolRoute{
-			// System lifecycle actions (internal kernel events - no external tool)
-			{ActionPattern: "system_start", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "initialize", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "shutdown", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "heartbeat", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+		DefaultRoutes: routes,
 
-			// File operations
-			{ActionPattern: "read_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "fs_read", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "write_file", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "fs_write", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "edit_file", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "delete_file", ToolName: "fs_delete", Timeout: 10 * time.Second, RequiresSafe: true},
-
-			// Code operations
-			{ActionPattern: "search_code", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "analyze_impact", ToolName: "impact_analyzer", Timeout: 60 * time.Second, RequiresSafe: false},
-
-			// Execution
-			{ActionPattern: "exec_cmd", ToolName: "shell_exec", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "run_tests", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "build_project", ToolName: "build_tool", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
-
-			// Python environment + SWE-bench orchestration
-			{ActionPattern: "python_env_setup", ToolName: "python_env", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 3},
-			{ActionPattern: "python_env_exec", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "python_run_pytest", ToolName: "python_env", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "python_apply_patch", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "python_snapshot", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "python_restore", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "python_teardown", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "swebench_setup", ToolName: "swebench", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 3},
-			{ActionPattern: "swebench_apply_patch", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "swebench_run_tests", ToolName: "swebench", Timeout: 900 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "swebench_snapshot", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "swebench_restore", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "swebench_evaluate", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "swebench_teardown", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
-
-			// Git operations
-			{ActionPattern: "git_operation", ToolName: "git_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 20},
-			{ActionPattern: "show_diff", ToolName: "git_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
-
-			// Network
-			{ActionPattern: "fetch", ToolName: "http_fetch", Timeout: 30 * time.Second, RequiresSafe: true, RateLimit: 30},
-			{ActionPattern: "browse", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "research", ToolName: "research_tool", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
-
-			// Delegation
-			{ActionPattern: "delegate", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
-
-			// User interaction
-			{ActionPattern: "ask_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false}, // No timeout for user
-			{ActionPattern: "escalate", ToolName: "escalation_handler", Timeout: 0, RequiresSafe: false},
-
-			// Campaign operations (prefix matches all campaign_* actions)
-			{ActionPattern: "campaign_", ToolName: "campaign_tool", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "archive_campaign", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "show_campaign", ToolName: "campaign_tool", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "run_phase_checkpoint", ToolName: "campaign_tool", Timeout: 60 * time.Second, RequiresSafe: true},
-			{ActionPattern: "investigate_systemic", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "pause_and_replan", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "ask_campaign_interrupt", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
-
-			// TDD repair loop
-			{ActionPattern: "read_error_log", ToolName: "tdd_tool", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "analyze_root_cause", ToolName: "tdd_tool", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "generate_patch", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "complete", ToolName: "tdd_tool", Timeout: 1 * time.Second, RequiresSafe: false},
-
-			// Autopoiesis/Ouroboros (prefix matches ouroboros_*)
-			{ActionPattern: "generate_tool", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
-			{ActionPattern: "refine_tool", ToolName: "ouroboros_tool", Timeout: 60 * time.Second, RequiresSafe: true},
-			{ActionPattern: "ouroboros_", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
-
-			// Strategic/control
-			{ActionPattern: "resume_task", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "escalate_to_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
-			{ActionPattern: "interrogative_mode", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
-			{ActionPattern: "refresh_shard_context", ToolName: "session_control", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "update_world_model", ToolName: "world_model", Timeout: 30 * time.Second, RequiresSafe: false},
-
-			// Context management
-			{ActionPattern: "compress_context", ToolName: "context_manager", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "emergency_compress", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "create_checkpoint", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
-
-			// Code DOM operations
-			{ActionPattern: "edit_element", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "open_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
-			{ActionPattern: "query_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "refresh_scope", ToolName: "code_scope", Timeout: 10 * time.Second, RequiresSafe: false},
-
-			// Corrective operations (prefix matches corrective_*)
-			{ActionPattern: "corrective_", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
-
-			// =====================================================================
-			// PASS 2 ROUTES: Full coverage for all derived actions
-			// =====================================================================
-
-			// Investigation operations
-			{ActionPattern: "investigate_anomaly", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: false},
-
-			// Review operations (delegate to specialized shards)
-			{ActionPattern: "review", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
-			{ActionPattern: "lint", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: false},
-			{ActionPattern: "check_security", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: false},
-
-			// Code analysis operations
-			{ActionPattern: "analyze_code", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
-			{ActionPattern: "parse_ast", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "query_symbols", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "check_syntax", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "code_graph", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
-
-			// Additional test operations
-			{ActionPattern: "coverage", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
-			{ActionPattern: "test_single", ToolName: "test_runner", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
-
-			// Knowledge/vector operations (kernel internal - query only)
-			{ActionPattern: "vector_search", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "knowledge_query", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "embed_text", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
-
-			// Browser operations
-			{ActionPattern: "browser_navigate", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
-			{ActionPattern: "browser_screenshot", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
-			{ActionPattern: "browser_read_dom", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 30},
-
-			// File search operations
-			{ActionPattern: "glob_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "search_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-
-			// Extended Code DOM operations
-			{ActionPattern: "close_scope", ToolName: "code_scope", Timeout: 5 * time.Second, RequiresSafe: false},
-			{ActionPattern: "edit_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "insert_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "delete_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
-			{ActionPattern: "get_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
-			{ActionPattern: "get_element", ToolName: "code_search", Timeout: 10 * time.Second, RequiresSafe: false},
-
-			// Autopoiesis tool execution
-			{ActionPattern: "exec_tool", ToolName: "shell_exec", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
-
-			// Delegate routing (explicit shard delegation)
-			{ActionPattern: "delegate_reviewer", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
-			{ActionPattern: "delegate_coder", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
-			{ActionPattern: "delegate_researcher", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
-			{ActionPattern: "delegate_tester", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
-			{ActionPattern: "delegate_tool_generator", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: true},
-		},
 		TickInterval:         500 * time.Millisecond,
 		IdleTimeout:          30 * time.Second,
 		AllowUnmappedActions: false,
@@ -1025,3 +882,149 @@ func extractIntentIDFromPayloadString(payload string) string {
 // NOTE: Legacy routerAutopoiesisPrompt constant has been DELETED.
 // Router autopoiesis prompts are now JIT-compiled from:
 //   internal/prompt/atoms/system/autopoiesis.yaml (id: system/autopoiesis/router)
+
+func systemAndControlRoutes() []ToolRoute {
+	return []ToolRoute{
+		// System lifecycle actions (internal kernel events - no external tool)
+		{ActionPattern: "system_start", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+		{ActionPattern: "initialize", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+		{ActionPattern: "shutdown", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+		{ActionPattern: "heartbeat", ToolName: "kernel_internal", Timeout: 1 * time.Second, RequiresSafe: false},
+		// User interaction
+		{ActionPattern: "ask_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false}, // No timeout for user
+		{ActionPattern: "escalate", ToolName: "escalation_handler", Timeout: 0, RequiresSafe: false},
+		// Strategic/control
+		{ActionPattern: "resume_task", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
+		{ActionPattern: "escalate_to_user", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
+		{ActionPattern: "interrogative_mode", ToolName: "session_control", Timeout: 1 * time.Second, RequiresSafe: false},
+		{ActionPattern: "refresh_shard_context", ToolName: "session_control", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "update_world_model", ToolName: "world_model", Timeout: 30 * time.Second, RequiresSafe: false},
+		// Context management
+		{ActionPattern: "compress_context", ToolName: "context_manager", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "emergency_compress", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "create_checkpoint", ToolName: "context_manager", Timeout: 10 * time.Second, RequiresSafe: false},
+		// Knowledge/vector operations (kernel internal - query only)
+		{ActionPattern: "vector_search", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "knowledge_query", ToolName: "kernel_internal", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "embed_text", ToolName: "kernel_internal", Timeout: 10 * time.Second, RequiresSafe: false},
+	}
+}
+
+func fileAndCodeRoutes() []ToolRoute {
+	return []ToolRoute{
+		// File operations
+		{ActionPattern: "read_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "fs_read", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "write_file", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "fs_write", ToolName: "fs_write", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "edit_file", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "delete_file", ToolName: "fs_delete", Timeout: 10 * time.Second, RequiresSafe: true},
+		// Code operations
+		{ActionPattern: "search_code", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "analyze_impact", ToolName: "impact_analyzer", Timeout: 60 * time.Second, RequiresSafe: false},
+		// Code DOM operations
+		{ActionPattern: "edit_element", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "open_file", ToolName: "fs_read", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "query_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "refresh_scope", ToolName: "code_scope", Timeout: 10 * time.Second, RequiresSafe: false},
+		// Investigation operations
+		{ActionPattern: "investigate_anomaly", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: false},
+		// Review operations (delegate to specialized shards)
+		{ActionPattern: "review", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+		{ActionPattern: "lint", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: false},
+		{ActionPattern: "check_security", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: false},
+		// Code analysis operations
+		{ActionPattern: "analyze_code", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
+		{ActionPattern: "parse_ast", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "query_symbols", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "check_syntax", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "code_graph", ToolName: "code_search", Timeout: 60 * time.Second, RequiresSafe: false},
+		// File search operations
+		{ActionPattern: "glob_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "search_files", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		// Extended Code DOM operations
+		{ActionPattern: "close_scope", ToolName: "code_scope", Timeout: 5 * time.Second, RequiresSafe: false},
+		{ActionPattern: "edit_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "insert_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "delete_lines", ToolName: "fs_edit", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "get_elements", ToolName: "code_search", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "get_element", ToolName: "code_search", Timeout: 10 * time.Second, RequiresSafe: false},
+	}
+}
+
+func executionAndEnvRoutes() []ToolRoute {
+	return []ToolRoute{
+		// Execution
+		{ActionPattern: "exec_cmd", ToolName: "shell_exec", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "run_tests", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "build_project", ToolName: "build_tool", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
+		// Python environment + SWE-bench orchestration
+		{ActionPattern: "python_env_setup", ToolName: "python_env", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 3},
+		{ActionPattern: "python_env_exec", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "python_run_pytest", ToolName: "python_env", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "python_apply_patch", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "python_snapshot", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "python_restore", ToolName: "python_env", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "python_teardown", ToolName: "python_env", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "swebench_setup", ToolName: "swebench", Timeout: 600 * time.Second, RequiresSafe: true, RateLimit: 3},
+		{ActionPattern: "swebench_apply_patch", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "swebench_run_tests", ToolName: "swebench", Timeout: 900 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "swebench_snapshot", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "swebench_restore", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "swebench_evaluate", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "swebench_teardown", ToolName: "swebench", Timeout: 180 * time.Second, RequiresSafe: true, RateLimit: 5},
+		// Additional test operations
+		{ActionPattern: "coverage", ToolName: "test_runner", Timeout: 300 * time.Second, RequiresSafe: true, RateLimit: 5},
+		{ActionPattern: "test_single", ToolName: "test_runner", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+		// Autopoiesis tool execution
+		{ActionPattern: "exec_tool", ToolName: "shell_exec", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 10},
+	}
+}
+
+func networkAndGitRoutes() []ToolRoute {
+	return []ToolRoute{
+		// Git operations
+		{ActionPattern: "git_operation", ToolName: "git_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 20},
+		{ActionPattern: "show_diff", ToolName: "git_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
+		// Network
+		{ActionPattern: "fetch", ToolName: "http_fetch", Timeout: 30 * time.Second, RequiresSafe: true, RateLimit: 30},
+		{ActionPattern: "browse", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "research", ToolName: "research_tool", Timeout: 120 * time.Second, RequiresSafe: true, RateLimit: 5},
+		// Browser operations
+		{ActionPattern: "browser_navigate", ToolName: "browser_tool", Timeout: 60 * time.Second, RequiresSafe: true, RateLimit: 10},
+		{ActionPattern: "browser_screenshot", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 20},
+		{ActionPattern: "browser_read_dom", ToolName: "browser_tool", Timeout: 30 * time.Second, RequiresSafe: false, RateLimit: 30},
+	}
+}
+
+func agenticAndCampaignRoutes() []ToolRoute {
+	return []ToolRoute{
+		// Delegation
+		{ActionPattern: "delegate", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
+		// Campaign operations (prefix matches all campaign_* actions)
+		{ActionPattern: "campaign_", ToolName: "campaign_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+		{ActionPattern: "archive_campaign", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: true},
+		{ActionPattern: "show_campaign", ToolName: "campaign_tool", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "run_phase_checkpoint", ToolName: "campaign_tool", Timeout: 60 * time.Second, RequiresSafe: true},
+		{ActionPattern: "investigate_systemic", ToolName: "analysis_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+		{ActionPattern: "pause_and_replan", ToolName: "campaign_tool", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "ask_campaign_interrupt", ToolName: "user_prompt", Timeout: 0, RequiresSafe: false},
+		// TDD repair loop
+		{ActionPattern: "read_error_log", ToolName: "tdd_tool", Timeout: 10 * time.Second, RequiresSafe: false},
+		{ActionPattern: "analyze_root_cause", ToolName: "tdd_tool", Timeout: 30 * time.Second, RequiresSafe: false},
+		{ActionPattern: "generate_patch", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
+		{ActionPattern: "complete", ToolName: "tdd_tool", Timeout: 1 * time.Second, RequiresSafe: false},
+		// Autopoiesis/Ouroboros (prefix matches ouroboros_*)
+		{ActionPattern: "generate_tool", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+		{ActionPattern: "refine_tool", ToolName: "ouroboros_tool", Timeout: 60 * time.Second, RequiresSafe: true},
+		{ActionPattern: "ouroboros_", ToolName: "ouroboros_tool", Timeout: 120 * time.Second, RequiresSafe: true},
+		// Corrective operations (prefix matches corrective_*)
+		{ActionPattern: "corrective_", ToolName: "shard_manager", Timeout: 120 * time.Second, RequiresSafe: true},
+		// Delegate routing (explicit shard delegation)
+		{ActionPattern: "delegate_reviewer", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+		{ActionPattern: "delegate_coder", ToolName: "shard_manager", Timeout: 600 * time.Second, RequiresSafe: true},
+		{ActionPattern: "delegate_researcher", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+		{ActionPattern: "delegate_tester", ToolName: "shard_manager", Timeout: 300 * time.Second, RequiresSafe: false},
+		{ActionPattern: "delegate_tool_generator", ToolName: "shard_manager", Timeout: 180 * time.Second, RequiresSafe: true},
+	}
+}
