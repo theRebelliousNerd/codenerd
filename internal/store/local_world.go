@@ -20,6 +20,12 @@ type WorldFileMeta struct {
 
 // WorldFactInput is a lightweight fact carrier for world cache I/O.
 // Predicate + Args mirror core/types.Fact without importing core.
+
+// FileUpdates groups a file's metadata and its facts for batched operations.
+type FileUpdates struct {
+	Meta  WorldFileMeta
+	Facts []WorldFactInput
+}
 type WorldFactInput struct {
 	Predicate string
 	Args      []any
@@ -188,4 +194,120 @@ func (s *LocalStore) LoadAllWorldFacts(depth string) ([]WorldFactInput, error) {
 		out = append(out, WorldFactInput{Predicate: pred, Args: args})
 	}
 	return out, nil
+}
+
+// UpdateWorldFilesAndFacts performs a batched upsert of world files and their facts.
+func (s *LocalStore) UpdateWorldFilesAndFacts(depth string, updates []FileUpdates) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	timer := logging.StartTimer(logging.CategoryStore, "UpdateWorldFilesAndFacts")
+	defer timer.Stop()
+
+	if depth == "" {
+		depth = "fast"
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	fileStmt, err := tx.Prepare(`
+		INSERT INTO world_files (path, lang, size, modtime, hash, fingerprint, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(path) DO UPDATE SET
+		   lang = excluded.lang,
+		   size = excluded.size,
+		   modtime = excluded.modtime,
+		   hash = excluded.hash,
+		   fingerprint = excluded.fingerprint,
+		   updated_at = CURRENT_TIMESTAMP`)
+	if err != nil {
+		return err
+	}
+	defer fileStmt.Close()
+
+	delStmt, err := tx.Prepare("DELETE FROM world_facts WHERE path = ? AND depth = ?")
+	if err != nil {
+		return err
+	}
+	defer delStmt.Close()
+
+	factStmt, err := tx.Prepare(`
+		INSERT OR REPLACE INTO world_facts (path, depth, fingerprint, predicate, args, updated_at)
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`)
+	if err != nil {
+		return err
+	}
+	defer factStmt.Close()
+
+	for _, u := range updates {
+		if _, err := fileStmt.Exec(u.Meta.Path, u.Meta.Lang, u.Meta.Size, u.Meta.ModTime, u.Meta.Hash, u.Meta.Fingerprint); err != nil {
+			return err
+		}
+
+		if _, err := delStmt.Exec(u.Meta.Path, depth); err != nil {
+			return err
+		}
+
+		for _, f := range u.Facts {
+			argsJSON, err := encodeFactArgs(f.Args)
+			if err != nil {
+				return err
+			}
+			if _, err := factStmt.Exec(u.Meta.Path, depth, u.Meta.Fingerprint, f.Predicate, string(argsJSON)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// DeleteWorldFiles removes world_files and all cached facts for multiple files.
+func (s *LocalStore) DeleteWorldFiles(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	timer := logging.StartTimer(logging.CategoryStore, "DeleteWorldFiles")
+	defer timer.Stop()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	factStmt, err := tx.Prepare("DELETE FROM world_facts WHERE path = ?")
+	if err != nil {
+		return err
+	}
+	defer factStmt.Close()
+
+	fileStmt, err := tx.Prepare("DELETE FROM world_files WHERE path = ?")
+	if err != nil {
+		return err
+	}
+	defer fileStmt.Close()
+
+	for _, path := range paths {
+		if _, err := factStmt.Exec(path); err != nil {
+			return err
+		}
+		if _, err := fileStmt.Exec(path); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
