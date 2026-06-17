@@ -32,7 +32,6 @@ func TestCodeElementQueries(t *testing.T) {
 	if got := GetMethodsOfStruct(elements, "struct:Other"); len(got) != 0 {
 		t.Errorf("GetMethodsOfStruct(Other)=%v, want empty", got)
 	}
-
 }
 
 func TestCartographerMapFile(t *testing.T) {
@@ -173,6 +172,47 @@ func TestGetMethodsOfStruct(t *testing.T) {
 
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetMethodsOfStruct() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetElementsInRange(t *testing.T) {
+	elements := []CodeElement{
+		{Ref: "elem:A", StartLine: 10, EndLine: 20},
+		{Ref: "elem:B", StartLine: 30, EndLine: 40},
+		{Ref: "elem:C", StartLine: 45, EndLine: 50},
+	}
+
+	tests := []struct {
+		name      string
+		startLine int
+		endLine   int
+		want      []string
+	}{
+		{"inside element", 12, 15, []string{"elem:A"}},
+		{"exact match", 30, 40, []string{"elem:B"}},
+		{"overlap start", 25, 35, []string{"elem:B"}},
+		{"overlap end", 35, 45, []string{"elem:B", "elem:C"}},
+		{"overlap multiple", 15, 45, []string{"elem:A", "elem:B", "elem:C"}},
+		{"no overlap before", 1, 5, []string{}},
+		{"no overlap between", 21, 29, []string{}},
+		{"no overlap after", 60, 70, []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetElementsInRange(elements, tt.startLine, tt.endLine)
+
+			if len(got) != len(tt.want) {
+				t.Errorf("GetElementsInRange() returned %d elements, want %d", len(got), len(tt.want))
+				return
+			}
+
+			for i, wantRef := range tt.want {
+				if got[i].Ref != wantRef {
+					t.Errorf("GetElementsInRange()[%d] = %v, want %v", i, got[i].Ref, wantRef)
+				}
 			}
 		})
 	}
