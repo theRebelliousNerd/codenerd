@@ -171,10 +171,15 @@ func (o *Orchestrator) recoverJournalSequence(campaignID string) {
 	var lastSeq uint64
 	needsTruncate := false
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	reader := bufio.NewReader(f)
+	for {
+		rawLine, err := reader.ReadString('\n')
+		line := strings.TrimSpace(rawLine)
+
+		if err != nil && line == "" {
+			break
+		}
+
 		if line == "" {
 			continue
 		}
@@ -205,10 +210,10 @@ func (o *Orchestrator) recoverJournalSequence(campaignID string) {
 		}
 		validLines = append(validLines, line)
 		lastSeq = ev.Seq
-	}
 
-	if scanErr := scanner.Err(); scanErr != nil {
-		needsTruncate = true
+		if err != nil {
+			break
+		}
 	}
 
 	if needsTruncate {
