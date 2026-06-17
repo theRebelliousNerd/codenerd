@@ -221,13 +221,25 @@ func (p *TreeSitterParser) extractGoSymbols(node *sitter.Node, path, content str
 
 										if methodNameNode != nil {
 											methodName := getText(methodNameNode)
-											methodSig := fmt.Sprintf("%s", methodName)
+											var paramsText, resultText string
 											if paramsNode != nil {
-												methodSig += getText(paramsNode)
+												paramsText = getText(paramsNode)
 											}
 											if resultNode != nil {
-												methodSig += " " + getText(resultNode)
+												resultText = getText(resultNode)
 											}
+
+											var sb strings.Builder
+											sb.Grow(len(methodName) + len(paramsText) + len(resultText) + 1)
+											sb.WriteString(methodName)
+											if paramsText != "" {
+												sb.WriteString(paramsText)
+											}
+											if resultText != "" {
+												sb.WriteString(" ")
+												sb.WriteString(resultText)
+											}
+											methodSig := sb.String()
 											methods = append(methods, methodSig)
 
 											// Emit interface method fact
