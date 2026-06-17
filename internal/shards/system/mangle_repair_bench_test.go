@@ -12,3 +12,12 @@ func BenchmarkCheckSafety(b *testing.B) {
 		shard.checkSafety(rule)
 	}
 }
+
+func BenchmarkCheckInfiniteLoopRisk(b *testing.B) {
+	shard := &MangleRepairShard{}
+	rule := "next_action(/do_something) :- system_startup(/start, _), some_other_pred(X)."
+	b.ResetTimer()
+	for b.Loop() {
+		shard.checkInfiniteLoopRisk(rule)
+	}
+}

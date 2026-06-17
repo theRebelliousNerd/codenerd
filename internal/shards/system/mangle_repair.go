@@ -22,6 +22,33 @@ import (
 
 var negPatternGlobal = regexp.MustCompile(`not\s+([a-z_][a-z0-9_]*)\s*\(\s*([A-Z][A-Za-z0-9_]*)`)
 
+var actionPatternGlobal = regexp.MustCompile(`next_action\((/[a-z_]+)\)`)
+var predicatePatternGlobal = regexp.MustCompile(`([a-z_][a-z0-9_]*)\s*\(`)
+
+type alwaysTruePredicate struct {
+	name    string
+	pattern *regexp.Regexp
+}
+
+var alwaysTruePredicatesGlobal = []alwaysTruePredicate{
+	{
+		name:    "system_startup(",
+		pattern: regexp.MustCompile(regexp.QuoteMeta("system_startup(") + `[^)]*_[^)]*\)`),
+	},
+	{
+		name:    "system_shard_state(",
+		pattern: regexp.MustCompile(regexp.QuoteMeta("system_shard_state(") + `[^)]*_[^)]*\)`),
+	},
+	{
+		name:    "entry_point(",
+		pattern: regexp.MustCompile(regexp.QuoteMeta("entry_point(") + `[^)]*_[^)]*\)`),
+	},
+	{
+		name:    "current_phase(",
+		pattern: regexp.MustCompile(regexp.QuoteMeta("current_phase(") + `[^)]*_[^)]*\)`),
+	},
+}
+
 // MangleRepairShard validates and repairs Mangle rules before persistence.
 // It acts as a gatekeeper ensuring no invalid rules enter the learned.mg file.
 //
@@ -463,8 +490,8 @@ func (m *MangleRepairShard) extractPredicatesFromRule(rule string) []string {
 		body = parts[0]
 	}
 
-	predicatePattern := regexp.MustCompile(`([a-z_][a-z0-9_]*)\s*\(`)
-	matches := predicatePattern.FindAllStringSubmatch(body, -1)
+	// Removed local predicatePattern
+	matches := predicatePatternGlobal.FindAllStringSubmatch(body, -1)
 
 	seen := make(map[string]bool)
 	var predicates []string
@@ -593,7 +620,7 @@ func (m *MangleRepairShard) checkInfiniteLoopRisk(rule string) []string {
 	// e.g., "next_action(/system_start)."
 	if len(parts) == 1 && strings.HasPrefix(head, "next_action(") {
 		// Extract the action
-		actionMatch := regexp.MustCompile(`next_action\((/[a-z_]+)\)`).FindStringSubmatch(head)
+		actionMatch := actionPatternGlobal.FindStringSubmatch(head)
 		if len(actionMatch) > 1 {
 			action := actionMatch[1]
 			// System actions without conditions cause infinite loops
@@ -608,25 +635,16 @@ func (m *MangleRepairShard) checkInfiniteLoopRisk(rule string) []string {
 	if len(parts) == 2 {
 		body := strings.TrimSpace(parts[1])
 
-		// List of predicates that are always true at system startup
-		alwaysTruePredicates := []string{
-			"system_startup(",
-			"system_shard_state(",
-			"entry_point(",
-			"current_phase(",
-		}
-
 		// Check if body ONLY contains always-true predicates (no real conditions)
-		for _, pred := range alwaysTruePredicates {
-			if strings.Contains(body, pred) {
+		for _, pred := range alwaysTruePredicatesGlobal {
+			if strings.Contains(body, pred.name) {
 				// Check if there are other meaningful conditions
 				// A body with just wildcards like "system_startup(_,_)" is always true
-				wildcardPattern := regexp.MustCompile(regexp.QuoteMeta(pred) + `[^)]*_[^)]*\)`)
-				if wildcardPattern.MatchString(body) {
+				if pred.pattern.MatchString(body) {
 					// Count how many predicates are in the body
 					predCount := strings.Count(body, "(")
 					if predCount <= 2 { // Only 1-2 predicates, likely always-true
-						errors = append(errors, fmt.Sprintf("infinite loop risk: next_action depends on always-true predicate %s with wildcards", strings.TrimSuffix(pred, "(")))
+						errors = append(errors, fmt.Sprintf("infinite loop risk: next_action depends on always-true predicate %s with wildcards", strings.TrimSuffix(pred.name, "(")))
 					}
 				}
 			}
