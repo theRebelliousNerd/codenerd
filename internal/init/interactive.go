@@ -197,17 +197,16 @@ func displayAgentList(agents []DetectedAgent, w *os.File) {
 			marker = "[x]"
 		}
 
-		tag := "(optional"
+		tagPrefix := "optional"
 		if agent.Recommended {
-			tag = "(recommended"
+			tagPrefix = "recommended"
 		}
 
 		if agent.DetectedBy != "" {
-			tag += " - " + agent.DetectedBy
+			fmt.Fprintf(w, "  %s %s (%s - %s)\n", marker, agent.Name, tagPrefix, agent.DetectedBy)
+		} else {
+			fmt.Fprintf(w, "  %s %s (%s)\n", marker, agent.Name, tagPrefix)
 		}
-		tag += ")"
-
-		fmt.Fprintf(w, "  %s %s %s\n", marker, agent.Name, tag)
 		fmt.Fprintf(w, "      %s\n", agent.Reason)
 	}
 }
