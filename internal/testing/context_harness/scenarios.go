@@ -70,8 +70,25 @@ func ScenariosByCategory(category ScenarioCategory) []*Scenario {
 // DebuggingMarathonScenario: 50-turn debugging session.
 // Tests: Long-term context retention, error tracking, solution history.
 func DebuggingMarathonScenario() *Scenario {
-	// Key turns that define the scenario narrative
-	keyTurns := []Turn{
+	return &Scenario{
+		ScenarioID:  "debugging-marathon",
+		Name:        "Debugging Marathon",
+		Description: "50-turn debugging session testing context retention and solution tracking",
+		Turns:       generateIntermediateTurns(getDebuggingMarathonTurns(), 50),
+		Checkpoints: getDebuggingMarathonCheckpoints(),
+		ExpectedMetrics: Metrics{
+			CompressionRatio:      0.5, // Expect ~2x enrichment per-turn (ratio < 1 = semantic expansion)
+			AvgRetrievalRecall:    0.5, // 50% minimum recall - we want relevant context
+			AvgRetrievalPrec:      0.1, // Precision is secondary - some noise is acceptable
+			AvgF1Score:            0.2, // Balanced score with recall priority
+			TokenBudgetViolations: 0,
+		},
+	}
+}
+
+// getDebuggingMarathonTurns returns the key turns for the Debugging Marathon scenario.
+func getDebuggingMarathonTurns() []Turn {
+	return []Turn{
 		{
 			TurnID:  0,
 			Speaker: "user",
@@ -149,7 +166,7 @@ func DebuggingMarathonScenario() *Scenario {
 			Intent:  "recall",
 			Metadata: TurnMetadata{
 				IsQuestionReferringBack: true,
-				ReferencesBackToTurn:    new(0),
+				ReferencesBackToTurn:    func() *int { i := 0; return &i }(),
 				Topics:                  []string{"original-error"},
 			},
 		},
@@ -164,42 +181,32 @@ func DebuggingMarathonScenario() *Scenario {
 			},
 		},
 	}
+}
 
-	return &Scenario{
-		ScenarioID:  "debugging-marathon",
-		Name:        "Debugging Marathon",
-		Description: "50-turn debugging session testing context retention and solution tracking",
-		Turns:       generateIntermediateTurns(keyTurns, 50),
-		Checkpoints: []Checkpoint{
-			{
-				AfterTurn: 45,
-				Query:     "What was the original error?",
-				// Expected facts from turn 0: error message and topic marking it as original
-				// Note: extractFactID normalizes "turn_error_message" → "error_message"
-				// File refs require different query patterns to retrieve
-				MustRetrieve: []string{"turn_0_error_message", "turn_0_topic"},
-				ShouldAvoid:  []string{},
-				MinRecall:    0.5, // At least 1 of 2 critical facts (error msg or topic)
-				MinPrecision: 0.1, // Precision is secondary - recall matters for debugging
-				Description:  "Should recall original error after 45 turns",
-			},
-			{
-				AfterTurn: 49,
-				Query:     "List failed solutions",
-				// Expected facts from turns 3, 10, 20, 30 that have "failed-solution" topic
-				// Note: extractFactID normalizes "turn_topic" → "topic"
-				MustRetrieve: []string{"turn_3_topic", "turn_10_topic", "turn_20_topic", "turn_30_topic"},
-				MinRecall:    0.5,  // At least 2 of 4 failed solution markers
-				MinPrecision: 0.15, // Precision secondary to recall for debugging context
-				Description:  "Should track all failed solution attempts",
-			},
+// getDebuggingMarathonCheckpoints returns the checkpoints for the Debugging Marathon scenario.
+func getDebuggingMarathonCheckpoints() []Checkpoint {
+	return []Checkpoint{
+		{
+			AfterTurn: 45,
+			Query:     "What was the original error?",
+			// Expected facts from turn 0: error message and topic marking it as original
+			// Note: extractFactID normalizes "turn_error_message" → "error_message"
+			// File refs require different query patterns to retrieve
+			MustRetrieve: []string{"turn_0_error_message", "turn_0_topic"},
+			ShouldAvoid:  []string{},
+			MinRecall:    0.5, // At least 1 of 2 critical facts (error msg or topic)
+			MinPrecision: 0.1, // Precision is secondary - recall matters for debugging
+			Description:  "Should recall original error after 45 turns",
 		},
-		ExpectedMetrics: Metrics{
-			CompressionRatio:      0.5, // Expect ~2x enrichment per-turn (ratio < 1 = semantic expansion)
-			AvgRetrievalRecall:    0.5, // 50% minimum recall - we want relevant context
-			AvgRetrievalPrec:      0.1, // Precision is secondary - some noise is acceptable
-			AvgF1Score:            0.2, // Balanced score with recall priority
-			TokenBudgetViolations: 0,
+		{
+			AfterTurn: 49,
+			Query:     "List failed solutions",
+			// Expected facts from turns 3, 10, 20, 30 that have "failed-solution" topic
+			// Note: extractFactID normalizes "turn_topic" → "topic"
+			MustRetrieve: []string{"turn_3_topic", "turn_10_topic", "turn_20_topic", "turn_30_topic"},
+			MinRecall:    0.5,  // At least 2 of 4 failed solution markers
+			MinPrecision: 0.15, // Precision secondary to recall for debugging context
+			Description:  "Should track all failed solution attempts",
 		},
 	}
 }
