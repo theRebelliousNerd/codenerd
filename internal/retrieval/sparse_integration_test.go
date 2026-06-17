@@ -157,7 +157,7 @@ func TestSparseRetriever_Integration(t *testing.T) {
 	for _, c := range candidates {
 		// Normalize path to be relative to root for easier checking.
 		rel, _ := filepath.Rel(rootDir, c.FilePath)
-		foundFiles[rel] = true
+		foundFiles[filepath.ToSlash(rel)] = true
 	}
 
 	// target.go should be found (contains "TargetError")

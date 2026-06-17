@@ -95,9 +95,9 @@ func TestSessionManager_Navigation_Integration(t *testing.T) {
 
 		for _, f := range facts {
 			if f.Predicate == "dom_text" {
-				// Args: sessionID, id, text
-				if len(f.Args) >= 3 {
-					if text, ok := f.Args[2].(string); ok && text == "Hello World" {
+				// Args: id, text (actual schema has 2 args)
+				if len(f.Args) >= 2 {
+					if text, ok := f.Args[1].(string); ok && text == "Hello World" {
 						foundContent = true
 					}
 				}

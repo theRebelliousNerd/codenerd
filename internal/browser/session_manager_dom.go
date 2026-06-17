@@ -37,7 +37,7 @@ func (m *SessionManager) startEventStream(ctx context.Context, sessionID string,
 
 		// Optionally capture initial DOM snapshot
 		if captureDOM {
-			_ = proto.DOMEnable{}.Call(page)
+			_ = (proto.DOMEnable{}).Call(page)
 			_ = m.captureDOMFacts(ctx, sessionID, page)
 		}
 

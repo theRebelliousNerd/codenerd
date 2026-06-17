@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,16 +29,24 @@ func (s *ShellIntegrationSuite) TestRunCommandTool_Integration() {
 	tool := shell.RunCommandTool()
 
 	// 1. Simple Echo
+	echoCmd := "echo integration test"
+	if runtime.GOOS == "windows" {
+		echoCmd = "cmd /c echo integration test"
+	}
 	result, err := tool.Execute(s.ctx, map[string]any{
-		"command": "echo integration test",
+		"command": echoCmd,
 	})
 	s.Require().NoError(err)
 	s.Contains(result, "integration test")
 
 	// 2. Failing Command
 	// Note: 'false' or 'exit 1' should return an error
+	exitCmd := "exit 1"
+	if runtime.GOOS == "windows" {
+		exitCmd = "cmd /c exit 1"
+	}
 	_, err = tool.Execute(s.ctx, map[string]any{
-		"command": "exit 1",
+		"command": exitCmd,
 	})
 	s.Require().Error(err)
 	s.Contains(err.Error(), "command failed")
@@ -65,8 +74,12 @@ func (s *ShellIntegrationSuite) TestRunCommandTool_Integration() {
 	// 4. Working Directory
 	subdir := filepath.Join(s.tmpDir, "subdir")
 	s.Require().NoError(os.Mkdir(subdir, 0755))
+	pwdCmd := "pwd"
+	if runtime.GOOS == "windows" {
+		pwdCmd = "cmd /c cd"
+	}
 	result, err = tool.Execute(s.ctx, map[string]any{
-		"command":     "pwd",
+		"command":     pwdCmd,
 		"working_dir": subdir,
 	})
 	s.Require().NoError(err)
