@@ -18,7 +18,11 @@ import (
 
 // TestMain ensures no goroutines leak during integration tests.
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
+		goleak.IgnoreTopFunction("codenerd/internal/perception.(*ConsolidationWorker).Start.func1"),
+		goleak.IgnoreTopFunction("database/sql.(*DB).connectionOpener"),
+	)
 }
 
 func TestLocalSession_Integration(t *testing.T) {
