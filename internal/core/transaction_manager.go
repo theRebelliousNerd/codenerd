@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -272,6 +273,12 @@ func (tm *TransactionManager) Prepare(ctx context.Context) (*ShadowValidationRes
 
 		simResult, err := tm.shadowMode.SimulateAction(ctx, simAction)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				tm.shadowMode.AbortSimulation("context error during action simulation")
+				txn.Status = TxnStatusAborted
+				txn.Error = err
+				return nil, fmt.Errorf("simulation cancelled for %s: %w", edit.FilePath, err)
+			}
 			result.Warnings = append(result.Warnings, fmt.Sprintf("simulation warning for %s: %v", edit.FilePath, err))
 		}
 
