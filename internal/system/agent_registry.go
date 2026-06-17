@@ -103,6 +103,18 @@ func SyncAgentRegistryFromDiscovered(workspace string, discovered []AgentOnDisk)
 	}
 
 	registryPath := filepath.Join(nerdDir, "agents.json")
+	reg, existingBytes, err := loadAgentRegistry(registryPath)
+	if err != nil {
+		return false, fmt.Errorf("load agents registry: %w", err)
+	}
+
+	index := buildAgentIndex(reg.Agents)
+	changed := mergeDiscoveredAgents(&reg, discovered, index)
+
+	return writeAgentRegistry(registryPath, reg, existingBytes, changed)
+}
+
+func loadAgentRegistry(registryPath string) (agentRegistryFile, []byte, error) {
 	var existingBytes []byte
 	if data, err := os.ReadFile(registryPath); err == nil {
 		existingBytes = data
@@ -113,8 +125,11 @@ func SyncAgentRegistryFromDiscovered(workspace string, discovered []AgentOnDisk)
 		CreatedAt: time.Now().Format(time.RFC3339),
 		Agents:    []agentRegistryAgent{},
 	}
+
 	if len(existingBytes) > 0 {
-		_ = json.Unmarshal(existingBytes, &reg)
+		if err := json.Unmarshal(existingBytes, &reg); err != nil {
+			return reg, existingBytes, err
+		}
 		if strings.TrimSpace(reg.Version) == "" {
 			reg.Version = "1.5.0"
 		}
@@ -123,16 +138,67 @@ func SyncAgentRegistryFromDiscovered(workspace string, discovered []AgentOnDisk)
 		}
 	}
 
-	// Index existing agents case-insensitively.
-	index := make(map[string]int, len(reg.Agents))
-	for i, a := range reg.Agents {
+	return reg, existingBytes, nil
+}
+
+func buildAgentIndex(agents []agentRegistryAgent) map[string]int {
+	index := make(map[string]int, len(agents))
+	for i, a := range agents {
 		name := strings.TrimSpace(a.Name)
 		if name == "" {
 			continue
 		}
 		index[strings.ToLower(name)] = i
 	}
+	return index
+}
 
+func getAgentStatusAndSize(dbPath string) (string, int) {
+	status := "ready"
+	kbSize := 0
+	if _, err := os.Stat(dbPath); err != nil {
+		status = "missing_db"
+	} else {
+		if count, err := countAgentAtoms(dbPath); err == nil {
+			kbSize = count
+		}
+	}
+	return status, kbSize
+}
+
+func updateExistingAgent(existing *agentRegistryAgent, dbPath, status string, kbSize int, now string) bool {
+	changed := false
+
+	// Preserve user-edited fields when present.
+	if strings.TrimSpace(existing.Type) == "" {
+		existing.Type = "user"
+	}
+	if strings.TrimSpace(existing.Status) == "" {
+		existing.Status = status
+	}
+	if strings.TrimSpace(existing.CreatedAt) == "" {
+		existing.CreatedAt = now
+	}
+
+	// Always refresh knowledge path (it is derivable from disk).
+	if existing.KnowledgePath != dbPath {
+		existing.KnowledgePath = dbPath
+		changed = true
+	}
+	// Refresh status/size when we can compute it.
+	if existing.Status != status {
+		existing.Status = status
+		changed = true
+	}
+	if existing.KBSize != kbSize && kbSize > 0 {
+		existing.KBSize = kbSize
+		changed = true
+	}
+
+	return changed
+}
+
+func mergeDiscoveredAgents(reg *agentRegistryFile, discovered []AgentOnDisk, index map[string]int) bool {
 	now := time.Now().Format(time.RFC3339)
 	changed := false
 
@@ -143,45 +209,14 @@ func SyncAgentRegistryFromDiscovered(workspace string, discovered []AgentOnDisk)
 		}
 
 		dbPath := strings.TrimSpace(agent.DBPath)
-		status := "ready"
-		kbSize := 0
-		if _, err := os.Stat(dbPath); err != nil {
-			status = "missing_db"
-		} else {
-			if count, err := countAgentAtoms(dbPath); err == nil {
-				kbSize = count
-			}
-		}
+		status, kbSize := getAgentStatusAndSize(dbPath)
 
 		key := strings.ToLower(id)
 		if idx, ok := index[key]; ok {
 			existing := reg.Agents[idx]
-			// Preserve user-edited fields when present.
-			if strings.TrimSpace(existing.Type) == "" {
-				existing.Type = "user"
-			}
-			if strings.TrimSpace(existing.Status) == "" {
-				existing.Status = status
-			}
-			if strings.TrimSpace(existing.CreatedAt) == "" {
-				existing.CreatedAt = now
-			}
-
-			// Always refresh knowledge path (it is derivable from disk).
-			if existing.KnowledgePath != dbPath {
-				existing.KnowledgePath = dbPath
+			if updateExistingAgent(&existing, dbPath, status, kbSize, now) {
 				changed = true
 			}
-			// Refresh status/size when we can compute it.
-			if existing.Status != status {
-				existing.Status = status
-				changed = true
-			}
-			if existing.KBSize != kbSize && kbSize > 0 {
-				existing.KBSize = kbSize
-				changed = true
-			}
-
 			reg.Agents[idx] = existing
 			continue
 		}
@@ -198,6 +233,10 @@ func SyncAgentRegistryFromDiscovered(workspace string, discovered []AgentOnDisk)
 		changed = true
 	}
 
+	return changed
+}
+
+func writeAgentRegistry(registryPath string, reg agentRegistryFile, existingBytes []byte, changed bool) (bool, error) {
 	// Stable ordering by name.
 	sort.Slice(reg.Agents, func(i, j int) bool {
 		return strings.ToLower(reg.Agents[i].Name) < strings.ToLower(reg.Agents[j].Name)
