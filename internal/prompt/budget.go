@@ -366,7 +366,11 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 		atoms = atoms[:maxAtomsInput]
 	}
 
-	availableBudget := totalBudget - m.reservedHeadroom
+	headroom := m.reservedHeadroom
+	if headroom >= totalBudget {
+		headroom = 0
+	}
+	availableBudget := totalBudget - headroom
 	if availableBudget <= 0 {
 		return nil, fmt.Errorf("total budget %d is less than reserved headroom %d",
 			totalBudget, m.reservedHeadroom)
@@ -381,8 +385,8 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 		}
 		// Deep copy to prevent side-effects on the caller's shared PromptAtom objects
 		clonedAtom := *atom.Atom
-		if clonedAtom.TokenCount < 0 {
-			clonedAtom.TokenCount = 0
+		if clonedAtom.TokenCount <= 0 {
+			clonedAtom.TokenCount = EstimateTokens(clonedAtom.Content)
 		}
 		clonedOrdered := *atom
 		clonedOrdered.Atom = &clonedAtom
@@ -543,6 +547,11 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 			// Try Standard. Guard against int64 overflow on catTokens/usedTokens
 			// before performing the inclusion check.
+			remainingAlloc := int64(allocation) - catTokens
+			if remainingAlloc > 0 && tokens > remainingAlloc {
+				truncateAtomToBudget(oa.Atom, int(remainingAlloc))
+				tokens = int64(getTokenCount(oa.Atom, mode))
+			}
 			if tokens >= 0 &&
 				catTokens <= math.MaxInt64-tokens &&
 				usedTokens <= math.MaxInt64-tokens &&
@@ -616,6 +625,10 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 
 			// Try Standard
 			tokens := int64(getTokenCount(oa.Atom, "standard"))
+			if remaining > 0 && tokens > remaining {
+				truncateAtomToBudget(oa.Atom, int(remaining))
+				tokens = int64(getTokenCount(oa.Atom, "standard"))
+			}
 			if tokens >= 0 && tokens <= remaining &&
 				usedTokens <= math.MaxInt64-tokens {
 				oa.RenderMode = "standard"
@@ -849,3 +862,34 @@ func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget in
 
 	return report
 }
+
+func truncateAtomToBudget(atom *PromptAtom, maxTokens int) {
+	if maxTokens <= 0 {
+		atom.Content = ""
+		atom.TokenCount = 0
+		return
+	}
+	maxChars := maxTokens * 2
+	if len(atom.Content) > maxChars {
+		atom.Content = truncateUTF8Safe(atom.Content, maxChars)
+		atom.TokenCount = EstimateTokens(atom.Content)
+	}
+}
+
+func truncateUTF8Safe(content string, maxChars int) string {
+	if maxChars <= 0 {
+		return ""
+	}
+	if len(content) <= maxChars {
+		return content
+	}
+	slice := content[:maxChars]
+	for len(slice) > 0 && (slice[len(slice)-1]&0xC0) == 0x80 {
+		slice = slice[:len(slice)-1]
+	}
+	if len(slice) > 0 && (slice[len(slice)-1]&0x80) != 0 {
+		slice = slice[:len(slice)-1]
+	}
+	return slice
+}
+
