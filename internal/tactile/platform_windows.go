@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -410,7 +411,44 @@ func (e *LimitedExecutorWindows) Capabilities() ExecutorCapabilities {
 
 // Validate checks if a command can be executed.
 func (e *LimitedExecutorWindows) Validate(cmd Command) error {
+	if err := secureValidateCommand(cmd.Binary); err != nil {
+		return err
+	}
+	if err := secureValidateArgs(cmd.Arguments); err != nil {
+		return err
+	}
 	return e.DirectExecutor.Validate(cmd)
+}
+
+// secureValidateCommand checks for common command injection and traversal vectors
+func secureValidateCommand(command string) error {
+	if strings.Contains(command, "..") {
+		return fmt.Errorf("security violation: command path contains traversal components")
+	}
+
+	normalized := strings.ReplaceAll(command, "\\", "/")
+	base := strings.ToLower(filepath.Base(normalized))
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	forbiddenShells := []string{"sh", "bash", "zsh", "cmd", "powershell", "pwsh", "csh", "ksh", "dash"}
+	for _, shell := range forbiddenShells {
+		if base == shell {
+			return fmt.Errorf("security violation: direct execution of shell (%s) is forbidden", base)
+		}
+	}
+	return nil
+}
+
+// secureValidateArgs checks arguments for dangerous payloads
+func secureValidateArgs(args []string) error {
+	for _, arg := range args {
+		if strings.ContainsRune(arg, '\x00') {
+			return fmt.Errorf("security violation: null byte in argument")
+		}
+	}
+	return nil
 }
 
 // Execute runs a command with resource limits enforced via Job Objects.
