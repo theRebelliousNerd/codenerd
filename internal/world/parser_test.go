@@ -1246,3 +1246,29 @@ func TestMangleCodeParser_Helpers(t *testing.T) {
 		}
 	})
 }
+
+func TestNewPythonCodeParser(t *testing.T) {
+	projectRoot := "/test/python/root"
+	parser := NewPythonCodeParser(projectRoot)
+
+	if parser == nil {
+		t.Fatal("NewPythonCodeParser returned nil")
+	}
+
+	if parser.projectRoot != projectRoot {
+		t.Errorf("Expected projectRoot %q, got %q", projectRoot, parser.projectRoot)
+	}
+
+	if parser.parser == nil {
+		t.Error("Expected Tree-sitter parser to be initialized, got nil")
+	}
+
+	if parser.Language() != "py" {
+		t.Errorf("Expected Language() to return 'py', got %q", parser.Language())
+	}
+
+	exts := parser.SupportedExtensions()
+	if len(exts) != 2 || exts[0] != ".py" || exts[1] != ".pyw" {
+		t.Errorf("Expected SupportedExtensions() to return ['.py', '.pyw'], got %v", exts)
+	}
+}
