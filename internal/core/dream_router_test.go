@@ -2,6 +2,7 @@ package core
 
 import (
 	"testing"
+	"codenerd/internal/types"
 )
 
 // Mock implementations for testing
@@ -11,6 +12,13 @@ type mockLearningStore struct {
 
 func (m *mockLearningStore) Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error {
 	m.saved = append(m.saved, factPredicate)
+	return nil
+}
+
+func (m *mockLearningStore) SaveBatch(shardType string, learnings []types.ShardLearning, sourceCampaign string) error {
+	for _, l := range learnings {
+		m.saved = append(m.saved, l.FactPredicate)
+	}
 	return nil
 }
 

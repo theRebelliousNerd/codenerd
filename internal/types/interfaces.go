@@ -179,6 +179,7 @@ type ShardLearning struct {
 // Used by autopoiesis.
 type LearningStore interface {
 	Save(shardID, predicate string, args []any, source string) error
+	SaveBatch(shardID string, learnings []ShardLearning, source string) error
 	LoadByPredicate(shardID, predicate string) ([]ShardLearning, error)
 }
 
