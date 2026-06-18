@@ -415,14 +415,14 @@ func (sm *ShadowMode) CommitSimulation(ctx context.Context) error {
 
 	// Apply effects to the parent kernel
 	for _, effect := range sim.Effects {
+		fact := Fact{
+			Predicate: effect.Predicate,
+			Args:      effect.Args,
+		}
 		if effect.IsPositive {
-			fact := Fact{
-				Predicate: effect.Predicate,
-				Args:      effect.Args,
-			}
 			sm.parentKernel.Assert(fact)
 		} else {
-			sm.parentKernel.Retract(effect.Predicate)
+			sm.parentKernel.RetractExactFact(fact)
 		}
 	}
 

@@ -264,12 +264,11 @@ func TestE2E_ShadowMode_CommitSimulation_SafetyBoundary(t *testing.T) {
 	})
 
 	// =========================================================================
-	// ASSERTION 4: Retract effects wipe ALL facts for predicate (documents bug)
+	// ASSERTION 4: CommitSimulation retracts specific fact
 	// =========================================================================
-	t.Run("Assertion4_RetractWipesAllFacts", func(t *testing.T) {
-		// This documents a known architectural issue:
-		// CommitSimulation line 391 calls parentKernel.Retract(effect.Predicate)
-		// which retracts ALL facts with that predicate, not just the specific one.
+	t.Run("Assertion4_CommitSimulationRetractsSpecificFact", func(t *testing.T) {
+		sm := core.NewShadowMode(kernel)
+		ctx := context.Background()
 
 		// Seed multiple test_state facts
 		kernel.Assert(core.Fact{
@@ -281,32 +280,62 @@ func TestE2E_ShadowMode_CommitSimulation_SafetyBoundary(t *testing.T) {
 			Args:      []interface{}{"/coverage_high"},
 		})
 
-		// Count before
-		preRetractFacts, _ := kernel.Query("test_state")
-		preCount := len(preRetractFacts)
-		t.Logf("test_state facts before Retract: %d", preCount)
-
-		// Direct Retract (simulates what CommitSimulation does for negative effects)
-		kernel.Retract("test_state")
-
-		// Count after
-		postRetractFacts, _ := kernel.Query("test_state")
-		postCount := len(postRetractFacts)
-		t.Logf("test_state facts after Retract: %d", postCount)
-
-		if postCount > 0 {
-			t.Logf("NOTE: Retract didn't clear all facts (possible deduplication)")
+		// Start simulation
+		_, startErr := sm.StartSimulation(ctx, "specific retract test")
+		if startErr != nil {
+			t.Fatalf("StartSimulation failed: %v", startErr)
 		}
 
-		// DOCUMENT THE BUG: If a ShadowMode simulation produces a negative effect
-		// on "test_state", CommitSimulation calls Retract("test_state") which wipes
-		// ALL test_state facts, not just the one that was negated.
-		t.Log("KNOWN ISSUE: ShadowMode CommitSimulation uses Retract(predicate) for " +
-			"negative effects, which wipes ALL facts for that predicate, not just " +
-			"the specific fact. A negative effect on test_state(/failing) would also " +
-			"destroy test_state(/passing). This is a blast-radius amplification bug.")
+		// Run an action to get a simulation
+		_, simErr := sm.SimulateAction(ctx, core.SimulatedAction{
+			ID:          "remove_passing",
+			Type:        core.ActionTypeFileWrite,
+			Target:      "/src/foo.go",
+			Description: "remove passing test state",
+		})
+		if simErr != nil {
+			t.Fatalf("SimulateAction failed: %v", simErr)
+		}
 
-		// Re-seed for later tests
+		simKer := sm.GetShadowKernel()
+		simKer.RetractExactFact(core.Fact{
+			Predicate: "test_state",
+			Args:      []interface{}{"/passing"},
+		})
+
+		// Mark simulation as safe so we can commit it
+		sim, _ := sm.GetActiveSimulation()
+		sim.IsSafe = true
+
+		// Also we need to append the effect so CommitSimulation can process it
+		sim.Effects = append(sim.Effects, core.SimulatedEffect{
+			Predicate:  "test_state",
+			Args:       []interface{}{"/passing"},
+			IsPositive: false,
+		})
+
+		// Commit the simulation
+		commitErr := sm.CommitSimulation(ctx)
+		if commitErr != nil {
+			t.Fatalf("CommitSimulation failed: %v", commitErr)
+		}
+
+		// Verify the result
+		postRetractFacts, _ := kernel.Query("test_state")
+		postCount := len(postRetractFacts)
+		t.Logf("test_state facts after RetractExactFact: %d", postCount)
+
+		if postCount != 1 {
+			t.Errorf("Expected 1 fact remaining, got %d", postCount)
+		} else {
+			// Ensure it's the correct fact that remained
+			if postRetractFacts[0].Args[0] != "/coverage_high" {
+				t.Errorf("Expected '/coverage_high' to remain, got %v", postRetractFacts[0].Args[0])
+			}
+		}
+
+		// Clean up
+		kernel.RetractExactFact(core.Fact{Predicate: "test_state", Args: []interface{}{"/coverage_high"}})
 		kernel.Assert(core.Fact{
 			Predicate: "test_state",
 			Args:      []interface{}{"/passing"},
