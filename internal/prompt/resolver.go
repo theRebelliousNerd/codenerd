@@ -259,7 +259,6 @@ func (e DependencyError) Error() string {
 // DetectCycles finds dependency cycles in a set of atoms.
 // Returns the cycle path if found, or nil if no cycle exists.
 func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
-	// TODO: Reliability: Add a maximum recursion depth limit to the DFS cycle detection to prevent stack overflow panics from maliciously crafted or deeply nested dependency graphs.
 	// Build adjacency list
 	graph := make(map[string][]string, len(atoms))
 	atomSet := make(map[string]bool, len(atoms))
@@ -284,74 +283,48 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 	color := make(map[string]int, len(atoms))
 	parent := make(map[string]string, len(atoms))
 
-	var cyclePath []string
+	var dfs func(node string, depth int) []string
+	dfs = func(node string, depth int) []string {
+		if depth > 1000 {
+			logging.Get(logging.CategoryContext).Warn("DetectCycles: max recursion depth (1000) exceeded at node %s", node)
+			return nil
+		}
+
+		color[node] = gray
+		for _, neighbor := range graph[node] {
+			if !atomSet[neighbor] {
+				continue
+			}
+
+			if color[neighbor] == gray {
+				// Found cycle - reconstruct path
+				cyclePath := []string{neighbor}
+				for cur := node; cur != neighbor && cur != ""; cur = parent[cur] {
+					cyclePath = append([]string{cur}, cyclePath...)
+				}
+				cyclePath = append([]string{neighbor}, cyclePath...)
+				return cyclePath
+			}
+
+			if color[neighbor] == white {
+				parent[neighbor] = node
+				if path := dfs(neighbor, depth+1); path != nil {
+					return path
+				}
+			}
+		}
+		color[node] = black
+		return nil
+	}
 
 	for _, atom := range atoms {
 		if atom == nil || atom.ID == "" {
 			continue
 		}
 
-		if color[atom.ID] != white {
-			continue
-		}
-
-		// Use iterative DFS
-		// Stack stores pairs of (node, neighbor_index)
-		type stackFrame struct {
-			node string
-			idx  int
-		}
-		stack := []stackFrame{{node: atom.ID, idx: 0}}
-		color[atom.ID] = gray
-
-		for len(stack) > 0 {
-			// Depth limit check replaced by iterative heap structure, safe against stack overflow.
-			// Optional: We can still impose a limit on len(stack) if we want to guard against OOM in truly massive/malicious graphs.
-			if len(stack) > 100000 {
-				logging.Get(logging.CategoryContext).Warn("DetectCycles: max iteration depth (100000) exceeded at node %s", stack[len(stack)-1].node)
-				break // Abort this path safely
-			}
-
-			currIdx := len(stack) - 1
-			curr := stack[currIdx]
-
-			neighbors := graph[curr.node]
-
-			// Find next valid neighbor
-			var nextNeighbor string
-			foundNext := false
-
-			for i := curr.idx; i < len(neighbors); i++ {
-				neighbor := neighbors[i]
-				if !atomSet[neighbor] {
-					continue
-				}
-
-				if color[neighbor] == gray {
-					// Found cycle - reconstruct path
-					cyclePath = []string{neighbor}
-					for cur := curr.node; cur != neighbor; cur = parent[cur] {
-						cyclePath = append([]string{cur}, cyclePath...)
-					}
-					cyclePath = append([]string{neighbor}, cyclePath...)
-					return cyclePath
-				}
-
-				if color[neighbor] == white {
-					nextNeighbor = neighbor
-					stack[currIdx].idx = i + 1 // update idx for when we return to this node
-					foundNext = true
-					break
-				}
-			}
-
-			if foundNext {
-				parent[nextNeighbor] = curr.node
-				color[nextNeighbor] = gray
-				stack = append(stack, stackFrame{node: nextNeighbor, idx: 0})
-			} else {
-				color[curr.node] = black
-				stack = stack[:len(stack)-1]
+		if color[atom.ID] == white {
+			if path := dfs(atom.ID, 1); path != nil {
+				return path
 			}
 		}
 	}
