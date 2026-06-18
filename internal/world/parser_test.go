@@ -404,6 +404,24 @@ total_children(Parent, Count) :-
 // Python Parser Tests
 // =============================================================================
 
+// TestNewPythonCodeParser tests the Python parser constructor.
+func TestNewPythonCodeParser(t *testing.T) {
+	projectRoot := "/test/root"
+	parser := NewPythonCodeParser(projectRoot)
+
+	if parser == nil {
+		t.Fatal("NewPythonCodeParser returned nil")
+	}
+
+	if parser.projectRoot != projectRoot {
+		t.Errorf("Expected projectRoot %q, got %q", projectRoot, parser.projectRoot)
+	}
+
+	if parser.parser == nil {
+		t.Error("Expected tree-sitter parser to be initialized, got nil")
+	}
+}
+
 // TestPythonCodeParser_Parse tests Python source file parsing.
 func TestPythonCodeParser_Parse(t *testing.T) {
 	tmpDir := t.TempDir()
