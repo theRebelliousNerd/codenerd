@@ -34,6 +34,14 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 	}
 }
 
+// TODO: Add TestHolographicContext_MalformedGoFile - Test parser.ParseFile behavior on malformed Go files to ensure we don't abort parsing the whole package due to a syntax error in one sibling file.
+// TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
+// TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
+// TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
+// TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
+// TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
+// TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
+
 func TestHolographicContextWithPrioritizedCallers(t *testing.T) {
 	hc := &HolographicContext{
 		TargetFile: "target.go",

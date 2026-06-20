@@ -259,6 +259,8 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 			continue
 		}
 
+		// TODO: Create a test package containing a syntactically invalid go file
+		// to verify this error does not abort generation for the whole package.
 		if err := h.extractGoSignatures(hc, fset, goFile); err != nil {
 			logging.WorldDebug("HolographicProvider: failed to parse %s: %v", goFile, err)
 			// Continue with other files
@@ -275,6 +277,7 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 
 // extractGoSignatures parses a Go file and extracts function/type/const signatures.
 func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
+	// TODO: Test handling of entirely empty .go files (0 bytes and whitespace only)
 	node, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
 		return err
@@ -371,6 +374,8 @@ func (h *HolographicProvider) extractFuncSignature(fset *token.FileSet, fn *ast.
 
 // extractTypeDefinition extracts a type's definition.
 func (h *HolographicProvider) extractTypeDefinition(fset *token.FileSet, ts *ast.TypeSpec, gd *ast.GenDecl, fileName string) TypeDefinition {
+	// TODO: Add tests for type definition extraction from empty structs or interfaces
+	// to verify nil vs empty slice serialization behavior.
 	typeDef := TypeDefinition{
 		Name:     ts.Name.Name,
 		File:     fileName,
@@ -586,6 +591,9 @@ func (h *HolographicProvider) buildBasicContext(ctx *HolographicContext, filePat
 
 // buildBasicContextWithContext provides minimal context with cancellation support.
 func (h *HolographicProvider) buildBasicContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
+	// TODO: Add test verifying buildBasicContext properly handles binary files
+	// and doesn't load them directly into memory.
+
 	// Just set up basic file info
 	dir := filepath.Dir(filePath)
 	entries, err := os.ReadDir(dir)
