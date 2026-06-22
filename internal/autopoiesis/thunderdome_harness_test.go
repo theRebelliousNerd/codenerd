@@ -406,3 +406,19 @@ func BinaryInput(ctx context.Context, input string) (string, error) {
 // TODO: TEST_GAP: [Behavioral Edge Case] Verify Battle detects panics resulting from deep recursion (Go runtime stack overflow) properly instead of marking it a survival/timeout.
 // TODO: TEST_GAP: [Input Boundary] Verify tool execution properly handles and identifies tools that panic when an empty string ("") is supplied as the attack input.
 // TODO: TEST_GAP: [Network Access] Verify that Battle sandbox environments successfully block or detect network exfiltration from the generated tools.
+
+// TODO: Boundary Value / Negative Testing Gaps
+// 1. Null/Undefined/Empty:
+//    - Test `prepareArena` when `tool.Code` is completely empty ("").
+//    - Test `findEntryPointCall` when `code` is empty string or only contains whitespace.
+//    - Test `runAttack` when `AttackVector.Input` is an empty string, nil byte, or only whitespace.
+//    - Test `ThunderdomeConfig` behavior when `MaxMemoryMB` is set to 0 or negative.
+// 2. Type Coercion / Invalid Inputs:
+//    - Test `findEntryPointCall` with syntactically invalid Go code (e.g. raw text, Python code, HTML).
+//    - Test `prepareArena` when `GeneratedTool.Name` contains path traversal characters like `../` or NULL bytes (`\x00`).
+// 3. User Request Extremes:
+//    - Test `runAttack` where the generated tool produces an extreme amount of output to stdout/stderr (e.g., 500MB string) to ensure it doesn't OOM the Thunderdome orchestrator itself.
+//    - Test `prepareArena` with an extremely long tool name (e.g. 10,000 characters) to hit OS filesystem path length limits.
+// 4. State Conflicts / Race Conditions:
+//    - Test `Battle()` being called concurrently on the exact same `GeneratedTool` pointer to ensure `t.mu` protects stats without deadlocks.
+//    - Test `prepareArena` when two concurrent battles happen to generate the exact same `arenaDir` due to identical UnixNano timestamps or if a directory with that name already exists.
