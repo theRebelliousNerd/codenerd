@@ -371,3 +371,10 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 		}
 	}
 }
+
+// TODO: TestHandleTaskFailure_NilKernelPanic - Verify behavior when o.kernel == nil to avoid assertion panics.
+// TODO: TestHandleTaskFailure_MassiveErrorFactSerialization - Pass a 10MB error string and verify truncation before Mangle serialization.
+// TODO: TestShouldEscalateLogicFailure_NegativeTimeDeltas - Pass TaskAttempt with year 9999 timestamp to assert loop escalation stability.
+// TODO: TestComputeRetryBackoff_NegativeBase - Verify computeRetryBackoff handles negative config safely.
+// TODO: TestHandleTaskFailure_IdenticalTaskConcurrentFailure - Simulate concurrent failures of the exact same task attempt to ensure idempotency.
+// TODO: TestHandleTaskFailure_ContextCancellationPropagation - Test orchestrator state remains consistent if context is canceled during failure handling.
