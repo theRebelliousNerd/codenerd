@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify NewContextPager behavior when kernel or llmClient is nil.
 func TestNewContextPager(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{}
@@ -38,6 +39,7 @@ func TestNewContextPager(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [State Conflicts] Verify SetBudget behavior under concurrent conditions when other methods are actively querying and updating tokens.
 func TestSetBudget(t *testing.T) {
 	cp := NewContextPager(&MockKernel{}, &MockLLMClient{}, 100000)
 	cp.SetBudget(50000)
@@ -291,6 +293,7 @@ func TestCompressPhase(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [User Request Extremes] Verify performance and memory allocation of CompressPhase when phase contains millions of facts to compress.
 func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 	kernel := &MockKernel{}
 	llm := &MockLLMClient{
@@ -360,6 +363,7 @@ func TestCompressPhase_MassiveAccomplishments(t *testing.T) {
 	}
 }
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify behavior of PrefetchNextTasks when tasks is an empty slice or limit is 0 or negative.
 func TestPrefetchNextTasks(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
@@ -548,6 +552,7 @@ func TestContextPager_GetUsageConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// TODO: TEST_GAP: [Type Coercion] Verify handling of malformed phase IDs containing special characters or non-string representations in getContextProfile.
 func TestGetContextProfile_Malformed(t *testing.T) {
 	kernel := &MockKernel{}
 	cp := NewContextPager(kernel, &MockLLMClient{}, 100000)
