@@ -17,3 +17,10 @@
 ## 2026-06-15 - Prompt Compiler and LLM Client Integration
 **Learning:** The boundary between the Prompt Compiler and the LLM Client hides a critical structural constraint: token budget enforcement dictates not just cost, but protocol survival. If the prompt compiler estimates tokens incorrectly or over-allocates to the prompt, the LLM client might abruptly truncate the piggyback JSON structure. This results in the articulation system receiving fragmented control packets, leading to a cascading failure where the entire pipeline crashes out because the intended `next_action` state was lost in truncation.
 **Action:** Always allocate distinct overhead tokens for protocol metadata (like Piggyback packets) separate from the general output budget. Tests should deliberately push the total token count exactly to the threshold limit to ensure the truncating logic inside `TokenBudgetManager` prioritizes essential system instructions and JSON structure over variable length context.
+## 2024-12-28 - TDDLoop and VirtualStore Boundary
+**Learning:** If the TDDLoop generates a `next_action` fact using `ast.String` instead of `ast.Name` for the tool name (e.g. `"/edit_file"` vs `"/edit_file"`), the VirtualStore might silently reject it, and the `TDDLoop` transitions to a next state without actually mutating the file system, causing an infinite testing loop.
+**Action:** When testing the `TDDLoop` -> `VirtualStore` pipeline, write boundary tests that enforce the correct Mangle types, or simulate empty LLM patch generations to ensure the TDD loop correctly escalates.
+
+## 2024-12-28 - TDDLoop Thread Safety and Resets
+**Learning:** The session orchestrator might `Reset()` the `TDDLoop` asynchronously (e.g., if a user aborts via chat). If `RunToCompletion()` is modifying slice states (like `patches` or `diagnostics`) without holding `t.mu`, it will data race and crash the engine.
+**Action:** Always test `Reset()` concurrently with `RunToCompletion()` in E2E tests, verifying that internal mutexes hold and prevent state corruption.
