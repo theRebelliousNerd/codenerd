@@ -1258,3 +1258,12 @@ func (m *MockLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt,
 	}()
 	return contentChan, errorChan
 }
+
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify CompressPhase handles a nil kernel or llmClient gracefully by returning a clean error instead of panicking.
+// TODO: TEST_GAP: [Type Coercion] Verify PrefetchNextTasks behaves safely when passed a negative limit or extremely large limit (e.g., math.MaxInt32).
+// TODO: TEST_GAP: [State Conflicts] Verify PruneIrrelevant operates correctly when context profiles contain completely nil slices and the kernel returns 0 facts.
+// TODO: TEST_GAP: [User Request Extremes] Verify SetBudget properly clamps or handles 0 and negative values (-1) without corrupting phase and history reserves into negative integers.
+// TODO: TEST_GAP: [Type Coercion] Verify scopedDocsForPhase safely parses badly malformed facts from the kernel (e.g., missing expected argument types or incorrect argument counts) without panicking.
+// TODO: TEST_GAP: [Behavioral Edge Case] Verify ResetPhaseContext doesn't crash if it executes concurrently with phase activation resulting in a data race.
+// TODO: TEST_GAP: [Input Boundary] Verify getContextProfile handles completely empty string or completely null-byte string profileIDs gracefully.
+// TODO: TEST_GAP: [Input Boundary] Verify normalizeLayerName strips out malicious unicode control characters correctly instead of passing them directly into cache lookup or database.
