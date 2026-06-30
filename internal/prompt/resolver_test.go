@@ -26,6 +26,16 @@ func TestDependencyResolver_SetAllowMissingDeps(t *testing.T) {
 }
 
 func TestDependencyResolver_Resolve(t *testing.T) {
+	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with slices containing multiple nil elements, alternating nils, or an entire slice of nil elements.
+	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty `DependsOn` array `[]string{}` versus `nil`.
+	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with empty string in `DependsOn` (`DependsOn: []string{""}`).
+	// TODO: TEST_GAP: Null/Undefined/Empty - Resolve with Self-Dependency via Empty String (atom ID "" depends on "").
+	// TODO: TEST_GAP: Type Coercion - Resolve with malformed Atom IDs containing unicode, spaces, or control chars.
+	// TODO: TEST_GAP: Type Coercion - Resolve with float64 precision limits, NaN, or Infinity scores.
+	// TODO: TEST_GAP: User Request Extremes - Resolve with massive dependency chains (e.g., 1,000,000 ScoredAtoms).
+	// TODO: TEST_GAP: User Request Extremes - Resolve with extreme Priority values (`math.MaxInt64` or `math.MinInt64`).
+	// TODO: TEST_GAP: State Conflicts - Resolve with deterministic sorting on identical scores and identical dependencies (tie-breaker needed).
+	// TODO: TEST_GAP: State Conflicts - Resolve under concurrent modifications by BudgetManager (Race Conditions).
 	tests := []struct {
 		name          string
 		atoms         []*ScoredAtom
