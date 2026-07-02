@@ -17,3 +17,11 @@
 ## 2026-06-15 - Prompt Compiler and LLM Client Integration
 **Learning:** The boundary between the Prompt Compiler and the LLM Client hides a critical structural constraint: token budget enforcement dictates not just cost, but protocol survival. If the prompt compiler estimates tokens incorrectly or over-allocates to the prompt, the LLM client might abruptly truncate the piggyback JSON structure. This results in the articulation system receiving fragmented control packets, leading to a cascading failure where the entire pipeline crashes out because the intended `next_action` state was lost in truncation.
 **Action:** Always allocate distinct overhead tokens for protocol metadata (like Piggyback packets) separate from the general output budget. Tests should deliberately push the total token count exactly to the threshold limit to ensure the truncating logic inside `TokenBudgetManager` prioritizes essential system instructions and JSON structure over variable length context.
+
+## 2024-07-02 - Implicit Fail-Closed Contract in Dreamer
+**Learning:** The VirtualStore relies on the Dreamer's fail-closed behavior (returning `Unsafe: true` on bad inputs like nil context or oversized targets) to prevent execution. If `SimulateAction` were to panic or hang instead of returning a valid `DreamResult`, `RouteAction` might fail to block the action gracefully, potentially crashing the entire action routing pipeline.
+**Action:** Always test the extreme boundary cases (nil contexts, massive strings) in `SimulateAction` to ensure the fail-closed contract holds and doesn't cascade into a panic.
+
+## 2024-07-02 - Fact Injection Assumption
+**Learning:** When the Dreamer blocks an action, the VirtualStore unconditionally injects `security_violation` and `dream_blocked_action` facts. It assumes the underlying kernel will accept these without issues. If the kernel's schema is strict or state is corrupted, this injection could fail silently or panic, breaking the feedback loop for the learning subsystems.
+**Action:** Integration tests must verify that the facts are not just "sent" but are actually retrievable from the kernel after a blocked action.
