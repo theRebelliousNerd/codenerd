@@ -1,19 +1,7 @@
-## 2024-12-27 - Prompt Compiler ↔ LLM Client Boundary
-**Learning:** The `TokenBudgetManager` acts as the critical throttle between the JIT-assembled atoms and the LLM's physical context window limit. An oversight here (such as truncating a string halfway through a UTF-8 character or misallocating resources in concurrent calls) directly causes the downstream `LLMClient` to panic or receive a `400 Bad Request`.
-**Action:** Enforce strict UTF-8 validity checks and bounds truncation at the very edge of the prompt assembler, treating the TokenBudgetManager as a defensive firewall rather than a simple string trimmer.
+## 2024-07-05 - VirtualStore Interactive Gate vs Dreamer Cache Collision
+**Learning:** The Dreamer's cache implementation in `internal/core/dreamer.go` uses `string(req.Type) + ":" + req.Target` as the cache key. This completely ignores the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
+**Action:** When testing the VirtualStore ↔ Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
 
-## 2024-12-27 - Stale Facts in Cross-Boundary Pipelines
-**Learning:** If an LLM call fails mid-stream in the pipeline, the facts asserted into the kernel during the earlier JIT intent classification may linger, causing "ghost context" in subsequent interactive turns.
-**Action:** The pipeline MUST include an explicit rollback or retracting deferred function that clears transient `next_action` or `current_intent` facts if the downstream LLM boundary encounters an error.
-
-## 2024-05-26 - VirtualStore FFI and Mangle Type Mismatches
-**Learning:** When the `Session Executor` requests tool execution via the `VirtualStore`, the `VirtualStore` must translate tool arguments into Mangle Atoms to assert facts in the kernel. If a tool argument is passed as a generic string instead of a strict Mangle `ast.String` or `ast.Name`, the kernel join silently fails (returns 0 results) rather than erroring out, leading the Executor to believe an action is permitted when it isn't (or vice versa).
-**Action:** Write boundary tests that explicitly inject Mangle type confusion (e.g., passing `/string` instead of `"string"`) at the VirtualStore FFI layer to ensure the type-checker catches the error before policy evaluation.
-
-## 2026-06-17 - Prompt Compiler and LLM Client Streaming Lifecycles
-**Learning:** The boundary between the `Prompt Compiler` and `LLM Client` involves passing heavily constructed, massive strings (`CompiledContext`). However, if the network stream breaks or the context times out during the `LLMClient.Stream` phase, goroutines can leak if they don't explicitly listen to `ctx.Done()` alongside the slow network channel. A single streaming failure can leave the `Compiler` state hanging or leak resources across multiple turns.
-**Action:** When testing the `Compiler` -> `LLMClient` pipeline, always inject simulated network latency and test `context.Cancel()` exactly mid-stream to ensure the boundary guarantees fast teardown.
-
-## 2026-06-15 - Prompt Compiler and LLM Client Integration
-**Learning:** The boundary between the Prompt Compiler and the LLM Client hides a critical structural constraint: token budget enforcement dictates not just cost, but protocol survival. If the prompt compiler estimates tokens incorrectly or over-allocates to the prompt, the LLM client might abruptly truncate the piggyback JSON structure. This results in the articulation system receiving fragmented control packets, leading to a cascading failure where the entire pipeline crashes out because the intended `next_action` state was lost in truncation.
-**Action:** Always allocate distinct overhead tokens for protocol metadata (like Piggyback packets) separate from the general output budget. Tests should deliberately push the total token count exactly to the threshold limit to ensure the truncating logic inside `TokenBudgetManager` prioritizes essential system instructions and JSON structure over variable length context.
+## 2024-07-05 - VirtualStore Interactive Gate vs Dreamer Cache Collision
+**Learning:** The Dreamer's cache implementation in `internal/core/dreamer.go` uses `string(req.Type) + ":" + req.Target` as the cache key. This completely ignores the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
+**Action:** When testing the VirtualStore ↔ Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
