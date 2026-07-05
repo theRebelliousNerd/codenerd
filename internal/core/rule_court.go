@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,6 +15,13 @@ import (
 // substantially slower is either a runaway recursion or an adversarial
 // rule. Exposed as a var so tests may shorten it.
 var ratifyEvalTimeout = 5 * time.Second
+
+// Maximum allowed length for a proposed rule to prevent memory exhaustion
+// and parsing overhead before evaluating. Set to 1MB by default.
+var maxRuleLength = 1024 * 1024
+
+// Precompile regex for safety hatch check
+var askUserRegex = regexp.MustCompile(`\bask_user\b`)
 
 // RuleCourt validates proposed policy rules before they are learned.
 type RuleCourt struct {
@@ -33,6 +41,11 @@ func (c *RuleCourt) RatifyRule(newRule string) error {
 
 // RatifyRule validates a rule using a sandboxed kernel.
 func RatifyRule(kernel *RealKernel, newRule string) error {
+	// Fast path check for extreme inputs before allocating / trimming
+	if len(newRule) > maxRuleLength {
+		return fmt.Errorf("rule rejected: exceeds maximum allowed length of %d bytes", maxRuleLength)
+	}
+
 	newRule = strings.TrimSpace(newRule)
 	if newRule == "" {
 		return fmt.Errorf("empty rule")
@@ -102,7 +115,8 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	}
 
 	// Safety hatch check: never block ask_user
-	if strings.Contains(newRule, "ask_user") {
+	// We use Word Boundaries to avoid vetoing strings like 'ask_user_id'
+	if askUserRegex.MatchString(newRule) {
 		return fmt.Errorf("VETO: cannot forbid emergency hatch 'ask_user'")
 	}
 
