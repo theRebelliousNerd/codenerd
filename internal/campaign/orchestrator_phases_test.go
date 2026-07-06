@@ -7,6 +7,8 @@ import (
 )
 
 func TestOrchestrator_GetCurrentPhase(t *testing.T) {
+	// TODO: Add tests for Null/Empty edge cases: What happens if `o.campaign.Phases` is null/empty?
+	// TODO: Add tests for Type Coercion edge cases: What happens if Mangle kernel returns an unexpected type (e.g., number instead of Atom/String) for current_phase?
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -55,6 +57,8 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 }
 
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
+	// TODO: Add tests for Null/Empty edge cases: What happens if `phase` is nil, or `phase.Tasks` is empty/nil?
+	// TODO: Add tests for Extremes: How does getEligibleTasks handle a massive number of tasks (e.g., 100,000 tasks) with complex backoff states? Evaluate performance impacts.
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -114,6 +118,8 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 }
 
 func TestOrchestrator_GetNextTask(t *testing.T) {
+	// TODO: Add tests for Null/Empty edge cases: What happens if `phase` is nil, or `phase.Tasks` is empty/nil?
+	// TODO: Add tests for Type Coercion edge cases: What happens if Mangle kernel returns an unexpected type for next_campaign_task?
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -161,6 +167,7 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 }
 
 func TestOrchestrator_IsCampaignComplete(t *testing.T) {
+	// TODO: Add tests for Null/Empty edge cases: What happens if `o.campaign.Phases` is empty/nil?
 	// Case 1: All completed or skipped
 	c1 := &Campaign{
 		Phases: []Phase{
@@ -199,6 +206,7 @@ func TestOrchestrator_IsCampaignComplete(t *testing.T) {
 }
 
 func TestOrchestrator_IsPhaseComplete(t *testing.T) {
+	// TODO: Add tests for Null/Empty edge cases: What happens if `phase` is nil, or `phase.Tasks` is empty/nil?
 	// Case 1: All tasks completed or skipped
 	p1 := &Phase{
 		Tasks: []Task{
@@ -236,6 +244,8 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
+	// TODO: Add tests for Type Coercion edge cases: What happens if the block reason returned by the kernel is an empty string, or not a string at all?
+	// TODO: Add tests for State Conflicts: Verify thread safety and potential deadlocks when completing/starting phases (e.g. `completePhase` holding `o.mu` while calling `northstarObserver.OnPhaseComplete`).
 	mockKernel := &MockKernel{}
 	orch := &Orchestrator{kernel: mockKernel}
 
