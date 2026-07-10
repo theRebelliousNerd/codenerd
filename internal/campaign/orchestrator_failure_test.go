@@ -280,6 +280,22 @@ func containsString(values []string, target string) bool {
 // Gap Implementations
 // -----------------------------------------------------------------------------
 
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify classifyTaskError(err error) with completely empty or whitespace-only error strings.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify shouldEscalateLogicFailure(attempts []TaskAttempt, now time.Time) with an empty attempts slice.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify shouldEscalateLogicFailure with zero-value Timestamp in TaskAttempts.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify insertReproDiagnosticTaskLocked with empty or nil slices (e.g. phase.Tasks == nil).
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify findActiveReproTaskID with nil tasks slice.
+// TODO: TEST_GAP: [Type Coercion] Verify Mangle Fact Type Dissonance in task_error assertions (ensuring ast.Name is used, not string "/logic").
+// TODO: TEST_GAP: [Type Coercion] Verify task_retry_at Timestamp Coercion correctly handles int64 vs float64/int limits in Mangle layer.
+// TODO: TEST_GAP: [User Request Extremes] Verify Massive Error Strings (50MB) in classifyTaskError and Kernel Assertions don't cause OOM or store limits.
+// TODO: TEST_GAP: [User Request Extremes] Verify Unbounded Retries and Integer Overflow in computeRetryBackoff (passing math.MaxInt32).
+// TODO: TEST_GAP: [User Request Extremes] Verify Repro Task Cascade (Infinite Insertion Loop) - a repro task failing should not spawn another repro task.
+// TODO: TEST_GAP: [User Request Extremes] Verify Extreme Number of Task Attempts (1,000,000) passed to shouldEscalateLogicFailure does not cause CPU spike.
+// TODO: TEST_GAP: [State Conflicts] Verify Race Condition during Phase/Task Mutation (e.g. AbortCampaign called while handleTaskFailure holds mu lock).
+// TODO: TEST_GAP: [State Conflicts] Verify Kernel State vs In-Memory State Desynchronization if kernel.Assert throws an error halfway through handler.
+// TODO: TEST_GAP: [State Conflicts] Verify TOC/TOU (Time of Check / Time of Use) in Repro Task Dependency Assertion (Go struct mutated before Kernel fact).
+// TODO: TEST_GAP: [State Conflicts] Verify Concurrent Failure Handling for the Same Task (ensuring duplicate Repro tasks are not spawned).
+
 func TestOrchestratorFailure_NullEmptyPointers(t *testing.T) {
 	orch, _, _ := newFailureTestOrchestrator(t, 5)
 
