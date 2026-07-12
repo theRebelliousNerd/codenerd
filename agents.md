@@ -111,6 +111,10 @@ If you see `debug_program_ERROR.mg`, the system crashed and dumped combined `.mg
 - Prefer adding prompt atoms and selection logic over hardcoding prose in shards.
 - When in doubt, preserve the architectural north star and trim encyclopedic detail.
 
+## Grok Harness
+
+Grok Build project wiring lives under `.grok/` (rules, agents, personas, roles, skills). Domain skills remain under `.agents/skills/`. Orient with `/codenerd-session` or `grok inspect`.
+
 ## Deep References
 
 - `.claude/skills/codenerd-builder/references/`

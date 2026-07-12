@@ -52,6 +52,19 @@
 !.codex/skills/codenerd-builder/references/
 .codex/skills/codenerd-builder/references/*
 !.codex/skills/codenerd-builder/references/skill-registry.md
+!.grok/
+.grok/*
+!.grok/README.md
+!.grok/rules/
+!.grok/rules/**
+!.grok/agents/
+!.grok/agents/**
+!.grok/personas/
+!.grok/personas/**
+!.grok/roles/
+!.grok/roles/**
+!.grok/skills/
+!.grok/skills/**
 
 # OS noise
 Thumbs.db
