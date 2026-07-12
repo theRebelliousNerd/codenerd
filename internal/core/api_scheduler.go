@@ -198,14 +198,18 @@ func (s *APIScheduler) popNextWaiterLocked() *schedWaiter {
 }
 
 // removeWaiterLocked removes a specific waiter (by channel identity).
-// Caller must hold s.mu.
-func (s *APIScheduler) removeWaiterLocked(ch chan struct{}) {
+// Returns true if the waiter was still queued (not yet granted a slot).
+// Returns false if the waiter was already popped by a grant — the caller
+// then owns a slot (currentlyExecuting already incremented) and must either
+// finishGranted or forceReleaseSlot. Caller must hold s.mu.
+func (s *APIScheduler) removeWaiterLocked(ch chan struct{}) bool {
 	for i, w := range s.waiters {
 		if w.ch == ch {
 			s.waiters = append(s.waiters[:i], s.waiters[i+1:]...)
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // NewAPIScheduler creates a new scheduler.
@@ -369,29 +373,48 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		return nil
 
 	case <-waitCtx.Done():
-		select {
-		case <-w:
-			// Granted in the race window — honor the grant.
-			return s.finishGranted(ctx, shardID, state, time.Since(waitStart))
-		default:
-		}
-
+		// TOCTOU fix: decide under the lock whether we are still a waiter or
+		// already granted. A non-blocking peek at w races with ReleaseAPISlot /
+		// forceReleaseSlot grant (pop + currentlyExecuting++ + close). If we
+		// took "default" then removeWaiter no-op'd and returned cancel without
+		// reclaim, currentlyExecuting stayed elevated forever (slot leak).
 		s.mu.Lock()
-		state.Phase = PhaseFailed
-		state.Error = waitCtx.Err()
-		s.removeWaiterLocked(w)
-		s.removeWaitQueueLocked(shardID)
+		stillWaiting := s.removeWaiterLocked(w)
+		if stillWaiting {
+			state.Phase = PhaseFailed
+			state.Error = waitCtx.Err()
+			s.removeWaitQueueLocked(shardID)
+			s.mu.Unlock()
+			logging.Get(logging.CategoryShards).Warn("APIScheduler: shard %s cancelled while waiting for slot (waited %v)",
+				shardID, time.Since(waitStart))
+			return waitCtx.Err()
+		}
 		s.mu.Unlock()
 
-		logging.Get(logging.CategoryShards).Warn("APIScheduler: shard %s cancelled while waiting for slot (waited %v)",
-			shardID, time.Since(waitStart))
-		return waitCtx.Err()
+		// Already granted a slot while cancel was racing — drain the closed
+		// channel and honor the grant (finishGranted may force-release if
+		// spacing is interrupted by the same canceled ctx).
+		select {
+		case <-w:
+		default:
+		}
+		return s.finishGranted(ctx, shardID, state, time.Since(waitStart))
 
 	case <-s.stopCh:
 		s.mu.Lock()
-		s.removeWaiterLocked(w)
-		s.removeWaitQueueLocked(shardID)
+		stillWaiting := s.removeWaiterLocked(w)
+		if stillWaiting {
+			s.removeWaitQueueLocked(shardID)
+			s.mu.Unlock()
+			return fmt.Errorf("scheduler stopped")
+		}
 		s.mu.Unlock()
+		// Granted as we stopped: reclaim the slot so it cannot leak.
+		select {
+		case <-w:
+		default:
+		}
+		s.forceReleaseSlot(shardID)
 		return fmt.Errorf("scheduler stopped")
 	}
 }
@@ -401,16 +424,12 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 // closes the waiter's channel (same contract as ReleaseAPISlot).
 func (s *APIScheduler) grantAvailableSlotsLocked() {
 	for int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls && len(s.waiters) > 0 {
-		w := s.popNextWaiterLocked()
-		if w == nil {
+		before := len(s.waiters)
+		s.grantOneWaiterLocked()
+		if len(s.waiters) == before {
+			// No progress (capacity full or empty queue) — stop.
 			break
 		}
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-		select {
-		case s.slots <- struct{}{}:
-		default:
-		}
-		close(w.ch)
 	}
 }
 
@@ -465,6 +484,11 @@ func (s *APIScheduler) finishGranted(ctx context.Context, shardID string, state 
 
 // forceReleaseSlot releases a held slot without counting an API call (used when
 // acquire is cancelled during spacing, before the LLM is invoked).
+//
+// Grant-to-next uses the same pop+inc+close contract as ReleaseAPISlot. The
+// cancel path in AcquireAPISlot must reclaim under the mutex (see
+// removeWaiterLocked return value) so a cancel racing this grant cannot leave
+// currentlyExecuting elevated after returning context.Canceled.
 func (s *APIScheduler) forceReleaseSlot(shardID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -481,15 +505,27 @@ func (s *APIScheduler) forceReleaseSlot(shardID string) {
 		state.Error = context.Canceled
 	}
 	s.removeWaitQueueLocked(shardID)
-	// Wake next waiter if any
-	if w := s.popNextWaiterLocked(); w != nil {
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-		select {
-		case s.slots <- struct{}{}:
-		default:
-		}
-		close(w.ch)
+	// Wake next waiter if any (same grant pattern as ReleaseAPISlot).
+	s.grantOneWaiterLocked()
+}
+
+// grantOneWaiterLocked pops the highest-priority waiter, increments
+// currentlyExecuting, and closes its channel. Caller must hold s.mu.
+// No-op when there are no waiters or no free capacity.
+func (s *APIScheduler) grantOneWaiterLocked() {
+	if int(atomic.LoadInt32(&s.currentlyExecuting)) >= s.config.MaxConcurrentAPICalls {
+		return
 	}
+	w := s.popNextWaiterLocked()
+	if w == nil {
+		return
+	}
+	atomic.AddInt32(&s.currentlyExecuting, 1)
+	select {
+	case s.slots <- struct{}{}:
+	default:
+	}
+	close(w.ch)
 }
 
 func (s *APIScheduler) removeWaitQueueLocked(shardID string) {
@@ -527,18 +563,10 @@ func (s *APIScheduler) ReleaseAPISlot(shardID string) {
 		state.APICallCount++
 	}
 
-	// Wake the highest-priority waiter if any (FIFO within priority)
-	if w := s.popNextWaiterLocked(); w != nil {
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-
-		// Align len(s.slots)
-		select {
-		case s.slots <- struct{}{}:
-		default:
-		}
-
-		close(w.ch)
-	}
+	// Wake the highest-priority waiter if any (FIFO within priority).
+	// Same grant pattern as forceReleaseSlot — cancel reclaim is on the
+	// AcquireAPISlot path via removeWaiterLocked's bool return.
+	s.grantOneWaiterLocked()
 
 	logging.ShardsDebug("APIScheduler: shard %s released slot (total_calls=%d)", shardID, atomic.LoadInt64(&s.totalAPICalls))
 }
