@@ -63,7 +63,7 @@ type Config struct {
 
 	// Ollama Configuration
 	OllamaEndpoint string `json:"ollama_endpoint"` // Default: "http://localhost:11434"
-	OllamaModel    string `json:"ollama_model"`    // Default: "embeddinggemma"
+	OllamaModel    string `json:"ollama_model"`    // Default: "embeddinggemma:300m"
 
 	// GenAI Configuration
 	GenAIAPIKey string `json:"genai_api_key"`
@@ -78,7 +78,7 @@ func DefaultConfig() Config {
 	return Config{
 		Provider:       "ollama", // Default to local Ollama
 		OllamaEndpoint: "http://localhost:11434",
-		OllamaModel:    "embeddinggemma",
+		OllamaModel:    defaultOllamaEmbedModel,
 		GenAIModel:     "gemini-embedding-001",
 		TaskType:       "SEMANTIC_SIMILARITY",
 	}
@@ -103,7 +103,22 @@ func NewEngine(cfg Config) (EmbeddingEngine, error) {
 	switch cfg.Provider {
 	case "ollama":
 		logging.Embedding("Initializing Ollama embedding engine: endpoint=%s, model=%s", cfg.OllamaEndpoint, cfg.OllamaModel)
-		engine, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel)
+		var oe *OllamaEngine
+		oe, err = NewOllamaEngine(cfg.OllamaEndpoint, cfg.OllamaModel)
+		if err == nil {
+			// Best-effort ensure at construction so first embed isn't the first
+			// time we discover a missing model. Short timeout so a down Ollama
+			// does not block boot; Embed will retry EnsureModel later.
+			ensureCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			if ensureErr := oe.EnsureModel(ensureCtx); ensureErr != nil {
+				logging.Get(logging.CategoryEmbedding).Warn(
+					"Ollama EnsureModel at init: %v (will retry on first Embed)", ensureErr)
+			} else {
+				logging.Embedding("Ollama model ready at init: %s", oe.Model())
+			}
+			cancel()
+			engine = oe
+		}
 	case "genai":
 		logging.Embedding("Initializing GenAI embedding engine: model=%s, task_type=%s", cfg.GenAIModel, cfg.TaskType)
 		engine, err = NewGenAIEngine(cfg.GenAIAPIKey, cfg.GenAIModel, cfg.TaskType)

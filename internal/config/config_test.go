@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -288,6 +289,69 @@ func TestUserConfig_GetEffectiveMaxConcurrentAPICalls(t *testing.T) {
 		t.Fatalf("GetEffectiveMaxConcurrentAPICalls=%d, want 5 in api mode", got)
 	}
 }
+
+func TestUserConfig_GetEffectiveAPISchedulerPolicy(t *testing.T) {
+	// SuperGrok defaults: spacing + adaptive on
+	oauth := &UserConfig{
+		Engine: "xai-oauth",
+		CoreLimits: &CoreLimits{
+			MaxConcurrentAPICalls: 5,
+		},
+		XAIOAuth: &XAIOAuthConfig{
+			MaxConcurrentCalls: 2,
+		},
+	}
+	pol := oauth.GetEffectiveAPISchedulerPolicy()
+	if pol.MaxConcurrentAPICalls != 2 {
+		t.Fatalf("max=%d want 2", pol.MaxConcurrentAPICalls)
+	}
+	if pol.MinCallSpacing != 150*time.Millisecond {
+		t.Fatalf("spacing=%v want 150ms", pol.MinCallSpacing)
+	}
+	if !pol.AdaptiveConcurrency {
+		t.Fatal("expected adaptive concurrency for xai-oauth")
+	}
+	if pol.AdaptiveFloor != 1 {
+		t.Fatalf("floor=%d want 1", pol.AdaptiveFloor)
+	}
+
+	// Explicit config.json overrides win
+	off := false
+	zero := 0
+	floor := 2
+	oauth.APIScheduler = &APISchedulerPolicy{
+		MinCallSpacingMs:        &zero,
+		AdaptiveConcurrency:     &off,
+		AdaptiveFloor:           &floor,
+		AdaptiveRecoverAfterSec: intPtr(60),
+		SlotAcquireTimeoutSec:   intPtr(120),
+	}
+	pol = oauth.GetEffectiveAPISchedulerPolicy()
+	if pol.MinCallSpacing != 0 {
+		t.Fatalf("spacing override=%v want 0", pol.MinCallSpacing)
+	}
+	if pol.AdaptiveConcurrency {
+		t.Fatal("adaptive should be off via config")
+	}
+	if pol.AdaptiveFloor != 2 {
+		t.Fatalf("floor=%d want 2", pol.AdaptiveFloor)
+	}
+	if pol.AdaptiveRecoverAfter != 60*time.Second {
+		t.Fatalf("recover=%v want 60s", pol.AdaptiveRecoverAfter)
+	}
+	if pol.SlotAcquireTimeout != 120*time.Second {
+		t.Fatalf("slot timeout=%v want 120s", pol.SlotAcquireTimeout)
+	}
+
+	// API engine defaults: no spacing, no adaptive
+	api := &UserConfig{Engine: "api", CoreLimits: &CoreLimits{MaxConcurrentAPICalls: 5}}
+	pol = api.GetEffectiveAPISchedulerPolicy()
+	if pol.MinCallSpacing != 0 || pol.AdaptiveConcurrency {
+		t.Fatalf("api engine should be aggressive: spacing=%v adaptive=%v", pol.MinCallSpacing, pol.AdaptiveConcurrency)
+	}
+}
+
+func intPtr(v int) *int { return &v }
 
 func TestUserConfig_GetContext7APIKey_EnvOverridesConfig(t *testing.T) {
 	t.Setenv("CONTEXT7_API_KEY", "env-key")

@@ -3,6 +3,7 @@ package perception
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception/xaioauth"
 	"fmt"
 	"os"
 )
@@ -42,9 +43,10 @@ type ProviderConfig struct {
 	ClassificationModel string
 
 	// CLI Engine Configuration (takes precedence over Provider when set)
-	Engine    string                  // "api", "claude-cli", "codex-cli"
+	Engine    string                  // "api", "claude-cli", "codex-cli", "xai-oauth"
 	ClaudeCLI *config.ClaudeCLIConfig // Claude CLI settings
 	CodexCLI  *config.CodexCLIConfig  // Codex CLI settings
+	XAIOAuth  *config.XAIOAuthConfig  // SuperGrok OAuth settings
 
 	// Provider-specific configurations
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
@@ -58,9 +60,9 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		return nil, err
 	}
 
-	// Check for CLI engine configuration first
+	// Check for CLI / OAuth engine configuration first
 	engine := userCfg.GetEngine()
-	if engine == "claude-cli" || engine == "codex-cli" {
+	if engine == "claude-cli" || engine == "codex-cli" || engine == "xai-oauth" {
 		// Context7 API key: check config first, then env var
 		context7Key := userCfg.Context7APIKey
 		if context7Key == "" {
@@ -71,6 +73,7 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 			Engine:         engine,
 			ClaudeCLI:      userCfg.GetClaudeCLIConfig(),
 			CodexCLI:       userCfg.GetCodexCLIConfig(),
+			XAIOAuth:       userCfg.GetXAIOAuthConfig(),
 			Context7APIKey: context7Key,
 		}, nil
 	}
@@ -103,16 +106,17 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 
 // DetectProvider checks .nerd/config.json first, then environment variables.
 // Priority: config.json > env vars (ANTHROPIC > OPENAI > GEMINI > XAI > ZAI)
-// CLI engines (claude-cli, codex-cli) are detected from config.json and don't require API keys.
+// CLI/OAuth engines (claude-cli, codex-cli, xai-oauth) are detected from config.json
+// and don't require API keys.
 func DetectProvider() (*ProviderConfig, error) {
 	logging.PerceptionDebug("DetectProvider: checking config and environment")
 
 	// First, try to load from .nerd/config.json
 	configPath := config.DefaultUserConfigPath()
 	if cfg, err := LoadConfigJSON(configPath); err == nil {
-		// CLI engines don't need API keys (subscription-based)
-		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
-			logging.Perception("DetectProvider: using CLI engine=%s", cfg.Engine)
+		// Subscription engines don't need API keys
+		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" || cfg.Engine == "xai-oauth" {
+			logging.Perception("DetectProvider: using subscription engine=%s", cfg.Engine)
 			return cfg, nil
 		}
 		// API mode requires an API key
@@ -181,8 +185,8 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 		return nil, nil
 	}
 
-	// CLI engines do not support model tiering — return nil to use main client.
-	if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" {
+	// Subscription engines do not support model tiering — return nil to use main client.
+	if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" || cfg.Engine == "xai-oauth" {
 		return nil, nil
 	}
 
@@ -255,18 +259,20 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 // NERD-EVOLVE-END: P1P2-model-tiering
 
 // NewClientFromConfig creates an LLM client from a provider config.
-// CLI engines (claude-cli, codex-cli) take precedence over API providers when configured.
+// Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
-	// Check for CLI engine configuration first (takes precedence over API)
+	// Check for CLI/OAuth engine configuration first (takes precedence over API)
 	switch config.Engine {
 	case "claude-cli":
 		return NewClaudeCodeCLIClient(config.ClaudeCLI), nil
 	case "codex-cli":
 		return NewCodexExecClient(config.CodexCLI), nil
+	case "xai-oauth":
+		return xaioauth.NewClientFromUserConfig(config.XAIOAuth), nil
 	case "api", "":
 		// Continue to API-based provider selection below
 	default:
-		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli)", config.Engine)
+		return nil, fmt.Errorf("unknown engine: %s (valid: api, claude-cli, codex-cli, xai-oauth)", config.Engine)
 	}
 
 	// API-based provider selection

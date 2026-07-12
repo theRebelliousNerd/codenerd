@@ -18,8 +18,8 @@ func TestDefaultConfig_WhenCalled_ShouldReturnSensibleDefaults(t *testing.T) {
 	if cfg.OllamaEndpoint != "http://localhost:11434" {
 		t.Errorf("DefaultConfig().OllamaEndpoint = %q, want %q", cfg.OllamaEndpoint, "http://localhost:11434")
 	}
-	if cfg.OllamaModel != "embeddinggemma" {
-		t.Errorf("DefaultConfig().OllamaModel = %q, want %q", cfg.OllamaModel, "embeddinggemma")
+	if cfg.OllamaModel != "embeddinggemma:300m" {
+		t.Errorf("DefaultConfig().OllamaModel = %q, want %q", cfg.OllamaModel, "embeddinggemma:300m")
 	}
 	if cfg.GenAIModel != "gemini-embedding-001" {
 		t.Errorf("DefaultConfig().GenAIModel = %q, want %q", cfg.GenAIModel, "gemini-embedding-001")

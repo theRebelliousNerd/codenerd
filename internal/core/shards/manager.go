@@ -94,13 +94,14 @@ func truncateForEvent(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-// emitShardEvent fires a CategoryShard Glass Box event. Cheap to
-// call when the bus is nil (returns immediately).
+// emitShardEvent fires a CategoryShard Glass Box event immediately so
+// spawn/completion lines hit chat scrollback without batch delay.
+// Cheap to call when the bus is nil (returns immediately).
 func (sm *ShardManager) emitShardEvent(summary, details, source string, dur time.Duration) {
 	if sm.glassBoxBus == nil {
 		return
 	}
-	sm.glassBoxBus.Emit(transparency.GlassBoxEvent{
+	sm.glassBoxBus.EmitImmediate(transparency.GlassBoxEvent{
 		Timestamp: time.Now(),
 		Category:  transparency.CategoryShard,
 		Summary:   summary,

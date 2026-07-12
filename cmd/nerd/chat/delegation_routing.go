@@ -190,6 +190,39 @@ func shouldVerifyDelegation(intent perception.Intent) bool {
 // returns no should_delegate fact, fall back to the legacy Go boolean
 // (shardType != "" && confidence >= 0.5). This guarantees a kernel hiccup can
 // never silently disable all delegation — it degrades to the prior behavior.
+// resolveShardTypeForIntent picks a concrete shard for delegation.
+// Priority:
+//  1. Verb corpus mapping (GetShardTypeForVerb)
+//  2. LLM-suggested primary_shard from perception Ambiguity (shard=researcher)
+//  3. Heuristic: high-confidence whole-codebase /explain → researcher
+//
+// Live test: "teach me about the codebase" had verb=/explain (ShardType=/none)
+// and ambiguity shard=researcher but we never delegated — user waited forever
+// on articulation behind /init. Honor the LLM suggestion.
+func resolveShardTypeForIntent(intent perception.Intent) string {
+	if st := perception.GetShardTypeForVerb(intent.Verb); st != "" && st != "/none" {
+		return strings.TrimPrefix(st, "/")
+	}
+	for _, a := range intent.Ambiguity {
+		if strings.HasPrefix(a, "shard=") {
+			s := strings.TrimSpace(strings.TrimPrefix(a, "shard="))
+			if s != "" && s != "none" && s != "/none" {
+				return strings.TrimPrefix(s, "/")
+			}
+		}
+	}
+	// Whole-repo explain/teach → researcher even without explicit suggestion
+	if intent.Confidence >= 0.7 && (intent.Verb == "/explain" || intent.Verb == "/explore" || intent.Verb == "/search") {
+		t := strings.ToLower(intent.Target)
+		if strings.Contains(t, "codebase") || strings.Contains(t, "project") ||
+			strings.Contains(t, "architecture") || strings.Contains(t, "repository") ||
+			strings.Contains(t, "entire") || strings.Contains(t, "whole") {
+			return "researcher"
+		}
+	}
+	return ""
+}
+
 func (m *Model) shouldDelegate(shardType string, confidence float64) bool {
 	legacy := shardType != "" && confidence >= 0.5
 

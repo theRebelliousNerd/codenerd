@@ -944,10 +944,12 @@ func (i *Initializer) createDefaultConfig(path string) error {
 			ActivationThreshold:    30.0,
 		},
 
+		// Defaults align with .nerd/config.json rule of record. If a real
+		// config.json already exists, callers should prefer LoadUserConfig.
 		Embedding: &config.EmbeddingConfig{
-			Provider:       "genai",
+			Provider:       "ollama",
 			OllamaEndpoint: "http://localhost:11434",
-			OllamaModel:    "nomic-embed-text",
+			OllamaModel:    "embeddinggemma:300m",
 			GenAIModel:     "gemini-embedding-001",
 			TaskType:       "SEMANTIC_SIMILARITY",
 		},

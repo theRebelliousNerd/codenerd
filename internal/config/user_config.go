@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"codenerd/internal/features"
 	"codenerd/internal/logging"
@@ -54,8 +55,8 @@ type UserConfig struct {
 	// CLI ENGINE CONFIGURATION
 	// =========================================================================
 
-	// Engine selection: "api" (default), "claude-cli", "codex-cli"
-	// When set to "claude-cli" or "codex-cli", uses CLI subprocess instead of HTTP API
+	// Engine selection: "api" (default), "claude-cli", "codex-cli", "xai-oauth"
+	// When set to a CLI/OAuth engine, uses that backend instead of HTTP API keys.
 	Engine string `json:"engine,omitempty"`
 
 	// Gemini-specific configuration (thinking mode, grounding tools)
@@ -66,6 +67,9 @@ type UserConfig struct {
 
 	// Codex CLI configuration (used when Engine="codex-cli")
 	CodexCLI *CodexCLIConfig `json:"codex_cli,omitempty"`
+
+	// XAIOAuth SuperGrok / X Premium+ OAuth configuration (used when Engine="xai-oauth")
+	XAIOAuth *XAIOAuthConfig `json:"xai_oauth,omitempty"`
 
 	// =========================================================================
 	// UI SETTINGS
@@ -116,6 +120,10 @@ type UserConfig struct {
 
 	// Core resource limits enforced system-wide
 	CoreLimits *CoreLimits `json:"core_limits,omitempty"`
+
+	// APIScheduler controls LLM slot queuing, priority grants, call spacing,
+	// and adaptive concurrency on provider rate limits. See APISchedulerPolicy.
+	APIScheduler *APISchedulerPolicy `json:"api_scheduler,omitempty"`
 
 	// World model scanning/AST parsing configuration
 	World *WorldConfig `json:"world,omitempty"`
@@ -247,19 +255,28 @@ func (c *UserConfig) GetContextWindowConfig() ContextWindowConfig {
 	return def
 }
 
-// GetEmbeddingConfig returns the embedding config with defaults.
+// GetEmbeddingConfig returns the embedding config from .nerd/config.json
+// (UserConfig.Embedding) with defaults applied for empty fields ONLY.
+//
+// RULE: ollama_model / provider / endpoint MUST be driven by config.json.
+// Callers must use this helper (or LoadUserConfig + this) — never invent a
+// model name at the call site. Boot, /init, reembed, and perception all go
+// through here so a single config.json change is authoritative.
 func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
-	if c.Embedding != nil {
+	if c != nil && c.Embedding != nil {
 		cfg := *c.Embedding
-		// Apply defaults for zero values
+		// Apply defaults for zero values only — never overwrite a non-empty
+		// explicit config.json value (except bare "embeddinggemma", which is
+		// not a real Ollama tag on most installs).
 		if cfg.Provider == "" {
 			cfg.Provider = "ollama"
 		}
 		if cfg.OllamaEndpoint == "" {
 			cfg.OllamaEndpoint = "http://localhost:11434"
 		}
-		if cfg.OllamaModel == "" {
-			cfg.OllamaModel = "embeddinggemma"
+		if cfg.OllamaModel == "" || cfg.OllamaModel == "embeddinggemma" {
+			// Bare tag 404s without :latest; canonical config.json value is :300m.
+			cfg.OllamaModel = "embeddinggemma:300m"
 		}
 		if cfg.GenAIModel == "" {
 			cfg.GenAIModel = "gemini-embedding-001"
@@ -269,11 +286,12 @@ func (c *UserConfig) GetEmbeddingConfig() EmbeddingConfig {
 		}
 		return cfg
 	}
-	// Return defaults (Ollama for local processing)
+	// No embedding block in config.json — return defaults that match the
+	// canonical config.json shape so first-run and missing-block behave the same.
 	return EmbeddingConfig{
 		Provider:       "ollama",
 		OllamaEndpoint: "http://localhost:11434",
-		OllamaModel:    "embeddinggemma",
+		OllamaModel:    "embeddinggemma:300m",
 		GenAIModel:     "gemini-embedding-001",
 		TaskType:       "SEMANTIC_SIMILARITY",
 	}
@@ -534,9 +552,10 @@ func (c *UserConfig) SetEngine(engine string) error {
 		"api":        true,
 		"claude-cli": true,
 		"codex-cli":  true,
+		"xai-oauth":  true,
 	}
 	if !validEngines[engine] {
-		return fmt.Errorf("invalid engine: %s (valid: api, claude-cli, codex-cli)", engine)
+		return fmt.Errorf("invalid engine: %s (valid: api, claude-cli, codex-cli, xai-oauth)", engine)
 	}
 	c.Engine = engine
 	return nil
@@ -608,6 +627,33 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	return &cfg
 }
 
+// GetXAIOAuthConfig returns SuperGrok OAuth config with defaults applied.
+func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
+	importGrok := true
+	if c.XAIOAuth == nil {
+		return &XAIOAuthConfig{
+			Model:              "grok-4.5",
+			Timeout:            300,
+			ImportGrokAuth:     &importGrok,
+			MaxConcurrentCalls: DefaultXAIOAuthMaxConcurrentCalls,
+		}
+	}
+	cfg := *c.XAIOAuth
+	if cfg.Model == "" {
+		cfg.Model = "grok-4.5"
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 300
+	}
+	if cfg.ImportGrokAuth == nil {
+		cfg.ImportGrokAuth = &importGrok
+	}
+	if cfg.MaxConcurrentCalls == 0 {
+		cfg.MaxConcurrentCalls = DefaultXAIOAuthMaxConcurrentCalls
+	}
+	return &cfg
+}
+
 // GetEffectiveMaxConcurrentAPICalls returns the scheduler ceiling after applying
 // engine-specific concurrency overrides.
 func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
@@ -620,8 +666,85 @@ func (c *UserConfig) GetEffectiveMaxConcurrentAPICalls() int {
 			effective = codexCfg.MaxConcurrentCalls
 		}
 	}
+	if c.GetEngine() == "xai-oauth" {
+		oauthCfg := c.GetXAIOAuthConfig()
+		if oauthCfg.MaxConcurrentCalls > 0 && oauthCfg.MaxConcurrentCalls < effective {
+			effective = oauthCfg.MaxConcurrentCalls
+		}
+	}
+	// Optional Claude CLI ceiling (same pattern as Codex/SuperGrok).
+	if c.GetEngine() == "claude-cli" && c.ClaudeCLI != nil && c.ClaudeCLI.MaxConcurrentCalls > 0 {
+		if c.ClaudeCLI.MaxConcurrentCalls < effective {
+			effective = c.ClaudeCLI.MaxConcurrentCalls
+		}
+	}
 
 	return effective
+}
+
+// subscriptionEngine reports engines that default to polite SuperGrok-style
+// scheduling (spacing + adaptive concurrency).
+func (c *UserConfig) subscriptionEngine() bool {
+	switch c.GetEngine() {
+	case "xai-oauth", "codex-cli", "claude-cli":
+		return true
+	default:
+		return false
+	}
+}
+
+// GetEffectiveAPISchedulerPolicy resolves api_scheduler config with engine
+// defaults. Explicit config.json values always win over defaults.
+func (c *UserConfig) GetEffectiveAPISchedulerPolicy() EffectiveAPISchedulerPolicy {
+	pol := EffectiveAPISchedulerPolicy{
+		MaxConcurrentAPICalls: c.GetEffectiveMaxConcurrentAPICalls(),
+		AdaptiveFloor:         DefaultAdaptiveFloor,
+		AdaptiveRecoverAfter:  time.Duration(DefaultAdaptiveRecoverAfterSec) * time.Second,
+		SlotAcquireTimeout:    GetLLMTimeouts().SlotAcquisitionTimeout,
+	}
+	if pol.SlotAcquireTimeout <= 0 {
+		pol.SlotAcquireTimeout = time.Duration(DefaultSlotAcquireTimeoutSec) * time.Second
+	}
+
+	// Engine defaults: subscription engines are polite; API is aggressive.
+	if c.subscriptionEngine() {
+		pol.MinCallSpacing = time.Duration(DefaultSubscriptionMinCallSpacingMs) * time.Millisecond
+		pol.AdaptiveConcurrency = true
+	} else {
+		pol.MinCallSpacing = 0
+		pol.AdaptiveConcurrency = false
+	}
+
+	if c == nil || c.APIScheduler == nil {
+		return pol
+	}
+	p := c.APIScheduler
+
+	if p.MinCallSpacingMs != nil {
+		if *p.MinCallSpacingMs <= 0 {
+			pol.MinCallSpacing = 0
+		} else {
+			pol.MinCallSpacing = time.Duration(*p.MinCallSpacingMs) * time.Millisecond
+		}
+	}
+	if p.AdaptiveConcurrency != nil {
+		pol.AdaptiveConcurrency = *p.AdaptiveConcurrency
+	}
+	if p.AdaptiveFloor != nil && *p.AdaptiveFloor > 0 {
+		pol.AdaptiveFloor = *p.AdaptiveFloor
+	}
+	if p.AdaptiveRecoverAfterSec != nil {
+		if *p.AdaptiveRecoverAfterSec <= 0 {
+			pol.AdaptiveRecoverAfter = 0
+		} else {
+			pol.AdaptiveRecoverAfter = time.Duration(*p.AdaptiveRecoverAfterSec) * time.Second
+		}
+	}
+	if p.SlotAcquireTimeoutSec != nil && *p.SlotAcquireTimeoutSec > 0 {
+		pol.SlotAcquireTimeout = time.Duration(*p.SlotAcquireTimeoutSec) * time.Second
+	}
+
+	return pol
 }
 
 // GetShardProfile returns the profile for a specific shard type, falling back to defaults.
@@ -845,7 +968,7 @@ func DefaultUserConfig() *UserConfig {
 		Embedding: &EmbeddingConfig{
 			Provider:       "ollama",
 			OllamaEndpoint: "http://localhost:11434",
-			OllamaModel:    "embeddinggemma",
+			OllamaModel:    "embeddinggemma:300m",
 			GenAIAPIKey:    "",
 			GenAIModel:     "gemini-embedding-001",
 			TaskType:       "SEMANTIC_SIMILARITY",

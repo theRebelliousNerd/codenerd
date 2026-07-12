@@ -13,8 +13,14 @@ import (
 )
 
 const (
-	// maxGlassBoxEvents caps the event buffer to prevent unbounded growth
-	maxGlassBoxEvents = 50
+	// maxGlassBoxEvents caps the in-memory ring used by /glassbox status.
+	// Chat scrollback keeps its own history; this is only the status buffer.
+	maxGlassBoxEvents = 500
+
+	// maxGlassBoxDrain is how many already-queued events we fold into a
+	// single Bubble Tea frame so the viewport keeps up under burst load
+	// (multi-shard spawn, tool storms) without dropping the listen loop.
+	maxGlassBoxDrain = 64
 )
 
 // listenGlassBoxEvents returns a tea.Cmd that waits for Glass Box events.
@@ -34,15 +40,34 @@ func (m Model) listenGlassBoxEvents() tea.Cmd {
 	}
 }
 
+// drainGlassBoxEvents folds any already-buffered events into the model so a
+// busy turn renders as a stream of lines rather than one-per-frame lag.
+// The first event is the one that woke the update loop; remaining are
+// non-blocking receives capped at maxGlassBoxDrain.
+func (m *Model) drainGlassBoxEvents(first transparency.GlassBoxEvent) {
+	m.handleGlassBoxEvent(first)
+	if m.glassBoxEventChan == nil {
+		return
+	}
+	for i := 0; i < maxGlassBoxDrain; i++ {
+		select {
+		case event, ok := <-m.glassBoxEventChan:
+			if !ok {
+				return
+			}
+			m.handleGlassBoxEvent(event)
+		default:
+			return
+		}
+	}
+}
+
 // handleGlassBoxEvent processes a Glass Box event and adds it to history.
 //
-// Two surfaces:
-//  1. Transient activity line (status bar above input): every event
-//     replaces the previous one. This is the "fun to watch" surface —
-//     it flickers as the system works.
-//  2. Scrollback (chat history): only milestone-grade events land here,
-//     gated by isMilestoneEvent. Otherwise the answer drowns under
-//     telemetry on a busy turn.
+// Debug mode streams EVERYTHING into chat scrollback — perception, kernel
+// routing, JIT stats, shard lifecycle, control packets, tool/routing
+// results, and status pings. The live activity pulse (trail above input)
+// also updates so the user always sees motion even when scrolled up.
 func (m *Model) handleGlassBoxEvent(event transparency.GlassBoxEvent) {
 	// Add to event buffer (capped) — used by /glassbox status etc.
 	m.glassBoxEvents = append(m.glassBoxEvents, event)
@@ -50,25 +75,62 @@ func (m *Model) handleGlassBoxEvent(event transparency.GlassBoxEvent) {
 		m.glassBoxEvents = m.glassBoxEvents[1:]
 	}
 
-	// Always update the transient activity line.
+	// Live pulse: latest beat + short trail so the chrome never looks frozen.
+	at := event.Timestamp
+	if at.IsZero() {
+		at = time.Now()
+	}
 	m.activityLine = event.Summary
 	m.activityIconCh = string(event.Category)
-	m.activityAt = event.Timestamp
-	if m.activityAt.IsZero() {
-		m.activityAt = time.Now()
-	}
+	m.activityAt = at
+	m.pushActivityPulse(activityPulse{
+		Summary:  event.Summary,
+		Category: event.Category,
+		At:       at,
+	})
 
-	// Only milestones land in scrollback.
-	if isMilestoneEvent(event) {
+	// Full stream: every event is a permanent chat line when Glass Box is on.
+	if m.glassBoxEnabled {
 		msg := m.glassBoxEventToMessage(event)
 		*m = m.addMessage(msg)
 	}
 }
 
-// isMilestoneEvent decides which events deserve a permanent line in
-// the chat scrollback. Heuristic: shard lifecycle, kernel decisions,
-// routing/tool results, and any event explicitly carrying Duration
-// (indicates a completed operation worth a tombstone).
+// pushActivityPulse prepends a beat to the live trail (newest first).
+func (m *Model) pushActivityPulse(p activityPulse) {
+	// Dedup identical consecutive summaries so the trail doesn't stutter.
+	if len(m.activityTrail) > 0 && m.activityTrail[0].Summary == p.Summary {
+		m.activityTrail[0].At = p.At
+		m.activityTrail[0].Category = p.Category
+		return
+	}
+	m.activityTrail = append([]activityPulse{p}, m.activityTrail...)
+	if len(m.activityTrail) > maxActivityTrail {
+		m.activityTrail = m.activityTrail[:maxActivityTrail]
+	}
+}
+
+// beginLiveTurn marks the start of a working turn for the elapsed timer
+// and seeds the activity trail with an immediate "working" beat.
+func (m *Model) beginLiveTurn(label string) {
+	m.turnStartedAt = time.Now()
+	if strings.TrimSpace(label) == "" {
+		label = "Working..."
+	}
+	m.statusMessage = label
+	m.activityLine = label
+	m.activityIconCh = string(transparency.CategoryControl)
+	m.activityAt = m.turnStartedAt
+	m.pushActivityPulse(activityPulse{
+		Summary:  label,
+		Category: transparency.CategoryControl,
+		At:       m.turnStartedAt,
+	})
+}
+
+// isMilestoneEvent is retained for tests/callers that want a "big events only"
+// heuristic. Glass Box debug mode no longer uses it for scrollback gating —
+// everything streams.
 func isMilestoneEvent(e transparency.GlassBoxEvent) bool {
 	switch e.Category {
 	case transparency.CategoryShard, transparency.CategoryRouting:
@@ -86,8 +148,15 @@ func isMilestoneEvent(e transparency.GlassBoxEvent) bool {
 // glassBoxEventToMessage converts a GlassBoxEvent to a Message for display.
 func (m *Model) glassBoxEventToMessage(event transparency.GlassBoxEvent) Message {
 	content := event.Summary
-	if event.Details != "" && m.isGlassBoxVerbose() {
-		content = fmt.Sprintf("%s\n%s", event.Summary, event.Details)
+	if event.Source != "" && !strings.Contains(content, event.Source) {
+		content = fmt.Sprintf("%s  · %s", content, event.Source)
+	}
+	if event.Duration > 0 {
+		content = fmt.Sprintf("%s  (%.0fms)", content, float64(event.Duration.Milliseconds()))
+	}
+	verbose := m.isGlassBoxVerbose()
+	if event.Details != "" && verbose {
+		content = fmt.Sprintf("%s\n%s", content, event.Details)
 	}
 
 	return Message{
@@ -95,7 +164,8 @@ func (m *Model) glassBoxEventToMessage(event transparency.GlassBoxEvent) Message
 		Content:          content,
 		Time:             event.Timestamp,
 		GlassBoxCategory: event.Category,
-		IsCollapsed:      true, // Start collapsed by default
+		// Expanded when verbose so details are readable without a keypress.
+		IsCollapsed: !verbose || event.Details == "",
 	}
 }
 
@@ -116,14 +186,14 @@ func (m *Model) toggleGlassBox() string {
 		if m.glassBoxEventBus != nil {
 			m.glassBoxEventBus.Enable()
 		}
-		return "Glass Box Debug Mode: **ON**\n\nSystem activity will now appear inline in the chat."
+		return "Glass Box Debug Mode: **ON**\n\n**Full stream:** every shard, kernel, JIT, perception, routing, and status event streams into chat scrollback."
 	}
 
 	// Disable the event bus
 	if m.glassBoxEventBus != nil {
 		m.glassBoxEventBus.Disable()
 	}
-	return "Glass Box Debug Mode: **OFF**"
+	return "Glass Box Debug Mode: **OFF**\n\nSystem events stop appearing in chat (tool executions still show)."
 }
 
 // toggleGlassBoxVerbose toggles verbose mode for detailed output.
@@ -136,9 +206,9 @@ func (m *Model) toggleGlassBoxVerbose() string {
 	m.glassBoxEventBus.SetVerbose(verbose)
 
 	if verbose {
-		return "Glass Box Verbose Mode: **ON**\n\nEvents will show expanded details."
+		return "Glass Box Verbose Mode: **ON**\n\nEvents show expanded details and emit immediately (no batching delay)."
 	}
-	return "Glass Box Verbose Mode: **OFF**\n\nEvents will show summaries only."
+	return "Glass Box Verbose Mode: **OFF**\n\nEvents show summaries only (batching re-enabled)."
 }
 
 // toggleGlassBoxCategory toggles a specific category on/off.
@@ -184,6 +254,7 @@ func (m *Model) glassBoxStatus() string {
 	}
 
 	sb.WriteString(fmt.Sprintf("- Events in Buffer: %d/%d\n", len(m.glassBoxEvents), maxGlassBoxEvents))
+	sb.WriteString("- Scrollback mode: **FULL STREAM** (all events → chat)\n")
 
 	sb.WriteString("\n### Categories\n")
 	for _, c := range transparency.AllCategories() {
@@ -192,7 +263,7 @@ func (m *Model) glassBoxStatus() string {
 
 	sb.WriteString("\n### Keybindings\n")
 	sb.WriteString("- `Alt+G`: Toggle Glass Box on/off\n")
-	sb.WriteString("- `/glassbox verbose`: Toggle detailed output\n")
+	sb.WriteString("- `/glassbox verbose`: Toggle detailed output + immediate emit\n")
 	sb.WriteString("- `/glassbox <category>`: Toggle category filter\n")
 
 	return sb.String()
@@ -226,17 +297,41 @@ func (m *Model) initGlassBox(bus *transparency.GlassBoxEventBus) {
 		m.glassBoxEventChan = bus.Subscribe()
 	}
 
-	// Glass Box is ON by default — the activity overlay is the
-	// primary UX, and the user can still toggle off via Alt+G or
-	// `/glassbox`. We only respect an *explicit* config opt-out;
-	// missing/nil config keeps the default-on behavior.
+	// Glass Box is ON by default — full stream into chat scrollback.
+	// User can still toggle off via Alt+G or `/glassbox`. We only
+	// respect an *explicit* config opt-out; missing/nil config keeps
+	// default-on behavior.
 	enabled := true
+	verbose := true // default verbose when debug streaming is desired
+	var categories []string
 	if m.Config != nil && m.Config.Transparency != nil {
-		enabled = m.Config.Transparency.GlassBoxEnabled || !m.Config.Transparency.GlassBoxDisabled
+		tc := m.Config.Transparency
+		// Explicit disabled wins only when enabled is not also true.
+		if tc.GlassBoxDisabled && !tc.GlassBoxEnabled {
+			enabled = false
+		} else {
+			enabled = tc.GlassBoxEnabled || !tc.GlassBoxDisabled
+		}
+		verbose = tc.GlassBoxVerbose || tc.GlassBoxEnabled // verbose with full debug
+		categories = tc.GlassBoxCategories
 	}
 	m.glassBoxEnabled = enabled
-	if bus != nil && enabled {
-		bus.Enable()
+	if bus != nil {
+		if enabled {
+			bus.Enable()
+		}
+		bus.SetVerbose(verbose)
+		if len(categories) > 0 {
+			cats := make([]transparency.GlassBoxCategory, 0, len(categories))
+			for _, c := range categories {
+				if transparency.ValidCategory(c) {
+					cats = append(cats, transparency.GlassBoxCategory(c))
+				}
+			}
+			if len(cats) > 0 {
+				bus.SetCategories(cats)
+			}
+		}
 	}
 }
 
@@ -247,7 +342,7 @@ func (m *Model) emitGlassBoxEvent(category transparency.GlassBoxCategory, summar
 		return
 	}
 
-	m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+	m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 		Timestamp: time.Now(),
 		Category:  category,
 		Summary:   summary,

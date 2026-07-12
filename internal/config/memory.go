@@ -23,7 +23,7 @@ type EmbeddingConfig struct {
 
 	// Ollama Configuration (local embedding server)
 	OllamaEndpoint string `yaml:"ollama_endpoint" json:"ollama_endpoint"` // Default: "http://localhost:11434"
-	OllamaModel    string `yaml:"ollama_model" json:"ollama_model"`       // Default: "embeddinggemma"
+	OllamaModel    string `yaml:"ollama_model" json:"ollama_model"`       // Default: "embeddinggemma:300m"
 
 	// GenAI Configuration (Google cloud embedding)
 	GenAIAPIKey string `yaml:"genai_api_key" json:"genai_api_key"`

@@ -286,6 +286,7 @@ func (m *Model) queryDiagnostics() []string {
 }
 
 // querySymbolContext gets relevant symbols from symbol_graph.
+// Caps the scan so session-context hydration cannot pull 25k+ facts into Go.
 func (m *Model) querySymbolContext() []string {
 	if m.kernel == nil {
 		return nil
@@ -295,7 +296,11 @@ func (m *Model) querySymbolContext() []string {
 		return nil
 	}
 	var symbols []string
-	for _, fact := range results {
+	const maxScan = 3000
+	for i, fact := range results {
+		if i >= maxScan {
+			break
+		}
 		// symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
 		if len(fact.Args) >= 5 {
 			symbolID, _ := fact.Args[0].(string)
@@ -307,10 +312,10 @@ func (m *Model) querySymbolContext() []string {
 					fmt.Sprintf("%s %s: %s", symType, symbolID, truncateForContext(signature, 60)))
 			}
 		}
-	}
-	// Limit to 15 most relevant
-	if len(symbols) > 15 {
-		symbols = symbols[:15]
+		// Stop early once we have enough public symbols
+		if len(symbols) >= 15 {
+			break
+		}
 	}
 	return symbols
 }

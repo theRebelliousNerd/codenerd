@@ -40,18 +40,19 @@ func (m Model) runReembedAllDBs() tea.Cmd {
 
 		m.ReportStatus("Re-embedding all databases...")
 
-		// Build embedding engine from current config (so no restart required).
+		// Build embedding engine from .nerd/config.json (authoritative).
 		cfg, _ := config.GlobalConfig()
-		embCfg := embedding.DefaultConfig()
-		if cfg != nil && cfg.Embedding != nil {
-			embCfg = embedding.Config{
-				Provider:       cfg.Embedding.Provider,
-				OllamaEndpoint: cfg.Embedding.OllamaEndpoint,
-				OllamaModel:    cfg.Embedding.OllamaModel,
-				GenAIAPIKey:    cfg.Embedding.GenAIAPIKey,
-				GenAIModel:     cfg.Embedding.GenAIModel,
-				TaskType:       cfg.Embedding.TaskType,
-			}
+		ucEmb := config.DefaultUserConfig().GetEmbeddingConfig()
+		if cfg != nil {
+			ucEmb = cfg.GetEmbeddingConfig()
+		}
+		embCfg := embedding.Config{
+			Provider:       ucEmb.Provider,
+			OllamaEndpoint: ucEmb.OllamaEndpoint,
+			OllamaModel:    ucEmb.OllamaModel,
+			GenAIAPIKey:    ucEmb.GenAIAPIKey,
+			GenAIModel:     ucEmb.GenAIModel,
+			TaskType:       ucEmb.TaskType,
 		}
 
 		engine, err := embedding.NewEngine(embCfg)

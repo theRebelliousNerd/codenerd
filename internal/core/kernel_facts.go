@@ -469,10 +469,16 @@ func (k *RealKernel) markStratumDirtyLocked(predicate ast.PredicateSym) {
 
 // Assert adds a single fact dynamically and re-evaluates derived facts.
 func (k *RealKernel) Assert(fact Fact) error {
-	// Skip per-assert debug for high-frequency predicates (heartbeats)
-	if fact.Predicate != "system_heartbeat" {
-		logging.KernelDebug("Assert: %s", fact.String())
+	// Heartbeats are high-frequency (every few seconds × N system shards).
+	// Each used a unique timestamp, so they always dirtied the kernel and
+	// forced a full/diff re-eval of the entire EDB (10–17s with ~28k world
+	// facts). Policy only needs existence of system_heartbeat(Shard, _), so
+	// upsert-in-place without marking dirty after the first assert.
+	if fact.Predicate == "system_heartbeat" {
+		return k.assertHeartbeat(fact)
 	}
+
+	logging.KernelDebug("Assert: %s", fact.String())
 	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 
 	k.mu.Lock()
@@ -488,6 +494,65 @@ func (k *RealKernel) Assert(fact Fact) error {
 	k.mu.Unlock()
 
 	// Publish AFTER releasing lock to avoid holding mutex during channel sends
+	if k.eventBus != nil {
+		k.eventBus.Publish(fact.Predicate)
+	}
+	return nil
+}
+
+// assertHeartbeat upserts system_heartbeat(ShardName, Timestamp) by shard.
+// First heartbeat for a shard marks factsDirty (so system_shard_healthy can
+// derive). Subsequent refreshes replace the EDB row in place and do NOT
+// dirty — this stops the multi-second re-eval storm observed under load.
+func (k *RealKernel) assertHeartbeat(fact Fact) error {
+	k.mu.Lock()
+
+	fact = sanitizeFactForNumericPredicates(fact)
+	shardKey := ""
+	if len(fact.Args) > 0 {
+		shardKey = fmt.Sprint(fact.Args[0])
+	}
+
+	// Refresh existing heartbeat for this shard — no re-eval.
+	for i, existing := range k.facts {
+		if existing.Predicate != "system_heartbeat" || len(existing.Args) == 0 {
+			continue
+		}
+		if fmt.Sprint(existing.Args[0]) != shardKey {
+			continue
+		}
+		// Same timestamp → pure no-op
+		if len(existing.Args) > 1 && len(fact.Args) > 1 &&
+			fmt.Sprint(existing.Args[1]) == fmt.Sprint(fact.Args[1]) {
+			k.mu.Unlock()
+			return nil
+		}
+
+		oldKey := k.canonFact(existing)
+		fact = internFact(fact)
+		k.facts[i] = fact
+		if k.cachedAtoms != nil && i < len(k.cachedAtoms) {
+			if atom, err := fact.ToAtom(); err == nil {
+				k.cachedAtoms[i] = atom
+			}
+		}
+		k.ensureFactIndexLocked()
+		delete(k.factIndex, oldKey)
+		k.factIndex[k.canonFact(fact)] = struct{}{}
+		// Intentionally NOT setting factsDirty — existence is unchanged.
+		k.mu.Unlock()
+		return nil
+	}
+
+	// First heartbeat for this shard.
+	if !k.addFactIfNewLocked(fact) {
+		k.mu.Unlock()
+		return nil
+	}
+	k.factsDirty.Store(true)
+	k.mu.Unlock()
+
+	logging.Audit().KernelAssert(fact.Predicate, len(fact.Args))
 	if k.eventBus != nil {
 		k.eventBus.Publish(fact.Predicate)
 	}

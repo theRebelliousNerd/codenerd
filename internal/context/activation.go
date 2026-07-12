@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,7 +24,13 @@ import (
 // - Verb-based contextual boosting
 
 // ActivationEngine computes activation scores for facts.
+//
+// All map-backed state is guarded by mu. Concurrent ScoreFacts /
+// GetHighActivationFacts (e.g. session save vs live turn) previously raced on
+// reverseDependencies/symbolGraph and crashed with concurrent map read/write.
 type ActivationEngine struct {
+	mu sync.RWMutex
+
 	config CompressorConfig
 
 	// State tracking
@@ -174,33 +181,45 @@ func NewActivationEngine(config CompressorConfig) *ActivationEngine {
 
 // SetCampaignContext sets the current campaign context for activation boosting.
 func (ae *ActivationEngine) SetCampaignContext(ctx *CampaignActivationContext) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.campaignContext = ctx
 }
 
 // ClearCampaignContext clears the campaign context.
 func (ae *ActivationEngine) ClearCampaignContext() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.campaignContext = nil
 }
 
 // SetIssueContext sets the current issue context for issue-driven activation boosting.
 // Works with any issue source: GitHub issues, Jira tickets, bug reports, or benchmarks.
 func (ae *ActivationEngine) SetIssueContext(ctx *IssueActivationContext) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.issueContext = ctx
 }
 
 // ClearIssueContext clears the issue context.
 func (ae *ActivationEngine) ClearIssueContext() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.issueContext = nil
 }
 
 // SetBackReferenceContext sets the current back-reference context.
 // Call this when the user asks a follow-up question referring to previous turns.
 func (ae *ActivationEngine) SetBackReferenceContext(ctx *BackReferenceActivationContext) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.backReferenceContext = ctx
 }
 
 // ClearBackReferenceContext clears the back-reference context.
 func (ae *ActivationEngine) ClearBackReferenceContext() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.backReferenceContext = nil
 }
 
@@ -208,6 +227,8 @@ func (ae *ActivationEngine) ClearBackReferenceContext() {
 // These take precedence over hardcoded config.PredicatePriorities.
 // Call this after kernel initialization to use corpus as single source of truth.
 func (ae *ActivationEngine) SetCorpusPriorities(priorities map[string]int) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.corpusPriorities = priorities
 }
 
@@ -221,7 +242,9 @@ func (ae *ActivationEngine) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpu
 	if err != nil {
 		return err
 	}
+	ae.mu.Lock()
 	ae.corpusPriorities = priorities
+	ae.mu.Unlock()
 	return nil
 }
 
@@ -229,6 +252,8 @@ func (ae *ActivationEngine) LoadPrioritiesFromCorpus(corpus *core.PredicateCorpu
 // When set, the scoring system will use historical feedback to boost/penalize predicates
 // based on how useful they've been for each task type.
 func (ae *ActivationEngine) SetFeedbackStore(store *ContextFeedbackStore) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.feedbackStore = store
 }
 
@@ -242,6 +267,14 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	timer := logging.StartTimer(logging.CategoryContext, "ScoreFacts")
 	defer timer.Stop()
 
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+	return ae.scoreFactsLocked(facts, currentIntent)
+}
+
+// scoreFactsLocked is the locked implementation of ScoreFacts.
+// Caller must hold ae.mu for writing (buildSymbolGraph mutates maps).
+func (ae *ActivationEngine) scoreFactsLocked(facts []core.Fact, currentIntent *core.Fact) []ScoredFact {
 	ae.state.ActiveIntent = currentIntent
 	ae.state.LastUpdate = time.Now()
 
@@ -260,7 +293,7 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	logging.ContextDebug("Scoring %d facts with intent: %s", len(facts), intentStr)
 
 	// Build symbol graph from facts (for dependency spreading)
-	ae.buildSymbolGraph(facts)
+	ae.buildSymbolGraphLocked(facts)
 
 	scored := make([]ScoredFact, 0, len(facts))
 
@@ -302,8 +335,30 @@ func (ae *ActivationEngine) ScoreFacts(facts []core.Fact, currentIntent *core.Fa
 	return scored
 }
 
-// buildSymbolGraph extracts symbol relationships from symbol_graph and dependency_link facts.
-func (ae *ActivationEngine) buildSymbolGraph(facts []core.Fact) {
+// buildSymbolGraphLocked extracts symbol relationships from symbol_graph and
+// dependency_link facts. Caller must hold ae.mu.
+//
+// Rebuilds graph maps from the fact set each call so we do not concurrently
+// append into shared slices and so maps do not grow unboundedly across scores.
+// Explicit AddDependency edges recorded earlier in the session are preserved
+// by merging them into the rebuilt maps.
+func (ae *ActivationEngine) buildSymbolGraphLocked(facts []core.Fact) {
+	// Preserve edges added via AddDependency (not present as code-graph facts).
+	preservedDeps := ae.dependencies
+	preservedRev := ae.reverseDependencies
+
+	ae.symbolGraph = make(map[string][]string)
+	ae.dependencies = make(map[string][]string)
+	ae.reverseDependencies = make(map[string][]string)
+
+	// Re-apply preserved edges first.
+	for k, vs := range preservedDeps {
+		ae.dependencies[k] = append([]string(nil), vs...)
+	}
+	for k, vs := range preservedRev {
+		ae.reverseDependencies[k] = append([]string(nil), vs...)
+	}
+
 	for _, f := range facts {
 		switch f.Predicate {
 		case "dependency_link":
@@ -313,7 +368,6 @@ func (ae *ActivationEngine) buildSymbolGraph(facts []core.Fact) {
 				callee, _ := f.Args[1].(string)
 				if caller != "" && callee != "" {
 					ae.symbolGraph[caller] = append(ae.symbolGraph[caller], callee)
-					// Also add reverse dependency
 					ae.reverseDependencies[callee] = append(ae.reverseDependencies[callee], caller)
 				}
 			}
@@ -323,7 +377,6 @@ func (ae *ActivationEngine) buildSymbolGraph(facts []core.Fact) {
 				symbolID, _ := f.Args[0].(string)
 				definedAt, _ := f.Args[3].(string)
 				if symbolID != "" && definedAt != "" {
-					// Link symbol to its file
 					ae.dependencies[symbolID] = append(ae.dependencies[symbolID], definedAt)
 				}
 			}
@@ -380,6 +433,13 @@ func (ae *ActivationEngine) SelectWithinBudget(scored []ScoredFact, budget int) 
 
 // UpdateFocusedPaths updates the focused paths from focus_resolution facts.
 func (ae *ActivationEngine) UpdateFocusedPaths(facts []core.Fact) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+	ae.updateFocusedPathsLocked(facts)
+}
+
+// updateFocusedPathsLocked is the locked implementation of UpdateFocusedPaths.
+func (ae *ActivationEngine) updateFocusedPathsLocked(facts []core.Fact) {
 	ae.state.FocusedPaths = nil
 	ae.state.FocusedSymbols = nil
 
@@ -397,6 +457,8 @@ func (ae *ActivationEngine) UpdateFocusedPaths(facts []core.Fact) {
 
 // RecordFactTimestamp records when a fact was added.
 func (ae *ActivationEngine) RecordFactTimestamp(fact core.Fact) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	key := factKey(fact)
 	ae.factTimestamps[key] = time.Now()
 	ae.sessionFacts[key] = true
@@ -404,6 +466,8 @@ func (ae *ActivationEngine) RecordFactTimestamp(fact core.Fact) {
 
 // AddDependency records a dependency between facts.
 func (ae *ActivationEngine) AddDependency(dependent, dependency core.Fact) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	depKey := factKey(dependent)
 	depsKey := factKey(dependency)
 	ae.dependencies[depKey] = append(ae.dependencies[depKey], depsKey)
@@ -451,16 +515,17 @@ func (ae *ActivationEngine) lookupPriority(pred string) int {
 // ApplyIntentActivation applies activation boosts based on the current intent.
 // This is a high-level function that combines multiple activation strategies.
 func (ae *ActivationEngine) ApplyIntentActivation(facts []core.Fact, intent *core.Fact) []ScoredFact {
-	// Update focus from focus_resolution facts
-	ae.UpdateFocusedPaths(facts)
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 
-	// Score all facts
-	scored := ae.ScoreFacts(facts, intent)
+	// Update focus from focus_resolution facts
+	ae.updateFocusedPathsLocked(facts)
+
+	// Score all facts (already under lock)
+	scored := ae.scoreFactsLocked(facts, intent)
 
 	// Filter by threshold
-	filtered := ae.FilterByThreshold(scored)
-
-	return filtered
+	return ae.FilterByThreshold(scored)
 }
 
 // GetHighActivationFacts returns facts above the threshold sorted by score.
@@ -486,6 +551,7 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 
 	logging.ContextDebug("SpreadFromSeeds: %d facts, %d seeds, depth=%d", len(facts), len(seeds), depth)
 
+	ae.mu.Lock()
 	// Mark seeds with high recency
 	now := time.Now()
 	for _, seed := range seeds {
@@ -503,8 +569,8 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 		}
 	}
 
-	// Score with the seed boost
-	scored := ae.ScoreFacts(facts, intent)
+	// Score with the seed boost (under same lock)
+	scored := ae.scoreFactsLocked(facts, intent)
 
 	// Apply depth-limited spreading
 	if depth > 0 {
@@ -533,6 +599,7 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 			return scored[i].Score > scored[j].Score
 		})
 	}
+	ae.mu.Unlock()
 
 	return scored
 }
@@ -543,16 +610,22 @@ func (ae *ActivationEngine) SpreadFromSeeds(facts []core.Fact, seeds []core.Fact
 
 // GetState returns the current activation state.
 func (ae *ActivationEngine) GetState() ActivationState {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
 	return ae.state
 }
 
 // SetState sets the activation state.
 func (ae *ActivationEngine) SetState(state ActivationState) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.state = state
 }
 
 // ClearState resets the activation state.
 func (ae *ActivationEngine) ClearState() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.state = ActivationState{}
 	ae.factTimestamps = make(map[string]time.Time)
 	ae.dependencies = make(map[string][]string)
@@ -565,6 +638,8 @@ func (ae *ActivationEngine) ClearState() {
 
 // MarkNewFacts marks a set of facts as newly added (high recency).
 func (ae *ActivationEngine) MarkNewFacts(facts []core.Fact) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	now := time.Now()
 	for _, f := range facts {
 		key := factKey(f)
@@ -577,6 +652,8 @@ func (ae *ActivationEngine) MarkNewFacts(facts []core.Fact) {
 // DecayRecency reduces the recency score of old facts.
 // Called periodically to allow older facts to fade.
 func (ae *ActivationEngine) DecayRecency(maxAge time.Duration) {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	cutoff := time.Now().Add(-maxAge)
 
 	// Remove timestamps older than maxAge
@@ -599,6 +676,8 @@ func (ae *ActivationEngine) DecayRecency(maxAge time.Duration) {
 
 // NewSession starts a new session, resetting session-specific tracking.
 func (ae *ActivationEngine) NewSession() {
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
 	ae.sessionID = fmt.Sprintf("sess_%d", time.Now().UnixNano())
 	ae.sessionStarted = time.Now()
 	ae.sessionFacts = make(map[string]bool)
@@ -606,6 +685,8 @@ func (ae *ActivationEngine) NewSession() {
 
 // GetSessionStats returns statistics about the current session.
 func (ae *ActivationEngine) GetSessionStats() map[string]any {
+	ae.mu.RLock()
+	defer ae.mu.RUnlock()
 	return map[string]any{
 		"session_id":      ae.sessionID,
 		"session_started": ae.sessionStarted,

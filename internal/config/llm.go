@@ -45,6 +45,10 @@ type ClaudeCLIConfig struct {
 	// Streaming enables real-time streaming output (--output-format stream-json)
 	// When true, responses are streamed as they arrive
 	Streaming bool `json:"streaming,omitempty"`
+
+	// MaxConcurrentCalls optionally caps LLM concurrency under core_limits
+	// (same pattern as codex_cli / xai_oauth). 0 = use core_limits only.
+	MaxConcurrentCalls int `json:"max_concurrent_calls,omitempty"`
 }
 
 // CodexCLIConfig holds configuration for Codex CLI backend.
@@ -113,6 +117,45 @@ type CodexCLIConfig struct {
 	//   {"personality": "\"friendly\"", "shell_environment_policy.inherit": "all"}
 	ConfigOverrides map[string]string `json:"config_overrides,omitempty"`
 }
+
+// XAIOAuthConfig holds SuperGrok / X Premium+ OAuth engine settings.
+// Used when Engine="xai-oauth". Independent of the metered xAI API-key path.
+//
+// Credentials come from device-code login (nerd auth grok) and/or import of
+// the official Grok CLI store (~/.grok/auth.json). No XAI_API_KEY required.
+type XAIOAuthConfig struct {
+	// Model is the primary model id (default: grok-4.5 — current Grok Build flagship).
+	Model string `json:"model,omitempty"`
+
+	// FallbackModel is used when the primary model is rate-limited.
+	FallbackModel string `json:"fallback_model,omitempty"`
+
+	// Timeout in seconds for HTTP calls (default: 300).
+	Timeout int `json:"timeout,omitempty"`
+
+	// BaseURL overrides the OpenAI-compatible API root (default: https://api.x.ai/v1).
+	BaseURL string `json:"base_url,omitempty"`
+
+	// AuthURL overrides the OIDC issuer (default: https://auth.x.ai).
+	AuthURL string `json:"auth_url,omitempty"`
+
+	// CredentialPath is the codeNERD OAuth token store (default: ~/.nerd/xai_oauth.json).
+	CredentialPath string `json:"credential_path,omitempty"`
+
+	// ImportGrokAuth enables reading ~/.grok/auth.json when the codeNERD store is empty.
+	// Defaults to true when nil.
+	ImportGrokAuth *bool `json:"import_grok_auth,omitempty"`
+
+	// GrokAuthPath overrides the Grok CLI credential path (default: ~/.grok/auth.json).
+	GrokAuthPath string `json:"grok_auth_path,omitempty"`
+
+	// MaxConcurrentCalls limits parallel subscription requests under the scheduler ceiling.
+	// Defaults to 2.
+	MaxConcurrentCalls int `json:"max_concurrent_calls,omitempty"`
+}
+
+// DefaultXAIOAuthMaxConcurrentCalls is the conservative SuperGrok concurrency default.
+const DefaultXAIOAuthMaxConcurrentCalls = 2
 
 // GeminiProviderConfig holds Gemini-specific configuration.
 // Supports Gemini 3 Flash/Pro features: thinking mode, grounding tools.

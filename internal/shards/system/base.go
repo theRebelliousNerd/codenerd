@@ -722,6 +722,9 @@ func (b *BaseSystemShard) persistLearning() error {
 }
 
 // EmitHeartbeat emits a heartbeat fact to the kernel.
+// The kernel upserts by shard ID without re-evaluating after the first
+// assert (see RealKernel.assertHeartbeat) so N shards × 5s ticks cannot
+// thrash a large world-model EDB.
 func (b *BaseSystemShard) EmitHeartbeat() error {
 	if b.Kernel == nil {
 		return nil

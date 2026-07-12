@@ -61,9 +61,10 @@ func InitChat(cfg Config) Model {
 	ta.SetHeight(3) // 3 lines default
 	ta.ShowLineNumbers = false
 
-	// Initialize spinner
+	// Initialize spinner — MiniDot reads as a continuous pulse rather than
+	// a single blinking cursor, which sells the "still working" feel.
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	sp.Spinner = spinner.MiniDot
 	sp.Style = styles.Spinner
 
 	// Initialize viewport for chat history

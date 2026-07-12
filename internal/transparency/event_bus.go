@@ -35,11 +35,13 @@ type GlassBoxEventBus struct {
 }
 
 // NewGlassBoxEventBus creates a new event bus with default settings.
+// Subscriber channels are large enough to absorb multi-shard tool storms
+// without silent drops during Glass Box full-stream mode.
 func NewGlassBoxEventBus() *GlassBoxEventBus {
 	return &GlassBoxEventBus{
-		batchWindow: 100 * time.Millisecond,
-		batchLimit:  10,
-		buffer:      make([]GlassBoxEvent, 0, 20),
+		batchWindow: 50 * time.Millisecond,
+		batchLimit:  20,
+		buffer:      make([]GlassBoxEvent, 0, 64),
 		categories:  make(map[GlassBoxCategory]bool),
 	}
 }
@@ -86,9 +88,10 @@ func (b *GlassBoxEventBus) SetCategories(categories []GlassBoxCategory) {
 }
 
 // Subscribe returns a channel that will receive events.
-// The channel is buffered to prevent blocking emitters.
+// The channel is buffered large enough that full-stream debug mode can
+// keep up with concurrent shard/tool bursts without dropping events.
 func (b *GlassBoxEventBus) Subscribe() <-chan GlassBoxEvent {
-	ch := make(chan GlassBoxEvent, 50)
+	ch := make(chan GlassBoxEvent, 512)
 	b.mu.Lock()
 	b.subscribers = append(b.subscribers, ch)
 	b.mu.Unlock()
@@ -114,8 +117,16 @@ func (b *GlassBoxEventBus) Unsubscribe(ch <-chan GlassBoxEvent) {
 
 // Emit sends an event to all subscribers (with batching).
 // This is safe to call from any goroutine.
+// When verbose (full debug stream) is on, events dispatch immediately so
+// the chat shows live activity with no batch delay.
 func (b *GlassBoxEventBus) Emit(event GlassBoxEvent) {
 	if !b.enabled.Load() {
+		return
+	}
+
+	// Verbose full-stream: skip batching — user wants live chat telemetry.
+	if b.IsVerbose() {
+		b.EmitImmediate(event)
 		return
 	}
 

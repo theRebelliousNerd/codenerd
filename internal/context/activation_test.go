@@ -289,7 +289,9 @@ func TestBuildSymbolGraph(t *testing.T) {
 		{Predicate: "symbol_graph", Args: []any{"Handler", "/function", "/public", "handler.go", "Handler(w, r)"}},
 	}
 
-	engine.buildSymbolGraph(facts)
+	engine.mu.Lock()
+	engine.buildSymbolGraphLocked(facts)
+	engine.mu.Unlock()
 
 	// Check symbol graph was built
 	if _, ok := engine.symbolGraph["handler.go"]; !ok {

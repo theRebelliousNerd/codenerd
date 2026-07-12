@@ -131,9 +131,9 @@ func (m Model) processInput(input string) tea.Cmd {
 		if lowerTrimmed == "hi" || lowerTrimmed == "hello" || lowerTrimmed == "hey" || lowerTrimmed == "sup" || lowerTrimmed == "greetings" || lowerTrimmed == "yo" {
 			logging.Routing("[processInput] PRE-PERCEPTION FAST-PATH: simple greeting | OODA total=%dms", time.Since(oodaStart).Milliseconds())
 
-			// Glass Box: Emit fast-path event
+			// Glass Box: Emit fast-path event (immediate → chat stream)
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryControl,
 					Summary:   "FAST-PATH: /greet (bypassed perception)",
@@ -209,8 +209,10 @@ func (m Model) processInput(input string) tea.Cmd {
 			warnings = append(warnings, "Perception response was empty; falling back to articulation")
 		}
 		m.ReportStatus(fmt.Sprintf("Orient: %s", intent.Verb))
-		// Log rich perception result with routing-actionable data
-		shardType := perception.GetShardTypeForVerb(intent.Verb)
+		// Log rich perception result with routing-actionable data.
+		// Use resolveShardTypeForIntent so LLM-suggested primary_shard (e.g.
+		// researcher for "teach me the codebase") is not dropped.
+		shardType := resolveShardTypeForIntent(intent)
 		willDelegate := shardType != "" && intent.Confidence >= 0.5
 		willConverse := shardType == "" && intent.Response != "" && isConversationalIntent(intent)
 		willArticulate := !willDelegate && !willConverse
@@ -220,13 +222,13 @@ func (m Model) processInput(input string) tea.Cmd {
 			shardType, willDelegate, willConverse, willArticulate, intentHandledBySystem,
 			len(intent.Response), intent.Ambiguity)
 
-		// Glass Box: Emit perception event
+		// Glass Box: Emit perception event (immediate → chat stream)
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 			summary := fmt.Sprintf("Intent: %s%s → %s (%.0f%%)",
 				intent.Category, intent.Verb, truncateSummary(intent.Target, 40), intent.Confidence*100)
 			details := fmt.Sprintf("Category: %s\nVerb: %s\nTarget: %s\nConstraint: %s",
 				intent.Category, intent.Verb, intent.Target, intent.Constraint)
-			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 				Timestamp: time.Now(),
 				Category:  transparency.CategoryPerception,
 				Summary:   summary,
@@ -244,7 +246,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 			// Glass Box: Emit fast-path event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryControl,
 					Summary:   fmt.Sprintf("FAST-PATH: %s (bypassed ORIENT/DECIDE/ACT)", intent.Verb),
@@ -327,7 +329,7 @@ func (m Model) processInput(input string) tea.Cmd {
 
 				// Glass Box: Emit kernel event
 				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 						Timestamp: time.Now(),
 						Category:  transparency.CategoryKernel,
 						Summary:   fmt.Sprintf("Asserted: user_intent(%s, %s, %s)", intent.Category, intent.Verb, truncateSummary(intent.Target, 30)),
@@ -337,7 +339,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			} else {
 				// Glass Box: Emit kernel event (handled by system shard)
 				if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-					m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+					m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 						Timestamp: time.Now(),
 						Category:  transparency.CategoryKernel,
 						Summary:   fmt.Sprintf("Intent handled by PerceptionFirewall: %s%s", intent.Category, intent.Verb),
@@ -411,7 +413,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		logging.Routing("[processInput] ROUTE decision: %s shard=%q | verb=%s category=%s question=%v confidence=%.2f | elapsed=%dms",
 			route.Kind, route.Shard, intent.Verb, intent.Category, intent.IsQuestion, intent.Confidence, time.Since(oodaStart).Milliseconds())
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 				Timestamp: time.Now(),
 				Category:  transparency.CategoryKernel,
 				Summary:   fmt.Sprintf("Route: %s (verb=%s, question=%v)", route.Kind, intent.Verb, intent.IsQuestion),
@@ -494,19 +496,19 @@ func (m Model) processInput(input string) tea.Cmd {
 		// 1.6 DELEGATION CHECK: Route to appropriate shard if verb indicates delegation
 		// This implements automatic shard spawning from natural language
 		// Uses verification loop to ensure quality (no mock code, no placeholders)
-		shardType = perception.GetShardTypeForVerb(intent.Verb)
+		shardType = resolveShardTypeForIntent(intent)
 
 		// Glass Box: Emit routing decision
 		if m.glassBoxEventBus != nil && m.glassBoxEnabled {
 			if shardType != "" {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryKernel,
 					Summary:   fmt.Sprintf("Routing: %s → %s shard (confidence: %.0f%%)", intent.Verb, shardType, intent.Confidence*100),
 					TurnID:    m.turnCount,
 				})
 			} else {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryKernel,
 					Summary:   fmt.Sprintf("Routing: %s → no shard delegation", intent.Verb),
@@ -582,7 +584,7 @@ func (m Model) processInput(input string) tea.Cmd {
 			// Shard spawn with queue backpressure management (user-initiated = high priority)
 			// Glass Box: Emit shard spawn event
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryShard,
 					Summary:   fmt.Sprintf("Spawning: %s (task: %s)", shardType, truncateSummary(task, 40)),
@@ -599,7 +601,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if spawnErr != nil {
 					status = "failed"
 				}
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryShard,
 					Summary:   fmt.Sprintf("Shard %s: %s (result: %d chars)", shardType, status, len(result)),
@@ -611,7 +613,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				if m.jitCompiler != nil {
 					if jitResult := m.jitCompiler.GetLastResult(); jitResult != nil && jitResult.Stats != nil {
 						stats := jitResult.Stats
-						m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+						m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 							Timestamp: time.Now(),
 							Category:  transparency.CategoryJIT,
 							Summary:   fmt.Sprintf("JIT: %d atoms (%d skel + %d flesh), %d/%d tokens (%.0f%%)", stats.AtomsSelected, stats.SkeletonAtoms, stats.FleshAtoms, stats.TokensUsed, stats.TokenBudget, stats.BudgetUtilization*100),
@@ -726,7 +728,7 @@ func (m Model) processInput(input string) tea.Cmd {
 				intent.Verb, len(intent.Response), respPreview, time.Since(oodaStart).Milliseconds())
 			// Glass Box: Emit direct response path
 			if m.glassBoxEventBus != nil && m.glassBoxEnabled {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryControl,
 					Summary:   fmt.Sprintf("Direct response: %s (bypassing articulation)", intent.Verb),
@@ -822,7 +824,7 @@ func (m Model) processInput(input string) tea.Cmd {
 					summary = fmt.Sprintf("next_action: %s (+%d)", first, len(actions)-1)
 				}
 			}
-			m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+			m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 				Timestamp: time.Now(),
 				Category:  transparency.CategoryKernel,
 				Summary:   summary,
@@ -835,7 +837,7 @@ func (m Model) processInput(input string) tea.Cmd {
 		// Surface denied actions distinctly — these matter for trust.
 		if m.kernel != nil && m.glassBoxEventBus != nil {
 			if denied, derr := m.kernel.Query("action_denied"); derr == nil && len(denied) > 0 {
-				m.glassBoxEventBus.Emit(transparency.GlassBoxEvent{
+				m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
 					Timestamp: time.Now(),
 					Category:  transparency.CategoryKernel,
 					Summary:   fmt.Sprintf("action_denied: %d blocked", len(denied)),

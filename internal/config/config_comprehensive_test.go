@@ -531,7 +531,7 @@ func TestGetEngine_WhenSet_ShouldReturnValue(t *testing.T) {
 }
 
 func TestSetEngine_WhenValid_ShouldSucceed(t *testing.T) {
-	validEngines := []string{"api", "claude-cli", "codex-cli"}
+	validEngines := []string{"api", "claude-cli", "codex-cli", "xai-oauth"}
 	for _, engine := range validEngines {
 		t.Run(engine, func(t *testing.T) {
 			cfg := &UserConfig{}
@@ -741,7 +741,7 @@ func TestGetEmbeddingConfig_WhenPartial_ShouldFillDefaults(t *testing.T) {
 	if embCfg.Provider != "genai" {
 		t.Errorf("Provider = %q, want 'genai'", embCfg.Provider)
 	}
-	if embCfg.OllamaModel != "embeddinggemma" {
+	if embCfg.OllamaModel != "embeddinggemma:300m" {
 		t.Errorf("OllamaModel should default, got %q", embCfg.OllamaModel)
 	}
 }

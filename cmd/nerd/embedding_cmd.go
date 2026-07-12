@@ -48,8 +48,8 @@ var embeddingSetCmd = &cobra.Command{
 			if cfg.Embedding.OllamaEndpoint == "" {
 				cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
 			}
-			if cfg.Embedding.OllamaModel == "" {
-				cfg.Embedding.OllamaModel = "embeddinggemma"
+			if cfg.Embedding.OllamaModel == "" || cfg.Embedding.OllamaModel == "embeddinggemma" {
+				cfg.Embedding.OllamaModel = "embeddinggemma:300m"
 			}
 		case "genai":
 			if len(args) >= 2 {
@@ -90,19 +90,20 @@ var embeddingStatsCmd = &cobra.Command{
 		}
 		defer ls.Close()
 
-		// Attach current embedding engine for reporting.
+		// Attach embedding engine from .nerd/config.json (authoritative).
 		cfgPath := filepath.Join(ws, ".nerd", "config.json")
 		cfg, _ := config.LoadUserConfig(cfgPath)
-		embCfg := embedding.DefaultConfig()
-		if cfg != nil && cfg.Embedding != nil {
-			embCfg = embedding.Config{
-				Provider:       cfg.Embedding.Provider,
-				OllamaEndpoint: cfg.Embedding.OllamaEndpoint,
-				OllamaModel:    cfg.Embedding.OllamaModel,
-				GenAIAPIKey:    cfg.Embedding.GenAIAPIKey,
-				GenAIModel:     cfg.Embedding.GenAIModel,
-				TaskType:       cfg.Embedding.TaskType,
-			}
+		if cfg == nil {
+			cfg = config.DefaultUserConfig()
+		}
+		ucEmb := cfg.GetEmbeddingConfig()
+		embCfg := embedding.Config{
+			Provider:       ucEmb.Provider,
+			OllamaEndpoint: ucEmb.OllamaEndpoint,
+			OllamaModel:    ucEmb.OllamaModel,
+			GenAIAPIKey:    ucEmb.GenAIAPIKey,
+			GenAIModel:     ucEmb.GenAIModel,
+			TaskType:       ucEmb.TaskType,
 		}
 		if engine, engErr := embedding.NewEngine(embCfg); engErr == nil {
 			ls.SetEmbeddingEngine(engine)
@@ -133,18 +134,20 @@ var embeddingReembedCmd = &cobra.Command{
 			ws, _ = os.Getwd()
 		}
 
+		// Always read model/provider from .nerd/config.json via GetEmbeddingConfig.
 		cfgPath := filepath.Join(ws, ".nerd", "config.json")
 		cfg, _ := config.LoadUserConfig(cfgPath)
-		embCfg := embedding.DefaultConfig()
-		if cfg != nil && cfg.Embedding != nil {
-			embCfg = embedding.Config{
-				Provider:       cfg.Embedding.Provider,
-				OllamaEndpoint: cfg.Embedding.OllamaEndpoint,
-				OllamaModel:    cfg.Embedding.OllamaModel,
-				GenAIAPIKey:    cfg.Embedding.GenAIAPIKey,
-				GenAIModel:     cfg.Embedding.GenAIModel,
-				TaskType:       cfg.Embedding.TaskType,
-			}
+		if cfg == nil {
+			cfg = config.DefaultUserConfig()
+		}
+		ucEmb := cfg.GetEmbeddingConfig()
+		embCfg := embedding.Config{
+			Provider:       ucEmb.Provider,
+			OllamaEndpoint: ucEmb.OllamaEndpoint,
+			OllamaModel:    ucEmb.OllamaModel,
+			GenAIAPIKey:    ucEmb.GenAIAPIKey,
+			GenAIModel:     ucEmb.GenAIModel,
+			TaskType:       ucEmb.TaskType,
 		}
 
 		engine, err := embedding.NewEngine(embCfg)

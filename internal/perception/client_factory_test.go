@@ -42,11 +42,28 @@ func TestNewClientFromConfig_Engines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create codex-cli client: %v", err)
 	}
-	if _, ok := client.(*CodexCLIClient); !ok {
-		t.Errorf("Expected *CodexCLIClient, got %T", client)
+	if client == nil {
+		t.Fatal("Expected non-nil codex-cli client")
 	}
 
-	// 3. Invalid Engine
+	// 3. SuperGrok OAuth
+	importGrok := false
+	cfg = &ProviderConfig{
+		Engine: "xai-oauth",
+		XAIOAuth: &config.XAIOAuthConfig{
+			Model:          "grok-4.5",
+			ImportGrokAuth: &importGrok,
+		},
+	}
+	client, err = NewClientFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create xai-oauth client: %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected non-nil xai-oauth client")
+	}
+
+	// 4. Invalid Engine
 	cfg = &ProviderConfig{
 		Engine: "invalid-cli",
 	}

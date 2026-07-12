@@ -198,7 +198,7 @@ func NewConfigWizard() *ConfigWizardState {
 		CodexCLIMaxConcurrentCalls: internalconfig.DefaultCodexMaxConcurrentCalls,
 		// Embedding defaults
 		OllamaEndpoint:        "http://localhost:11434",
-		OllamaModel:           "embeddinggemma",
+		OllamaModel:           "embeddinggemma:300m",
 		GenAIModel:            "gemini-embedding-001",
 		MaxTokens:             128000,
 		CoreReservePercent:    5,
@@ -277,16 +277,18 @@ How would you like to connect to the LLM?
 | 1 | api | HTTP API with API key (pay-per-token) |
 | 2 | claude-cli | Claude Code CLI (Claude Pro/Max subscription) |
 | 3 | codex-cli | OpenAI Codex CLI (ChatGPT Plus/Pro subscription) |
+| 4 | xai-oauth | SuperGrok OAuth (SuperGrok / X Premium+ subscription) |
 
 **Recommendation:**
 - Use **api** if you have API credits and want fine-grained control
 - Use **claude-cli** if you have Claude Pro/Max subscription
 - Use **codex-cli** if you have ChatGPT Plus/Pro subscription
+- Use **xai-oauth** if you have SuperGrok (run nerd auth grok)
 
-Enter a number (1-3) or engine name:`,
+Enter a number (1-4) or engine name:`,
 		Time: time.Now(),
 	})
-	m.textarea.Placeholder = "Enter engine (1-3 or name)..."
+	m.textarea.Placeholder = "Enter engine (1-4 or name)..."
 	m.viewport.SetContent(m.renderHistory())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -298,13 +300,14 @@ func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
 		"1": "api", "api": "api",
 		"2": "claude-cli", "claude-cli": "claude-cli", "claude": "claude-cli",
 		"3": "codex-cli", "codex-cli": "codex-cli", "codex": "codex-cli",
+		"4": "xai-oauth", "xai-oauth": "xai-oauth", "grok": "xai-oauth", "supergrok": "xai-oauth",
 	}
 
 	engine, ok := engines[strings.ToLower(input)]
 	if !ok {
 		m = m.addMessage(Message{
 			Role:    "assistant",
-			Content: "Invalid selection. Please enter 1-3 or an engine name (api, claude-cli, codex-cli):",
+			Content: "Invalid selection. Please enter 1-4 or an engine name (api, claude-cli, codex-cli, xai-oauth):",
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
@@ -367,6 +370,30 @@ Enter model number/name (Enter for default):`, m.configWizard.CodexCLIModel),
 			Time: time.Now(),
 		})
 		m.textarea.Placeholder = "Codex CLI model (Enter for gpt-5.4)..."
+
+	case "xai-oauth":
+		// SuperGrok OAuth: no API key; auth via `nerd auth grok`. Use defaults and continue.
+		if m.configWizard.Model == "" {
+			m.configWizard.Model = "grok-4.5"
+		}
+		m.configWizard.Step = StepShardConfig
+		m = m.addMessage(Message{
+			Role: "assistant",
+			Content: fmt.Sprintf(`## Step 2: SuperGrok OAuth
+
+You selected **xai-oauth** (SuperGrok / X Premium+ subscription).
+
+- Default model: **%s**
+- Auth: run "nerd auth grok" (or import from Grok CLI ~/.grok/auth.json)
+- No xai_api_key required
+
+Would you like to configure individual shard settings?
+
+**y** = Configure each shard
+**n** = Use defaults for all shards (recommended)`, m.configWizard.Model),
+			Time: time.Now(),
+		})
+		m.textarea.Placeholder = "y/n (Enter for n)..."
 
 	default: // "api"
 		m.configWizard.Step = StepProvider

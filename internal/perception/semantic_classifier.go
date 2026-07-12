@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"codenerd/internal/config"
 	"codenerd/internal/core"
@@ -39,6 +41,16 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/sync/errgroup"
 )
+
+// intentHydrateTimeout bounds boot-time embedding of intent_definition texts.
+// A cold cache of ~800 intents at ~200ms each would otherwise freeze the TUI
+// for minutes; partial hydrate is preferable to an unbounded hang.
+const intentHydrateTimeout = 60 * time.Second
+
+// intentEmbedChunkSize controls how many cache-miss texts are embedded before
+// writing them to the SQLite cache. Chunking makes progress durable if the
+// process is killed or the hydrate deadline fires mid-batch.
+const intentEmbedChunkSize = 32
 
 // =============================================================================
 // SEMANTIC MATCH TYPE
@@ -227,9 +239,13 @@ func NewSemanticClassifierFromConfig(kernel core.Kernel, cfg *config.UserConfig)
 		embeddedStore = nil
 	}
 	if embeddedStore != nil && embedEngine != nil {
-		if err := embeddedStore.LoadFromKernel(context.Background(), kernel, embedEngine); err != nil {
+		// Bound hydrate so a cold cache (hundreds of Ollama embeds) cannot freeze
+		// TUI/CLI boot indefinitely. Partial progress is cached for the next boot.
+		hydrateCtx, cancelHydrate := context.WithTimeout(context.Background(), intentHydrateTimeout)
+		if err := embeddedStore.LoadFromKernel(hydrateCtx, kernel, embedEngine); err != nil {
 			logging.Get(logging.CategoryPerception).Warn("Failed to hydrate embedded intent corpus from kernel: %v", err)
 		}
+		cancelHydrate()
 	}
 
 	// Initialize learned corpus store
@@ -839,39 +855,81 @@ func (s *EmbeddedCorpusStore) LoadFromKernel(ctx context.Context, kernel core.Ke
 	}
 
 	misses := len(missTexts)
-	logging.Get(logging.CategoryEmbedding).Info("EmbeddedCorpusStore cache: %d hits, %d misses", hits, misses)
+	logging.Get(logging.CategoryEmbedding).Info("EmbeddedCorpusStore cache: %d hits, %d misses (model=%s)", hits, misses, modelName)
 
-	// Embed cache misses
+	// Embed cache misses in small chunks and write each chunk to the SQLite cache
+	// immediately. Previously a single EmbedBatch of ~800 texts wrote nothing until
+	// the full batch finished (~2–3 min on Ollama); killing the process mid-batch
+	// forced a full re-embed on the next boot (TUI freeze loop).
 	if len(missTexts) > 0 {
 		taskType := embedding.SelectTaskType(embedding.ContentTypeKnowledgeAtom, false)
-		var missEmbeds [][]float32
-		if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
-			missEmbeds, err = batchAware.EmbedBatchWithTask(ctx, missTexts, taskType)
-		} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
-			missEmbeds = make([][]float32, len(missTexts))
-			for i, text := range missTexts {
-				vec, embedErr := taskAware.EmbedWithTask(ctx, text, taskType)
-				if embedErr != nil {
-					continue
-				}
-				missEmbeds[i] = vec
-			}
-		} else {
-			missEmbeds, err = engine.EmbedBatch(ctx, missTexts)
+		chunkSize := intentEmbedChunkSize
+		if chunkSize < 1 {
+			chunkSize = 32
 		}
-		if err != nil {
-			return err
-		}
-
-		// Scatter miss results back and write to cache
-		for j, idx := range missIndices {
-			if j >= len(missEmbeds) {
+		cachedMisses := 0
+		for start := 0; start < len(missTexts); start += chunkSize {
+			if err := ctx.Err(); err != nil {
+				logging.Get(logging.CategoryEmbedding).Warn(
+					"EmbeddedCorpusStore: hydrate stopped early after caching %d/%d misses (%v); remaining will embed on next boot",
+					cachedMisses, misses, err,
+				)
 				break
 			}
-			vec := missEmbeds[j]
-			allEmbeds[idx] = vec
-			if vec != nil && s.cacheDB != nil {
-				s.cachePut(hashText(missTexts[j]), modelName, vec)
+			end := start + chunkSize
+			if end > len(missTexts) {
+				end = len(missTexts)
+			}
+			chunkTexts := missTexts[start:end]
+			chunkIndices := missIndices[start:end]
+
+			var chunkEmbeds [][]float32
+			var embedErr error
+			if batchAware, ok := engine.(embedding.TaskTypeBatchAwareEngine); ok && taskType != "" {
+				chunkEmbeds, embedErr = batchAware.EmbedBatchWithTask(ctx, chunkTexts, taskType)
+			} else if taskAware, ok := engine.(embedding.TaskTypeAwareEngine); ok && taskType != "" {
+				chunkEmbeds = make([][]float32, len(chunkTexts))
+				for i, text := range chunkTexts {
+					if ctx.Err() != nil {
+						embedErr = ctx.Err()
+						break
+					}
+					vec, e := taskAware.EmbedWithTask(ctx, text, taskType)
+					if e != nil {
+						continue
+					}
+					chunkEmbeds[i] = vec
+				}
+			} else {
+				chunkEmbeds, embedErr = engine.EmbedBatch(ctx, chunkTexts)
+			}
+			if embedErr != nil {
+				// Cancellation/deadline: keep partial progress, do not fail boot.
+				if errors.Is(embedErr, context.Canceled) || errors.Is(embedErr, context.DeadlineExceeded) || ctx.Err() != nil {
+					logging.Get(logging.CategoryEmbedding).Warn(
+						"EmbeddedCorpusStore: embed cancelled after caching %d/%d misses: %v",
+						cachedMisses, misses, embedErr,
+					)
+					break
+				}
+				return embedErr
+			}
+
+			for j, idx := range chunkIndices {
+				if j >= len(chunkEmbeds) {
+					break
+				}
+				vec := chunkEmbeds[j]
+				allEmbeds[idx] = vec
+				if vec != nil && s.cacheDB != nil {
+					s.cachePut(hashText(chunkTexts[j]), modelName, vec)
+					cachedMisses++
+				}
+			}
+			if end < len(missTexts) {
+				logging.Get(logging.CategoryEmbedding).Info(
+					"EmbeddedCorpusStore: cached miss progress %d/%d", end, misses,
+				)
 			}
 		}
 	}

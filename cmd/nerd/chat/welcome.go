@@ -27,9 +27,11 @@ import (
 // the provider is working and generate a project-aware welcome message.
 //
 // Design decisions:
-//   - 10s timeout: generous enough for cold starts, short enough to not block UX
+//   - 30s timeout: SuperGrok OAuth / cold starts often exceed 10s (live test
+//     logged context deadline exceeded at exactly 9999ms).
 //   - Uses m.shutdownCtx as parent: cancels cleanly on quit
 //   - Captures scan stats by value (msg is a copy) so the goroutine is safe
+//   - Labels use engine+model from config.json, not a stale Provider field
 //   - Returns welcomeHealthCheckMsg which the Update() switch handles
 func (m Model) performWelcomeHealthCheck(scanStats scanCompleteMsg) tea.Cmd {
 	return func() tea.Msg {
@@ -40,13 +42,28 @@ func (m Model) performWelcomeHealthCheck(scanStats scanCompleteMsg) tea.Cmd {
 			}
 		}
 
-		// Short timeout — this is a smoke test, not a conversation
-		ctx, cancel := context.WithTimeout(m.shutdownCtx, 10*time.Second)
+		// SuperGrok OAuth + cold starts routinely need >10s (live log: 9.999s fail).
+		ctx, cancel := context.WithTimeout(m.shutdownCtx, 30*time.Second)
 		defer cancel()
 
 		projectName := filepath.Base(m.workspace)
-		provider := m.Config.Provider
-		model := m.Config.Model
+		// Prefer engine (xai-oauth) over legacy provider label (often still "gemini").
+		provider := "api"
+		model := ""
+		if m.Config != nil {
+			if eng := m.Config.GetEngine(); eng != "" {
+				provider = eng
+			} else if m.Config.Provider != "" {
+				provider = m.Config.Provider
+			}
+			model = m.Config.Model
+			if model == "" && m.Config.XAIOAuth != nil {
+				model = m.Config.XAIOAuth.Model
+			}
+		}
+		if model == "" {
+			model = "unknown"
+		}
 
 		// Build a concise system prompt that constrains output length
 		systemPrompt := `You are codeNERD, a neuro-symbolic coding agent powered by a Mangle logic kernel. Generate a brief welcome message for the user who just opened a coding session.
@@ -61,7 +78,7 @@ Rules:
 - Keep it under 280 characters if possible`
 
 		userPrompt := fmt.Sprintf(`Project: %s
-Provider: %s | Model: %s
+Engine: %s | Model: %s
 Files indexed: %d | Directories: %d
 Facts generated: %d | Scan duration: %.2fs`,
 			projectName, provider, model,
@@ -69,11 +86,11 @@ Facts generated: %d | Scan duration: %.2fs`,
 			scanStats.factCount, scanStats.duration.Seconds(),
 		)
 
-		logging.BootDebug("LLM health check: provider=%s model=%s project=%s", provider, model, projectName)
+		logging.BootDebug("LLM health check: engine=%s model=%s project=%s", provider, model, projectName)
 
 		response, err := m.client.CompleteWithSystem(ctx, systemPrompt, userPrompt)
 		if err != nil {
-			logging.API("LLM health check failed: provider=%s model=%s err=%v", provider, model, err)
+			logging.API("LLM health check failed: engine=%s model=%s err=%v", provider, model, err)
 			return welcomeHealthCheckMsg{
 				err:      err,
 				provider: provider,
@@ -84,7 +101,7 @@ Facts generated: %d | Scan duration: %.2fs`,
 		// Trim any accidental whitespace from the LLM response
 		response = strings.TrimSpace(response)
 
-		logging.BootDebug("LLM health check succeeded: provider=%s model=%s response_len=%d", provider, model, len(response))
+		logging.BootDebug("LLM health check succeeded: engine=%s model=%s response_len=%d", provider, model, len(response))
 
 		return welcomeHealthCheckMsg{
 			welcome:  response,

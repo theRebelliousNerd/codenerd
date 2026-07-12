@@ -675,11 +675,24 @@ The strategic knowledge base has been updated with new documentation.`, msg.docs
 
 	case statusMsg:
 		m.statusMessage = string(msg)
+		// Keep the live pulse chrome moving even when Glass Box events lag —
+		// status pings are the heartbeat of "something is happening".
+		if strings.TrimSpace(string(msg)) != "" {
+			m.activityLine = string(msg)
+			m.activityIconCh = string(transparency.CategoryControl)
+			m.activityAt = time.Now()
+			m.pushActivityPulse(activityPulse{
+				Summary:  string(msg),
+				Category: transparency.CategoryControl,
+				At:       m.activityAt,
+			})
+		}
 		return m, m.waitForStatus() // Listen for next update
 
 	case glassBoxEventMsg:
-		// Handle Glass Box event - add to history and re-render
-		m.handleGlassBoxEvent(transparency.GlassBoxEvent(msg))
+		// Full stream: fold the waking event plus any already-buffered
+		// events into one frame so multi-shard bursts keep up with chat.
+		m.drainGlassBoxEvents(transparency.GlassBoxEvent(msg))
 		m.viewport.SetContent(m.renderHistory())
 		m.viewport.GotoBottom()
 		return m, m.listenGlassBoxEvents() // Listen for next event

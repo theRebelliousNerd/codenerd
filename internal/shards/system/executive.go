@@ -62,7 +62,9 @@ type ExecutiveConfig struct {
 // DefaultExecutiveConfig returns sensible defaults.
 func DefaultExecutiveConfig() ExecutiveConfig {
 	return ExecutiveConfig{
-		TickInterval:               500 * time.Millisecond,
+		// 2s fallback poll — matches constitution gate. Sub-second ticks
+		// stacked with heartbeats were saturating kernel evaluate.
+		TickInterval:               2 * time.Second,
 		StrictBarriers:             true,
 		MaxActionsPerTick:          5,
 		DebugMode:                  false,
@@ -370,7 +372,9 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 
 	// Subscribe to fact events instead of polling
 	factCh := e.SubscribeToFacts([]string{"user_intent", "next_action", "delegate_task", "tdd_next_action", "campaign_next_action", "repair_next_action"})
-	heartbeat := time.NewTicker(5 * time.Second)
+	// 15s heartbeat (was 5s) — live test: multi-shard 5s heartbeats stacked with
+	// 14–24s kernel evals. Health rules only need existence of a heartbeat.
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
 	// Fallback ticker for when event bus is unavailable (e.g., tests)

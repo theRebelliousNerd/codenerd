@@ -282,11 +282,31 @@ func (i *Initializer) Close() error {
 }
 
 // ensureEmbeddingEngine initializes a shared embedding engine for sqlite-vec.
+// Model/provider ALWAYS come from .nerd/config.json (via GetEmbeddingConfig).
 func (i *Initializer) ensureEmbeddingEngine() error {
 	if i.embedEngine != nil {
 		return nil
 	}
-	engine, err := embedding.NewEngine(embedding.DefaultConfig())
+	// Prefer workspace config.json — that is the product rule of record.
+	cfgPath := filepath.Join(i.config.Workspace, ".nerd", "config.json")
+	uc, err := config.LoadUserConfig(cfgPath)
+	if err != nil || uc == nil {
+		uc, _ = config.GlobalConfig()
+	}
+	if uc == nil {
+		uc = config.DefaultUserConfig()
+	}
+	ucEmb := uc.GetEmbeddingConfig()
+	embCfg := embedding.Config{
+		Provider:       ucEmb.Provider,
+		OllamaEndpoint: ucEmb.OllamaEndpoint,
+		OllamaModel:    ucEmb.OllamaModel,
+		GenAIAPIKey:    ucEmb.GenAIAPIKey,
+		GenAIModel:     ucEmb.GenAIModel,
+		TaskType:       ucEmb.TaskType,
+	}
+	logging.Boot("Init embedding engine from config.json: provider=%s model=%s", embCfg.Provider, embCfg.OllamaModel)
+	engine, err := embedding.NewEngine(embCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize embedding engine (required for sqlite-vec): %w", err)
 	}

@@ -166,64 +166,98 @@ func (m Model) renderSingleMessage(msg Message) string {
 func glassBoxIcon(c transparency.GlassBoxCategory) string {
 	switch c {
 	case transparency.CategoryPerception:
-		return "🎯"
+		return "◎"
 	case transparency.CategoryKernel:
-		return "🧠"
+		return "◈"
 	case transparency.CategoryJIT:
-		return "🧩"
+		return "⧉"
 	case transparency.CategoryShard:
 		return "⚡"
 	case transparency.CategoryControl:
-		return "📦"
+		return "▸"
 	case transparency.CategoryRouting:
-		return "🛠"
+		return "⤷"
 	default:
 		return "•"
 	}
 }
 
+// glassBoxLabelStyle returns the color style for a category pill.
+func (m Model) glassBoxLabelStyle(c transparency.GlassBoxCategory) lipgloss.Style {
+	switch c {
+	case transparency.CategoryPerception:
+		return m.styles.Success
+	case transparency.CategoryKernel:
+		return m.styles.Warning
+	case transparency.CategoryShard:
+		return m.styles.Title
+	case transparency.CategoryJIT:
+		return m.styles.Info
+	case transparency.CategoryRouting:
+		return m.styles.Success
+	case transparency.CategoryControl:
+		return m.styles.Info
+	default:
+		return m.styles.Muted
+	}
+}
+
 // renderGlassBoxMessage formats a Glass Box system event for display.
-// Format: "  <icon> <CATEGORY> summary  (durationms)"
-// Icon + category are color-keyed, body is dimmed so the event reads as
-// chrome rather than chat content.
+// Timeline-style chrome: "  │ ◎ PERCEPTION  summary" so the stream reads
+// as a living log rather than flat system spam.
 func (m Model) renderGlassBoxMessage(msg Message) string {
 	icon := glassBoxIcon(msg.GlassBoxCategory)
 	label := strings.ToUpper(string(msg.GlassBoxCategory))
+	if label == "" {
+		label = "SYS"
+	}
+	labelStyle := m.glassBoxLabelStyle(msg.GlassBoxCategory)
 
-	// Pick a color per category. Falls back to Muted if a category lacks a
-	// dedicated style. We intentionally keep the palette narrow so the
-	// status line doesn't strobe.
-	var labelStyle lipgloss.Style
-	switch msg.GlassBoxCategory {
-	case transparency.CategoryPerception:
-		labelStyle = m.styles.Success
-	case transparency.CategoryKernel:
-		labelStyle = m.styles.Warning
-	case transparency.CategoryShard:
-		labelStyle = m.styles.Title
-	case transparency.CategoryJIT:
-		labelStyle = m.styles.Info
-	case transparency.CategoryRouting:
-		labelStyle = m.styles.Success
-	case transparency.CategoryControl:
-		labelStyle = m.styles.Info
-	default:
-		labelStyle = m.styles.Muted
+	// Split summary vs optional multi-line details.
+	lines := strings.SplitN(msg.Content, "\n", 2)
+	summary := strings.TrimSpace(lines[0])
+	details := ""
+	if len(lines) > 1 {
+		details = strings.TrimSpace(lines[1])
 	}
 
-	renderedLabel := labelStyle.Render(fmt.Sprintf("%s %s", icon, label))
-	body := m.styles.Muted.Render(msg.Content)
+	// Timestamp chip for temporal feel.
+	ts := ""
+	if !msg.Time.IsZero() {
+		ts = m.styles.Muted.Render(msg.Time.Format("15:04:05"))
+	}
 
-	indicator := ""
-	if strings.Contains(msg.Content, "\n") {
-		if msg.IsCollapsed {
-			indicator = m.styles.Muted.Render(" [+]")
-		} else {
-			indicator = m.styles.Muted.Render(" [-]")
+	rail := m.styles.Muted.Render("│")
+	pill := labelStyle.Bold(true).Render(fmt.Sprintf("%s %s", icon, label))
+	body := m.styles.Muted.Render(summary)
+
+	var b strings.Builder
+	if ts != "" {
+		b.WriteString(fmt.Sprintf("  %s %s  %s  %s\n", rail, pill, body, ts))
+	} else {
+		b.WriteString(fmt.Sprintf("  %s %s  %s\n", rail, pill, body))
+	}
+
+	// Expanded details hang under the rail.
+	if details != "" && !msg.IsCollapsed {
+		for _, dl := range strings.Split(details, "\n") {
+			dl = strings.TrimSpace(dl)
+			if dl == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  %s   %s\n",
+				m.styles.Muted.Render("│"),
+				m.styles.Muted.Italic(true).Render(dl),
+			))
 		}
+	} else if details != "" && msg.IsCollapsed {
+		b.WriteString(fmt.Sprintf("  %s   %s\n",
+			m.styles.Muted.Render("│"),
+			m.styles.Muted.Render("··· details collapsed"),
+		))
 	}
 
-	return fmt.Sprintf("  %s%s  %s\n", renderedLabel, indicator, body)
+	return b.String()
 }
 
 // safeRenderMarkdown renders markdown with panic recovery
@@ -308,18 +342,35 @@ func (m Model) renderHeader() string {
 	version := m.styles.Badge.Render("v1.0")
 	workspace := m.styles.Muted.Render(fmt.Sprintf(" %s", m.workspace))
 
-	// Status indicators
+	// Status indicators — live elapsed + latest beat so the header never
+	// freezes on a static "Thinking..." while the system works.
 	var status string
 	if m.isLoading {
-		// Show spinner and detailed status message
 		spin := m.spinner.View()
 		msg := m.statusMessage
 		if msg == "" {
-			msg = "Thinking..."
+			msg = m.activityLine
 		}
-		status = lipgloss.JoinHorizontal(lipgloss.Center, spin, " ", m.styles.Badge.Render(msg))
+		if msg == "" {
+			msg = "Working..."
+		}
+		// Prefer the freshest activity beat when status is generic.
+		if m.activityLine != "" && (msg == "Thinking..." || msg == "Working...") {
+			msg = m.activityLine
+		}
+		if len(msg) > 48 {
+			msg = msg[:45] + "..."
+		}
+		elapsed := ""
+		if !m.turnStartedAt.IsZero() {
+			elapsed = fmt.Sprintf(" %s", formatElapsedShort(time.Since(m.turnStartedAt)))
+		}
+		status = lipgloss.JoinHorizontal(lipgloss.Center,
+			spin, " ",
+			m.styles.Badge.Render(msg+elapsed),
+		)
 	} else {
-		status = m.styles.Success.Render("Ready")
+		status = m.styles.Success.Render("● Ready")
 	}
 
 	headerLine := lipgloss.JoinHorizontal(
@@ -402,7 +453,11 @@ func (m Model) renderFooter() string {
 	// Glass Box indicator
 	glassIndicator := ""
 	if m.glassBoxEnabled {
-		glassIndicator = " | [GLASS]"
+		if m.isLoading {
+			glassIndicator = " | [GLASS LIVE]"
+		} else {
+			glassIndicator = " | [GLASS]"
+		}
 	}
 
 	// Build hotkeys section - show Ctrl+X prominently when loading
@@ -410,7 +465,7 @@ func (m Model) renderFooter() string {
 	if m.isLoading {
 		hotkeys = "Ctrl+X: STOP | "
 	}
-	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+D: debug | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
+	hotkeys += "Shift+Tab: mode | Alt+L: logic | Alt+G: glass | Alt+D: debug | Alt+P: jit | Alt+A: auto | Alt+S: shards | /help"
 
 	timestamp := time.Now().Format("15:04")
 	help := m.styles.Muted.Render(fmt.Sprintf("%s | %s%s%s%s%s%s%s | %s | %s",
@@ -534,31 +589,166 @@ func (m Model) renderChatView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-// renderActivityLine returns a single dimmed line showing the most
-// recent Glass Box event, or "" if there's nothing to show or Glass
-// Box is disabled. Designed to live just above the input area as
-// transient chrome — replaced on every new event, cleared on turn
-// end.
+// renderActivityLine draws the live pulse panel above the input box.
+// While work is in flight it shows spinner + elapsed + traveling bar +
+// a short trail of recent beats so the screen never feels frozen.
+// After a turn, a brief afterglow keeps the last few beats visible.
 func (m Model) renderActivityLine() string {
-	if !m.glassBoxEnabled || strings.TrimSpace(m.activityLine) == "" {
+	if !m.glassBoxEnabled {
 		return ""
 	}
-	icon := glassBoxIcon(transparency.GlassBoxCategory(m.activityIconCh))
-	age := ""
-	if !m.activityAt.IsZero() {
-		d := time.Since(m.activityAt)
-		switch {
-		case d < time.Second:
-			age = "now"
-		case d < time.Minute:
-			age = fmt.Sprintf("%ds", int(d.Seconds()))
-		default:
-			age = fmt.Sprintf("%dm", int(d.Minutes()))
+	hasTrail := len(m.activityTrail) > 0 || strings.TrimSpace(m.activityLine) != ""
+	if !hasTrail && !m.isLoading {
+		return ""
+	}
+
+	// Afterglow: hide trail once the last beat is stale and we're idle.
+	if !m.isLoading && !m.activityAt.IsZero() && time.Since(m.activityAt) > 20*time.Second {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, m.renderLivePulseHeader())
+
+	// Newest-first trail (cap already enforced on push).
+	trail := m.activityTrail
+	if len(trail) == 0 && m.activityLine != "" {
+		trail = []activityPulse{{
+			Summary:  m.activityLine,
+			Category: transparency.GlassBoxCategory(m.activityIconCh),
+			At:       m.activityAt,
+		}}
+	}
+	for i, p := range trail {
+		prefix := "  "
+		if i == 0 {
+			prefix = m.styles.Success.Render("  ▸ ")
+		} else {
+			prefix = m.styles.Muted.Render("  · ")
+		}
+		icon := glassBoxIcon(p.Category)
+		catStyle := m.glassBoxLabelStyle(p.Category)
+		summary := p.Summary
+		if len(summary) > 72 {
+			summary = summary[:69] + "..."
+		}
+		age := formatActivityAge(p.At)
+		line := prefix + catStyle.Render(icon) + " " +
+			m.styles.Muted.Render(summary) +
+			m.styles.Muted.Italic(true).Render("  · "+age)
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderLivePulseHeader is the animated top row of the activity panel.
+func (m Model) renderLivePulseHeader() string {
+	var parts []string
+
+	if m.isLoading {
+		spin := m.spinner.View()
+		live := m.styles.Success.Bold(true).Render("LIVE")
+		parts = append(parts, "  "+spin+" "+live)
+
+		if !m.turnStartedAt.IsZero() {
+			elapsed := formatElapsedShort(time.Since(m.turnStartedAt))
+			parts = append(parts, m.styles.Badge.Render(elapsed))
+		}
+
+		// Traveling energy bar — pure visual "still working" cue.
+		barW := 16
+		if m.width > 0 && m.width < 60 {
+			barW = 10
+		}
+		elapsed := time.Duration(0)
+		if !m.turnStartedAt.IsZero() {
+			elapsed = time.Since(m.turnStartedAt)
+		} else if !m.activityAt.IsZero() {
+			elapsed = time.Since(m.activityAt)
+		}
+		bar := m.styles.Info.Render(livePulseBar(elapsed, barW))
+		parts = append(parts, bar)
+
+		if n := len(m.activityTrail); n > 0 {
+			parts = append(parts, m.styles.Muted.Render(fmt.Sprintf("%d beats", n)))
+		}
+	} else {
+		// Afterglow header once the turn settles.
+		parts = append(parts, m.styles.Muted.Render("  ◈ recent"))
+		if !m.activityAt.IsZero() {
+			parts = append(parts, m.styles.Muted.Italic(true).Render(formatActivityAge(m.activityAt)))
 		}
 	}
-	text := fmt.Sprintf("  %s  %s", icon, m.activityLine)
-	if age != "" {
-		text = fmt.Sprintf("%s  · %s ago", text, age)
+
+	return strings.Join(parts, "  ")
+}
+
+// livePulseBar draws a short traveling-brightness bar so idle waits still
+// look alive. Pure function of elapsed time — no extra state needed.
+func livePulseBar(elapsed time.Duration, width int) string {
+	if width < 6 {
+		width = 6
 	}
-	return m.styles.Muted.Italic(true).Render(text)
+	if width > 28 {
+		width = 28
+	}
+	pos := int(elapsed.Milliseconds()/80) % width
+	var b strings.Builder
+	b.Grow(width)
+	for i := 0; i < width; i++ {
+		d := i - pos
+		if d < 0 {
+			d = -d
+		}
+		// Wrap distance for a circular sweep.
+		wrap := width - d
+		if wrap < d {
+			d = wrap
+		}
+		switch {
+		case d == 0:
+			b.WriteRune('█')
+		case d == 1:
+			b.WriteRune('▓')
+		case d == 2:
+			b.WriteRune('▒')
+		default:
+			b.WriteRune('░')
+		}
+	}
+	return b.String()
+}
+
+// formatActivityAge turns a timestamp into a short relative age label.
+func formatActivityAge(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	d := time.Since(at)
+	switch {
+	case d < 400*time.Millisecond:
+		return "now"
+	case d < time.Second:
+		return "just now"
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+}
+
+// formatElapsedShort formats a duration for the live header (e.g. 4.2s, 1m03s).
+func formatElapsedShort(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	mins := int(d.Minutes())
+	secs := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm%02ds", mins, secs)
 }

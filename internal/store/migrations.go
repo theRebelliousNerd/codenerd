@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -626,6 +627,19 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 		}
 	}()
 
+	// Non-knowledge DBs (e.g. *_learnings.db) have no knowledge_atoms table.
+	// They use LearningStore.initializeSchema, not knowledge migrations.
+	// Stamping current version avoids "unknown migration: v0 -> v1" + backup thrash.
+	if currentVersion == 0 && !tableExists(db, "knowledge_atoms") {
+		logging.Store("Skipping knowledge migrations for non-knowledge DB (no knowledge_atoms): %s", dbPath)
+		if err := SetSchemaVersion(db, targetVersion); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("stamp version: %v", err))
+		}
+		migrationSuccess = true
+		result.Duration = time.Since(startTime)
+		return result, nil
+	}
+
 	// Run migrations sequentially
 	for v := currentVersion; v < targetVersion; v++ {
 		nextVersion := v + 1
@@ -633,6 +647,10 @@ func RunAllMigrations(dbPath string, targetVersion int) (*MigrationResult, error
 
 		var migrationErr error
 		switch nextVersion {
+		case 1:
+			// v0→v1: baseline knowledge schema already created by app bootstrap.
+			// No structural change required — just allow version to advance.
+			migrationErr = nil
 		case 2:
 			migrationErr = MigrateV1ToV2(db)
 		case 3:
@@ -741,6 +759,12 @@ func MigrateAllAgentDBs(nerdDir string) (map[string]*MigrationResult, error) {
 
 		name := entry.Name()
 		if filepath.Ext(name) != ".db" {
+			continue
+		}
+		// Learning stores (*_learnings.db) are not knowledge schema DBs.
+		if strings.HasSuffix(name, "_learnings.db") {
+			logging.StoreDebug("Skipping learnings DB in knowledge migration scan: %s", name)
+			skippedCount++
 			continue
 		}
 

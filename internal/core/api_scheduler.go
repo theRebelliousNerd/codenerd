@@ -95,6 +95,22 @@ type APISchedulerConfig struct {
 	MaxConcurrentAPICalls int           // Max simultaneous API calls (matches LLM provider limit)
 	SlotAcquireTimeout    time.Duration // Max time to wait for a slot
 	EnableMetrics         bool          // Track detailed metrics
+
+	// MinCallSpacing is the minimum gap between successive slot grants.
+	// SuperGrok / subscription backends should set ~100-200ms to smooth bursts.
+	// Zero disables spacing.
+	MinCallSpacing time.Duration
+
+	// AdaptiveConcurrency enables shrinking max slots after rate-limit errors
+	// and restoring them after a quiet period of successes.
+	AdaptiveConcurrency bool
+
+	// AdaptiveFloor is the minimum slots when throttled (default 1).
+	AdaptiveFloor int
+
+	// AdaptiveRecoverAfter is how long without rate limits before restoring
+	// one slot toward the configured max (default 30s).
+	AdaptiveRecoverAfter time.Duration
 }
 
 // DefaultAPISchedulerConfig returns sensible defaults.
@@ -103,6 +119,8 @@ func DefaultAPISchedulerConfig() APISchedulerConfig {
 		MaxConcurrentAPICalls: 5,               // Default for modern LLM providers (Gemini: 60 RPM Flash, 15 RPM Pro)
 		SlotAcquireTimeout:    5 * time.Minute, // Match typical API timeout
 		EnableMetrics:         true,
+		AdaptiveFloor:         1,
+		AdaptiveRecoverAfter:  30 * time.Second,
 	}
 }
 
@@ -123,6 +141,18 @@ type APIScheduler struct {
 	totalWaitTime      int64 // nanoseconds
 	currentlyWaiting   int32
 	currentlyExecuting int32
+
+	// baseMaxSlots is the configured ceiling; adaptive mode may temporarily
+	// lower config.MaxConcurrentAPICalls without losing the original value.
+	baseMaxSlots int
+
+	// nextAllowedGrant enforces MinCallSpacing between grants.
+	nextAllowedGrant time.Time
+
+	// Adaptive concurrency state
+	lastRateLimitAt time.Time
+	lastSuccessAt   time.Time
+	rateLimitEvents int64
 
 	// Lifecycle
 	stopCh   chan struct{}
@@ -186,14 +216,21 @@ func NewAPIScheduler(config APISchedulerConfig) *APIScheduler {
 	if config.SlotAcquireTimeout <= 0 {
 		config.SlotAcquireTimeout = 5 * time.Minute // Defensively use default
 	}
+	if config.AdaptiveFloor <= 0 {
+		config.AdaptiveFloor = 1
+	}
+	if config.AdaptiveRecoverAfter <= 0 {
+		config.AdaptiveRecoverAfter = 30 * time.Second
+	}
 
 	return &APIScheduler{
-		config:      config,
-		slots:       make(chan struct{}, config.MaxConcurrentAPICalls),
-		shardStates: make(map[string]*ShardExecutionState),
-		waitQueue:   make([]*waitingEntry, 0),
-		waiters:     make([]*schedWaiter, 0),
-		stopCh:      make(chan struct{}),
+		config:       config,
+		baseMaxSlots: config.MaxConcurrentAPICalls,
+		slots:        make(chan struct{}, config.MaxConcurrentAPICalls),
+		shardStates:  make(map[string]*ShardExecutionState),
+		waitQueue:    make([]*waitingEntry, 0),
+		waiters:      make([]*schedWaiter, 0),
+		stopCh:       make(chan struct{}),
 	}
 }
 
@@ -244,10 +281,17 @@ func (s *APIScheduler) UnregisterShard(shardID string) {
 // AcquireAPISlot acquires permission to make an API call.
 // Blocks until a slot is available or context is cancelled.
 // The shard enters PhaseWaitingForSlot while waiting.
+//
+// Free slots are always granted in priority order (then FIFO). Callers never
+// skip ahead of a higher-priority waiter already in the queue — including the
+// simultaneous-arrival race at t=0.
 func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error {
 	if ctx == nil {
 		return fmt.Errorf("nil context provided to AcquireAPISlot")
 	}
+
+	// Opportunistic recovery of adaptive concurrency before queueing.
+	s.maybeRecoverAdaptive()
 
 	s.mu.Lock()
 	state, ok := s.shardStates[shardID]
@@ -269,7 +313,7 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		}
 	}
 
-	// Add to wait queue for visibility
+	// Visibility queue
 	entry := &waitingEntry{
 		shardID:   shardID,
 		shardType: state.ShardType,
@@ -278,42 +322,29 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 	}
 	s.waitQueue = append(s.waitQueue, entry)
 
-	// If we have an available slot immediately, acquire it
-	if int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls {
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-
-		// Fill s.slots non-blocking to keep len(s.slots) aligned if needed
-		select {
-		case s.slots <- struct{}{}:
-		default:
-		}
-
-		state.Phase = PhaseExecutingAPI
-		state.LastAPICall = time.Now()
-
-		// Remove from wait queue
-		for i, e := range s.waitQueue {
-			if e.shardID == shardID {
-				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
-				break
-			}
-		}
-		s.mu.Unlock()
-		return nil
-	}
-
-	// Otherwise, we must queue up and wait!
+	// Always enqueue as a waiter first so free-slot grants are priority-aware.
 	w := make(chan struct{})
 	s.waiterSeq++
 	s.waiters = append(s.waiters, &schedWaiter{ch: w, priority: initialPriority, seq: s.waiterSeq})
+
+	// Fill free slots by priority (may include us if we are highest).
+	s.grantAvailableSlotsLocked()
 	s.mu.Unlock()
 
+	// If we were granted immediately, w is already closed.
+	select {
+	case <-w:
+		return s.finishGranted(ctx, shardID, state, 0)
+	default:
+	}
+
+	// Otherwise wait for a release (or timeout/cancel).
 	atomic.AddInt32(&s.currentlyWaiting, 1)
 	defer atomic.AddInt32(&s.currentlyWaiting, -1)
 
-	// Log if we're actually waiting
-	logging.Shards("APIScheduler: shard %s waiting for slot (active=%d/%d, waiting=%d)",
-		shardID, atomic.LoadInt32(&s.currentlyExecuting), s.config.MaxConcurrentAPICalls, atomic.LoadInt32(&s.currentlyWaiting))
+	logging.Shards("APIScheduler: shard %s waiting for slot (active=%d/%d, waiting=%d, prio=%s)",
+		shardID, atomic.LoadInt32(&s.currentlyExecuting), s.config.MaxConcurrentAPICalls,
+		atomic.LoadInt32(&s.currentlyWaiting), initialPriority.String())
 
 	waitCtx := ctx
 	var waitCancel context.CancelFunc
@@ -326,72 +357,30 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		defer waitCancel()
 	}
 
-	// Try to acquire slot
 	select {
 	case <-w:
-		// Got the slot! The releaser has already incremented s.currentlyExecuting for us.
 		waitDuration := time.Since(waitStart)
-		s.mu.Lock()
-		state.Phase = PhaseExecutingAPI
-		state.TotalWaitTime += waitDuration
-		state.LastAPICall = time.Now()
-
-		// Remove from wait queue
-		for i, e := range s.waitQueue {
-			if e.shardID == shardID {
-				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
-				break
-			}
+		if err := s.finishGranted(ctx, shardID, state, waitDuration); err != nil {
+			return err
 		}
-		s.mu.Unlock()
-
-		atomic.AddInt64(&s.totalWaitTime, int64(waitDuration))
 		if waitDuration > 100*time.Millisecond {
 			logging.Shards("APIScheduler: shard %s acquired slot after %v", shardID, waitDuration)
 		}
 		return nil
 
 	case <-waitCtx.Done():
-		// Check if we were actually woken up just as we cancelled (TOCTOU prevention)
 		select {
 		case <-w:
-			// We got the slot after all! Ignore the cancellation/timeout.
-			waitDuration := time.Since(waitStart)
-			s.mu.Lock()
-			state.Phase = PhaseExecutingAPI
-			state.TotalWaitTime += waitDuration
-			state.LastAPICall = time.Now()
-
-			// Remove from wait queue
-			for i, e := range s.waitQueue {
-				if e.shardID == shardID {
-					s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
-					break
-				}
-			}
-			s.mu.Unlock()
-
-			atomic.AddInt64(&s.totalWaitTime, int64(waitDuration))
-			return nil
+			// Granted in the race window — honor the grant.
+			return s.finishGranted(ctx, shardID, state, time.Since(waitStart))
 		default:
-			// Genuinely cancelled before getting slot
 		}
 
-		// Context cancelled while waiting
 		s.mu.Lock()
 		state.Phase = PhaseFailed
 		state.Error = waitCtx.Err()
-
-		// Remove our waiter channel from the list
 		s.removeWaiterLocked(w)
-
-		// Remove from wait queue
-		for i, e := range s.waitQueue {
-			if e.shardID == shardID {
-				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
-				break
-			}
-		}
+		s.removeWaitQueueLocked(shardID)
 		s.mu.Unlock()
 
 		logging.Get(logging.CategoryShards).Warn("APIScheduler: shard %s cancelled while waiting for slot (waited %v)",
@@ -399,17 +388,116 @@ func (s *APIScheduler) AcquireAPISlot(ctx context.Context, shardID string) error
 		return waitCtx.Err()
 
 	case <-s.stopCh:
-		// Clean up wait queue on scheduler stop
 		s.mu.Lock()
 		s.removeWaiterLocked(w)
-		for i, e := range s.waitQueue {
-			if e.shardID == shardID {
-				s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
-				break
-			}
-		}
+		s.removeWaitQueueLocked(shardID)
 		s.mu.Unlock()
 		return fmt.Errorf("scheduler stopped")
+	}
+}
+
+// grantAvailableSlotsLocked wakes the highest-priority waiters for each free
+// slot. Caller must hold s.mu. Each grant increments currentlyExecuting and
+// closes the waiter's channel (same contract as ReleaseAPISlot).
+func (s *APIScheduler) grantAvailableSlotsLocked() {
+	for int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls && len(s.waiters) > 0 {
+		w := s.popNextWaiterLocked()
+		if w == nil {
+			break
+		}
+		atomic.AddInt32(&s.currentlyExecuting, 1)
+		select {
+		case s.slots <- struct{}{}:
+		default:
+		}
+		close(w.ch)
+	}
+}
+
+// finishGranted finalizes state after a waiter was granted a slot (either
+// immediately or after waiting). Applies MinCallSpacing while holding the slot.
+func (s *APIScheduler) finishGranted(ctx context.Context, shardID string, state *ShardExecutionState, waitDuration time.Duration) error {
+	if waitDuration > 0 {
+		atomic.AddInt64(&s.totalWaitTime, int64(waitDuration))
+	}
+
+	// Min call spacing: hold the slot while delaying so bursts don't slam the
+	// provider at the same instant (important for SuperGrok).
+	if spacing := s.config.MinCallSpacing; spacing > 0 {
+		s.mu.Lock()
+		now := time.Now()
+		delay := time.Duration(0)
+		if s.nextAllowedGrant.After(now) {
+			delay = s.nextAllowedGrant.Sub(now)
+		}
+		s.nextAllowedGrant = now.Add(delay).Add(spacing)
+		s.mu.Unlock()
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				// Drop the slot we never used for an API call.
+				s.forceReleaseSlot(shardID)
+				return ctx.Err()
+			}
+		}
+	}
+
+	s.mu.Lock()
+	if state != nil {
+		state.Phase = PhaseExecutingAPI
+		if waitDuration > 0 {
+			state.TotalWaitTime += waitDuration
+		}
+		state.LastAPICall = time.Now()
+	}
+	s.removeWaitQueueLocked(shardID)
+	s.mu.Unlock()
+	return nil
+}
+
+// forceReleaseSlot releases a held slot without counting an API call (used when
+// acquire is cancelled during spacing, before the LLM is invoked).
+func (s *APIScheduler) forceReleaseSlot(shardID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if atomic.LoadInt32(&s.currentlyExecuting) <= 0 {
+		return
+	}
+	atomic.AddInt32(&s.currentlyExecuting, -1)
+	select {
+	case <-s.slots:
+	default:
+	}
+	if state, ok := s.shardStates[shardID]; ok {
+		state.Phase = PhaseFailed
+		state.Error = context.Canceled
+	}
+	s.removeWaitQueueLocked(shardID)
+	// Wake next waiter if any
+	if w := s.popNextWaiterLocked(); w != nil {
+		atomic.AddInt32(&s.currentlyExecuting, 1)
+		select {
+		case s.slots <- struct{}{}:
+		default:
+		}
+		close(w.ch)
+	}
+}
+
+func (s *APIScheduler) removeWaitQueueLocked(shardID string) {
+	for i, e := range s.waitQueue {
+		if e.shardID == shardID {
+			s.waitQueue = append(s.waitQueue[:i], s.waitQueue[i+1:]...)
+			return
+		}
 	}
 }
 
@@ -588,16 +676,26 @@ func ConfigureGlobalAPIScheduler(cfg APISchedulerConfig) {
 		globalScheduler.mu.Lock()
 		globalScheduler.config.SlotAcquireTimeout = cfg.SlotAcquireTimeout
 		globalScheduler.config.EnableMetrics = cfg.EnableMetrics
+		globalScheduler.config.MinCallSpacing = cfg.MinCallSpacing
+		globalScheduler.config.AdaptiveConcurrency = cfg.AdaptiveConcurrency
+		if cfg.AdaptiveFloor > 0 {
+			globalScheduler.config.AdaptiveFloor = cfg.AdaptiveFloor
+		}
+		if cfg.AdaptiveRecoverAfter > 0 {
+			globalScheduler.config.AdaptiveRecoverAfter = cfg.AdaptiveRecoverAfter
+		}
 		globalScheduler.mu.Unlock()
 
-		logging.Shards("APIScheduler: global dynamically reconfigured (max_slots=%d, timeout=%v)",
-			cfg.MaxConcurrentAPICalls, cfg.SlotAcquireTimeout)
+		logging.Shards("APIScheduler: global dynamically reconfigured (max_slots=%d, timeout=%v, spacing=%v, adaptive=%v)",
+			cfg.MaxConcurrentAPICalls, cfg.SlotAcquireTimeout, cfg.MinCallSpacing, cfg.AdaptiveConcurrency)
 	} else {
-		logging.Shards("APIScheduler: global config set (max_slots=%d)", cfg.MaxConcurrentAPICalls)
+		logging.Shards("APIScheduler: global config set (max_slots=%d, spacing=%v, adaptive=%v)",
+			cfg.MaxConcurrentAPICalls, cfg.MinCallSpacing, cfg.AdaptiveConcurrency)
 	}
 }
 
 // UpdateMaxConcurrentAPICalls dynamically modifies the MaxConcurrentAPICalls slot capacity.
+// Also updates the adaptive base ceiling so recovery targets the new max.
 func (s *APIScheduler) UpdateMaxConcurrentAPICalls(newMax int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -606,38 +704,127 @@ func (s *APIScheduler) UpdateMaxConcurrentAPICalls(newMax int) {
 		return
 	}
 	oldMax := s.config.MaxConcurrentAPICalls
+	s.baseMaxSlots = newMax
 	if oldMax == newMax {
 		return
 	}
 
 	s.config.MaxConcurrentAPICalls = newMax
+	s.resizeSlotsLocked(newMax)
+	s.grantAvailableSlotsLocked()
 
-	// Recreate slots channel to match new capacity
+	logging.Shards("APIScheduler: dynamically updated MaxConcurrentAPICalls from %d to %d (executing=%d)",
+		oldMax, newMax, atomic.LoadInt32(&s.currentlyExecuting))
+}
+
+func (s *APIScheduler) resizeSlotsLocked(newMax int) {
 	newSlots := make(chan struct{}, newMax)
 	currentExecuting := int(atomic.LoadInt32(&s.currentlyExecuting))
 	for i := 0; i < currentExecuting && i < newMax; i++ {
 		newSlots <- struct{}{}
 	}
 	s.slots = newSlots
+}
 
-	// Wake up as many waiters as new capacity allows (priority order)
-	for int(atomic.LoadInt32(&s.currentlyExecuting)) < s.config.MaxConcurrentAPICalls && len(s.waiters) > 0 {
-		w := s.popNextWaiterLocked()
-		if w == nil {
-			break
-		}
-		atomic.AddInt32(&s.currentlyExecuting, 1)
-
-		// Fill s.slots non-blocking
-		select {
-		case s.slots <- struct{}{}:
-		default:
-		}
-
-		close(w.ch)
+// ReportRateLimit records a provider rate-limit response and, when adaptive
+// concurrency is enabled, shrinks the slot ceiling (floor AdaptiveFloor).
+func (s *APIScheduler) ReportRateLimit() {
+	if s == nil {
+		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	logging.Shards("APIScheduler: dynamically updated MaxConcurrentAPICalls from %d to %d (executing=%d)", oldMax, newMax, currentExecuting)
+	s.lastRateLimitAt = time.Now()
+	s.rateLimitEvents++
+	if !s.config.AdaptiveConcurrency {
+		return
+	}
+	floor := s.config.AdaptiveFloor
+	if floor <= 0 {
+		floor = 1
+	}
+	old := s.config.MaxConcurrentAPICalls
+	newMax := old - 1
+	if newMax < floor {
+		newMax = floor
+	}
+	if newMax == old {
+		return
+	}
+	s.config.MaxConcurrentAPICalls = newMax
+	s.resizeSlotsLocked(newMax)
+	logging.Get(logging.CategoryShards).Warn(
+		"APIScheduler: rate limit → adaptive concurrency %d → %d (base=%d, events=%d)",
+		old, newMax, s.baseMaxSlots, s.rateLimitEvents,
+	)
+}
+
+// ReportSuccess records a successful LLM call. May restore one adaptive slot
+// after AdaptiveRecoverAfter without further rate limits.
+func (s *APIScheduler) ReportSuccess() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.lastSuccessAt = time.Now()
+	s.mu.Unlock()
+	s.maybeRecoverAdaptive()
+}
+
+func (s *APIScheduler) maybeRecoverAdaptive() {
+	if s == nil || !s.config.AdaptiveConcurrency {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.baseMaxSlots <= 0 {
+		s.baseMaxSlots = s.config.MaxConcurrentAPICalls
+	}
+	if s.config.MaxConcurrentAPICalls >= s.baseMaxSlots {
+		return
+	}
+	recoverAfter := s.config.AdaptiveRecoverAfter
+	if recoverAfter <= 0 {
+		recoverAfter = 30 * time.Second
+	}
+	if !s.lastRateLimitAt.IsZero() && time.Since(s.lastRateLimitAt) < recoverAfter {
+		return
+	}
+	// Prefer at least one success after the last rate limit before growing.
+	if !s.lastSuccessAt.IsZero() && s.lastSuccessAt.Before(s.lastRateLimitAt) {
+		return
+	}
+	old := s.config.MaxConcurrentAPICalls
+	newMax := old + 1
+	if newMax > s.baseMaxSlots {
+		newMax = s.baseMaxSlots
+	}
+	if newMax == old {
+		return
+	}
+	s.config.MaxConcurrentAPICalls = newMax
+	s.resizeSlotsLocked(newMax)
+	s.grantAvailableSlotsLocked()
+	logging.Shards("APIScheduler: adaptive concurrency recovered %d → %d (base=%d)", old, newMax, s.baseMaxSlots)
+}
+
+// EffectiveMaxSlots returns the current concurrency ceiling (may be reduced adaptively).
+func (s *APIScheduler) EffectiveMaxSlots() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.MaxConcurrentAPICalls
+}
+
+// BaseMaxSlots returns the configured non-adaptive ceiling.
+func (s *APIScheduler) BaseMaxSlots() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.baseMaxSlots > 0 {
+		return s.baseMaxSlots
+	}
+	return s.config.MaxConcurrentAPICalls
 }
 
 // GetAPIScheduler returns the global API scheduler instance.

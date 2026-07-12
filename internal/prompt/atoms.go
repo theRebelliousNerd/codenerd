@@ -92,6 +92,11 @@ const (
 
 	// CategoryWorldState contains world state awareness atoms (diagnostics, errors, etc.).
 	CategoryWorldState AtomCategory = "world_state"
+
+	// CategorySystem contains runtime system atoms (tool-call nudges, executor
+	// retries). Lives under internal/prompt/atoms/system/ — must be listed here
+	// or Validate() rejects them with "unknown category system".
+	CategorySystem AtomCategory = "system"
 )
 
 // AllCategories returns all defined atom categories.
@@ -117,6 +122,7 @@ func AllCategories() []AtomCategory {
 		CategoryEval,
 		CategoryKnowledge,
 		CategoryBuildLayer,
+		CategorySystem,
 		CategoryIntent,
 		CategoryWorldState,
 	}

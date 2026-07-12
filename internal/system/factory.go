@@ -449,9 +449,16 @@ func initCoreComponents(bctx *bootContext) error {
 	bctx.appCfg = appCfg
 	bctx.jitCfg = appCfg.GetEffectiveJITConfig()
 
+	// LLM API scheduler policy is fully driven by config.json (api_scheduler +
+	// core_limits + engine max_concurrent_calls). See config.GetEffectiveAPISchedulerPolicy.
+	pol := appCfg.GetEffectiveAPISchedulerPolicy()
 	schedulerCfg := core.DefaultAPISchedulerConfig()
-	schedulerCfg.MaxConcurrentAPICalls = appCfg.GetEffectiveMaxConcurrentAPICalls()
-	schedulerCfg.SlotAcquireTimeout = config.GetLLMTimeouts().SlotAcquisitionTimeout
+	schedulerCfg.MaxConcurrentAPICalls = pol.MaxConcurrentAPICalls
+	schedulerCfg.SlotAcquireTimeout = pol.SlotAcquireTimeout
+	schedulerCfg.MinCallSpacing = pol.MinCallSpacing
+	schedulerCfg.AdaptiveConcurrency = pol.AdaptiveConcurrency
+	schedulerCfg.AdaptiveFloor = pol.AdaptiveFloor
+	schedulerCfg.AdaptiveRecoverAfter = pol.AdaptiveRecoverAfter
 	core.ConfigureGlobalAPIScheduler(schedulerCfg)
 	return nil
 }
@@ -462,14 +469,18 @@ func initPerceptionLayer(bctx *bootContext) error {
 	if bctx.cfg.LLMClientOverride != nil {
 		baseLLMClient = bctx.cfg.LLMClientOverride
 	}
-	if baseLLMClient == nil && strings.TrimSpace(bctx.apiKey) != "" {
-		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(bctx.apiKey))
-	}
+	// Prefer workspace config first so engine selection wins over a ambient
+	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
+	// NewZAIClient and bypassed engine=xai-oauth / claude-cli / codex-cli.
 	if baseLLMClient == nil {
 		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
 				baseLLMClient = client
 				bctx.providerCfgForClassification = providerCfg
+				logging.Get(logging.CategoryPerception).Info(
+					"LLM client from config: engine=%s provider=%s",
+					providerCfg.Engine, providerCfg.Provider,
+				)
 			}
 		}
 	}
@@ -477,6 +488,11 @@ func initPerceptionLayer(bctx *bootContext) error {
 		if client, err := perception.NewClientFromEnv(); err == nil {
 			baseLLMClient = client
 		}
+	}
+	// Legacy CLI fallback: raw apiKey arg / --api-key only when no config engine/provider client exists.
+	if baseLLMClient == nil && strings.TrimSpace(bctx.apiKey) != "" {
+		baseLLMClient = perception.NewZAIClient(strings.TrimSpace(bctx.apiKey))
+		logging.Get(logging.CategoryPerception).Info("LLM client from legacy apiKey arg (Z.AI)")
 	}
 	if baseLLMClient == nil {
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")

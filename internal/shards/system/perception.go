@@ -428,7 +428,7 @@ func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (str
 
 	// Perception is already event-driven via pendingInputs channel.
 	// This ticker is only for heartbeat emission — no polling needed.
-	heartbeat := time.NewTicker(5 * time.Second)
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
 	for {
@@ -759,11 +759,24 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 		return resolution
 	}
 
-	// Symbol reference (needs symbol_graph lookup)
-	// Query the kernel for matching symbols (predicate only; filter in Go)
+	// Symbol / file resolution against the world model.
+	// NEVER pull the full symbol_graph (25k+ facts) for generic targets like
+	// "user" / greetings — that alone was multi-second under a dirty kernel.
+	target = strings.TrimSpace(target)
+	if target == "" || isNonResolvableTarget(target) {
+		resolution.ConfidencePercent = 30
+		return resolution
+	}
+
+	// Symbol reference: scan only until first exact name match, and bail if
+	// the result set is huge without a hit (avoid O(N) Go work on top of eval).
 	results, err := p.Kernel.Query("symbol_graph")
 	if err == nil {
-		for _, fact := range results {
+		const maxSymbolScan = 2000
+		for i, fact := range results {
+			if i >= maxSymbolScan {
+				break
+			}
 			if len(fact.Args) < 4 {
 				continue
 			}
@@ -778,13 +791,18 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 		}
 	}
 
-	// Partial match via file_topology
+	// Partial match via file_topology (cap scan the same way)
 	results, err = p.Kernel.Query("file_topology")
 	if err == nil {
-		for _, fact := range results {
+		const maxFileScan = 2000
+		lowerTarget := strings.ToLower(target)
+		for i, fact := range results {
+			if i >= maxFileScan {
+				break
+			}
 			if len(fact.Args) > 0 {
 				if path, ok := fact.Args[0].(string); ok {
-					if strings.Contains(strings.ToLower(path), strings.ToLower(target)) {
+					if strings.Contains(strings.ToLower(path), lowerTarget) {
 						resolution.ResolvedPath = path
 						resolution.ConfidencePercent = 70
 						return resolution
@@ -797,6 +815,29 @@ func (p *PerceptionFirewallShard) resolveTarget(ctx context.Context, target stri
 	// Unable to resolve - emit for clarification
 	resolution.ConfidencePercent = 30
 	return resolution
+}
+
+// isNonResolvableTarget returns true for pronouns / conversational fillers
+// and vague whole-repo references that must never trigger a full world-model
+// scan (symbol_graph / file_topology — 25k+ facts in live tests).
+func isNonResolvableTarget(target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	switch t {
+	case "user", "me", "you", "we", "us", "it", "this", "that", "here", "there",
+		"hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "yes", "no",
+		"codebase", "project", "workspace", "none", "null", "unknown",
+		"entire codebase", "the codebase", "the project", "the workspace",
+		"whole codebase", "whole project", "everything", "all files", "":
+		return true
+	default:
+		// Multi-word vague scopes still match via keyword.
+		if strings.Contains(t, "codebase") || strings.Contains(t, "entire project") ||
+			strings.Contains(t, "whole repo") || strings.Contains(t, "whole repository") {
+			return true
+		}
+		// Very short tokens are almost always noise for symbol lookup.
+		return len(t) < 2
+	}
 }
 
 // generateShutdownSummary creates a summary of the shard's activity.

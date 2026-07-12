@@ -236,6 +236,7 @@ func init() {
 	authCmd.AddCommand(
 		authClaudeCmd,
 		authCodexCmd,
+		authGrokCmd,
 		authStatusCmd,
 	)
 

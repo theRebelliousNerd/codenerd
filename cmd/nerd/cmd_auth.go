@@ -3,8 +3,10 @@ package main
 import (
 	"codenerd/internal/config"
 	"codenerd/internal/perception"
+	"codenerd/internal/perception/xaioauth"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -17,12 +19,29 @@ import (
 var authCmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Manage CLI engine authentication",
-	Long: `Configure authentication for CLI-based LLM engines.
+	Long: `Configure authentication for CLI-based and SuperGrok OAuth LLM engines.
 
 Available subcommands:
   claude - Authenticate and configure Claude Code CLI engine
   codex  - Authenticate and configure Codex CLI engine
+  grok   - Authenticate SuperGrok / X Premium+ OAuth (xai-oauth engine)
   status - Show current authentication status`,
+}
+
+// authGrokCmd authenticates SuperGrok OAuth
+var authGrokCmd = &cobra.Command{
+	Use:   "grok",
+	Short: "Authenticate with SuperGrok OAuth",
+	Long: `Authenticate with SuperGrok / X Premium+ via OAuth device code and configure codeNERD.
+
+This command:
+1. Optionally imports credentials from ~/.grok/auth.json (Grok CLI login)
+2. Otherwise runs OAuth device-code login against auth.x.ai
+3. Saves tokens to ~/.nerd/xai_oauth.json
+4. Updates .nerd/config.json to use engine=xai-oauth
+
+No XAI_API_KEY is required — usage draws SuperGrok subscription limits.`,
+	RunE: runAuthGrok,
 }
 
 // authClaudeCmd authenticates with Claude Code CLI
@@ -187,6 +206,96 @@ func runAuthCodex(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runAuthGrok authenticates SuperGrok OAuth and configures codeNERD.
+func runAuthGrok(cmd *cobra.Command, args []string) error {
+	fmt.Println("Configuring SuperGrok OAuth engine (xai-oauth)...")
+
+	cfg, err := loadOrCreateConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	oauthCfg := cfg.GetXAIOAuthConfig()
+
+	client := xaioauth.NewClientFromUserConfig(oauthCfg)
+	ts := client.TokenSource()
+
+	// Prefer existing / importable credentials when they already work.
+	probeCtx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+	defer cancel()
+	if err := ts.Load(); err == nil {
+		fmt.Println("Found existing SuperGrok credentials; running health probe...")
+		probe := client.RunHealthProbe(probeCtx)
+		if probe.Classification == xaioauth.ProbeReady {
+			if err := cfg.SetEngine("xai-oauth"); err != nil {
+				return err
+			}
+			cfg.XAIOAuth = oauthCfg
+			if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+			fmt.Println("\n✓ Existing SuperGrok OAuth credentials are ready")
+			fmt.Println("  Engine: xai-oauth")
+			fmt.Printf("  Model: %s\n", oauthCfg.Model)
+			fmt.Printf("  Source: %s\n", probe.Source)
+			return nil
+		}
+		fmt.Printf("Existing credentials not ready (%s): %s\n", probe.Classification, probe.Message)
+		fmt.Println("Starting device-code login...")
+	} else {
+		fmt.Println("No local credentials; starting device-code login...")
+	}
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	pkgCfg := client.Config()
+	loginCtx, loginCancel := context.WithTimeout(cmd.Context(), 15*time.Minute)
+	defer loginCancel()
+
+	creds, err := xaioauth.LoginDeviceCode(loginCtx, httpClient, pkgCfg, func(dc xaioauth.DeviceCodeResponse) {
+		verify := dc.VerificationURIComplete
+		if verify == "" {
+			verify = dc.VerificationURI
+		}
+		fmt.Println()
+		fmt.Println("Open this URL in a browser and approve access:")
+		fmt.Printf("  %s\n", verify)
+		fmt.Printf("  User code: %s\n", dc.UserCode)
+		fmt.Println()
+		fmt.Println("Waiting for approval...")
+	})
+	if err != nil {
+		return fmt.Errorf("device login failed: %w", err)
+	}
+	if err := ts.SetCredentials(creds); err != nil {
+		return fmt.Errorf("save credentials: %w", err)
+	}
+	fmt.Println("✓ Tokens saved")
+
+	probe := client.RunHealthProbe(probeCtx)
+	if probe.Classification == xaioauth.ProbeTierForbidden {
+		fmt.Println("\n⚠️  OAuth login succeeded but inference is tier-gated (HTTP 403).")
+		fmt.Println("   Fall back to metered API: set engine=api, provider=xai, and xai_api_key.")
+	} else if probe.Classification != xaioauth.ProbeReady {
+		fmt.Printf("\n⚠️  Login saved but probe status=%s: %s\n", probe.Classification, probe.Message)
+	} else {
+		fmt.Println("✓ Health probe passed")
+	}
+
+	if err := cfg.SetEngine("xai-oauth"); err != nil {
+		return err
+	}
+	cfg.XAIOAuth = oauthCfg
+	if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	fmt.Println("\n✓ Configuration updated!")
+	fmt.Println("  Engine: xai-oauth")
+	fmt.Printf("  Model: %s\n", oauthCfg.Model)
+	fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
+	fmt.Println("\ncodeNERD will use your SuperGrok subscription for LLM calls.")
+	return nil
+}
+
 // runAuthStatus shows current authentication status
 func runAuthStatus(cmd *cobra.Command, args []string) error {
 	cfg, err := loadOrCreateConfig()
@@ -246,6 +355,30 @@ func runAuthStatus(cmd *cobra.Command, args []string) error {
 			} else {
 				fmt.Printf("  Auth: ❌ %s\n", probeResult.Detail)
 			}
+		}
+
+	case "xai-oauth":
+		fmt.Println("Backend: SuperGrok OAuth (subscription)")
+		oauthCfg := cfg.GetXAIOAuthConfig()
+		fmt.Printf("  Model: %s\n", oauthCfg.Model)
+		fmt.Printf("  Timeout: %ds\n", oauthCfg.Timeout)
+		fmt.Printf("  Max concurrent calls: %d\n", oauthCfg.MaxConcurrentCalls)
+		fmt.Printf("  Effective scheduler ceiling: %d\n", cfg.GetEffectiveMaxConcurrentAPICalls())
+		client := xaioauth.NewClientFromUserConfig(oauthCfg)
+		fmt.Printf("  Credential path: %s\n", client.Config().CredentialPath)
+		probeCtx, cancel := context.WithTimeout(cmd.Context(), 45*time.Second)
+		defer cancel()
+		probe := client.RunHealthProbe(probeCtx)
+		fmt.Printf("  Probe: %s\n", probe.Classification)
+		fmt.Printf("  Message: %s\n", probe.Message)
+		if probe.Source != "" {
+			fmt.Printf("  Source: %s\n", probe.Source)
+		}
+		if !probe.ExpiresAt.IsZero() {
+			fmt.Printf("  Token expires: %s\n", probe.ExpiresAt.Format(time.RFC3339))
+		}
+		if probe.RawError != "" && probe.Classification != xaioauth.ProbeReady {
+			fmt.Printf("  Detail: %s\n", probe.RawError)
 		}
 
 	default:

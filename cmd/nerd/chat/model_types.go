@@ -198,6 +198,17 @@ type ClarificationState struct {
 	PendingIntent *perception.Intent
 }
 
+// activityPulse is one beat in the live activity trail shown above the input.
+// Newest events push older ones down so the user always sees motion.
+type activityPulse struct {
+	Summary  string
+	Category transparency.GlassBoxCategory
+	At       time.Time
+}
+
+// maxActivityTrail is how many recent pulses stay visible in the live panel.
+const maxActivityTrail = 4
+
 // Model is the main model for the interactive chat interface
 type Model struct {
 	// UI Components
@@ -378,12 +389,14 @@ type Model struct {
 	statusMessage string      // Current operation description
 	statusChan    chan string // Channel for streaming status updates
 
-	// Activity line (transient): the last Glass Box ping. Rendered as a
-	// single dimmed line just above the input box. Updated every time
-	// a Glass Box event lands and cleared when the turn ends.
+	// Live activity pulse (transient chrome above the input box).
+	// activityLine is the latest summary; activityTrail is a short
+	// ring of recent pings so the user sees motion, not a static wait.
 	activityLine   string
-	activityIconCh string // icon for the current activity (for the indicator)
+	activityIconCh string // category key for the latest activity icon
 	activityAt     time.Time
+	activityTrail  []activityPulse // newest-first ring (capped)
+	turnStartedAt  time.Time       // when the current loading turn began
 
 	// Glass Box Debug Mode - shows system internals inline in chat
 	glassBoxEnabled   bool                              // Runtime toggle

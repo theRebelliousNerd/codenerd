@@ -576,6 +576,136 @@ func waitForQueued(t *testing.T, s *APIScheduler, shardID string) {
 	t.Fatalf("shard %s never entered the wait queue", shardID)
 }
 
+// TestAPIScheduler_FreeSlotPriority_NoSkipAhead proves a free slot is not
+// granted to a low-priority waiter while a higher-priority waiter is already queued.
+func TestAPIScheduler_FreeSlotPriority_NoSkipAhead(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 1,
+		SlotAcquireTimeout:    5 * time.Second,
+	})
+	scheduler.RegisterShard("holder", "test")
+	scheduler.RegisterShardWithPriority("low", "test", types.PriorityLow)
+	scheduler.RegisterShardWithPriority("high", "test", types.PriorityHigh)
+
+	ctx := context.Background()
+	if err := scheduler.AcquireAPISlot(ctx, "holder"); err != nil {
+		t.Fatalf("holder: %v", err)
+	}
+
+	var first string
+	var firstMu sync.Mutex
+	recordFirst := func(id string) {
+		firstMu.Lock()
+		if first == "" {
+			first = id
+		}
+		firstMu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Queue low first, then high (while holder still owns the slot).
+	go func() {
+		defer wg.Done()
+		if err := scheduler.AcquireAPISlot(ctx, "low"); err != nil {
+			t.Errorf("low: %v", err)
+			return
+		}
+		recordFirst("low")
+		scheduler.ReleaseAPISlot("low")
+	}()
+	waitForQueued(t, scheduler, "low")
+
+	go func() {
+		defer wg.Done()
+		if err := scheduler.AcquireAPISlot(ctx, "high"); err != nil {
+			t.Errorf("high: %v", err)
+			return
+		}
+		recordFirst("high")
+		scheduler.ReleaseAPISlot("high")
+	}()
+	waitForQueued(t, scheduler, "high")
+
+	scheduler.ReleaseAPISlot("holder")
+	wg.Wait()
+
+	if first != "high" {
+		t.Fatalf("free/queued grant order: first completer = %q, want high", first)
+	}
+}
+
+// TestAPIScheduler_AdaptiveConcurrency_RateLimitShrinks proves ReportRateLimit
+// reduces the ceiling and ReportSuccess restores it after the recover window.
+func TestAPIScheduler_AdaptiveConcurrency_RateLimitShrinks(t *testing.T) {
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 3,
+		SlotAcquireTimeout:    5 * time.Second,
+		AdaptiveConcurrency:   true,
+		AdaptiveFloor:         1,
+		AdaptiveRecoverAfter:  20 * time.Millisecond,
+	})
+	if scheduler.EffectiveMaxSlots() != 3 {
+		t.Fatalf("effective=%d want 3", scheduler.EffectiveMaxSlots())
+	}
+	if scheduler.BaseMaxSlots() != 3 {
+		t.Fatalf("base=%d want 3", scheduler.BaseMaxSlots())
+	}
+
+	scheduler.ReportRateLimit()
+	if scheduler.EffectiveMaxSlots() != 2 {
+		t.Fatalf("after 1 RL effective=%d want 2", scheduler.EffectiveMaxSlots())
+	}
+	scheduler.ReportRateLimit()
+	if scheduler.EffectiveMaxSlots() != 1 {
+		t.Fatalf("after 2 RL effective=%d want 1", scheduler.EffectiveMaxSlots())
+	}
+	scheduler.ReportRateLimit()
+	if scheduler.EffectiveMaxSlots() != 1 {
+		t.Fatalf("floor broken: effective=%d want 1", scheduler.EffectiveMaxSlots())
+	}
+
+	// Success + wait recover window → grow back toward base.
+	scheduler.ReportSuccess()
+	time.Sleep(30 * time.Millisecond)
+	scheduler.ReportSuccess() // triggers maybeRecoverAdaptive
+	if scheduler.EffectiveMaxSlots() < 2 {
+		t.Fatalf("expected recovery toward base, effective=%d", scheduler.EffectiveMaxSlots())
+	}
+}
+
+// TestAPIScheduler_MinCallSpacing enforces spacing between grants.
+func TestAPIScheduler_MinCallSpacing(t *testing.T) {
+	spacing := 40 * time.Millisecond
+	scheduler := NewAPIScheduler(APISchedulerConfig{
+		MaxConcurrentAPICalls: 2,
+		SlotAcquireTimeout:    5 * time.Second,
+		MinCallSpacing:        spacing,
+	})
+	scheduler.RegisterShard("a", "test")
+	scheduler.RegisterShard("b", "test")
+
+	ctx := context.Background()
+	start := time.Now()
+	if err := scheduler.AcquireAPISlot(ctx, "a"); err != nil {
+		t.Fatal(err)
+	}
+	t1 := time.Now()
+	if err := scheduler.AcquireAPISlot(ctx, "b"); err != nil {
+		t.Fatal(err)
+	}
+	t2 := time.Now()
+	scheduler.ReleaseAPISlot("a")
+	scheduler.ReleaseAPISlot("b")
+
+	// Second grant should be delayed by ~spacing from first grant.
+	gap := t2.Sub(t1)
+	if gap < spacing/2 {
+		t.Fatalf("second grant gap %v < expected spacing ~%v (from start %v)", gap, spacing, t1.Sub(start))
+	}
+}
+
 // TestAPIScheduler_ContextPriorityOverridesDefault proves an explicit
 // CtxKeyPriority beats the registered default.
 func TestAPIScheduler_ContextPriorityOverridesDefault(t *testing.T) {

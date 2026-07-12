@@ -226,7 +226,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 
 	// Event-driven: subscribe to permitted_action facts instead of polling
 	factCh := r.SubscribeToFacts([]string{"permitted_action"})
-	heartbeat := time.NewTicker(5 * time.Second)
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
 	// Fallback ticker for when event bus is unavailable

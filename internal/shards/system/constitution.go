@@ -63,7 +63,9 @@ func DefaultConstitutionConfig() ConstitutionConfig {
 			`sudo\s+rm`,
 		},
 		EscalateOnAmbiguity: true,
-		TickInterval:        500 * time.Millisecond,
+		// 2s fallback when event bus is missing. 500ms was thrashing a dirty
+		// kernel (each poll → Query → 10–17s evaluate under large world EDBs).
+		TickInterval:        2 * time.Second,
 	}
 }
 
@@ -215,7 +217,10 @@ func (c *ConstitutionGateShard) Execute(ctx context.Context, task string) (strin
 
 	// Event-driven: subscribe to pending_action facts instead of polling
 	factCh := c.SubscribeToFacts([]string{"pending_action"})
-	heartbeat := time.NewTicker(5 * time.Second)
+	// 15s heartbeat (was 5s) — live test showed multi-shard 5s heartbeats
+	// stacking with 14–24s kernel evals. Existence-only health rules don't
+	// need sub-minute refresh.
+	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
 	// Fallback ticker for when event bus is unavailable

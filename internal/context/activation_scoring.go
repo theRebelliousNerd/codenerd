@@ -593,8 +593,12 @@ func (ae *ActivationEngine) ScoreFactsWithKernelOverride(facts []core.Fact, inte
 		return ae.ScoreFacts(facts, intent)
 	}
 
+	ae.mu.Lock()
+	defer ae.mu.Unlock()
+
 	// Update focus from facts for Go-side fallback scoring
-	ae.UpdateFocusedPaths(facts)
+	ae.updateFocusedPathsLocked(facts)
+	ae.buildSymbolGraphLocked(facts)
 
 	scored := make([]ScoredFact, 0, len(facts))
 	for _, fact := range facts {

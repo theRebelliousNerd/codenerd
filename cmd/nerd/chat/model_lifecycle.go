@@ -9,6 +9,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
+	"codenerd/internal/transparency"
 
 	textarea "github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -153,8 +154,11 @@ func (m Model) waitForStatus() tea.Cmd {
 // ReportStatus sends a non-blocking status update.
 // Safe to call on stale Model copies after Shutdown: shutdownCtx cancellation
 // short-circuits the send, and the select is non-blocking via default.
+// When Glass Box debug mode is on, the same status also streams into chat
+// via the event bus so phase pings ("Perception: parsing...", "Spawning...")
+// are visible in scrollback, not only the footer status line.
 func (m Model) ReportStatus(msg string) {
-	if m.statusChan == nil {
+	if m.statusChan == nil && (m.glassBoxEventBus == nil || !m.glassBoxEnabled) {
 		return
 	}
 	// Fast-path: if shutdown has been signaled, drop the update.
@@ -170,10 +174,22 @@ func (m Model) ReportStatus(msg string) {
 		// panic rather than crash the caller's goroutine.
 		_ = recover()
 	}()
-	select {
-	case m.statusChan <- msg:
-	default:
-		// Channel full, drop update to prevent blocking
+	if m.statusChan != nil {
+		select {
+		case m.statusChan <- msg:
+		default:
+			// Channel full, drop update to prevent blocking
+		}
+	}
+	// Dual-emit into Glass Box full stream so phase progress is chat-visible.
+	if m.glassBoxEnabled && m.glassBoxEventBus != nil && strings.TrimSpace(msg) != "" {
+		m.glassBoxEventBus.EmitImmediate(transparency.GlassBoxEvent{
+			Timestamp: time.Now(),
+			Category:  transparency.CategoryControl,
+			Summary:   msg,
+			Source:    "status",
+			TurnID:    m.turnCount,
+		})
 	}
 }
 

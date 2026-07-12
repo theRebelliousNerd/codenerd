@@ -374,6 +374,14 @@ func (m Model) showConfigReview() (tea.Model, tea.Cmd) {
 		sb.WriteString(fmt.Sprintf("- **Max Concurrent Calls**: %d\n", w.CodexCLIMaxConcurrentCalls))
 		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
 
+	case "xai-oauth":
+		model := w.Model
+		if model == "" {
+			model = "grok-4.5"
+		}
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", model))
+		sb.WriteString("- **Auth**: SuperGrok OAuth (run `nerd auth grok`)\n")
+
 	default: // "api"
 		sb.WriteString(fmt.Sprintf("- **Provider**: %s\n", w.Provider))
 		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", w.Model))
@@ -512,6 +520,14 @@ func (m Model) renderCurrentConfig() string {
 		sb.WriteString(fmt.Sprintf("- **Effective Scheduler Ceiling**: %d\n", userCfg.GetEffectiveMaxConcurrentAPICalls()))
 		sb.WriteString("- **Auth**: Codex CLI (subscription-based)\n")
 
+	case "xai-oauth":
+		oauthCfg := userCfg.GetXAIOAuthConfig()
+		sb.WriteString(fmt.Sprintf("- **Model**: %s\n", oauthCfg.Model))
+		sb.WriteString(fmt.Sprintf("- **Timeout**: %ds\n", oauthCfg.Timeout))
+		sb.WriteString(fmt.Sprintf("- **Max Concurrent Calls**: %d\n", oauthCfg.MaxConcurrentCalls))
+		sb.WriteString(fmt.Sprintf("- **Effective Scheduler Ceiling**: %d\n", userCfg.GetEffectiveMaxConcurrentAPICalls()))
+		sb.WriteString("- **Auth**: SuperGrok OAuth (subscription-based)\n")
+
 	default: // "api"
 		provider, apiKey := userCfg.GetActiveProvider()
 		if provider != "" {
@@ -589,6 +605,20 @@ func (m Model) saveConfigWizard() error {
 			MaxConcurrentCalls: w.CodexCLIMaxConcurrentCalls,
 			DisableShellTool:   &disableShell,
 			EnableOutputSchema: &enableSchema,
+		}
+
+	case "xai-oauth":
+		// SuperGrok OAuth — no API key; authenticate with `nerd auth grok`
+		importGrok := true
+		model := w.Model
+		if model == "" {
+			model = "grok-4.5"
+		}
+		userCfg.XAIOAuth = &internalconfig.XAIOAuthConfig{
+			Model:              model,
+			Timeout:            300,
+			ImportGrokAuth:     &importGrok,
+			MaxConcurrentCalls: internalconfig.DefaultXAIOAuthMaxConcurrentCalls,
 		}
 
 	default: // "api"

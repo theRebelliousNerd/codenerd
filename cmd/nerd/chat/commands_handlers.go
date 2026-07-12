@@ -29,7 +29,7 @@ func (m Model) handleConfigCommand(input string, parts []string) (tea.Model, tea
 | /config wizard | Full interactive configuration dialogue |
 | /config set-key <key> | Set API key |
 | /config set-theme <theme> | Set theme (light/dark) |
-| /config engine [api\|claude-cli\|codex-cli] | Set LLM engine |
+| /config engine [api\|claude-cli\|codex-cli\|xai-oauth] | Set LLM engine |
 | /config show | Show current configuration |`,
 			Time: time.Now(),
 		})
@@ -219,13 +219,22 @@ Press **Enter** to begin...`,
 					cliCfg.MaxConcurrentCalls,
 					cfg.GetEffectiveMaxConcurrentAPICalls(),
 				)
+			case "xai-oauth":
+				oauthCfg := cfg.GetXAIOAuthConfig()
+				engineDesc = fmt.Sprintf(
+					"**SuperGrok OAuth** (model: %s, timeout: %ds, max_concurrent_calls: %d, effective_scheduler_ceiling: %d)",
+					oauthCfg.Model,
+					oauthCfg.Timeout,
+					oauthCfg.MaxConcurrentCalls,
+					cfg.GetEffectiveMaxConcurrentAPICalls(),
+				)
 			default:
 				provider, _ := cfg.GetActiveProvider()
 				engineDesc = fmt.Sprintf("**API** (provider: %s)", provider)
 			}
 			m = m.addMessage(Message{
 				Role:    "assistant",
-				Content: fmt.Sprintf("Current engine: %s\n\n%s\n\nAvailable engines:\n- `api` - HTTP API (default)\n- `claude-cli` - Claude Code CLI (subscription)\n- `codex-cli` - Codex CLI (ChatGPT subscription)", engine, engineDesc),
+				Content: fmt.Sprintf("Current engine: %s\n\n%s\n\nAvailable engines:\n- `api` - HTTP API (default)\n- `claude-cli` - Claude Code CLI (subscription)\n- `codex-cli` - Codex CLI (ChatGPT subscription)\n- `xai-oauth` - SuperGrok OAuth (SuperGrok / X Premium+ subscription)", engine, engineDesc),
 				Time:    time.Now(),
 			})
 		} else {
@@ -294,7 +303,7 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 				cfg.Embedding.Provider = provider
 				if provider == "ollama" {
 					cfg.Embedding.OllamaEndpoint = "http://localhost:11434"
-					cfg.Embedding.OllamaModel = "embeddinggemma"
+					cfg.Embedding.OllamaModel = "embeddinggemma:300m"
 				} else if provider == "genai" && len(parts) >= 4 {
 					cfg.Embedding.GenAIAPIKey = parts[3]
 					cfg.Embedding.GenAIModel = "gemini-embedding-001"

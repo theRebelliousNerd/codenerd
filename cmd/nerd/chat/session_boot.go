@@ -225,8 +225,9 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		fileEditor.SetWorkingDir(workspace)
 		virtualStore.SetFileEditor(core.NewTactileFileEditorAdapter(fileEditor))
 
-		// Initialize embedding engine
-		logStep("Initializing embedding engine...")
+		// Initialize embedding engine — ALWAYS from .nerd/config.json
+		// (appCfg.GetEmbeddingConfig). Do not hardcode model names here.
+		logStep("Initializing embedding engine from config.json...")
 		var embeddingEngine embedding.EmbeddingEngine
 		embCfg := appCfg.GetEmbeddingConfig()
 		if embCfg.Provider != "" {
@@ -238,6 +239,8 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 				GenAIModel:     embCfg.GenAIModel,
 				TaskType:       embCfg.TaskType,
 			}
+			logging.Boot("Embedding from config.json: provider=%s model=%s endpoint=%s",
+				embConfig.Provider, embConfig.OllamaModel, embConfig.OllamaEndpoint)
 			if engine, err := embedding.NewEngine(embConfig); err == nil {
 				embeddingEngine = engine
 				if localDB != nil {
@@ -245,7 +248,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 				}
 				initialMessages = append(initialMessages, Message{
 					Role:    "assistant",
-					Content: fmt.Sprintf("✓ Embedding engine: %s", engine.Name()),
+					Content: fmt.Sprintf("✓ Embedding engine: %s (from config.json)", engine.Name()),
 					Time:    time.Now(),
 				})
 			} else {

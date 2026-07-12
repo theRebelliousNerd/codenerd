@@ -713,6 +713,130 @@ func TestLoadFromKernel_NilInputs(t *testing.T) {
 	}
 }
 
+// chunkCountingEngine wraps mockBatchEmbedEngine and can cancel after N batches.
+type chunkCountingEngine struct {
+	mockBatchEmbedEngine
+	cancelAfter int
+	cancelFn    context.CancelFunc
+	batchSizes  []int
+}
+
+func (m *chunkCountingEngine) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	m.mu.Lock()
+	m.callCount++
+	m.batchSizes = append(m.batchSizes, len(texts))
+	m.lastBatch = texts
+	n := m.callCount
+	cancelAfter := m.cancelAfter
+	cancelFn := m.cancelFn
+	dims := m.dims
+	m.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Build vectors inline — do not call mockBatchEmbedEngine.EmbedBatch or callCount doubles.
+	result := make([][]float32, len(texts))
+	for i, text := range texts {
+		vec := make([]float32, dims)
+		for j := range vec {
+			vec[j] = float32(len(text)%10+i) * 0.01
+		}
+		result[i] = vec
+	}
+	// Cancel AFTER a successful chunk so LoadFromKernel can cache it, then stop
+	// before the next chunk (mirrors a deadline firing mid-hydrate).
+	if cancelAfter > 0 && n >= cancelAfter && cancelFn != nil {
+		cancelFn()
+	}
+	return result, nil
+}
+
+func TestLoadFromKernel_ChunksMisses(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "chunk_cache.db")
+
+	store, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// 40 intents → 2 chunks (32 + 8) with intentEmbedChunkSize=32
+	facts := make([]core.Fact, 0, 40)
+	for i := 0; i < 40; i++ {
+		facts = append(facts, core.Fact{
+			Predicate: "intent_definition",
+			Args:      []any{fmt.Sprintf("phrase %d", i), "/verb", ""},
+		})
+	}
+	kernel := &mockKernel{assertedFacts: facts}
+	engine := &chunkCountingEngine{mockBatchEmbedEngine: mockBatchEmbedEngine{dims: 4}}
+
+	if err := store.LoadFromKernel(context.Background(), kernel, engine); err != nil {
+		t.Fatalf("LoadFromKernel: %v", err)
+	}
+	if engine.callCount != 2 {
+		t.Fatalf("expected 2 chunked EmbedBatch calls, got %d sizes=%v", engine.callCount, engine.batchSizes)
+	}
+	if engine.batchSizes[0] != 32 || engine.batchSizes[1] != 8 {
+		t.Fatalf("unexpected batch sizes: %v", engine.batchSizes)
+	}
+	if len(store.entries) != 40 {
+		t.Fatalf("expected 40 entries, got %d", len(store.entries))
+	}
+}
+
+func TestLoadFromKernel_PartialCacheOnCancel(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "partial_cache.db")
+
+	// First boot: cancel after first chunk so only 32 of 40 are cached.
+	store1, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	facts := make([]core.Fact, 0, 40)
+	for i := 0; i < 40; i++ {
+		facts = append(facts, core.Fact{
+			Predicate: "intent_definition",
+			Args:      []any{fmt.Sprintf("cancel phrase %d", i), "/verb", ""},
+		})
+	}
+	kernel := &mockKernel{assertedFacts: facts}
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := &chunkCountingEngine{
+		mockBatchEmbedEngine: mockBatchEmbedEngine{dims: 4},
+		cancelAfter:          1,
+		cancelFn:             cancel,
+	}
+	// LoadFromKernel must not hard-fail on cancel — partial progress is OK.
+	if err := store1.LoadFromKernel(ctx, kernel, engine); err != nil {
+		t.Fatalf("expected soft cancel, got error: %v", err)
+	}
+	store1.Close()
+
+	// Second boot: remaining misses only (8), not full 40.
+	store2, err := NewEmbeddedCorpusStoreWithCache(4, dbPath)
+	if err != nil {
+		t.Fatalf("create store2: %v", err)
+	}
+	defer store2.Close()
+	engine2 := &chunkCountingEngine{mockBatchEmbedEngine: mockBatchEmbedEngine{dims: 4}}
+	if err := store2.LoadFromKernel(context.Background(), kernel, engine2); err != nil {
+		t.Fatalf("second LoadFromKernel: %v", err)
+	}
+	if engine2.callCount != 1 {
+		t.Fatalf("expected 1 EmbedBatch for remaining misses, got %d", engine2.callCount)
+	}
+	if len(engine2.batchSizes) != 1 || engine2.batchSizes[0] != 8 {
+		t.Fatalf("expected remaining batch of 8, got %v", engine2.batchSizes)
+	}
+	if len(store2.entries) != 40 {
+		t.Fatalf("expected full 40 entries after second boot, got %d", len(store2.entries))
+	}
+}
+
 func TestCacheGetPut_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test_cache.db")

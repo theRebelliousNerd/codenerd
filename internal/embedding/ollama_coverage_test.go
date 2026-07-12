@@ -20,11 +20,11 @@ func TestNewOllamaEngine_WhenDefaultParams_ShouldUseDefaults(t *testing.T) {
 	if engine == nil {
 		t.Fatal("NewOllamaEngine returned nil")
 	}
+	if engine.model != defaultOllamaEmbedModel {
+		t.Errorf("default model = %q, want %q", engine.model, defaultOllamaEmbedModel)
+	}
 	if engine.endpoint != "http://localhost:11434" {
 		t.Errorf("endpoint = %q, want %q", engine.endpoint, "http://localhost:11434")
-	}
-	if engine.model != "embeddinggemma" {
-		t.Errorf("model = %q, want %q", engine.model, "embeddinggemma")
 	}
 }
 
@@ -57,7 +57,8 @@ func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
 		model    string
 		expected string
 	}{
-		{"default model", "embeddinggemma", "ollama:embeddinggemma"},
+		// bare embeddinggemma is normalized to the tagged default
+		{"default model", "embeddinggemma", "ollama:" + defaultOllamaEmbedModel},
 		{"custom model", "nomic-embed-text", "ollama:nomic-embed-text"},
 	}
 
@@ -77,6 +78,13 @@ func TestOllamaEngine_Name_ShouldIncludeModel(t *testing.T) {
 // =============================================================================
 // Ollama Embed Tests (with httptest mock server)
 // =============================================================================
+
+// skipEnsure marks the engine as model-ready so unit tests that only mock
+// /api/embeddings are not forced through /api/tags + /api/pull.
+func skipEnsure(e *OllamaEngine) *OllamaEngine {
+	e.modelReady = true
+	return e
+}
 
 func TestOllamaEngine_Embed_WhenServerReturnsEmbedding_ShouldSucceed(t *testing.T) {
 	expectedEmb := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
@@ -116,6 +124,7 @@ func TestOllamaEngine_Embed_WhenServerReturnsEmbedding_ShouldSucceed(t *testing.
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	emb, err := engine.Embed(context.Background(), "hello world")
 	if err != nil {
@@ -143,6 +152,7 @@ func TestOllamaEngine_Embed_WhenServerReturns500_ShouldRetryAndFail(t *testing.T
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	emb, err := engine.Embed(context.Background(), "test")
 	if err == nil {
@@ -169,6 +179,7 @@ func TestOllamaEngine_Embed_WhenServerReturns400_ShouldNotRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	emb, err := engine.Embed(context.Background(), "test")
 	if err == nil {
@@ -197,6 +208,7 @@ func TestOllamaEngine_Embed_WhenContextCancelled_ShouldReturnError(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -223,6 +235,7 @@ func TestOllamaEngine_Embed_WhenInvalidJSON_ShouldRetryAndFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	emb, err := engine.Embed(context.Background(), "test")
 	if err == nil {
@@ -258,6 +271,7 @@ func TestOllamaEngine_Embed_WhenEmptyText_ShouldStillCallServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	emb, err := engine.Embed(context.Background(), "")
 	if err != nil {
@@ -290,6 +304,9 @@ func TestOllamaEngine_EmbedBatch_WhenEmpty_ShouldReturnNil(t *testing.T) {
 func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			return
+		}
 		callCount++
 		resp := ollamaEmbedResponse{Embedding: []float32{float32(callCount), 0.0}}
 		w.Header().Set("Content-Type", "application/json")
@@ -301,6 +318,7 @@ func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *tes
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	texts := []string{"text1", "text2", "text3"}
 	results, err := engine.EmbedBatch(context.Background(), texts)
@@ -318,6 +336,9 @@ func TestOllamaEngine_EmbedBatch_WhenMultipleTexts_ShouldCallEmbedForEach(t *tes
 func TestOllamaEngine_EmbedBatch_WhenOneTextFails_ShouldReturnError(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			return
+		}
 		callCount++
 		if callCount == 2 {
 			// Fail on second call (non-retryable)
@@ -334,6 +355,7 @@ func TestOllamaEngine_EmbedBatch_WhenOneTextFails_ShouldReturnError(t *testing.T
 	if err != nil {
 		t.Fatalf("NewOllamaEngine returned error: %v", err)
 	}
+	skipEnsure(engine)
 
 	results, err := engine.EmbedBatch(context.Background(), []string{"a", "b", "c"})
 	if err == nil {

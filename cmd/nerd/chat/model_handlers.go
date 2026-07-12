@@ -189,6 +189,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	m.isLoading = true
+	m.beginLiveTurn("Thinking...")
 
 	// Check for negative feedback auto-trigger
 	if isNegativeFeedback(input) {
@@ -465,6 +466,7 @@ func (m Model) handleClarificationResponse() (tea.Model, tea.Cmd) {
 
 	// Start loading
 	m.isLoading = true
+	m.beginLiveTurn("Resuming after clarification...")
 
 	// Resume processing with clarification response
 	return m, tea.Batch(

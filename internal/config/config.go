@@ -120,7 +120,7 @@ func defaultEmbeddingConfig() EmbeddingConfig {
 	return EmbeddingConfig{
 		Provider:       "ollama",                 // Default to local Ollama
 		OllamaEndpoint: "http://localhost:11434", // Ollama default port
-		OllamaModel:    "embeddinggemma",         // embeddinggemma for local embeddings
+		OllamaModel:    "embeddinggemma:300m",    // tagged — bare "embeddinggemma" 404s on many Ollama installs
 		GenAIModel:     "gemini-embedding-001",   // GenAI default model
 		TaskType:       "SEMANTIC_SIMILARITY",    // Default task type
 	}

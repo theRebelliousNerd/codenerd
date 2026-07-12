@@ -203,7 +203,8 @@ func (v *VirtualStore) emitToolAndRoutingEvents(req ActionRequest, result Action
 		if !result.Success {
 			summary = label + " ❌"
 		}
-		gbus.Emit(transparency.GlassBoxEvent{
+		// Immediate so tool/routing results stream live into chat debug mode.
+		gbus.EmitImmediate(transparency.GlassBoxEvent{
 			Timestamp: time.Now(),
 			Category:  transparency.CategoryRouting,
 			Summary:   summary,

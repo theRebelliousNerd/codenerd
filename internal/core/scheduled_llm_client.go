@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"codenerd/internal/logging"
@@ -63,8 +64,12 @@ func (c *ScheduledLLMCall) Complete(ctx context.Context, prompt string) (string,
 	// LLM I/O tracing: log the response or error
 	if err != nil {
 		logging.LogLLMError(c.ShardID, err, duration)
+		if isRateLimitErr(err) {
+			c.Scheduler.ReportRateLimit()
+		}
 	} else {
 		logging.LogLLMResponse(c.ShardID, result, duration, len(result)/4)
+		c.Scheduler.ReportSuccess()
 	}
 
 	return result, err
@@ -109,11 +114,28 @@ func (c *ScheduledLLMCall) CompleteWithSystem(ctx context.Context, systemPrompt,
 	// LLM I/O tracing: log the response or error
 	if err != nil {
 		logging.LogLLMError(c.ShardID, err, duration)
+		if isRateLimitErr(err) {
+			c.Scheduler.ReportRateLimit()
+		}
 	} else {
 		logging.LogLLMResponse(c.ShardID, result, duration, len(result)/4)
+		c.Scheduler.ReportSuccess()
 	}
 
 	return result, err
+}
+
+// isRateLimitErr detects provider 429 / rate-limit errors without importing
+// every client package (string match is enough for adaptive concurrency).
+func isRateLimitErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "429") ||
+		strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "resource_exhausted")
 }
 
 // CompleteWithSchema makes a scheduled LLM call with response schema enforcement.
@@ -160,8 +182,12 @@ func (c *ScheduledLLMCall) CompleteWithSchema(ctx context.Context, systemPrompt,
 	// LLM I/O tracing: log the response or error
 	if err != nil {
 		logging.LogLLMError(c.ShardID+"-schema", err, duration)
+		if isRateLimitErr(err) {
+			c.Scheduler.ReportRateLimit()
+		}
 	} else {
 		logging.LogLLMResponse(c.ShardID+"-schema", result, duration, len(result)/4)
+		c.Scheduler.ReportSuccess()
 	}
 
 	return result, err
