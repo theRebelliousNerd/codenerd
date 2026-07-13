@@ -32,6 +32,10 @@
 !.agents/skills/codenerd-builder/references/skill-registry.md
 !.agents/skills/codenerd-codex-exec/
 !.agents/skills/codenerd-codex-exec/**
+!.agents/skills/arch-propose/
+!.agents/skills/arch-propose/**
+!.agents/skills/corpus-build/
+!.agents/skills/corpus-build/**
 !.claude/
 .claude/*
 !.claude/skills/
@@ -91,6 +95,10 @@ tmp*/
 # Research / planning scratch folders
 Docs/research/
 Docs/plans/
+
+# arch-propose / corpus-build run scratch (skills own the durable templates)
+.arch-propose/
+.corpus-build/
 Docs/Spec/
 /scratch_*/
 vet_output.txt

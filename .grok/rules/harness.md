@@ -20,10 +20,15 @@ over sequential monolithic searching.
 | Logs / cross-system trace | skill `log-analyzer` |
 | Config / boot / engines | skill `codenerd-config-expert` |
 | After substantial edits | skill `check-work` (or run build + targeted tests yourself) |
+| Design feature before code | skill `arch-propose` + agents `arch-propose-*` |
+| Realize architecture corpus → code | skill `corpus-build` + agents `corpus-*` |
+| Fill Docs/Spec from existing code | skill `spec-doc-sprint` |
+
+**Design → build pipeline**: `arch-propose` → (human go) → `corpus-build` → optional `spec-doc-sprint` / `nerd-evolve`.
 
 Built-ins always available: `general-purpose`, `explore`, `plan`.
 
-Claude-compat project agents also present when enabled: `mangle-logic-architect`, `nerd-evolve-*`.
+Project agents also present: `mangle-logic-architect`, `nerd-evolve-*`, `arch-propose-*`, `corpus-*`.
 
 ## Wiring before deletion
 

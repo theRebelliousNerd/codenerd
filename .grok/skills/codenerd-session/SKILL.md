@@ -29,8 +29,13 @@ user-invocable: true
 | Config / engines | `codenerd-config-expert` |
 | Orchestration / campaigns | `nerd-orchestrator` |
 | Post-change verify | `check-work` |
+| Pre-implementation architecture corpus | `arch-propose` |
+| Spec/corpus → implementation fleet | `corpus-build` |
+| Fill Docs/Spec templates from code | `spec-doc-sprint` |
 
 Skills live under `.agents/skills/` (and some under `.claude/skills/`). Invoke via slash (`/mangle-programming`) or by reading the skill file when the task matches.
+
+**Pipeline**: `/arch-propose` designs → human decides → `/corpus-build` implements → `/spec-doc-sprint` documents live code.
 
 ## 3. Subagents to spawn
 
@@ -43,6 +48,8 @@ Skills live under `.agents/skills/` (and some under `.claude/skills/`). Invoke v
 | `wiring-auditor` | "Exists but doesn't run" |
 | `prompt-jit` | Atom / compiler / Piggyback work |
 | `nerd-evolve-*` | Only for evolution-loop work |
+| `arch-propose-*` | Scout / synthesize / audit pre-impl corpora |
+| `corpus-reader` / `judge` / `builder` / … | Spec-to-code fleet |
 
 ## 4. Live commands
 

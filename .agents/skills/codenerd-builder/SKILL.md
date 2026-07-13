@@ -38,6 +38,8 @@ Quick reference with links to detailed registry entries. For complete documentat
 | [SK-010](references/skill-registry.md#sk-010-cli-engine-integration) | cli-engine-integration | LLM Integration | Claude/Codex CLI backends, LLMClient, auth/streaming |
 | [SK-011](references/skill-registry.md#sk-011-prompt-architect) | prompt-architect | Prompt Engineering | Prompt atoms, JIT injection, Piggyback, tool steering |
 | [SK-015](references/skill-registry.md#sk-015-codenerd-codex-exec) | codenerd-codex-exec | Codex Runtime | Codex exec skill injection, auth probes, schema validation, concurrency tuning |
+| [SK-016](references/skill-registry.md#sk-016-arch-propose) | arch-propose | Pre-Impl Architecture | Research scouts → design corpus under Docs/architecture/ |
+| [SK-017](references/skill-registry.md#sk-017-corpus-build) | corpus-build | Spec → Code | Gap judgment, DAG fleet, surface wiring gates |
 
 ### Skill Map
 
@@ -95,6 +97,8 @@ Quick reference with links to detailed registry entries. For complete documentat
 | **prompt-architect** | Prompt atoms, shard prompts, JIT injection, Piggyback, tool steering | God Tier templates, JIT compilation, Piggyback protocol |
 | **codenerd-codex-exec** | Codex exec backend work, repo-skill injection, auth/schema probes, concurrency/rate-limit tuning | Codex runtime contract, operational runbooks, schema discipline |
 | **integration-auditor** | End-to-end wiring checks, missing hooks, code exists but doesn't run | 39-system audit, shard type matrix, diagnostics |
+| **arch-propose** | Design a feature before any code exists | Scouts, candidates, pre-impl corpus |
+| **corpus-build** | Realize an architecture corpus into code | Build plan, DAG workers, surface registry |
 
 ### Skill Interactions by Component
 
