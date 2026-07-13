@@ -1,4 +1,4 @@
-<!-- SYNCED from corpus-build/references/common/anti-hallucination-gate.md sha256:68e3f9435b17 -- DO NOT EDIT -->
+<!-- SYNCED from corpus-build/references/common/anti-hallucination-gate.md sha256:b7024ea95e8a -- DO NOT EDIT -->
 
 # Anti-Hallucination Gate
 

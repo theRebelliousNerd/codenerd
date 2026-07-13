@@ -1,4 +1,4 @@
-<!-- SYNCED from corpus-build/references/common/attribution-format.md sha256:23152befdab2 -- DO NOT EDIT -->
+<!-- SYNCED from corpus-build/references/common/attribution-format.md sha256:44278a3a4116 -- DO NOT EDIT -->
 
 # Spec Attribution Format
 

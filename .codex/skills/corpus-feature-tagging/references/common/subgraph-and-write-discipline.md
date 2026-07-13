@@ -1,4 +1,4 @@
-<!-- SYNCED from corpus-build/references/common/subgraph-and-write-discipline.md sha256:09457adecb42 -- DO NOT EDIT -->
+<!-- SYNCED from corpus-build/references/common/subgraph-and-write-discipline.md sha256:c5ad0cb0b13a -- DO NOT EDIT -->
 
 # Fact-Space and Write Discipline
 

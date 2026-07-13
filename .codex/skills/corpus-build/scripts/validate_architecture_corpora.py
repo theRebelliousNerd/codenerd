@@ -883,12 +883,13 @@ def main() -> int:
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
+        measurements = payload["measurements"]
         print(
-            f"{'PASS' if payload['valid'] else 'FAIL'} corpora={payload['measurements']['corpora']} "
-            f"features={payload['measurements']['feature_cards']} "
-            f"legacy={payload['measurements']['legacy_documents']} "
-            f"broken_links={payload['measurements']['broken_links']} "
-            f"unresolved_refs={payload['measurements']['unresolved_source_refs']}"
+            f"{'PASS' if payload['valid'] else 'FAIL'} corpora={measurements['corpora']} "
+            f"features={measurements.get('feature_cards', 0)} "
+            f"legacy={measurements.get('legacy_documents', 0)} "
+            f"broken_links={measurements.get('broken_links', 0)} "
+            f"unresolved_refs={measurements.get('unresolved_source_refs', 0)}"
         )
         for error in payload["errors"]:
             print(f"  ERROR: {error}")

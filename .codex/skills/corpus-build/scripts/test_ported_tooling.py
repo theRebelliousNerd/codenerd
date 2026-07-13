@@ -173,6 +173,17 @@ corpus_ids = [{ids}]
         self.assertNotIn("_rebuild", ids)
         self.assertEqual(payload["measurements"]["corpora"], 38)
 
+    def test_missing_explicit_corpus_reports_failure_without_formatter_crash(self):
+        result = self.run_script(
+            "validate_architecture_corpora.py",
+            "--corpus",
+            "Docs/architecture/does-not-exist",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("FAIL corpora=1 features=0", result.stdout)
+        self.assertIn("corpus directory does not exist", result.stdout)
+
     def test_strict_validator_exposes_superstar_migration_gaps(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

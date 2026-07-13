@@ -1,4 +1,4 @@
-<!-- SYNCED from corpus-build/references/common/reporting-format.md sha256:c76b393fd05a -- DO NOT EDIT -->
+<!-- SYNCED from corpus-build/references/common/reporting-format.md sha256:950c54409179 -- DO NOT EDIT -->
 
 # Fleet Completion Record
 
