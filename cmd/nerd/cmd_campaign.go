@@ -1137,6 +1137,28 @@ func (a *campaignLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt
 	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }
 
+// CompleteWithToolResults forwards multi-turn tool results so campaign coder
+// shards can write files after glob/list (SuperGrok / API path). Without this,
+// the session executor aborts after the first tool batch and campaigns stall
+// on hollow-success / missing micro-checkpoint paths.
+func (a *campaignLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if a == nil || a.client == nil {
+		return nil, fmt.Errorf("campaign LLM client is nil")
+	}
+	if trp, ok := a.client.(types.ToolResultsProvider); ok {
+		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}
+	// ScheduledLLMCall and perception clients may implement the method without
+	// being types.ToolResultsProvider on the interface value after wrapping.
+	type perceptionTRP interface {
+		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}
+	if trp, ok := a.client.(perceptionTRP); ok {
+		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}
+	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
+}
+
 // campaignTaskExecutorConsultationSpawner adapts TaskExecutor to ConsultationSpawner.
 type campaignTaskExecutorConsultationSpawner struct {
 	executor session.TaskExecutor

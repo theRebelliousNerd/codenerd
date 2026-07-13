@@ -13,8 +13,10 @@ import (
 // OpenAI-compatible request/response types local to this package (no XAIClient coupling).
 
 type chatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Role string `json:"role"`
+	// Content must not use omitempty: xAI rejects assistant tool_call turns
+	// that omit the content field (HTTP 422 missing field `content`).
+	Content    string     `json:"content"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }

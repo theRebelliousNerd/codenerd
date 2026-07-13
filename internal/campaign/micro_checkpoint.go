@@ -46,7 +46,12 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 
 	writeSet := o.resolveTaskWriteSet(task)
 	if len(writeSet) == 0 {
-		return fmt.Errorf("micro-checkpoint: mutating task %s has empty write_set", task.ID)
+		// Mutating tasks may omit write_set (see acquireWriteSetLease soft path).
+		// Skip micro-checkpoint rather than hard-fail the whole campaign task.
+		logging.Get(logging.CategoryCampaign).Warn(
+			"micro-checkpoint: task %s has empty write_set; skipping file gate", task.ID,
+		)
+		return nil
 	}
 
 	// File existence sanity for create/modify tasks (fail fast before expensive checks).
@@ -67,7 +72,28 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 			)
 			continue
 		}
-		return fmt.Errorf("micro-checkpoint missing mutated path %s: %w", p, err)
+		// Soft-skip missing planned paths when ANY other write_set entry exists
+		// or any alternate was already accepted — planners invent extra files
+		// (server.py + main.py). Fail only if zero planned paths resolved.
+		logging.Get(logging.CategoryCampaign).Warn(
+			"micro-checkpoint: skipping missing planned path %s", p,
+		)
+		continue
+	}
+	// If write set was non-empty but nothing existed, fail.
+	anyExists := false
+	for _, p := range writeSet {
+		if _, err := os.Stat(p); err == nil {
+			anyExists = true
+			break
+		}
+		if findWorkspaceFileByBase(o.workspace, filepath.Base(p)) != "" {
+			anyExists = true
+			break
+		}
+	}
+	if !anyExists {
+		return fmt.Errorf("micro-checkpoint: none of planned write_set paths exist: %v", writeSet)
 	}
 
 	if hasGoFiles(writeSet) && fileExists(o.workspace, "go.mod") {

@@ -41,32 +41,70 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 		return nil
 	}
 
+	now := time.Now()
+	tasks := make([]*Task, 0)
+
 	facts, err := o.kernel.Query("eligible_task")
 	if err != nil {
 		logging.CampaignDebug("Error querying eligible_task: %v", err)
-		return nil
 	}
-	if len(facts) == 0 {
-		logging.CampaignDebug("No eligible_task facts found for phase %s", phase.ID)
-		return nil
-	}
-
-	logging.CampaignDebug("Found %d eligible_task facts from kernel", len(facts))
-
-	tasks := make([]*Task, 0, len(facts))
-	for i := range phase.Tasks {
-		for _, fact := range facts {
-			taskID := types.ExtractString(fact.Args[0])
-			if phase.Tasks[i].ID == taskID {
-				tasks = append(tasks, &phase.Tasks[i])
-				break
+	if len(facts) > 0 {
+		logging.CampaignDebug("Found %d eligible_task facts from kernel", len(facts))
+		for i := range phase.Tasks {
+			for _, fact := range facts {
+				taskID := types.ExtractString(fact.Args[0])
+				if phase.Tasks[i].ID == taskID {
+					tasks = append(tasks, &phase.Tasks[i])
+					break
+				}
 			}
 		}
 	}
-	logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
+
+	// Fallback: when Mangle has no eligible_task facts (common after resume if
+	// campaign_task facts were not re-derived), use in-memory dependency rules
+	// so the phase does not spin forever with zero work.
+	if len(tasks) == 0 {
+		logging.CampaignDebug("No eligible_task facts for phase %s; using dependency fallback", phase.ID)
+		completed := make(map[string]bool)
+		for i := range phase.Tasks {
+			if phase.Tasks[i].Status == TaskCompleted {
+				completed[phase.Tasks[i].ID] = true
+			}
+		}
+		// Also treat tasks completed in other phases as satisfied deps when IDs match.
+		if o.campaign != nil {
+			for pi := range o.campaign.Phases {
+				for ti := range o.campaign.Phases[pi].Tasks {
+					t := &o.campaign.Phases[pi].Tasks[ti]
+					if t.Status == TaskCompleted {
+						completed[t.ID] = true
+					}
+				}
+			}
+		}
+		for i := range phase.Tasks {
+			t := &phase.Tasks[i]
+			if t.Status != TaskPending {
+				continue
+			}
+			depsOK := true
+			for _, dep := range t.DependsOn {
+				if !completed[dep] {
+					depsOK = false
+					break
+				}
+			}
+			if depsOK {
+				tasks = append(tasks, t)
+			}
+		}
+		logging.Campaign("Eligible fallback matched %d pending tasks for phase %s", len(tasks), phase.ID)
+	} else {
+		logging.CampaignDebug("Matched %d eligible tasks for phase %s", len(tasks), phase.ID)
+	}
 
 	// Respect retry backoff windows.
-	now := time.Now()
 	filtered := make([]*Task, 0, len(tasks))
 	skipped := 0
 	for _, t := range tasks {
