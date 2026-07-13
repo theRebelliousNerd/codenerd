@@ -1,3 +1,0 @@
-# Superseded
-
-Replaced on **2026-07-13** by [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).

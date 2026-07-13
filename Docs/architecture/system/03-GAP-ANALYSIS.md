@@ -1,78 +1,60 @@
-# system — Gap Analysis
+# Gap analysis: system
 
-> Last verified: **2026-07-13**
+> The rows below compare the reviewed live tree with [01-VISION.md](01-VISION.md).
+> Feature decisions and acceptance contracts live only in [TODO.md](TODO.md).
 
-## 1. Spec vs reality matrix
+## Evidence-ranked matrix
 
-| Expectation (vision / north star) | Reality in code | Gap? |
-|-----------------------------------|-----------------|------|
-| Single cache entry for all long-lived Cortex | CLI: `GetOrBootCortex`. TUI: `BootCortexWithConfig` (no cache) | **Yes** — dual identity models in one process |
-| GetOrBootCortex for all command handlers | All sampled Cobra handlers use it | **No** for Cobra |
-| Failed boots not cached | Explicit: error path never inserts | **No** |
-| Config change → fresh Cortex | `ResetCortexForWorkspace` exists | **Partial** — no production callers found; TUI still separate |
-| Close tears down everything | Shards, JIT, LocalDB, Learning, perception, cache | **Partial** — maintenance goroutine not cancelled; MCP bridge not closed here |
-| Session file ops respect VirtualStore policy | `sessionVirtualStoreAdapter` uses `os.ReadFile`/`WriteFile` | **Yes** |
-| LoadReasoningTrace via adapter | Returns `nil, nil` always | **Yes** — write path only |
-| Embedding failure fails boot | Soft-warn; continue without engine | **No** (by design) |
-| Missing LLM fails boot | Soft: `missingLLMClient`; boot continues | **No** (by design) |
-| Hybrid PROMPT → JIT corpus | `IngestHybridPrompts` | **No** |
-| User agents registered to JIT + ShardManager | Discover + DefineProfile TypeUser | **No** |
-| Maintenance archival on schedule | 30m ticker when LocalDB present; only via GetOrBootCortex path | **Partial** — direct Boot* never starts it |
-| `debug_program_ERROR.mg` not in package | Present as dump artifact | Hygiene gap only |
+| Priority | Gap | Current evidence | Desired boundary | Verdict |
+|---:|---|---|---|---|
+| P1 | Session file adapter bypasses VirtualStore | `factory_adapters.go#sessionVirtualStoreAdapter.ReadFile` and `.WriteFile` call `os` | Typed contained file capabilities with exact permission and no double execution | **BUILD** |
+| P1 | Engine/provider mode is absent from cache identity | `resolveProviderModelForKey` returns provider/model; config engine can vary independently | One canonical typed identity for every boot-shaping input | **BUILD** |
+| P1 | Lifecycle cleanup is enumerated rather than registered | rollback reuses `cortexFromBootContext(...).Close`; Close owns MCP/browser/closable embedding and stores, but no typed acquisition order/ownership record exists | Typed acquisition registry with caller-owned override policy and cleanup receipt | **EVOLVE** |
+| P2 | Cache eviction/reset edges lack decisive tests | reuse, disabled-set split, and failed-boot retry are covered; explicit Close eviction and Reset semantics are not | Close eviction plus evict-only/reset-and-close contract tests | **BUILD** |
+| P2 | Chat uses direct BootCortexWithConfig | `cmd/nerd/chat/session_shared_boot.go#performSystemBootShared` | Explicit decision: shared cache identity or intentionally separate lifecycle | **BLOCKED_BY_SPEC** |
+| P2 | Reset evicts without Close | `ResetGlobalCortex`, `ResetCortexForWorkspace` | Separate explicit evict-only and reset-and-close APIs | **EVOLVE** |
+| P2 | Trace load adapter is a nil stub | `factory_adapters.go#LocalStoreTraceAdapter.LoadReasoningTrace` returns nil, nil | Implement or remove the advertised read capability | **BUILD** |
+| P2 | No correlated boot receipt | category logs are stage-local | Redacted stage/resource/degradation/close artifact | **EVOLVE** |
+| P3 | Crash artifact remains in source tree | `internal/system/debug_program_ERROR.mg` | Relocate future dumps under workspace `.nerd/debug/` and remove tracked accident safely | **EVOLVE** |
 
-## 2. Prioritized gaps
+## Closed truth gaps
 
-### P0 — correctness / resources
+| Former gap | Current evidence | Status |
+|---|---|---|
+| Maintenance cancel discarded / DB-close race | `factory.go#Cortex.StartMaintenanceSchedule`, `cortex_close.go#Cortex.Close`, `maintenance_schedule_test.go` | **VERIFIED CURRENT** |
+| Authorization predicates split across Cortex shards | `defaultKernelShardConfigs`, exact policy routing regression | **VERIFIED CURRENT** |
+| Destructive route can continue without Dreamer | `VirtualStore.RouteAction` and `PreflightDestructiveToolCall` fail closed | **VERIFIED CURRENT** |
+| Prompt selector facts mutate live Cortex | `KernelAdapter.NewCompilationScope` and prompt-scope regressions | **VERIFIED CURRENT** |
+| Effect boundary loses executive correlation | VirtualStore parses and reuses the supplied action ID | **VERIFIED CURRENT** |
+| Disabled-system-shard requests alias in cache | `normalizeDisableSystemShards`, `cortexKey`, and `TestGetOrBootCortexDisabledShardSetIsPartOfIdentity` | **VERIFIED CURRENT** |
+| Failed late boot leaves acquired DBs/workers alive | `bootCortexWithSteps`, `rollbackBootContext`, and forced late-failure regression | **VERIFIED CURRENT** for enumerated owned resources |
+| Predicate ownership has two drifting boot tables | production `defaultKernelShardConfigs` consumes `DefaultShardPredicateManifests`; uniqueness and exact-envelope tests pass | **VERIFIED CURRENT** |
 
-1. **Maintenance cancel discarded**  
-   `GetOrBootCortex` calls `StartMaintenanceSchedule` and ignores `context.CancelFunc`. `Close` does not stop the ticker. A closed-but-still-referenced LocalDB risk is mitigated by Close nil-ing LocalDB *if* the goroutine observes that — but the goroutine holds `*Cortex` and will call `runMaintenance` on a nil LocalDB path only after Close sets LocalDB nil (then `runMaintenance` panics on `c.LocalDB.MaintenanceCleanup` if called after Close).  
-   - **Mitigation needed:** store cancel on Cortex; call from Close; guard `runMaintenance` for nil LocalDB.
+## Dependency order
 
-2. **TUI vs CLI Cortex duality**  
-   Two full boots possible in one process; no shared cache; double SQLite handles, double system shards.  
-   - Prefer TUI adopt GetOrBootCortex or register into same cache after BootCortexWithConfig.
+```text
+exact executive envelope + canonical manifest (verified)
+  +--> disabled-shard cache identity (verified)
+  |      +--> complete engine identity
+  |
+  +--> transactional aggregate rollback (verified slice)
+  |      +--> typed acquisition registry / receipt
+  |
+  +--> policy-preserving session adapter
+```
 
-### P1 — policy / integrity
+The adapter repair can proceed independently after its typed capability and
+double-execution contract are pinned. The resource receipt can now build on a
+real rollback boundary, but it must not overstate the current enumerated Close
+path as exact reverse-order ownership metadata.
 
-3. **sessionVirtualStoreAdapter file I/O bypass**  
-   Session executor file tools may skip VirtualStore constitutional routing depending on call path.  
-   - Route through VS when non-nil.
+## Non-gaps and non-goals
 
-4. **ResetCortexForWorkspace unused**  
-   Provider/key rotation mid-process may leave stale cache unless callers know to reset.  
-   - Wire from config reload / auth commands.
-
-### P2 — completeness
-
-5. **Trace Load path**  
-   `LocalStoreTraceAdapter.LoadReasoningTrace` stub.  
-6. **MCP bridge lifetime**  
-   Bridge created and ConnectAll async; Close does not disconnect.  
-7. **BootCortex path vs GetOrBootCortex**  
-   Direct BootCortex leaves `cortexKey` empty — Close skips cache eviction (correct for uncached), but no maintenance (correct). Document as intentional; ensure call sites choose deliberately.
-
-### P3 — hygiene
-
-8. Remove or gitignore `debug_program_ERROR.mg` from package tree.  
-9. Expand `GetOrBootCortex` unit tests for cache hit / multi-key / failure non-cache.
-
-## 3. Non-gaps (do not “fix”)
-
-| Observation | Why not a gap |
-|-------------|----------------|
-| Boot continues without embedding | Designed soft-fail; retrieval degrades gracefully |
-| Boot continues without LLM | Enables query/store CLI without credentials |
-| Write lock serializes all first-boots | Comment in source: acceptable for rare heavy boot |
-| System shards disable list | Test / diagnostic escape hatch |
-| Package has no `.mg` policy sources | Policy lives in `core/defaults`; system only wires domains |
-
-## 4. Completeness heuristic
-
-| Component | Completeness |
-|-----------|--------------|
-| Boot pipeline | ~95% |
-| Keyed cache | ~95% |
-| Lifecycle Close | ~75% |
-| Adapter purity | ~70% |
-| Test coverage of cache | ~40% |
-| **Overall package** | **~85–90%** |
+- Missing LLM credentials intentionally produce `missingLLMClient`; store and
+  query operations can still boot.
+- Unavailable embeddings, agent sync, hybrid ingest, and MCP connection are
+  intentionally degradable today. The gap is receipt/ownership clarity, not
+  necessarily hard failure.
+- Global boot serialization is acceptable until measured multi-workspace
+  contention proves otherwise.
+- System should not absorb Mangle policy, prompt atoms, tool handlers, or UI.

@@ -63,14 +63,15 @@ This path **does not** call `GetOrBootCortex`, so:
 
 ## 4. Kernel domain wiring
 
-Boot registers these CortexKernel domains (`initKernel`):
+Boot consumes `shards.DefaultShardPredicateManifests` and registers these
+CortexKernel domains (`initKernel`):
 
 | Domain | Owned predicates (excerpt) |
 |--------|----------------------------|
 | routing | user_intent, next_action, routing_result, derived_mode |
 | world | file_topology, symbol_graph, diagnostic, project_profile |
 | tools | tool_capabilities, shard_lifecycle, shell_exec_result |
-| policy | permitted, blocked, constitution, commit_barrier, dangerous_action |
+| policy | pending_action, permitted_action, permission_check_result, permitted, blocked, constitution, commit_barrier, dangerous_action |
 | campaign | campaign, campaign_phase, campaign_task, campaign_dependency |
 | prompts | prompt_atom, atom_selection_score, shard_prompt_base |
 | cortex | (empty ownership set) |
@@ -78,8 +79,9 @@ Boot registers these CortexKernel domains (`initKernel`):
 This is how system participates in fact-flow without owning rule text:
 
 ```
-user_intent (routing) → next_action → VirtualStore.HandleAction
-permitted (policy) gates effectful work
+user_intent (routing) → next_action(ActionID, Type, Target, Payload)
+pending_action (policy) → permitted(Action, Target, Payload)
+→ VirtualStore.RouteAction preserves ActionID → execution_result
 ```
 
 ## 5. VirtualStore wiring checklist
@@ -92,7 +94,7 @@ Set during boot:
 | DisableBootGuard | always |
 | SetLocalDB / SetGraphQuery | if LocalDB |
 | SetLearningStore | if present |
-| SetDreamRouter / SetDreamPlanManager | always constructed |
+| SetDreamRouter / SetDreamPlanManager | constructed against boot kernel; VirtualStore lazily binds Dreamer to primary RealKernel |
 | SetTransactionManager | if RealKernel |
 | HydrateModularTools | best-effort |
 | SetCodeScope | HolographicCodeScope |
@@ -121,6 +123,7 @@ AtomLoader(+embedding)
 → LoadEmbeddedCorpus (hard)
 → MaterializeDefaultPromptCorpus(.nerd/prompts/corpus.db)
 → NewJITPromptCompiler(kernel adapter, corpus, vector searcher, project DB)
+   → per Compile: KernelAdapter.NewCompilationScope → private RealKernel.Clone
 → PromptAssembler.EnableJIT + budgets from UserConfig
 → transducer.SetPromptAssembler
 → IngestHybridPrompts from kernel.ConsumeBootPrompts
@@ -147,6 +150,35 @@ system ──boots──► core.CortexKernel
 |-----|---------------|--------------|
 | `ResetGlobalCortex` | tests only (no prod grep hits outside factory) | test isolation |
 | `ResetCortexForWorkspace` | none outside factory | after config/provider switch |
-| `Cortex.Close` | tests, careful callers | release handles; evict if cached |
+| `Cortex.Close` | CLI handlers and tests | cancel maintenance, release covered handles, evict if cached |
 
-**Gap:** auth/config reload commands should call `ResetCortexForWorkspace` then `GetOrBootCortex` to pick up new provider/model.
+**Gaps:** config reload still needs an explicit reset-and-close contract; current
+Reset APIs evict without closing. Disabled-shard identity is repaired and
+tested; separately configured engine/provider mode remains outside the key.
+
+## 10. Fail-closed authorization wiring
+
+The effect path requires two independent positive conditions:
+
+1. the policy shard derives exact `permitted(Action, Target, Payload)` from the
+   pending envelope;
+2. mapped destructive actions obtain a usable Dreamer and pass simulation.
+
+`safe_action/1` does not satisfy the first condition. Missing kernel or Dreamer
+does not degrade to allow. `internal/system/cortex_permission_routing_test.go#TestDefaultCortexPermissionEnvelopeRoutesToPolicyShard`
+guards ownership and exact mismatch denial; core routing tests guard the effect
+boundary and correlated result facts.
+
+## 11. Teardown and dormant paths
+
+Normal Close is idempotent and bounded. It stops maintenance, shard admission
+and workers, cancels/closes/joins MCP work, shuts down the browser, closes a
+closable embedding engine, then closes JIT, LocalDB, LearningStore, initialized
+perception, and evicts the cache entry. Stage failures call the same aggregate
+path through `rollbackBootContext`; an untransferred project DB is closed first.
+
+**PARTIAL:** this is still an enumerated cleanup path rather than a typed
+reverse-order acquisition registry. Caller-owned DI override semantics,
+all-resource close-order fault injection, and a cleanup receipt remain open.
+Chat's direct-boot path intentionally remains outside the cache and automatic
+maintenance lifecycle.

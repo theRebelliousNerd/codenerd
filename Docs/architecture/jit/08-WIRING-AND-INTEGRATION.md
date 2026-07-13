@@ -49,7 +49,7 @@ If `configFactory != nil` and intents present on context, sets `result.Effective
 | Path | `.nerd/agents/<name>/config.yaml` |
 | Size cap | 1 MiB (`maxSpecialistConfigSize`) |
 | Parse | `yaml.Unmarshal` into `EffectiveAgentRuntimeConfig` |
-| Validate | **Not called** |
+| Validate | Called after unmarshal; failures include the specialist config path |
 | Missing file | Fall back to ConfigFactory with `"/"+name` and empty prompt shell |
 
 ## 3. Production consumers
@@ -62,7 +62,7 @@ If `configFactory != nil` and intents present on context, sets `result.Effective
 | `compileConfig` | Prefer injected; else `configFactory.Generate` |
 | Execute failure path | Empty `&EffectiveAgentRuntimeConfig{}` on error |
 | `runToolLoop` | Pass cfg for tool defs + allowlist |
-| `isToolAllowed` | Membership in `AllowedTools` (empty list → special case in code: treat carefully) |
+| `isToolAllowed` | Membership in `AllowedTools`; nil/empty/unlisted deny |
 | `buildToolDefinitions` | Resolve names via tool registry |
 | `buildToolCatalogForPiggyback` | Catalog filtered by allowlist |
 
@@ -115,10 +115,15 @@ Constitutional safety is **not** replaced by this schema. Tool allowlist is an *
 
 ## 7. Wiring gaps (actionable)
 
-1. YAML load → `Validate()`  
+1. Factory/generated fallback → uniform validation or an explicit typed degraded state
 2. `ToolLoop` → executor loop  
-3. `Policies` → kernel policy load/assert  
-4. `RequirePolicyEnforcement` → fail if Policies empty when true  
-5. Empty fallback → structured degrade mode + metrics  
+3. `Policies` → carry stable set identity/version and define global membership
+   versus selective per-agent loading; canonical inventory resolution is verified
+4. `RequirePolicyEnforcement` → give the flag a real session meaning; canonical
+   reference validation currently applies regardless of the flag
+5. Deny-all empty fallback → structured reason/degrade mode + metrics
+
+Specialist YAML validation and modular/Ouroboros capability intersection are
+verified current and are no longer wiring gaps.
 
 See `03-GAP-ANALYSIS.md` and `TODO.md`.

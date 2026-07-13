@@ -9,14 +9,15 @@
 |------------|----------|----------|
 | `fmt` | error wrapping in `Validate` | `types.go` |
 | `strings` | `TrimSpace` on identity | `types.go` |
+| `internal/core` | canonical embedded policy membership | `types.go` |
 
-**No** project-internal imports. This is a leaf schema package.
+The single project-internal dependency is intentionally one-way: JIT config uses
+core's read-only embedded inventory and does not import kernel runtime behavior.
 
 ```
-stdlib (fmt, strings)
-        ▲
-        │
-internal/jit/config
+stdlib (fmt, strings)      internal/core policy inventory
+        ▲                              ▲
+        └──────── internal/jit/config ─┘
 ```
 
 ## 2. Downstream (who imports `codenerd/internal/jit/config`)
@@ -75,7 +76,7 @@ perception.Intent.Verb ──► ConfigFactory.Generate ──► EffectiveAgent
 
 | Logical dependency | Mechanism |
 |--------------------|-----------|
-| Policy files (`base.mg`, `coder.mg`, …) | Strings in `Policies`; content owned by Mangle defaults / policy corpus |
+| Canonical policy files (`policy/constitution.mg`, `reviewer.mg`, …) | Stable set IDs resolve through `core.DefaultAgentPolicySetFiles`; `Validate` checks each path with `core.IsDefaultPolicyFile` |
 | Tool names (`read_file`, …) | Strings in `AllowedTools`; implementations in `internal/tools` |
 | Specialist path `.nerd/agents/<name>/config.yaml` | Consumer convention in Spawner |
 

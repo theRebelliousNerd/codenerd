@@ -1,66 +1,105 @@
-# 03 — Gap Analysis: JIT config
+# JIT capability envelope — gap analysis
 
-> Last verified against codebase: **2026-07-13**  
-> Package: `internal/jit/config` vs vision of full JIT-driven agent constitution
+> Gaps compare [02-CURRENT-STATE.md](02-CURRENT-STATE.md) with
+> [01-VISION.md](01-VISION.md). A missing consumer is not presented as an
+> implemented feature.
 
-## 1. Spec vs reality matrix
+## Spec versus reality matrix
 
-| Capability | Vision | Reality | Gap severity |
-|------------|--------|---------|--------------|
-| Shared runtime config type | One type for all personas | `EffectiveAgentRuntimeConfig` | **None** |
-| Identity required | Non-empty identity | `Validate` enforces; hot paths may skip Validate | **Medium** |
-| Policies required | ≥1 policy file | `Validate` enforces; empty fallbacks skip | **Medium** |
-| Tool allowlist | Bound LLM tool surface | Enforced when non-empty; empty cfg allows zero defs / permissive edge | **Low–Medium** |
-| ToolLoop limits from config | Per-agent loop knobs | Factory sets defaults; executor uses `ExecutorConfig` | **High** (dead knobs) |
-| FailOnToolError | Fail turn on tool error | Not wired to `cfg.ToolLoop` | **Medium** |
-| RequirePolicyEnforcement | Fail closed without policy | Flag set `true` by factory; no session branch | **High** |
-| Model override per agent | Per-agent model | Field exists; session uses shared LLM client | **Medium** |
-| Workspace root per agent | Scoped FS | Field exists; not primary workspace binding | **Low** |
-| Persona field | Explicit persona atom key | Optional; intent verb carries routing | **Low** |
-| Validate on YAML load | Specialist configs validated | `loadSpecialistConfig` unmarshals without `Validate()` | **High** |
-| Validate after factory | Generated configs always valid | Factory defaults pass tests; Generate does not call Validate | **Low** (tests cover) |
-| Policy files applied to kernel | Load `Policies` into Mangle | Names carried; kernel policy corpus largely global defaults | **High** (system-level) |
-| Empty-config degrade mode | Explicit “degraded” type/flag | Opaque zero value | **Medium** |
-| Docs / skill name drift | Single type name | Skill still mentions `AgentConfig` in snippets | **Low** |
+| ID | Capability | Current reality | Target | Verdict |
+|---|---|---|---|---|
+| J1 | Uniform validation | specialist YAML validates with hostile regressions; generated/fallback paths do not uniformly require it | every boundary validates | **PARTIAL** |
+| J2 | Explicit degraded mode | nil/empty execution is fail-closed, but baseline and zero-value fallbacks are implicit | named, bounded, fail-closed degradation | **PARTIAL** |
+| J3 | Executable policy identity | default providers resolve stable set IDs to validated canonical global-corpus members; no set version or per-agent application | explicit set identity/version and pinned global/selective semantics | **PARTIAL** |
+| J4 | Honest field consumption | loop/safety/model/workspace/persona fields lack or compete with consumers | one owner and negative test per field | **PARTIAL** |
+| J5 | Capability provenance | config pointer reaches executor without a stable producer/version receipt | immutable turn snapshot and reason | **NO** |
+| J6 | Complete diagnostics | compiler stats and logs exist but do not correlate effective grants to effects | redacted capability receipt | **PARTIAL** |
+| J7 | Safe comparative evolution | no no-effect config comparison | receipt-driven shadow comparison after J1–J6 | **NO / DEFERRED** |
 
-## 2. Non-gaps (do not “fix”)
+## Built but not previously specified clearly
 
-| Observation | Why it is intentional |
-|-------------|----------------------|
-| Package is tiny (59 LOC) | Schema-only design; logic belongs in prompt/session |
-| No Mangle under `internal/jit` | Policies are *references*, not rule sources |
-| No logging in package | Pure types; consumers own observability |
-| No constructors | Zero-value + YAML + factory construction are enough |
-| AllowedTools not required by Validate | Zero tools is valid for pure-reasoning turns |
+- Specialist names reject path separators and `..`, and YAML is capped at one
+  megabyte in `internal/session/spawner.go#loadSpecialistConfig`.
+- The normal tool catalog silently drops allowlist names missing from the modular
+  registry in `internal/session/executor.go#buildToolDefinitions`.
+- The executor keeps constitutional, Dreamer, timeout, and postcondition gates
+  after the JIT capability check in
+  `internal/session/executor_tools.go#executeToolCall`.
+- Compiler and spawner have different fallback layers; this is behavior, not one
+  documented recovery state machine.
 
-## 3. Priority backlog (schema-adjacent)
+## Specified or implied but not built
 
-### P0 — Correctness / safety
+- `Safety.RequirePolicyEnforcement` does not enforce policy loading or deny a
+  config in the session hot path.
+- `Policies` resolves against the embedded global inventory but does not carry a
+  stable set ID/version or apply a selectively loaded corpus per agent.
+- `ToolLoop` does not set the executor's active iteration/call/error behavior.
+- `Model` and `Workspace.RootPath` do not select a per-agent model or sandbox.
+- No effective-capability receipt proves which producer, fallback, grants, policy
+  set, and limits reached a turn.
 
-1. **Call `Validate()` after specialist YAML unmarshal** (`session/spawner.go` `loadSpecialistConfig`) or reject invalid agents.  
-2. **Decide empty-config semantics**: either deny tools when cfg is zero, or mark degrade mode and log loudly.  
-3. **Wire or delete `Safety.RequirePolicyEnforcement`** — a bool that is always true but never read is a false assurance.
+## Partially implemented contracts
 
-### P1 — Schema honesty
+| Gap | Proven slice | Missing seam |
+|---|---|---|
+| J1 validation | `Validate`, table tests, and mandatory specialist-YAML validation | mandatory calls after factory/fallback creation |
+| J2 degradation | baseline prompt, reduced-budget retry, deny-all empty config | typed reason and explicit narrow grants if degraded tools are ever desired |
+| J3 policy | canonical resolution, boot-inventory parity, and shared factory sets | set identity/version and explicit per-agent versus global meaning |
+| J4 field use | allowlist and intent metadata have consumers | loop/safety/model/workspace/persona ownership and parity |
+| J5 provenance | compiler manifest and last-result stats | immutable config ID carried into session/effect telemetry |
+| J6 diagnosis | CategoryJIT/Session logs | correlated, redacted, retention-bounded receipt |
 
-4. **Wire `ToolLoop` into `runToolLoop`** *or* stop populating it in ConfigFactory and document executor-only limits.  
-5. **Document or implement `Policies` application** (kernel assert/load) so Validate’s requirement is not cargo-cult.  
-6. **Optional: `Model` routing** when multi-engine agents need per-persona models.
+## North-star alignment map
 
-### P2 — Hygiene
+| Gap | Lane | Goal blocked | Consequence |
+|---|---|---|---|
+| J1 | wiring, testing | J1 — One valid boundary value | generated/fallback configs can cross without the same validation proof as specialist YAML |
+| J2 | safety, recovery | J1 and J4 | empty config denies tools but operators still see only fallback prose rather than a typed reason |
+| J3 | Mangle, permission | J2 and J3 | canonical membership is proven, but it does not yet change per-agent executive rules or identify a versioned set |
+| J4 | JIT, state, testing | J2 | schema promises controls whose owners are elsewhere or absent |
+| J5 | state, observability | J4 | no immutable answer to “which config governed this turn?” |
+| J6 | observability, recovery | J4 | degradation and capability drift require log reconstruction |
+| J7 | uplift | enabled by J1–J6 | comparison would be unsafe and unmeasurable today |
 
-7. Update skill references to `EffectiveAgentRuntimeConfig` only.  
-8. Consider `Validate` called at end of `ConfigFactory.Generate` for defense in depth.  
-9. Add package-level doc comment / root `doc.go` clarifying “schema only; see prompt+session”.
+## Priority assessment
 
-## 4. Dependency on other packages’ gaps
+### Critical
 
-| External gap | Impact on jit schema |
-|--------------|----------------------|
-| Domain shards deleted; intent routing must stay complete | Wrong `IntentVerb` → wrong ConfigAtom → wrong tools |
-| Tool registry name drift | Allowlist names that don’t match registry → silent tool drop in `buildToolDefinitions` |
-| Global policy corpus incomplete | `Policies: ["coder.mg"]` may not map to loadable files |
+- **J1 / Goal J1:** extend the verified specialist validation contract to
+  generated and fallback configs.
+- **J2 / Goals J1 and J4:** preserve verified deny-all nil/empty semantics and
+  define a typed degradation/reason contract.
+- **J3 / Goal J3:** preserve the verified canonical registry and define
+  set/version identity plus global-versus-selective enforcement semantics.
 
-## 5. Summary
+### Important
 
-The package **meets its narrow contract** (typed config + structural validation). The **system gap** is partial **field actualization** in session and missing Validate on YAML loads. Closing gaps is mostly **consumer wiring**, not growing `internal/jit`.
+- **J4 / Goal J2:** wire or remove each decorative field and pin loop precedence.
+- **J5–J6 / Goal J4:** carry a versioned, redacted receipt from producer through
+  executor.
+
+### Nice to have
+
+- **J7:** no-effect shadow comparison only after the operational contracts pass.
+- Per-agent model/workspace selection only when a real product need justifies the
+  containment and provider-routing complexity.
+
+## Recommendations
+
+1. **Verified slice:** keep validation after specialist YAML with negative tests
+   for blank identity and missing policies (J1).
+2. **Verified slice plus residual:** keep unlisted modular and Ouroboros tools
+   deny-all; separately define explicit degradation and reason semantics (J2).
+3. **Verified slice plus residual:** core-inventory and provider-parity tests prove
+   every default resolves; next carry set identity/version and pin whether session
+   selectively loads policies or records membership in the global corpus (J3).
+4. **Short term, medium:** generate a schema-to-consumer matrix in tests and choose
+   one precedence rule for `ToolLoop` versus `ExecutorConfig` (J4).
+5. **Strategic, medium:** add a redacted capability receipt and recovery reason
+   codes (J5–J6).
+6. **Strategic, large:** evaluate candidate envelopes in a no-effect shadow with
+   bounded stored results (J7).
+
+Authoritative implementation contracts and acceptance controls are the four
+cards in [TODO.md](TODO.md).

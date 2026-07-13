@@ -24,7 +24,8 @@ GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)
   │
   ├─ resolveWorkspaceRoot(workspace)
   ├─ resolveProviderModelForKey(ws)  // best-effort from .nerd/config.json
-  ├─ key = SHA256(ws \0 provider \0 apiKey \0 model)
+  ├─ disabled = normalizeDisableSystemShards(input)
+  ├─ key = SHA256(length-delimited ws/provider/apiKey/model/disabled...)
   │
   ├─ RLock → cache hit? return existing
   │
@@ -34,7 +35,7 @@ GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)
   │    ├─ error? return (no cache write)
   │    ├─ cortex.cortexKey = key
   │    ├─ cortexCache[key] = cortex
-  │    └─ StartMaintenanceSchedule(Background)  // cancel discarded
+  │    └─ StartMaintenanceSchedule(Background)  // cancel/done stored on Cortex
   └─ return cortex
 ```
 
@@ -42,16 +43,21 @@ GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)
 
 | Func | Behavior |
 |------|----------|
-| `cortexKey` | SHA-256 hex of identity string |
+| `normalizeDisableSystemShards` | trim, discard empty, deduplicate, sort |
+| `cortexKey` | SHA-256 hex of length-delimited identity components |
 | `resolveWorkspaceRoot` | arg → FindWorkspaceRoot → cwd |
 | `resolveProviderModelForKey` | LoadUserConfig; empty on error |
 | `ResetGlobalCortex` | replace map (no Close) |
 | `ResetCortexForWorkspace` | delete entries matching Workspace |
 | `evictCortexByKey` | used by Close |
 
+**VERIFIED CURRENT:** equal normalized disabled sets reuse one Cortex and
+different sets split. **PARTIAL:** engine/provider mode remains outside the key.
+
 ## 3. Boot stage machine
 
-`BootCortexWithConfig` builds a private `bootContext` and runs stages **in order**:
+`BootCortexWithConfig` builds a private `bootContext` and runs named
+`defaultBootSteps` **in order** through `bootCortexWithSteps`:
 
 ```
 1. initCoreComponents
@@ -103,7 +109,10 @@ Then:
 #### 4. `initKernel`
 
 - Override or `core.NewCortexKernel("cortex")`  
-- Register domains: routing, world, tools, policy, campaign, prompts, cortex  
+- Convert `shards.DefaultShardPredicateManifests` into KernelShardConfig for
+  routing, world, tools, policy, campaign, prompts, and cortex
+- Co-locate `pending_action`, `permitted_action`,
+  `permission_check_result`, and `permitted` in the policy shard
 - `cortex.Evaluate()` — **hard fail** on error  
 - `perception.InitPerceptionLayer`  
 - Load world facts: LocalDB cache `"fast"` else `.nerd/mangle/scan.mg`
@@ -113,8 +122,9 @@ Then:
 - `tactile.NewDirectExecutor`  
 - `core.NewVirtualStoreWithConfig` + SetKernel, DisableBootGuard  
 - Wire LocalDB, graph adapter, LearningStore  
-- DreamRouter + DreamPlanManager  
-- TransactionManager when RealKernel available  
+- Resolve the primary RealKernel from RealKernel or CortexKernel
+- Lazily create the Dreamer on that RealKernel, then attach DreamRouter and DreamPlanManager
+- TransactionManager when RealKernel available
 - HydrateModularTools  
 - **HolographicCodeScope** as CodeScope  
 - FileEditor adapter
@@ -130,12 +140,13 @@ Then:
 - Embedding engine (+ health check)  
 - AtomLoader  
 - Reflect embedding into LocalDB/LearningStore  
-- MCP integration bridge (async ConnectAll)  
+- MCP integration bridge; retain bridge plus connect cancel/done on bootContext
 - IngestHybridPrompts  
 - AgentSynchronizer.SyncAll  
 - Load embedded prompt corpus (**hard fail** if missing)  
 - Materialize + open project corpus.db  
-- NewJITPromptCompiler  
+- NewJITPromptCompiler with `KernelAdapter`; every production Compile obtains a
+  private RealKernel clone through `NewCompilationScope`
 - PromptAssembler + wire transducer (+ poiesis if present)  
 - Sync agents.json from discovered  
 - NewShardManager; register discovered user agents as TypeUser profiles  
@@ -177,7 +188,8 @@ Cortex
 ├── EmbeddingEngine
 ├── Workspace
 ├── JITCompiler / PromptAssembler
-└── cortexKey (cache only)
+├── cortexKey (cache only)
+└── private lifecycle: MCP bridge/cancel/done, perception flag, close mutex/state
 ```
 
 ## 5. SpawnTask routing
@@ -185,6 +197,8 @@ Cortex
 ```
 SpawnTask(shardType, task)
   normalize name (trim, strip leading /)
+  if image shard
+      → ShardManager.Spawn using dedicated image client
   if ShardManager has profile with Type == System
       → ShardManager.Spawn
   else
@@ -223,3 +237,35 @@ absent → (successful boot) present → (Close or Reset*) absent
 ```
 
 No “failed” entry state exists by design.
+
+### Boot acquisition lifecycle
+
+```text
+stage 1 acquisition -> stage 2 acquisition -> ... -> assembled Cortex -> Close
+                               |
+                               +-- stage error -> rollbackBootContext
+                                      |-- close untransferred project DB
+                                      |-- cortexFromBootContext(...).Close
+                                      `-- primary error + joined cleanup errors
+```
+
+The error edge is **VERIFIED CURRENT** for the forced late-failure slice.
+`Cortex.Close` is idempotent and owns maintenance, shard admission/workers, MCP,
+browser, closable embeddings, JIT, LocalDB, LearningStore, and initialized
+perception. The residual is architectural: cleanup is an enumerated aggregate,
+not a typed registry that proves exact reverse acquisition order or caller-owned
+override semantics.
+
+### Prompt compilation lifecycle
+
+```text
+live CortexKernel
+  -> GetPrimaryRealKernel
+  -> Clone per Compile
+  -> assert/query selector facts in clone
+  -> close scope by dropping clone
+  -> live executive unchanged
+```
+
+Concurrent compiles therefore do not share transient selector facts. Error and
+cancellation paths discard the same private scope.

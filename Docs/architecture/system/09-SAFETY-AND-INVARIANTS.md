@@ -1,116 +1,136 @@
-# system — Safety and Invariants
+# Safety and invariants: system
 
-> Last verified: **2026-07-13**
+> System does not author constitutional rules. It is responsible for building
+> the one object graph in which those rules can actually govern effects.
 
-## 1. Constitutional safety (wiring role)
+## S1 — One exact authorization owner
 
-`system` does not evaluate `permitted(...)`. It **registers** the policy domain so the kernel can:
+**VERIFIED CURRENT.** `internal/system/factory.go#defaultKernelShardConfigs`
+assigns `pending_action`, `permitted_action`, `permission_check_result`, and
+`permitted` to the policy shard. Splitting them prevents one RealKernel store
+from joining the same action ID, action type, target, and payload.
 
-```
-permitted / blocked / constitution / commit_barrier / dangerous_action
-```
+The declaration and derivation remain in core policy. System's invariant is
+ownership and boot order, not policy authorship.
 
-VirtualStore is constructed with a real tactile executor and attached kernel — effectful actions later go through kernel-backed gates implemented in `core` + policy `.mg`.
+## S2 — Default deny survives every adapter
 
-### Invariant S1 — Policy domain present on production boot
+An effect requires exact `permitted(Action, Target, Payload)`. Broad
+`safe_action/1` classification cannot grant a request. Missing kernel, query
+error, target mismatch, payload mismatch, malformed action, or missing Dreamer
+for a mapped destructive route denies visibly.
 
-Unless `KernelOverride` supplies a mock kernel without domains, a normal boot includes the policy ownership set in `initKernel`.
+`internal/system/cortex_permission_routing_test.go#TestDefaultCortexPermissionEnvelopeRoutesToPolicyShard`
+proves exact match and mismatch behavior through a default Cortex shard layout.
 
-### Invariant S2 — Default deny remains kernel-side
+**PARTIAL:** `sessionVirtualStoreAdapter.ReadFile` and `.WriteFile` are outside
+this route and call the OS directly. They remain a known bypass to close.
 
-Disabling system shards (e.g. `constitution_gate`) is allowed via `DisableSystemShards` for tests. Production CLI should not casually disable constitutional system shards.
+## S3 — Executive correlation is immutable
 
-## 2. Cache safety
+The first `next_action` argument is the action ID. VirtualStore must preserve it
+through handler dispatch, `execution_error/2`, `execution_result/6`, validator
+facts, and operator signals. Neither system adapters nor route helpers may mint
+a replacement correlation ID.
 
-### Invariant C1 — Identity completeness
+Dreamer's internal simulation ID is a separate sandbox correlation; it must not
+overwrite the executive ID used for the real effect.
 
-Key includes workspace, provider, apiKey, **and** model. Omitting any reintroduces Bug #15 class failures (wrong Cortex after mid-session switch).
+## S4 — Destructive simulation is fail closed
 
-### Invariant C2 — No failure poisoning
+`internal/system/factory.go#initExecutionLayer` attaches the boot kernel before
+DreamRouter and DreamPlanManager. `core.VirtualStore` resolves a RealKernel from
+either a direct RealKernel or `CortexKernel.GetPrimaryRealKernel`, constructs the
+Dreamer lazily outside `VirtualStore.mu`, and blocks a mapped destructive action
+when no Dreamer is available.
 
-```
-Boot err → return err  // cache untouched
-```
+Counterfactual Dreamer facts remain inside a cloned kernel; they must never
+become live executive facts.
 
-### Invariant C3 — Double-check under write lock
+## S5 — Prompt selection is not executive state
 
-Concurrent first-boots cannot insert duplicates for the same key.
+`internal/system/factory_adapters.go#KernelAdapter.NewCompilationScope` clones the
+primary RealKernel for each prompt compilation. Transient `compile_context`,
+atom, vector-hit, and selection facts are scoped to that clone and discarded on
+success, error, cancellation, and concurrent completion.
 
-### Invariant C4 — Close evicts only cached instances
+This isolation is **VERIFIED CURRENT** by the four regressions in
+`internal/system/prompt_kernel_scope_test.go`.
 
-`cortexKey == ""` (direct Boot*) → Close does not touch map.  
-`cortexKey != ""` → `evictCortexByKey`.
+## C1 — Failed boot never poisons cache
 
-### Invariant C5 — Reset does not Close
+`GetOrBootCortex` inserts only after `BootCortex` returns a non-nil Cortex with no
+error. An error leaves no failed entry.
 
-`ResetGlobalCortex` / `ResetCortexForWorkspace` only delete map entries. Callers holding pointers must Close themselves or risk leaks.
+**VERIFIED CURRENT:** `TestGetOrBootCortexFailureIsNotCached` forces a transient
+failure, proves the retry boots again, and proves only the successful retry is
+cached. Stage failures also run aggregate rollback before returning.
 
-## 3. Concurrency
+## C2 — Cache identity covers constructed behavior
 
-| Resource | Protection |
-|----------|------------|
-| `cortexCache` | `sync.RWMutex` |
-| Boot under GetOrBoot | Write lock held for entire BootCortex (serializes all first boots) |
-| Holographic memCache | `sync.Mutex` on no-LocalDB path |
-| Maintenance | Single goroutine per fresh GetOrBoot insert |
-| MCP ConnectAll | Background goroutine; logs on failure |
+The current SHA-256 key uses length-delimited workspace, provider, API key,
+model, and the normalized disabled-system-shard set. Normalization is shared by
+identity and the boot call. Hashing avoids putting credentials in the map key
+as plaintext.
 
-### Invariant K1 — Maintenance and Close race
+**VERIFIED CURRENT** for those inputs by helper and behavioral cache tests.
+**PARTIAL:** separately configured engine/provider mode remains outside identity.
+The safe fallback for an unproven identity is fresh boot, not reuse.
 
-`runMaintenance` assumes `LocalDB` non-nil without re-check. Close sets LocalDB nil. **Potential panic** if ticker fires during/after Close. Treat as known hazard (see gaps).
+## C3 — Cache transitions are serialized
 
-## 4. Credential handling
+Lookup uses an RLock; miss uses the global write lock and rechecks before boot.
+This prevents duplicate insertion and duplicate maintenance for one current key.
+Global cross-key serialization is accepted until measurement justifies a more
+complex per-key lock.
 
-### Invariant P1 — API keys not stored in plain cache keys
+## L1 — Maintenance stops before SQLite
 
-Keys are hashed (SHA-256 hex). Cache map keys do not leak raw API keys in logs of map iteration.
+**VERIFIED CURRENT.** A fresh cached Cortex stores maintenance cancel/done
+handles. The first maintenance cycle waits one full interval. `Cortex.Close`
+cancels and briefly joins the goroutine before LocalDB close. Repeated Close is
+safe for the covered minimal Cortex case.
 
-### Invariant P2 — Provider resolution is best-effort for keying
+## L2 — Close is bounded, idempotent, and enumerated
 
-If config is unreadable, provider/model strings are empty for the key; Boot will hit the same failure mode later. Consistent empty components keep retries aligned.
+Each covered close step has an eight-second timeout, panics are converted to
+errors, and multiple failures are joined. A mutex/closed bit makes repeated
+Close idempotent. Covered resources are maintenance, shard queue/manager, MCP
+connect/bridge, browser, closable embedding, JIT, LocalDB, LearningStore,
+initialized perception, and cache.
 
-## 5. Soft-fail vs hard-fail
+Boot errors build a partial aggregate and reuse that Close path; an
+untransferred project DB is closed explicitly. **PARTIAL:** the implementation
+does not record exact acquisition order or distinguish caller-owned overrides in
+a typed registry. A timeout also allows teardown to continue while the timed-out
+goroutine may still be running; close methods must therefore be concurrency-safe.
 
-See principle P5 in [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md). Summary invariant:
+## P1 — Secrets are redacted at identity and observability boundaries
 
-### Invariant F1 — Missing LLM must not hard-fail boot
+The API key participates in the internal hash but must not be logged, persisted
+in a receipt, or exposed through a public identity value. Payload-key logging at
+effect denial must not include payload values.
 
-`missingLLMClient` ensures non-LLM commands work. First Complete* returns a clear error.
+## B1 — Hard core and soft periphery are explicit
 
-### Invariant F2 — Kernel Evaluate hard-fails boot
+| Hard failure | Explicit degradation |
+|---|---|
+| kernel shard construction/register/evaluate | missing LLM uses an always-error client |
+| embedded prompt corpus and JIT construction | embedding health failure |
+| system shard startup | taxonomy, agent sync, hybrid ingest, modular tool hydration, MCP connection |
 
-A non-evaluating cortex is not returned as a half-built success.
+Changing a row requires a product decision, a failure-path test, and corpus
+reconciliation.
 
-## 6. Mangle surface (package-local)
+## Reviewer gate
 
-No package-owned `.mg` policy. Mangle interactions:
+Before approving a system change, verify:
 
-| Site | Behavior |
-|------|----------|
-| KernelAdapter.AssertBatch | parse.Unit on string facts; NameType → `core.MangleAtom` |
-| mcpKernelAdapter | Assert/Query/Retract with careful trailing-dot rules |
-| Hybrid prompts | ConsumeBootPrompts → atom store (not rule evaluation) |
-| Holographic deep facts | LoadFacts / RetractExactFactsBatch |
-
-### Invariant M1 — Retract must not double-append dots
-
-`mcpKernelAdapter.Retract` trims trailing `.` before `core.ParseFactString` (which appends its own). Regression-sensitive.
-
-## 7. Resource / Windows invariant
-
-### Invariant R1 — Close releases SQLite
-
-Tests on Windows fail TempDir cleanup if knowledge/learning DBs remain open. `Close` closes LocalDB, LearningStore, JITCompiler, and `perception.ClosePerceptionLayer`.
-
-## 8. System shard disable list
-
-Names in `DisableSystemShards` are applied via `ShardManager.DisableSystemShard` before `StartSystemShards`. Empty list = all registered system shards start.
-
-## 9. Safety checklist for PR reviewers
-
-- [ ] New boot resource has Close path  
-- [ ] New cache field is part of identity or intentionally excluded  
-- [ ] No new process-global unkeyed Cortex  
-- [ ] Soft-fail vs hard-fail choice documented  
-- [ ] Adapter fact parsing handles Mangle name constants  
-- [ ] DisableSystemShards not expanded in production defaults  
+1. every predicate has one boot owner and the permission envelope remains whole;
+2. exact action ID, target, and payload survive adapters;
+3. missing executive dependencies fail closed;
+4. prompt compilation uses a private clone;
+5. every acquisition has normal Close and failure rollback ownership;
+6. cache identity includes every behavior-shaping input;
+7. logs and receipts are bounded and redact secrets;
+8. focused behavioral and race tests falsify the changed boundary.

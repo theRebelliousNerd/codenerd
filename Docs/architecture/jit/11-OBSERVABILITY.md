@@ -38,18 +38,20 @@ No dedicated Prometheus/OTel counters in `internal/jit`. Useful counters **if ad
 | Metric idea | Labels |
 |-------------|--------|
 | `jit_config_generate_total` | intent, result=ok/err |
-| `jit_config_validate_fail_total` | reason=identity/policies |
+| `jit_config_validate_fail_total` | reason=identity/empty_policy/noncanonical_policy/duplicate_policy |
 | `jit_config_specialist_yaml_total` | result=ok/missing/invalid |
 | `jit_config_empty_fallback_total` | path=executor/spawner |
 | `jit_tools_allowed_count` | intent |
 
 ## 5. Debug practices
 
-1. Log `IntentVerb`, `len(AllowedTools)`, `Policies` when config is accepted.  
+1. Log `IntentVerb`, tool/policy counts, and a bounded set/version identity when
+   config is accepted; avoid dumping an arbitrary external policy list.
 2. On empty fallback, log at **Warn** with reason (already partially done).  
 3. Diff factory output vs YAML specialist for mis-tagged fields.  
 4. When tools silently missing, check registry name mismatch vs `AllowedTools`.  
 5. Use `go test` on factory Validate suite after atom edits.
+6. Run core-inventory and prompt-provider parity tests after policy registry edits.
 
 ## 6. Gaps
 

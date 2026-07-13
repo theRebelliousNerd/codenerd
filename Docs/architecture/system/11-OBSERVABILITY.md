@@ -54,7 +54,7 @@ Usage accounting is delegated to `usage.Tracker` on Cortex (package initializes 
 | Hook | Location | Purpose |
 |------|----------|---------|
 | `BootConfig` overrides | factory | Isolate subsystems in tests |
-| `DisableSystemShards` | factory | Turn off noisy/system shards |
+| `DisableSystemShards` | factory | Normalized set controls cache identity and shard start |
 | JIT `DebugMode` | from UserConfig JIT | Passed into compiler config |
 | `debug_program_ERROR.mg` | package tree artifact | Kernel crash dump of combined .mg (not a deliberate hook) |
 | Cortex field inspection | after boot | All major deps public fields |
@@ -62,12 +62,21 @@ Usage accounting is delegated to `usage.Tracker` on Cortex (package initializes 
 ## 6. Gaps
 
 - No structured boot span / timing table inside system (TUI only)  
-- Maintenance cancel not observable as “stopped by Close”  
+- Maintenance start/stop is logged, but it is not correlated to a Cortex identity or Close receipt
 - Cache hit vs miss not logged (would help diagnose Bug #15 class issues)  
-- API key never logged (good) — also no redacted “key fingerprint” for support  
+- No stage acquisition/degradation/rollback/close receipt
+- MCP bridge/cancel/done are retained and closed, but no structured receipt
+  reports the connection and cleanup outcome
+- API key is never logged (required); any future identity fingerprint must remain one-way and bounded
 
-## 7. Recommended observability additions (doc only)
+## 7. Proposed bounded operator receipt
 
-1. Log cache **hit/miss** at Info/Debug with key **prefix** only (first 8 hex chars).  
-2. Boot stage timings similar to TUI `logStep` for CLI path.  
-3. On Close: log eviction of cortexKey prefix + maintenance cancel.
+A receipt should contain a random boot correlation ID, canonical identity hash
+prefix, code/config/policy/prompt fingerprints, ordered stage IDs and durations,
+required/degraded/skipped outcomes, owned resource IDs, rollback/close outcomes,
+and bounded error classes. It must never contain API keys, prompt bodies, user
+file contents, arbitrary payload values, or an executable action.
+
+Cache hit/miss, VirtualStore action ID, and Close should share correlation where
+possible. Persistence must be size-capped with explicit retention. The receipt
+proposal is `system-boot-receipt-registry-v1` in [TODO.md](TODO.md).

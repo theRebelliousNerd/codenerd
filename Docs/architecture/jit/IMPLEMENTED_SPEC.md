@@ -5,7 +5,7 @@
 > Language: Go  
 > Module: `codenerd`  
 > Primary sources: `internal/jit/config/`  
-> Scale: **1** non-test Go file ≈ **59** lines; **1** test file ≈ **67** lines; **0** Mangle sources  
+> Scale: **1** non-test Go file ≈ **70** lines; **1** test file ≈ **91** lines; **0** Mangle sources
 > Ecosystem partners: `internal/prompt` (ConfigFactory, JIT compiler), `internal/session` (universal executor)
 
 ## 1. Overview
@@ -14,7 +14,8 @@
 
 1. **Intent** (perception / Mangle routing) selects persona behavior.  
 2. **Prompt JIT** assembles identity and behavioral text from atoms.  
-3. **ConfigFactory** assembles tools + policy file names.  
+3. **ConfigFactory** assembles tools plus canonical policy paths resolved from
+   stable core policy-set IDs.
 4. Both land in **`EffectiveAgentRuntimeConfig`**.  
 5. **Session Executor** runs one universal loop for every persona.
 
@@ -71,12 +72,12 @@ user_intent → kernel next_action / permitted
 |-----------|--------|-------|
 | `EffectiveAgentRuntimeConfig` schema | **Implemented** | Stable, flat YAML tags |
 | Nested ToolLoop / Safety / Workspace | **Implemented** (schema) | Partial runtime consumption |
-| `Validate()` identity + policies | **Implemented** | Unit tested |
+| `Validate()` identity + canonical policies | **Implemented** | Rejects empty, noncanonical, missing, traversal-shaped, whitespace, and duplicate references |
 | ConfigFactory population | **Implemented** | Lives in `internal/prompt` |
 | Session tool allowlist | **Implemented** | `AllowedTools` enforced |
-| Specialist YAML load | **Implemented** | Spawner; no Validate call |
+| Specialist YAML load | **Implemented and verified** | Spawner validates after bounded/path-contained unmarshal; hostile regressions cover blank identity, missing policies, traversal, and size |
 | ToolLoop → executor | **Partial / unwired** | ExecutorConfig owns limits |
-| Policies → kernel load | **Partial** | Names carried; corpus global |
+| Policies → kernel load | **Partial** | Canonical global boot-corpus members carried; no selective per-agent load or set version |
 | RequirePolicyEnforcement flag | **Schema only** | Always set true by factory |
 | Model / Workspace fields | **Schema only** | Optional YAML |
 | Local Mangle | **N/A** | |
@@ -101,18 +102,18 @@ internal/jit/
 
 | Path | Lines | Purpose |
 |------|------:|---------|
-| `internal/jit/config/types.go` | 59 | Schema + validation |
-| `internal/jit/config/types_test.go` | 67 | Unit tests |
+| `internal/jit/config/types.go` | 70 | Schema + core-inventory validation |
+| `internal/jit/config/types_test.go` | 91 | Unit tests |
 
 ### 3.3 Exported symbols (complete)
 
 | Symbol | Kind | Location |
 |--------|------|----------|
-| `EffectiveAgentRuntimeConfig` | type | `types.go:13` |
-| `ToolLoopConfig` | type | `types.go:25` |
-| `SafetyConfig` | type | `types.go:31` |
-| `WorkspaceConfig` | type | `types.go:35` |
-| `Validate` | method | `types.go:51` |
+| `EffectiveAgentRuntimeConfig` | type | `types.go:14` |
+| `ToolLoopConfig` | type | `types.go:26` |
+| `SafetyConfig` | type | `types.go:32` |
+| `WorkspaceConfig` | type | `types.go:36` |
+| `Validate` | method | `types.go:52` |
 
 ---
 
@@ -137,8 +138,8 @@ The struct “defines the configuration for a JIT-driven dynamic agent” and �
 
 | Field | Semantics |
 |-------|-----------|
-| `AllowedTools` | Names offered to the LLM and checked before execution. Empty is Validate-legal but runtime-sensitive. |
-| `Policies` | Logical `.mg` policy references. Validate requires ≥1. Factory always includes `base.mg` (+ persona file). |
+| `AllowedTools` | Names offered to the LLM and checked before modular or Ouroboros execution. Empty is `Validate`-legal but deny-all at the session capability gate. |
+| `Policies` | Canonical paths in core's embedded default inventory. Validate requires ≥1 unique member. Default factories resolve stable persona set IDs, always including `policy/constitution.mg` and `policy/validation.mg`. |
 
 #### Nested controls
 
@@ -158,10 +159,19 @@ Validate(c):
     return error("identity_prompt is required")
   if len(c.Policies) == 0:
     return error("at least one policy file is required")
+  for policy in c.Policies:
+    if not core.IsDefaultPolicyFile(policy):
+      return error("not a canonical embedded policy reference")
+    if policy already seen:
+      return error("duplicate policy reference")
   return nil
 ```
 
-Rationale from comments: without identity the runtime has no persona to ground the LLM; without policies the agent has no constitutional safety net and “is rejected by the JIT compiler” — **in spirit**. In practice Validate is enforced mainly by tests and not every hot path.
+Rationale from comments: without identity the runtime has no persona to ground the
+LLM; policies anchor the executive layer and must be drawn from the same embedded
+inventory as kernel boot. In practice specialist YAML enforces `Validate`;
+factory/generated fallback paths do not yet uniformly enforce the same
+full-config contract.
 
 ---
 
@@ -176,7 +186,10 @@ Not in this package, but the **canonical constructor** of the type:
 3. Emit `EffectiveAgentRuntimeConfig` with ToolLoop `{5,50,false}` and Safety `{true}`.  
 4. `GenerateFallback` for compile failures.
 
-Default atoms cover coder, tester, reviewer, researcher, nemesis, tool_generator, general intents (verb lists in source).
+Default atoms cover coder, tester, reviewer, researcher, nemesis,
+tool_generator, and general intents. `mustDefaultPolicySet` resolves their stable
+IDs through `core.DefaultAgentPolicySetFiles`; both built-in provider surfaces
+share these exact sets.
 
 ### 5.2 JIT compiler attach
 
@@ -187,7 +200,7 @@ Default atoms cover coder, tester, reviewer, researcher, nemesis, tool_generator
 `session.Spawner.loadSpecialistConfig`:
 
 - Path safety, 1 MiB cap, `yaml.Unmarshal`.  
-- **Does not call Validate.**  
+- Calls `Validate` and returns a path-qualified error before injection.
 - Missing file → factory with `"/"+name`.
 
 ---
@@ -227,7 +240,7 @@ Spawner generates or loads config into `SubAgentConfig`; SubAgent calls `executo
 
 | Surface | Relationship |
 |---------|--------------|
-| Kernel | Policies name executive rules; permission still `permitted(...)` |
+| Kernel | Policies are validated members of the globally loaded executive corpus; permission still derives through `permitted(...)` |
 | VirtualStore | Tools execute after allowlist; interactive gates optional |
 | Prompt JIT | Produces identity text + optional attach |
 | Session | Universal executor |
@@ -242,8 +255,9 @@ Spawner generates or loads config into `SubAgentConfig`; SubAgent calls `executo
 
 | Layer | Location | Focus |
 |-------|----------|-------|
-| Unit | `types_test.go` | Validate |
-| Factory | `prompt/config_factory_test.go` et al. | Populate + Validate |
+| Unit | `types_test.go` | Identity, canonical policy, and duplicate validation |
+| Core inventory | `core/policy_inventory_test.go` | Stable-set-to-embed and boot-module parity |
+| Factory | `prompt/config_factory_test.go`, `config_policy_registry_test.go` et al. | Populate, Validate, canonical resolution, provider parity |
 | Session | spawner/executor tests | YAML + allowlist |
 | e2e | `tests/e2e/*` importing jit/config | Boundaries |
 
@@ -257,7 +271,9 @@ Commands: see README / `10-TESTING-ALIGNMENT.md`.
 2. **Tool gate:** allowlist membership.  
 3. **Path gate:** specialist name + size.  
 4. **Executive gate:** Mangle `permitted`, Dreamer preflight (core).  
-5. **Degrade mode risk:** empty configs skip 1 and weaken 2.
+5. **Degrade mode risk:** empty configs skip schema validation but are deny-all at
+   the tool gate; the remaining risk is implicit availability/diagnostics, not an
+   unrestricted registry capability.
 
 See `09-SAFETY-AND-INVARIANTS.md` and `12-FAILURE-MODES.md`.
 
@@ -275,10 +291,11 @@ Authoritative gap matrix: `03-GAP-ANALYSIS.md`.
 
 Highest value fixes are **outside** this package’s LOC budget:
 
-1. Validate after YAML unmarshal.  
+1. Validate generated/fallback configs or return an explicit typed degraded state.
 2. Wire ToolLoop or stop setting it.  
 3. Honor RequirePolicyEnforcement or remove.  
-4. Apply Policies list to kernel or document global corpus only.
+4. Carry stable policy-set identity/version into the turn and pin whether the
+   canonical members describe the global corpus or drive selective per-agent loading.
 
 ---
 
@@ -316,7 +333,8 @@ allowed_tools:
   - get_elements
   - get_element
 policies:
-  - base.mg
+  - policy/constitution.mg
+  - policy/validation.mg
   - reviewer.mg
 tool_loop:
   max_iterations: 5
@@ -328,7 +346,9 @@ workspace:
   root_path: ""
 ```
 
-Until ToolLoop/Safety are wired, only identity/tools/policies meaningfully drive session behavior (and policies primarily via Validate/factory conventions).
+Until ToolLoop/Safety and selective policy semantics are wired, identity and
+tools drive session behavior; policies are validated evidence of global-corpus
+membership, not a per-agent kernel projection.
 
 ---
 

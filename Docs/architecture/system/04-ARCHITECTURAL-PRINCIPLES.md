@@ -7,15 +7,20 @@
 
 `system` constructs the object graph. It must not implement OODA steps, tool semantics, or domain policy rules. If a change wants “when intent X, do Y,” it belongs in kernel policy, VirtualStore handlers, session, or a shard — not here.
 
-## P2 — One identity tuple for Cortex
+## P2 — One complete identity for Cortex
 
-Identity dimensions are exactly:
+The live cache currently hashes:
 
 ```
 workspace + provider + apiKey + model
++ normalized(disabledSystemShards)
 ```
 
-Cache keys hash that tuple (SHA-256 over NUL-joined fields). Do not reintroduce a process-wide unkeyed singleton. Do not put workspace alone in the key.
+The disabled set is trimmed, emptied, deduplicated, sorted, and shared by hash
+and boot behavior. Do not treat the current tuple as complete: separately
+configured engine/provider mode must participate in identity or force fresh
+boot. Cache keys may hash secret material, but receipts and logs must never
+expose it. Do not reintroduce a process-wide unkeyed singleton.
 
 ## P3 — Never cache failures
 
@@ -65,7 +70,10 @@ This package *is* where “unused” often means “wired but feature-flagged.�
 
 ## P9 — Lifecycle is part of the contract
 
-Every resource opened during boot that holds OS handles (SQLite, spawn queues, shards) must be releasable via `Cortex.Close`. New boot resources need a matching Close path.
+Every owned resource opened during boot that holds OS handles or goroutines must
+be releasable via `Cortex.Close` and reverse-order rollback when later boot stages
+fail. Caller-owned overrides need explicit ownership. New acquisitions require a
+matching idempotent close path and a failure-path regression.
 
 ## P10 — Maintenance is GetOrBoot-only by design (today)
 
@@ -73,8 +81,25 @@ Background archival runs only when Cortex enters the cache. Direct boot callers 
 
 ## P11 — Kernel domains are explicit at boot
 
-The motherboard declares which domains own which predicates (routing, world, tools, policy, campaign, prompts, cortex). Expanding ownership requires coordinated changes with `core` kernel sharding — do not invent domain names casually.
+`shards.DefaultShardPredicateManifests` is the canonical source for domains and
+owned predicates; system converts it into `KernelShardConfig`. Expanding
+ownership requires a manifest change plus uniqueness and exact-routing tests —
+do not restore a second hard-coded table or invent domain names casually.
 
 ## P12 — JIT is non-optional for a complete Cortex
 
 A successful production boot includes JIT compiler + PromptAssembler wiring. Tests may stub Kernel/LLM; they should still accept that JIT init can hard-fail if corpus load fails.
+
+## P13 — Authorization envelopes stay together
+
+`pending_action`, `permitted_action`, `permission_check_result`, and `permitted`
+must share the policy shard so Mangle can join one exact action, target, and
+payload. `safe_action/1` is classification, not authority. Routers preserve the
+executive-issued action ID; adapters must not mint a replacement.
+
+## P14 — Prompt selection never mutates the live executive
+
+Production prompt compilation must create a private RealKernel clone per
+compilation. Selector assertions, cleanup, failure, cancellation, and concurrent
+compiles must remain inside that scope. Never attach transient prompt facts to
+the live Cortex.

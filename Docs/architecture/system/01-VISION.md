@@ -24,14 +24,19 @@ That plane is `internal/system`.
 
 ### 1. One Cortex identity model
 
-A Cortex instance is uniquely identified by:
+A Cortex instance should be uniquely identified by every boot-shaping input:
 
 - workspace root  
 - provider  
 - API key  
 - model  
+- engine and provider mode
+- normalized disabled-system-shard policy
 
-Switching any dimension boots (or reuses) the correct instance. Stale singletons bound to the wrong context are forbidden (realized as keyed cache; Bug #15).
+Switching any dimension boots (or reuses) the correct instance. Stale singletons
+bound to the wrong context are forbidden. **VERIFIED CURRENT** for workspace,
+provider, API key, model, and the normalized disabled-shard set. **PARTIAL:** the
+separately configured engine/provider mode is not yet represented.
 
 ### 2. One boot pipeline, many entry conveniences
 
@@ -65,9 +70,15 @@ The motherboard must not grow business-logic branches for individual tools or in
 1. Stop system/domain shards and spawn queue  
 2. Close SQLite-backed resources (LocalDB, LearningStore, JIT)  
 3. Close perception layer globals  
-4. Evict this instance from the process cache  
+4. Cancel and join background maintenance before closing SQLite
+5. Evict this instance from the process cache
 
-Vision: also cancel maintenance ticker and close MCP bridges (partial today).
+**VERIFIED CURRENT:** steps 1–5 are implemented for shards, maintenance, MCP,
+browser, closable embeddings, JIT, LocalDB, LearningStore, perception, and cache
+eviction. Named boot-stage errors reuse the same aggregate cleanup, and Close is
+idempotent for the tested slice. Vision: replace the manual list with a typed
+acquisition registry that proves exact reverse order, caller-owned override
+semantics, and bounded cleanup receipts.
 
 ### 6. Adapter layer stays thin
 
@@ -96,3 +107,7 @@ Vision: session file I/O should route through VirtualStore policy path, not raw 
 | Boot without API keys for store/query tools | Works (today) |
 | Failed boot never poisons cache | Guaranteed (today) |
 | Close leaves no open SQLite on Windows temp cleanup | Guaranteed for LocalDB/Learning/JIT (today) |
+| Different disabled-system-shard sets never alias in cache | Guaranteed and regression-tested today |
+| Every engine/provider-mode identity is distinct | Required; not yet implemented |
+| Late boot failure releases verified owned acquisitions | Guaranteed for the regression-tested aggregate cleanup path |
+| Redacted boot and close receipt | Proposed bounded operator surface |

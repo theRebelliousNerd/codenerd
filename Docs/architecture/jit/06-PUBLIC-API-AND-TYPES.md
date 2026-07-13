@@ -11,7 +11,7 @@
 | Path | `internal/jit/config` |
 | Go package name | `config` |
 | Parent dir | `internal/jit/` (no root package files) |
-| External deps | `fmt`, `strings` only |
+| External deps | standard `fmt`, `strings`; internal `internal/core` policy inventory |
 
 **Caution:** Other packages also use the name `config` (e.g. `internal/config` for user/engine configuration). Always import with a path and alias if both are needed:
 
@@ -41,7 +41,7 @@ Primary DTO for a JIT-driven dynamic agent.
 | `IntentVerb` | `string` | `yaml:"intent_verb" json:"intent_verb"` | No |
 | `Persona` | `string` | `yaml:"persona" json:"persona"` | No |
 | `AllowedTools` | `[]string` | `yaml:"allowed_tools" json:"allowed_tools"` | No |
-| `Policies` | `[]string` | `yaml:"policies" json:"policies"` | **Yes** (len ≥ 1) |
+| `Policies` | `[]string` | `yaml:"policies" json:"policies"` | **Yes** (len ≥ 1; unique canonical embedded paths) |
 | `Model` | `string` | `yaml:"model" json:"model"` | No |
 | `ToolLoop` | `ToolLoopConfig` | `yaml:"tool_loop" json:"tool_loop"` | No |
 | `Safety` | `SafetyConfig` | `yaml:"safety" json:"safety"` | No |
@@ -85,10 +85,21 @@ Optional specialist scoping; process workspace is usually set by CLI.
 
 - `"config validation failed: identity_prompt is required"`  
 - `"config validation failed: at least one policy file is required"`  
+- `"config validation failed: policy %q is not a canonical embedded policy reference"`
+- `"config validation failed: duplicate policy reference %q"`
 
 **Success:** `nil`.
 
-**Not checked:** nil vs empty `AllowedTools`, tool name syntax, policy file existence on disk, model validity, tool loop bounds, workspace path existence.
+**Checked through core inventory:** every policy must be a canonical member of
+the embedded default policy corpus, and duplicate references fail. Aliases,
+missing modules, traversal, backslash paths, and whitespace variants are
+rejected. This proves embedded membership, not selective loading for one agent.
+
+**Not checked by `Validate`:** nil vs empty `AllowedTools`, tool name syntax,
+model validity, tool loop bounds, workspace path existence, policy-set identity
+or version, and per-agent policy application. The session consumer independently
+treats nil/empty `AllowedTools` as deny-all and tests both modular and Ouroboros
+routes.
 
 ## 4. Non-API (intentionally absent)
 

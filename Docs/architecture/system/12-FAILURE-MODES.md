@@ -7,9 +7,9 @@
 | | |
 |--|--|
 | **Symptom** | Commands use wrong provider/model/workspace after mid-process change |
-| **Cause** | Historical unkeyed singleton; residual risk if provider/model not re-read into cache key |
-| **Mitigation** | Keyed cache by workspace+provider+apiKey+model; `ResetCortexForWorkspace` |
-| **Residual** | Reset not wired from auth/config UI; TUI bypasses cache entirely |
+| **Cause** | Historical unkeyed singleton; current key still omits separately configured engine/provider mode |
+| **Mitigation** | Keyed cache by workspace+provider+apiKey+model+normalized disabled-shard set; `ResetCortexForWorkspace` |
+| **Residual** | Engine/provider-mode aliases remain possible; Reset is not wired from auth/config UI; TUI bypasses cache entirely |
 
 ## FM2 — Failed boot poison (prevented)
 
@@ -18,7 +18,7 @@
 | **Symptom** | (Would be) permanent failure for a key after one transient error |
 | **Cause** | Caching nil/error entries |
 | **Mitigation** | GetOrBootCortex does not insert on error |
-| **Tests** | Missing explicit regression test |
+| **Tests** | `TestGetOrBootCortexFailureIsNotCached` forces failure, retry, and subsequent reuse |
 
 ## FM3 — Kernel Evaluate failure
 
@@ -60,7 +60,7 @@
 |--|--|
 | **Symptom** | Warnings; semantic search / vector atom selection degraded |
 | **Cause** | Health check fail; NewEngine error |
-| **Mitigation** | Continue with nil engine; AtomLoader without vectors |
+| **Mitigation** | Continue with nil engine; close an unhealthy closable engine; AtomLoader without vectors |
 
 ## FM8 — LocalDB open failure
 
@@ -76,15 +76,16 @@
 |--|--|
 | **Symptom** | Tools for MCP servers unavailable |
 | **Cause** | NewMCPIntegrationBridge error; ConnectAll error async |
-| **Mitigation** | Warn logs; boot continues |
+| **Mitigation** | Warn logs; boot continues; successful bridge creation retains cancel/done/bridge ownership for Close/rollback |
 
-## FM10 — Maintenance vs Close race
+## FM10 — Maintenance vs Close race (mitigated)
 
 | | |
 |--|--|
-| **Symptom** | Potential panic in `runMaintenance` if LocalDB nilled by Close |
-| **Cause** | Cancel func discarded; no nil guard in runMaintenance |
-| **Mitigation** | **Needed** — store cancel; guard LocalDB |
+| **Historical symptom** | Immediate maintenance or a surviving ticker contended with LocalDB Close and delayed Windows exit |
+| **Mitigation** | **VERIFIED CURRENT:** first run waits one interval; cancel/done live on Cortex; Close stops/join-waits before LocalDB; runMaintenance nil-guards |
+| **Tests** | `maintenance_schedule_test.go` covers no-immediate-run, cancel, ordering, repeated Close |
+| **Residual** | StartMaintenanceSchedule and Close are not specified as concurrently callable; a timed-out close step may continue in its goroutine |
 
 ## FM11 — Double Cortex in CLI+TUI process
 
@@ -108,7 +109,7 @@
 |--|--|
 | **Symptom** | Session path writes files without VirtualStore policy path |
 | **Cause** | `sessionVirtualStoreAdapter` os fallback |
-| **Mitigation** | Route through VS when non-nil |
+| **Mitigation** | Add a typed policy-preserving VS capability; simple delegation is insufficient if it double-executes or lacks a pending envelope |
 
 ## FM14 — Hybrid prompt store partial failure
 
@@ -126,6 +127,23 @@
 | **Cause** | Config paths for NewWorkerClient / NewImageClient |
 | **Mitigation** | Explicit separate clients in initPerceptionLayer; image never uses worker |
 
+## FM16 — Late boot failure leaks earlier acquisitions (mitigated)
+
+| | |
+|--|--|
+| **Historical symptom** | Failed boot left SQLite locked, a spawn queue or connect goroutine live, or a project corpus DB open; retry behaved differently |
+| **Mitigation** | **VERIFIED CURRENT:** named boot steps call `rollbackBootContext`; untransferred project DB ownership is explicit; partial Cortex cleanup preserves the primary error and joins cleanup errors |
+| **Tests** | forced late failure closes LocalDB, Learning/JIT DB ownership, and embedding; separate cache test proves clean retry/no failed entry |
+| **Residual** | No typed exact-reverse-order registry, caller-owned override policy, or queue/MCP/browser cleanup-failure injection |
+
+## FM17 — Prompt compilation contaminates live executive state (mitigated)
+
+| | |
+|--|--|
+| **Historical symptom** | Concurrent prompts observe another compile's selector facts or leave compile facts in Cortex after error/cancel |
+| **Mitigation** | **VERIFIED CURRENT:** `KernelAdapter.NewCompilationScope` clones the primary RealKernel per compile |
+| **Tests** | `prompt_kernel_scope_test.go` covers concurrent language/retry contexts, budget failure, cancellation, and retry cache separation |
+
 ## Quick triage table
 
 | Operator observation | Start at |
@@ -133,6 +151,8 @@
 | “boot failed cortex kernel” | FM3, policy .mg |
 | “failed to init JIT” | FM4 |
 | “system shards” | FM5 / Disable list |
+| Commands reuse the wrong engine/provider mode | FM1 / current identity residual |
 | Commands work but chat “forgets” model | FM1 / FM11 |
-| Windows test TempDir | FM12 / Close missing |
+| Windows test TempDir after failed boot | FM16 regression, then FM12 if Reset was used |
+| Prompt selection changes another concurrent prompt | FM17 regression suite |
 | Deep facts missing | FM8 + holographic LocalDB path |

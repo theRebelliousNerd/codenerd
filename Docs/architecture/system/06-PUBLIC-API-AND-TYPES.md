@@ -24,7 +24,7 @@ Used for hybrid prompt ingest and kernel overrides in tests (`BootConfig.KernelO
 |-------|---------|
 | `Workspace` | Project root |
 | `APIKey` | Legacy Z.AI / GenAI fallback key |
-| `DisableSystemShards` | Names to `DisableSystemShard` before start |
+| `DisableSystemShards` | Set normalized for cache identity and `DisableSystemShard` before start |
 | `UserConfigOverride` | Test/TUI inject config |
 | `LLMClientOverride` | Test inject LLM |
 | `KernelOverride` | Test inject SystemKernel |
@@ -56,15 +56,17 @@ Fully initialized system instance. Public fields:
 | `JITCompiler` | `*prompt.JITPromptCompiler` | Prompt JIT |
 | `PromptAssembler` | `*articulation.PromptAssembler` | Runtime assembly |
 
-Unexported: `cortexKey string` for cache eviction.
+Unexported lifecycle state: `cortexKey` for cache eviction;
+`maintenanceCancel`/`maintenanceDone`; MCP bridge/cancel/done; initialized-
+perception ownership; and a mutex/idempotent closed bit.
 
 ## 2. Factory functions
 
 | Symbol | File | Contract |
 |--------|------|----------|
-| `GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)` | factory.go | Cache get-or-create; starts maintenance |
+| `GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)` | factory.go | Cache get-or-create; normalizes and keys the disabled set; starts owned maintenance. Engine/provider-mode identity remains partial |
 | `BootCortex(ctx, workspace, apiKey, disableSystemShards)` | factory.go | → BootCortexWithConfig |
-| `BootCortexWithConfig(ctx, BootConfig)` | factory.go | Full DI boot |
+| `BootCortexWithConfig(ctx, BootConfig)` | factory.go | Full DI boot through named transactional steps and aggregate rollback |
 | `ResetGlobalCortex()` | factory.go | Clear entire cache; does **not** Close |
 | `ResetCortexForWorkspace(workspace)` | factory.go | Evict by Workspace path |
 | `IngestHybridPrompts(ctx, workspace, kernel, atomLoader)` | factory.go | Hybrid PROMPT → corpus.db |
@@ -73,10 +75,10 @@ Unexported: `cortexKey string` for cache eviction.
 
 | Method | File | Contract |
 |--------|------|----------|
-| `SpawnTask(ctx, shardType, task)` | factory.go | System → ShardManager; else TaskExecutor |
-| `SpawnTaskWithContext(ctx, shardType, task, sessionCtx, priority)` | factory.go | Same split + priority |
-| `StartMaintenanceSchedule(ctx)` | factory.go | 30m LocalDB maintenance; returns cancel |
-| `Close()` | cortex_close.go | Stop shards/queue; close JIT/DB/learning; perception; evict cache |
+| `SpawnTask(ctx, shardType, task)` | factory.go | Image and system profiles → ShardManager; else TaskExecutor |
+| `SpawnTaskWithContext(ctx, shardType, task, sessionCtx, priority)` | factory.go | Same split + priority/context |
+| `StartMaintenanceSchedule(ctx)` | factory.go | Wait one interval, then 30m LocalDB maintenance; stores and returns cancel |
+| `Close()` | cortex_close.go | Idempotent bounded close of maintenance, shards/queue, MCP, browser, closable embedding, JIT/DB/learning/perception; evict cache |
 
 ## 4. Agent registry
 
@@ -95,6 +97,8 @@ Unexported: `cortexKey string` for cache eviction.
 | `NewKernelAdapter(kernel)` | factory_adapters.go | Constructor |
 | `(KernelAdapter).Query` | factory_adapters.go | core.Fact → prompt.Fact |
 | `(KernelAdapter).AssertBatch` | factory_adapters.go | core.Fact or Mangle string facts |
+| `(KernelAdapter).Retract` | factory_adapters.go | Predicate cleanup on the adapter kernel |
+| `(KernelAdapter).NewCompilationScope` | factory_adapters.go | Resolve primary RealKernel, clone it, and return one private prompt scope |
 
 ## 6. Trace adapter
 
@@ -132,7 +136,8 @@ Unexported: `cortexKey string` for cache eviction.
 ```go
 // Preferred in Cobra handlers:
 cortex, err := system.GetOrBootCortex(ctx, workspace, apiKey, disableSystemShards)
-defer cortex.Close() // only if process-owned singleton policy allows
+if err != nil { return err }
+defer cortex.Close()
 
 // Tests / DI:
 cortex, err := system.BootCortexWithConfig(ctx, system.BootConfig{

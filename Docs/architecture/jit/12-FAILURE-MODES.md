@@ -20,8 +20,8 @@
 | **Symptom** | `config validation failed: at least one policy file is required` |
 | **Cause** | `Policies` nil or empty |
 | **Where** | `Validate()` |
-| **Mitigation** | Factory uses `defaultBasePolicies` (`base.mg`); custom atoms must include ≥1 policy |
-| **Recovery** | Register ConfigAtom with policies; never ship zero-policy personas |
+| **Mitigation** | Default factories resolve stable core set IDs to canonical embedded paths; `Validate` also rejects invented and duplicate references |
+| **Recovery** | Use a core registry set or canonical embedded member; never substitute an arbitrary YAML path |
 
 ## FM3 — ConfigFactory finds no ConfigAtoms
 
@@ -37,12 +37,12 @@
 
 | | |
 |--|--|
-| **Symptom** | Turn continues with 0 tools; weak identity; Validate would fail |
+| **Symptom** | Normal tool catalog is empty and every requested tool is denied; identity is weak and `Validate` would fail |
 | **Cause** | Session/spawner catch errors and set `&EffectiveAgentRuntimeConfig{}` |
 | **Where** | `executor.compileConfig` / execute path; `spawner.generateConfig` |
-| **Mitigation** | Logs warn; LLM may still answer text-only |
-| **Risk** | Side-effecting intents complete without tools (orchestrator false complete) — partially mitigated by `intent_requires_tool_call` + no-tool nudge |
-| **Recovery** | Fix JIT compile / factory; treat empty cfg as hard fail for side-effect intents |
+| **Mitigation** | Logs warn; the normal LLM path may still answer text-only, while modular and Ouroboros capability gates deny-all |
+| **Risk** | The turn can false-complete without tools and operators lack a typed degradation reason; this is availability/diagnostic risk, not an unrestricted capability grant |
+| **Recovery** | Fix JIT compile/factory and require explicit typed degradation rather than a zero value |
 
 ## FM5 — Tool name not in allowlist
 
@@ -51,7 +51,7 @@
 | **Symptom** | Tool call rejected / not executed |
 | **Cause** | Model requests tool outside `AllowedTools` |
 | **Where** | `session.isToolAllowed` / executeToolCall |
-| **Mitigation** | Persona tools include needed set; nudge atoms list available tools |
+| **Mitigation** | Persona tools include needed set; nudge atoms list available tools; the same rule applies to Ouroboros registry tools |
 | **Recovery** | Expand ConfigAtom tools or correct model behavior |
 
 ## FM6 — Allowlist name not in registry
@@ -120,6 +120,16 @@
 | **Where** | `runToolLoop(systemPrompt, …)` vs cfg fields |
 | **Mitigation** | Keep factory IdentityPrompt = result.Prompt; SubAgent inject paths should stay consistent |
 
+## FM13 — Policy reference is noncanonical or duplicated
+
+| | |
+|--|--|
+| **Symptom** | `config validation failed: policy … is not a canonical embedded policy reference` or a duplicate-policy error |
+| **Cause** | A specialist/custom producer supplies an alias such as `base.mg`, a missing/traversal/whitespace path, or repeats a valid path |
+| **Where** | `EffectiveAgentRuntimeConfig.Validate`, including specialist YAML load and any caller that validates generated output |
+| **Mitigation** | Resolve stable set IDs through `core.DefaultAgentPolicySetFiles`; validate every external config before injection |
+| **Recovery** | Reject the config and replace the reference with a canonical embedded member; do not weaken validation or load arbitrary files |
+
 ## Failure class summary
 
 | Class | Primary owner |
@@ -128,4 +138,5 @@
 | Atom coverage | `internal/prompt` |
 | Empty fallback policy | `internal/session` |
 | Tool registry alignment | `internal/tools` + ConfigAtoms |
+| Policy reference parity | `internal/prompt` + `internal/core/defaults` |
 | Constitutional permission | `internal/core` policy |

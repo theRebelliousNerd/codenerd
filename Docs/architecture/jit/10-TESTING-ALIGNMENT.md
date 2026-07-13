@@ -6,7 +6,7 @@
 
 | File | Lines | Coverage focus |
 |------|------:|----------------|
-| `internal/jit/config/types_test.go` | 67 | `Validate` table |
+| `internal/jit/config/types_test.go` | 91 | `Validate` table |
 
 ### Cases in `TestAgentConfigValidation`
 
@@ -17,6 +17,9 @@
 | Whitespace-only identity | Error |
 | Empty policies slice | Error |
 | Nil policies | Error |
+| Missing alias (`base.mg`) | Error |
+| Traversal policy | Error |
+| Duplicate policy | Error |
 
 **Note:** Test name still says `AgentConfig` historically; type under test is `EffectiveAgentRuntimeConfig`.
 
@@ -28,10 +31,13 @@
 | Default factory Validate | `TestDefaultConfigFactory_OutputPassesValidate` | Every default intent must Validate |
 | Fallback Validate | `TestDefaultConfigFactory_FallbackPassesValidate` | Fallback identity still needs policies |
 | Generation matrix | `internal/prompt/config_generation_test.go` | Persona tools/policies |
+| Core policy inventory | `internal/core/policy_inventory_test.go` | Every stable set resolves to embedded boot members; aliases/traversal fail |
+| Provider parity | `internal/prompt/config_policy_registry_test.go` | Both default config providers share canonical sets and every generated policy validates |
 | Gaps | `internal/prompt/prompt_gaps_test.go` | nil slices, determinism, mutation safety |
 | Spawner YAML | `internal/session/spawner_config_test.go` | Flat YAML shape |
+| Spawner validation/bounds | `TestLoadSpecialistConfigRejectsInvalidRuntimeConfig`, `TestLoadSpecialistConfigPreservesBoundaryGates` | Blank identity, missing policies, traversal, size cap |
 | Spawner generate | `spawner_improvements_test.go`, `spawner_gaps_test.go` | Fallback/empty paths |
-| Executor tools | `executor_process_test.go`, `executor_boundary_test.go` | Allowlist / nil cfg |
+| Executor tools | `executor_capability_test.go`, `executor_boundary_test.go` | Fail-closed nil/empty/unlisted modular and Ouroboros routes, Piggyback catalog, concurrent reads |
 
 ## 3. Integration / e2e
 
@@ -66,16 +72,20 @@ go test ./internal/prompt/ ./internal/session/ ./internal/jit/...
 go test ./tests/e2e/ -tags=integration -count=1 -run "Specialist|Session|Config|Orchestrator"
 ```
 
-## 5. Coverage gaps
+## 5. Coverage status and residual gaps
 
 | Gap | Severity | Suggested test |
 |-----|----------|----------------|
-| `Validate` after YAML unmarshal in spawner | High | Reject invalid specialist YAML |
+| Specialist `Validate` after YAML unmarshal | **Verified** | `TestLoadSpecialistConfigRejectsInvalidRuntimeConfig` |
 | `ToolLoop` honored by executor | High | Assert MaxIterations from cfg once wired |
 | `RequirePolicyEnforcement` behavior | Medium | Flag true + empty policies refuses |
 | Slice mutation across SubAgents | Medium | Already partially in prompt_gaps; extend to session |
 | JSON tags round-trip | Low | Marshal/unmarshal parity with YAML |
-| Empty AllowedTools vs side-effect intent | Medium | Kernel + executor interaction |
+| Empty/unlisted modular tool execution | **Verified** | `TestExecutorExecuteToolCallRequiresEffectiveCapability` |
+| Ouroboros tool outside AllowedTools | **Verified** | `TestExecutorOuroborosRegistryDoesNotGrantCapability` asserts execute count remains zero |
+| Default policy references resolve | **Verified** | `TestDefaultAgentPolicySetsResolveToEmbeddedPolicyInventory`, `TestDefaultConfigFactoryPoliciesResolveAgainstCoreInventory`, and provider parity |
+| Policy set identity/version reaches session | Medium | Add receipt/integration test once global-versus-selective semantics are pinned |
+| Specialist path/size hostile cases | **Verified** | `TestLoadSpecialistConfigPreservesBoundaryGates` |
 | Rename test to EffectiveAgentRuntimeConfig | Low | Hygiene |
 
 ## 6. Alignment score
@@ -84,7 +94,10 @@ go test ./tests/e2e/ -tags=integration -count=1 -run "Specialist|Session|Config|
 |-------|-----------|
 | Schema unit tests | **Good** for Validate edges |
 | Factory tests | **Strong** |
-| Executor field completeness | **Partial** (tools yes; ToolLoop/Safety no) |
+| Executor field completeness | **Partial** (capability tools yes; ToolLoop/Safety/policy identity no) |
 | e2e | **Present**, mock-heavy for factory |
 
-Overall: schema is **test-backed**; incomplete field wiring means green tests can still miss product expectations for YAML knobs.
+Overall: schema and repaired specialist/capability boundaries are **test-backed**,
+including canonical policy registry/provider parity and a focused race run;
+incomplete field wiring and absent set identity/selective application mean green
+tests can still miss product expectations for other YAML knobs.

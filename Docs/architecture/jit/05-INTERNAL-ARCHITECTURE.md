@@ -78,7 +78,7 @@ Spawner.generateConfig / loadSpecialistConfig
 .nerd/agents/<name>/config.yaml
   → VirtualStore.ReadRaw / os.ReadFile
   → yaml.Unmarshal → EffectiveAgentRuntimeConfig
-  → (Validate currently NOT called)
+  → Validate (path-qualified rejection on failure)
   → SubAgent
 ```
 
@@ -109,9 +109,15 @@ Session may still call ConfigFactory again via `compileConfig` unless a SubAgent
    + identity                 explicit error
 ```
 
-Production currently often jumps to empty fallback **without** Validate.
+Specialist YAML follows the reject branch. Generated and compiler fallback paths
+can still jump to an empty fallback **without** `Validate`; that value is deny-all
+at session's capability gate rather than unrestricted.
 
 ## 5. Serialization contract
+
+The YAML below illustrates the **current serialized shape and canonical factory
+paths**, not a selectively loaded per-agent constitution. Default factories
+resolve stable core set IDs to members of the embedded boot inventory.
 
 | Tag style | Example |
 |-----------|---------|
@@ -127,7 +133,8 @@ allowed_tools:
   - read_file
   - grep
 policies:
-  - base.mg
+  - policy/constitution.mg
+  - policy/validation.mg
   - reviewer.mg
 tool_loop:
   max_iterations: 5
@@ -143,7 +150,8 @@ workspace:
 
 1. Maps **JIT compiler output** to **Universal Executor** input.  
 2. Snake_case YAML for natural specialist files.  
-3. Validate only identity + policies — other fields have “safe zero values or downstream defaults.”
+3. Validate identity plus non-empty, unique, canonical embedded policies; other
+   fields have “safe zero values or downstream defaults.”
 
 ## 7. Boundary with sibling systems
 
@@ -151,6 +159,6 @@ workspace:
 |----------|------|
 | → prompt | Factory owns ConfigAtoms and defaults |
 | → session | Executor owns loop limits today; should converge on ToolLoop or document split |
-| → tools | Names in AllowedTools must match registry keys |
-| → mangle | Policy strings are logical file names, not loaded here |
+| → tools | Names in AllowedTools must match registry keys; nil/empty/unlisted deny before modular or Ouroboros execution |
+| → mangle | Default policy strings are canonical embedded paths resolved from stable registry set IDs; they identify global boot-corpus members but are not selectively loaded here |
 | → core | Constitutional `permitted(...)` still applies after tool allowlist |

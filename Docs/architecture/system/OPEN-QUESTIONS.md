@@ -1,56 +1,51 @@
-# system — Open Questions
+# Open questions: system
 
-> Last verified: **2026-07-13**
+> Last verified: 2026-07-13. Verified defects are not disguised as questions;
+> they live in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md).
 
-## Q1 — Should TUI use GetOrBootCortex?
+## Q1 — Should chat share the GetOrBoot cache?
 
-**Context:** Chat calls `BootCortexWithConfig` with `UserConfigOverride` and unpacks fields. CLI uses cached GetOrBootCortex.
+Chat currently uses `BootCortexWithConfig` so it can inject in-memory config and
+then add TUI-only transparency, retrieval, preferences, observers, and tools.
+Should it register that Cortex under the same canonical identity, or should chat
+remain an explicitly separate owner with direct-boot lifecycle semantics?
 
-**Tradeoffs:**
+The decision affects cache sharing, maintenance, duplicate system shards, and
+config changes. It does not block fixing the current incomplete cache identity.
 
-- **Unify:** one identity model, one maintenance schedule, simpler mental model.  
-- **Keep separate:** TUI can inject in-memory config without writing config.json; avoids sharing with short CLI invocations in same process (rare).
+## Q2 — What is the public reset contract?
 
-**Status:** Open. Prefer unify with optional override registration API.
+Current Reset functions evict without Close. Should the API expose distinct
+`Evict*` and `CloseAndReset*` operations, or make Reset always close? Callers need
+an explicit answer for long-lived processes and tests.
 
-## Q2 — Who owns Cortex.Close in long-running CLI?
+## Q3 — Which optional components become required by product mode?
 
-**Context:** Many Cobra handlers call GetOrBootCortex and may not Close, relying on process exit. Cache intentionally retains instances.
+Embeddings and MCP currently degrade with warnings. A retrieval-required or
+tool-required mode may need a typed boot capability contract that converts a
+selected dependency from soft to hard failure.
 
-**Question:** Is process-lifetime ownership the product rule? If yes, document; if no, define command-scoped vs process-scoped Cortex.
+## Q4 — Who owns direct-Boot maintenance?
 
-## Q3 — Should Reset close instances?
+Only cached GetOrBoot instances start maintenance. If chat remains direct boot,
+should it start its own schedule, explicitly disable maintenance, or delegate
+retention to another owner? Double-ticker prevention is part of the decision.
 
-**Context:** `ResetGlobalCortex` drops pointers without Close.
+## Q5 — What is the supported Close concurrency contract?
 
-**Question:** Safer API: `ResetAndClose*` that joins Close errors? Or force callers to Close first?
+Normal sequential Close is bounded and idempotent for tested resources. Is
+concurrent Close, StartMaintenanceSchedule during Close, or Close during a
+system-shard callback supported? The answer determines whether lifecycle fields
+need a mutex/state machine.
 
-## Q4 — Maintenance on direct Boot*?
+## Q6 — How should crash dumps be retained?
 
-**Context:** Only GetOrBoot starts maintenance.
+The package tree contains `debug_program_ERROR.mg`. Future dumps should likely
+live under a bounded `.nerd/debug/` location with redaction and retention, but
+the operator-access and support contract is not pinned.
 
-**Question:** Should BootCortexWithConfig optionally start maintenance for TUI long sessions?
+## Q7 — Is `LocalStoreTraceAdapter.LoadReasoningTrace` part of the contract?
 
-## Q5 — Identity dimensions complete?
-
-**Context:** Key uses workspace, provider, apiKey, model.
-
-**Question:** Should engine (xai-oauth vs zai), worker LLM config, or `DisableSystemShards` participate? Changing engine without model/provider/key change might still hit stale Cortex.
-
-## Q6 — Hard-fail embedding?
-
-**Context:** Soft-fail today.
-
-**Question:** For “holographic retrieval” product modes that require vectors, should boot fail closed when embedding health fails?
-
-## Q7 — Where do crash dumps live?
-
-**Context:** `debug_program_ERROR.mg` appeared under `internal/system/`.
-
-**Question:** Should dumps always write under `.nerd/` workspace debug dir instead of package source tree?
-
-## Q8 — session VS adapter permanence?
-
-**Context:** Comments say fallback “for now.”
-
-**Question:** Is there a blocked dependency that prevents full VS routing, or is this pure debt?
+The method returns nil, nil. Either implement typed trace reconstruction with
+tests or narrow the interface/adapter so callers cannot interpret an absent
+trace as a successful empty load.

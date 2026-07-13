@@ -46,25 +46,31 @@ user input
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| `GetOrBootCortex` keyed cache | **Implemented** | SHA-256 identity; Bug #15 fix |
-| `BootCortex` / `BootCortexWithConfig` | **Implemented** | Full 9-stage pipeline |
-| `Cortex` aggregate | **Implemented** | Public fields for all major deps |
-| Soft-fail missing LLM | **Implemented** | `missingLLMClient` |
-| Multi LLM roles (main/shards/image) | **Implemented** | Scheduled via `core.NewScheduledLLMCall` |
-| Kernel multi-domain CortexKernel | **Implemented** | routing/world/tools/policy/campaign/prompts/cortex |
-| VirtualStore full wire | **Implemented** | dream, tx, tools, MCP, code scope, task exec |
-| JIT + PromptAssembler | **Implemented** | Hard-fail if embedded corpus missing |
-| Hybrid PROMPT ingest | **Implemented** | `IngestHybridPrompts` |
-| User agent discovery + registry | **Implemented** | disk + `agents.json` + JIT + profiles |
-| HolographicCodeScope | **Implemented** | core↔world cycle breaker |
-| System shard start | **Implemented** | RegisterAll + tactile_router + campaign_runner |
-| Maintenance schedule | **Partial** | Starts on GetOrBoot only; cancel discarded |
-| `Cortex.Close` | **Partial** | Strong for DBs/shards/JIT; not maintenance/MCP |
-| TUI cache integration | **Gap** | Uses BootCortexWithConfig directly |
-| Trace load adapter | **Stub** | Store only |
-| GetOrBoot unit tests | **Gap** | Full boot e2e exists |
+| `GetOrBootCortex` keyed cache | **VERIFIED CURRENT** for accepted inputs, **PARTIAL** for engine mode | SHA-256 identity includes normalized disabled-shard set; failure-safe reuse/split/retry tests pass; separate engine mode omitted |
+| `BootCortex` / `BootCortexWithConfig` | **VERIFIED CURRENT** | Full 9-stage named pipeline with aggregate error rollback |
+| `Cortex` aggregate | **VERIFIED CURRENT** | Public fields for all major deps |
+| Soft-fail missing LLM | **VERIFIED CURRENT** | `missingLLMClient` |
+| Multi LLM roles (main/shards/image) | **VERIFIED CURRENT** | Scheduled via `core.NewScheduledLLMCall` |
+| Kernel multi-domain CortexKernel | **VERIFIED CURRENT** | routing/world/tools/policy/campaign/prompts/cortex |
+| VirtualStore full wire | **VERIFIED CURRENT** | dream, tx, tools, MCP, code scope, task exec |
+| JIT + PromptAssembler | **VERIFIED CURRENT** | Hard-fail if embedded corpus missing |
+| Hybrid PROMPT ingest | **VERIFIED CURRENT** | `IngestHybridPrompts` |
+| User agent discovery + registry | **VERIFIED CURRENT** | disk + `agents.json` + JIT + profiles |
+| HolographicCodeScope | **VERIFIED CURRENT** | core↔world cycle breaker |
+| System shard start | **VERIFIED CURRENT** | RegisterAll + tactile_router + campaign_runner |
+| Maintenance schedule | **VERIFIED CURRENT** | Starts on GetOrBoot, waits one interval, stores cancel/done, stops before LocalDB |
+| `Cortex.Close` | **VERIFIED CURRENT** for enumerated owners, **PARTIAL** for typed registry | Idempotent bounded maintenance/shard/MCP/browser/embedding/JIT/DB/perception/cache cleanup |
+| Exact policy authorization envelope | **VERIFIED CURRENT** | Complete envelope owned by policy shard; exact mismatch denial tested |
+| Prompt compilation isolation | **VERIFIED CURRENT** | Private RealKernel clone per compilation; error/cancel/concurrency tested |
+| Boot failure rollback | **VERIFIED CURRENT** for forced late failure | Shared aggregate cleanup closes verified owned resources and joins cleanup error with primary stage error |
+| TUI cache integration | **PARTIAL** | Uses BootCortexWithConfig directly |
+| Trace load adapter | **PARTIAL** | Store only; load returns nil, nil |
+| GetOrBoot unit tests | **VERIFIED CURRENT** for reuse/split/retry | Close eviction, Reset semantics, and engine identity remain open |
 
-**Overall (heuristic): ~88%** as a living production motherboard.
+**Overall:** production-used and package-tested. The disabled-shard identity and
+late-failure leak are repaired; engine identity, typed cleanup registry, and the
+P1 policy-bypass adapter remain explicitly open. Percentage-complete is
+not used because those risks are not interchangeable with low-impact polish.
 
 ---
 
@@ -79,7 +85,7 @@ internal/system/
   agent_registry.go          # .nerd/agents discovery + agents.json
   holographic_code_scope.go  # CodeScope + deep facts
   cortex_close.go            # Close lifecycle
-  *_test.go                  # 11 test files
+  *_test.go                  # 19 test files, 61 named tests
   debug_program_ERROR.mg     # crash dump artifact (not source)
 ```
 
@@ -87,11 +93,11 @@ internal/system/
 
 | Path | Lines (approx.) | Role |
 |------|----------------:|------|
-| `internal/system/factory.go` | 1151 | Flagship |
-| `internal/system/factory_adapters.go` | 433 | Adapters |
+| `internal/system/factory.go` | 1280 | Flagship |
+| `internal/system/factory_adapters.go` | 480 | Adapters |
 | `internal/system/agent_registry.go` | 284 | Agents |
 | `internal/system/holographic_code_scope.go` | 172 | World bridge |
-| `internal/system/cortex_close.go` | 62 | Teardown |
+| `internal/system/cortex_close.go` | 104 | Teardown |
 
 ### 3.3 Related docs in this corpus
 
@@ -135,7 +141,7 @@ See [README.md](README.md) document map for 00–12 + governance files.
 | `SpawnTask` | System profiles → ShardManager; else TaskExecutor |
 | `SpawnTaskWithContext` | Same + priority/session |
 | `StartMaintenanceSchedule` | 30m LocalDB archival loop; returns cancel |
-| `Close` | Stop shards/queue; close JIT/DB/learning; perception; cache evict |
+| `Close` | Idempotent bounded shard/MCP/browser/embedding/JIT/DB/perception close; cache evict |
 
 Full API tables: [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md).
 
@@ -152,12 +158,17 @@ Early code used a process-wide singleton Cortex. Switching workspace, provider, 
 ### 5.2 Identity model
 
 ```
-key = SHA256_hex( workspace + "\x00" + provider + "\x00" + apiKey + "\x00" + model )
+disabled = normalizeDisableSystemShards(input)
+key = SHA256_hex(length_delimited(workspace, provider, apiKey, model, disabled...))
 ```
 
 - Workspace resolved via `resolveWorkspaceRoot` (arg → FindWorkspaceRoot → cwd).  
 - Provider/model from best-effort `config.LoadUserConfig(.nerd/config.json)`.  
-- Hash avoids leaking API keys as map keys and avoids NUL-join ambiguity.
+- Disabled names are trimmed, empty entries removed, deduplicated, and sorted.
+- Hash avoids leaking API keys as map keys; length delimiters prevent component ambiguity.
+
+**VERIFIED CURRENT** for workspace/provider/key/model/disabled set.
+**PARTIAL:** separately configured engine/provider mode remains outside the key.
 
 ### 5.3 Algorithm
 
@@ -168,7 +179,7 @@ key = SHA256_hex( workspace + "\x00" + provider + "\x00" + apiKey + "\x00" + mod
 5. `BootCortex(...)` — on error, return without insert.  
 6. Guard against nil cortex without error.  
 7. Set `cortex.cortexKey`, insert map.  
-8. `StartMaintenanceSchedule(context.Background())` — **cancel return value currently discarded**.  
+8. `StartMaintenanceSchedule(context.Background())` — cancel/done ownership is stored on Cortex.
 9. Return cortex.
 
 ### 5.4 Invalidation
@@ -211,8 +222,9 @@ BootCortex(ctx, workspace, apiKey, disable)
   → BootCortexWithConfig(ctx, BootConfig{...})
 
 BootCortexWithConfig(ctx, BootConfig)
-  → bootContext + ordered init*
-  → &Cortex{...}
+  → bootContext + defaultBootSteps
+  → success: cortexFromBootContext
+  → error: rollbackBootContext + named primary error
 ```
 
 ### 6.2 Stage order (binding)
@@ -228,6 +240,10 @@ BootCortexWithConfig(ctx, BootConfig)
 | 7 | `initIntelligenceLayer` | embedded corpus, JIT New | embedding, MCP, hybrid, agent sync |
 | 8 | `initShardManagement` | StartSystemShards | — |
 | 9 | `initFinalExecutors` | — | — |
+
+Each stage runs through `bootCortexWithSteps`. A failure closes an
+untransferred project DB, constructs the partial aggregate, calls idempotent
+`Cortex.Close`, and joins cleanup errors without replacing the named stage error.
 
 Order note: **Autopoiesis runs before Intelligence**, so `PromptAssembler` is attached to poiesis when created later (`SetPromptAssembler` if poiesis non-nil).
 
@@ -247,14 +263,19 @@ Then wrap with tracing if LocalDB opens, then schedule:
 
 Global concurrency: `core.ConfigureGlobalAPIScheduler` from user config policy in stage 1.
 
-### 6.4 Kernel domain ownership (boot-declared)
+### 6.4 Kernel domain ownership (canonical manifest → boot)
+
+`internal/shards/registration.go#DefaultShardPredicateManifests` is the typed
+source; `internal/system/factory.go#defaultKernelShardConfigs` converts it into
+the production Cortex configs. The uniqueness regression prevents a predicate
+from acquiring two owners.
 
 | Domain | Owned predicates |
 |--------|------------------|
 | routing | user_intent, next_action, routing_result, derived_mode |
 | world | file_topology, symbol_graph, diagnostic, project_profile |
 | tools | tool_capabilities, shard_lifecycle, shell_exec_result |
-| policy | permitted, blocked, constitution, commit_barrier, dangerous_action |
+| policy | pending_action, permitted_action, permission_check_result, permitted, blocked, constitution, commit_barrier, dangerous_action |
 | campaign | campaign, campaign_phase, campaign_task, campaign_dependency |
 | prompts | prompt_atom, atom_selection_score, shard_prompt_base |
 | cortex | (none listed) |
@@ -266,8 +287,9 @@ World facts load preference: LocalDB `LoadAllWorldFacts("fast")` → else `.nerd
 - WorkingDir = workspace  
 - Kernel attached; boot guard disabled  
 - LocalDB + graph adapter + LearningStore  
-- DreamRouter + DreamPlanManager  
-- TransactionManager when RealKernel available  
+- Resolve primary RealKernel from direct or Cortex kernel
+- Lazily bind Dreamer to that RealKernel; attach DreamRouter + DreamPlanManager
+- TransactionManager when RealKernel available
 - Modular tools hydrate  
 - **HolographicCodeScope** as CodeScope (deepWorkers from world config)  
 - FileEditor tactile adapter  
@@ -277,12 +299,14 @@ World facts load preference: LocalDB `LoadAllWorldFacts("fast")` → else `.nerd
 
 - Embedding engine optional health-check  
 - AtomLoader  
-- MCP bridge from integrations config; async `ConnectAll`  
+- MCP bridge from integrations config; async `ConnectAll` with retained
+  bridge/cancel/done ownership
 - Hybrid prompt ingest  
 - AgentSynchronizer  
 - Embedded corpus **required** for JIT  
 - Project corpus materialize at `.nerd/prompts/corpus.db`  
-- JIT compiler with kernel adapter, vector searcher, project DB  
+- JIT compiler with kernel adapter, vector searcher, project DB
+- One private cloned RealKernel compilation scope per Compile
 - PromptAssembler budgets from JIT config; EnableJIT flag  
 - User agents: JIT DB register + ShardManager TypeUser profiles  
 
@@ -313,6 +337,8 @@ All major public fields assigned from `bootContext`; `cortexKey` left empty unle
 ```
 normalizeShardTypeName: trim space, strip leading '/'
 
+if image shard:
+    ShardManager.Spawn / SpawnWithPriority using image client
 if ShardManager.GetProfile(name).Type == ShardTypeSystem:
     ShardManager.Spawn / SpawnWithPriority
 else:
@@ -369,7 +395,7 @@ Composition roots absorb impedance mismatches so domain packages stay cycle-free
 
 | Adapter | From → To | Notes |
 |---------|-----------|-------|
-| `KernelAdapter` | core.Kernel → prompt querier | Fact conversion; string AssertBatch parse |
+| `KernelAdapter` | core.Kernel → prompt querier | Fact conversion; string AssertBatch parse; Retract; private cloned compilation scopes |
 | `mcpKernelAdapter` | core.Kernel → mcp | Assert/Query/Retract; Retract trims dots carefully |
 | `perceptionLLMAdapter` | perception → mcp LLM | Tool complete optional |
 | `sessionKernelAdapter` | kernel → types.Kernel | Full method set |
@@ -391,23 +417,28 @@ Composition roots absorb impedance mismatches so domain packages stay cycle-free
 
 ```
 Close():
-  ShardManager.StopAll + StopSpawnQueue(5s)
+  lock; return if already closed
+  stopMaintenanceSchedule before LocalDB
+  ShardManager.StopSpawnQueue(5s) + StopAll
+  cancel/close/bounded-wait MCP
+  BrowserManager.Shutdown
   JITCompiler.Close
+  closable EmbeddingEngine.Close
+  perception.ClosePerceptionLayer when initialized
   LocalDB.Close
   LearningStore.Close
-  perception.ClosePerceptionLayer
   evictCortexByKey if cortexKey set
   errors.Join
 ```
 
-Does **not** currently:
+Boot rollback reuses this aggregate through `cortexFromBootContext`; an
+untransferred project DB is closed first. The forced late-failure regression
+proves LocalDB, Learning/JIT DB ownership, and a closable embedding are released.
 
-- Cancel maintenance ticker  
-- Disconnect MCP  
-- Close BrowserManager explicitly  
-- Close EmbeddingEngine if it holds resources  
-
-Critical for Windows tests (TempDir + open SQLite).
+**Residual:** cleanup is enumerated, not a typed exact-reverse-order acquisition
+registry. Caller-owned override semantics and queue/MCP/browser failure
+injection are not yet proven. This remains critical for Windows TempDir + SQLite
+behavior.
 
 ---
 
@@ -459,12 +490,19 @@ See [11-OBSERVABILITY.md](11-OBSERVABILITY.md).
 | Spawn routing | `factory_test.go` |
 | Agent registry | large coverage file |
 | MCP adapter | unit tests |
+| Exact policy ownership and permission | `cortex_permission_routing_test.go` |
+| Prompt compile isolation | `prompt_kernel_scope_test.go` |
+| Maintenance shutdown | `maintenance_schedule_test.go` |
+| Cache identity/retry | `factory_cache_test.go`, `factory_helpers_test.go` |
+| Late rollback/idempotence | `factory_rollback_test.go` |
+| Canonical predicate ownership | `internal/shards/registration_manifest_test.go` plus policy routing test |
 
 | Weakness | Impact |
 |----------|--------|
-| No GetOrBootCortex cache tests | Regression risk for Bug #15 fix |
-| No maintenance/Close race tests | FM10 |
-| System Spawn path untested | Routing hole |
+| No engine/provider-mode identity test | Same provider/model with different engine mode can alias |
+| No explicit Close-eviction/Reset contract tests | Long-lived invalidation behavior can drift |
+| No all-resource rollback fault injection | Exact reverse order, queue/MCP/browser failure, and caller-owned overrides remain unproven |
+| No policy-preserving session file adapter test | Raw OS bypass remains |
 
 Commands: `go test ./internal/system/...` — see [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
@@ -483,12 +521,14 @@ Commands: `go test ./internal/system/...` — see [10-TESTING-ALIGNMENT.md](10-T
 | FM7 | Embedding soft |
 | FM8 | LocalDB soft |
 | FM9 | MCP soft |
-| FM10 | Maintenance vs Close race |
+| FM10 | Maintenance vs Close race (mitigated) |
 | FM11 | CLI+TUI double Cortex |
 | FM12 | Reset without Close |
 | FM13 | Session file policy bypass |
 | FM14 | Hybrid atom partial store |
 | FM15 | Image/worker LLM mis-route |
+| FM16 | Late boot failure leaks acquisitions (mitigated; registry residual) |
+| FM17 | Prompt compilation contaminates executive state (mitigated) |
 
 Details: [12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 
@@ -499,7 +539,9 @@ Details: [12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 - C1–C5 cache identity and no failure poison  
 - F1 missing LLM soft; F2 kernel hard  
 - S1 policy domain present on real boot  
-- K1 maintenance concurrency hazard  
+- L1 maintenance stops before SQLite; L2 Close bounded/idempotent/enumerated
+- S1 exact envelope owner; S2 default deny; S3 action correlation; S4 Dreamer fail closed
+- S5 prompt scopes never mutate the live executive
 - M1 Retract dot-trimming  
 - R1 Close releases SQLite  
 
@@ -511,11 +553,11 @@ Details: [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
 
 Prioritized work lives in [TODO.md](TODO.md) and [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md). Headline gaps:
 
-1. Maintenance cancel discarded / Close race  
-2. TUI bypasses keyed cache  
-3. ResetCortex unused in production  
-4. sessionVirtualStoreAdapter os fallback  
-5. GetOrBoot unit tests missing  
+1. Cache identity omits separately configured engine/provider mode
+2. sessionVirtualStoreAdapter file I/O bypasses VirtualStore
+3. Typed reverse-order ownership, override policy, and boot receipt are incomplete
+4. Close eviction/Reset behavior needs a pinned API and tests
+5. TUI remains direct boot
 
 ---
 
@@ -601,6 +643,7 @@ rg "GetOrBootCortex|BootCortexWithConfig" -g "*.go" cmd internal/system
 
 | Date | Change |
 |------|--------|
+| 2026-07-13 | Reconciled normalized disabled-shard identity, transactional aggregate rollback, idempotent optional-resource Close, canonical manifest consumption, and focused regressions |
 | 2026-07-13 | Full rebuild per `_rebuild/SUBAGENT_INSTRUCTIONS.md`; deep GetOrBootCortex + boot pipeline coverage |
 
 ---

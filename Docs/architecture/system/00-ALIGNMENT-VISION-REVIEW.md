@@ -1,50 +1,54 @@
-# system — Alignment / Vision Review
+# Alignment and vision review: system
 
-> Last verified: **2026-07-13**  
-> Against: codeNERD north star (LLM creative center; Mangle kernel executive; constitutional `permitted`; JIT-first prompts)
+> Reviewed 2026-07-13 against `internal/system` and the cross-package safety
+> path it constructs. The signed Superstar score is in [_progress.md](_progress.md).
 
-## Scoring rubric
+## North-star alignment
 
-| Score | Meaning |
-|------:|---------|
-| 5 | Fully aligned in code and call sites |
-| 4 | Strongly aligned; minor gaps or dual paths |
-| 3 | Partial; important wires present but incomplete |
-| 2 | Weak; concept present, easy to misuse |
-| 1 | Misaligned or absent |
+| Question | Verdict | Evidence |
+|---|---|---|
+| Does the package keep the LLM creative rather than executive? | **VERIFIED CURRENT** | `internal/system/factory.go#initKernel` constructs Mangle kernel shards; `initPerceptionLayer` supplies LLM clients without granting them effect authority |
+| Is constitutional control deterministic and default-deny? | **VERIFIED CURRENT** for wiring | `defaultKernelShardConfigs` places the complete authorization envelope in the policy shard; `cortex_permission_routing_test.go#TestDefaultCortexPermissionEnvelopeRoutesToPolicyShard` proves exact matching |
+| Does prompt behavior use the JIT path? | **VERIFIED CURRENT** | `factory.go#initIntelligenceLayer` requires the embedded corpus and constructs `JITPromptCompiler`; compilation uses private kernel scopes |
+| Is construction separated from execution? | **VERIFIED CURRENT** | System composes `Cortex`; session, shards, VirtualStore, and tools perform runtime work |
+| Is lifecycle ownership complete? | **VERIFIED CURRENT** for owned boot resources, **PARTIAL** for registry policy | Stage failures reuse idempotent aggregate cleanup; Close owns MCP, browser, closable embedding, JIT/DBs, shards, maintenance, and perception. Exact reverse acquisition order and caller-owned override policy remain untyped |
+| Are package boundaries honest? | **PARTIAL** | Thin kernel, MCP, session, and trace adapters avoid cycles; session file read/write still bypass VirtualStore policy |
+| Can operators explain a boot? | **PARTIAL** | Category logs exist, but no one correlated redacted stage/resource receipt exists |
 
-## Dimension scores
+## What improved in the reviewed tree
 
-| Dimension | Score | Evidence |
-|-----------|------:|----------|
-| **Inversion of control** | **5** | Boot builds kernel first among executive pieces; LLM clients are injected *into* perception/shards/session, not the other way around. `initKernel` registers policy domain with `permitted` ownership. |
-| **Constitutional safety surface** | **4** | Policy kernel shard owns `permitted` / `blocked` / `constitution` / `dangerous_action` (`factory.go` `shardConfigs`). System shards can be disabled via `DisableSystemShards` for tests — intentional escape hatch, not production default. |
-| **JIT-first LLM behavior** | **5** | Boot always constructs `prompt.JITPromptCompiler`, wires `articulation.PromptAssembler`, registers project + agent corpora, and builds `session.NewJITExecutor`. Hybrid PROMPT atoms from kernel boot are ingested into corpus DB. |
-| **Single wiring authority** | **4** | Package comment: “Motherboard”. Almost all production CLI uses `GetOrBootCortex`. **Exception:** interactive chat uses `BootCortexWithConfig` directly (`cmd/nerd/chat/session_shared_boot.go`), bypassing the keyed cache. |
-| **Deterministic assembly** | **4** | Fixed stage order in `BootCortexWithConfig`. Soft-fails for non-critical subsystems (embedding, MCP, taxonomy). Hard-fails on kernel evaluate, JIT compiler, system shard start. |
-| **Lifecycle / resource safety** | **3** | `Cortex.Close` stops shards, closes JIT/DB/learning, closes perception layer, evicts cache. `GetOrBootCortex` starts maintenance but **discards** the returned cancel func — maintenance lives until process exit or Close does not stop the ticker (Close does not cancel maintenance). |
-| **Cache correctness** | **5** | Keyed by SHA-256 of `workspace \0 provider \0 apiKey \0 model` (Bug #15). Failed boots not cached. Double-checked locking. Close evicts by key. |
-| **Adapter honesty** | **3** | Necessary boundary adapters exist (`KernelAdapter`, session/MCP adapters). `sessionVirtualStoreAdapter.ReadFile/WriteFile` use **os fallback**, not VirtualStore `HandleAction` — documented in source as interim. |
-| **Observability of boot** | **4** | Category-tagged logs (Perception, Context, Tools, Embedding, Session, Store, World). TUI adds `[boot]` step printing outside this package. |
-| **Testability / DI** | **5** | `BootConfig` overrides: `UserConfigOverride`, `LLMClientOverride`, `KernelOverride`, `DisableSystemShards`. Boot tests exercise full and no-LLM paths. |
-| **Wiring-before-deletion culture** | **5** | Package *is* the wiring layer. Dead-looking adapters still used by session/MCP/JIT paths. |
+- **VERIFIED CURRENT:** policy owns `pending_action`, `permitted_action`,
+  `permission_check_result`, and `permitted` together.
+- **VERIFIED CURRENT:** default Cortex boot exposes a primary RealKernel to the
+  VirtualStore, enabling fail-closed Dreamer simulation for destructive routes.
+- **VERIFIED CURRENT:** prompt compilation uses a private RealKernel clone and
+  does not leak selector facts on success, error, or cancellation.
+- **VERIFIED CURRENT:** maintenance starts without an immediate database cycle,
+  stores cancel/done ownership on Cortex, and Close stops it before LocalDB.
+- **VERIFIED CURRENT:** effect routing preserves the executive action ID and
+  uses exact target/payload authorization rather than `safe_action/1` as a grant.
+- **VERIFIED CURRENT:** the normalized disabled-system-shard set participates in
+  cache identity and boot behavior; equal sets reuse and different sets split.
+- **VERIFIED CURRENT:** named boot-step failure routes through shared rollback,
+  and repeated Close is idempotent for the tested lifecycle slice.
+- **VERIFIED CURRENT:** production kernel shard configs consume the canonical
+  predicate manifest; the policy envelope has one typed source of truth.
 
-### Weighted overall: **~4.3 / 5**
+## Remaining anti-alignments
 
-The motherboard strongly realizes the north star. Remaining friction is dual boot entry points (cache vs direct), incomplete lifecycle cancellation for maintenance, and a few adapter shortcuts.
+1. **Identity still omits engine/provider mode.** The disabled-shard defect is
+   closed, but config engine can shape construction beyond provider/model.
+2. **One adapter bypasses the executive.** Session file reads/writes use raw OS
+   calls.
+3. **Teardown is enumerated, not registered.** The fixed Close path owns MCP,
+   browser, and closable embeddings, but exact acquisition order, ownership
+   metadata, and cleanup receipts are not a typed registry.
+4. **Chat uses direct boot.** This is a conscious integration seam, but it means
+   cache identity and maintenance behavior are not universal.
 
-## North-star checklist (package-local)
+## Non-claims
 
-| North-star rule | system’s job | Status |
-|-----------------|--------------|--------|
-| LLM = creative center | Wire main / shard / image LLM clients; never make LLM own policy | Done |
-| Kernel = executive | Boot `CortexKernel` + domains; attach VirtualStore to kernel | Done |
-| `permitted(...)` default deny | Policy domain registered; actual rules live in `core/defaults/policy` | Owned elsewhere; wired here |
-| JIT prompt atoms | AtomLoader, corpus materialize, agent DBs, PromptAssembler | Done |
-| Audit wiring before delete | This package *is* the audit surface for “how does X get a Kernel?” | Done |
-
-## Anti-alignments (do not claim)
-
-- system does **not** implement constitutional rules itself.  
-- system does **not** replace perception or articulation.  
-- `GetOrBootCortex` is **not** used by the interactive TUI today.
+- System does not implement `permitted/3`; core policy does.
+- A passing system suite does not prove all CLI, network, campaign, or race paths.
+- A non-nil Cortex does not mean every optional integration is healthy.
+- The package-local crash dump is not production Mangle source.

@@ -3,9 +3,13 @@
 > Binding principles for `internal/jit` and any code that constructs or consumes `EffectiveAgentRuntimeConfig`.  
 > Last verified: **2026-07-13**
 
-## P1 — Schema only; no orchestration
+## P1 — Schema plus deterministic inventory validation; no orchestration
 
-`internal/jit/config` must not import session, core, prompt, tools, or LLM clients. It is a **pure data contract**. Side effects, I/O, and routing belong to producers and consumers.
+`internal/jit/config` is a **pure data contract** with one deliberate project
+dependency: core's read-only embedded policy inventory. It must not import
+session, prompt, tools, or LLM clients. Side effects, I/O, loading, and routing
+belong to producers and consumers; the core import may validate membership but
+must not boot or mutate a kernel.
 
 ## P2 — One type for all personas
 
@@ -17,11 +21,15 @@ An agent without an identity prompt is not a specialized agent. `Validate()` rej
 
 ## P4 — Policies anchor the executive layer
 
-At least one policy reference is required by `Validate`. Treat empty `Policies` as unconstitutional for any config that claims to be production-ready. Prefer `base.mg` + persona overlays (factory convention).
+At least one unique canonical embedded policy reference is required by
+`Validate`. Treat empty, aliased, traversal-shaped, duplicate, or missing
+`Policies` as invalid for any config that claims to be production-ready. Default
+providers must resolve stable core registry set IDs rather than invent paths.
+Canonical membership does not itself prove selective per-agent enforcement.
 
 ## P5 — Tools are an allowlist, not a denylist
 
-`AllowedTools` enumerates what the model may request. Session code must check membership before execute (`isToolAllowed`). Empty list must not be silently treated as “all tools” without an explicit product decision.
+`AllowedTools` enumerates what the model may request. Session code checks membership before modular or Ouroboros execution (`isToolAllowed`); nil and empty lists are deny-all. Registry membership proves handler availability, never capability.
 
 ## P6 — YAML and factory share the same shape
 
@@ -52,7 +60,9 @@ Roadmaps use dependency gates and ordering only.
 Trust boundaries for this type:
 
 1. Factory generation (optional defense-in-depth)  
-2. YAML unmarshal of specialist configs (**should** Validate)  
+2. YAML unmarshal of specialist configs (**does** Validate)
 3. External API injection if ever exposed  
 
-Skipping Validate is only acceptable for explicitly degraded internal fallbacks with logging.
+Generated and fallback configs still need a uniform validation/degradation
+contract. Skipping `Validate` must never grant a tool; current zero-value
+fallbacks satisfy that narrower rule because session capability checks deny-all.
