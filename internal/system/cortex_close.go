@@ -1,10 +1,17 @@
 package system
 
 import (
+	"codenerd/internal/logging"
 	"codenerd/internal/perception"
 	"errors"
+	"fmt"
 	"time"
 )
+
+// closeStepTimeout bounds each Close step so one-shot CLI (create/spawn)
+// cannot hang forever after printing Result. Windows SQLite + system-shard
+// shutdown has historically blocked process exit for minutes.
+const closeStepTimeout = 8 * time.Second
 
 // Close releases resources held by a Cortex instance.
 //
@@ -17,33 +24,46 @@ func (c *Cortex) Close() error {
 
 	var errs []error
 
+	// Stop maintenance BEFORE closing LocalDB — the loop calls
+	// LocalDB.MaintenanceCleanup and can block process exit if left running.
+	if c.maintenanceCancel != nil {
+		c.maintenanceCancel()
+		c.maintenanceCancel = nil
+	}
+
 	if c.ShardManager != nil {
-		c.ShardManager.StopAll()
-		c.ShardManager.StopSpawnQueue(5 * time.Second)
+		runCloseStep("ShardManager.StopAll", closeStepTimeout, func() error {
+			c.ShardManager.StopAll()
+			return nil
+		})
+		runCloseStep("ShardManager.StopSpawnQueue", closeStepTimeout, func() error {
+			c.ShardManager.StopSpawnQueue(5 * time.Second)
+			return nil
+		})
 	}
 
 	if c.JITCompiler != nil {
-		if err := c.JITCompiler.Close(); err != nil {
+		if err := runCloseStep("JITCompiler.Close", closeStepTimeout, c.JITCompiler.Close); err != nil {
 			errs = append(errs, err)
 		}
 		c.JITCompiler = nil
 	}
 
 	if c.LocalDB != nil {
-		if err := c.LocalDB.Close(); err != nil {
+		if err := runCloseStep("LocalDB.Close", closeStepTimeout, c.LocalDB.Close); err != nil {
 			errs = append(errs, err)
 		}
 		c.LocalDB = nil
 	}
 
 	if c.LearningStore != nil {
-		if err := c.LearningStore.Close(); err != nil {
+		if err := runCloseStep("LearningStore.Close", closeStepTimeout, c.LearningStore.Close); err != nil {
 			errs = append(errs, err)
 		}
 		c.LearningStore = nil
 	}
 
-	if err := perception.ClosePerceptionLayer(); err != nil {
+	if err := runCloseStep("ClosePerceptionLayer", closeStepTimeout, perception.ClosePerceptionLayer); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -59,4 +79,27 @@ func (c *Cortex) Close() error {
 		return errors.Join(errs...)
 	}
 	return nil
+}
+
+// runCloseStep runs fn with a hard timeout. On timeout it logs and returns
+// a timeout error so Close can continue tearing down remaining resources.
+func runCloseStep(name string, timeout time.Duration, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("%s panicked: %v", name, r)
+			}
+		}()
+		done <- fn()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		logging.Get(logging.CategorySession).Warn(
+			"Cortex.Close: %s timed out after %v; continuing shutdown", name, timeout,
+		)
+		return fmt.Errorf("%s timed out after %v", name, timeout)
+	}
 }

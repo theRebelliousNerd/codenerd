@@ -155,3 +155,15 @@ internal/campaign/.nerd/campaigns/c_test_triage/
 !.claude/skills/corpus-build/
 !.claude/skills/corpus-build/**
 
+
+# stress-tester skill (CLI live matrix surfaces) — track core docs
+!.agents/skills/stress-tester/
+!.agents/skills/stress-tester/**
+!.claude/skills/stress-tester/
+!.claude/skills/stress-tester/SKILL.md
+!.claude/skills/stress-tester/references/
+!.claude/skills/stress-tester/references/**
+!.codex/skills/stress-tester/
+!.codex/skills/stress-tester/SKILL.md
+!.codex/skills/stress-tester/references/
+!.codex/skills/stress-tester/references/**

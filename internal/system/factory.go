@@ -177,7 +177,9 @@ func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disab
 
 	// Start background maintenance for archival, cleanup, and logging.
 	// Only spawned on a fresh boot so cache hits do not leak goroutines.
-	cortex.StartMaintenanceSchedule(context.Background())
+	// Cancel is stored on Cortex and invoked from Close() so one-shot CLI
+	// (create/spawn) does not hang after Result while the loop holds DB work.
+	_ = cortex.StartMaintenanceSchedule(context.Background())
 
 	return cortex, nil
 }
@@ -245,6 +247,11 @@ type Cortex struct {
 	// in cortexCache (set by GetOrBootCortex). Direct BootCortex callers
 	// leave it empty; Close() then becomes a no-op against the cache.
 	cortexKey string
+
+	// maintenanceCancel stops StartMaintenanceSchedule's background loop.
+	// Must be invoked in Close() before LocalDB.Close() or one-shot CLI
+	// commands hang after printing Result (DB close blocked / process stuck).
+	maintenanceCancel context.CancelFunc
 }
 
 type missingLLMClient struct {
@@ -337,7 +344,14 @@ func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFun
 		return func() {}
 	}
 
+	// Stop any prior schedule (idempotent re-entry).
+	if c.maintenanceCancel != nil {
+		c.maintenanceCancel()
+		c.maintenanceCancel = nil
+	}
+
 	mCtx, cancel := context.WithCancel(ctx)
+	c.maintenanceCancel = cancel
 	go func() {
 		// Run once immediately on startup
 		c.runMaintenance()
