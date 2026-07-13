@@ -232,7 +232,15 @@ func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, s
 	// intent instead of re-perceiving the synthetic task string.
 	result, err := exec.ProcessWithIntent(ctx, inlineTask, presetIntentForTask(req.IntentVerb, inlineTask))
 	if err != nil {
+		// Still surface any partial response text for diagnostics, but never
+		// treat hollow/tool failure as success for CLI one-shots.
+		if result != nil && strings.TrimSpace(result.Response) != "" {
+			return result.Response, fmt.Errorf("execution failed: %w", err)
+		}
 		return "", fmt.Errorf("execution failed: %w", err)
+	}
+	if result.Error != nil {
+		return result.Response, result.Error
 	}
 
 	return result.Response, nil

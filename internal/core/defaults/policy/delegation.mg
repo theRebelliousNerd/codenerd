@@ -33,6 +33,38 @@ delegate_task(/coder, Task, /pending) :-
     user_intent(/current_intent, /mutation, /refactor, Task, _),
     !wants_direct_answer().
 
+# /create, /fix, /write, /delete, /debug, /commit, /git also map to
+# next_action(/delegate_coder) via action_mapping. Without matching
+# delegate_task rules, `nerd run` printed "Next action: /delegate_coder"
+# and exited 0 without ever spawning the coder (hollow success).
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /create, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /fix, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /write, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /delete, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /debug, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /commit, Task, _),
+    !wants_direct_answer().
+
+delegate_task(/coder, Task, /pending) :-
+    user_intent(/current_intent, _, /git, Task, _),
+    !wants_direct_answer().
+
 # Delegate to tester for test tasks
 delegate_task(/tester, Task, /pending) :-
     user_intent(/current_intent, _, /test, Task, _),

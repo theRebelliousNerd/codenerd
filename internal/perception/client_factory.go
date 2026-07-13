@@ -76,13 +76,24 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 			context7Key = os.Getenv("CONTEXT7_API_KEY")
 		}
 
-		return &ProviderConfig{
+		pc := &ProviderConfig{
 			Engine:         engine,
 			ClaudeCLI:      userCfg.GetClaudeCLIConfig(),
 			CodexCLI:       userCfg.GetCodexCLIConfig(),
 			XAIOAuth:       userCfg.GetXAIOAuthConfig(),
 			Context7APIKey: context7Key,
-		}, nil
+			Model:          userCfg.Model,
+		}
+		// SuperGrok hard-auth fallback needs the metered xAI key available.
+		if engine == "xai-oauth" {
+			xaiKey := userCfg.XAIAPIKey
+			if xaiKey == "" {
+				xaiKey = os.Getenv("XAI_API_KEY")
+			}
+			pc.APIKey = xaiKey
+			pc.Provider = ProviderXAI
+		}
+		return pc, nil
 	}
 
 	// Use the unified config's provider detection for API mode
@@ -268,6 +279,70 @@ func NewClassificationClientFromConfig(cfg *ProviderConfig) (LLMClient, error) {
 
 // NERD-EVOLVE-END: P1P2-model-tiering
 
+// newSuperGrokClientOrAPIFallback builds the SuperGrok OAuth client. If tokens are
+// quarantined/missing and an xAI API key is available (and fallback_to_api_key is
+// enabled, default true), falls back to metered API with a loud WARNING so CLI
+// sessions stay usable after refresh-token revoke. Prefer re-import (handled in
+// TokenSource.Load) over stuck quarantined tokens before this path runs.
+func newSuperGrokClientOrAPIFallback(config *ProviderConfig) (LLMClient, error) {
+	oauthClient := xaioauth.NewClientFromUserConfig(config.XAIOAuth)
+	if err := oauthClient.TokenSource().Load(); err != nil && xaioauth.IsAuthRequired(err) {
+		if xaiOAuthFallbackEnabled(config) {
+			if key := resolveXAIAPIKey(config); key != "" {
+				logging.PerceptionWarn(
+					"WARNING: engine=xai-oauth hard auth failure — falling back to xAI API key (metered). "+
+						"OAuth detail: %v. Re-auth SuperGrok: nerd auth grok. "+
+						"Disable fallback: set xai_oauth.fallback_to_api_key=false",
+					err,
+				)
+				xai := NewXAIClient(key)
+				model := ""
+				if config.XAIOAuth != nil && config.XAIOAuth.Model != "" {
+					model = config.XAIOAuth.Model
+				} else if config.Model != "" {
+					model = config.Model
+				}
+				if model != "" {
+					xai.SetModel(model)
+				}
+				return xai, nil
+			}
+		}
+		logging.PerceptionWarn(
+			"WARNING: SuperGrok OAuth not ready: %v — run: nerd auth grok "+
+				"(or set xai_api_key + fallback_to_api_key for metered API fallback)",
+			err,
+		)
+	}
+	return oauthClient, nil
+}
+
+// xaiOAuthFallbackEnabled reports whether hard-auth API key fallback is allowed.
+// Default true when unset (CLI reliability).
+func xaiOAuthFallbackEnabled(pc *ProviderConfig) bool {
+	if pc == nil || pc.XAIOAuth == nil || pc.XAIOAuth.FallbackToAPIKey == nil {
+		return true
+	}
+	return *pc.XAIOAuth.FallbackToAPIKey
+}
+
+func resolveXAIAPIKey(pc *ProviderConfig) string {
+	if pc != nil {
+		if k := strings.TrimSpace(pc.APIKey); k != "" {
+			return k
+		}
+	}
+	if k := strings.TrimSpace(os.Getenv("XAI_API_KEY")); k != "" {
+		return k
+	}
+	// Load user config for root xai_api_key when engine is xai-oauth.
+	path := config.DefaultUserConfigPath()
+	if cfg, err := config.LoadUserConfig(path); err == nil && cfg != nil {
+		return strings.TrimSpace(cfg.XAIAPIKey)
+	}
+	return ""
+}
+
 // NewClientFromConfig creates an LLM client from a provider config.
 // Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
@@ -278,7 +353,7 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 	case "codex-cli":
 		return NewCodexExecClient(config.CodexCLI), nil
 	case "xai-oauth":
-		return xaioauth.NewClientFromUserConfig(config.XAIOAuth), nil
+		return newSuperGrokClientOrAPIFallback(config)
 	case "api", "":
 		// Continue to API-based provider selection below
 	default:

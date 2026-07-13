@@ -200,6 +200,18 @@ func (r *shardFactoryRegistrar) registerEphemeralShards() {
 		shard.SetParentKernel(r.ctx.Kernel)
 		return r.withJITConfig(shard)
 	})
+
+	// Image generation (Gemini Nano Banana 2). Client is injected at spawn via
+	// ShardManager.clientForShardType — never the worker/Ollama LLM.
+	registerImageGenerator := func(id string, cfg types.ShardConfig) types.ShardAgent {
+		return coreshards.NewImageGeneratorAgent(id, cfg)
+	}
+	for _, name := range []string{
+		"image_generator", "image-generator", "imagegenerator",
+		"imagen", "image", "nano_banana", "nanobanana",
+	} {
+		r.sm.RegisterShard(name, registerImageGenerator)
+	}
 }
 
 func (r *shardFactoryRegistrar) registerSystemShards() {
@@ -351,6 +363,15 @@ func defineShardProfiles(sm *coreshards.ShardManager) {
 			Capability: types.CapabilityBalanced,
 		},
 	})
+
+	// Image generator profile (Gemini Nano Banana 2 / gemini-3.1-flash-image)
+	imgCfg := coreshards.DefaultImageGeneratorConfig("image_generator")
+	sm.DefineProfile("image_generator", imgCfg)
+	for _, alias := range []string{"image-generator", "imagegenerator", "imagen", "image", "nano_banana", "nanobanana"} {
+		aliasCfg := imgCfg
+		aliasCfg.Name = alias
+		sm.DefineProfile(alias, aliasCfg)
+	}
 
 	// Define system shard profiles
 	defineSystemShardProfiles(sm)

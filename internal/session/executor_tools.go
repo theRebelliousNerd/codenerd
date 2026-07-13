@@ -156,6 +156,9 @@ func (e *Executor) runToolLoop(
 				continue
 			}
 
+			if isWriteMutationTool(call.Name) {
+				result.SuccessfulWriteTools++
+			}
 			logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
 			toolResults = append(toolResults, types.ToolResult{
 				ToolUseID: call.ID,
@@ -224,6 +227,79 @@ func (e *Executor) intentRequiresToolCall(verb string) bool {
 		return false
 	}
 	return len(facts) > 0
+}
+
+// isWriteOrientedIntent reports intents whose completion requires durable
+// file mutations (write_file/edit_file/...). Pure analysis/query verbs are
+// false so prose-only answers remain valid terminal responses.
+func isWriteOrientedIntent(verb string) bool {
+	switch strings.TrimSpace(verb) {
+	case "/create", "/fix", "/refactor", "/write", "/delete", "/implement",
+		"/scaffold", "/optimize", "/format", "/migrate", "/document", "/commit":
+		return true
+	default:
+		return false
+	}
+}
+
+// isWriteMutationTool reports tools that land durable file/workspace changes.
+func isWriteMutationTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "write_file", "edit_file", "delete_file", "apply_patch", "str_replace",
+		"create_file", "replace_in_file", "multi_edit":
+		return true
+	default:
+		return false
+	}
+}
+
+// hollowSuccessPrefix is the stable error marker for hollow-completion failures.
+const hollowSuccessPrefix = "hollow success blocked:"
+
+// isHollowSuccessError reports whether err is a hollow-completion failure.
+func isHollowSuccessError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), hollowSuccessPrefix)
+}
+
+// checkHollowSuccess fails when a side-effect-requiring intent finished
+// without performing the required work. Prevents one-shot CLI paths
+// (nerd create / fix / spawn) from printing success Result after planning-only
+// prose.
+//
+// Dream mode is exempt: speculative subagents must not be forced to mutate.
+func (e *Executor) checkHollowSuccess(result *ExecutionResult) error {
+	if result == nil {
+		return nil
+	}
+	if e.sessionContext != nil && e.sessionContext.DreamMode {
+		return nil
+	}
+	verb := strings.TrimSpace(result.Intent.Verb)
+	if verb == "" {
+		return nil
+	}
+
+	requiresTools := e.intentRequiresToolCall(verb) || isWriteOrientedIntent(verb)
+	if !requiresTools {
+		return nil
+	}
+
+	if result.ToolCallsExecuted == 0 {
+		return fmt.Errorf(
+			"%s intent %s requires side effects but no tool calls completed",
+			hollowSuccessPrefix, verb,
+		)
+	}
+
+	// Write-oriented work that only ran read/search tools still claims success
+	// in live matrices (prose "Created backend/main.go" with no write_file).
+	if isWriteOrientedIntent(verb) && result.SuccessfulWriteTools == 0 {
+		return fmt.Errorf(
+			"%s write-oriented intent %s completed without write_file/edit_file (tool_calls=%d)",
+			hollowSuccessPrefix, verb, result.ToolCallsExecuted,
+		)
+	}
+	return nil
 }
 
 // retryWithNoToolNudge recompiles the prompt with the world_state
@@ -295,6 +371,9 @@ func (e *Executor) executeToolBatchPiggyback(
 			}
 			toolErrs = append(toolErrs, fmt.Sprintf("%s: %v", call.Name, execErr))
 			continue
+		}
+		if isWriteMutationTool(call.Name) {
+			result.SuccessfulWriteTools++
 		}
 		logging.SessionDebug("Tool %s executed successfully: %d chars result", call.Name, len(out))
 	}

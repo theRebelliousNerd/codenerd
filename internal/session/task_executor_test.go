@@ -44,6 +44,8 @@ func TestNormalizeTaskIntentVerb_ShardTypes(t *testing.T) {
 
 func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
 	// Bare shard names must not hard-fail — maps to verbs and runs.
+	// Use query/analysis shards here: write-oriented coder/tester with prose-only
+	// replies correctly hard-fail hollow success (covered separately).
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			return &types.LLMToolResponse{Text: "ok"}, nil
@@ -54,7 +56,7 @@ func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
 	}
 	mockTransducer := &MockTransducer{
 		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
-			return perception.Intent{Verb: "/test", Category: "/mutation"}, nil
+			return perception.Intent{Verb: "/review", Category: "/query"}, nil
 		},
 	}
 	executor := NewExecutor(
@@ -65,11 +67,20 @@ func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
 	)
 	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
 
-	for _, shard := range []string{"tester", "reviewer", "coder"} {
+	for _, shard := range []string{"reviewer", "researcher", "nemesis"} {
 		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: shard, Task: "do the thing briefly"})
 		if err != nil {
 			t.Fatalf("Execute with IntentVerb=%q failed: %v", shard, err)
 		}
+	}
+
+	// coder → /fix is write-oriented: prose-only is hollow and must fail.
+	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "coder", Task: "create a file"})
+	if err == nil {
+		t.Fatal("expected hollow success failure for coder with no tool calls")
+	}
+	if !strings.Contains(err.Error(), "hollow success blocked") {
+		t.Fatalf("expected hollow success error, got: %v", err)
 	}
 }
 
@@ -87,7 +98,8 @@ func TestNormalizeTaskIntentVerb_ImageFailsClosed(t *testing.T) {
 }
 
 func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
-	// Setup
+	// Inline path (needsSubagent=false). Use /review so prose-only is valid;
+	// /fix is write-oriented and would hard-fail hollow success without tools.
 	mockLLM := &MockLLMClient{
 		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 			return &types.LLMToolResponse{Text: "Task complete"}, nil
@@ -98,7 +110,7 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	}
 	mockTransducer := &MockTransducer{
 		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
-			return perception.Intent{Verb: "/fix", Category: "/coding"}, nil
+			return perception.Intent{Verb: "/review", Category: "/query"}, nil
 		},
 	}
 
@@ -123,13 +135,8 @@ func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 
 	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
 
-	// Execute
-	// "/fix" is NOT in complexIntents map in executor.go (checked previously: /research, /implement, /refactor, /campaign)
-	// Wait, /fix maps to "coder".
-	// Let's check needsSubagent in task_executor.go
-	// complexIntents: /research, /implement, /refactor, /campaign
-
-	result, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "Fix the bug"})
+	// /review is NOT in complexIntents (needsSubagent=false → inline).
+	result, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/review", Task: "Review the change"})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -423,7 +430,8 @@ func TestJITExecutor_TypeCoercion(t *testing.T) {
 		"\x00\x01\x02\xff\xfe",
 	}
 	for _, task := range tasks {
-		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: task})
+		// /review allows prose-only; plumbing must tolerate malformed task text.
+		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/review", Task: task})
 		if err != nil {
 			t.Errorf("Execute failed on malformed task: %v", err)
 		}
@@ -450,11 +458,12 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	jitExec := NewJITExecutor(createTestExecutor(t), spawner, &MockTransducer{})
 
 	// 1. Massive task payload (e.g., 5MB for speed, testing memory behavior)
+	// Use /review so hollow write-checks don't mask plumbing coverage.
 	var massiveTask strings.Builder
 	for range 50000 {
 		massiveTask.WriteString("This is a very long string used to simulate a massive task payload from the user. ")
 	}
-	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/fix", Task: massiveTask.String()})
+	_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: "/review", Task: massiveTask.String()})
 	if err != nil {
 		t.Errorf("Failed with massive task: %v", err)
 	}
@@ -484,11 +493,11 @@ func TestJITExecutor_UserRequestExtremes(t *testing.T) {
 	}
 
 	// 3. Extreme priority values
-	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(-2147483648))
+	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/review", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(-2147483648))
 	if err != nil {
 		t.Errorf("Failed with min priority: %v", err)
 	}
-	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/fix", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(2147483647))
+	_, err = jitExec.ExecuteWithContext(context.Background(), TaskRequest{IntentVerb: "/review", Task: "task"}, &types.SessionContext{}, types.SpawnPriority(2147483647))
 	if err != nil {
 		t.Errorf("Failed with max priority: %v", err)
 	}

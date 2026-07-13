@@ -796,11 +796,13 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 // GetXAIOAuthConfig returns SuperGrok OAuth config with defaults applied.
 func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
 	importGrok := true
+	fallbackAPI := true
 	if c.XAIOAuth == nil {
 		return &XAIOAuthConfig{
 			Model:              "grok-4.5",
 			Timeout:            300,
 			ImportGrokAuth:     &importGrok,
+			FallbackToAPIKey:   &fallbackAPI,
 			MaxConcurrentCalls: DefaultXAIOAuthMaxConcurrentCalls,
 		}
 	}
@@ -813,6 +815,9 @@ func (c *UserConfig) GetXAIOAuthConfig() *XAIOAuthConfig {
 	}
 	if cfg.ImportGrokAuth == nil {
 		cfg.ImportGrokAuth = &importGrok
+	}
+	if cfg.FallbackToAPIKey == nil {
+		cfg.FallbackToAPIKey = &fallbackAPI
 	}
 	if cfg.MaxConcurrentCalls == 0 {
 		cfg.MaxConcurrentCalls = DefaultXAIOAuthMaxConcurrentCalls

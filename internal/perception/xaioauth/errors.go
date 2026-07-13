@@ -3,6 +3,7 @@ package xaioauth
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -28,13 +29,29 @@ type AuthRequiredError struct {
 }
 
 func (e *AuthRequiredError) Error() string {
+	base := ErrAuthRequired.Error()
 	if e.Detail == "" {
-		return ErrAuthRequired.Error()
+		return base + "\n" + AuthRecoveryHelp("")
 	}
-	return fmt.Sprintf("%s: %s", ErrAuthRequired.Error(), e.Detail)
+	return fmt.Sprintf("%s: %s\n%s", base, e.Detail, AuthRecoveryHelp(e.Detail))
 }
 
 func (e *AuthRequiredError) Unwrap() error { return ErrAuthRequired }
+
+// AuthRecoveryHelp returns actionable recovery steps for SuperGrok OAuth failures.
+func AuthRecoveryHelp(detail string) string {
+	revoked := strings.Contains(strings.ToLower(detail), "invalid_grant") ||
+		strings.Contains(strings.ToLower(detail), "revoked") ||
+		strings.Contains(strings.ToLower(detail), "quarantine")
+	var b strings.Builder
+	b.WriteString("  Fix: run `nerd auth grok` (device login or re-import from ~/.grok/auth.json).\n")
+	if revoked {
+		b.WriteString("  Quarantined/revoked tokens: delete ~/.nerd/xai_oauth.json then re-auth,\n")
+		b.WriteString("  or log in again with the Grok CLI (`grok login`) and re-run `nerd auth grok`.\n")
+	}
+	b.WriteString("  Or: set engine=api with xai_api_key (metered) if SuperGrok OAuth is unavailable.")
+	return b.String()
+}
 
 // TierForbiddenError indicates HTTP 403 entitlement/tier gating.
 type TierForbiddenError struct {
@@ -83,4 +100,13 @@ func IsAuthRequired(err error) bool {
 // IsTierForbidden reports whether err is a subscription tier gate.
 func IsTierForbidden(err error) bool {
 	return errors.Is(err, ErrTierForbidden)
+}
+
+// IsTerminalRefreshFailure reports invalid_grant / revoked-style OAuth failures.
+func IsTerminalRefreshFailure(detail string) bool {
+	d := strings.ToLower(detail)
+	return strings.Contains(d, "invalid_grant") ||
+		strings.Contains(d, "revoked") ||
+		strings.Contains(d, "invalid_token") ||
+		strings.Contains(d, "expired_token")
 }

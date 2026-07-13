@@ -250,8 +250,6 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 			cancel()
 		}()
 
-		task := fmt.Sprintf("%s %s", strings.TrimPrefix(verb, "/"), target)
-
 		fmt.Printf("🔧 Action: %s\n", verb)
 		fmt.Printf("🎯 Target: %s\n", target)
 		fmt.Printf("🤖 Shard:  %s\n", shardType)
@@ -286,20 +284,34 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 			tracer.Trace("CORTEX", "usage tracker attached")
 		}
 
-		// Spawn shard directly - use unified SpawnTask
+		// Spawn via unified SpawnTask. Pass the intent verb (e.g. /create),
+		// not the persona shard name (coder). Mapping "coder"→/fix remapped
+		// every create/refactor one-shot onto the wrong intent and made hollow
+		// prose completions look successful.
 		tracer.TracePhase("SHARD EXECUTION")
-		tracer.TraceShard("spawning %s with task: %s", shardType, task)
+		tracer.TraceShard("spawning %s (intent %s) with task: %s", shardType, verb, target)
 		fmt.Printf("⏳ Spawning %s shard...\n", shardType)
 
 		shardStart := time.Now()
-		result, err := cortex.SpawnTask(ctx, shardType, task)
+		result, err := cortex.SpawnTask(ctx, verb, target)
 		shardDuration := time.Since(shardStart)
 
 		if err != nil {
 			tracer.TraceError("shard failed after %v: %v", shardDuration.Round(time.Millisecond), err)
+			// Print partial result if any (diagnostics) before non-zero exit.
+			if strings.TrimSpace(result) != "" {
+				fmt.Println(strings.Repeat("─", 50))
+				fmt.Println("📋 Partial result (failed):")
+				fmt.Println(result)
+			}
 			return fmt.Errorf("shard execution failed: %w", err)
 		}
 		tracer.TraceShard("completed in %v, result length: %d chars", shardDuration.Round(time.Millisecond), len(result))
+
+		// Defense in depth: write-oriented verbs must not exit 0 on empty prose.
+		if isWriteOrientedDirectVerb(verb) && strings.TrimSpace(result) == "" {
+			return fmt.Errorf("hollow success blocked: %s completed with empty result", verb)
+		}
 
 		fmt.Println(strings.Repeat("─", 50))
 		fmt.Println("📋 Result:")
@@ -307,6 +319,18 @@ func runDirectAction(shardType, verb string) func(cmd *cobra.Command, args []str
 
 		tracer.TracePhase("COMPLETE")
 		return nil
+	}
+}
+
+// isWriteOrientedDirectVerb mirrors session.write-oriented intents for CLI
+// post-checks without importing internal/session package details.
+func isWriteOrientedDirectVerb(verb string) bool {
+	switch strings.TrimSpace(verb) {
+	case "/create", "/fix", "/refactor", "/write", "/delete", "/implement",
+		"/scaffold", "/optimize", "/format", "/migrate", "/document", "/commit":
+		return true
+	default:
+		return false
 	}
 }
 

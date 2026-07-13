@@ -123,6 +123,10 @@ type CodexCLIConfig struct {
 //
 // Credentials come from device-code login (nerd auth grok) and/or import of
 // the official Grok CLI store (~/.grok/auth.json). No XAI_API_KEY required.
+//
+// When OAuth credentials are missing/revoked and FallbackToAPIKey is enabled
+// (default true), the client factory falls back to xai_api_key / XAI_API_KEY
+// with a loud WARNING so CLI sessions stay usable.
 type XAIOAuthConfig struct {
 	// Model is the primary model id (default: grok-4.5 — current Grok Build flagship).
 	Model string `json:"model,omitempty"`
@@ -142,12 +146,17 @@ type XAIOAuthConfig struct {
 	// CredentialPath is the codeNERD OAuth token store (default: ~/.nerd/xai_oauth.json).
 	CredentialPath string `json:"credential_path,omitempty"`
 
-	// ImportGrokAuth enables reading ~/.grok/auth.json when the codeNERD store is empty.
-	// Defaults to true when nil.
+	// ImportGrokAuth enables reading ~/.grok/auth.json when the codeNERD store is empty
+	// or quarantined (preferring a fresher Grok CLI import). Defaults to true when nil.
 	ImportGrokAuth *bool `json:"import_grok_auth,omitempty"`
 
 	// GrokAuthPath overrides the Grok CLI credential path (default: ~/.grok/auth.json).
 	GrokAuthPath string `json:"grok_auth_path,omitempty"`
+
+	// FallbackToAPIKey, when true (default), falls back to xai_api_key / XAI_API_KEY
+	// if SuperGrok OAuth credentials are missing, quarantined, or fail hard auth
+	// at client creation. Loud WARNING is logged; re-auth remains recommended.
+	FallbackToAPIKey *bool `json:"fallback_to_api_key,omitempty"`
 
 	// MaxConcurrentCalls limits parallel subscription requests under the scheduler ceiling.
 	// Defaults to 2.

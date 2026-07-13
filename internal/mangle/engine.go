@@ -728,11 +728,19 @@ func (e *Engine) Query(ctx context.Context, query string) (*QueryResult, error) 
 		e.mu.RUnlock()
 		return nil, fmt.Errorf("predicate %s is not declared", shape.atom.Predicate.Symbol)
 	}
-	if len(decl.Modes()) == 0 {
-		e.mu.RUnlock()
-		return nil, fmt.Errorf("predicate %s has no modes declared", shape.atom.Predicate.Symbol)
+	// Many schema Decls use bound[/type] without descr[mode(...)]. Synthesize
+	// an all-output mode so TraceQuery / CLI `nerd why` can evaluate them
+	// (same approach as differential.Query).
+	var mode ast.Mode
+	if modes := decl.Modes(); len(modes) > 0 {
+		mode = modes[0]
+	} else {
+		args := make([]ast.ArgMode, len(shape.atom.Args))
+		for i := range args {
+			args[i] = ast.ArgModeOutput
+		}
+		mode = ast.Mode(args)
 	}
-	mode := decl.Modes()[0]
 	e.mu.RUnlock()
 
 	// Use a reasonable default timeout if not provided

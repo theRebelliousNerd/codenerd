@@ -275,6 +275,11 @@ type ExecutionResult struct {
 	// ToolCallsExecuted is the number of tool calls made.
 	ToolCallsExecuted int
 
+	// SuccessfulWriteTools counts write_file/edit_file (and peers) that
+	// completed without error. Used to block hollow success on write-oriented
+	// intents that only produced prose or non-mutating tool calls.
+	SuccessfulWriteTools int
+
 	// Duration is how long the execution took.
 	Duration time.Duration
 
@@ -424,6 +429,20 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 		result.Error = fmt.Errorf("tool execution failed: %s", strings.Join(toolErrs, "; "))
 	}
 
+	// Block hollow success: mutation intents that require real side effects
+	// must not report completion when the model only returned planning prose
+	// (or only non-mutating tools). Dream/shadow runs skip this gate.
+	//
+	// Hollow failures are hard errors (non-nil return) so CLI one-shots exit
+	// non-zero. Other soft tool failures stay on result.Error with a nil
+	// return for interactive chat compatibility; TaskExecutor still surfaces
+	// result.Error for SpawnTask callers.
+	if result.Error == nil {
+		if hollowErr := e.checkHollowSuccess(result); hollowErr != nil {
+			result.Error = hollowErr
+		}
+	}
+
 	// Update conversation history
 	e.appendToHistory(perception.ConversationTurn{
 		Role:    "user",
@@ -452,6 +471,9 @@ func (e *Executor) ProcessWithIntent(ctx context.Context, input string, preset *
 
 	logging.Session("Execution complete: %d tool calls, %v duration", result.ToolCallsExecuted, result.Duration)
 
+	if result.Error != nil && isHollowSuccessError(result.Error) {
+		return result, result.Error
+	}
 	return result, nil
 }
 

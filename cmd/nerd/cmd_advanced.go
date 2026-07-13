@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
+	"codenerd/internal/autopoiesis"
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	coresys "codenerd/internal/system"
@@ -231,8 +234,12 @@ func runShadowSimulation(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runWhatIf runs counterfactual analysis
+// runWhatIf runs counterfactual analysis.
+// Kernel implications are the deterministic, always-complete result. Optional
+// LLM elaboration uses a short direct Complete call — never SpawnTask(researcher),
+// which previously hung after the first kernel line when the JIT spawn path stalled.
 func runWhatIf(cmd *cobra.Command, args []string) error {
+	// Overall budget: boot + kernel + optional LLM elaboration.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -277,17 +284,30 @@ func runWhatIf(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// Use researcher for deeper analysis
-	prompt := fmt.Sprintf("Analyze the implications of this hypothetical change:\n\n%s\n\nConsider:\n1. What systems would be affected?\n2. What would break?\n3. What would improve?\n4. What risks exist?", change)
-
-	result, err := cortex.SpawnTask(ctx, "researcher", prompt)
-	if err != nil {
-		fmt.Printf("Analysis failed: %v\n", err)
-	} else {
-		fmt.Println("📋 Analysis:")
-		fmt.Println(result)
+	// Bounded LLM elaboration (optional). Fail soft so the command always exits.
+	if cortex.LLMClient == nil {
+		fmt.Println("📋 Analysis: (skipped — no LLM client)")
+		return nil
 	}
 
+	prompt := fmt.Sprintf(
+		"Analyze the implications of this hypothetical change in 6-10 bullet points:\n\n%s\n\nCover: affected systems, breakage risk, improvements, and mitigations.",
+		change,
+	)
+	analysisCtx, analysisCancel := context.WithTimeout(ctx, 45*time.Second)
+	defer analysisCancel()
+
+	fmt.Println("📋 Analysis:")
+	result, err := cortex.LLMClient.Complete(analysisCtx, prompt)
+	if err != nil {
+		if analysisCtx.Err() != nil {
+			fmt.Println("   (analysis timed out; kernel implications above are complete)")
+		} else {
+			fmt.Printf("   Analysis failed: %v\n", err)
+		}
+		return nil
+	}
+	fmt.Println(result)
 	return nil
 }
 
@@ -417,15 +437,44 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		fmt.Println("🔧 Generated Tools (Ouroboros)")
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Query tool facts
-		tools, _ := cortex.Kernel.Query("tool_registered")
-		if len(tools) == 0 {
+		// Prefer the durable Ouroboros registry (survives across CLI process
+		// restarts via disk restore). Kernel tool_registered facts alone are
+		// session-local and frequently empty after a fresh boot even when
+		// tools exist on disk — the live-matrix hollow success.
+		seen := map[string]bool{}
+		listed := 0
+		if cortex.Orchestrator != nil {
+			for _, tool := range cortex.Orchestrator.ListTools() {
+				if tool.Name == "" || seen[tool.Name] {
+					continue
+				}
+				seen[tool.Name] = true
+				listed++
+				desc := tool.Description
+				if desc != "" {
+					fmt.Printf("  - %s: %s\n", tool.Name, desc)
+				} else {
+					fmt.Printf("  - %s\n", tool.Name)
+				}
+			}
+		}
+		// Also surface any kernel-only registrations from this session.
+		kernelTools, _ := cortex.Kernel.Query("tool_registered")
+		for _, tool := range kernelTools {
+			if len(tool.Args) == 0 {
+				continue
+			}
+			name := types.ExtractString(tool.Args[0])
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			listed++
+			fmt.Printf("  - %s\n", name)
+		}
+		if listed == 0 {
 			fmt.Println("No tools generated yet.")
 			fmt.Println("\nUse 'nerd tool generate <description>' to create one.")
-		} else {
-			for _, tool := range tools {
-				fmt.Printf("  - %s\n", tool.Args[0])
-			}
 		}
 
 	case "run":
@@ -530,18 +579,122 @@ func runToolCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("📝 Description: %s\n", description)
 		fmt.Println(strings.Repeat("─", 60))
 
-		// Use tool_generator via unified SpawnTask
-		result, err := cortex.SpawnTask(ctx, "tool_generator", description)
-		if err != nil {
-			return fmt.Errorf("tool generation failed: %w", err)
+		// Use Ouroboros via the autopoiesis orchestrator — the durable path
+		// that writes, compiles, registers, and asserts tool_registered.
+		// SpawnTask(tool_generator) previously returned planning prose
+		// ("Generated self-tool X") with exit 0 while tool list stayed empty.
+		if cortex.Orchestrator == nil {
+			return fmt.Errorf("tool generation failed: autopoiesis orchestrator not initialized")
 		}
-		fmt.Println(result)
+
+		need, err := cortex.Orchestrator.DetectToolNeed(ctx, description)
+		if err != nil {
+			return fmt.Errorf("tool generation failed (detect): %w", err)
+		}
+		if need == nil {
+			// Explicit CLI generate is authoritative — never no-op on weak detection.
+			need = buildCLIToolNeed(description)
+		}
+
+		fmt.Printf("Detected need: %s\n", need.Name)
+		fmt.Printf("Purpose: %s\n", need.Purpose)
+		fmt.Println(strings.Repeat("─", 60))
+
+		loopRes := cortex.Orchestrator.ExecuteOuroborosLoop(ctx, need)
+		if loopRes == nil {
+			return fmt.Errorf("tool generation failed: ouroboros returned nil result")
+		}
+		if !loopRes.Success {
+			errMsg := loopRes.Error
+			if errMsg == "" {
+				errMsg = fmt.Sprintf("stopped at stage %v", loopRes.Stage)
+			}
+			return fmt.Errorf("tool generation failed: %s", errMsg)
+		}
+		if strings.TrimSpace(loopRes.ToolName) == "" {
+			return fmt.Errorf("tool generation failed: empty tool name after claimed success")
+		}
+
+		// Verify durability: tool must appear in the registry ListTools sees.
+		found := cortex.Orchestrator.HasGeneratedTool(loopRes.ToolName)
+		if !found {
+			for _, t := range cortex.Orchestrator.ListTools() {
+				if t.Name == loopRes.ToolName {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return fmt.Errorf(
+				"tool generation hollow success blocked: %q not visible to tool list after generate",
+				loopRes.ToolName,
+			)
+		}
+
+		fmt.Printf("✅ Tool registered: %s\n", loopRes.ToolName)
+		if loopRes.CompileResult != nil && loopRes.CompileResult.OutputPath != "" {
+			fmt.Printf("Binary: %s\n", loopRes.CompileResult.OutputPath)
+		}
+		fmt.Printf("Duration: %v\n", loopRes.Duration)
+		fmt.Println("\nUse 'nerd tool list' to confirm, 'nerd tool run <name>' to execute.")
 
 	default:
 		return fmt.Errorf("unknown subcommand: %s (use list, run, info, or generate)", subCmd)
 	}
 
 	return nil
+}
+
+// buildCLIToolNeed constructs an authoritative ToolNeed for explicit
+// `nerd tool generate` requests when DetectToolNeed returns nil.
+func buildCLIToolNeed(description string) *autopoiesis.ToolNeed {
+	return &autopoiesis.ToolNeed{
+		Name:       toolNameFromDescription(description),
+		Purpose:    strings.TrimSpace(description),
+		Reasoning:  "cli_tool_generate",
+		Confidence: 1.0,
+		Priority:   1.0,
+	}
+}
+
+var nonIdentRunes = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// toolNameFromDescription derives a stable snake_case tool name from free text.
+func toolNameFromDescription(description string) string {
+	s := strings.ToLower(strings.TrimSpace(description))
+	if s == "" {
+		return "generated_tool"
+	}
+	// Keep alphanumerics; collapse the rest to underscores.
+	var b strings.Builder
+	prevUnderscore := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevUnderscore = false
+			continue
+		}
+		if !prevUnderscore {
+			b.WriteByte('_')
+			prevUnderscore = true
+		}
+	}
+	name := strings.Trim(b.String(), "_")
+	name = nonIdentRunes.ReplaceAllString(name, "_")
+	name = strings.Trim(name, "_")
+	if name == "" {
+		return "generated_tool"
+	}
+	// Cap length so binary/path names stay manageable.
+	if len(name) > 48 {
+		name = name[:48]
+		name = strings.Trim(name, "_")
+	}
+	if name[0] >= '0' && name[0] <= '9' {
+		name = "tool_" + name
+	}
+	return name
 }
 
 // runJITStatus shows JIT compiler status

@@ -565,10 +565,43 @@ func runCampaignStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runCampaignPause pauses the current campaign
+// runCampaignPause pauses the current campaign by persisting StatusPaused.
+// Without a disk update, resume cannot find the campaign and status stays
+// stuck on the previous lifecycle state (e.g. /validating).
 func runCampaignPause(cmd *cobra.Command, args []string) error {
-	fmt.Println("Campaign paused. Run 'nerd campaign resume' to continue.")
-	// The actual pausing happens via signal handling in the running orchestrator
+	cwd := workspace
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+
+	c, path, err := findLatestPausableCampaign(cwd)
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		fmt.Println("No campaigns found to pause.")
+		return nil
+	}
+	if c.Status == campaign.StatusCompleted || c.Status == campaign.StatusFailed {
+		fmt.Printf("Campaign %s is %s and cannot be paused.\n", c.Title, c.Status)
+		return nil
+	}
+	if c.Status == campaign.StatusPaused {
+		fmt.Printf("Campaign already paused: %s\n", c.Title)
+		fmt.Println("Run 'nerd campaign resume' to continue.")
+		return nil
+	}
+
+	prev := c.Status
+	c.Status = campaign.StatusPaused
+	c.UpdatedAt = time.Now()
+	if err := writeCampaignJSON(path, c); err != nil {
+		return fmt.Errorf("failed to persist paused status: %w", err)
+	}
+
+	fmt.Printf("Campaign paused: %s\n", c.Title)
+	fmt.Printf("   ID: %s (was %s → %s)\n", c.ID, prev, c.Status)
+	fmt.Println("Run 'nerd campaign resume' to continue.")
 	return nil
 }
 
@@ -583,37 +616,37 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 		cwd, _ = os.Getwd()
 	}
 
-	// Find paused campaign
+	// Prefer StatusPaused; fall back to Active (legacy interrupted runs).
 	campaignsDir := filepath.Join(cwd, ".nerd", "campaigns")
-	entries, err := os.ReadDir(campaignsDir)
+	pausedCampaign, campPath, err := findCampaignByStatuses(campaignsDir, campaign.StatusPaused)
 	if err != nil {
-		fmt.Println("No campaigns found.")
-		return nil
+		if os.IsNotExist(err) {
+			fmt.Println("No campaigns found.")
+			return nil
+		}
+		return err
 	}
-
-	var pausedCampaign *campaign.Campaign
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".json" {
-			data, err := os.ReadFile(filepath.Join(campaignsDir, entry.Name()))
-			if err != nil {
-				continue
-			}
-
-			var c campaign.Campaign
-			if err := json.Unmarshal(data, &c); err != nil {
-				continue
-			}
-
-			if c.Status == campaign.StatusPaused || c.Status == campaign.StatusActive {
-				pausedCampaign = &c
-				break
-			}
+	if pausedCampaign == nil {
+		pausedCampaign, campPath, err = findCampaignByStatuses(campaignsDir, campaign.StatusActive)
+		if err != nil && !os.IsNotExist(err) {
+			return err
 		}
 	}
 
 	if pausedCampaign == nil {
 		fmt.Println("No paused campaigns found.")
 		return nil
+	}
+
+	// Flip to active on disk so status/list stay consistent during resume.
+	if pausedCampaign.Status == campaign.StatusPaused {
+		pausedCampaign.Status = campaign.StatusActive
+		pausedCampaign.UpdatedAt = time.Now()
+		if campPath != "" {
+			if werr := writeCampaignJSON(campPath, pausedCampaign); werr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to persist active status: %v\n", werr)
+			}
+		}
 	}
 
 	fmt.Printf("Resuming campaign: %s\n", pausedCampaign.Title)
@@ -896,6 +929,108 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// findLatestPausableCampaign returns the most recently updated campaign that is
+// not terminal, plus its on-disk JSON path.
+func findLatestPausableCampaign(workspaceRoot string) (*campaign.Campaign, string, error) {
+	campaignsDir := filepath.Join(workspaceRoot, ".nerd", "campaigns")
+	entries, err := os.ReadDir(campaignsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+
+	var latest *campaign.Campaign
+	var latestPath string
+	var latestTime time.Time
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		// Skip journals
+		if strings.Contains(entry.Name(), ".journal.") {
+			continue
+		}
+		path := filepath.Join(campaignsDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var c campaign.Campaign
+		if err := json.Unmarshal(data, &c); err != nil {
+			continue
+		}
+		if c.Status == campaign.StatusCompleted || c.Status == campaign.StatusFailed {
+			continue
+		}
+		if latest == nil || c.UpdatedAt.After(latestTime) {
+			cp := c
+			latest = &cp
+			latestPath = path
+			latestTime = c.UpdatedAt
+		}
+	}
+	return latest, latestPath, nil
+}
+
+// findCampaignByStatuses returns the first campaign matching any of the given
+// statuses (most recent UpdatedAt wins).
+func findCampaignByStatuses(campaignsDir string, statuses ...campaign.CampaignStatus) (*campaign.Campaign, string, error) {
+	entries, err := os.ReadDir(campaignsDir)
+	if err != nil {
+		return nil, "", err
+	}
+	want := make(map[campaign.CampaignStatus]bool, len(statuses))
+	for _, s := range statuses {
+		want[s] = true
+	}
+
+	var best *campaign.Campaign
+	var bestPath string
+	var bestTime time.Time
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		if strings.Contains(entry.Name(), ".journal.") {
+			continue
+		}
+		path := filepath.Join(campaignsDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var c campaign.Campaign
+		if err := json.Unmarshal(data, &c); err != nil {
+			continue
+		}
+		if !want[c.Status] {
+			continue
+		}
+		if best == nil || c.UpdatedAt.After(bestTime) {
+			cp := c
+			best = &cp
+			bestPath = path
+			bestTime = c.UpdatedAt
+		}
+	}
+	return best, bestPath, nil
+}
+
+func writeCampaignJSON(path string, c *campaign.Campaign) error {
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // ============================================================================

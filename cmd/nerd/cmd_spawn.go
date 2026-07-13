@@ -47,7 +47,8 @@ Shard Types:
   - coder: Specialized for code writing/TDD loop
   - researcher: Specialized for deep research
   - reviewer: Specialized for code review
-  - tester: Specialized for test generation`,
+  - tester: Specialized for test generation
+  - image_generator: Gemini Nano Banana 2 image gen (gemini-3.1-flash-image; never Ollama)`,
 	Args: cobra.MinimumNArgs(2),
 	RunE: spawnShard,
 }
@@ -106,7 +107,13 @@ func defineAgent(cmd *cobra.Command, args []string) error {
 
 // spawnShard spawns a shard agent
 func spawnShard(cmd *cobra.Command, args []string) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	// Image gen gets a tighter outer budget so missing/slow Gemini cannot hold
+	// the CLI for the full 25m default timeout (live matrix hang).
+	cmdTimeout := timeout
+	if config.IsImageShardType(normalizeShardType(args[0])) && (cmdTimeout <= 0 || cmdTimeout > 3*time.Minute) {
+		cmdTimeout = 3 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), cmdTimeout)
 	defer cancel()
 
 	shardType := args[0]
@@ -130,7 +137,16 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	defer cortex.Close()
 
 	normalizedType := normalizeShardType(shardType)
-	waitTimeout := spawnWaitTimeout(timeout)
+	waitTimeout := spawnWaitTimeout(cmdTimeout)
+
+	// Fail fast for image shards when Nano Banana 2 client is not wired.
+	// Without this, Spawn could park on BaseShardAgent/queue with no progress.
+	if config.IsImageShardType(normalizedType) {
+		if cortex.ShardManager == nil {
+			return fmt.Errorf("image_generator requires ShardManager with Gemini Nano Banana 2 client")
+		}
+		// Probe by attempting spawn; Spawn itself validates image client.
+	}
 
 	// Generate shard ID for fact recording
 	shardID := fmt.Sprintf("%s-%d", shardType, time.Now().UnixNano())
@@ -148,12 +164,14 @@ func spawnShard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Record execution facts regardless of success/failure
-	facts := cortex.ShardManager.ResultToFacts(shardID, shardType, task, result, spawnErr)
-	if len(facts) > 0 {
-		if loadErr := cortex.Kernel.LoadFacts(facts); loadErr != nil {
-			logger.Warn("Failed to load shard facts into kernel", zap.Error(loadErr))
-		} else {
-			logger.Debug("Recorded shard execution facts", zap.Int("count", len(facts)))
+	if cortex.ShardManager != nil {
+		facts := cortex.ShardManager.ResultToFacts(shardID, shardType, task, result, spawnErr)
+		if len(facts) > 0 {
+			if loadErr := cortex.Kernel.LoadFacts(facts); loadErr != nil {
+				logger.Warn("Failed to load shard facts into kernel", zap.Error(loadErr))
+			} else {
+				logger.Debug("Recorded shard execution facts", zap.Int("count", len(facts)))
+			}
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -134,47 +135,123 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("system facts update error: %w", err)
 	}
 
-	// 5. Query Executive Policy (Decide)
+	// 5. Query Executive Policy (Decide) and actually execute.
+	// Previously next_action(/delegate_coder) was printed and the command
+	// exited 0 without ever spawning work — classic hollow success.
 	logger.Debug("Querying executive policy")
 	var output string
+	var actionErr error
+	actionExecuted := false
 
-	// Check for delegation
+	// One-shot CLI is explicit user interaction — lift the boot guard so
+	// VirtualStore RouteAction can run for non-delegate next_actions.
+	if cortex.VirtualStore != nil {
+		cortex.VirtualStore.DisableBootGuard()
+	}
+
+	// Check for explicit delegate_task facts first
 	delegateFacts, _ := cortex.Kernel.Query("delegate_task")
 	if len(delegateFacts) > 0 {
-		// Execute via shard
 		fact := delegateFacts[0]
 		shardType := types.ExtractString(fact.Args[0])
 		task := types.ExtractString(fact.Args[1])
+		if strings.TrimSpace(task) == "" {
+			task = userInput
+		}
 		logger.Info("Delegating to shard", zap.String("type", shardType), zap.String("task", task))
 
-		// Special handling for System Components
 		if shardType == "/tool_generator" || shardType == "tool_generator" {
-			// Autopoiesis: Tool Generation
-			count, err := cortex.Orchestrator.ProcessKernelDelegations(ctx)
-			if err != nil {
-				output = fmt.Sprintf("Tool generation failed: %v", err)
+			if cortex.Orchestrator == nil {
+				actionErr = fmt.Errorf("tool_generator delegation requires autopoiesis orchestrator")
+				output = actionErr.Error()
 			} else {
-				output = fmt.Sprintf("Autopoiesis: Generated %d tools", count)
+				count, err := cortex.Orchestrator.ProcessKernelDelegations(ctx)
+				if err != nil {
+					actionErr = err
+					output = fmt.Sprintf("Tool generation failed: %v", err)
+				} else if count == 0 {
+					// Fall back to a direct ouroboros generation from the task text
+					need, detErr := cortex.Orchestrator.DetectToolNeed(ctx, task)
+					if detErr != nil {
+						actionErr = detErr
+						output = fmt.Sprintf("Tool generation failed: %v", detErr)
+					} else {
+						if need == nil {
+							need = buildCLIToolNeed(task)
+						}
+						loopRes := cortex.Orchestrator.ExecuteOuroborosLoop(ctx, need)
+						if loopRes == nil || !loopRes.Success {
+							errMsg := "unknown"
+							if loopRes != nil && loopRes.Error != "" {
+								errMsg = loopRes.Error
+							}
+							actionErr = fmt.Errorf("tool generation failed: %s", errMsg)
+							output = actionErr.Error()
+						} else {
+							actionExecuted = true
+							output = fmt.Sprintf("Autopoiesis: Generated tool %s", loopRes.ToolName)
+						}
+					}
+				} else {
+					actionExecuted = true
+					output = fmt.Sprintf("Autopoiesis: Generated %d tools", count)
+				}
 			}
 		} else {
-			// Standard Shard - use unified SpawnTask
 			result, err := cortex.SpawnTask(ctx, shardType, task)
 			if err != nil {
+				actionErr = err
 				output = fmt.Sprintf("Shard execution failed: %v", err)
+				if strings.TrimSpace(result) != "" {
+					output += "\n" + result
+				}
 			} else {
+				actionExecuted = true
 				output = fmt.Sprintf("Shard Result: %s", result)
 			}
 		}
-
 	} else {
-		// Query next_action
+		// No delegate_task — try next_action and execute handoffs.
 		actionFacts, _ := cortex.Kernel.Query("next_action")
-		if len(actionFacts) > 0 {
-			fact := actionFacts[0]
-			logger.Info("Derived next_action (unary; executed by system shards if enabled)", zap.Any("action", fact))
-			output = fmt.Sprintf("Next action: %v", fact.Args[0])
+		if len(actionFacts) == 0 {
+			actionErr = fmt.Errorf("no action derived from policy")
+			output = actionErr.Error()
 		} else {
-			output = "No action derived from policy"
+			action := types.ExtractString(actionFacts[0].Args[0])
+			logger.Info("Derived next_action", zap.String("action", action))
+
+			if shard := nextActionToShardType(action); shard != "" {
+				// Execute the handoff that policy derived but did not surface
+				// as delegate_task (e.g. /create → next_action(/delegate_coder)).
+				logger.Info("Executing next_action handoff", zap.String("shard", shard))
+				result, err := cortex.SpawnTask(ctx, shard, userInput)
+				if err != nil {
+					actionErr = err
+					output = fmt.Sprintf("Handoff %s failed: %v", action, err)
+					if strings.TrimSpace(result) != "" {
+						output += "\n" + result
+					}
+				} else {
+					actionExecuted = true
+					output = fmt.Sprintf("Executed %s via %s:\n%s", action, shard, result)
+				}
+			} else if cortex.VirtualStore != nil {
+				// Non-delegate actions: route through VirtualStore.
+				vsResult, vsErr := cortex.VirtualStore.RouteAction(ctx, core.Fact{
+					Predicate: "next_action",
+					Args:      []any{types.MangleAtom(action), userInput},
+				})
+				if vsErr != nil {
+					actionErr = vsErr
+					output = fmt.Sprintf("RouteAction(%s) failed: %v", action, vsErr)
+				} else {
+					actionExecuted = true
+					output = fmt.Sprintf("Executed %s: %v", action, vsResult)
+				}
+			} else {
+				actionErr = fmt.Errorf("derived next_action %s but no executor handled it (no delegate handoff or virtual store)", action)
+				output = actionErr.Error()
+			}
 		}
 	}
 
@@ -184,19 +261,53 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 	}
 
 	// 6. Articulation Layer: Report
+	status := "/complete"
+	if actionErr != nil || !actionExecuted {
+		status = "/failed"
+	}
 	payload := articulation.PiggybackEnvelope{
 		Surface: fmt.Sprintf("Processed: %s\nResult: %s", userInput, output),
 		Control: articulation.ControlPacket{
 			IntentClassification: articulation.IntentClassification{
-				Category:   "/mutation", // Default for manual execution
-				Verb:       "/execute",
-				Target:     "system",
-				Confidence: 1.0,
+				Category:   intent.Category,
+				Verb:       intent.Verb,
+				Target:     intent.Target,
+				Constraint: intent.Constraint,
+				Confidence: intent.Confidence,
 			},
-			MangleUpdates: []string{"task_status(/manual_instruction, /complete)", fmt.Sprintf("observation(/result, %q)", output)},
+			MangleUpdates: []string{
+				fmt.Sprintf("task_status(/manual_instruction, %s)", status),
+				fmt.Sprintf("observation(/result, %q)", output),
+			},
 		},
 	}
 	emitter.Emit(payload)
 
+	if actionErr != nil {
+		return actionErr
+	}
+	if !actionExecuted {
+		return fmt.Errorf("hollow success blocked: no side-effecting action executed for %q", userInput)
+	}
 	return nil
+}
+
+// nextActionToShardType maps policy next_action atoms onto domain shard types
+// that SpawnTask can run. Empty means "not a shard handoff".
+func nextActionToShardType(action string) string {
+	action = strings.TrimSpace(strings.TrimPrefix(action, "/"))
+	switch strings.ToLower(action) {
+	case "delegate_coder", "delegate_coder_shard":
+		return "coder"
+	case "delegate_tester":
+		return "tester"
+	case "delegate_reviewer":
+		return "reviewer"
+	case "delegate_researcher":
+		return "researcher"
+	case "delegate_tool_generator":
+		return "tool_generator"
+	default:
+		return ""
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	appconfig "codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 	"codenerd/internal/usage"
@@ -176,6 +177,15 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	// Image shards require the dedicated Gemini Nano Banana 2 client.
+	// Fail closed before queuing/agent creation so CLI cannot hang with a
+	// nil LLM and a BaseShardAgent no-op (or wait forever on a dead path).
+	if appconfig.IsImageShardType(typeName) {
+		if sm.imageLLMClient == nil {
+			return "", fmt.Errorf("image_generator requires Gemini Nano Banana 2 client (set gemini_api_key / GEMINI_API_KEY); never uses Ollama worker")
+		}
+	}
+
 	var config types.ShardConfig
 	profile, hasProfile := sm.profiles[typeName]
 	if hasProfile {
@@ -184,6 +194,10 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		config = DefaultGeneralistConfig(typeName)
 		if typeName == "ephemeral" {
 			config.Type = types.ShardTypeEphemeral
+		}
+		// Image types default to a short timeout suitable for gen API latency.
+		if appconfig.IsImageShardType(typeName) {
+			config = DefaultImageGeneratorConfig(typeName)
 		}
 	}
 

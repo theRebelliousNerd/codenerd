@@ -134,11 +134,21 @@ func showStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runWhy explains the reasoning behind decisions
+// whyPredicateAliases maps user-facing shorthand to declared schema predicates.
+var whyPredicateAliases = map[string]string{
+	"blocked":   "action_blocked",
+	"block":     "action_blocked",
+	"forbidden": "forbidden",
+	"denied":    "forbidden",
+}
+
+// runWhy explains the reasoning behind decisions.
+// Prefer RealKernel.TraceQuery (store-backed, no mode requirement) over a hollow
+// mangle.Engine Tracer, which fails on Decls without descr[mode(...)].
 func runWhy(cmd *cobra.Command, args []string) error {
 	predicate := "next_action"
 	if len(args) > 0 {
-		predicate = args[0]
+		predicate = strings.TrimSpace(args[0])
 	}
 
 	// Resolve workspace
@@ -153,93 +163,134 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Resolve aliases before display so the user sees the real predicate.
+	if alias, ok := whyPredicateAliases[strings.ToLower(predicate)]; ok && !strings.Contains(predicate, "(") {
+		predicate = alias
+	}
+
 	fmt.Printf("Explaining derivation for: %s\n", predicate)
 	fmt.Println(strings.Repeat("=", 40))
 
-	// Initialize kernel to get state
-	kern, err := core.NewRealKernel()
-	if err != nil {
-		return fmt.Errorf("failed to create kernel: %w", err)
+	// Prefer cortex kernel (workspace facts) when boot is available; fall back
+	// to a fresh RealKernel with schemas/policy only.
+	var kern *core.RealKernel
+	key := apiKey
+	if key == "" {
+		key = os.Getenv("ZAI_API_KEY")
 	}
-
-	// Create a temporary Mangle engine for tracing
-	// We use the Hollow Kernel pattern: RealKernel provides the state,
-	// mangle.Engine provides the tracing logic.
-	cfg := mangle.DefaultConfig()
-	cfg.AutoEval = false // We'll run TraceQuery explicitly
-	engine, err := mangle.NewEngine(cfg, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create tracing engine: %w", err)
+	baseCtx := cmd.Context()
+	if baseCtx == nil {
+		baseCtx = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	defer cancel()
 
-	// Load program (Schemas + Policy + Learned)
-	program := kern.GetSchemas() + "\n" + kern.GetPolicy() + "\n" + kern.GetLearned()
-	if err := engine.LoadSchemaString(program); err != nil {
-		return fmt.Errorf("failed to load program into tracer: %w", err)
-	}
-
-	// Load base facts (EDB)
-	baseFacts := kern.GetBaseFacts()
-	mangleFacts := make([]mangle.Fact, len(baseFacts))
-	for i, f := range baseFacts {
-		mangleFacts[i] = mangle.Fact{
-			Predicate: f.Predicate,
-			Args:      f.Args,
+	if cortex, err := coresys.GetOrBootCortex(ctx, cwd, key, disableSystemShards); err == nil && cortex != nil {
+		defer cortex.Close()
+		if cortex.RealKernel != nil {
+			kern = cortex.RealKernel
+		} else if rk, ok := cortex.Kernel.(*core.RealKernel); ok {
+			kern = rk
 		}
 	}
-	if err := engine.AddFacts(mangleFacts); err != nil {
-		return fmt.Errorf("failed to load facts into tracer: %w", err)
-	}
-
-	// Initialize tracer
-	tracer := mangle.NewProofTreeTracer(engine)
-	tracer.IndexRules()
-
-	// Construct proper query with variables if needed
-	query := predicate
-	if !strings.Contains(query, "(") {
-		// Attempt to find arity
-		found := false
-		for _, decl := range kern.GetDeclaredPredicates() {
-			// decl format: "name/arity"
-			parts := strings.Split(decl, "/")
-			if len(parts) == 2 && parts[0] == predicate {
-				arity := 0
-				fmt.Sscanf(parts[1], "%d", &arity)
-				if arity > 0 {
-					vars := make([]string, arity)
-					for i := 0; i < arity; i++ {
-						vars[i] = fmt.Sprintf("Var%d", i)
-					}
-					query = fmt.Sprintf("%s(%s)", predicate, strings.Join(vars, ", "))
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Heuristic: check if it's a 1-arity predicate often used
-			if predicate == "next_action" || predicate == "impacted" || predicate == "permitted" {
-				query = predicate + "(X)"
-			}
+	if kern == nil {
+		var err error
+		kern, err = core.NewRealKernel()
+		if err != nil {
+			return fmt.Errorf("failed to create kernel: %w", err)
 		}
 	}
 
-	// Run trace
+	query := buildWhyQuery(predicate, kern.GetDeclaredPredicates())
 	fmt.Printf("Tracing query: %s\n", query)
-	trace, err := tracer.TraceQuery(cmd.Context(), query)
+
+	// RealKernel.Query is store-scan based: bare predicate name is most reliable
+	// (free-var patterns like next_action(Var0) may be misparsed as constants).
+	tracePred := whyTracePredicate(query)
+	trace, err := kern.TraceQuery(ctx, tracePred)
 	if err != nil {
-		return fmt.Errorf("trace failed: %w", err)
+		// Fallback: hollow engine tracer with mode synthesis for free-var queries.
+		trace, err = runWhyViaHollowTracer(ctx, kern, query)
+		if err != nil {
+			return fmt.Errorf("trace failed: %w", err)
+		}
 	}
 
-	if len(trace.RootNodes) == 0 {
+	if trace == nil || len(trace.RootNodes) == 0 {
 		fmt.Printf("No derivations found for '%s'.\n", query)
+		fmt.Println("(Kernel may have no matching facts in the current workspace state.)")
 		return nil
 	}
 
-	// Render ASCII tree
 	fmt.Println(trace.RenderASCII())
 	return nil
+}
+
+// whyTracePredicate returns the store-scan form of a why query (bare name).
+func whyTracePredicate(query string) string {
+	q := strings.TrimSpace(query)
+	if i := strings.Index(q, "("); i > 0 {
+		return strings.TrimSpace(q[:i])
+	}
+	return q
+}
+
+// buildWhyQuery turns a bare predicate name into a Mangle query atom with free vars.
+func buildWhyQuery(predicate string, decls []string) string {
+	query := strings.TrimSpace(predicate)
+	if query == "" {
+		return "next_action(X)"
+	}
+	if strings.Contains(query, "(") {
+		return query
+	}
+
+	// Match "name/arity" declarations from the kernel validator.
+	predName := query
+	for _, decl := range decls {
+		parts := strings.Split(decl, "/")
+		if len(parts) != 2 || parts[0] != predName {
+			continue
+		}
+		arity := 0
+		_, _ = fmt.Sscanf(parts[1], "%d", &arity)
+		if arity <= 0 {
+			// 0-arity predicates are rare; query as bare atom via RealKernel path.
+			return predName
+		}
+		vars := make([]string, arity)
+		for i := 0; i < arity; i++ {
+			vars[i] = fmt.Sprintf("Var%d", i)
+		}
+		return fmt.Sprintf("%s(%s)", predName, strings.Join(vars, ", "))
+	}
+
+	// Default: single free variable — valid Mangle atom for common 1-arity heads.
+	return predName + "(X)"
+}
+
+func runWhyViaHollowTracer(ctx context.Context, kern *core.RealKernel, query string) (*mangle.DerivationTrace, error) {
+	cfg := mangle.DefaultConfig()
+	cfg.AutoEval = false
+	engine, err := mangle.NewEngine(cfg, nil)
+	if err != nil {
+		return nil, err
+	}
+	program := kern.GetSchemas() + "\n" + kern.GetPolicy() + "\n" + kern.GetLearned()
+	if err := engine.LoadSchemaString(program); err != nil {
+		return nil, err
+	}
+	baseFacts := kern.GetBaseFacts()
+	mangleFacts := make([]mangle.Fact, len(baseFacts))
+	for i, f := range baseFacts {
+		mangleFacts[i] = mangle.Fact{Predicate: f.Predicate, Args: f.Args}
+	}
+	if err := engine.AddFacts(mangleFacts); err != nil {
+		return nil, err
+	}
+	tracer := mangle.NewProofTreeTracer(engine)
+	tracer.IndexRules()
+	return tracer.TraceQuery(ctx, query)
 }
 
 func joinArgs(args []string) string {

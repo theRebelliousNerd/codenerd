@@ -58,7 +58,7 @@ func TestDefaultSystemConfig_ShouldReturnCorrectDefaults(t *testing.T) {
 }
 
 func TestCoreShardDescriptions_ShouldHaveEntries(t *testing.T) {
-	expected := []string{"researcher", "reviewer", "codebase", "coder", "tester"}
+	expected := []string{"researcher", "reviewer", "codebase", "coder", "tester", "image_generator"}
 	for _, name := range expected {
 		if desc, ok := CoreShardDescriptions[name]; !ok {
 			t.Errorf("missing description for %q", name)
