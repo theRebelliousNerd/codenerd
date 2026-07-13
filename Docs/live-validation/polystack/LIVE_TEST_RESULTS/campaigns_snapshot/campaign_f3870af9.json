@@ -1,0 +1,190 @@
+{
+  "id": "/campaign_f3870af9",
+  "type": "/feature",
+  "title": "Polystack README Structured Logging Notes",
+  "goal": "Add structured logging notes to polystack README only if useful",
+  "source_material": [],
+  "source_docs": [],
+  "knowledge_base": "C:\\CodeProjects\\codeNERD\\.nerd\\live_feature_matrix\\polystack\\.nerd\\campaigns\\campaign_f3870af9\\knowledge.db",
+  "status": "/validating",
+  "created_at": "2026-07-13T04:57:40.8019318-04:00",
+  "updated_at": "2026-07-13T04:57:40.8019318-04:00",
+  "confidence": 0.88,
+  "phases": [
+    {
+      "id": "/phase_f3870af9_0",
+      "campaign_id": "/campaign_f3870af9",
+      "name": "Research README and logging usage",
+      "order": 0,
+      "category": "/scaffold",
+      "status": "/pending",
+      "context_profile": "/profile_f3870af9_0",
+      "objectives": [
+        {
+          "type": "/research",
+          "description": "Inspect the polystack README and existing structured logging patterns to decide whether README notes would be useful.",
+          "verification_method": "/none"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_f3870af9_0_0",
+          "phase_id": "/phase_f3870af9_0",
+          "description": "Locate polystack README and any existing logging documentation; summarize current coverage of structured logging.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/high",
+          "order": 0,
+          "depends_on": [],
+          "shard": "researcher",
+          "shard_input": "Find the polystack README (and nearby docs). Report: (1) exact README path, (2) whether structured logging is already documented, (3) any logging setup/config/examples already present, (4) whether adding structured logging notes would be useful or redundant.",
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_f3870af9_0_1",
+          "phase_id": "/phase_f3870af9_0",
+          "description": "Scan polystack code for structured logging libraries, fields, and conventions to ground any README notes.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/high",
+          "order": 1,
+          "depends_on": [
+            "/task_f3870af9_0_0"
+          ],
+          "shard": "researcher",
+          "shard_input": "Search polystack for structured logging usage (e.g. slog, zap, zerolog, logrus, JSON logs, logger interfaces). Summarize: library used, key fields/context patterns, how to enable/configure, and 1-3 concrete usage examples suitable for README notes. Conclude whether README notes would be useful.",
+          "context_from": [
+            "/task_f3870af9_0_0"
+          ],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "estimated_tasks": 2,
+      "estimated_complexity": "/low",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_f3870af9_1",
+      "campaign_id": "/campaign_f3870af9",
+      "name": "Add structured logging notes if useful",
+      "order": 1,
+      "category": "/integration",
+      "status": "/pending",
+      "context_profile": "/profile_f3870af9_1",
+      "objectives": [
+        {
+          "type": "/modify",
+          "description": "If research shows a gap, add concise structured logging notes to the polystack README only; otherwise leave the README unchanged.",
+          "verification_method": "/manual_review"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_f3870af9_1_0",
+          "phase_id": "/phase_f3870af9_1",
+          "description": "If structured logging notes are useful and not already covered, update the polystack README with a short, accurate section; skip modification if redundant.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/normal",
+          "order": 0,
+          "depends_on": [],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/readme.md"
+          ],
+          "shard": "coder",
+          "shard_input": "Using research findings: ONLY if useful and not already documented, add a concise Structured Logging section to the polystack README covering library, key fields/context, enable/config notes, and a minimal example. Match existing README tone and structure. If notes would not be useful or already exist, make no file changes and report that decision.",
+          "context_from": [
+            "/task_f3870af9_0_0",
+            "/task_f3870af9_0_1"
+          ],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "README.md"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_f3870af9_1_1",
+          "phase_id": "/phase_f3870af9_1",
+          "description": "Verify the README change is accurate, minimal, and only present when useful.",
+          "status": "/pending",
+          "type": "/verify",
+          "priority": "/normal",
+          "order": 1,
+          "depends_on": [
+            "/task_f3870af9_1_0"
+          ],
+          "shard": "reviewer",
+          "shard_input": "Confirm either: (A) no README change was needed and none was made, or (B) the added structured logging notes are accurate, non-redundant, and scoped only to the polystack README.",
+          "context_from": [
+            "/task_f3870af9_0_0"
+          ],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_f3870af9_0",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 2,
+      "estimated_complexity": "/low",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "context_profiles": [
+    {
+      "id": "/profile_f3870af9_0",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read"
+      ],
+      "focus_patterns": [
+        "**/README*",
+        "**/polystack/**",
+        "**/*log*",
+        "**/*logger*"
+      ]
+    },
+    {
+      "id": "/profile_f3870af9_1",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write"
+      ],
+      "focus_patterns": [
+        "**/README*",
+        "**/polystack/**"
+      ]
+    }
+  ],
+  "completed_phases": 0,
+  "total_phases": 2,
+  "completed_tasks": 0,
+  "total_tasks": 4,
+  "context_budget": 200000,
+  "context_used": 0,
+  "context_utilization": 0,
+  "revision_number": 0,
+  "last_revision_summary": ""
+}

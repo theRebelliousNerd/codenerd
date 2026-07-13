@@ -1,0 +1,2151 @@
+{
+  "id": "/campaign_eae63fd5",
+  "type": "/feature",
+  "title": "Polystack Multi-Service Monorepo Hardening",
+  "goal": "Finish and harden the polystack multi-service monorepo in this workspace end-to-end:\n1) Go backend on :8080 with /health /echo /status /version, CORS, tests, go build green.\n2) React+Vite frontend that displays health and status from the API; build green.\n3) Rust sidecar :8081 GET /ping JSON ok/lang rust; cargo check green.\n4) Python sidecar :8082 GET /transform and /health; stdlib only; works.\n5) scripts/dev.ps1 to start all four services; README accurate.\n6) Integration: /status aggregates both sidecars when running.\nDo not stop at planning — implement real files and keep iterating until components build.",
+  "source_material": [],
+  "source_docs": [],
+  "knowledge_base": "C:\\CodeProjects\\codeNERD\\.nerd\\live_feature_matrix\\polystack\\.nerd\\campaigns\\campaign_eae63fd5\\knowledge.db",
+  "status": "/active",
+  "created_at": "2026-07-13T07:47:32.8436102-04:00",
+  "updated_at": "2026-07-13T07:47:32.8436102-04:00",
+  "confidence": 0.92,
+  "phases": [
+    {
+      "id": "/phase_eae63fd5_0",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Discover Existing Layout",
+      "order": 0,
+      "category": "/scaffold",
+      "status": "/completed",
+      "context_profile": "/profile_eae63fd5_0",
+      "objectives": [
+        {
+          "type": "/research",
+          "description": "Research the workspace to locate existing Go, React/Vite, Rust, Python, scripts, and README artifacts so later tasks modify rather than blindly recreate.",
+          "verification_method": "/none"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_0_0",
+          "phase_id": "/phase_eae63fd5_0",
+          "description": "Research monorepo root layout: list top-level dirs/files and locate go.mod, package.json, Cargo.toml, Python entrypoints, scripts/dev.ps1, README.",
+          "status": "/completed",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_0_1",
+          "phase_id": "/phase_eae63fd5_0",
+          "description": "Research existing Go backend routes and package structure for /health /echo /status /version and CORS.",
+          "status": "/completed",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_0_0"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_0_2",
+          "phase_id": "/phase_eae63fd5_0",
+          "description": "Research frontend, Rust sidecar, Python sidecar, and integration status aggregation patterns already present.",
+          "status": "/completed",
+          "type": "/research",
+          "priority": "/high",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_0_0"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "estimated_tasks": 3,
+      "estimated_complexity": "/low",
+      "compressed_summary": "**Phase summary (Discover Existing Layout)**\n\nMapped monorepo root (top-level dirs/files; located `go.mod`, `package.json`, `Cargo.toml`, Python entrypoints, `scripts/dev.ps1`, README). Documented Go backend package structure and routes (`/health`, `/echo`, `/status`, `/version`) plus CORS. Reviewed frontend, Rust/Python sidecars, and existing integration status aggregation patterns.",
+      "compressed_at": "2026-07-13T07:48:46.6939328-04:00"
+    },
+    {
+      "id": "/phase_eae63fd5_1",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Scaffold Project Foundations",
+      "order": 1,
+      "category": "/scaffold",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_1",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Ensure each service has build manifests and directory structure so go build, npm build, cargo check, and Python stdlib servers can run.",
+          "verification_method": "/builds"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_1_3/repro_002",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "[diagnostic-repro] Reproduce failing loop for /task_eae63fd5_1_3 (logic_failures_2_of_last_2): run tests before next mutation. Last error: micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/pyth...",
+          "status": "/in_progress",
+          "type": "/test_run",
+          "priority": "/critical",
+          "order": 0,
+          "inferred_from": "/task_eae63fd5_1_3",
+          "inference_confidence": 1,
+          "inference_reason": "/logic_failure_repro_guard",
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_0",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Create or modify Go module and backend package layout (cmd/server or equivalent) so the API can build on :8080.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/go.mod",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/go.mod"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "go.mod"
+            },
+            {
+              "type": "/source_file",
+              "path": "backend/go.mod"
+            },
+            {
+              "type": "/source_file",
+              "path": "cmd/server/main.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "attempts": [
+            {
+              "number": 1,
+              "outcome": "/failure",
+              "timestamp": "2026-07-13T07:49:13.2426199-04:00",
+              "error": "micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: The system cannot find the path specified."
+            }
+          ],
+          "last_error": "micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go: The system cannot find the path specified.",
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_1",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Create or modify React+Vite frontend package.json, vite config, and src entry so npm/vite build is green.",
+          "status": "/completed",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 2,
+          "depends_on": [],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/package.json",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/src/main.tsx",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/vite.config.ts"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "frontend/package.json"
+            },
+            {
+              "type": "/source_file",
+              "path": "frontend/vite.config.ts"
+            },
+            {
+              "type": "/source_file",
+              "path": "frontend/src/main.tsx"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_2",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Create or modify Rust sidecar Cargo.toml and src/main.rs skeleton for :8081 /ping.",
+          "status": "/completed",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 3,
+          "depends_on": [],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/rust/cargo.toml",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/rust/src/main.rs"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "sidecars/rust/Cargo.toml"
+            },
+            {
+              "type": "/source_file",
+              "path": "sidecars/rust/src/main.rs"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_3",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 4,
+          "depends_on": [
+            "/task_eae63fd5_1_3/repro_002"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/main.py",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "sidecars/python/main.py"
+            },
+            {
+              "type": "/source_file",
+              "path": "sidecars/python/server.py"
+            }
+          ],
+          "inference_confidence": 0,
+          "attempts": [
+            {
+              "number": 1,
+              "outcome": "/failure",
+              "timestamp": "2026-07-13T07:49:25.0402483-04:00",
+              "error": "micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: The system cannot find the file specified."
+            },
+            {
+              "number": 2,
+              "outcome": "/failure",
+              "timestamp": "2026-07-13T08:28:05.4617315-04:00",
+              "error": "micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: The system cannot find the file specified."
+            }
+          ],
+          "last_error": "micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: The system cannot find the file specified.",
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_4",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Create or modify scripts/dev.ps1 to start Go :8080, frontend, Rust :8081, and Python :8082.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 5,
+          "depends_on": [
+            "/task_eae63fd5_1_0",
+            "/task_eae63fd5_1_1",
+            "/task_eae63fd5_1_2",
+            "/task_eae63fd5_1_3"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/scripts/dev.ps1"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "scripts/dev.ps1"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_5",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Ensure Go module root and cmd/server (or existing backend entry) compile: go.mod module path, main package, listen :8080 stub with /health returning 200 JSON.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 6,
+          "inference_confidence": 0,
+          "attempts": [
+            {
+              "number": 1,
+              "outcome": "/failure",
+              "timestamp": "2026-07-13T07:49:25.0273608-04:00",
+              "error": "task /task_eae63fd5_1_5 missing write_set for mutating type /file_modify"
+            }
+          ],
+          "last_error": "task /task_eae63fd5_1_5 missing write_set for mutating type /file_modify",
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_6",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Align React+Vite package.json, vite.config, and src entry (index/App) so npm install \u0026\u0026 npm run build succeed; wire API base URL placeholder for health/status.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 7,
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_7",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Harden Rust sidecar Cargo.toml + src/main.rs skeleton: bind :8081, GET /ping returns JSON {\"ok\":true,\"lang\":\"rust\"}; cargo check green.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 8,
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_8",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Harden Python stdlib-only sidecar entry on :8082 with GET /health and GET /transform stubs; no third-party deps.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 9,
+          "inference_confidence": 0,
+          "attempts": [
+            {
+              "number": 1,
+              "outcome": "/failure",
+              "timestamp": "2026-07-13T08:39:57.0101641-04:00",
+              "error": "no target path specified for file task /task_eae63fd5_1_8"
+            }
+          ],
+          "last_error": "no target path specified for file task /task_eae63fd5_1_8",
+          "next_retry_at": "2026-07-13T08:40:02.0101641-04:00"
+        },
+        {
+          "id": "/task_eae63fd5_1_9",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports.",
+          "status": "/in_progress",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 10,
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_1_10",
+          "phase_id": "/phase_eae63fd5_1",
+          "description": "Verify scaffold builds: go build ./..., cargo check, python -m py_compile on sidecar, npm run build (or document missing deps).",
+          "status": "/completed",
+          "type": "/verify",
+          "priority": "/critical",
+          "order": 11,
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_0",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 5,
+      "estimated_complexity": "/medium",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_2",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Domain Types and Contracts",
+      "order": 2,
+      "category": "/domain_core",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_2",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Define shared response types and contracts for health, echo, version, status aggregation, and sidecar payloads without transport wiring.",
+          "verification_method": "/builds"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_2_0",
+          "phase_id": "/phase_eae63fd5_2",
+          "description": "Research existing Go types for health/status/version/echo before creating new domain files.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_2_1",
+          "phase_id": "/phase_eae63fd5_2",
+          "description": "Create or modify domain types for HealthResponse, VersionResponse, EchoRequest/Response, and StatusResponse including sidecar fields.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_2_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/domain/types.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/domain/types.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/domain/types.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "internal/domain/types.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_2_2",
+          "phase_id": "/phase_eae63fd5_2",
+          "description": "Create or modify sidecar client interfaces used by status aggregation (Rust ping, Python health/transform).",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_2_1"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/domain/sidecars.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/domain/sidecars.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/domain/sidecars.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "internal/domain/sidecars.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_1",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 3,
+      "estimated_complexity": "/medium",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_3",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Service Logic and Sidecar Clients",
+      "order": 3,
+      "category": "/service",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_3",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Implement business logic for echo, version, health, and status aggregation that calls Rust and Python sidecars when available.",
+          "verification_method": "/tests_pass"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_3_0",
+          "phase_id": "/phase_eae63fd5_3",
+          "description": "Research existing service and HTTP client code for sidecar aggregation before writing service files.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_3_1",
+          "phase_id": "/phase_eae63fd5_3",
+          "description": "Create or modify StatusService that probes Rust :8081 /ping and Python :8082 /health and aggregates into /status payload with graceful degradation.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_3_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/service/status.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/service/status.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/service/status.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "internal/service/status.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_3_2",
+          "phase_id": "/phase_eae63fd5_3",
+          "description": "Create or modify EchoService and Version/Health helpers used by transport handlers.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/high",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_3_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/service/echo.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/service/meta.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/service/echo.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "backend/internal/service/meta.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_3_3",
+          "phase_id": "/phase_eae63fd5_3",
+          "description": "Write unit tests for status aggregation when sidecars are up, down, or timing out.",
+          "status": "/pending",
+          "type": "/test_write",
+          "priority": "/high",
+          "order": 3,
+          "depends_on": [
+            "/task_eae63fd5_3_1",
+            "/task_eae63fd5_3_2"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/service/status_test.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/service/status_test.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/test_file",
+              "path": "backend/internal/service/status_test.go"
+            },
+            {
+              "type": "/test_file",
+              "path": "internal/service/status_test.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_3_4",
+          "phase_id": "/phase_eae63fd5_3",
+          "description": "Run Go service package tests and fix failures until green.",
+          "status": "/pending",
+          "type": "/test_run",
+          "priority": "/critical",
+          "order": 4,
+          "depends_on": [
+            "/task_eae63fd5_3_3"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_2",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 5,
+      "estimated_complexity": "/high",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_4",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Go Transport Layer",
+      "order": 4,
+      "category": "/transport",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_4",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Expose /health /echo /status /version on :8080 with CORS and wire handlers to services.",
+          "verification_method": "/tests_pass"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_4_0",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Research existing HTTP router, middleware, and handler files before modifying transport.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_4_1",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Create or modify CORS middleware allowing frontend origin and common methods/headers.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_4_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/handler/cors.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/handler/cors.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/handler/cors.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "internal/handler/cors.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_4_2",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Create or modify handlers for GET /health, GET /version, POST or GET /echo, GET /status.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_4_1"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/handler/routes.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/handler/routes.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "backend/internal/handler/routes.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "internal/handler/routes.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_4_3",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Create or modify Go server main to listen on :8080 and register routes with CORS.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 3,
+          "depends_on": [
+            "/task_eae63fd5_4_2"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/cmd/server/main.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/cmd/server/main.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "cmd/server/main.go"
+            },
+            {
+              "type": "/source_file",
+              "path": "backend/cmd/server/main.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_4_4",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Write handler/integration tests covering health, echo, version, status, and CORS headers.",
+          "status": "/pending",
+          "type": "/test_write",
+          "priority": "/high",
+          "order": 4,
+          "depends_on": [
+            "/task_eae63fd5_4_2",
+            "/task_eae63fd5_4_3"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/backend/internal/handler/routes_test.go",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/internal/handler/routes_test.go"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/test_file",
+              "path": "backend/internal/handler/routes_test.go"
+            },
+            {
+              "type": "/test_file",
+              "path": "internal/handler/routes_test.go"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_4_5",
+          "phase_id": "/phase_eae63fd5_4",
+          "description": "Run go test and go build; iterate until both are green.",
+          "status": "/pending",
+          "type": "/test_run",
+          "priority": "/critical",
+          "order": 5,
+          "depends_on": [
+            "/task_eae63fd5_4_4"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_3",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 6,
+      "estimated_complexity": "/high",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_5",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Rust Sidecar Transport",
+      "order": 5,
+      "category": "/transport",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_5",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Implement Rust HTTP sidecar on :8081 with GET /ping returning JSON {ok:true, lang:\"rust\"} and cargo check green.",
+          "verification_method": "/builds"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_5_0",
+          "phase_id": "/phase_eae63fd5_5",
+          "description": "Research existing Rust sidecar dependencies and HTTP stack choice before editing.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_5_1",
+          "phase_id": "/phase_eae63fd5_5",
+          "description": "Implement GET /ping JSON response ok/lang rust on :8081 in Rust main.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_5_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/rust/cargo.toml",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/rust/src/main.rs"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "sidecars/rust/src/main.rs"
+            },
+            {
+              "type": "/source_file",
+              "path": "sidecars/rust/Cargo.toml"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_5_2",
+          "phase_id": "/phase_eae63fd5_5",
+          "description": "Run cargo check in Rust sidecar and fix compile errors until green.",
+          "status": "/pending",
+          "type": "/verify",
+          "priority": "/critical",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_5_1"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_1",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 3,
+      "estimated_complexity": "/medium",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_6",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Python Sidecar Transport",
+      "order": 6,
+      "category": "/transport",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_6",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Implement Python stdlib-only HTTP sidecar on :8082 with GET /health and /transform that works without third-party deps.",
+          "verification_method": "/builds"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_6_0",
+          "phase_id": "/phase_eae63fd5_6",
+          "description": "Research existing Python sidecar entrypoint and ensure stdlib-only constraint.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_6_1",
+          "phase_id": "/phase_eae63fd5_6",
+          "description": "Implement GET /health and GET/POST /transform using http.server or equivalent stdlib only on :8082.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_6_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/main.py",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "sidecars/python/main.py"
+            },
+            {
+              "type": "/source_file",
+              "path": "sidecars/python/server.py"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_6_2",
+          "phase_id": "/phase_eae63fd5_6",
+          "description": "Verify Python sidecar starts and /health and /transform respond correctly.",
+          "status": "/pending",
+          "type": "/verify",
+          "priority": "/critical",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_6_1"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_1",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 3,
+      "estimated_complexity": "/medium",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_7",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Frontend Health and Status UI",
+      "order": 7,
+      "category": "/transport",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_7",
+      "objectives": [
+        {
+          "type": "/create",
+          "description": "Build React+Vite UI that fetches and displays API health and status; ensure production build is green.",
+          "verification_method": "/builds"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_7_0",
+          "phase_id": "/phase_eae63fd5_7",
+          "description": "Research frontend API base URL config and existing components before edits.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/critical",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_7_1",
+          "phase_id": "/phase_eae63fd5_7",
+          "description": "Create or modify API client for GET /health and GET /status against Go backend :8080.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_7_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/src/api.ts",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/src/lib/api.ts"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "frontend/src/api.ts"
+            },
+            {
+              "type": "/source_file",
+              "path": "frontend/src/lib/api.ts"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_7_2",
+          "phase_id": "/phase_eae63fd5_7",
+          "description": "Create or modify UI components/pages that display health and aggregated status including sidecar states.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_7_1"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/src/app.tsx",
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/frontend/src/components/statuspanel.tsx"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "frontend/src/App.tsx"
+            },
+            {
+              "type": "/source_file",
+              "path": "frontend/src/components/StatusPanel.tsx"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_7_3",
+          "phase_id": "/phase_eae63fd5_7",
+          "description": "Run frontend install/build and fix until Vite build is green.",
+          "status": "/pending",
+          "type": "/verify",
+          "priority": "/critical",
+          "order": 3,
+          "depends_on": [
+            "/task_eae63fd5_7_2"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_4",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 4,
+      "estimated_complexity": "/high",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    },
+    {
+      "id": "/phase_eae63fd5_8",
+      "campaign_id": "/campaign_eae63fd5",
+      "name": "Integration Assembly and Docs",
+      "order": 8,
+      "category": "/integration",
+      "status": "/pending",
+      "context_profile": "/profile_eae63fd5_8",
+      "objectives": [
+        {
+          "type": "/integrate",
+          "description": "Wire end-to-end startup, ensure /status aggregates both sidecars when running, harden scripts and README, and verify full stack builds.",
+          "verification_method": "/nemesis_gauntlet"
+        }
+      ],
+      "tasks": [
+        {
+          "id": "/task_eae63fd5_8_0",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Research current README and dev.ps1 claims versus actual ports, commands, and endpoints.",
+          "status": "/pending",
+          "type": "/research",
+          "priority": "/high",
+          "order": 0,
+          "depends_on": [],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_8_1",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Harden scripts/dev.ps1 to start all four services with correct working directories, ports, and failure visibility.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 1,
+          "depends_on": [
+            "/task_eae63fd5_8_0"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/scripts/dev.ps1"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "scripts/dev.ps1"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_8_2",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Update README with accurate architecture, ports (:8080/:8081/:8082/frontend), endpoints, build commands, and dev.ps1 usage.",
+          "status": "/pending",
+          "type": "/document",
+          "priority": "/high",
+          "order": 2,
+          "depends_on": [
+            "/task_eae63fd5_8_1"
+          ],
+          "write_set": [
+            "c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/readme.md"
+          ],
+          "context_from": [],
+          "artifacts": [
+            {
+              "type": "/source_file",
+              "path": "README.md"
+            }
+          ],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_8_3",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Verify Go /status aggregates Rust and Python sidecar health when both are running and degrades cleanly when not.",
+          "status": "/pending",
+          "type": "/verify",
+          "priority": "/critical",
+          "order": 3,
+          "depends_on": [
+            "/task_eae63fd5_8_1"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_8_4",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Run full verification matrix: go test, go build, cargo check, python health/transform smoke, frontend build.",
+          "status": "/pending",
+          "type": "/test_run",
+          "priority": "/critical",
+          "order": 4,
+          "depends_on": [
+            "/task_eae63fd5_8_1",
+            "/task_eae63fd5_8_2",
+            "/task_eae63fd5_8_3"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        },
+        {
+          "id": "/task_eae63fd5_8_5",
+          "phase_id": "/phase_eae63fd5_8",
+          "description": "Fix any remaining build/test/integration failures discovered in verification matrix until all components are green.",
+          "status": "/pending",
+          "type": "/file_modify",
+          "priority": "/critical",
+          "order": 5,
+          "depends_on": [
+            "/task_eae63fd5_8_4"
+          ],
+          "context_from": [],
+          "artifacts": [],
+          "inference_confidence": 0,
+          "next_retry_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "dependencies": [
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_4",
+          "type": "/hard"
+        },
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_5",
+          "type": "/hard"
+        },
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_6",
+          "type": "/hard"
+        },
+        {
+          "depends_on_phase_id": "/phase_eae63fd5_7",
+          "type": "/hard"
+        }
+      ],
+      "estimated_tasks": 6,
+      "estimated_complexity": "/critical",
+      "compressed_at": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "context_profiles": [
+    {
+      "id": "/profile_eae63fd5_0",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "*",
+        "backend/**",
+        "frontend/**",
+        "sidecars/**",
+        "scripts/**",
+        "README*"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_1",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "go.mod",
+        "backend/**",
+        "frontend/package.json",
+        "sidecars/**",
+        "scripts/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_2",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write"
+      ],
+      "focus_patterns": [
+        "backend/internal/**",
+        "internal/**",
+        "**/types*.go",
+        "**/domain/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_3",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "backend/internal/service/**",
+        "internal/service/**",
+        "backend/internal/domain/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_4",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "backend/internal/handler/**",
+        "backend/cmd/**",
+        "cmd/**",
+        "internal/handler/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_5",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "sidecars/rust/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_6",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "sidecars/python/**"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_7",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "frontend/src/**",
+        "frontend/package.json",
+        "frontend/vite.config.*"
+      ]
+    },
+    {
+      "id": "/profile_eae63fd5_8",
+      "required_schemas": [
+        "file_topology",
+        "symbol_graph",
+        "diagnostic"
+      ],
+      "required_tools": [
+        "fs_read",
+        "fs_write",
+        "exec_cmd"
+      ],
+      "focus_patterns": [
+        "scripts/dev.ps1",
+        "README.md",
+        "cmd/**",
+        "backend/**",
+        "frontend/**",
+        "sidecars/**"
+      ]
+    }
+  ],
+  "completed_phases": 1,
+  "total_phases": 9,
+  "completed_tasks": 126,
+  "total_tasks": 45,
+  "context_budget": 200000,
+  "context_used": 0,
+  "context_utilization": 0,
+  "revision_number": 1,
+  "last_revision_summary": "Atomized scaffold phase around existing monorepo layout: four service entrypoints + dev.ps1 + build verification gates.",
+  "learnings": [
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Verify scaffold builds: go build ./..., cargo check, python -m py_compile on sidecar, npm run build (or document missing deps). [result: {\"output\":\"go: warning: \\\"./...\\\" matched no packages\\n\",\"task_id\":\"/task_eae63fd5_1_10\",\"verified\":true}]",
+      "applied_at": "2026-07-13T07:49:26.4992507-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify React+Vite frontend package.json, vite config, and src entry so npm/vite build is green. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\frontend\\\\package.json\",\"size\":344}]",
+      "applied_at": "2026-07-13T07:51:10.6836971-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Rust sidecar Cargo.toml and src/main.rs skeleton for :8081 /ping. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\rust\\\\Cargo.toml\",\"size\":142}]",
+      "applied_at": "2026-07-13T08:00:29.025012-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` (created — the path was missing).\\n\\nIt now starts all four services with the right working dirs and ports:\\n\\n| Service | Port | Working dir | Command |\\n|---------|------|-------------|---------|\\n| Go backend | **8080** | `backend/` | `go run .` |\\n| Frontend (Vite) | **5173** | `frontend/` | `npm run dev` |\\n| Rust sidecar | **8081** | `sidecars/rust/` | `cargo run` |\\n| Python sidecar | **8082** | `sidecars/python/` | `python main.py` |\\n\\nDetail...]",
+      "applied_at": "2026-07-13T08:40:58.5389217-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3656}]",
+      "applied_at": "2026-07-13T08:41:00.1714208-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1636}]",
+      "applied_at": "2026-07-13T08:42:02.0212756-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":2308}]",
+      "applied_at": "2026-07-13T08:42:13.2973838-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":2457}]",
+      "applied_at": "2026-07-13T08:42:37.0733249-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real polystack layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend/` | `go run .` | `:8080` (hardcoded in `backend/main.go`) |\\n| **Frontend** | `frontend/` | `npm run dev` | Vite default |\\n| **Rust** | `sidecars/rust/` | `cargo run` | `:8081` (hardcoded bind) |\\n| **Python** | `sidecars/python/` | `python main.py` | `:8082` (stdlib server) |\\n\\n### F...]",
+      "applied_at": "2026-07-13T08:42:51.1092547-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3349}]",
+      "applied_at": "2026-07-13T08:43:15.3536142-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1927}]",
+      "applied_at": "2026-07-13T08:44:06.8151702-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1485}]",
+      "applied_at": "2026-07-13T08:44:09.0434668-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real polystack layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go API | `backend/` | `go run .` | `:8080` |\\n| Frontend | `frontend/` | `npm run dev` | `:5173` (Vite) |\\n| Rust | `sidecars/rust/` | `cargo run` | `:8081` (hardcoded) |\\n| Python | `sidecars/python/` | `python main.py` | `:8082` (hardcoded) |\\n\\n### Fixes vs previous script\\n- Wrong dirs (`go`, `rust`,...]",
+      "applied_at": "2026-07-13T08:44:47.3031919-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1603}]",
+      "applied_at": "2026-07-13T08:44:54.7971914-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1204}]",
+      "applied_at": "2026-07-13T08:45:48.0628259-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1604}]",
+      "applied_at": "2026-07-13T08:45:51.2310485-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the actual polystack layout and ports.\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go API | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust sidecar | `sidecars\\\\rust` | `cargo run` | `:8081` |\\n| Python sidecar | `sidecars\\\\python` | `python main.py` | `:8082` |\\n\\nPreviously it pointed at non-existent `go/`, `rust/`, and `python/` dirs and use...]",
+      "applied_at": "2026-07-13T08:46:23.0356435-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1596}]",
+      "applied_at": "2026-07-13T08:46:34.5953122-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1457}]",
+      "applied_at": "2026-07-13T08:47:29.0912782-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so each process uses the real working directory and start command:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go API | `backend` | `go run .` | `:8080` (hardcoded in `main.go`) |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust sidecar | `sidecars/rust` | `cargo run` | `:8081` (hardcoded bind) |\\n| Python sidecar | `sidecars/python` | `python main.py` | `:8082` (hardcoded in `main.py`) |...]",
+      "applied_at": "2026-07-13T08:47:56.9827423-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1402}]",
+      "applied_at": "2026-07-13T08:48:03.8004419-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T08:48:52.510129-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1405}]",
+      "applied_at": "2026-07-13T08:49:24.6946691-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T08:49:39.4480597-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real layout and ports:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust | `sidecars\\\\rust` | `cargo run` | `:8081` |\\n| Python | `sidecars\\\\python` | `python main.py` | `:8082` |\\n\\nPreviously it pointed at non-existent `go/`, `rust/`, and `python/` dirs and used the wrong Python start command...]",
+      "applied_at": "2026-07-13T08:50:05.1306948-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T08:50:53.0882499-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1426}]",
+      "applied_at": "2026-07-13T08:51:05.6491442-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so each service starts from the correct directory with the right command:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go backend | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust sidecar | `sidecars/rust` | `cargo run` | `:8081` |\\n| Python sidecar | `sidecars/python` | `python main.py` | `:8082` |\\n\\nChanges from the previous script:\\n- `go` → `backe...]",
+      "applied_at": "2026-07-13T08:51:39.0745358-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only Python sidecar that matches the rest of the stack.\\n\\n### What was wrong\\n- `server.py` imported `Handler`, `create_server`, `main`, and `transform_text` from `main.py`, but those symbols were missing.\\n- The Go backend probes `GET http://127.0.0.1:8082/transform?text=hi`, while the old server only handled `POST /transform` with JSON.\\n- Docs/requirements expect `ThreadingHTTPServer` (Python 3.7+), not plain `HTTPServer`.\\n\\n#...]",
+      "applied_at": "2026-07-13T08:52:17.1124104-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1758}]",
+      "applied_at": "2026-07-13T08:52:45.3459117-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3845}]",
+      "applied_at": "2026-07-13T08:52:54.5307382-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real layout and ports:\\n\\n| Service | Working dir | Port / command |\\n|---------|-------------|----------------|\\n| Go API | `backend/` | `:8080` via `go run .` |\\n| Frontend | `frontend/` | `npm run dev` (Vite, usually `:5173`) |\\n| Rust sidecar | `sidecars/rust/` | `:8081` via `cargo run` |\\n| Python sidecar | `sidecars/python/` | `:8082` via `python main.py` |\\n\\nAlso dropped the unused `PORT` env overrides — Rust and Python already ha...]",
+      "applied_at": "2026-07-13T08:53:31.4157845-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1861}]",
+      "applied_at": "2026-07-13T08:53:42.5333404-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1610}]",
+      "applied_at": "2026-07-13T08:54:36.9375829-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1711}]",
+      "applied_at": "2026-07-13T08:55:09.1510307-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real project layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go | `backend` | `go run .` | `:8080` (hard-coded in `backend/main.go`) |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust | `sidecars/rust` | `cargo run` | `:8081` (hard-coded in `main.rs`) |\\n| Python | `sidecars/python` | `python main.py` | `:8082` (stdlib server in `main.py`) |\\n\\n### ...]",
+      "applied_at": "2026-07-13T08:55:40.5320597-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only Python sidecar that matches the rest of the stack.\\n\\n### What was wrong\\n- `server.py` imported `Handler`, `create_server`, `main`, and `transform_text` from `main.py`, but those symbols were missing.\\n- The Go backend probes `GET http://127.0.0.1:8082/transform?text=hi`, while the old server only handled `POST /transform` with JSON.\\n- Docs/requirements expect `ThreadingHTTPServer` (Python 3.7+), not plain `HTTPServer`.\\n\\n#...]",
+      "applied_at": "2026-07-13T08:56:35.995556-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1915}]",
+      "applied_at": "2026-07-13T08:57:02.4566317-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real polystack layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend` | `go run .` | `:8080` |\\n| **Frontend** | `frontend` | `npm run dev` | Vite default (`:5173`) |\\n| **Rust** | `sidecars/rust` | `cargo run` | `:8081` (hardcoded in binary) |\\n| **Python** | `sidecars/python` | `python main.py` | `:8082` (stdlib server, not uvicorn) |\\n\\n### Other fixe...]",
+      "applied_at": "2026-07-13T08:57:39.4404069-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` as a stdlib-only Python sidecar on **:8082**.\\n\\n### Behavior\\n- **`GET /health`** → `{\\\"status\\\":\\\"ok\\\",\\\"lang\\\":\\\"python\\\"}`\\n- **`GET /transform?text=...`** (also `msg`) → uppercase + reverse JSON payload\\n- **`POST /transform`** → same for JSON `{\\\"text\\\"}` / `{\\\"msg\\\"}` or raw body\\n- **stdlib only** (`http.server.ThreadingHTTPServer`), no third-party deps\\n- Defaults: `127.0.0.1:8082` (override with `SIDECAR_HOST` / `SIDECAR_PORT` or...]",
+      "applied_at": "2026-07-13T08:58:00.1430365-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so the full local stack starts with the right dirs and ports:\\n\\n| Service | Workdir | Port / command |\\n|---------|---------|----------------|\\n| **Go** | `backend` | `:8080` via `go run .` |\\n| **Frontend** | `frontend` | `:5173` via `npm run dev -- --port 5173 --strictPort` |\\n| **Rust** | `sidecars/rust` | `:8081` via `cargo run` |\\n| **Python** | `sidecars/python` | `:8082` via `python main.py` |\\n\\nAlso tightened Windows process launch:\\n- Resolve...]",
+      "applied_at": "2026-07-13T08:58:38.6256352-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T08:59:18.5280267-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":2214}]",
+      "applied_at": "2026-07-13T08:59:55.0244484-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3827}]",
+      "applied_at": "2026-07-13T09:00:17.4067413-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so the launcher matches the real polystack layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend` | `go run .` | `:8080` |\\n| **Frontend** | `frontend` | `npm run dev` | `:5173` (Vite) |\\n| **Rust** | `sidecars/rust` | `cargo run` | `:8081` |\\n| **Python** | `sidecars/python` | `python main.py` | `:8082` |\\n\\n### Fixes vs previous script\\n1. **Rust** workdir: `rust` ...]",
+      "applied_at": "2026-07-13T09:00:29.5336753-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so the full polystack comes up with the right working directories and ports.\\n\\n### What it starts\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go API** | `backend/` | `go run .` | **:8080** |\\n| **Frontend** | `frontend/` | `npm run dev` | **:5173** (proxies API → `:8080`) |\\n| **Rust** | `sidecars/rust/` | `cargo run` | **:8081** |\\n| **Python** | `sidecars/python/` | `python main.py` (or `py -3` / `...]",
+      "applied_at": "2026-07-13T09:01:15.6130113-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1867}]",
+      "applied_at": "2026-07-13T09:01:18.5040939-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only sidecar entrypoint that matches the rest of the stack.\\n\\n### What changed\\n- **Port**: binds `:8082` (`HOST`/`PORT` env overrides supported)\\n- **`GET /health`** → `{\\\"status\\\":\\\"ok\\\"}`\\n- **`GET /transform?text=hi`** → reverse transform (what Go `/status` probes)\\n- **`POST /transform`** → JSON body transform (keeps prior behavior)\\n- **`ThreadingHTTPServer`** (matches `requirements.txt` / `server.py` notes)\\n- **Expor...]",
+      "applied_at": "2026-07-13T09:02:45.1657472-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1562}]",
+      "applied_at": "2026-07-13T09:03:11.4850839-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1596}]",
+      "applied_at": "2026-07-13T09:03:35.3896313-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real layout and start commands:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go | `backend` | `go run .` | 8080 |\\n| Frontend | `frontend` | `npm run dev` | Vite default |\\n| Rust | `sidecars/rust` | `cargo run` | 8081 |\\n| Python | `sidecars/python` | `python main.py` | 8082 |\\n\\nChanges from the old script:\\n- `go` → `backend`\\n- `rust` → `sidecars/rust`\\n- `python` → `sidecars/python`...]",
+      "applied_at": "2026-07-13T09:04:09.4378278-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` so the Python sidecar matches the rest of the stack.\\n\\n### What was wrong\\n- Backend `/status` probes **`GET http://127.0.0.1:8082/transform?text=hi`**, but `main.py` only handled **POST** `/transform`.\\n- `server.py` imports `Handler`, `create_server`, `main`, `transform_text` — those symbols were missing from `main.py`.\\n- Docs/requirements expect **stdlib-only `ThreadingHTTPServer`** on **:8082**.\\n\\n### What it does now\\n- **`GET /health`...]",
+      "applied_at": "2026-07-13T09:04:30.5768976-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1528}]",
+      "applied_at": "2026-07-13T09:05:28.5455439-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1972}]",
+      "applied_at": "2026-07-13T09:05:59.4473024-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real project layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go API | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | Vite (usually `:5173`) |\\n| Rust | `sidecars/rust` | `cargo run` | `:8081` |\\n| Python | `sidecars/python` | `python main.py` | `:8082` |\\n\\n### Why\\n- There is no top-level `go/`, `rust/`, or `python/` dir.\\n- Go entryp...]",
+      "applied_at": "2026-07-13T09:06:03.4869676-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:06:41.7429847-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":2201}]",
+      "applied_at": "2026-07-13T09:07:30.5987242-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1810}]",
+      "applied_at": "2026-07-13T09:07:35.8158509-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real project layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend` | `go run .` | `:8080` |\\n| **Frontend** | `frontend` | `npm run dev` | Vite default |\\n| **Rust** | `sidecars/rust` | `cargo run` | `:8081` |\\n| **Python** | `sidecars/python` | `python main.py` | `:8082` |\\n\\n### Why\\n- There is no top-level `go/`, `rust/`, or `python/` dir.\\n- Go live...]",
+      "applied_at": "2026-07-13T09:08:09.5712828-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1767}]",
+      "applied_at": "2026-07-13T09:08:34.5191008-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1602}]",
+      "applied_at": "2026-07-13T09:09:14.8719443-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so the local stack starts with the correct working directories and ports.\\n\\n### Services launched\\n| Service | Working dir | Command | Port |\\n|---|---|---|---|\\n| Go API | `backend/` | `go run .` | **8080** |\\n| Frontend (Vite) | `frontend/` | `npm run dev` | **5173** |\\n| Rust sidecar | `sidecars/rust/` | `cargo run` | **8081** |\\n| Python sidecar | `sidecars/python/` | `python main.py` | **8082** |\\n\\n### Improvements\\n- Resolves Windows command shi...]",
+      "applied_at": "2026-07-13T09:10:00.2924033-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1943}]",
+      "applied_at": "2026-07-13T09:10:12.0350727-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T09:11:08.609706-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1445}]",
+      "applied_at": "2026-07-13T09:11:27.4261453-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T09:11:54.7487027-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so each service uses the real project layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend/` | `go run .` | **8080** |\\n| **Frontend** | `frontend/` | `npm run dev` | **5173** (Vite) |\\n| **Rust** | `sidecars/rust/` | `cargo run` | **8081** |\\n| **Python** | `sidecars/python/` | `python main.py` | **8082** |\\n\\n### Fixes vs previous script\\n- Go: `go/` → `backend/...]",
+      "applied_at": "2026-07-13T09:12:01.8346569-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1359}]",
+      "applied_at": "2026-07-13T09:13:04.0378246-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only Python sidecar entrypoint that matches the rest of the stack.\\n\\n### What it does\\n- Listens on **`:8082`** via `ThreadingHTTPServer` (stdlib only)\\n- **`GET /health`** → `{\\\"status\\\":\\\"ok\\\",\\\"lang\\\":\\\"python\\\"}`\\n- **`GET /transform?text=hi`** → reverses text (matches Go `/status` probe)\\n- **`POST /transform`** → accepts JSON `{\\\"text\\\":\\\"...\\\"}` or raw text\\n- Exports what `server.py` re-exports: `Handler`, `create_se...]",
+      "applied_at": "2026-07-13T09:13:15.9515921-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real polystack layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend/` | `go run .` | `:8080` (hardcoded in `backend/main.go`) |\\n| **Frontend** | `frontend/` | `npm run dev` | Vite default `:5173` |\\n| **Rust** | `sidecars/rust/` | `cargo run` | `:8081` (hardcoded bind) |\\n| **Python** | `sidecars/python/` | `python main.py` | `:8082` (stdlib server) |\\...]",
+      "applied_at": "2026-07-13T09:13:47.7540909-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3692}]",
+      "applied_at": "2026-07-13T09:14:03.4182503-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1643}]",
+      "applied_at": "2026-07-13T09:15:02.1786465-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1574}]",
+      "applied_at": "2026-07-13T09:15:14.0263695-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` to match the real repo layout and ports.\\n\\n### Changes\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | `:5173` (Vite) |\\n| Rust | `sidecars\\\\rust` | `cargo run` | `:8081` |\\n| Python | `sidecars\\\\python` | `python main.py` | `:8082` |\\n\\n### Why\\nThe old script pointed at non-existent `go/`, `rust/`, and `python/` dirs, and used...]",
+      "applied_at": "2026-07-13T09:15:54.2761202-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T09:15:59.6320642-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1895}]",
+      "applied_at": "2026-07-13T09:16:58.1974389-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":2353}]",
+      "applied_at": "2026-07-13T09:17:28.1508929-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:17:38.2083114-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so each service uses the real working directory and start command:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| **Go** | `backend` | `go run .` | `:8080` |\\n| **Frontend** | `frontend` | `npm run dev` | Vite `:5173` (proxies to `:8080`) |\\n| **Rust** | `sidecars/rust` | `cargo run` | `:8081` |\\n| **Python** | `sidecars/python` | `python main.py` | `:8082` |\\n\\n### Fixes vs previous script\\n1. **Go** — `g...]",
+      "applied_at": "2026-07-13T09:18:14.7025702-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1960}]",
+      "applied_at": "2026-07-13T09:18:46.0994885-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1606}]",
+      "applied_at": "2026-07-13T09:19:28.4853354-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\scripts\\\\dev.ps1\",\"size\":1421}]",
+      "applied_at": "2026-07-13T09:19:44.0271135-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Update scripts/dev.ps1 to start Go :8080, frontend dev server, Rust :8081, and Python :8082 with correct working dirs and ports. [result: {\"coder_result\":\"Updated `scripts/dev.ps1` so each service starts from the correct directory and port:\\n\\n| Service | Working dir | Command | Port |\\n|---------|-------------|---------|------|\\n| Go | `backend` | `go run .` | `:8080` |\\n| Frontend | `frontend` | `npm run dev` | Vite (typically `:5173`) |\\n| Rust | `sidecars\\\\rust` | `cargo run` | `:8081` |\\n| Python | `sidecars\\\\python` | `python main.py` | `:8082` |\\n\\nFixes applied:\\n1. **Rust** — `rust` → `sidecars\\\\rust`\\n2. **Python** \ufffd...]",
+      "applied_at": "2026-07-13T09:20:24.7124851-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3767}]",
+      "applied_at": "2026-07-13T09:20:27.3527388-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":4031}]",
+      "applied_at": "2026-07-13T09:24:32.5773916-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1843}]",
+      "applied_at": "2026-07-13T09:25:25.3122979-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` so the Python sidecar is a complete stdlib-only server that matches what the rest of the stack expects.\\n\\n### What was wrong\\n- `main.py` only had a basic `HTTPServer` and POST-only `/transform`\\n- `server.py` imports `Handler`, `create_server`, and `transform_text` from `main` — those were missing\\n- Go `/status` probes **`GET http://127.0.0.1:8082/transform?text=hi`**, which the old server did not support\\n\\n### What it does now\\n| Endpoint...]",
+      "applied_at": "2026-07-13T09:26:46.2233979-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":4104}]",
+      "applied_at": "2026-07-13T09:27:58.3686238-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a complete stdlib-only Python sidecar entrypoint.\\n\\n### What it does\\n- Listens on **`0.0.0.0:8082`**\\n- **`GET/POST /health`** → `{\\\"status\\\":\\\"ok\\\",\\\"service\\\":\\\"python-sidecar\\\"}`\\n- **`GET/POST /transform`** → reverses text (`?text=hi` → `\\\"ih\\\"`; JSON body `{\\\"text\\\":...}` also works)\\n- Uses **`ThreadingHTTPServer`** (stdlib only, no third-party deps)\\n\\n### Compatibility fix\\n`server.py` was importing symbols that `main.py` di...]",
+      "applied_at": "2026-07-13T09:28:44.9553606-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T09:29:39.7266305-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1607}]",
+      "applied_at": "2026-07-13T09:30:22.4059757-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1603}]",
+      "applied_at": "2026-07-13T09:31:10.3653955-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only sidecar that matches the rest of the stack.\\n\\n### What changed\\n- **Port**: binds `:8082` (override with `PORT` / CLI arg)\\n- **Server**: `ThreadingHTTPServer` (no third-party deps)\\n- **Routes**:\\n  - `GET /health` → `{\\\"status\\\":\\\"ok\\\"}`\\n  - `GET /transform?text=hi` → `{\\\"ok\\\":true,\\\"text\\\":\\\"hi\\\",\\\"transformed\\\":\\\"IH\\\"}` (what Go `/status` probes)\\n  - `POST /transform` with JSON `{\\\"text\\\":\\\"...\\\"}` or raw text\\n- **...]",
+      "applied_at": "2026-07-13T09:32:03.7507139-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1853}]",
+      "applied_at": "2026-07-13T09:33:00.7770042-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1865}]",
+      "applied_at": "2026-07-13T09:33:49.2174638-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3918}]",
+      "applied_at": "2026-07-13T09:34:33.6969167-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:35:16.9739302-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:36:26.2671231-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1457}]",
+      "applied_at": "2026-07-13T09:37:24.7287564-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3918}]",
+      "applied_at": "2026-07-13T09:38:31.4826817-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:39:24.5580019-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a stdlib-only Python sidecar entrypoint that matches the polystack contract.\\n\\n### What it does\\n- Listens on **`127.0.0.1:8082`** via `ThreadingHTTPServer` (no third-party deps)\\n- **`GET /health`** → `{\\\"status\\\":\\\"ok\\\",\\\"lang\\\":\\\"python\\\"}`\\n- **`GET /transform?text=hi`** → transforms text (reverse + upper), matching the Go `/status` probe\\n- **`POST /transform`** → same transform from JSON `{\\\"text\\\":...}` or raw body\\n- Caps req...]",
+      "applied_at": "2026-07-13T09:40:18.9536143-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3005}]",
+      "applied_at": "2026-07-13T09:41:04.3365848-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1606}]",
+      "applied_at": "2026-07-13T09:42:11.7759087-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1945}]",
+      "applied_at": "2026-07-13T09:43:04.9642919-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a complete stdlib-only Python sidecar entry.\\n\\n### What was wrong\\n- `server.py` imported `Handler`, `create_server`, `main`, and `transform_text` from `main.py`, but those symbols were missing.\\n- Go `/status` probes `GET http://127.0.0.1:8082/transform?text=hi`, while the old server only handled `POST /transform` with JSON.\\n- Docs/requirements expect `ThreadingHTTPServer` (Python 3.7+), not plain `HTTPServer`.\\n\\n### What it does now\\n-...]",
+      "applied_at": "2026-07-13T09:43:58.3848412-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3918}]",
+      "applied_at": "2026-07-13T09:44:42.1391761-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1610}]",
+      "applied_at": "2026-07-13T09:45:52.3078751-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1938}]",
+      "applied_at": "2026-07-13T09:46:47.38678-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` to a stdlib-only Python sidecar that matches the rest of polystack.\\n\\n### What changed\\n- **Server**: `ThreadingHTTPServer` on `127.0.0.1:8082` (no third-party deps)\\n- **`GET /health`** → `{\\\"status\\\":\\\"ok\\\",\\\"lang\\\":\\\"python\\\"}`\\n- **`GET /transform?text=...`** → reverse+strip transform (what Go `/status` probes with `?text=hi`)\\n- **`POST /transform`** → same transform from JSON body (`text`/`input`) or query\\n- **API surface for `serv...]",
+      "applied_at": "2026-07-13T09:47:43.4233608-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:48:39.6963891-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1536}]",
+      "applied_at": "2026-07-13T09:49:38.3901939-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1947}]",
+      "applied_at": "2026-07-13T09:50:28.7242653-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3154}]",
+      "applied_at": "2026-07-13T09:51:19.6441254-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1951}]",
+      "applied_at": "2026-07-13T09:52:10.640128-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1596}]",
+      "applied_at": "2026-07-13T09:53:01.3573756-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"coder_result\":\"Updated `sidecars/python/main.py` into a complete stdlib-only sidecar entry that matches the monorepo contract.\\n\\n### What was wrong\\n- Backend probes `GET http://127.0.0.1:8082/transform?text=hi`, but the old server only handled **POST** `/transform`.\\n- `server.py` imported `SidecarHandler`, `create_server`, and `transform_text`, which `main.py` did not export.\\n- Docs/requirements expected `ThreadingHTTPServer` and env-driven port (`PORT=8082`).\\n\\n### What it does now\\n- **...]",
+      "applied_at": "2026-07-13T09:53:49.5283134-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1951}]",
+      "applied_at": "2026-07-13T09:54:59.822797-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1943}]",
+      "applied_at": "2026-07-13T09:55:50.8904259-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1642}]",
+      "applied_at": "2026-07-13T09:56:49.452926-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":3918}]",
+      "applied_at": "2026-07-13T09:57:38.0927452-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":1840}]",
+      "applied_at": "2026-07-13T09:58:24.3955352-04:00"
+    },
+    {
+      "type": "/success_pattern",
+      "pattern": "/phase_pattern",
+      "fact": "Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform. [result: {\"path\":\"C:\\\\CodeProjects\\\\codeNERD\\\\.nerd\\\\live_feature_matrix\\\\polystack\\\\sidecars\\\\python\\\\main.py\",\"size\":2454}]",
+      "applied_at": "2026-07-13T09:59:13.278973-04:00"
+    }
+  ]
+}

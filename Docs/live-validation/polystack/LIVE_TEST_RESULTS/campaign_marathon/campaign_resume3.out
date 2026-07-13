@@ -1,0 +1,8 @@
+Resuming campaign: Polystack Multi-Service Monorepo Hardening
+🔄 Create or modify Go module and backend package layout (cmd/server or equivalent) so the API can build on :8080.
+🔄 Create or modify Python sidecar stdlib-only server entry for :8082 /health and /transform.
+🔄 Ensure Go module root and cmd/server (or existing backend entry) compile: go.mod module path, main package, listen :8080 stub with /health returning 200 JSON.
+✅ Task completed
+🔄 Align React+Vite package.json, vite.config, and src entry (index/App) so npm install && npm run build succeed; wire API base URL placeholder for health/status.
+❌ micro-checkpoint missing mutated path c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: GetFileAttributesEx c:/codeprojects/codenerd/.nerd/live_feature_matrix/polystack/sidecars/python/server.py: The system cannot find the file specified.
+🔄 Harden Rust sidecar Cargo.toml + src/main.rs skeleton: bind :8081, GET /ping returns JSON {"ok":true,"lang":"rust"}; cargo check green.
