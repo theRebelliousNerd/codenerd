@@ -20,7 +20,7 @@ Anti-patterns (automatic fail):
 - Tables of files with no behavioral narrative
 - Claiming pre-implementation 0% when code exists
 - Inventing APIs, routes, or wires not in source
-- sibling-platform product terms (foreign-product-surface, foreign-agent-kit, foreign-codegen, attention-channel-as-product)
+- Foreign product jargon from other repos (do not import external product names into codeNERD docs)
 
 Required qualities:
 
