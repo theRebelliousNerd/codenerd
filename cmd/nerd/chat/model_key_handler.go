@@ -5,7 +5,6 @@ import (
 
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/campaign"
-	"codenerd/internal/config"
 	"codenerd/internal/core"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -76,7 +75,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 		// Persist to config
 		if m.Config != nil {
 			m.Config.ContinuationMode = int(m.continuationMode)
-			_ = m.Config.Save(config.DefaultUserConfigPath())
+			_ = m.Config.Save(m.userConfigPath())
 		}
 		return m, nil, true
 	}

@@ -1,6 +1,6 @@
 // Package logging — LLM I/O tracing subsystem.
 //
-// When trace_llm_io is enabled in the logging config, this logger captures
+// When trace_llm_io is explicitly enabled in the logging config, this logger captures
 // the FULL prompt package (system prompt, conversation history, user prompt)
 // and raw LLM responses to a dedicated log file:
 //
@@ -58,7 +58,7 @@ func initLLMIOLogger() {
 		dateStr := time.Now().Format("2006-01-02")
 		logPath := filepath.Join(logsDir, dateStr+"_llm_io.log")
 
-		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[logging] Failed to open LLM I/O log: %v\n", err)
 			llmIO.enabled = false

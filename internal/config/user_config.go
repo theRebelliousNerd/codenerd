@@ -462,7 +462,7 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 		return nil, fmt.Errorf("failed to read user config: %w", err)
 	}
 
-	if err := json.Unmarshal(data, cfg); err != nil {
+	if err := decodeStrictJSON(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse user config: %w", err)
 	}
 
@@ -481,17 +481,12 @@ func LoadUserConfig(path string) (*UserConfig, error) {
 
 // SaveUserConfig saves configuration to .nerd/config.json.
 func (c *UserConfig) Save(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal user config: %w", err)
 	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	data = append(data, '\n')
+	if err := writePrivateFileAtomically(path, data); err != nil {
 		return fmt.Errorf("failed to write user config: %w", err)
 	}
 
@@ -712,6 +707,19 @@ func (c *UserConfig) GetEngine() string {
 	return c.Engine
 }
 
+// HasExplicitLLMSelection reports whether config.json expresses an LLM routing
+// choice. When true, client construction errors must not fall through to an
+// unrelated ambient provider key.
+func (c *UserConfig) HasExplicitLLMSelection() bool {
+	if c == nil {
+		return false
+	}
+	return c.Engine != "" || c.Provider != "" || c.APIKey != "" ||
+		c.AnthropicAPIKey != "" || c.OpenAIAPIKey != "" || c.GeminiAPIKey != "" ||
+		c.XAIAPIKey != "" || c.ZAIAPIKey != "" || c.OpenRouterAPIKey != "" ||
+		c.ClaudeCLI != nil || c.CodexCLI != nil || c.XAIOAuth != nil || c.Ollama != nil
+}
+
 // SetEngine updates the engine setting.
 func (c *UserConfig) SetEngine(engine string) error {
 	validEngines := map[string]bool{
@@ -766,9 +774,9 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if cfg.Model == "" {
 		cfg.Model = "gpt-5.4"
 	}
-	if cfg.Sandbox == "" {
-		cfg.Sandbox = "read-only"
-	}
+	// Codex CLI is a completion backend, never an effect executor. Force both
+	// controls even when an older or hand-edited config requests otherwise.
+	cfg.Sandbox = "read-only"
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 300
 	}
@@ -782,10 +790,8 @@ func (c *UserConfig) GetCodexCLIConfig() *CodexCLIConfig {
 	if cfg.MaxConcurrentCalls == 0 {
 		cfg.MaxConcurrentCalls = DefaultCodexMaxConcurrentCalls
 	}
-	if cfg.DisableShellTool == nil {
-		disableShell := true
-		cfg.DisableShellTool = &disableShell
-	}
+	disableShell := true
+	cfg.DisableShellTool = &disableShell
 	if cfg.EnableOutputSchema == nil {
 		enableSchema := true
 		cfg.EnableOutputSchema = &enableSchema
@@ -1069,7 +1075,7 @@ func (c *UserConfig) GetLogging() LoggingConfig {
 		Format:     "text",
 		File:       "codenerd.log",
 		DebugMode:  false, // Production mode by default
-		TraceLLMIO: true,
+		TraceLLMIO: false,
 	}
 }
 
@@ -1094,10 +1100,10 @@ func DefaultUserConfig() *UserConfig {
 	t := true
 	featuresCfg := features.FullyEnabledFeaturesConfig()
 	return &UserConfig{
-		Provider: "zai",
-		Model:    "glm-4.7",
-		Engine:   "api",
-		Theme:    "light",
+		Provider:         "zai",
+		Model:            "glm-4.7",
+		Engine:           "api",
+		Theme:            "light",
 		ContinuationMode: 1,
 		Gemini: &GeminiProviderConfig{
 			EnableThinking:     true,
@@ -1277,7 +1283,7 @@ func DefaultUserConfig() *UserConfig {
 			Format:     "text",
 			File:       "codenerd.log",
 			DebugMode:  false,
-			TraceLLMIO: true,
+			TraceLLMIO: false,
 			Categories: map[string]bool{
 				"boot":    true,
 				"kernel":  true,
@@ -1296,10 +1302,10 @@ func DefaultUserConfig() *UserConfig {
 			ReservedTokens:              8000,
 			ReservedTokensFallbackRatio: 10,
 			DebugMode:                   false,
-			TraceLLMIO:                  true,
+			TraceLLMIO:                  false,
 			SemanticTopK:                20,
 		},
-		LearningCandidateThreshold: 3,
+		LearningCandidateThreshold:   3,
 		LearningCandidateAutoPromote: false,
 		Onboarding: &OnboardingState{
 			SetupComplete:   true,

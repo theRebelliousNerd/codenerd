@@ -625,7 +625,10 @@ func initCoreComponents(bctx *bootContext) error {
 	if bctx.cfg.UserConfigOverride != nil {
 		appCfg = bctx.cfg.UserConfigOverride
 	} else {
-		appCfg, _ = config.LoadUserConfig(userCfgPath)
+		appCfg, err = config.LoadUserConfig(userCfgPath)
+		if err != nil {
+			return fmt.Errorf("load user config: %w", err)
+		}
 	}
 	if appCfg == nil {
 		appCfg = config.DefaultUserConfig()
@@ -648,8 +651,9 @@ func initCoreComponents(bctx *bootContext) error {
 }
 
 func initPerceptionLayer(bctx *bootContext) error {
-	userCfgPath := filepath.Join(bctx.workspace, ".nerd", "config.json")
 	var baseLLMClient perception.LLMClient
+	explicitLLM := bctx.appCfg.HasExplicitLLMSelection()
+	var configuredLLMErr error
 	if bctx.cfg.LLMClientOverride != nil {
 		baseLLMClient = bctx.cfg.LLMClientOverride
 	}
@@ -657,7 +661,7 @@ func initPerceptionLayer(bctx *bootContext) error {
 	// ZAI_API_KEY (or --api-key). Previously any non-empty apiKey forced
 	// NewZAIClient and bypassed engine=xai-oauth / claude-cli / codex-cli.
 	if baseLLMClient == nil {
-		if providerCfg, err := perception.LoadConfigJSON(userCfgPath); err == nil {
+		if providerCfg, err := perception.ProviderConfigFromUserConfig(bctx.appCfg); err == nil {
 			if client, err2 := perception.NewClientFromConfig(providerCfg); err2 == nil {
 				baseLLMClient = client
 				bctx.providerCfgForClassification = providerCfg
@@ -665,10 +669,14 @@ func initPerceptionLayer(bctx *bootContext) error {
 					"LLM client from config: engine=%s provider=%s",
 					providerCfg.Engine, providerCfg.Provider,
 				)
+			} else if explicitLLM {
+				configuredLLMErr = fmt.Errorf("initialize configured LLM client: %w", err2)
 			}
+		} else if explicitLLM {
+			configuredLLMErr = fmt.Errorf("resolve configured LLM client: %w", err)
 		}
 	}
-	if baseLLMClient == nil {
+	if baseLLMClient == nil && !explicitLLM {
 		if client, err := perception.NewClientFromEnv(); err == nil {
 			baseLLMClient = client
 		}
@@ -680,6 +688,9 @@ func initPerceptionLayer(bctx *bootContext) error {
 	}
 	if baseLLMClient == nil {
 		err := fmt.Errorf("no LLM client configured (missing config or env keys)")
+		if configuredLLMErr != nil {
+			err = fmt.Errorf("no LLM client configured (configured backend unusable): %w", configuredLLMErr)
+		}
 		logging.Get(logging.CategoryContext).Error("%v", err)
 		baseLLMClient = &missingLLMClient{err: err}
 	}
@@ -699,8 +710,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 	// Optional worker LLM for shards (e.g. local Ollama for cheap testing).
 	// When unset, shards share the main client (SuperGrok xai-oauth, API keys, etc.).
 	shardRaw := rawLLMClient
-	if userCfg, uerr := config.LoadUserConfig(userCfgPath); uerr == nil && userCfg != nil {
-		if worker, werr := perception.NewWorkerClientFromUserConfig(userCfg); werr != nil {
+	if bctx.appCfg != nil {
+		if worker, werr := perception.NewWorkerClientFromUserConfig(bctx.appCfg); werr != nil {
 			logging.Get(logging.CategoryPerception).Warn("Worker LLM init failed: %v (shards use main client)", werr)
 		} else if worker != nil {
 			if localDB != nil {
@@ -716,8 +727,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 
 	// Image generation stays on Gemini Nano Banana 2 (gemini-3.1-flash-image) —
 	// never the Ollama worker. Attached to ShardManager in initShardManagement.
-	if userCfg, uerr := config.LoadUserConfig(userCfgPath); uerr == nil && userCfg != nil {
-		if imgClient, ierr := perception.NewImageClientFromUserConfig(userCfg); ierr != nil {
+	if bctx.appCfg != nil {
+		if imgClient, ierr := perception.NewImageClientFromUserConfig(bctx.appCfg); ierr != nil {
 			logging.Get(logging.CategoryPerception).Warn("Image LLM (Nano Banana 2) unavailable: %v", ierr)
 		} else if imgClient != nil {
 			bctx.imageLLMClient = core.NewScheduledLLMCall("image_generator", imgClient)
@@ -818,9 +829,11 @@ func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
 }
 
 func initExecutionLayer(bctx *bootContext) error {
-	bctx.executor = tactile.NewDirectExecutor()
-	vsCfg := core.DefaultVirtualStoreConfig()
-	vsCfg.WorkingDir = bctx.workspace
+	executorCfg, vsCfg, err := executionLayerConfigs(bctx.appCfg, bctx.workspace)
+	if err != nil {
+		return fmt.Errorf("configure execution layer: %w", err)
+	}
+	bctx.executor = tactile.NewDirectExecutorWithConfig(executorCfg)
 	bctx.virtualStore = core.NewVirtualStoreWithConfig(bctx.executor, vsCfg)
 	bctx.virtualStore.SetKernel(bctx.kernel)
 	bctx.virtualStore.DisableBootGuard()

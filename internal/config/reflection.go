@@ -1,7 +1,5 @@
 package config
 
-import "encoding/json"
-
 // ReflectionConfig configures System 2 reflection recall.
 type ReflectionConfig struct {
 	// Enabled controls whether reflection recall runs (default: true)
@@ -31,7 +29,7 @@ func (c *ReflectionConfig) UnmarshalJSON(data []byte) error {
 	}{
 		alias: (*alias)(c),
 	}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := decodeStrictJSON(data, &aux); err != nil {
 		return err
 	}
 	if aux.Enabled != nil {

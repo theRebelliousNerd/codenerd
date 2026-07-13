@@ -94,7 +94,7 @@ func (m Model) handleCmdModel(input string, parts []string) (tea.Model, tea.Cmd)
 			})
 		} else {
 			cfg.Model = newModel
-			if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+			if err := cfg.Save(m.userConfigPath()); err != nil {
 				m = m.addMessage(Message{
 					Role:    "assistant",
 					Content: fmt.Sprintf("Error saving config: %s", err.Error()),

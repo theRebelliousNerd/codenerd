@@ -66,7 +66,16 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ProviderConfigFromUserConfig(userCfg)
+}
 
+// ProviderConfigFromUserConfig resolves the provider contract from an already
+// validated UserConfig. Boot uses this path so it cannot parse one config for
+// scheduling and a different config for the LLM client.
+func ProviderConfigFromUserConfig(userCfg *config.UserConfig) (*ProviderConfig, error) {
+	if userCfg == nil {
+		return nil, fmt.Errorf("user config is nil")
+	}
 	// Check for CLI / OAuth engine configuration first
 	engine := userCfg.GetEngine()
 	if engine == "claude-cli" || engine == "codex-cli" || engine == "xai-oauth" {
@@ -132,9 +141,15 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 func DetectProvider() (*ProviderConfig, error) {
 	logging.PerceptionDebug("DetectProvider: checking config and environment")
 
-	// First, try to load from .nerd/config.json
+	// First, try to load from .nerd/config.json. A present-invalid config or an
+	// explicit but unusable provider choice is terminal: ambient keys must not
+	// silently select a different backend.
 	configPath := config.DefaultUserConfigPath()
-	if cfg, err := LoadConfigJSON(configPath); err == nil {
+	userCfg, loadErr := config.LoadUserConfig(configPath)
+	if loadErr != nil {
+		return nil, fmt.Errorf("load explicit provider config: %w", loadErr)
+	}
+	if cfg, err := ProviderConfigFromUserConfig(userCfg); err == nil {
 		// Subscription engines don't need API keys
 		if cfg.Engine == "claude-cli" || cfg.Engine == "codex-cli" || cfg.Engine == "xai-oauth" {
 			logging.Perception("DetectProvider: using subscription engine=%s", cfg.Engine)
@@ -145,6 +160,8 @@ func DetectProvider() (*ProviderConfig, error) {
 			logging.Perception("DetectProvider: using provider=%s from config", cfg.Provider)
 			return cfg, nil
 		}
+	} else if userCfg.HasExplicitLLMSelection() {
+		return nil, err
 	}
 
 	// Fall back to environment variables

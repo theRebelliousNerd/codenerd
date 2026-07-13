@@ -34,7 +34,7 @@ func TestNewCodexCLIClient(t *testing.T) {
 				Timeout: 600,
 			},
 			wantModel:   "o4-mini",
-			wantSandbox: "workspace-write",
+			wantSandbox: "read-only",
 			wantTimeout: 600 * time.Second,
 		},
 		{
@@ -110,8 +110,8 @@ func TestCodexCLIClient_SettersGetters(t *testing.T) {
 
 	t.Run("SetSandbox and GetSandbox", func(t *testing.T) {
 		client.SetSandbox("workspace-write")
-		if got := client.GetSandbox(); got != "workspace-write" {
-			t.Errorf("GetSandbox() after SetSandbox(workspace-write) = %q, want workspace-write", got)
+		if got := client.GetSandbox(); got != "read-only" {
+			t.Errorf("GetSandbox() after SetSandbox(workspace-write) = %q, want read-only", got)
 		}
 	})
 
@@ -232,8 +232,35 @@ func TestCodexCLIClient_buildCLIArgs_DisableShellToolConfig(t *testing.T) {
 
 	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
 	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "--disable shell_tool") {
-		t.Fatalf("did not expect args to disable shell_tool when configured false, got: %s", joined)
+	if !strings.Contains(joined, "--disable shell_tool") {
+		t.Fatalf("expected fail-closed args to disable shell_tool, got: %s", joined)
+	}
+}
+
+func TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides(t *testing.T) {
+	client := NewCodexCLIClient(&config.CodexCLIConfig{
+		Sandbox:          "workspace-write",
+		DisableShellTool: func() *bool { v := false; return &v }(),
+		ConfigOverrides: map[string]string{
+			"model_reasoning_effort":           "\"high\"",
+			"personality":                      "\"friendly\"",
+			"sandbox_mode":                     "\"danger-full-access\"",
+			"shell_environment_policy.inherit": "all",
+			"mcp_servers.rogue.command":        "\"powershell\"",
+		},
+	})
+
+	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
+	joined := strings.Join(args, " ")
+	for _, forbidden := range []string{"danger-full-access", "shell_environment_policy", "mcp_servers.rogue"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("unsafe override %q reached Codex CLI args: %s", forbidden, joined)
+		}
+	}
+	for _, required := range []string{"--sandbox read-only", "--disable shell_tool", "model_reasoning_effort=\"high\"", "personality=\"friendly\""} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("required safe argument %q missing: %s", required, joined)
+		}
 	}
 }
 
@@ -281,20 +308,20 @@ func TestCodexCLIClient_buildCLIArgs_ConfigOverridesDeterministicOrder(t *testin
 	client := NewCodexCLIClient(&config.CodexCLIConfig{
 		Model: "gpt-5.4",
 		ConfigOverrides: map[string]string{
-			"z_key": "\"z\"",
-			"a_key": "\"a\"",
+			"personality":     "\"friendly\"",
+			"model_verbosity": "\"low\"",
 		},
 	})
 
 	args := client.buildCLIArgs(context.Background(), client.GetModel(), "out.txt", "")
 	joined := strings.Join(args, " ")
 
-	// We sort keys, so a_key should appear before z_key.
-	if strings.Index(joined, "a_key=") < 0 || strings.Index(joined, "z_key=") < 0 {
+	// We sort the safe allowlist, so model_verbosity precedes personality.
+	if strings.Index(joined, "model_verbosity=") < 0 || strings.Index(joined, "personality=") < 0 {
 		t.Fatalf("expected both overrides present, got: %s", joined)
 	}
-	if strings.Index(joined, "a_key=") > strings.Index(joined, "z_key=") {
-		t.Fatalf("expected deterministic ordering (a_key before z_key), got: %s", joined)
+	if strings.Index(joined, "model_verbosity=") > strings.Index(joined, "personality=") {
+		t.Fatalf("expected deterministic ordering (model_verbosity before personality), got: %s", joined)
 	}
 }
 

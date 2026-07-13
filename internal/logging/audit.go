@@ -151,7 +151,7 @@ func InitAudit() error {
 	date := time.Now().Format("2006-01-02")
 	auditPath := filepath.Join(logsDir, fmt.Sprintf("%s_audit.log", date))
 
-	file, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}

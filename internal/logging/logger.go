@@ -159,7 +159,7 @@ func initializeInternal(ws string) error {
 		return nil // Silent no-op in production mode
 	}
 
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
 	}
 
@@ -300,7 +300,7 @@ func Get(category Category) *Logger {
 	filename := fmt.Sprintf("%s_%s.log", date, category)
 	logPath := filepath.Join(logsDir, filename)
 
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		// Fall back to no-op logger
 		fmt.Fprintf(os.Stderr, "[logging] Warning: could not open log file %s: %v\n", logPath, err)

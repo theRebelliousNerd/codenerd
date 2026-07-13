@@ -63,8 +63,8 @@ type CodexCLIConfig struct {
 	// "gpt-5.1-codex", "gpt-5-codex", "gpt-5"
 	Model string `json:"model,omitempty"`
 
-	// Sandbox mode: "read-only" (default), "workspace-write"
-	// Always use "read-only" with codeNERD since file ops go through Tactile Layer
+	// Sandbox is retained for config compatibility but is forced to "read-only".
+	// File operations must go through codeNERD's constitutional Tactile layer.
 	Sandbox string `json:"sandbox,omitempty"`
 
 	// Timeout in seconds for CLI execution (default: 300)
@@ -103,15 +103,17 @@ type CodexCLIConfig struct {
 	ReasoningEffortBalanced      string `json:"reasoning_effort_balanced,omitempty"`
 	ReasoningEffortHighSpeed     string `json:"reasoning_effort_high_speed,omitempty"`
 
-	// DisableShellTool disables Codex CLI's shell tool execution. Default should
-	// be true for codeNERD, since execution is handled by the Tactile layer.
+	// DisableShellTool is retained for config compatibility and is forced true.
+	// Execution is handled by the constitutional Tactile layer.
 	DisableShellTool *bool `json:"disable_shell_tool,omitempty"`
 
 	// EnableOutputSchema enables Codex CLI `--output-schema` for Piggyback
 	// structured outputs when we detect a Piggyback prompt.
 	EnableOutputSchema *bool `json:"enable_output_schema,omitempty"`
 
-	// ConfigOverrides allows passing additional `codex exec -c key=value` overrides.
+	// ConfigOverrides allows a narrow presentation/reasoning allowlist of
+	// `codex exec -c key=value` overrides. Execution, sandbox, shell, network,
+	// approval, MCP, and tool overrides are ignored by the subprocess client.
 	// Values are passed as raw TOML fragments (or literals if TOML parsing fails).
 	// Example:
 	//   {"personality": "\"friendly\"", "shell_environment_policy.inherit": "all"}

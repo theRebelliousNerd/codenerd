@@ -484,7 +484,7 @@ func (m Model) renderCurrentConfig() string {
 	sb.WriteString("## Current Configuration\n\n")
 
 	// Try to load user config
-	configPath := internalconfig.DefaultUserConfigPath()
+	configPath := m.userConfigPath()
 	userCfg, err := internalconfig.LoadUserConfig(configPath)
 	if err != nil {
 		sb.WriteString(fmt.Sprintf("*No configuration file found at %s*\n\n", configPath))
@@ -575,12 +575,19 @@ func (m Model) renderCurrentConfig() string {
 // saveConfigWizard saves the wizard configuration to disk.
 func (m Model) saveConfigWizard() error {
 	w := m.configWizard
-
-	// Build UserConfig for .nerd/config.json
-	// Note: We write directly to internal/config UserConfig which is the canonical config
-	userCfg := &internalconfig.UserConfig{
-		Engine: w.Engine,
+	configPath := m.userConfigPath()
+	userCfg, err := internalconfig.LoadUserConfig(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load existing user config: %w", err)
 	}
+	if userCfg == nil {
+		userCfg = &internalconfig.UserConfig{}
+	}
+
+	// The wizard owns provider, context-window, and embedding choices. Merge those
+	// fields into the canonical config so logging, execution, integrations, feature
+	// flags, and other subsystem settings survive reconfiguration.
+	userCfg.Engine = w.Engine
 
 	// Configure based on engine type
 	switch w.Engine {
@@ -598,7 +605,7 @@ func (m Model) saveConfigWizard() error {
 		enableSchema := true
 		userCfg.CodexCLI = &internalconfig.CodexCLIConfig{
 			Model:              w.CodexCLIModel,
-			Sandbox:            w.CodexCLISandbox,
+			Sandbox:            "read-only",
 			Timeout:            w.CodexCLITimeout,
 			SkillEnabled:       &skillEnabled,
 			SkillName:          w.CodexCLISkillName,
@@ -671,7 +678,6 @@ func (m Model) saveConfigWizard() error {
 	// Save to .nerd/config.json
 	// The perception package reads provider-specific API keys directly from
 	// this file via DetectProvider(). All config is consolidated here.
-	configPath := internalconfig.DefaultUserConfigPath()
 	if err := userCfg.Save(configPath); err != nil {
 		return fmt.Errorf("failed to save user config: %w", err)
 	}

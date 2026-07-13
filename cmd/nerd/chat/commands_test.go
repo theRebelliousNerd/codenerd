@@ -816,7 +816,7 @@ func TestKeyMsg_CtrlX_StopsLoading(t *testing.T) {
 
 func TestCommand_Model(t *testing.T) {
 	t.Parallel()
-	m := NewTestModel()
+	m := NewTestModel(WithWorkspace(t.TempDir()))
 	m.Config.Provider = "gemini"
 	m.Config.GeminiAPIKey = "mock-key"
 
@@ -851,7 +851,7 @@ func TestCommand_Model(t *testing.T) {
 
 func TestCommand_ConfigModel(t *testing.T) {
 	t.Parallel()
-	m := NewTestModel()
+	m := NewTestModel(WithWorkspace(t.TempDir()))
 	m.Config.Provider = "gemini"
 	m.Config.GeminiAPIKey = "mock-key"
 

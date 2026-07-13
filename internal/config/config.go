@@ -4,7 +4,6 @@ import (
 	"codenerd/internal/logging"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
@@ -258,17 +257,11 @@ func Load(path string) (*Config, error) {
 
 // Save saves configuration to a YAML file.
 func (c *Config) Save(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writePrivateFileAtomically(path, data); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

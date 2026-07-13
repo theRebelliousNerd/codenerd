@@ -75,9 +75,6 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		if cfg.Model != "" {
 			client.model = cfg.Model
 		}
-		if cfg.Sandbox != "" {
-			client.sandbox = cfg.Sandbox
-		}
 		if cfg.Timeout > 0 {
 			client.timeout = time.Duration(cfg.Timeout) * time.Second
 		}
@@ -90,9 +87,6 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 			client.skillName = strings.TrimSpace(cfg.SkillName)
 		}
 
-		if cfg.DisableShellTool != nil {
-			client.disableShellTool = *cfg.DisableShellTool
-		}
 		if cfg.EnableOutputSchema != nil {
 			client.enableOutputSchema = *cfg.EnableOutputSchema
 		}
@@ -105,7 +99,12 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 		if len(cfg.ConfigOverrides) > 0 {
 			client.configOverrides = make(map[string]string, len(cfg.ConfigOverrides))
 			for k, v := range cfg.ConfigOverrides {
-				client.configOverrides[strings.TrimSpace(k)] = strings.TrimSpace(v)
+				key := strings.TrimSpace(k)
+				if !allowedCodexConfigOverride(key) {
+					logging.PerceptionWarn("Ignoring unsafe Codex CLI config override: %s", key)
+					continue
+				}
+				client.configOverrides[key] = strings.TrimSpace(v)
 			}
 		}
 	}
@@ -123,6 +122,15 @@ func NewCodexCLIClient(cfg *config.CodexCLIConfig) *CodexCLIClient {
 	}
 
 	return client
+}
+
+func allowedCodexConfigOverride(key string) bool {
+	switch key {
+	case "model_reasoning_effort", "model_verbosity", "personality":
+		return true
+	default:
+		return false
+	}
 }
 
 // Complete sends a prompt to Codex CLI and returns the completion.
@@ -294,7 +302,7 @@ func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schem
 	args := []string{
 		"exec", "-",
 		"--model", model,
-		"--sandbox", c.sandbox,
+		"--sandbox", "read-only",
 		"--color", "never",
 		"--output-last-message", outPath,
 		"--json",
@@ -302,10 +310,9 @@ func (c *CodexCLIClient) buildCLIArgs(ctx context.Context, model, outPath, schem
 	if schemaPath != "" {
 		args = append(args, "--output-schema", schemaPath)
 	}
-	if c.disableShellTool {
-		// Defense-in-depth: prevent Codex from running shell commands at all.
-		args = append(args, "--disable", "shell_tool")
-	}
+	// Defense-in-depth: the subprocess is a completion backend. Effects must
+	// return through Piggyback and pass Mangle/VirtualStore authorization.
+	args = append(args, "--disable", "shell_tool")
 
 	// Build -c overrides (deterministic ordering for testability).
 	overrides := make(map[string]string, len(c.configOverrides)+1)
@@ -440,8 +447,9 @@ func (c *CodexCLIClient) SetFallbackModel(model string) { c.fallbackModel = mode
 // GetFallbackModel returns the fallback model.
 func (c *CodexCLIClient) GetFallbackModel() string { return c.fallbackModel }
 
-// SetSandbox changes the sandbox mode.
-func (c *CodexCLIClient) SetSandbox(sandbox string) { c.sandbox = sandbox }
+// SetSandbox is retained for compatibility. The Codex subprocess remains
+// read-only because codeNERD owns all effect execution.
+func (c *CodexCLIClient) SetSandbox(_ string) { c.sandbox = "read-only" }
 
 // GetSandbox returns the current sandbox mode.
 func (c *CodexCLIClient) GetSandbox() string { return c.sandbox }

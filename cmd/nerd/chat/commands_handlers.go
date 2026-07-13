@@ -87,7 +87,7 @@ Press **Enter** to begin...`,
 				cfg = config.DefaultUserConfig()
 			}
 			cfg.Theme = theme
-			if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+			if err := cfg.Save(m.userConfigPath()); err != nil {
 				logging.Routing("[commands] failed to save config: %v", err)
 			}
 			// Apply theme
@@ -165,7 +165,7 @@ Press **Enter** to begin...`,
 				})
 			} else {
 				cfg.Model = newModel
-				if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+				if err := cfg.Save(m.userConfigPath()); err != nil {
 					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Error saving config: %s", err.Error()),
@@ -247,7 +247,7 @@ Press **Enter** to begin...`,
 					Time:    time.Now(),
 				})
 			} else {
-				if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+				if err := cfg.Save(m.userConfigPath()); err != nil {
 					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Error saving config: %s", err.Error()),
@@ -308,7 +308,7 @@ func (m Model) handleEmbeddingCommand(input string, parts []string) (tea.Model, 
 					cfg.Embedding.GenAIAPIKey = parts[3]
 					cfg.Embedding.GenAIModel = "gemini-embedding-001"
 				}
-				if err := cfg.Save(config.DefaultUserConfigPath()); err != nil {
+				if err := cfg.Save(m.userConfigPath()); err != nil {
 					m = m.addMessage(Message{
 						Role:    "assistant",
 						Content: fmt.Sprintf("Failed to save config: %v", err),

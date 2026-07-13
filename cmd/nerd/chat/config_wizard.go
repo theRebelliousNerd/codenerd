@@ -58,7 +58,7 @@ type ConfigWizardState struct {
 
 	// Codex CLI configuration (when Engine="codex-cli")
 	CodexCLIModel              string // gpt-5, o4-mini, codex-mini-latest
-	CodexCLISandbox            string // read-only, workspace-write
+	CodexCLISandbox            string // always read-only; execution belongs to Tactile
 	CodexCLITimeout            int    // seconds
 	CodexCLISkillEnabled       bool
 	CodexCLISkillName          string

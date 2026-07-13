@@ -15,5 +15,8 @@
 - Cortex cache identity must include every boot option that changes live wiring.
   Normalize set-like options before both hashing and applying them; never place
   credentials or raw option material in the cache key.
+- Project `execution` settings must configure both the tactile executor and the
+  VirtualStore allowlists. Resolve working directories inside the active
+  workspace and reject invalid durations or path escapes during boot.
 - The production prompt `KernelAdapter` must create a private RealKernel clone
   for each compilation. Never let JIT selector facts mutate the live Cortex.

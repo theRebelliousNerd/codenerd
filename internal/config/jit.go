@@ -1,7 +1,5 @@
 package config
 
-import "encoding/json"
-
 // JITConfig configures the JIT Prompt Compiler.
 // The JIT compiler dynamically assembles system prompts from YAML atoms
 // based on the current context (operational mode, shard type, language, etc.).
@@ -46,7 +44,7 @@ func (c *JITConfig) UnmarshalJSON(data []byte) error {
 	}{
 		alias: (*alias)(c),
 	}
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := decodeStrictJSON(data, &aux); err != nil {
 		return err
 	}
 	if aux.Enabled != nil {
@@ -70,7 +68,7 @@ func DefaultJITConfig() JITConfig {
 		ReservedTokens:              8000,
 		ReservedTokensFallbackRatio: 10,
 		DebugMode:                   false,
-		TraceLLMIO:                  true,
+		TraceLLMIO:                  false,
 		SemanticTopK:                20,
 	}
 }
