@@ -59,7 +59,7 @@ def main():
     parser.add_argument(
         "--target", required=True,
         help="The phase name or registry surface id being skipped "
-             "(e.g. 'Phase 5.5 codegen gate' or 'B4-grpc')",
+             "(e.g. 'repo-level gate' or 'F2-mcp')",
     )
     parser.add_argument(
         "--reason", required=True,

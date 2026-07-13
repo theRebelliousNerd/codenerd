@@ -26,7 +26,7 @@ def build_graph(work_units: list) -> dict:
     graph = {}
     for wu in work_units:
         wid = wu["id"]
-        deps = wu.get("dependencies", [])
+        deps = wu.get("depends_on", wu.get("dependencies", []))
         graph[wid] = set(deps)
     return graph
 
@@ -56,7 +56,7 @@ def find_reserved_files(work_units: list) -> list:
     file_targets = {}
     for wu in work_units:
         wid = wu["id"]
-        for f in wu.get("files_to_modify", []):
+        for f in wu.get("write_paths", wu.get("files_to_modify", [])):
             file_targets.setdefault(f, []).append(wid)
         for f in wu.get("files_to_create", []):
             file_targets.setdefault(f, []).append(wid)
@@ -95,7 +95,16 @@ def main():
         print("No work units in plan.", file=sys.stderr)
         sys.exit(1)
 
+    ids = [wu.get("id") for wu in work_units if isinstance(wu, dict)]
+    if len(ids) != len(work_units) or any(not item for item in ids) or len(set(ids)) != len(ids):
+        print("Every work unit needs a unique non-empty id.", file=sys.stderr)
+        sys.exit(1)
+
     graph = build_graph(work_units)
+    unknown = sorted({dep for deps in graph.values() for dep in deps if dep not in graph})
+    if unknown:
+        print(f"Unknown dependencies: {', '.join(unknown)}", file=sys.stderr)
+        sys.exit(1)
     cycles = detect_cycles(graph)
 
     if cycles:

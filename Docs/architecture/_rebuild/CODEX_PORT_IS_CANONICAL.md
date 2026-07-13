@@ -1,32 +1,25 @@
-# Codex port is the canonical ecosystem
+# Importing from Codex (sibling agent) — Grok policy
 
-As of 2026-07-13, the **codeNERD-native** ports under `.codex/` are authoritative for:
+**`.codex/` is Codex CLI’s workspace. Grok must not edit it.**
 
-- `arch-propose` (v3)
-- `corpus-build` (v3)
-- fleet micro-skills (`corpus-critic`, `corpus-comms-plumber`, …)
-- `requirements-interrogator`
-- Codex agent TOMLs under `.codex/agents/`
-- Codex hooks under `.codex/hooks/` + `.codex/hooks.json`
-- registry in `.codex/config.toml`
+Codex already ported high-quality `arch-propose` and `corpus-build` ecosystems there.
+Grok’s job is a **one-way import** into Grok/Claude-facing trees:
 
-These were rewritten for codeNERD (fact-flow, Mangle, JIT, registration, verification ladder), not search-replaced from Vectryx.
+| Direction | Path |
+|-----------|------|
+| **Source (read-only)** | `.codex/skills/{arch-propose,corpus-build,corpus-*,requirements-interrogator}/` |
+| **Source (read-only)** | `.codex/agents/*.toml` (for understanding fleet roles) |
+| **Destination (ours)** | `.agents/skills/` (Grok discovery) |
+| **Destination (ours)** | `.claude/skills/` (Claude discovery mirror) |
+| **Destination (ours)** | `.grok/agents/*.md` (Grok subagent definitions) |
 
-## Multi-harness layout
+## Import rule
 
-| Harness | Skill root | Agent definitions |
-|---------|------------|-------------------|
-| Codex | `.codex/skills/` | `.codex/agents/*.toml` + `config.toml` registry |
-| Grok / shared | `.agents/skills/` (synced from Codex) | `.grok/agents/*.md` (full bodies) + skills frontmatter |
-| Claude | `.claude/skills/` (synced) | `.claude/agents/*.md` |
+1. Read Codex trees only.
+2. Copy into `.agents/skills` / `.claude/skills`.
+3. Never `git add` Codex-owned fleet paths under `.codex/` except pre-existing shared mirrors (if any).
+4. Never modify files under `.codex/`.
 
-When updating the ecosystem: edit **Codex** first, then re-sync to `.agents` / `.claude`.
+## “app-discover”
 
-## Not found as a skill
-
-There is **no** skill named `app-discover`. Closest related surfaces:
-
-- `.codex/skills/claude-to-codex-porter/` (migration + discovery vs registration policy)
-- `references/discovery-vs-registration-policy.md`
-
-If “app-discover” meant a different package, it is not in this tree under that name.
+No skill by that name. Closest Codex surface: `claude-to-codex-porter` discovery-vs-registration policy (also under `.codex/skills/` — read-only).

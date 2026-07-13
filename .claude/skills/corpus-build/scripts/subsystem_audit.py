@@ -1,144 +1,98 @@
 #!/usr/bin/env python3
-"""Quick gap audit: architecture corpus vs source code.
+"""Measure one architecture corpus against its live codeNERD source paths."""
 
-Usage:
-    python subsystem_audit.py <subsystem>
-    python subsystem_audit.py causal --json
-"""
+from __future__ import annotations
 
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 
 
-def find_project_root() -> Path:
-    cwd = Path.cwd()
-    for parent in [cwd, *cwd.parents]:
-        if (parent / "go.mod").exists():
-            return parent
-    return cwd
+ROOT = Path(__file__).resolve().parents[4]
+SOURCE_PATH = re.compile(r"`((?:internal|cmd)/[A-Za-z0-9_./-]+)`")
 
 
-def count_docs(corpus_dir: Path) -> dict:
-    counts = {
-        "total": 0, "implemented_spec": False, "foundation": 0,
-        "deep_dives": 0, "cross_cutting": 0, "governance": 0,
+def document_counts(corpus: Path) -> dict:
+    files = list(corpus.rglob("*.md")) if corpus.exists() else []
+    return {
+        "markdown_files": len(files),
+        "implemented_spec": (corpus / "IMPLEMENTED_SPEC.md").exists(),
+        "todo": (corpus / "TODO.md").exists(),
+        "open_questions": (corpus / "OPEN-QUESTIONS.md").exists(),
+        "progress": (corpus / "_progress.md").exists(),
     }
-    if not corpus_dir.exists():
-        return counts
-    cc_kw = ["frontend", "dependency", "rbac", "testing-alignment",
-             "cross-system", "telemetry"]
-    for f in corpus_dir.iterdir():
-        if not f.is_file() or f.suffix != ".md":
-            continue
-        counts["total"] += 1
-        name = f.name
-        if name == "IMPLEMENTED_SPEC.md":
-            counts["implemented_spec"] = True
-        elif re.match(r"0[0-4]-", name):
-            counts["foundation"] += 1
-        elif re.match(r"0[5-9]-|[1-9][0-9]-", name):
-            if any(k in name.lower() for k in cc_kw):
-                counts["cross_cutting"] += 1
-            else:
-                counts["deep_dives"] += 1
-        elif name in ("TODO.md", "OPEN-QUESTIONS.md"):
-            counts["governance"] += 1
-    return counts
 
 
-def count_source(source_dir: Path) -> dict:
-    counts = {"go_files": 0, "test_files": 0, "lines": 0,
-              "benchmarks": 0, "exported_funcs": 0}
-    if not source_dir.exists():
-        return counts
-    func_re = re.compile(r"^func\s+[A-Z]", re.MULTILINE)
-    bench_re = re.compile(r"^func\s+Benchmark", re.MULTILINE)
-    for f in source_dir.rglob("*.go"):
-        try:
-            c = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        lines = c.count("\n")
-        if f.name.endswith("_test.go"):
-            counts["test_files"] += 1
-            counts["benchmarks"] += len(bench_re.findall(c))
-        else:
-            counts["go_files"] += 1
-            counts["lines"] += lines
-            counts["exported_funcs"] += len(func_re.findall(c))
-    return counts
+def discover_sources(corpus: Path, explicit: list[str]) -> list[Path]:
+    if explicit:
+        return [(ROOT / value).resolve() for value in explicit]
+    spec = corpus / "IMPLEMENTED_SPEC.md"
+    if not spec.exists():
+        return []
+    paths = []
+    for value in SOURCE_PATH.findall(spec.read_text(encoding="utf-8", errors="replace")):
+        path = (ROOT / value.rstrip("/")).resolve()
+        if path.exists() and path not in paths:
+            paths.append(path)
+    return paths
 
 
-def count_priority(path: Path, section_pattern=None) -> dict:
-    p = {"p0": 0, "p1": 0, "p2": 0, "p3": 0}
-    if not path.exists():
-        return p
-    try:
-        content = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return p
-    if section_pattern:
-        m = re.search(section_pattern, content, re.DOTALL)
-        content = m.group(1) if m else ""
-    for k in p:
-        p[k] = len(re.findall(rf"\b{k.upper()}\b", content))
-    return p
+def source_counts(paths: list[Path]) -> dict:
+    go_files: set[Path] = set()
+    test_files: set[Path] = set()
+    mangle_files: set[Path] = set()
+    lines = 0
+    for base in paths:
+        candidates = [base] if base.is_file() else list(base.rglob("*"))
+        for path in candidates:
+            if not path.is_file():
+                continue
+            if path.suffix == ".go":
+                (test_files if path.name.endswith("_test.go") else go_files).add(path)
+                if not path.name.endswith("_test.go"):
+                    lines += path.read_text(encoding="utf-8", errors="replace").count("\n") + 1
+            elif path.suffix in {".mg", ".gl"}:
+                mangle_files.add(path)
+    return {
+        "go_files": len(go_files),
+        "test_files": len(test_files),
+        "mangle_files": len(mangle_files),
+        "go_source_lines": lines,
+    }
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("subsystem")
+    parser.add_argument("--source", action="append", default=[], help="Repository-relative source path; repeatable")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--source", help="Override source path")
     args = parser.parse_args()
-
-    root = find_project_root()
-    corpus = root / "docs" / "architecture" / args.subsystem
-    source = (root / args.source) if args.source else (
-        root / "internal" / args.subsystem)
-
-    docs = count_docs(corpus)
-    src = count_source(source)
-    s12 = count_priority(
-        corpus / "IMPLEMENTED_SPEC.md",
-        r"##\s+12\.?\s+Recommended Uplifts(.*?)(?=##\s+13\.|$)",
-    )
-    todo = count_priority(corpus / "TODO.md")
-
+    corpus = ROOT / "Docs" / "architecture" / args.subsystem
+    docs = document_counts(corpus)
+    sources = discover_sources(corpus, args.source)
+    measured = source_counts(sources)
     result = {
         "subsystem": args.subsystem,
+        "corpus": str(corpus),
         "corpus_exists": corpus.exists(),
-        "source_exists": source.exists(),
-        "has_implemented_spec": docs["implemented_spec"],
-        "docs": docs, "source": src,
-        "section_12": s12, "todo": todo,
+        "documents": docs,
+        "source_paths": [str(path.relative_to(ROOT)) for path in sources],
+        "source": measured,
         "readiness": (
-            "READY" if docs["implemented_spec"] and src["go_files"] > 0
-            else "CORPUS_ONLY" if docs["implemented_spec"]
-            else "CODE_ONLY" if src["go_files"] > 0
-            else "EMPTY"
+            "READY_FOR_GAP_AUDIT" if docs["implemented_spec"] and sources
+            else "CORPUS_WITHOUT_RESOLVABLE_SOURCE" if docs["implemented_spec"]
+            else "SOURCE_WITHOUT_IMPLEMENTED_SPEC" if sources
+            else "INSUFFICIENT_EVIDENCE"
         ),
     }
-
     if args.json:
         print(json.dumps(result, indent=2))
     else:
-        print(f"Subsystem: {args.subsystem}")
-        print(f"Corpus: {docs['total']} docs"
-              f" (SPEC: {'yes' if docs['implemented_spec'] else 'NO'})")
-        print(f"Source: {src['go_files']} files"
-              f" ({src['lines']} lines)"
-              f" {src['test_files']} tests"
-              f" {src['benchmarks']} benchmarks")
-        print(f"Section 12: P0={s12['p0']} P1={s12['p1']}"
-              f" P2={s12['p2']} P3={s12['p3']}")
-        print(f"TODO: P0={todo['p0']} P1={todo['p1']}"
-              f" P2={todo['p2']} P3={todo['p3']}")
-        print(f"Readiness: {result['readiness']}")
+        print(f"subsystem={args.subsystem} readiness={result['readiness']}")
+        print(f"docs={docs['markdown_files']} source_paths={len(sources)} go={measured['go_files']} tests={measured['test_files']} mangle={measured['mangle_files']}")
+    return 0 if corpus.exists() else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

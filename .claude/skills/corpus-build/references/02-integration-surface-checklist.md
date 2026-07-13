@@ -1,76 +1,57 @@
-# Integration Surface Checklist
+# codeNERD integration-surface checklist
 
-Dynamic 9-category checklist with 102 potential surfaces. The wiring-auditor agent evaluates each surface as REQUIRED / OPTIONAL / N-A based on the subsystem spec, then verifies REQUIRED surfaces pass.
+`surfaces.yaml` is the machine-readable candidate registry. `scripts/verify_surfaces.py` classifies it against a run manifest. A path existing does not prove the feature is wired; the auditor must attach file:line plus an executable reachability oracle.
 
-## How It Works
+## Executive path
 
-1. **verify_surfaces.py** (or the agent directly) DISCOVERS candidate surfaces by scanning directories: internal/*/, internal/*/, cmd/*/, internal/mcp/*/, cmd/nerd/*/, web/dashboard/
-2. The **corpus-wiring-auditor agent** CLASSIFIES each discovered surface as REQUIRED/OPTIONAL/N-A by reading the subsystem spec. This is an architectural judgment, not a mechanical check.
-3. The agent VERIFIES classified-as-REQUIRED surfaces with file:line evidence.
+Check only the surfaces applicable to the requirement:
 
-## Categories
+| Surface | Live location | Question |
+|---|---|---|
+| Perception | `internal/perception/` | Does user input become the intended structured atoms? |
+| Schemas | `internal/core/defaults/schemas.mg` | Is every predicate declared with the correct types/bounds? |
+| Policy | `internal/core/defaults/policy/` | Does the kernel derive the action, and does dangerous behavior require `permitted(...)`? |
+| Kernel | `internal/core/` | Are facts loaded, derived, retracted, and audited at the correct lifecycle point? |
+| VirtualStore | `internal/core/virtual_store.go` and split files | Is the derived action routed to a real effect with validation? |
+| Articulation | `internal/articulation/` | Does the result return without bypassing the executive or Piggyback contract? |
 
-### A: Core Engine Wiring (internal/) -- 50 surfaces
+## LLM and specialist path
 
-Every new or modified subsystem in internal/<subsystem>/ must check: storage layer (sqlite store key prefixes via internal/store/), cache layer (L1/L2), core database registration, config structs, app server lifecycle, deductive engine predicates, graph engine registration, vector engine embeddings, attention-routing policy, codeNERDRAG entity types, codeNERDRAP ingestion, inference models, observability metrics, telemetry spans, security constitutional safety (permitted), backup paths, migration scripts, scheduler tasks, consolidation proposals, ontology types, knowledge base entries, system corpus docs, testing infra, testing remediation, ingest enrichment, memory management, blob handlers, geo spatial, training data, learning auto-tuner, replication events, conflict resolution, domain models, bridge handlers, capabilities declaration, gatekeeper policies, ADK tools (internal/adktools/), permanent agents, plugin center hooks, AQL operators, query ops handlers, experiments flags, utils, testutil helpers, adaptive delivery, HTAP hooks, tool surface declaration, vision processing, sidecar communication, distributed coordination.
+| Surface | Live location | Question |
+|---|---|---|
+| Prompt compiler | `internal/prompt/` | Is behavior selected JIT from atoms with budget/dependency coverage? |
+| Prompt atoms | `internal/prompt/atoms/` | Does each new behavior have canonical atom content and metadata? |
+| Shard manager | `internal/core/shards/` | Are lifecycle, model/client selection, context, cancellation, and result ownership correct? |
+| Shard registry | `internal/shards/registration.go` | Can the runtime construct the specialist? |
+| Agent data | `.nerd/agents/` | Are project/user specialist prompts and durable data in the intended runtime location? |
 
-Key verification patterns:
-- A1 (Storage): Check internal/store/migrations.go for key prefix registration
-- A3 (Core): Check internal/core/ for NewDatabase constructor wiring
-- A6 (Deductive): Check internal/mangle/ for external predicate registration
-- A37 (ADK tools): Check internal/adktools/shared/ for tool registration
+## External and operator path
 
-### B: Protocol Layer -- 8 surfaces
+| Surface | Live location | Question |
+|---|---|---|
+| CLI/chat | `cmd/nerd/` | Is the operation registered, documented, bounded, and reachable from help/chat routing? |
+| Session | `internal/session/` | Does the clean execution loop carry state/cancellation correctly? |
+| Tools | `internal/tools/` | Is the capability registered and schema-compatible? |
+| MCP | `internal/mcp/` | Is the MCP operation advertised and dispatched to the same core behavior? |
+| Campaign | `internal/campaign/` | If long-running, are tasks, checkpoints, recovery, and artifacts durable? |
+| Config | `internal/config/` and `.nerd/config.json` | Is configuration parsed once, defaulted, and observable? |
+| Store/memory | `internal/store/`, `internal/memory/` when applicable | Is state scoped, migrated, closed, and recoverable? |
+| Logging/observability | `internal/logging/`, `internal/observability/` | Can a run be proven without leaking payloads or credentials? |
 
-REST API (cmd/nerd/), REST middleware, GraphQL, gRPC, WebSocket/Realtime, MCP protocol (internal/mcp/), A2A protocol (internal/mcp/), ADK tools (internal/adktools/ -- note: NOT internal/tools/ which does not exist).
+## Quality and corpus path
 
-Key verification: route registration in registration hubs (shards/registration.go, virtual_store routing, cmd/nerd main), MCP tool handler, A2A capability card.
+- Package-local unit tests cover invariants and failure cases.
+- Cross-system tests prove the complete fact/action route where applicable.
+- Race/fuzz/benchmark profiles are selected by risk, not ritual.
+- `go test ./...` is the repo-level gate; record existing unrelated failures honestly.
+- Architecture status in `Docs/architecture/<feature>/` is changed only by the doc-auditor from live evidence.
+- `.quality_assurance/remediation/` receives a bounded failure packet only after the local fix budget is exhausted; codeNERD has no `internal/testing/remediation` runtime.
 
-### C: Codegen and Artifacts -- 6 surfaces
+## Verdicts
 
-OpenAPI spec (docs/api/openapi.v1.json via OpenAPI gen if present), API-client codegen API client (web/dashboard/src/services/generated/ via go generate / client scripts if present), WebSocket TS types (via go generate-ws-client), Protobuf codegen (MCP/tool schemas via go generate), Mock generation (via go generate-mocks), TS constants (cmd/generate-ts-constants/).
+Every candidate is `REQUIRED`, `OPTIONAL`, `N-A`, or `BLOCKED`. A required surface passes only with:
 
-### D: Client Libraries (internal/) -- 5 surfaces
-
-Go client (internal/perception/go/), HTTP client, CLI commands (cmd/nerd/), SDK types (internal/sdk/), Skills (.agents/skills/).
-
-### E: Binaries (cmd/) -- 5 surfaces
-
-Main server (cmd/codenerd/), dedicated server (cmd/codenerd-server/), CLI tool (cmd/nerd/), seed tool (cmd/codenerd-seed/), Mangle LSP (cmd/codenerd-manglelsp/).
-
-### F: Frontend (web/dashboard/) -- 7 surfaces
-
-React components, pages/routes, API hooks (React Query + API-client codegen), state management (Zustand), config panel (hot-reload), E2E tests (Playwright), unit tests (Vitest).
-
-### G: Configuration -- 7 surfaces
-
-4 YAML config files (configs/{default,development,testing,production}.yaml), Viper hot-reload, Docker compose (deployments/docker/docker-compose.dev.yml), Makefile targets.
-
-### H: Documentation and Corpus -- 4 surfaces
-
-Architecture docs (Docs/architecture/<subsystem>/ -- update Section 3 status only), agent corpus (Docs/architecture/docs/agents/), API docs (docs/api/), Mangle rules documentation.
-
-### I: Testing and Quality -- 10 surfaces
-
-Unit tests exist, race detector clean, benchmarks exist, vet clean, lint clean, coverage >70%, Mangle anti-pattern check, OpenAPI parity, API client parity, cyber torture (if security-relevant).
-
-## Summary
-
-| Category | Count | Scope |
-|----------|-------|-------|
-| A: Core Engine | 50 | 1-to-1 with internal/ directories |
-| B: Protocol Layer | 8 | REST, GraphQL, gRPC, WS, MCP, A2A, ADK |
-| C: Codegen | 6 | OpenAPI, API-client codegen, Tygo, tool/MCP schema, mocks, TS |
-| D: Client Libraries | 5 | Go client, HTTP, CLI, SDK, skills |
-| E: Binaries | 5 | Main server, dedicated, CLI, seed, LSP |
-| F: Frontend | 7 | Components, pages, hooks, state, config, E2E, unit |
-| G: Configuration | 7 | 4 YAML, Viper, Docker, Makefile |
-| H: Documentation | 4 | Arch docs, agent corpus, API docs, Mangle |
-| I: Testing | 10 | Unit, race, bench, vet, lint, coverage, Mangle, OpenAPI, client, cyber |
-| **TOTAL** | **102** | |
-
-Not every surface applies to every subsystem. The wiring-auditor classifies each as REQUIRED/OPTIONAL/N-A.
-
-## Source
-
-Full surface-by-surface detail with directory paths and verification commands: `.claude/skills/PLAN-corpus-build-wiring-checklist.md`
+1. a concrete registration/routing citation;
+2. an executable oracle or deterministic structural validator;
+3. no contradictory stale implementation path;
+4. a named owner for any residual.

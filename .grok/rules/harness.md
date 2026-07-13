@@ -20,9 +20,9 @@ over sequential monolithic searching.
 | Logs / cross-system trace | skill `log-analyzer` |
 | Config / boot / engines | skill `codenerd-config-expert` |
 | After substantial edits | skill `check-work` (or run build + targeted tests yourself) |
-| Design feature before code | skill `arch-propose` **v3** (canonical under `.codex/skills/arch-propose`, synced to `.agents/skills/`) + fleet agents |
-| Realize architecture corpus → code | skill `corpus-build` **v3** (canonical under `.codex/skills/corpus-build`, synced to `.agents/skills/`) + packetizer/foundation/wiring lanes + micro-skills |
-| Codex fleet registry | `.codex/config.toml` + `.codex/agents/*.toml` + `.codex/hooks/` — see `Docs/architecture/_rebuild/CODEX_PORT_IS_CANONICAL.md` |
+| Design feature before code | skill `arch-propose` in `.agents/skills/` (imported from sibling Codex CLI port; **never edit `.codex/`**) |
+| Realize architecture corpus → code | skill `corpus-build` + micro-skills in `.agents/skills/` (imported from Codex; Grok owns this copy) |
+| Sibling Codex CLI | `.codex/` is **read-only** for Grok — see `Docs/architecture/_rebuild/CODEX_PORT_IS_CANONICAL.md` |
 | Fill Docs/Spec from existing code | skill `spec-doc-sprint` |
 
 **Design → build pipeline**: `arch-propose` → (human go) → `corpus-build` → optional `spec-doc-sprint` / `nerd-evolve`.

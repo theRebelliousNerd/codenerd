@@ -1,5 +1,13 @@
 # Skill Changelog
 
+## 3.0.0 - 2026-07-13
+
+- Ported orchestration to native Codex custom agents, shared-checkout DAG lanes, lifecycle hooks, and current codeNERD Mangle/JIT/VirtualStore invariants.
+- Replaced Vectryx REST/dashboard/ADK/remediation plans with a 21-surface codeNERD registry, exact registration intents, and `.quality_assurance/remediation` failure packets.
+- Converted the destructive ecosystem mutator into a read-only residue audit and removed fictional token/dollar estimation while preserving compatibility filenames.
+- Rebuilt corpus indexing, source auditing, architecture validation, surface classification, DAG validation, and common-reference sync around live `Docs/architecture`, `.codex`, `internal`, and `cmd/nerd` paths.
+- Added deterministic tooling tests and current skill/agent/config/hook validation.
+
 ## [Run log] `corpusbuild_agents_1783124900` (WU-AG-12: agents Phase 6 reconcile, campaign ALL_CORPORA 3/74) - 2026-07-12
 
 **No skill-mechanism change.** Phase 6 doc-audit closing a 12-WU run on the `agents` corpus
