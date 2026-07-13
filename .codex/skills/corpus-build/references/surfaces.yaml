@@ -1,0 +1,314 @@
+# codeNERD corpus-build integration surface registry — schema v1
+# Machine-authoritative. Human checklist: 02-integration-surface-checklist.md
+# Parsed by scripts/verify_surfaces.py (stdlib YAML subset).
+
+- id: A1-kernel
+  category: engine
+  group: A
+  name: Kernel surface
+  paths: [internal/core/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: kernel}
+      - touches_paths: [internal/core/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/core/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A2-schemas
+  category: engine
+  group: A
+  name: Mangle schemas Decl
+  paths: [internal/core/defaults/schemas.mg]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: mangle}
+      - manifest_field_contains: {field: integration_points, value: schemas}
+  detection:
+    - grep: 'Decl '
+      dir: internal/core/defaults/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A3-policy
+  category: engine
+  group: A
+  name: Policy corpus
+  paths: [internal/core/defaults/policy/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: policy}
+      - touches_paths: [internal/core/defaults/policy/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/core/defaults/policy/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A4-virtual-store
+  category: engine
+  group: A
+  name: VirtualStore routing
+  paths: [internal/core/virtual_store.go, internal/core/virtual_store_routing.go]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: virtual_store}
+      - touches_paths: [internal/core/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/core/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A5-shard-manager
+  category: engine
+  group: A
+  name: Shard manager
+  paths: [internal/core/shards/, internal/shards/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: shards}
+      - touches_paths: [internal/shards/, internal/core/shards/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/shards/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A6-shard-registration
+  category: engine
+  group: A
+  name: Shard registration hub
+  paths: [internal/shards/registration.go]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: shards}
+  detection:
+    - grep: 'Register'
+      dir: internal/shards/registration.go
+  fix_owner: corpus-wiring-auditor
+  evidence_required: file:line
+
+- id: A7-session
+  category: engine
+  group: A
+  name: Session executor
+  paths: [internal/session/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: session}
+      - touches_paths: [internal/session/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/session/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A8-perception
+  category: engine
+  group: A
+  name: Perception transducer
+  paths: [internal/perception/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: perception}
+      - touches_paths: [internal/perception/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/perception/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A9-articulation
+  category: engine
+  group: A
+  name: Articulation / Piggyback
+  paths: [internal/articulation/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: articulation}
+      - touches_paths: [internal/articulation/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/articulation/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A10-prompt-jit
+  category: engine
+  group: A
+  name: Prompt compiler and atoms
+  paths: [internal/prompt/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: prompt}
+      - touches_paths: [internal/prompt/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/prompt/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: A11-mangle-engine
+  category: engine
+  group: A
+  name: Mangle engine package
+  paths: [internal/mangle/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: mangle}
+      - touches_paths: [internal/mangle/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/mangle/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: B1-config
+  category: config
+  group: B
+  name: Config surface
+  paths: [internal/config/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: config}
+      - touches_paths: [internal/config/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/config/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: B2-cli
+  category: binary
+  group: B
+  name: CLI cmd/nerd
+  paths: [cmd/nerd/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: cli}
+      - touches_paths: [cmd/nerd/]
+  detection:
+    - grep: '<subsystem>'
+      dir: cmd/nerd/
+  fix_owner: corpus-comms-plumber
+  evidence_required: file:line
+
+- id: C1-store
+  category: engine
+  group: C
+  name: Store tiers
+  paths: [internal/store/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: store}
+      - touches_paths: [internal/store/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/store/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: D1-logging
+  category: engine
+  group: D
+  name: Logging categories
+  paths: [internal/logging/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: logging}
+      - touches_paths: [internal/logging/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/logging/
+  fix_owner: corpus-defense-auditor
+  evidence_required: file:line
+
+- id: D2-dreamer
+  category: engine
+  group: D
+  name: Dreamer precog safety
+  paths: [internal/core/dreamer.go]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: safety}
+      - manifest_field_contains: {field: integration_points, value: dreamer}
+  detection:
+    - grep: 'Dreamer'
+      dir: internal/core/
+  fix_owner: corpus-defense-auditor
+  evidence_required: file:line
+
+- id: E1-campaign
+  category: engine
+  group: E
+  name: Campaign orchestration
+  paths: [internal/campaign/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: campaign}
+      - touches_paths: [internal/campaign/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/campaign/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: F1-tools
+  category: protocol
+  group: F
+  name: Tools registry
+  paths: [internal/tools/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: tools}
+      - touches_paths: [internal/tools/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/tools/
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: F2-mcp
+  category: protocol
+  group: F
+  name: MCP integration
+  paths: [internal/mcp/]
+  applicability:
+    any:
+      - manifest_field_contains: {field: integration_points, value: mcp}
+      - touches_paths: [internal/mcp/]
+  detection:
+    - grep: '<subsystem>'
+      dir: internal/mcp/
+  fix_owner: corpus-comms-plumber
+  evidence_required: file:line
+
+- id: G1-tests
+  category: testing
+  group: G
+  name: Package tests present
+  paths: []
+  applicability:
+    always: true
+  detection: []
+  judgment: true
+  fix_owner: corpus-builder
+  evidence_required: file:line
+
+- id: G2-architecture-docs
+  category: docs
+  group: G
+  name: Architecture corpus status
+  paths: [Docs/architecture/]
+  applicability:
+    any:
+      - touches_paths: [Docs/architecture/]
+      - manifest_field_contains: {field: integration_points, value: architecture_docs}
+  detection:
+    - glob: 'IMPLEMENTED_SPEC.md'
+      dir: Docs/architecture/<subsystem>/
+  fix_owner: corpus-doc-auditor
+  evidence_required: file:line or directory exists

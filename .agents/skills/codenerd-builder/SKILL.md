@@ -37,9 +37,11 @@ Quick reference with links to detailed registry entries. For complete documentat
 | [SK-008](references/skill-registry.md#sk-008-skill-creator) | skill-creator | Tooling | Create/update/package skills, frontmatter, registry |
 | [SK-010](references/skill-registry.md#sk-010-cli-engine-integration) | cli-engine-integration | LLM Integration | Claude/Codex CLI backends, LLMClient, auth/streaming |
 | [SK-011](references/skill-registry.md#sk-011-prompt-architect) | prompt-architect | Prompt Engineering | Prompt atoms, JIT injection, Piggyback, tool steering |
+| [SK-012](references/skill-registry.md#sk-012-stress-tester) | stress-tester | Verification | Bounded stress/race profiles, assault campaigns, recovery, Mangle adversarial testing |
 | [SK-015](references/skill-registry.md#sk-015-codenerd-codex-exec) | codenerd-codex-exec | Codex Runtime | Codex exec skill injection, auth probes, schema validation, concurrency tuning |
 | [SK-016](references/skill-registry.md#sk-016-arch-propose) | arch-propose | Pre-Impl Architecture | Research scouts → design corpus under Docs/architecture/ |
 | [SK-017](references/skill-registry.md#sk-017-corpus-build) | corpus-build | Spec → Code | Gap judgment, DAG fleet, surface wiring gates |
+| [SK-018](references/skill-registry.md#sk-018-claude-to-codex-porter) | claude-to-codex-porter | Codex Migration | Cross-repo Claude surface inventory, native conversion, activation validation |
 
 ### Skill Map
 
@@ -79,6 +81,9 @@ Quick reference with links to detailed registry entries. For complete documentat
 │  │ cli-engine-integr.. │────▶│ codenerd-codex-exec │                        │
 │  │  (LLM Integration)  │     │   (Codex Runtime)   │                        │
 │  └─────────────────────┘     └─────────────────────┘                        │
+│           │                           │                                      │
+│           └──────────────────────────▶│ claude-to-codex   │                  │
+│                                      │     porter         │                  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -99,6 +104,7 @@ Quick reference with links to detailed registry entries. For complete documentat
 | **integration-auditor** | End-to-end wiring checks, missing hooks, code exists but doesn't run | 39-system audit, shard type matrix, diagnostics |
 | **arch-propose** | Design a feature before any code exists | Scouts, candidates, pre-impl corpus |
 | **corpus-build** | Realize an architecture corpus into code | Build plan, DAG workers, surface registry |
+| **claude-to-codex-porter** | Port or repair Claude workspace behavior in native Codex surfaces | Surface ledger, agent TOML, hooks, config, support closure |
 
 ### Skill Interactions by Component
 

@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "timeout_seconds": 900,
+    "max_wall_seconds": 7200,
+    "max_output_bytes": 200000,
+    "stop_on_failure": true
+  },
+  "profiles": {
+    "structural": {
+      "description": "Validate the stress skill control plane without executing product tests.",
+      "risk": "read-only",
+      "max_wall_seconds": 180,
+      "commands": [
+        ["python", ".codex/skills/stress-tester/scripts/validate_skill.py"],
+        ["python", ".codex/skills/stress-tester/scripts/verify_adversarial.py"]
+      ]
+    },
+    "build": {
+      "description": "Compile the current codeNERD CLI into the isolated receipt directory.",
+      "risk": "bounded-build",
+      "timeout_seconds": 600,
+      "max_wall_seconds": 900,
+      "commands": [
+        ["go", "build", "-o", "{artifact_dir}/nerd-build.exe", "./cmd/nerd"]
+      ]
+    },
+    "smoke": {
+      "description": "Build codeNERD and test the highest-value execution packages.",
+      "risk": "bounded-build",
+      "timeout_seconds": 1200,
+      "max_wall_seconds": 1800,
+      "commands": [
+        ["go", "build", "-o", "{artifact_dir}/nerd-smoke.exe", "./cmd/nerd"],
+        ["go", "test", "-count=1", "./internal/core/...", "./internal/mangle/...", "./internal/prompt/...", "./internal/session/..."]
+      ]
+    },
+    "kernel": {
+      "description": "Exercise Mangle loading, constitutional policy, executive derivation, and VirtualStore behavior.",
+      "risk": "bounded-test",
+      "max_wall_seconds": 1800,
+      "commands": [
+        ["go", "test", "-count=1", "./internal/mangle/...", "./internal/core/..."]
+      ]
+    },
+    "adversarial": {
+      "description": "Build the current CLI and prove every intentionally-invalid Mangle fixture is rejected without panic or timeout.",
+      "risk": "bounded-build",
+      "timeout_seconds": 600,
+      "max_wall_seconds": 900,
+      "commands": [
+        ["python", ".codex/skills/stress-tester/scripts/verify_adversarial.py", "--execute", "--timeout", "10", "--output", "{artifact_dir}/adversarial.json"]
+      ]
+    },
+    "campaign": {
+      "description": "Exercise campaign orchestration, assault tasks, and interactive routing without invoking an LLM campaign.",
+      "risk": "bounded-test",
+      "max_wall_seconds": 1200,
+      "commands": [
+        ["go", "test", "-count=1", "./internal/campaign/...", "./cmd/nerd/chat/..."]
+      ]
+    },
+    "race": {
+      "description": "Run the race detector over shared-state kernel, campaign, and session packages.",
+      "risk": "high-cpu",
+      "timeout_seconds": 1800,
+      "max_wall_seconds": 3600,
+      "commands": [
+        ["go", "test", "-race", "-count=1", "./internal/core/...", "./internal/campaign/...", "./internal/session/..."]
+      ]
+    },
+    "full": {
+      "description": "Run the repository-wide Go regression suite.",
+      "risk": "high-cpu",
+      "timeout_seconds": 3600,
+      "commands": [
+        ["go", "test", "-count=1", "./..."]
+      ]
+    }
+  }
+}

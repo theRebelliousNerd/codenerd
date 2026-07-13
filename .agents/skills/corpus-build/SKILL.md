@@ -4,7 +4,7 @@ description: >
   Spec-driven implementation engine for codeNERD architecture corpora under
   feature directories under Docs/architecture/. Audits the live Go and Mangle implementation,
   classifies the gap, packetizes work into a dependency DAG, dispatches a
-  governed Codex specialist fleet, verifies wiring and constitutional safety,
+  governed specialist fleet, verifies wiring and constitutional safety,
   and reconciles the corpus from test evidence. Use for "corpus-build",
   "build from spec", "realize this architecture", "make the corpus real", or
   "implement the subsystem docs". Do not use for routine fixes, architecture
@@ -24,7 +24,11 @@ repository contracts, test gates, and explicit run ledger are the executive.
 A file existing is not completion; the behavior must be wired into the live
 fact flow and derive through the expected policy surface.
 
-## Codex orchestration contract
+## Orchestration contract (Grok / multi-harness)
+
+**Source of this skill text:** one-way import from sibling Codex CLI under
+`.codex/skills/corpus-build/` (read-only — Grok never edits `.codex/`).
+This copy lives under `.agents/skills/` and `.grok/skills/`.
 
 This skill explicitly requires a subagent workflow for non-trivial runs.
 
@@ -32,8 +36,8 @@ This skill explicitly requires a subagent workflow for non-trivial runs.
   serial integration gates, user-visible checkpoints, and final evidence.
 - Delegate independent read-heavy work in parallel.
 - Delegate writes only through bounded packets with disjoint ownership.
-- Use the registered agent names from `.codex/config.toml`.
-- Keep `agents.max_depth = 1`; fleet agents do not recursively delegate.
+- Spawn Grok fleet agents from `.grok/agents/*.md` (table below).
+- Keep subagent depth = 1; fleet agents do not recursively delegate.
 - Wait for all agents in a wave, reconcile their outputs, then open the next
   dependency level.
 - Preserve unrelated dirty-tree changes and never use broad staging.
@@ -55,37 +59,40 @@ If the corpus is incomplete or contradictory, route back to `arch-propose
 
 ### Discovery and judgment
 
-| Agent | Registry key | Mission | Sandbox |
+| Agent | Grok spawn name | Mission | Capability |
 |---|---|---|---|
-| Corpus reader | `corpus_reader` | Extract requirements, invariants, source-path claims, and acceptance gates | read-only |
-| Requirements interrogator | `requirements_interrogator` | Attack ambiguity and pin interface contracts | read-only |
-| Corpus judge | `corpus_judge` | Classify each gap as build, evolve, pivot, already-real, or blocked | read-only |
-| Corpus packetizer | `corpus_packetizer` | Convert accepted gaps into bounded work packets and a dependency DAG | workspace-write |
+| Corpus reader | `corpus-reader` | Extract requirements, invariants, source-path claims, and acceptance gates | read-only |
+| Requirements interrogator | `requirements-interrogator` | Attack ambiguity and pin interface contracts | read-only |
+| Corpus judge | `corpus-judge` | Classify each gap as build, evolve, pivot, already-real, or blocked | read-only |
+| Corpus packetizer | `corpus-packetizer` | Convert accepted gaps into bounded work packets and a dependency DAG | read-write |
 
 ### Implementation lanes
 
-| Agent | Registry key | Mission |
+| Agent | Grok spawn name | Mission |
 |---|---|---|
-| Foundation worker | `corpus_foundation_worker` | Types, config, schemas, deterministic local scaffolding |
-| Mangle specialist | `mangle_specialist` | Declarations, policies, recursion, stratification, and logic-derived behavior |
-| Prompt architect | `prompt_architect` | JIT prompt atoms, compiler selection, piggyback/control-packet behavior |
-| Wiring worker | `corpus_wiring_worker` | Registrations and already-specified cross-package seams |
-| Integration worker | `corpus_integration_worker` | Ambiguous multi-package runtime integration |
-| Surface worker | `corpus_surface_worker` | CLI, MCP, A2A, TUI, and external tool exposure |
-| Corpus builder | `corpus_builder` | Bounded general implementation fallback |
+| Foundation worker | `corpus-foundation-worker` | Types, config, schemas, deterministic local scaffolding |
+| Mangle specialist | `mangle-specialist` | Declarations, policies, recursion, stratification, and logic-derived behavior |
+| Prompt / JIT | `prompt-jit` | JIT prompt atoms, compiler selection, piggyback/control-packet behavior |
+| Wiring worker | `corpus-wiring-worker` | Registrations and already-specified cross-package seams |
+| Integration worker | `corpus-integration-worker` | Ambiguous multi-package runtime integration |
+| Surface worker | `corpus-surface-worker` | CLI, MCP, A2A, TUI, and external tool exposure |
+| Corpus builder | `corpus-builder` | Bounded general implementation fallback |
 
 ### Verification and closeout
 
-| Agent | Registry key | Mission | Sandbox |
+| Agent | Grok spawn name | Mission | Capability |
 |---|---|---|---|
-| Corpus critic | `corpus_critic` | Review code, stubs, regressions, and missing tests | read-only |
-| Wiring auditor | `corpus_wiring_auditor` | Prove execution-path and registration completeness | read-only |
-| Defense auditor | `corpus_defense_auditor` | Verify `permitted(...)`, trust boundaries, and observability | read-only |
-| Comms plumber | `corpus_comms_plumber` | Repair CLI/MCP/A2A/tool routes | workspace-write |
-| Consumables keeper | `corpus_consumables_keeper` | Keep prompts, schemas, embeds, and generated artifacts synchronized | workspace-write |
-| Doc auditor | `corpus_doc_auditor` | Reconcile architecture status from evidence | workspace-write |
-| Governance reconciler | `corpus_governance_reconciler` | Close TODO, open-question, index, and run-ledger state | workspace-write |
-| Jules dispatcher | `corpus_jules_dispatcher` | Package exhausted failures for the repo remediation workflow | workspace-write |
+| Corpus critic | `corpus-critic` | Review code, stubs, regressions, and missing tests | read-only |
+| Wiring auditor | `corpus-wiring-auditor` | Prove execution-path and registration completeness | read-only |
+| Defense auditor | `corpus-defense-auditor` | Verify `permitted(...)`, trust boundaries, and observability | read-only |
+| Comms plumber | `corpus-comms-plumber` | Repair CLI/MCP/A2A/tool routes | read-write |
+| Consumables keeper | `corpus-consumables-keeper` | Keep prompts, schemas, embeds, and generated artifacts synchronized | read-write |
+| Doc auditor | `corpus-doc-auditor` | Reconcile architecture status from evidence | read-write |
+| Governance reconciler | `corpus-governance-reconciler` | Close TODO, open-question, index, and run-ledger state | read-write |
+| Jules dispatcher | `corpus-jules-dispatcher` | Package exhausted failures for the repo remediation workflow | read-write |
+
+Sibling Codex CLI uses underscore registry keys in `.codex/config.toml` — leave
+that tree alone; Grok owns the hyphenated agents under `.grok/agents/`.
 
 ## Run artifacts
 
@@ -111,8 +118,8 @@ Create `.corpus-build/ledger/<session_id>.active` with the full session ID and:
 {"run_id":"corpusbuild_<subsystem>_<epoch>","phase":"init","skill":"corpus-build"}
 ```
 
-Update `phase` at each transition. The Codex hooks use this exact file to
-separate governed fleet telemetry from unrelated subagent work.
+Update `phase` at each transition. Grok hooks under `.grok/hooks/corpus-build/`
+use this ledger to separate governed fleet telemetry from unrelated subagent work.
 
 ## Pipeline
 
@@ -130,7 +137,7 @@ Gate: all inputs, paths, fleet roles, and dirty-tree boundaries are explicit.
 
 ### Phase 1: Ingest and audit
 
-Dispatch `corpus_reader` and `integration_auditor` in parallel.
+Dispatch `corpus-reader` and `wiring-auditor` (or skill `integration-auditor`) in parallel.
 
 The reader emits a requirement manifest. The auditor traces the live path:
 
@@ -156,7 +163,7 @@ Gate: each claimed gap has file/symbol evidence or is marked unverified.
 
 ### Phase 2: Interrogate and judge
 
-Dispatch `requirements_interrogator` with the manifest and audit.
+Dispatch `requirements-interrogator` with the manifest and audit.
 
 Pin:
 
@@ -168,7 +175,7 @@ Pin:
 - failure, cancellation, and recovery semantics
 - tests that can falsify the design
 
-Then dispatch `corpus_judge`. It must classify every row:
+Then dispatch `corpus-judge`. It must classify every row:
 
 - `ALREADY_REAL`
 - `BUILD`
@@ -180,7 +187,7 @@ Gate: no implementation begins until every row has an evidence-backed verdict.
 
 ### Phase 3: Packetize the DAG
 
-Dispatch `corpus_packetizer`.
+Dispatch `corpus-packetizer`.
 
 Each packet must declare:
 
@@ -195,19 +202,19 @@ Each packet must declare:
 
 Route packets by work type:
 
-- declarations/types/local config -> `corpus_foundation_worker`
-- Mangle schemas/policy/rules -> `mangle_specialist`
-- prompt atoms/JIT assembly -> `prompt_architect`
-- specified registrations -> `corpus_wiring_worker`
-- ambiguous runtime seams -> `corpus_integration_worker`
-- CLI/MCP/A2A/TUI exposure -> `corpus_surface_worker`
-- mixed bounded fallback -> `corpus_builder`
+- declarations/types/local config -> `corpus-foundation-worker`
+- Mangle schemas/policy/rules -> `mangle-specialist`
+- prompt atoms/JIT assembly -> `prompt-jit`
+- specified registrations -> `corpus-wiring-worker`
+- ambiguous runtime seams -> `corpus-integration-worker`
+- CLI/MCP/A2A/TUI exposure -> `corpus-surface-worker`
+- mixed bounded fallback -> `corpus-builder`
 
 Gate: the DAG is acyclic and concurrently scheduled packets have disjoint writes.
 
 ### Phase 4: Build in dependency waves
 
-Spawn one agent per ready packet, bounded by `agents.max_threads`.
+Spawn one agent per ready packet; cap concurrent write-heavy workers at three.
 
 After each wave:
 
@@ -225,9 +232,9 @@ belongs to the doc-auditor lane after runtime evidence exists.
 
 Run these independently in parallel:
 
-- `corpus_critic`: correctness, stubs, regression risk, missing tests
-- `corpus_wiring_auditor`: activation, registration, persistence, and end-to-end reachability
-- `corpus_defense_auditor`: constitutional permission path, trust boundaries, telemetry, and failure visibility
+- `corpus-critic`: correctness, stubs, regression risk, missing tests
+- `corpus-wiring-auditor`: activation, registration, persistence, and end-to-end reachability
+- `corpus-defense-auditor`: constitutional permission path, trust boundaries, telemetry, and failure visibility
 
 Use `scripts/verify_surfaces.py` with
 `references/surfaces.yaml` for machine-checkable surface claims. Treat
@@ -252,7 +259,7 @@ A passing build does not override a failed behavioral or wiring gate.
 
 ### Phase 7: Reconcile and report
 
-Dispatch `corpus_doc_auditor` and `corpus_governance_reconciler` only after
+Dispatch `corpus-doc-auditor` and `corpus-governance-reconciler` only after
 the runtime gates pass.
 
 Update:
@@ -269,17 +276,18 @@ compact.
 
 ## Hook and safety contract
 
-Codex hook ownership lives in `.codex/hooks.json`; handlers live under
-`.codex/hooks/corpus-build/`.
+**Grok hooks** live under `.grok/hooks/corpus-build/` (fleet start, token meter,
+write-scope guard, OOM build block, spec context injectors). Use those when
+running under Grok.
 
-- `SubagentStart` and `SubagentStop` record governed fleet activity.
-- Global `SubagentStart` injects bounded shared agent-memory context when present.
-- Exact token usage is recorded only when the stop payload exposes usage fields;
-  otherwise telemetry says `unavailable`.
-- No PreToolUse write-scope or compile guard is enabled: the imported source hook
-  assumptions conflicted with codeNERD's live build/test contract.
+Sibling **Codex** keeps its own hooks under `.codex/hooks/` — read-only from
+Grok; never edit that tree.
+
+- Record governed fleet activity against the active ledger file.
+- Exact token usage only when the runtime exposes usage fields; otherwise
+  `unavailable`.
 - Hooks are guardrails, not complete security boundaries.
-- The sandbox, command policy, constitutional Mangle policy, review gates, and
+- Sandbox, command policy, constitutional Mangle policy, review gates, and
   tests remain authoritative.
 - Never auto-merge, delete passing tests, fabricate evidence, or stage unrelated
   files.

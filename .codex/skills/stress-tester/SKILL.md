@@ -1,8 +1,6 @@
 ---
 name: stress-tester
 description: Evidence-driven stress, race, chaos, assault-campaign, recovery, and Mangle-adversarial testing for codeNERD. Use when validating stability, reproducing panics or resource failures, exercising campaign and kernel boundaries, analyzing stress logs, or proving a root-cause fix under load.
-metadata:
-  version: 3.0.0
 ---
 
 # codeNERD Stress Tester
@@ -37,13 +35,19 @@ python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke
 # Execute and persist the receipt.
 python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke --execute
 
+# Lower the registered whole-run ceiling when a shorter budget is required.
+python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke --execute --max-wall-seconds 900
+
+# Build the current CLI and prove every invalid Mangle fixture is rejected.
+python .codex/skills/stress-tester/scripts/run_suite.py --profile adversarial --execute
+
 # Analyze current logs and emit Markdown plus a JSON sidecar.
 python .codex/skills/stress-tester/scripts/analyze_stress_logs.py --output .nerd/campaigns/stress-tester/log-analysis.md
 
 # Assert a persisted receipt without re-running the profile.
 python .codex/skills/stress-tester/scripts/assert_receipt.py .nerd/campaigns/stress-tester/<run-id>/run.json --expect-verdict passed --no-critical-output
 
-# Inventory intentionally-invalid Mangle fixtures; add --execute to prove rejection.
+# Low-level inventory/debug entry point; prefer the registered adversarial profile.
 python .codex/skills/stress-tester/scripts/verify_adversarial.py
 ```
 
@@ -57,11 +61,12 @@ python .codex/skills/stress-tester/scripts/verify_adversarial.py
 | `build` | Compile the current CLI with repository headers | bounded build | No |
 | `smoke` | Fast pre-handoff confidence | build + key packages | No |
 | `kernel` | Mangle, policy, VirtualStore, executive behavior | focused Go tests | No |
+| `adversarial` | Invalid Mangle rejection, crash, and timeout oracle | current CLI build + fixtures | No |
 | `campaign` | assault orchestration and chat routing | focused Go tests | No |
 | `race` | shared-state and lifecycle concurrency | Go race detector | No |
 | `full` | repository-wide regression | `go test ./...` | No |
 
-Use `--list-profiles` for the exact current registry. The runner enforces per-command timeouts, caps captured output, stops a profile after a failure by default, and never executes merely because it was invoked.
+Use `--list-profiles` for the exact current registry. The runner performs preflight automatically, enforces per-command and whole-run timeouts, caps captured output, refuses to overwrite a non-empty receipt directory, stops after a failure by default, and never executes merely because it was invoked.
 
 ## Live assault campaigns
 
@@ -99,7 +104,7 @@ Use the `race` profile. For a newly isolated package, add a bounded profile entr
 
 ### 4. Adversarial inputs
 
-Use `verify_adversarial.py --execute` for intentionally-invalid Mangle fixtures. A passing check means every invalid fixture was rejected; parser crashes, hangs, or accepted-invalid files fail the profile. Counts are discovered from the corpus at runtime and are never hard-coded.
+Use the registered `adversarial` profile for intentionally-invalid Mangle fixtures. A passing check means every invalid fixture produced the expected bounded checker rejection; parser crashes, hangs, unexpected nonzero exits, or accepted-invalid files fail the profile. Counts are discovered from the corpus at runtime and are never hard-coded.
 
 ### 5. Cross-system assault
 
@@ -148,7 +153,7 @@ Use the `log-analyzer` skill for multi-category causal chains or Mangle queries 
 
 `references/workflows/` contains historical scenario designs. They are an advisory threat-model library, not a copy/paste command contract. Some describe older CLI forms or Unix shells. Consult `references/workflows/README.md`, verify every referenced command against current source/help, and promote a scenario into `profile-registry.json` only after it has a bounded executable contract.
 
-**09-cli-workspace-matrix (2026-07 live matrix — 6 workflows):** Prefer PowerShell procedures under `references/workflows/09-cli-workspace-matrix/`. Includes workspace isolation, full CLI surface, polyglot vehicle, **one-shot-cli-exit** (maintenance cancel + Close 8s bounds / e18d6818), **dual-llm-routing** (main vs worker Ollama vs Gemini Nano Banana 2), and **define-agent-flags** (`--name` / `--topic` required). Catalog counts live in `.agents` / `.claude` skill SKILL.md (35 total workflows).
+**09-cli-workspace-matrix (2026-07 live matrix — 6 workflows):** Prefer PowerShell procedures under `references/workflows/09-cli-workspace-matrix/`. Includes workspace isolation, full CLI surface, polyglot vehicle, **one-shot-cli-exit** (maintenance cancel + Close 8s bounds / e18d6818), **dual-llm-routing** (main vs worker Ollama vs Gemini Nano Banana 2), and **define-agent-flags** (`--name` / `--topic` required). Treat the package validator's measured workflow count as authoritative; do not copy a total into prose.
 
 Supporting references:
 

@@ -23,7 +23,11 @@ evidence.
 The LLM fleet proposes and synthesizes. Repository evidence, architecture
 invariants, Mangle safety, and explicit decision gates constrain the result.
 
-## Codex orchestration contract
+## Orchestration contract (Grok / multi-harness)
+
+**Source of this skill text:** one-way import from sibling Codex CLI under
+`.codex/skills/arch-propose/` (read-only — Grok never edits `.codex/`).
+This copy lives under `.agents/skills/` and `.grok/skills/`.
 
 This skill explicitly requests subagents for non-trivial proposals.
 
@@ -31,24 +35,29 @@ This skill explicitly requests subagents for non-trivial proposals.
    decision, numbering, and cross-document consistency.
 2. Spawn four independent scouts in parallel.
 3. Wait for all four dossiers before synthesis.
-4. Keep `agents.max_depth = 1`; scouts never spawn their own agents.
+4. Keep subagent depth = 1; scouts never spawn their own agents.
 5. Run writers in parallel only after the candidate and audit gates pass.
 6. Treat every generated document as a durable repository artifact, not chat
    output.
 
-Use the registry keys in `.codex/config.toml`:
+### Grok agent names (spawn these; definitions in `.grok/agents/`)
 
-- `arch_propose_scout_internal`
-- `arch_propose_scout_literature`
-- `arch_propose_scout_convergent`
-- `arch_propose_scout_divergent`
-- `arch_propose_synthesizer`
-- `requirements_interrogator`
-- `arch_propose_auditor`
-- `arch_writer`
-- `cross_cutting_analyst`
-- `arch_propose_test_strategist`
-- `arch_propose_ecosystem_mapper`
+| Role | Grok agent file |
+|---|---|
+| Internal scout | `arch-propose-scout-internal` |
+| Literature scout | `arch-propose-scout-literature` |
+| Convergent scout | `arch-propose-scout-convergent` |
+| Divergent scout | `arch-propose-scout-divergent` |
+| Synthesizer | `arch-propose-synthesizer` |
+| Requirements interrogator | `requirements-interrogator` |
+| Auditor | `arch-propose-auditor` |
+| Foundation writer | `arch-writer` |
+| Cross-cutting | `cross-cutting-analyst` |
+| Test strategy | `arch-propose-test-strategist` |
+| Ecosystem map | `arch-propose-ecosystem-mapper` |
+
+Codex CLI uses underscore registry keys in `.codex/config.toml` (sibling only).
+Do not edit that tree from Grok.
 
 ## Modes
 
@@ -101,17 +110,17 @@ Dispatch four scouts:
 
 | Agent | Focus |
 |---|---|
-| `arch_propose_scout_internal` | Live code, reusable mechanisms, dormant wiring, adjacent corpora |
-| `arch_propose_scout_literature` | Primary papers, standards, official docs, comparable systems |
-| `arch_propose_scout_convergent` | Smallest design that extends existing codeNERD architecture |
-| `arch_propose_scout_divergent` | Cross-domain alternatives and one bounded wildcard |
+| `arch-propose-scout-internal` | Live code, reusable mechanisms, dormant wiring, adjacent corpora |
+| `arch-propose-scout-literature` | Primary papers, standards, official docs, comparable systems |
+| `arch-propose-scout-convergent` | Smallest design that extends existing codeNERD architecture |
+| `arch-propose-scout-divergent` | Cross-domain alternatives and one bounded wildcard |
 
 Require file/symbol citations for repository claims and links for external
 claims. Store dossiers under `.arch-propose/research/`.
 
 ### Phase 2: Synthesize candidates
 
-Dispatch `arch_propose_synthesizer` after all dossiers exist.
+Dispatch `arch-propose-synthesizer` after all dossiers exist.
 
 Produce two or three candidates, including at least one extend-existing option.
 For each candidate specify:
@@ -135,7 +144,7 @@ acceptance gates.
 
 ### Phase 3: Interrogate and decide
 
-Dispatch `requirements_interrogator` for up to three bounded rounds. It must
+Dispatch `requirements-interrogator` for up to three bounded rounds. It must
 probe contradictions, not merely add questions.
 
 The root agent then selects a winner using:
@@ -154,7 +163,7 @@ rejected options, evidence, and remaining open questions.
 
 ### Phase 4: Synthetic audit
 
-Dispatch `arch_propose_auditor`.
+Dispatch `arch-propose-auditor`.
 
 For greenfield work, the audit explicitly separates:
 
@@ -175,12 +184,12 @@ citation.
 
 After the decision and audit pass, dispatch writers with disjoint ownership:
 
-- `arch_writer`: foundation, target architecture, data/predicate model, runtime
+- `arch-writer`: foundation, target architecture, data/predicate model, runtime
   flow, failure model, and IMPLEMENTED_SPEC
-- `cross_cutting_analyst`: safety, wiring, JIT prompt, configuration,
+- `cross-cutting-analyst`: safety, wiring, JIT prompt, configuration,
   observability, and operational cross-cuts
-- `arch_propose_test_strategist`: TESTING-STRATEGY.md
-- `arch_propose_ecosystem_mapper`: ECOSYSTEM-IMPACT.md
+- `arch-propose-test-strategist`: TESTING-STRATEGY.md
+- `arch-propose-ecosystem-mapper`: ECOSYSTEM-IMPACT.md
 
 The minimum corpus manifest is defined in
 `references/orchestration.md`. Tier 1 and Tier 2 proposals may add deeper
@@ -221,16 +230,12 @@ Keep the user report short and point to exact artifact paths.
 
 ## Model and sandbox guidance
 
-Use the current Codex model catalog rather than copied Claude labels.
+On Grok: use high-effort agents for synthesis/interrogation/writing; read-only
+capability for scouts and auditors unless they own a dossier path. Writers own
+explicit output files under `Docs/architecture/` and `.arch-propose/`.
 
-- demanding synthesis, interrogation, and architecture writing: `gpt-5.6`,
-  high or xhigh reasoning
-- read-heavy scouting and structured support work: `gpt-5.6-terra`, medium or
-  high reasoning
-- scouts and auditors: read-only unless they own a dossier file
-- writers: workspace-write with explicit output ownership
-
-Agent TOMLs own concrete model and sandbox settings.
+Sibling Codex CLI keeps its own model catalog and agent TOMLs under `.codex/`
+— leave that tree alone.
 
 ## References
 

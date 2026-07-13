@@ -20,9 +20,11 @@ Typical pairs:
 - `internal/prompt/atoms/` -> prompt compiler selection and embedded atom data
 - `internal/core/defaults/schemas*.mg` -> declarations loaded by the kernel
 - `internal/core/defaults/policy/` -> policy corpus and embedded defaults
-- `.claude/skills/`, `.agents/skills/`, and governed `.codex/skills/`
-  mirrors when the repository intentionally maintains them
-- agent TOMLs -> `.codex/config.toml` registrations
+- `.agents/skills/`, `.grok/skills/`, and `.claude/skills/` mirrors when the
+  repository intentionally maintains them
+- Grok agent defs under `.grok/agents/*.md` (and their skill frontmatter bindings)
+- Sibling Codex keeps its own `.codex/skills/` + `.codex/config.toml` — do not
+  edit those from Grok; import into Grok-owned trees instead
 - generated manifests/indexes -> their source inputs
 - CLI/MCP tool definitions -> runtime dispatch handlers
 

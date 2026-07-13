@@ -23,6 +23,7 @@ This registry provides detailed documentation for all skills in the codeNERD dev
 | [SK-015](#sk-015-codenerd-codex-exec) | codenerd-codex-exec | Codex Runtime | Core |
 | [SK-016](#sk-016-arch-propose) | arch-propose | Architecture (pre-impl) | Core |
 | [SK-017](#sk-017-corpus-build) | corpus-build | Architecture → Code | Core |
+| [SK-018](#sk-018-claude-to-codex-porter) | claude-to-codex-porter | Codex Migration | Utility |
 
 ---
 
@@ -710,8 +711,8 @@ cmd/nerd/chat/commands.go                 - /config engine command
 | `references/pre-implementation-markers.md` | Reference | Honesty rules |
 | `references/synthetic-audit-template.md` | Reference | Auditor template |
 | `references/pre-implementation-phase-checklist.md` | Reference | Phase gates |
-| `references/codenerd-corpus-shape.md` | Reference | Output layout |
-| `.grok/agents/arch-propose-*.md` | Agents | Scout/synth/audit fleet |
+| `references/orchestration.md` | Reference | Output manifest and delegation waves |
+| `.codex/agents/arch-propose-*.toml` | Agents | Native Codex scout/synth/audit fleet |
 
 ### Integration Points
 
@@ -758,7 +759,7 @@ cmd/nerd/chat/commands.go                 - /config engine command
 | `scripts/build_dag.py` | Script | Topo levels |
 | `scripts/record_skip.py` | Script | Auditable skips |
 | `scripts/verify_surfaces.py` | Script | Surface verdicts |
-| `.grok/agents/corpus-*.md` | Agents | Implementation fleet |
+| `.codex/agents/corpus-*.toml` | Agents | Native Codex implementation fleet |
 
 ### Integration Points
 
@@ -770,6 +771,53 @@ cmd/nerd/chat/commands.go                 - /config engine command
 | integration-auditor / wiring-auditor | Wiring adjudication |
 | spec-doc-sprint | Post-landing Spec reconcile |
 | nerd-evolve | Later optimization |
+
+---
+
+## SK-018: claude-to-codex-porter
+
+**Name:** `claude-to-codex-porter`
+
+**Domain:** Codex Workspace Migration
+
+**Description:** Ports project-local Claude Code skills, agents, hooks, commands,
+rules, plugins, config, and support closure into native Codex activation
+surfaces with a classified ledger and surface-specific validation.
+
+### Trigger Conditions
+
+- Port or sync a Claude workspace into Codex
+- Repair an incomplete Claude-to-Codex migration
+- Convert Claude agents to registered Codex custom-agent TOMLs
+- Rehome Claude commands, hooks, rules, or shared memory behavior
+
+### Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| Surface ledger | Classifies every behavior, activation event, target, and validation |
+| Agent conversion | Produces required TOML fields, model/sandbox choices, skill attachments, and registry wiring |
+| Hook migration | Preserves one owning representation and validates JSON-stdin behavior |
+| Support closure | Includes references, scripts, assets, metadata, and explicit preserved evidence |
+| Cross-repo operation | Keeps the named source read-only and adapts targets to codeNERD |
+
+### Bundled Resources
+
+| Resource | Type | Purpose |
+|----------|------|---------|
+| `references/phases/` | Reference | Scope, inventory, transform, validate, report gates |
+| `references/codex-surface-decision-tree.md` | Reference | Native target selection |
+| `scripts/inventory_workspace.py` | Script | Claude/Codex surface inventory |
+| `evals/evals.json` | Eval | Positive and negative routing cases |
+
+### Integration Points
+
+| Integrates With | Relationship |
+|-----------------|--------------|
+| skill-creator | Greenfield or materially redesigned skill packages |
+| codenerd-builder | codeNERD architecture and repository invariants |
+| integration-auditor | Activation and registry verification |
+| corpus-build / arch-propose | Fleet and skill ecosystems migrated by the porter |
 
 ---
 
@@ -850,7 +898,7 @@ build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 
 **Domain:** Testing & Quality Assurance
 
-**Description:** Live stress testing of codeNERD via CLI. Use when testing system stability, finding panics, edge cases, and failure modes across all 25+ subsystems. Includes comprehensive multi-minute workflows with conservative, aggressive, chaos, and hybrid severity levels.
+**Description:** Evidence-driven stress, race, recovery, Mangle-adversarial, and assault-campaign testing. Uses bounded deterministic profiles, persisted receipts, current log parsing, and explicit PASS/FAIL/PARTIAL/BLOCKED/NO_SIGNAL verdicts before escalating to live LLM-backed campaigns.
 
 ### Trigger Conditions
 
@@ -865,22 +913,29 @@ build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 
 | Capability | Description |
 |------------|-------------|
-| 27 Workflow Tests | 8 categories covering all subsystems |
-| 4 Severity Levels | Conservative, Aggressive, Chaos, Hybrid |
-| Log Analysis | Integrated with log-analyzer for post-test Mangle queries |
-| Panic Detection | Custom predicates for detecting failures |
-| Fixture Generation | Synthetic projects, malformed inputs, cyclic rules |
+| 7 Registered Profiles | Structural, build, smoke, kernel, campaign, race, and full |
+| Bounded Runner | Dry-run default, per-command timeout, output caps, JSON/Markdown receipts |
+| Log Analysis | Reuses the current log-analyzer parser and distinguishes no-signal runs |
+| Failure Protocol | Separates product, harness, and environment failures and requires minimization |
+| Adversarial Corpus | Dynamically inventories and optionally proves rejection of invalid Mangle fixtures |
 
 ### Bundled Resources
 
 | Resource | Type | Purpose |
 |----------|------|---------|
-| `SKILL.md` | Core | Quick start, workflow catalog, severity guide |
+| `SKILL.md` | Core | Active workflow, escalation ladder, failure and completion gates |
+| `references/profile-registry.json` | Registry | Machine-readable bounded command profiles |
+| `references/testing-strategy.md` | Reference | Pressure dimensions, oracles, stopping rules, root-cause loop |
+| `references/artifact-contract.md` | Reference | Deterministic receipt and live campaign artifact layouts |
 | `references/subsystem-stress-points.md` | Reference | All 25+ subsystems with failure modes |
 | `references/panic-catalog.md` | Reference | Known panic vectors with triggers |
 | `references/resource-limits.md` | Reference | Config limits and safe/dangerous values |
-| `references/workflows/**/*.md` | Reference | 27 stress test workflows |
-| `scripts/analyze_stress_logs.py` | Script | Post-test log analysis |
+| `references/workflows/**/*.md` | Historical reference | Advisory scenario designs; live validator measures count and commands require verification |
+| `scripts/preflight.py` | Script | Read-only host and repository readiness receipt |
+| `scripts/run_suite.py` | Script | Preview or execute registered deterministic profiles |
+| `scripts/validate_skill.py` | Script | Package, registry, script, agent, and corpus validation |
+| `scripts/analyze_stress_logs.py` | Script | Bounded Markdown plus JSON signal analysis |
+| `scripts/verify_adversarial.py` | Script | Measured fixture inventory and optional rejection proof |
 | `scripts/fixtures/generate_large_project.py` | Script | Synthetic Go project generator |
 | `scripts/fixtures/malformed_inputs.py` | Script | Fuzzing payload generator |
 | `assets/cyclic_rules.mg` | Asset | Mangle rules for derivation explosion |
@@ -891,12 +946,12 @@ build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 
 | Integrates With | Relationship |
 |-----------------|--------------|
-| log-analyzer | Uses log-analyzer for post-test Mangle queries |
+| log-analyzer | Reuses its live parser; delegates deeper causal Mangle queries |
 | mangle-programming | Stress tests use Mangle rules and queries |
 | codenerd-builder | Tests all codeNERD subsystems |
 | integration-auditor | Complements auditor with runtime verification |
 
-### Workflow Categories
+### Historical Scenario Categories
 
 ```text
 01-kernel-core/           - Mangle engine, SpawnQueue, memory
@@ -908,6 +963,8 @@ build/prompt_atoms/**/*.yaml               - 50+ atomic prompt sources
 07-full-system-chaos/     - System-wide stability tests
 08-hybrid-integration/    - Cross-subsystem integration
 ```
+
+The categories above are retained for threat-model breadth. The executable source of truth is `.codex/skills/stress-tester/references/profile-registry.json`.
 
 ---
 
