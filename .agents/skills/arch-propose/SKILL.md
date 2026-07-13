@@ -22,6 +22,11 @@ Research-first pipeline for features that do not have code yet. Sibling of
 from an idea, researches, and emits a **target-state** corpus with honest
 pre-implementation markers.
 
+**Code-grounded mode (living packages):** when `internal/<pkg>/` or `cmd/...` already
+exists, do **not** zero IMPLEMENTED_SPEC to 0% or claim “no code exists”. Inventory real
+files with path citations, mark status Realized, and describe gaps honestly. Use pure
+pre-impl markers only for greenfield targets.
+
 **Pipeline**: `arch-propose` → (human decides) → `corpus-build` → `spec-doc-sprint` / live code → optional `nerd-evolve`
 
 ## Core Loop
