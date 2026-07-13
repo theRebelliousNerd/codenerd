@@ -3,29 +3,47 @@ package system
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestCortexKey(t *testing.T) {
-	base := cortexKey("/ws", "zai", "key123", "glm-4")
+	base := cortexKey("/ws", "zai", "key123", "glm-4", []string{"tactile_router"})
 	if len(base) != 64 {
 		t.Fatalf("cortexKey length=%d, want 64 (hex sha256)", len(base))
 	}
 	// Deterministic: identical inputs hash identically.
-	if again := cortexKey("/ws", "zai", "key123", "glm-4"); again != base {
+	if again := cortexKey("/ws", "zai", "key123", "glm-4", []string{"tactile_router"}); again != base {
 		t.Error("cortexKey is not deterministic for identical inputs")
 	}
 	// Each component independently changes the key (no field collisions).
 	variants := map[string]string{
-		"workspace": cortexKey("/other", "zai", "key123", "glm-4"),
-		"provider":  cortexKey("/ws", "gemini", "key123", "glm-4"),
-		"apiKey":    cortexKey("/ws", "zai", "different", "glm-4"),
-		"model":     cortexKey("/ws", "zai", "key123", "gpt"),
+		"workspace":      cortexKey("/other", "zai", "key123", "glm-4", []string{"tactile_router"}),
+		"provider":       cortexKey("/ws", "gemini", "key123", "glm-4", []string{"tactile_router"}),
+		"apiKey":         cortexKey("/ws", "zai", "different", "glm-4", []string{"tactile_router"}),
+		"model":          cortexKey("/ws", "zai", "key123", "gpt", []string{"tactile_router"}),
+		"disabledShards": cortexKey("/ws", "zai", "key123", "glm-4", []string{"campaign_runner"}),
 	}
 	for field, k := range variants {
 		if k == base {
 			t.Errorf("changing %s did not change the cortex key", field)
 		}
+	}
+	if strings.Contains(base, "key123") {
+		t.Fatal("cortexKey leaked API key material")
+	}
+}
+
+func TestCortexKeyNormalizesDisabledShardSet(t *testing.T) {
+	want := cortexKey("/ws", "zai", "secret", "glm-4", []string{"campaign_runner", "tactile_router"})
+	got := cortexKey("/ws", "zai", "secret", "glm-4", []string{
+		" tactile_router ",
+		"campaign_runner",
+		"tactile_router",
+		"",
+	})
+	if got != want {
+		t.Fatalf("order, duplicates, or whitespace changed disabled-shard identity: got %s want %s", got, want)
 	}
 }
 

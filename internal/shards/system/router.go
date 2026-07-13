@@ -327,13 +327,14 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		if !found {
 			logging.Routing("No route found for action: %s (target=%s)", actionType, target)
 			if r.config.AllowUnmappedActions {
-				// Record as unhandled for autopoiesis
+				// Record as unhandled for autopoiesis. "Allowed" means the gap may
+				// enter the learning loop; it does not turn a missing route into a
+				// successful execution.
 				r.Autopoiesis.RecordUnhandled(
 					fmt.Sprintf("route(%s)", actionType),
 					map[string]string{"action": actionType, "target": target},
 					nil,
 				)
-				continue
 			}
 			// Emit routing failure so policy can react deterministically
 			_ = r.Kernel.Assert(types.Fact{
@@ -346,6 +347,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 					Args:      []any{intentID, types.MangleAtom("/no_route")},
 				})
 			}
+			r.completePermittedAction(actionID)
 			continue
 		}
 		logging.Routing("Route found: action=%s -> tool=%s (timeout=%v)", actionType, route.ToolName, route.Timeout)
@@ -370,13 +372,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 				Args:      []any{actionType, target, time.Now().Unix()},
 			})
 			// Clear the permitted action to avoid repeated processing
-			if r.Kernel != nil {
-				_ = r.Kernel.RetractExactFact(fact)
-				_ = r.Kernel.RetractFact(types.Fact{
-					Predicate: "action_permitted",
-					Args:      []any{actionID},
-				})
-			}
+			r.completePermittedAction(actionID)
 			continue
 		}
 
@@ -402,10 +398,11 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 			call.StartedAt = time.Now()
 			logging.Tools("Executing tool: %s (action=%s, target=%s, call_id=%s)", route.ToolName, actionType, target, call.ID)
 
-			// Create action fact for VirtualStore (preserve payload)
+			// Preserve the executive-issued action ID and payload as the exact
+			// authorization/execution correlation envelope. Never mint a router ID.
 			actionFact := types.Fact{
 				Predicate: "next_action",
-				Args:      []any{call.ID, actionType, target, payload},
+				Args:      []any{actionID, actionType, target, payload},
 			}
 
 			result, err := r.VirtualStore.RouteAction(ctx, actionFact)
@@ -502,14 +499,7 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 		}
 
 		// Clear the permitted action (exact match)
-		if r.Kernel != nil {
-			_ = r.Kernel.RetractExactFact(fact)
-		}
-		// Also clear unary marker for this action type
-		_ = r.Kernel.RetractFact(types.Fact{
-			Predicate: "action_permitted",
-			Args:      []any{actionID},
-		})
+		r.completePermittedAction(actionID)
 	}
 
 	if didWork {
@@ -517,6 +507,27 @@ func (r *TactileRouterShard) processPermittedActions(ctx context.Context) error 
 	}
 
 	return nil
+}
+
+// completePermittedAction consumes both representations of a constitution-
+// cleared action. Every terminal route outcome must call this exactly once so
+// event subscriptions and polling cannot execute or report the same action on
+// every tick.
+func (r *TactileRouterShard) completePermittedAction(actionID string) {
+	if r.Kernel == nil {
+		return
+	}
+	// Action IDs are the correlation/identity key. Retraction by first argument
+	// deliberately consumes every representation with that ID and remains
+	// stable when Mangle normalizes structured payloads into JSON strings.
+	_ = r.Kernel.RetractFact(types.Fact{
+		Predicate: "permitted_action",
+		Args:      []any{actionID},
+	})
+	_ = r.Kernel.RetractFact(types.Fact{
+		Predicate: "action_permitted",
+		Args:      []any{actionID},
+	})
 }
 
 func (r *TactileRouterShard) syncToolAllowlist() {

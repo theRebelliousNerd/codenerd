@@ -21,6 +21,8 @@ import (
 	"codenerd/internal/shards/system"
 	"codenerd/internal/types"
 	"database/sql"
+	"errors"
+	"sort"
 	"strings"
 
 	"codenerd/internal/sqlpragmas"
@@ -62,8 +64,9 @@ type BootConfig struct {
 }
 
 // Keyed cache of Cortex instances. Each entry is keyed by a hash of
-// (workspace + provider + apiKey + model) so that switching workspace,
-// provider, API key, or model mid-process yields the correct instance
+// (workspace + provider + apiKey + model + disabled system-shard set) so that
+// switching workspace, provider, API key, model, or system-shard topology
+// mid-process yields the correct instance
 // instead of a stale singleton bound to the wrong context (Bug #15 fix).
 //
 // Failed boots are NOT cached: returning an error never inserts into the
@@ -76,13 +79,43 @@ var (
 
 // cortexKey derives a stable cache key for a Cortex instance from the
 // dimensions that change Cortex identity: workspace, provider, API key,
-// and model. The components are joined with NUL bytes to avoid ambiguity
-// between values that contain the separator, then SHA-256 hashed so the
-// key can be safely used as a map index without leaking the API key.
-func cortexKey(workspace, provider, apiKey, model string) string {
+// model, and the normalized disabled system-shard set. The components are
+// length-delimited before hashing so embedded separators cannot collide. The
+// SHA-256 digest is safe to use as a map key without exposing the API key.
+func cortexKey(workspace, provider, apiKey, model string, disableSystemShards []string) string {
 	h := sha256.New()
-	h.Write([]byte(workspace + "\x00" + provider + "\x00" + apiKey + "\x00" + model))
+	components := append(
+		[]string{workspace, provider, apiKey, model},
+		normalizeDisableSystemShards(disableSystemShards)...,
+	)
+	for _, component := range components {
+		_, _ = fmt.Fprintf(h, "%d:", len(component))
+		_, _ = h.Write([]byte(component))
+	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// normalizeDisableSystemShards canonicalizes a caller-provided set for both
+// cache identity and boot behavior. Empty entries are ignored; names are
+// trimmed, deduplicated, and sorted so order cannot create duplicate Cortexes.
+func normalizeDisableSystemShards(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if normalized := strings.TrimSpace(name); normalized != "" {
+			set[normalized] = struct{}{}
+		}
+	}
+
+	normalized := make([]string, 0, len(set))
+	for name := range set {
+		normalized = append(normalized, name)
+	}
+	sort.Strings(normalized)
+	return normalized
 }
 
 // resolveWorkspaceRoot mirrors BootCortexWithConfig's workspace resolution
@@ -139,9 +172,29 @@ func resolveProviderModelForKey(workspace string) (provider, model string) {
 // IMPORTANT: This function should be used instead of BootCortex() in
 // all command handlers.
 func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disableSystemShards []string) (*Cortex, error) {
+	return getOrBootCortex(ctx, workspace, apiKey, disableSystemShards, BootCortex)
+}
+
+type cortexBootFunc func(context.Context, string, string, []string) (*Cortex, error)
+
+// getOrBootCortex contains the cache transaction independently of the heavy
+// production bootstrap. Keeping the boot function injectable lets tests prove
+// failure and identity behavior without starting the entire runtime.
+func getOrBootCortex(
+	ctx context.Context,
+	workspace string,
+	apiKey string,
+	disableSystemShards []string,
+	boot cortexBootFunc,
+) (*Cortex, error) {
+	if boot == nil {
+		return nil, fmt.Errorf("cortex boot function is nil")
+	}
+
 	ws := resolveWorkspaceRoot(workspace)
 	provider, model := resolveProviderModelForKey(ws)
-	key := cortexKey(ws, provider, apiKey, model)
+	disabled := normalizeDisableSystemShards(disableSystemShards)
+	key := cortexKey(ws, provider, apiKey, model, disabled)
 
 	// Fast path: cache hit under read lock.
 	cortexCacheMu.RLock()
@@ -163,7 +216,7 @@ func GetOrBootCortex(ctx context.Context, workspace string, apiKey string, disab
 		return existing, nil
 	}
 
-	cortex, err := BootCortex(ctx, workspace, apiKey, disableSystemShards)
+	cortex, err := boot(ctx, ws, apiKey, disabled)
 	if err != nil {
 		// Do NOT cache failures.
 		return nil, err
@@ -242,6 +295,15 @@ type Cortex struct {
 	Workspace       string
 	JITCompiler     *prompt.JITPromptCompiler
 	PromptAssembler *articulation.PromptAssembler
+
+	// Boot-owned integration resources. These stay private because callers
+	// should release the aggregate Cortex, not individual motherboard parts.
+	mcpBridge             *mcp.MCPIntegrationBridge
+	mcpCancel             context.CancelFunc
+	mcpDone               <-chan struct{}
+	perceptionInitialized bool
+	closeMu               sync.Mutex
+	closed                bool
 
 	// cortexKey is the cache key under which this Cortex is registered
 	// in cortexCache (set by GetOrBootCortex). Direct BootCortex callers
@@ -508,12 +570,17 @@ type bootContext struct {
 	shardLLMClient               perception.LLMClient
 	imageLLMClient               perception.LLMClient // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
+	perceptionInitialized        bool
 	localDB                      *store.LocalStore
 	learningStore                *store.LearningStore
 	kernel                       SystemKernel
 	transducer                   perception.Transducer
 	virtualStore                 *core.VirtualStore
 	embeddingEngine              embedding.EmbeddingEngine
+	mcpBridge                    *mcp.MCPIntegrationBridge
+	mcpCancel                    context.CancelFunc
+	mcpDone                      <-chan struct{}
+	projectDB                    *sql.DB
 	atomLoader                   *prompt.AtomLoader
 	jitCompiler                  *prompt.JITPromptCompiler
 	promptAssembler              *articulation.PromptAssembler
@@ -691,18 +758,8 @@ func initKernel(bctx *bootContext) error {
 		bctx.kernel = bctx.cfg.KernelOverride
 	} else {
 		cortex := core.NewCortexKernel("cortex")
-		shardConfigs := []core.KernelShardConfig{
-			{Domain: "routing", OwnedPredicates: []string{"user_intent", "next_action", "routing_result", "derived_mode"}},
-			{Domain: "world", OwnedPredicates: []string{"file_topology", "symbol_graph", "diagnostic", "project_profile"}},
-			{Domain: "tools", OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"}},
-			{Domain: "policy", OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"}},
-			{Domain: "campaign", OwnedPredicates: []string{"campaign", "campaign_phase", "campaign_task", "campaign_dependency"}},
-			{Domain: "prompts", OwnedPredicates: []string{"prompt_atom", "atom_selection_score", "shard_prompt_base"}},
-			{Domain: "cortex", OwnedPredicates: []string{}},
-		}
 
-		for _, scfg := range shardConfigs {
-			scfg.WorkspaceRoot = bctx.workspace
+		for _, scfg := range defaultKernelShardConfigs(bctx.workspace) {
 			shard, err := core.NewKernelShard(scfg)
 			if err != nil {
 				return fmt.Errorf("failed to create shard %s: %w", scfg.Domain, err)
@@ -720,6 +777,8 @@ func initKernel(bctx *bootContext) error {
 
 	if err := perception.InitPerceptionLayer(bctx.kernel, bctx.appCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Perception init failed: %v\n", err)
+	} else {
+		bctx.perceptionInitialized = true
 	}
 
 	loadedWorld := false
@@ -743,6 +802,19 @@ func initKernel(bctx *bootContext) error {
 		}
 	}
 	return nil
+}
+
+func defaultKernelShardConfigs(workspace string) []core.KernelShardConfig {
+	manifests := shards.DefaultShardPredicateManifests()
+	configs := make([]core.KernelShardConfig, 0, len(manifests))
+	for _, manifest := range manifests {
+		configs = append(configs, core.KernelShardConfig{
+			Domain:          manifest.Domain,
+			WorkspaceRoot:   workspace,
+			OwnedPredicates: append([]string(nil), manifest.OwnedPredicates...),
+		})
+	}
+	return configs
 }
 
 func initExecutionLayer(bctx *bootContext) error {
@@ -823,6 +895,11 @@ func initIntelligenceLayer(bctx *bootContext) error {
 			if err := checker.HealthCheck(bctx.ctx); err != nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Embedding engine health check failed: %v", err)
 				fmt.Fprintf(os.Stderr, "Warning: Embedding engine unavailable: %v\n", err)
+				if closer, ok := engine.(interface{ Close() error }); ok {
+					if closeErr := closer.Close(); closeErr != nil {
+						logging.Get(logging.CategoryEmbedding).Warn("Failed to close unhealthy embedding engine: %v", closeErr)
+					}
+				}
 			} else {
 				bctx.embeddingEngine = engine
 			}
@@ -855,12 +932,18 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		if err != nil {
 			logging.Get(logging.CategoryTools).Warn("Failed to init MCP bridge: %v", err)
 		} else {
+			mcpCtx, mcpCancel := context.WithCancel(bctx.ctx)
+			mcpDone := make(chan struct{})
+			bctx.mcpBridge = mcpBridge
+			bctx.mcpCancel = mcpCancel
+			bctx.mcpDone = mcpDone
 			for serverID := range serverConfigs {
 				bctx.virtualStore.SetMCPClient(serverID, mcpBridge.GetAdapter(serverID))
 				logging.Get(logging.CategoryTools).Info("Wired MCP integration: %s", serverID)
 			}
 			go func() {
-				if err := mcpBridge.ConnectAll(context.Background()); err != nil {
+				defer close(mcpDone)
+				if err := mcpBridge.ConnectAll(mcpCtx); err != nil && !errors.Is(err, context.Canceled) {
 					logging.Get(logging.CategoryTools).Warn("MCP auto-connect failed: %v", err)
 				}
 			}()
@@ -919,6 +1002,7 @@ func initIntelligenceLayer(bctx *bootContext) error {
 						logging.Get(logging.CategoryContext).Warn("Failed to hydrate project corpus tags: %v", err)
 					}
 				}
+				bctx.projectDB = projectDB
 				compilerOpts = append(compilerOpts, prompt.WithProjectDB(projectDB))
 				logging.Get(logging.CategoryContext).Info("Registered project corpus: %s", corpusPath)
 			}
@@ -932,6 +1016,8 @@ func initIntelligenceLayer(bctx *bootContext) error {
 		return fmt.Errorf("failed to init JIT compiler: %w", err)
 	}
 	bctx.jitCompiler = jitCompiler
+	// Ownership of the project DB transfers to JITCompiler on success.
+	bctx.projectDB = nil
 
 	if bctx.localDB != nil {
 		bctx.jitCompiler.SetLocalDB(bctx.localDB)
@@ -995,7 +1081,6 @@ func initAutopoiesisAndBrowser(bctx *bootContext) error {
 	bctx.poiesis = autopoiesis.NewOrchestrator(bctx.llmClient, autopoiesisConfig)
 	bridge := core.NewAutopoiesisBridge(bctx.kernel)
 	bctx.poiesis.SetKernel(bridge)
-
 
 	if ouroborosLoop := bctx.poiesis.GetOuroborosLoop(); ouroborosLoop != nil {
 		bctx.virtualStore.SetToolGenerator(ouroborosLoop)
@@ -1145,39 +1230,78 @@ func initFinalExecutors(bctx *bootContext) error {
 // BootCortexWithConfig initializes the system with a configuration object.
 // This allows for dependency injection during testing.
 func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) {
+	return bootCortexWithSteps(ctx, cfg, defaultBootSteps())
+}
+
+type bootStep struct {
+	name string
+	run  func(*bootContext) error
+}
+
+func defaultBootSteps() []bootStep {
+	return []bootStep{
+		{name: "core components", run: initCoreComponents},
+		{name: "perception layer", run: initPerceptionLayer},
+		{name: "storage layer", run: initStorageLayer},
+		{name: "kernel", run: initKernel},
+		{name: "execution layer", run: initExecutionLayer},
+		{name: "autopoiesis and browser", run: initAutopoiesisAndBrowser},
+		{name: "intelligence layer", run: initIntelligenceLayer},
+		{name: "shard management", run: initShardManagement},
+		{name: "final executors", run: initFinalExecutors},
+	}
+}
+
+// bootCortexWithSteps treats bootstrap as a resource transaction: every error
+// flows through one rollback path that tears down the partial Cortex. Tests can
+// append a failing late step to exercise rollback without production hooks.
+func bootCortexWithSteps(ctx context.Context, cfg BootConfig, steps []bootStep) (*Cortex, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg.DisableSystemShards = normalizeDisableSystemShards(cfg.DisableSystemShards)
 	bctx := &bootContext{
 		ctx: ctx,
 		cfg: cfg,
 	}
 
-	if err := initCoreComponents(bctx); err != nil {
-		return nil, err
-	}
-	if err := initPerceptionLayer(bctx); err != nil {
-		return nil, err
-	}
-	if err := initStorageLayer(bctx); err != nil {
-		return nil, err
-	}
-	if err := initKernel(bctx); err != nil {
-		return nil, err
-	}
-	if err := initExecutionLayer(bctx); err != nil {
-		return nil, err
-	}
-	if err := initAutopoiesisAndBrowser(bctx); err != nil {
-		return nil, err
-	}
-	if err := initIntelligenceLayer(bctx); err != nil {
-		return nil, err
-	}
-	if err := initShardManagement(bctx); err != nil {
-		return nil, err
-	}
-	if err := initFinalExecutors(bctx); err != nil {
-		return nil, err
+	for _, step := range steps {
+		if step.run == nil {
+			continue
+		}
+		if err := step.run(bctx); err != nil {
+			bootErr := fmt.Errorf("boot %s: %w", step.name, err)
+			if rollbackErr := rollbackBootContext(bctx); rollbackErr != nil {
+				return nil, errors.Join(bootErr, fmt.Errorf("boot rollback: %w", rollbackErr))
+			}
+			return nil, bootErr
+		}
 	}
 
+	return cortexFromBootContext(bctx), nil
+}
+
+func rollbackBootContext(bctx *bootContext) error {
+	if bctx == nil {
+		return nil
+	}
+
+	var errs []error
+	// A project DB opened before compiler construction has not transferred to
+	// JITCompiler yet, so the aggregate Cortex cannot own it.
+	if bctx.projectDB != nil {
+		if err := bctx.projectDB.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("project prompt DB: %w", err))
+		}
+		bctx.projectDB = nil
+	}
+	if err := cortexFromBootContext(bctx).Close(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+func cortexFromBootContext(bctx *bootContext) *Cortex {
 	var realKernel *core.RealKernel
 	if rk, ok := bctx.kernel.(*core.RealKernel); ok {
 		realKernel = rk
@@ -1186,27 +1310,31 @@ func BootCortexWithConfig(ctx context.Context, cfg BootConfig) (*Cortex, error) 
 	}
 
 	return &Cortex{
-		Kernel:          bctx.kernel,
-		RealKernel:      realKernel,
-		LLMClient:       bctx.llmClient,
-		ShardManager:    bctx.shardManager,
-		TaskExecutor:    bctx.taskExecutor,
-		SessionExecutor: bctx.sessionExecutor,
-		SessionSpawner:  bctx.sessionSpawner,
-		VirtualStore:    bctx.virtualStore,
-		Executor:        bctx.executor,
-		Transducer:      bctx.transducer,
-		Orchestrator:    bctx.poiesis,
-		BrowserManager:  bctx.browserMgr,
-		Scanner:         bctx.scanner,
-		UsageTracker:    bctx.tracker,
-		LocalDB:         bctx.localDB,
-		LearningStore:   bctx.learningStore,
-		EmbeddingEngine: bctx.embeddingEngine,
-		Workspace:       bctx.workspace,
-		JITCompiler:     bctx.jitCompiler,
-		PromptAssembler: bctx.promptAssembler,
-	}, nil
+		Kernel:                bctx.kernel,
+		RealKernel:            realKernel,
+		LLMClient:             bctx.llmClient,
+		ShardManager:          bctx.shardManager,
+		TaskExecutor:          bctx.taskExecutor,
+		SessionExecutor:       bctx.sessionExecutor,
+		SessionSpawner:        bctx.sessionSpawner,
+		VirtualStore:          bctx.virtualStore,
+		Executor:              bctx.executor,
+		Transducer:            bctx.transducer,
+		Orchestrator:          bctx.poiesis,
+		BrowserManager:        bctx.browserMgr,
+		Scanner:               bctx.scanner,
+		UsageTracker:          bctx.tracker,
+		LocalDB:               bctx.localDB,
+		LearningStore:         bctx.learningStore,
+		EmbeddingEngine:       bctx.embeddingEngine,
+		Workspace:             bctx.workspace,
+		JITCompiler:           bctx.jitCompiler,
+		PromptAssembler:       bctx.promptAssembler,
+		mcpBridge:             bctx.mcpBridge,
+		mcpCancel:             bctx.mcpCancel,
+		mcpDone:               bctx.mcpDone,
+		perceptionInitialized: bctx.perceptionInitialized,
+	}
 }
 
 // IngestHybridPrompts loads PROMPT directives extracted from hybrid .mg files

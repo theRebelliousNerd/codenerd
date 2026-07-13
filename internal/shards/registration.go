@@ -20,25 +20,16 @@ import (
 // is true, a fact asserted on the wrong shard gets routed to its owner
 // instead of silently landing in a non-authoritative store.
 //
-// The manifest is intentionally a flat data structure with no behavior. It
-// is constructed once at startup and handed to the kernel/cortex layer; the
-// shard factories below remain unchanged so the off-flag path is byte-
-// identical to today.
-//
-// Wiring note: the production construction of *core.KernelShard happens in
-// internal/system/factory.go, which is owned by a separate marathon track
-// and is OUTSIDE this file's edit lane. Code that consumes this manifest
-// will land in that file in a subsequent pass. Until then, the manifest is
-// exported so other lanes can pick it up without bouncing through here.
+// The manifest is intentionally a flat data structure with no behavior.
+// internal/system/factory.go consumes it when constructing the production
+// Cortex shards, making this the single source of predicate ownership truth.
 type ShardPredicateManifest struct {
 	Domain          string   // Shard domain name, matches core.KernelShardConfig.Domain
 	OwnedPredicates []string // Predicates this shard is authoritative for
 }
 
 // DefaultShardPredicateManifests returns the canonical predicate ownership
-// table for codeNERD's domain shards. It mirrors the OwnedPredicates lists
-// currently hard-coded in internal/system/factory.go so that the two
-// converge once factory.go is wired to read from here.
+// table for codeNERD's domain shards.
 //
 // Ordering matches the registration order in factory.go for readability;
 // the router does not depend on order.
@@ -57,8 +48,20 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 			OwnedPredicates: []string{"tool_capabilities", "shard_lifecycle", "shell_exec_result"},
 		},
 		{
-			Domain:          "policy",
-			OwnedPredicates: []string{"permitted", "blocked", "constitution", "commit_barrier", "dangerous_action"},
+			Domain: "policy",
+			// Keep the complete authorization envelope in one shard. Splitting
+			// these predicates prevents policy rules from joining the exact
+			// action, target, and payload submitted by the executive.
+			OwnedPredicates: []string{
+				"pending_action",
+				"permitted_action",
+				"permission_check_result",
+				"permitted",
+				"blocked",
+				"constitution",
+				"commit_barrier",
+				"dangerous_action",
+			},
 		},
 		{
 			Domain:          "campaign",

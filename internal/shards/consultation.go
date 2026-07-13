@@ -7,6 +7,7 @@ package shards
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -110,6 +111,12 @@ func (m *ConsultationManager) RequestConsultation(ctx context.Context, req Consu
 
 	// Build the consultation task prompt
 	taskPrompt := m.buildConsultationPrompt(req)
+	if m.spawner == nil {
+		m.mu.Lock()
+		delete(m.pending, req.RequestID)
+		m.mu.Unlock()
+		return nil, fmt.Errorf("consultation with %s failed: no consultation spawner configured", req.ToSpec)
+	}
 
 	// Spawn the consultation
 	startTime := time.Now()
@@ -136,11 +143,17 @@ func (m *ConsultationManager) RequestConsultation(ctx context.Context, req Consu
 
 // RequestBatchConsultation consults multiple specialists in parallel.
 func (m *ConsultationManager) RequestBatchConsultation(ctx context.Context, question, context string, specialists []string) ([]ConsultationResponse, error) {
-	var wg sync.WaitGroup
-	results := make(chan ConsultationResponse, len(specialists))
-	errors := make(chan error, len(specialists))
+	type batchResult struct {
+		index    int
+		response *ConsultationResponse
+		err      error
+	}
 
-	for _, spec := range specialists {
+	var wg sync.WaitGroup
+	results := make(chan batchResult, len(specialists))
+
+	for i, spec := range specialists {
+		index := i
 		specialist := spec
 		wg.Go(func() {
 			req := ConsultationRequest{
@@ -152,25 +165,36 @@ func (m *ConsultationManager) RequestBatchConsultation(ctx context.Context, ques
 			}
 			resp, err := m.RequestConsultation(ctx, req)
 			if err != nil {
-				errors <- err
+				results <- batchResult{index: index, err: err}
 				return
 			}
-			results <- *resp
+			results <- batchResult{index: index, response: resp}
 		})
 	}
 
 	go func() {
 		wg.Wait()
 		close(results)
-		close(errors)
 	}()
 
-	var responses []ConsultationResponse
-	for resp := range results {
-		responses = append(responses, resp)
+	ordered := make([]batchResult, len(specialists))
+	for result := range results {
+		ordered[result.index] = result
 	}
 
-	return responses, nil
+	responses := make([]ConsultationResponse, 0, len(specialists))
+	batchErrors := make([]error, 0)
+	for _, result := range ordered {
+		if result.err != nil {
+			batchErrors = append(batchErrors, result.err)
+			continue
+		}
+		if result.response != nil {
+			responses = append(responses, *result.response)
+		}
+	}
+
+	return responses, errors.Join(batchErrors...)
 }
 
 // GetStrategicAdvisorsFor returns strategic advisors that can assist a given executor.

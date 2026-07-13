@@ -112,4 +112,15 @@ func TestPendingActionPipelineProducesRoutingResult(t *testing.T) {
 	if !found {
 		t.Fatalf("routing_result not found for %s (got %d total)", actionID, len(results))
 	}
+
+	executions, err := kernel.Query("execution_result")
+	if err != nil {
+		t.Fatalf("Query(execution_result) error = %v", err)
+	}
+	for _, fact := range executions {
+		if len(fact.Args) > 0 && fmt.Sprintf("%v", fact.Args[0]) == actionID {
+			return
+		}
+	}
+	t.Fatalf("execution_result did not preserve executive action ID %q: %v", actionID, executions)
 }

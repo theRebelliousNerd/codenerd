@@ -89,7 +89,8 @@ type NorthstarHandler interface {
 
 // BackgroundObserverManager manages observer specialists running in the background.
 type BackgroundObserverManager struct {
-	mu sync.RWMutex
+	mu          sync.RWMutex
+	lifecycleMu sync.Mutex
 
 	// Active observers (observer name -> observer state)
 	observers map[string]*ObserverState
@@ -114,7 +115,8 @@ type BackgroundObserverManager struct {
 	// Context for lifecycle management
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	loopWG sync.WaitGroup
+	taskWG sync.WaitGroup
 }
 
 // ObserverState tracks the state of a background observer.
@@ -140,7 +142,6 @@ type ObserverSpawner interface {
 
 // NewBackgroundObserverManager creates a new background observer manager.
 func NewBackgroundObserverManager(spawner ObserverSpawner) *BackgroundObserverManager {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &BackgroundObserverManager{
 		observers:     make(map[string]*ObserverState),
 		eventChan:     make(chan ObserverEvent, 100),
@@ -148,40 +149,68 @@ func NewBackgroundObserverManager(spawner ObserverSpawner) *BackgroundObserverMa
 		enabled:       false,
 		checkInterval: 5 * time.Minute, // Default periodic check interval
 		spawner:       spawner,
-		ctx:           ctx,
-		cancel:        cancel,
 	}
 }
 
 // Start starts the background observer processing loop.
 func (m *BackgroundObserverManager) Start() error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	m.mu.Lock()
 	if m.enabled {
 		m.mu.Unlock()
 		return fmt.Errorf("observer manager already running")
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.ctx = ctx
+	m.cancel = cancel
 	m.enabled = true
 	m.mu.Unlock()
 
 	// Start the event processing goroutine
-	m.wg.Add(1)
-	go m.eventLoop()
+	m.loopWG.Add(1)
+	go m.eventLoop(ctx)
 
 	// Start the periodic check goroutine
-	m.wg.Add(1)
-	go m.periodicCheckLoop()
+	m.loopWG.Add(1)
+	go m.periodicCheckLoop(ctx)
 
 	return nil
 }
 
 // Stop stops the background observer processing.
 func (m *BackgroundObserverManager) Stop() {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	m.mu.Lock()
+	if !m.enabled {
+		m.mu.Unlock()
+		return
+	}
 	m.enabled = false
+	cancel := m.cancel
+	m.cancel = nil
 	m.mu.Unlock()
 
-	m.cancel()
-	m.wg.Wait()
+	if cancel != nil {
+		cancel()
+	}
+	// eventLoop is the only producer of observer tasks. Waiting for both loops
+	// first establishes that no taskWG.Add can race with taskWG.Wait.
+	m.loopWG.Wait()
+	m.taskWG.Wait()
+
+	// Events accepted by the previous run must never replay after a restart.
+	for {
+		select {
+		case <-m.eventChan:
+			continue
+		default:
+			return
+		}
+	}
 }
 
 // RegisterObserver registers an observer specialist for background monitoring.
@@ -236,8 +265,8 @@ func (m *BackgroundObserverManager) GetActiveObservers() []string {
 // SendEvent sends an event to all background observers.
 func (m *BackgroundObserverManager) SendEvent(event ObserverEvent) {
 	m.mu.RLock()
+	defer m.mu.RUnlock()
 	enabled := m.enabled
-	m.mu.RUnlock()
 
 	if !enabled {
 		return
@@ -296,29 +325,29 @@ func (m *BackgroundObserverManager) GetLastAssessment(observerName string) *Obse
 }
 
 // eventLoop processes events and dispatches to observers.
-func (m *BackgroundObserverManager) eventLoop() {
-	defer m.wg.Done()
+func (m *BackgroundObserverManager) eventLoop(ctx context.Context) {
+	defer m.loopWG.Done()
 
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			return
 		case event := <-m.eventChan:
-			m.processEvent(event)
+			m.processEvent(ctx, event)
 		}
 	}
 }
 
 // periodicCheckLoop triggers periodic alignment checks.
-func (m *BackgroundObserverManager) periodicCheckLoop() {
-	defer m.wg.Done()
+func (m *BackgroundObserverManager) periodicCheckLoop(ctx context.Context) {
+	defer m.loopWG.Done()
 
 	ticker := time.NewTicker(m.checkInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			m.SendEvent(ObserverEvent{
@@ -331,7 +360,7 @@ func (m *BackgroundObserverManager) periodicCheckLoop() {
 }
 
 // processEvent processes a single event by dispatching to relevant observers.
-func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
+func (m *BackgroundObserverManager) processEvent(runCtx context.Context, event ObserverEvent) {
 	m.mu.RLock()
 	observers := make([]*ObserverState, 0, len(m.observers))
 	for _, state := range m.observers {
@@ -344,7 +373,7 @@ func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
 	m.mu.RUnlock()
 
 	// Dispatch to each observer. Each spawned goroutine is registered
-	// with m.wg so Stop() waits for them — previously they were fire-
+	// with m.taskWG so Stop() waits for them — previously they were fire-
 	// and-forget, leaking up to 2 minutes past Stop() while still
 	// writing into observer state.
 	for _, obs := range observers {
@@ -352,10 +381,10 @@ func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
 
 		// Check for Northstar-specific handler
 		if strings.ToLower(obs.Name) == "northstar" && northstarHandler != nil {
-			m.wg.Add(1)
+			m.taskWG.Add(1)
 			go func(observerState *ObserverState) {
-				defer m.wg.Done()
-				ctx, cancel := context.WithTimeout(m.ctx, 2*time.Minute)
+				defer m.taskWG.Done()
+				ctx, cancel := context.WithTimeout(runCtx, 2*time.Minute)
 				defer cancel()
 
 				assessment, err := northstarHandler.HandleEvent(ctx, event)
@@ -379,10 +408,10 @@ func (m *BackgroundObserverManager) processEvent(event ObserverEvent) {
 		task := m.buildAssessmentTask(event, obs)
 
 		// Spawn the observer task (async)
-		m.wg.Add(1)
+		m.taskWG.Add(1)
 		go func(observerState *ObserverState, assessTask string) {
-			defer m.wg.Done()
-			ctx, cancel := context.WithTimeout(m.ctx, 2*time.Minute)
+			defer m.taskWG.Done()
+			ctx, cancel := context.WithTimeout(runCtx, 2*time.Minute)
 			defer cancel()
 
 			result, err := spawner.SpawnObserver(ctx, observerState.Name, assessTask)

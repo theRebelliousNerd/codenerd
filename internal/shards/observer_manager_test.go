@@ -68,6 +68,33 @@ func TestBackgroundObserverManager_StartStop(t *testing.T) {
 	}
 }
 
+func TestBackgroundObserverManager_RestartProcessesNewEvents(t *testing.T) {
+	spawner := &mockObserverSpawner{result: "SCORE: 85\nVISION: Aligned\nDEVIATIONS: none\nRECOMMENDATIONS: none"}
+	mgr := NewBackgroundObserverManager(spawner)
+	if err := mgr.RegisterObserver("northstar"); err != nil {
+		t.Fatalf("RegisterObserver failed: %v", err)
+	}
+
+	received := make(chan ObserverAssessment, 2)
+	mgr.AddCallback(func(assessment ObserverAssessment) { received <- assessment })
+
+	for run := 1; run <= 2; run++ {
+		if err := mgr.Start(); err != nil {
+			t.Fatalf("Start run %d failed: %v", run, err)
+		}
+		mgr.SendEvent(ObserverEvent{Type: EventTaskStarted, Target: "restart-test"})
+		select {
+		case <-received:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("run %d did not process event", run)
+		}
+		mgr.Stop()
+	}
+
+	// Stop is deliberately idempotent for deferred and multi-owner cleanup.
+	mgr.Stop()
+}
+
 func TestBackgroundObserverManager_RegisterObserver(t *testing.T) {
 	spawner := &mockObserverSpawner{}
 	mgr := NewBackgroundObserverManager(spawner)

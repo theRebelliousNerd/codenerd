@@ -2,6 +2,9 @@ package shards
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -118,6 +121,17 @@ type mockSpawner struct {
 	err      error
 }
 
+type selectiveConsultationSpawner struct {
+	failures map[string]error
+}
+
+func (s *selectiveConsultationSpawner) SpawnConsultation(_ context.Context, specialistName, _ string) (string, error) {
+	if err := s.failures[specialistName]; err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ADVICE: advice from %s\nCONFIDENCE: 0.8\n", specialistName), nil
+}
+
 func (m *mockSpawner) SpawnConsultation(ctx context.Context, specialistName, task string) (string, error) {
 	if m.err != nil {
 		return "", m.err
@@ -190,6 +204,67 @@ func TestConsultationManager_RequestBatchConsultation(t *testing.T) {
 
 	if len(responses) != len(specialists) {
 		t.Errorf("expected %d responses, got %d", len(specialists), len(responses))
+	}
+}
+
+func TestConsultationManager_RequestBatchConsultationReturnsPartialFailures(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewConsultationManager(&selectiveConsultationSpawner{
+		failures: map[string]error{"security": errors.New("offline")},
+	})
+	responses, err := mgr.RequestBatchConsultation(
+		context.Background(),
+		"How to proceed?",
+		"Context info",
+		[]string{"architect", "security", "reviewer"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "consultation with security failed: offline") {
+		t.Fatalf("error = %v, want security consultation failure", err)
+	}
+	if len(responses) != 2 {
+		t.Fatalf("responses = %d, want 2 successful responses", len(responses))
+	}
+	if responses[0].FromSpec != "architect" || responses[1].FromSpec != "reviewer" {
+		t.Fatalf("responses not in input order: %#v", responses)
+	}
+}
+
+func TestConsultationManager_RequestBatchConsultationReturnsTotalFailure(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewConsultationManager(&selectiveConsultationSpawner{
+		failures: map[string]error{
+			"architect": errors.New("offline"),
+			"security":  errors.New("rate limited"),
+		},
+	})
+	responses, err := mgr.RequestBatchConsultation(
+		context.Background(), "question", "context", []string{"architect", "security"},
+	)
+	if err == nil {
+		t.Fatal("error = nil, want joined consultation failures")
+	}
+	if len(responses) != 0 {
+		t.Fatalf("responses = %d, want none", len(responses))
+	}
+	for _, want := range []string{"consultation with architect failed: offline", "consultation with security failed: rate limited"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+func TestConsultationManager_RequestConsultationWithoutSpawner(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewConsultationManager(nil)
+	_, err := mgr.RequestConsultation(context.Background(), ConsultationRequest{ToSpec: "architect", Question: "question"})
+	if err == nil || !strings.Contains(err.Error(), "no consultation spawner configured") {
+		t.Fatalf("error = %v, want missing-spawner error", err)
+	}
+	if len(mgr.pending) != 0 {
+		t.Fatalf("pending requests leaked: %d", len(mgr.pending))
 	}
 }
 

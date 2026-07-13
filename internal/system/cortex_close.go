@@ -3,6 +3,7 @@ package system
 import (
 	"codenerd/internal/logging"
 	"codenerd/internal/perception"
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +22,12 @@ func (c *Cortex) Close() error {
 	if c == nil {
 		return nil
 	}
+	c.closeMu.Lock()
+	defer c.closeMu.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.closed = true
 
 	var errs []error
 
@@ -31,14 +38,55 @@ func (c *Cortex) Close() error {
 	c.stopMaintenanceSchedule(maintenanceStopWait)
 
 	if c.ShardManager != nil {
-		runCloseStep("ShardManager.StopAll", closeStepTimeout, func() error {
-			c.ShardManager.StopAll()
+		shardManager := c.ShardManager
+		// Stop admission before workers so the queue cannot start another shard
+		// while shutdown is draining active agents.
+		if err := runCloseStep("ShardManager.StopSpawnQueue", closeStepTimeout, func() error {
+			shardManager.StopSpawnQueue(5 * time.Second)
 			return nil
-		})
-		runCloseStep("ShardManager.StopSpawnQueue", closeStepTimeout, func() error {
-			c.ShardManager.StopSpawnQueue(5 * time.Second)
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		if err := runCloseStep("ShardManager.StopAll", closeStepTimeout, func() error {
+			shardManager.StopAll()
 			return nil
-		})
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.ShardManager = nil
+	}
+
+	if c.mcpCancel != nil {
+		c.mcpCancel()
+		c.mcpCancel = nil
+	}
+	if c.mcpBridge != nil {
+		if err := runCloseStep("MCPBridge.Close", closeStepTimeout, c.mcpBridge.Close); err != nil {
+			errs = append(errs, err)
+		}
+		c.mcpBridge = nil
+	}
+	if c.mcpDone != nil {
+		select {
+		case <-c.mcpDone:
+		case <-time.After(closeStepTimeout):
+			err := fmt.Errorf("MCP.ConnectAll timed out after %v", closeStepTimeout)
+			logging.Get(logging.CategorySession).Warn("Cortex.Close: %v; continuing shutdown", err)
+			errs = append(errs, err)
+		}
+		c.mcpDone = nil
+	}
+
+	if c.BrowserManager != nil {
+		browserManager := c.BrowserManager
+		if err := runCloseStep("BrowserManager.Shutdown", closeStepTimeout, func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), closeStepTimeout)
+			defer cancel()
+			return browserManager.Shutdown(ctx)
+		}); err != nil {
+			errs = append(errs, err)
+		}
+		c.BrowserManager = nil
 	}
 
 	if c.JITCompiler != nil {
@@ -46,6 +94,20 @@ func (c *Cortex) Close() error {
 			errs = append(errs, err)
 		}
 		c.JITCompiler = nil
+	}
+
+	if closer, ok := c.EmbeddingEngine.(interface{ Close() error }); ok {
+		if err := runCloseStep("EmbeddingEngine.Close", closeStepTimeout, closer.Close); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	c.EmbeddingEngine = nil
+
+	if c.perceptionInitialized {
+		if err := runCloseStep("ClosePerceptionLayer", closeStepTimeout, perception.ClosePerceptionLayer); err != nil {
+			errs = append(errs, err)
+		}
+		c.perceptionInitialized = false
 	}
 
 	if c.LocalDB != nil {
@@ -62,12 +124,8 @@ func (c *Cortex) Close() error {
 		c.LearningStore = nil
 	}
 
-	if err := runCloseStep("ClosePerceptionLayer", closeStepTimeout, perception.ClosePerceptionLayer); err != nil {
-		errs = append(errs, err)
-	}
-
 	// Evict from the keyed cache so a future GetOrBootCortex with the same
-	// (workspace, provider, apiKey, model) tuple boots a fresh instance
+	// (workspace, provider, apiKey, model, disabled-shard set) tuple boots a fresh instance
 	// instead of handing back this torn-down one.
 	if c.cortexKey != "" {
 		evictCortexByKey(c.cortexKey)
