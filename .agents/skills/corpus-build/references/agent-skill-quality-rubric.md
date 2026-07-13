@@ -1,13 +1,20 @@
-# Agent / Skill Quality Rubric (corpus-build)
+# Quality Rubric
 
-Score runs 1–5 per axis after Phase 7:
+Use this file to score the skill during validation.
 
-| Axis | 5 means |
-|------|---------|
-| Spec fidelity | Gate evidence maps 1:1 to IMPLEMENTED_SPEC rows |
-| Wiring honesty | Surface verdicts correct; no silent N-A |
-| Mangle safety | All new rules Decl'd, safe, stratified |
-| Go quality | Errors wrapped, race-clean, context-aware |
-| Prompt JIT | New LLM text is atoms, not monologue dumps |
-| Delegation | Orchestrator did not author subsystem code |
-| Economics | Ledger measured; no invented estimates |
+## Dimensions
+
+- Activation Precision
+- Workflow Determinism
+- Progressive Disclosure
+- Safety & Permission Boundaries
+- Human Checkpoint Policy (Tier 2 only)
+- Eval-Driven Improvement
+- Freshness & Dependency Awareness
+- Governance & Auditability
+- Long-Horizon Robustness
+
+## Pass Criteria
+
+- No dimension below 3/5
+- Average score >= 4/5

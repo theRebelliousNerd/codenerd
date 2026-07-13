@@ -1,13 +1,13 @@
 # corpus-build Journal (codeNERD)
 
-Living log of runs, SEED insights, and measured economics. Append only; never invent
-token/time estimates — record measured numbers from ledgers when available.
+Living log of runs, SEED insights, and measured economics.
+No invented time/cost estimates — measured ledger only.
 
 ## Economics table
 
 | Date | Subsystem | Run ID | WUs | Gate cycles | Notes |
 |------|-----------|--------|-----|-------------|-------|
-| — | — | — | — | — | seeded empty |
+| 2026-07-13 | (ecosystem port) | port | — | — | Full Vectryx skill tree copied + mutated |
 
 ## Seeds
 
@@ -19,4 +19,4 @@ token/time estimates — record measured numbers from ledgers when available.
 
 ## Lessons
 
-- Port baseline 2026-07-13 from Vectryx corpus-build v2 patterns; surfaces rewritten for codeNERD.
+- Full ecosystem port 2026-07-13: skills + references + scripts + hooks + command + PLAN docs + agent fleet.

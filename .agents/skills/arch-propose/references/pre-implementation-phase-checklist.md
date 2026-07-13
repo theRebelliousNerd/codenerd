@@ -1,54 +1,183 @@
-# Pre-Implementation Phase Checklist (codeNERD)
+# Pre-Implementation Phase Checklist
 
-Any unchecked box halts the run with a journal failure entry.
+Verification criteria for each phase of `/arch-propose`. The slash-command uses this
+list to gate forward progress — any unchecked box halts the run with a structured
+failure journal entry.
+
+---
 
 ## Phase 0 — North-Star Interview
 
-- [ ] `.arch-propose/north-star/<feature>.md` exists and non-empty
-- [ ] Captures: problem, placement (new vs extend), success criteria, out-of-scope, tier estimate
-- [ ] Names primary package + whether Mangle/VirtualStore/shards/prompt atoms are in scope
-- [ ] Expand mode: preserves vs supersedes called out
+- [ ] `.arch-propose/north-star/<feature>.md` exists and is non-empty
+- [ ] Captures: problem statement, subsystem placement (new vs. extends-existing), success criteria, scope out-of-scope, tier estimate (1/2/3)
+- [ ] For `--expand` mode: also captures what the user wants preserved vs. superseded
+- [ ] Contains a package-scope-naming decision (per project CLAUDE.md mandatory rule)
+
+---
 
 ## Phase 1 — Parallel Research
 
-All four dossiers >500 words:
+All 4 scout dossiers exist and have substantive content (>500 words each):
 
-- [ ] `.arch-propose/research/internal/<feature>-<date>.md` (≥3 real file:line)
-- [ ] `.arch-propose/research/literature/<feature>-<date>.md` (≥3 named sources)
-- [ ] `.arch-propose/research/convergent/<feature>-<date>.md` (≥1 extend-existing option)
-- [ ] `.arch-propose/research/divergent/<feature>-<date>.md` (≥1 cross-domain analogy with structural map)
+- [ ] `.arch-propose/research/internal/<feature>-<date>.md`
+- [ ] `.arch-propose/research/literature/<feature>-<date>.md`
+- [ ] `.arch-propose/research/convergent/<feature>-<date>.md`
+- [ ] `.arch-propose/research/divergent/<feature>-<date>.md`
+
+Quality floors:
+
+- [ ] Internal scout cites at least 3 real `file:line` references to adjacent code
+- [ ] Literature scout cites at least 3 named sources (papers, RFCs, established systems)
+- [ ] Convergent scout identifies at least 1 extend-existing-subsystem option
+- [ ] Divergent scout includes at least 1 explicit cross-domain analogy with structural mapping (not metaphor)
+
+---
 
 ## Phase 2 — Synthesis
 
-- [ ] `.arch-propose/candidates/<feature>.md` with 2–3 candidates
-- [ ] At least one absorption / extend-existing candidate when viable
-- [ ] Every candidate has codeNERD hard-gate fields (package, Mangle, VS, shards, prompts, safety, fact-flow)
-- [ ] No time/cost estimates
+- [ ] `.arch-propose/candidates/<feature>.md` exists
+- [ ] Contains 2–3 candidates (not fewer, not more unless justified)
+- [ ] At least one candidate is "extend existing subsystem X" — never reinvent if absorption is viable
+- [ ] Every candidate has a named source citation (scout dossier or literature ref)
+- [ ] Every candidate's data-model section specifies package-scope name + read-before-write (persistent store) check
+- [ ] Every candidate's integration surface lists every adjacent subsystem it will touch with `file:line` for the integration point
 
-## Phase 3 — Interrogation
+---
 
-- [ ] `.arch-propose/interrogations/<feature>.md` with ≥2 rounds
-- [ ] Fail-closed READY / NEEDS_WORK verdict line present
-- [ ] READY only if hard gates satisfied
+## Phase 3 — Socratic Interrogation
 
-## Phase 3.5 — Judge
+- [ ] `.claude/interrogations/arch-<feature>.md` exists
+- [ ] Contains at least 2 [INTERROGATOR Round N] sections
+- [ ] Selectively applies relevant dimensions from requirements-interrogator's 26-dim rubric (not all 26 — only the ones that bind for this feature)
+- [ ] Final round produces a Verdict line: READY / NEEDS_WORK / RESOLVED
+- [ ] NEEDS_WORK items are enumerated with severity (CRITICAL / IMPORTANT / CONSIDER)
 
-- [ ] `.arch-propose/decision/<feature>.md` selects winning candidate with rationale
+---
 
-## Phase 4 — Synthetic Audit
+## Phase 3.5 — Judge & Seal
 
-- [ ] `.arch-propose/audit/<feature>.code-audit.md` follows template
-- [ ] Synthetic banner present; adjacent citations real
+- [ ] `.arch-propose/decision/<feature>.md` exists
+- [ ] Names the winning candidate or explicitly records "deferred to user — AskUserQuestion invoked"
+- [ ] Includes rationale: why this candidate over the others
+- [ ] Carries forward all CRITICAL NEEDS_WORK items from Phase 3 (they must land in TODO P0)
+
+---
+
+## Phase 4 — Synthetic Audit Construction
+
+- [ ] `Docs/architecture/<feature>/.code-audit.md` exists
+- [ ] Header contains the "⚠ Synthetic audit — no source code scanned" banner
+- [ ] All 14+ template sections present (empty sections explicitly say "None — Pre-Implementation")
+- [ ] Section 15 "Candidate Provenance" links to every scout dossier, candidates file, interrogation, and decision
+- [ ] Non-zero vision-alignment scores each cite real `file:line` evidence
+
+---
+
+## Phase 4.5 — Corpus Diff (--expand mode only)
+
+Skip if pure pre-implementation (no existing `Docs/architecture/<feature>/`).
+
+- [ ] `.arch-propose/diff/<feature>.md` exists
+- [ ] Every existing file in the target directory is classified: keep / supplement / supersede
+- [ ] `supersede` files are copied to `.arch-propose/backups/<feature>/<date>/` before overwrite
+- [ ] `keep` files are preserved byte-identical
+- [ ] `supplement` files are left in place; new content is written to separate files or appended with clear markers
+
+---
 
 ## Phase 5 — Corpus Generation
 
-- [ ] Foundation 00–04 + IMPLEMENTED_SPEC written under `Docs/architecture/<feature>/`
-- [ ] TESTING-STRATEGY.md + ECOSYSTEM-IMPACT.md present (tier ≥2)
-- [ ] Pre-implementation banners present
-- [ ] No invented current-state behavior
+After arch-writer completes:
 
-## Phase 6 — Governance
+- [ ] `00-ALIGNMENT-VISION-REVIEW.md` exists, scores default to 0/5 unless evidence cited
+- [ ] `01-VISION-<FEATURE>.md` exists with target-state vision and ASCII diagrams
+- [ ] `02-CURRENT-STATE-<FEATURE>.md` Section 4 contains the exact "None. No code has been written" template text
+- [ ] `03-GAP-ANALYSIS-<FEATURE>.md` uses phase-dependency framing, not calendar
+- [ ] `04-ARCHITECTURAL-PRINCIPLES-<FEATURE>.md` has 5–8 principles each citing rationale
+- [ ] `IMPLEMENTED_SPEC.md` header banner reads "⚠ Pre-Implementation — this spec describes target state; no code exists yet. Generated by /arch-propose."
+- [ ] `IMPLEMENTED_SPEC.md` §3 every row at 0%
+- [ ] Deep-dives 05-NN generated per tier rules
 
-- [ ] README, TODO, OPEN-QUESTIONS, _progress
-- [ ] Docs/architecture/INDEX.md Proposed entry
-- [ ] Journal + SEED: lines written
+After cross-cutting-analyst completes (writes 6 of 9):
+
+- [ ] `{NN}-CLI-TUI-SURFACE.md`
+- [ ] `{NN}-DEPENDENCY-MAP.md`
+- [ ] `{NN}-CONSTITUTIONAL-SAFETY.md`
+- [ ] `{NN}-TESTING-ALIGNMENT.md`
+- [ ] `{NN}-CROSS-SYSTEM-WIRING-JOURNAL.md`
+- [ ] `{NN}-TELEMETRY-OBSERVABILITY.md`
+
+The slash command then fills the remaining 4 inline (the cross-cutting-analyst agent
+is out of date relative to the template):
+
+- [ ] `{NN}-KERNEL-VIRTUALSTORE-SURFACE.md`
+- [ ] `{NN}-CAMPAIGN-CONTROLLABILITY.md`
+- [ ] `{NN}-TESTING-REMEDIATION-SURFACE.md`
+- [ ] `{NN}-CAMPAIGN_NARRATIVE-INTEGRATION.md` — 10th cross-cutting pointer doc; references `Docs/architecture/demo/campaign narrative/07-WEAVE-STANDARD.md`; carries the PROPOSED `campaign narrative_beat` from the winning candidate, a `planned` coverage-row draft, and the named follow-up owner (no fabricated coverage above `planned`, no duplicated story prose)
+
+All 10 cross-cutting docs must exist with non-empty content (CAMPAIGN_NARRATIVE-INTEGRATION is the 10th). Any missing → halt.
+
+---
+
+## Phase 6 — Governance + Index
+
+Inside `Docs/architecture/<feature>/`:
+
+- [ ] `TODO.md` exists; every Phase 3 CRITICAL NEEDS_WORK item appears as a T-NNN P0 line
+- [ ] `OPEN-QUESTIONS.md` exists; every unresolved interrogation thread becomes an OQ-N with options table + recommendation
+- [ ] `CLAUDE.md` exists; lists planned source location, adjacent subsystems, agent-guidance for working with this corpus
+- [ ] `README.md` exists; human-oriented overview with reading order
+- [ ] `_progress.md` exists; all doc-generation checkboxes are checked, all implementation checkboxes (linked to future code) are UNCHECKED
+- [ ] For Tier 1 candidate: `adr/` subdirectory exists with at least 1 ADR (the candidate-selection decision from Phase 3.5)
+
+In `Docs/architecture/Docs/architecture/INDEX.md`:
+
+- [ ] A "Proposed Subsystems (Pre-Implementation)" section exists (create if absent)
+- [ ] The feature appears there with doc count, generation date, target tier, one-line summary
+- [ ] The feature does NOT appear in Tier 1/2/3 tables
+- [ ] If `--expand` mode moved the feature out of "Incomplete Directories", that row is removed
+
+In `Docs/architecture/demo/campaign narrative/06-FEATURE-COVERAGE.csv` (the single campaign narrative coverage ledger — Phase 6h):
+
+- [ ] One or more `planned` `SWC-NNN` row(s) appended for this feature (read-before-write (persistent store): header confirmed, feature not already present)
+- [ ] `feature_id` continues the sequence; `coverage_checkbox` is `[ ]`; `coverage_status` is `planned`; the scene/beat matches the winning candidate's `campaign narrative_beat`
+- [ ] The appended `feature_id`(s) agree with the CAMPAIGN_NARRATIVE-INTEGRATION pointer doc's draft coverage row
+
+---
+
+## Phase 7 — Journal
+
+- [ ] `.arch-propose/journal/<date>_<feature>.md` exists
+- [ ] Contains links to every scratch artifact (north-star, 4 scout dossiers, candidates, interrogation, decision, diff if expand, final corpus path)
+- [ ] Contains at least 1 `SEED:...` cross-pollination marker
+- [ ] Compliance check results (Rules 1–8 of pre-implementation-markers.md, including the Rule 8 campaign narrative-weave grep) are recorded
+- [ ] The `SWC-NNN` coverage row(s) appended to `06-FEATURE-COVERAGE.csv` (Phase 6h) are recorded
+- [ ] Journal includes the final Verdict: COMPLETE / PARTIAL / FAILED with reasons
+
+---
+
+## Final Compliance Gate
+
+Run these greps after the full pipeline:
+
+```bash
+# Rule 1: §3 all-zero
+grep -c "100%" Docs/architecture/<feature>/IMPLEMENTED_SPEC.md   # expect 0
+grep -c "Complete" Docs/architecture/<feature>/IMPLEMENTED_SPEC.md # expect 0
+
+# Rule 2: banner present
+grep -l "⚠ Pre-Implementation" Docs/architecture/<feature>/IMPLEMENTED_SPEC.md  # must match
+
+# Rule 3: 02-CURRENT-STATE Section 4 template text
+grep "None. No code has been written" Docs/architecture/<feature>/02-CURRENT-STATE-*.md  # must match
+
+# Rule 7: Docs/architecture/INDEX Proposed section
+grep -A2 "Proposed Subsystems" Docs/architecture/Docs/architecture/INDEX.md | grep "<feature>"  # must match
+
+# Rule 8: campaign narrative weave (fail closed) — the 10th cross-cutting doc exists and points at the binding contract
+ls Docs/architecture/<feature>/*-CAMPAIGN_NARRATIVE-INTEGRATION.md   # must match exactly one file
+grep -l "07-WEAVE-STANDARD.md" Docs/architecture/<feature>/*-CAMPAIGN_NARRATIVE-INTEGRATION.md  # must match
+grep -F "<feature>" Docs/architecture/demo/campaign narrative/06-FEATURE-COVERAGE.csv  # planned coverage row must exist
+```
+
+Any failure → halt → record in journal → surface to user.

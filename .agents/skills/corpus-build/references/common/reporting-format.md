@@ -34,7 +34,7 @@ breaks the pipeline.
 
 - Record what you verified, not what you intended. "Wrote the handler" is
   not evidence; "wrote the handler, `go vet` clean, `go test
-  ./internal/api/rest/handlers/... -run TestFoo` PASS" is.
+  ./cmd/nerd/... -run TestFoo` PASS" is.
 - Never claim a capability is wired end-to-end unless you can point to the
   concrete file:line for each hop (route -> handler -> bind-struct ->
   OpenAPI contract, or predicate -> dispatch -> Mangle rule, etc.).

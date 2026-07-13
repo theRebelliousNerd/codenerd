@@ -1,19 +1,15 @@
 # codeNERD Vision Summary (corpus-build inject)
 
-Regenerate if root `AGENTS.md` / north-star material drifts. Last ported: 2026-07-13.
+Regenerate if root AGENTS.md drifts. Ported ecosystem mutation date in skill metadata.
 
 ## North Star
 
-codeNERD is a high-assurance, logic-first CLI coding agent. The model is the creative
-center; the Mangle kernel is the executive. Logic determines reality; the model describes it.
+codeNERD is a high-assurance, logic-first CLI coding agent.
+- **LLM = creative center** (problem solving, synthesis, insight)
+- **Mangle kernel = executive** (planning, memory, orchestration, safety, policy)
+- **Transduction**: NL/code ↔ formal atoms the kernel can reason over
 
-### Inversion of Control
-
-- **LLM as creative center**: problem solving, synthesis, goal shaping, insight
-- **Logic as executive**: planning, memory, orchestration, safety, policy
-- **Transduction**: NL and code → formal atoms the kernel can reason over
-
-## Runtime Spine
+## Runtime spine
 
 ```
 user input → perception → user_intent → kernel derives next_action
@@ -21,40 +17,29 @@ user input → perception → user_intent → kernel derives next_action
 ```
 
 OODA: Observe → Orient → Decide → Act.
-
 Constitutional safety: every action must derive `permitted(...)`; default deny.
+JIT is the standard for new LLM-facing behavior (prompt atoms under `internal/prompt/atoms/`).
 
-## Repo Contracts
-
-- JIT is standard for new LLM-facing behavior
-- Prompt atoms under `internal/prompt/atoms/<category>/` (or `.nerd/agents/`)
-- Audit wiring before deleting "unused" code
-- Conventional commits; push regularly when authorized
-
-## Key Live Locations
+## Key live locations
 
 | Area | Location |
 |------|----------|
-| Kernel | internal/core/ |
-| Policy | internal/core/defaults/policy/ |
-| Schemas | internal/core/defaults/schemas.mg |
-| Prompt compiler | internal/prompt/compiler.go |
-| Prompt assembly | internal/articulation/prompt_assembler.go |
-| Session | internal/session/executor.go |
-| Shards | internal/core/shards/, internal/shards/ |
-| VirtualStore | internal/core/virtual_store.go |
+| Kernel | `internal/core/` |
+| Policy | `internal/core/defaults/policy/` |
+| Schemas | `internal/core/defaults/schemas.mg` |
+| Mangle engine | `internal/mangle/` |
+| Perception | `internal/perception/` |
+| Articulation | `internal/articulation/` |
+| Prompt JIT | `internal/prompt/` |
+| Session | `internal/session/` |
+| Shards | `internal/shards/` |
+| Campaign | `internal/campaign/` |
+| Store | `internal/store/` |
+| Tools / MCP | `internal/tools/`, `internal/mcp/` |
+| CLI | `cmd/nerd/` |
+| Architecture corpora | `Docs/architecture/` |
 
-## Mangle Guardrails
-
-- `Decl` before use
-- Variables Uppercase; atoms `/lowercase`
-- Negation only after positive binding
-- Aggregation `|> do ... let ...`
-- No fuzzy NL matching in Mangle — embeddings first, then structured facts
-
-## Build / Test
-
-PowerShell (sqlite-vec):
+## Build / test
 
 ```powershell
 $env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
@@ -62,8 +47,7 @@ go build -o nerd.exe ./cmd/nerd
 go test ./...
 ```
 
-## What corpus-build Must Preserve
+## What corpus-build must preserve
 
-When realizing a feature, implementations must strengthen — never weaken — the
-creative/executive split. Prefer Mangle for deduction and policy; Go for effectful
-orchestration; prompt atoms for LLM-facing text; VirtualStore for external effects.
+Strengthen the creative/executive split. Mangle for deduction/policy; Go for effects;
+prompt atoms for LLM text; VirtualStore for external effects; audit wiring before deletes.

@@ -40,6 +40,10 @@
 .claude/*
 !.claude/agents/
 !.claude/agents/**
+!.claude/commands/
+!.claude/commands/**
+!.claude/hooks/
+!.claude/hooks/**
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/codenerd-builder/
@@ -71,6 +75,10 @@
 !.grok/roles/**
 !.grok/skills/
 !.grok/skills/**
+!.grok/commands/
+!.grok/commands/**
+!.grok/hooks/
+!.grok/hooks/**
 
 # OS noise
 Thumbs.db

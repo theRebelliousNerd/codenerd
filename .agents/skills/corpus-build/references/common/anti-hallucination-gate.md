@@ -1,7 +1,7 @@
 # Anti-Hallucination Gate
 
 Architecture docs and even `IMPLEMENTED_SPEC.md` can drift from code reality
-(see `docs/architecture/CLAUDE.md`'s decode matrix: "Yes in code / No in
+(see `Docs/architecture/CLAUDE.md`'s decode matrix: "Yes in code / No in
 IMPLEMENTED_SPEC" is a real, common state, not an edge case). A spec-driven
 fleet that trusts prose over the compiler produces code that references
 types, methods, predicates, and endpoints that do not exist. This gate is
@@ -20,12 +20,12 @@ actual source first:
    until the grep confirms the signature.
 2. **Predicates** (Mangle `.mg` rules): confirm the predicate name and arity
    exist in the loaded ruleset — never author a call to a predicate you
-   have not located in `internal/deductive/` or the subsystem's `.mg`
+   have not located in `internal/mangle/` or the subsystem's `.mg`
    files.
 3. **Endpoints / routes**: confirm via the live route snapshot or
-   `internal/api/rest/routes_*.go`, not via an aspirational
-   `NN-ENGINE-INTEGRATION-SURFACE.md` doc — those describe target state,
-   not shipped surface (see `docs/architecture/CLAUDE.md` two-layer model).
+   `cmd/nerd/routes_*.go`, not via an aspirational
+   `NN-KERNEL-VIRTUALSTORE-SURFACE.md` doc — those describe target state,
+   not shipped surface (see `Docs/architecture/CLAUDE.md` two-layer model).
 4. **Peer output**: another agent's completion report is not ground truth.
    If a prior work unit claims "added `Foo.Bar()`", grep for `Foo.Bar` in
    the actual diff/file before building on it.

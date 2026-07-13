@@ -5,7 +5,7 @@ surface) files produced by the corpus-build fleet carry a machine-checkable
 pointer back to the architecture doc section that justifies them:
 
 ```go
-// SPEC: docs/architecture/causal/05-IDENTIFICATION-STRATEGIES.md#adjustment-set-recommendation
+// SPEC: Docs/architecture/causal/05-IDENTIFICATION-STRATEGIES.md#adjustment-set-recommendation
 func RecommendAdjustmentSet(...) (...) {
 ```
 
@@ -16,13 +16,13 @@ func RecommendAdjustmentSet(...) (...) {
   the described surface. Do not attribute every line — attribute the
   entry point a reader would look for first.
 - `<doc>` is the repo-relative path to the owning doc, e.g.
-  `docs/architecture/wormhole/05-08-TRIFECTA-SCORING.md`.
+  `Docs/architecture/attention-routing/05-08-TRIFECTA-SCORING.md`.
 - `#<section>` is a lowercase, hyphenated anchor matching the doc's heading
   (mirrors GitHub-flavored anchor generation) — enough to jump straight to
   the relevant paragraph, not just the file.
-- If a symbol implements a `codeNERD_FEATURE`-tagged surface, prefer citing
+- If a symbol implements a `NERD_FEATURE`-tagged surface, prefer citing
   the tag's owner doc + section over a paraphrase; cross-check the id
-  against `docs/architecture/roadmap/33_corpus_context_index.json`
+  against `Docs/architecture/roadmap/33_corpus_context_index.json`
   (`features.<id>.owner_doc`) when available so the attribution and the
   tag index agree.
 - Multiple spec sections implemented by one symbol: stack multiple

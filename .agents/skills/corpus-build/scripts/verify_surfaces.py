@@ -122,13 +122,13 @@ def discover_protocol_surfaces(root: Path, subsystem: str) -> list:
     """Category B: check protocol directories."""
     surfaces = []
     protocols = [
-        ("B1", "internal/api/rest/", "REST API"),
-        ("B2", "internal/api/middleware/", "REST middleware"),
-        ("B3", "internal/api/graphql/", "GraphQL"),
-        ("B4", "internal/api/grpc/", "gRPC"),
-        ("B5", "internal/api/realtime/", "WebSocket"),
-        ("B6", "internal/protocols/mcp/", "MCP protocol"),
-        ("B7", "internal/protocols/a2a/", "A2A protocol"),
+        ("B1", "cmd/nerd/", "REST API"),
+        ("B2", "cmd/nerd/middleware/", "REST middleware"),
+        ("B3", "cmd/nerd/graphql/", "GraphQL"),
+        ("B4", "cmd/nerd/grpc/", "gRPC"),
+        ("B5", "cmd/nerd/realtime/", "WebSocket"),
+        ("B6", "internal/mcp/", "MCP protocol"),
+        ("B7", "internal/mcp/", "A2A protocol"),
         ("B8", "internal/adktools/", "ADK tools"),
     ]
     for sid, path, name in protocols:
@@ -157,10 +157,10 @@ def discover_codegen_surfaces(root: Path) -> list:
     checks = [
         ("C1", "docs/api/openapi.v1.json", "OpenAPI spec"),
         ("C2", "web/dashboard/src/services/generated/",
-         "Orval API client"),
+         "API-client codegen API client"),
         ("C3", "web/dashboard/src/services/generated/websockets.ts",
          "WebSocket TS types"),
-        ("C4", "proto/", "Protobuf definitions"),
+        ("C4", "MCP/tool schemas", "Protobuf definitions"),
     ]
     for sid, path, name in checks:
         full = root / path
@@ -172,12 +172,12 @@ def discover_codegen_surfaces(root: Path) -> list:
 
 
 def discover_client_surfaces(root: Path, subsystem: str) -> list:
-    """Category D: check pkg/ client libraries."""
+    """Category D: check internal/ client libraries."""
     surfaces = []
     checks = [
-        ("D1", "pkg/client/go/", "Go client"),
-        ("D2", "pkg/cli/", "CLI definitions"),
-        ("D3", "pkg/sdk/", "SDK types"),
+        ("D1", "internal/perception/go/", "Go client"),
+        ("D2", "cmd/nerd/", "CLI definitions"),
+        ("D3", "internal/sdk/", "SDK types"),
     ]
     for sid, path, name in checks:
         full = root / path
@@ -198,9 +198,9 @@ def discover_binary_surfaces(root: Path, subsystem: str) -> list:
     """Category E: check cmd/ binaries."""
     surfaces = []
     checks = [
-        ("E1", "cmd/vectryx/", "Main server"),
-        ("E3", "cmd/vectryx-cli/", "CLI tool"),
-        ("E4", "cmd/vectryx-seed/", "Seed tool"),
+        ("E1", "cmd/codenerd/", "Main server"),
+        ("E3", "cmd/nerd/", "CLI tool"),
+        ("E4", "cmd/codenerd-seed/", "Seed tool"),
     ]
     for sid, path, name in checks:
         full = root / path
