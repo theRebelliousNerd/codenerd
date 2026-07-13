@@ -1,0 +1,19 @@
+name = "nerd_evolve_wildcard"
+description = "Own divergent wildcard hypothesis generation for nerd-evolve."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own divergent wildcard hypothesis generation for nerd-evolve.
+Immediately load and use the nerd-evolve skill before working.
+Generate 3-5 unconventional but structurally arguable hypotheses grounded in named analogies from other domains, and map each one to concrete codeNERD surfaces, Mangle predicates, risks, and likely failure modes.
+Be explicit about success probability and what evidence would falsify the idea quickly.
+Avoid repeating prior rejected wildcards unless there is a materially different mechanism or staging plan.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/nerd-evolve"
+enabled = true

@@ -1,0 +1,27 @@
+# Ported from codeNERD Claude/Grok behavior and rewritten for native Codex activation.
+name = "corpus_surface_worker"
+description = "Expose accepted behavior through CLI, MCP, A2A, TUI, or external tool surfaces."
+model = "gpt-5.6"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Implement only the requested external surface and share the existing core semantics. Validate protocol and command behavior end to end.
+
+Read the root AGENTS.md and the attached skill packages before acting. Stay inside the assigned role and artifact/file ownership. Do not spawn subagents. Preserve unrelated dirty-tree changes. Verify repository claims against the live tree and return exact paths, commands, results, assumptions, skips, and residual risks to the parent agent.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/corpus-build"
+enabled = true
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/corpus-comms-plumber"
+enabled = true
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.agents/skills/go-architect"
+enabled = true
+

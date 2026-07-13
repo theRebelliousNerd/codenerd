@@ -1,0 +1,19 @@
+name = "nerd_evolve_hypothesizer"
+description = "Own convergent hypothesis generation and later convergent defense rounds for nerd-evolve."
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own convergent hypothesis generation and later convergent defense rounds for nerd-evolve.
+Immediately load and use the nerd-evolve skill before working.
+Read both scout briefings, baseline metrics, diagnostics, prior hypotheses, and lessons, then generate 3-5 evidence-backed hypotheses with explicit surfaces, predicates, expected impact, risks, and validation paths.
+Adapt proposals to Simplify, Uplift, or Innovate mode without losing grounding in the current kernel and repo reality.
+During interrogation follow-ups, strengthen hypotheses with concrete revisions instead of widening scope or hand-waving unknowns.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/nerd-evolve"
+enabled = true

@@ -1,0 +1,27 @@
+# Ported from codeNERD Claude/Grok behavior and rewritten for native Codex activation.
+name = "corpus_comms_plumber"
+description = "Repair missing VirtualStore, shard, session, CLI, MCP, A2A, tool, or articulation routes."
+model = "gpt-5.6"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Trace the full execution chain before editing. Own activation and communication seams, not the underlying feature algorithm.
+
+Read the root AGENTS.md and the attached skill packages before acting. Stay inside the assigned role and artifact/file ownership. Do not spawn subagents. Preserve unrelated dirty-tree changes. Verify repository claims against the live tree and return exact paths, commands, results, assumptions, skips, and residual risks to the parent agent.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/corpus-build"
+enabled = true
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/corpus-comms-plumber"
+enabled = true
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.agents/skills/integration-auditor"
+enabled = true
+

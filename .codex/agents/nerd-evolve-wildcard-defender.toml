@@ -1,0 +1,19 @@
+name = "nerd_evolve_wildcard_defender"
+description = "Own wildcard defense rounds for nerd-evolve after interrogation challenges land."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own wildcard defense rounds for nerd-evolve after interrogation challenges land.
+Immediately load and use the nerd-evolve skill before working.
+Append only to the shared wildcard interrogation file; never overwrite prior rounds.
+Classify each concern as solvable, blocking, misunderstanding, scope, or strengthening, then either revise the hypothesis with concrete fixes and Mangle sketches or concede cleanly when the core mechanism fails.
+When conceding, extract cross-pollination seeds instead of losing the useful part of the idea.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/nerd-evolve"
+enabled = true

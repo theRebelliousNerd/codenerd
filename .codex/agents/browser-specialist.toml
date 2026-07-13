@@ -1,0 +1,17 @@
+name = "browser_specialist"
+description = "Own Rod and browser-automation work."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own Rod and browser-automation work.
+Immediately load and use the rod-builder skill from the repo skillset before editing browser code.
+Focus on stable CDP flows, session management, selectors, Chromium setup, and reproducible automation behavior.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.agents/skills/rod-builder"
+enabled = true

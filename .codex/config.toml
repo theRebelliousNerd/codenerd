@@ -1,0 +1,277 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+project_root_markers = [".git", "go.mod", "AGENTS.md"]
+project_doc_max_bytes = 262144
+
+developer_instructions = """
+codeNERD is a logic-first Go and Mangle codebase.
+Prefer narrow, verifiable changes and stay alert for wiring gaps before calling anything unused or dead.
+For new LLM systems, the standard is JIT prompt assembly with prompt atoms, piggybacking, and control-packet aware behavior.
+Prefer the repo's auto-discovered .agents/skills when the task matches one of them.
+Route to the narrowest specialist that clearly owns the work.
+Prefer read-only specialists for exploration, review, external docs, wiring audits, and log forensics.
+Use worker only as a fallback for small mixed edits when no stronger specialist clearly fits.
+"""
+
+[windows]
+sandbox = "elevated"
+
+[features]
+multi_agent = true
+hooks = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 2700
+
+[agents.explorer]
+description = "Read-only first-pass codebase tracer. Use for finding files, symbols, execution paths, ownership, and impact before any patch, review, or audit."
+config_file = "agents/explorer.toml"
+
+[agents.worker]
+description = "Fallback implementation agent for small mixed-surface edits when no stronger specialist clearly fits. Do not use for kernel architecture, Mangle-only, prompt-only, review-only, docs-only, or test-only work."
+config_file = "agents/worker.toml"
+
+[agents.kernel_builder]
+description = "Core architecture implementer for internal/core, internal/prompt, shard lifecycle, memory tiers, orchestration, and system wiring across packages."
+config_file = "agents/kernel-builder.toml"
+
+[agents.go_implementer]
+description = "Go code implementer for normal production patches, refactors, error handling, concurrency fixes, and tests when the work is primarily Go rather than Mangle, prompt architecture, or system orchestration."
+config_file = "agents/go-implementer.toml"
+
+[agents.reviewer]
+description = "Read-only patch reviewer for correctness, regressions, security, and missing tests after a change exists. Not the primary agent for tracing lifecycle wiring."
+config_file = "agents/reviewer.toml"
+
+[agents.docs_researcher]
+description = "Read-only external-docs verifier for Codex, OpenAI, Mangle, Go libraries, and framework APIs. Use for source-backed behavior checks, not repo documentation writing or ingestion code."
+config_file = "agents/docs-researcher.toml"
+
+[agents.integration_auditor]
+description = "Read-only wiring auditor for registrations, lifecycle hooks, routing, prompts, persistence, and missing execution links across the system."
+config_file = "agents/integration-auditor.toml"
+
+[agents.log_investigator]
+description = "Read-only log forensics specialist for runtime failures, shard traces, log correlation, and performance signatures after something has already run."
+config_file = "agents/log-investigator.toml"
+
+[agents.mangle_specialist]
+description = "Mangle specialist for .mg and .gl files, schemas, policy rules, recursion, stratification, safety, and logic-derived behavior."
+config_file = "agents/mangle-specialist.toml"
+
+[agents.mangle_logic_architect]
+description = "Deep-design Mangle specialist for predicate design, aggregation, recursion, stratification, and logic debugging when the task needs more than routine Mangle edits."
+config_file = "agents/mangle-logic-architect.toml"
+
+[agents.prompt_architect]
+description = "Prompt-system specialist for JIT prompt assembly, prompt atoms, piggybacking, context injection, agent instructions, and LLM behavior shaping."
+config_file = "agents/prompt-architect.toml"
+
+[agents.research_builder]
+description = "Knowledge-ingestion implementer for llms.txt, Context7-style retrieval, specialist hydration, knowledge atom extraction, and persistent memory plumbing."
+config_file = "agents/research-builder.toml"
+
+[agents.gemini_specialist]
+description = "Gemini-specific implementer for thinking mode, grounding tools, thought signatures, document flows, and Google-model integration details."
+config_file = "agents/gemini-specialist.toml"
+
+[agents.cli_engine_specialist]
+description = "CLI engine implementer for Claude Code CLI and Codex CLI backends, subprocess streaming, auth/config flow, and engine selection."
+config_file = "agents/cli-engine-specialist.toml"
+
+[agents.tui_specialist]
+description = "Terminal UI implementer for Bubble Tea, Bubbles, Lipgloss, terminal layout, interaction flows, and TUI stability."
+config_file = "agents/tui-specialist.toml"
+
+[agents.browser_specialist]
+description = "Rod and Chromium automation implementer for browser control, CDP flows, scraping, screenshots, session management, and E2E probes."
+config_file = "agents/browser-specialist.toml"
+
+[agents.stress_tester]
+description = "Validation runner for go test, go build, campaigns, stress workflows, and failure reproduction. Use when the main need is to execute and observe behavior."
+config_file = "agents/stress-tester.toml"
+
+[agents.spec_sprinter]
+description = "Repo documentation writer for subsystem specs, implementation notes, and grounded architectural writeups based on source code."
+config_file = "agents/spec-sprinter.toml"
+
+[agents.skill_smith]
+description = "Skill authoring implementer for creating, refining, packaging, and validating in-house Codex skills and their assets."
+config_file = "agents/skill-smith.toml"
+
+[agents.nerd_orchestrator]
+description = "Multi-phase codeNERD operator for CLI workflows, campaign-style tasks, architecture navigation, and coordinating several specialists. Avoid for routine single-surface edits."
+config_file = "agents/nerd-orchestrator.toml"
+
+[agents.aegisdb_test_architect]
+description = "AegisDB-specific test specialist for unit, integration, fuzz, race, benchmark, and protocol-conformance coverage when that subsystem is explicitly in scope."
+config_file = "agents/aegisdb-test-architect.toml"
+
+[agents.nerd_evolve_assembler]
+description = "Context assembler for nerd-evolve that turns code, metrics, diagnostics, and prior hypotheses into convergent and wildcard interrogation seeds."
+config_file = "agents/nerd-evolve-assembler.toml"
+
+[agents.nerd_evolve_convergent_interrogator]
+description = "Convergent nerd-evolve interrogator that stress-tests evidence-backed hypotheses across kernel, runtime, prompt, token, safety, and integration dimensions."
+config_file = "agents/nerd-evolve-convergent-interrogator.toml"
+
+[agents.nerd_evolve_external_scout]
+description = "External research scout for nerd-evolve that finds state-of-the-art techniques and maps them onto codeNERD's logic-first architecture."
+config_file = "agents/nerd-evolve-external-scout.toml"
+
+[agents.nerd_evolve_hypothesizer]
+description = "Convergent hypothesis generator for nerd-evolve that turns scout evidence and diagnostics into grounded candidate improvements."
+config_file = "agents/nerd-evolve-hypothesizer.toml"
+
+[agents.nerd_evolve_internal_scout]
+description = "Internal surfaces scout for nerd-evolve that traces code, Mangle fact flow, prompt atoms, and wiring gaps to find grounded optimization opportunities."
+config_file = "agents/nerd-evolve-internal-scout.toml"
+
+[agents.nerd_evolve_judge]
+description = "Selection judge for nerd-evolve that scores surviving hypotheses and picks a diverse, implementation-worthy portfolio."
+config_file = "agents/nerd-evolve-judge.toml"
+
+[agents.nerd_evolve_mangle_diagnostician]
+description = "Mangle kernel diagnostician for nerd-evolve that measures derivation health, rule coverage, policy completeness, and prompt-atom usage."
+config_file = "agents/nerd-evolve-mangle-diagnostician.toml"
+
+[agents.nerd_evolve_wildcard]
+description = "Wildcard hypothesis generator for nerd-evolve that proposes high-variance, cross-domain ideas with explicit mapping back to codeNERD surfaces."
+config_file = "agents/nerd-evolve-wildcard.toml"
+
+[agents.nerd_evolve_wildcard_defender]
+description = "Wildcard defense specialist for nerd-evolve that strengthens viable ideas, concedes dead ones honestly, and extracts cross-pollination seeds."
+config_file = "agents/nerd-evolve-wildcard-defender.toml"
+
+[agents.nerd_evolve_wildcard_interrogator]
+description = "Wildcard interrogator for nerd-evolve that probes analogies, implementation viability, tests, and Mangle expressibility."
+config_file = "agents/nerd-evolve-wildcard-interrogator.toml"
+
+[agents.nerd_evolve_worker]
+description = "Isolated-worktree implementation worker for nerd-evolve that applies one approved hypothesis under strict EVOLVE-marker and validation rules."
+config_file = "agents/nerd-evolve-worker.toml"
+
+[agents.monitor]
+description = "Low-noise watcher for polling long-running tests, builds, campaigns, and logs without starting new analysis or implementation."
+config_file = "agents/monitor.toml"
+
+[agents.corpus_reader]
+description = "Read the architecture corpus and live tree to produce a requirement manifest and reconciliation matrix."
+config_file = "agents/corpus-reader.toml"
+
+[agents.corpus_judge]
+description = "Classify audited corpus gaps as already real, build, evolve, pivot, or blocked by spec."
+config_file = "agents/corpus-judge.toml"
+
+[agents.corpus_builder]
+description = "Implement one bounded corpus-build work packet when no narrower implementation lane owns it."
+config_file = "agents/corpus-builder.toml"
+
+[agents.corpus_critic]
+description = "Read-only adversarial reviewer for a corpus-build wave."
+config_file = "agents/corpus-critic.toml"
+
+[agents.corpus_comms_plumber]
+description = "Repair missing VirtualStore, shard, session, CLI, MCP, A2A, tool, or articulation routes."
+config_file = "agents/corpus-comms-plumber.toml"
+
+[agents.corpus_defense_auditor]
+description = "Audit constitutional permissions, action validation, trust boundaries, and failure visibility."
+config_file = "agents/corpus-defense-auditor.toml"
+
+[agents.corpus_consumables_keeper]
+description = "Synchronize prompt atoms, embedded Mangle corpora, generated assets, skill mirrors, and registries."
+config_file = "agents/corpus-consumables-keeper.toml"
+
+[agents.corpus_wiring_auditor]
+description = "Read-only end-to-end wiring auditor for corpus-build results."
+config_file = "agents/corpus-wiring-auditor.toml"
+
+[agents.corpus_doc_auditor]
+description = "Reconcile Docs/architecture status from verified implementation and test evidence."
+config_file = "agents/corpus-doc-auditor.toml"
+
+[agents.corpus_jules_dispatcher]
+description = "Package exhausted work-unit failures for codeNERD's Jules remediation workflow."
+config_file = "agents/corpus-jules-dispatcher.toml"
+
+[agents.corpus_feature_tagger]
+description = "Normalize verified feature metadata for one architecture corpus."
+config_file = "agents/corpus-feature-tagger.toml"
+
+[agents.corpus_packetizer]
+description = "Turn accepted gaps into bounded work packets and an acyclic dependency DAG."
+config_file = "agents/corpus-packetizer.toml"
+
+[agents.corpus_foundation_worker]
+description = "Implement deterministic types, configuration, schemas, and local scaffolding packets."
+config_file = "agents/corpus-foundation-worker.toml"
+
+[agents.corpus_wiring_worker]
+description = "Implement already-specified registrations and cross-package seams."
+config_file = "agents/corpus-wiring-worker.toml"
+
+[agents.corpus_integration_worker]
+description = "Resolve judgment-heavy multi-package runtime integration packets."
+config_file = "agents/corpus-integration-worker.toml"
+
+[agents.corpus_surface_worker]
+description = "Expose accepted behavior through CLI, MCP, A2A, TUI, or external tool surfaces."
+config_file = "agents/corpus-surface-worker.toml"
+
+[agents.corpus_governance_reconciler]
+description = "Close corpus TODO, open-question, index, progress, and ledger state after verified delivery."
+config_file = "agents/corpus-governance-reconciler.toml"
+
+[agents.arch_propose_scout_internal]
+description = "Map live codeNERD mechanisms, reuse opportunities, dormant wiring, and adjacent corpora."
+config_file = "agents/arch-propose-scout-internal.toml"
+
+[agents.arch_propose_scout_literature]
+description = "Research primary papers, standards, official docs, and comparable systems for an architecture proposal."
+config_file = "agents/arch-propose-scout-literature.toml"
+
+[agents.arch_propose_scout_convergent]
+description = "Find the smallest design that extends existing codeNERD architecture."
+config_file = "agents/arch-propose-scout-convergent.toml"
+
+[agents.arch_propose_scout_divergent]
+description = "Generate bounded cross-domain architecture alternatives and one viable wildcard."
+config_file = "agents/arch-propose-scout-divergent.toml"
+
+[agents.arch_propose_synthesizer]
+description = "Synthesize scout dossiers into ranked, fully specified architecture candidates."
+config_file = "agents/arch-propose-synthesizer.toml"
+
+[agents.requirements_interrogator]
+description = "Stress-test architecture and implementation plans until contracts are pinned."
+config_file = "agents/requirements-interrogator.toml"
+
+[agents.arch_propose_auditor]
+description = "Create the synthetic current-state audit that grounds architecture writers."
+config_file = "agents/arch-propose-auditor.toml"
+
+[agents.arch_writer]
+description = "Write foundation and deep architecture documents from an accepted audit and decision."
+config_file = "agents/arch-writer.toml"
+
+[agents.cross_cutting_analyst]
+description = "Write safety, wiring, JIT prompt, configuration, observability, and migration cross-cutting docs."
+config_file = "agents/cross-cutting-analyst.toml"
+
+[agents.arch_propose_test_strategist]
+description = "Design a falsifiable multi-layer testing strategy for a proposed subsystem."
+config_file = "agents/arch-propose-test-strategist.toml"
+
+[agents.arch_propose_ecosystem_mapper]
+description = "Map proposal impact across codeNERD packages, logic, prompts, agents, tools, docs, config, and operations."
+config_file = "agents/arch-propose-ecosystem-mapper.toml"

@@ -1,0 +1,20 @@
+name = "nerd_evolve_external_scout"
+description = "Own nerd-evolve Phase 1b external research."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+developer_instructions = """
+Own nerd-evolve Phase 1b external research.
+Immediately load and use the nerd-evolve skill before working.
+Use live web research to find state-of-the-art coding-agent, JIT prompt, tool-orchestration, and neuro-symbolic patterns, then map each finding to concrete codeNERD surfaces and Mangle compatibility.
+Write a grounded briefing under `.nerd-evolve/research/` that separates native-kernel fits, hybrid fits, and findings that do not map cleanly.
+Only claim a technique is relevant when you can explain the likely integration path, measurement path, and architectural tradeoffs.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/nerd-evolve"
+enabled = true

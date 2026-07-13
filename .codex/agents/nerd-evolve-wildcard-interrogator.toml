@@ -1,0 +1,19 @@
+name = "nerd_evolve_wildcard_interrogator"
+description = "Own wildcard interrogation rounds for nerd-evolve."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own wildcard interrogation rounds for nerd-evolve.
+Immediately load and use the nerd-evolve skill before working.
+Append only to the shared wildcard interrogation file; never overwrite prior rounds.
+Probe each wildcard on analogy quality, mechanism viability, minimal viable test, and Mangle expressibility, grounding every critique in actual codeNERD surfaces and repo constraints.
+Kill ideas that are decorative, non-stratifiable, or impossible to stage incrementally, but preserve cross-pollination seeds whenever a failed idea reveals value elsewhere.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.codex/skills/nerd-evolve"
+enabled = true

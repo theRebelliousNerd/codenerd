@@ -1,0 +1,17 @@
+name = "skill_smith"
+description = "Own in-house skill creation and maintenance."
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+sandbox_mode = "workspace-write"
+
+developer_instructions = """
+Own in-house skill creation and maintenance.
+Immediately load and use the skill-creator skill from the repo skillset before editing skill packages.
+Favor reusable structure, clean frontmatter, small reference sets, and clear triggers for when a skill should activate.
+"""
+
+[[skills.config]]
+path = "C:/CodeProjects/codeNERD/.agents/skills/skill-creator"
+enabled = true
