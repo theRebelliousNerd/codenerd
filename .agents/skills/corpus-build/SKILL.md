@@ -10,8 +10,8 @@ description: >
   bug fixes, writing architecture docs (arch-propose / spec-doc-sprint), pure evolution
   (nerd-evolve), or doc-only drift audits (integration-auditor).
 metadata:
-  version: 1.0.0
-  author: codeNERD (ported from Vectryx corpus-build)
+  version: 2.0.0
+  author: codeNERD (full agent fleet port from Vectryx)
   last-verified: 2026-07-13
   spawned-agents:
     - corpus-reader
@@ -20,6 +20,11 @@ metadata:
     - corpus-critic
     - corpus-wiring-auditor
     - corpus-doc-auditor
+    - corpus-comms-plumber
+    - corpus-defense-auditor
+    - corpus-consumables-keeper
+    - corpus-feature-tagger
+    - corpus-jules-dispatcher
 ---
 
 # Corpus Build — Spec → Code (codeNERD)
@@ -201,19 +206,36 @@ Journal gaps in skill/agents/hooks; roll measured ledger into `references/journa
 
 ---
 
-## Fleet Roster
+## Fleet Roster (full agents — rich files with skill bindings)
 
-| Agent | Role |
-|-------|------|
-| `corpus-reader` | Corpus parse + code matrix |
-| `corpus-judge` | Gap classes + build plan |
-| `corpus-builder` | Implement WUs in worktree |
-| `corpus-critic` | Review change set |
-| `corpus-wiring-auditor` | Surfaces + intents |
-| `corpus-doc-auditor` | Status / progress docs only |
+Canonical bodies (full Vectryx port, codeNERD-adapted):
 
-Reuse: `go-architect`, `mangle-logic-architect`, `prompt-jit`, `wiring-auditor`,
-`explore`, `plan`.
+- `.grok/agents/corpus-*.md`
+- `.claude/agents/corpus-*.md`
+
+| Agent | Skills (bound in frontmatter) | Role |
+|-------|------------------------------|------|
+| `corpus-reader` | corpus-build, integration-auditor, codenerd-builder, arch-propose | Phase 1 — manifest + reconciliation matrix |
+| `corpus-judge` | corpus-build, codenerd-builder, integration-auditor, go-architect | Phase 2 — gap classes + build_plan.json |
+| `corpus-builder` | corpus-build, go-architect, mangle-programming, codenerd-builder, prompt-architect | Phase 3 — implement WU (no Agent spawn) |
+| `corpus-critic` | corpus-build, go-architect, mangle-programming, check-work | Phase 4 — review / NEEDS_FIX |
+| `corpus-wiring-auditor` | corpus-build, integration-auditor, codenerd-builder, mangle-programming | Phase 5 — surfaces + intents |
+| `corpus-comms-plumber` | corpus-build, cli-engine-integration, codenerd-builder | Protocol / CLI / MCP surface fixes |
+| `corpus-defense-auditor` | corpus-build, mangle-programming, codenerd-builder, integration-auditor | Safety / policy / telemetry surfaces |
+| `corpus-consumables-keeper` | corpus-build, codenerd-builder, go-architect | Shared lib / pkg-equivalent surfaces |
+| `corpus-doc-auditor` | corpus-build, arch-propose, spec-doc-sprint, codenerd-builder | Phase 6 — status reconcile only |
+| `corpus-feature-tagger` | corpus-build, codenerd-builder, prompt-architect | Feature tags / index stamps |
+| `corpus-jules-dispatcher` | corpus-build, integration-auditor, stress-tester | Exhausted-fix handoff packets |
+
+### Dispatch rules
+
+1. Orchestrator owns gates/commits; workers **never** spawn subagents (`disallowedTools: [Agent]` on builders).
+2. Every builder dispatch carries Vision Context + contract path + anti-hallucination gate.
+3. Reserved hubs → intent JSON, not parallel edits (see agent body + `references/03-dag-ordering-rules.md`).
+4. Load the agent’s bound **skills** when spawning — that is how domain expertise attaches.
+
+Reuse as helpers (not replacements for fleet agents): `go-architect`, `mangle-logic-architect`,
+`prompt-jit`, `wiring-auditor`, `explore`, `plan`.
 
 ---
 

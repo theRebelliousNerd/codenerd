@@ -10,9 +10,21 @@ description: >
   packages (use spec-doc-sprint), Mangle-only rule work (use mangle-programming),
   or spec-to-code implementation (use corpus-build).
 metadata:
-  version: 1.0.0
-  author: codeNERD (ported from Vectryx arch-propose)
+  version: 2.0.0
+  author: codeNERD (full agent fleet port from Vectryx)
   last-verified: 2026-07-13
+  agents:
+    - arch-propose-scout-internal
+    - arch-propose-scout-literature
+    - arch-propose-scout-convergent
+    - arch-propose-scout-divergent
+    - arch-propose-synthesizer
+    - arch-propose-auditor
+    - arch-propose-test-strategist
+    - arch-propose-ecosystem-mapper
+    - requirements-interrogator
+    - arch-writer
+    - cross-cutting-analyst
 ---
 
 # Arch-Propose — Pre-Implementation Architecture Corpus (codeNERD)
@@ -92,24 +104,48 @@ Flags (orchestrator interprets):
 - `--sources path1,path2` — multi-package virtual subsystem
 - `--force` — required for protected cores (`core`, `mangle`, `prompt`, `session`, `shards`)
 
-## Agents Dispatched
+## Agents Dispatched (full fleet — rich agent files)
 
-| Agent | Role |
-|-------|------|
-| `arch-propose-scout-internal` | Reuse map across `internal/`, `cmd/`, `Docs/Spec/` |
-| `arch-propose-scout-literature` | External SOTA / papers / agent systems |
-| `arch-propose-scout-convergent` | Extend-existing matrix against codeNERD working map |
-| `arch-propose-scout-divergent` | Cross-domain analogies + wildcard candidate |
-| `arch-propose-synthesizer` | 2–3 ranked candidates incl. absorption option |
-| `arch-propose-auditor` | Synthetic `.code-audit.md` for writers |
-| `arch-propose-test-strategist` | `TESTING-STRATEGY.md` |
-| `arch-propose-ecosystem-mapper` | `ECOSYSTEM-IMPACT.md` |
-| `plan` / `wiring-auditor` | Optional reuse for interrogation support |
+Canonical agent bodies (ported full text from Vectryx, codeNERD-adapted) live in:
 
-Interrogation may use main-agent Socratic rounds or a `plan` subagent if no dedicated
-requirements-interrogator is loaded. Fail-closed: no READY verdict → do not generate corpus.
+- `.grok/agents/<name>.md` (Grok discovery)
+- `.claude/agents/<name>.md` (Claude / compat discovery)
 
-Agent definitions: `.grok/agents/arch-propose-*.md`.
+Each agent file includes **frontmatter `skills:`** bindings — load those skills when dispatching.
+
+### Phase agents
+
+| Agent | Skills (bound) | Role |
+|-------|----------------|------|
+| `arch-propose-scout-internal` | arch-propose, codenerd-builder, integration-auditor, mangle-programming | Phase 1 — reuse map, file:line seams |
+| `arch-propose-scout-literature` | arch-propose, codenerd-builder, research-builder | Phase 1 — external SOTA |
+| `arch-propose-scout-convergent` | arch-propose, codenerd-builder, integration-auditor | Phase 1 — extend-existing matrix |
+| `arch-propose-scout-divergent` | arch-propose, codenerd-builder, nerd-evolve | Phase 1 — wildcards / analogies |
+| `arch-propose-synthesizer` | arch-propose, codenerd-builder, mangle-programming, prompt-architect | Phase 2 — 2–3 candidates + hard gates |
+| `requirements-interrogator` | arch-propose, codenerd-builder, mangle-programming, prompt-architect | Phase 3 — Socratic stress-test (fail-closed) |
+| `arch-propose-auditor` | arch-propose, codenerd-builder, integration-auditor | Phase 4 — synthetic `.code-audit.md` + VERBATIM |
+| `arch-writer` | arch-propose, codenerd-builder, spec-doc-sprint | Phase 5 — foundation + IMPLEMENTED_SPEC + deep-dives |
+| `cross-cutting-analyst` | arch-propose, integration-auditor, prompt-architect, codenerd-builder | Phase 5 — cross-cutting fleet docs |
+| `arch-propose-test-strategist` | arch-propose, go-architect, stress-tester, corpus-build | Phase 5 — TESTING-STRATEGY.md |
+| `arch-propose-ecosystem-mapper` | arch-propose, integration-auditor, codenerd-builder, prompt-architect | Phase 5 — ECOSYSTEM-IMPACT.md |
+
+### Dispatch rules
+
+1. Spawn with `subagent_type="<agent name>"` matching the file `name:` frontmatter.
+2. **Do not** substitute thin one-paragraph stand-ins — the agent files are the authority.
+3. Fail-closed: no READY interrogation verdict → do not generate corpus.
+4. Writers must honor VERBATIM blocks from the auditor.
+5. Hook-safe wording: prefer “pre-implementation” / “later phase gate”; no fake time estimates.
+
+### Agent resolution paths
+
+```
+.grok/agents/arch-propose-*.md
+.grok/agents/arch-writer.md
+.grok/agents/cross-cutting-analyst.md
+.grok/agents/requirements-interrogator.md
+.claude/agents/   # same set, mirrored
+```
 
 ## Scratch Workspace (gitignored)
 

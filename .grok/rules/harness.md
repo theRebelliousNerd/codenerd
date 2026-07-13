@@ -20,8 +20,8 @@ over sequential monolithic searching.
 | Logs / cross-system trace | skill `log-analyzer` |
 | Config / boot / engines | skill `codenerd-config-expert` |
 | After substantial edits | skill `check-work` (or run build + targeted tests yourself) |
-| Design feature before code | skill `arch-propose` + agents `arch-propose-*` |
-| Realize architecture corpus → code | skill `corpus-build` + agents `corpus-*` |
+| Design feature before code | skill `arch-propose` + **full** agents under `.grok/agents/arch-propose-*`, `requirements-interrogator`, `arch-writer`, `cross-cutting-analyst` (skills bound in agent frontmatter) |
+| Realize architecture corpus → code | skill `corpus-build` + **full** agents under `.grok/agents/corpus-*` (reader/judge/builder/critic/wiring/doc/comms/defense/consumables/feature-tagger/jules) |
 | Fill Docs/Spec from existing code | skill `spec-doc-sprint` |
 
 **Design → build pipeline**: `arch-propose` → (human go) → `corpus-build` → optional `spec-doc-sprint` / `nerd-evolve`.

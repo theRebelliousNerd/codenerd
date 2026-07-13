@@ -38,6 +38,8 @@
 !.agents/skills/corpus-build/**
 !.claude/
 .claude/*
+!.claude/agents/
+!.claude/agents/**
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/codenerd-builder/
