@@ -40,6 +40,9 @@ python .codex/skills/stress-tester/scripts/run_suite.py --profile smoke --execut
 # Analyze current logs and emit Markdown plus a JSON sidecar.
 python .codex/skills/stress-tester/scripts/analyze_stress_logs.py --output .nerd/campaigns/stress-tester/log-analysis.md
 
+# Assert a persisted receipt without re-running the profile.
+python .codex/skills/stress-tester/scripts/assert_receipt.py .nerd/campaigns/stress-tester/<run-id>/run.json --expect-verdict passed --no-critical-output
+
 # Inventory intentionally-invalid Mangle fixtures; add --execute to prove rejection.
 python .codex/skills/stress-tester/scripts/verify_adversarial.py
 ```
@@ -145,11 +148,13 @@ Use the `log-analyzer` skill for multi-category causal chains or Mangle queries 
 
 `references/workflows/` contains historical scenario designs. They are an advisory threat-model library, not a copy/paste command contract. Some describe older CLI forms or Unix shells. Consult `references/workflows/README.md`, verify every referenced command against current source/help, and promote a scenario into `profile-registry.json` only after it has a bounded executable contract.
 
+**09-cli-workspace-matrix (2026-07 live matrix — 6 workflows):** Prefer PowerShell procedures under `references/workflows/09-cli-workspace-matrix/`. Includes workspace isolation, full CLI surface, polyglot vehicle, **one-shot-cli-exit** (maintenance cancel + Close 8s bounds / e18d6818), **dual-llm-routing** (main vs worker Ollama vs Gemini Nano Banana 2), and **define-agent-flags** (`--name` / `--topic` required). Catalog counts live in `.agents` / `.claude` skill SKILL.md (35 total workflows).
+
 Supporting references:
 
 - `references/testing-strategy.md` — pressure dimensions, oracles, and stopping rules.
 - `references/artifact-contract.md` — receipt schema and handoff expectations.
-- `references/panic-catalog.md` — symptom-to-owner hints; verify against live code.
+- `references/panic-catalog.md` — symptom-to-owner hints; verify against live code (P0/P0c Close timeouts).
 - `references/resource-limits.md` — historical limits inventory; measure current defaults before citing values.
 - `references/subsystem-stress-points.md` — broad threat model, not authoritative commands.
 - `assets/mangle-adversarial/` — intentionally-invalid negative fixtures.

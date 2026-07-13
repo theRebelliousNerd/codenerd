@@ -7,9 +7,10 @@ Comprehensive catalog of all codeNERD subsystems with entry points, failure mode
 | Subsystem | CLI Command | Log Category |
 |-----------|-------------|--------------|
 | Kernel | `nerd query`, `nerd run`, `nerd logic`, `nerd glassbox` | `/kernel` |
-| ShardManager | `nerd spawn`, `nerd agents`, `nerd define-agent` | `/shards` |
+| ShardManager | `nerd spawn`, `nerd agents`, `nerd define-agent --name … --topic …` | `/shards` |
 | VirtualStore | `nerd create`, `nerd run`, `nerd fix` (file tools) | `/virtual_store` |
 | Workspace isolation | `nerd -w <dir> …` + `CODENERD_WORKSPACE_ROOT` | `/virtual_store`, `/boot` |
+| One-shot lifecycle | `nerd create` / `spawn` / `run` → `Cortex.Close` | `/session`, `/store` |
 | Perception | `nerd perception` | `/perception` |
 | Articulation | All shard outputs | `/articulation` |
 | Campaign | `nerd campaign *` | `/campaign` |
@@ -21,7 +22,9 @@ Comprehensive catalog of all codeNERD subsystems with entry points, failure mode
 | Browser | `nerd browser *` | `/browser` |
 | TDD Loop | `nerd test`, TesterShard | `/tester` |
 | Review / Security | `nerd review`, `nerd security`, `nerd analyze`, `nerd explain` | `/shards` |
-| Image (Nano Banana 2) | `nerd spawn image_generator` / config `image` | `/perception`, `/shards` |
+| Main LLM | config `engine` / `provider` / `model` (Grok oauth or api) | `/perception` |
+| Worker LLM | optional `config.worker` (Ollama) for shards | `/perception`, `/shards` |
+| Image (Nano Banana 2) | `nerd spawn image_generator` / config `image` → Gemini only | `/perception`, `/shards` |
 | Auth engines | `nerd auth grok`, `engine=xai-oauth` / `api` | `/perception` |
 | JIT Compiler | `nerd jit`, all prompts | `/jit` |
 | Context | `nerd test-context`, all LLM interactions | `/context` |
@@ -29,18 +32,21 @@ Comprehensive catalog of all codeNERD subsystems with entry points, failure mode
 | MCP | `nerd mcp` | `/mcp` |
 | Memory | `nerd memory`, `nerd reflection`, `nerd knowledge` | `/context`, `/store` |
 
-### Workspace / dual-LLM surfaces (2026-07)
+### Workspace / dual-LLM / one-shot surfaces (2026-07)
 
-| Surface | Config / Code | Failure mode |
-|---------|---------------|--------------|
-| `-w` workspace | `cmd/nerd` persistent flag → `GetOrBootCortex` | Tools write to CWD if `CODENERD_WORKSPACE_ROOT` unset |
-| File tools root | `internal/tools/core/workspace_guard.go` | Path escape / monorepo pollution |
-| Worker LLM | `config.worker` (optional Ollama) | Shards use main when unset |
-| Image LLM | `config.image` → Gemini `gemini-3.1-flash-image` | Must never route image_generator to Ollama |
-| One-shot Close | `Cortex.Close` + maintenance cancel | Hang after Result if maintenance not cancelled |
-| SuperGrok OAuth | `~/.nerd/xai_oauth.json` | `invalid_grant` when refresh revoked → use `nerd auth grok` or API key |
+| Surface | Config / Code | Failure mode | Stress workflow |
+|---------|---------------|--------------|-----------------|
+| `-w` workspace | `cmd/nerd` persistent flag → `GetOrBootCortex` | Tools write to CWD if `CODENERD_WORKSPACE_ROOT` unset | [workspace-isolation.md](workflows/09-cli-workspace-matrix/workspace-isolation.md) |
+| File tools root | `internal/tools/core/workspace_guard.go` | Path escape / monorepo pollution | workspace-isolation |
+| Worker LLM | `config.worker` (optional Ollama) | Shards use main when unset; Ollama down soft-fails | [dual-llm-routing.md](workflows/09-cli-workspace-matrix/dual-llm-routing.md) |
+| Image LLM | `config.image` → Gemini `gemini-3.1-flash-image` | Must **never** route `image_generator` to Ollama | dual-llm-routing |
+| Main vs worker split | `session_boot.go` main client + worker client | Accidental double-Ollama or image on worker | dual-llm-routing |
+| One-shot Close | `Cortex.Close` + `maintenanceCancel` | Hang after Result if maintenance not cancelled | [one-shot-cli-exit.md](workflows/09-cli-workspace-matrix/one-shot-cli-exit.md) |
+| Close step bounds | `runCloseStep` / `closeStepTimeout=8s` (e18d6818) | Timeout storm delays exit; leaked teardown goroutines | one-shot-cli-exit |
+| `define-agent` flags | `--name` + `--topic` required (not positionals) | `required flag(s) "name", "topic" not set` | [define-agent-flags.md](workflows/09-cli-workspace-matrix/define-agent-flags.md) |
+| SuperGrok OAuth | `~/.nerd/xai_oauth.json` | `invalid_grant` when refresh revoked → `nerd auth grok` or API key | dual-llm-routing / matrix env |
 
-Full CLI catalog workflow: [09-cli-workspace-matrix/full-cli-surface.md](workflows/09-cli-workspace-matrix/full-cli-surface.md).
+Full CLI catalog: [09-cli-workspace-matrix/full-cli-surface.md](workflows/09-cli-workspace-matrix/full-cli-surface.md).
 
 ---
 
@@ -95,7 +101,7 @@ nerd run "analyze the entire codebase and remember everything"
 nerd spawn coder "task"         # Spawn ephemeral shard
 nerd spawn reviewer "task"      # Spawn reviewer
 nerd agents                     # List agents
-nerd define-agent --name X --topic Y  # Create Type U shard
+nerd define-agent --name X --topic Y  # Create Type U shard (flags required; not positionals)
 ```
 
 **Critical Methods:**
@@ -111,6 +117,8 @@ nerd define-agent --name X --topic Y  # Create Type U shard
 | Shard limit hit | >4 concurrent shards | Queued/rejected |
 | Injection failure | Missing dependencies | Nil pointer in shard |
 | Unknown shard type | Typo in type | `unknown shard type` error |
+| define-agent missing flags | No `--name` / `--topic` | `required flag(s) "name", "topic" not set` (exit ≠ 0) |
+| define-agent bad name | Spaces / path chars | `invalid agent name: must be alphanumeric…` |
 
 **Config Limits:**
 - `max_concurrent_shards: 4` - Concurrent shard limit

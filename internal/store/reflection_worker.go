@@ -88,7 +88,10 @@ func (s *LocalStore) runReflectionWorker(stop <-chan struct{}, done chan<- struc
 	ticker := time.NewTicker(reflectionWorkerInterval)
 	defer ticker.Stop()
 
-	s.processReflectionCycle()
+	// No immediate processReflectionCycle: one-shot CLI (create/spawn) boots
+	// and exits within seconds. An immediate cycle can hold SQLite (and a 45s
+	// embed timeout) while LocalDB.Close runs, stalling Windows process exit.
+	// Long-lived sessions still embed on the first ticker tick.
 	for {
 		select {
 		case <-stop:
@@ -398,7 +401,7 @@ func (ls *LearningStore) runLearningReflectionWorker(stop <-chan struct{}, done 
 	ticker := time.NewTicker(reflectionWorkerInterval)
 	defer ticker.Stop()
 
-	ls.processLearningReflectionCycle()
+	// No immediate cycle — same one-shot CLI / SQLite close race as LocalStore.
 	for {
 		select {
 		case <-stop:

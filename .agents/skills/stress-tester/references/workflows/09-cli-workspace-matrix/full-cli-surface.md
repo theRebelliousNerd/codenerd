@@ -62,7 +62,7 @@ One-shot CLI entry points end-to-end (not interactive TUI). Use a dedicated work
 | `nerd browser …` | Rod browser automation |
 | `nerd tool list\|info\|generate\|run` | Ouroboros tools (**subcommand required**) |
 | `nerd check-mangle <file.mg>` | Mangle validate (**file arg required**) |
-| `nerd define-agent <name> <desc>` | Custom specialist |
+| `nerd define-agent --name X --topic "…"` | Custom specialist (**flags required**, not positionals) |
 | `nerd test-context` | Context system (may fail CortexKernel type assert) |
 | `nerd perception <text>` | Perception diagnostic |
 
@@ -73,16 +73,27 @@ One-shot CLI entry points end-to-end (not interactive TUI). Use a dedicated work
 | `nerd spawn image_generator …` | Must use Gemini image model, **not** Ollama worker |
 | Config `image.model` | `gemini-3.1-flash-image` |
 
+### Focused sibling workflows (09)
+
+| Workflow | Gap covered |
+|----------|-------------|
+| [one-shot-cli-exit.md](one-shot-cli-exit.md) | create/spawn exit after Result; maintenance cancel + Close 8s bounds (e18d6818) |
+| [dual-llm-routing.md](dual-llm-routing.md) | main vs worker Ollama vs image Gemini Nano Banana 2 |
+| [define-agent-flags.md](define-agent-flags.md) | `--name` / `--topic` required flags |
+
 ## Known Failure Modes (live matrix)
 
 | Symptom | Cause | Fix / Mitigate |
 |---------|-------|----------------|
 | Files land in monorepo not `-w` | Missing `CODENERD_WORKSPACE_ROOT` | Fixed: `resolveWorkspaceRoot` sets env |
-| Process hangs after `Result:` | Maintenance loop not cancelled on `Close` | Fixed: `maintenanceCancel` in `Cortex.Close` |
+| Process hangs after `Result:` | Maintenance not cancelled **or** unbounded Close steps | Fixed e18d6818: `maintenanceCancel` + `runCloseStep` 8s |
+| `Cortex.Close: … timed out after 8s` | Stuck SQLite / shards during teardown | Soft warn; process should still exit — see P0c |
 | SuperGrok `invalid_grant` | Revoked OAuth refresh | `nerd auth grok` or `engine=api` + `xai_api_key` |
+| `define-agent` exit 1 immediately | Missing `--name` / `--topic` | Pass both flags (not positionals) |
 | `tool` / `check-mangle` exit 1 | Missing required args | Pass subcommand / file |
 | `test-context` type assert | Expects `*core.RealKernel`, got CortexKernel | Code bug — track in panic catalog |
 | Concurrent `nerd.exe` hangs | SQLite multi-process locks | Serial matrix only |
+| Image gen via Ollama | Wrong client injection | Image client is Gemini-only; never worker |
 
 ## Harness Notes
 

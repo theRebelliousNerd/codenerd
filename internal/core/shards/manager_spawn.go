@@ -302,7 +302,8 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	if sm.kernel != nil {
 		agent.SetParentKernel(sm.kernel)
 	}
-	if client := sm.clientForShardType(typeName); client != nil {
+	// Use locked variant: SpawnAsyncWithContext already holds sm.mu write lock.
+	if client := sm.clientForShardTypeLocked(typeName); client != nil {
 		// Image shards get Gemini Nano Banana 2; all others use worker/main.
 		agent.SetLLMClient(client)
 	}

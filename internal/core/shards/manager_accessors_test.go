@@ -1,6 +1,7 @@
 package shards
 
 import (
+	"context"
 	"testing"
 
 	"codenerd/internal/types"
@@ -45,6 +46,7 @@ func TestShardManager_Setters(t *testing.T) {
 
 	sm.SetParentKernel(nil)
 	sm.SetLLMClient(nil)
+	sm.SetImageLLMClient(nil)
 	sm.SetPromptLoader(nil)
 	sm.SetJITRegistrar(nil)
 	sm.SetJITUnregistrar(nil)
@@ -61,6 +63,56 @@ func TestShardManager_Setters(t *testing.T) {
 	sm.postSpawnHook(nil)
 	if !called {
 		t.Error("stored post-spawn hook was not the one provided")
+	}
+}
+
+// stubLLM is a marker client used only to prove clientForShardType identity.
+type stubLLM struct{ name string }
+
+func (s *stubLLM) Complete(context.Context, string) (string, error) { return s.name, nil }
+func (s *stubLLM) CompleteWithSystem(context.Context, string, string) (string, error) {
+	return s.name, nil
+}
+func (s *stubLLM) CompleteWithStreaming(context.Context, string, string, bool) (<-chan string, <-chan error) {
+	ch := make(chan string)
+	errCh := make(chan error)
+	close(ch)
+	close(errCh)
+	return ch, errCh
+}
+func (s *stubLLM) CompleteWithTools(context.Context, string, string, []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	return &types.LLMToolResponse{Text: s.name}, nil
+}
+
+func TestShardManager_clientForShardType_ImageIsolation(t *testing.T) {
+	sm := NewShardManager()
+	worker := &stubLLM{name: "worker-ollama"}
+	image := &stubLLM{name: "gemini-nano-banana-2"}
+	sm.SetLLMClient(worker)
+	sm.SetImageLLMClient(image)
+
+	got := sm.clientForShardType("image_generator")
+	if got != types.LLMClient(image) {
+		t.Fatalf("image_generator client = %v, want image client", got)
+	}
+	for _, typ := range []string{"image-generator", "imagen", "nano_banana", "image"} {
+		if sm.clientForShardType(typ) != types.LLMClient(image) {
+			t.Fatalf("%s did not route to image client", typ)
+		}
+	}
+
+	got = sm.clientForShardType("coder")
+	if got != types.LLMClient(worker) {
+		t.Fatalf("coder client = %v, want worker", got)
+	}
+
+	// No silent worker fallback when image client is missing (FM15).
+	sm.SetImageLLMClient(nil)
+	if sm.clientForShardType("image_generator") != nil {
+		t.Fatal("image shard must not fall back to worker when image client unset")
+	}
+	if sm.clientForShardType("coder") != types.LLMClient(worker) {
+		t.Fatal("non-image shards still use worker when image client unset")
 	}
 }
 

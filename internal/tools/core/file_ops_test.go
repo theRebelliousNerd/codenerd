@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,6 +153,27 @@ func TestWriteFileTool_Execute_CreatesDirs(t *testing.T) {
 
 	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
 		t.Error("file should have been created in nested directory")
+	}
+}
+
+func TestWriteFileTool_Execute_OutsideWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+	outside := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+
+	outsideFile := filepath.Join(outside, "escape.txt")
+	_, err := executeWriteFile(context.Background(), map[string]any{
+		"path":    outsideFile,
+		"content": "should not write",
+	})
+	if err == nil {
+		t.Fatal("expected error writing outside workspace")
+	}
+	if !errors.Is(err, ErrPathOutsideWorkspace) && !strings.Contains(err.Error(), "path escapes workspace") {
+		t.Fatalf("expected workspace guard error, got %v", err)
+	}
+	if _, statErr := os.Stat(outsideFile); !os.IsNotExist(statErr) {
+		t.Fatal("file should not have been created outside workspace")
 	}
 }
 

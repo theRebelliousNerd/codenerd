@@ -409,12 +409,7 @@ func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 	return a.kernel.GetProgramInfo()
 }
 
-func (m *missingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
-	errChan := make(chan error, 1)
-	errChan <- fmt.Errorf("no LLM client configured")
-	close(errChan)
-	return nil, errChan
-}
+// missingLLMClient.CompleteWithStreaming is defined on the type in factory.go.
 
 func (s *sessionLLMAdapter) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, forceJSON bool) (<-chan string, <-chan error) {
 	contentChan := make(chan string, 1)

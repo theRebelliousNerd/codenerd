@@ -42,6 +42,11 @@ func TestResolveWorkspacePath(t *testing.T) {
 			name:  "dotdot that normalizes back inside root",
 			input: filepath.Join(root, "sub", "..", "sub", "deep", "ok.txt"),
 		},
+		{
+			name:    "empty path",
+			input:   "",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -51,8 +56,11 @@ func TestResolveWorkspacePath(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error, got resolved path %q", got)
 				}
-				if !errors.Is(err, ErrPathOutsideWorkspace) {
-					t.Fatalf("expected ErrPathOutsideWorkspace, got %v", err)
+				if tt.input != "" && !errors.Is(err, ErrPathOutsideWorkspace) {
+					// empty path is a validation error, not outside-workspace
+					if !strings.Contains(err.Error(), "required") {
+						t.Fatalf("expected ErrPathOutsideWorkspace, got %v", err)
+					}
 				}
 				return
 			}
@@ -76,5 +84,73 @@ func TestResolveWorkspacePath(t *testing.T) {
 				t.Fatalf("resolved path %q is outside root %q (rel=%q)", got, root, rel)
 			}
 		})
+	}
+}
+
+func TestWorkspaceRoot_PrefersCodenerdEnv(t *testing.T) {
+	root := t.TempDir()
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODENERD_WORKSPACE_ROOT", root)
+
+	got, err := workspaceRoot()
+	if err != nil {
+		t.Fatalf("workspaceRoot: %v", err)
+	}
+	// Compare via Abs; EvalSymlinks may differ slightly, so normalize both.
+	want, err := filepath.Abs(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		// Accept symlink-resolved form.
+		resolvedWant, evalErr := filepath.EvalSymlinks(want)
+		if evalErr == nil && got == resolvedWant {
+			return
+		}
+		t.Fatalf("workspaceRoot=%q want %q", got, want)
+	}
+}
+
+func TestWorkspaceRoot_FallsBackToCwd(t *testing.T) {
+	t.Setenv("CODENERD_WORKSPACE_ROOT", "")
+	got, err := workspaceRoot()
+	if err != nil {
+		t.Fatalf("workspaceRoot: %v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != cwd {
+		t.Fatalf("workspaceRoot=%q want cwd %q", got, cwd)
+	}
+}
+
+func TestResolveWorkspacePath_UsesEnvWhenRootEmpty(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", root)
+	inside := filepath.Join(root, "new_write.txt")
+
+	got, err := resolveWorkspacePath("", inside)
+	if err != nil {
+		t.Fatalf("resolveWorkspacePath: %v", err)
+	}
+	rel, err := filepath.Rel(root, got)
+	if err != nil {
+		// symlink-resolved root
+		resolved, evalErr := filepath.EvalSymlinks(root)
+		if evalErr != nil {
+			t.Fatal(err)
+		}
+		rel, err = filepath.Rel(resolved, got)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("resolved outside root: got=%q root=%q", got, root)
 	}
 }

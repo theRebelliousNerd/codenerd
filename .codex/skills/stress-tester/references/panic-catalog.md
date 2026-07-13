@@ -8,20 +8,49 @@ Known panic vectors and crash scenarios in codeNERD, organized by subsystem.
 
 **Location:** `internal/system/factory.go` (`StartMaintenanceSchedule`), `internal/system/cortex_close.go` (`Close`)
 
-**Trigger:** `nerd create` / `nerd spawn` prints `Result:` then process stays alive indefinitely (observed 2026-07 live matrix).
+**Trigger:** `nerd create` / `nerd spawn` / `nerd run` prints `Result:` then process stays alive indefinitely (observed 2026-07 live matrix; harness killed ~45–90s post-result).
 
-**Root cause:** `GetOrBootCortex` started the maintenance goroutine with `context.Background()` and discarded the cancel func. `Close()` closed `LocalDB` while maintenance still called `MaintenanceCleanup` — process hang / lock contention on Windows SQLite.
+**Root cause (maintenance):** `GetOrBootCortex` started the maintenance goroutine with `context.Background()` and discarded the cancel func. `Close()` closed `LocalDB` while maintenance still called `MaintenanceCleanup` — process hang / lock contention on Windows SQLite.
 
-**Fix (2026-07):** store `maintenanceCancel` on `Cortex`; invoke it first in `Close()`.
+**Root cause (Close steps):** Individual teardown calls (`ShardManager.StopAll`, `LocalDB.Close`, `LearningStore.Close`, perception close, …) could block without a deadline, so even after cancel the process still never exited.
 
-**Stress Test:**
+**Fix (2026-07, e18d6818):**
+
+1. Store `maintenanceCancel` on `Cortex`; invoke it **first** in `Close()` before any DB/shard teardown.
+2. Bound each Close step with `closeStepTimeout` (**8s**) via `runCloseStep` — on timeout log warn and continue remaining shutdown so the process can still die.
+
+**Log signal (soft failure, not panic):**
+
+```text
+Cortex.Close: LocalDB.Close timed out after 8s; continuing shutdown
+Cortex.Close: ShardManager.StopAll timed out after 8s; continuing shutdown
+```
+
+Timeouts are acceptable if the process **still exits**. Infinite hang with no exit after Result re-opens this vector.
+
+**Stress Test:** see [one-shot-cli-exit.md](workflows/09-cli-workspace-matrix/one-shot-cli-exit.md).
+
 ```powershell
 $sw = [Diagnostics.Stopwatch]::StartNew()
 nerd create "write hangcheck.txt with ok" -w $TMP_APP --timeout 10m
-# process must exit; wall clock after Result should be < 15s
+# process must exit without kill; post-Result latency typically < 15s (worst < 30s)
 ```
 
-**Regression guard:** if create exits only after manual kill, re-open this vector.
+**Regression guard:** if create/spawn exits only after manual kill or harness timeout, re-open this vector. Prefer serial runs (multi-process SQLite locks confuse diagnosis).
+
+---
+
+### P0c: Close-Step Timeout Storm (exit delayed but not infinite)
+
+**Location:** `internal/system/cortex_close.go` (`runCloseStep`, `closeStepTimeout = 8s`)
+
+**Trigger:** Windows SQLite busy, stuck system shards, or perception layer close blocking under load.
+
+**Symptom:** Multiple `Cortex.Close: … timed out after 8s` warnings; process eventually exits after ≈ N×8s of timed-out steps (or sooner if some steps succeed).
+
+**Not a panic**, but a latency / resource leak signal: goroutines from timed-out Close steps may still run after `Close` returns. Track as shutdown-health debt if frequent in matrix logs.
+
+**Stress Test:** aggressive one-shot chain + `Select-String` for `Cortex.Close:.*timed out` under [one-shot-cli-exit.md](workflows/09-cli-workspace-matrix/one-shot-cli-exit.md).
 
 ---
 

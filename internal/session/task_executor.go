@@ -88,8 +88,10 @@ func normalizeTaskIntentVerb(verb string) (string, error) {
 	case "nemesis":
 		return "/review", nil
 	case "image_generator", "image-generator", "imagegenerator", "imagen", "image", "nano_banana", "nanobanana":
-		// Image gen is a specialist path (Gemini Nano Banana 2), not worker Ollama.
-		return "/create", nil
+		// Fail closed: image gen must use Cortex/ShardManager Nano Banana 2
+		// (Gemini image client). Mapping to /create would run on the worker
+		// Ollama client via JITExecutor — the dual-LLM mis-route FM15 forbids.
+		return "", fmt.Errorf("image_generator requires ShardManager image LLM (Nano Banana 2 / gemini-3.1-flash-image), not TaskExecutor worker path")
 	default:
 		// Bare identifier: treat as /identifier (e.g. user agents).
 		if strings.ContainsAny(verb, " \t\n/") {

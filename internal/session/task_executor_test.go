@@ -73,6 +73,19 @@ func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
 	}
 }
 
+func TestNormalizeTaskIntentVerb_ImageFailsClosed(t *testing.T) {
+	// Must not map image_generator → /create (that would use worker Ollama).
+	for _, verb := range []string{"image_generator", "imagen", "nano_banana", "image"} {
+		got, err := normalizeTaskIntentVerb(verb)
+		if err == nil {
+			t.Fatalf("%q: expected fail-closed error, got %q", verb, got)
+		}
+		if got != "" {
+			t.Fatalf("%q: expected empty verb on error, got %q", verb, got)
+		}
+	}
+}
+
 func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	// Setup
 	mockLLM := &MockLLMClient{

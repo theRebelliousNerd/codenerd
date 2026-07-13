@@ -144,21 +144,24 @@ Tests cross-subsystem integration under load.
 | [ouroboros-thunderdome-nemesis.md](references/workflows/08-hybrid-integration/ouroboros-thunderdome-nemesis.md) | Adversarial tool evolution loop | 35-50 min |
 | [full-ooda-loop-stress.md](references/workflows/08-hybrid-integration/full-ooda-loop-stress.md) | Complete OODA cycle under pressure | 40-60 min |
 
-### 09-cli-workspace-matrix (3 workflows) — **added 2026-07**
+### 09-cli-workspace-matrix (6 workflows) — **added / expanded 2026-07**
 
-Live CLI product surface + workspace isolation (polyglot app as vehicle).
+Live CLI product surface + workspace isolation (polyglot app as vehicle) + routing/lifecycle gaps from live matrix.
 
 | Workflow | What It Stresses | Duration |
 |----------|------------------|----------|
 | [workspace-isolation.md](references/workflows/09-cli-workspace-matrix/workspace-isolation.md) | `-w` vs CWD, `CODENERD_WORKSPACE_ROOT`, write_file containment | 15-30 min |
 | [full-cli-surface.md](references/workflows/09-cli-workspace-matrix/full-cli-surface.md) | Full one-shot CLI catalog (diagnostics + coding + sim) | 45-120 min |
 | [polyglot-app-vehicle.md](references/workflows/09-cli-workspace-matrix/polyglot-app-vehicle.md) | Go + React + Rust + Python built via create/spawn | 60-150 min |
+| [one-shot-cli-exit.md](references/workflows/09-cli-workspace-matrix/one-shot-cli-exit.md) | create/spawn must exit after Result; maintenance cancel + Close 8s bounds (e18d6818) | 10-30 min |
+| [dual-llm-routing.md](references/workflows/09-cli-workspace-matrix/dual-llm-routing.md) | Main Grok vs optional worker Ollama vs image Gemini Nano Banana 2 (never Ollama) | 15-40 min |
+| [define-agent-flags.md](references/workflows/09-cli-workspace-matrix/define-agent-flags.md) | `define-agent --name` / `--topic` required; invalid names | 5-20 min |
 
-**Also covers:** image_generator / Nano Banana 2 (`gemini-3.1-flash-image`) must **not** use Ollama worker; SuperGrok OAuth vs `engine=api` auth recovery.
+**Also covers:** image_generator / Nano Banana 2 (`gemini-3.1-flash-image`) must **not** use Ollama worker; SuperGrok OAuth vs `engine=api` auth recovery; post-Result exit latency.
 
 ### Workflow Coverage Summary
 
-**Total Workflows:** 32 across 9 categories
+**Total Workflows:** 35 across 9 categories
 
 **Mangle-Specific Coverage:**
 
@@ -954,7 +957,7 @@ python .claude/skills/stress-tester/scripts/analyze_stress_logs.py -o reports/ma
 
 ### Test Incrementally
 
-Don't run all 28 workflows at once. Start with:
+Don't run all 35 workflows at once. Start with:
 
 1. **Conservative smoke test** - Pick 1 workflow from each category at conservative level
 2. **Aggressive on failures** - Re-run failed workflows at aggressive level

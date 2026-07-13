@@ -257,6 +257,12 @@ func runCampaignStart(cmd *cobra.Command, args []string) error {
 
 	// Register shard factories
 	shardMgr.SetLLMClient(llmClient)
+	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
+	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
+	} else if imgClient != nil {
+		shardMgr.SetImageLLMClient(core.NewScheduledLLMCall("image_generator", imgClient))
+	}
 	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
 		Kernel:       kern,
 		LLMClient:    llmClient,
@@ -707,6 +713,12 @@ func runCampaignResume(cmd *cobra.Command, args []string) error {
 
 	// Register shard factories
 	shardMgr.SetLLMClient(llmClient)
+	// Image generation (Nano Banana 2) stays off the campaign worker/main client.
+	if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Image LLM (Nano Banana 2) unavailable: %v\n", ierr)
+	} else if imgClient != nil {
+		shardMgr.SetImageLLMClient(core.NewScheduledLLMCall("image_generator", imgClient))
+	}
 	shards.RegisterAllShardFactories(shardMgr, shards.RegistryContext{
 		Kernel:       kern,
 		LLMClient:    llmClient,

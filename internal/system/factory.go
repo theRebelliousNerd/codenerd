@@ -252,6 +252,10 @@ type Cortex struct {
 	// Must be invoked in Close() before LocalDB.Close() or one-shot CLI
 	// commands hang after printing Result (DB close blocked / process stuck).
 	maintenanceCancel context.CancelFunc
+	// maintenanceDone is closed when the maintenance goroutine exits.
+	// Close waits on it (briefly) so LocalDB.Close does not race an in-flight
+	// MaintenanceCleanup against open SQLite statements on Windows.
+	maintenanceDone <-chan struct{}
 }
 
 type missingLLMClient struct {
@@ -266,15 +270,36 @@ func (c *missingLLMClient) CompleteWithSystem(ctx context.Context, systemPrompt,
 	return "", c.err
 }
 
+func (c *missingLLMClient) CompleteWithStreaming(ctx context.Context, systemPrompt, userPrompt string, enableThinking bool) (<-chan string, <-chan error) {
+	ch := make(chan string)
+	errCh := make(chan error, 1)
+	close(ch)
+	errCh <- c.err
+	close(errCh)
+	return ch, errCh
+}
+
 func (c *missingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
 	return nil, c.err
 }
 
 // SpawnTask is the unified entry point for task execution.
 // System shards (Type S) are routed to ShardManager for lifecycle management.
+// Image shards (Nano Banana 2) also use ShardManager so SetImageLLMClient applies
+// — TaskExecutor is wired to the worker/main client and must not handle image gen.
 // All other tasks go through TaskExecutor.
 func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (string, error) {
 	normalized := normalizeShardTypeName(shardType)
+
+	// Image generation (Gemini Nano Banana 2) is isolated from the worker LLM.
+	// TaskExecutor maps image_generator → /create and would hit Ollama when
+	// worker is configured; always route through ShardManager's image client.
+	if config.IsImageShardType(normalized) {
+		if c.ShardManager == nil {
+			return "", fmt.Errorf("image generation requires ShardManager with Nano Banana 2 client")
+		}
+		return c.ShardManager.Spawn(ctx, normalized, task)
+	}
 
 	// System shards (Type S) require ShardManager for lifecycle management
 	if c.ShardManager != nil {
@@ -298,6 +323,14 @@ func (c *Cortex) SpawnTask(ctx context.Context, shardType string, task string) (
 // This is used for dream mode, shadow mode, and other speculative execution scenarios.
 func (c *Cortex) SpawnTaskWithContext(ctx context.Context, shardType string, task string, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
 	normalized := normalizeShardTypeName(shardType)
+
+	// Image generation stays on ShardManager image client (never TaskExecutor/worker).
+	if config.IsImageShardType(normalized) {
+		if c.ShardManager == nil {
+			return "", fmt.Errorf("image generation requires ShardManager with Nano Banana 2 client")
+		}
+		return c.ShardManager.SpawnWithPriority(ctx, normalized, task, sessionCtx, priority)
+	}
 
 	// System shards (Type S) require ShardManager for lifecycle management
 	if c.ShardManager != nil {
@@ -335,9 +368,24 @@ func (a *taskDelegatorAdapter) Execute(ctx context.Context, intent string, task 
 	return a.executor.Execute(ctx, req)
 }
 
+// maintenanceInterval is the period between LocalDB maintenance cycles.
+// First cycle waits a full interval (no immediate run) so one-shot CLI
+// create/spawn can exit without racing MaintenanceCleanup against LocalDB.Close.
+// Overridable in tests.
+var maintenanceInterval = 30 * time.Minute
+
+// maintenanceStopWait bounds how long StartMaintenanceSchedule / Close wait
+// for the prior maintenance goroutine after cancel.
+const maintenanceStopWait = 2 * time.Second
+
 // StartMaintenanceSchedule launches a background goroutine that periodically
 // runs cold storage archival and cleanup. Call this once after boot.
 // Returns a cancel function to stop the maintenance loop.
+//
+// Does NOT run maintenance immediately: GetOrBootCortex starts this for every
+// fresh boot, including `nerd create` / `nerd spawn`. An immediate cycle
+// holds SQLite while Close tears down LocalDB and historically stalled
+// Windows process exit for many seconds after Result was printed.
 func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFunc {
 	if c.LocalDB == nil {
 		logging.Get(logging.CategorySession).Warn("Maintenance schedule skipped: no LocalDB")
@@ -345,18 +393,20 @@ func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFun
 	}
 
 	// Stop any prior schedule (idempotent re-entry).
-	if c.maintenanceCancel != nil {
-		c.maintenanceCancel()
-		c.maintenanceCancel = nil
-	}
+	c.stopMaintenanceSchedule(maintenanceStopWait)
 
 	mCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	c.maintenanceCancel = cancel
+	c.maintenanceDone = done
+	interval := maintenanceInterval
+	if interval <= 0 {
+		interval = 30 * time.Minute
+	}
 	go func() {
-		// Run once immediately on startup
-		c.runMaintenance()
-
-		ticker := time.NewTicker(30 * time.Minute)
+		defer close(done)
+		// No immediate runMaintenance — see StartMaintenanceSchedule doc.
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
@@ -370,12 +420,51 @@ func (c *Cortex) StartMaintenanceSchedule(ctx context.Context) context.CancelFun
 		}
 	}()
 
-	logging.Get(logging.CategorySession).Info("Maintenance schedule started (every 30 minutes)")
+	logging.Get(logging.CategorySession).Info("Maintenance schedule started (every %v)", interval)
 	return cancel
 }
 
+// stopMaintenanceSchedule cancels the background loop and waits briefly for
+// the goroutine to exit so callers can safely close LocalDB afterward.
+func (c *Cortex) stopMaintenanceSchedule(wait time.Duration) {
+	if c == nil {
+		return
+	}
+	if c.maintenanceCancel != nil {
+		c.maintenanceCancel()
+		c.maintenanceCancel = nil
+	}
+	if c.maintenanceDone == nil {
+		return
+	}
+	if wait <= 0 {
+		<-c.maintenanceDone
+		c.maintenanceDone = nil
+		return
+	}
+	select {
+	case <-c.maintenanceDone:
+	case <-time.After(wait):
+		logging.Get(logging.CategorySession).Warn(
+			"Maintenance goroutine did not exit within %v; continuing shutdown", wait,
+		)
+	}
+	c.maintenanceDone = nil
+}
+
+// maintenanceTestHook, when non-nil, is invoked instead of real LocalDB work.
+// Tests use this to assert that the schedule does not fire immediately.
+var maintenanceTestHook func()
+
 // runMaintenance performs a single maintenance cycle.
 func (c *Cortex) runMaintenance() {
+	if maintenanceTestHook != nil {
+		maintenanceTestHook()
+		return
+	}
+	if c.LocalDB == nil {
+		return
+	}
 	stats, err := c.LocalDB.MaintenanceCleanup(store.MaintenanceConfig{
 		ArchiveOlderThanDays:       90,
 		MaxAccessCount:             5,

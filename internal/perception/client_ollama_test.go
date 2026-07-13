@@ -121,3 +121,44 @@ func TestNewWorkerClientFromUserConfig_Nil(t *testing.T) {
 		t.Fatal("expected nil when worker unset")
 	}
 }
+
+func TestNewImageClientFromUserConfig_NeverOllama(t *testing.T) {
+	// Even when worker is ollama and provider is ollama, image client must be Gemini.
+	uc := &config.UserConfig{
+		Provider:     "ollama",
+		Model:        "gemma4:12b",
+		GeminiAPIKey: "test-gemini-key",
+		Worker: &config.WorkerLLMConfig{
+			Provider: "ollama",
+			Model:    "gemma4:12b",
+		},
+		Image: &config.ImageLLMConfig{
+			Provider: "gemini",
+			Model:    "nano-banana-2", // alias → gemini-3.1-flash-image
+		},
+	}
+	client, err := NewImageClientFromUserConfig(uc)
+	if err != nil {
+		t.Fatalf("image client: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil image client")
+	}
+	if _, ok := client.(*OllamaClient); ok {
+		t.Fatal("image client must never be Ollama")
+	}
+	gc, ok := client.(*GeminiClient)
+	if !ok {
+		t.Fatalf("want *GeminiClient, got %T", client)
+	}
+	if gc.GetModel() != config.DefaultImageModel {
+		t.Fatalf("model=%q want %q", gc.GetModel(), config.DefaultImageModel)
+	}
+
+	// Unsupported image provider must fail closed (not fall through to ollama).
+	uc.Image = &config.ImageLLMConfig{Provider: "ollama", Model: "gemma4:12b"}
+	_, err = NewImageClientFromUserConfig(uc)
+	if err == nil {
+		t.Fatal("expected error for image provider=ollama")
+	}
+}

@@ -26,10 +26,9 @@ func (c *Cortex) Close() error {
 
 	// Stop maintenance BEFORE closing LocalDB — the loop calls
 	// LocalDB.MaintenanceCleanup and can block process exit if left running.
-	if c.maintenanceCancel != nil {
-		c.maintenanceCancel()
-		c.maintenanceCancel = nil
-	}
+	// Wait briefly for the goroutine so an in-flight cycle (if any) finishes
+	// before LocalDB.Close; cancel alone is not enough on Windows SQLite.
+	c.stopMaintenanceSchedule(maintenanceStopWait)
 
 	if c.ShardManager != nil {
 		runCloseStep("ShardManager.StopAll", closeStepTimeout, func() error {
