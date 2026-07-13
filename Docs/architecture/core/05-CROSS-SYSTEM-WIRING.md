@@ -1,6 +1,0 @@
-# Redirect
-
-Superseded by the 2026-07-13 rebuild.
-
-→ [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)  
-→ [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md)

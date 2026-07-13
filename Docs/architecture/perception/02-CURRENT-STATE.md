@@ -80,6 +80,16 @@
 4. `validate()` on Understanding vocabulary is **not** on the success hot path (comments: dead work removed).  
 5. Package README default models may lag factory code.
 
+## Verified repair receipt
+
+`VERIFIED CURRENT` — `internal/perception/client_factory.go#NewClientFromConfig`
+now returns an explicit error for a nil `ProviderConfig`; the previous unconditional
+`config.Engine` dereference could panic during malformed boot wiring.
+`internal/perception/client_factory_test.go#TestNewClientFromConfig_NilConfig`
+proves the fail-closed contract. Focused test and the full
+`go test -count=1 -timeout=240s ./internal/perception/...` gate passed on
+2026-07-13.
+
 ## Line-count leaders
 
 See [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) §3.2.

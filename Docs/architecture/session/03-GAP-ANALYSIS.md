@@ -18,7 +18,7 @@
 | Ouroboros auto-generation from missing_tool_for | Detect + log; generation elsewhere | **Low** (wiring external) |
 | Spawn auto-start consistency | Spawn does not start; SpawnSpecialist/async do | **Low** |
 | Completion signaling | Poll 100ms | **Low** |
-| Empty AllowedTools unrestricted | Documented; safety still gates | **Medium** (defense in depth) |
+| Empty AllowedTools unrestricted | Nil/empty now denies every tool | **Closed 2026-07-13** |
 | Package README accuracy | Stale slogans | **Low** (docs) |
 
 ## 2. Priority backlog (engineering)
@@ -31,7 +31,7 @@
 ### P1 — tool protocol completeness
 
 3. Multi-iteration Piggyback tool feedback (re-issue envelope with tool results).  
-4. Consider treating empty AllowedTools as “no tools” when ConfigFactory failed vs intentional unrestricted bootstrap.
+4. Preserve empty AllowedTools as “no tools”; any bootstrap capability must be an explicit validated envelope.
 
 ### P2 — memory & persistence
 
@@ -52,7 +52,7 @@
 | No local `.mg` | Correct: session is runtime, policy is global |
 | Spawner exists despite “no spawn” slogan | Slogan is anti-domain-shard; Spawner is intentional |
 | Baseline prompt on JIT failure | Deliberate degrade, not silent success with wrong tools |
-| safe_action payload fallback | Documented mitigation for Mangle normalization |
+| `safe_action/1` classification | Correctly insufficient; only exact `permitted/3` authorizes |
 | Shared kernel across SubAgents | Intent IDs + retract; required for shared policy world |
 
 ## 4. Consumer asymmetry
@@ -69,3 +69,11 @@
 See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
 
 Notable: Piggyback multi-turn (once built) needs e2e; real InteractiveExecutiveGate blocking path has unit coverage mainly via mocks/type-assert patterns.
+
+## 6. Repaired gaps and remaining truth
+
+The missing/empty capability fail-open, Ouroboros registration bypass, specialist
+config validation bypass, and `safe_action/1` permission fallback are closed with
+focused tests. The remaining priorities are protocol-neutral multi-turn tools,
+one owned stack composition, durable state/receipts, and policy-reference registry
+parity. The authoritative implementation contracts are in [TODO](TODO.md).

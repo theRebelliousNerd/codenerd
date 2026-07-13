@@ -33,7 +33,7 @@
 ## North-star quotes (binding for this package)
 
 1. *“New prompt behavior becomes prompt atoms first, not ad-hoc shard prompt text.”*  
-2. *“Internal prompt atoms live under `internal/prompt/atoms/<category>/`.”*  
+2. *“Internal prompt atoms live under `example:internal/prompt/atoms/<category>/`.”*
 3. *“Logic determines reality; the model merely describes it.”* — prompts never replace `permitted(...)`.
 
 ## Alignment risks (not fails)
@@ -42,9 +42,9 @@
 |------|----------|------|
 | Skeleton hard-fails without kernel | Medium | Correct for production; unit tests must inject mocks |
 | Dual ConfigAtom registries | Low–Med | `DefaultConfigAtomProvider` vs `RegisterDefaultConfigAtoms` / `SimpleRegistry` tool name lists can drift |
-| Hash cache vs dynamic kernel injection | Medium | `CompilationContext.Hash()` omits some fields (e.g. `AvailableTools`, `PreviousAttemptNoToolCall`) — see OPEN-QUESTIONS |
+| External kernel adapter contract | Medium | Production uses cloned compilation scopes; third-party adapters that expose neither `KernelScopeProvider` nor `KernelRetracter` cannot guarantee fact isolation |
 | Flesh degrades silently | Low | By design; skeleton must remain complete |
 
 ## Verdict
 
-**Ship-grade alignment.** The package is the reference implementation of the JIT half of inversion-of-control. Continue: atom growth, ConfigAtom consistency, cache-key completeness, and wiring audits before deletion of “unused” helpers.
+**Ship-grade alignment.** The package is the reference implementation of the JIT half of inversion-of-control. Cache identity, production fact isolation, and atom-contract parity are verified; continue with ConfigAtom consistency, external-adapter fail-closed policy, decision receipts, and wiring audits before deletion of “unused” helpers.

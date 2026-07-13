@@ -88,7 +88,7 @@ This suite is the package’s **integration bar** against the living policy corp
 | Gap | Priority |
 |-----|----------|
 | Explicit test that Sanitizer under `-race` with concurrent Engine.LoadSchema is safe after ParseUnit migration | P0 after fix |
-| Diff path asserts gas limit option once forwarded | P1 |
+| Diff path created-fact limit on legacy atom/fact and unified atom routes | **Closed** by `TestDifferentialEngine_DerivedFactsLimit` |
 | intent_routing.mg loaded in runtime boot test | P2 |
 | End-to-end CLI mangle-check in CI documented here as optional (slow) | P3 |
 | Unified vs legacy path behavioral parity matrix | P1 |
@@ -99,7 +99,7 @@ This suite is the package’s **integration bar** against the living policy corp
 |-----------|---------------|
 | Decl before use | Engine undeclared predicate tests; schema validator |
 | Forbidden heads | Constitutional / validation suite |
-| Gas limits | `TestDerivedFactsGasLimit`, fact limit tests |
+| Gas limits | `TestDerivedFactsGasLimit`, `TestDifferentialEngine_DerivedFactsLimit`, fact limit tests |
 | Concurrent parse | `parse_lock_test` |
 | Feedback termination | budget tests in feedback package |
 

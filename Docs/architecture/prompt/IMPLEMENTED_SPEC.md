@@ -4,7 +4,7 @@
 > Status: Living Reference Document  
 > Language: Go  
 > Primary sources: `internal/prompt/`  
-> Scale: **~25** non-test Go files; **~32** test files; **0** package-local `.mg`; **hundreds** of embedded atom YAMLs under `atoms/`  
+> Scale: **25** root non-test Go files; **34** root test files; **1** sync source/test pair; **333** embedded YAML files; **888** runtime-loaded atoms; **0** package-local `.mg`
 > Mangle selection rules (external): `internal/core/defaults/jit_compiler.mg`, `policy/jit_logic.mg`, `policy/jit_selection.mg`, `schemas_prompts.mg`
 
 ## 1. Overview
@@ -49,7 +49,8 @@ CompilationContext
 └─────────┬─────────┘
           │ MISS + singleflight
           ▼
-  Assert compile_context/*  ──defer Retract("compile_context")
+  Acquire private KernelCompilationScope (production clones RealKernel)
+  Assert compile_context/* + selector facts inside scope; defer scope close
           │
           ├─► collectAtoms (embedded + project + shard + evolved)
           ├─► collectKernelInjectedAtoms
@@ -85,6 +86,23 @@ user_intent → kernel next_action → VirtualStore / session
   → JIT.Compile → LLM under AllowedTools + policies
 ```
 
+### Applicability boundary
+
+| Lane | Implemented truth |
+|---|---|
+| Mangle | `CompilationContext.GenerateFacts` and `AtomSelector.buildContextFacts` produce the typed selection inputs declared in `schemas_prompts.mg`; `jit_selection.mg` derives eligibility. |
+| Permission and safety | Safety is skeleton guidance; this package does not derive `permitted/3`. Session tool execution remains the authoritative downstream gate. |
+| Fact flow | Session intent/world state -> compilation context -> compiled prompt/config -> LLM -> downstream tool gate/articulation. |
+| JIT and agents | Embedded and per-agent atoms, selector dimensions, structured-output filtering, DB registration, and agent synchronization are live. |
+| Wiring | `initIntelligenceLayer`, `initShardManagement`, and `initFinalExecutors` own boot, lifecycle, and clean-session injection. |
+| State and concurrency | Locks, atomics, LRU, and same-key singleflight are live; production compile facts are isolated in disposable cloned kernels. Third-party unscoped adapters remain a compatibility residual. |
+| Recovery | Skeleton errors fail compilation; flesh/vector/optional stores degrade; session can fall back to a generic baseline. |
+| Observability | Stats, manifests, logs, cache counters, last result, and TUI inspection exist; no durable turn-correlated receipt exists. |
+| Testing | Package/validator tests plus full prompt/sync and focused production scope/cache race tests pass; no fuzz target or external-adapter conformance suite exists. |
+
+These rows are summarized for humans in [README.md](README.md#what-exists-today)
+and reconciled into explicit gaps in [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
+
 ---
 
 ## 2. Implementation status
@@ -99,8 +117,8 @@ user_intent → kernel next_action → VirtualStore / session
 | `DependencyResolver` | **Implemented** | Cycle break by highest score |
 | `TokenBudgetManager` | **Implemented** | PriorityFirst default |
 | `FinalAssembler` + templates | **Implemented** | Static head / dynamic tail |
-| `CompilationContext` facts/hash | **Implemented** | `ToContextFacts`, `Hash` |
-| `ConfigFactory` / ConfigAtoms | **Implemented** | Default + SimpleRegistry |
+| `CompilationContext` facts/hash | **Implemented** | `compilation-context-v2` covers every live prompt-affecting field and canonicalizes sets |
+| `ConfigFactory` / ConfigAtoms | **Implemented/partial** | Production default provider is live; SimpleRegistry catalog is test-only and drifted |
 | `CompilerVectorSearcher` | **Implemented** | DB embedding cosine |
 | `EvolvedAtomManager` | **Implemented** | SPL pending/promoted |
 | Baseline non-JIT assembly | **Implemented** | `baseline.go` |
@@ -108,11 +126,14 @@ user_intent → kernel next_action → VirtualStore / session
 | `AgentSynchronizer` | **Implemented** | `sync/` |
 | Default corpus materialize | **Implemented** | `default_corpus.go` |
 | Kernel policy selection rules | **Implemented (core)** | Not in this package |
-| Full ConfigAtom ↔ tool registry parity | **Partial** | Dual lists can drift |
-| Cache key completeness | **Partial** | See gaps |
-| Agents.md package doc | **Missing** | Root Agents.md points to `internal/prompt/agents.md` but file may be absent — package README is the live doc |
+| ConfigAtom ↔ live tool registry parity | **Partial** | String catalog is not generated/validated against the registered tool surface |
+| Cache key completeness | **Implemented** | Real retry regression proves nudge and exact tools bypass the pre-retry cache |
+| Compile fact isolation | **Implemented/partial** | Production scopes clone `RealKernel`; external adapters without scope/retract support remain unisolated |
+| Atom schema validation | **Implemented** | Shared strict parser and ordered 888-ID parity across validator/filesystem/embed routes |
+| Scoped package guidance | **Implemented** | `internal/prompt/agents.md` defines schema, migration, and verification contracts |
 
-**Overall:** living production JIT — **~90%** mature package with known partials.
+**Overall:** living production JIT with strong component coverage and unresolved
+critical cache-identity, fact-isolation, and authoring-contract gaps.
 
 ---
 
@@ -131,8 +152,9 @@ internal/prompt/
   budget.go                # TokenBudgetManager
   assembler.go             # FinalAssembler, TemplateEngine
   atoms.go                 # PromptAtom, categories, matching, ToFact
-  context.go               # CompilationContext
-  loader.go                # AtomLoader YAML→SQLite
+  context.go               # CompilationContext and versioned cache identity
+  atom_schema.go           # Shared strict YAML schema, migrations, vocabularies
+  loader.go                # Strict AtomLoader adapter and YAML→SQLite
   loader_embedding.go      # Embedding sync helpers
   embedded.go              # go:embed atoms
   baseline.go              # Mandatory-only baseline
@@ -205,9 +227,11 @@ Subcomponents always created: `AtomSelector`, `DependencyResolver`, `TokenBudget
 ### 4.2 Compile algorithm (behavioral)
 
 1. **Validate** context (`TokenBudget > 0`, reserved < budget).  
-2. **Cache lookup** by `cc.Hash()` — HIT returns stored `*CompilationResult`.  
+2. Clone context, resolve specialists, and perform **cache lookup** by the
+   field-complete `cc.Hash()` — HIT returns stored `*CompilationResult`.
 3. **singleflight.Do(cacheKey)** for MISS:  
-   a. If kernel set: `AssertBatch(cc.ToContextFacts())`; if `KernelRetracter`, **defer** `Retract("compile_context")`.  
+   a. Acquire `KernelCompilationScope`; production clones the primary `RealKernel`.
+      Defer scope close, then assert context facts into the private evaluator.
    b. **errgroup** parallel:  
       - `collectAtomsWithStats` — embedded + project DB + shard DB + evolved  
       - `collectKernelInjectedAtoms` — `injectable_context`, `specialist_knowledge`  
@@ -292,7 +316,12 @@ Selector path also builds string facts for batch assert (see `selector.go` `buil
 
 ### 5.5 YAML source of truth
 
-Embedded via `//go:embed atoms`. Schema fields mirrored in `embeddedYAMLAtom` and loader YAML types. Optional `content_file` for external content (loader path).
+Embedded via `//go:embed atoms`. `atom_schema.go#AtomDefinition` and
+`ParsePromptAtomYAML` are the single schema/conversion path for filesystem,
+embedded, synchronization, and validation routes. Unknown fields or partial
+invalid documents fail closed. Optional `content_file` is resolved relative to
+the atom source. Legacy aliases are observable migrations expiring 2027-01-01;
+built-ins must parse without migrations.
 
 ---
 
@@ -440,9 +469,13 @@ From flags: `failing_tests`, `diagnostics`, `large_refactor`, `security_issues`,
 ### 10.3 Facts & cache
 
 - `ToContextFacts()` → `compile_context(Dimension, Value).` style batch  
-- `Hash()` SHA-256 over major dimensions (mode, campaign, shard, language, frameworks, intent, phases, semantic query, budget, test/diag counts, refactor/security/reflection flags)  
+- `Hash()` SHA-256 over schema `compilation-context-v2` and every prompt-affecting
+  dimension, including retry/tools, budgets, search, world state, specialists,
+  shard identity, and set-canonicalized frameworks/tools.
 
-**Not fully hashed (gap risk):** e.g. `AvailableTools`, `PreviousAttemptNoToolCall`, activation maps — can cause stale cache hits if those change alone.
+`internal/prompt/context_hash_test.go#TestCompilationContext_Hash` proves retry,
+tools, specialists, budgets, search, world fields, set canonicalization, and caller
+non-mutation. The production retry regression proves the output-level effect.
 
 ---
 
@@ -558,7 +591,9 @@ See [11-OBSERVABILITY.md](11-OBSERVABILITY.md).
 - Config always requests policy enforcement flag.  
 - Structured-output-only shards strip piggyback protocol atoms to avoid format conflict.  
 - Mandatory atoms cannot silently exceed total budget.  
-- compile_context retracted after selection (when retracter available).  
+- production compile and selector facts live only in a cloned
+  `KernelCompilationScope` and are discarded on close; third-party adapters that
+  expose neither scope creation nor retraction remain a compatibility residual.
 
 Kernel `permitted(...)` remains outside this package.
 
@@ -568,7 +603,9 @@ Kernel `permitted(...)` remains outside this package.
 
 See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md), [TODO.md](TODO.md), [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).
 
-Primary living gaps: cache-key completeness, dual ConfigAtom catalogs, predicate selector wiring clarity, agents.md path referenced from root, vector-only embedded without sync.
+Primary living gaps: durable decision receipts, external-adapter isolation policy,
+dormant ConfigAtom capability drift, cache TTL/shared-result ownership, fuzz
+coverage, and shadow/replay evidence.
 
 ---
 

@@ -36,6 +36,9 @@ APIs: `String()`, `ToLogFields()` for structured logs.
 
 DebugMode on `CompilerConfig` triggers richer manifest logging via `logCompilationManifest`.
 
+This is useful live evidence, but it is not yet a durable, queryable decision
+receipt. Cache hits also do not reconstruct the full selection explanation.
+
 ## Runtime handles
 
 | Handle | Purpose |
@@ -56,13 +59,18 @@ DebugMode on `CompilerConfig` triggers richer manifest logging via `logCompilati
 4. Vector ms and whether SemanticQuery empty.  
 5. Mandatory skips from budget.  
 6. Manifest dropped reasons.  
-7. Whether compile_context assert/retract warned.
+7. Whether `compile_context` assertion warned and whether the active adapter
+   implements retraction; production `KernelAdapter` currently does not.
 
 ## Metrics not yet first-class
 
 - Prometheus-style exporters (logs are primary).  
 - Per-atom latency inside Fit.  
 - Embedding engine error rate dashboards.
+- Compile-scoped fact counts and ownership, including leaked or cross-request facts.
+- Durable decision receipts joining context hash, selected/dropped atoms, tools,
+  safety state, cache outcome, and artifact/version provenance.
+- Runtime-loader versus strict-validator atom ID/count parity.
 
 ## Related glass-box / transparency
 

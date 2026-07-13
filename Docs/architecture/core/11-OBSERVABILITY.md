@@ -40,8 +40,9 @@ Both are nil-safe and drop-on-full (non-blocking). Wired from chat boot for TUI 
 
 | Mechanism | Use |
 |-----------|-----|
-| `execution_result` facts | Logical postcondition of actions |
-| `security_violation` | Deny reasons for later policy / UI |
+| `execution_result/6` facts | Logical postcondition; executive action ID and timestamp |
+| `security_violation/3` | Action, bounded reason, and Unix timestamp for later policy/UI |
+| `execution_error/2` | Request/action correlation and error text |
 | `dream_blocked_action` | Speculative blocks |
 | `FactEventBus` | Push model for system shards vs polling |
 | `Query` / CLI `why` | Interactive inspection |
@@ -81,7 +82,7 @@ No first-class OTEL exporter in core; consumers may scrape these structs.
 ### “Action blocked” with little UI detail
 
 1. VirtualStore warn logs: `policy DENY` includes payload **keys** only.  
-2. Query kernel for `security_violation` / `permission_denied`.  
+2. Query kernel for schema-correct `security_violation/3` / `permission_denied`.
 3. Check boot guard active.  
 4. Check Dreamer logs for `ACTION BLOCKED`.
 

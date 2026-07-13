@@ -6,7 +6,7 @@
 > Module path: `codenerd/internal/mangle`  
 > Subpackages: `feedback`, `synth`, `transpiler`  
 > Upstream: `codeberg.org/TauCeti/mangle-go` (analysis, ast, engine, factstore, parse, unionfind, provenance used by core)  
-> Scale: **~21** non-test Go sources; **~39** test files; **1** package-local `.mg` (`intent_routing.mg`)
+> Scale: **21** non-test Go sources; **40** test files; **1** package-local `.mg` (`intent_routing.mg`)
 
 ## 1. Overview
 
@@ -26,7 +26,7 @@ It implements the **library half** of the hollow-kernel pattern:
 |----------|-------|
 | Fact representation | `mangle.Fact{Predicate, Args []any, Line, Timestamp}` |
 | Default fact limit | 100_000 |
-| Default derived gas | 100_000 (`Engine`); kernel may use 500_000 default |
+| Default derived gas | 100_000 for direct reusable `Engine`; 500_000 for both full and differential kernel paths when kernel configuration is unset |
 | Default query timeout | 30s |
 | Auto-eval | On unless `MANGLE_AUTO_EVAL=0` |
 | Parse concurrency | Serialized process-wide (`parseMu`) |
@@ -91,7 +91,7 @@ Mangle participates as the **evaluation engine** and as the **gate** on learned 
 | SIMD intersect | **Implemented** | amd64 + generic tags |
 | intent_routing.mg | **Source present** | Declarative intent routing rules |
 | Diff path + external predicates | **Partial** | Kernel **falls back** to full eval |
-| Diff path + gas options | **Partial** | Unified/legacy do not forward `WithCreatedFactLimit` |
+| Diff path + created-fact gas | **Implemented** | `evalOptions` forwards the configured positive limit on unified atom, legacy atom, and legacy fact routes |
 | Sanitizer via ParseUnit | **Partial** | Uses `parse.Unit` directly |
 | True delta propagation | **Not implemented** | Re-eval / unified re-eval instead |
 
@@ -375,7 +375,15 @@ From `internal/core/kernel_eval.go` (not in this package, but defines real usage
 | Policy dirty / retract / clear | Invalidate diff engine |
 | Else | `evaluateDiffLocked` → `ApplyAtomDelta` + `CopyAllFactsTo` |
 
-Operational note in kernel comments: until option forwarding lands, recommend `CODENERD_DIFF_EVAL=0` when correctness with externals/gas is critical — or rely on automatic fallback when externals present.
+Created-fact gas is enforced on differential calls. External predicates and
+provenance still use the full path; keep those explicit fallbacks until their
+option contracts are separately implemented and tested.
+
+The kernel resolves an unset/non-positive `derivedFactLimit` through
+`effectiveDerivedFactLimitLocked`: full and differential kernel evaluation both
+receive 500,000. This intentionally overrides the reusable Engine's independent
+100,000 package default when the Engine is constructed for the kernel diff path.
+`TestKernelEval_ZeroConfigDerivedFactLimitParity` locks that boundary.
 
 ---
 
@@ -688,7 +696,8 @@ shards may FeedbackLoop → learned rules → kernel policy dirty → rebuild
 
 See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md). Critical partials:
 
-1. Diff path does not forward external predicates or created-fact limits.
+1. Diff path does not forward external predicates or provenance; core falls back
+   to full evaluation for both. Created-fact limits are forwarded and tested.
 2. Sanitizer/synth may call unlocked parse.
 3. intent_routing.mg runtime wiring verification.
 4. Proof tree vs provenance dual systems.

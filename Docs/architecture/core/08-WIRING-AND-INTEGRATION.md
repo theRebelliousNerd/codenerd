@@ -12,9 +12,10 @@ Conceptual order (see `cmd/nerd/chat/session_boot.go` and `internal/system` for 
 2. NewRealKernelWithWorkspace(workspace)  OR  CortexKernel + shards
 3. loadMangleFiles already ran inside constructor
 4. NewVirtualStore(tactileExecutor) / WithConfig(workingDir, allowlists)
-5. vs.SetKernel(kernel)  → attaches Dreamer for *RealKernel
+5. vs.SetKernel(kernel)  → clears stale Dreamer; lazily attaches to RealKernel or Cortex primary
 6. kernel.SetVirtualStore(vs)  → virtual predicates
-7. vs.DisableBootGuard() only after first real user interaction path is ready
+7. Chat: keep guard through rehydration; disable on first user message
+   Command BootCortex: disable while booting an already requested command
 8. Register domain shard factories on ShardManager
 9. SetLLMClient / APIScheduler / ScheduledLLM wrappers
 10. session.Executor or TaskDelegator wired for delegate actions
@@ -27,14 +28,23 @@ Conceptual order (see `cmd/nerd/chat/session_boot.go` and `internal/system` for 
 ```
 vs.SetKernel(k)
   - stores Kernel interface
-  - if *RealKernel: NewDreamer(k), assert critical paths
-  - rebuildPermissionCache from safe_action / permitted sources
+  - clears any Dreamer bound to the prior kernel
+  - lazy Dreamer resolves *RealKernel or CortexKernel.GetPrimaryRealKernel
+  - rebuilds safe_action classification cache
 
 k.SetVirtualStore(vs)
   - enables query_* / virtual predicate resolution during eval
 ```
 
-Order matters: attach before routing actions; boot guard should remain until session is live.
+Order matters: attach before routing actions. Missing kernel or missing Dreamer on
+a destructive path denies. The boot-guard lifetime is mode-specific: chat is
+quiescent through rehydration; command boot represents an already requested action.
+
+The default Cortex configuration routes the full permission envelope to the
+policy shard: `pending_action`, `permitted_action`, `permission_check_result`,
+`permitted`, `blocked`, `constitution`, `commit_barrier`, and `dangerous_action`.
+Splitting these predicates across shards breaks the join and must remain a test
+failure.
 
 ## 3. Session integration
 
@@ -71,7 +81,8 @@ Delegate actions in VS call `taskDelegator` when set; otherwise may fall back to
 
 | CLI area | Core use |
 |----------|----------|
-| Interactive chat | Full cortex boot |
+| Interactive chat | Real-kernel session boot; guard released at first user turn |
+| Command-oriented system boot | `BootCortex`; guard released during explicit command boot |
 | `query` / `why` | Kernel Query / Explain |
 | `dream` / `shadow` / `whatif` | Dreamer / ShadowMode |
 | `run` one-shot | Boot + single OODA |
@@ -129,7 +140,7 @@ See: `tests/e2e/session_executor_kernel_integration_test.go`, `dreamer_kernelclo
 | RouteAction with boot guard still on after user typed | All tools blocked |
 | DisableBootGuard before rehydrate complete | Stale next_action fires |
 | Kernel without VS when virtual preds required | Incomplete eval |
-| VS without kernel in production | Permitted gate skipped |
+| VS without kernel | Exact permission gate denies; indicates incomplete DI |
 | Register two Cortex domains claiming same predicate | Last-wins warning only |
 | HotLoad invalid rule without sandbox | Mitigated by HotLoadRule — do not bypass |
 
@@ -137,7 +148,7 @@ See: `tests/e2e/session_executor_kernel_integration_test.go`, `dreamer_kernelclo
 
 1. Add `ActionType` constant  
 2. Handler in appropriate `virtual_store_*.go` + switch in `executeAction`  
-3. `safe_action` or dangerous path in `constitution.mg` / related policy  
+3. `safe_action`/dangerous classification and exact `permitted/3` envelope in policy
 4. Mark `isDestructiveAction` if irreversible  
 5. Decl any new result predicates in schemas  
 6. Validator if success is non-obvious  

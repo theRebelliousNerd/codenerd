@@ -8,6 +8,9 @@ Decisions: [DARK-FACTORY-JOURNAL.md](DARK-FACTORY-JOURNAL.md)
 
 ## Quality standard
 
+- **Current standard:** [`_rebuild/SUPERSTAR_CORPUS_STANDARD.md`](_rebuild/SUPERSTAR_CORPUS_STANDARD.md).
+- **Machine ownership:** [`portfolio.toml`](portfolio.toml) plus one `corpus.toml` per corpus.
+- **Legacy decisions:** [`_rebuild/LEGACY_MIGRATION_LEDGER.md`](_rebuild/LEGACY_MIGRATION_LEDGER.md) records every compatibility filename and deletion gate.
 - **Reference depth:** `Docs/architecture/cli/` (cmd/nerd) and dense packages (core, session, mangle, campaign, prompt, …).
 - **Rejected:** auto-inventory stubs without behavioral narrative.
 - **Docs only** for the deep rebuild — no Go/Mangle changes in that wave.

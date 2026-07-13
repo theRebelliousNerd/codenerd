@@ -1,86 +1,64 @@
-# 10 — Testing Alignment: shards
+# Testing alignment: shards
 
-> Last verified against codebase: 2026-07-13
-
-## 1. Commands
+## Verification ladder
 
 ```powershell
-# Full shards tree
-go test ./internal/shards/...
-
-# Root package only
-go test ./internal/shards/ -count=1
-
-# System subpackage
-go test ./internal/shards/system/ -count=1
-
-# Focused
-go test ./internal/shards/ -run Matching -count=1
-go test ./internal/shards/system/ -run Constitution -count=1
-go test ./internal/shards/system/ -run Executive -count=1
-go test ./internal/shards/system/ -run ActionPipeline -count=1
+go test -count=1 ./internal/shards/...
+go test -race -count=1 -timeout=240s ./internal/shards/...
+go test -count=1 ./internal/core/shards/... ./internal/system/...
+go test -count=1 ./tests/e2e/...
 ```
 
-## 2. Existing test map
+Only the first two commands were run for this corpus receipt. Broader commands
+are risk gates for product changes, not claimed passes here.
 
-### Root package
+## Current evidence matrix
 
-| File | Focus |
-|------|-------|
-| `registration_test.go` | `RegisterAllShardFactories`, system profiles |
-| `matching_test.go` | `MatchSpecialistsForTask` table, `GetExecutionMode` |
-| `matching_classification_test.go` | execute/advisor predicates, patterns |
-| `consultation_test.go` | request/response, advisors, format advice |
-| `observer_manager_test.go` | start/stop, register, events, levels |
-| `observer_manager_accessors_test.go` | callbacks, assessments |
-| `observer_integration_test.go` | concurrency, Northstar handler, shutdown |
-| `requirements_interrogator_test.go` | no-LLM fallback, setters, extract questions |
+| Risk | Existing evidence | Verdict |
+|---|---|---|
+| factory/profile names | `registration_test.go#TestRegisterAllShardFactories` | **VERIFIED CURRENT** for package catalog |
+| matcher classification and ranking | matching table/classification tests | **VERIFIED CURRENT** for heuristic matcher |
+| consultation terminal results | single/success/partial/total/nil-spawner tests | **VERIFIED CURRENT**: ordered successes and joined errors; cancellation/cache semantics remain |
+| observer concurrency and restart | integration + Start/Stop/Start regression + race suite | **VERIFIED CURRENT** for generation lifecycle; overflow metric absent |
+| requirements no-LLM/no-JIT | interrogator tests | **VERIFIED CURRENT** for those branches |
+| CostGuard, base state, payload codecs | base coverage tests | **VERIFIED CURRENT** for unit contracts |
+| executive boot guard/OODA/delegation | executive tests | **VERIFIED CURRENT** for focused paths |
+| constitution local rules/appeals | constitution coverage tests | **PARTIAL**: broad helper coverage, limited exact negative integration |
+| route selection/no-route | route selection/escalation tests | **VERIFIED CURRENT** for default mode |
+| exact action pipeline | `action_pipeline_test.go#TestPendingActionPipelineProducesRoutingResult` | **VERIFIED CURRENT** read-file permit/route/effect ID |
+| Mangle repair helpers/selectors | repair and helper tests | **PARTIAL** end-to-end boot/persistence |
+| world/planner/campaign lifecycle | helper/coverage tests | **PARTIAL** long-running recovery |
 
-### system package
+## Missing decisive gates
 
-| File | Focus |
-|------|-------|
-| `base_coverage_test.go` | CostGuard, AutopoiesisLoop, BaseSystemShard DI/JIT/guarded LLM |
-| `executive_coverage_test.go` / `executive_helpers_test.go` / `executive_ooda_test.go` | Executive paths |
-| `constitution_coverage_test.go` | Gate coverage |
-| `router_escalation_test.go` / `router_route_selection_test.go` | Routing |
-| `perception_validation_test.go` / `perception_transient_test.go` | Perception |
-| `planner_test.go` | Planner |
-| `mangle_repair_test.go` / bench | Repair pipeline |
-| `action_pipeline_test.go` | Pending → routing pipeline |
-| `policy_action_routes_test.go` | Policy/route alignment |
-| `learning_test.go` | Learning patterns |
-| `system_helpers_test.go` | Shared helpers |
+| Test | Positive control | Negative control | Why it matters |
+|---|---|---|---|
+| full descriptor parity | all boots enumerate one factory/profile/dependency set | missing runtime enricher fails visibly | predicate ownership is already unified; completes boot parity |
+| consultation cancellation/cache | cancellation names target and preserves completed peers | cache hit cannot leak mutable manager state or wrong correlation | completes collaboration ownership |
+| observer overflow | bounded coalescing/drop metric preserves diagnosis | overflow cannot silently imply healthy alignment | completes observer operations |
+| router branch invariant | every new route terminal calls exact consumption | second cycle finds no permission/result amplification | preserves the now-verified fix |
+| boot readiness | required set reaches ready | failed required blocks dependent effect; optional only degrades | submission is not readiness |
+| JIT inventory | every LLM call maps to atoms/fallback | new inline system behavior fails lint | enforces JIT-first |
+| cancellation/recovery | queue/spawn/shard waiters all terminate | no active/status/JIT DB residue | long-horizon stability |
+| observability redaction | receipt correlates bounded IDs | marked secret and oversized output rejected | safe diagnosis |
 
-## 3. Coverage strengths
+## Test design rules
 
-- CostGuard math and cooldown behavior well unit-tested  
-- Matching classifications and verb modes table-tested  
-- Observer concurrency/integration tests present  
-- Payload encode/decode covered via base tests  
-- Registration factory smoke tests  
+- Use a real RealKernel for exact permission, predicate type, and routing joins.
+- Use table tests for profiles, route branches, payload variants, and status
+  transitions.
+- Use deterministic channels/hooks instead of sleeps for lifecycle assertions.
+- Run race tests whenever state, callbacks, subscriptions, queues, or caches
+  change.
+- Add fuzzing for payload codecs, consultation parsing, and action normalization.
+- Add adversarial Mangle fixtures for arity, atoms versus strings, unsafe
+  negation, protected heads, and stratification.
+- Campaign tests should inject time and resource ceilings; never rely on a live
+  provider for the only acceptance gate.
 
-## 4. Coverage gaps
+## Corpus receipts
 
-| Area | Gap |
-|------|-----|
-| Full multi-shard OODA under CortexKernel | Mostly e2e outside package |
-| Dual registration set equality (factory vs session_boot) | **Missing** |
-| Predicate manifest consumption | **Missing** (feature partial) |
-| Campaign runner restart backoff | Thin |
-| Legislator sandbox ratification end-to-end | Thin |
-| Perception classification client tiering | Limited |
-| Router full route table vs VirtualStore handlers | action_linter tool helps; not complete |
-| Long-running Execute loops with cancellation | Partial |
-
-## 5. Recommended tests (backlog)
-
-1. **Factory set lock:** collect `RegisterAllShardFactories` names vs names registered in a test double of session_boot list — fail on drift.  
-2. **Boot guard:** executive with pending next_action produces zero `pending_action` until DisableBootGuard.  
-3. **Strict deny:** constitution with empty permitted EDB blocks write_file pending_action.  
-4. **Dangerous pattern:** pending shell target with `rm -rf` never yields permitted_action.  
-5. **Repair interceptor:** invalid rule rejected; valid Decl-using rule accepted (uses mangle engine).  
-
-## 6. Relation to e2e
-
-`tests/e2e/*` exercises VirtualStore boot guard and kernel/VS integration. Treat those as complementary, not substitutes for package unit tests.
+The strict corpus validator runs `go test -count=1 ./internal/shards/...` from
+`corpus.toml`. The independent race receipt is recorded in
+[_progress.md](_progress.md). Structural validation cannot prove semantic wiring;
+the exact-ID action test is the strongest current end-to-end package discriminator.

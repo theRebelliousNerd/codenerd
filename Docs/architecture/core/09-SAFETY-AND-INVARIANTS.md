@@ -6,8 +6,8 @@
 ## 1. Safety stack (ordered)
 
 ```
-1. Boot guard          — no RouteAction until first user interaction
-2. Dreamer             — speculative panic_state (destructive only)
+1. Boot guard          — chat quiescence; command boot is separately explicit
+2. Dreamer             — mandatory checked sandbox for destructive paths
 3. Go constitution      — hard string/path rules
 4. Mangle permitted    — default deny executive policy
 5. Binary/env allowlist— tactile exec constraints
@@ -21,7 +21,11 @@ Missing earlier layer must not be “compensated” by hoping a later layer exis
 
 `defaults/policy/constitution.mg`:
 
-- `permitted(Action, Target, Payload)` requires `safe_action(Action)` and pending envelope, with `!dangerous_content` on payload **and** target.  
+- `permitted(Action, Target, Payload)` requires `safe_action(Action)` and the
+  pending envelope, with `!dangerous_content` on payload **and** target.
+- Go queries this exact triple using canonical JSON payload. Target or payload
+  mismatch denies. The `safe_action/1` cache is classification only and is never
+  an authorization shortcut.
 - Dangerous actions need `signed_approval` + `admin_override`.  
 - Executor bridge via `permitted_action` + `permission_check_result(..., /permit, ...)`.  
 - `permission_denied` rules document deny reasons for dangerous actions without override.
@@ -45,7 +49,9 @@ These are **not** a substitute for allowlists or Dreamer.
 
 | Invariant | Enforcement |
 |-----------|-------------|
-| Fail closed | Nil kernel/context, eval fail, missing Decl → Unsafe |
+| Fail closed | Nil kernel/context, missing Dreamer, stage/eval/query failure, missing Decl → Unsafe/deny |
+| Sandbox-only projection | `hypothetical` and projected facts never enter live EDB |
+| Complete staging | invalid/over-limit projected fact rejects the simulation |
 | Critical paths | Hardcoded prefixes asserted as `critical_path_prefix` |
 | Critical files | Policy `critical_file("go.mod")` etc. |
 | Cache coherence | Invalidate on kernel/policy change (caller duty) |
@@ -60,13 +66,17 @@ These are **not** a substitute for allowlists or Dreamer.
 | No effect routing until ready | `bootGuardActive` |
 | Learned cannot outrank constitution | Concat order in `rebuildProgram` |
 
+Chat keeps the guard active through state rehydration and releases it on the first
+user message. `BootCortex` is a command-oriented path and disables during boot
+because the command itself is already explicit; these modes must not be conflated.
+
 ## 6. EDB / eval invariants
 
 | Invariant | Mechanism |
 |-----------|-----------|
 | Deduped facts | `factIndex` canon keys |
 | Hard EDB ceiling | `maxFacts` default 250k |
-| Derived fact ceiling | default 500k |
+| Derived fact ceiling | effective default 500k in full and differential paths |
 | Retract invalidates diff engine | Force full rebuild |
 | Provenance off by default | Memory bound |
 | Dirty query correctness | `ensureEvaluated` before Query |
@@ -110,10 +120,10 @@ Caller-provided env is filtered (`filterCallerEnv`) so duplicate keys cannot smu
 
 | Predicate | Meaning |
 |-----------|---------|
-| `security_violation` | Gate denied or constitution failed |
+| `security_violation(ActionType, Reason, Timestamp)` | Gate denied or constitution failed; target may be embedded in reason |
 | `dream_blocked_action` | Dreamer blocked |
-| `execution_error` | Handler failure |
-| `execution_result` | Outcome log |
+| `execution_error(RequestID, ErrorMessage)` | Handler/route failure |
+| `execution_result(ActionID, Type, Target, Success, Output, Timestamp)` | Outcome log and prune timestamp source |
 | `panic_state` | Speculative hazard (IDB) |
 | `permitted` | Allow derivation |
 

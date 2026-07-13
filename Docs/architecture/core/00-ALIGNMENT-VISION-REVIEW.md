@@ -2,6 +2,8 @@
 
 > Last verified: **2026-07-13**  
 > Against: codeNERD north star (LLM creative; Mangle executive; constitutional default deny; JIT prompts; wiring before deletion)
+> This 10-dimension narrative is retained for orientation. The current signed
+> 14-dimension superstar score and receipts live in [_progress.md](_progress.md).
 
 ## Scoring method
 
@@ -29,16 +31,22 @@ Each dimension: **0–5** with evidence from `internal/core/` only (not aspirati
 **Evidence:**
 
 - `defaults/policy/constitution.mg` requires positive `permitted` derivation from `safe_action` + pending envelope + not dangerous content.
-- VS `CheckKernelPermitted` denies when kernel present and not permitted.
+- VS `CheckKernelPermitted` denies on nil kernel, query failure, or any mismatch
+  in the exact action/target/canonical-payload triple. `safe_action` cache entries
+  classify only.
 - Go constitution + Dreamer add defense-in-depth layers.
 
 **Gap (minor):** Some tools may bypass RouteAction via direct `Exec`/`session` paths — still binary/env filtered, but not the full dreamer stack on every call.
 
 ### 3. Speculative safety (Dreamer) — **4/5**
 
-**Evidence:** Destructive actions always hit Dreamer when attached; fail-closed on nil kernel, eval fail, missing `panic_state` Decl (`dreamer.go`). Policy `dreamer.mg` + critical path facts.
+**Evidence:** Destructive RouteAction and interactive preflight require a usable
+Dreamer. `RealKernel` and Cortex-primary backing are supported; sandbox facts are
+checked and never asserted into live truth. Nil dependency, invalid/over-limit
+projection, eval failure, and missing `panic_state` all deny.
 
-**Gap:** Projection fidelity is rule-based (projected_fact), not full OS sandbox simulation; cache can go stale if invalidation missed after policy hot-load.
+**Gap:** Projection fidelity is rule-based (projected_fact), not full OS sandbox
+simulation; cache freshness still lacks one mutation-epoch contract.
 
 ### 4. Deterministic executive corpus (schemas/policy embed) — **5/5**
 

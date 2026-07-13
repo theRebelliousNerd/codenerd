@@ -38,6 +38,20 @@ go test -race ./internal/core/ -run 'Scheduler|Spawn|Transaction|Cortex'
 go test ./tests/e2e/ -count=1 -run 'Kernel|VirtualStore|Dreamer|Shadow|Session'
 ```
 
+Current receipts (2026-07-13):
+
+- `go test -count=1 -timeout=240s ./internal/core` — PASS, 168.105s.
+- Fourteen focused core safety/lifecycle regressions — PASS, 7.396s.
+- `TestDefaultCortexPermissionEnvelopeRoutesToPolicyShard` — PASS, 7.374s.
+- `TestPendingActionPipelineProducesRoutingResult` — PASS, 7.281s.
+- TDD exact-permission mock plus CodeDOM edit handler — PASS, 5.630s.
+
+The root core package constructs the composite tactile executor, whose Docker
+backend performs a Docker availability probe. A bounded full-core gate is thus
+host-dependent and can be slow even when no container test is requested; always
+use an explicit timeout and record the environment failure separately from a
+semantic test failure.
+
 CGO flags from root `AGENTS.md` when building binary; pure `go test` for most core packages does not need sqlite-vec unless tests open corpora with CGO deps.
 
 ## 3. Policy golden methodology
@@ -61,7 +75,8 @@ Tests load EDB + program slice and compare derived atoms to golden files. Prefer
 | Principle | Test evidence |
 |-----------|---------------|
 | Default deny | safety policy tests, VS permitted tests |
-| Fail-closed Dreamer | dreamer tests + e2e kernelclone |
+| Exact envelope | `TestPermissionCacheIsClassificationOnly`; Cortex policy-shard test |
+| Fail-closed Dreamer | isolation, invalid fact, capacity, nil-Dreamer route/preflight tests |
 | Boot / load | kernel_init / corpus tests |
 | Clone isolation | dreamer_kernelclone e2e |
 | Concurrent scheduler | slot leak tests |
@@ -72,10 +87,11 @@ Tests load EDB + program slice and compare derived atoms to golden files. Prefer
 | Gap | Risk | Suggested coverage |
 |-----|------|--------------------|
 | Full ActionType matrix vs handler | Silent no-op verbs | Table test: every ActionType has case |
-| HotLoad + permission cache | Stale allow | Integration after HotLoadRule |
+| Dreamer mutation epoch | Stale simulation result | HotLoad/assert invalidation integration |
 | Diff-eval retract paths | Wrong IDB | Explicit retract→query tests with flag on/off |
 | Multi-domain ownership conflicts | Last-wins | Cortex register conflict assertions |
-| Long-horizon fact prune | EDB bloat | maybePruneActionLogs unit stress |
+| Long-horizon prune retention | EDB bloat | timestamp slot unit passes; add campaign-duration measurement |
+| CodeDOM concrete-file metadata negative | Wrong semantic reference target | prove symbolic request target cannot override result metadata |
 | Real MCP network | Flaky | Keep fakes; e2e optional tagged |
 
 ## 6. How to test a policy change
@@ -90,9 +106,11 @@ Tests load EDB + program slice and compare derived atoms to golden files. Prefer
 ## 7. How to test a VS handler change
 
 1. Unit test handler with mock tactile executor.  
-2. RouteAction test for boot guard / constitution / permitted interactions.  
-3. If destructive: dreamer block + allow cases.  
-4. Inject fact assertions on `execution_result`.
+2. RouteAction test for boot guard, nil-kernel denial, constitution, and exact
+   target/payload `permitted/3` interactions.
+3. If destructive: Dreamer allow/block plus missing-Dreamer denial.
+4. Assert `security_violation/3`, `execution_error/2`, `execution_result/6`, and
+   post-validation error propagation.
 
 ## 8. CI expectations
 

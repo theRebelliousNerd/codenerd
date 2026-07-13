@@ -1,68 +1,73 @@
-# 04 — Architectural Principles: shards
+# Architectural principles: shards
 
-> Last verified against codebase: 2026-07-13  
-> Binding principles for work in `internal/shards` and `internal/shards/system`
+## 1. Creativity proposes; logic and code commit
 
-## P1 — System shards speak facts, not side effects
+LLMs may classify, decompose, advise, and propose Mangle. Core Mangle policy
+decides executive facts. Constitution and VirtualStore enforce effects. A prompt,
+profile, confidence score, or readiness fact cannot grant authority.
 
-System shards assert/query kernel facts. Effectful work goes through **constitution-cleared** routes and VirtualStore tools. Never call OS/network APIs from executive or constitution for “convenience.”
+## 2. Preserve the exact envelope
 
-## P2 — Default deny
+Action ID, type, target, and canonical payload are one contract from executive
+through constitution, router, VirtualStore, and terminal receipts. Never mint a
+new action ID at an adapter boundary or authorize only an action class.
 
-`ConstitutionGateShard` StrictMode: if `permitted` cannot be derived, **block**. Unmapped router actions are also denied (`AllowUnmappedActions=false`).
+## 3. Default deny, including degraded dependencies
 
-## P3 — Logic-primary where authority lives
+A missing kernel, missing exact permission, malformed envelope, missing required
+route, or unavailable required safety participant is denial. Optional creative
+work may degrade; effect authority may not.
 
-| Shard | Primary mode |
-|-------|--------------|
-| executive_policy | Mangle evaluation |
-| constitution_gate | Mangle + deterministic patterns |
-| tactile_router | Static routes + rate limits |
-| perception_firewall | LLM (creative transduction) |
-| session_planner | LLM (creative decomposition) |
+## 4. One registration authority, explicit enrichers
 
-Do not flip executive/constitution to “LLM decides.”
+Factories, profiles, predicate ownership, startup, and dependencies need one
+typed source. Browser/UI/store enrichers are named adapter layers. A second
+hard-coded table is debt and must have parity tests until removed.
 
-## P4 — Boot guard until human presence
+## 5. Auto-start is a safety contract
 
-Executive (and VirtualStore) boot guards prevent rehydration storms. Call `DisableBootGuard` only on genuine user/CLI initiation.
+Only the minimum OODA/safety spine starts automatically. Campaign, planner,
+world, router, and legislator remain on demand unless a policy and product
+decision changes their lifecycle. Submission is not readiness.
 
-## P5 — CostGuard all LLM egress from system shards
+## 6. One terminal outcome
 
-Use `GuardedLLMCall` / adapters that check CostGuard. Session and minute caps + error backoff are mandatory for continuous loops.
+Every spawn, consultation, observation generation, permission consumption, and
+route ends once. Partial results retain their failures. Cancellation propagates.
+Retries require idempotency and never repeat an external effect blindly.
 
-## P6 — JIT-first for new LLM-facing behavior
+## 7. JIT atoms own stable model behavior
 
-New prompts = prompt atoms + assembler selection. Do not grow multi-page string constants in system shards when an atom category exists.
+New system behavior becomes atoms and typed selection. User/task data may remain
+inline as bounded payload. Compatibility fallback is explicit per call and
+observable; deterministic executive behavior never falls back to an LLM.
 
-## P7 — No hollow factories
+## 8. Repair before persistence
 
-Factories registered without kernel/LLM/VS when those deps are required recreate the hollow-shard bug. Use `RegistryContext` fields; fail loud or no-op safely.
+Candidate Mangle must parse, use declared predicates/arity, bind negation,
+stratify, and avoid protected control-plane heads before hot-load or persistence.
+The retry budget is finite and rejection is a valid terminal result.
 
-## P8 — Auto vs OnDemand is a safety decision
+## 9. State has an owner and generation
 
-Auto shards are the OODA spine. OnDemand shards (campaign, planner, router idle) avoid accidental long work. Do not flip `campaign_runner` to Auto without an explicit product decision.
+ShardManager owns active/result state; concrete shards own local state; kernel
+owns facts; stores own durable learning. Restartable managers create a fresh
+generation. Returned views do not expose mutable internal pointers.
 
-## P9 — Domain personas stay out of this tree
+## 10. Bounds are part of correctness
 
-Do not reintroduce `internal/shards/coder` et al. Extend `session` + prompt atoms + Mangle routing instead.
+Queue size, workers, model calls, validation attempts, event buffers, cache
+entries, output bytes, fact retention, scan scope, and timeouts must remain
+finite and diagnosable.
 
-## P10 — Dual registration is temporary debt
+## 11. Evidence outranks optimistic wiring
 
-Any new system shard must be registered in **both** paths until unified — or added only via `RegisterAllShardFactories` if session_boot is updated to call it exclusively.
+Registration, a constructor, or a passing build is not reachability. Prove boot,
+dispatch, teardown, negative safety, and user-visible terminal behavior. Search
+all boot and adapter paths before deleting apparently unused code.
 
-## P11 — Repair before persist
+## 12. Personas stay declarative
 
-Learned Mangle rules pass `MangleRepairShard` / kernel interceptor. Legislator sandboxes synthesis. Invalid rules never become durable policy silently.
-
-## P12 — Wiring audit before deletion
-
-Before removing “unused” registration or manager helpers, grep:
-
-- `RegisterShard("`  
-- `DefineProfile("`  
-- chat process lookups by config name  
-- campaign/CLI factory calls  
-- Mangle predicates the shard alone asserts  
-
-Prefer fixing wiring to deleting half-integrated features.
+Domain coding agents belong to prompt atoms, agent databases, and session
+execution. `internal/shards` should remain a thin system spine plus collaboration
+libraries, not grow another bespoke persona class tree.

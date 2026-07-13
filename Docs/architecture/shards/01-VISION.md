@@ -1,62 +1,74 @@
-# 01 — Vision: shards
+# Vision: a policy-governed specialist mesh
 
-> Last verified against codebase: 2026-07-13  
-> Target state for `internal/shards` + `internal/shards/system`
+## Product outcome
 
-## 1. Product role
+The user asks one question and experiences one coherent codeNERD, even when
+multiple specialists contribute. The system should choose only the participants
+that add value, give each a bounded creative role, make readiness and failure
+visible, and preserve one deterministic effect authority.
 
-Shards are the **typed agents of the cortex**:
+## Target architecture
 
-- **Type 1 (system)** — permanent or on-demand OODA services that speak only in facts and tools.  
-- **Type 2 (ephemeral)** — short-lived helpers (e.g. requirements interrogator).  
-- **Persona execution** — *not* Go types here; JIT personas spawned through session/ShardManager for user work.
+### One typed registry
 
-The vision is a **thin, durable system spine** plus **declarative personas**, not a zoo of bespoke coding shards.
+One descriptor names each shard's factory, profile, dependencies, startup mode,
+owned predicates, prompt selectors, resource limits, readiness, and teardown.
+Runtime-specific enrichers attach browser, ToolStore, Glass Box, or campaign
+manager dependencies without rewriting the base factory graph.
 
-## 2. Target capabilities
+### One correlated operation story
 
-### 2.1 Single registration story
+Ingress, consultation, spawn, permission, route, and completion preserve stable
+identities. Every operation terminates as success, partial success, denial,
+cancellation, timeout, or failure. No missing response or retained fact is
+allowed to masquerade as success.
 
-One registration API (`RegisterAllShardFactories` + profile defs) consumed by **all** boots (CLI Cortex factory, interactive chat, campaign CLI, init scanner). Chat-only DI (GlassBox, ToolStore) should attach via:
+### Policy-certified activation
 
-- post-spawn hooks on ShardManager, or  
-- optional fields on `RegistryContext`,  
+Mangle derives a finite activation plan from capabilities, dependencies,
+configuration, and resource facts. Go owns actual spawning and effects. A boot
+generation distinguishes fresh readiness from stale heartbeats. Required safety
+participants must be ready for the generation before a dependent effect; an
+optional advisor may degrade without deadlocking the session.
 
-not a parallel hand-rolled factory list that diverges.
+### JIT-native cognition
 
-### 2.2 Authoritative predicate routing
+Stable model-facing behavior lives in validated prompt atoms. Task/user data
+stays bounded and separate. Each call declares required-JIT, optional-JIT, or a
+specific compatibility fallback. A redacted receipt shows atom IDs, budget,
+truncation, and fallback without storing secrets.
 
-`DefaultShardPredicateManifests` becomes the **single source of truth** for per-domain fact ownership when multi-kernel / per-shard facts are enabled. Asserts to the wrong domain re-route or fail loud.
+### Evidence-aware specialists
 
-### 2.3 Event-driven OODA by default
+Heuristic and semantic retrieval may nominate specialists. Typed classification,
+readiness, permission, cost, and task contracts decide eligibility. Evidence
+freshness and confidence are visible; recommendation never equals authority.
 
-Every continuous system shard prefers kernel event-bus subscription over polling. Fallback tickers remain for tests and degraded kernels only.
+## Non-goals
 
-### 2.4 Logic-primary safety
+- a distributed actor platform;
+- permanent processes for every persona;
+- model-authored permission or readiness;
+- moving core policy and declarations into `internal/shards`;
+- reintroducing coder/reviewer/tester/researcher Go hierarchies;
+- requiring every optional specialist before responding;
+- recording raw prompts, source bodies, or secrets in lifecycle receipts.
 
-Constitution gate and executive barriers remain free of LLM decision authority. LLM may **propose** rules (autopoiesis/legislator) but **never** grant `permitted` by fiat.
+## Measurable success
 
-### 2.5 Specialist mesh (JIT-native)
+| Outcome | Falsifiable target |
+|---|---|
+| registration parity | every boot enumerates one descriptor set; duplicate ownership and incomplete authorization envelope fail validation |
+| action integrity | one action ID/type/target/payload reaches one terminal effect or denial; zero permissive replay |
+| collaboration honesty | every requested specialist has a response or named failure; total failure cannot return nil error |
+| lifecycle honesty | Start/Stop/Start either works by generation or is explicitly rejected; public liveness matches worker liveness |
+| readiness | required failure blocks only dependent effects; optional failure degrades visibly and does not deadlock |
+| JIT discipline | every LLM call maps to an atom family and explicit fallback policy |
+| operational containment | receipts are versioned, redacted, size-capped, and retention-bounded |
 
-Matching, consultation, and observers orchestrate **registered agents** (`.nerd/agents`) and JIT personas without resurrecting domain Go packages. Matching may later add embedding retrieval; classifications stay structured facts.
+## First slices
 
-### 2.6 Honest package docs
-
-`internal/shards/README.md` should describe **what is live**, not only the 2024 migration.
-
-## 3. Non-goals
-
-- Rebuilding hard-coded coder/tester/reviewer Go shards  
-- Moving policy corpus into this package  
-- Replacing VirtualStore tool implementations  
-- Becoming a second session executor  
-
-## 4. Success metrics
-
-| Metric | Target |
-|--------|--------|
-| Dual registration drift | Zero intentional differences; tests lock factory sets |
-| Boot auto-execution of stale actions | Zero (boot guard + intent retract) |
-| Unpermitted tool runs via router | Zero (requires `permitted_action`) |
-| Domain Go packages under `internal/shards/*` | Remain absent |
-| System shard disable via config/env | Works for both boots |
+1. Lock manifest/production parity and preserve the policy authorization join.
+2. Repair batch, observer, and router terminal semantics with negative tests.
+3. Inventory and normalize JIT call policies.
+4. Add activation generations only after one registry and terminal outcomes exist.

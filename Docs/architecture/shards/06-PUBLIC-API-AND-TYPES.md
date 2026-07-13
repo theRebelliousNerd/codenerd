@@ -10,7 +10,7 @@
 | Symbol | Kind | File | Notes |
 |--------|------|------|-------|
 | `ShardPredicateManifest` | type | registration.go | Domain + OwnedPredicates |
-| `DefaultShardPredicateManifests` | func | registration.go | Canonical ownership table |
+| `DefaultShardPredicateManifests` | func | registration.go | Canonical production predicate ownership; complete policy envelope; uniqueness tested |
 | `RegistryContext` | type | registration.go | DI for factories |
 | `RegisterAllShardFactories` | func | registration.go | Main registration entry |
 | `RegisterSystemShardProfiles` | func | registration.go | Profiles only (manual factory path) |
@@ -47,6 +47,7 @@
 | `ConsultationSpawner` | interface | `SpawnConsultation` |
 | `ConsultationManager` | type | Manager |
 | `NewConsultationManager` | ctor | |
+| `RequestConsultation` / `RequestBatchConsultation` | methods | Single/batch delegation; ordered successes plus joined partial/total errors; nil spawner fails visibly |
 | `GetStrategicAdvisorsFor` | func | Advisors for executor |
 | `ShouldConsultBeforeExecution` | func | Complexity gate |
 | `FormatConsultationAdvice` | func | Prompt formatting |
@@ -64,6 +65,7 @@
 | `ObserverState` | type | Per-observer state |
 | `ObserverSpawner` | interface | Spawn observer task |
 | `NewBackgroundObserverManager` | ctor | |
+| `Start` / `Stop` | methods | Fresh restart generations, joined loop/task work, stale-event drain, idempotent Stop |
 | `FormatAssessment` | func | Display helper |
 
 ### Requirements interrogator
@@ -164,3 +166,7 @@ Common methods on base: `GetID`, `GetState`, `SetState`, `GetConfig`, `Stop`, `S
 - System shards expect `*core.RealKernel` (or CortexKernel unwrap). Wrong kernel type logs error and runs without kernel.  
 - VirtualStore injection type-asserts to `*core.VirtualStore`.  
 - Prompt assembler often `*articulation.PromptAssembler`; base stores `any` to avoid cycles; perception prefers concrete type.  
+- Returned consultation/observer values should be treated as snapshots only;
+  current cache and last-assessment APIs can return manager-owned pointers.
+- Profile permission slices express intended capability. They do not satisfy
+  constitutional `permitted(Action, Target, Payload)`.

@@ -4,12 +4,16 @@
 
 ## Q1 — Cache key completeness vs intentional stability
 
-Which dynamic fields **must** bust the prompt cache?  
-`AvailableTools` and `PreviousAttemptNoToolCall` clearly affect templates/selection, but hashing them increases miss rate. Prefer full correctness or selective ClearCache at call sites?
+**Decision — 2026-07-13.** Correctness wins: every prompt-affecting field enters
+versioned cache schema `compilation-context-v2`; set-like fields are canonicalized.
+Call-site `ClearCache` is not a substitute for identity. Future context fields must
+be explicitly classified and covered by hash/output tests.
 
 ## Q2 — Single ConfigAtom source of truth
 
-Should session always use `NewDefaultConfigFactory()` (in-package provider) or `SimpleRegistry` + `RegisterDefaultConfigAtoms`? Tool name sets differ today. Which is canonical for production boots?
+**Decision — 2026-07-13.** Production boots use `NewDefaultConfigFactory()` and
+canonical policy-set identifiers. **Open remainder:** generate its tool catalog
+from the live registry or remove the dormant `SimpleRegistry` catalog.
 
 ## Q3 — Conflict resolution ownership
 
@@ -33,7 +37,8 @@ Should `hallucination` and/or `capability` enter skeleton (deterministic) catego
 
 ## Q8 — Agents.md path
 
-Root Agents.md Working Map cites `internal/prompt/agents.md`. File may be absent; package README is dense. Should agents.md be created or root map retargeted?
+**Decision — 2026-07-13.** `internal/prompt/agents.md` now owns scoped authoring,
+migration, and verification guidance; root routing remains correct.
 
 ## Q9 — Vector search over embedded-only mode
 

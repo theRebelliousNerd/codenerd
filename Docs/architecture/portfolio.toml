@@ -1,0 +1,48 @@
+schema_version = 1
+coverage_patterns = ["internal/*", "cmd/*", "scripts", "tools", "tests/e2e"]
+corpus_ids = [
+  "articulation",
+  "autopoiesis",
+  "browser",
+  "build",
+  "campaign",
+  "cli",
+  "config",
+  "context",
+  "core",
+  "diff",
+  "embedding",
+  "features",
+  "init",
+  "jit",
+  "logging",
+  "mangle",
+  "mcp",
+  "northstar",
+  "observability",
+  "perception",
+  "persist",
+  "prompt",
+  "regression",
+  "retrieval",
+  "session",
+  "shards",
+  "sqlpragmas",
+  "store",
+  "system",
+  "tactile",
+  "testing",
+  "tools",
+  "transparency",
+  "types",
+  "usage",
+  "ux",
+  "verification",
+  "world",
+]
+
+[[exclusions]]
+path = "conductor"
+classification = "ecosystem-governance"
+reason = "Agent-workflow evidence and governance, not a codeNERD runtime subsystem."
+review_on = "2026-10-13"

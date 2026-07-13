@@ -48,6 +48,15 @@ Compare vision ([01-VISION.md](01-VISION.md)) and north star to living code. Dis
 | G-P2-3 | PersistentDocker idle timeout config unused for eviction | Config field vs behavior drift | Implement idle reaper or drop field |
 | G-P2-4 | SWE-bench harness not first-class CLI command surface | Benchmark path harder to operate | Optional CLI later |
 
+### Closed in the 2026-07-13 audit
+
+- Repeated composite construction formerly performed a synchronous Docker probe
+  for every instance. Availability is now cached for 30 seconds with focused
+  negative-cache coverage.
+- The composite factory formerly probed Docker through default configuration
+  even when the caller supplied another binary/config. It now forwards the
+  actual `ExecutorConfig`, with a focused configuration-propagation regression.
+
 ### P3 — polish
 
 | ID | Gap |

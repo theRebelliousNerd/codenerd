@@ -3,6 +3,34 @@
 > Last verified: **2026-07-13**  
 > Source of truth: filesystem under `C:\CodeProjects\codeNERD\internal\core\`
 
+## 0. Evidence status
+
+- **VERIFIED CURRENT:** safety simulations now keep `hypothetical/1` inside the
+  sandbox projection. Evidence:
+  `internal/core/dreamer.go#SimulateAction`,
+  `internal/core/dreamer.go#projectEffects`, and
+  `internal/core/dreamer_test.go#TestDreamer_SimulateAction_DoesNotMutateLiveHypotheticals`.
+  The focused package receipt is recorded in [_progress.md](_progress.md).
+- **PARTIAL:** Dreamer has a bounded result cache, but mutation-epoch invalidation
+  across every fact and policy path has not yet been proven. The proven slice is
+  `internal/core/dreamer.go#DreamCache`; the absent seam is a single kernel-state
+  epoch or complete invalidation contract.
+- **VERIFIED CURRENT:** projected facts are staged with
+  `assertWithoutEvalChecked`; invalid encoding and fact-capacity exhaustion return
+  an unsafe result. `safe_action/1` may accelerate classification but cannot
+  authorize: `CheckKernelPermitted` requires an exact
+  `permitted(ActionType, Target, CanonicalPayload)` derivation.
+- **VERIFIED CURRENT:** destructive `RouteAction` and interactive tool preflight
+  deny when no Dreamer-capable real kernel exists. `CortexKernel` supplies its
+  primary real kernel, and the default policy shard owns every predicate in the
+  pending-action permission join.
+- **VERIFIED CURRENT:** failure and recovery seams now preserve declared shapes:
+  `security_violation/3`, `execution_error/2`, post-validation errors, execution
+  result timestamps for pruning, and concrete CodeDOM file metadata.
+- **VERIFIED CURRENT:** predicate-corpus I/O is lazy (`sync.Once`), Unicode-blank
+  RuleCourt candidates short-circuit before kernel access, and full/differential
+  evaluation share the same effective derived-fact ceiling.
+
 ## 1. Package role (as implemented)
 
 Executive runtime: Mangle kernel + VirtualStore + Dreamer + embedded constitution + shard plumbing + executive helpers (scheduler, validators, TDD, shadow, tools).
@@ -105,11 +133,14 @@ Exact file enumeration drifts; use `Get-ChildItem -Recurse` if you need a hard c
 
 1. Kernel boots from embed; fails hard on bad constitution.  
 2. User/session facts assert; IDB derives actions.  
-3. VS routes under multi-layer safety.  
-4. Dreamer blocks critical path destruction when rules fire.  
-5. Results re-enter kernel as facts.  
+3. VS routes under exact, target/payload-bound multi-layer safety.
+4. Destructive routing requires a usable Dreamer; its checked sandbox blocks on
+   critical-path rules or projection staging/evaluation failure.
+5. Results re-enter kernel as facts; counterfactual safety inputs do not.
 6. Optional Cortex multi-domain + fact router under feature flag.  
 7. Policy goldens cover safety/campaign/jit/tdd subsets.
+8. Router result facts preserve the executive action ID rather than minting a
+   second correlation identity.
 
 ## 6. Dual-path reality (important)
 
@@ -119,6 +150,7 @@ Exact file enumeration drifts; use `Get-ChildItem -Recurse` if you need a hard c
 | LLM concurrency | APIScheduler | Direct client |
 | Kernel shape | Single `RealKernel` | `CortexKernel` federation |
 | Eval | Full stratified | Differential (flagged) |
+| Boot guard | Chat rehydration holds until first user input | Explicit command `BootCortex` disables during requested-command boot |
 
 Docs and boot code must name which path is preferred for a given binary mode.
 

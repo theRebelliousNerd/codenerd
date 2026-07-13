@@ -21,10 +21,16 @@ Evidence: `cmd/nerd/cmd_campaign.go`, chat session boot patterns.
 7. Pass compiler + factory into session Executor / Spawner
 ```
 
+For each cache miss, `JITPromptCompiler.Compile` calls
+`KernelAdapter.NewCompilationScope`; the adapter clones the primary `RealKernel`
+and selector assertions never enter the long-lived executive kernel. Deferred
+scope close discards all ephemeral prompt facts.
+
 Agent sync (when used):
 
 ```
-AtomLoader → AgentSynchronizer.SyncAll → register agent knowledge DBs
+strict ParsePromptAtomYAML → AtomLoader → AgentSynchronizer.SyncAll
+  → transactional replace → register only successful agent knowledge DBs
 ```
 
 Optional:
@@ -79,7 +85,8 @@ Boot/hybrid loader can ingest `PROMPT:` blocks from hybrid `.mg` into project co
 | Test area | Proves |
 |-----------|--------|
 | `prompt_compiler_llm_*` | Compile → LLM boundary |
-| `jit_kernel_context_cleanup_*` | compile_context retract |
+| `internal/system/prompt_kernel_scope_test.go` | Production `KernelAdapter` clone isolation, success/error/cancel cleanup, and retry cache identity under focused race |
+| `tests/e2e/jit_kernel_context_cleanup_*` | Legacy/retraction adapter compatibility |
 | `session_clean_loop_*` | Executor JIT loop |
 | `specialist_config_boundary_*` | ConfigFactory consult fallback |
 | `piggyback_executor_full_boundary_*` | Protocol atoms + execution |
@@ -90,6 +97,7 @@ Boot/hybrid loader can ingest `PROMPT:` blocks from hybrid `.mg` into project co
 2. Whether all interactive boots attach vector searcher + project DB.  
 3. EvolvedAtomManager attachment frequency on compiler in production boot.  
 4. Dual ConfigAtom registries — which factory path each boot uses.
+5. External `KernelQuerier` adapters — require scope support or define a fail-closed migration instead of relying on unscoped compatibility.
 
 ## Registration helpers
 

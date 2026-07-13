@@ -19,7 +19,7 @@
 | Tool requests | Structured tools vs native FC | Session executor path live | **Non-gap** for protocol; provider variance | P3 |
 | Strict schema mode | Provider-guaranteed shape | Schema constant + optional `RequireValidJSON` | **Partial** — default is tolerant | P3 |
 | StreamParser concurrency | Safe multi-writer | Single-threaded design | **Documented gap** in test TODO | P3 |
-| Processor stats export | Ops dashboards | In-memory `GetStats` only | **Gap** — no persistence/metrics wire | P3 |
+| Processor stats export | Ops dashboards | In-memory race-safe `GetStats` only | **Gap** — no persistence/metrics wire; data race closed 2026-07-13 | P3 |
 | Package README accuracy | File map complete | README omits scanner/stream/adapter | **Doc gap** | P4 |
 
 ## Priority definitions
@@ -80,3 +80,8 @@ Types and protocol are complete. Durable application lives outside this package.
 3. Reduce fallback rate (schema-capable clients, tighter prompts).  
 4. Retire or atomize hard-coded templates.  
 5. Expose parse stats to glass-box / session metrics.
+
+The authoritative implementation packets are now the machine-readable feature
+cards in [TODO](TODO.md). The tested processor race/UTF-8 repair is closed; exact
+control-consumer parity, protocol generation, bounded streaming, and durable
+effect receipts remain open and must not be described as live.

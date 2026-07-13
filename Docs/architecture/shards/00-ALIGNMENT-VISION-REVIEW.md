@@ -1,52 +1,55 @@
-# 00 — Alignment & Vision Review: shards
+# Alignment and vision review: shards
 
-> Last verified against codebase: 2026-07-13  
-> Status: Living Reference Document — code-grounded  
-> Source: `internal/shards/`, `internal/shards/system/`
+## North-star judgment
 
-## 1. North-star statement
+The shard subsystem is aligned when specialists increase creative reach while
+Mangle retains executive authority. The live exact-ID action pipeline is strong
+evidence for that split. Registration duplication, asynchronous boot readiness,
+and silent edge failures are the main reasons the subsystem is **PARTIAL**, not
+complete.
 
-codeNERD’s north star: **LLM as creative center, Mangle kernel as executive**. Shards are the **long-running agents and factories** that realize the OODA loop around that kernel — they must **not** re-centralize executive control into opaque Go or LLM glue.
+| Question | Judgment | Evidence |
+|---|---|---|
+| Does the LLM remain the creative center? | **VERIFIED CURRENT** for perception, planning, interrogation, consultation, legislation, and optional autopoiesis | LLM outputs become intent, advice, agendas, or candidate rules; none directly grants an external effect |
+| Does logic remain executive? | **VERIFIED CURRENT** on the ordinary action route | core policy derives `next_action` and `permitted/3`; constitution and router consume typed facts |
+| Is default deny preserved? | **VERIFIED CURRENT** | `ConstitutionGateShard.checkPermitted` denies missing or failed exact permission in strict mode; VirtualStore revalidates |
+| Is model-facing behavior JIT-first? | **PARTIAL** | several required atom families exist; consultation protocol and repair fallback remain outside one inventory |
+| Is lifecycle deterministic and visible? | **PARTIAL** | queue, timeouts, cleanup, restartable observers, exact route consumption, heartbeats, and audit exist; boot readiness lacks a generation contract |
+| Is specialist work useful without becoming authority? | **VERIFIED CURRENT** for honest consultation failures and observer generations; **PARTIAL** for advisory policy | matching/consultation/observers are live; batch errors are joined, while observer `block` is still advisory/unpinned |
 
-This package is healthy when:
+## Shards-specific success shape
 
-1. User meaning becomes **facts** (`user_intent`) via perception, not free-form side effects.  
-2. Actions only execute after **`permitted(...)`** / constitution gate (default deny).  
-3. Domain coding personas are **JIT + session**, not hard-coded Go shards.  
-4. System shards stay **logic-primary** where safety or routing is concerned.  
-5. Registration is complete (no hollow shards missing kernel/LLM/VS).
+Good behavior is concrete:
 
-## 2. Alignment dimensions
+- perception asserts structured intent; it does not call a tool;
+- executive emits one stable action envelope;
+- constitution joins the exact type, target, and payload and emits a named result;
+- router preserves the action ID and consumes the permission once;
+- VirtualStore performs the bounded effect and emits a terminal result;
+- optional specialists can fail or degrade without falsifying the primary result;
+- prompt atoms and receipts explain creative context without moving authority
+  into prompt prose.
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | **5** | Executive/constitution/router logic-primary; perception/planner LLM (`system/executive.go`, `constitution.go`, `perception.go`) |
-| Fact-flow fidelity | **5** | Explicit pipeline `pending_action` → `permitted_action` → tools (`executive.go`, `constitution.go`, `router.go`) |
-| Constitutional safety | **5** | StrictMode, dangerous patterns, network allowlist, appeals (`constitution.go`) |
-| JIT discipline | **4** | PromptAssembler on system shards; interrogator JIT-required; some legacy fallbacks remain |
-| Lifecycle clarity | **4** | Auto vs OnDemand profiles (`registration.go`); dual boot paths risk drift |
-| Domain shard retirement | **5** | Domain packages deleted; comments + JIT path in `session_boot.go` |
-| Specialist orchestration | **3** | Matching/consultation/observers solid but pattern-only matching; partial chat/campaign use |
-| Test grounding | **3** | Good unit coverage on base/matching/observers; hot paths (full OODA with real kernel) thinner |
-| Observability | **4** | CategorySystemShards logging, heartbeats, GlassBox/ToolEventBus hooks |
-| Registration completeness | **4** | RegistryContext DI; re-register overrides in factory for browser/campaign |
+The anti-shape is equally clear: raw `next_action` executing directly, a profile
+permission authorizing a tool, a second boot registry silently differing, an
+observer claiming liveness with no loop, or a consultation batch representing
+missing advisors as success.
 
-**Overall alignment: 4.2 / 5** — System OODA shards embody the north star; residual risk is dual-wiring drift, stale package README, and incomplete predicate-manifest consumption.
+## Rejected directions
 
-## 3. What “good” looks like (shards-specific)
+- **REJECTED:** restore hard-coded Go domain personas. JIT/session is the owner.
+- **REJECTED:** make an LLM choose permission or readiness.
+- **REJECTED:** turn every shard into a permanent actor.
+- **REJECTED:** duplicate core declarations inside this package.
+- **REJECTED:** solve registry drift with an unvalidated code generator that can
+  split the authorization envelope.
 
-| Good | Bad |
-|------|-----|
-| Constitution queries `permitted` then emits `permitted_action` | Router runs tools from raw `next_action` |
-| Boot guard holds fire until first user turn | Rehydrated intents auto-execute campaigns |
-| CostGuard wraps LLM on system shards | Unbounded perception loops burn tokens |
-| New LLM behavior via atoms + assembler | Hard-coded multi-KB prompts inside shards |
-| Domain work via `session.Executor` personas | Reintroducing `internal/shards/coder` |
+## Improvement judgment
 
-## 4. Related corpora
+The safe move is registry parity plus terminal-outcome repairs. The imaginative
+but bounded move is a policy-derived activation generation: Mangle selects the
+required graph, Go starts and joins it under budgets, readiness is observable,
+and constitutional permission remains a separate mandatory decision.
 
-- `Docs/architecture/core/` — Kernel, VirtualStore, ShardManager  
-- `Docs/architecture/session/` — JIT clean executor  
-- `Docs/architecture/perception/` / `articulation/` / `prompt/`  
-- `Docs/architecture/campaign/` — long-horizon orchestration  
-- `Docs/architecture/cli/` — boot surfaces that register these shards  
+See [TODO.md](TODO.md) for authoritative cards and
+[_progress.md](_progress.md) for the 42-point corpus score.

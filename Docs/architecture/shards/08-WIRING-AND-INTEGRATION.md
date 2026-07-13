@@ -1,121 +1,128 @@
-# 08 — Wiring and Integration: shards
+# Wiring and integration: shards
 
-> Last verified against codebase: 2026-07-13  
-> How shards are registered, started, and called
+## Production construction
 
-## 1. Cortex factory path (`internal/system/factory.go`)
-
-### 1.1 `initShardManagement`
-
-1. Attach limits enforcer + spawn queue to ShardManager  
-2. Build `shards.RegistryContext` (kernel, LLM, VS, workspace, JIT, optional ClassificationClient)  
-3. `shards.RegisterAllShardFactories(shardManager, regCtx)`  
-4. Set JIT registrar/unregistrar on manager  
-5. **Override** factories for:  
-   - `tactile_router` — +BrowserManager, PromptAssembler adapter  
-   - `campaign_runner` — +workspace, +ShardManager  
-6. Apply `cfg.DisableSystemShards`  
-7. `StartSystemShards(ctx)`  
-
-### 1.2 When Cortex boots
-
-`GetOrBootCortex` / `BootCortex` → init chain includes shard management. Cached Cortex reuses running system shards.
-
-### 1.3 Boot guard on VirtualStore
-
-Factory also calls `virtualStore.DisableBootGuard()` at a late stage in some boot paths — **verify** against current factory timing when debugging auto-actions. Executive still has its own boot guard until disabled.
-
-## 2. Interactive chat path (`cmd/nerd/chat/session_boot.go`)
-
-### 2.1 Inline factories
-
-Registers each system shard by name with chat-specific wiring:
-
-| Shard | Extra DI |
-|-------|----------|
-| perception_firewall | classification client, learning candidate store (LocalDB), PromptAssembler, learning thresholds from appCfg |
-| world_model_ingestor | VS, PromptAssembler |
-| executive_policy | learning candidates, appCfg threshold, PromptAssembler |
-| constitution_gate | PromptAssembler |
-| mangle_repair | corpus + `kernel.SetRepairInterceptor` |
-| tactile_router | GlassBox, ToolEventBus, ToolStore, BrowserManager |
-| session_planner | PromptAssembler |
-| requirements_interrogator | LLM + kernel |
-| legislator | VS + PromptAssembler |
-| campaign_runner | workspace (ShardManager injection may differ from factory) |
-
-Then `shards.RegisterSystemShardProfiles(shardMgr)`.
-
-### 2.2 Feature flags
-
-```
-if !features.IsSystemShardsEnabled() { skip StartSystemShards }
-else apply disable set from CLI + NERD_DISABLE_SYSTEM_SHARDS
-     StartSystemShards(ctx)
+```text
+BootCortexWithConfig
+  -> initCoreComponents / storage / kernel / execution / intelligence
+  -> ShardManager + discovered user-agent profiles
+  -> initShardManagement
+       -> LimitsEnforcer
+       -> SpawnQueue.Start
+       -> RegistryContext
+       -> RegisterAllShardFactories
+       -> JIT DB registrar/unregistrar
+       -> router factory override (browser + shared assembler)
+       -> campaign factory override (manager + shared assembler)
+       -> DisableSystemShard set
+       -> StartSystemShards
+  -> final session executors
 ```
 
-### 2.3 Per-turn wiring (`process.go`)
+`internal/system/factory.go#initShardManagement` is the main Cortex integration.
+It intentionally enriches two factories after package registration. That is live
+behavior, but a manual override must remain in parity with base construction.
 
-- After user message: disable VirtualStore boot guard  
-- May fetch running `perception_firewall` for input handling  
-- Delegation paths use matching/consultation managers held on model  
+## Boot selection and readiness
 
-## 3. Campaign CLI (`cmd/nerd/cmd_campaign.go`)
+`internal/core/shards/manager_spawn.go#ShardManager.StartSystemShards` selects:
 
-Calls `RegisterAllShardFactories` with a RegistryContext for campaign-oriented Cortex/setup. Disables VS boot guard for CLI-initiated commands.
+1. profiles with system type and StartupAuto;
+2. additional valid system profiles named by `activate_shard/1`;
+3. minus explicitly disabled names.
 
-## 4. Init scanner (`internal/init/scanner.go`)
+With a running SpawnQueue, each is a critical detached request. The method
+proves successful submission, not successful execution or readiness. Per-shard
+spawn failures are logged and iteration continues.
 
-Registers factories (possibly with empty RegistryContext for structural registration during scan) — hollow-context risk if scan path executes shards.
+**PARTIAL:** BootCortex may finish before every auto shard enters its Execute
+loop. There is no boot generation, required-ready set, or aggregate degraded
+result.
 
-## 5. Kernel integration points
+## Chat wiring
 
-| Hook | Shard | Mechanism |
-|------|-------|-----------|
-| Fact event bus | exec, const, router | `SubscribeToFacts` |
-| Repair interceptor | mangle_repair | `RealKernel.SetRepairInterceptor` |
-| Predicate corpus | repair, legislator, exec feedback | `GetPredicateCorpus` + PredicateSelector |
-| Learning store | perception, executive | VirtualStore → adapter |
+The current chat stack has shared Cortex boot and compatibility construction
+surfaces. Chat adds dependencies that a headless Cortex may not have:
 
-## 6. Session / TaskExecutor relationship
+| Dependency | Recipient/use |
+|---|---|
+| GlassBoxEventBus | shard lifecycle and router visibility |
+| ToolEventBus and ToolStore | visible/persisted tool outcomes |
+| BrowserManager | browser tool routes |
+| classification client | lower-cost perception classification |
+| learning-candidate store | taxonomy/perception feedback |
+| post-spawn hook | on-demand shard enrichment |
+| observer and consultation managers | Northstar and specialist advice |
 
-```
-User coding task
-  → session.TaskExecutor / Executor (JIT persona)
-  → tools via VirtualStore
-  → NOT via Spawn("coder") domain factory
+The system-shards master feature and per-name disable lists are applied by chat
+surfaces. `NERD_DISABLE_SYSTEM_SHARDS` is a per-name compatibility input; it is
+not the same as the master system-shards flag.
 
-System OODA
-  → StartSystemShards
-  → continuous loops
-```
+## Other live consumers
 
-Domain persona tools still may produce `next_action` / `delegate_task` facts that executive observes.
+- campaign CLI registers factories and consultation adapters for long-horizon
+  work;
+- init scanning performs structural registration with a reduced context;
+- chat delegation uses matching and consultation helpers;
+- shared boot constructs background observers and a direct Northstar handler;
+- action-linter tooling imports route definitions;
+- session TaskExecutor handles persona work and may call VirtualStore without
+  spawning a legacy domain shard.
 
-## 7. Disable matrix
+A reduced registration context proves discoverability, not readiness. Dependency
+heavy shards must fail visibly or remain unspawned when required components are
+absent.
 
-| Mechanism | Scope |
-|-----------|-------|
-| `DisableSystemShard(name)` on manager | Per name |
-| CLI disable list | BootConfig / chat args |
-| Env `NERD_DISABLE_SYSTEM_SHARDS` | Chat boot only (comma list) |
-| Feature flag system shards off | Chat skips start entirely |
+## Action dispatch wiring
 
-## 8. Wiring checklist for a new system shard
+| Step | Producer | Consumer | Exact contract |
+|---|---|---|---|
+| decision | Mangle | executive | `next_action` plus source fact |
+| permission request | executive | constitution | `pending_action(ID, Type, Target, Payload, Ts)` |
+| permit/deny receipt | constitution | Mangle/operators | `permission_check_result(ID, Result, Reason, Ts)` |
+| route input | constitution | router | `permitted_action(ID, Type, Target, Payload, Ts)` |
+| policy route | Mangle | router | `route_action(ID, Tool)` |
+| effect request | router | VirtualStore | `next_action(ID, Type, Target, Payload)` |
+| terminal results | router/VirtualStore | session/policy/operators | `routing_result/4`, `execution_result/6` |
 
-1. Implement type embedding `*BaseSystemShard`  
-2. Constructor + Execute loop with StopCh/ctx  
-3. Factory in `register*` method in `registration.go`  
-4. Profile in `define*Profile`  
-5. Until unified: mirror factory in `session_boot.go` if chat needs extra DI  
-6. Update `DefaultShardPredicateManifests` if new owned preds  
-7. Tests for factory registration + happy-path Execute  
-8. Document in this corpus  
+Production `defaultKernelShardConfigs` places the exact permission envelope in
+one policy domain. The shards package's exported manifest does not currently
+drive this wiring and is missing three members of that envelope.
 
-## 9. Known wiring partials
+## Lifecycle and teardown
 
-| Item | Status |
-|------|--------|
-| Predicate manifests → factory KernelShard | Exported; production consume incomplete (source comment) |
-| Campaign runner SetShardManager on all paths | Strong on factory re-register; weaker on pure RegisterAll |
-| GlassBox/Tool buses | Strong on chat tactile_router; weaker on factory default factory from RegisterAll before override |
+ShardManager injects dependencies and active/status facts before launching one
+execution goroutine. On normal return or error it records the result, retracts
+active/status facts, removes the shard, and unregisters a dynamic JIT DB. Panic
+recovery follows a cleanup path. Cortex Close stops maintenance, spawn queue,
+active shards, and stores outside this package.
+
+System shard Stop flushes learning and closes StopCh only from running state.
+Event subscriptions are removed. Executive joins tracked autopoiesis work.
+Background observer Stop cancels and joins loops then tasks, drains stale events,
+and a later Start owns a fresh run context.
+
+## Wiring checklist for a new shard
+
+1. Pin creative versus deterministic responsibility and fact contracts.
+2. Add declarations/policy to core before asserting new predicates.
+3. Define constructor, dependencies, profile, startup, resource bounds, health,
+   cancellation, and terminal outcome.
+4. Register in the package descriptor/registrar and every temporary adapter;
+   add parity tests.
+5. Add prompt atoms and explicit JIT fallback policy for every LLM call.
+6. Prove default-deny and exact action correlation for effects.
+7. Test missing dependencies, disable, cancellation, panic, restart/one-shot,
+   and teardown.
+8. Update this corpus only from runnable evidence.
+
+## Known compatibility and bypass routes
+
+| Route | Status | Required proof |
+|---|---|---|
+| exported predicate manifest | production authority; uniqueness and exact envelope verified | preserve parity as descriptor expands |
+| per-shard facts feature surface | manifest now feeds production configs | broader end-to-end ownership routing, cross-domain join, rollback |
+| permissive unmapped router | both modes consume once and emit terminal failure | preserve regression on new branches |
+| observer restart | fresh generation verified under race | add overflow/drop counter and snapshot ownership |
+| direct session tool calls | bypass tactile router, but should not bypass VirtualStore permission | constitutional negative integration test |
+| scanner empty-context factories | structural registration only | fail-visible spawn dependency tests |

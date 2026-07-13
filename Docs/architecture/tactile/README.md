@@ -1,122 +1,146 @@
-# tactile — Architecture Corpus (`internal/tactile`)
+# tactile — the motor boundary
 
-> Last verified against codebase: **2026-07-13**  
-> Status: Living Reference Document — code-grounded full corpus  
-> Language: Go (module `codenerd`)  
-> Primary package: `internal/tactile/` (+ `python/`, `swebench/`)  
-> Role in stack: **Motor cortex** — lowest-level physical-world effectors (shell, files, sandbox)
+> `VERIFIED CURRENT` against the live tree on 2026-07-13. The package is
+> `internal/tactile`; constitutional permission remains outside this boundary.
 
-## Scope
+## In one minute
 
-This corpus documents the **tactile motor layer**: command execution, resource limits, sandbox backends, file line edits with audit facts, persistent Docker pools, Python environments, and SWE-bench harness wrappers.
+Tactile is where a codeNERD decision becomes a process, a container command, or
+a file edit. Its users are the VirtualStore and a small set of CLI/campaign
+adapters; its visible outcome is a bounded `ExecutionResult` or `FileResult`
+plus audit facts that the kernel can reason about. The common contract is
+`internal/tactile/executor_interface.go#Executor`, with typed inputs and results
+in `internal/tactile/types.go#Command` and
+`internal/tactile/types.go#ExecutionResult`.
 
-It is **not**:
+Tactile does not decide whether an effect is allowed. It validates what its
+backend can execute, applies time/output/isolation limits, performs the effect,
+and reports what happened. Calling it without the upstream permission route is
+therefore a trust-boundary decision, not a harmless convenience.
 
-- Constitutional policy (lives in kernel / VirtualStore / Mangle policy)
-- Prompt JIT or articulation
-- A product Spec template set under `Docs/Spec/`
+## Its place in codeNERD
 
-Tactile intentionally does **minimal logic**. Permission is decided upstream; tactile executes, captures results, and emits structured audit facts for the kernel.
-
-## North-star placement
-
-```
-user input → perception → user_intent → kernel next_action
-  → VirtualStore (permitted?) → tactile Executor / FileEditor
-  → AuditEvent.ToFacts / FileAuditEvent.ToFacts → kernel.Assert
-  → articulation → TUI/stdout
-```
-
-| Role | Owner |
-|------|--------|
-| Creative center (what to try) | LLM via session / shards |
-| Executive (may it run?) | Mangle `permitted(...)` via VirtualStore |
-| Motor (actually run / write) | **`internal/tactile`** |
-| Memory of effects | Audit facts + metrics → kernel |
-
-## Document map
-
-| Doc | Role |
-|-----|------|
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | **Flagship** living architecture + inventory + deep flows |
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores with evidence |
-| [01-VISION.md](01-VISION.md) | Target product/architecture vision for tactile |
-| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory, hotspots, metrics |
-| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality, priorities, non-gaps |
-| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding design principles |
-| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, data flow, state machines |
-| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported types/funcs that matter |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream/downstream packages |
-| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | Boot, VirtualStore, CLI, campaign, e2e |
-| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Safety, concurrency, fact contracts |
-| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
-| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Logging category, metrics, timers |
-| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failures + mitigations |
-| [TODO.md](TODO.md) | Prioritized backlog |
-| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Real open questions |
-| [_progress.md](_progress.md) | Rebuild journal |
-
-> Older thin auto-stubs (`01-DOMAIN-MODEL.md`, `02-CURRENT-STATE-TACTILE.md`, …) if still present are **superseded** by this map.
-
-## Package tree (source)
-
-```
-internal/tactile/
-├── types.go                 # Command, Result, limits, sandbox, config
-├── executor_interface.go    # Executor + specialized interfaces
-├── direct.go                # DirectExecutor (host os/exec)
-├── docker.go                # DockerExecutor (ephemeral docker run --rm)
-├── persistent_docker.go     # Stateful docker create/exec pool
-├── factory.go               # Composite, factory, pool, retry
-├── files.go                 # FileEditor + file audit facts
-├── audit.go                 # AuditEvent → Fact, metrics, analyzers
-├── platform_windows.go      # Job objects, LimitedExecutorWindows
-├── platform_linux.go        # cgroups, NamespaceExecutor, GetPlatformExecutor
-├── platform_linux_firejail.go
-├── platform_unix.go         # rusage, rlimits, process groups
-├── platform_darwin.go       # macOS platform executor selection
-├── python/environment.go    # Containerized Python project lifecycle
-└── swebench/                # Thin SWE-bench harness over python.Environment
+```text
+LLM proposes work
+  -> perception asserts intent
+  -> Mangle derives an exact permitted action
+  -> VirtualStore checks action + target + payload
+  -> tactile selects an available backend and performs the effect
+  -> audit/result facts return to the kernel
+  -> articulation explains the outcome
 ```
 
-## Verify
+`VERIFIED CURRENT`: `internal/core/virtual_store_routing.go#VirtualStore.RouteAction`
+is the principal effect route, while
+`internal/core/virtual_store.go#VirtualStore.CheckKernelPermitted` is the exact
+authorization check. `internal/core/virtual_store.go#VirtualStore.initModernExecutor`
+constructs an audited composite tactile executor and
+`internal/core/virtual_store.go#VirtualStore.injectTactileFact` returns its facts
+to the kernel. This preserves the north-star split: the model is creative,
+Mangle and VirtualStore are executive, and tactile is motor control.
 
-```powershell
-# Unit + package tests
-go test ./internal/tactile/...
+The package also owns direct, Docker, persistent-Docker, platform-limit,
+file-edit, Python-environment, and SWE-bench adapters. It does not own prompt
+selection, policy, action routing, or user-facing prose.
 
-# With verbose
-go test -v ./internal/tactile/...
+## A representative journey
 
-# Broader consumers (optional)
-go test ./internal/core/ -count=1 -run VirtualStore
-go test ./internal/campaign/ -count=1
-```
+Consider a constitution-cleared request to run `go test ./internal/tactile`.
 
-No local `.mg` files live in this package. Execution/file predicates are declared in `internal/core/defaults/` (e.g. `schemas_shards.mg`, `schemas_codedom.mg`).
+1. The router hands the exact action envelope to
+   `internal/core/virtual_store_routing.go#VirtualStore.RouteAction`; a mismatch
+   in action, target, or payload is rejected before tactile.
+2. The VirtualStore translates the effect into
+   `internal/tactile/types.go#Command` and invokes its modern executor.
+3. `internal/tactile/factory.go#CompositeExecutor.selectExecutor` selects the
+   requested backend. An explicit but unavailable sandbox now fails closed;
+   only an omitted/`none` sandbox may use the direct default. This is pinned by
+   `internal/tactile/docker_detection_test.go#TestCompositeExecutorExplicitMissingSandboxFailsClosed`.
+4. For host execution, `internal/tactile/direct.go#DirectExecutor.Execute`
+   merges configured limits, creates a deadline context, captures bounded
+   stdout/stderr, classifies cancellation/non-zero exit/infrastructure failure,
+   and emits lifecycle audit events.
+5. `internal/tactile/audit.go#AuditEvent.ToFacts` converts the observed result
+   into facts; the VirtualStore injects them into the kernel for subsequent
+   policy, planning, and articulation.
 
-## Quick mental model
+Failure is explicit at each boundary. Missing permission never reaches tactile;
+missing requested isolation returns an error; a deadline yields a killed result;
+an executable that returns non-zero is distinguished from infrastructure
+failure; excess output is discarded while its byte count is retained.
 
-```
-                    ┌─────────────────────┐
- Command / file op  │  CompositeExecutor  │── mode ──► Direct | Docker | NS | Firejail
-                    │  FileEditor         │──► host FS (audited)
-                    └──────────┬──────────┘
-                               │ AuditEvent / FileAuditEvent
-                               ▼
-                    AuditLogger.Log → Fact → VirtualStore.injectTactileFact → kernel
-```
+## What exists today
 
-## Related packages
+- `VERIFIED CURRENT`: direct execution enforces deadline and output ceilings in
+  `internal/tactile/direct.go#DirectExecutor.Execute`; timeout, cancellation,
+  non-zero exit, and truncation are covered in
+  `internal/tactile/tactile_test.go#TestDirectExecutor_Timeout` and
+  `internal/tactile/tactile_test.go#TestDirectExecutor_OutputTruncation`.
+- `VERIFIED CURRENT`: Docker availability is a bounded, expiring shared probe in
+  `internal/tactile/docker.go#DockerExecutor.detectDocker`; configuration is
+  preserved through both composite and factory construction, proven by the
+  focused tests in `internal/tactile/docker_detection_test.go`.
+- `VERIFIED CURRENT`: file edits resolve a working directory, hash before/after
+  content, and emit structured facts through
+  `internal/tactile/files.go#FileEditor`; path behavior is exercised by
+  `internal/tactile/files_test.go#TestFileEditor_PathSecurity`.
+- `PARTIAL`: the audited VirtualStore path is strong, but several boot, DOM, and
+  campaign call sites still construct `NewDirectExecutor` explicitly. Their
+  upstream permission assumptions are not expressed as one typed exception
+  registry.
+- `PARTIAL`: capability reporting exists through
+  `internal/tactile/types.go#ExecutorCapabilities`, but the kernel does not yet
+  choose a backend from a typed, Mangle-governed resource/isolation requirement.
+- `N-A — JIT and agents`: tactile has no LLM prompt or specialist behavior by
+  design; JIT selects creative context upstream, and only the resulting
+  constitution-cleared action enters this package.
 
-| Package | Relationship |
-|---------|----------------|
-| `internal/core` | VirtualStore holds Executor + FileEditor; injects tactile facts |
-| `internal/campaign` | Checkpoint / assault / task handlers call `tactile.Executor` |
-| `cmd/nerd` | Boot constructs DirectExecutor + FileEditor; DOM cmds use FileEditor |
-| `internal/logging` | `CategoryTactile` + convenience helpers |
-| `internal/session` | Task/campaign paths consume executor results indirectly |
+The complete realized inventory and contracts live in
+[IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) and
+[02-CURRENT-STATE.md](02-CURRENT-STATE.md). Safety and failure semantics are in
+[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) and
+[12-FAILURE-MODES.md](12-FAILURE-MODES.md).
 
----
+## North star
 
-**Architecture Version (package README):** 2.0.0 motor-cortex framing — corpus rebuilt 2026-07-13.
+Every physical effect should cross one explainable chain: proposed intent,
+exact permission, backend admission, bounded execution, observed result, and
+turn-correlated articulation. Requested isolation must never silently weaken,
+resource limits must be enforceable rather than decorative, and a restart or
+retry must not duplicate an already completed effect.
+
+Non-goals are equally important: tactile will not become a second policy engine,
+interpret fuzzy model text, choose product strategy, or pretend all platforms
+provide identical containment. When a host cannot satisfy a required control,
+the correct result is an observable denial or degradation—not an invisible host
+fallback.
+
+## Improvement frontier
+
+The safe immediate repair is to enumerate every direct-executor construction and
+route it through the audited VirtualStore path or a typed, tested exception. The
+bounded leverage step is a versioned execution receipt carrying action/request
+identity, permission decision, backend, effective limits, result, and audit-fact
+status without persisting unbounded output.
+
+The longer-horizon option is Mangle-governed backend admission: assert required
+isolation/resource facts and observed backend capabilities, derive an exact
+admission plan, and require tactile to verify that plan before execution. Tactile
+still performs no policy reasoning; it enforces the selected contract and
+returns evidence. Authoritative cards and acceptance boundaries are in
+[TODO.md](TODO.md).
+
+## Choose a reading route
+
+- **90 seconds:** this README, then
+  [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
+- **10 minutes:** add [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md),
+  [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md), and
+  [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
+- **Deep implementation:** read [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md),
+  [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md),
+  [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md), and the source beginning at
+  `internal/tactile/factory.go#NewCompositeExecutorWithConfig`.
+
+Governance and signed evidence are recorded in [_progress.md](_progress.md);
+unresolved design choices remain in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).

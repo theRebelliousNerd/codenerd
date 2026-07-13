@@ -90,19 +90,20 @@ fact in
   │
   ├─ parseActionFact ──► error
   │
-  ├─ isDestructive? ──yes──► Dreamer.SimulateAction
+  ├─ isDestructive? ──yes──► require Dreamer ─► SimulateAction
   │                              │
   │                         unsafe? ──► security_violation + error
   │
   ├─ checkConstitution ──► error + security_violation
   │
-  ├─ CheckKernelPermitted ──false──► deny + security_violation
+  ├─ CheckKernelPermitted(exact Action,Target,CanonicalPayload)
+  │                    false/error/nil kernel ─► deny + security_violation/3
   │
   ├─ executeAction(handler)
   │       │
-  │       fail ──► execution_error
+  │       fail ──► execution_error/2
   │
-  ├─ validators ── high-confidence fail ──► flip Success
+  ├─ validators ── high-confidence fail ──► return validation error
   │
   └─ inject execution_result + FactsToAdd + audit/events
 ```
@@ -114,27 +115,41 @@ ActionRequest
     │
     ├─ cache lookup (type:target)
     │
-    ├─ assert hypothetical
-    ├─ projectEffects → projected_action / projected_fact*
+    ├─ projectEffects → hypothetical / projected_action / projected_fact*
     │
     ▼
 kernel.Clone()
     │
-    assert projected (WithoutEval) + Evaluate
+    checked stage of every projected fact + Evaluate
     │
     Query panic_state
     │
+    ├─ stage/eval/query failure → Unsafe
     ├─ match actionID → Unsafe + reason
     └─ else Safe
     │
     store cache
 ```
 
+`hypothetical/1` is counterfactual input to the clone only. Capacity or encoding
+rejection while staging any projected fact is an unsafe result; simulation must
+not evaluate an incomplete projection and call it safe.
+
+`SetKernel` clears any prior Dreamer. Lazy construction is serialized and accepts
+either a `RealKernel` or the primary real kernel exposed by `CortexKernel`; a
+destructive route with neither is denied.
+
 Critical path prefixes (Go + Mangle facts): `.git`, `.nerd`, `internal/mangle`, `internal/core`, `cmd/nerd`.
 
 ## 5. Cortex routing
 
 ```
+
+Default system construction assigns `pending_action`, `permitted_action`,
+`permission_check_result`, `permitted`, `blocked`, `constitution`,
+`commit_barrier`, and `dangerous_action` to the policy shard. This co-locates the
+entire authorization join. The system router carries the executive `actionID`
+through `routing_result` and `execution_result`; it does not mint a second ID.
 Assert(fact) / Query(pred)
         │
         ▼
@@ -157,7 +172,7 @@ predicateOwner[pred] ?
 
 ## 8. Validation registry
 
-`ValidatorRegistry` maps action classes to `ActionValidator` implementations (file write/edit/delete, exec, syntax, CodeDOM, paranoid). Aggregate confidence decides whether VS should treat a “successful” I/O as failed.
+`ValidatorRegistry` maps action classes to `ActionValidator` implementations (file write/edit/delete, exec, syntax, CodeDOM, paranoid). A high-confidence postcondition failure is returned as an action error. CodeDOM edit handlers put the concrete file in result metadata so validation does not mistake a symbolic element target for a path.
 
 ## 9. Transaction manager
 
@@ -190,7 +205,7 @@ coreLogic embed.FS
 |-----------|-----|
 | New Decl | `defaults/schemas_*.mg` + ensure load list if new file |
 | New rule | `defaults/policy/*.mg` |
-| New effect | ActionType + handler switch + permitted/safe_action |
+| New effect | ActionType + handler switch + destructive classification + Mangle policy; `safe_action/1` classifies but never authorizes by itself |
 | New virtual predicate | VS predicates module + kernel virtual hooks |
 | New validator | Implement ActionValidator; register in `initValidators` |
 | User override | `.nerd/mangle/extensions.mg`, `policy_overrides.mg`, `learned.mg` |

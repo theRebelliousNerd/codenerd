@@ -28,21 +28,21 @@
 | **Cause** | Facts/schema mismatch; blocked_by_context too aggressive; Decl missing |
 | **Mitigation** | Check `jit_compiler.mg`; debug query blocked/mandatory; assert fact order |
 
-### FM4 — Stale compile_context
+### FM4 — Unscoped third-party kernel adapter
 
 | | |
 |--|--|
-| **Symptom** | Wrong atoms for subsequent compiles |
-| **Cause** | Kernel without Retract; assert without cleanup |
-| **Mitigation** | KernelRetracter path; e2e `jit_kernel_context_cleanup` |
+| **Symptom** | Wrong atoms for subsequent or concurrent compiles outside the production adapter |
+| **Cause** | External `KernelQuerier` implements neither `KernelScopeProvider` nor safe lifecycle cleanup |
+| **Mitigation** | `VERIFIED CURRENT` for production: cloned `RealKernel` compilation scopes plus mixed-context race tests. Require equivalent scope support or fail closed for third-party adapters. |
 
 ### FM5 — Cache stale prompt
 
 | | |
 |--|--|
 | **Symptom** | Tool nudge / available tools change ignored |
-| **Cause** | `Hash()` omits dimensions that changed |
-| **Mitigation** | Expand Hash; or ClearCache on those transitions |
+| **Cause** | A new prompt-affecting context field is added without versioning/hash coverage |
+| **Mitigation** | `VERIFIED CURRENT`: `compilation-context-v2` hashes all live fields and canonicalizes sets; keep field-completeness and real retry regressions mandatory |
 
 ### FM6 — Vector timeout / no embeddings
 
@@ -116,23 +116,40 @@
 | **Cause** | Baseline only mandatory matching context |
 | **Mitigation** | Prefer JIT path in production; document baseline limits |
 
+### FM15 — Compilation-scope regression
+
+| | |
+|--|--|
+| **Symptom** | Language, intent, shard, candidate, or vector state from another turn influences selection |
+| **Cause** | A production adapter stops cloning/sandboxing, or selection accidentally uses the live kernel instead of the compilation scope |
+| **Mitigation** | `VERIFIED CURRENT`: `acquireCompilationKernel` plus production `KernelAdapter.NewCompilationScope`; focused success/error/cancel/concurrent/panic regressions |
+
+### FM16 — Atom contract regression
+
+| | |
+|--|--|
+| **Symptom** | Validator/filesystem/embedded routes disagree, or a built-in atom requires migration |
+| **Cause** | A new route bypasses `ParsePromptAtomYAML`, or schema/vocabulary changes without parity update |
+| **Mitigation** | `VERIFIED CURRENT`: shared strict parser, canonical built-ins, bounded migration warnings, and golden ordered 888-ID parity |
+
 ## Severity summary
 
 | ID | Severity | Degrade-safe? |
 |----|----------|---------------|
 | FM1–FM3 | High | No (skeleton) |
-| FM4–FM5 | High | Silent wrong |
+| FM4–FM5 | High | Production guarded; external/new-field regressions remain possible |
 | FM6 | Medium | Yes |
 | FM7 | Medium | Partial |
 | FM8 | Low–Med | Ordered somehow |
 | FM9–FM10 | High for tools | Prompt may still work |
 | FM11–FM14 | Low–Med | Usually yes |
+| FM15–FM16 | High | Guarded by focused production and ordered-parity gates |
 
 ## Incident triage order
 
 1. Log line `JIT[...]` stats string.  
 2. Manifest dropped reasons / DebugMode.  
-3. Confirm kernel + retract.  
+3. Confirm production compilation scope creation/close; inspect external adapter capability.
 4. Confirm embedded count at boot.  
 5. Check Hash-related state changes.  
 6. Check ConfigAtom for intent.  

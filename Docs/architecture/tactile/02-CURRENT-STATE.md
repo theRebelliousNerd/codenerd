@@ -62,6 +62,17 @@
 | Audit facts | When modern executor / callbacks wired |
 | Docker / Persistent / python / swebench | Optional / lab / benchmark paths |
 
+### Docker selection receipt
+
+**VERIFIED CURRENT:** `internal/tactile/docker.go#detectDocker` caches a
+bounded Docker probe for 30 seconds, including negative results, so repeated
+`VirtualStore` construction does not launch one five-second `docker version`
+probe per instance. The probe is single-flight under a mutex.
+`internal/tactile/factory.go#NewCompositeExecutor` passes its caller-supplied
+`ExecutorConfig` to `NewDockerExecutorWithConfig`; availability checks therefore
+measure the requested binary/configuration instead of silently using defaults.
+Focused evidence is recorded in [_progress.md](_progress.md).
+
 ## What is dormant or sparse
 
 | Surface | Note |

@@ -41,8 +41,15 @@ codeNERD safety is **logic-owned**:
 **Enforcement:**
 
 - Engine: `WithCreatedFactLimit(DerivedFactsLimit)`.
-- Kernel full path: `derivedFactLimit` (default 500_000).
-- **Gap:** DifferentialEngine eval calls currently do not forward this option.
+- Kernel full and differential paths:
+  `internal/core/kernel_init.go#RealKernel.effectiveDerivedFactLimitLocked`
+  resolves the same 500_000 default.
+- DifferentialEngine: `evalOptions` forwards every positive configured limit to
+  unified atom, legacy atom, and legacy fact evaluator calls.
+
+**Regression:** `TestDifferentialEngine_DerivedFactsLimit` proves direct
+fail-closed enforcement; `TestKernelEval_ZeroConfigDerivedFactLimitParity`
+proves unset full/diff kernel ceilings match.
 
 ### I5 — EDB capacity
 

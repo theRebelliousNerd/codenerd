@@ -21,11 +21,14 @@ Is hierarchical `CortexKernel` the long-term default for interactive nerd, or a 
 
 **Why open:** Feature-flagged per-shard facts; most mental model still single RealKernel.
 
-## Q4 — Permission model arity
+## Resolved decisions (2026-07-13)
 
-`permitted` Decl is 3-arity `(ActionType, Target, Payload)` while older docs/comments sometimes say `permitted(Action)`. How many call sites still query legacy shapes?
-
-**Why open:** Silent join / arity bugs historically bit safety (comments reference Bug #Safety-ExecCmd, Bug #12).
+- Permission authorization is exact `permitted(ActionType, Target,
+  CanonicalPayload)`. `safe_action/1` is classification only.
+- The default Cortex policy shard owns the complete pending-action permission
+  envelope, and the router preserves the executive action ID in results.
+- Destructive `RouteAction` and interactive preflight deny without a usable
+  Dreamer; nil-kernel permission checks deny.
 
 ## Q5 — Direct Exec vs RouteAction
 
@@ -62,3 +65,18 @@ Who owns adding `safe_action(/new_tool)` when a modular tool ships in `internal/
 Is `IsEphemeral` list complete for all session-scoped predicates that must not boot-fire?
 
 **Why open:** New predicates added across packages may miss the filter.
+
+## Q11 — Dreamer cache identity and invalidation
+
+Should cache identity include canonical payload plus a kernel/policy mutation epoch,
+instead of action type and target with manual invalidation?
+
+**Why open:** Bounded storage is proven; freshness across every mutation path is not.
+
+## Q12 — Mid-evaluation cancellation
+
+Should kernel evaluation itself accept context cancellation, rather than checking
+only around the Dreamer evaluation boundary?
+
+**Why open:** pre/post checks bound many cases, but a running Mangle evaluation is
+not presently interrupted through the same context.

@@ -1,5 +1,0 @@
-# Superseded
-
-This stub is replaced by the 2026-07-13 corpus rebuild.
-
-→ See [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) and [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md).

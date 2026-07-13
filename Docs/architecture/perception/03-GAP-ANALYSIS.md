@@ -19,6 +19,7 @@
 | Multi-workspace taxonomy isolation | Shared globals + SetWorkspace | **Partial** |
 | Provider README accuracy | Operator README somewhat stale | **Doc gap** (package README, not arch corpus) |
 | Complete e2e for every provider | Mock-heavy + gated live | **Partial** |
+| Nil provider construction | `NewClientFromConfig` rejects nil with a tested error | **Closed 2026-07-13** |
 
 ## Priority ranking
 
@@ -68,5 +69,10 @@
 2. Optional interfaces explosion without formal capability discovery.  
 3. Global singleton classifiers complicate pure DI.  
 4. Live tests depend on secrets / network; CI may skip real coverage.
+
+The authoritative implementation contracts for these gaps are the feature cards
+in [TODO](TODO.md). In particular, outage normalization is not closed merely by
+Gemini's sentinel, and optional Go interfaces are not yet a typed capability or
+workspace-ownership contract.
 
 See [TODO.md](TODO.md) for actionable backlog.

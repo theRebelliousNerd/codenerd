@@ -1,60 +1,96 @@
-# 03 — Gap Analysis: mangle
+# Gap analysis: from working substrate to uniform executive contract
 
-> Last verified: 2026-07-13  
-> Compares vision (`01-VISION.md`) and north star to **implemented** code.
+> Compared on 2026-07-13: [01-VISION.md](01-VISION.md) against the live state in
+> [02-CURRENT-STATE.md](02-CURRENT-STATE.md). A gap is not an implementation claim.
 
-## Matrix
+## Executive summary
 
-| Target capability | Reality | Gap severity | Notes |
-|-------------------|---------|--------------|-------|
-| Durable Engine API | **Met** | — | Load, fact, query, limits, stats |
-| Gas-limited inference | **Mostly met** | Low | Engine has limits; kernel full path has limits; **diff path does not forward** `WithCreatedFactLimit` |
-| Differential as default hot path | **Partial** | Medium | Flag defaults via features; fallbacks often take full path; external predicates force full |
-| Snapshot isolation | **Met (copy)** | Low | Full copy, not structural COW — memory cost under large EDB |
-| Virtual/lazy predicates | **Met** | Low | FactStoreProxy; loader shape is string→string |
-| Closed-loop generation | **Met** | Low | FeedbackLoop production-used |
-| Structured synth as default | **Partial** | Medium | Modes exist; not mandatory for all writers |
-| GCD atom validation | **Met** | Low | AtomValidator + RepairLoop |
-| Schema drift + forbidden heads | **Met** | Low | Regex Decl limits edge cases |
-| Parse process lock | **Mostly met** | Medium | Engine/core locked; sanitizer/synth use `parse.Unit` |
-| Unified proof/provenance story | **Partial** | Medium | ProofTreeTracer ≠ DerivationRecorder |
-| LSP product polish | **Partial** | Low | Server code exists; editor integration quality varies |
-| True delta propagation | **Not met** | Medium–High | Explicit future work in differential comments |
-| intent_routing.mg as executive | **Unclear** | Medium | File present; load path needs wiring audit |
+The package is substantial production infrastructure, not a skeleton. Engine,
+feedback, synthesis, schema validation, proof, LSP, and differential code all
+exist and have package tests. The former differential created-fact-limit gap is
+closed. The highest-priority remaining gaps are narrower: production authoring
+paths bypass the process-wide parser lock, and unified read APIs do not see the
+store populated by the fast path.
 
-## Priority backlog (dependency-ordered)
+Created-fact gas parity is now fixed and regression-proven. Optimization work
+should still stop behind the remaining parser, exported read-contract, and
+observable fallback gates. True delta propagation is valuable only after full and
+differential modes enforce comparable safety and evidence.
 
-### P0 — Correctness under concurrency / eval options
+## Closed in the P0 follow-up
 
-1. Route `transpiler.Sanitizer` and `synth.Compile` parse through `mangle.ParseUnit`.
-2. Forward `EvalOption`s (externals, created-fact limit, recorder) on DifferentialEngine eval calls — unlocks more kernel time on diff path safely.
+| Former gap | Resolution evidence | Verdict |
+|---|---|---|
+| Differential created-fact limit was not forwarded, and zero-config kernel defaults differed | `DifferentialEngine.evalOptions` supplies `WithCreatedFactLimit` to unified atom, legacy atom, and legacy fact evaluation; `effectiveDerivedFactLimitLocked` supplies the same 500,000 kernel default to full and diff configuration. Package and kernel parity regressions cover both boundaries | **VERIFIED CURRENT** |
 
-### P1 — Differential completeness
+## Evidence-backed matrix
 
-3. Document and test kernel fallback matrix (externals, proof, policy dirty, retract).
-4. Design real delta propagation (beyond unified re-eval) only after (2).
-5. Snapshot memory strategy if large EDB snapshots become common.
+| Gap | Current evidence | Target | Severity | Disposition |
+|---|---|---|---|---|
+| Raw parser calls bypass the shared lock | `internal/mangle/transpiler/sanitizer.go#Sanitizer.Sanitize`, `SanitizeAtoms`, and `internal/mangle/synth/compile.go#Compile` call `parse.Unit` directly | All production parsing enters `ParseUnit`/`ParseAtom`; concurrent mixed callers pass under race | **P0 / High concurrency** | Replace direct calls without creating an import cycle; add cross-package race coverage |
+| Unified fast path has an unguarded read contract | `ApplyAtomDelta` populates `unifiedStore`; `Query` and `Snapshot` read/copy only `strataStores` | Either keep both stores coherent or reject unsupported read APIs with a typed error | **P0 / High correctness for exported API** | Pin mode contract, reproduce, add Query/Snapshot tests; kernel's current use is limited to `CopyAllFactsTo` |
+| Evaluator options are not one typed contract | Full and diff modes now share gas; external callbacks and provenance remain full-path-only | One option surface with explicit support/fallback result | **P1 / Medium** | Preserve the verified gas regression; retain full fallback until each additional option is proven |
+| Package-local intent rules shadow runtime intent rules | Package tests load `internal/mangle/intent_routing.mg`; boot loads `internal/core/defaults/schema/intent_routing.mg`; files differ | One authority or an explicit generated fixture with parity checks | **P1 / Medium** | Decide owner, replace stale comments, and test the live embedded module list |
+| Structured synth is not the universal model rule protocol | Legislator requires synth; core/executive/constitution feedback loops use default off | Structured output by default for every model-authored rule, with explicit compatibility fallback | **P1 / Medium** | Inventory callers, pin per-caller schema constraints, migrate with negative tests |
+| Proof tree and provenance are parallel stories | `internal/mangle/proof_tree.go#ProofTreeTracer` coexists with `internal/core/kernel_provenance.go` | One correlation model and bounded evaluation receipt | **P2 / Medium** | First standardize result/fallback telemetry; then attach proof/provenance IDs |
+| No durable bounded evaluation receipt | Logs, engine stats, and traces are separate and path-specific | Redacted program/fact fingerprints, mode/options, result counts, fallback/error, proof IDs | **P2 / Medium** | Build `mangle-explainable-replay-v1` after option parity |
+| Schema validator still relies partly on regex extraction | `internal/mangle/schema_validator.go#SchemaValidator.extractDeclsFromText` counts commas in textual Decls | Prefer analyzed `ProgramInfo` declarations and retain regex only for preflight diagnostics | **P2 / Medium** | Introduce ProgramInfo-fed constructor/update path; test complex bounds/descriptors |
+| Snapshot is a deep copy despite COW wording | `internal/mangle/differential.go#DifferentialEngine.Snapshot` enumerates and copies facts | Honest API name/docs or bounded structural sharing with isolation proof | **P3 / Low until measured** | Measure memory and latency before redesign |
+| True delta propagation is not implemented | Unified mode reuses a store but runs full-program seminaive evaluation per changed batch | Delta-aware propagation with full/diff semantic oracle | **P3 / Medium-high leverage** | Only after P0/P1 parity; benchmark representative OODA deltas |
+| SIMD intersection has no production caller | `internal/mangle/simd_intersect_test.go` tests it; review found no non-test call | Either a measured caller or explicit library-only/deprecation decision | **P3 / Low** | Do not wire for aesthetics; require a profile and benchmark |
 
-### P2 — Generation consistency
+## Probable product findings
 
-6. Require synth mode for autopoiesis / legislator / mangle_repair (or VirtualStore `mangle_synth_tool`).
-7. Prefer ProgramInfo-based Decl maps over regex for SchemaValidator when ProgramInfo available.
+The audit recorded two bounded findings without changing product code:
 
-### P3 — Observability & routing corpus
+- `.corpus-build/findings/mangle-differential-gas-bypass.md` — created-fact
+  limit bypass, now fixed with a three-route finite regression.
+- `.corpus-build/findings/mangle-unified-fast-path-read-contract.md` — exported
+  Query/Snapshot paths do not read the store populated by unified ApplyAtomDelta.
 
-8. Unify glass-box derivation (proof tree + provenance).
-9. Wiring audit for `intent_routing.mg` and `IntersectSIMD` call sites.
+These are source-grounded findings. The first is marked fixed with bounded
+before/after evidence. The second has a finite exported-API reproduction and
+remains open.
 
-## Non-gaps (do not “fix”)
+## Non-gaps and rejected shortcuts
 
-| Item | Why it is not a gap |
-|------|---------------------|
-| Package does not implement `permitted` | Owned by core policy by design |
-| Package does not own OODA loop | Session/kernel ownership |
-| 2-bucket stratification | Intentional performance choice with measurements |
-| Feedback session budgets | Safety feature, not incomplete work |
-| Auto-eval default true | Configurable via env |
+| Item | Classification | Why |
+|---|---|---|
+| `permitted/3` is absent from this package | **REJECTED as a gap** | Core policy owns constitutional permission; this package must protect, not duplicate, that authority |
+| Mangle does not perform fuzzy user-intent matching | **REJECTED as a gap** | Perception/embeddings should map language into structured facts before exact deduction |
+| Differential evaluation defaults off | **ASSUMPTION to retain until parity closes** | Conservative default avoids making the incomplete option contract universal |
+| Core full evaluation calls mangle-go directly | **OPEN QUESTION, not automatically a gap** | A wrapper-only rule may add coupling without value; the needed invariant is one observable contract, not necessarily one Go type |
+| Feedback retries are bounded | **VERIFIED CURRENT safety feature** | Termination is intended; exhausted repair should reject or escalate rather than retry forever |
+| Two-bucket legacy stratification | **REJECTED as an immediate gap** | Source comments record a measured regression from finer per-stratum setup; real leverage is option parity and delta propagation |
+| Deep-copy snapshots | **ASSUMPTION acceptable at current scale** | Redesign requires measured memory pressure and a proven isolation contract |
 
-## Spec vs stub claims
+## Dependency order
 
-Older thin corpus files claimed generic “90%” without behavioral narrative. **This rebuild** treats the package as production-integrated. Gaps above are incremental engineering, not missing skeleton.
+```text
+verified diff gas regression ──> remaining option contracts ──> broader eligibility
+                 |                              |
+                 +------------------------------+──> result/fallback receipt
+
+parse chokepoint ──> mixed race gate ──> structured synth rollout
+
+intent authority decision ──> runtime corpus parity tests
+
+receipts + proof correlation ──> no-effects replay
+
+all parity gates ──> true delta propagation
+```
+
+## Closeout gates
+
+A future corpus update may close a row only with all applicable evidence:
+
+1. a focused regression that fails on the prior behavior;
+2. the minimal causal implementation change;
+3. full/diff or caller/callee wiring proof, not just package compilation;
+4. negative tests for silent option loss, unbounded work, protected-head spoofing,
+   raw parser concurrency, and unsupported mode use;
+5. targeted package tests plus the relevant core or CLI integration tests;
+6. `go test -race` when parser/store concurrency changes;
+7. updated current-state, safety, testing, failure, and TODO evidence;
+8. a rollback boundary, usually disabling differential mode or the new receipt
+   producer without changing policy semantics.

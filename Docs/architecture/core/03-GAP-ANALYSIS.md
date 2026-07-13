@@ -15,10 +15,10 @@ Priority: **P0** safety/correctness · **P1** architecture clarity · **P2** per
 
 | Vision item | Reality | Gap? | Pri |
 |-------------|---------|------|-----|
-| Default deny `permitted` | `constitution.mg` + VS gate | No | — |
-| Fail-closed Dreamer | Implemented for destructive set | Partial projection coverage | P1 |
+| Default deny `permitted/3` | Exact canonical envelope; classification cache cannot allow | No | — |
+| Fail-closed Dreamer | Required on destructive route/preflight; checked clone staging | Projection fidelity only | P2 |
 | Stratified trust (learned after constitution) | `rebuildProgram` order | No | — |
-| Quiescent boot | Ephemeral filter + boot guard | No | — |
+| Quiescent boot | Chat guard through rehydration; command boot is explicit mode | No, mode must stay named | — |
 | Single effect gateway | RouteAction primary; direct Exec exists | Partial bypass | P1 |
 | One clear orchestration path | Session + ShardManager dual | Yes | P1 |
 | Diff-eval optional/safe | Flagged; comments caution production | Yes (ops clarity) | P2 |
@@ -28,7 +28,7 @@ Priority: **P0** safety/correctness · **P1** architecture clarity · **P2** per
 | Package README accurate | Migration story partially stale | Yes (docs-in-tree) | P3 |
 | Provenance always on | Off by default (memory cost) | Intentional | — |
 | Complete ActionType handlers | Large enum; coverage tests extensive | Residual unknown verbs | P2 |
-| Permission cache correctness | Cache rebuild on SetKernel | Possible stale after hot policy | P1 |
+| Permission cache correctness | Cache is classification-only; exact query always decides | No authorization gap | — |
 
 ---
 
@@ -36,9 +36,22 @@ Priority: **P0** safety/correctness · **P1** architecture clarity · **P2** per
 
 ### P0 — none open as structural product blockers
 
-Constitution + RouteAction + Dreamer form a working multi-layer gate. Residual risk is **coverage** (new action types not marked destructive / not in safe_action), not missing machinery.
+Constitution + RouteAction + Dreamer form a working multi-layer gate. The earlier
+authorization, nil-kernel, schema, timestamp, and validation defects have focused
+negative regressions. Residual risk is contract drift and projection coverage,
+not a known fail-open route in the principal `RouteAction` pipeline.
 
 ### P1 — architecture & safety coverage
+
+0. **Resolved repair set (2026-07-13)**
+   `Dreamer.SimulateAction` previously asserted `hypothetical/1` into the live
+   kernel before cloning. It now projects that fact only into the sandbox. The
+   regression proves the live EDB count does not change. Checked projection
+   staging also fails closed at the fact limit and on invalid facts. Exact
+   `permitted/3` matching replaced cache-based authorization; Cortex co-locates
+   the permission envelope on its policy shard; missing Dreamer/kernel paths deny;
+   failure facts match their declarations; post-validation returns errors;
+   pruning uses the timestamp field; and router results preserve executive IDs.
 
 1. **Destructive classification drift**  
    New `ActionType` constants must update `isDestructiveAction` and often `safe_action`/`dangerous_action` in policy. No single registry enforces both Go and Mangle lists.
@@ -49,18 +62,21 @@ Constitution + RouteAction + Dreamer form a working multi-layer gate. Residual r
 3. **Dual orchestration**  
    Cognitive load and wiring bugs when boot injects both session TaskDelegator and ShardManager. Prefer one narrative in boot code comments + this corpus.
 
-4. **Permission cache invalidation**  
-   After `HotLoadRule` / policy append, ensure `rebuildPermissionCache` or equivalent runs when safe_action set changes.
-
-5. **Dreamer cache invalidation**  
+4. **Dreamer cache invalidation — OPEN QUESTION**
    Policy or critical-path fact changes must call `InvalidateCache`; audit all hot-load sites.
+
+5. **CodeDOM metadata contract proof**
+   Edit results now carry the concrete file used by semantic validation. The full
+   core suite covers the handler, but a named negative test proving metadata beats
+   a symbolic request target would make this seam independently falsifiable.
 
 ### P2 — performance & scale
 
 1. **Boot program size** — concatenating all policy modules increases parse/analyze time.  
 2. **Full re-eval vs diff-eval** — default strategy needs an explicit ops recommendation (eval comments already lean cautious).  
 3. **Kernel Clone cost** under burst destructive simulations.  
-4. **EDB growth** — prune helpers exist; long campaigns need active discipline.
+4. **EDB growth** — action-log pruning now reads the correct timestamp slot;
+   long campaigns still need measured retention evidence.
 
 ### P3 — polish
 
@@ -106,7 +122,8 @@ Always grep registration and e2e before removal.
 
 - [ ] Single table of ActionType → destructive? → safe_action? → handler  
 - [ ] Explicit session bypass matrix  
-- [ ] Hot-load → permission cache + dream cache invalidation audit  
+- [ ] Kernel/policy mutation → Dreamer cache invalidation audit
+- [ ] Dedicated CodeDOM metadata-to-semantic-validator negative test
 - [ ] Diff-eval production recommendation in ops docs  
 - [ ] Refresh package README migration section  
 

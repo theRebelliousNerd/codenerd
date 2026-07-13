@@ -29,8 +29,9 @@
 ## F3 — Boot guard left on (S2)
 
 **Symptom:** All tools fail with “boot guard active”.  
-**Cause:** Forgot `DisableBootGuard` after first user interaction.  
-**Mitigation:** Session/chat must clear guard once live; tests assert guard lifecycle.
+**Cause:** Chat forgot `DisableBootGuard` after first user interaction.
+**Mitigation:** Preserve chat rehydration quiescence, then clear on the first user
+message. Do not copy this timing blindly to explicit command `BootCortex` mode.
 
 ## F4 — Stale next_action replay (S0/S1 risk if unguarded)
 
@@ -52,9 +53,10 @@
 
 ## F7 — Kernel nil on VS (S0/S2)
 
-**Symptom:** `CheckKernelPermitted` short-circuit behavior depends on code path; reduced policy gate.  
+**Symptom:** Actions deny with missing-kernel evidence; destructive routes cannot build Dreamer.
 **Cause:** Incomplete boot DI.  
-**Mitigation:** Production boot always SetKernel before routing; tests that skip kernel must not claim production parity.
+**Mitigation:** Production boot always `SetKernel` before routing. Preserve the
+current fail-closed denial; never repair availability by restoring a nil shortcut.
 
 ## F8 — Eval thrash / latency (S3→S1)
 
@@ -80,11 +82,12 @@
 **Cause:** Invalid rule appended without sandbox (Bug #8 class).  
 **Mitigation:** `HotLoadRule` sandbox compiler + unsafe negation check + heal path.
 
-## F12 — Permission cache staleness (S2)
+## F12 — Permission classification cache staleness (S3)
 
-**Symptom:** Action denied/allowed incorrectly vs current policy.  
+**Symptom:** Classification hint is stale; exact Mangle query still decides.
 **Cause:** Cache not rebuilt after policy hot change.  
-**Mitigation:** Rebuild on SetKernel; audit hot-load paths.
+**Mitigation:** Rebuild for diagnostics/performance as needed. Never turn the cache
+back into an allow path.
 
 ## F13 — Handler missing for ActionType (S2)
 
@@ -121,6 +124,27 @@
 **Symptom:** Wrong files edited; `.nerd` not found.  
 **Cause:** CWD ≠ workspace; forgot `NewRealKernelWithWorkspace` / `SetWorkspace`.  
 **Mitigation:** Always pass workspace from CLI flags.
+
+## F19 — Partial Dreamer projection silently evaluated (S0)
+
+**Symptom:** Simulation calls an action safe after a projected fact was rejected.
+**Cause:** unchecked clone assertion at fact capacity or atom-conversion failure.
+**Mitigation:** retain `assertWithoutEvalChecked`; any staging rejection is unsafe.
+
+## F20 — Result fact schema or correlation drift (S2)
+
+**Symptom:** downstream policy cannot join a failure/result, pruning reads output
+as time, or router results use a different ID from the executive action.
+**Cause:** hand-built fact slots or a second route ID.
+**Mitigation:** preserve `security_violation/3`, `execution_error/2`,
+`execution_result/6`, slot-5 timestamp, and original action ID tests.
+
+## F21 — Validation uses symbolic CodeDOM target (S2)
+
+**Symptom:** an edit succeeds but semantic validation checks an element identifier
+as if it were a file path.
+**Cause:** result omitted concrete file metadata.
+**Mitigation:** edit handlers return `Metadata["file"]`; validator prefers it.
 
 ---
 

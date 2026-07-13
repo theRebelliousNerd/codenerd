@@ -1,4 +1,0 @@
-# Moved
-
-Superseded 2026-07-13. See [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).  
-Authoritative map: [README.md](README.md).

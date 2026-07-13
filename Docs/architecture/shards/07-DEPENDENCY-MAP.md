@@ -47,7 +47,7 @@
 | Consumer | Path evidence | Use |
 |----------|---------------|-----|
 | Cortex factory | `internal/system/factory.go` | `RegisterAllShardFactories`, re-register router/campaign |
-| Interactive chat boot | `cmd/nerd/chat/session_boot.go` | Inline system factories + profiles |
+| Interactive chat boot | `cmd/nerd/chat/session_shared_boot.go`, `cmd/nerd/chat/session_boot.go` | Shared Cortex boot plus compatibility inline factory path and chat enrichers |
 | Chat process | `cmd/nerd/chat/process.go` | Boot guard; perception_firewall lookup |
 | Delegation | `cmd/nerd/chat/delegation.go`, `delegation_modes.go` | Matching / consultation |
 | Campaign consultation adapter | `cmd/nerd/chat/campaign_consultation_adapter.go` | Consultation types |
@@ -92,4 +92,4 @@ perception → kernel facts → policy (core defaults .mg)
 | `features.IsSystemShardsEnabled()` | Skip StartSystemShards in chat boot |
 | `NERD_DISABLE_SYSTEM_SHARDS` | Comma-separated disable list (chat) |
 | `BootConfig.DisableSystemShards` / CLI `--disable-system-shard` | Factory disable set |
-| `features.IsPerShardFactsEnabled()` | Future consumer of predicate manifests |
+| `features.IsPerShardFactsEnabled()` | Flag surface exists, but no production consumer calls the exported shards manifest; do not infer wiring from the flag |

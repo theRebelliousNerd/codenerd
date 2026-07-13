@@ -1,87 +1,84 @@
-# 11 — Observability: shards
+# Observability: shards
 
-> Last verified against codebase: 2026-07-13
+## Correlation hierarchy
 
-## 1. Logging categories
+| Identity | Current scope | Strongest surfaces |
+|---|---|---|
+| executive ActionID | permission through effect | pending/permitted/permission/routing/execution facts, ToolStore |
+| ShardID | one spawned execution | audit, active/status facts, Glass Box, result map |
+| task/request ID | consultation/planner/campaign-specific | manager structs and subsystem facts |
+| session ID | chat/tool persistence | ToolStore and usage context |
+| boot generation | **absent** | proposed activation receipt |
 
-Primary: **`logging.CategorySystemShards`** via helpers:
+ActionID is the best current cross-component key. The pipeline test proves it is
+not replaced by the router.
 
-| Helper | Use |
-|--------|-----|
-| `logging.SystemShards(...)` | Info-level system shard events |
-| `logging.SystemShardsDebug(...)` | Verbose transitions, config, hydration |
-| `logging.Get(logging.CategorySystemShards).Warn/Error` | Failures, blocks, budget exhaustion |
-| `logging.StartTimer(CategorySystemShards, ...)` | Learning load / LLM timing |
+## Signal inventory
 
-Related categories used nearby:
+### Logs and events
 
-- `logging.Routing` — router poll fallback  
-- `logging.Shards` — ShardManager (core package)  
-- `logging.CategoryKernel` — stale cleanup failures  
-- `logging.CategoryBoot` — chat/factory boot steps  
+- system shard info/debug/error categories expose lifecycle, policy, JIT, and
+  budget failures;
+- routing and tool categories expose route selection and effect execution;
+- audit logs record shard spawn/execute/complete;
+- Glass Box emits immediate shard lifecycle and selected router events;
+- ToolEventBus shows bounded tool results; ToolStore persists full execution
+  records under its own retention contract.
 
-## 2. Structured / glass box
+### Kernel facts
 
-| Mechanism | Wiring | What you see |
-|-----------|--------|--------------|
-| GlassBoxEventBus | Chat tactile_router `SetGlassBox` | Debug visibility events |
-| ToolEventBus | Chat tactile_router | Always-visible tool execution |
-| ToolStore | Chat tactile_router | Persisted full tool results |
-| ShardManager glass bus | core manager | Spawn/completion overlays |
-| `jitConfig.TraceLLMIO` | Base `TraceLLMIOEnabled` | Legislator/repair raw LLM I/O structured logs |
+`system_heartbeat`, campaign/world/planner status, `executive_error`,
+`executive_blocked`, `ooda_timeout`, `permission_check_result`,
+`security_violation`, `routing_result`, and `execution_result` provide structured
+diagnosis. Permission and routing results prune on bounded cadence; heartbeat
+updates are optimized in core.
 
-## 3. Kernel-visible health facts
+### In-memory metrics
 
-| Fact | Meaning |
-|------|---------|
-| Heartbeats via `EmitHeartbeat` | Shard liveness for policy |
-| `campaign_runner_heartbeat` | Campaign supervisor tick |
-| `executive_error` | Policy evaluation failure |
-| `executive_blocked` | Barrier active |
-| `ooda_timeout` | Pending intent without actions |
-| `permission_check_result` | /permit or /deny audit stream |
-| `security_violation` | Blocked action audit |
-| `strategy_activated` | Strategy change |
+Executive decisions/blocks/strategies, CostGuard call/retry counts, router calls,
+observer events/assessments, queue depth/reject/timeout/spawn metrics, plan
+progress, and constitution violations exist across shard and manager objects.
 
-Pruning: constitution prunes old `permission_check_result` after ~15 minutes (throttled every 10s).
+## Known blind spots
 
-## 4. Metrics held in memory
+- consultation failures are returned but not normalized into a cross-operation
+  lifecycle receipt;
+- observer input overflow is silently dropped and has no counter;
+- boot has no required/optional readiness outcome or generation;
+- inline/fallback JIT calls do not emit one normalized atom/budget receipt;
+- unobserved asynchronous manager results have no bounded operator-facing
+  retention metric in this corpus;
+- Cortex and chat enrichers do not expose a single factory-parity report.
 
-| Shard | Metrics |
-|-------|---------|
-| Executive | decisionsCount, blockCount, strategyChanges, pending/blocked lists |
-| Perception | intentsProcessed, clarifications |
-| Constitution | violations, permitted list |
-| Router | pendingCalls, completedCalls |
-| Planner | tasksCompleted, tasksBlocked |
-| CostGuard | callsThisMinute/Session, validationRetriesUsed |
+## Operator diagnosis
 
-Access via getters (`GetMetrics`, `GetViolations`, etc.) for UI/status commands.
+### Intent exists but no effect
 
-## 5. Debug dumps
+Trace `user_intent` -> `next_action` -> `pending_action` ->
+`permission_check_result` -> `permitted_action` -> `routing_result` ->
+`execution_result`. Check executive boot guard, barriers, constitution reason,
+router activity, route mapping, rate limiter, and VirtualStore error in that
+order. Keep the same ActionID throughout.
 
-If the process crashes during Mangle evaluation, a combined program dump may land as `debug_program_ERROR.mg` (observed under `internal/shards/system/` in tree). Use for post-mortem; do not treat as source of truth.
+### Specialist advice is missing
 
-## 6. Operator tips
+Inspect the requested target list, on-disk agent readiness, matcher scores,
+TaskExecutor spawn results, and consultation adapter. Current batches return
+joined errors while preserving successful peers; inspect both values.
 
-```text
-# When OODA seems stuck
-- Check boot guard still active?
-- Query ooda_timeout / pending_intent / next_action / pending_action
-- Check executive_blocked / block_commit barriers
+### System shard appears alive but does nothing
 
-# When tools never run
-- Is permitted_action asserted?
-- Is tactile_router running (OnDemand)?
-- AllowUnmappedActions? action pattern missing?
+Compare active/status facts, heartbeat age, ShardManager active list, and Execute
+loop logs. Background observers now restart with fresh run contexts; missing
+assessments can still reflect uncounted channel overflow or a failing handler.
 
-# When LLM storm
-- CostGuard cooldowns in system shard logs
-- MaxLLMCallsPerMinute/Session
-```
+## Proposed lifecycle receipt
 
-## 7. Gaps
+A future redacted, size-capped receipt should include version, boot generation,
+ShardID/type, task/action correlation, descriptor fingerprint, required/optional
+dependencies, queue/start/ready/end timestamps, terminal status/error class,
+effective JIT atom IDs and budget summary, dropped-event counters, and rollback
+mode. It must exclude raw prompts, secrets, full source, and unbounded outputs.
 
-- No centralized Prometheus-style metrics exporter from system shards  
-- Factory boot path has less GlassBox/ToolStore wiring than chat  
-- Heartbeat semantics depend on policy rules outside this package  
+The receipt is diagnostic. It cannot satisfy `permitted/3` or a health gate by
+itself.

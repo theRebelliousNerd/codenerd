@@ -76,7 +76,8 @@ Prefer `types.Kernel` in new cross-package APIs; core aliases exist for historic
 | `RouteAction(ctx, Fact) (string, error)` | Primary policy-derived path |
 | `Exec(ctx, cmd, env)` | Direct shell with limited gates |
 | `ReadFile` / `WriteFile` / `ReadRaw` | Convenience FS |
-| `QueryPermitted` / `CheckKernelPermitted` | Permission probes |
+| `QueryPermitted` | Go constitutional request probe; not the Mangle authorization decision |
+| `CheckKernelPermitted` | Exact canonical `permitted/3` query; nil/mismatch denies |
 | `GetDreamer` | Access speculative engine |
 | `GetStrategicSummary` | Summary helper |
 
@@ -179,5 +180,6 @@ Interfaces: `VirtualStoreConsumer`, `ReviewerFeedbackProvider`.
 ## 11. Error / dump conventions
 
 - Kernel boot/eval analysis failure → error + optional `debug_program_ERROR.mg`  
-- RouteAction denials → `error` return + `security_violation` facts  
+- RouteAction denials → `error` return + `security_violation/3` facts
+- Handler/route failures → `execution_error/2`; results → `execution_result/6`
 - Dreamer blocks → error text includes “dreamer safety gate”

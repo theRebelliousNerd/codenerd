@@ -59,6 +59,9 @@
 
 Fluent setters: `WithOperationalMode`, `WithCampaign`, `WithShard`, `WithLanguage`, `WithIntent`, `WithTokenBudget`, `WithSemanticQuery`, plus `Clone`, `Validate`, `Hash`, `String`, `WorldStates`, `AvailableTokens`, `ToContextFacts`, `GenerateFacts`.
 
+`Hash` is schema `compilation-context-v2`: every prompt-affecting field participates;
+framework/tool sets are canonicalized without mutating the context.
+
 ## Selection / budget / resolve
 
 | Type.Method | Role |
@@ -82,6 +85,11 @@ Fluent setters: `WithOperationalMode`, `WithCampaign`, `WithShard`, `WithLanguag
 | `MatchesContext` | Dimension AND match |
 | `ToFact` / `ToSelectorFacts` / dependency/conflict facts | Mangle projection |
 | `EstimateTokens` / `HashContent` | Package helpers |
+| `ParsePromptAtomYAML` / `ParsePromptAtomFile` / `ParsePromptAtomDirectory` | Shared strict schema adapters with explicit migration reports |
+| `KnownWorldStates` / `AllContextDimensions` | Typed validator/runtime vocabulary |
+
+Kernel lifecycle ports are `KernelQuerier`, `KernelScopeProvider`,
+`KernelCompilationScope`, and compatibility-only `KernelRetracter`.
 
 ## ConfigFactory
 

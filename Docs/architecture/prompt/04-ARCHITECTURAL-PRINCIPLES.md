@@ -27,9 +27,13 @@ Static categories assemble **before** dynamic tail (`intent`, `world_state`, `co
 
 Atom selectors: empty dimension = wildcard; non-empty = must match. Across dimensions, matching is conjunctive. Frameworks and world states use internal OR.
 
-## P7 — Ephemeral kernel context must retract
+## P7 — Ephemeral kernel context must be compilation-owned
 
-`compile_context` facts asserted for a compile must be retracted when `KernelRetracter` is available. Do not leave selection facts poisoning the next turn.
+Compilation facts must be request-scoped and discarded on every exit. `VERIFIED
+CURRENT` — production satisfies this with `KernelScopeProvider` and a cloned
+`RealKernel`, not predicate-wide retraction. A third-party adapter must provide an
+equivalent scope; `KernelRetracter` is compatibility cleanup, not proof of
+concurrent isolation.
 
 ## P8 — Multi-source without single-source lock-in
 
@@ -50,3 +54,9 @@ ConfigAtom tool strings must match registered VirtualStore/tool names. Renames r
 ## P12 — Mangle Decl fidelity
 
 Any Go-emitted fact (`prompt_atom`, `atom_selector`, `vector_hit`, `compile_context`) must match arity/order in `schemas_prompts.mg` / `jit_compiler.mg`. Schema-order bugs are silent killers.
+
+## P13 — One strict atom contract
+
+Filesystem authoring, embedded loading, SQLite synchronization, and validation
+must use `ParsePromptAtomYAML`. Built-ins are canonical and migration-free;
+external legacy aliases are explicit, observable, and expire on 2027-01-01.

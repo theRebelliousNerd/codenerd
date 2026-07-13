@@ -96,8 +96,10 @@ standard ──(budget fail)──► concise ──(fail)──► min ──(f
 
 | Port | Methods | Implementors |
 |------|---------|--------------|
-| `KernelQuerier` | Query, AssertBatch | core adapter |
-| `KernelRetracter` | Retract | RealKernel path |
+| `KernelQuerier` | Query, AssertBatch | base kernel adapter and private compilation scopes |
+| `KernelScopeProvider` | NewCompilationScope | production `system.KernelAdapter` via cloned `RealKernel` |
+| `KernelCompilationScope` | Query, AssertBatch, Close | production per-compile adapter |
+| `KernelRetracter` | Retract | compatibility cleanup; not sufficient alone for concurrent isolation |
 | `VectorSearcher` | Search, EmbedQuery | `CompilerVectorSearcher` |
 | `ConfigAtomProvider` | GetAtom | Default provider, SimpleRegistry |
 | `AtomStore` | (interface in atoms.go) | EmbeddedCorpus etc. |
@@ -124,4 +126,7 @@ Primary files outside package:
 
 ## Subpackage: sync
 
-`AgentSynchronizer` discovers `.nerd/agents/*/prompts.yaml`, materializes knowledge DBs under shards/agents dirs, uses `AtomLoader` for schema+store. Boot registers DBs onto compiler via registrar funcs in `compiler_db.go`.
+`AgentSynchronizer` discovers `.nerd/agents/*/prompts.yaml`, parses through the
+shared strict schema, transactionally replaces knowledge DB atoms under the
+shards/agents dirs, and registers only successful agents. Boot attaches DBs to the
+compiler through registrar functions in `compiler_db.go`.

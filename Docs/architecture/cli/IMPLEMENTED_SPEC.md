@@ -487,7 +487,7 @@ Detailed schema: see `Docs/architecture/config/` and skill `codenerd-config-expe
 ## 21. Extension playbook (new CLI feature)
 
 1. Decide door: Cobra only, slash only, or both (document if asymmetric).
-2. Implement pure logic in `internal/<pkg>` when possible; keep `cmd/nerd` thin.
+2. Implement pure logic in `example:internal/<pkg>` when possible; keep `cmd/nerd` thin.
 3. Wire boot if new subsystem requires init.
 4. Add RunE + tests; add slash case in `commands.go` + handler.
 5. Emit logs/glass-box events for multi-step work.

@@ -1,88 +1,48 @@
-# 12 — Failure Modes: shards
+# Failure modes and recovery: shards
 
-> Last verified against codebase: 2026-07-13  
-> Concrete failures and mitigations
+| Failure | Symptom | Detection | Current containment | Residual / recovery |
+|---|---|---|---|---|
+| stale boot action | effects without a new user turn | boot guard, repeated pending facts | executive clears stale intent/pending state and starts guarded | boot readiness remains asynchronous; disable guard only on real ingress |
+| missing exact permission | action never reaches tool | correlated deny reason | strict constitution and VirtualStore fail closed | repair policy/declarations; never use `safe_action/1` as fallback |
+| authorization envelope split | permitted join disappears under per-shard stores | manifest uniqueness and exact Cortex envelope tests | canonical manifest drives production and co-locates all four predicates | preserve tests as factory/profile descriptors evolve |
+| action ID drift | waiter cannot join effect result | compare pending, routing, execution IDs | router now preserves executive ID; pipeline regression | require exact-ID tests on every adapter |
+| unmapped route | correlated no-handler failure | `routing_result(/failure, "no_handler")` | both modes consume once; learning mode records one case; second-pass regression | preserve completePermittedAction on every terminal branch |
+| batch consultation target fails | partial responses plus non-nil joined error | per-target error text and input-ordered successes | partial/total/nil-spawner regressions | callers must inspect both responses and error; pin cancellation/cache identity next |
+| observer restart | new generation misses events | Start/Stop/Start regression under race | fresh context, separate loop/task joins, stale-event drain | diagnose handler failure/overflow; keep Stop idempotent |
+| observer overload | stale/missing assessments | no drop metric | 100-event buffer, direct Northstar handler | add drop counter/backpressure/coalescing; never call absence alignment success |
+| hollow factory | nil kernel/client/store behavior | dependency logs, spawn error, absent facts | RegistryContext and runtime enrichers | scanner/reduced contexts are discovery only; fail visibly on real spawn |
+| boot shard fails | Cortex returns but participant never ready | logs, missing active/heartbeat | manager continues other starts | no aggregate readiness; inspect required spine before dependent effects |
+| queue saturation | spawn rejected or times out | queue metrics/errors | priority/backpressure/deadlines | preserve named failure in operation outcome; avoid unbounded retries |
+| LLM storm | provider throttling/cost rise | CostGuard logs/counters | minute/session caps and cooldown | audit every system LLM call; optional cognition degrades without effects |
+| JIT unavailable | interrogator/planner/legislator error or optional autopoiesis skip | explicit log/error | required paths fail, optional proposal skips | normalize fallback policy; do not add hidden prompt constants |
+| invalid learned rule | parse/evaluate failure, debug dump | repair result and kernel validation | synth/schema/safety/stratification and finite retries | verify interceptor on every boot/persistence route; reject is terminal |
+| system goroutine outlives shard | state mutates after completion | race/leak test, post-stop events | executive joins tracked autopoiesis; observers join loops/tasks per generation | apply owned-work WaitGroups/generation cancellation consistently |
+| campaign auto-runs | unexpected long-horizon work | active campaign facts/logs | campaign runner profile on demand | require explicit action/activation decision to change startup |
+| payload drift | target/intent data lost or permission mismatch | exact envelope facts, codec tests | shared encode/decode helpers | reject malformed canonical payload rather than guessing authority |
+| result retention grows | memory growth after async spawns nobody awaits | no complete package metric | synchronous and queued paths consume results | bound/expire unobserved results in core manager and emit tombstones |
 
-## FM1 — Infinite OODA on session start
+## Recovery order for the action pipeline
 
-**Symptom:** CPU/kernel evaluate thrash; repeated actions without user input.  
-**Causes:** Stale `user_intent`/`next_action`/`pending_action` rehydrated; boot guard disabled too early.  
-**Mitigations:** Executive startup retracts intent/pending facts; boot guard defaults on; only disable after user/CLI initiation.
+1. Preserve the ActionID and snapshot the exact facts; do not reissue an effect.
+2. Identify the last terminal or nonterminal stage.
+3. If permission is absent/denied, repair input or policy and create a new action
+   ID after user authorization; never mutate the old receipt into success.
+4. If permission exists but routing is absent, consume the old permission into a
+   failure before retrying with a new action.
+5. If execution may have started, inspect `execution_started/completed/result`
+   and tool-store records before retry; assume non-idempotent until proven.
+6. Cancel/join dependent shard work and retract exact transient facts.
+7. Record degradation and rollback mode in operator-visible output.
 
-## FM2 — Actions never execute
+## Rollback boundaries
 
-**Symptom:** Intents parse; no tool effects.  
-**Causes:** Boot guard still active; barriers (`block_commit`); constitution deny; router not started; unmapped action; rate limit.  
-**Diagnosis path:** `next_action` → `pending_action` → `permission_check_result` → `permitted_action` → `exec_request`.
-
-## FM3 — Everything denied
-
-**Symptom:** All actions `security_violation`.  
-**Causes:** Missing/broken `permitted` policy rules; StrictMode + query failure; dangerous pattern false positive; domain not allowlisted.  
-**Mitigations:** Fix policy corpus; appeal path; expand allowlist carefully; never disable StrictMode casually.
-
-## FM4 — Hollow shard
-
-**Symptom:** Shard runs but no kernel facts / LLM errors “no client”.  
-**Causes:** Factory registered without RegistryContext deps; wrong kernel type (`SetParentKernel` rejects non-Real/Cortex).  
-**Mitigations:** Always pass full RegistryContext; check logs for “Invalid kernel type”.
-
-## FM5 — Dual registration drift
-
-**Symptom:** Works in CLI Cortex, fails in chat (or reverse); missing GlassBox/browser/campaign manager.  
-**Causes:** session_boot vs factory diverge.  
-**Mitigations:** Unify registration; re-register overrides only for extras; lock with tests.
-
-## FM6 — LLM cost runaway
-
-**Symptom:** Provider rate limits; huge bills.  
-**Causes:** Perception/planner loops without CostGuard path; validation budget not reset.  
-**Mitigations:** GuardedLLMCall; session caps; ResetValidationBudget per turn; backoff on errors.
-
-## FM7 — Invalid learned Mangle poisons kernel
-
-**Symptom:** Evaluate failures; `debug_program_ERROR.mg`; bad rules in learned layer.  
-**Causes:** Repair interceptor not wired; repair rejected but caller ignored; legislator sandbox skipped.  
-**Mitigations:** Always `SetRepairInterceptor` on boots; max 3 repairs then reject; pre-validator + stratification checks.
-
-## FM8 — Campaign auto-runs on boot
-
-**Symptom:** Campaigns resume unexpectedly.  
-**Causes:** campaign_runner Auto startup (should be OnDemand); explicit start path.  
-**Mitigations:** Keep OnDemand profile; require explicit supervisor start.
-
-## FM9 — Specialist mismatch
-
-**Symptom:** Wrong expert consulted; empty match list.  
-**Causes:** Pattern heuristics; agent not `ready` in registry; confidence thresholds.  
-**Mitigations:** Tune DefaultVerbConfigs; ensure agents.json status; future embeddings.
-
-## FM10 — Observer event channel full
-
-**Symptom:** Dropped events; stale Northstar assessments.  
-**Causes:** Buffer 100; slow spawner.  
-**Mitigations:** Direct NorthstarHandler; increase buffer carefully; monitor EventsReceived.
-
-## FM11 — Requirements interrogator hard-fails
-
-**Symptom:** Error “JIT prompt compilation failed”.  
-**Causes:** Missing atoms / assembler not ready.  
-**Mitigations:** Ship system requirements_interrogator atoms; only static fallback when LLM nil.
-
-## FM12 — Kernel evaluate saturation
-
-**Symptom:** Multi-second Query latency; tickers pile up.  
-**Causes:** Too-aggressive poll intervals; large world EDB.  
-**Mitigations:** Event bus subscription; 2s fallback ticks; 15s heartbeats (current code comments document this history).
-
-## FM13 — Concurrent Stop vs autopoiesis
-
-**Symptom:** Race on learning stores after shard stop.  
-**Causes:** Fire-and-forget proposal goroutines (fixed with WaitGroup on executive).  
-**Mitigations:** Keep `autopoiesisWg` wait in defer; apply same pattern to other async LLM shards.
-
-## FM14 — Payload decode failure
-
-**Symptom:** Lost intent_id; empty payloads between executive and constitution.  
-**Causes:** Non-JSON payload strings; pseudo-map formatting.  
-**Mitigations:** Use `encodeActionPayload` consistently; payloads.go accepts map/JSON/pseudo-map.
+- registry uplift: restore a local table copied from the canonical manifest,
+  retain full policy envelope and parity regressions;
+- terminal outcomes: retain compatibility string/slice APIs as adapters over
+  typed results, never erase errors;
+- JIT migrations: disable only the migrated atom family and use its declared
+  compatibility behavior;
+- activation generations: turn off readiness gating while leaving receipts
+  diagnostic-only;
+- router repair: force `AllowUnmappedActions=false` if a future branch cannot
+  preserve the verified exactly-once semantics.

@@ -1,0 +1,7 @@
+schema_version = 1
+id = "context"
+kind = "realized"
+source_roots = ["internal/context"]
+entrypoint = "README.md"
+implemented_spec = "IMPLEMENTED_SPEC.md"
+verified_on = "2026-07-13"

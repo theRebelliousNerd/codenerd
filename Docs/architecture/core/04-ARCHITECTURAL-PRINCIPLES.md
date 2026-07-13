@@ -13,7 +13,9 @@ Mangle IDB is the authority for *what the system believes is next*. Go handlers 
 
 Effects require positive permission. Absence of `permitted` is deny.
 
-**Implications:** Never “allow if kernel nil” for production paths that can mutate. Tests may use nil-kernel shortcuts — production boot must attach kernel before `DisableBootGuard`.
+**Implications:** Never “allow if kernel nil” for paths that can mutate. Current
+RouteAction permission checks deny nil kernels; boot must attach the kernel before
+routing.
 
 ## P3 — Fail closed on safety machinery
 
@@ -33,7 +35,9 @@ Load order is a security boundary:
 
 ## P5 — Quiescent boot
 
-Process start and session rehydrate must not execute stale `next_action` chains.
+Chat process start and session rehydrate must not execute stale `next_action`
+chains. Command-oriented `BootCortex` is a separate mode entered after an explicit
+user command and may release its guard during construction.
 
 **Evidence:** ephemeral boot fact filter; `bootGuardActive` until first user interaction.
 

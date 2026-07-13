@@ -178,7 +178,9 @@ Boot sequence (`kernel_init.go`):
 
 1. Allocate EDB slices, `factstore.NewSimpleInMemoryStore()`, `FactEventBus`.
 2. `loadMangleFiles()` — concatenate schemas, policy modules, optional core modules, learned.
-3. Load predicate corpus (baked SQLite).
+3. Leave the baked predicate corpus unloaded; `GetPredicateCorpus` initializes it
+   once on first use so ordinary kernel construction does not open an unused
+   SQLite-backed corpus.
 4. Inject **non-ephemeral** boot facts from hybrid files (quiescent boot).
 5. Force `evaluate()` — **hard fail** if embedded constitution does not compile.
 
@@ -202,7 +204,9 @@ On analysis failure: dump combined source to `debug_program_ERROR.mg` in CWD for
 | Lazy eval | `factsDirty` atomic | Query path calls `ensureEvaluated()` |
 | Differential eval | Feature / env gated | `diffEngine.ApplyDelta` for assert-only deltas; invalidated on retract/clear/policy change |
 
-Default EDB cap: **250_000** facts (`defaultMaxFacts`). Derived fact limit default: **500_000**.
+Default EDB cap: **250_000** facts (`defaultMaxFacts`). The effective derived
+fact limit defaults to **500_000** in both full and differential evaluation;
+zero configuration does not create divergent ceilings.
 
 ### 4.4 Fact API (behavioral)
 
@@ -240,7 +244,7 @@ Boot filters ephemeral predicates (`filterBootFacts` / `IsEphemeral`) so session
 Dependencies injected at boot/runtime:
 
 - `tactile.Executor` (+ modern audited executor)
-- `Kernel` (+ auto `Dreamer` when `*RealKernel`)
+- `Kernel` (+ lazy Dreamer from `*RealKernel` or Cortex primary real kernel)
 - MCP `IntegrationClient` map
 - `TaskDelegator` (session executor — avoids import cycle)
 - CodeScope / FileEditor / GraphQuery
@@ -257,11 +261,11 @@ Dependencies injected at boot/runtime:
 RouteAction(fact)
   1. bootGuardActive? → deny (session rehydration safety)
   2. parseActionFact → ActionRequest
-  3. if destructive → Dreamer.SimulateAction (fail-closed)
+  3. if destructive → require Dreamer → SimulateAction (fail-closed)
   4. checkConstitution (Go hard rules)
-  5. CheckKernelPermitted (Mangle permitted / cache)
+  5. CheckKernelPermitted (exact Mangle permitted/3; cache classifies only)
   6. executeAction → type-specific handler
-  7. post-action validators (confidence ≥ 0.8 can flip success)
+  7. post-action validators (confidence ≥ 0.8 returns validation failure)
   8. inject execution_result + FactsToAdd
   9. audit + Tool/GlassBox events
 ```
@@ -295,7 +299,9 @@ Handlers live across `virtual_store_actions.go`, `_file_actions.go`, `_codedom.g
 | Env allowlist | VS config | PATH/HOME/GOPATH/…; caller env filtered |
 | Post validators | `validator_*.go` | Success verification |
 
-`CheckKernelPermitted` uses kernel query + optional `permittedCache` rebuilt from `safe_action` facts.
+`CheckKernelPermitted` canonicalizes payload JSON and accepts only an exact
+`permitted(ActionType, Target, Payload)` derivation. The `safe_action` cache is a
+classification hint only and cannot return allow.
 
 ### 5.5 Result feedback
 
@@ -303,10 +309,11 @@ Successful/failed actions inject:
 
 - handler-specific `FactsToAdd`
 - `execution_result(ActionID, Type, Target, Success, Output, UnixTime)`
-- on deny: `security_violation`, sometimes `dream_blocked_action`
-- on exec fail: `execution_error`
+- on deny: `security_violation(ActionType, Reason, UnixTime)`, sometimes `dream_blocked_action`
+- on exec fail: `execution_error(RequestID, ErrorMessage)`
 
-Action log pruning (`maybePruneActionLogs`) bounds kernel fact growth.
+Action log pruning (`maybePruneActionLogs`) reads the timestamp from slot 5 of
+`execution_result/6`; output text is never parsed as time.
 
 ---
 
@@ -326,9 +333,12 @@ Action log pruning (`maybePruneActionLogs`) bounds kernel fact growth.
 
 1. Validate target length (≤4096) and non-empty type (else unsafe).
 2. Cache hit → return cached unsafe/safe verdict.
-3. Assert `hypothetical("type:target")` for shadow-related rules.
-4. `projectEffects` → `projected_action` + type-specific `projected_fact` (e.g. `/file_missing`, `/critical_path_hit`).
-5. Clone kernel; assert projected facts; `Evaluate`.
+3. `projectEffects` builds sandbox-only `hypothetical("type:target")`,
+   `projected_action`, and type-specific `projected_fact` values (for example
+   `/file_missing` and `/critical_path_hit`) without mutating the live kernel.
+4. Clone the kernel; stage every projection through the checked insertion path;
+   reject the simulation if capacity or Mangle conversion drops any fact.
+5. Evaluate the complete sandbox projection.
 6. Require `panic_state` Decl present (else fail-closed).
 7. Query `panic_state`; match action ID → unsafe + reason.
 8. Cache verdict.
@@ -342,7 +352,9 @@ Policy (`defaults/policy/dreamer.mg`) defines `panic_state` for critical files, 
 - Nil kernel → unsafe  
 - Nil/canceled context → unsafe  
 - Eval/query failure → unsafe  
+- Projected-fact capacity or encoding failure → unsafe
 - Missing `panic_state` Decl → unsafe  
+- Missing Dreamer on a destructive `RouteAction` or interactive preflight → deny
 
 ---
 
@@ -358,6 +370,12 @@ Federates `KernelShard` instances:
 - Aggregated `FactEventBus`.
 
 Implements `types.Kernel` / transaction interfaces for drop-in use.
+
+The default system factory co-locates `pending_action`, `permitted_action`,
+`permission_check_result`, `permitted`, `blocked`, `constitution`,
+`commit_barrier`, and `dangerous_action` on the policy shard. This is required for
+the permission join. System routing preserves the executive `actionID` through
+the result fact.
 
 ### 7.2 KernelShard
 
@@ -432,7 +450,8 @@ Plus dangerous-action + signed approval paths and executor bridge via `permitted
 
 ### 8.5 Corpora
 
-- `predicate_corpus.db` / `predicate_corpus.go` — Decl knowledge for validation  
+- `predicate_corpus.db` / `predicate_corpus.go` — Decl knowledge for validation,
+  opened lazily once by `GetPredicateCorpus`
 - `intent_corpus.db` / `prompt_corpus.db` — baked corpora (placeholders present for build hygiene)
 
 ---
@@ -456,6 +475,11 @@ Plus dangerous-action + signed approval paths and executor bridge via `permitted
 | External predicates | `external_predicates.go` | Virtual/external predicate glue |
 | Trace | `trace.go` | Execution tracing helpers |
 | Intent inference | `intent_inference.go`, `intent_loader.go` | Intent helpers / defaults |
+
+RuleCourt rejects candidates made only of Unicode whitespace or Unicode format
+characters before requiring a kernel, so visually blank learned policy cannot
+enter adjudication. TDD loop mocks use the same exact `/run_tests`, target, and
+canonical payload permission envelope as production.
 
 ---
 
@@ -565,14 +589,16 @@ Kernel bind: `RealKernel.SetVirtualStore` / VS `SetKernel` mutual wire so callba
 2. Builds `map[string]bool` storing both `/name` and bare `name` keys.  
 3. Swaps cache under lock.
 
-Triggered from `SetKernel`. Hot policy changes that add `safe_action` without rebuilding the cache are a known gap ([03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md)).
+Triggered from `SetKernel`. A stale entry may affect classification diagnostics or
+performance but not authorization because the exact kernel query always runs.
 
 ### 15.2 Runtime permit check
 
 `CheckKernelPermitted(actionType, target, payload)` (same file family as RouteAction):
 
-- Uses kernel query against `permitted` / related facts with action envelope context.  
-- Default deny when kernel is attached and derivation fails.  
+- Canonicalizes payload JSON and queries exact `permitted/3`.
+- Default deny when the kernel is nil, query fails, or action/target/payload do
+  not match.
 - On deny, logs **payload keys only** (not values) for secret safety.
 
 `QueryPermitted(ActionRequest)` is the request-shaped convenience wrapper.
@@ -583,15 +609,18 @@ Triggered from `SetKernel`. Hot policy changes that add `safe_action` without re
 
 | Behavior | Implementation detail |
 |----------|----------------------|
-| Lazy create | `getDreamer()` only constructs when `kernel` is `*RealKernel` |
-| Cortex kernels | May need `GetPrimaryRealKernel()` before Dreamer can attach |
+| Reset | `SetKernel` clears the prior Dreamer |
+| Lazy create | serialized `getDreamer()` constructs from `*RealKernel` or Cortex primary |
+| Cortex kernels | `GetPrimaryRealKernel()` is the supported Dreamer backing seam |
 | Cache key | `type:target` string |
 | Eviction | At 256 entries, delete ~half (unordered map iteration) |
 | Critical paths | Asserted as `critical_path_prefix` + `Evaluate` |
 | Learning | Optional `DreamRouter` + `DreamLearningCollector` for confirmed consultations |
 | Plans | Optional `DreamPlanManager` for multi-step dream execution state |
 
-`SetKernel` on Dreamer re-asserts critical path facts into the new kernel.
+Construction avoids holding the VirtualStore mutex during Dreamer evaluation and
+retries if `SetKernel` races the lazy bind. Critical-path facts are asserted into
+the selected real kernel.
 
 ---
 
@@ -646,7 +675,9 @@ File: `api_scheduler.go`.
 | `virtual_store_graph.go` | graph query results |
 | `virtual_store_interactive_gate.go` | interactive approval gates |
 
-`executeAction` switch must stay in sync with `ActionType` constants in `virtual_store_types.go` and with `safe_action` lists in `constitution.mg`.
+`executeAction` switch must stay in sync with `ActionType` constants,
+destructive classification, and Mangle action policy. `safe_action` remains
+classification only; it does not replace the exact pending envelope.
 
 ---
 
@@ -660,11 +691,14 @@ Registered in `initValidators` (`virtual_store.go`):
 | Directory | Dir create/list outcomes |
 | Execution / build / test | Exit codes, diagnostic parse |
 | Syntax / Mangle syntax | Post-edit parseability |
-| CodeDOM / line edit | Element bounds integrity |
+| CodeDOM / line edit | Element bounds integrity; result metadata supplies concrete file |
 | Enhanced edit | Richer edit success heuristics |
 | Paranoid file | Aggressive post-condition checks |
 
-`ValidateAll` + `FirstFailure` with confidence ≥ 0.8 can flip `ActionResult.Success` after the handler claimed success — defense against “wrote zero bytes but reported OK.”
+`ValidateAll` + `FirstFailure` with confidence ≥ 0.8 returns a route error after
+the handler claimed success — defense against “wrote zero bytes but reported OK.”
+For CodeDOM edits, semantic reference validation prefers `result.Metadata["file"]`
+over the symbolic element target.
 
 ---
 
@@ -726,7 +760,8 @@ Paths: `.nerd/mangle/extensions.mg`, `policy_overrides.mg`, `learned.mg` (see `l
 6. articulation reads results / residual goals for user text
 ```
 
-If step 4b denies: `security_violation` facts remain for transparency / later rules (`repeated_violation_pattern` family in system policy).
+If step 4b denies: schema-correct `security_violation/3` facts remain for
+transparency / later rules (`repeated_violation_pattern` family in system policy).
 
 ---
 
@@ -739,7 +774,9 @@ Highlights:
 - Diff-eval production caution (external preds + provenance force full path)  
 - Dual orchestration paths (session executor vs residual ShardManager)  
 - Policy surface size → boot cost and `debug_program_ERROR.mg` risk  
-- Permission cache invalidation vs full re-query tradeoffs after HotLoad  
+- Dreamer cache identity/invalidation across fact and policy mutation
+- Mid-evaluation context cancellation
+- Dedicated CodeDOM metadata-to-validator negative regression
 - ActionType / safe_action / isDestructive triple-list drift risk  
 - Package README still understates live `shards/` plumbing  
 

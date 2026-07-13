@@ -16,7 +16,11 @@ Learned / LLM rules must never define constitutional or pipeline-spoof predicate
 
 ## P4 — Gas limits on inference
 
-Every production eval path should bound derived facts. Engine exposes `DerivedFactsLimit`; kernel full path uses `WithCreatedFactLimit`. Diff path must not silently omit limits once option-forwarding lands (track as gap until then).
+Every production eval path bounds derived facts. Engine exposes
+`DerivedFactsLimit`; full and differential evaluator calls forward
+`WithCreatedFactLimit`. `TestDerivedFactsGasLimit` and
+`TestDifferentialEngine_DerivedFactsLimit` are the fail-closed regressions. New
+evaluation modes must not silently omit a positive configured limit.
 
 ## P5 — Serialize ANTLR parse globally
 

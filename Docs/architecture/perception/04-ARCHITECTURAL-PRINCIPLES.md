@@ -51,7 +51,7 @@ Taxonomy engine uses **its own** Mangle instance and `learned_taxonomy.mg`. Do n
 
 ### P12 — JIT-first for new LLM-facing prompt behavior
 
-New classification/system prompt behavior lands as prompt atoms + assembler selection, with embedded fallback only as safety net (`internal/prompt/agents.md` for atom workflow).
+New classification/system prompt behavior lands as prompt atoms + assembler selection, with embedded fallback only as safety net (`internal/prompt/README.md` documents the live atom workflow).
 
 ---
 

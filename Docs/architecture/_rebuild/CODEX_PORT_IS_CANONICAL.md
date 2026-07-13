@@ -9,9 +9,11 @@ Grok’s job is a **one-way import** into Grok/Claude-facing trees:
 |-----------|------|
 | **Source (read-only)** | `.codex/skills/{arch-propose,corpus-build,corpus-*,requirements-interrogator}/` |
 | **Source (read-only)** | `.codex/agents/*.toml` (for understanding fleet roles) |
-| **Destination (ours)** | `.agents/skills/` (Grok discovery) |
+| **Destination (ours)** | `.agents/skills/` (shared discovery) |
+| **Destination (ours)** | `.grok/skills/` (Grok-local discovery) |
 | **Destination (ours)** | `.claude/skills/` (Claude discovery mirror) |
 | **Destination (ours)** | `.grok/agents/*.md` (Grok subagent definitions) |
+| **Destination (ours)** | `.grok/hooks/corpus-build/` (Grok hooks; do not touch `.codex/hooks`) |
 
 ## Import rule
 

@@ -1,164 +1,146 @@
-# 05 — Internal Architecture: shards
+# Internal architecture: shards
 
-> Last verified against codebase: 2026-07-13  
-> Components, data flow, lifecycle state machines
+## Component topology
 
-## 1. Component map
+```text
+internal/shards
+  registration ---------- factories, profiles, canonical ownership manifest
+  matching -------------- heuristic candidate scoring and classifications
+  consultation ---------- spawned advice and short-lived cache
+  observer_manager ------ event fan-out, Northstar path, assessment buffer
+  requirements_interrogator -- ephemeral JIT-backed ShardAgent
+       |
+       +-- system/
+             base -------- DI, state, CostGuard, autopoiesis, event subscription
+             perception -- language -> structured intent
+             executive --- strategies/barriers -> pending action envelope
+             constitution - exact permission + denial/appeal audit
+             router ------- permitted envelope -> route -> VirtualStore
+             world_model -- workspace facts
+             planner ------ agenda/checkpoint state
+             campaign_runner -- long-horizon supervisor
+             legislator --- structured candidate-rule synthesis
+             mangle_repair - learned-rule validation/repair interceptor
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     internal/shards (package)                    │
-│  registration │ matching │ consultation │ observers │ interrogator│
-└───────────────┬──────────────────────────────────────────────────┘
-                │ factories construct
-                ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  internal/shards/system                          │
-│  BaseSystemShard ─ CostGuard ─ AutopoiesisLoop                   │
-│       │                                                          │
-│       ├─ PerceptionFirewallShard                                 │
-│       ├─ ExecutivePolicyShard (+intent +autopoiesis)             │
-│       ├─ ConstitutionGateShard                                   │
-│       ├─ TactileRouterShard                                      │
-│       ├─ WorldModelIngestorShard                                 │
-│       ├─ SessionPlannerShard                                     │
-│       ├─ CampaignRunnerShard                                     │
-│       ├─ LegislatorShard                                         │
-│       └─ MangleRepairShard                                       │
-└───────────────┬──────────────────────────────────────────────────┘
-                │ uses
-                ▼
-┌────────────────────┐   ┌─────────────────┐   ┌──────────────────┐
-│ core.RealKernel    │   │ core.VirtualStore│   │ core/shards.Mgr  │
-│ fact bus / Query   │   │ tools / learning │   │ Start/Spawn      │
-└────────────────────┘   └─────────────────┘   └──────────────────┘
+external owners
+  internal/core/shards ---- spawn queue, active/result maps, panic cleanup
+  internal/core ----------- Cortex/RealKernel, policy, VirtualStore
+  internal/prompt --------- atoms and JIT compiler
+  internal/session -------- persona clean-loop execution
 ```
 
-## 2. OODA data flow (detail)
+## Action sequence
 
-```mermaid
-sequenceDiagram
-  participant U as User/Chat
-  participant P as perception_firewall
-  participant K as RealKernel
-  participant E as executive_policy
-  participant C as constitution_gate
-  participant R as tactile_router
-  participant V as VirtualStore
-
-  U->>P: natural language / input queue
-  P->>K: Assert user_intent(...)
-  K-->>E: FactEvent(user_intent/next_action)
-  E->>K: Query next_action, strategies, barriers
-  alt boot guard active
-    E-->>E: suppress actions
-  else barriers clear
-    E->>K: Assert pending_action(...)
-  end
-  K-->>C: FactEvent(pending_action)
-  C->>K: Query permitted(...)
-  alt permitted
-    C->>K: Assert permitted_action(...)
-  else denied
-    C->>K: security_violation / appeal_available
-  end
-  K-->>R: FactEvent(permitted_action)
-  R->>R: match ToolRoute, rate limit
-  R->>K: Assert exec_request(...)
-  R->>V: tool execution path
-  V-->>U: effects + results (via articulation)
+```text
+Intent input
+  -> PerceptionFirewallShard.Perceive
+  -> user_intent
+  -> Mangle derives next_action
+  -> ExecutivePolicyShard.evaluatePolicy
+  -> pending_action(ID, Type, Target, Payload, Ts)
+  -> ConstitutionGateShard.processPendingActions
+       -> permission_check_result(ID, /deny, Reason, Ts)
+          + routing_result(ID, /failure, Reason, Ts)
+          + security_violation(Type, Reason, Ts)
+       OR
+       -> permission_check_result(ID, /permit, Reason, Ts)
+          + permitted_action(ID, Type, Target, Payload, Ts)
+  -> TactileRouterShard.processPermittedActions
+  -> route_action(ID, Tool) preference or deterministic local route
+  -> VirtualStore.RouteAction(next_action(ID, Type, Target, Payload))
+  -> routing_result + execution_result
 ```
 
-## 3. Lifecycle state machine (system shard)
+The router's `RequiresSafe` flag documents the route contract but does not grant
+safety. The permitted fact and VirtualStore's exact revalidation do.
 
-```
-                 New…Shard()
-                      │
-                      ▼
-                   Idle ──────────────────────────┐
-                      │ StartSystemShards / Execute│
-                      ▼                            │
-                   Running ◄── fact events / ticks │
-                      │                            │
-           StopCh / ctx.Done / idle timeout        │
-                      │                            │
-                      ▼                            │
-                 Completed ────────────────────────┘
-                      │
-                      └── persistLearning, unsubscribe bus
-```
+## Registration and override layers
 
-**Idle timeout:** primarily on-demand shards (router, planner, world model) via CostGuard / lastActivity.
-
-## 4. Executive evaluatePolicy steps
-
-1. `queryActiveStrategies`  
-2. `checkBarriers` → if strict + blocked, assert `executive_blocked`, return  
-3. `queryNextActions`  
-4. Update OODA timeout tracking  
-5. If boot guard, return  
-6. Truncate to `MaxActionsPerTick`  
-7. For each action: hydrate from intent → assert `pending_action` → retract one-shot raw fact → metrics  
-
-## 5. Constitution checkPermitted steps
-
-1. Active appeal override?  
-2. Dangerous pattern on target?  
-3. Network action domain allowlisted?  
-4. Query all `permitted` facts; match action/target/payload  
-5. StrictMode default deny; optional autopoiesis unhandled record  
-
-## 6. Router selection
-
-- Exact/pattern match on `ActionPattern` (including prefix patterns like `campaign_`, `ouroboros_`)  
-- Rate limiter per tool when `RateLimit > 0`  
-- `RequiresSafe` documents constitution expectation (gate already ran for permitted stream)  
-- Unmapped → fail when `AllowUnmappedActions=false`  
-
-## 7. Specialist matching flow
-
-```
-verb + files + AgentRegistry
-        │
-        ▼
-DefaultVerbConfigs[verb]  (mode, min confidence, prefer/exclude)
-        │
-        ▼
-for each file × CoreTechnologyPatterns → score
-        │
-        ▼
-map tech → agent name; filter ready agents
-        │
-        ▼
-classify (executor/advisor/observer); ShouldExecute if conf>0.8
-        │
-        ▼
-top-N SpecialistMatch sorted by score
+```text
+RegistryContext
+  -> RegisterAllShardFactories
+       -> package factories
+       -> profiles
+  -> runtime enricher
+       Cortex: router browser + campaign manager + shared assembler
+       Chat: GlassBox + ToolEventBus + ToolStore + learning candidates
+       Campaign/init: reduced dependencies
+  -> disabled-name filter
+  -> StartSystemShards
+       profiles StartupAuto + valid activate_shard/1 derivations
+       -> SpawnQueue critical detached submissions
 ```
 
-Execution modes (`ModeParallel`, `ModeAdvisory`, `ModeAdvisoryWithCritique`, `ModeSpecialistDirect`) guide chat/campaign orchestration, not system OODA.
+**PARTIAL:** the intended layering exists, but enrichers replace factories
+manually and have no shared descriptor/parity contract. The exported ownership
+manifest is not in this construction path.
 
-## 8. Observer event loop
+## Shard state and concurrency
 
+| State | Owner | Lock/bound | Lifetime |
+|---|---|---|---|
+| active shards, results, profiles, factories | core ShardManager | manager mutex; limits enforcer | process/session |
+| queued spawn requests | SpawnQueue | four bounded channels; workers; deadline | until spawn/timeout/stop |
+| system shard state and dependencies | BaseSystemShard | RWMutex; one StopCh/event subscription | one execution |
+| cost counters | CostGuard | mutex; minute/session/retry caps | shard instance |
+| unhandled/proposed/applied rules | AutopoiesisLoop | mutex; threshold but no durable receipt | shard instance |
+| consultation pending/cache | ConsultationManager | RWMutex; 100 entries; five minutes | manager instance |
+| observer events/assessments | BackgroundObserverManager | RWMutex + atomic count; buffers 100/100 | one constructor context |
+| router routes/rate limits/calls | TactileRouterShard | shard and limiter mutexes | shard instance |
+| durable learning | LearningStore | store owner | workspace |
+
+The race suite proves the exercised accesses are race-free, including a restarted
+observer generation. Focused route tests prove exactly-once terminal behavior in
+both unmapped modes. Bounded unconsumed manager results and observer-drop
+telemetry remain unproven.
+
+## System loops
+
+Most continuous shards subscribe to relevant FactBus predicates. If no bus is
+available, selected shards use bounded tickers. Heartbeats are periodic and
+facts are pruned or upserted to limit evaluate pressure. Context cancellation and
+StopCh are terminal; on-demand shards may also stop on idle conditions.
+
+Executive waits for its tracked autopoiesis goroutines before completing.
+Background observer Stop waits separately for event loops and spawned tasks,
+drains stale events, and a later Start creates a fresh context generation.
+
+## Specialist collaboration flow
+
+```text
+verb + files + on-disk agent registry
+  -> DefaultVerbConfigs
+  -> CoreTechnologyPatterns score extension/path/import/content
+  -> registered ready agent mapping
+  -> typed executor/advisor/observer classification
+  -> top-N SpecialistMatch
+       -> execute via TaskExecutor/session
+       -> consult via ConsultationSpawner
+       -> observe via BackgroundObserverManager
 ```
-Start() → eventLoop + periodicCheckLoop
-SendEvent → eventChan (buffer 100)
-processEvent → NorthstarHandler OR ObserverSpawner
-            → ObserverAssessment → callbacks
-Stop() → cancel + WaitGroup
-```
 
-## 9. Key internal types (system)
+Candidate matching is creative routing support, not policy. `CanExecute` and
+confidence do not bypass tool permissions.
 
-| Type | File | Purpose |
-|------|------|---------|
-| `BaseSystemShard` | base.go | Shared DI + lifecycle |
-| `CostGuard` | base.go | LLM budget |
-| `AutopoiesisLoop` | base.go | Unhandled case buffer |
-| `ActionDecision` | executive.go | Derived action record |
-| `SecurityViolation` | constitution.go | Audit denial |
-| `ToolRoute` / `ToolCall` | router.go | Routing table / runtime |
-| `AgendaItem` / `PlanView` | planner.go | Planning surface |
-| `RepairResult` | mangle_repair.go | Repair outcome |
+## JIT seams
 
-See [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) for full exported surface.
+`RegistryContext` creates PromptAssemblers with configured token budget,
+reserved tokens, semantic top-k, and enabled flag. Concrete shards select by
+ShardType and sometimes semantic query. Required-JIT paths fail visibly;
+optional autopoiesis skips creative proposals. Mangle repair and consultations
+are compatibility seams that do not share one policy yet.
+
+## Compatibility and bypass paths
+
+- `DefaultShardPredicateManifests`: now consumed by production KernelShard
+  construction; factory/profile/runtime-enricher metadata remains distributed.
+- permissive-unmapped router mode: disabled by default; when enabled it records
+  one learning case, emits one failure, and consumes the permission.
+- observer restart: fresh contexts and separate loop/task joins are verified;
+  input overflow still drops without a counter.
+- scanner registration with empty RegistryContext: useful for discovery but not
+  proof that spawned dependency-heavy shards are ready.
+- direct session tool execution: outside tactile-router fact flow, still expected
+  to pass VirtualStore/constitutional validation.
+
+These are explicit audit targets, not deletion candidates.

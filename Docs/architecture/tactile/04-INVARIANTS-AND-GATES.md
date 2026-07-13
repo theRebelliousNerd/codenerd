@@ -1,5 +1,0 @@
-# Superseded
-
-This thin stub was replaced on **2026-07-13**.
-
-See [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) and [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md).

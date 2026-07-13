@@ -148,6 +148,10 @@ permitted(Action, Target, Payload) :-
     !dangerous_content(Action, Target).
 ```
 
+Go asserts/queries the envelope with canonical JSON payload and accepts only an
+exact `permitted(Action, Target, Payload)` match. `safe_action/1` is necessary
+classification but never sufficient authorization.
+
 ### Deny documentation rules
 
 `permission_denied(Action, "Dangerous Action")` when dangerous without admin/signed approval.
@@ -184,6 +188,17 @@ dream_block(Action, Reason) :-
 
 Go Dreamer must emit matching `projected_fact` atoms (`dreamer.go` `projectEffects`).
 
+The same projection also stages `hypothetical/1`, declared in
+`defaults/schemas_safety.mg`. `defaults/policy/shadow_mode.mg` derives
+`derives_from_hypothetical/1` inside the clone. Neither base nor derived
+counterfactual truth belongs in the live executive EDB. Staging is fail-closed:
+capacity or atom-conversion rejection blocks the simulated action instead of
+evaluating a partial fact set.
+
+When core runs behind Cortex, the default policy shard owns the complete join:
+`pending_action`, `permitted_action`, `permission_check_result`, `permitted`,
+`blocked`, `constitution`, `commit_barrier`, and `dangerous_action`.
+
 ## 6. System core pipeline (executive)
 
 `system_core.mg` sketches:
@@ -209,7 +224,7 @@ Hybrid loader can inject intents as boot data for classification.
 
 ## 8. Predicate corpus DB
 
-`predicate_corpus.go` + `predicate_corpus.db` bake Decl metadata (args, error patterns, examples) for validation / tooling — complementary to raw `.mg` text.
+`predicate_corpus.go` + `predicate_corpus.db` bake Decl metadata (args, error patterns, examples) for validation / tooling — complementary to raw `.mg` text. Constructors leave it unopened; `GetPredicateCorpus` initializes it once, lazily.
 
 ## 9. Authoring rules for this surface
 
@@ -227,13 +242,14 @@ Hybrid loader can inject intents as boot data for classification.
 | Mangle concept | Go consumer |
 |----------------|-------------|
 | `permitted/3` | `VirtualStore.CheckKernelPermitted` |
-| `safe_action/1` | Permission cache rebuild |
+| `safe_action/1` | Classification cache only; exact `permitted/3` still required |
 | `next_action` | Session/orchestration queries |
 | `panic_state` | Dreamer evaluateProjection |
 | `projected_action` / `projected_fact` | Dreamer projectEffects |
 | `critical_path_prefix` | Dreamer assertCriticalPathFacts |
-| `execution_result` | VS inject after handlers |
-| `security_violation` | VS on deny |
+| `execution_result/6` | VS inject after handlers; executive action ID and timestamp slot 5 |
+| `security_violation/3` | VS deny fact: action atom, reason string, Unix timestamp |
+| `execution_error/2` | VS failure fact: request/action ID and message |
 | prompt/JIT selection preds | `internal/prompt` compiler |
 
 ## 11. Size & maintenance pressure

@@ -69,6 +69,17 @@
 - Surface length default 50k; control list caps; reasoning 50k.  
 - Mangle atom validation (paren, trailing `.`, length, shell metacharacters `` `$;| ``).  
 - Constitutional override prepends safety notice and drops blocked atoms.
+- Shared `ResponseProcessor` statistics are mutex-protected; byte caps preserve
+  valid UTF-8 for surface and reasoning output.
+
+### Verified repair receipt
+
+`VERIFIED CURRENT` — `internal/articulation/emitter.go#ResponseProcessor` now
+serializes statistics snapshots/updates, and `applyCaps` cuts strings only at a
+valid UTF-8 boundary. Regressions:
+`internal/articulation/emitter_test.go#TestResponseProcessor_ConcurrentStats` and
+`#TestResponseProcessor_Process_SurfaceTruncationPreservesUTF8`. Focused tests and
+their `-race` run passed on 2026-07-13.
 
 ## What this package does **not** implement (callers do)
 

@@ -70,7 +70,10 @@ Think of `CompilationContext` as the **query plan** for prompts.
 
 `ToContextFacts` materializes this as Mangle `compile_context` pairs for policy-side boosting/blocking.
 
-`Hash` freezes a subset for caching — **authors of new dimensions must update Hash**.
+`Hash` emits the versioned `compilation-context-v2` identity over every
+prompt-affecting field. Set-like frameworks/tools are sorted and deduplicated
+without mutating the request; values are length-prefixed to prevent delimiter
+collisions. **Authors of new dimensions must classify and test cache impact.**
 
 ---
 
@@ -82,11 +85,16 @@ Think of `CompilationContext` as the **query plan** for prompts.
 hash = cc.Hash()
 if LRU[hash]: return cached
 singleflight.Do(hash):
-  ... pipeline ...
+  acquire private KernelCompilationScope
+  ... pipeline against scoped kernel ...
+  close scope on every exit
   LRU push (evict if >100)
 ```
 
 Prevents recompilation storms when many shards share identical contexts.
+Production `KernelAdapter.NewCompilationScope` clones the primary `RealKernel`,
+so mixed-key compiles never share selector facts. External adapters without the
+scope interface retain compatibility-only semantics.
 
 ### 4.2 Parallel collection
 
@@ -246,7 +254,9 @@ This is **executive coupling**: policies named here must exist in the policy cor
    - Budget may drop low-priority exemplars; keep safety.  
 5. ConfigFactory: `/fix` + `/coder` → write/edit tools + coder policy suite.  
 6. LLM runs with tools; VirtualStore still checks permitted.  
-7. If model replies without tools on a tool-required intent: next turn `PreviousAttemptNoToolCall` activates system/tool_nudge atom (if Hash includes or cache cleared).
+7. If model replies without tools on a tool-required intent: the retry changes
+   the v2 cache identity, activates `system/tool_nudge/no_tool_call_retry`, and
+   renders the exact current `AvailableTools` list.
 
 ---
 
@@ -258,10 +268,12 @@ This is **executive coupling**: policies named here must exist in the policy cor
 4. Set priority / mandatory only if true skeleton necessity.  
 5. Declare DependsOn carefully.  
 6. Add description for embedding.  
-7. Place under `internal/prompt/atoms/<category>/`.  
-8. Run package tests; regenerate baked corpus if shipping defaults.  
-9. If new tools required: ConfigAtom update + tool registry.  
-10. Grep wiring before assuming shard still hardcodes prompts.
+7. Place under `example:internal/prompt/atoms/<category>/`.
+8. Use canonical `shard_types`; built-ins may not depend on legacy migrations.
+9. Run `validate_prompt_atoms -fail-on-warn` and ordered parity tests; regenerate
+   the baked corpus if shipping defaults.
+10. If new tools required: ConfigAtom update + tool registry.
+11. Grep wiring before assuming shard still hardcodes prompts.
 
 ---
 
@@ -271,7 +283,7 @@ This is **executive coupling**: policies named here must exist in the policy cor
 |----------|------------|
 | Why missing atom? | Manifest Dropped; MatchesContext; Mangle blocked_by_context |
 | Why huge prompt? | Stats tokens; which categories; mandatory mangle set |
-| Why same prompt twice? | Hash fields; cache hits |
+| Why same prompt twice? | `compilation-context-v2` field classification; cache hits |
 | Why no tools? | ConfigFactory intents; AllowedTools |
 | Why slow? | Collect/Select/Vector ms fields |
 | Why wrong persona? | ShardType/ShardID; agent DB registered? |

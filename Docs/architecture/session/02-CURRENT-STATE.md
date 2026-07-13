@@ -89,7 +89,22 @@ No `.mg` files in package. Runtime queries/asserts predicates listed in [IMPLEME
 | Core Process loop | ~95% |
 | Native tool multi-turn | ~90% |
 | Piggyback multi-turn | ~50% |
-| Safety gate | ~95% (payload edge cases mitigated) |
+| Safety gate | ~98% (exact permission + payload/capability boundaries tested) |
 | Spawn/lifecycle | ~90% |
 | Persistence | ~40% |
-| Overall package | **~85–90%** living production |
+| Overall package | **~90%** living production |
+
+## 9. Verified 2026-07-13 boundary repairs
+
+- `internal/session/executor_tools.go#Executor.checkSafety` authorizes only an
+  exact `permitted(Action, Target, Payload)`; `safe_action/1` cannot authorize.
+- Nil or empty `EffectiveAgentRuntimeConfig.AllowedTools` exposes zero tools, and
+  Ouroboros registry membership does not grant a capability.
+- `internal/session/spawner.go#loadSpecialistConfig` runs the runtime config
+  validator after strict path, size, and YAML checks.
+- Integration-tagged fallback/config tests now assert fail-closed behavior rather
+  than documenting the former ambient-capability bug.
+
+Focused package, race, vet, and integration-tagged gates passed; see
+[_progress](_progress.md) for the receipt and [TODO](TODO.md) for authoritative
+feature status.

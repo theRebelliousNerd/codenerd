@@ -1,137 +1,124 @@
-# 09 — Safety and Invariants: shards
+# Safety and invariants: shards
 
-> Last verified against codebase: 2026-07-13  
-> Constitutional safety, concurrency, Mangle surface used by system shards
+## Effect authority
 
-## 1. Constitutional core
+### S1. Exact permission is mandatory
 
-### Invariant S1 — No effect without permission
+An external effect requires `permitted(ActionType, Target, Payload)` for the
+same envelope submitted by the executive. `safe_action/1`, a profile permission,
+a route match, an LLM judgment, or a health fact is classification only.
 
-Router consumes **`permitted_action`**, not raw `pending_action` or `next_action`. Constitution is the only producer of the permitted stream (plus appeal overrides internal to the gate).
+### S2. Correlation is immutable
 
-### Invariant S2 — Default deny
+The executive owns ActionID. Constitution, router, and VirtualStore preserve it.
+Payload is encoded canonically between facts. The action pipeline regression
+proves one read-file ID reaches `execution_result`.
 
-`StrictMode=true` by default. Failed `permitted` query → deny. Unmapped tool routes denied.
+### S3. Default deny survives dependency failure
 
-### Invariant S3 — Deterministic danger filters
+Strict constitution mode denies on absent or failed permission query. VirtualStore
+denies if kernel, Dreamer, exact permission, or validated projection is missing.
+Unmapped router actions fail by default.
 
-Regex dangerous patterns and domain allowlists run **before / alongside** Mangle and do not require LLM.
+### S4. The authorization join stays co-located
 
-Default dangerous patterns include: `rm -rf`, `mkfs`, `dd if=`, `chmod 777`, `curl|sh`, `wget|sh`, writes into `/etc`, `sudo rm`.
+Production KernelShard policy ownership includes `pending_action`,
+`permitted_action`, `permission_check_result`, and `permitted`. Splitting this
+set can make exact joins disappear across shard-local stores. The canonical
+manifest now drives production configs, rejects duplicate ownership in tests,
+and has an exact Cortex target/payload mismatch regression.
 
-Default allowed domains include github.com, golang.org, pkg.go.dev, docs.anthropic.com, developer.mozilla.org.
+### S5. Denial is observable and schema-correct
 
-### Invariant S4 — Appeals are explicit
+Constitution emits `permission_check_result/4`, `routing_result/4`,
+`security_violation/3`, and `appeal_available/4` as applicable. Specialist/runtime
+errors use their declared arities; consumers must not invent richer facts without
+updating declarations and tests.
 
-Blocked actions can emit `appeal_available`. Overrides require `SubmitAppeal` + `HandleAppeal`. Temporary overrides expire.
+## Deterministic guard order
 
-## 2. Boot and rehydration safety
+`ConstitutionGateShard.checkPermitted` evaluates active overrides, dangerous
+content, network allowlist, and exact Mangle permission. Model-proposed rules are
+outside the immediate decision and must pass repair/schema/stratification gates
+before policy changes.
 
-### Invariant B1 — Boot guard
+Appeals are explicit state. Temporary override expiry is timestamp-based.
+Approval changes future permission evaluation; it does not let the router skip
+the current correlated envelope.
 
-`ExecutivePolicyShard.bootGuardActive` starts **true**. Derived actions suppressed until `DisableBootGuard()`.
+## Boot and lifecycle safety
 
-### Invariant B2 — Stale fact retract
+- Executive boot guard begins active and suppresses actions until genuine user
+  interaction disables it.
+- Executive clears stale intent/processed/pending EDB facts when its loop starts.
+- Campaign runner remains on demand.
+- Auto-start queue submission does not prove readiness; a future readiness gate
+  must distinguish required and optional shards.
+- Cancellation and Stop must join owned goroutines or identify detached work.
+- Background observer Start creates a fresh generation; Stop joins loops/tasks,
+  drains stale events, and is idempotent.
 
-On executive Execute start, retracts:
+## Resource bounds
 
-- `user_intent`  
-- `processed_intent`  
-- `executive_processed_intent`  
-- `pending_action`  
+| Boundary | Current bound |
+|---|---|
+| system LLM calls | CostGuard minute/session caps and error cooldown |
+| learned-rule repair | per-rule and session validation budgets |
+| executive action storm | MaxActionsPerTick |
+| spawn pressure | total/per-priority queue, workers, deadlines, limits enforcer |
+| observer input/history | 100 events / 100 assessments; overflow currently silent |
+| consultation cache | 100 entries, five-minute freshness |
+| permission/routing history | 15-minute retention with prune cadence |
+| tool visibility | bounded event preview; ToolStore owns full persistence |
 
-Prevents infinite OODA loops from persisted kernel state.
+Silent dropping is not a complete bound. Observer overflow and consultation
+failure need counters/outcomes.
 
-### Invariant B3 — Campaign not auto-start
+## Mangle contract
 
-`campaign_runner` profile is **OnDemand** specifically to avoid automatic campaign execution on boot.
+Declarations live under core defaults; shards are producers/consumers.
 
-## 3. Cost and loop safety
+| Predicate | Arity | Producer -> consumer |
+|---|---:|---|
+| `pending_action` | 5 | executive -> constitution/core policy |
+| `permission_check_result` | 4 | constitution -> core policy/operators |
+| `permitted_action` | 5 | constitution -> router |
+| `permitted` | 3 | core policy -> constitution/VirtualStore query |
+| `route_action` | 2 | core policy -> router |
+| `routing_result` | 4 | constitution/router -> policy/session |
+| `security_violation` | 3 | constitution -> policy/audit |
+| `exec_request` | 5 | router fallback -> effect integration |
+| `active_shard` | 2 | manager -> prompt/policy context |
+| `shard_status` | 3 | manager -> lifecycle consumers |
+| `system_heartbeat` | 2 | system shards -> health policy |
+| `activate_shard` | 1 | core policy -> StartSystemShards |
 
-### Invariant C1 — CostGuard on LLM
+Atoms such as `/permit`, `/deny`, `/success`, and `/failure` remain Mangle names,
+not arbitrary strings. Go must bind all variables before any negation in policy;
+aggregation rules belong in core policy and use the Mangle pipeline syntax.
 
-Base defaults: 10/min, 100/session, exponential cooldown on errors, validation budget 20.
+## Learned-rule boundary
 
-### Invariant C2 — Action storm cap
+Legislator requires structured synthesis. Mangle repair checks syntax, unsafe
+variables/negation, declared predicates and arity, and stratification, then uses
+a finite repair loop. Core schema validation protects control-plane heads.
 
-Executive `MaxActionsPerTick` default 5.
+**PARTIAL:** Mangle repair retains a legacy prompt fallback and the package suite
+does not prove every boot path installs the interceptor before learned-rule
+persistence.
 
-### Invariant C3 — Heartbeat budget
+## Safety negative controls
 
-Executive/constitution use multi-second ticks and 15s heartbeats to avoid saturating kernel evaluate under large EDBs.
+Required tests for any safety-affecting change:
 
-### Invariant C4 — Autopoiesis wait
-
-Executive waits `autopoiesisWg` before Completed so proposal goroutines do not race replacements.
-
-## 4. Concurrency invariants
-
-| Area | Mechanism |
-|------|-----------|
-| BaseSystemShard fields | `sync.RWMutex` |
-| Observer EventsReceived | `atomic` int64 |
-| Consultation batch | WaitGroup + channels |
-| Router rate limiters | per-tool mutex |
-| CostGuard | mutex |
-
-Event channels must be unsubscribed on Stop to avoid bus leaks.
-
-## 5. Mangle surface (shard-relevant)
-
-Shards **consume and assert** facts; Decl lives in core schemas/policy.
-
-### Asserted / processed by system shards (representative)
-
-| Predicate | Producer | Consumer |
-|-----------|----------|----------|
-| `user_intent` | perception (and chat) | executive, policy |
-| `next_action` | policy / strategies | executive |
-| `pending_action` | executive | constitution |
-| `permitted_action` | constitution | router |
-| `permission_check_result` | constitution | observability |
-| `security_violation` | constitution | audit / UI |
-| `appeal_available` | constitution | appeal UX |
-| `exec_request` | router | VirtualStore |
-| `routing_result` | constitution (failure) | waiters |
-| `executive_blocked` / `executive_error` | executive | ops |
-| `ooda_timeout` | executive | stall detection |
-| `strategy_activated` | executive | metrics |
-| `campaign_runner_heartbeat` | campaign_runner | health |
-| heartbeats (`EmitHeartbeat`) | system shards | health rules |
-
-### Queried
-
-| Predicate | Querier |
-|-----------|---------|
-| `permitted` | constitution |
-| `next_action` (+ variants) | executive |
-| `pending_action` | constitution |
-| `permitted_action` | router |
-| `pending_intent` | executive OODA timeout |
-| barriers / strategies | executive |
-
-### Learned rule gate
-
-`MangleRepairShard` validation pipeline: parse → safety (incl. unbound vars / unsafe negation) → corpus schema → stratification. Max 3 LLM repairs then reject. Kernel interceptor prevents invalid persistence.
-
-Legislator synthesizes with `SynthModeRequire` single-clause options; schema JSON when provider supports it.
-
-## 6. Permission profiles (least privilege)
-
-| Shard | Permissions (profile intent) |
-|-------|------------------------------|
-| constitution_gate | AskUser only |
-| executive_policy | Read + CodeGraph + AskUser |
-| perception_firewall | Read + AskUser |
-| tactile_router | Exec + Network + Browser |
-| campaign_runner | Read + Write + Exec |
-
-Do not grant WriteFile to constitution or executive profiles.
-
-## 7. Testing safety properties
-
-- Action pipeline test asserts pending → routing path (`system/action_pipeline_test.go`)  
-- Constitution / router unit tests cover permit/deny and escalation edges  
-- Boot guard behavior covered in VS/e2e tests outside this package  
-
-When changing check order in `checkPermitted`, add regression tests for dangerous patterns and StrictMode query failure.
+1. missing exact permission denies;
+2. target or payload mismatch denies despite matching action type;
+3. dangerous shell/network content cannot reach the executor;
+4. action ID survives permit, route, and effect;
+5. envelope predicates cannot be split across configured kernel shards;
+6. an unmapped permission remains consumed once with one terminal result in both
+   learning-disabled and learning-enabled modes;
+7. stale heartbeat/readiness cannot satisfy a fresh boot generation;
+8. canceled/failed optional specialist cannot authorize or erase the primary
+   outcome;
+9. receipts redact secrets and enforce size/retention limits.

@@ -1,42 +1,69 @@
-# OPEN QUESTIONS — shards
+# Open questions: shards
 
-> Last verified against codebase: 2026-07-13  
-> Real open questions (not rhetorical)
+These choices are not implementation claims. Each names the consequence of
+leaving the decision open.
 
-## Q1 — Single registration owner
+## Q1. Where does the single descriptor live?
 
-Should **chat boot** stop hand-registering system shards and only call `RegisterAllShardFactories`, with all chat-only DI moved to `ShardManager.PostSpawnHook` / `RegistryContext` fields?
+Should the typed shard/domain descriptor live in `internal/shards`, a neutral
+types package, or core? `internal/shards` owns factories but imports core manager
+types; core owns KernelShard construction and must not import concrete system
+shards. The choice determines whether production consumes data, callbacks, or a
+generated artifact.
 
-**Tradeoff:** less drift vs harder-to-see chat-specific wiring.
+## Q2. What are observer overflow and snapshot semantics?
 
-## Q2 — Who owns predicate routing?
+Restartability is now pinned and tested with fresh run contexts. The remaining
+choice is whether a full event channel drops, coalesces, backpressures, or
+persists events, and whether last-assessment access returns a defensive copy.
+Without this decision, absence of an assessment is still ambiguous.
 
-When `IsPerShardFactsEnabled` is true, is ownership enforced in cortex KernelShard construction only, or also at Assert time in RealKernel? Manifest lives in this package today.
+## Q3. What is a batch consultation result?
 
-## Q3 — Perception dual path
+Should partial success return responses plus a typed per-target error set, or an
+aggregate error with partial responses? The answer must preserve useful dissent
+without letting total failure become success.
 
-Interactive turns often use a chat-side transducer **and** may involve `perception_firewall`. Is the firewall authoritative continuous agent, a backup, or path-dependent? Clarify product contract to avoid double-assert of `user_intent`.
+## Q4. Which system shards are required for an effect generation?
 
-## Q4 — Router vs VirtualStore direct tools
+Constitution and the actual effect validator are clearly required. Is tactile
+router required only for Mangle-derived actions, while session tool calls use a
+separate VirtualStore path? A readiness design cannot be correct until these
+effect classes are pinned.
 
-Session executor can invoke tools without the tactile_router fact path. Is the permitted-stream pipeline **mandatory** for all effectful tools, or only for Mangle-derived `next_action`?
+## Q5. Which perception path owns interactive intent?
 
-## Q5 — Specialist matching future
+Shared transducer and perception firewall can both participate. Pin whether the
+firewall is the authoritative ingress, an asynchronous verifier, or a degraded
+fallback so one user turn cannot create duplicate current intents.
 
-Keep heuristic patterns as source of truth, or relegate them to fallback behind embedding retrieval over agent knowledge bases?
+## Q6. How should runtime enrichers compose?
 
-## Q6 — Legislator LLM vs “logic-primary” profile
+Should browser, ToolStore, Glass Box, learning candidates, and campaign manager
+use descriptor-declared optional dependencies, post-spawn hooks, or explicit
+environment decorators? The choice must keep base factory parity inspectable.
 
-Profile markets no LLM; constructor sets HighReasoning and uses LLM adapters. Should profile Model reflect reality or should legislator become pure-logic with LLM only via explicit autopoiesis feature flag?
+## Q7. Is a Northstar block advisory or executive?
 
-## Q7 — Observer enforcement
+Observer AssessmentLevel includes block, but observers do not own constitutional
+authority. If a block can halt work, it needs a declared fact, producer trust
+boundary, appeal, expiry, and Mangle rule. Otherwise UI must label it advisory.
 
-AssessmentLevel `block` — does any runtime enforce a hard stop, or is it advisory for TUI/northstar only?
+## Q8. What becomes durable?
 
-## Q8 — Disable matrix UX
+Learning patterns, consultation responses, assessments, and lifecycle receipts
+have different sensitivity and value. Pin retention, redaction, size, workspace
+scope, versioning, and deletion before adding unified persistence.
 
-Three mechanisms (feature flag, env, CLI list) — should they merge into one config surface under `.nerd/config.json`?
+## Q9. How does semantic specialist retrieval stay subordinate to logic?
 
-## Q9 — Package boundary with core/shards
+Embeddings may nominate experts, but readiness, execution mode, knowledge tier,
+budget, permissions, and required evidence need typed gates. Pin the fallback and
+evaluation dataset before replacing deterministic heuristics.
 
-Long-term: keep factories here and manager in core, or move system shard types next to manager? Import cycles currently prevent a simple merge.
+## Q10. Which operation outcome becomes the shared lifecycle receipt?
+
+Consultations now preserve partial errors, observer generations restart, and
+unmapped routes terminate exactly once. Should a common receipt envelope wrap
+these existing APIs, or should each subsystem expose its own typed result plus a
+normalized observability adapter? The choice affects versioning and compatibility.

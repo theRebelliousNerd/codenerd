@@ -1,100 +1,150 @@
-# 02 — Current State: shards
+# Current state: shards
 
-> Last verified against codebase: 2026-07-13  
-> Inventory of `internal/shards/` as it exists on disk
+> Evidence snapshot: 2026-07-13, HEAD
+> `cfc537e96495e1fbccd7efff8bb8e4001c93ca9c`. The tree was dirty; the
+> verification receipt and current fingerprint are recorded in
+> [_progress.md](_progress.md).
 
-## 1. Package stats (approx)
+## Realized boundary
 
-| Kind | Count | Notes |
-|------|------:|-------|
-| Non-test Go (root) | 5 | registration, matching, consultation, observer_manager, requirements_interrogator |
-| Non-test Go (`system/`) | 13 | base, perception, executive(+helpers), constitution, router, world_model, planner, campaign_runner, legislator, mangle_repair, payloads |
-| Test Go (root) | 8 | matching, consultation, observer, registration, requirements |
-| Test Go (`system/`) | 16 | base, executive, constitution paths, router, perception, planner, repair, action pipeline, etc. |
-| Local `.mg` | 0 | Policy lives in core defaults; debug dump may appear as `debug_program_ERROR.mg` under system/ on crash |
-| Package README | 1 | **Stale** migration narrative (Dec 2024) |
-| Learnings DBs in tree | 3 | `*_learnings.db` artifacts (coder/researcher/reviewer/tester names — historical) |
+`internal/shards` contains 18 production Go files and 25 Go test files. Five
+root files implement registration, technology matching, consultation,
+background observation, and requirements interrogation. Thirteen files under
+`internal/shards/system` implement permanent or on-demand OODA participants.
+There is no package-owned `.mg` file: declarations and policy live under core
+defaults.
 
-## 2. File roles
+**VERIFIED CURRENT:** `go test -count=1 ./internal/shards/...` passed both
+packages. `go test -race -count=1 -timeout=240s ./internal/shards/...` also
+passed. These are bounded package receipts, not proof that every boot adapter or
+negative configuration path has a regression.
 
-### Root package `codenerd/internal/shards`
+## Component inventory
 
-| File | Role |
-|------|------|
-| `registration.go` | Factories, profiles, `RegistryContext`, predicate manifests |
-| `matching.go` | Technology patterns, verb execution modes, classifications |
-| `consultation.go` | Cross-specialist consultation manager |
-| `observer_manager.go` | Background observer events and assessments |
-| `requirements_interrogator.go` | Ephemeral Socratic shard |
+| Component | Status | Current contract and evidence |
+|---|---|---|
+| Registration | **VERIFIED CURRENT** for factory/profile presence | `internal/shards/registration.go#RegisterAllShardFactories` registers requirements, image aliases, and nine system shard factories/profiles; `internal/shards/registration_test.go#TestRegisterAllShardFactories` checks named profiles |
+| Predicate manifest | **VERIFIED CURRENT** | `defaultKernelShardConfigs` consumes `DefaultShardPredicateManifests`; manifest uniqueness and Cortex exact-envelope tests pass |
+| Perception firewall | **VERIFIED CURRENT** for fallback and validation slices | `PerceptionFirewallShard.Perceive`; transient LLM and unknown-verb tests prove visible fallback facts |
+| Executive policy | **VERIFIED CURRENT** for boot guard, OODA timeout, delegate translation, and pending envelope construction | `ExecutivePolicyShard.evaluatePolicy`; `TestExecutiveOODATimeoutRespectsBootGuard`; exact action correlation continues in the pipeline test |
+| Constitution gate | **VERIFIED CURRENT** for ordinary permit and denial schema | `ConstitutionGateShard.processPendingActions` emits `permission_check_result/4`, `routing_result/4`, and `security_violation/3`; `TestPendingActionPipelineProducesRoutingResult` proves permit path |
+| Tactile router | **VERIFIED CURRENT** for route selection, ordinary effect correlation, and both unmapped modes | `TactileRouterShard.processPermittedActions`; default/learning-enabled no-handler tests prove one failure, exact consumption, and no second-pass amplification |
+| World model ingestor | **PARTIAL** | scan, incremental update, facts, heartbeat, and copy-safe accessors exist; this corpus run did not execute a full workspace scan campaign |
+| Session planner | **PARTIAL** | agenda, checkpoints, views, and JIT decomposition exist; tests focus on formatting/helpers rather than a full cancellation/recovery journey |
+| Campaign runner | **PARTIAL** | explicit on-demand supervision and restart backoff exist; full campaign lifecycle is owned and tested mainly by the campaign subsystem |
+| Legislator | **PARTIAL** | JIT + structured synth-required rule generation exists; live persistence still depends on downstream kernel validation and corpus availability |
+| Mangle repair | **VERIFIED CURRENT** for selected predicate corpus, schema-capable client, retry helpers; **PARTIAL** end to end | `MangleRepairShard` is installed through `RealKernel.SetRepairInterceptor`; focused tests do not cover every boot and persistence route |
+| Requirements interrogator | **VERIFIED CURRENT** for static no-LLM fallback and fail-visible no-JIT behavior | `RequirementsInterrogatorShard.Execute`; focused tests cover empty task and missing JIT |
+| Matching | **VERIFIED CURRENT** as deterministic heuristic matching | `MatchSpecialistsForTask` scores extension, path, import, and content hints; it does not use embeddings |
+| Consultation | **VERIFIED CURRENT** for single, ordered batch, partial/total failure, and nil-spawner behavior | `RequestBatchConsultation` preserves successes and returns `errors.Join`; three negative regressions pass |
+| Background observer manager | **VERIFIED CURRENT** for first and restarted generations | fresh per-run context, loop/task joins, stale-event drain, idempotent Stop; restart regression passes under race |
 
-### Subpackage `codenerd/internal/shards/system`
+## Registry and boot truth
 
-| File | Role |
-|------|------|
-| `base.go` | `BaseSystemShard`, `CostGuard`, `AutopoiesisLoop` |
-| `perception.go` | Perception firewall |
-| `executive.go` | OODA executive loop |
-| `executive_intent.go` | Intent snapshots, next_action hydration |
-| `executive_autopoiesis.go` | Strategy gap proposals |
-| `constitution.go` | Safety gate + appeals |
-| `router.go` | Tactile routes + dispatch |
-| `world_model.go` | Workspace fact ingestion |
-| `planner.go` | Session agenda planner |
-| `campaign_runner.go` | Campaign supervisor |
-| `legislator.go` | Learned rule legislator |
-| `mangle_repair.go` | Learned rule interceptor/repair |
-| `payloads.go` | Action payload encode/decode |
+### Package registrar
 
-## 3. Registered shard names (runtime)
+`RegisterAllShardFactories` performs dependency injection through
+`RegistryContext`, registers factories, then defines profiles. `createAssembler`
+attaches the provided JIT compiler and configured budgets. Learning-store
+adapters are injected into perception and executive. Mangle repair locates the
+primary RealKernel and installs itself as the repair interceptor.
 
-From `registration.go` factories + profiles:
+### Cortex boot
 
-| Name | Class |
-|------|-------|
-| `perception_firewall` | System Auto |
-| `world_model_ingestor` | System OnDemand |
-| `executive_policy` | System Auto |
-| `constitution_gate` | System Auto |
-| `legislator` | System OnDemand |
-| `mangle_repair` | System Auto |
-| `tactile_router` | System OnDemand |
-| `campaign_runner` | System OnDemand |
-| `session_planner` | System OnDemand |
-| `requirements_interrogator` | Ephemeral |
+**VERIFIED CURRENT:** `internal/system/factory.go#initShardManagement` creates a
+bounded spawn queue, calls the package registrar, installs JIT DB callbacks,
+then replaces the router and campaign factories with richer versions. The
+router override adds BrowserManager and the shared prompt assembler; the
+campaign override adds ShardManager. Disabled system names are applied before
+`ShardManager.StartSystemShards`.
 
-## 4. Hotspots (complexity / risk)
+**PARTIAL:** auto-start requests are submitted to the queue as detached work.
+Submission is observable, but BootCortex does not wait for a generation-wide
+ready set. Individual shard errors are logged rather than returned by
+`StartSystemShards`.
 
-1. **Dual registration** — `session_boot.go` vs `RegisterAllShardFactories` + factory re-register.  
-2. **Executive + constitution + router** — largest behavioral surface; event vs poll fallback.  
-3. **Router route table** — long static map; unmapped actions denied by default.  
-4. **Mangle repair + legislator** — LLM near policy layer (mitigated by validation pipeline).  
-5. **Matching** — string heuristics only; false specialist picks.
+### Interactive and auxiliary boot
 
-## 5. Explicit absences
+Chat shared boot and legacy session boot retain additional wiring for Glass Box,
+ToolEventBus, ToolStore, learning candidates, and observer/consultation managers.
+Campaign commands and init scanning also call registration helpers. These are
+live consumers, not removable copies merely because Cortex boot exists.
 
-| Expected historically | Status |
-|-----------------------|--------|
-| `internal/shards/coder` | **Deleted** |
-| `internal/shards/tester` | **Deleted** |
-| `internal/shards/reviewer` | **Deleted** |
-| `internal/shards/researcher` | **Deleted** |
-| `internal/shards/nemesis` | **Deleted** |
-| `internal/shards/tool_generator` | **Deleted** (ouroboros via VirtualStore) |
+## Action and fact contract
 
-Chat sources still contain commented import stubs documenting the removal.
+| Stage | Producer | Fact/query | Consumer | Current discriminator |
+|---|---|---|---|---|
+| intent | perception/transducer | `user_intent` | Mangle and executive | fallback/validation tests |
+| decision | Mangle policy | `next_action` | executive | delegate and OODA tests |
+| permission request | executive | `pending_action/5` | constitution | exact ID/payload source code and action pipeline |
+| decision receipt | constitution | `permission_check_result/4` | Mangle/diagnostics | `/permit` asserted in pipeline test |
+| authorized route input | constitution | `permitted_action/5` | router | exact ID checked in pipeline test |
+| denial audit | constitution | `security_violation/3` | policy/observability | Go args match `schemas_shards.mg` declaration |
+| route choice | core policy | `route_action/2` | router | policy route preferred by exact action ID |
+| route result | router | `routing_result/4` | waiting session/policy | success and no-route tests |
+| effect result | VirtualStore | `execution_result/6` | session/observability | action pipeline asserts ID equality |
 
-## 6. Sibling ownership
+**VERIFIED CURRENT:** the four authorization predicates are co-located in the
+production policy KernelShard configuration generated from the canonical shards
+manifest. `TestDefaultShardPredicateManifestsAreUnambiguous` rejects duplicate
+domain/predicate ownership; `TestDefaultCortexPermissionEnvelopeRoutesToPolicyShard`
+proves exact target/payload mismatches remain denied.
 
-| Concern | Owner package |
-|---------|---------------|
-| Spawn/start/stop/profile storage | `internal/core/shards` |
-| Task/persona execution | `internal/session` |
-| Cortex assembly | `internal/system` |
-| Policy rules | `internal/core/defaults/policy` |
+## JIT and agent behavior
 
-## 7. Test entry points
+| Call family | Current behavior |
+|---|---|
+| Requirements interrogation | JIT required when an LLM exists; semantic top-k 5; static questions only for nil LLM |
+| Session planning | JIT required; user goal remains bounded task input |
+| Legislator | JIT required; structured synth required; semantic top-k 100 |
+| Executive/constitution/router/world autopoiesis | JIT required for optional proposal; failure skips creative proposal, not deterministic execution |
+| Mangle repair | JIT preferred, legacy system prompt retained as fallback |
+| Perception | Prompt assembler feeds the canonical transducer; fallback parsing remains available and emits confidence/failure facts |
+| Consultation | Protocol text is built inline and delegated through a spawner |
 
-```powershell
-go test ./internal/shards/ -count=1
-go test ./internal/shards/system/ -count=1
-```
+**PARTIAL:** new LLM behavior is intended to be JIT-first, but the package has no
+machine-readable inventory proving every call site and fallback mode.
+
+## State, concurrency, and lifetime
+
+- ShardManager owns factory/profile/active/result maps outside this source root.
+- Each concrete system shard owns local counters, queues, cases, and loop state.
+- `BaseSystemShard` owns one event subscription and stops by closing `StopCh`.
+- CostGuard bounds calls per minute, per session, cooldown, and validation retry.
+- SpawnQueue bounds queued and active non-system work and prioritizes four lanes.
+- Background observers use a 100-event channel and retain 100 assessments.
+- Consultation caches 100 responses for five minutes.
+- Router permission and routing-result histories are pruned on bounded cadence.
+
+**VERIFIED CURRENT:** the package race suite passes, including observer
+concurrency and system shard state tests.
+
+**PARTIAL:** observer generations and router consumption now have lifecycle
+regressions under race. Dropped observer events still have no counter;
+asynchronous results have no package-level retention contract; boot readiness is
+eventual rather than generation-scoped.
+
+## Recovery and observability
+
+Current recovery includes context deadlines, queue timeout, panic capture in the
+manager, exact active/status fact retraction, system-shard Stop channels,
+learning flush, campaign backoff, parser/repair budgets, and optional fallback
+parsing. Signals include category logs, audit lifecycle records, Glass Box,
+ToolEventBus, ToolStore, heartbeats, permission/routing facts, and in-memory
+metrics.
+
+**PARTIAL:** there is no single bounded lifecycle receipt joining boot
+generation, shard ID, task/action correlation, readiness, cancellation, and
+terminal outcome. Consultation failures are now returned; observer channel drops
+and boot readiness remain weak observability seams.
+
+## Explicit absences
+
+- No generic actor mailbox or distributed shard transport.
+- No package-owned policy corpus or declarations.
+- No Go domain persona implementations; JIT/session owns those behaviors.
+- No embedding matcher; current matching is deterministic heuristics.
+- No proof that profile permission slices authorize effects; they do not.
+- No generation-wide boot readiness barrier.
+- No generation-wide boot readiness barrier or unified lifecycle receipt.
+- No uniform JIT fallback contract for every LLM call.
