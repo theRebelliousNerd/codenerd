@@ -51,7 +51,11 @@ Decisions: [DARK-FACTORY-JOURNAL.md](DARK-FACTORY-JOURNAL.md)
 
 | Corpus | Source | Notes |
 |--------|--------|-------|
-| [cli](cli/) | `cmd/nerd/` | CLI/TUI entry (not under internal/) |
+| [cli](cli/) | `cmd/nerd/` | **Deep-dive quality bar** (Vectryx-style): command tree, TUI, wiring journal, OODA/campaign deep dives — not inventory stubs |
+
+## Quality standard
+
+Auto-generated inventory tables alone are **not** a finished corpus. The `cli/` tree is the reference for depth: control flows, real command catalogs, gaps, safety, testing, and wiring journals grounded in source. Other packages should be lifted to that bar package-by-package (especially core, prompt, shards, campaign, perception).
 
 ## Proposed (greenfield only)
 

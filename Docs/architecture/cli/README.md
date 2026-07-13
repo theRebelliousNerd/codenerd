@@ -1,40 +1,48 @@
-# cli — Architecture Corpus
+# cli — Architecture Corpus (`cmd/nerd`)
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `cmd/nerd/` (113 non-test .go, 55 tests, 2 .mg)**
+> Last verified against codebase: 2026-07-13  
+> Status: Living Reference Document  
+> Language: Go (module `codenerd`)  
+> Binary: `nerd` / `nerd.exe`  
+> Primary package: `cmd/nerd/` (+ `cmd/nerd/chat`, `cmd/nerd/ui`)
 
+## Scope
 
-## Role
+This corpus documents the **codeNERD CLI surface**: Cobra command tree, interactive Bubble Tea chat TUI, UI pages, and how the binary boots Cortex (kernel, shards, perception, articulation, stores).
 
-CLI entrypoints, chat TUI, campaign and system commands
+It is **not** a product Spec template set (`Docs/Spec/`) and **not** the kernel itself (`Docs/architecture/core/`).
 
-## Source location
+## Document map
 
-- Primary: `cmd/nerd/`
-- Non-test Go files: **113**
-- Test files: **55**
-- Mangle sources: **2**
-- Tier (dark-factory): **3**
-- Estimated implementation completeness (heuristic): **70%**
+| Doc | Role |
+|-----|------|
+| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Authoritative living architecture + inventory |
+| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores |
+| [01-VISION-CLI.md](01-VISION-CLI.md) | Product vision for the CLI/TUI |
+| [02-CURRENT-STATE-CLI.md](02-CURRENT-STATE-CLI.md) | Precise on-disk inventory |
+| [03-GAP-ANALYSIS-CLI.md](03-GAP-ANALYSIS-CLI.md) | Gaps vs vision |
+| [04-ARCHITECTURAL-PRINCIPLES-CLI.md](04-ARCHITECTURAL-PRINCIPLES-CLI.md) | Design principles |
+| [05-COMMAND-ARCHITECTURE.md](05-COMMAND-ARCHITECTURE.md) | Cobra command tree |
+| [06-TUI-CHAT-SURFACE.md](06-TUI-CHAT-SURFACE.md) | Bubble Tea chat + slash commands |
+| [07-UI-PAGES-AND-OUTPUT.md](07-UI-PAGES-AND-OUTPUT.md) | ui/ package + rendering |
+| [08-DEPENDENCY-MAP.md](08-DEPENDENCY-MAP.md) | Imports into internal/* |
+| [09-CONSTITUTIONAL-SAFETY.md](09-CONSTITUTIONAL-SAFETY.md) | Safety at the CLI edge |
+| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests and gaps |
+| [11-CROSS-SYSTEM-WIRING-JOURNAL.md](11-CROSS-SYSTEM-WIRING-JOURNAL.md) | Boot → kernel → shards wiring |
+| [12-TELEMETRY-OBSERVABILITY.md](12-TELEMETRY-OBSERVABILITY.md) | Logging, glass box, transparency |
+| [TODO.md](TODO.md) / [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) / [_progress.md](_progress.md) | Governance |
 
-## Documents
-
-| Doc | Purpose |
-|-----|---------|
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment |
-| [01-DOMAIN-MODEL.md](01-DOMAIN-MODEL.md) | Types, facts, models |
-| [02-CURRENT-STATE-CLI.md](02-CURRENT-STATE-CLI.md) | Honest living inventory |
-| [03-GAP-ANALYSIS-CLI.md](03-GAP-ANALYSIS-CLI.md) | Gaps vs north star |
-| [04-INVARIANTS-AND-GATES.md](04-INVARIANTS-AND-GATES.md) | Safety and verification gates |
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Status + target surface |
-| [TODO.md](TODO.md) | Open work |
-| [_progress.md](_progress.md) | Generation progress |
-
-## How to verify
+## Build / run
 
 ```powershell
-# package tests (when applicable)
+$env:CGO_CFLAGS = "-IC:/CodeProjects/codeNERD/sqlite_headers"
+go build -o nerd.exe ./cmd/nerd
+./nerd.exe                    # interactive TUI
+./nerd.exe init               # workspace
+./nerd.exe run "explain main" # single-shot OODA
 go test ./cmd/nerd/...
 ```
+
+## Quality bar
+
+Modeled on Vectryx `docs/architecture/cli`: real file inventories, command tables, control-flow diagrams, wiring journals, and honest gaps — **not** auto-generated inventory stubs.
