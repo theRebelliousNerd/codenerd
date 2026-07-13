@@ -390,6 +390,7 @@ type bootContext struct {
 	jitCfg                       config.JITConfig
 	llmClient                    perception.LLMClient
 	shardLLMClient               perception.LLMClient
+	imageLLMClient               perception.LLMClient // Gemini Nano Banana 2 for image_generator only
 	providerCfgForClassification *perception.ProviderConfig
 	localDB                      *store.LocalStore
 	learningStore                *store.LearningStore
@@ -529,6 +530,17 @@ func initPerceptionLayer(bctx *bootContext) error {
 		}
 	}
 	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", shardRaw)
+
+	// Image generation stays on Gemini Nano Banana 2 (gemini-3.1-flash-image) —
+	// never the Ollama worker. Attached to ShardManager in initShardManagement.
+	if userCfg, uerr := config.LoadUserConfig(userCfgPath); uerr == nil && userCfg != nil {
+		if imgClient, ierr := perception.NewImageClientFromUserConfig(userCfg); ierr != nil {
+			logging.Get(logging.CategoryPerception).Warn("Image LLM (Nano Banana 2) unavailable: %v", ierr)
+		} else if imgClient != nil {
+			bctx.imageLLMClient = core.NewScheduledLLMCall("image_generator", imgClient)
+			logging.Get(logging.CategoryPerception).Info("Image LLM enabled: Nano Banana 2 family")
+		}
+	}
 
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetClient(bctx.llmClient)
@@ -840,6 +852,9 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	bctx.shardManager = coreshards.NewShardManager()
 	bctx.shardManager.SetParentKernel(bctx.kernel)
 	bctx.shardManager.SetLLMClient(bctx.shardLLMClient)
+	if bctx.imageLLMClient != nil {
+		bctx.shardManager.SetImageLLMClient(bctx.imageLLMClient)
+	}
 	bctx.virtualStore.SetShardManager(bctx.shardManager)
 
 	for _, agent := range discoveredAgents {

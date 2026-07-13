@@ -1,6 +1,7 @@
 package shards
 
 import (
+	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
 	"codenerd/internal/types"
@@ -40,8 +41,11 @@ type ShardManager struct {
 
 	// Core dependencies to inject into shards
 	kernel       types.Kernel
-	llmClient    types.LLMClient
-	virtualStore any
+	llmClient    types.LLMClient // default worker/main client for most shards
+	// imageLLMClient is Gemini Nano Banana 2 for image_generator shards only.
+	// Never the Ollama worker — image models are Gemini-only.
+	imageLLMClient types.LLMClient
+	virtualStore   any
 	// tracingClient TracingClient // Optional: set when llmClient implements TracingClient
 	transparencyManager any // types.TransparencyManager to be added later
 	learningStore       types.LearningStore
@@ -156,6 +160,27 @@ func (sm *ShardManager) SetLLMClient(client types.LLMClient) {
 	defer sm.mu.Unlock()
 	sm.llmClient = client
 	// Tracing support would check interface here
+}
+
+// SetImageLLMClient sets the dedicated image-generation client (Gemini Nano
+// Banana 2 / gemini-3.1-flash-image). Image shards use this instead of the
+// worker Ollama client.
+func (sm *ShardManager) SetImageLLMClient(client types.LLMClient) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.imageLLMClient = client
+	logging.ShardsDebug("Image LLM client attached to ShardManager")
+}
+
+// clientForShardType picks LLM for a shard: image family → imageLLMClient
+// (Gemini Nano Banana 2), everything else → default llmClient (worker Ollama).
+func (sm *ShardManager) clientForShardType(typeName string) types.LLMClient {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if config.IsImageShardType(typeName) && sm.imageLLMClient != nil {
+		return sm.imageLLMClient
+	}
+	return sm.llmClient
 }
 
 func (sm *ShardManager) SetSessionID(sessionID string) {

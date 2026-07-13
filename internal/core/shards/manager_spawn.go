@@ -302,9 +302,9 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	if sm.kernel != nil {
 		agent.SetParentKernel(sm.kernel)
 	}
-	if sm.llmClient != nil {
-		// Note: Scheduler logic moved to factory/main to avoid core dependency
-		agent.SetLLMClient(sm.llmClient)
+	if client := sm.clientForShardType(typeName); client != nil {
+		// Image shards get Gemini Nano Banana 2; all others use worker/main.
+		agent.SetLLMClient(client)
 	}
 	if sm.virtualStore != nil {
 		if vsc, ok := agent.(VirtualStoreConsumer); ok {

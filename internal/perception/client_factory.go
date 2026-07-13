@@ -423,3 +423,33 @@ func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error
 		return nil, fmt.Errorf("unsupported worker provider %q (use ollama, xai, openai, gemini)", w.Provider)
 	}
 }
+
+// NewImageClientFromUserConfig builds the dedicated image-generation client
+// (Gemini Nano Banana 2 / gemini-3.1-flash-image). Never uses worker=ollama.
+// Returns (nil, nil) only when gemini_api_key is missing (caller may warn).
+func NewImageClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error) {
+	if userCfg == nil {
+		return nil, nil
+	}
+	img := userCfg.GetImageLLMConfig()
+	if strings.ToLower(img.Provider) != "gemini" && img.Provider != "" {
+		return nil, fmt.Errorf("image provider %q not supported (use gemini / Nano Banana 2)", img.Provider)
+	}
+	key := userCfg.GeminiAPIKey
+	if key == "" {
+		key = os.Getenv("GEMINI_API_KEY")
+	}
+	if key == "" {
+		key = os.Getenv("GOOGLE_API_KEY")
+	}
+	if key == "" {
+		return nil, fmt.Errorf("image generation needs gemini_api_key (Nano Banana 2 / gemini-3.1-flash-image)")
+	}
+	gcfg := DefaultGeminiConfig(key)
+	gcfg.Model = img.Model
+	if gcfg.Model == "" {
+		gcfg.Model = config.DefaultImageModel
+	}
+	logging.Perception("Image LLM: gemini model=%s (Nano Banana 2 family)", gcfg.Model)
+	return NewGeminiClientWithConfig(gcfg), nil
+}

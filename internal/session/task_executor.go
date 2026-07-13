@@ -87,6 +87,9 @@ func normalizeTaskIntentVerb(verb string) (string, error) {
 		return "/generate_tool", nil
 	case "nemesis":
 		return "/review", nil
+	case "image_generator", "image-generator", "imagegenerator", "imagen", "image", "nano_banana", "nanobanana":
+		// Image gen is a specialist path (Gemini Nano Banana 2), not worker Ollama.
+		return "/create", nil
 	default:
 		// Bare identifier: treat as /identifier (e.g. user agents).
 		if strings.ContainsAny(verb, " \t\n/") {

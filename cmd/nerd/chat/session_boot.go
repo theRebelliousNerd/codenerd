@@ -371,6 +371,20 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		}
 		var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("chat_shards", shardRaw)
 		shardMgr.SetLLMClient(shardLLMClient)
+		// Image generator: Gemini Nano Banana 2 — excluded from Ollama worker.
+		if imgClient, ierr := perception.NewImageClientFromUserConfig(appCfg); ierr != nil {
+			logging.Boot("Image LLM (Nano Banana 2) unavailable: %v", ierr)
+		} else if imgClient != nil {
+			imgScheduled := core.NewScheduledLLMCall("image_generator", imgClient)
+			shardMgr.SetImageLLMClient(imgScheduled)
+			if img := appCfg.GetImageLLMConfig(); img.Model != "" {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Image generator: gemini / %s (Nano Banana 2)", img.Model),
+					Time:    time.Now(),
+				})
+			}
+		}
 		if perception.SharedTaxonomy != nil {
 			perception.SharedTaxonomy.SetClient(llmClient)
 		}

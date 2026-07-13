@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"codenerd/internal/features"
@@ -80,7 +81,13 @@ type UserConfig struct {
 	// Worker is an optional secondary LLM used for shards / classification /
 	// background work while the main TUI agent stays on Provider/Model (e.g. Grok).
 	// Typical test setup: main provider=xai model=grok-4.5, worker=ollama gemma4:12b.
+	// Image generation shards are excluded — see Image.
 	Worker *WorkerLLMConfig `json:"worker,omitempty"`
+
+	// Image is the dedicated image-generation LLM (Nano Banana 2 / Gemini Image).
+	// Not routed through worker=ollama — image models are Gemini-only.
+	// API id: gemini-3.1-flash-image (Nano Banana 2).
+	Image *ImageLLMConfig `json:"image,omitempty"`
 
 	// =========================================================================
 	// UI SETTINGS
@@ -502,6 +509,7 @@ type OllamaLLMConfig struct {
 
 // WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,
 // create, classification). When nil, workers share the main provider client.
+// Does NOT apply to image generation (see ImageLLMConfig).
 type WorkerLLMConfig struct {
 	// Provider: typically "ollama" for local testing.
 	Provider string `json:"provider,omitempty"`
@@ -509,6 +517,77 @@ type WorkerLLMConfig struct {
 	Model string `json:"model,omitempty"`
 	// Endpoint: optional override for ollama (defaults to ollama.endpoint or localhost).
 	Endpoint string `json:"endpoint,omitempty"`
+}
+
+// ImageLLMConfig is the dedicated image-generation path (Gemini Nano Banana 2).
+// Official API model id: gemini-3.1-flash-image (alias: Nano Banana 2).
+// Lite variant: gemini-3.1-flash-lite-image (Nano Banana 2 Lite).
+type ImageLLMConfig struct {
+	// Provider must be "gemini" today (Gemini Image / Nano Banana family).
+	Provider string `json:"provider,omitempty"`
+	// Model API id, default gemini-3.1-flash-image.
+	Model string `json:"model,omitempty"`
+}
+
+// DefaultImageModel is Nano Banana 2 (Gemini 3.1 Flash Image).
+const DefaultImageModel = "gemini-3.1-flash-image"
+
+// IsImageGenerationModel reports whether model is a Gemini image / Nano Banana model.
+func IsImageGenerationModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case m == "":
+		return false
+	case strings.Contains(m, "flash-image"):
+		return true
+	case strings.Contains(m, "flash-lite-image"):
+		return true
+	case strings.Contains(m, "image-preview") && strings.Contains(m, "gemini"):
+		return true
+	case m == "nano-banana" || m == "nano-banana-2" || m == "nano_banana" || m == "nano_banana_2":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsImageShardType reports shard type names reserved for image generation.
+func IsImageShardType(typeName string) bool {
+	t := strings.ToLower(strings.TrimSpace(typeName))
+	t = strings.TrimPrefix(t, "/")
+	switch t {
+	case "image_generator", "image-generator", "imagegenerator",
+		"imagen", "image", "nano_banana", "nanobanana":
+		return true
+	default:
+		return false
+	}
+}
+
+// GetImageLLMConfig returns image-generation settings with Nano Banana 2 defaults.
+func (c *UserConfig) GetImageLLMConfig() ImageLLMConfig {
+	def := ImageLLMConfig{
+		Provider: "gemini",
+		Model:    DefaultImageModel,
+	}
+	if c == nil || c.Image == nil {
+		return def
+	}
+	out := *c.Image
+	if out.Provider == "" {
+		out.Provider = def.Provider
+	}
+	if out.Model == "" {
+		out.Model = def.Model
+	}
+	// Normalize friendly aliases to API ids.
+	switch strings.ToLower(out.Model) {
+	case "nano-banana-2", "nano_banana_2", "nano-banana", "nanobanana2", "gemini-image":
+		out.Model = DefaultImageModel
+	case "nano-banana-2-lite", "nano_banana_2_lite", "nanobanana2-lite":
+		out.Model = "gemini-3.1-flash-lite-image"
+	}
+	return out
 }
 
 // GetOllamaLLMConfig returns Ollama chat settings with defaults.
