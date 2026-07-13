@@ -35,8 +35,8 @@ type OllamaEngine struct {
 	model    string
 	client   *http.Client
 
-	ensureMu     sync.Mutex
-	modelReady   bool
+	ensureMu      sync.Mutex
+	modelReady    bool
 	pullAttempted bool
 }
 
@@ -80,6 +80,7 @@ func NewOllamaEngine(endpoint, model string) (*OllamaEngine, error) {
 // Embed generates an embedding for a single text.
 func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error) {
 	timer := logging.StartTimer(logging.CategoryEmbedding, "Ollama.Embed")
+	defer timer.Stop()
 
 	// Best-effort: make sure the model is installed before first use.
 	// Non-fatal if Ollama is briefly unreachable — the request loop still runs.
@@ -88,7 +89,7 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 	}
 
 	textLen := len(text)
-	logging.EmbeddingDebug("Ollama.Embed: starting embed request, text_length=%d chars model=%s", textLen, e.model)
+	logging.EmbeddingDebug("Ollama.Embed: starting embed request, text_length=%d chars model=%s", textLen, e.Model())
 
 	// Retry transient Ollama runner/network failures.
 	const maxRetries = 3
@@ -99,9 +100,10 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		model := e.Model()
 
 		req := ollamaEmbedRequest{
-			Model:  e.model,
+			Model:  model,
 			Prompt: text,
 		}
 
@@ -111,7 +113,7 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
 
-		logging.EmbeddingDebug("Ollama.Embed: sending POST to %s/api/embeddings (attempt %d/%d model=%s)", e.endpoint, attempt, maxRetries, e.model)
+		logging.EmbeddingDebug("Ollama.Embed: sending POST to %s/api/embeddings (attempt %d/%d model=%s)", e.endpoint, attempt, maxRetries, model)
 		apiStart := time.Now()
 
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", e.endpoint+"/api/embeddings", bytes.NewReader(body))
@@ -128,7 +130,9 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			if attempt < maxRetries && ctx.Err() == nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: request failed after %v (attempt %d/%d): %v; retrying in %v",
 					apiLatency, attempt, maxRetries, err, backoff)
-				time.Sleep(backoff)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, fmt.Errorf("ollama embed retry cancelled: %w", err)
+				}
 				backoff *= 2
 				continue
 			}
@@ -142,7 +146,9 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			if attempt < maxRetries && ctx.Err() == nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: failed to read response (attempt %d/%d): %v; retrying in %v",
 					attempt, maxRetries, readErr, backoff)
-				time.Sleep(backoff)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, fmt.Errorf("ollama embed retry cancelled: %w", err)
+				}
 				backoff *= 2
 				continue
 			}
@@ -155,12 +161,12 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			// Model missing → auto-pull once, then retry the embed.
 			if isModelNotFoundStatus(resp.StatusCode, bodyStr) && !pulledOn404 && ctx.Err() == nil {
 				pulledOn404 = true
-				e.modelReady = false // force re-ensure
+				e.invalidateModel() // force re-ensure under the model-state lock
 				logging.Get(logging.CategoryEmbedding).Warn(
-					"Ollama.Embed: model %q not found (%s); auto-pulling / resolving...", e.model, truncateForLog(bodyStr, 160))
+					"Ollama.Embed: model %q not found (%s); auto-pulling / resolving...", model, truncateForLog(bodyStr, 160))
 				if ensureErr := e.EnsureModel(ctx); ensureErr != nil {
 					logging.Get(logging.CategoryEmbedding).Error("Ollama.Embed: auto-pull failed: %v", ensureErr)
-					return nil, fmt.Errorf("ollama model %q missing and auto-pull failed: %w", e.model, ensureErr)
+					return nil, fmt.Errorf("ollama model %q missing and auto-pull failed: %w", model, ensureErr)
 				}
 				// Reset attempt budget after a successful ensure.
 				attempt = 0
@@ -176,7 +182,9 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			if retryable && attempt < maxRetries && ctx.Err() == nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: non-OK status %d (attempt %d/%d): %s; retrying in %v",
 					resp.StatusCode, attempt, maxRetries, bodyStr, backoff)
-				time.Sleep(backoff)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, fmt.Errorf("ollama embed retry cancelled: %w", err)
+				}
 				backoff *= 2
 				continue
 			}
@@ -190,15 +198,29 @@ func (e *OllamaEngine) Embed(ctx context.Context, text string) ([]float32, error
 			if attempt < maxRetries && ctx.Err() == nil {
 				logging.Get(logging.CategoryEmbedding).Warn("Ollama.Embed: decode failed (attempt %d/%d): %v; retrying in %v",
 					attempt, maxRetries, err, backoff)
-				time.Sleep(backoff)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, fmt.Errorf("ollama embed retry cancelled: %w", err)
+				}
 				backoff *= 2
 				continue
 			}
 			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
+		if validationErr := validateEmbeddingVector(result.Embedding); validationErr != nil {
+			if attempt < maxRetries && ctx.Err() == nil {
+				logging.Get(logging.CategoryEmbedding).Warn(
+					"Ollama.Embed: invalid embedding response (attempt %d/%d): %v; retrying in %v",
+					attempt, maxRetries, validationErr, backoff)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, fmt.Errorf("ollama embed retry cancelled: %w", err)
+				}
+				backoff *= 2
+				continue
+			}
+			return nil, fmt.Errorf("ollama returned invalid embedding: %w", validationErr)
+		}
 
-		timer.Stop()
-		logging.Embedding("Ollama.Embed: completed successfully, dimensions=%d, api_latency=%v, model=%s", len(result.Embedding), apiLatency, e.model)
+		logging.Embedding("Ollama.Embed: completed successfully, dimensions=%d, api_latency=%v, model=%s", len(result.Embedding), apiLatency, model)
 
 		return result.Embedding, nil
 	}
@@ -252,7 +274,7 @@ func (e *OllamaEngine) Dimensions() int {
 
 // Name returns the engine name.
 func (e *OllamaEngine) Name() string {
-	return fmt.Sprintf("ollama:%s", e.model)
+	return fmt.Sprintf("ollama:%s", e.Model())
 }
 
 // Model returns the currently selected model name (may change after ensure/pull).
@@ -260,6 +282,12 @@ func (e *OllamaEngine) Model() string {
 	e.ensureMu.Lock()
 	defer e.ensureMu.Unlock()
 	return e.model
+}
+
+func (e *OllamaEngine) invalidateModel() {
+	e.ensureMu.Lock()
+	defer e.ensureMu.Unlock()
+	e.modelReady = false
 }
 
 // HealthCheck verifies that the Ollama service is reachable.
@@ -338,6 +366,12 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 
 	logging.Embedding("Ollama: model %q not installed — pulling %q (this may take a few minutes)...", e.model, pullName)
 	if err := e.pullModel(ctx, pullName); err != nil {
+		// The factory performs a deliberately short best-effort ensure. A
+		// bootstrap deadline must not permanently poison the engine: the first
+		// real Embed call gets its own context and must be able to retry the pull.
+		if ctx.Err() != nil {
+			e.pullAttempted = false
+		}
 		// Last-resort fallback ONLY for known embed families — never remap
 		// arbitrary/custom model names (would break tests and user configs).
 		fallback := "nomic-embed-text"
@@ -359,6 +393,18 @@ func (e *OllamaEngine) EnsureModel(ctx context.Context) error {
 	e.modelReady = true
 	logging.Embedding("Ollama: model %q pulled and ready", e.model)
 	return nil
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (e *OllamaEngine) listModels(ctx context.Context) ([]string, error) {
@@ -512,12 +558,12 @@ func resolveInstalledModel(want string, installed []string) string {
 // tests, or a user typo of a custom fine-tune) are NOT remapped — we try to
 // pull the configured name instead.
 var knownEmbedFamilies = map[string]struct{}{
-	"embeddinggemma":    {},
-	"nomic-embed-text":  {},
-	"mxbai-embed-large": {},
-	"all-minilm":        {},
-	"bge-m3":            {},
-	"bge-large":         {},
+	"embeddinggemma":         {},
+	"nomic-embed-text":       {},
+	"mxbai-embed-large":      {},
+	"all-minilm":             {},
+	"bge-m3":                 {},
+	"bge-large":              {},
 	"snowflake-arctic-embed": {},
 }
 

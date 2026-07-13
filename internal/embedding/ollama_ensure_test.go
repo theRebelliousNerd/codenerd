@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestResolveInstalledModel_Prefers300m(t *testing.T) {
@@ -110,6 +111,52 @@ func TestEnsureModel_AutoPullsWhenMissing(t *testing.T) {
 	}
 	if pulled.Load() != 1 {
 		t.Fatalf("should not pull twice, got %d", pulled.Load())
+	}
+}
+
+func TestEnsureModel_BootstrapDeadlineDoesNotPoisonLaterPull(t *testing.T) {
+	var pullCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(ollamaTagsResponse{Models: nil})
+		case "/api/pull":
+			pullCalls.Add(1)
+			if pullCalls.Load() == 1 {
+				// Keep the first response beyond the bootstrap deadline. The
+				// client must return on its context, while the bounded sleep lets
+				// httptest.Server close deterministically on every platform.
+				time.Sleep(100 * time.Millisecond)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(ollamaPullStatus{Status: "success"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := engine.EnsureModel(bootstrapCtx); err == nil {
+		t.Fatal("EnsureModel bootstrap call succeeded; want deadline failure")
+	}
+	if engine.pullAttempted {
+		t.Fatal("deadline-cancelled bootstrap pull permanently marked as attempted")
+	}
+
+	if err := engine.EnsureModel(context.Background()); err != nil {
+		t.Fatalf("EnsureModel retry after bootstrap deadline: %v", err)
+	}
+	if !engine.modelReady {
+		t.Fatal("retry did not mark model ready")
+	}
+	if pullCalls.Load() < 2 {
+		t.Fatalf("pull calls = %d, want retry after cancelled bootstrap pull", pullCalls.Load())
 	}
 }
 

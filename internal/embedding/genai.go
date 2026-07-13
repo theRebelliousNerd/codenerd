@@ -131,9 +131,16 @@ func (e *GenAIEngine) embedWithTask(ctx context.Context, text string, taskType s
 
 	logging.EmbeddingDebug("GenAI.Embed: API response received in %v", apiLatency)
 
-	if len(result.Embeddings) == 0 {
-		logging.Get(logging.CategoryEmbedding).Error("GenAI.Embed: no embeddings returned from API")
-		return nil, fmt.Errorf("no embeddings returned")
+	if len(result.Embeddings) != 1 {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.Embed: API returned %d embeddings for one input", len(result.Embeddings))
+		return nil, fmt.Errorf("GenAI embed returned %d vectors for one input", len(result.Embeddings))
+	}
+	if result.Embeddings[0] == nil {
+		logging.Get(logging.CategoryEmbedding).Error("GenAI.Embed: nil embedding returned from API")
+		return nil, fmt.Errorf("GenAI embed returned nil embedding")
+	}
+	if err := validateEmbeddingVector(result.Embeddings[0].Values); err != nil {
+		return nil, fmt.Errorf("GenAI embed returned invalid vector: %w", err)
 	}
 
 	dimensions := len(result.Embeddings[0].Values)
@@ -275,7 +282,13 @@ func (e *GenAIEngine) embedBatchChunk(ctx context.Context, texts []string, taskT
 
 	embeddings := make([][]float32, len(result.Embeddings))
 	for i, emb := range result.Embeddings {
+		if emb == nil {
+			return nil, fmt.Errorf("GenAI batch embed returned nil embedding at index %d", i)
+		}
 		embeddings[i] = emb.Values
+	}
+	if err := validateEmbeddingBatchResponse(len(texts), embeddings); err != nil {
+		return nil, fmt.Errorf("GenAI batch embed returned invalid response: %w", err)
 	}
 
 	return embeddings, nil

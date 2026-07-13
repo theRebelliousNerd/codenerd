@@ -3,9 +3,13 @@ package embedding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // =============================================================================
@@ -280,6 +284,77 @@ func TestOllamaEngine_Embed_WhenEmptyText_ShouldStillCallServer(t *testing.T) {
 	if len(emb) != 2 {
 		t.Errorf("Expected 2-dim embedding, got %d", len(emb))
 	}
+}
+
+func TestOllamaEngine_Embed_WhenServerReturnsEmptyEmbedding_ShouldRetryAndFail(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(ollamaEmbedResponse{})
+	}))
+	defer server.Close()
+
+	engine, err := NewOllamaEngine(server.URL, "test-model")
+	if err != nil {
+		t.Fatalf("NewOllamaEngine returned error: %v", err)
+	}
+	skipEnsure(engine)
+
+	embedding, err := engine.Embed(context.Background(), "test")
+	if err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("Embed error = %v, want empty-vector rejection", err)
+	}
+	if embedding != nil {
+		t.Fatalf("Embed returned invalid vector %v", embedding)
+	}
+	if callCount != 3 {
+		t.Fatalf("Embed made %d calls, want 3 bounded attempts", callCount)
+	}
+}
+
+func TestWaitForRetryHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	started := time.Now()
+	err := waitForRetry(ctx, time.Second)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("waitForRetry error = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("waitForRetry ignored cancellation for %v", elapsed)
+	}
+}
+
+func TestOllamaEngineModelAccessIsConcurrentSafe(t *testing.T) {
+	engine, err := NewOllamaEngine("http://localhost:11434", "model-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const iterations = 1000
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			engine.ensureMu.Lock()
+			if i%2 == 0 {
+				engine.model = "model-a"
+			} else {
+				engine.model = "model-b"
+			}
+			engine.ensureMu.Unlock()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			_ = engine.Model()
+			_ = engine.Name()
+		}
+	}()
+	wg.Wait()
 }
 
 // =============================================================================

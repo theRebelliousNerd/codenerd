@@ -446,3 +446,49 @@ func TestConfig_WhenAllFieldsSet_ShouldRetainValues(t *testing.T) {
 		t.Errorf("TaskType = %q", cfg.TaskType)
 	}
 }
+
+func TestValidateEmbeddingVectorRejectsInvalidProviderOutput(t *testing.T) {
+	tests := []struct {
+		name    string
+		values  []float32
+		wantErr bool
+	}{
+		{name: "valid", values: []float32{0.1, -0.2, 0.3}},
+		{name: "empty", values: nil, wantErr: true},
+		{name: "nan", values: []float32{1, float32(math.NaN())}, wantErr: true},
+		{name: "positive infinity", values: []float32{float32(math.Inf(1))}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateEmbeddingVector(tt.values)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateEmbeddingVector(%v) error = %v, wantErr %v", tt.values, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateEmbeddingBatchResponseEnforcesCardinalityAndShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		want       int
+		embeddings [][]float32
+		wantErr    bool
+	}{
+		{name: "empty input", want: 0, embeddings: nil},
+		{name: "valid", want: 2, embeddings: [][]float32{{1, 2}, {3, 4}}},
+		{name: "truncated response", want: 2, embeddings: [][]float32{{1, 2}}, wantErr: true},
+		{name: "empty vector", want: 1, embeddings: [][]float32{{}}, wantErr: true},
+		{name: "mixed dimensions", want: 2, embeddings: [][]float32{{1, 2}, {3}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateEmbeddingBatchResponse(tt.want, tt.embeddings)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateEmbeddingBatchResponse(%d, %v) error = %v, wantErr %v", tt.want, tt.embeddings, err, tt.wantErr)
+			}
+		})
+	}
+}

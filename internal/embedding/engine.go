@@ -5,6 +5,7 @@ package embedding
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"codenerd/internal/logging"
@@ -213,4 +214,36 @@ func FindTopK(query []float32, corpus [][]float32, k int) ([]SimilarityResult, e
 type SimilarityResult struct {
 	Index      int
 	Similarity float64
+}
+
+func validateEmbeddingVector(values []float32) error {
+	if len(values) == 0 {
+		return fmt.Errorf("embedding vector is empty")
+	}
+	for i, value := range values {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return fmt.Errorf("embedding vector contains non-finite value at index %d", i)
+		}
+	}
+	return nil
+}
+
+func validateEmbeddingBatchResponse(want int, embeddings [][]float32) error {
+	if len(embeddings) != want {
+		return fmt.Errorf("embedding batch returned %d vectors for %d inputs", len(embeddings), want)
+	}
+	if want == 0 {
+		return nil
+	}
+
+	dimensions := len(embeddings[0])
+	for i, values := range embeddings {
+		if err := validateEmbeddingVector(values); err != nil {
+			return fmt.Errorf("embedding %d: %w", i, err)
+		}
+		if len(values) != dimensions {
+			return fmt.Errorf("embedding %d has %d dimensions; want %d", i, len(values), dimensions)
+		}
+	}
+	return nil
 }

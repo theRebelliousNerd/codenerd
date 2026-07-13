@@ -25,18 +25,26 @@ func CosineSimilarity(a, b []float32) (float64, error) {
 
 	// Process 8 float32s at a time (256-bit AVX2)
 	for ; i+8 <= len(a); i += 8 {
-		va := archsimd.Float32x8{a[i], a[i+1], a[i+2], a[i+3], a[i+4], a[i+5], a[i+6], a[i+7]}
-		vb := archsimd.Float32x8{b[i], b[i+1], b[i+2], b[i+3], b[i+4], b[i+5], b[i+6], b[i+7]}
+		va := archsimd.LoadFloat32x8Slice(a[i : i+8])
+		vb := archsimd.LoadFloat32x8Slice(b[i : i+8])
 
 		// Multiply
 		dotVec := va.Mul(vb)
 		aMagVec := va.Mul(va)
 		bMagVec := vb.Mul(vb)
 
-		// Sum the 8 results
-		dotProduct += float64(dotVec[0] + dotVec[1] + dotVec[2] + dotVec[3] + dotVec[4] + dotVec[5] + dotVec[6] + dotVec[7])
-		aMagnitude += float64(aMagVec[0] + aMagVec[1] + aMagVec[2] + aMagVec[3] + aMagVec[4] + aMagVec[5] + aMagVec[6] + aMagVec[7])
-		bMagnitude += float64(bMagVec[0] + bMagVec[1] + bMagVec[2] + bMagVec[3] + bMagVec[4] + bMagVec[5] + bMagVec[6] + bMagVec[7])
+		// The experimental SIMD API keeps lanes opaque. Store each product to a
+		// fixed array for the horizontal reduction instead of relying on the old
+		// public-lane struct representation.
+		var dotLanes, aMagLanes, bMagLanes [8]float32
+		dotVec.Store(&dotLanes)
+		aMagVec.Store(&aMagLanes)
+		bMagVec.Store(&bMagLanes)
+		for lane := range dotLanes {
+			dotProduct += float64(dotLanes[lane])
+			aMagnitude += float64(aMagLanes[lane])
+			bMagnitude += float64(bMagLanes[lane])
+		}
 	}
 
 	// Handle the remainder
