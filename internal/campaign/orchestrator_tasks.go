@@ -286,7 +286,16 @@ func (o *Orchestrator) acquireWriteSetLease(ctx context.Context, phaseID string,
 	writeSet := o.resolveTaskWriteSet(task)
 	if len(writeSet) == 0 {
 		if isMutatingTaskType(task.Type) {
-			return nil, fmt.Errorf("task %s missing write_set for mutating type %s", task.ID, task.Type)
+			// Decomposer sometimes omits write_set/artifacts for file_modify tasks.
+			// Blocking forever is worse than concurrent-edit risk: proceed unlocked
+			// and let micro-checkpoint / hollow-success catch missing writes.
+			logging.Get(logging.CategoryCampaign).Warn(
+				"task %s (type=%s) missing write_set; proceeding without write-set lease",
+				task.ID, task.Type,
+			)
+			o.emitEvent("task_write_set_missing", phaseID, task.ID,
+				"missing write_set; executing without lease", nil)
+			return nil, nil
 		}
 		return nil, nil
 	}

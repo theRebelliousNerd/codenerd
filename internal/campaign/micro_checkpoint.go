@@ -7,8 +7,36 @@ import (
 	"path/filepath"
 	"strings"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/tactile"
 )
+
+// findWorkspaceFileByBase walks workspace for a file with the given basename
+// (skips .nerd, node_modules, target). Used when planner paths don't match layout.
+func findWorkspaceFileByBase(workspace, base string) string {
+	if workspace == "" || base == "" || base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	var found string
+	_ = filepath.WalkDir(workspace, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == ".nerd" || name == "node_modules" || name == "target" || name == ".git" || name == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.EqualFold(d.Name(), base) {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
 
 // runTaskMicroCheckpoint enforces a minimal per-task verification gate.
 func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) error {
@@ -22,14 +50,24 @@ func (o *Orchestrator) runTaskMicroCheckpoint(ctx context.Context, task *Task) e
 	}
 
 	// File existence sanity for create/modify tasks (fail fast before expensive checks).
+	// Planner paths are often wrong (e.g. cmd/server/main.go when code is backend/main.go).
+	// Accept any write_set path that exists OR a same-basename file under the workspace
+	// so checkpoints do not hard-fail layout mismatches after successful nearby writes.
 	for _, p := range writeSet {
 		info, err := os.Stat(p)
-		if err != nil {
-			return fmt.Errorf("micro-checkpoint missing mutated path %s: %w", p, err)
-		}
-		if info.IsDir() {
+		if err == nil {
+			if info.IsDir() {
+				continue
+			}
 			continue
 		}
+		if alt := findWorkspaceFileByBase(o.workspace, filepath.Base(p)); alt != "" {
+			logging.Get(logging.CategoryCampaign).Warn(
+				"micro-checkpoint: planned path %s missing; found alternate %s", p, alt,
+			)
+			continue
+		}
+		return fmt.Errorf("micro-checkpoint missing mutated path %s: %w", p, err)
 	}
 
 	if hasGoFiles(writeSet) && fileExists(o.workspace, "go.mod") {
