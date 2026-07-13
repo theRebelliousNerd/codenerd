@@ -87,15 +87,28 @@ func cortexKey(workspace, provider, apiKey, model string) string {
 
 // resolveWorkspaceRoot mirrors BootCortexWithConfig's workspace resolution
 // so cache keying uses the same effective workspace path as boot.
+//
+// Also binds CODENERD_WORKSPACE_ROOT so modular file tools (write_file,
+// read_file, edit_file, …) resolve relative paths inside the same workspace
+// as VirtualStore. Without this, `nerd -w <dir> create …` boots Cortex against
+// <dir> but tools still write under process CWD (often the monorepo root).
 func resolveWorkspaceRoot(workspace string) string {
+	var root string
 	if workspace != "" {
-		return workspace
+		root = workspace
+	} else if found, err := config.FindWorkspaceRoot(); err == nil && found != "" {
+		root = found
+	} else {
+		root, _ = os.Getwd()
 	}
-	if root, err := config.FindWorkspaceRoot(); err == nil && root != "" {
+	if root == "" {
 		return root
 	}
-	cwd, _ := os.Getwd()
-	return cwd
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+		_ = os.Setenv("CODENERD_WORKSPACE_ROOT", abs)
+	}
+	return root
 }
 
 // resolveProviderModelForKey reads the user config (best-effort) to
