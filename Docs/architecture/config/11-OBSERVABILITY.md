@@ -1,78 +1,44 @@
-# 11 — Observability: config
+# 11 — Observability
 
-> Last verified: 2026-07-13  
+## Signals that exist
 
-## 1. What config logs
+| Signal | Current contract |
+|---|---|
+| YAML load | **VERIFIED CURRENT** — boot log records load/missing/error and provider/model, not API key, in `internal/config/config.go#Load`. |
+| feature activation | **VERIFIED CURRENT** — successful present JSON logs `features.Summary` in `internal/config/user_config.go#LoadUserConfig`. |
+| logging projection | **VERIFIED CURRENT** — `internal/logging/logger.go#loadConfig` independently decodes only `logging` and `Initialize` applies it once. |
+| full LLM trace | **PARTIAL** — defaults-off is tested by `internal/config/config_security_test.go#TestSensitiveTracingDefaultsOff`, but `internal/logging/llm_io_logger.go#LogLLMRequest` and `#LogLLMResponse` persist raw prompts/history/responses without redaction or bounded response size when enabled. |
+| JIT shard trace | **PARTIAL** — `internal/shards/system/legislator.go#llmClientAdapter.CompleteWithSystem` and `internal/shards/system/mangle_repair.go#MangleRepairShard.ValidateAndRepair` put raw prompts/responses in structured logs when effective JIT trace is true. |
 
-| Event | API | Level/category |
-|-------|-----|----------------|
-| YAML Load start | `logging.BootDebug` | boot debug |
-| Missing YAML | `logging.Boot` | boot |
-| YAML read/parse errors | `logging.BootError` | boot error |
-| YAML loaded provider/model | `logging.Boot` | boot |
-| UserConfig features install | `logging.Get(CategoryBoot).Info` with `features.Summary()` | boot |
+## Diagnostic blind spots
 
-Config package itself is **not** chatty on Get* paths.
+- No immutable config snapshot ID or field-origin record.
+- No distinction in downstream logs between absent, malformed, invalid, and
+  soft-ignored config.
+- No snapshot/projection receipt proving which execution values every surface
+  accepted; campaigns still diverge from shared Cortex.
+- No record correlating a wizard save with disk and active feature/JIT state.
+- No redaction policy identifier, retention bound, rotation guarantee, or
+  operator-facing list of active raw trace sinks.
+- `logging.Initialize` is one-shot, so later saves do not change the active sink.
 
-## 2. LoggingConfig (runtime for whole process)
+## Secret and privacy boundary
 
-Configured via UserConfig.Logging / YAML Logging:
+**PARTIAL.** Config logs do not deliberately dump provider keys, and raw trace
+now defaults false with a `0600` file request. When explicitly enabled, prompts,
+history, responses and error bodies can still contain secrets; no content
+redaction, response bound, rotation/retention guarantee or cross-platform ACL
+test is proven.
 
-| Field | Meaning |
-|-------|---------|
-| `Level` | debug/info/warn/error (semantic for logging subsystem) |
-| `Format` | json/text |
-| `File` | legacy single file path |
-| `DebugMode` | master switch — false ⇒ `IsCategoryEnabled` always false |
-| `TraceLLMIO` | dump full LLM I/O (also mirrored on JITConfig) |
-| `Categories` | per-category toggles when debug on |
-| `PerformanceSampling` | 0.0–1.0 for non-slow perf logs |
-| `PerformanceThresholdsMs` | per-system slow thresholds |
+**PROPOSED UPLIFT.** Trace defaults false, opt-in is explicit and visible, values
+pass structural and content redaction, previews and files are bounded, retention
+is declared, modes are owner-only, and every event carries snapshot/projection
+correlation without raw secret-bearing config.
 
-`IsCategoryEnabled(category)`:
+## Operator diagnosis target
 
-```
-if !DebugMode → false
-if Categories nil → true
-if category missing → true
-else → map value
-```
-
-## 3. JIT / LLM I/O traces
-
-| Flag | Location | Effect (consumers) |
-|------|----------|--------------------|
-| `jit.trace_llm_io` | JITConfig | Full JIT prompts / LLM I/O when consumers honor it |
-| `logging.trace_llm_io` | LoggingConfig | Same class of dump for logging subsystem |
-| `jit.debug_mode` | JITConfig | Verbose JIT assembly logs |
-
-Defaults in DefaultJITConfig / DefaultUserConfig seed often set TraceLLMIO **true** — operators on disk may override.
-
-## 4. Transparency / glass box (config-owned knobs)
-
-`TransparencyConfig` fields consumed by CLI/transparency packages:
-
-- ShardPhases, StreamReasoning, SafetyExplanations  
-- JITExplain, OperationSummaries, VerboseErrors  
-- GlassBoxEnabled / GlassBoxDisabled / GlassBoxCategories / GlassBoxVerbose  
-
-These do not log from config; they **gate** UI overlays.
-
-## 5. Metrics
-
-No Prometheus/metrics export in this package. Performance thresholds in LoggingConfig are **data** for observability systems elsewhere.
-
-## 6. Debug tips
-
-```powershell
-# After loading config, boot log should include features summary
-# Enable category logging in .nerd/config.json:
-# "logging": { "debug_mode": true, "categories": { "boot": true, "kernel": true } }
-
-# Trace JIT I/O
-# "jit": { "debug_mode": true, "trace_llm_io": true }
-```
-
-## 7. What not to log
-
-API keys, OAuth refresh tokens, full config.json dumps with secrets. Prefer provider name + model only (as YAML Load already does).
+A safe boot receipt should answer: workspace identity digest, file state, schema
+and migration, validation result, effective provider/engine names, projection
+IDs, defaults/env origin classes, and which consumers accepted the snapshot. It
+must not answer with keys, tokens, raw config, raw prompts, or full paths outside
+the configured disclosure policy.

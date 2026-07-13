@@ -1,58 +1,68 @@
-# 01 — Vision: Configuration Substrate
+# 01 — Vision
 
-> Last verified: 2026-07-13  
-> Package: `internal/config`
+## Product outcome
 
-## 1. Product vision
+**PROPOSED UPLIFT.** An operator edits or generates one versioned workspace
+configuration. Before codeNERD opens a network client, store, kernel, MCP server,
+or executor, a strict loader returns either one immutable validated snapshot or
+one redacted diagnostic. Every consumer receives a projection with the same
+snapshot ID.
 
-Operators should configure codeNERD **once per workspace** with a single JSON file that is:
+The visible outcome is predictable boot: the intended provider and model are
+used, budgets and execution bounds agree across chat/campaign/shared Cortex, and
+invalid input cannot become ambient fallback behavior.
 
-- **Human-editable** (pretty-printed by `Save`)
-- **Wizard-writable** (chat config wizard, auth commands)
-- **Default-safe** when absent (empty parse + Get* defaults)
-- **Honest** about which cloud/local backend will be called
+## Target architecture
 
-The vision is **not** “framework of plugins rewriting config every frame.” It is a **stable control surface** for engines, budgets, and UX.
-
-## 2. Architectural vision
-
+```text
+file / approved secret sources / schema version
+                 |
+                 v
+ bounded decode -> migration -> normalization -> cross-field validation
+                 |
+       immutable workspace snapshot + redacted provenance receipt
+                 |
+      +----------+-----------+------------+-------------+
+      v          v           v            v             v
+  perception  scheduler   limits/JIT   execution/MCP  UX/features
+      |                                      |
+      +------ creative inputs/bounds --------+
+                         |
+                         v
+             Mangle permitted/3 remains executive
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Operator surface (CLI auth, /config wizard, init)       │
-└───────────────────────────┬─────────────────────────────┘
-                            │ Save / Load
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│  UserConfig  (.nerd/config.json)                         │
-│  engines · keys · limits · JIT · embed · world · UX      │
-└───────┬─────────────┬──────────────┬────────────────────┘
-        │             │              │
-        ▼             ▼              ▼
-   perception     core/scheduler   prompt/world/tactile
-   clients        ceilings         budgets & allowlists
-```
 
-### Target properties
+Configuration projection is deterministic Go data. It does not ask an LLM to
+guess intent, repair hostile input, or grant a capability.
 
-1. **Single aggregate** for runtime (UserConfig) — YAML `Config` either thin adapter or retired.
-2. **Symmetric env override policy** documented and applied once.
-3. **Validated engines/providers** on load (fail early, not mid-OODA).
-4. **No product-specific sibling-platform/foreign-product-surface knobs** in this package — stay general-purpose for codeNERD.
-5. **Leaf packages** continue to use `internal/features` active pointer rather than importing config.
+## Required properties
 
-## 3. Relationship to north star
+1. Strict, versioned, bounded decode with compatibility migrations.
+2. Cross-field validation for enums, URLs, paths, percentages, limits and
+   engine/provider combinations.
+3. Atomic merge-safe persistence and platform-honest secret protection.
+4. One snapshot identity across all constructors and reload/rollback.
+5. Exact source precedence with redacted field provenance.
+6. Uniform execution projection plus independent Mangle default deny.
+7. Raw prompts/responses off by default, redacted, bounded and retained only by
+   explicit operator choice.
+8. A fixed cross-surface conformance suite and no-effect migration laboratory.
 
-| North-star idea | Config’s contribution |
-|-----------------|----------------------|
-| LLM = creative center | Chooses provider/engine/model/temperature profiles |
-| Kernel = executive | Supplies fact limits, derived limits, session ceilings |
-| Constitutional safety | Supplies execution allowlists and concurrency bounds |
-| JIT atoms | Supplies JIT enablement, budget, semantic top-k |
-| Wiring before deletion | Dual path means “unused” YAML may still boot — audit first |
+## North-star alignment
 
-## 4. Non-goals
+- The LLM creative center receives configured model/capability/context inputs.
+- The logic executive retains action and permission authority.
+- Config strengthens transduction by making its inputs typed and attributable;
+  it does not add prompt text or a second executive.
+- Uplifts prefer immutable facts/projections and observable lifecycle gates over
+  new mutable singletons.
 
-- Hot-reload every keystroke into a live kernel without explicit reload.
-- Fuzzy natural-language “config intent” inside this package.
-- Embedding large prompt prose here (belongs in prompt atoms).
-- Mangle rule authoring (belongs in policy corpus).
+## Non-goals
+
+No automatic field-by-field hot reload, plaintext secret vault, prompt atom
+library, Mangle policy authoring, full config dump in logs, capability-to-
+permission shortcut, or model-driven validation.
+
+**REJECTED.** A plugin framework that can mutate config during every turn would
+destroy snapshot identity and reproducibility. Extension belongs in validated
+schema namespaces with explicit lifecycle, not arbitrary callbacks.

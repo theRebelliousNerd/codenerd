@@ -13,7 +13,9 @@
 | stdlib | `os`, `path/filepath`, `encoding/json`, `time`, `slices`, `runtime`, `strings`, `fmt` |
 | `gopkg.in/yaml.v3` | YAML Load/Save for `Config` |
 
-**No** import of `internal/core`, `internal/perception`, or `cmd/nerd` — keeps config low in the DAG.
+**VERIFIED CURRENT.** There is no import of `internal/core`,
+`internal/perception`, or `cmd/nerd`; config stays low in the DAG. This import
+boundary does not prove its values are wired by those downstream consumers.
 
 ## 2. Downstream (imports config) — major clusters
 
@@ -28,7 +30,7 @@
 | `cmd/nerd/chat/config_wizard*.go` | Interactive write |
 | `cmd/nerd/chat/process*.go` | `GetLLMTimeouts` for articulation/follow-up |
 | `cmd/nerd/cmd_auth.go` | Persist engine/provider |
-| `cmd/nerd/cmd_campaign.go` | Limits + scheduler |
+| `cmd/nerd/cmd_campaign.go` | Limits, scheduler + partial execution projection |
 | `cmd/nerd/embedding_cmd.go` | Embedding config |
 | `cmd/nerd/cmd_spawn.go` | FollowUpTimeout |
 | `cmd/nerd/cmd_transparency.go` | Transparency types |
@@ -69,6 +71,11 @@ config ──limits──► core APIScheduler / fact ceilings
 config ──budgets─► prompt JIT / context window
 config ──allow───► tactile execution (via ExecutionConfig values)
 ```
+
+**PARTIAL.** The last arrow is complete and validated for shared Cortex. Campaign
+start/resume copy binaries/env/directory without the shared timeout/containment
+helper, and dormant `cmd/nerd/chat/session_boot.go#performSystemBootLegacy` uses
+defaults. See `internal/system/factory_execution.go#executionLayerConfigs`.
 
 ## 5. Refresh commands
 

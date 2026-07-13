@@ -1,73 +1,48 @@
-# 12 — Failure Modes: config
+# 12 — Failure modes and recovery
 
-> Last verified: 2026-07-13  
+## Failure taxonomy
 
-## 1. Load failures
+| Failure | Current outcome | Honest recovery |
+|---|---|---|
+| JSON absent | **VERIFIED CURRENT** — empty aggregate; effective helpers default; feature registry is preserved. | First-run wizard/init or explicit env detection. |
+| JSON malformed | **PARTIAL** — shared Cortex fails before perception and ambient fallback; secondary/campaign paths may still soften errors. | Stop boot; repair or restore last valid file; never route via ambient key. |
+| unknown/invalid JSON field | **PARTIAL** — unknown/trailing JSON is rejected; most semantic invalidity still reaches consumers. | Full validation and typed diagnostic before constructors. |
+| wizard rerun | **PARTIAL** — focused test proves representative unrelated fields survive; concurrent writer/version behavior remains undefined. | Add expected-version transaction and broaden mutator conformance. |
+| interrupted save | **PARTIAL** — injected pre-rename failure leaves original bytes; no backup/version conflict or post-rename outcome receipt. | Recover last valid snapshot; do not synthesize defaults over damaged input. |
+| permission exposure | **PARTIAL** — files request `0600` and trace defaults false; plaintext keys and unredacted opt-in trace remain. | Verify ACL/mode per platform, secret references and redaction. |
+| config changed mid-run | **VERIFIED CURRENT** — disk changes; active logging/features/JIT/scheduler may remain old. | Restart or explicit full reload; partial hot mutation is unsupported. |
+| execution block set | **PARTIAL** — shared Cortex validates/projects all fields; campaigns copy binaries/env/directory without shared timeout/containment and dormant legacy uses defaults. | Treat campaign/dormant parity as unproven; Mangle permission remains independently mandatory. |
+| Codex isolation relaxed | **VERIFIED CURRENT** — backend ignores relaxation, forces read-only/shell-disabled and filters overrides; hostile-config regression passes. | Keep the backend-boundary regression mandatory. |
+| MCP URL/protocol/timeout invalid | **PARTIAL** — conversion trusts strings; failure moves to connect time. | Validate before client construction; degrade optional server with named reason. |
+| global state reused across workspace | **PARTIAL** — feature/logging/timeout state can outlive load identity. | Reinitialize under a workspace snapshot lifecycle or run separate process. |
 
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Missing `.nerd/config.json` | Empty UserConfig; defaults via Get* | First-run OK; wizard/init seed recommended |
-| Malformed JSON | LoadUserConfig error | Fix JSON; do not soft-ignore without log |
-| Malformed YAML | Load error | Fix YAML or delete to use defaults |
-| Unreadable path (permissions) | Read error | Fix ACLs |
-| Wrong workspace root | Config/DB appear “empty” or wrong project | Ensure go.mod at project root; remove stray nested `.nerd` |
+## Cancellation and partial failure
 
-## 2. Provider / engine failures
+Config decoding has no context because local reads are bounded only by file size
+and the OS; there is no explicit maximum size. Save has a local atomic file stage
+but no cancellation, idempotency key, version lock or backup. Shared boot
+attributes load failure directly; softened secondary/campaign paths can still
+make later partial failure hard to attribute to rejected input.
 
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Explicit provider, missing key | GetActiveProvider returns empty key | Set matching `*_api_key` or env (YAML path) |
-| Invalid engine string | SetEngine error | Use api/claude-cli/codex-cli/xai-oauth |
-| Invalid YAML provider | Validate fails | Use ValidProviders |
-| Env key overwrites YAML provider (OPENAI after ANTHROPIC…) | Surprising provider | Understand applyEnvOverrides order; prefer JSON + explicit provider |
-| Expecting env on JSON path | Key empty at runtime | Write key into config.json or add helper |
+**PROPOSED UPLIFT.** Bound file size/depth, validate before side effects, make
+save idempotent by expected snapshot/version, and reverse-unwind any boot stage
+that accepted a projection before a later required stage fails.
 
-## 3. Dual-default surprises
+## Recovery invariants
 
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Shard concurrency 4 vs 12 | Too few/many parallel shards depending on path | Always load UserConfig for runtime; unify defaults (gap) |
-| Execution timeout 30s vs 10m | Tactile commands timeout or hang | Know which aggregate caller used |
-| Context window 128k vs 200k | Compression too early / late | Prefer GetContextWindowConfig on UserConfig |
+1. A present invalid file is not equivalent to absence.
+2. Failed save leaves the prior valid bytes and active snapshot unchanged.
+3. Failed reload leaves all consumers on the prior snapshot or none; never a mix.
+4. Optional integration degradation is named and cannot alter provider or
+   permission selection.
+5. Secret exposure triggers rotation guidance; logs/config are not copied into a
+   diagnostic packet.
+6. Rollback chooses a complete prior schema/snapshot, not field-by-field defaults.
 
-## 4. Scheduler / timeout failures
+## Bounded triage
 
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Slot acquire timeout | Calls fail waiting | Raise `slot_acquire_timeout_sec` or max concurrent |
-| Context shorter than HTTP | Premature cancel | Align GetLLMTimeouts tiers; avoid ad-hoc 90s contexts |
-| Adaptive concurrency stuck low | Throughput drop after 429s | Tune adaptive_recover_after_sec; wait for recovery |
-| Subscription spacing | Slower than API mode | Expected for xai-oauth/codex/claude-cli |
-
-## 5. Embedding / Ollama failures
-
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Bare `embeddinggemma` | Ollama 404 | Helper rewrites to `:300m`; ensure config.json uses tagged model |
-| Wrong endpoint | Connection refused | Set embedding.ollama_endpoint / OLLAMA_ENDPOINT (YAML path) |
-| Worker model missing | Shard LLM fails | Pull model; set worker.model |
-
-## 6. Features / save failures
-
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Save Features mid-session | Disk updated but process still old flags | Reload process or re-call LoadUserConfig |
-| MkdirAll/write fail | Save error | Disk full / permissions (watch C: free space) |
-| Marshal of circular/unexported | N/A for config structs | — |
-
-## 7. Safety-adjacent failures
-
-| Mode | Symptom | Mitigation |
-|------|---------|------------|
-| Over-broad AllowedBinaries | Tactile can run more tools | Keep list tight; kernel still gates |
-| Keys in world-readable config | Credential leak | Restrict filesystem ACLs; prefer env for CI |
-| Glass box / TraceLLMIO true | Secrets in prompts may hit disk logs | Disable traces in shared envs |
-
-## 8. Recovery playbook
-
-1. Confirm workspace: `go.mod` present; path from `FindWorkspaceRoot`.  
-2. Validate JSON with a formatter.  
-3. Check `provider` + matching `*_api_key` or engine block.  
-4. Check `engine` for CLI/OAuth modes and credential files.  
-5. Check `core_limits` / `api_scheduler` if rate limited.  
-6. Run `go test ./internal/config/...` after code changes to helpers.
+Confirm workspace identity, inspect parse/validation diagnostics, compare the
+redacted snapshot ID to each consumer projection, then restore the last valid
+file or use a future read-only migration command. The wizard now refuses a
+malformed original because its load error is terminal; competing-writer recovery
+is still undefined.

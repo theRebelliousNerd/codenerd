@@ -1,60 +1,39 @@
-# 04 — Architectural Principles: config
+# 04 — Architectural principles
 
-> Last verified: 2026-07-13  
-> These principles are **binding** for changes under `internal/config/`.
+## Current principles worth preserving
 
-## P1 — Config is boss
+1. **Config is boss for an explicit valid provider.**
+   `internal/config/user_config.go#UserConfig.GetActiveProvider` never borrows a
+   different provider's key.
+2. **Workspace identity is `go.mod` first.**
+   `internal/config/user_config.go#FindWorkspaceRoot` walks past nested `.nerd`.
+3. **Effective values are resolved at the boundary.** Optional pointer/boolean
+   presence is preserved where omission differs from false.
+4. **CLI engines are LLM transports, not effect agents.** Read-only sandbox,
+   disabled shell/tools and bounded turns must be enforced, not merely defaulted.
+5. **Subscription concurrency may narrow, never broaden, the core ceiling.**
+6. **Config supplies data, never `user_intent`, `next_action`, or `permitted/3`.**
+7. **Dormant-looking fields require reverse wiring audit before deletion.** The
+   YAML timeout path is live even though JSON is the broad aggregate.
 
-If the user sets `provider`, only that provider’s credentials apply. Never silently fall back to another key. Fail loud with empty key.
+## Uplift principles
 
-**Evidence:** `UserConfig.GetActiveProvider`.
+1. **Present-invalid is not absent.** Absence may enter first-run/env policy;
+   malformed or contradictory input fails closed.
+2. **Persist the whole transaction or nothing.** Merge, validate, sync and atomic
+   replace; active state changes only after durable success.
+3. **Secrets are referenced or owner-protected.** Logs/receipts never contain raw
+   config, keys, tokens, prompts or responses by default.
+4. **One snapshot, explicit projections.** Every consumer proves which snapshot
+   it accepted; no package reparses and invents precedence independently.
+5. **Bounds compose with permission.** An allowlist does not authorize, and
+   permission does not override an execution/resource bound.
+6. **Defaults are schema behavior.** They are versioned, tested across consumers,
+   and carry provenance; zero-value convenience cannot mask hostile input.
+7. **Reload is a lifecycle transaction.** All consumers switch together or none
+   do; teardown resets workspace-scoped globals.
+8. **Compatibility is observable and expiring.** Deprecated fields have a
+   migration, warning ID, removal decision and dry-run path.
 
-## P2 — Workspace root is go.mod-first
-
-Project boundary is the Go module. Nested or home `.nerd` directories must not hijack state.
-
-**Evidence:** `FindWorkspaceRoot`.
-
-## P3 — Zero means default (except tracked booleans)
-
-Numeric/string zeros are filled in `Get*` helpers. Booleans that must honor explicit `false` use `UnmarshalJSON` + `*Set` flags (`JITConfig`, `ReflectionConfig`) or pointer fields (`APISchedulerPolicy`).
-
-## P4 — Engines are subprocess LLM APIs, not agents
-
-Claude CLI / Codex CLI / xAI OAuth blocks document MaxTurns=1, sandbox read-only, shell tool off. codeNERD’s tools and tactile layer own side effects.
-
-## P5 — Subscription engines are polite by default
-
-Spacing + adaptive concurrency on for subscription engines; API engines stay aggressive unless configured.
-
-**Evidence:** `subscriptionEngine`, `GetEffectiveAPISchedulerPolicy`.
-
-## P6 — Concurrency is min(core, engine)
-
-Engine-specific `MaxConcurrentCalls` can only **lower** the core ceiling, never raise it.
-
-**Evidence:** `GetEffectiveMaxConcurrentAPICalls`.
-
-## P7 — Do not invent embedding/model IDs at call sites
-
-Embedding and image models resolve through helpers (`GetEmbeddingConfig`, `GetImageLLMConfig`) so one config.json change is authoritative.
-
-## P8 — Feature flags cross the package boundary via SetActive
-
-`LoadUserConfig` installs `features.FeaturesConfig` process-wide. Leaf packages must not import `internal/config` solely for flags.
-
-## P9 — Shortest timeout wins; keep tiers aligned
-
-`LLMTimeouts` documents that Go contexts can undercut HTTP clients. Presets keep HTTP, slot, and per-call aligned.
-
-## P10 — Config does not decide actions
-
-No derivation of `user_intent`, `next_action`, or `permitted`. Supply data; kernel and VirtualStore execute.
-
-## P11 — Wiring audit before deleting “dead” config
-
-YAML `Config` and fields that look unused may be referenced from `cmd/nerd/main.go`, campaigns, or tests. Grep reverse imports before removal.
-
-## P12 — Prefer additive Get* over breaking JSON shape
-
-New knobs should be optional fields with defaults so existing `.nerd/config.json` files keep working.
+**REJECTED.** Duplicating validation in perception, system, chat and campaign
+would make runtime behavior depend on which constructor happened to run.

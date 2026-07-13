@@ -1,90 +1,69 @@
-# 09 — Safety and Invariants: config
+# 09 — Safety and invariants
 
-> Last verified: 2026-07-13  
-> Package: `internal/config` — safety **data** and **process** invariants (not Mangle Decl).
+## Constitutional boundary
 
-## 1. Role in constitutional safety
+**VERIFIED CURRENT.** Config cannot grant an action. It has no Mangle `Decl`,
+producer, or consumer for permission facts. Default-deny authorization is owned
+by `internal/core/defaults/schemas_safety.mg#permitted/3`,
+`internal/core/defaults/policy/constitution.mg#permitted/3`, and
+`internal/core/virtual_store_routing.go#VirtualStore.RouteAction`.
 
-codeNERD’s executive safety is `permitted(...)` in the Mangle kernel. Config contributes:
+Execution allowlists, scheduler ceilings, CLI sandbox settings and fact limits
+are defense-in-depth inputs. They must be enforced in addition to, never instead
+of, exact `(Action, Target, Payload)` permission.
 
-| Contribution | Mechanism |
-|--------------|-----------|
-| Execution surface | `ExecutionConfig.AllowedBinaries`, `AllowedEnvVars` |
-| Resource exhaustion | `CoreLimits` (memory, facts, shards, API calls, session duration) |
-| Rate-limit politeness | `APISchedulerPolicy` + subscription defaults |
-| CLI tool isolation | Codex sandbox read-only, shell tool disabled; Claude MaxTurns=1 |
-| Secret handling | API keys in config file / env; not logged by config package (callers must not dump keys) |
-| Provider honesty | Config-is-boss avoids accidental use of wrong vendor |
+## Proven invariants
 
-Config **does not** implement `permitted`. Empty allowlists filled by GetExecution still define a baseline binary set.
+| Invariant | Evidence |
+|---|---|
+| Explicit provider cannot borrow another provider key. | `internal/config/user_config.go#UserConfig.GetActiveProvider`; `internal/config/config_comprehensive_test.go#TestGetActiveProvider_WhenProviderSetButKeyMissing_ShouldReturnEmptyKey` |
+| Engine-specific positive concurrency can only lower the core API ceiling. | `internal/config/user_config.go#UserConfig.GetEffectiveMaxConcurrentAPICalls`; `internal/config/config_test.go#TestUserConfig_GetEffectiveMaxConcurrentAPICalls` |
+| Explicit false survives JSON for JIT/reflection enablement. | `internal/config/jit.go#JITConfig.UnmarshalJSON`; `internal/config/reflection.go#ReflectionConfig.UnmarshalJSON` |
+| `go.mod` prevents nested `.nerd` workspace capture. | `internal/config/user_config.go#FindWorkspaceRoot`; `internal/config/config_test.go#TestFindWorkspaceRoot_BypassesStrayNestedNerd` |
+| Disabled MCP servers are not emitted. | `internal/config/integrations.go#IntegrationsConfig.ToMCPServerConfigs`; `internal/config/config_defaults_test.go#TestToMCPServerConfigs` |
+| Hostile Codex CLI config cannot enable workspace writes, shell, or arbitrary overrides. | `internal/perception/codex_cli_client.go#CodexCLIClient.buildCLIArgs`; `internal/perception/codex_cli_client_test.go#TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides` |
+| Shared Cortex rejects escaped execution directories and bad/non-positive timeouts. | `internal/system/factory_execution.go#executionLayerConfigs`; `internal/system/factory_execution_test.go#TestExecutionLayerConfigsRejectInvalidPolicy` |
 
-## 2. Invariants
+## Broken or unproven invariants
 
-### I1 — Explicit provider never falls back
+1. **PARTIAL — secret containment.** Provider, Context7 and embedding keys remain
+   plaintext JSON fields. Config and raw-trace files now request `0600`, and raw
+   trace defaults false, but no redactor runs over opt-in full prompts/responses
+   and platform ACL behavior is unproven. Evidence:
+   `internal/config/persistence.go#writePrivateFileAtomically` and
+   `internal/logging/llm_io_logger.go#LogLLMRequest`.
+2. **PARTIAL — configuration integrity.** Same-directory synced rename, wizard
+   merge, failure preservation, round-trip and Unix mode have focused tests, but
+   no version conflict, backup/rollback, or Windows ACL proof completes the transaction.
+3. **PARTIAL — input validity.** Unknown/trailing JSON is rejected. Invalid
+   URLs/protocols, negative values, impossible reserve percentages, logging
+   sampling outside `[0,1]`, and most engine/provider combinations still have no
+   load gate.
+4. **PARTIAL — execution containment.** Shared Cortex projects and validates all
+   `ExecutionConfig` fields. Campaign start/resume copy binaries/env/directory but
+   omit timeout/shared containment and soften load errors; dormant legacy boot
+   still uses defaults.
+5. **PARTIAL — process isolation.** missing JSON preserves process-global feature
+   state; global timeouts have unsynchronized writes; logging is one-shot.
 
-If `Provider` is set, `GetActiveProvider` returns that provider and **only** its key (or empty key).
+## Hostile-input and failure stance
 
-### I2 — Ollama is keyless with sentinel
+**PROPOSED UPLIFT.** A present invalid file must fail before any provider, store,
+kernel, prompt compiler, MCP client or executor is constructed. Diagnostics name
+field paths and rule IDs but redact values classified as secrets. Path and URL
+validation must occur before consumer conversion; resource values need both lower
+and upper bounds.
 
-`provider=ollama` returns apiKey `"ollama"` so callers that check non-empty key still construct local clients.
+**REJECTED.** Environment fallback is acceptable for an absent file but not for
+a present malformed or explicitly contradictory one. The distinction preserves
+first-run usability without silently defeating workspace intent.
 
-### I3 — Engine membership
+## Trace and retention policy
 
-`SetEngine` accepts only `api|claude-cli|codex-cli|xai-oauth`.
-
-### I4 — Engine concurrency ≤ core concurrency
-
-`GetEffectiveMaxConcurrentAPICalls` takes the minimum of core and engine caps when engine cap > 0.
-
-### I5 — Core limit floors (YAML ValidateCoreLimits)
-
-- MaxTotalMemoryMB ≥ 512  
-- MaxConcurrentShards ≥ 1  
-- MaxFactsInKernel ≥ 1000  
-- MaxDerivedFactsLimit ≥ 1000  
-
-UserConfig path does not automatically call this on load.
-
-### I6 — Workspace root preference
-
-go.mod always wins over nested `.nerd` to prevent state pollution.
-
-### I7 — Features install is load-time
-
-`features.SetActive` runs on LoadUserConfig; nil Features resets registry to compile-time defaults.
-
-### I8 — Boolean false is representable
-
-JIT/Reflection custom unmarshal tracks explicit false so defaults do not re-enable features users disabled.
-
-### I9 — Image path isolation
-
-Image generation models and shard types are detected and routed away from generic worker=ollama.
-
-### I10 — Timeout chain consistency
-
-Presets keep HTTP ≥ per-call alignment; slot wait ≥ per-call intent so schedulers do not cancel early while HTTP still runs.
-
-## 3. Concurrency / reentrancy
-
-- No package mutex on UserConfig; treat as single-writer (wizard/auth) + multi-reader.
-- `globalLLMTimeouts` write only at boot.
-- Do not call `SetLLMTimeouts` from concurrent hot paths.
-
-## 4. Secrets
-
-| Secret | Location |
-|--------|----------|
-| Provider API keys | UserConfig fields / YAML LLM.APIKey / env on YAML path |
-| Context7 | `CONTEXT7_API_KEY` env preferred over file |
-| xAI OAuth tokens | Outside package (`~/.nerd/xai_oauth.json`, `~/.grok/auth.json`) via XAIOAuth paths |
-
-**Invariant:** config Save marshals keys into JSON if present — file mode 0644. Operators should treat `.nerd/config.json` as sensitive.
-
-## 5. Mangle Decl
-
-None in this package. Derived fact limits are **numeric budgets** consumed by the kernel, not rules.
-
-## 6. Failure to load is not silent success for corrupt files
-
-Missing file → empty OK. Malformed JSON/YAML → **error**. Soft-ignore at call sites is a wiring smell (see failure modes).
+**PARTIAL.** Raw logging now requires explicit `TraceLLMIO=true` in addition to
+debug/category activation, its file requests `0600`, and defaults-off behavior is
+tested by `internal/config/config_security_test.go#TestSensitiveTracingDefaultsOff`.
+No bounded retention, response limit, content redaction, or focused secret
+regression is proven.
+Opt-in must remain prominent with destination/retention warnings and secret
+tests.

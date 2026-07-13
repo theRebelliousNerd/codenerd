@@ -1,49 +1,49 @@
-# 00 — Alignment & Vision Review: config (`internal/config`)
+# 00 — Alignment and vision review
 
-> Last verified against codebase: 2026-07-13  
-> Status: Living Reference Document — code-grounded  
-> Source: `internal/config/` (17 non-test Go files ≈ 3.1k lines; 5 test files)
+> Human review against `Docs/architecture/_rebuild/SUPERSTAR_CORPUS_STANDARD.md`.
 
-## 1. North-star statement
+## North-star judgment
 
-codeNERD separates **creative** work (LLM) from **executive** control (Mangle kernel). Configuration must not become a second executive that silently re-routes providers, bypasses allowlists, or invents model IDs. Its job is to **declare budgets, backends, and operator preferences** so that:
+**VERIFIED CURRENT.** Config stays below the decision layer: it selects clients,
+budgets, flags, and adapters while `internal/core/defaults/policy/constitution.mg#permitted/3`
+remains executive authority. `internal/system/factory.go#initCoreComponents`
+is the strongest live projection point.
 
-1. Perception/articulation know which engine and model to use.
-2. Kernel and scheduler receive enforceable ceilings.
-3. JIT, embedding, world, and tactile layers share one workspace-rooted truth (`.nerd/config.json`).
-4. Feature flags reach leaf packages without circular imports (`features.SetActive`).
+**PARTIAL.** The creative/executive split is sound, and the working tree now has
+strict syntax decode, tested wizard preservation, tested atomic private
+persistence, shared-Cortex execution projection, fail-closed invalid-file boot,
+Codex CLI isolation and trace-off defaults. It is not yet one complete snapshot
+transaction: semantic validation, campaign/dormant parity, writer conflicts,
+redaction/retention and process-global lifecycle remain.
 
-## 2. Alignment dimensions
+## Human quality score
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | **5** | Config supplies engines/keys/limits only; no `next_action` or `permitted` derivation (`user_config.go`, `limits.go`) |
-| Config-is-boss fidelity | **5** | Explicit `GetActiveProvider` refuses silent provider fallback (`user_config.go`) |
-| Fact-flow support | **4** | Limits and timeouts feed kernel/scheduler/perception; config itself is off the fact graph |
-| Dual-path honesty | **3** | Live JSON path strong; YAML `Config` + env overrides still parallel and can drift (`config.go` vs `user_config.go`) |
-| Engine multi-backend | **5** | api / claude-cli / codex-cli / xai-oauth with subscription-aware scheduler defaults (`llm.go`, `GetEffectiveAPISchedulerPolicy`) |
-| JIT / atom discipline | **4** | `JITConfig` + clamp to context window; TraceLLMIO default true in defaults (`jit.go`) |
-| Safety data at edge | **4** | Execution allowlists and concurrency floors; enforcement lives in tactile/core (`execution.go`, `ValidateCoreLimits`) |
-| Workspace hygiene | **5** | go.mod-first `FindWorkspaceRoot` prevents nested/home `.nerd` traps |
-| Test grounding | **4** | Comprehensive tests for load, providers, engines, scheduler, workspace; less coverage for every UX/feature field |
-| Observability | **4** | Boot logging on load; `LoggingConfig` categories; JIT/LLM I/O trace flags |
+| Dimension | Score | Cited example |
+|---|---:|---|
+| Human orientation | 3 | `README.md#In one minute` and its valid/failure journey |
+| North-star alignment | 3 | `README.md#Its place in codeNERD`; `01-VISION.md` |
+| Evidence integrity | 3 | Claim labels and symbol/test receipts in `02-CURRENT-STATE.md` |
+| Architecture clarity | 3 | ownership and boot projections in `05-INTERNAL-ARCHITECTURE.md` |
+| Data and logic contract | 3 | aggregate/resolver contracts plus Mangle N-A boundary in `IMPLEMENTED_SPEC.md` |
+| Lifecycle completeness | 3 | ingress, boot, effect, cancellation and recovery in `08-WIRING-AND-INTEGRATION.md` |
+| Deterministic safety | 3 | fail-closed gaps and permission boundary in `09-SAFETY-AND-INVARIANTS.md` |
+| JIT and agent behavior | 2 | effective budget and raw-trace behavior are evidenced; no config-owned atoms |
+| Ecosystem wiring | 3 | normal, campaign, init, logging, MCP, and dormant YAML paths are distinguished |
+| Operations | 3 | source precedence, persistence, logging, failure and recovery surfaces |
+| Verification | 3 | package, race, strict-validator and fixed-profile receipts in `_progress.md` |
+| Uplift quality | 3 | five acceptance-complete cards in `TODO.md` |
+| Navigation/governance | 2 | canonical routes and sole card authority; portfolio indexes are outside this packet |
+| Consistency | 3 | realized, partial, proposed, and open claims are separated across authority docs |
+| **Total** | **40/42** | Passing threshold 34; every mandatory dimension is at least 2 |
 
-**Overall alignment: 4.3 / 5** — mature living package; residual risk is dual-aggregate drift and incomplete env parity on the JSON path.
+**Signed human review:** Codex config corpus auditor, 2026-07-13.
 
-## 3. What “good” looks like (config-specific)
+## Decision
 
-| Good | Bad |
-|------|-----|
-| One workspace-rooted `config.json` | Stray nested `.nerd` capturing state |
-| Explicit provider + matching key | Silent switch to another provider’s key |
-| Get* defaults for zero values | Callers hardcoding `embeddinggemma` without tag |
-| Engine MaxConcurrentCalls ≤ core ceiling | Unbounded parallel subscription calls |
-| CLI engines as subprocess **LLM APIs** | Treating codex/claude CLI as unconstrained agents (sandbox/shell defaults) |
-| Features installed once at load | Leaf packages re-parsing JSON |
+**PROPOSED UPLIFT.** Preserve the current low-DAG package boundary, then make
+boot consume one immutable validated snapshot. Do not compensate for weak config
+truth with extra model prompts or a parallel policy engine.
 
-## 4. Related corpora
-
-- `Docs/architecture/cli/` — primary mutator and boot consumer  
-- `Docs/architecture/core/` — core_limits / API scheduler consumers  
-- `Docs/architecture/perception/` — engines and clients  
-- `Docs/architecture/prompt/` — JIT token budgets  
+**REJECTED.** Treating execution allowlists as constitutional authorization is
+incorrect: they are resource/capability bounds. Shared boot projects them, but
+campaign/dormant parity is incomplete and `permitted/3` remains mandatory.

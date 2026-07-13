@@ -1,3 +1,0 @@
-# Redirect
-
-This thin stub was replaced. See **[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)** and **[04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md)**.

@@ -1,82 +1,110 @@
-# config — Architecture Corpus (`internal/config`)
+# config — the workspace control plane
 
-> Last verified against codebase: 2026-07-13  
-> Status: Living Reference Document  
-> Language: Go (module `codenerd`)  
-> Primary package: `internal/config/`  
-> Scale: **17** non-test Go files ≈ **3.1k** lines; **5** test files ≈ **1.6k** lines; **0** `.mg`
+> Realized corpus for `internal/config`; verified 2026-07-13.
 
-## Scope
+## In one minute
 
-This corpus documents the **configuration substrate** for codeNERD:
+codeNERD users choose an LLM engine, resource ceilings, JIT budget, integrations,
+and workspace behavior in `.nerd/config.json`. The useful outcome is simple: a
+workspace starts with the backend and limits the operator intended, and a bad
+configuration fails before an LLM call or tool effect.
 
-1. **`UserConfig`** — the live single source of truth loaded from `.nerd/config.json`
-2. **`Config`** — legacy YAML aggregate (`Load`/`Save`) still used on some boot paths
-3. **Engines** — `api` | `claude-cli` | `codex-cli` | `xai-oauth` (+ provider keys, worker/image/Ollama blocks)
-4. **Limits & schedulers** — `CoreLimits`, `APISchedulerPolicy`, global `LLMTimeouts`
-5. **Load paths** — workspace root discovery, env overrides, feature-flag install into `internal/features`
+**VERIFIED CURRENT.** `internal/config/user_config.go#LoadUserConfig` decodes the
+JSON aggregate and its `Get*` resolvers supply defaults; provider, scheduler,
+embedding, world, JIT, and feature consumers are live. The focused receipt is
+`internal/config/config_comprehensive_test.go#TestUserConfigSave_WhenRoundTrip_ShouldPreserve`.
 
-It is **not** the CLI surface (`Docs/architecture/cli/`), **not** the kernel (`Docs/architecture/core/`), and **not** product Spec templates (`Docs/Spec/`).
+**PARTIAL.** The package now rejects unknown/trailing JSON and uses an atomic,
+owner-only writer, but it has no full `UserConfig` semantic validator or immutable
+snapshot. Shared Cortex fails closed, while secondary/campaign callers still
+soften some errors; plaintext keys remain in the file, and writer version,
+backup, Windows ACL and secret-redaction contracts remain open.
 
-## Document map
+## Its place in codeNERD
 
-| Doc | Role |
-|-----|------|
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Authoritative living architecture + inventory + deep dives |
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores with evidence |
-| [01-VISION.md](01-VISION.md) | Target architecture for configuration |
-| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory and hotspots |
-| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality, priorities, non-gaps |
-| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding principles for this package |
-| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, data flow, load/merge model |
-| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported types and helpers with file refs |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream/downstream packages |
-| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | Boot, CLI, chat, system factory wiring |
-| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Config-is-boss, allowlists, concurrency ceilings |
-| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
-| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Boot logs, debug categories, LLM I/O traces |
-| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failures + mitigations |
-| [TODO.md](TODO.md) / [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) / [_progress.md](_progress.md) | Governance |
+Configuration declares capabilities and budgets; it is not the executive.
+The LLM remains the creative center. Mangle and the Go executive derive and
+enforce `permitted(Action, Target, Payload)` after config has selected providers,
+limits, and adapters.
 
-### Legacy filenames (redirects)
+**VERIFIED CURRENT.** `internal/config/limits.go#CoreLimits` is projected into
+`internal/core/limits.go#NewLimitsEnforcer`, and
+`internal/config/user_config.go#GetEffectiveAPISchedulerPolicy` feeds the global
+scheduler through `internal/system/factory.go#initCoreComponents`.
 
-Earlier thin stubs used different names. Prefer the map above. Redirect stubs may remain for:
+**PARTIAL.** Shared Cortex validates and projects every
+`internal/config/execution.go#ExecutionConfig` field. Campaigns copy binaries,
+environment and directory without shared timeout/containment, while dormant
+legacy boot uses defaults. Config therefore cannot be treated as permission
+proof or yet as a uniformly wired execution bound.
 
-- `01-DOMAIN-MODEL.md` → [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md)
-- `02-CURRENT-STATE-CONFIG.md` → [02-CURRENT-STATE.md](02-CURRENT-STATE.md)
-- `03-GAP-ANALYSIS-CONFIG.md` → [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md)
-- `04-INVARIANTS-AND-GATES.md` → [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)
-- `05-CROSS-SYSTEM-WIRING.md` → [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)
-- `06-TESTING-STRATEGY.md` → [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md)
-- `08-FAILURE-MODES.md` → [12-FAILURE-MODES.md](12-FAILURE-MODES.md)
+## A representative journey
 
-## Role in fact-flow
-
-```
-user / env / .nerd/config.json
-        │
-        ▼
-  internal/config  (UserConfig + Get* resolvers)
-        │
-        ├─► features.SetActive  (process-wide flags)
-        ├─► perception clients  (provider, engine, keys)
-        ├─► core limits / API scheduler
-        ├─► JIT token budgets
-        ├─► embedding / world / execution allowlists
-        └─► logging categories / transparency / onboarding
-
-user_intent → kernel → next_action → VirtualStore
-   ▲ config does not decide actions; it supplies budgets, backends, and gates
+```text
+.nerd/config.json
+  -> LoadUserConfig + features.SetActive
+  -> system factory resolves provider, scheduler, limits, JIT and integrations
+  -> perception turns input into user_intent
+  -> kernel derives next_action and permitted/3
+  -> VirtualStore performs or denies the effect
+  -> articulation reports the result
 ```
 
-## Verify
+**VERIFIED CURRENT.** A valid explicit provider is honored only with its matching
+key by `internal/config/user_config.go#UserConfig.GetActiveProvider`, proven by
+`internal/config/config_comprehensive_test.go#TestGetActiveProvider_WhenProviderSetButKeyMissing_ShouldReturnEmptyKey`.
 
-```powershell
-go test ./internal/config/...
-# reverse consumers (sample)
-rg "codenerd/internal/config" -g "*.go" --stats
-```
+**VERIFIED CURRENT failure journey.** Unknown/trailing or malformed JSON returns
+an error from `LoadUserConfig`, and
+`internal/system/factory.go#initCoreComponents` now stops shared Cortex boot
+before perception; `internal/system/factory_execution_test.go#TestInitCoreComponentsRejectsPresentInvalidConfig`
+proves an ambient key does not rescue the bad file. **PARTIAL:** some secondary
+consumers still soften load errors, and semantic invalidity lacks one validator.
 
-## Quality bar
+## What exists today
 
-Modeled on `Docs/architecture/cli/`: real file inventories, control-flow diagrams, wiring journals, honest dual-config history, and package-specific invariants — **not** auto-generated inventory stubs.
+| Area | Claim | Evidence |
+|---|---|---|
+| Workspace | **VERIFIED CURRENT** — nearest `go.mod` is authoritative; deepest `.nerd` is fallback. | `internal/config/user_config.go#FindWorkspaceRoot`; `internal/config/config_test.go#TestFindWorkspaceRoot_BypassesStrayNestedNerd` |
+| Provider | **VERIFIED CURRENT** — explicit provider does not borrow another provider's key. | `internal/config/user_config.go#UserConfig.GetActiveProvider` |
+| Limits/JIT | **VERIFIED CURRENT** — effective scheduler and JIT budgets are resolved and wired. | `internal/system/factory.go#initCoreComponents`; `internal/system/factory.go#initIntelligenceLayer` |
+| Persistence | **PARTIAL** — JSON/YAML use a synced same-directory temporary and `0600`, with failure/mode tests; writer conflict, backup, Windows ACL and secret-reference contracts remain. | `internal/config/persistence.go#writePrivateFileAtomically`; `internal/config/config_security_test.go#TestPrivateAtomicWritePreservesOriginalOnReplaceFailure` |
+| Wizard | **PARTIAL** — it loads and preserves execution/logging/integration fields in a focused test; concurrent-version handling remains. | `cmd/nerd/chat/config_wizard_steps.go#Model.saveConfigWizard`; `cmd/nerd/chat/config_wizard_save_test.go#TestSaveConfigWizardPreservesUnownedSettings` |
+| Execution | **PARTIAL** — shared Cortex projects/contains all fields; campaign copies binaries/env/directory without shared timeout/containment and dormant legacy boot bypasses them. | `internal/system/factory_execution.go#executionLayerConfigs`; `internal/system/factory_execution_test.go#TestExecutionLayerConfigsProjectUserPolicy` |
+| Codex isolation | **VERIFIED CURRENT** — backend forces read-only, disables shell and allowlists overrides despite hostile config. | `internal/perception/codex_cli_client.go#CodexCLIClient.buildCLIArgs`; `internal/perception/codex_cli_client_test.go#TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides` |
+| Mangle | **N-A direct** — config declares no predicates or rules; its values are constructor inputs to the executive. | `internal/config/mangle.go#MangleConfig`; `internal/core/defaults/schemas_safety.mg#permitted/3` |
+
+The full realized contract and all nine applicability lanes live in
+[IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md). Verified defects are also recorded at
+`artifact:.corpus-build/findings/config-audit-defects.md`.
+
+## North star
+
+**PROPOSED UPLIFT.** One versioned, strictly decoded, validated and immutable
+workspace snapshot should be the only boot input. It should carry field
+provenance, expose redacted diagnostics, save atomically with owner-only
+permissions, and be projected into every consumer before any network call or
+effect adapter starts.
+
+Non-goals: config will not derive `user_intent`, grant `permitted/3`, contain
+prompt prose, hot-reload partial state automatically, or make secrets observable.
+
+## Improvement frontier
+
+The safest first repair is to finish `config-safe-persistence-v1`: merge,
+pre-rename failure and Unix mode are tested, while conflict, backup,
+cross-platform permission and secret contracts remain. Next is to finish
+`config-strict-snapshot-v1`: unknown/trailing JSON and shared fail-closed boot are
+tested, while semantic validation and secondary parity remain. The bounded future option is a
+side-effect-free migration laboratory over redacted fixtures; it never boots a
+client or executes a tool. All authoritative cards are in [TODO.md](TODO.md).
+
+## Choose a reading route
+
+- **90 seconds:** this page, then [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md).
+- **10 minutes:** add [02-CURRENT-STATE.md](02-CURRENT-STATE.md),
+  [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md), and
+  [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
+- **Deep implementation:** [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md),
+  [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md),
+  [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md), and [TODO.md](TODO.md).

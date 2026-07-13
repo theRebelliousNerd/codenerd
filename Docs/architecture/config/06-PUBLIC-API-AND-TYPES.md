@@ -7,8 +7,8 @@
 
 | Type | File | Purpose |
 |------|------|---------|
-| `UserConfig` | `user_config.go` | JSON config — live single source of truth |
-| `Config` | `config.go` | YAML config — legacy monolithic aggregate |
+| `UserConfig` | `user_config.go` | Broad JSON aggregate used by primary runtime consumers; mutable and not strictly validated |
+| `Config` | `config.go` | Legacy YAML aggregate still used for the Cobra timeout and env override path |
 
 ## 2. Load / save / workspace
 
@@ -16,8 +16,8 @@
 |--------|------|-------|
 | `FindWorkspaceRoot()` | user_config.go | go.mod-first |
 | `DefaultUserConfigPath()` | user_config.go | `{root}/.nerd/config.json` |
-| `LoadUserConfig(path)` | user_config.go | + features.SetActive |
-| `(*UserConfig).Save(path)` | user_config.go | MarshalIndent |
+| `LoadUserConfig(path)` | user_config.go | strict JSON + features.SetActive |
+| `(*UserConfig).Save(path)` | user_config.go | MarshalIndent + private atomic writer |
 | `GlobalConfig()` | user_config.go | Load default path |
 | `DefaultUserConfig()` | user_config.go | Fully populated seed |
 | `DefaultConfig()` | config.go | YAML defaults |
@@ -51,6 +51,7 @@
 | Method | Returns |
 |--------|---------|
 | `GetEngine` / `SetEngine` | engine string |
+| `HasExplicitLLMSelection` | whether file config owns LLM routing |
 | `GetActiveProvider` | (provider, apiKey) |
 | `GetClaudeCLIConfig` | *ClaudeCLIConfig defaults |
 | `GetCodexCLIConfig` | *CodexCLIConfig defaults |
@@ -144,3 +145,21 @@
 ## 9. Consumption guidance
 
 Prefer **UserConfig + Get\*** for new code. Prefer **GetLLMTimeouts()** for operation deadlines rather than hardcoding durations. Prefer **GetEmbeddingConfig()** over constructing `EmbeddingConfig` literals.
+
+## 10. Contract cautions
+
+- **PARTIAL:** there is no full `ValidateUserConfig`; `LoadUserConfig` rejects
+  unknown/trailing JSON but publishes feature side effects after syntax-only
+  decode.
+- **PARTIAL:** `UserConfig.Save` and `Config.Save` now use the atomic/private
+  writer, but secret references, writer conflicts, rollback and platform ACL
+  behavior are not a complete verified transaction.
+- **PARTIAL:** effective getters do not all return deep copies. Treat returned
+  maps, slices and pointers as potentially aliased until an immutable snapshot
+  contract exists.
+- **VERIFIED CURRENT:** the Codex backend ignores configured sandbox/shell
+  relaxation, always emits read-only plus shell-disabled arguments, and admits
+  only reasoning/verbosity/personality overrides. Hostile-config coverage is
+  `internal/perception/codex_cli_client_test.go#TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides`.
+- **VERIFIED CURRENT:** `GetActiveProvider` returns `(explicitProvider, "")` for
+  a missing matching key, not `("", "")`.

@@ -1,80 +1,63 @@
-# 02 — Current State: `internal/config`
+# 02 — Current state
 
-> Last verified: 2026-07-13  
-> Counts are approximate from source inspection; re-run `Get-ChildItem` / `wc` if exact CI metrics needed.
+> Realized truth for `internal/config`, inspected 2026-07-13.
 
-## 1. Package metrics
+## Package shape
 
-| Metric | Value |
-|--------|------:|
-| Non-test `.go` files | 17 |
-| Test `.go` files | 5 |
-| Mangle `.mg` | 0 |
-| Approx. non-test LOC | ~3,100 |
-| Approx. test LOC | ~1,600 |
-| Primary on-disk format | JSON (UserConfig) |
-| Secondary format | YAML (Config) |
+**VERIFIED CURRENT.** Seventeen non-test Go files define two aggregates and
+their effective-value helpers; five package test files contain the focused
+contract suite. There are no `.mg` sources in this package.
 
-## 2. File roles
+| Surface | Owner and behavior |
+|---|---|
+| JSON authority | `internal/config/user_config.go#UserConfig`, `#LoadUserConfig`, `#UserConfig.Save` |
+| Legacy YAML | `internal/config/config.go#Config`, `#Load`, `#Config.Save`, `#Config.applyEnvOverrides` |
+| Providers/engines | `internal/config/user_config.go#UserConfig.GetActiveProvider`, `#UserConfig.SetEngine`; CLI structs in `internal/config/llm.go` |
+| Limits/scheduler | `internal/config/limits.go#CoreLimits`; `internal/config/user_config.go#UserConfig.GetEffectiveAPISchedulerPolicy` |
+| Context/JIT | `internal/config/memory.go#ContextWindowConfig`; `internal/config/jit.go#JITConfig` |
+| Execution/integrations | `internal/config/execution.go#ExecutionConfig`; `internal/config/integrations.go#IntegrationsConfig.ToMCPServerConfigs` |
+| Process state | `internal/config/llm_timeouts.go#globalLLMTimeouts`; load-time `internal/features/features.go#SetActive` |
 
-| File | Role | Hotspot? |
-|------|------|----------|
-| `user_config.go` | UserConfig, workspace root, all Get*, engines, features install | **Yes** — density center |
-| `config.go` | YAML Config, DefaultConfig, Load/Save, env overrides, Validate | **Yes** — dual path |
-| `llm.go` | Engine/provider structs (Claude/Codex/xAI OAuth/Gemini) | Medium |
-| `llm_timeouts.go` | Global timeout singleton + presets | Medium |
-| `limits.go` | CoreLimits, APISchedulerPolicy | Medium |
-| `memory.go` | Context window, embedding, memory shard config | Medium |
-| `jit.go` | JIT compiler knobs + bool-set tracking | Medium |
-| `shard.go` | Per-shard profiles | Low |
-| `execution.go` | Tactile allowlists | Low |
-| `integrations.go` | MCP server map bridge | Medium |
-| `reflection.go` | System-2 reflection recall | Low |
-| `world.go` | Scan workers / ignore | Low |
-| `logging.go` | Category-gated logging | Low |
-| `ux.go` | Onboarding, transparency, guidance | Medium |
-| `build.go` | CGO/build env | Low |
-| `tool_generation.go` | Ouroboros OS/arch | Low |
-| `mangle.go` | Schema/policy paths on YAML Config | Low |
+## Realized behavior
 
-## 3. Hotspots (behavioral)
+| Claim | Stable evidence |
+|---|---|
+| **VERIFIED CURRENT** — missing JSON yields an empty aggregate; malformed JSON errors. | `internal/config/user_config.go#LoadUserConfig`; `internal/config/config_comprehensive_test.go#TestLoadUserConfig_WhenMalformedJSON_ShouldReturnError` |
+| **VERIFIED CURRENT** — explicit provider returns only its matching key; Ollama is keyless via a sentinel. | `internal/config/user_config.go#UserConfig.GetActiveProvider`; `internal/config/ollama_worker_config_test.go#TestGetActiveProvider_Ollama` |
+| **VERIFIED CURRENT** — `go.mod` wins over nested `.nerd`; `.nerd` is fallback without a module. | `internal/config/user_config.go#FindWorkspaceRoot`; `internal/config/config_test.go#TestFindWorkspaceRoot_BypassesStrayNestedNerd` |
+| **VERIFIED CURRENT** — effective scheduler concurrency is bounded by the smaller positive engine cap. | `internal/config/user_config.go#UserConfig.GetEffectiveMaxConcurrentAPICalls`; `internal/config/config_test.go#TestUserConfig_GetEffectiveMaxConcurrentAPICalls` |
+| **VERIFIED CURRENT** — enabled MCP entries convert to runtime configs; disabled entries are skipped. | `internal/config/integrations.go#IntegrationsConfig.ToMCPServerConfigs`; `internal/config/config_defaults_test.go#TestToMCPServerConfigs` |
+| **VERIFIED CURRENT** — Codex CLI ignores hostile sandbox/shell/override requests and emits read-only/shell-disabled arguments. | `internal/perception/codex_cli_client.go#CodexCLIClient.buildCLIArgs`; `internal/perception/codex_cli_client_test.go#TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides` |
+| **VERIFIED CURRENT** — package and package-race gates pass. | `artifact:Docs/architecture/config/_progress.md` |
 
-### 3.1 GetActiveProvider
+## Verified partial seams
 
-Explicit provider vs priority-key fallback; ollama sentinel key. Most auth/boot bugs surface here.
+| Severity | Claim and absent seam | Evidence |
+|---|---|---|
+| P0 | **PARTIAL** — atomic/private failure and Unix-mode tests exist, but plaintext values, writer conflicts, backups and Windows ACL semantics remain. | `internal/config/config_security_test.go#TestPrivateAtomicWritePreservesOriginalOnReplaceFailure`; `#TestUserConfigSaveIsPrivateAndRoundTrips` |
+| P0 | **PARTIAL** — the wizard preserves representative unowned families in a focused test, but concurrent modification lacks an expected-version contract. | `cmd/nerd/chat/config_wizard_save_test.go#TestSaveConfigWizardPreservesUnownedSettings` |
+| P0 | **PARTIAL** — shared Cortex projects binaries/env/directory/timeout with containment tests; campaigns copy binaries/env/directory without shared timeout/containment and dormant legacy boot bypasses the projection. | `internal/system/factory_execution.go#executionLayerConfigs`; `cmd/nerd/cmd_campaign.go#runCampaignStart`; `cmd/nerd/chat/session_boot.go#performSystemBootLegacy` |
+| P0 | **PARTIAL** — strict syntax and fail-closed shared boot are tested, but semantic validation is incomplete and some secondary consumers soften load errors. | `internal/config/config_security_test.go#TestLoadUserConfigRejectsUnknownAndTrailingJSON`; `internal/system/factory_execution_test.go#TestInitCoreComponentsRejectsPresentInvalidConfig` |
+| P1 | **PARTIAL** — full-prompt trace defaults false and its file requests `0600`, with default tests, but opt-in trace still has no content redaction, response bound or retention contract. | `internal/config/config_security_test.go#TestSensitiveTracingDefaultsOff`; `internal/logging/llm_io_logger.go#LogLLMRequest` |
+| P1 | **PARTIAL** — present JSON installs feature state; missing JSON intentionally preserves the previous process-global state, so workspace reuse can inherit it. | `internal/config/user_config.go#LoadUserConfig`; `internal/features/config_roundtrip_test.go#TestLoadUserConfig_InstallsFeaturesIntoRegistry` |
+| P1 | **PARTIAL** — timeout presets are centralized, but `globalLLMTimeouts` has no synchronization contract for concurrent Set/Get. | `internal/config/llm_timeouts.go#GetLLMTimeouts`; `internal/config/llm_timeouts.go#SetLLMTimeouts` |
 
-### 3.2 FindWorkspaceRoot
+## Dual-model drift
 
-go.mod-first walk. Session and DefaultUserConfigPath depend on this; wrong root ⇒ wrong DB/config.
+| Concept | JSON effective default | YAML default |
+|---|---:|---:|
+| concurrent shards | 12 | 4 |
+| execution timeout | 30s | 10m |
+| context input tokens | 200000 | 128000 |
 
-### 3.3 GetEffectiveAPISchedulerPolicy
+**VERIFIED CURRENT.** The YAML path is not dead:
+`cmd/nerd/main.go#rootCmd` loads `.nerd/config.yaml` to resolve the Cobra timeout.
+It does not make YAML the runtime provider/JIT/execution authority.
 
-Merges core concurrency, engine caps, subscription defaults, and pointer overrides. Campaign + session boot depend on it.
+## Current boundary
 
-### 3.4 Default drift pairs
-
-| Concept | UserConfig Get* default | YAML DefaultConfig default |
-|---------|-------------------------|----------------------------|
-| MaxConcurrentShards | 12 | 4 |
-| Execution DefaultTimeout | 30s | 10m |
-| Context MaxTokens | 200000 | 128000 (Memory.ContextWindow in defaultMemoryConfig) |
-
-## 4. What is solid today
-
-- Multi-engine model (api / claude-cli / codex-cli / xai-oauth) with sensible CLI sandbox defaults.
-- Worker vs image isolation for Nano Banana / Gemini image.
-- Comprehensive tests for load/save/validate/provider/engine/scheduler/workspace.
-- Feature flag install path without forcing core → config import cycles.
-- Embedding model canonicalization (`embeddinggemma:300m`).
-
-## 5. What is partial
-
-- Full UserConfig schema validation (engine validated; many nested structs only “defaulted”).
-- Env override parity on JSON path.
-- Deprecation story for YAML Config.
-- UIConfig not fully folded into UserConfig.
-- No package-level agents.md (guidance lives in this corpus + root AGENTS.md).
-
-## 6. Inventory of exported type families
-
-See [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) for the full export catalog.
+**VERIFIED CURRENT.** Config asserts no fact and declares no predicate. Its
+Mangle-shaped type stores legacy schema/policy paths and numeric budgets only.
+The live `permitted/3` declaration and derivation belong to
+`internal/core/defaults/schemas_safety.mg#permitted/3` and
+`internal/core/defaults/policy/constitution.mg#permitted/3`.

@@ -1,512 +1,264 @@
-# codeNERD Config — Implemented Spec (Deep-Dive)
+# config — implemented specification
 
-> Last verified against codebase: 2026-07-13  
-> Status: Living Reference Document  
-> Language: Go  
-> Primary sources: `internal/config/`  
-> Scale: **17** non-test Go files ≈ **3.1k** lines; **5** test files ≈ **1.6k** lines; **0** Mangle sources  
+> Authority for realized behavior. Verified 2026-07-13 against
+> `internal/config`, primary constructors, mutators, tests, and trace sinks.
 
-## 1. Overview
+## 1. Scope and authority
 
-`internal/config` is the **configuration substrate** for the codeNERD binary and libraries. It does not run the OODA loop; it **feeds** every subsystem that does: LLM clients (perception), API scheduler and fact ceilings (core), JIT token budgets (prompt), execution allowlists (tactile), world scan workers, embeddings, transparency/glass-box, and feature flags.
+`internal/config` defines codeNERD's workspace configuration types, local file
+load/save helpers, effective-value resolution, legacy env overlays, and two
+process bridges: feature activation and LLM timeout presets. It does not own
+provider implementations, Mangle policy, tool execution, or runtime teardown.
 
-Two coexisting aggregates exist:
+| Aggregate | File | Realized authority |
+|---|---|---|
+| `UserConfig` | `.nerd/config.json` | broad runtime input for provider/engine, limits, JIT, memory, integrations, world, UX and features |
+| `Config` | `.nerd/config.yaml` or explicit path | legacy defaults/env aggregate; live Cobra use is execution timeout |
+| logging projection | `.nerd/config.json` | independently decoded by `internal/logging/logger.go#loadConfig` before general config load |
 
-| Aggregate | On-disk format | Role today |
-|-----------|----------------|------------|
-| **`UserConfig`** | JSON `.nerd/config.json` | **Authoritative** runtime config; `Get*` helpers apply defaults |
-| **`Config`** | YAML (optional path) | Legacy monolithic defaults + env overrides; still used by `cmd/nerd/main.go` early load |
+**PARTIAL.** JSON is the broad primary aggregate, not a literal single source of
+truth: YAML timeout, direct logging decode, environment provider detection,
+process globals and consumer defaults remain parallel authorities.
 
-### Key characteristics
+## 2. JSON aggregate and persistence contract
 
-| Property | Value |
-|----------|-------|
-| Live file | `.nerd/config.json` via `DefaultUserConfigPath()` |
-| Workspace root | `FindWorkspaceRoot()` — **go.mod first**, deepest `.nerd` fallback |
-| Engines | `api`, `claude-cli`, `codex-cli`, `xai-oauth` |
-| Providers | `zai`, `anthropic`, `openai`, `gemini`, `xai`, `openrouter`, `ollama` |
-| Config-is-boss | Explicit `provider` never silently falls back to another provider’s key |
-| Feature install | `LoadUserConfig` → `features.SetActive(cfg.Features)` |
-| Global timeouts | `GetLLMTimeouts()` / `SetLLMTimeouts()` process singleton |
-| Constitutional edge | `ExecutionConfig.AllowedBinaries` / `AllowedEnvVars` (data for tactile) |
+`internal/config/user_config.go#UserConfig` contains:
 
-### High-level load flow
+- engine/provider/model and provider-specific API keys;
+- Claude CLI, Codex CLI, xAI OAuth, Gemini, Ollama, worker and image blocks;
+- context, embedding, reflection, shard profiles, limits and API scheduler;
+- world, integrations, generated-tool target, build and execution settings;
+- logging, JIT, learning, onboarding, transparency, guidance and feature flags.
 
-```
-cwd walk (FindWorkspaceRoot)
-   │  prefer go.mod; else deepest .nerd; else cwd
-   ▼
-.nerd/config.json
-   │  LoadUserConfig(path)
-   │  json.Unmarshal → UserConfig
-   │  features.SetActive(cfg.Features)
-   │  logging.CategoryBoot Summary()
-   ▼
-Callers use GetActiveProvider / GetEngine / GetCoreLimits /
-          GetEffectiveAPISchedulerPolicy / GetEmbeddingConfig / …
-   │
-   ├─ optional: Config via Load(yaml) + applyEnvOverrides (legacy path)
-   └─ optional: GlobalConfig() convenience wrapper
-```
+### Load
 
-Fact-flow position (config is **upstream of** action, not inside the decide step):
+`internal/config/user_config.go#LoadUserConfig` performs one local read and
+`internal/config/persistence.go#decodeStrictJSON`, which rejects unknown fields
+and a second/trailing JSON value.
 
-```
-user input → perception (uses provider/engine/timeouts from config)
-          → user_intent → kernel (fact limits, derived limits from core_limits)
-          → next_action → VirtualStore / shards (shard_profiles, worker LLM)
-          → articulation (timeouts) → TUI/stdout (theme, transparency, guidance)
-```
+| Input | Result |
+|---|---|
+| absent path | `&UserConfig{}`, nil; returns before feature activation |
+| read error | nil, wrapped error |
+| malformed JSON | nil, wrapped parse error |
+| syntactically valid JSON | mutable aggregate, `features.SetActive(cfg.Features)`, boot summary |
+| unknown JSON member | parse error |
+| trailing JSON value | parse error |
 
----
+Evidence:
+`internal/config/config_comprehensive_test.go#TestLoadUserConfig_WhenMissingFile_ShouldReturnEmptyConfig`,
+`#TestLoadUserConfig_WhenMalformedJSON_ShouldReturnError`, and
+`internal/features/config_roundtrip_test.go#TestLoadUserConfig_InstallsFeaturesIntoRegistry`.
+Unknown/trailing rejection is covered by
+`internal/config/config_security_test.go#TestLoadUserConfigRejectsUnknownAndTrailingJSON`.
 
-## 2. Implementation status
+There is no schema version, size/depth bound, full `ValidateUserConfig`,
+normalization receipt, or immutable snapshot.
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| `UserConfig` + `LoadUserConfig`/`Save` | **Implemented** | `user_config.go` — primary path |
-| Workspace root discovery | **Implemented** | go.mod-first algorithm (stray-`.nerd` fix) |
-| Multi-engine config | **Implemented** | ClaudeCLI, CodexCLI, XAIOAuth, Gemini blocks |
-| Worker + Image + Ollama LLM blocks | **Implemented** | Secondary worker; Gemini image isolation |
-| Core limits + API scheduler policy | **Implemented** | `limits.go` + `GetEffective*` |
-| Context window + embedding + reflection | **Implemented** | `memory.go` / helpers |
-| JIT config + clamp to context window | **Implemented** | `jit.go`, `GetEffectiveJITConfig` |
-| Integrations → MCP configs | **Implemented** | `integrations.go` → `mcp.MCPServerConfig` |
-| World scan defaults | **Implemented** | CPU-scaled workers, ignore patterns |
-| UX: onboarding / transparency / guidance | **Implemented** | `ux.go` |
-| Feature flag bridge | **Implemented** | `features.SetActive` on load |
-| Global `LLMTimeouts` singleton | **Implemented** | Default / Fast / Aggressive presets |
-| Legacy YAML `Config` | **Implemented** | Still in tree; dual-path risk |
-| Single config type consolidation | **Partial** | Two aggregates remain |
-| Env overrides on `UserConfig` | **Partial** | Env mainly on legacy `Config.applyEnvOverrides`; Context7 has explicit env on UserConfig |
-| Hot-reload of config.json | **Not implemented** | Load-at-boot / explicit Save/reload by callers |
-| Schema validation of full UserConfig | **Partial** | Engine set validates; many fields trust Get* defaults |
+### Save
 
-**Overall:** living production configuration package — **not** pre-implementation.
+`internal/config/user_config.go#UserConfig.Save` marshals every exported
+non-omitted field and calls
+`internal/config/persistence.go#writePrivateFileAtomically`. That helper creates
+the parent with `0700`, writes/chmods/syncs/closes a same-directory temporary,
+renames it, and requests `0600` on the result. Provider, Context7 and embedding
+keys are ordinary plaintext fields and therefore persist when present.
 
----
+**VERIFIED CURRENT.** Round-trip behavior is covered by
+`internal/config/config_comprehensive_test.go#TestUserConfigSave_WhenRoundTrip_ShouldPreserve`.
 
-## 3. Source inventory
+**PARTIAL.** There is no semantic validation, lock/expected-version check,
+backup, Windows ACL proof, active-state update or rollback snapshot. Focused
+tests prove pre-rename failure preserves old bytes, Unix `0600`, reload, and
+representative wizard field preservation; concurrent-writer and post-rename
+outcome contracts remain absent.
 
-### 3.1 Package layout
+## 3. Legacy YAML contract
 
-```
-internal/config/
-  user_config.go          # UserConfig, workspace root, Get*, engines, providers
-  config.go               # Config (YAML), DefaultConfig, Load/Save, env overrides
-  llm.go                  # LLMConfig, ClaudeCLI, CodexCLI, XAIOAuth, Gemini
-  llm_timeouts.go         # LLMTimeouts presets + global singleton
-  limits.go               # CoreLimits, APISchedulerPolicy, Validate/Enforce
-  memory.go               # MemoryConfig, EmbeddingConfig, ContextWindowConfig
-  mangle.go               # MangleConfig (paths, fact limits)
-  shard.go                # ShardProfile + applyShardDefaults
-  execution.go            # ExecutionConfig (allowlists)
-  integrations.go         # MCP server map + ToMCPServerConfigs
-  jit.go                  # JITConfig + UnmarshalJSON bool tracking
-  reflection.go           # ReflectionConfig + UnmarshalJSON
-  logging.go              # LoggingConfig + IsCategoryEnabled
-  world.go                # WorldConfig (scan workers)
-  build.go                # BuildConfig (CGO_CFLAGS etc.)
-  tool_generation.go      # ToolGenerationConfig (Ouroboros targets)
-  ux.go                   # Onboarding, Transparency, Guidance, UIConfig
-  *_test.go               # comprehensive, defaults, env, ollama/worker
+`internal/config/config.go#DefaultConfig` creates a fully populated value tree.
+`internal/config/config.go#Load` unmarshals YAML into it, then
+`#Config.applyEnvOverrides` applies provider keys, MCP URLs, database path and
+embedding settings in fixed order. Missing YAML is not an error.
+
+`Config.Validate` checks provider membership and API-key presence (except
+Ollama). `Config.ValidateCoreLimits` checks only lower bounds for total memory,
+shards, facts and derived facts. Neither validator is called by `Load`.
+
+`Config.Save` now shares the atomic/private writer with JSON. JSON and YAML
+defaults still differ:
+
+| Effective concept | JSON | YAML |
+|---|---:|---:|
+| max concurrent shards | 12 | 4 |
+| execution timeout | 30s | 10m |
+| context input tokens | 200000 | 128000 |
+
+**VERIFIED CURRENT.** `cmd/nerd/main.go#rootCmd` reads `.nerd/config.yaml` only to
+set the Cobra timeout when the flag was not explicit.
+
+## 4. Effective-value contracts
+
+### Provider and engine
+
+`UserConfig.GetActiveProvider` behavior is:
+
+```text
+explicit provider -> that provider plus only its matching key
+ollama            -> ("ollama", "ollama") sentinel
+no provider       -> first key: anthropic, openai, gemini, xai,
+                     zai, openrouter, legacy api_key-as-zai
+no key            -> ("", "")
 ```
 
-### 3.2 Non-test sources (approx. lines)
-
-| Path | Lines | Purpose |
-|------|------:|---------|
-| `internal/config/user_config.go` | ~1488 | **Flagship** UserConfig + load/save + all Get* resolvers |
-| `internal/config/config.go` | ~446 | YAML Config, defaults, env overrides, Validate |
-| `internal/config/llm.go` | ~211 | Engine/provider structs |
-| `internal/config/llm_timeouts.go` | ~179 | Timeout tiers + global |
-| `internal/config/ux.go` | ~155 | UX / transparency / guidance |
-| `internal/config/memory.go` | ~130 | Memory / embedding / context window |
-| `internal/config/limits.go` | ~100 | CoreLimits + API scheduler policy |
-| `internal/config/integrations.go` | ~87 | MCP integrations |
-| `internal/config/jit.go` | ~76 | JIT prompt compiler knobs |
-| `internal/config/shard.go` | ~56 | Per-shard profiles |
-| `internal/config/reflection.go` | ~53 | System-2 reflection recall |
-| `internal/config/world.go` | ~41 | World model scan |
-| `internal/config/logging.go` | ~32 | Logging categories |
-| `internal/config/build.go` | ~25 | Build env |
-| `internal/config/execution.go` | ~16 | Tactile execution |
-| `internal/config/tool_generation.go` | ~15 | Ouroboros targets |
-| `internal/config/mangle.go` | ~13 | Mangle paths / limits |
-
-### 3.3 Tests
-
-| Path | Focus |
-|------|--------|
-| `config_comprehensive_test.go` | Load/Save/Validate, timeouts, shards, MCP, UserConfig engines/providers, Get* |
-| `config_test.go` | Defaults, env, workspace root, scheduler, Context7 |
-| `config_defaults_test.go` | Core limits, context window budget, timeout presets, MCP, logging |
-| `env_override_test.go` | LLM/embedding/integration env precedence |
-| `ollama_worker_config_test.go` | Ollama worker, image model detection |
-
----
-
-## 4. Dual config model (deep dive)
-
-### 4.1 UserConfig (JSON) — live path
-
-```go
-// user_config.go
-type UserConfig struct {
-  Provider, Model, ClassificationModel string
-  // per-provider API keys + legacy api_key
-  Engine string  // api | claude-cli | codex-cli | xai-oauth
-  Gemini *GeminiProviderConfig
-  ClaudeCLI *ClaudeCLIConfig
-  CodexCLI *CodexCLIConfig
-  XAIOAuth *XAIOAuthConfig
-  Ollama *OllamaLLMConfig
-  Worker *WorkerLLMConfig
-  Image *ImageLLMConfig
-  Theme string
-  ContinuationMode int
-  Context7APIKey string
-  ContextWindow *ContextWindowConfig
-  Embedding *EmbeddingConfig
-  Reflection *ReflectionConfig
-  ShardProfiles map[string]ShardProfile
-  DefaultShard *ShardProfile
-  CoreLimits *CoreLimits
-  APIScheduler *APISchedulerPolicy
-  World *WorldConfig
-  Integrations *IntegrationsConfig
-  ToolGeneration *ToolGenerationConfig
-  Build *BuildConfig
-  Execution *ExecutionConfig
-  Logging *LoggingConfig
-  JIT *JITConfig
-  LearningCandidateThreshold int
-  LearningCandidateAutoPromote bool
-  Onboarding *OnboardingState
-  Transparency *TransparencyConfig
-  Guidance *GuidanceConfig
-  Features *features.FeaturesConfig
-}
-```
-
-**Design rules encoded in helpers:**
-
-1. **Zero means default** for most numeric fields in `Get*` methods.
-2. **Booleans that must distinguish “absent” vs `false`** use custom `UnmarshalJSON` + `enabledSet` flags (`JITConfig`, `ReflectionConfig`).
-3. **Pointer fields on `APISchedulerPolicy`** mean “omit → engine default”.
-4. **Explicit `provider` is boss** — missing key returns `("", "")` for that provider, not another key.
-
-### 4.2 Config (YAML) — legacy path
-
-`Config` nests value types (not pointers) and is filled by `DefaultConfig()` then YAML merge:
-
-- `LLM`, `Mangle`, `Memory`, `Embedding`, `Reflection`, `Integrations`, `Execution`, `ToolGeneration`, `Transparency`, `Logging`, `ShardProfiles`, `DefaultShard`, `CoreLimits`
-
-`Load(path)`:
-
-1. Start from `DefaultConfig()`
-2. Missing file → defaults + `applyEnvOverrides()` (not an error)
-3. Present file → YAML unmarshal into defaults, then env overrides
-
-Env vars (legacy path only, `applyEnvOverrides`):
-
-| Env | Effect |
-|-----|--------|
-| `ZAI_API_KEY` | Key; set provider `zai` only if provider empty |
-| `ANTHROPIC_API_KEY` | Key + force provider anthropic |
-| `OPENAI_API_KEY` | Key + force openai |
-| `GEMINI_API_KEY` | Key + force gemini |
-| `XAI_API_KEY` | Key + force xai |
-| `OPENROUTER_API_KEY` | Key + force openrouter |
-| `CODEGRAPH_URL` / `BROWSERNERD_URL` / `SCRAPER_URL` | MCP server base URLs |
-| `CODENERD_DB` | `Memory.DatabasePath` |
-| `GENAI_API_KEY` / `GEMINI_API_KEY` | Embedding GenAI key; may switch provider to genai |
-| `OLLAMA_ENDPOINT` / `OLLAMA_EMBEDDING_MODEL` | Embedding Ollama |
-
-**Implication:** env override behavior is **not fully symmetric** between YAML `Config` and JSON `UserConfig`. UserConfig relies on keys stored in JSON (and a few explicit env helpers like `GetContext7APIKey`).
-
----
-
-## 5. Engines and providers (deep dive)
-
-### 5.1 Engine selection
-
-```
-GetEngine() → "api" if empty
-SetEngine(engine) → validates membership of {api, claude-cli, codex-cli, xai-oauth}
-```
-
-| Engine | Config block | Default model / notes |
-|--------|--------------|------------------------|
-| `api` | Provider + keys | HTTP API clients; aggressive scheduler defaults (no spacing) |
-| `claude-cli` | `ClaudeCLI` | sonnet, timeout 300s, MaxTurns should stay 1 (subprocess LLM, not agent) |
-| `codex-cli` | `CodexCLI` | gpt-5.4, sandbox read-only, shell tool disabled by default, skill inject |
-| `xai-oauth` | `XAIOAuth` | grok-4.5, OAuth store `~/.nerd/xai_oauth.json`, optional import `~/.grok/auth.json` |
-
-**Subscription engines** (`xai-oauth`, `codex-cli`, `claude-cli`) default to polite scheduling:
-
-- `MinCallSpacing` 150ms
-- `AdaptiveConcurrency` true
-
-API engine defaults: spacing 0, adaptive false.
-
-### 5.2 Provider resolution (`GetActiveProvider`)
-
-```
-if Provider != "" → ONLY matching key (ollama → sentinel "ollama")
-else → first non-empty key among:
-  anthropic → openai → gemini → xai → zai → openrouter → legacy api_key (as zai)
-```
-
-Valid providers for YAML `Config.Validate()`: `ValidProviders` = zai, anthropic, openai, gemini, xai, openrouter, ollama. Ollama is keyless.
-
-### 5.3 Worker vs Image vs main
-
-| Path | Purpose | Isolation rule |
-|------|---------|----------------|
-| Main `Provider`/`Model` | Interactive agent | Config-is-boss |
-| `Worker` | Shards / classification / background | Optional secondary (often ollama) |
-| `Image` | Gemini Nano Banana 2 image gen | **Not** routed through worker=ollama |
-| `ClassificationModel` | Perception Understand | Fast tier; never inherits main Model |
-
-Helpers: `IsImageGenerationModel`, `IsImageShardType`, `GetImageLLMConfig` (aliases → `gemini-3.1-flash-image`).
-
-### 5.4 Effective concurrency
-
-```
-GetEffectiveMaxConcurrentAPICalls():
-  base = GetCoreLimits().MaxConcurrentAPICalls  // default 5
-  if codex-cli / xai-oauth / claude-cli and engine MaxConcurrentCalls > 0:
-    effective = min(base, engine MaxConcurrentCalls)
-```
-
-Codex/xAI OAuth default max concurrent calls: **2**.
-
----
-
-## 6. Limits, timeouts, context (deep dive)
-
-### 6.1 CoreLimits
-
-| Field | Default (`GetCoreLimits`) | Role |
-|-------|---------------------------|------|
-| `MaxTotalMemoryMB` | 12288 | Process RAM ceiling intent |
-| `MaxConcurrentShards` | 12 | Parallel shard cap |
-| `MaxConcurrentAPICalls` | 5 | Scheduler ceiling |
-| `MaxSessionDurationMin` | 120 | Session duration / auto-save intent |
-| `MaxFactsInKernel` | 250000 | EDB size |
-| `MaxDerivedFactsLimit` | 100000 | Mangle derived/gas related ceiling |
-
-Note: legacy `defaultCoreLimits()` in `config.go` still uses **MaxConcurrentShards = 4** — another dual-default inconsistency.
-
-`ValidateCoreLimits()` (on `Config`): memory ≥ 512, shards ≥ 1, facts/derived ≥ 1000.  
-`EnforceCoreLimits()` returns a string→int map for kernel consumers.
-
-### 6.2 APISchedulerPolicy
-
-Pointer fields in config.json; resolved by `GetEffectiveAPISchedulerPolicy()` into `EffectiveAPISchedulerPolicy` with durations:
-
-- `MinCallSpacing`
-- `AdaptiveConcurrency` / `AdaptiveFloor` / `AdaptiveRecoverAfter`
-- `SlotAcquireTimeout` (from `GetLLMTimeouts().SlotAcquisitionTimeout` or 300s)
-
-### 6.3 LLMTimeouts (global)
-
-Three presets in `llm_timeouts.go`:
-
-| Preset | HTTP / Per-call | OODA loop | Notes |
-|--------|-----------------|-----------|-------|
-| `DefaultLLMTimeouts` | 10m | 30m | Calibrated for large GLM contexts |
-| `FastLLMTimeouts` | 5m | 15m | “Fast” still high for Z.AI floors |
-| `AggressiveLLMTimeouts` | 5m | 10m | Minimal while respecting ~150s Z.AI simple floor |
-
-Tiers inside struct: per-call, operation (shard/articulation/follow-up/ouroboros/docs), campaign (phase + OODA).
-
-**Critical comment in source:** shortest timeout in the chain wins — HTTP client vs context must align.
-
-### 6.4 ContextWindowConfig
-
-Token budget model (documented in `memory.go`):
-
-```
-Total = MaxTokens + OutputReserve + ThinkingReserve + ToolUseBuffer
-InputBudget split by %: Core / Atom / History / Working
-```
-
-Defaults via `DefaultContextWindowConfig`: MaxTokens 200000, reserves 5/30/15/50, output 8000, tool buffer 4000, compression threshold 0.60.
-
-### 6.5 JIT clamp
-
-`GetEffectiveJITConfig()`:
-
-1. Start from `GetJITConfig()` (defaults: enabled, fallback, budget 200k, reserved 8k, TraceLLMIO true, SemanticTopK 20)
-2. Cap `TokenBudget` to `ContextWindow.MaxTokens` if smaller
-3. If reserved ≥ budget, recompute reserved as budget / fallback ratio
-
----
-
-## 7. Workspace root and load paths
-
-### 7.1 FindWorkspaceRoot
-
-Algorithm (authoritative comments in `user_config.go`):
-
-1. Walk upward from cwd.
-2. **Immediate return** on `go.mod` (Go module root).
-3. Track deepest directory containing `.nerd/` as fallback.
-4. If no go.mod to root: return deepest `.nerd` dir, else original cwd.
-
-Fixes two historical bugs:
-
-- Nested stray `.nerd` under packages trapping state
-- Walking into personal `~/.nerd` when “topmost .nerd wins”
-
-### 7.2 Paths
-
-| Function | Path |
-|----------|------|
-| `DefaultUserConfigPath()` | `{workspace}/.nerd/config.json` |
-| `GlobalConfig()` | `LoadUserConfig(DefaultUserConfigPath())` |
-| Missing JSON | Empty `UserConfig{}` (not error); callers use Get* defaults |
-| Malformed JSON | Error |
-| Missing YAML for `Load` | Defaults + env (not error) |
-
-### 7.3 Features bridge
-
-On successful parse, `features.SetActive(cfg.Features)` installs process-wide toggles so leaf packages (`internal/core`, `internal/world`, …) that **must not** import `config` can still read flags. Boot log prints `features.Summary()`.
-
----
-
-## 8. Secondary domains
-
-### 8.1 Embedding
-
-`GetEmbeddingConfig()`:
-
-- Defaults: ollama, `http://localhost:11434`, model **`embeddinggemma:300m`**
-- Bare `embeddinggemma` rewritten to `:300m` (404 on many Ollama installs)
-- Rule in comments: callers must not invent model names at call sites
-
-### 8.2 World
-
-`DefaultWorldConfig()`: FastWorkers = clamp(NumCPU, 4..20), DeepWorkers = clamp(NumCPU, 2..8), ignore `.git`, `.nerd`, `node_modules`, `vendor`, …, MaxFastASTBytes 2MB.
-
-### 8.3 Execution (tactile allowlists)
-
-Default binaries: go, git, grep, shell-ish utils, npm/node, python, cargo/rustc, make/cmake.  
-Default env: PATH, HOME, GOPATH, GOROOT (+ TEMP/TMP/GOCACHE/LOCALAPPDATA in `DefaultUserConfig` seed).  
-Default timeout string on UserConfig path: **30s** (YAML defaultExecutionConfig uses **10m** — dual default).
-
-### 8.4 Integrations / MCP
-
-`IntegrationsConfig.Servers` is a free-form map. `ToMCPServerConfigs()` emits only **enabled** servers into `mcp.MCPServerConfig`. Default timeouts: scraper 120s, browser 60s, else 30s.
-
-Helpers on YAML Config: `IsCodeGraphEnabled`, `IsBrowserEnabled`, `IsScraperEnabled` (IDs `code_graph`, `browser`, `scraper`).
-
-### 8.5 UX / transparency
-
-- `OnboardingState` — setup, experience level, milestones, tips, tour
-- `TransparencyConfig` — glass box categories, safety explanations, JIT explain
-- `GuidanceConfig` — verbose/normal/minimal/none
-- `UIConfig` — split pane ratio (0.67 default) — type exists; not embedded on `UserConfig` as of this inventory (theme lives on UserConfig)
-
-### 8.6 Build / tool generation
-
-- `BuildConfig.EnvVars` often holds `CGO_CFLAGS` for sqlite-vec headers
-- `ToolGenerationConfig` OS/arch for Ouroboros (default windows/amd64)
-
-### 8.7 Mangle (YAML Config only fields)
-
-`MangleConfig`: schema/policy paths (empty → embedded defaults + `.nerd/mangle` extensions at higher layers), fact limit, derived limit, query timeout string.
-
----
-
-## 9. Integration map (who consumes config)
-
-| Consumer area | Typical use |
-|---------------|-------------|
-| `cmd/nerd/main.go` | Early `config.Load` YAML path |
-| `cmd/nerd/chat/session_boot.go` | Core limits, API scheduler, timeouts |
-| `cmd/nerd/chat/session.go` | `FindWorkspaceRoot` |
-| `cmd/nerd/chat/commands_handlers*.go` | Load/Save UserConfig, provider display |
-| `cmd/nerd/chat/config_wizard*.go` | Interactive config write |
-| `cmd/nerd/cmd_auth.go` | Engine/provider persistence |
-| `cmd/nerd/cmd_campaign.go` | Limits + scheduler for campaigns |
-| `cmd/nerd/embedding_cmd.go` | Embedding block |
-| `internal/system/factory.go` | Boot-time UserConfig load |
-| `internal/init/initializer.go` | Seed config on workspace init |
-| `internal/perception/*` | Clients, timeouts, providers |
-| `internal/build/env.go` | BuildConfig env |
-| `internal/transparency/*` | TransparencyConfig |
-| `internal/ux/*` | Onboarding / preferences |
-| `internal/autopoiesis/*` | LoadUserConfig for tool gen |
-| `internal/features` | FeaturesConfig type + SetActive |
-
-Config does **not** assert Mangle facts itself. Limits and allowlists are **inputs** to systems that enforce constitutional safety in core/tactile.
-
----
-
-## 10. Control-flow diagrams
-
-### 10.1 Boot configuration (conceptual)
-
-```mermaid
-flowchart TD
-  A[Process start] --> B[FindWorkspaceRoot]
-  B --> C[LoadUserConfig .nerd/config.json]
-  C --> D[features.SetActive]
-  C --> E[Boot log features.Summary]
-  E --> F[GetActiveProvider / GetEngine]
-  F --> G[New LLM clients perception]
-  E --> H[GetCoreLimits / GetEffectiveAPISchedulerPolicy]
-  H --> I[APIScheduler + kernel ceilings]
-  E --> J[GetEmbeddingConfig / GetWorldConfig]
-  J --> K[Stores / world scan]
-  E --> L[GetJITConfig / GetTransparencyConfig]
-  L --> M[Prompt + TUI glass box]
-```
-
-### 10.2 Engine scheduler resolution
-
-```
-UserConfig
-  ├─ core_limits.max_concurrent_api_calls ──┐
-  ├─ engine MaxConcurrentCalls ─────────────┼─► GetEffectiveMaxConcurrentAPICalls
-  ├─ api_scheduler.* (pointers) ────────────┤
-  └─ GetEngine() subscription? ─────────────┴─► GetEffectiveAPISchedulerPolicy
-                                                    │
-                                                    ▼
-                                            core APIScheduler
-```
-
----
-
-## 11. Gaps pointer
-
-See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) for prioritized gaps. Headline risks:
-
-1. Dual `Config` vs `UserConfig` defaults drift (shard concurrency, execution timeout).
-2. Env overrides incomplete on JSON path.
-3. No hot-reload; partial full-schema validation.
-4. `UIConfig` type somewhat detached from `UserConfig`.
-
----
-
-## 12. Verify commands
-
-```powershell
-go test ./internal/config/...
-go test ./internal/config/ -count=1 -v
-# spot-check consumers
-rg "LoadUserConfig|GetActiveProvider|GetEffectiveAPISchedulerPolicy" -g "*.go"
-```
-
----
-
-## 13. Related corpora
-
-- `Docs/architecture/cli/` — boots and mutates config
-- `Docs/architecture/core/` — enforces fact limits / scheduler
-- `Docs/architecture/perception/` — engines and providers
-- `Docs/architecture/prompt/` — JIT budgets
-- `Docs/architecture/features/` (if present) — flag registry
+An explicit provider with no matching key returns `(provider, "")`. This is
+proven by
+`internal/config/config_comprehensive_test.go#TestGetActiveProvider_WhenProviderSetButKeyMissing_ShouldReturnEmptyKey`.
+
+`UserConfig.SetEngine` accepts `api`, `claude-cli`, `codex-cli`, and `xai-oauth`.
+Direct JSON decode does not call it, so invalid engines are rejected later by
+the perception client factory, not at config load.
+
+Codex defaults are model `gpt-5.4`, sandbox `read-only`, shell disabled, output
+schema enabled, and concurrency 2. **VERIFIED CURRENT:** the backend ignores
+configured sandbox/shell relaxation, forces read-only plus shell-disabled, and
+allowlists only reasoning/verbosity/personality overrides. Hostile config is
+covered by
+`internal/perception/codex_cli_client_test.go#TestCodexCLIClient_buildCLIArgs_FiltersEffectOverrides`.
+
+### Scheduler and core limits
+
+`UserConfig.GetCoreLimits` replaces zero fields with 12288 MiB memory, 12 shards,
+5 API calls, 120 minutes, 250000 facts and 100000 derived facts. Negative values
+are not replaced or rejected.
+
+`UserConfig.GetEffectiveMaxConcurrentAPICalls` starts from core API concurrency
+and narrows it for positive Codex/xAI OAuth/Claude caps.
+`GetEffectiveAPISchedulerPolicy` adds subscription spacing/adaptive defaults and
+optional pointer overrides; its default slot timeout comes from process-global
+`GetLLMTimeouts`.
+
+Focused evidence:
+`internal/config/config_test.go#TestUserConfig_GetEffectiveMaxConcurrentAPICalls`
+and `#TestUserConfig_GetEffectiveAPISchedulerPolicy`.
+
+### Context and JIT
+
+`UserConfig.GetContextWindowConfig` applies field-by-field defaults, including
+200000 input tokens and reserve percentages 5/30/15/50. It does not validate
+percentage range/sum. `ContextWindowConfig.TotalContextWindow` adds output,
+thinking and tool buffers; `EffectiveInputBudget` returns MaxTokens.
+
+`UserConfig.GetEffectiveJITConfig` applies defaults, caps token budget to the
+context input ceiling, and repairs reserved tokens when reserve is not smaller
+than budget. `DefaultJITConfig` sets enabled/fallback true, budget 200000,
+reserved 8000, semantic top-k 20, and `TraceLLMIO=false`.
+
+The effective JIT projection reaches prompt compilation/assembly and system
+shards through `internal/system/factory.go#initIntelligenceLayer` and
+`#initShardManagement`.
+
+### Execution
+
+`UserConfig.GetExecution` defaults a binary list, timeout `30s`, working
+directory `.`, and env names.
+
+**VERIFIED CURRENT for shared Cortex.**
+`internal/system/factory_execution.go#executionLayerConfigs` projects binaries,
+env, working directory and timeout into tactile/VirtualStore construction,
+contains directory resolution to the workspace, and rejects invalid/non-positive
+durations. `internal/system/factory_execution_test.go` covers positive and
+hostile cases.
+
+**PARTIAL cross-surface.** Campaigns copy binaries/env/directory without the
+shared timeout/containment helper. Dormant legacy interactive construction uses
+defaults. No parity test covers every effect path.
+
+### Integrations and other domains
+
+- `IntegrationsConfig.ToMCPServerConfigs` emits enabled map entries with protocol,
+  BaseURL and timeout strings; validation is deferred.
+- `GetEmbeddingConfig` defaults local Ollama and canonicalizes bare
+  `embeddinggemma` to `embeddinggemma:300m`.
+- `DefaultWorldConfig` scales scan worker counts to CPU within fixed ranges.
+- reflection and JIT use custom JSON boolean-presence tracking.
+- many getters shallow-copy structs while maps/slices remain aliased; UX getters
+  may return stored pointers directly.
+
+## 5. Runtime wiring
+
+### Shared system factory
+
+| Stage | Config projection |
+|---|---|
+| `internal/system/factory.go#initCoreComponents` | one JSON load, effective JIT, scheduler; present-invalid returns error |
+| `#initPerceptionLayer` | same snapshot provider/engine, worker/image; ambient fallback only with no explicit LLM selection |
+| `#initExecutionLayer` | validated/contained binaries, env, directory and timeout via `executionLayerConfigs` |
+| `#initIntelligenceLayer` | embedding/reflection/MCP/world plus JIT compiler and assembler budgets |
+| `#initShardManagement` | core limits and JIT config |
+
+The first stage propagates JSON load errors and stores one `appCfg`. Perception
+resolves it through `ProviderConfigFromUserConfig`; `HasExplicitLLMSelection`
+prevents an unusable explicit choice from routing to another ambient provider.
+`internal/system/factory_execution_test.go#TestInitCoreComponentsRejectsPresentInvalidConfig`
+proves a present-invalid file is terminal before perception even with an ambient
+XAI key.
+
+### Interactive compatibility and campaigns
+
+`cmd/nerd/chat/session_boot.go#performSystemBootLegacy` has no Go caller; if
+reactivated it projects core limits/JIT but uses default execution and an
+incomplete scheduler projection. `cmd/nerd/cmd_campaign.go#runCampaignStart` and
+`#runCampaignResume` soften load errors, select their LLM from ambient state
+before config load, and copy binaries/env/directory plus limits/JIT/scheduler.
+They omit configured execution timeout/shared containment and are not parity-checked.
+
+### Mutation and reload
+
+Auth/slash/embedding surfaces commonly load-mutate-save. The config wizard now
+loads and merges its owned fields before Save. Save does not call `features.SetActive` or reload
+logging/scheduler/JIT/clients. Logging initialization is `sync.Once`. There is no
+cross-consumer reload transaction or config-owned teardown.
+
+## 6. Nine-lane applicability matrix
+
+| Lane | Current answer and boundary |
+|---|---|
+| Mangle | **N-A direct.** No `.mg`, `Decl`, rule, negation, recursion or fact producer exists in config. `MangleConfig` stores paths/budgets. `permitted/3` is declared by `internal/core/defaults/schemas_safety.mg#permitted/3` and derived by `internal/core/defaults/policy/constitution.mg#permitted/3`. |
+| Permission and safety | **PARTIAL.** Config supplies resource/capability bounds but cannot authorize. Shared execution containment and Codex CLI isolation are tested; campaign/dormant parity and secret persistence/trace boundaries remain incomplete. Final route is `internal/core/virtual_store_routing.go#VirtualStore.RouteAction`. |
+| Fact flow | **VERIFIED CURRENT.** Config precedes perception and kernel construction; it does not create `user_intent` or `next_action`. Limits enter `internal/core/limits.go#NewLimitsEnforcer`; articulation consumes timeout globals elsewhere. |
+| JIT and agents | **PARTIAL.** Config owns no atom IDs or agent registry. It selects JIT budget/reserve/top-k/debug/trace consumed by prompt assembler and system shards; reserve clamp exists, but full input validity and safe tracing do not. |
+| Wiring | **PARTIAL.** Provider, limits, scheduler, JIT, embedding, MCP, world and features have live constructors. Shared execution/error propagation is tested; campaign/dormant execution, secondary error handling and reload parity still diverge. |
+| State and concurrency | **PARTIAL.** mutable `UserConfig`, aliased collections, process-global features/timeouts/logging/scheduler, missing-file preservation, and unsynchronized timeout Set/Get lack one workspace snapshot lifetime. |
+| Recovery | **PARTIAL.** missing file degrades; shared boot rejects present-invalid while secondary paths may soften; pre-rename failure preserves old bytes, but no backup/version rollback exists; reload is restart-oriented and optional integrations degrade without one config receipt. |
+| Observability | **PARTIAL.** boot/provider/feature logs exist. Raw trace now defaults false and requests `0600`, but lacks content redaction/retention, bounded response and projection provenance. |
+| Testing | **PARTIAL.** unit/package-race plus strict decode, pre-rename failure, Unix mode, wizard merge, shared execution/fail-closed boot, hostile Codex and trace-default regressions pass. Semantic validation, cross-surface parity, fuzz, hostile secret, writer conflict, backup and Windows ACL gates are absent. |
+
+## 7. Verified defect register
+
+The evidence packet is
+`artifact:.corpus-build/findings/config-audit-defects.md`. Headline defects:
+
+1. Wizard preservation is tested; version conflict and mutator-wide conformance remain.
+2. Shared execution projection is tested; campaign/dormant parity remains.
+3. Atomic/private persistence has failure/Unix-mode evidence; conflict, backup, Windows ACL and plaintext-secret boundaries remain.
+4. Opt-in raw LLM trace has no content redaction/bounded retention.
+5. Strict syntax/shared fail-closed boot are tested; semantic invalidity and secondary error softening remain.
+6. Process-global feature/timeout/logging/scheduler state lacks one workspace snapshot/reload lifecycle.
+
+These are residual **PARTIAL** or **VERIFIED CURRENT** code paths, not claims
+that an exploit or data loss was observed in a live user workspace. CFG-004's
+Codex subprocess isolation repair is closed by hostile regression; the remaining
+items stay open to their stated closure gates.
+
+## 8. Verification and freshness
+
+The focused package and race gates passed at the inspected commit. Exact command,
+commit and dirty-tree fingerprints are in
+`artifact:Docs/architecture/config/_progress.md`. Test green establishes current
+covered behavior; it closes the specifically exercised repair slices, not the
+remaining semantic, lifecycle, cross-surface, secret or platform risk gates.
+
+Use [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) for the export catalog,
+[08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) for constructors,
+[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) for trust boundaries,
+and [TODO.md](TODO.md) for the sole uplift authority.

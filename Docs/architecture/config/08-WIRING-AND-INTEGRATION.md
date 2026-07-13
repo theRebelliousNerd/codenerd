@@ -1,111 +1,91 @@
-# 08 — Wiring and Integration: config
+# 08 — Wiring and integration
 
-> Last verified: 2026-07-13  
-> How configuration is registered, loaded, and passed through boot.
+> Constructor, boot, dispatch, mutation and bypass audit.
 
-## 1. Boot wiring journal
+## Process boot order
 
-### 1.1 Early CLI (`cmd/nerd/main.go`)
-
-- May call `config.Load(configPath)` for YAML-shaped early settings (logging path, etc.).
-- Interactive chat path then re-resolves workspace and JSON UserConfig.
-
-### 1.2 Chat session (`cmd/nerd/chat/session.go`)
-
-```
-FindWorkspaceRoot()
-  → set workspace root for session
-  → DefaultUserConfigPath() implied for later loads
+```text
+cmd/nerd main
+  1 logging.Initialize(cwd) -> logging package reads .nerd/config.json once
+  2 config.GlobalConfig() -> LoadUserConfig -> features.SetActive (if file parsed)
+  3 command PersistentPreRunE -> config.Load(.nerd/config.yaml) for Cobra timeout
+  4 chat/shared system boot -> LoadUserConfig again -> construct runtime layers
 ```
 
-### 1.3 Cortex assembly (`session_boot.go`, `internal/system/factory.go`)
+**VERIFIED CURRENT.** `internal/logging/logger.go#Initialize` is `sync.Once`
+guarded and reads only its logging projection before `cmd/nerd/main.go#main`
+calls `GlobalConfig`. Save/reload does not reinitialize logging.
 
-Typical pattern observed in consumers:
+**VERIFIED CURRENT.** The YAML early path in `cmd/nerd/main.go#rootCmd` controls
+the Cobra execution timeout only; JSON remains the broad runtime aggregate.
 
-1. `LoadUserConfig(DefaultUserConfigPath())` (errors often soft-ignored with empty config)
-2. `GetCoreLimits()` → fact ceilings / shard concurrency
-3. `GetEffectiveAPISchedulerPolicy()` or manual scheduler fields + `GetLLMTimeouts().SlotAcquisitionTimeout`
-4. `GetActiveProvider()` / `GetEngine()` → construct perception client
-5. `GetEmbeddingConfig()` → embedding engine
-6. `GetJITConfig` / transparency / logging → observability surfaces
+## Shared Cortex projection
 
-### 1.4 Features install (side effect of load)
+| Stage | Projection | Evidence |
+|---|---|---|
+| core components | one JSON load, effective JIT and API scheduler; present-invalid returns error | `internal/system/factory.go#initCoreComponents` |
+| perception | same snapshot via `ProviderConfigFromUserConfig`; ambient fallback only when no explicit LLM selection | `internal/system/factory.go#initPerceptionLayer` |
+| execution | contained working directory, parsed timeout, env and binary allowlists | `internal/system/factory_execution.go#executionLayerConfigs`; `internal/system/factory.go#initExecutionLayer` |
+| intelligence | embedding, reflection, MCP integrations | `internal/system/factory.go#initIntelligenceLayer` |
+| prompt | JIT budget/debug compilation and assembler inside intelligence setup | `internal/system/factory.go#initIntelligenceLayer` |
+| shards | core limits, scheduler-backed clients, JIT config | `internal/system/factory.go#initShardManagement` |
 
-```
-LoadUserConfig
-  → features.SetActive(cfg.Features)
-  → kernel/world/main consult features without importing config
-```
+**VERIFIED CURRENT.** `initCoreComponents` returns a `LoadUserConfig` error and
+stores one `appCfg`; perception resolves from that pointer. An ambient XAI key
+does not rescue a present-invalid file, and an explicit unusable LLM selection
+does not route to a different ambient provider. Evidence:
+`internal/system/factory_execution_test.go#TestInitCoreComponentsRejectsPresentInvalidConfig`
+and `internal/config/config_security_test.go#TestHasExplicitLLMSelection`.
 
-## 2. Mutating surfaces
+**VERIFIED CURRENT.** Shared Cortex projects every `ExecutionConfig` field into
+the tactile/VirtualStore pair, rejects non-positive/bad durations, and rejects a
+working directory outside the workspace. Evidence:
+`internal/system/factory_execution_test.go#TestExecutionLayerConfigsProjectUserPolicy`
+and `#TestExecutionLayerConfigsRejectInvalidPolicy`.
 
-| Surface | Action |
-|---------|--------|
-| Config wizard (`chat/config_wizard*.go`) | Load → edit fields → Save |
-| Slash / command handlers | Provider/engine/theme updates + Save |
-| `cmd_auth.go` | Engine/OAuth-related persistence |
-| `nerd init` / `internal/init` | Seed `DefaultUserConfig`-like JSON |
-| Manual edit of `.nerd/config.json` | Next process load picks up |
+## Interactive compatibility boot
 
-No inotify/watch loop — changes require restart or explicit reload by caller.
+**VERIFIED CURRENT (dormant).**
+`cmd/nerd/chat/session_boot.go#performSystemBootLegacy` has no Go caller. It
+loads config, projects core limits and JIT, and constructs scheduler, kernel,
+shards, prompt assembler, and VirtualStore if reactivated.
 
-## 3. Campaign / long-horizon
+**PARTIAL.** It soft-ignores `GlobalConfig` errors, uses only
+`DefaultAPISchedulerConfig` plus concurrency/slot timeout rather than the full
+effective scheduler policy, and constructs default VirtualStore config. Its
+behavior is not fully equivalent to shared Cortex boot.
 
-`cmd_campaign.go` reloads UserConfig and reapplies core limits + scheduler so campaigns inherit the same ceilings as interactive sessions.
+## Other consumers
 
-## 4. Embedding management
+| Surface | Realized behavior |
+|---|---|
+| campaigns | **PARTIAL** — start/resume soften config errors, choose LLM from ambient state before config load, and copy binaries/env/directory without shared containment or configured timeout in `cmd/nerd/cmd_campaign.go#runCampaignStart` and `#runCampaignResume`. |
+| MCP | **VERIFIED CURRENT** — enabled map entries convert and connect during `internal/system/factory.go#initIntelligenceLayer`; URL/protocol/timeout validation is absent in config. |
+| embedding/init | **PARTIAL** — `internal/init/initializer.go#Initializer.ensureEmbeddingEngine` soft-falls back to global/default config after load error. |
+| features | **PARTIAL** — parsed file installs process-global state; missing file returns before `SetActive`, intentionally preserving a prior workspace's registry state. |
+| timeouts | **VERIFIED CURRENT** — consumers read process-global copies through `GetLLMTimeouts`; there is no teardown or per-workspace identity. |
 
-`embedding_cmd.go` loads UserConfig and uses `GetEmbeddingConfig()` so reembed / status commands share boot’s model name.
+## Mutation lifecycle
 
-## 5. MCP integrations
-
-```
-UserConfig.Integrations
-  → GetIntegrations()
-  → ToMCPServerConfigs()
-  → mcp layer connects enabled servers
-```
-
-Env URLs for code_graph/browser/scraper apply on **YAML Config** path via `applyEnvOverrides`, not automatically on JSON unless mirrored in file.
-
-## 6. Timeouts wiring
-
-Widespread pattern:
-
-```go
-ctx, cancel := context.WithTimeout(parent, config.GetLLMTimeouts().ArticulationTimeout)
-```
-
-Also: FollowUpTimeout, SlotAcquisitionTimeout, ShardExecutionTimeout (via callers). `SetLLMTimeouts` should only run at startup.
-
-## 7. Constitutional path (data only)
-
-```
-ExecutionConfig.AllowedBinaries / AllowedEnvVars
-        │
-        ▼
-tactile / VirtualStore action execution
-        │
-        ▼
-kernel permitted(...) still final executive gate
+```text
+wizard/auth/embedding command
+  -> load UserConfig
+  -> mutate
+  -> UserConfig.Save (marshal, synced private temporary, rename)
+  -> disk changes
+  -> active Features/logging/scheduler/JIT remain unchanged until explicit reload/restart
 ```
 
-Config allowlists are **inputs**, not substitutes for `permitted(...)`.
+**PARTIAL.** Auth, slash handlers and the wizard load then mutate. Save is
+atomic/private at the file primitive; tests prove wizard preservation,
+pre-rename old-byte preservation, round-trip and Unix `0600`. There is still no
+semantic validation, writer-version conflict check, backup, active snapshot
+update, or cross-platform permission proof.
 
-## 8. Wiring risks
+## Lifecycle and teardown
 
-| Risk | Mitigation |
-|------|------------|
-| Soft `_` ignore of LoadUserConfig errors | Can hide malformed JSON; prefer logging |
-| Dual Load (YAML + JSON) | Document which fields each path owns |
-| Features not reinstalled after mid-session Save | Save does not call SetActive; restart or re-load needed for Features block |
-| Stray nested .nerd | FindWorkspaceRoot go.mod-first |
-
-## 9. Integration checklist for new knobs
-
-1. Add field on `UserConfig` with json tag.  
-2. Add `GetX` with defaults.  
-3. Wire one boot consumer (factory or session_boot).  
-4. Add test in `config_comprehensive_test.go` or focused file.  
-5. Grep for hard-coded old constants at call sites.  
-6. Update this corpus if behavior is non-obvious.
+Config owns no closer. Consumer resources close through Cortex/session teardown.
+The process-global feature registry, logging `sync.Once`, LLM timeouts, and global
+scheduler outlive an individual config load; no workspace-scoped teardown resets
+them. Mid-process multi-workspace reuse must therefore be treated as a state
+boundary, not a normal reload.

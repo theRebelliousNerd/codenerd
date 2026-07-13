@@ -1,36 +1,41 @@
-# OPEN QUESTIONS — config
+# config — open decisions
 
-> Last verified: 2026-07-13  
-> Real open design questions (not rhetorical).
+> Questions only; feature work is authoritative in [TODO.md](TODO.md).
 
-## Q1 — Single aggregate timeline
+## Q1 — Environment policy
 
-When can YAML `Config` be reduced to a pure adapter or deleted? How many production operators still depend on YAML load + env overrides in `main.go`?
+**OPEN QUESTION.** Should an environment key override a valid explicit file key,
+or only fill an omitted secret reference? The choice affects 12-factor operation,
+provider honesty, and provenance. Validation must still distinguish absent file
+from malformed present file.
 
-## Q2 — Env vs file precedence for JSON path
+## Q2 — Legacy YAML retirement
 
-Should UserConfig adopt the full `applyEnvOverrides` matrix, a subset, or forbid env for keys already in file (12-factor style)? Context7 already prefers env — should all secrets follow that?
+**OPEN QUESTION.** Is `.nerd/config.yaml` still an operator contract, or can the
+Cobra timeout move to the JSON snapshot? Current evidence is
+`cmd/nerd/main.go#rootCmd`; removal needs compatibility telemetry or a pinned
+migration window.
 
-## Q3 — Default concurrent shards 4 vs 12
+## Q3 — Resource default policy
 
-Which number is operationally correct for the 2026 desktop profile (32t, 128GB)? Should defaults scale with hardware (like WorldConfig workers) or stay fixed?
+**OPEN QUESTION.** Should shard/world/API defaults remain fixed and portable, or
+derive from a typed host profile? JSON and YAML currently disagree. Dynamic
+defaults need upper bounds and provenance, not implicit hardware guessing.
 
-## Q4 — TraceLLMIO default true
+## Q4 — Reload scope
 
-Is defaulting full LLM I/O tracing on in seed defaults acceptable for disk usage and privacy, or should defaults flip to false with opt-in?
+**OPEN QUESTION.** Is codeNERD one workspace per process, or must a process
+switch workspaces? The answer determines whether features, logging, LLM timeouts,
+scheduler, clients and stores can remain process-global.
 
-## Q5 — Features reinstall on Save
+## Q5 — Secret source
 
-Should `UserConfig.Save` re-call `features.SetActive`, or must every Save be followed by process restart for flag changes?
+**OPEN QUESTION.** Should config store secret values, environment/keyring
+references, or both? A reference model improves persistence safety but must work
+non-interactively and across Windows/macOS/Linux.
 
-## Q6 — ClassificationModel defaults ownership
+## Q6 — Compatibility diagnostics
 
-Per-provider fast-tier defaults for classification are described in comments; are they implemented only in perception, or should config expose a `GetClassificationModel()` resolver?
-
-## Q7 — UIConfig orphan
-
-Is `UIConfig` intentionally separate for future theming packages, or accidental leftover from a merge?
-
-## Q8 — Execution timeout philosophy
-
-30s default for tactile commands vs 10m for LLM-heavy execution: should these be **two named budgets** rather than one `DefaultTimeout` field?
+**OPEN QUESTION.** How long may the migration decoder accept deprecated fields,
+and which warnings fail CI? The decision must pin schema versions, removal dates,
+and a dry-run path.

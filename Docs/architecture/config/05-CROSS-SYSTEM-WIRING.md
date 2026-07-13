@@ -1,3 +1,0 @@
-# Redirect
-
-This thin stub was replaced. See **[08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)** and **[07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md)**.
