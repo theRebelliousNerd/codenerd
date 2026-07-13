@@ -59,6 +59,43 @@ type TaskResult struct {
 	Completed bool
 }
 
+// normalizeTaskIntentVerb maps CLI/shard-type names onto canonical intent verbs.
+// Accepts already-canonical forms ("/fix", "/review") unchanged.
+func normalizeTaskIntentVerb(verb string) (string, error) {
+	verb = strings.TrimSpace(verb)
+	if verb == "" {
+		return "", fmt.Errorf("invalid intent verb: empty")
+	}
+	if strings.HasPrefix(verb, "/") {
+		return verb, nil
+	}
+	// Domain shard types used by `nerd spawn <type>` and Cortex.SpawnTask.
+	switch strings.ToLower(verb) {
+	case "coder":
+		return "/fix", nil
+	case "tester":
+		return "/test", nil
+	case "reviewer":
+		return "/review", nil
+	case "researcher":
+		return "/research", nil
+	case "generalist":
+		return "/implement", nil
+	case "specialist":
+		return "/research", nil
+	case "tool_generator", "tool-generator", "toolgenerator":
+		return "/generate_tool", nil
+	case "nemesis":
+		return "/review", nil
+	default:
+		// Bare identifier: treat as /identifier (e.g. user agents).
+		if strings.ContainsAny(verb, " \t\n/") {
+			return "", fmt.Errorf("invalid intent verb '%s', must start with '/' or be a known shard type", verb)
+		}
+		return "/" + strings.ToLower(verb), nil
+	}
+}
+
 // presetIntentForTask builds the pre-classified intent for a delegated task.
 // Returns nil when no verb is known, in which case the executor falls back to
 // perceiving the task text.
@@ -126,14 +163,19 @@ func (j *JITExecutor) Execute(ctx context.Context, req TaskRequest) (string, err
 
 // ExecuteWithContext runs a task with explicit session context and priority.
 func (j *JITExecutor) ExecuteWithContext(ctx context.Context, req TaskRequest, sessionCtx *types.SessionContext, priority types.SpawnPriority) (string, error) {
-	// Normalize IntentVerb vs Persona
-	if !strings.HasPrefix(req.IntentVerb, "/") {
-		if req.IntentVerb == "coder" {
-			logging.Get(logging.CategorySession).Warn("TaskExecutor received deprecated intent 'coder'. Mapping to '/fix'")
-			req.IntentVerb = "/fix"
-		} else {
-			return "", fmt.Errorf("invalid intent verb '%s', must start with '/'", req.IntentVerb)
-		}
+	// Normalize IntentVerb: callers (CLI `nerd spawn <shard-type>`, Cortex.SpawnTask)
+	// often pass bare shard names ("tester", "reviewer") rather than Mangle verbs
+	// ("/test", "/review"). Only "coder" was special-cased before — other domain
+	// shards hard-failed with "must start with '/'".
+	normalized, nerr := normalizeTaskIntentVerb(req.IntentVerb)
+	if nerr != nil {
+		return "", nerr
+	}
+	if normalized != req.IntentVerb {
+		logging.Get(logging.CategorySession).Warn(
+			"TaskExecutor mapped shard/intent %q → %q", req.IntentVerb, normalized,
+		)
+		req.IntentVerb = normalized
 	}
 
 	logging.Session("JITExecutor.ExecuteWithContext: intent=%s task_len=%d priority=%v", req.IntentVerb, len(req.Task), priority)

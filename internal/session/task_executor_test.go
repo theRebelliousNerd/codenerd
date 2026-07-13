@@ -11,6 +11,68 @@ import (
 	"codenerd/internal/types"
 )
 
+func TestNormalizeTaskIntentVerb_ShardTypes(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"/fix", "/fix"},
+		{"coder", "/fix"},
+		{"tester", "/test"},
+		{"reviewer", "/review"},
+		{"researcher", "/research"},
+		{"/test", "/test"},
+		{"generalist", "/implement"},
+		{"tool_generator", "/generate_tool"},
+		{"GoExpert", "/goexpert"},
+	}
+	for _, tc := range cases {
+		got, err := normalizeTaskIntentVerb(tc.in)
+		if err != nil {
+			t.Fatalf("normalizeTaskIntentVerb(%q) err: %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("normalizeTaskIntentVerb(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+	if _, err := normalizeTaskIntentVerb(""); err == nil {
+		t.Fatal("expected error for empty verb")
+	}
+	if _, err := normalizeTaskIntentVerb("not a verb"); err == nil {
+		t.Fatal("expected error for multi-word bare verb")
+	}
+}
+
+func TestJITExecutor_Execute_ShardTypeAliases(t *testing.T) {
+	// Bare shard names must not hard-fail — maps to verbs and runs.
+	mockLLM := &MockLLMClient{
+		CompleteWithToolsFunc: func(ctx context.Context, sys, user string, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+			return &types.LLMToolResponse{Text: "ok"}, nil
+		},
+		CompleteWithSystemFunc: func(ctx context.Context, sys, user string) (string, error) {
+			return "ok", nil
+		},
+	}
+	mockTransducer := &MockTransducer{
+		ParseIntentWithContextFunc: func(ctx context.Context, input string, history []perception.ConversationTurn) (perception.Intent, error) {
+			return perception.Intent{Verb: "/test", Category: "/mutation"}, nil
+		},
+	}
+	executor := NewExecutor(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer,
+	)
+	spawner := NewSpawner(
+		&MockKernel{}, &MockVirtualStore{}, mockLLM, &MockJITCompiler{}, &MockConfigFactory{}, mockTransducer, DefaultSpawnerConfig(),
+	)
+	jitExec := NewJITExecutor(executor, spawner, mockTransducer)
+
+	for _, shard := range []string{"tester", "reviewer", "coder"} {
+		_, err := jitExec.Execute(context.Background(), TaskRequest{IntentVerb: shard, Task: "do the thing briefly"})
+		if err != nil {
+			t.Fatalf("Execute with IntentVerb=%q failed: %v", shard, err)
+		}
+	}
+}
+
 func TestJITExecutor_Execute_InlineExecution(t *testing.T) {
 	// Setup
 	mockLLM := &MockLLMClient{

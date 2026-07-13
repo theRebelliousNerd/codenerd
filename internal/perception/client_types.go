@@ -309,9 +309,14 @@ type OpenAIStreamOptions struct {
 }
 
 // OpenAIMessage represents a message.
+// Tool-calling multi-turn fields follow the OpenAI Chat Completions schema
+// (also used by xAI and other OpenAI-compatible providers).
 type OpenAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Name       string           `json:"name,omitempty"`
 }
 
 // OpenAIRequest represents the OpenAI API request.

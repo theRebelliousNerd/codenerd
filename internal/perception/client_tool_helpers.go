@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"codenerd/internal/types"
 )
 
 // MapToolDefinitionsToOpenAI converts generic tool definitions to OpenAI-compatible format.
@@ -47,6 +49,91 @@ func MapOpenAIToolCallsToInternal(calls []OpenAIToolCall) ([]ToolCall, error) {
 		}
 	}
 	return result, nil
+}
+
+// MapTypesHistoryToOpenAIMessages converts the multi-turn tool-calling history
+// used by types.ToolResultsProvider into OpenAI-compatible chat messages.
+//
+// Expected history shape (from session executor):
+//
+//	user(text) → assistant(tool_calls) → user(tool_results) → assistant(...) …
+func MapTypesHistoryToOpenAIMessages(systemPrompt string, history []types.Message) ([]OpenAIMessage, error) {
+	msgs := make([]OpenAIMessage, 0, len(history)+1)
+	if strings.TrimSpace(systemPrompt) != "" {
+		msgs = append(msgs, OpenAIMessage{Role: "system", Content: systemPrompt})
+	}
+	for _, m := range history {
+		switch {
+		case len(m.ToolResults) > 0:
+			// OpenAI expects one role=tool message per tool_result.
+			for _, tr := range m.ToolResults {
+				content := tr.Content
+				if tr.IsError && content != "" {
+					content = "ERROR: " + content
+				}
+				msgs = append(msgs, OpenAIMessage{
+					Role:       "tool",
+					Content:    content,
+					ToolCallID: tr.ToolUseID,
+				})
+			}
+		case len(m.ToolCalls) > 0:
+			oaiCalls := make([]OpenAIToolCall, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				argsJSON, err := json.Marshal(tc.Input)
+				if err != nil {
+					return nil, fmt.Errorf("marshal tool args for %s: %w", tc.Name, err)
+				}
+				oaiCalls = append(oaiCalls, OpenAIToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: OpenAIFunctionCall{
+						Name:      tc.Name,
+						Arguments: string(argsJSON),
+					},
+				})
+			}
+			msgs = append(msgs, OpenAIMessage{
+				Role:      "assistant",
+				Content:   m.Text,
+				ToolCalls: oaiCalls,
+			})
+		default:
+			role := m.Role
+			if role == "" {
+				role = "user"
+			}
+			msgs = append(msgs, OpenAIMessage{Role: role, Content: m.Text})
+		}
+	}
+	return msgs, nil
+}
+
+// OpenAIToolResponseFromResponse maps an OpenAI-compatible chat response into
+// the internal LLMToolResponse used by the session executor tool loop.
+func OpenAIToolResponseFromResponse(resp *OpenAIResponse) (*LLMToolResponse, error) {
+	if resp == nil || len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+	c := resp.Choices[0]
+	toolCalls, err := MapOpenAIToolCallsToInternal(c.Message.ToolCalls)
+	if err != nil {
+		return nil, err
+	}
+	stopReason := c.FinishReason
+	if stopReason == "tool_calls" {
+		stopReason = "tool_use"
+	}
+	return &LLMToolResponse{
+		Text:       c.Message.Content,
+		ToolCalls:  toolCalls,
+		StopReason: stopReason,
+		Usage: types.UsageMetadata{
+			InputTokens:  resp.Usage.PromptTokens,
+			OutputTokens: resp.Usage.CompletionTokens,
+			TotalTokens:  resp.Usage.TotalTokens,
+		},
+	}, nil
 }
 
 // ExecuteOpenAIRequest performs a non-streaming OpenAI-compatible request.

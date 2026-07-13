@@ -387,6 +387,24 @@ func (a *sessionLLMAdapter) CompleteWithTools(ctx context.Context, systemPrompt,
 	return a.client.CompleteWithTools(ctx, systemPrompt, userPrompt, tools)
 }
 
+// CompleteWithToolResults forwards multi-turn tool results when the underlying
+// perception client implements types.ToolResultsProvider (e.g. XAIClient).
+// Without this, the session executor always falls back to single-turn tools
+// and coding agents stop after the first tool_use batch.
+func (a *sessionLLMAdapter) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if trp, ok := a.client.(types.ToolResultsProvider); ok {
+		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}
+	// perception clients may implement the interface with perception-local aliases
+	type perceptionTRP interface {
+		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}
+	if trp, ok := a.client.(perceptionTRP); ok {
+		return trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}
+	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", a.client)
+}
+
 func (a *sessionKernelAdapter) GetProgramInfo() *analysis.ProgramInfo {
 	return a.kernel.GetProgramInfo()
 }

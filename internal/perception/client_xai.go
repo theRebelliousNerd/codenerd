@@ -174,7 +174,6 @@ func (c *XAIClient) GetModel() string {
 }
 
 // CompleteWithTools sends a prompt with tool definitions.
-// CompleteWithTools sends a prompt with tool definitions.
 func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPrompt string, tools []ToolDefinition) (*LLMToolResponse, error) {
 	openAITools := MapToolDefinitionsToOpenAI(tools)
 
@@ -193,32 +192,33 @@ func (c *XAIClient) CompleteWithTools(ctx context.Context, systemPrompt, userPro
 	if err != nil {
 		return nil, err
 	}
+	return OpenAIToolResponseFromResponse(resp)
+}
 
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	choice := resp.Choices[0]
-	toolCalls, err := MapOpenAIToolCallsToInternal(choice.Message.ToolCalls)
+// CompleteWithToolResults continues a multi-turn tool-calling conversation
+// (OpenAI-compatible tool role messages). Required so the session executor can
+// feed tool results back to the model after the first tool_use turn.
+func (c *XAIClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	msgs, err := MapTypesHistoryToOpenAIMessages(systemPrompt, history)
 	if err != nil {
 		return nil, err
 	}
-
-	stopReason := choice.FinishReason
-	if stopReason == "tool_calls" {
-		stopReason = "tool_use"
+	pTools := make([]ToolDefinition, len(tools))
+	for i, t := range tools {
+		pTools[i] = ToolDefinition{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema}
 	}
-
-	return &LLMToolResponse{
-		Text:       choice.Message.Content,
-		ToolCalls:  toolCalls,
-		StopReason: stopReason,
-		Usage: types.UsageMetadata{
-			InputTokens:  resp.Usage.PromptTokens,
-			OutputTokens: resp.Usage.CompletionTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
-		},
-	}, nil
+	reqBody := OpenAIRequest{
+		Model:      c.model,
+		Messages:   msgs,
+		Tools:      MapToolDefinitionsToOpenAI(pTools),
+		ToolChoice: "auto",
+		Stream:     false,
+	}
+	resp, err := ExecuteOpenAIRequest(ctx, c.httpClient, c.baseURL, c.apiKey, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	return OpenAIToolResponseFromResponse(resp)
 }
 
 // CompleteWithStreaming sends a prompt with streaming enabled.

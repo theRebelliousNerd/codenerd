@@ -508,6 +508,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		return false
 	}
 
+	wantAction := string(actionAtom)
 	for _, f := range facts {
 		if len(f.Args) != 3 {
 			continue
@@ -515,7 +516,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 
 		// Check Action (Handle both MangleAtom and string types)
 		factAction := types.ExtractString(f.Args[0])
-		if factAction != string(actionAtom) {
+		if factAction != wantAction {
 			continue
 		}
 
@@ -535,15 +536,48 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		return true
 	}
 
+	// Fallback: exact payload match can fail when Mangle string-normalizes large
+	// write_file contents (escapes, truncation) even though the action is
+	// constitutionally safe_action. If pending_action was asserted and the
+	// action is on the safe list, allow — still fail-closed for unknown tools.
+	if e.isSafeActionVerb(wantAction) {
+		logging.Get(logging.CategorySession).Warn(
+			"Safety check: exact permitted payload match missed for safe_action %s (target=%s payload_len=%d); allowing via safe_action fallback",
+			wantAction, target, len(payload),
+		)
+		return true
+	}
+
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
-	// TODO(improvement): Add more granular safety policies here. Currently it's a binary allow/deny.
+	return false
+}
+
+// isSafeActionVerb reports whether the kernel has a safe_action fact for verb
+// (e.g. "/write_file"). Used as a fail-open fallback for constitutionally safe
+// tools when permitted-payload exact match fails under large payloads.
+func (e *Executor) isSafeActionVerb(actionName string) bool {
+	if e.kernel == nil || actionName == "" {
+		return false
+	}
+	facts, err := e.kernel.Query("safe_action")
+	if err != nil {
+		return false
+	}
+	for _, f := range facts {
+		if len(f.Args) == 0 {
+			continue
+		}
+		if types.ExtractString(f.Args[0]) == actionName {
+			return true
+		}
+	}
 	return false
 }
 
 // extractTarget attempts to identify the primary target of a tool call.
 func (e *Executor) extractTarget(args map[string]any) string {
-	// Common keys for targets
-	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query"}
+	// Common keys for targets (include glob/search patterns used by tools).
+	candidates := []string{"path", "filename", "filepath", "file", "url", "target", "query", "pattern", "glob", "dir", "directory"}
 	for _, key := range candidates {
 		if val, ok := args[key]; ok {
 			return types.ExtractString(val)

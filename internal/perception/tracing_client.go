@@ -10,6 +10,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 )
 
 // ReasoningTrace captures a complete LLM interaction for learning and analysis.
@@ -546,6 +547,39 @@ func (tc *TracingLLMClient) CompleteWithTools(ctx context.Context, systemPrompt,
 	}
 
 	return response, err
+}
+
+// CompleteWithToolResults forwards multi-turn tool results to the underlying
+// client when it implements types.ToolResultsProvider (e.g. XAIClient).
+// Without this method the scheduler wrapper sees only TracingLLMClient and
+// aborts tool loops after the first batch ("does not implement ToolResultsProvider").
+func (tc *TracingLLMClient) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if tc == nil || tc.underlying == nil {
+		return nil, fmt.Errorf("tracing client has no underlying LLM client")
+	}
+	// Prefer types.ToolResultsProvider on the underlying client.
+	if trp, ok := tc.underlying.(interface {
+		CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error)
+	}); ok {
+		tc.mu.RLock()
+		shardID := tc.shardID
+		tc.mu.RUnlock()
+		start := time.Now()
+		logging.API("LLM tool-results started: shard=%s history=%d tools=%d", shardID, len(history), len(tools))
+		resp, err := trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+		duration := time.Since(start)
+		if err != nil {
+			logging.Get(logging.CategoryAPI).Error("LLM tool-results failed: shard=%s duration=%v error=%s", shardID, duration, err.Error())
+		} else {
+			n := 0
+			if resp != nil {
+				n = len(resp.ToolCalls)
+			}
+			logging.API("LLM tool-results completed: shard=%s duration=%v tool_calls=%d", shardID, duration, n)
+		}
+		return resp, err
+	}
+	return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", tc.underlying)
 }
 
 // ShardTraceAccessor provides shards with access to their own historical traces.

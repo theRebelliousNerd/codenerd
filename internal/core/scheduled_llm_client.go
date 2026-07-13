@@ -253,6 +253,58 @@ func (c *ScheduledLLMCall) CompleteWithTools(ctx context.Context, systemPrompt, 
 	return resp, err
 }
 
+// CompleteWithToolResults continues a multi-turn tool conversation under the
+// same slot accounting as CompleteWithTools. Required so the session executor
+// can type-assert ToolResultsProvider through the scheduler wrapper.
+func (c *ScheduledLLMCall) CompleteWithToolResults(ctx context.Context, systemPrompt string, history []types.Message, tools []types.ToolDefinition) (*types.LLMToolResponse, error) {
+	if c.Scheduler == nil {
+		return nil, fmt.Errorf("scheduler not configured on ScheduledLLMCall")
+	}
+	if c.Client == nil {
+		return nil, fmt.Errorf("underlying LLM client is nil")
+	}
+	trp, ok := c.Client.(types.ToolResultsProvider)
+	if !ok {
+		return nil, fmt.Errorf("LLM client %T does not implement ToolResultsProvider", c.Client)
+	}
+
+	if err := c.Scheduler.AcquireAPISlot(ctx, c.ShardID); err != nil {
+		return nil, fmt.Errorf("failed to acquire API slot: %w", err)
+	}
+	defer c.Scheduler.ReleaseAPISlot(c.ShardID)
+
+	model := c.GetModel()
+	logging.LogLLMRequest(c.ShardID+"-tool-results", systemPrompt,
+		fmt.Sprintf("[TOOL_RESULTS history_turns=%d tools=%d]", len(history), len(tools)), nil, model, 0)
+
+	var resp *types.LLMToolResponse
+	var err error
+	start := time.Now()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic during LLM tool-results call: %v", r)
+			}
+		}()
+		resp, err = trp.CompleteWithToolResults(ctx, systemPrompt, history, tools)
+	}()
+	duration := time.Since(start)
+	if err != nil {
+		logging.LogLLMError(c.ShardID+"-tool-results", err, duration)
+		if isRateLimitErr(err) {
+			c.Scheduler.ReportRateLimit()
+		}
+	} else if resp != nil {
+		summary := resp.Text
+		if len(resp.ToolCalls) > 0 {
+			summary += fmt.Sprintf("\n[TOOL_CALLS, count=%d, stop=%s]", len(resp.ToolCalls), resp.StopReason)
+		}
+		logging.LogLLMResponse(c.ShardID+"-tool-results", summary, duration, len(summary)/4)
+		c.Scheduler.ReportSuccess()
+	}
+	return resp, err
+}
+
 type tracingContextSetter interface {
 	SetShardContext(shardID, shardType, shardCategory, sessionID, taskContext string)
 	ClearShardContext()
