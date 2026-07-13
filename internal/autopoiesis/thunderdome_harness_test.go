@@ -406,3 +406,16 @@ func BinaryInput(ctx context.Context, input string) (string, error) {
 // TODO: TEST_GAP: [Behavioral Edge Case] Verify Battle detects panics resulting from deep recursion (Go runtime stack overflow) properly instead of marking it a survival/timeout.
 // TODO: TEST_GAP: [Input Boundary] Verify tool execution properly handles and identifies tools that panic when an empty string ("") is supplied as the attack input.
 // TODO: TEST_GAP: [Network Access] Verify that Battle sandbox environments successfully block or detect network exfiltration from the generated tools.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Battle returns a clean error and does not panic when `tool` is nil.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Battle handles tools where `tool.Code` is an empty string gracefully.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify Battle handles an empty `attacks` slice without out-of-bounds errors.
+// TODO: TEST_GAP: [Null/Undefined/Empty] Verify test harness behavior when an attack vector has an empty `Input` string ("") and the tool expects input of length > 0.
+// TODO: TEST_GAP: [Type Coercion] Verify Battle correctly handles and rejects tools with incompatible signatures (e.g., struct argument instead of string).
+// TODO: TEST_GAP: [Type Coercion] Verify test harness compilation succeeds or fails gracefully when a tool has no return values or only returns a single value.
+// TODO: TEST_GAP: [User Request Extremes] Verify NewThunderdomeWithConfig properly handles Timeout=0.
+// TODO: TEST_GAP: [User Request Extremes] Verify NewThunderdomeWithConfig properly handles MaxMemoryMB=0.
+// TODO: TEST_GAP: [User Request Extremes] Verify behavior when Timeout configuration is sub-second (e.g., 500ms), ensuring the integer cast in the harness does not evaluate to 0-second timeouts.
+// TODO: TEST_GAP: [User Request Extremes] Verify host process does not OOM when a malicious tool prints 1GB of text to stdout/stderr in runAttack.
+// TODO: TEST_GAP: [User Request Extremes] Verify prepareArena enforces a strict internal timeout for the compilation step (go test -c) to prevent infinite compilation attacks.
+// TODO: TEST_GAP: [State Conflicts] Verify prepareArena uses a UUID or secure random string for arena directories to prevent collisions under heavy parallel execution (ParallelAttacks > 1).
+// TODO: TEST_GAP: [State Conflicts] Verify Battle correctly handles `ThunderdomeConfig.ParallelAttacks > 1`, as it currently executes attacks sequentially in a loop regardless of this setting.
