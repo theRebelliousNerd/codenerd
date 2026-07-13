@@ -18,8 +18,8 @@ type EmbeddingEngine interface {
 
 | Method | Semantics |
 |--------|-----------|
-| `Embed` | One text → one vector; error on failure |
-| `EmbedBatch` | N texts → N vectors (order preserved); empty → `nil, nil` |
+| `Embed` | One text → one finite, non-empty vector; malformed provider output is an error |
+| `EmbedBatch` | N texts → exactly N uniform-width vectors in order; empty → `nil, nil` |
 | `Dimensions` | Declared width of vectors (not necessarily probed) |
 | `Name` | Stable-ish identifier for logs/stats (`provider:model`) |
 
@@ -94,13 +94,13 @@ Always succeeds for config (no dial). Defaults endpoint/model as documented.
 
 | Method | Notes |
 |--------|-------|
-| `Embed` | Retries, auto-pull on missing model |
+| `Embed` | Retries network/protocol/malformed-vector failures with cancellable backoff; auto-pull on missing model |
 | `EmbedBatch` | Sequential |
 | `Dimensions` | 768 |
-| `Name` | `ollama:<model>` |
+| `Name` | synchronized `ollama:<model>` snapshot |
 | `Model` | Current model (mutex); may differ post-ensure |
 | `HealthCheck` | 2s `/api/tags` |
-| `EnsureModel` | Idempotent ensure/pull |
+| `EnsureModel` | Serialized ensure/pull; a context-cancelled pull can be retried later |
 
 Does **not** implement task-aware interfaces.
 
@@ -116,9 +116,9 @@ Fails if `apiKey == ""`. Defaults model and task type.
 
 | Method | Notes |
 |--------|-------|
-| `Embed` | Uses engine default task type |
+| `Embed` | Uses engine default task type; validates first result and nil entries |
 | `EmbedWithTask` | Explicit task |
-| `EmbedBatch` | Chunk ≤100; parallel if larger |
+| `EmbedBatch` | Chunk ≤100; parallel if larger; exact cardinality and uniform shape required |
 | `EmbedBatchWithTask` | Explicit task for batch |
 | `Dimensions` | 3072 |
 | `Name` | `genai:<model>` |
@@ -190,6 +190,10 @@ Not public API, but important for reviewers:
 | `pullTargetFor` / `modelBase` | `ollama.go` | Pull naming |
 | `isModelNotFoundStatus` | `ollama.go` | 404/400 body detect |
 | `knownEmbedFamilies` | `ollama.go` | Safe remap set |
+| `validateEmbeddingVector` | `engine.go` | Reject empty, NaN, and infinite vectors |
+| `validateEmbeddingBatchResponse` | `engine.go` | Enforce N-to-N cardinality and one finite width |
+| `waitForRetry` | `ollama.go` | Context-aware retry delay |
+| `invalidateModel` | `ollama.go` | Locked readiness invalidation |
 
 ---
 
@@ -200,3 +204,5 @@ Not public API, but important for reviewers:
 3. **Empty batch** returns `nil, nil` (not empty slice) for both engines — check both `err` and length.
 4. **Name()** may change for Ollama after ensure (model remapped); re-read after first Embed if logging identity.
 5. Mocks for tests need only `EmbeddingEngine` unless the unit under test asserts optional interfaces — see `internal/store` mock engines.
+6. Do not persist a result merely because the provider returned HTTP success;
+   implementations now turn malformed single and batch payloads into errors.

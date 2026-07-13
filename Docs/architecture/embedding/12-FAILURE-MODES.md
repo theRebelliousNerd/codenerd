@@ -44,8 +44,8 @@
 | | |
 |--|--|
 | **Trigger** | Large model download; short parent ctx |
-| **Behavior** | pull client 30m but parent ctx can cancel earlier |
-| **Mitigation** | Pull offline first; widen ctx for maintenance reembed only |
+| **Behavior** | pull client 30m but parent ctx can cancel earlier; context failure re-arms `pullAttempted` |
+| **Mitigation** | A later request retries automatically; pre-pull offline for deterministic boot |
 
 ## FM6 — GenAI API error (4xx/5xx/network)
 
@@ -63,13 +63,13 @@
 | **Behavior** | Chunk failures; whole batch fails |
 | **Mitigation** | Serialize reembeds; lower concurrency (code change); respect shared transport notes in genai.go |
 
-## FM8 — Empty embeddings response
+## FM8 — Malformed provider response
 
 | | |
 |--|--|
-| **Trigger** | GenAI returns zero embeddings |
-| **Behavior** | Error “no embeddings returned” |
-| **Mitigation** | Retry; inspect model/API status; file SDK issue if persistent |
+| **Trigger** | Empty, nil, NaN, infinite, truncated, or mixed-width provider vectors |
+| **Behavior** | Single or batch response validation returns an error; Ollama retries within its bound |
+| **Mitigation** | Inspect provider/model health; no malformed vector reaches persistence through a successful engine call |
 
 ## FM9 — Dimension mismatch at similarity time
 
@@ -128,7 +128,15 @@
 |--|--|
 | **Trigger** | Many goroutines Embed before modelReady |
 | **Behavior** | Mutex serializes ensure; only one pull |
-| **Mitigation** | Already handled; prefer NewEngine init ensure |
+| **Mitigation** | Already handled; `Name`, `Model`, Embed snapshots, updates, and invalidation share the mutex and pass the race detector |
+
+## FM16 — Experimental SIMD API or build-contract drift
+
+| | |
+|--|--|
+| **Trigger** | Toolchain changes `simd/archsimd`, or build uses only `-tags simd` without enabling the experiment |
+| **Behavior** | Optional accelerated build fails; default generic build is unaffected |
+| **Mitigation** | Verify with `GOEXPERIMENT=simd go test -tags simd`; keep generic path as release fallback until policy is explicit |
 
 ## 3. Failure mode vs layer ownership
 
@@ -155,5 +163,6 @@ boot warning embedding unavailable?
 
 model pull loop failed?
   → manual `ollama pull embeddinggemma:300m`
-  → restart nerd (new engine instance resets pullAttempted)
+  → if cancellation caused it, retry in the same engine instance
+  → after a permanent pull failure, fix the root cause and restart or construct a new engine
 ```

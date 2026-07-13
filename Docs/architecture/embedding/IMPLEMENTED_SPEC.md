@@ -4,7 +4,7 @@
 > Status: Living Reference Document  
 > Language: Go  
 > Primary package: `internal/embedding/`  
-> Scale: **6** non-test Go ≈ **1,498** lines; **7** tests ≈ **1,747** lines; **0** Mangle sources
+> Scale: **6** non-test Go = **1,592** lines; **7** tests = **1,915** lines; **0** Mangle sources; scoped `agents.md`
 
 ## 1. Overview
 
@@ -20,6 +20,7 @@
 | GenAI task-type selection / content detection | `task_selector.go` |
 | Cosine similarity (pure Go / optional AVX2) | `math_generic.go`, `math_amd64.go` |
 | Brute-force top-K by cosine | `FindTopK` in `engine.go` |
+| Provider-response trust boundary | `validateEmbeddingVector` / `validateEmbeddingBatchResponse` in `engine.go` |
 
 ### What it is not
 
@@ -94,6 +95,10 @@ Embeddings **inform** perception and prompt selection; they never replace the ke
 | Ollama native batch API | **N/A / sequential** | `EmbedBatch` loops `Embed` |
 | GenAI `HealthChecker` | **Not implemented** | factory always attaches GenAI on construct success |
 | Mangle surface | **None** | no `.mg` |
+| Provider output validation | **Implemented** | finite/non-empty single vectors; exact-cardinality uniform batches |
+| Ollama model-state synchronization | **Implemented** | locked identity/readiness/invalidation + race regression |
+| Cancelled bootstrap re-arm | **Implemented** | caller-context pull failure permits later ensure |
+| Experimental SIMD verification | **Implemented** | current opaque API; experiment + build-tag suite passes |
 
 **Overall:** production substrate, actively wired — **not** pre-implementation.
 
@@ -111,6 +116,7 @@ internal/embedding/
   task_selector.go          # ContentType, Select/Detect/GetOptimalTaskType
   math_generic.go           # CosineSimilarity default build
   math_amd64.go             # CosineSimilarity AVX2 build tag
+  agents.md                 # scoped implementation and verification rules
   *_coverage_test.go        # engine, genai, ollama, task_selector
   ollama_ensure_test.go     # model resolution / ensure paths
   task_selector_test.go     # focused task-type tests
@@ -121,21 +127,21 @@ internal/embedding/
 
 | Path | Lines | Role |
 |------|------:|------|
-| `internal/embedding/ollama.go` | 611 | Ollama HTTP, retries, EnsureModel, pull, resolution |
-| `internal/embedding/genai.go` | 373 | GenAI client, batch chunk/parallel, EmbedBatchJob |
-| `internal/embedding/engine.go` | 216 | Interfaces, factory, FindTopK, SimilarityResult |
+| `internal/embedding/ollama.go` | 657 | Validated HTTP, cancellable retries, synchronized EnsureModel/pull |
+| `internal/embedding/genai.go` | 386 | Validated GenAI client, batch chunk/parallel, EmbedBatchJob |
+| `internal/embedding/engine.go` | 249 | Interfaces, factory, response contracts, FindTopK |
 | `internal/embedding/task_selector.go` | 198 | ContentType map → GenAI TaskType strings |
-| `internal/embedding/math_amd64.go` | 57 | SIMD cosine (`//go:build amd64 && simd`) |
+| `internal/embedding/math_amd64.go` | 65 | Experimental opaque-vector SIMD cosine (`//go:build amd64 && simd`) |
 | `internal/embedding/math_generic.go` | 37 | Scalar cosine (default builds) |
 
 ### 3.3 Test sources (approx lines)
 
 | Path | Lines | Focus |
 |------|------:|-------|
-| `ollama_coverage_test.go` | 486 | HTTP mock embed/batch/health/errors |
-| `engine_coverage_test.go` | 448 | Config, NewEngine, Cosine, FindTopK |
+| `ollama_coverage_test.go` | 561 | HTTP mock, malformed output, retries, concurrent state |
+| `engine_coverage_test.go` | 494 | Config/factory, Cosine/TopK, response-contract matrices |
 | `task_selector_coverage_test.go` | 409 | Select/Detect/GetOptimal matrix |
-| `ollama_ensure_test.go` | 176 | resolve/prefer/pull helpers |
+| `ollama_ensure_test.go` | 223 | resolve/prefer/pull and cancelled-bootstrap retry |
 | `genai_coverage_test.go` | 124 | construct + dimensions/name (limited live API) |
 | `task_selector_test.go` | 60 | smaller unit cases |
 | `genai_bench_test.go` | 44 | parallel batch bench skeleton |
@@ -147,7 +153,9 @@ internal/embedding/
 | `math_amd64.go` | `amd64 && simd` |
 | `math_generic.go` | `!amd64 \|\| !simd` |
 
-Default Windows/Linux builds without `-tags simd` use the generic loop. Both define the same exported `CosineSimilarity` symbol.
+Default Windows/Linux builds use the generic loop. The amd64 path requires both
+`GOEXPERIMENT=simd` and `-tags simd`; both define the same exported
+`CosineSimilarity` symbol and run the same package tests.
 
 ---
 
@@ -249,9 +257,9 @@ Embed(ctx, text)
   → EnsureModel (best-effort)
   → up to 3 attempts:
        POST {endpoint}/api/embeddings  {model, prompt}
-       on network/5xx/decode errors → exponential backoff (300ms…)
+       on network/5xx/decode/invalid-vector errors → context-aware backoff (300ms…)
        on model-not-found body → EnsureModel once, reset attempts
-  → []float32
+  → finite non-empty []float32
 ```
 
 Model-not-found detection (`isModelNotFoundStatus`) accepts 404, or 400/other with body phrases like “not found”, “try pulling”.
@@ -271,6 +279,11 @@ list /api/tags
     success → model = pullName, ready
     fail + known family → try nomic-embed-text fallback
 ```
+
+`model`, `modelReady`, and `pullAttempted` are read and changed under the same
+mutex, including `Name`, `Model`, request snapshots, and invalidation. A pull
+that fails because its caller context ended resets `pullAttempted`; a later
+request may retry. Non-context failures remain bounded per engine instance.
 
 **Known embed families** (only these auto-prefer / fallback):  
 `embeddinggemma`, `nomic-embed-text`, `mxbai-embed-large`, `all-minilm`, `bge-m3`, `bge-large`, `snowflake-arctic-embed`.
@@ -304,7 +317,8 @@ Pull uses a **separate** client with **30 minute** timeout, `stream:false`, NDJS
 ### 6.2 Sync embed
 
 - Single: `Models.EmbedContent` with one content, `OutputDimensionality=3072`, optional `TaskType`.
-- Batch ≤100: one EmbedContent with N contents.
+- Batch ≤100: one EmbedContent with N contents; response must contain exactly N
+  finite, non-empty, uniform-width vectors.
 - Batch >100: chunk to 100, **errgroup** limit 6, order preserved via slot array, first error cancels siblings.
 
 ### 6.3 Async batch job
@@ -386,7 +400,7 @@ Heuristics are intentionally shallow — package comment ethos elsewhere in the 
 | `net/http`, `encoding/json` | Ollama |
 | `google.golang.org/genai` | GenAI |
 | `golang.org/x/sync/errgroup` | GenAI parallel batches |
-| `simd/archsimd` | optional AMD64 SIMD cosine only |
+| `simd/archsimd` | optional Go experiment for AMD64 SIMD cosine only |
 
 No import of `core`, `mangle`, `store`, or `prompt` — package stays a **leaf substrate**.
 
@@ -454,6 +468,8 @@ See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md). Headline ga
 5. **EmbedBatchJob** submit without in-package poll/helpers.
 6. **GenAI no HealthChecker** — first failure is first Embed.
 7. **Ollama sequential batch** throughput ceiling for large reembeds.
+8. **No explicit Ollama response-body byte cap** beyond request timeouts and
+   post-decode vector validation.
 
 ---
 
@@ -463,6 +479,9 @@ See [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) and [TODO.md](TODO.md). Headline ga
 - API keys only for GenAI construct; not logged as full secrets (length may be logged at debug).
 - Auto-pull can download large models (disk/time) — intentional for DX, gated by known families for remaps.
 - Context cancellation honored on retries and batch loops.
+- Malformed provider vectors fail closed before they reach consumers.
+- Ollama lifecycle state is synchronized; cancelled bootstrap pulls do not
+  permanently disable later request-scoped recovery.
 - Does not bypass constitutional `permitted(...)` — callers in VirtualStore/tools still policy-gated.
 
 Full treatment: [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
@@ -471,7 +490,12 @@ Full treatment: [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).
 
 ## 13. Testing posture (summary)
 
-Strong unit coverage for factory, cosine, task selection, Ollama HTTP mock, ensure helpers. Weak/zero automatic coverage for live GenAI EmbedContent, parallel batch under rate limits, and SIMD path (tag-gated). Commands in [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md).
+Strong unit coverage for factory, cosine, task selection, provider response
+contracts, Ollama HTTP/lifecycle behavior, cancellation, and race safety. The
+experimental SIMD path runs the same package suite under its toolchain flag.
+Live GenAI EmbedContent, rate-limit behavior, and async job polling remain weak
+or external. Commands and receipts are in
+[10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) and [_progress.md](_progress.md).
 
 ---
 
@@ -492,7 +516,9 @@ When modifying this package:
 2. Keep Ollama known-family remaps conservative (tests rely on non-remap of `test-model`).
 3. Keep GenAI `OutputDimensionality` and `Dimensions()` aligned if Google changes defaults.
 4. Run `go test ./internal/embedding/...` and at least one store package test that mocks the engine.
-5. Update this corpus if public behavior changes.
+5. Run `go test -race ./internal/embedding/...` for lifecycle changes and the
+   experimental SIMD command for `math_amd64.go` changes.
+6. Update this corpus if public behavior changes.
 
 ---
 

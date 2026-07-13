@@ -83,6 +83,11 @@ Creates engine from init-time embedding config for seeding vectors during `nerd 
 | Reflection | Background workers re-embed traces/learnings with expected task/model/dim |
 
 Store owns schema, persistence, and when to call the engine. Embedding package never opens sqlite.
+Provider implementations now validate the response before this boundary, so
+store and prompt consumers receive either a finite, cardinality-correct vector
+result or an error. Store still owns cross-run vector-space identity and
+migration; package-local validation cannot detect an old index created by a
+different provider/model/task tuple.
 
 ## 6. Prompt / JIT wiring
 
@@ -174,6 +179,7 @@ If engine is nil, semantic features degrade; kernel and policy still run.
 | Ignoring task-aware assert on GenAI | SelectTaskType + EmbedWithTask |
 | Deleting engine field because “optional” | Audit all SetEmbeddingEngine / NewAtomLoader call sites |
 | Mixing providers without reembed | config set + reembed + stats verify |
+| Persisting an HTTP-success payload without shape checks | Trust the engine's validated result and still enforce store vector-space identity |
 
 ## 15. Registration checklist for new consumers
 
@@ -182,3 +188,6 @@ If engine is nil, semantic features degrade; kernel and policy still run.
 3. Pass engine from Cortex / boot, do not re-read API keys ad hoc unless a standalone tool.
 4. Handle `engine == nil` (features off).
 5. Log under appropriate category; use embedding category only inside this package or for engine lifecycle.
+6. Treat `Name()` plus `Dimensions()` as partial identity only; do not infer
+   compatibility across provider/model/task changes until the store contract is
+   upgraded.

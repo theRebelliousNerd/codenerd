@@ -36,7 +36,7 @@
 | `net/http`, `encoding/json`, `bytes`, `io` | std | Ollama |
 | `golang.org/x/sync/errgroup` | module | GenAI parallel batches |
 | `google.golang.org/genai` | module | GenAI client/types |
-| `simd/archsimd` | module | SIMD cosine (amd64+simd only) |
+| `simd/archsimd` | Go experiment package | SIMD cosine (`GOEXPERIMENT=simd`, amd64+simd tag only) |
 
 **Does not import:** `core`, `mangle`, `store`, `prompt`, `config`, `perception`.
 
@@ -106,6 +106,7 @@ Verified via `rg "codenerd/internal/embedding" -g "*.go"`.
 | Google Gemini Developer API | provider=genai |
 | Network + API key | GenAI only |
 | Disk space | Ollama model pulls |
+| Go experimental SIMD API | optional accelerated test/release builds only |
 
 ## 6. Audit command
 

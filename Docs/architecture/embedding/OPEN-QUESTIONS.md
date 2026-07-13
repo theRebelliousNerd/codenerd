@@ -31,9 +31,12 @@ Default is Ollama. Cloud-first users always reconfigure. Is that still the right
 `genai.go` comments reference `internal/perception/transport.go` for 429 risk.  
 Is GenAI embed client sharing that transport today, or still a separate SDK client? (Construct uses `genai.NewClient` with APIKey only.)
 
-## Q7 — SIMD in release builds?
+## Q7 — Is experimental SIMD a supported release lane?
 
-Is `-tags simd` part of any release pipeline? If not, is the AMD64 file dead weight in practice?
+The current Go 1.26 implementation compiles and passes under
+`GOEXPERIMENT=simd` plus `-tags simd`; the ordinary build intentionally selects
+generic math. Should releases opt into an experimental toolchain feature, or
+should this remain a verified laboratory lane?
 
 ## Q8 — FindTopK retention?
 
@@ -46,3 +49,17 @@ Only one endpoint per engine. Any plan for multi-host load balance, or always ex
 ## Q10 — Vertex AI embeddings?
 
 SDK notes Developer API for CreateEmbeddings. Do we ever need Vertex backend config, or is Developer API permanent product choice?
+
+## Q11 — What owns vector-space identity?
+
+Should provider/model/task/dimensions/normalization identity be created by the
+engine and persisted by store, or created as a cross-package contract in store?
+The answer determines where an incompatible provider switch is denied and how
+reembed migration is recorded.
+
+## Q12 — Should Ollama response bodies have an explicit byte ceiling?
+
+Requests and retries are time-bounded, and decoded vectors are shape-validated,
+but HTTP response reads are not currently capped by an embedding-specific byte
+limit. What bound covers legitimate models while preventing a misbehaving
+configured endpoint from consuming excessive memory?

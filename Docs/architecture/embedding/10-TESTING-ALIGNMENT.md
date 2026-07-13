@@ -7,34 +7,36 @@
 
 ```powershell
 # Unit + coverage tests (no live network required for main suite)
-go test ./internal/embedding/...
+go test -count=1 ./internal/embedding/...
 
 # Verbose
 go test -v ./internal/embedding/...
 
 # Race detector (Ollama ensure mutex, GenAI errgroup)
-go test -race ./internal/embedding/...
+go test -count=1 -race ./internal/embedding/...
 
 # Optional live GenAI benchmark (needs credentials + network)
 # go test -bench=BenchmarkEmbedBatchParallel -benchtime=1x ./internal/embedding/
 
-# SIMD cosine path (if toolchain supports)
-# go test -tags simd ./internal/embedding/...
+# Experimental SIMD cosine path (Go 1.26 toolchain)
+$env:GOEXPERIMENT='simd'
+go test -count=1 -tags simd ./internal/embedding/...
+Remove-Item Env:GOEXPERIMENT
 ```
 
 ## 2. Test inventory
 
 | File | ≈Lines | What it covers |
 |------|-------:|----------------|
-| `engine_coverage_test.go` | 448 | DefaultConfig fields; NewEngine unsupported/empty/ollama/genai-no-key; CosineSimilarity happy/mismatch/zero; FindTopK k defaults/order/skips |
-| `ollama_coverage_test.go` | 486 | Mock HTTP for Embed success/fail/retry/404-pull; EmbedBatch; HealthCheck; Name/Dimensions |
-| `ollama_ensure_test.go` | 176 | resolveInstalledModel, preferInstalledEmbeddingModel, pullTargetFor, modelBase, known families non-remap |
+| `engine_coverage_test.go` | 494 | Config/factory; cosine/top-K; empty/non-finite vector and batch cardinality/shape contracts |
+| `ollama_coverage_test.go` | 561 | Mock API; retry/pull; malformed output; synchronized public model access |
+| `ollama_ensure_test.go` | 223 | Resolution/pull helpers; known-family boundary; cancelled-bootstrap retry |
 | `task_selector_coverage_test.go` | 409 | SelectTaskType matrix; DetectContentType metadata + heuristics; GetOptimalTaskType query remap |
 | `task_selector_test.go` | 60 | Focused smaller cases |
 | `genai_coverage_test.go` | 124 | Construct validation, Name/Dimensions, limited method surface without full live Embed |
 | `genai_bench_test.go` | 44 | Parallel batch bench scaffold |
 
-**Ratio:** test lines ≳ production lines — good for HTTP edge cases.
+**Ratio:** 1,915 test lines / 1,592 production lines — strong package-local pressure.
 
 ## 3. Alignment vs risk hotspots
 
@@ -43,12 +45,16 @@ go test -race ./internal/embedding/...
 | NewEngine provider switch | **Yes** | engine_coverage |
 | Ollama retries / 404 pull | **Yes** | ollama_coverage + ensure |
 | Known-family non-remap of test-model | **Yes** | ensure tests (protects custom names) |
+| Empty/non-finite/partial/mixed-width provider output | **Yes** | engine validators + Ollama mock response |
+| Ollama model identity race | **Yes** | concurrent read regression + race detector |
+| Bootstrap deadline poisoning | **Yes** | cancelled pull re-arm regression |
+| Cancellation during backoff | **Yes** | `TestWaitForRetryHonorsCancellation` |
 | Cosine / FindTopK | **Yes** | engine_coverage |
 | Task selector | **Yes** | large matrix |
 | GenAI parallel errgroup order | **Partial** | bench + limited coverage; hard without mock SDK |
 | GenAI EmbedBatchJob | **Weak / none** | experimental path |
 | Live Ollama EnsureModel pull | **No CI** | would need daemon + network |
-| SIMD cosine numerical parity | **No default** | tag-gated file |
+| SIMD cosine numerical parity | **Yes, optional lane** | same cosine suite passes under experiment + tag |
 | Integration with store reembed | **Outside package** | store tests use mocks |
 
 ## 4. Testing principles used
@@ -65,7 +71,7 @@ go test -race ./internal/embedding/...
 | No fake GenAI HTTP layer | Parallel batch regressions possible | Interface-wrap Models.EmbedContent or record/replay |
 | EmbedBatchJob untested | Tools may break on SDK changes | Unit with stub Batches client if SDK allows |
 | No integration test job | Real Ollama regressions slip | Optional Makefile target `test-embedding-live` |
-| SIMD vs generic parity | Numeric drift if both diverge | Shared table-driven vectors under both tags |
+| Release SIMD policy | Accelerated code remains outside ordinary CI | Decide supported experiment lane; keep shared suite |
 | Factory health discard path | Boot asymmetry | Test in `internal/system` with mock HealthChecker |
 
 ## 6. Downstream test coupling
@@ -86,6 +92,7 @@ When changing interfaces:
 | Task types | task_selector matrices updated |
 | GenAI batch | coverage or bench local verification + store batch tests |
 | New provider | NewEngine tests + mock in store |
+| Provider response path | invalid single and batch shapes + retry/error semantics |
 
 ## 8. Non-goals for this package’s tests
 

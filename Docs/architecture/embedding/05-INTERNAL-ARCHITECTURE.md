@@ -25,6 +25,11 @@
          /api/pull
                       │                      │
                       └──────────┬───────────┘
+                                 │ provider payload
+                    ┌────────────▼──────────────┐
+                    │ response contract         │
+                    │ finite/nonempty/shape     │
+                    └────────────┬──────────────┘
                                  │ []float32 / [][]float32
                     ┌────────────▼──────────────┐
                     │ CosineSimilarity / FindTopK│
@@ -36,7 +41,7 @@
 
 | Layer | Files | Role |
 |-------|-------|------|
-| Contract | `engine.go` | Interfaces, config, factory, top-K |
+| Contract | `engine.go` | Interfaces, config, factory, provider validation, top-K |
 | Provider A | `ollama.go` | Local HTTP lifecycle |
 | Provider B | `genai.go` | Cloud SDK lifecycle |
 | Semantics | `task_selector.go` | Content → GenAI TaskType |
@@ -67,11 +72,11 @@ Minimum contract for all callers. Implementations:
 | Field | Role |
 |-------|------|
 | `endpoint` | Trimmed base URL |
-| `model` | May change after resolve/pull |
+| `model` | May change after resolve/pull; read under `ensureMu` |
 | `client` | 60s timeout HTTP |
 | `ensureMu` | Serializes ensure state |
 | `modelReady` | Skip re-list when true |
-| `pullAttempted` | One pull per engine instance |
+| `pullAttempted` | One non-context-failed pull per engine instance; caller cancellation re-arms |
 
 ### 3.4 `GenAIEngine` fields
 
@@ -112,11 +117,14 @@ Minimum contract for all callers. Implementations:
                                     │             │
                                     ▼             ▼
                                  error      pullModel
-                                              /    \
-                                           ok       fail
+                                              /       \
+                                           ok       ctx fail
                                             │         │
                                             ▼         ▼
-                                       modelReady  fallback nomic?
+                                       modelReady  re-arm attempt
+                                                    and return
+
+non-context pull failure → fallback nomic?
                                                     /        \
                                                   ok        fail
                                                    │          │
@@ -130,10 +138,10 @@ Minimum contract for all callers. Implementations:
 attempt 1..3:
   if ctx done → return
   POST embed
-  network/5xx/decode → backoff, continue
+  network/5xx/decode/invalid vector → context-aware backoff, continue
   model missing + !pulledOn404 → EnsureModel, reset attempt, continue
   other 4xx → fail
-  200 → return embedding
+  200 + finite nonempty vector → return embedding
 exhausted → fail
 ```
 
@@ -146,7 +154,8 @@ else:
   split chunks of 100
   errgroup limit 6
   each: check gctx → chunk → slot[i]
-  Wait → flatten slots → return
+  each chunk validates exact cardinality, finite/nonempty vectors, uniform width
+  Wait → flatten slots in input order → return
 ```
 
 ## 5. Data shapes
@@ -176,13 +185,13 @@ Normalized with `strings.ToUpper(strings.TrimSpace)`. Callers should pass canoni
 |------|-------------|
 | Ollama Embed | Single request; retries sequential |
 | Ollama EmbedBatch | Sequential loop |
-| Ollama EnsureModel | Mutex; safe concurrent callers |
+| Ollama EnsureModel / Name / Model / invalidation | One mutex protects all mutable model state |
 | GenAI Embed | Single RPC |
 | GenAI EmbedBatch >100 | Up to 6 concurrent RPCs; shared engine (SDK client) |
 | CosineSimilarity / FindTopK | Pure functions; no shared state |
 | FindTopK | Single-threaded scan/sort |
 
-**Thread safety:** Engine instances are intended for concurrent Embed if the underlying client allows. Ollama ensure path is mutex-safe. GenAI client concurrency relies on SDK + shared HTTP transport elsewhere (comment references `internal/perception/transport.go` for 429 risk).
+**Thread safety:** Engine instances are intended for concurrent Embed if the underlying client allows. Ollama model lifecycle and identity reads are mutex-safe and have a race regression. GenAI client concurrency relies on SDK + shared HTTP transport elsewhere (comment references `internal/perception/transport.go` for 429 risk).
 
 ## 7. Error taxonomy (internal)
 
@@ -192,7 +201,7 @@ Normalized with `strings.ToUpper(strings.TrimSpace)`. Callers should pass canoni
 | Network | dial errors; timeouts |
 | Protocol | non-200; decode failures |
 | Model lifecycle | missing model; pull failed |
-| API semantic | no embeddings returned |
+| API semantic | no embeddings, non-finite values, partial batch, mixed widths |
 | Math | dimension mismatch |
 
 All public methods wrap with `%w` where appropriate for caller inspection.
@@ -215,11 +224,13 @@ This keeps Ollama free of unused task parameters.
 ## 9. Build-tag math selection
 
 ```
-go build                  → math_generic.go (almost always)
-go build -tags simd       → math_amd64.go on amd64
+go build                                      → math_generic.go
+GOEXPERIMENT=simd go build -tags simd         → math_amd64.go on amd64
 ```
 
-Both export identical signatures. Tests use whichever is selected by the build.
+Both export identical signatures. The accelerated path uses Go 1.26's opaque
+experimental vector API and therefore requires both the experiment and build
+tag. The shared package tests exercise whichever implementation is selected.
 
 ## 10. Extension points (if growing the package)
 

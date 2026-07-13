@@ -11,6 +11,7 @@ Provide a **single, boring, reliable** interface for text embeddings so every co
 - Embed documents and queries with **intent-appropriate** task types when the backend supports them.
 - Compare vectors with a well-defined cosine contract.
 - Degrade cleanly when the local daemon or cloud key is missing.
+- Reject malformed provider output before it can contaminate semantic memory.
 
 ## 2. Product outcomes
 
@@ -58,6 +59,7 @@ Treat GenAI task types as part of the **index schema**:
 | Ollama down at boot | Clear warning; Cortex up; semantic features off or deferred |
 | Provider switch | Operator runs reembed; stats show engine/dims |
 | Huge reembed | GenAI parallel batch or async job; Ollama honest sequential cost |
+| Provider returns malformed data | Fail closed with a contextual, observable error |
 
 ## 4. Non-goals
 
@@ -74,11 +76,17 @@ Treat GenAI task types as part of the **index schema**:
 3. Switching provider is a documented two-step: config set + reembed.
 4. Package tests stay green without network.
 5. No imports from core/mangle into embedding (leaf preserved).
+6. Every successful response satisfies the finite/non-empty/cardinality/shape contract.
 
 ## 6. Horizon (dependency-ordered, no time estimates)
 
-1. Dimension discovery or explicit config override aligned with store schema.
-2. Unified boot health policy (factory ↔ chat).
-3. Optional in-package GenAI batch-job poll helper for tools.
-4. Throughput path for Ollama (worker pool) if local reembed remains a bottleneck.
-5. Metrics counters (embed latency histogram, pull count) if observability platform expands.
+1. **PROPOSED UPLIFT — `embedding-vector-space-identity-v1`:** make
+   provider/model/task/dimensions/normalization an explicit store compatibility
+   key with migration denial on mismatch.
+2. **PROPOSED UPLIFT — `embedding-semantic-health-receipt-v1`:** publish one
+   redacted health/degradation receipt shared by factory, chat, CLI, and glass box.
+3. Unified boot health policy (factory ↔ chat).
+4. Optional in-package GenAI batch-job poll helper for tools.
+5. Throughput path for Ollama (worker pool) if local reembed remains a bottleneck.
+6. **DEFERRED MOONSHOT — `embedding-shadow-retrieval-lab-v1`:** compare candidate
+   vector spaces against a read-only golden query set without mutating production indexes.

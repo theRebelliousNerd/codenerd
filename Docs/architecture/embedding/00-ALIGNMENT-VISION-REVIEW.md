@@ -2,7 +2,7 @@
 
 > Last verified against codebase: 2026-07-13  
 > Status: Living Reference Document — code-grounded  
-> Source: `internal/embedding/` (6 non-test Go ≈ 1.5k lines; 7 tests ≈ 1.7k lines)
+> Source: `internal/embedding/` (6 non-test Go = 1,592 lines; 7 tests = 1,915 lines; scoped `agents.md`)
 
 ## 1. North-star statement
 
@@ -23,16 +23,16 @@ Alignment success for this package means:
 |-----------|-------------|----------|
 | Creative/executive split | **5** | No Mangle, no action dispatch; pure Embed/Cosine APIs (`engine.go`) |
 | Fact-flow fidelity | **4** | Feeds perception/prompt/store; does not invent `user_intent` or `next_action` |
-| Provider portability | **4** | Ollama + GenAI factory; dim/task asymmetry is the residual risk |
+| Provider portability | **4** | Ollama + GenAI factory and provider-response validation; vector-space identity remains partial |
 | Local-first DX | **5** | DefaultConfig ollama; EnsureModel auto-resolve/pull; HealthCheck |
 | Task-type discipline | **4** | Rich Select/Detect; GenAI implements WithTask; Ollama ignores task (API limitation) |
-| Observability | **4** | CategoryEmbedding timers + debug; no metrics |
-| Safety / fail-soft | **4** | Boot warns and continues; factory may drop unhealthy Ollama; auto-pull disk cost |
-| Test grounding | **4** | Large mock coverage; live GenAI/SIMD optional |
+| Observability | **4** | CategoryEmbedding timers + debug; malformed responses are visible; no metrics |
+| Safety / fail-soft | **5** | Invalid vectors fail closed, retry waits honor cancellation, and cancelled bootstrap pulls re-arm |
+| Test grounding | **5** | Provider-contract, lifecycle, race, and current experimental-SIMD regressions pass |
 | Wiring honesty | **5** | Heavy reverse deps in store/prompt/perception/mcp/system/cli — not dormant |
 | JIT atom synergy | **4** | AtomLoader + CompilerVectorSearcher depend on engine; package itself not atom-aware |
 
-**Overall alignment: 4.3 / 5** — mature substrate; residual risk is dimension/provider consistency and boot-path asymmetry.
+**Overall alignment: 4.6 / 5** — mature, defended substrate; residual risk is vector-space identity and boot-path asymmetry.
 
 ## 3. What “good” looks like (embedding-specific)
 
@@ -43,6 +43,8 @@ Alignment success for this package means:
 | Reembed after provider switch | Mixed 768/3072 vectors in one table without migration |
 | HealthCheck before multi-minute batch | Blind sequential Ollama batch while daemon is down |
 | Known-family-only model remaps | Silently swapping arbitrary user model names |
+| Reject empty, NaN, infinite, partial, or mixed-width provider output | Persist malformed provider output and discover it during retrieval |
+| Read and invalidate Ollama model state under one mutex | Race `Name`/`Embed` against model resolution |
 
 ## 4. Score rationale notes
 
@@ -57,6 +59,14 @@ Deleting `internal/embedding` would break semantic search and JIT retrieval qual
 ### 4.3 Task types (4)
 
 Design is strong; effectiveness depends on GenAI provider. Ollama path cannot honor task types — documented asymmetry, not a bug, but retrieval quality differs by provider choice.
+
+### 4.4 Provider trust boundary (5)
+
+Provider payloads are untrusted data. Single-vector and batch validators now enforce non-empty finite vectors, exact batch cardinality, and uniform width before values reach consumers. Focused tests cover malformed Ollama and provider-agnostic response shapes.
+
+### 4.5 Lifecycle and optional acceleration (5)
+
+Ollama public model reads and invalidation share `ensureMu`; cancelled bootstrap pulls do not permanently poison later retries; retry backoff is context-aware. The optional SIMD path compiles and runs its shared cosine suite under `GOEXPERIMENT=simd` plus `-tags simd`.
 
 ## 5. Related corpora
 

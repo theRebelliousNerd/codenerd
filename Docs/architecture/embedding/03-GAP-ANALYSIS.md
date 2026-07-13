@@ -18,6 +18,10 @@
 | Auto-install local model | EnsureModel resolve/pull/fallback | **Met** | — |
 | Task-typed GenAI embeds | EmbedWithTask + SelectTaskType | **Met** | — |
 | Task-typed Ollama embeds | Ollama API has no task type | **Non-gap** (backend limit) | — |
+| Fail closed on malformed provider output | Single and batch validators enforce finite, non-empty, cardinality-consistent output | **Met** | — |
+| Concurrent Ollama model state | Public reads, updates, and invalidation share `ensureMu` | **Met** | — |
+| Bootstrap pull retry after cancellation | Cancelled/deadline pull re-arms `pullAttempted` | **Met** | — |
+| Retry cancellation | Backoff selects on `ctx.Done()` | **Met** | — |
 | Accurate Dimensions() | Hardcoded 768 / 3072 | **Gap** | P0 |
 | Safe provider switch | CLI set + reembed; no auto-migrate | **Partial** | P0 |
 | Consistent boot health policy | factory drops unhealthy Ollama; chat boot keeps engine | **Gap** | P1 |
@@ -25,7 +29,8 @@
 | Large-batch cloud path | Sync parallel + EmbedBatchJob submit | **Partial** (no poll helper) | P1 |
 | Large-batch local path | Sequential EmbedBatch | **Gap** | P1 |
 | FindTopK production ANN | Bubble partial sort utility only | **Non-gap** (store owns search) | — |
-| SIMD cosine by default | Tag `simd` required | **Partial** | P2 |
+| SIMD cosine buildability | Current opaque-vector API compiles and passes with experiment + tag | **Met** | — |
+| SIMD cosine in default release | Explicit experiment + tag required | **Partial** | P2 |
 | Live CI against Ollama/GenAI | Unit mocks only | **Gap** | P2 |
 | Metrics / RED signals | Logs only | **Gap** | P2 |
 | Cache identical embeds | None | **Gap** | P2 |
@@ -33,6 +38,11 @@
 | Documented dim migration | Operator must reembed | **Partial** (docs now) | P1 |
 
 ## 3. P0 gaps (correctness)
+
+The prior provider-output trust, Ollama state-race, cancelled-bootstrap poisoning,
+and non-cancellable retry gaps are **VERIFIED CLOSED** by focused and race tests.
+The remaining P0 concerns cross package boundaries and require coordinated store
+migration rather than a package-local hardcoded-width check.
 
 ### G-P0-1 — Dimension contract vs reality
 
@@ -71,7 +81,7 @@ Submit is implemented; polling, result extraction, and retry policy live outside
 ## 5. P2 gaps (polish)
 
 - GenAI HealthCheck (cheap Embed of `"ping"` or models list if API allows).
-- Default SIMD builds on supported hosts.
+- Decide whether release builds opt into Go's experimental SIMD feature.
 - Optional embed cache keyed by hash(model, task, text).
 - Metrics counters under logging or future telemetry package.
 - Nightly optional integration job with real Ollama.
@@ -84,7 +94,7 @@ Submit is implemented; polling, result extraction, and retry policy live outside
 | Ollama ignores task type | Provider API |
 | FindTopK not ANN | Store + sqlite-vec is real search path |
 | Sequential Ollama by default | Correctness/simplicity before premature pools |
-| Auto-pull may take minutes | Explicit DX tradeoff; 30m pull client |
+| Auto-pull may take minutes | Explicit DX tradeoff; 30m pull client, bounded by caller context |
 | knownEmbedFamilies limited | Protects custom models and tests |
 
 ## 7. Spec vs inventory honesty
@@ -93,7 +103,7 @@ Earlier stub corpus claimed “1:1 complete internal coverage” while remaining
 
 ## 8. Recommended order of closure
 
-1. Dimension probe or config (G-P0-1) coordinated with store.  
+1. Introduce vector-space identity (provider/model/task/dimensions) coordinated with store.
 2. Document + optionally enforce reembed on provider/model change (G-P0-2).  
 3. Align factory vs chat health policy (G-P1-1).  
 4. Productize async GenAI job helper if corpus tools need it (G-P1-3).  

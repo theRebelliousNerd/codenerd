@@ -31,7 +31,9 @@ Empty API key → construct error. No anonymous cloud embed.
 | Ollama | 768 | model-defined (assumed 768) |
 | GenAI | 3072 | `OutputDimensionality=3072` |
 
-Callers may treat these as schema constraints.
+Callers may treat these as declared schema constraints, but an alternate Ollama
+model may return another valid width. The package enforces response-internal
+shape; store must enforce vector-space identity across persisted generations.
 
 ### I4 — Batch order preservation
 
@@ -43,15 +45,18 @@ Both engines: `len(texts)==0` → `nil, nil`.
 
 ### I6 — Context cancellation
 
-Embed loops check `ctx.Err()`; errgroup cancels siblings; EnsureModel uses request contexts.
+Embed loops check `ctx.Err()`; retry delays select on cancellation; errgroup
+cancels siblings; EnsureModel uses request contexts.
 
 ### I7 — Known-family remap only
 
 Ollama remaps/prefers only models in `knownEmbedFamilies` (plus exact/alias resolve of configured base). Custom names never silently become `nomic-embed-text` unless they are already in the known-family fallback path for failed pulls of known families.
 
-### I8 — One pull attempt per engine instance
+### I8 — Bounded pull attempts with cancellation recovery
 
-`pullAttempted` prevents infinite pull loops on permanent failure.
+`pullAttempted` prevents infinite pull loops after a non-context pull failure.
+If the pull failed because the caller context ended, the flag is reset so the
+8-second bootstrap budget cannot poison a later request-scoped ensure.
 
 ### I9 — Cosine length safety
 
@@ -61,11 +66,17 @@ Ollama remaps/prefers only models in `knownEmbedFamilies` (plus exact/alias reso
 
 No dependency on core/mangle/store — prevents policy cycles and accidental store-from-embed recursion.
 
+### I11 — Provider response contract
+
+Every successful single result is non-empty and finite. Every successful batch
+contains exactly one vector per input, uses one non-zero width, and contains no
+NaN or infinity. Provider protocol success without this contract is an error.
+
 ## 3. Concurrency invariants
 
 | Component | Safety claim |
 |-----------|--------------|
-| `OllamaEngine.ensureMu` | Serialize modelReady / model / pullAttempted updates |
+| `OllamaEngine.ensureMu` | Serialize every `modelReady` / `model` / `pullAttempted` read and update |
 | `OllamaEngine.Model()` | Lock-protected read |
 | GenAI parallel batch | Each goroutine writes distinct `chunkResults[batchIdx]` |
 | Pure math | Reentrant |
@@ -117,7 +128,10 @@ Operators on restricted networks should pre-pull models or use GenAI.
 
 ## 8. SIMD build tag safety
 
-`math_amd64.go` uses `simd/archsimd`. Only built with `-tags simd` on amd64. Wrong tag selection could break compile; generic path is the safe default.
+`math_amd64.go` uses Go's experimental `simd/archsimd` opaque-vector API. It is
+only built on amd64 with both `GOEXPERIMENT=simd` and `-tags simd`; the generic
+path remains the default. The experimental command is part of the verification
+receipt so API drift is detected.
 
 ## 9. Cross-provider safety
 

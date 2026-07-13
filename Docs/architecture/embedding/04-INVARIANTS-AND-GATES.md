@@ -1,8 +1,0 @@
-# Moved
-
-Superseded 2026-07-13:
-
-- Principles → [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md)
-- Safety/invariants → [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)
-
-Index → [README.md](README.md)

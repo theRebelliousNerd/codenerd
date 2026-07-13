@@ -33,6 +33,11 @@ Ollama auto-prefer / fallback applies only to `knownEmbedFamilies`. Arbitrary co
 
 `Dimensions()` and GenAI `OutputDimensionality` must stay aligned with store schemas. Changing dimensions is a **migration** (reembed), not a silent code tweak.
 
+Provider output width is validated for internal consistency, but it is not
+blindly compared with the hardcoded Ollama `Dimensions()` value: configured
+Ollama models can legitimately use another width. Cross-run compatibility
+belongs to an explicit vector-space identity contract with store.
+
 ## P8 — Context cancellation is honored
 
 Embed retries, batch loops, and EnsureModel must respect `ctx`. Do not sleep-ignore cancellation.
@@ -52,3 +57,16 @@ Reverse deps span store, prompt, perception, mcp, campaign, system, init, CLI, a
 ## P12 — No time/cost estimates in architecture docs
 
 Roadmaps and TODOs use priority and dependency order only (project-wide rule).
+
+## P13 — Provider responses are untrusted input
+
+No provider vector reaches a caller unless it is non-empty and finite. Batch
+responses must also match input cardinality and use one width. A malformed
+success payload is an error, not a degraded success.
+
+## P14 — Mutable provider state has one lock owner
+
+Every read or mutation of Ollama `model`, `modelReady`, and `pullAttempted`
+must occur under `ensureMu` (directly or through a locking accessor). A pull
+cancelled by its caller re-arms the attempt flag so a short boot context cannot
+poison the engine for the session.

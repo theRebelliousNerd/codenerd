@@ -1,4 +1,0 @@
-# Moved
-
-Superseded 2026-07-13 → [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md)  
-Index → [README.md](README.md)

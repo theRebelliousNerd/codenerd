@@ -29,7 +29,7 @@ Package code also uses `logging.Get(logging.CategoryEmbedding).Warn/Error` direc
 | `NewEngine` | factory |
 | `NewOllamaEngine` | construct |
 | `NewGenAIEngine` | construct |
-| `Ollama.Embed` | single embed (manual Stop on success path) |
+| `Ollama.Embed` | single embed (`defer Stop`, including failure/cancel paths) |
 | `Ollama.EmbedBatch` | batch |
 | `Ollama.HealthCheck` | health |
 | `GenAI.Embed` | single |
@@ -54,6 +54,7 @@ Timers emit duration via the logging subsystem’s timer implementation (see log
 - POST URL (endpoint + `/api/embeddings`).
 - API latency on success.
 - Retry warnings with backoff.
+- Invalid provider-vector warnings followed by bounded retry.
 - Auto-pull warnings on model missing.
 - Final dimensions + latency at Info on success.
 
@@ -70,6 +71,7 @@ Timers emit duration via the logging subsystem’s timer implementation (see log
 - Resolve remap messages (`configured → installed`).
 - Pull start/finish with duration.
 - Fallback to nomic-embed-text warnings.
+- Context-cancelled pull failure is visible and a future ensure remains eligible.
 
 ### 3.5 Math
 
@@ -107,6 +109,7 @@ If a future metrics layer is added, recommended series:
 | 429 / rate limit GenAI | batchParallelism=6 + shared transport comments; reduce concurrent reembeds |
 | Dim mismatch errors | stats dimensions vs stored vectors; reembed after provider change |
 | Infinite pull attempts | should not happen (`pullAttempted`); check logs for “still unavailable after prior pull” |
+| Repeated malformed vectors | inspect invalid-vector warning/error and provider model health; no malformed value is returned |
 
 Enable debug for category `embedding` via the logging configuration used by the process (`-v` / config log levels — see logging/CLI docs).
 
@@ -119,3 +122,7 @@ Enable debug for category `embedding` via the logging configuration used by the 
 ## 8. Relation to glass box
 
 Embedding package does not emit glass-box events itself. Higher layers (chat reflection, reembed progress, perception) may narrate embedding activity to the user.
+
+A remaining north-star gap is one redacted semantic-capability receipt that
+joins provider identity, declared/observed width, health/degradation state, and
+last validation result without logging text or secrets.
