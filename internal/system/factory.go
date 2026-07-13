@@ -513,8 +513,8 @@ func initPerceptionLayer(bctx *bootContext) error {
 
 	bctx.llmClient = core.NewScheduledLLMCall("main", rawLLMClient)
 
-	// Optional worker LLM (e.g. local Ollama gemma4:12b) for shards while main
-	// TUI agent stays on root provider (Grok). Falls back to main when unset.
+	// Optional worker LLM for shards (e.g. local Ollama for cheap testing).
+	// When unset, shards share the main client (SuperGrok xai-oauth, API keys, etc.).
 	shardRaw := rawLLMClient
 	if userCfg, uerr := config.LoadUserConfig(userCfgPath); uerr == nil && userCfg != nil {
 		if worker, werr := perception.NewWorkerClientFromUserConfig(userCfg); werr != nil {

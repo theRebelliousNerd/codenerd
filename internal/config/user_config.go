@@ -78,9 +78,10 @@ type UserConfig struct {
 	// Embeddings still use embedding.ollama_*; this block is for LLM chat completions.
 	Ollama *OllamaLLMConfig `json:"ollama,omitempty"`
 
-	// Worker is an optional secondary LLM used for shards / classification /
-	// background work while the main TUI agent stays on Provider/Model (e.g. Grok).
-	// Typical test setup: main provider=xai model=grok-4.5, worker=ollama gemma4:12b.
+	// Worker is an optional secondary LLM for shards / spawn / create / classification
+	// while the main TUI agent stays on Engine/Provider/Model. When unset, shards use
+	// the main client (e.g. SuperGrok via engine=xai-oauth). Optional cheap testing:
+	// main xai-oauth + worker.provider=ollama worker.model=gemma4:12b.
 	// Image generation shards are excluded — see Image.
 	Worker *WorkerLLMConfig `json:"worker,omitempty"`
 
