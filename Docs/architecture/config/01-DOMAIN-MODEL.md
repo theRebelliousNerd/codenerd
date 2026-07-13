@@ -1,16 +1,16 @@
 # config — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/config/` (17 non-test .go, 4 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/config/` (complete internal coverage)
+> **Implementation: `internal/config/` — 17 non-test .go, 5 tests, 0 .mg**
 
 
-## Source package
+## Package
 
 `internal/config/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -37,22 +37,66 @@
 | `ReflectionConfig` | `internal/config/reflection.go:6` |
 | `ShardProfile` | `internal/config/shard.go:5` |
 | `ToolGenerationConfig` | `internal/config/tool_generation.go:4` |
-| `UserConfig` | `internal/config/user_config.go:24` |
+| `UserConfig` | `internal/config/user_config.go:25` |
+| `OllamaLLMConfig` | `internal/config/user_config.go:495` |
+| `WorkerLLMConfig` | `internal/config/user_config.go:505` |
 | `UIConfig` | `internal/config/ux.go:4` |
+| `ExperienceLevel` | `internal/config/ux.go:22` |
+| `OnboardingState` | `internal/config/ux.go:32` |
+| `TransparencyConfig` | `internal/config/ux.go:59` |
+| `GuidanceLevel` | `internal/config/ux.go:100` |
+| `GuidanceConfig` | `internal/config/ux.go:110` |
+| `WorldConfig` | `internal/config/world.go:6` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 0 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `DefaultBuildConfig` | `internal/config/build.go:19` |
+| `DefaultConfig` | `internal/config/config.go:61` |
+| `Load` | `internal/config/config.go:230` |
+| `Save` | `internal/config/config.go:260` |
+| `GetLLMTimeout` | `internal/config/config.go:346` |
+| `GetQueryTimeout` | `internal/config/config.go:355` |
+| `GetExecutionTimeout` | `internal/config/config.go:364` |
+| `GetShardProfile` | `internal/config/config.go:377` |
+| `SetShardProfile` | `internal/config/config.go:385` |
+| `GetSessionTTL` | `internal/config/config.go:393` |
+| `Validate` | `internal/config/config.go:405` |
+| `IsMCPServerEnabled` | `internal/config/config.go:429` |
+| `IsCodeGraphEnabled` | `internal/config/config.go:434` |
+| `IsBrowserEnabled` | `internal/config/config.go:439` |
+| `IsScraperEnabled` | `internal/config/config.go:444` |
+| `DefaultTimeout` | `internal/config/integrations.go:24` |
+| `ToMCPServerConfigs` | `internal/config/integrations.go:36` |
+| `GetServer` | `internal/config/integrations.go:73` |
+| `IsServerEnabled` | `internal/config/integrations.go:84` |
+| `UnmarshalJSON` | `internal/config/jit.go:40` |
+| `DefaultJITConfig` | `internal/config/jit.go:65` |
+| `ValidateCoreLimits` | `internal/config/limits.go:74` |
+| `EnforceCoreLimits` | `internal/config/limits.go:92` |
+| `DefaultGeminiProviderConfig` | `internal/config/llm.go:203` |
+| `DefaultLLMTimeouts` | `internal/config/llm_timeouts.go:84` |
+| `FastLLMTimeouts` | `internal/config/llm_timeouts.go:115` |
+| `AggressiveLLMTimeouts` | `internal/config/llm_timeouts.go:142` |
+| `GetLLMTimeouts` | `internal/config/llm_timeouts.go:171` |
+| `SetLLMTimeouts` | `internal/config/llm_timeouts.go:177` |
+| `IsCategoryEnabled` | `internal/config/logging.go:20` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 0 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | — | 0 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -61,10 +105,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **Config loading, engines, limits, user config**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/config/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **Configuration loading, engines, limits, user and memory config**

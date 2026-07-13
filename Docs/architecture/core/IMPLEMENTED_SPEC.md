@@ -1,25 +1,25 @@
 # core — Implemented Spec
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/core/` (78 non-test .go, 107 tests, 129 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/core/` (complete internal coverage)
+> **Implementation: `internal/core/` — 78 non-test .go, 107 tests, 129 .mg**
 
 
 ## 1. Purpose
 
-Mangle kernel, VirtualStore, Dreamer, fact store, shard manager plumbing
+Mangle kernel, VirtualStore, Dreamer, facts, API scheduler, shard manager plumbing
 
-## 2. Source paths
+## 2. Source paths (1:1)
 
 | Path | Role |
 |------|------|
 | `internal/core/` | Primary implementation |
-| `Docs/architecture/core/` | This corpus |
+| `Docs/architecture/core/` | This full corpus |
 
 ## 3. Implementation Status
 
-> Status reflects **living code**, not pre-implementation zeroing.
+> Living code status — **not** pre-implementation zeroing.
 
 | Component | Status | Completion |
 |-----------|--------|------------|
@@ -27,13 +27,13 @@ Mangle kernel, VirtualStore, Dreamer, fact store, shard manager plumbing
 | Exported types (sampled) | Implemented | **80%** |
 | Tests | Implemented | **88%** |
 | Mangle local sources | Implemented | **85%** |
-| Docs corpus (this) | Implemented | **100%** |
+| Full architecture corpus | Implemented | **100%** |
 
-**Overall (heuristic): 88% complete as living package**
+**Overall (heuristic): 88%** as living package (78 src / 107 tests)
 
-## 4. Public surface (inventory-driven)
+## 4. Public surface inventory
 
-### Largest implementation files
+### Largest files
 
 | Path | Lines |
 |------|------:|
@@ -49,8 +49,16 @@ Mangle kernel, VirtualStore, Dreamer, fact store, shard manager plumbing
 | `internal/core/cortex_kernel.go` | 731 | source |
 | `internal/core/kernel_eval.go` | 730 | source |
 | `internal/core/virtual_store_codedom.go` | 706 | source |
+| `internal/core/predicate_corpus.go` | 636 | source |
+| `internal/core/shards/manager_spawn.go` | 622 | source |
+| `internal/core/kernel_query.go` | 595 | source |
+| `internal/core/kernel_init.go` | 591 | source |
+| `internal/core/dream_learning.go` | 585 | source |
+| `internal/core/tool_registry.go` | 582 | source |
+| `internal/core/shards/spawn_queue.go` | 581 | source |
+| `internal/core/virtual_store_python.go` | 573 | source |
 
-### Sampled types
+### Types (sampled)
 
 | Type | Location |
 |------|----------|
@@ -79,20 +87,70 @@ Mangle kernel, VirtualStore, Dreamer, fact store, shard manager plumbing
 | `ColdStoreSaver` | `internal/core/dream_router.go:32` |
 | `ToolNeed` | `internal/core/dream_router.go:38` |
 | `RouteResult` | `internal/core/dream_router.go:66` |
+| `DreamResult` | `internal/core/dreamer.go:17` |
+| `DreamCache` | `internal/core/dreamer.go:27` |
+| `Dreamer` | `internal/core/dreamer.go:91` |
+| `FactCategory` | `internal/core/fact_categories.go:10` |
+| `FactEvent` | `internal/core/fact_event_bus.go:10` |
+| `FactEventBus` | `internal/core/fact_event_bus.go:25` |
+| `HybridIntent` | `internal/core/hybrid_loader.go:14` |
+| `HybridPrompt` | `internal/core/hybrid_loader.go:23` |
+| `HybridLoadResult` | `internal/core/hybrid_loader.go:33` |
+| `ExplainOptions` | `internal/core/kernel_provenance.go:59` |
+| `KernelShard` | `internal/core/kernel_shard.go:22` |
+| `KernelShardConfig` | `internal/core/kernel_shard.go:53` |
+| `ShardMetrics` | `internal/core/kernel_shard.go:372` |
+| `KernelTransaction` | `internal/core/kernel_transactions.go:25` |
+| `Fact` | `internal/core/kernel_types.go:24` |
 
-## 5. Integration points (codeNERD spine)
+### Functions (sampled)
+
+| Symbol | Location |
+|--------|----------|
+| `NewValidatorRegistry` | `internal/core/action_validator.go:86` |
+| `Register` | `internal/core/action_validator.go:95` |
+| `Validate` | `internal/core/action_validator.go:147` |
+| `ValidateAll` | `internal/core/action_validator.go:206` |
+| `FirstFailure` | `internal/core/action_validator.go:216` |
+| `HighestConfidence` | `internal/core/action_validator.go:226` |
+| `Aggregate` | `internal/core/action_validator.go:265` |
+| `ToFacts` | `internal/core/action_validator.go:304` |
+| `String` | `internal/core/api_scheduler.go:50` |
+| `DefaultAPISchedulerConfig` | `internal/core/api_scheduler.go:117` |
+| `NewAPIScheduler` | `internal/core/api_scheduler.go:216` |
+| `RegisterShard` | `internal/core/api_scheduler.go:242` |
+| `RegisterShardWithPriority` | `internal/core/api_scheduler.go:249` |
+| `UnregisterShard` | `internal/core/api_scheduler.go:273` |
+| `AcquireAPISlot` | `internal/core/api_scheduler.go:292` |
+| `ReleaseAPISlot` | `internal/core/api_scheduler.go:542` |
+| `SaveCheckpoint` | `internal/core/api_scheduler.go:575` |
+| `LoadCheckpoint` | `internal/core/api_scheduler.go:589` |
+| `GetShardState` | `internal/core/api_scheduler.go:602` |
+| `GetMetrics` | `internal/core/api_scheduler.go:619` |
+| `String` | `internal/core/api_scheduler.go:656` |
+| `Stop` | `internal/core/api_scheduler.go:667` |
+| `ConfigureGlobalAPIScheduler` | `internal/core/api_scheduler.go:687` |
+| `UpdateMaxConcurrentAPICalls` | `internal/core/api_scheduler.go:727` |
+| `ReportRateLimit` | `internal/core/api_scheduler.go:759` |
+| `ReportSuccess` | `internal/core/api_scheduler.go:793` |
+| `EffectiveMaxSlots` | `internal/core/api_scheduler.go:842` |
+| `BaseMaxSlots` | `internal/core/api_scheduler.go:849` |
+| `GetAPIScheduler` | `internal/core/api_scheduler.go:859` |
+| `NewCortexKernel` | `internal/core/cortex_kernel.go:70` |
+
+## 5. Integration relevance
 
 | Surface | Relevance |
 |---------|-----------|
-| Kernel / facts | Primary |
+| Kernel | Primary |
 | VirtualStore | Owner |
 | Shards | Related |
 | Prompt JIT | Optional |
-| CLI | Invokes via cmd/nerd |
-| Config | Reads global config |
+| CLI | Related via `cmd/nerd` |
+| Config | Reader |
 
-## 6. Non-goals for this corpus revision
+## 6. Non-goals of this corpus revision
 
-- Full behavioral prose rewrite of every function
-- Filling Docs/Spec 18-file product templates (use spec-doc-sprint)
-- Implementing missing runtime features (use corpus-build implementation mode)
+- Full prose rewrite of every function body
+- Docs/Spec 18-file product templates (`spec-doc-sprint`)
+- Implementing missing features (corpus-build implementation mode)

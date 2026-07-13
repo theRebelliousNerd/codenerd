@@ -1,16 +1,16 @@
 # articulation — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/articulation/` (8 non-test .go, 7 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/articulation/` (complete internal coverage)
+> **Implementation: `internal/articulation/` — 8 non-test .go, 7 tests, 0 .mg**
 
 
-## Source package
+## Package
 
 `internal/articulation/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -34,19 +34,55 @@
 | `ContextFeedback` | `internal/articulation/protocol_types.go:224` |
 | `StreamParser` | `internal/articulation/stream_parser.go:9` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 0 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `NewResponseProcessor` | `internal/articulation/emitter.go:209` |
+| `Process` | `internal/articulation/emitter.go:224` |
+| `GetStats` | `internal/articulation/emitter.go:704` |
+| `ResetStats` | `internal/articulation/emitter.go:712` |
+| `NewEmitter` | `internal/articulation/emitter.go:731` |
+| `Emit` | `internal/articulation/emitter.go:743` |
+| `EmitSurface` | `internal/articulation/emitter.go:778` |
+| `ParseAndProcess` | `internal/articulation/emitter.go:786` |
+| `CreateEnvelope` | `internal/articulation/emitter.go:799` |
+| `MarshalEnvelope` | `internal/articulation/emitter.go:818` |
+| `ApplyConstitutionalOverride` | `internal/articulation/emitter.go:856` |
+| `AppendReasoningDirective` | `internal/articulation/emitter.go:934` |
+| `ExtractSurfaceOnly` | `internal/articulation/emitter.go:949` |
+| `HasSelfCorrection` | `internal/articulation/emitter.go:970` |
+| `HasMemoryOperations` | `internal/articulation/emitter.go:980` |
+| `GetMemoryOperationsByType` | `internal/articulation/emitter.go:989` |
+| `ProcessLLMResponse` | `internal/articulation/emitter.go:1028` |
+| `ProcessLLMResponseAllowPlain` | `internal/articulation/emitter.go:1064` |
+| `MustExtractSurface` | `internal/articulation/emitter.go:1100` |
+| `GetKernelContext` | `internal/articulation/kernel_context.go:20` |
+| `BuildContextSection` | `internal/articulation/kernel_context.go:35` |
+| `NewPromptAssembler` | `internal/articulation/prompt_assembler.go:67` |
+| `NewPromptAssemblerWithJIT` | `internal/articulation/prompt_assembler.go:80` |
+| `AssembleSystemPrompt` | `internal/articulation/prompt_assembler.go:329` |
+| `AssembleQuickPrompt` | `internal/articulation/prompt_assembler.go:1037` |
+| `WithSessionContext` | `internal/articulation/prompt_assembler.go:1052` |
+| `WithIntent` | `internal/articulation/prompt_assembler.go:1058` |
+| `WithCampaign` | `internal/articulation/prompt_assembler.go:1064` |
+| `WithSemanticQuery` | `internal/articulation/prompt_assembler.go:1070` |
+| `JITReady` | `internal/articulation/prompt_assembler.go:1085` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 0 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | — | 0 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -55,10 +91,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **Atoms→NL, Piggyback emitter, prompt assembly bridge**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/articulation/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **Atoms→NL emission, Piggyback protocol, prompt assembly bridge**

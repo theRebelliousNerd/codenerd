@@ -1,16 +1,16 @@
 # prompt — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/prompt/` (25 non-test .go, 32 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/prompt/` (complete internal coverage)
+> **Implementation: `internal/prompt/` — 25 non-test .go, 32 tests, 0 .mg**
 
 
-## Source package
+## Package
 
 `internal/prompt/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -39,20 +39,71 @@
 | `JITPromptCompiler` | `internal/prompt/compiler.go:249` |
 | `CompilerConfig` | `internal/prompt/compiler.go:306` |
 | `CompilerStats` | `internal/prompt/compiler.go:1117` |
+| `CompilerOption` | `internal/prompt/compiler_options.go:8` |
+| `ConfigAtom` | `internal/prompt/config_factory.go:13` |
+| `ConfigAtomProvider` | `internal/prompt/config_factory.go:49` |
+| `ConfigFactory` | `internal/prompt/config_factory.go:54` |
+| `DefaultConfigAtomProvider` | `internal/prompt/config_factory.go:152` |
+| `SimpleRegistry` | `internal/prompt/config_registry.go:6` |
+| `CompilationContext` | `internal/prompt/context.go:19` |
+| `ContextDimension` | `internal/prompt/context.go:408` |
+| `FactStyle` | `internal/prompt/context.go:555` |
+| `EvolvedAtomManager` | `internal/prompt/evolved_atoms.go:17` |
+| `AtomLoader` | `internal/prompt/loader.go:30` |
+| `PromptManifest` | `internal/prompt/manifest.go:9` |
+| `AtomManifestEntry` | `internal/prompt/manifest.go:22` |
+| `DroppedAtomEntry` | `internal/prompt/manifest.go:33` |
+| `PredicateSelector` | `internal/prompt/predicate_selector.go:23` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 0 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `NewFinalAssembler` | `internal/prompt/assembler.go:41` |
+| `SetCategoryOrder` | `internal/prompt/assembler.go:91` |
+| `SetSectionHeaders` | `internal/prompt/assembler.go:98` |
+| `SetSeparators` | `internal/prompt/assembler.go:105` |
+| `Assemble` | `internal/prompt/assembler.go:113` |
+| `NewTemplateEngine` | `internal/prompt/assembler.go:308` |
+| `RegisterFunction` | `internal/prompt/assembler.go:425` |
+| `Process` | `internal/prompt/assembler.go:432` |
+| `DefaultAssemblyOptions` | `internal/prompt/assembler.go:472` |
+| `AssembleWithOptions` | `internal/prompt/assembler.go:482` |
+| `AnalyzePrompt` | `internal/prompt/assembler.go:605` |
+| `AllCategories` | `internal/prompt/atoms.go:103` |
+| `EstimateTokens` | `internal/prompt/atoms.go:242` |
+| `HashContent` | `internal/prompt/atoms.go:252` |
+| `NewPromptAtom` | `internal/prompt/atoms.go:261` |
+| `NormalizeSelectors` | `internal/prompt/atoms.go:277` |
+| `MatchesContext` | `internal/prompt/atoms.go:301` |
+| `ToFact` | `internal/prompt/atoms.go:433` |
+| `ToSelectorFacts` | `internal/prompt/atoms.go:460` |
+| `ToDependencyFacts` | `internal/prompt/atoms.go:489` |
+| `ToConflictFacts` | `internal/prompt/atoms.go:504` |
+| `ToExclusionFact` | `internal/prompt/atoms.go:519` |
+| `Validate` | `internal/prompt/atoms.go:531` |
+| `Clone` | `internal/prompt/atoms.go:564` |
+| `NewEmbeddedCorpus` | `internal/prompt/atoms.go:610` |
+| `Get` | `internal/prompt/atoms.go:625` |
+| `GetByCategory` | `internal/prompt/atoms.go:632` |
+| `AppendAll` | `internal/prompt/atoms.go:642` |
+| `All` | `internal/prompt/atoms.go:648` |
+| `Count` | `internal/prompt/atoms.go:658` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 0 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | — | 0 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -61,10 +112,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **JIT prompt compiler, atoms, selector, budget**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/prompt/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **JIT prompt compiler, atoms, selector, budget, resolver**

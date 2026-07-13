@@ -1,40 +1,44 @@
 # campaign — Architecture Corpus
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/campaign/` (44 non-test .go, 29 tests, 1 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/campaign/` (complete internal coverage)
+> **Implementation: `internal/campaign/` — 44 non-test .go, 29 tests, 1 .mg**
 
 
 ## Role
 
-Multi-phase goal orchestration and context paging
+Multi-phase goal orchestration, decomposition, context paging
 
 ## Source location
 
-- Primary: `internal/campaign/`
+- Primary: `internal/campaign/` (**1:1 package root**)
 - Non-test Go files: **44**
 - Test files: **29**
 - Mangle sources: **1**
-- Tier (dark-factory): **2**
-- Estimated implementation completeness (heuristic): **85%**
+- Tier: **3** (full foundation always; higher tier adds more cross-cuts)
+- Heuristic implementation completeness: **85%**
 
-## Documents
+## Full document set
 
 | Doc | Purpose |
 |-----|---------|
 | [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment |
-| [01-DOMAIN-MODEL.md](01-DOMAIN-MODEL.md) | Types, facts, models |
-| [02-CURRENT-STATE-CAMPAIGN.md](02-CURRENT-STATE-CAMPAIGN.md) | Honest living inventory |
+| [01-DOMAIN-MODEL.md](01-DOMAIN-MODEL.md) | Types, funcs, models |
+| [02-CURRENT-STATE-CAMPAIGN.md](02-CURRENT-STATE-CAMPAIGN.md) | Living inventory |
 | [03-GAP-ANALYSIS-CAMPAIGN.md](03-GAP-ANALYSIS-CAMPAIGN.md) | Gaps vs north star |
-| [04-INVARIANTS-AND-GATES.md](04-INVARIANTS-AND-GATES.md) | Safety and verification gates |
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Status + target surface |
+| [04-INVARIANTS-AND-GATES.md](04-INVARIANTS-AND-GATES.md) | Safety + verify gates |
+| [05-CROSS-SYSTEM-WIRING.md](05-CROSS-SYSTEM-WIRING.md) | Integration surfaces |
+| [06-TESTING-STRATEGY.md](06-TESTING-STRATEGY.md) | Test plan from inventory |
+| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Import/dependency notes |
+| [08-FAILURE-MODES.md](08-FAILURE-MODES.md) | Failure / risk surface |
+| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Status + public surface |
 | [TODO.md](TODO.md) | Open work |
+| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Open design questions |
 | [_progress.md](_progress.md) | Generation progress |
 
-## How to verify
+## Verify
 
 ```powershell
-# package tests (when applicable)
 go test ./internal/campaign/...
 ```

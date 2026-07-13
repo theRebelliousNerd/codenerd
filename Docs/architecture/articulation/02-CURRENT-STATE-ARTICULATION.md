@@ -1,17 +1,17 @@
 # articulation — Current State
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/articulation/` (8 non-test .go, 7 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/articulation/` (complete internal coverage)
+> **Implementation: `internal/articulation/` — 8 non-test .go, 7 tests, 0 .mg**
 
 
 ## 1. Source location
 
-- Primary package: `internal/articulation/` (**exists** with 8 non-test Go files)
-- Supporting global surfaces: `internal/core/defaults/` when schemas/policy apply
+- Primary package: `internal/articulation/` (exists; 8 non-test Go files)
+- 1:1 mapping: `Docs/architecture/articulation/` ↔ `internal/articulation/`
 
-## 2. File inventory (largest sources)
+## 2. Largest source files
 
 | Path | Lines | Kind |
 |------|------:|------|
@@ -24,7 +24,20 @@
 | `internal/articulation/prompt_assembler_adapter.go` | 108 | source |
 | `internal/articulation/json_scanner.go` | 105 | source |
 
-## 3. Test inventory (sample)
+## 3. Complete source inventory (capped)
+
+| Path | Lines |
+|------|------:|
+| `internal/articulation/emitter.go` | 1103 |
+| `internal/articulation/json_scanner.go` | 105 |
+| `internal/articulation/kernel_context.go` | 128 |
+| `internal/articulation/prompt_assembler.go` | 1164 |
+| `internal/articulation/prompt_assembler_adapter.go` | 108 |
+| `internal/articulation/protocol_types.go` | 239 |
+| `internal/articulation/schema.go` | 240 |
+| `internal/articulation/stream_parser.go` | 109 |
+
+## 4. Tests (sample)
 
 | Path | Lines |
 |------|------:|
@@ -34,16 +47,16 @@
 | `internal/articulation/json_scanner_test.go` | 239 |
 | `internal/articulation/emitter_extra_test.go` | 86 |
 | `internal/articulation/emitter_helpers_test.go` | 86 |
+| `internal/articulation/stream_parser_test.go` | 46 |
 
-## 4. Current behavior (summary)
+## 5. Behavior summary
 
-Package **articulation** is a living codeNERD subsystem: Atoms→NL, Piggyback emitter, prompt assembly bridge.
+Package **articulation** is a living codeNERD subsystem: Atoms→NL emission, Piggyback protocol, prompt assembly bridge.
 
-Behavior is defined by the source files above. This corpus does **not** invent APIs —
-consult the cited paths for signatures and control flow.
+APIs and control flow are defined by the cited source files — this corpus does not invent signatures.
 
-## 5. Known limitations (honest)
+## 6. Known limitations
 
-- Corpus generated in dark-factory mode from inventory + lightweight type extraction; deep behavioral narrative may lag micro-refactors.
-- Completeness heuristic (85%) is not coverage % — run `go test` for truth.
-- Cross-package wiring must be validated against `internal/shards/registration.go` and VirtualStore routes when relevant.
+- Inventory/type extraction is automated; deepen narrative when this package is the active design target.
+- Completeness heuristic (85%) is not go cover %.
+- Cross-package wiring claims require grep of registration hubs before treating as live.

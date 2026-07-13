@@ -1,39 +1,39 @@
 # session — Implemented Spec
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/session/` (6 non-test .go, 14 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/session/` (complete internal coverage)
+> **Implementation: `internal/session/` — 6 non-test .go, 14 tests, 0 .mg**
 
 
 ## 1. Purpose
 
-Clean execution loop / session executor
+Session execution loop and clean executor
 
-## 2. Source paths
+## 2. Source paths (1:1)
 
 | Path | Role |
 |------|------|
 | `internal/session/` | Primary implementation |
-| `Docs/architecture/session/` | This corpus |
+| `Docs/architecture/session/` | This full corpus |
 
 ## 3. Implementation Status
 
-> Status reflects **living code**, not pre-implementation zeroing.
+> Living code status — **not** pre-implementation zeroing.
 
 | Component | Status | Completion |
 |-----------|--------|------------|
 | Source package tree | Implemented | **90%** |
 | Exported types (sampled) | Implemented | **80%** |
 | Tests | Implemented | **90%** |
-| Mangle local sources | N/A or global | **n/a** |
-| Docs corpus (this) | Implemented | **100%** |
+| Mangle local sources | N/A or global-only | **n/a** |
+| Full architecture corpus | Implemented | **100%** |
 
-**Overall (heuristic): 90% complete as living package**
+**Overall (heuristic): 90%** as living package (6 src / 14 tests)
 
-## 4. Public surface (inventory-driven)
+## 4. Public surface inventory
 
-### Largest implementation files
+### Largest files
 
 | Path | Lines |
 |------|------:|
@@ -44,7 +44,7 @@ Clean execution loop / session executor
 | `internal/session/task_executor.go` | 415 | source |
 | `internal/session/semantic_compressor.go` | 104 | source |
 
-### Sampled types
+### Types (sampled)
 
 | Type | Location |
 |------|----------|
@@ -72,19 +72,54 @@ Clean execution loop / session executor
 | `TaskResult` | `internal/session/task_executor.go:54` |
 | `JITExecutor` | `internal/session/task_executor.go:137` |
 
-## 5. Integration points (codeNERD spine)
+### Functions (sampled)
+
+| Symbol | Location |
+|--------|----------|
+| `String` | `internal/session/executor.go:76` |
+| `DefaultExecutorConfig` | `internal/session/executor.go:159` |
+| `NewExecutor` | `internal/session/executor.go:170` |
+| `SetSessionContext` | `internal/session/executor.go:193` |
+| `CloneForTask` | `internal/session/executor.go:208` |
+| `SetConfig` | `internal/session/executor.go:222` |
+| `SetAgentConfig` | `internal/session/executor.go:229` |
+| `SetHistory` | `internal/session/executor.go:236` |
+| `SetOuroborosRegistry` | `internal/session/executor.go:245` |
+| `SetSessionPersister` | `internal/session/executor.go:254` |
+| `SetSessionID` | `internal/session/executor.go:261` |
+| `Process` | `internal/session/executor.go:294` |
+| `ProcessWithIntent` | `internal/session/executor.go:314` |
+| `ClearHistory` | `internal/session/executor.go:899` |
+| `GetHistory` | `internal/session/executor.go:906` |
+| `NewSemanticCompressor` | `internal/session/semantic_compressor.go:19` |
+| `Compress` | `internal/session/semantic_compressor.go:26` |
+| `DefaultSpawnerConfig` | `internal/session/spawner.go:62` |
+| `NewSpawner` | `internal/session/spawner.go:70` |
+| `Spawn` | `internal/session/spawner.go:121` |
+| `SpawnForIntent` | `internal/session/spawner.go:198` |
+| `SpawnSpecialist` | `internal/session/spawner.go:214` |
+| `Get` | `internal/session/spawner.go:261` |
+| `GetByName` | `internal/session/spawner.go:269` |
+| `Stop` | `internal/session/spawner.go:286` |
+| `StopAll` | `internal/session/spawner.go:299` |
+| `Cleanup` | `internal/session/spawner.go:315` |
+| `ListActive` | `internal/session/spawner.go:336` |
+| `GetMetrics` | `internal/session/spawner.go:350` |
+| `String` | `internal/session/subagent.go:27` |
+
+## 5. Integration relevance
 
 | Surface | Relevance |
 |---------|-----------|
-| Kernel / facts | Consumer/producer |
-| VirtualStore | User if effectful |
+| Kernel | Related |
+| VirtualStore | Consumer if effectful |
 | Shards | Related |
 | Prompt JIT | Optional |
-| CLI | Invokes via cmd/nerd |
-| Config | Reads global config |
+| CLI | Related via `cmd/nerd` |
+| Config | Reader |
 
-## 6. Non-goals for this corpus revision
+## 6. Non-goals of this corpus revision
 
-- Full behavioral prose rewrite of every function
-- Filling Docs/Spec 18-file product templates (use spec-doc-sprint)
-- Implementing missing runtime features (use corpus-build implementation mode)
+- Full prose rewrite of every function body
+- Docs/Spec 18-file product templates (`spec-doc-sprint`)
+- Implementing missing features (corpus-build implementation mode)

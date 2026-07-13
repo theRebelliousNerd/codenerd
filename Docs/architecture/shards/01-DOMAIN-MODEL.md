@@ -1,16 +1,16 @@
 # shards — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/shards/` (18 non-test .go, 24 tests, 1 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/shards/` (complete internal coverage)
+> **Implementation: `internal/shards/` — 18 non-test .go, 24 tests, 1 .mg**
 
 
-## Source package
+## Package
 
 `internal/shards/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -39,20 +39,71 @@
 | `ObserverSpawner` | `internal/shards/observer_manager.go:137` |
 | `ShardPredicateManifest` | `internal/shards/registration.go:33` |
 | `RegistryContext` | `internal/shards/registration.go:81` |
+| `RequirementsInterrogatorShard` | `internal/shards/requirements_interrogator.go:17` |
+| `StartupMode` | `internal/shards/system/base.go:32` |
+| `CostGuard` | `internal/shards/system/base.go:42` |
+| `UnhandledCase` | `internal/shards/system/base.go:179` |
+| `ProposedRule` | `internal/shards/system/base.go:187` |
+| `AutopoiesisLoop` | `internal/shards/system/base.go:196` |
+| `BaseSystemShard` | `internal/shards/system/base.go:263` |
+| `CampaignRunnerConfig` | `internal/shards/system/campaign_runner.go:30` |
+| `CampaignRunnerShard` | `internal/shards/system/campaign_runner.go:42` |
+| `ConstitutionConfig` | `internal/shards/system/constitution.go:33` |
+| `SecurityViolation` | `internal/shards/system/constitution.go:73` |
+| `AppealRequest` | `internal/shards/system/constitution.go:84` |
+| `AppealDecision` | `internal/shards/system/constitution.go:95` |
+| `ConstitutionGateShard` | `internal/shards/system/constitution.go:107` |
+| `Strategy` | `internal/shards/system/executive.go:29` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 1 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `NewConsultationManager` | `internal/shards/consultation.go:82` |
+| `RequestConsultation` | `internal/shards/consultation.go:94` |
+| `RequestBatchConsultation` | `internal/shards/consultation.go:138` |
+| `GetStrategicAdvisorsFor` | `internal/shards/consultation.go:177` |
+| `ShouldConsultBeforeExecution` | `internal/shards/consultation.go:191` |
+| `FormatConsultationAdvice` | `internal/shards/consultation.go:381` |
+| `GetSpecialistClassification` | `internal/shards/matching.go:286` |
+| `CanSpecialistExecute` | `internal/shards/matching.go:294` |
+| `IsExecutorSpecialist` | `internal/shards/matching.go:303` |
+| `IsStrategicAdvisor` | `internal/shards/matching.go:312` |
+| `ShouldSpecialistExecuteTask` | `internal/shards/matching.go:322` |
+| `GetExecutionMode` | `internal/shards/matching.go:423` |
+| `MatchSpecialistsForTask` | `internal/shards/matching.go:434` |
+| `ShouldIncludeGenericShard` | `internal/shards/matching.go:638` |
+| `GetAllPatterns` | `internal/shards/matching.go:647` |
+| `GetAssessmentLevel` | `internal/shards/observer_manager.go:67` |
+| `NewBackgroundObserverManager` | `internal/shards/observer_manager.go:142` |
+| `Start` | `internal/shards/observer_manager.go:157` |
+| `Stop` | `internal/shards/observer_manager.go:178` |
+| `RegisterObserver` | `internal/shards/observer_manager.go:189` |
+| `UnregisterObserver` | `internal/shards/observer_manager.go:216` |
+| `GetActiveObservers` | `internal/shards/observer_manager.go:223` |
+| `SendEvent` | `internal/shards/observer_manager.go:237` |
+| `AddCallback` | `internal/shards/observer_manager.go:256` |
+| `SetNorthstarHandler` | `internal/shards/observer_manager.go:264` |
+| `GetRecentAssessments` | `internal/shards/observer_manager.go:271` |
+| `GetLastAssessment` | `internal/shards/observer_manager.go:287` |
+| `FormatAssessment` | `internal/shards/observer_manager.go:515` |
+| `DefaultShardPredicateManifests` | `internal/shards/registration.go:45` |
+| `Save` | `internal/shards/registration.go:103` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 1 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | `internal/shards/system/debug_program_ERROR.mg` | 16308 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -61,10 +112,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **Domain/system shard implementations and registration**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/shards/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **Domain and system shard implementations + registration**

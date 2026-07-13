@@ -1,26 +1,26 @@
 # config — Alignment & Vision Review
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/config/` (17 non-test .go, 4 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/config/` (complete internal coverage)
+> **Implementation: `internal/config/` — 17 non-test .go, 5 tests, 0 .mg**
 
 
 ## North-star fit
 
-codeNERD separates **LLM creativity** from **Mangle executive control**. This package contributes:
+codeNERD: LLM creative center; Mangle kernel executive. Package role:
 
-**Config loading, engines, limits, user config**
+**Configuration loading, engines, limits, user and memory config**
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | 3 | Package role relative to fact-flow spine |
-| Fact-flow placement | 3 | See 01-DOMAIN-MODEL |
-| Constitutional safety | 3 | permitted / policy surfaces |
-| JIT / atom discipline | 2 | prompt atoms vs ad-hoc prompts |
-| Observability | 3 | logging / transparency hooks |
-| Test grounding | 3 | 4 tests vs 17 sources |
+| Dimension | Score (0–5) | Notes |
+|-----------|-------------|-------|
+| Creative/executive split | 3 | Relative to fact-flow spine |
+| Fact-flow placement | 3 | See domain model |
+| Constitutional safety | 3 | permitted / safety surfaces |
+| JIT / atom discipline | 2 | prompt atoms |
+| Observability | 3 | logs/metrics |
+| Test grounding | 2 | 5 tests / 17 src |
 
-## Overall
+## Verdict
 
-Living package under `internal/config/`. Corpus is **code-grounded**, not pre-implementation fiction.
+Living package under `internal/config/`. Full corpus is **code-grounded**, not pre-implementation fiction.

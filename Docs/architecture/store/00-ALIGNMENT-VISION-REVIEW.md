@@ -1,26 +1,26 @@
 # store — Alignment & Vision Review
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/store/` (39 non-test .go, 44 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/store/` (complete internal coverage)
+> **Implementation: `internal/store/` — 39 non-test .go, 44 tests, 0 .mg**
 
 
 ## North-star fit
 
-codeNERD separates **LLM creativity** from **Mangle executive control**. This package contributes:
+codeNERD: LLM creative center; Mangle kernel executive. Package role:
 
-**Memory tiers / persistence stores**
+**Memory tiers and durable store implementations**
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | 3 | Package role relative to fact-flow spine |
-| Fact-flow placement | 3 | See 01-DOMAIN-MODEL |
-| Constitutional safety | 3 | permitted / policy surfaces |
-| JIT / atom discipline | 2 | prompt atoms vs ad-hoc prompts |
-| Observability | 3 | logging / transparency hooks |
-| Test grounding | 4 | 44 tests vs 39 sources |
+| Dimension | Score (0–5) | Notes |
+|-----------|-------------|-------|
+| Creative/executive split | 3 | Relative to fact-flow spine |
+| Fact-flow placement | 3 | See domain model |
+| Constitutional safety | 3 | permitted / safety surfaces |
+| JIT / atom discipline | 2 | prompt atoms |
+| Observability | 3 | logs/metrics |
+| Test grounding | 4 | 44 tests / 39 src |
 
-## Overall
+## Verdict
 
-Living package under `internal/store/`. Corpus is **code-grounded**, not pre-implementation fiction.
+Living package under `internal/store/`. Full corpus is **code-grounded**, not pre-implementation fiction.

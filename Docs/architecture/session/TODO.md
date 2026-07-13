@@ -1,6 +1,7 @@
 # session — TODO
 
-- [ ] Deep-dive docs when package is next evolution target
-- [ ] Reconcile with Docs/Spec when product-spec sprint runs
-- [ ] Re-run type extraction after large refactors
-- [ ] Confirm wiring registration for any new public entrypoints
+- [ ] Deep-dive behavioral docs when this package is the active design target
+- [ ] Reconcile with Docs/Spec via spec-doc-sprint when product specs are needed
+- [ ] Re-run inventory after large refactors
+- [ ] Prove wiring for any new public entrypoints
+- [ ] Raise test depth if tests (14) lag sources (6)

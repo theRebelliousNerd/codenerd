@@ -1,25 +1,25 @@
 # campaign — Implemented Spec
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/campaign/` (44 non-test .go, 29 tests, 1 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/campaign/` (complete internal coverage)
+> **Implementation: `internal/campaign/` — 44 non-test .go, 29 tests, 1 .mg**
 
 
 ## 1. Purpose
 
-Multi-phase goal orchestration and context paging
+Multi-phase goal orchestration, decomposition, context paging
 
-## 2. Source paths
+## 2. Source paths (1:1)
 
 | Path | Role |
 |------|------|
 | `internal/campaign/` | Primary implementation |
-| `Docs/architecture/campaign/` | This corpus |
+| `Docs/architecture/campaign/` | This full corpus |
 
 ## 3. Implementation Status
 
-> Status reflects **living code**, not pre-implementation zeroing.
+> Living code status — **not** pre-implementation zeroing.
 
 | Component | Status | Completion |
 |-----------|--------|------------|
@@ -27,13 +27,13 @@ Multi-phase goal orchestration and context paging
 | Exported types (sampled) | Implemented | **80%** |
 | Tests | Implemented | **85%** |
 | Mangle local sources | Implemented | **85%** |
-| Docs corpus (this) | Implemented | **100%** |
+| Full architecture corpus | Implemented | **100%** |
 
-**Overall (heuristic): 85% complete as living package**
+**Overall (heuristic): 85%** as living package (44 src / 29 tests)
 
-## 4. Public surface (inventory-driven)
+## 4. Public surface inventory
 
-### Largest implementation files
+### Largest files
 
 | Path | Lines |
 |------|------:|
@@ -49,8 +49,16 @@ Multi-phase goal orchestration and context paging
 | `internal/campaign/tool_pregenerator.go` | 656 | source |
 | `internal/campaign/intelligence_gatherer.go` | 652 | source |
 | `internal/campaign/decomposer_requirements.go` | 591 | source |
+| `internal/campaign/intelligence_gathering_methods.go` | 586 | source |
+| `internal/campaign/decomposer_planning.go` | 575 | source |
+| `internal/campaign/orchestrator_tasks.go` | 542 | source |
+| `internal/campaign/context_pager.go` | 506 | source |
+| `internal/campaign/checkpoint.go` | 477 | source |
+| `internal/campaign/orchestrator_failure.go` | 434 | source |
+| `internal/campaign/orchestrator_init.go` | 381 | source |
+| `internal/campaign/decomposer_documents.go` | 363 | source |
 
-### Sampled types
+### Types (sampled)
 
 | Type | Location |
 |------|----------|
@@ -79,20 +87,70 @@ Multi-phase goal orchestration and context paging
 | `EdgeCaseConfig` | `internal/campaign/edge_case_detector.go:107` |
 | `EdgeCaseAnalysis` | `internal/campaign/edge_case_detector.go:734` |
 | `ConsultationProvider` | `internal/campaign/intelligence_gatherer.go:32` |
+| `BatchConsultRequest` | `internal/campaign/intelligence_gatherer.go:37` |
+| `ConsultationResponse` | `internal/campaign/intelligence_gatherer.go:45` |
+| `IntelligenceGatherer` | `internal/campaign/intelligence_gatherer.go:65` |
+| `IntelligenceConfig` | `internal/campaign/intelligence_gatherer.go:91` |
+| `IntelligenceReport` | `internal/campaign/intelligence_gatherer.go:146` |
+| `FileInfo` | `internal/campaign/intelligence_gatherer.go:222` |
+| `SymbolInfo` | `internal/campaign/intelligence_gatherer.go:232` |
+| `ChurnHotspot` | `internal/campaign/intelligence_gatherer.go:241` |
+| `CommitInfo` | `internal/campaign/intelligence_gatherer.go:250` |
+| `LearningPattern` | `internal/campaign/intelligence_gatherer.go:259` |
+| `PreferenceSignal` | `internal/campaign/intelligence_gatherer.go:268` |
+| `EntityCluster` | `internal/campaign/intelligence_gatherer.go:275` |
+| `SafetyWarning` | `internal/campaign/intelligence_gatherer.go:282` |
+| `MCPToolInfo` | `internal/campaign/intelligence_gatherer.go:292` |
+| `CampaignArtifact` | `internal/campaign/intelligence_gatherer.go:302` |
 
-## 5. Integration points (codeNERD spine)
+### Functions (sampled)
+
+| Symbol | Location |
+|--------|----------|
+| `NewAdversarialAssaultCampaign` | `internal/campaign/assault_campaign.go:19` |
+| `DefaultAssaultConfig` | `internal/campaign/assault_types.go:61` |
+| `Normalize` | `internal/campaign/assault_types.go:78` |
+| `NewStaticPromptProvider` | `internal/campaign/campaign_prompts.go:44` |
+| `GetPrompt` | `internal/campaign/campaign_prompts.go:49` |
+| `GetCampaignPhaseForRole` | `internal/campaign/campaign_prompts.go:86` |
+| `GetShardTypeForRole` | `internal/campaign/campaign_prompts.go:109` |
+| `NewCheckpointRunner` | `internal/campaign/checkpoint.go:24` |
+| `Run` | `internal/campaign/checkpoint.go:45` |
+| `RunAll` | `internal/campaign/checkpoint.go:441` |
+| `RunQuick` | `internal/campaign/checkpoint.go:466` |
+| `NewContextPager` | `internal/campaign/context_pager.go:37` |
+| `SetBudget` | `internal/campaign/context_pager.go:61` |
+| `GetUsage` | `internal/campaign/context_pager.go:77` |
+| `ResetPhaseContext` | `internal/campaign/context_pager.go:87` |
+| `ActivatePhase` | `internal/campaign/context_pager.go:101` |
+| `CompressPhase` | `internal/campaign/context_pager.go:207` |
+| `PrefetchNextTasks` | `internal/campaign/context_pager.go:314` |
+| `PruneIrrelevant` | `internal/campaign/context_pager.go:350` |
+| `NewDecomposer` | `internal/campaign/decomposer.go:46` |
+| `SetPromptProvider` | `internal/campaign/decomposer.go:77` |
+| `SetShardLister` | `internal/campaign/decomposer.go:89` |
+| `SetIntelligenceGatherer` | `internal/campaign/decomposer.go:98` |
+| `SetAdvisoryBoard` | `internal/campaign/decomposer.go:107` |
+| `SetEdgeCaseDetector` | `internal/campaign/decomposer.go:116` |
+| `SetToolPregenerator` | `internal/campaign/decomposer.go:125` |
+| `GetLastIntelligence` | `internal/campaign/decomposer.go:133` |
+| `IsGroundingAvailable` | `internal/campaign/decomposer.go:142` |
+| `IsThinkingAvailable` | `internal/campaign/decomposer.go:147` |
+| `EnableURLContext` | `internal/campaign/decomposer.go:153` |
+
+## 5. Integration relevance
 
 | Surface | Relevance |
 |---------|-----------|
-| Kernel / facts | Consumer/producer |
-| VirtualStore | User if effectful |
+| Kernel | Related |
+| VirtualStore | Consumer if effectful |
 | Shards | Related |
 | Prompt JIT | Optional |
-| CLI | Invokes via cmd/nerd |
-| Config | Reads global config |
+| CLI | Related via `cmd/nerd` |
+| Config | Reader |
 
-## 6. Non-goals for this corpus revision
+## 6. Non-goals of this corpus revision
 
-- Full behavioral prose rewrite of every function
-- Filling Docs/Spec 18-file product templates (use spec-doc-sprint)
-- Implementing missing runtime features (use corpus-build implementation mode)
+- Full prose rewrite of every function body
+- Docs/Spec 18-file product templates (`spec-doc-sprint`)
+- Implementing missing features (corpus-build implementation mode)

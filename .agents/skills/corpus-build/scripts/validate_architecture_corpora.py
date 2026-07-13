@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate codeNERD Docs/architecture spine corpora (code-grounded).
+"""Validate codeNERD Docs/architecture is 1:1 with internal/* package roots.
 
 Exit 0 if acceptance structure holds; exit 1 with diagnostics otherwise.
 """
@@ -9,28 +9,18 @@ import re
 import sys
 from pathlib import Path
 
-SPINE = [
-    "core",
-    "mangle",
-    "perception",
-    "articulation",
-    "prompt",
-    "session",
-    "shards",
-    "campaign",
-    "config",
-    "store",
-    "tools",
-    "cli",
-]
-
 REQUIRED = [
     "README.md",
     "00-ALIGNMENT-VISION-REVIEW.md",
     "01-DOMAIN-MODEL.md",
     "04-INVARIANTS-AND-GATES.md",
+    "05-CROSS-SYSTEM-WIRING.md",
+    "06-TESTING-STRATEGY.md",
+    "07-DEPENDENCY-MAP.md",
+    "08-FAILURE-MODES.md",
     "IMPLEMENTED_SPEC.md",
     "TODO.md",
+    "OPEN-QUESTIONS.md",
     "_progress.md",
 ]
 
@@ -50,10 +40,21 @@ def find_root() -> Path:
     return cwd
 
 
+def internal_packages(root: Path) -> list[str]:
+    internal = root / "internal"
+    return sorted(
+        p.name for p in internal.iterdir() if p.is_dir() and not p.name.startswith(".")
+    )
+
+
 def main() -> int:
     root = find_root()
     arch = root / "Docs" / "architecture"
     errors: list[str] = []
+
+    packages = internal_packages(root)
+    if not packages:
+        errors.append("no internal/* packages found")
 
     index = arch / "INDEX.md"
     if not index.exists():
@@ -62,20 +63,19 @@ def main() -> int:
         text = index.read_text(encoding="utf-8", errors="replace")
         if "seeded empty" in text.lower() and "Realized" not in text:
             errors.append("INDEX still placeholder-only")
-        for name in SPINE:
-            if f"]({name}/)" not in text and f"`{name}`" not in text and f"| {name} |" not in text:
-                # allow link form [name](name/)
-                if f"[{name}]" not in text:
-                    errors.append(f"INDEX missing spine entry: {name}")
+        for name in packages:
+            if f"[{name}]" not in text and f"| {name} |" not in text:
+                errors.append(f"INDEX missing package entry: {name}")
 
     journal = arch / "DARK-FACTORY-JOURNAL.md"
     if not journal.exists():
         errors.append("missing Docs/architecture/DARK-FACTORY-JOURNAL.md")
 
-    for name in SPINE:
+    # 1:1: every internal package has corpus; no extra internal-named dirs required reverse
+    for name in packages:
         base = arch / name
         if not base.is_dir():
-            errors.append(f"missing corpus dir: {name}")
+            errors.append(f"missing corpus dir for internal/{name}: Docs/architecture/{name}/")
             continue
         for req in REQUIRED:
             if not (base / req).exists():
@@ -90,7 +90,6 @@ def main() -> int:
             body = spec.read_text(encoding="utf-8", errors="replace")
             if BAD_PATTERNS.search(body):
                 errors.append(f"honesty defect in {name}/IMPLEMENTED_SPEC.md")
-            # At least one real internal/ or cmd/ path that exists
             ok_path = False
             for m in PATH_RE.finditer(body):
                 rel = m.group(1).rstrip("/")
@@ -100,24 +99,28 @@ def main() -> int:
             if not ok_path:
                 errors.append(f"no resolvable internal/cmd path in {name}/IMPLEMENTED_SPEC.md")
 
-    # Scan all md for Vectryx-only / false pre-impl
+            # Must claim 1:1 package path
+            if f"internal/{name}" not in body:
+                errors.append(f"IMPLEMENTED_SPEC for {name} does not cite internal/{name}")
+
+    # Scan for Vectryx-only / false pre-impl across architecture docs
     for md in arch.rglob("*.md"):
         body = md.read_text(encoding="utf-8", errors="replace")
-        if BAD_PATTERNS.search(body):
-            # allow journal to mention wormhole only if... no, flag all
-            rel = md.relative_to(root).as_posix()
-            # false positive: "ported from Vectryx" is OK in skills not here
-            if "storyworld" in body.lower() or "pagekit" in body.lower() or "orval" in body.lower():
-                errors.append(f"Vectryx-only term in {rel}")
-            if "no code exists yet" in body.lower() or "Overall: 0% complete" in body:
-                errors.append(f"false pre-impl zeroing in {rel}")
+        rel = md.relative_to(root).as_posix()
+        if "storyworld" in body.lower() or "pagekit" in body.lower() or "orval" in body.lower():
+            errors.append(f"Vectryx-only term in {rel}")
+        if "no code exists yet" in body.lower() or "Overall: 0% complete" in body:
+            errors.append(f"false pre-impl zeroing in {rel}")
 
     if errors:
         print("FAIL")
         for e in errors:
             print(f" - {e}")
+        print(f"\nexpected {len(packages)} internal packages: {', '.join(packages)}")
         return 1
-    print(f"PASS: {len(SPINE)} spine corpora OK under {arch}")
+    print(f"PASS: {len(packages)} internal packages have full 1:1 corpora under {arch}")
+    for name in packages:
+        print(f"  OK internal/{name} -> Docs/architecture/{name}/")
     return 0
 
 

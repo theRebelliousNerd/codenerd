@@ -1,16 +1,16 @@
 # session — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/session/` (6 non-test .go, 14 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/session/` (complete internal coverage)
+> **Implementation: `internal/session/` — 6 non-test .go, 14 tests, 0 .mg**
 
 
-## Source package
+## Package
 
 `internal/session/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -38,19 +38,55 @@
 | `TaskResult` | `internal/session/task_executor.go:54` |
 | `JITExecutor` | `internal/session/task_executor.go:137` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 0 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `String` | `internal/session/executor.go:76` |
+| `DefaultExecutorConfig` | `internal/session/executor.go:159` |
+| `NewExecutor` | `internal/session/executor.go:170` |
+| `SetSessionContext` | `internal/session/executor.go:193` |
+| `CloneForTask` | `internal/session/executor.go:208` |
+| `SetConfig` | `internal/session/executor.go:222` |
+| `SetAgentConfig` | `internal/session/executor.go:229` |
+| `SetHistory` | `internal/session/executor.go:236` |
+| `SetOuroborosRegistry` | `internal/session/executor.go:245` |
+| `SetSessionPersister` | `internal/session/executor.go:254` |
+| `SetSessionID` | `internal/session/executor.go:261` |
+| `Process` | `internal/session/executor.go:294` |
+| `ProcessWithIntent` | `internal/session/executor.go:314` |
+| `ClearHistory` | `internal/session/executor.go:899` |
+| `GetHistory` | `internal/session/executor.go:906` |
+| `NewSemanticCompressor` | `internal/session/semantic_compressor.go:19` |
+| `Compress` | `internal/session/semantic_compressor.go:26` |
+| `DefaultSpawnerConfig` | `internal/session/spawner.go:62` |
+| `NewSpawner` | `internal/session/spawner.go:70` |
+| `Spawn` | `internal/session/spawner.go:121` |
+| `SpawnForIntent` | `internal/session/spawner.go:198` |
+| `SpawnSpecialist` | `internal/session/spawner.go:214` |
+| `Get` | `internal/session/spawner.go:261` |
+| `GetByName` | `internal/session/spawner.go:269` |
+| `Stop` | `internal/session/spawner.go:286` |
+| `StopAll` | `internal/session/spawner.go:299` |
+| `Cleanup` | `internal/session/spawner.go:315` |
+| `ListActive` | `internal/session/spawner.go:336` |
+| `GetMetrics` | `internal/session/spawner.go:350` |
+| `String` | `internal/session/subagent.go:27` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 0 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | — | 0 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -59,10 +95,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **Clean execution loop / session executor**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/session/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **Session execution loop and clean executor**

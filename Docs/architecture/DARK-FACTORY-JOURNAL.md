@@ -1,56 +1,62 @@
 # Dark Factory Journal
 
-> Autonomous decisions for architecture corpus generation — 2026-07-13
+> Complete 1:1 coverage of `internal/*` — 2026-07-13
 
-## Pipeline
+## Decision
 
-1. Skills `arch-propose` + `corpus-build` already ported under `.agents/skills/`.
-2. Living packages use **code-grounded** honesty (not pre-impl 0% fiction).
-3. Leaf packages excluded from full corpora (listed below).
-4. No user checkpoints; tier/scope chosen here.
+- **Every** root folder under `internal/` gets a full architecture corpus under `Docs/architecture/<same-name>/`.
+- No leaf exclusions.
+- Code-grounded honesty (living code status, not pre-impl 0%).
+- Full document set per package: foundation 00–04, cross-wiring, testing, deps, failure modes, IMPLEMENTED_SPEC, governance.
+- Tier 2–3 only scales optional extra cross-cuts (Mangle/prompt/safety), not whether a full corpus exists.
 
-## Spine freeze (full corpora)
+## Package results (37 total)
 
-| Name | Source | Tier | Role |
-|------|--------|------|------|
-| core | `internal/core` | 3 | Mangle kernel, VirtualStore, Dreamer, fact store, shard manager plumbing |
-| mangle | `internal/mangle` | 3 | Mangle engine bindings, differential evaluation, feedback loops |
-| perception | `internal/perception` | 3 | NL→atoms transduction, semantic classifier, LLM clients |
-| articulation | `internal/articulation` | 2 | Atoms→NL, Piggyback emitter, prompt assembly bridge |
-| prompt | `internal/prompt` | 3 | JIT prompt compiler, atoms, selector, budget |
-| session | `internal/session` | 2 | Clean execution loop / session executor |
-| shards | `internal/shards` | 3 | Domain/system shard implementations and registration |
-| campaign | `internal/campaign` | 2 | Multi-phase goal orchestration and context paging |
-| config | `internal/config` | 2 | Config loading, engines, limits, user config |
-| store | `internal/store` | 2 | Memory tiers / persistence stores |
-| tools | `internal/tools` | 2 | Tool registry and research/tool integrations |
-| cli | `cmd/nerd` | 3 | CLI entrypoints, chat TUI, campaign and system commands |
+| Corpus | Source | Tier | src | tests | mg | % |
+|--------|--------|-----:|----:|------:|---:|--:|
+| articulation | `internal/articulation` | 2 | 8 | 7 | 0 | 85 |
+| autopoiesis | `internal/autopoiesis` | 3 | 37 | 30 | 0 | 85 |
+| browser | `internal/browser` | 2 | 3 | 6 | 0 | 90 |
+| build | `internal/build` | 2 | 1 | 2 | 0 | 90 |
+| campaign | `internal/campaign` | 3 | 44 | 29 | 1 | 85 |
+| config | `internal/config` | 2 | 17 | 5 | 0 | 70 |
+| context | `internal/context` | 3 | 9 | 11 | 1 | 90 |
+| core | `internal/core` | 3 | 78 | 107 | 129 | 88 |
+| diff | `internal/diff` | 2 | 1 | 2 | 0 | 90 |
+| embedding | `internal/embedding` | 2 | 6 | 7 | 0 | 90 |
+| features | `internal/features` | 2 | 1 | 3 | 0 | 90 |
+| init | `internal/init` | 3 | 16 | 7 | 1 | 70 |
+| jit | `internal/jit` | 2 | 1 | 1 | 0 | 90 |
+| logging | `internal/logging` | 2 | 4 | 5 | 0 | 90 |
+| mangle | `internal/mangle` | 3 | 21 | 39 | 1 | 90 |
+| mcp | `internal/mcp` | 3 | 10 | 16 | 1 | 90 |
+| northstar | `internal/northstar` | 2 | 4 | 6 | 0 | 90 |
+| observability | `internal/observability` | 2 | 2 | 3 | 0 | 90 |
+| perception | `internal/perception` | 3 | 50 | 48 | 0 | 85 |
+| persist | `internal/persist` | 2 | 1 | 4 | 0 | 90 |
+| prompt | `internal/prompt` | 3 | 25 | 32 | 0 | 90 |
+| regression | `internal/regression` | 2 | 1 | 1 | 0 | 90 |
+| retrieval | `internal/retrieval` | 2 | 4 | 6 | 0 | 90 |
+| session | `internal/session` | 2 | 6 | 14 | 0 | 90 |
+| shards | `internal/shards` | 3 | 18 | 24 | 1 | 90 |
+| sqlpragmas | `internal/sqlpragmas` | 2 | 1 | 2 | 0 | 90 |
+| store | `internal/store` | 3 | 39 | 44 | 0 | 90 |
+| system | `internal/system` | 3 | 5 | 11 | 1 | 90 |
+| tactile | `internal/tactile` | 2 | 16 | 12 | 0 | 85 |
+| testing | `internal/testing` | 3 | 21 | 8 | 0 | 70 |
+| tools | `internal/tools` | 3 | 25 | 21 | 0 | 85 |
+| transparency | `internal/transparency` | 2 | 8 | 9 | 0 | 90 |
+| types | `internal/types` | 2 | 5 | 4 | 0 | 85 |
+| usage | `internal/usage` | 2 | 2 | 4 | 0 | 90 |
+| ux | `internal/ux` | 2 | 4 | 4 | 0 | 90 |
+| verification | `internal/verification` | 2 | 1 | 3 | 0 | 90 |
+| world | `internal/world` | 3 | 37 | 31 | 1 | 85 |
 
-## Leaf / thin packages (index-only, folded or excluded)
+## Also present (non-internal)
 
-Excluded from full tier corpora this run: `diff`, `types`, `sqlpragmas`, `ux`, `usage`, `verification`, `regression`, `features`, `build`, `observability`, `northstar`, `persist`, `tactile`, `retrieval`, `transparency`, `testing`, `init`, `browser`, `embedding`, `world`, `mcp`, `system`, `autopoiesis`, `context`, `logging`, `jit`.
+- `Docs/architecture/cli/` maps to `cmd/nerd/` (CLI surface; not an internal/ root).
 
-Rationale: acceptance criterion spine set is binding; leaves are non-goals.
+## Deviation from earlier spine-only run
 
-## Generation results
-
-| Corpus | Status | src | tests | mg | heuristic % |
-|--------|--------|----:|------:|---:|------------:|
-| core | Realized — living code | 78 | 107 | 129 | 88 |
-| mangle | Realized — living code | 21 | 39 | 1 | 90 |
-| perception | Realized — living code | 49 | 47 | 0 | 85 |
-| articulation | Realized — living code | 8 | 7 | 0 | 85 |
-| prompt | Realized — living code | 25 | 32 | 0 | 90 |
-| session | Realized — living code | 6 | 14 | 0 | 90 |
-| shards | Realized — living code | 18 | 24 | 1 | 90 |
-| campaign | Realized — living code | 44 | 29 | 1 | 85 |
-| config | Realized — living code | 17 | 4 | 0 | 70 |
-| store | Realized — living code | 39 | 44 | 0 | 90 |
-| tools | Realized — living code | 25 | 21 | 0 | 85 |
-| cli | Realized — living code | 113 | 55 | 2 | 70 |
-
-## Deviations from pure pre-impl arch-propose
-
-- Used code-grounded mode for existing `internal/**` and `cmd/nerd` instead of 0% pre-impl banners.
-- corpus-build used for surface language/scripts, not full runtime recode.
+- Replaced spine-only + leaf exclusions with full 1:1 internal coverage per user correction.
 

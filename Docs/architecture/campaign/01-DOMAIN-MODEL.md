@@ -1,16 +1,16 @@
 # campaign — Domain Model
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/campaign/` (44 non-test .go, 29 tests, 1 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/campaign/` (complete internal coverage)
+> **Implementation: `internal/campaign/` — 44 non-test .go, 29 tests, 1 .mg**
 
 
-## Source package
+## Package
 
 `internal/campaign/`
 
-## Exported / primary types (sampled)
+## Exported types (sampled, up to 40)
 
 | Type | Location |
 |------|----------|
@@ -39,20 +39,71 @@
 | `EdgeCaseConfig` | `internal/campaign/edge_case_detector.go:107` |
 | `EdgeCaseAnalysis` | `internal/campaign/edge_case_detector.go:734` |
 | `ConsultationProvider` | `internal/campaign/intelligence_gatherer.go:32` |
+| `BatchConsultRequest` | `internal/campaign/intelligence_gatherer.go:37` |
+| `ConsultationResponse` | `internal/campaign/intelligence_gatherer.go:45` |
+| `IntelligenceGatherer` | `internal/campaign/intelligence_gatherer.go:65` |
+| `IntelligenceConfig` | `internal/campaign/intelligence_gatherer.go:91` |
+| `IntelligenceReport` | `internal/campaign/intelligence_gatherer.go:146` |
+| `FileInfo` | `internal/campaign/intelligence_gatherer.go:222` |
+| `SymbolInfo` | `internal/campaign/intelligence_gatherer.go:232` |
+| `ChurnHotspot` | `internal/campaign/intelligence_gatherer.go:241` |
+| `CommitInfo` | `internal/campaign/intelligence_gatherer.go:250` |
+| `LearningPattern` | `internal/campaign/intelligence_gatherer.go:259` |
+| `PreferenceSignal` | `internal/campaign/intelligence_gatherer.go:268` |
+| `EntityCluster` | `internal/campaign/intelligence_gatherer.go:275` |
+| `SafetyWarning` | `internal/campaign/intelligence_gatherer.go:282` |
+| `MCPToolInfo` | `internal/campaign/intelligence_gatherer.go:292` |
+| `CampaignArtifact` | `internal/campaign/intelligence_gatherer.go:302` |
 
-## Planned vs actual Mangle surface
+## Exported functions/methods (sampled, up to 30)
 
-| Artifact | Count | Notes |
-|----------|-------|-------|
-| `.mg` files under package | 1 | See inventory |
-| Core schemas (global) | shared | `internal/core/defaults/schemas.mg` when kernel-touching |
-| Policy modules (global) | shared | `internal/core/defaults/policy/` |
+| Symbol | Location |
+|--------|----------|
+| `NewAdversarialAssaultCampaign` | `internal/campaign/assault_campaign.go:19` |
+| `DefaultAssaultConfig` | `internal/campaign/assault_types.go:61` |
+| `Normalize` | `internal/campaign/assault_types.go:78` |
+| `NewStaticPromptProvider` | `internal/campaign/campaign_prompts.go:44` |
+| `GetPrompt` | `internal/campaign/campaign_prompts.go:49` |
+| `GetCampaignPhaseForRole` | `internal/campaign/campaign_prompts.go:86` |
+| `GetShardTypeForRole` | `internal/campaign/campaign_prompts.go:109` |
+| `NewCheckpointRunner` | `internal/campaign/checkpoint.go:24` |
+| `Run` | `internal/campaign/checkpoint.go:45` |
+| `RunAll` | `internal/campaign/checkpoint.go:441` |
+| `RunQuick` | `internal/campaign/checkpoint.go:466` |
+| `NewContextPager` | `internal/campaign/context_pager.go:37` |
+| `SetBudget` | `internal/campaign/context_pager.go:61` |
+| `GetUsage` | `internal/campaign/context_pager.go:77` |
+| `ResetPhaseContext` | `internal/campaign/context_pager.go:87` |
+| `ActivatePhase` | `internal/campaign/context_pager.go:101` |
+| `CompressPhase` | `internal/campaign/context_pager.go:207` |
+| `PrefetchNextTasks` | `internal/campaign/context_pager.go:314` |
+| `PruneIrrelevant` | `internal/campaign/context_pager.go:350` |
+| `NewDecomposer` | `internal/campaign/decomposer.go:46` |
+| `SetPromptProvider` | `internal/campaign/decomposer.go:77` |
+| `SetShardLister` | `internal/campaign/decomposer.go:89` |
+| `SetIntelligenceGatherer` | `internal/campaign/decomposer.go:98` |
+| `SetAdvisoryBoard` | `internal/campaign/decomposer.go:107` |
+| `SetEdgeCaseDetector` | `internal/campaign/decomposer.go:116` |
+| `SetToolPregenerator` | `internal/campaign/decomposer.go:125` |
+| `GetLastIntelligence` | `internal/campaign/decomposer.go:133` |
+| `IsGroundingAvailable` | `internal/campaign/decomposer.go:142` |
+| `IsThinkingAvailable` | `internal/campaign/decomposer.go:147` |
+| `EnableURLContext` | `internal/campaign/decomposer.go:153` |
 
-### Package-local Mangle inventory (top)
+## Mangle surface
+
+| Artifact | Count |
+|----------|------:|
+| Package-local `.mg` | 1 |
 
 | Path | Lines |
-|------|-------|
+|------|------:|
 | `internal/campaign/debug_program_ERROR.mg` | 16308 |
+
+Global kernel schemas/policy (when this package participates):
+
+- `internal/core/defaults/schemas.mg`
+- `internal/core/defaults/policy/`
 
 ## Fact-flow placement
 
@@ -61,10 +112,4 @@ user input → perception → user_intent → kernel(core/mangle) → next_actio
   → VirtualStore / shards / tools → articulation
 ```
 
-This package's position: **Multi-phase goal orchestration and context paging**
-
-## Data & control concepts
-
-- Primary language surface: Go under `internal/campaign/`
-- Logic surface: Mangle where listed above or via kernel defaults
-- External effects: VirtualStore / tools / CLI depending on package
+This package: **Multi-phase goal orchestration, decomposition, context paging**

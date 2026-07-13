@@ -1,26 +1,26 @@
 # articulation — Alignment & Vision Review
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/articulation/` (8 non-test .go, 7 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/articulation/` (complete internal coverage)
+> **Implementation: `internal/articulation/` — 8 non-test .go, 7 tests, 0 .mg**
 
 
 ## North-star fit
 
-codeNERD separates **LLM creativity** from **Mangle executive control**. This package contributes:
+codeNERD: LLM creative center; Mangle kernel executive. Package role:
 
-**Atoms→NL, Piggyback emitter, prompt assembly bridge**
+**Atoms→NL emission, Piggyback protocol, prompt assembly bridge**
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | 4 | Package role relative to fact-flow spine |
-| Fact-flow placement | 3 | See 01-DOMAIN-MODEL |
-| Constitutional safety | 3 | permitted / policy surfaces |
-| JIT / atom discipline | 4 | prompt atoms vs ad-hoc prompts |
-| Observability | 3 | logging / transparency hooks |
-| Test grounding | 4 | 7 tests vs 8 sources |
+| Dimension | Score (0–5) | Notes |
+|-----------|-------------|-------|
+| Creative/executive split | 5 | Relative to fact-flow spine |
+| Fact-flow placement | 3 | See domain model |
+| Constitutional safety | 3 | permitted / safety surfaces |
+| JIT / atom discipline | 4 | prompt atoms |
+| Observability | 3 | logs/metrics |
+| Test grounding | 4 | 7 tests / 8 src |
 
-## Overall
+## Verdict
 
-Living package under `internal/articulation/`. Corpus is **code-grounded**, not pre-implementation fiction.
+Living package under `internal/articulation/`. Full corpus is **code-grounded**, not pre-implementation fiction.

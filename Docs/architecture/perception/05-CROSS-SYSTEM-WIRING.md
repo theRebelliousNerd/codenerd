@@ -1,26 +1,31 @@
 # perception — Cross-System Wiring
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/perception/` (49 non-test .go, 47 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/perception/` (complete internal coverage)
+> **Implementation: `internal/perception/` — 50 non-test .go, 48 tests, 0 .mg**
 
 
-## Declared source
+## Owned package
 
 `internal/perception/`
 
-## Wiring checklist (claims only for real paths)
+## Integration checklist (verify before claiming live)
 
-| Surface | Path | Claim |
+| Surface | Path | Notes |
 |---------|------|-------|
-| Package root | `internal/perception/` | Exists |
-| Kernel defaults | `internal/core/defaults/` | Global schemas/policy when needed |
-| Shard registration | `internal/shards/registration.go` | Check if this package registers shards |
-| VirtualStore | `internal/core/virtual_store.go` | Effectful routes if any |
-| Session | `internal/session/` | Execution loop consumer/producer |
-| CLI | `cmd/nerd/` | User-facing entry if any |
+| This package | `internal/perception/` | Exists |
+| Kernel | `internal/core/` | Facts / VirtualStore / Dreamer |
+| Mangle engine | `internal/mangle/` | Evaluation / feedback |
+| Schemas/policy | `internal/core/defaults/` | Global Decl/policy |
+| Shard registration | `internal/shards/registration.go` | If registers shards |
+| Session | `internal/session/` | Execution loop |
+| Prompt JIT | `internal/prompt/` | Atoms/compiler |
+| Articulation | `internal/articulation/` | Piggyback/assembly |
+| Config | `internal/config/` | Settings |
+| CLI | `cmd/nerd/` | User entry |
+| Tools/MCP | `internal/tools/`, `internal/mcp/` | External tools |
 
 ## Honesty
 
-Do not invent routes or registrations. Grep before asserting a wire is live.
+Do not invent routes or registrations. Grep registration hubs and callers before asserting a wire is live for **perception**.

@@ -2,5 +2,5 @@
 
 | Date | Event |
 |------|-------|
-| 2026-07-13 | Dark-factory code-grounded corpus generated (tier 2) |
-| 2026-07-13 | Sources: 39 go, 44 tests, 0 mg |
+| 2026-07-13 | Full corpus generated (1:1 with internal/store, tier 3) |
+| 2026-07-13 | Inventory: 39 go, 44 tests, 0 mg |

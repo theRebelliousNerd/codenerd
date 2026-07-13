@@ -1,0 +1,39 @@
+# browser — Testing Strategy
+
+> Last verified against codebase: 2026-07-13
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/browser/` (complete internal coverage)
+> **Implementation: `internal/browser/` — 3 non-test .go, 6 tests, 0 .mg**
+
+
+## Current inventory
+
+| Kind | Count |
+|------|------:|
+| Source files | 3 |
+| Test files | 6 |
+
+## Recommended focus
+
+1. **Unit** — table-driven tests for exported funcs in largest files (see 02-CURRENT-STATE).
+2. **Race** — any goroutine/shared state paths under `internal/browser/`.
+3. **Integration** — callers from session/shards/core as applicable.
+4. **Mangle** — if package ships `.mg` or feeds kernel facts, validate Decl + load.
+
+## Commands
+
+```powershell
+go test ./internal/browser/...
+go test -race ./internal/browser/...
+```
+
+## Sample existing tests
+
+| Path | Lines |
+|------|------:|
+| `internal/browser/session_manager_coverage_test.go` | 1102 |
+| `internal/browser/honeypot_coverage_test.go` | 479 |
+| `internal/browser/start_coverage_test.go` | 378 |
+| `internal/browser/lifecycle_coverage_test.go` | 280 |
+| `internal/browser/browser_integration_test.go` | 186 |
+| `internal/browser/honeypot_test.go` | 145 |

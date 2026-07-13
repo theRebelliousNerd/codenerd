@@ -1,39 +1,39 @@
 # tools — Implemented Spec
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/tools/` (25 non-test .go, 21 tests, 0 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/tools/` (complete internal coverage)
+> **Implementation: `internal/tools/` — 25 non-test .go, 21 tests, 0 .mg**
 
 
 ## 1. Purpose
 
 Tool registry and research/tool integrations
 
-## 2. Source paths
+## 2. Source paths (1:1)
 
 | Path | Role |
 |------|------|
 | `internal/tools/` | Primary implementation |
-| `Docs/architecture/tools/` | This corpus |
+| `Docs/architecture/tools/` | This full corpus |
 
 ## 3. Implementation Status
 
-> Status reflects **living code**, not pre-implementation zeroing.
+> Living code status — **not** pre-implementation zeroing.
 
 | Component | Status | Completion |
 |-----------|--------|------------|
 | Source package tree | Implemented | **85%** |
 | Exported types (sampled) | Implemented | **80%** |
 | Tests | Implemented | **85%** |
-| Mangle local sources | N/A or global | **n/a** |
-| Docs corpus (this) | Implemented | **100%** |
+| Mangle local sources | N/A or global-only | **n/a** |
+| Full architecture corpus | Implemented | **100%** |
 
-**Overall (heuristic): 85% complete as living package**
+**Overall (heuristic): 85%** as living package (25 src / 21 tests)
 
-## 4. Public surface (inventory-driven)
+## 4. Public surface inventory
 
-### Largest implementation files
+### Largest files
 
 | Path | Lines |
 |------|------:|
@@ -49,8 +49,16 @@ Tool registry and research/tool integrations
 | `internal/tools/codedom/lines.go` | 279 | source |
 | `internal/tools/research/web_fetch.go` | 263 | source |
 | `internal/tools/research/web_search.go` | 246 | source |
+| `internal/tools/codedom/elements.go` | 239 | source |
+| `internal/tools/research/thinking.go` | 211 | source |
+| `internal/tools/types.go` | 134 | source |
+| `internal/tools/core/workspace_guard.go` | 102 | source |
+| `internal/tools/research/register.go` | 44 | source |
+| `internal/tools/codedom/register.go` | 34 | source |
+| `internal/tools/core/register.go` | 33 | source |
+| `internal/tools/shell/register.go` | 29 | source |
 
-### Sampled types
+### Types (sampled)
 
 | Type | Location |
 |------|----------|
@@ -80,19 +88,54 @@ Tool registry and research/tool integrations
 | `Tool` | `internal/tools/types.go:72` |
 | `ToolResult` | `internal/tools/types.go:117` |
 
-## 5. Integration points (codeNERD spine)
+### Functions (sampled)
+
+| Symbol | Location |
+|--------|----------|
+| `GetElementsTool` | `internal/tools/codedom/elements.go:74` |
+| `GetElementTool` | `internal/tools/codedom/elements.go:190` |
+| `EditLinesTool` | `internal/tools/codedom/lines.go:14` |
+| `InsertLinesTool` | `internal/tools/codedom/lines.go:114` |
+| `DeleteLinesTool` | `internal/tools/codedom/lines.go:193` |
+| `RegisterAll` | `internal/tools/codedom/register.go:8` |
+| `RegisterTestImpactProvider` | `internal/tools/codedom/run_impacted_tests.go:67` |
+| `RunImpactedTestsTool` | `internal/tools/codedom/run_impacted_tests.go:72` |
+| `GetImpactedTestsTool` | `internal/tools/codedom/run_impacted_tests.go:113` |
+| `ReadFileTool` | `internal/tools/core/file_ops.go:15` |
+| `WriteFileTool` | `internal/tools/core/file_ops.go:123` |
+| `EditFileTool` | `internal/tools/core/file_ops.go:200` |
+| `DeleteFileTool` | `internal/tools/core/file_ops.go:291` |
+| `ListFilesTool` | `internal/tools/core/file_ops.go:346` |
+| `RegisterAll` | `internal/tools/core/register.go:8` |
+| `GlobTool` | `internal/tools/core/search.go:17` |
+| `GrepTool` | `internal/tools/core/search.go:141` |
+| `SearchCodeTool` | `internal/tools/core/search.go:357` |
+| `NewRegistry` | `internal/tools/registry.go:25` |
+| `Register` | `internal/tools/registry.go:34` |
+| `MustRegister` | `internal/tools/registry.go:63` |
+| `Get` | `internal/tools/registry.go:73` |
+| `Has` | `internal/tools/registry.go:80` |
+| `GetByCategory` | `internal/tools/registry.go:88` |
+| `GetMultiple` | `internal/tools/registry.go:108` |
+| `All` | `internal/tools/registry.go:122` |
+| `Names` | `internal/tools/registry.go:134` |
+| `Count` | `internal/tools/registry.go:147` |
+| `Execute` | `internal/tools/registry.go:155` |
+| `ExecuteTool` | `internal/tools/registry.go:171` |
+
+## 5. Integration relevance
 
 | Surface | Relevance |
 |---------|-----------|
-| Kernel / facts | Consumer/producer |
-| VirtualStore | User if effectful |
+| Kernel | Related |
+| VirtualStore | Consumer if effectful |
 | Shards | Related |
 | Prompt JIT | Optional |
-| CLI | Invokes via cmd/nerd |
-| Config | Reads global config |
+| CLI | Related via `cmd/nerd` |
+| Config | Reader |
 
-## 6. Non-goals for this corpus revision
+## 6. Non-goals of this corpus revision
 
-- Full behavioral prose rewrite of every function
-- Filling Docs/Spec 18-file product templates (use spec-doc-sprint)
-- Implementing missing runtime features (use corpus-build implementation mode)
+- Full prose rewrite of every function body
+- Docs/Spec 18-file product templates (`spec-doc-sprint`)
+- Implementing missing features (corpus-build implementation mode)

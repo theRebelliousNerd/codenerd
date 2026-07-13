@@ -1,26 +1,26 @@
 # campaign — Alignment & Vision Review
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/campaign/` (44 non-test .go, 29 tests, 1 .mg)**
+> Status: Living Reference Document — **code-grounded full corpus**
+> Mode: 1:1 with `internal/campaign/` (complete internal coverage)
+> **Implementation: `internal/campaign/` — 44 non-test .go, 29 tests, 1 .mg**
 
 
 ## North-star fit
 
-codeNERD separates **LLM creativity** from **Mangle executive control**. This package contributes:
+codeNERD: LLM creative center; Mangle kernel executive. Package role:
 
-**Multi-phase goal orchestration and context paging**
+**Multi-phase goal orchestration, decomposition, context paging**
 
-| Dimension | Score (0–5) | Evidence |
-|-----------|-------------|----------|
-| Creative/executive split | 3 | Package role relative to fact-flow spine |
-| Fact-flow placement | 3 | See 01-DOMAIN-MODEL |
-| Constitutional safety | 3 | permitted / policy surfaces |
-| JIT / atom discipline | 2 | prompt atoms vs ad-hoc prompts |
-| Observability | 4 | logging / transparency hooks |
-| Test grounding | 4 | 29 tests vs 44 sources |
+| Dimension | Score (0–5) | Notes |
+|-----------|-------------|-------|
+| Creative/executive split | 3 | Relative to fact-flow spine |
+| Fact-flow placement | 3 | See domain model |
+| Constitutional safety | 3 | permitted / safety surfaces |
+| JIT / atom discipline | 2 | prompt atoms |
+| Observability | 3 | logs/metrics |
+| Test grounding | 4 | 29 tests / 44 src |
 
-## Overall
+## Verdict
 
-Living package under `internal/campaign/`. Corpus is **code-grounded**, not pre-implementation fiction.
+Living package under `internal/campaign/`. Full corpus is **code-grounded**, not pre-implementation fiction.
