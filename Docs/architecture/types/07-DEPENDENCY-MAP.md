@@ -1,27 +1,97 @@
-# types — Dependency Map
+# 07 — Dependency Map: `internal/types`
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/types/` (complete internal coverage)
-> **Implementation: `internal/types/` — 5 non-test .go, 4 tests, 0 .mg**
+> Last verified: **2026-07-13**
 
+## 1. Outbound (what `types` imports)
 
-## Primary package
+| Dependency | Used for | Files |
+|------------|----------|-------|
+| `context` | Session attach; LLM/shard signatures | `types.go`, `interfaces.go` |
+| `encoding/json` | Container args in `ToAtom` | `types.go` |
+| `fmt` | Stringification / errors | `types.go`, `extract.go` |
+| `strings` | Name validation, join, trim | `types.go`, `extract.go` |
+| `time` | Time/Duration args; tool timestamps | `types.go`, `extract.go`, `shard.go` |
+| `codeberg.org/TauCeti/mangle-go/ast` | `ToAtom`, name parse | `types.go` |
+| `codeberg.org/TauCeti/mangle-go/analysis` | `ProgramInfo` on Kernel | `interfaces.go` |
+| `codenerd/internal/logging` | Warn before panic in `NewKernelTx` | `transaction.go` |
 
-`internal/types/`
+### Forbidden / absent (by design)
 
-## Typical edges (codeNERD graph — validate with imports)
+`core`, `session`, `shards`, `perception`, `articulation`, `campaign`, `world`, `store`, `cmd/nerd`.
 
-**Often upstream of many packages:** `internal/core`, `internal/config`, `internal/logging`, `internal/types`
+## 2. Inbound (who imports `codenerd/internal/types`)
 
-**Often downstream consumers:** `cmd/nerd`, `internal/session`, `internal/shards`
+### Tier A — implementers & aliases
 
-Package-specific role: Shared type definitions used across packages
+| Package | Relationship |
+|---------|----------------|
+| `internal/core` | Implements `Kernel`, Transactor, bridges; aliases `Fact`, `Kernel`, `LLMClient` |
+| `internal/perception` | Aliases `LLMClient`; clients satisfy LLM interfaces |
+| `internal/world` | Aliases `Fact`; implements/uses `GraphQuery` shape |
+| `internal/core/shards` | `BaseShardAgent` DI against `types.Kernel` / LLM |
+| `internal/store` | Learning store, fact codec |
+| `internal/persist/factsnap` | Fact snapshot codec round-trips |
 
-## How to refresh
+### Tier B — heavy consumers
 
-```powershell
-rg "codenerd/internal/types" -g "*.go" --glob "!*_test.go"
+| Package | Primary uses |
+|---------|--------------|
+| `internal/articulation` | Fact query, Extract*, SessionContext |
+| `internal/autopoiesis` | KernelInterface, ToolInfo, LearningStore |
+| `internal/campaign` | KernelTx, facts, session paging |
+| `internal/session` | Executor contracts (via tests/integration) |
+| `internal/init` | Agent registration with shard types |
+| `internal/browser` | ExtractString on honeypot facts |
+| `internal/context` | Mocks / session-related tests |
+| `internal/shards/system` | System shards against types |
+
+### Tier C — CLI / product surface
+
+| Package | Primary uses |
+|---------|--------------|
+| `cmd/nerd` | Spawn, campaign, query, instruction |
+| `cmd/nerd/chat` | Boot, process, delegation, dream, session context |
+| `cmd/nerd/ui` | Shard pages |
+
+### Tier D — e2e / integration
+
+`tests/e2e/*` — extensive `types.Kernel` mocks, SessionContext isolation, piggyback boundaries, campaign/session integration.
+
+## 3. Import direction diagram
+
+```
+                 mangle-go (ast, analysis)
+                          ▲
+                          │
+                   internal/types
+                          ▲
+     ┌───────────┬────────┼────────┬───────────┬──────────┐
+     │           │        │        │           │          │
+   core      perception  world  articulation campaign  store/…
+     │           │        │        │           │
+     └───────────┴────────┼────────┴───────────┘
+                          ▲
+                    cmd/nerd, tests
 ```
 
-Record concrete import edges in deep-dives when this package is under design focus.
+`types` sits **below** all Cortex subsystems: they depend on it; it does not depend on them.
+
+## 4. Cycle-break stories (evidence)
+
+| Historical cycle | Mechanism |
+|------------------|-----------|
+| core ↔ articulation / autopoiesis | Shared interfaces & facts in `types` |
+| core ↔ world (GraphQuery) | Interface moved to `types` (`interfaces.go` comment) |
+| VirtualStore concrete in core | Marker interface in `types` |
+
+## 5. Compatibility aliases (downstream)
+
+| Downstream | Alias |
+|------------|-------|
+| `core.Fact` | `= types.Fact` |
+| `core.Kernel` | `= types.Kernel` |
+| `core.LLMClient` | `= types.LLMClient` |
+| `perception.LLMClient` | `= types.LLMClient` |
+| `world.Fact` | `= types.Fact` |
+
+These keep older call sites compiling without importing `types` explicitly everywhere — but new code should prefer `types.` for clarity at boundaries.

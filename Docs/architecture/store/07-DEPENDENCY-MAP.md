@@ -1,27 +1,75 @@
 # store — Dependency Map
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/store/` (complete internal coverage)
-> **Implementation: `internal/store/` — 39 non-test .go, 44 tests, 0 .mg**
+> Last verified: **2026-07-13**  
+> Package: `internal/store/`
 
+## Upstream (store imports)
 
-## Primary package
+| Package | Why |
+|---------|-----|
+| `database/sql` + `github.com/mattn/go-sqlite3` | SQLite driver |
+| `github.com/asg017/sqlite-vec-go-bindings/cgo` | Optional ANN (`init_vec.go`, cgo) |
+| `codenerd/internal/embedding` | Embed engines / task types |
+| `codenerd/internal/config` | Reflection config, workspace root for learnings default path |
+| `codenerd/internal/logging` | CategoryStore |
+| `codenerd/internal/types` | `MangleAtom`, `ShardLearning` |
+| `codenerd/internal/sqlpragmas` | Pragma profiles (leaf) |
+| `codenerd/internal/core/defaults` | Embedded intent corpus FS |
 
-`internal/store/`
+**Does not import:** `internal/core` (kernel), `internal/session`, `internal/perception` (avoids cycles; adapters live in `system` / local mirrors).
 
-## Typical edges (codeNERD graph — validate with imports)
+## Downstream (who imports store)
 
-**Often upstream of many packages:** `internal/core`, `internal/config`, `internal/logging`, `internal/types`
+Evidence from repo greps (`codenerd/internal/store`):
 
-**Often downstream consumers:** `cmd/nerd`, `internal/session`, `internal/shards`
+| Consumer | Usage sketch |
+|----------|--------------|
+| `internal/system` | Construct LocalStore, LearningStore; SetEmbeddingEngine; graph adapter; trace adapter |
+| `internal/core` | VirtualStore fields `localDB`, `learningStore`; tools helpers |
+| `internal/world` | World file/fact persistence for scans |
+| `internal/prompt` | Compiler / predicate selector DB access |
+| `internal/init` | Shared KB, strategic knowledge/docs, agents registration, validation |
+| `internal/perception` | Taxonomy store, semantic classifier |
+| `internal/campaign` | Specialist knowledge, intelligence gatherer, document ingestor, decomposer |
+| `internal/context` | Compressor session/state |
+| `internal/verification` | Verification history |
+| `internal/shards/system` | Base shard store access |
+| `internal/testing/context_harness` | Real engine harness |
+| `cmd/nerd` (indirect via system) | Runtime |
+| `cmd/query-kb` | KB query CLI |
+| `cmd/tools/prompt_builder`, `predicate_corpus_builder` | Corpus tooling |
 
-Package-specific role: Memory tiers and durable store implementations
+## Dependency direction diagram
 
-## How to refresh
-
-```powershell
-rg "codenerd/internal/store" -g "*.go" --glob "!*_test.go"
+```
+sqlpragmas  embedding  config  logging  types  defaults
+     \         |         |        |       |       |
+      \        +----+----+--------+-------+-------+
+       \            |
+        v           v
+              internal/store
+                    |
+    +-------+-------+-------+--------+--------+
+    |       |       |       |        |        |
+ system   core    world   prompt   init   campaign
+    |       |       |       |        |        |
+    +-------+-------+-------+--------+--------+
+                    |
+                 cmd/nerd  (boot)
 ```
 
-Record concrete import edges in deep-dives when this package is under design focus.
+## Cycle-break patterns
+
+| Risk | Mitigation |
+|------|------------|
+| store ↔ core | VirtualStore holds store pointers; store never imports core |
+| store ↔ perception | Local `ReasoningTrace` mirror; `StoreReasoningTrace(any)`; adapter in `system/factory_adapters.go` |
+| store ↔ mcp pragmas | mcp imports `sqlpragmas` leaf, not store |
+
+## Sibling packages (not deps, related)
+
+| Package | Relation |
+|---------|----------|
+| `internal/persist` | Factsnap helpers — adjacent persistence, separate package |
+| `internal/sqlpragmas` | Leaf pragma implementation store re-exports |
+| `internal/embedding` | Pure engines; store is consumer |

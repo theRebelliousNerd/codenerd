@@ -1,27 +1,70 @@
-# browser — Dependency Map
+# 07 — Dependency Map: browser
 
 > Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/browser/` (complete internal coverage)
-> **Implementation: `internal/browser/` — 3 non-test .go, 6 tests, 0 .mg**
 
+## 1. Package imports (upstream — what browser needs)
 
-## Primary package
+From `internal/browser/*.go` (non-test):
 
-`internal/browser/`
+| Dependency | Use |
+|------------|-----|
+| `codenerd/internal/logging` | CategoryBrowser, timers, Browser* helpers |
+| `codenerd/internal/mangle` | Fact, Engine (adapter + honeypot) |
+| `codenerd/internal/types` | `ExtractString` for rule results (honeypot) |
+| `github.com/go-rod/rod` | Browser, Page, Element, Eval |
+| `github.com/go-rod/rod/lib/launcher` | Launch Chrome |
+| `github.com/go-rod/rod/lib/launcher/flags` | Flag parsing for Launch slice |
+| `github.com/go-rod/rod/lib/proto` | CDP messages (nav, network, DOM, emulation) |
+| `github.com/google/uuid` | Session IDs |
+| stdlib | context, encoding/json, errors, fmt, os, path/filepath, strings, sync, time |
 
-## Typical edges (codeNERD graph — validate with imports)
+**Does not import:** `internal/core`, `internal/session`, `internal/shards`, `cmd/*` — keeps browser leaf-ish relative to Cortex assembly.
 
-**Often upstream of many packages:** `internal/core`, `internal/config`, `internal/logging`, `internal/types`
+## 2. Downstream importers (who imports browser)
 
-**Often downstream consumers:** `cmd/nerd`, `internal/session`, `internal/shards`
+| Importer | Path evidence | How used |
+|----------|---------------|----------|
+| CLI | `cmd/nerd/cmd_browser.go` | NewSessionManager, Start, CreateSession, SnapshotDOM, ReifyReact |
+| Chat model | `cmd/nerd/chat/model_types.go` | Field types `*browser.SessionManager` |
+| Chat boot | `cmd/nerd/chat/session_boot.go`, `session_shared_boot.go` | Declares/passes browserMgr (often nil) into shards |
+| Tactile router | `internal/shards/system/router.go` | `BrowserManager *browser.SessionManager`, `SetBrowserManager` |
+| Research tools | `internal/tools/research/browser.go` | Shared SessionManager for modular tools |
 
-Package-specific role: Browser automation / Rod session management and honeypot surfaces
+## 3. Soft dependencies (no Go import, semantic coupling)
 
-## How to refresh
+| Artifact | Coupling |
+|----------|----------|
+| `internal/core/defaults/schemas_browser.mg` | Decl must match emitted predicates |
+| `internal/core/defaults/policy/browser.mg` | Consumes interactable/geometry/computed_style |
+| `internal/core/defaults/policy/browser_honeypot.mg` | Consumes css_property/position/attribute; extracted from honeypot.go comments |
+| `internal/core/kernel_init.go` | Loads schemas_browser into programs |
+| `internal/core/virtual_store_types.go` | ActionBrowser* constants name-aligned with tools |
+| `internal/core/virtual_store_actions.go` | Documents shard ownership; modular tool arg mapping |
+| `internal/core/defaults/policy/constitution.mg` | safe_action browser subset |
+| `internal/mangle/intent_routing.mg` | modular_tool_allowed browser_* for research/verify intents |
+| `internal/prompt/config_*.go` | Tool allowlists include browser_navigate |
+| Workspace `.nerd/browser/*` | Operator persistence contract |
 
-```powershell
-rg "codenerd/internal/browser" -g "*.go" --glob "!*_test.go"
+## 4. Layer diagram
+
+```
+cmd/nerd (browser cobra + chat fields)
+        │
+        ├──► internal/browser  ◄── internal/tools/research
+        │         │
+        │         ├──► internal/mangle
+        │         ├──► internal/logging
+        │         └──► go-rod → Chrome
+        │
+internal/shards/system (holds *SessionManager)
+        │
+internal/core (schemas, policy, VS action types — no import of browser package)
 ```
 
-Record concrete import edges in deep-dives when this package is under design focus.
+## 5. Cyclic risk
+
+No import cycle involving `internal/browser` observed. Core/policy files mention browser in comments and Decl names only.
+
+## 6. Version-sensitive external surface
+
+go-rod CDP proto types (`proto.PageFrameNavigated`, network timing fields) may change across Chrome versions. Lifecycle tests Skip when Chrome unavailable; production Start returns launch/connect errors.

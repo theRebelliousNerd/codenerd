@@ -1,27 +1,78 @@
-# config — Dependency Map
+# 07 — Dependency Map: config
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/config/` (complete internal coverage)
-> **Implementation: `internal/config/` — 17 non-test .go, 5 tests, 0 .mg**
+> Last verified: 2026-07-13  
+> Direction: who imports `codenerd/internal/config`, and what config imports.
 
+## 1. Upstream (config depends on)
 
-## Primary package
+| Package | Why |
+|---------|-----|
+| `codenerd/internal/features` | `FeaturesConfig` type; `SetActive` / `Summary` on load |
+| `codenerd/internal/logging` | Boot/debug logs in Load / LoadUserConfig |
+| `codenerd/internal/mcp` | `MCPServerConfig` conversion types |
+| stdlib | `os`, `path/filepath`, `encoding/json`, `time`, `slices`, `runtime`, `strings`, `fmt` |
+| `gopkg.in/yaml.v3` | YAML Load/Save for `Config` |
 
-`internal/config/`
+**No** import of `internal/core`, `internal/perception`, or `cmd/nerd` — keeps config low in the DAG.
 
-## Typical edges (codeNERD graph — validate with imports)
+## 2. Downstream (imports config) — major clusters
 
-**Often upstream of many packages:** `internal/core`, `internal/config`, `internal/logging`, `internal/types`
+### 2.1 CLI / chat (primary mutators)
 
-**Often downstream consumers:** `cmd/nerd`, `internal/session`, `internal/shards`
+| Area | Usage |
+|------|--------|
+| `cmd/nerd/main.go` | `config.Load` YAML early path |
+| `cmd/nerd/chat/session.go` | `FindWorkspaceRoot` |
+| `cmd/nerd/chat/session_boot.go` | CoreLimits, scheduler, timeouts |
+| `cmd/nerd/chat/commands_handlers*.go` | Load/Save, provider, engine UX |
+| `cmd/nerd/chat/config_wizard*.go` | Interactive write |
+| `cmd/nerd/chat/process*.go` | `GetLLMTimeouts` for articulation/follow-up |
+| `cmd/nerd/cmd_auth.go` | Persist engine/provider |
+| `cmd/nerd/cmd_campaign.go` | Limits + scheduler |
+| `cmd/nerd/embedding_cmd.go` | Embedding config |
+| `cmd/nerd/cmd_spawn.go` | FollowUpTimeout |
+| `cmd/nerd/cmd_transparency.go` | Transparency types |
+| `cmd/nerd/cmd_init_scan.go` | Config path / keys |
 
-Package-specific role: Configuration loading, engines, limits, user and memory config
+### 2.2 Runtime libraries
 
-## How to refresh
+| Package | Usage |
+|---------|--------|
+| `internal/system` | factory LoadUserConfig at boot |
+| `internal/init` | Seed / scanner config |
+| `internal/perception` | providers, timeouts, tests |
+| `internal/build` | BuildConfig env |
+| `internal/transparency` | TransparencyConfig |
+| `internal/ux` | Onboarding/preferences/migration |
+| `internal/autopoiesis` | LoadUserConfig for tool generation |
+| `internal/mangle/feedback` | types referencing config |
+| `internal/features` tests | LoadUserConfig roundtrip |
 
-```powershell
-rg "codenerd/internal/config" -g "*.go" --glob "!*_test.go"
+## 3. Import graph (simplified)
+
+```
+cmd/nerd ──► internal/config ──► internal/features
+    │              │
+    │              ├──► internal/logging
+    │              └──► internal/mcp (types only)
+    │
+    ├──► internal/system ──► config
+    ├──► internal/perception ──► config
+    └──► internal/core  (does NOT import config; uses features + values passed in)
 ```
 
-Record concrete import edges in deep-dives when this package is under design focus.
+## 4. Fact-flow adjacency
+
+```
+config ──values──► perception clients ──facts──► user_intent
+config ──limits──► core APIScheduler / fact ceilings
+config ──budgets─► prompt JIT / context window
+config ──allow───► tactile execution (via ExecutionConfig values)
+```
+
+## 5. Refresh commands
+
+```powershell
+rg "codenerd/internal/config" -g "*.go" --stats
+rg "LoadUserConfig|DefaultUserConfigPath|GetActiveProvider" -g "*.go"
+```

@@ -1,15 +1,5 @@
-# prompt — Prompt / JIT Surface
+# Superseded
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/prompt/` (complete internal coverage)
-> **Implementation: `internal/prompt/` — 25 non-test .go, 32 tests, 0 .mg**
+This stub is replaced by the 2026-07-13 corpus rebuild.
 
-
-## Anchors
-
-- `internal/prompt/compiler.go`
-- `internal/prompt/atoms/`
-- `internal/articulation/prompt_assembler.go`
-
-New LLM-facing behavior → atoms first.
+→ See [13-PROMPT-JIT-DEEP-DIVE.md](13-PROMPT-JIT-DEEP-DIVE.md) and [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).

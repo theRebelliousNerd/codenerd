@@ -1,44 +1,75 @@
-# types — Architecture Corpus
+# types — Architecture Corpus (`internal/types`)
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/types/` (complete internal coverage)
-> **Implementation: `internal/types/` — 5 non-test .go, 4 tests, 0 .mg**
+> Last verified against codebase: **2026-07-13**  
+> Status: Living Reference Document — **code-grounded full corpus**  
+> Language: Go (module `codenerd`)  
+> Primary package: `internal/types/`  
+> Role: **Foundational shared contracts** that break import cycles and define the fact / kernel / LLM / shard / session surface used across Cortex
 
+## Scope
 
-## Role
+`internal/types` is **not** an executable subsystem. It is the **contract package**:
 
-Shared type definitions used across packages
+- Canonical `Fact` + `ToAtom()` bridge into Mangle AST
+- Kernel / VirtualStore / GraphQuery / LearningStore interfaces (implementations live elsewhere)
+- `LLMClient` plus optional capability interfaces (grounding, thinking, piggyback, cache, files)
+- `ShardAgent`, `ShardConfig`, permissions, spawn priority
+- `SessionContext` blackboard payload
+- Safe fact-argument extractors
+- Atomic kernel transaction wrappers (`KernelTx`)
 
-## Source location
+This corpus documents what the package **defines**, who **implements** it, who **consumes** it, and the invariants that keep fact poisoning and import cycles out of the runtime.
 
-- Primary: `internal/types/` (**1:1 package root**)
-- Non-test Go files: **5**
-- Test files: **4**
-- Mangle sources: **0**
-- Tier: **2** (full foundation always; higher tier adds more cross-cuts)
-- Heuristic implementation completeness: **85%**
+It is **not** the kernel (`Docs/architecture/core/`), not Mangle syntax (`Docs/architecture/mangle/`), and not product Spec templates (`Docs/Spec/`).
 
-## Full document set
+## Document map
 
-| Doc | Purpose |
-|-----|---------|
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment |
-| [01-DOMAIN-MODEL.md](01-DOMAIN-MODEL.md) | Types, funcs, models |
-| [02-CURRENT-STATE-TYPES.md](02-CURRENT-STATE-TYPES.md) | Living inventory |
-| [03-GAP-ANALYSIS-TYPES.md](03-GAP-ANALYSIS-TYPES.md) | Gaps vs north star |
-| [04-INVARIANTS-AND-GATES.md](04-INVARIANTS-AND-GATES.md) | Safety + verify gates |
-| [05-CROSS-SYSTEM-WIRING.md](05-CROSS-SYSTEM-WIRING.md) | Integration surfaces |
-| [06-TESTING-STRATEGY.md](06-TESTING-STRATEGY.md) | Test plan from inventory |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Import/dependency notes |
-| [08-FAILURE-MODES.md](08-FAILURE-MODES.md) | Failure / risk surface |
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Status + public surface |
-| [TODO.md](TODO.md) | Open work |
-| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Open design questions |
-| [_progress.md](_progress.md) | Generation progress |
+| Doc | Role |
+|-----|------|
+| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | **Flagship** living architecture, inventory, deep dives |
+| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores with evidence |
+| [01-VISION.md](01-VISION.md) | Target architecture for the shared-types layer |
+| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory and hotspots |
+| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality, dual-interface debt, test gaps |
+| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding principles for this package |
+| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, data flow, conversion pipeline |
+| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported surface with file refs |
+| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream / downstream with evidence |
+| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | How types wire into boot, kernel, shards, CLI |
+| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Fact safety, panic policy, concurrency notes |
+| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Existing tests, gaps, commands |
+| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Logging touchpoints (minimal by design) |
+| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failure modes + mitigations |
+| [TODO.md](TODO.md) | Prioritized backlog |
+| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Real open design questions |
+| [_progress.md](_progress.md) | Rebuild progress log |
 
 ## Verify
 
 ```powershell
 go test ./internal/types/...
 ```
+
+Targeted deep checks:
+
+```powershell
+go test ./internal/types/ -count=1 -v
+go test ./internal/core/ -run 'KernelTx|ToAtom|Fact' -count=1
+```
+
+Build is not required for this pure library package; `go test` is the gate.
+
+## Quality bar
+
+Modeled on `Docs/architecture/cli/`: real path citations, conversion pipelines, dual-interface honesty, reverse-dependency evidence — **not** auto-inventory stubs.
+
+## North-star placement
+
+```
+user input → perception → user_intent (types.StructuredIntent)
+  → kernel (types.Kernel / KernelInterface) → next_action
+  → VirtualStore (types.VirtualStore) / shards (types.ShardAgent)
+  → articulation (SessionContext blackboard) → response
+```
+
+`types` owns the **shapes and interfaces** of that flow; it does not execute them.

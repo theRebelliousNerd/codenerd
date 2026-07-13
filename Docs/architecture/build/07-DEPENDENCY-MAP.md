@@ -1,27 +1,119 @@
-# build — Dependency Map
+# 07 — Dependency Map: `internal/build`
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/build/` (complete internal coverage)
-> **Implementation: `internal/build/` — 1 non-test .go, 2 tests, 0 .mg**
+> Last verified: **2026-07-13**  
+> Method: import inspection of `env.go` + reverse `rg "codenerd/internal/build"`
 
+---
 
-## Primary package
+## 1. Upstream (what build imports)
 
-`internal/build/`
+```
+internal/build
+  ├── codenerd/internal/config     // UserConfig, GetExecution, Build block
+  ├── codenerd/internal/logging    // BuildDebug / CategoryBuild
+  └── stdlib
+        maps
+        os
+        path/filepath
+        slices
+        strings
+```
 
-## Typical edges (codeNERD graph — validate with imports)
+| Dependency | Why |
+|------------|-----|
+| `config` | Read `UserConfig.Build` and execution whitelist |
+| `logging` | Debug traces of merge decisions |
+| `maps` | `maps.Copy` for EnvVars |
+| `slices` | `slices.Contains` for CGOPackages |
+| `os` / `filepath` | Env + filesystem detection |
 
-**Often upstream of many packages:** `internal/core`, `internal/config`, `internal/logging`, `internal/types`
+**Does not import:** core, mangle, session, shards, tactile, tools, prompt, store, campaign, cmd.
 
-**Often downstream consumers:** `cmd/nerd`, `internal/session`, `internal/shards`
+---
 
-Package-specific role: Build-time environment helpers (CGO/sqlite flags, build env)
+## 2. Downstream (who imports build)
 
-## How to refresh
+### Production Go
+
+| Importer | File | Usage |
+|----------|------|-------|
+| `internal/autopoiesis` | `tool_compiler.go` | `GetBuildEnvForCompile` + `MergeEnv` |
+| `internal/autopoiesis` | `thunderdome.go` | `GetBuildEnv` + `MergeEnv` |
+
+### Tests of other packages
+
+None found that import `internal/build` solely for fixtures (as of verify date).
+
+### Docs / audit references
+
+| Location | Note |
+|----------|------|
+| `AUDIT.md` | Marks `internal/build` clean |
+| `Docs/architecture/INDEX.md` | Tier-2 realized package |
+| `Docs/architecture/DARK-FACTORY-JOURNAL.md` | Inventory scores |
+
+### Verify command
 
 ```powershell
 rg "codenerd/internal/build" -g "*.go" --glob "!*_test.go"
 ```
 
-Record concrete import edges in deep-dives when this package is under design focus.
+Expected (current): `tool_compiler.go`, `thunderdome.go`, and `env.go` package itself does not self-import.
+
+---
+
+## 3. Sibling config types
+
+```
+internal/config/build.go     config.BuildConfig  ──json──► UserConfig.Build
+        │
+        │ copied field-wise by
+        ▼
+internal/build/env.go        build.BuildConfig   ──► env slice
+```
+
+Not a Go import cycle; **conceptual dual type**.
+
+---
+
+## 4. Related but non-dependent packages
+
+These construct process environments **without** importing `internal/build`:
+
+| Package | Mechanism |
+|---------|-----------|
+| `internal/tools/shell` | `os.Environ()` based |
+| `internal/tactile` | `buildEnvironment` methods |
+| `internal/autopoiesis` runtime tool **execution** | separate `toolExecutionEnv()` (not compile) |
+
+Compile path uses `internal/build`; **execution** path of tools may not.
+
+---
+
+## 5. Layering diagram
+
+```
+cmd/nerd  /  session  /  core  /  VirtualStore
+              │
+              ▼
+        internal/autopoiesis  (actuator)
+              │
+              ▼
+        internal/build        (env)
+              │
+              ├── internal/config
+              └── internal/logging
+              │
+              ▼
+        os/exec + go toolchain
+```
+
+---
+
+## 6. Dependency risk notes
+
+| Risk | Mitigation |
+|------|------------|
+| build → config grows heavy | Keep using only Build + Execution fields |
+| logging init requirements | BuildDebug is fire-and-forget; safe if logger defaulted |
+| Autopoiesis only consumer | Deleting package breaks tool forge/thunderdome — do not treat as dead |

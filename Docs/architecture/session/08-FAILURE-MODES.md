@@ -1,24 +1,5 @@
-# session — Failure Modes
+# Moved
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/session/` (complete internal coverage)
-> **Implementation: `internal/session/` — 6 non-test .go, 14 tests, 0 .mg**
+Superseded by [12-FAILURE-MODES.md](12-FAILURE-MODES.md) (2026-07-13 rebuild).
 
-
-## Generic failure classes for `internal/session/`
-
-| Mode | Symptoms | Mitigation |
-|------|----------|------------|
-| Missing wiring | Feature code exists but never runs | Grep registration / VirtualStore / CLI hooks |
-| Kernel policy deny | Action blocked | Check `permitted` derivation and policy corpus |
-| Mangle load failure | Boot dump `debug_program_ERROR.mg` | Decl, safety, stratification |
-| LLM/client failure | Perception/articulation errors | Client factory, config engines |
-| Store/IO failure | Persist errors | Context cancel, wrap errors, sqlite pragmas |
-| Race/leak | Flaky tests, hung sessions | `-race`, goroutine lifecycle |
-
-## Package-specific note
-
-Session execution loop and clean executor
-
-Revisit this file after incidents; attach real log paths under `.nerd/logs/` when available.
+Note: `08-WIRING-AND-INTEGRATION.md` is the live “08” document in the new numbering.

@@ -1,25 +1,5 @@
-# tactile — Invariants and Gates
+# Superseded
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/tactile/` (complete internal coverage)
-> **Implementation: `internal/tactile/` — 16 non-test .go, 12 tests, 0 .mg**
+This thin stub was replaced on **2026-07-13**.
 
-
-## Invariants
-
-1. Source under `internal/tactile/` is authoritative over this corpus.
-2. System actions remain compatible with `permitted(...)` / default deny.
-3. New Mangle predicates require `Decl`; safe negation; stratification.
-4. LLM-facing changes prefer prompt atoms (JIT) over ad-hoc prose.
-5. Go: context-first I/O, wrapped errors, race-safe concurrency.
-
-## Gates
-
-| Gate | Check |
-|------|-------|
-| Tests | `go test ./internal/tactile/...` |
-| Race (when concurrent) | `go test -race ./internal/tactile/...` |
-| Binary (if CLI-impacting) | CGO sqlite-vec build of `./cmd/nerd` |
-| Path existence | All cited `internal/` paths resolve |
-| Surfaces | `validate_architecture_corpora.py` + optional `verify_surfaces.py` |
+See [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) and [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md).

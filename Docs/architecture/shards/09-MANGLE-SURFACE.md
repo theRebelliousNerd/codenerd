@@ -1,22 +1,12 @@
-# shards — Mangle Surface
+# Mangle surface (shards) — pointer
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/shards/` (complete internal coverage)
-> **Implementation: `internal/shards/` — 18 non-test .go, 24 tests, 1 .mg**
+Superseded as a standalone thin inventory 2026-07-13.
 
+**Canonical content:** Mangle facts asserted/queried by system shards live in
+[09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) §5 and
+[IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) (OODA pipeline + predicate manifests).
 
-## Local `.mg`
+Policy Decl/rules themselves remain in `internal/core/defaults/` — see
+`Docs/architecture/core/` and `Docs/architecture/mangle/`.
 
-| Path | Lines |
-|------|------:|
-| `internal/shards/system/debug_program_ERROR.mg` | 16308 |
-
-## Global defaults
-
-- `internal/core/defaults/schemas.mg`
-- `internal/core/defaults/policy/`
-
-## Guardrails
-
-Decl before use; `/atoms`; Upper variables; safe negation; `|>` aggregation.
+Authoritative map: [README.md](README.md).

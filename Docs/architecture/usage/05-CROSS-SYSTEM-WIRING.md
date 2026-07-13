@@ -1,31 +1,5 @@
-# usage — Cross-System Wiring
+# Superseded
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/usage/` (complete internal coverage)
-> **Implementation: `internal/usage/` — 2 non-test .go, 4 tests, 0 .mg**
+This thin stub was replaced in the **2026-07-13** full corpus rebuild.
 
-
-## Owned package
-
-`internal/usage/`
-
-## Integration checklist (verify before claiming live)
-
-| Surface | Path | Notes |
-|---------|------|-------|
-| This package | `internal/usage/` | Exists |
-| Kernel | `internal/core/` | Facts / VirtualStore / Dreamer |
-| Mangle engine | `internal/mangle/` | Evaluation / feedback |
-| Schemas/policy | `internal/core/defaults/` | Global Decl/policy |
-| Shard registration | `internal/shards/registration.go` | If registers shards |
-| Session | `internal/session/` | Execution loop |
-| Prompt JIT | `internal/prompt/` | Atoms/compiler |
-| Articulation | `internal/articulation/` | Piggyback/assembly |
-| Config | `internal/config/` | Settings |
-| CLI | `cmd/nerd/` | User entry |
-| Tools/MCP | `internal/tools/`, `internal/mcp/` | External tools |
-
-## Honesty
-
-Do not invent routes or registrations. Grep registration hubs and callers before asserting a wire is live for **usage**.
+See: [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md)

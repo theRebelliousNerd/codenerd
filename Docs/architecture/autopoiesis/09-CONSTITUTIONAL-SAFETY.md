@@ -1,11 +1,3 @@
-# autopoiesis — Constitutional Safety
+# Redirect
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/autopoiesis/` (complete internal coverage)
-> **Implementation: `internal/autopoiesis/` — 37 non-test .go, 30 tests, 0 .mg**
-
-
-- Default deny; `permitted(...)`
-- Dreamer: `internal/core/dreamer.go` when present
-- Package role: Self-improvement: Ouroboros tool generation, SafetyChecker, Thunderdome
+Superseded 2026-07-13. See [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) and [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md).

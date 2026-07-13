@@ -1,25 +1,6 @@
-# session — Invariants and Gates
+# Moved
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/session/` (complete internal coverage)
-> **Implementation: `internal/session/` — 6 non-test .go, 14 tests, 0 .mg**
+Superseded by:
 
-
-## Invariants
-
-1. Source under `internal/session/` is authoritative over this corpus.
-2. System actions remain compatible with `permitted(...)` / default deny.
-3. New Mangle predicates require `Decl`; safe negation; stratification.
-4. LLM-facing changes prefer prompt atoms (JIT) over ad-hoc prose.
-5. Go: context-first I/O, wrapped errors, race-safe concurrency.
-
-## Gates
-
-| Gate | Check |
-|------|-------|
-| Tests | `go test ./internal/session/...` |
-| Race (when concurrent) | `go test -race ./internal/session/...` |
-| Binary (if CLI-impacting) | CGO sqlite-vec build of `./cmd/nerd` |
-| Path existence | All cited `internal/` paths resolve |
-| Surfaces | `validate_architecture_corpora.py` + optional `verify_surfaces.py` |
+- [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md)
+- [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md)

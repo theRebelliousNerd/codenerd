@@ -1,22 +1,5 @@
-# system — Mangle Surface
+# Superseded / N/A for package-owned .mg
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/system/` (complete internal coverage)
-> **Implementation: `internal/system/` — 5 non-test .go, 11 tests, 1 .mg**
+`internal/system` has **no intentional package `.mg` sources** (only a crash-dump artifact may appear).  
 
-
-## Local `.mg`
-
-| Path | Lines |
-|------|------:|
-| `internal/system/debug_program_ERROR.mg` | 16308 |
-
-## Global defaults
-
-- `internal/core/defaults/schemas.mg`
-- `internal/core/defaults/policy/`
-
-## Guardrails
-
-Decl before use; `/atoms`; Upper variables; safe negation; `|>` aggregation.
+Mangle involvement is wiring-only — see [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) §6 and [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) §6.4 (kernel domain ownership).

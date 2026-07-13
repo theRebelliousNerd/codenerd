@@ -1,17 +1,5 @@
-# prompt — Prompt / JIT Surface
+# Superseded
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded corpus**
-> Mode: dark-factory autonomous generation via arch-propose/corpus-build port
-> **Implementation: present under `internal/prompt/` (25 non-test .go, 32 tests, 0 .mg)**
+This stub is replaced by the 2026-07-13 corpus rebuild.
 
-
-## Anchors
-
-- Compiler: `internal/prompt/compiler.go`
-- Atoms: `internal/prompt/atoms/`
-- Assembler bridge: `internal/articulation/prompt_assembler.go`
-
-## Discipline
-
-New LLM-facing behavior → prompt atoms first, not ad-hoc shard prose.
+→ See [13-PROMPT-JIT-DEEP-DIVE.md](13-PROMPT-JIT-DEEP-DIVE.md) and [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md).

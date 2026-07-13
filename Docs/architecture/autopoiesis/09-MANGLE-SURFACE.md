@@ -1,22 +1,3 @@
-# autopoiesis — Mangle Surface
+# Redirect
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/autopoiesis/` (complete internal coverage)
-> **Implementation: `internal/autopoiesis/` — 37 non-test .go, 30 tests, 0 .mg**
-
-
-## Local `.mg`
-
-| Path | Lines |
-|------|------:|
-| — | 0 |
-
-## Global defaults
-
-- `internal/core/defaults/schemas.mg`
-- `internal/core/defaults/policy/`
-
-## Guardrails
-
-Decl before use; `/atoms`; Upper variables; safe negation; `|>` aggregation.
+Superseded 2026-07-13. Mangle surface is covered in [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) §5/§9, [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md), and [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md).

@@ -1,24 +1,5 @@
-# diff — Failure Modes
+# Superseded
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/diff/` (complete internal coverage)
-> **Implementation: `internal/diff/` — 1 non-test .go, 2 tests, 0 .mg**
-
-
-## Generic failure classes for `internal/diff/`
-
-| Mode | Symptoms | Mitigation |
-|------|----------|------------|
-| Missing wiring | Feature code exists but never runs | Grep registration / VirtualStore / CLI hooks |
-| Kernel policy deny | Action blocked | Check `permitted` derivation and policy corpus |
-| Mangle load failure | Boot dump `debug_program_ERROR.mg` | Decl, safety, stratification |
-| LLM/client failure | Perception/articulation errors | Client factory, config engines |
-| Store/IO failure | Persist errors | Context cancel, wrap errors, sqlite pragmas |
-| Race/leak | Flaky tests, hung sessions | `-race`, goroutine lifecycle |
-
-## Package-specific note
-
-Diff utilities for code change analysis
-
-Revisit this file after incidents; attach real log paths under `.nerd/logs/` when available.
+Replaced by [12-FAILURE-MODES.md](12-FAILURE-MODES.md)  
+(Note: `08-WIRING-AND-INTEGRATION.md` is the canonical “08” under the rebuild contract.)  
+(rebuild 2026-07-13 — see [README.md](README.md)).

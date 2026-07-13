@@ -1,44 +1,99 @@
-# logging — Architecture Corpus
+# logging — Architecture Corpus (`internal/logging`)
 
-> Last verified against codebase: 2026-07-13
-> Status: Living Reference Document — **code-grounded full corpus**
-> Mode: 1:1 with `internal/logging/` (complete internal coverage)
-> **Implementation: `internal/logging/` — 4 non-test .go, 5 tests, 0 .mg**
+> Last verified against codebase: **2026-07-13**  
+> Status: Living Reference Document  
+> Language: Go (module `codenerd`)  
+> Primary package: `internal/logging/`  
+> Scale: **4** non-test Go sources ≈ **2,034** lines; **5** test files ≈ **141** tests; **0** `.mg`
 
+## Scope
 
-## Role
+This corpus documents codeNERD’s **config-driven, categorized, file-based diagnostic logging** subsystem:
 
-Categorized logging system for debug/diagnostics
+1. **Category loggers** — per-system append files under `.nerd/logs/YYYY-MM-DD_<category>.log`
+2. **Audit trail** — JSON lines + preformatted Mangle facts in `YYYY-MM-DD_audit.log`
+3. **LLM I/O tracing** — full prompt packages / responses when `trace_llm_io` is on
+4. **Timers / performance** — `Timer` helpers + sampled `performance` category metrics
 
-## Source location
+It is **not** the Uber zap CLI console logger (`cmd/nerd/main.go`), **not** glass-box / transparency UX, and **not** `internal/observability` metrics. Those are adjacent surfaces that operators often confuse with this package.
 
-- Primary: `internal/logging/` (**1:1 package root**)
-- Non-test Go files: **4**
-- Test files: **5**
-- Mangle sources: **0**
-- Tier: **2** (full foundation always; higher tier adds more cross-cuts)
-- Heuristic implementation completeness: **90%**
+## North-star placement
 
-## Full document set
+| Concern | Owner |
+|---------|--------|
+| LLM creative center | model providers / perception / articulation |
+| Executive control | Mangle kernel (`permitted`, `next_action`) |
+| Diagnostic evidence of what happened | **`internal/logging`** (this package) |
+| Live operator glass box | CLI transparency / observability |
 
-| Doc | Purpose |
-|-----|---------|
-| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment |
-| [01-DOMAIN-MODEL.md](01-DOMAIN-MODEL.md) | Types, funcs, models |
-| [02-CURRENT-STATE-LOGGING.md](02-CURRENT-STATE-LOGGING.md) | Living inventory |
-| [03-GAP-ANALYSIS-LOGGING.md](03-GAP-ANALYSIS-LOGGING.md) | Gaps vs north star |
-| [04-INVARIANTS-AND-GATES.md](04-INVARIANTS-AND-GATES.md) | Safety + verify gates |
-| [05-CROSS-SYSTEM-WIRING.md](05-CROSS-SYSTEM-WIRING.md) | Integration surfaces |
-| [06-TESTING-STRATEGY.md](06-TESTING-STRATEGY.md) | Test plan from inventory |
-| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Import/dependency notes |
-| [08-FAILURE-MODES.md](08-FAILURE-MODES.md) | Failure / risk surface |
-| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | Status + public surface |
-| [TODO.md](TODO.md) | Open work |
-| [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) | Open design questions |
-| [_progress.md](_progress.md) | Generation progress |
+Logging is **substrate telemetry**: it must never become the executive, never invent policy, and must default to **silent production** when `debug_mode` is false.
+
+## Document map
+
+| Doc | Role |
+|-----|------|
+| [IMPLEMENTED_SPEC.md](IMPLEMENTED_SPEC.md) | **Flagship** living architecture + inventory |
+| [00-ALIGNMENT-VISION-REVIEW.md](00-ALIGNMENT-VISION-REVIEW.md) | North-star alignment scores with evidence |
+| [01-VISION.md](01-VISION.md) | Target product / architecture vision |
+| [02-CURRENT-STATE.md](02-CURRENT-STATE.md) | Precise on-disk inventory |
+| [03-GAP-ANALYSIS.md](03-GAP-ANALYSIS.md) | Spec vs reality matrix |
+| [04-ARCHITECTURAL-PRINCIPLES.md](04-ARCHITECTURAL-PRINCIPLES.md) | Binding package principles |
+| [05-INTERNAL-ARCHITECTURE.md](05-INTERNAL-ARCHITECTURE.md) | Components, data flow, state |
+| [06-PUBLIC-API-AND-TYPES.md](06-PUBLIC-API-AND-TYPES.md) | Exported types and functions |
+| [07-DEPENDENCY-MAP.md](07-DEPENDENCY-MAP.md) | Upstream / downstream imports |
+| [08-WIRING-AND-INTEGRATION.md](08-WIRING-AND-INTEGRATION.md) | Boot, CLI, chat, consumers |
+| [09-SAFETY-AND-INVARIANTS.md](09-SAFETY-AND-INVARIANTS.md) | Safety, concurrency, privacy |
+| [10-TESTING-ALIGNMENT.md](10-TESTING-ALIGNMENT.md) | Tests, gaps, commands |
+| [11-OBSERVABILITY.md](11-OBSERVABILITY.md) | Categories, audit, LLM I/O, performance |
+| [12-FAILURE-MODES.md](12-FAILURE-MODES.md) | Concrete failures + mitigations |
+| [TODO.md](TODO.md) / [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) / [_progress.md](_progress.md) | Governance |
+
+## Source layout
+
+```
+internal/logging/
+  logger.go                 # Initialize, Category, Logger, Timer, RequestLogger
+  logger_convenience.go     # Boot/Kernel/API/... Info/Debug/Warn/Error wrappers
+  audit.go                  # AuditEvent, AuditLogger, Mangle fact generation
+  llm_io_logger.go          # Full LLM request/response dump
+  *_test.go                 # Unit + coverage-oriented tests
+```
 
 ## Verify
 
 ```powershell
 go test ./internal/logging/...
+go test -race ./internal/logging/...
 ```
+
+Enable diagnostics in a workspace:
+
+```json
+// .nerd/config.json
+{
+  "logging": {
+    "debug_mode": true,
+    "level": "debug",
+    "trace_llm_io": false,
+    "json_format": false,
+    "categories": { "kernel": true, "session": true },
+    "performance_sampling": 0.1,
+    "performance_thresholds_ms": { "default": 100, "kernel": 50 }
+  }
+}
+```
+
+Artifacts land under:
+
+```
+.nerd/logs/
+  2026-07-13_boot.log
+  2026-07-13_kernel.log
+  2026-07-13_audit.log
+  2026-07-13_llm_io.log      # only if trace_llm_io
+  2026-07-13_performance.log
+```
+
+## Quality bar
+
+Modeled on `Docs/architecture/cli/`: real inventories, control-flow diagrams, wiring evidence, honest gaps — **not** auto-inventory stubs.
