@@ -286,6 +286,27 @@ func TestCompilationContext_Clone(t *testing.T) {
 	})
 }
 
+func TestCompilationContext_NoToolRetryWorldStateAndFacts(t *testing.T) {
+	cc := NewCompilationContext()
+	cc.PreviousAttemptNoToolCall = true
+
+	assert.Contains(t, cc.WorldStates(), "no_tool_call_retry")
+
+	facts := cc.GenerateFacts(FactStyle{
+		Predicate:  "current_context",
+		UseShort:   true,
+		ForceAtoms: true,
+	})
+	assert.Contains(t, facts, "current_context(/state, /no_tool_call_retry)")
+
+	atom := NewPromptAtom("retry", CategoryProtocol, "retry")
+	atom.WorldStates = []string{"no_tool_call_retry"}
+	assert.True(t, atom.MatchesContext(cc))
+
+	cc.PreviousAttemptNoToolCall = false
+	assert.False(t, atom.MatchesContext(cc))
+}
+
 func TestCompilationContext_FluentAPI(t *testing.T) {
 	t.Run("WithOperationalMode", func(t *testing.T) {
 		cc := NewCompilationContext().WithOperationalMode("/debugging")
@@ -586,5 +607,3 @@ func BenchmarkToContextFacts(b *testing.B) {
 		cc.ToContextFacts()
 	}
 }
-
-

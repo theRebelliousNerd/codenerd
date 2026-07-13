@@ -12,22 +12,7 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 			"search_file_content",
 			"run_shell_command",
 		},
-		Policies: []string{
-			"base.mg",
-			"policy/coder_classification.mg",
-			"policy/coder_language.mg",
-			"policy/coder_impact.mg",
-			"policy/coder_safety.mg",
-			"policy/coder_diagnostics.mg",
-			"policy/coder_workflow.mg",
-			"policy/coder_context.mg",
-			"policy/coder_tdd.mg",
-			"policy/coder_quality.mg",
-			"policy/coder_learning.mg",
-			"policy/coder_campaign.mg",
-			"policy/coder_observability.mg",
-			"policy/coder_patterns.mg",
-		},
+		Policies: copyPolicySet("coder"),
 		Priority: 10,
 	}
 	registry.Register("/coder", coderAtom)
@@ -41,10 +26,7 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 			"read_file",
 			"run_shell_command",
 		},
-		Policies: []string{
-			"base.mg",
-			"tester.mg",
-		},
+		Policies: copyPolicySet("tester"),
 		Priority: 10,
 	}
 	registry.Register("/tester", testerAtom)
@@ -57,10 +39,7 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 			"list_directory",
 			"search_file_content",
 		},
-		Policies: []string{
-			"base.mg",
-			"reviewer.mg",
-		},
+		Policies: copyPolicySet("reviewer"),
 		Priority: 10,
 	}
 	registry.Register("/reviewer", reviewerAtom)
@@ -77,10 +56,7 @@ func RegisterDefaultConfigAtoms(registry *SimpleRegistry) {
 			"research_cache_get",
 			"research_cache_set",
 		},
-		Policies: []string{
-			"base.mg",
-			"researcher.mg",
-		},
+		Policies: copyPolicySet("researcher"),
 		Priority: 10,
 	}
 	registry.Register("/researcher", researcherAtom)

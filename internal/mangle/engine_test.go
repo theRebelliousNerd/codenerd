@@ -475,9 +475,12 @@ func TestDerivedFactsGasLimit(t *testing.T) {
 		{Predicate: "edge", Args: []any{"f", "g"}},
 	}
 	err = engine.AddFacts(edges)
-	// With gas limit of 5, this should either succeed partially or return an error
-	// The important thing is it doesn't hang indefinitely
-	t.Logf("AddFacts with gas limit result: err=%v", err)
+	if err == nil {
+		t.Fatal("AddFacts() succeeded after exceeding DerivedFactsLimit")
+	}
+	if !strings.Contains(err.Error(), "fact size limit reached") {
+		t.Fatalf("AddFacts() error = %q, want created-fact limit error", err)
+	}
 }
 
 func TestConcurrentAccess(t *testing.T) {

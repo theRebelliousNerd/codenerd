@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,7 @@ func formatSpecialists(registry agentRegistry) string {
 	if len(specialists) == 0 {
 		return "No specialists available. Use **researcher** for general knowledge gathering."
 	}
+	sort.Strings(specialists)
 	return strings.Join(specialists, "\n")
 }
 

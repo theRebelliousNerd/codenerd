@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,8 +54,9 @@ type VirtualStore struct {
 	taskDelegator TaskDelegator            // For task execution (replaces direct shardManager.Spawn calls)
 
 	// Kernel feedback loop
-	kernel  Kernel
-	dreamer *Dreamer
+	kernel        Kernel
+	dreamer       *Dreamer
+	dreamerInitMu sync.Mutex
 
 	// Constitutional logic (safety layer)
 	constitution []ConstitutionalRule
@@ -416,6 +418,9 @@ func (v *VirtualStore) GetAuditMetrics() tactile.ExecutionMetricsSnapshot {
 func (v *VirtualStore) SetKernel(k Kernel) {
 	v.mu.Lock()
 	v.kernel = k
+	// A Dreamer is bound to one concrete RealKernel. Clear it whenever the
+	// executive kernel changes so a later route cannot simulate stale state.
+	v.dreamer = nil
 	v.mu.Unlock()
 
 	logging.VirtualStore("Kernel attached to VirtualStore")
@@ -426,7 +431,7 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 
 	// Wire VirtualStore back to RealKernel for bidirectional communication.
 	// NOTE: Dreamer is created LAZILY in getDreamer() to avoid startup overhead.
-	if realKernel, ok := k.(*RealKernel); ok {
+	if realKernel := realKernelForDreamer(k); realKernel != nil {
 		realKernel.SetVirtualStore(v)
 	}
 
@@ -443,20 +448,58 @@ func (v *VirtualStore) SetKernel(k Kernel) {
 // getDreamer returns the Dreamer instance, creating it lazily if needed.
 // This avoids creating the Dreamer at boot time when it's not needed.
 func (v *VirtualStore) getDreamer() *Dreamer {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.dreamerInitMu.Lock()
+	defer v.dreamerInitMu.Unlock()
 
-	if v.dreamer != nil {
-		return v.dreamer
+	for {
+		v.mu.RLock()
+		if v.dreamer != nil {
+			dreamer := v.dreamer
+			v.mu.RUnlock()
+			return dreamer
+		}
+		kernel := v.kernel
+		v.mu.RUnlock()
+
+		// CortexKernel is the default production executive. Its catch-all shard
+		// owns the concrete RealKernel used for isolated speculative evaluation.
+		realKernel := realKernelForDreamer(kernel)
+		if realKernel == nil {
+			return nil
+		}
+
+		// NewDreamer asserts boot facts and can evaluate Mangle. Never perform
+		// that work while holding VirtualStore.mu: virtual predicates may route
+		// back into this store during evaluation.
+		candidate := NewDreamer(realKernel)
+
+		v.mu.Lock()
+		if v.dreamer != nil {
+			dreamer := v.dreamer
+			v.mu.Unlock()
+			return dreamer
+		}
+		if realKernelForDreamer(v.kernel) == realKernel {
+			v.dreamer = candidate
+			v.mu.Unlock()
+			logging.VirtualStore("Dreamer created lazily for speculative execution")
+			return candidate
+		}
+		v.mu.Unlock()
+		// SetKernel raced with construction. Retry against the current kernel;
+		// never publish a Dreamer bound to stale executive state.
 	}
+}
 
-	// Only create if we have a RealKernel
-	if realKernel, ok := v.kernel.(*RealKernel); ok {
-		v.dreamer = NewDreamer(realKernel)
-		logging.VirtualStore("Dreamer created lazily for speculative execution")
+func realKernelForDreamer(kernel Kernel) *RealKernel {
+	switch k := kernel.(type) {
+	case *RealKernel:
+		return k
+	case *CortexKernel:
+		return k.GetPrimaryRealKernel()
+	default:
+		return nil
 	}
-
-	return v.dreamer
 }
 
 // GetDreamer returns the Dreamer instance, creating it lazily if needed.
@@ -829,7 +872,7 @@ func (v *VirtualStore) maybePruneActionLogs(now time.Time) {
 	}
 
 	// Keep action logs bounded to protect kernel evaluation performance.
-	prune("execution_result", 4, now.Add(-15*time.Minute).Unix())
+	prune("execution_result", 5, now.Add(-15*time.Minute).Unix())
 	prune("shard_context_refreshed", 2, now.Add(-60*time.Minute).Unix())
 	prune("system_heartbeat", 1, now.Add(-5*time.Minute).Unix())
 
@@ -956,7 +999,8 @@ func (v *VirtualStore) QueryPermitted(req ActionRequest) bool {
 }
 
 // CheckKernelPermitted consults the kernel to verify if the specific action is permitted.
-// It checks the safe_action cache first, then consults permitted(Action, Target, Payload).
+// safe_action/1 is only a classification hint; authorization always requires an
+// exact permitted(Action, Target, Payload) fact derived for this request.
 // Default deny when the kernel is unavailable or queries fail.
 func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload map[string]any) bool {
 	v.mu.RLock()
@@ -978,19 +1022,13 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 		wantType = "/" + actionType
 	}
 
-	if cache == nil {
-		// rebuildPermissionCache manages its own locking to avoid deadlock
-		v.rebuildPermissionCache()
-		v.mu.RLock()
-		cache = v.permittedCache
-		v.mu.RUnlock()
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		logging.VirtualStoreDebug("checkKernelPermitted(%s): payload encoding failed, denying: %v", actionType, err)
+		return false
 	}
-
-	if cache != nil {
-		if cache[wantType] || cache[altType] {
-			logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (safe_action cache)", actionType)
-			return true
-		}
+	if payload == nil {
+		payloadJSON = []byte("{}")
 	}
 
 	// Query all permitted facts
@@ -1001,7 +1039,7 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 	}
 
 	for _, f := range results {
-		if len(f.Args) < 1 {
+		if len(f.Args) != 3 {
 			continue
 		}
 
@@ -1011,21 +1049,21 @@ func (v *VirtualStore) CheckKernelPermitted(actionType, target string, payload m
 			continue
 		}
 
-		// 2. Check Target (if present in fact)
-		if len(f.Args) >= 2 {
-			factTarget := types.ExtractString(f.Args[1])
-			if factTarget != target && factTarget != "_" {
-				continue
-			}
+		// 2. Match the concrete target. A query wildcard is never an
+		// authorization result and must not be treated as one.
+		if factTarget := types.ExtractString(f.Args[1]); factTarget != target {
+			continue
 		}
 
-		// 3. Check Payload (if present in fact)
-		// Note: Exact payload matching might be tricky with maps.
-		// For now, if the policy derived permitted(...), we assume it validated the payload
-		// via pending_action unification. We accept it if Type and Target match.
-		// Strict payload matching would require deep comparison.
+		// 3. Match the canonical JSON payload used by pending_action/5.
+		if factPayload := types.ExtractString(f.Args[2]); factPayload != string(payloadJSON) {
+			continue
+		}
 
-		logging.VirtualStoreDebug("checkKernelPermitted(%s): ALLOWED (found permitted fact)", actionType)
+		safeClassified := cache != nil && (cache[wantType] || cache[altType])
+		logging.VirtualStoreDebug(
+			"checkKernelPermitted(%s): ALLOWED (exact permitted fact; safe_classified=%v)",
+			actionType, safeClassified)
 		return true
 	}
 

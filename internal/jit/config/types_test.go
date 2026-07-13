@@ -15,7 +15,7 @@ func TestAgentConfigValidation(t *testing.T) {
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "You are a helpful agent.",
 				AllowedTools:   []string{"read_file", "write_file"},
-				Policies:       []string{"base.mg", "coder.mg"},
+				Policies:       []string{"policy/constitution.mg", "policy/coder_safety.mg"},
 			},
 			wantErr: false,
 		},
@@ -24,7 +24,7 @@ func TestAgentConfigValidation(t *testing.T) {
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "",
 				AllowedTools:   []string{"read_file"},
-				Policies:       []string{"base.mg"},
+				Policies:       []string{"policy/constitution.mg"},
 			},
 			wantErr: true,
 		},
@@ -33,7 +33,7 @@ func TestAgentConfigValidation(t *testing.T) {
 			config: EffectiveAgentRuntimeConfig{
 				IdentityPrompt: "   \t\n  ",
 				AllowedTools:   []string{"read_file"},
-				Policies:       []string{"base.mg"},
+				Policies:       []string{"policy/constitution.mg"},
 			},
 			wantErr: true,
 		},
@@ -52,6 +52,30 @@ func TestAgentConfigValidation(t *testing.T) {
 				IdentityPrompt: "Identity",
 				AllowedTools:   []string{"read_file"},
 				Policies:       nil,
+			},
+			wantErr: true,
+		},
+		{
+			name: "Missing Policy Alias",
+			config: EffectiveAgentRuntimeConfig{
+				IdentityPrompt: "Identity",
+				Policies:       []string{"base.mg"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Traversal Policy",
+			config: EffectiveAgentRuntimeConfig{
+				IdentityPrompt: "Identity",
+				Policies:       []string{"../policy/constitution.mg"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Duplicate Policy",
+			config: EffectiveAgentRuntimeConfig{
+				IdentityPrompt: "Identity",
+				Policies:       []string{"policy/constitution.mg", "policy/constitution.mg"},
 			},
 			wantErr: true,
 		},

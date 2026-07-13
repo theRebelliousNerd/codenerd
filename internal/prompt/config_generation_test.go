@@ -23,7 +23,8 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 		t.Errorf("Coder config has no tools")
 	}
 	expectedCoderPolicies := []string{
-		"base.mg",
+		"policy/constitution.mg",
+		"policy/validation.mg",
 		"policy/coder_classification.mg",
 		"policy/coder_language.mg",
 		"policy/coder_impact.mg",
@@ -45,14 +46,14 @@ func TestConfigGeneration_StandardIntents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to generate tester config: %v", err)
 	}
-	assertContainsAll(t, testerCfg.Policies, []string{"base.mg", "tester.mg"}, "Tester")
+	assertContainsAll(t, testerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "tester.mg"}, "Tester")
 
 	// Test Reviewer
 	reviewerCfg, err := factory.Generate(ctx, result, "/reviewer")
 	if err != nil {
 		t.Fatalf("Failed to generate reviewer config: %v", err)
 	}
-	assertContainsAll(t, reviewerCfg.Policies, []string{"base.mg", "reviewer.mg"}, "Reviewer")
+	assertContainsAll(t, reviewerCfg.Policies, []string{"policy/constitution.mg", "policy/validation.mg", "reviewer.mg"}, "Reviewer")
 }
 
 func TestConfigGeneration_HybridIntents(t *testing.T) {
@@ -71,7 +72,8 @@ func TestConfigGeneration_HybridIntents(t *testing.T) {
 
 	// Should have both policies
 	assertContainsAll(t, hybridCfg.Policies, []string{
-		"base.mg",
+		"policy/constitution.mg",
+		"policy/validation.mg",
 		"policy/coder_workflow.mg",
 		"tester.mg",
 	}, "Hybrid")

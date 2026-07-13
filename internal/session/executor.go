@@ -638,6 +638,13 @@ func (e *Executor) generateResponseWithPiggybackTools(ctx context.Context, syste
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntimeConfig) string {
+	// Keep prompt presentation aligned with the execution gate. In particular,
+	// a registered Ouroboros tool is not a capability grant, and nil/empty JIT
+	// configs expose no tools.
+	if cfg == nil || len(cfg.AllowedTools) == 0 {
+		return ""
+	}
+
 	// Use json.MarshalIndent to ensure the example is always valid JSON
 	exampleRequest := []map[string]any{{
 		"id":        "req_1",
@@ -662,20 +669,24 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntim
 
 	// 1. Add modular tools from tools.Global()
 	modularRegistry := tools.Global()
-	if cfg != nil && len(cfg.AllowedTools) > 0 {
-		catalog.WriteString("### Built-in Tools\n\n")
-		for _, toolName := range cfg.AllowedTools {
-			tool := modularRegistry.Get(toolName)
-			if tool == nil {
-				continue
-			}
-			catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
-			// Add parameter hints if schema exists
-			if len(tool.Schema.Required) > 0 {
-				catalog.WriteString(fmt.Sprintf("  Required: %s\n", strings.Join(tool.Schema.Required, ", ")))
-			}
-			toolCount++
+	modularToolCount := 0
+	for _, toolName := range cfg.AllowedTools {
+		tool := modularRegistry.Get(toolName)
+		if tool == nil {
+			continue
 		}
+		if modularToolCount == 0 {
+			catalog.WriteString("### Built-in Tools\n\n")
+		}
+		catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
+		// Add parameter hints if schema exists
+		if len(tool.Schema.Required) > 0 {
+			catalog.WriteString(fmt.Sprintf("  Required: %s\n", strings.Join(tool.Schema.Required, ", ")))
+		}
+		toolCount++
+		modularToolCount++
+	}
+	if modularToolCount > 0 {
 		catalog.WriteString("\n")
 	}
 
@@ -686,15 +697,22 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntim
 
 	if ouroborosReg != nil {
 		ouroborosTools := ouroborosReg.ListTools()
-		if len(ouroborosTools) > 0 {
-			catalog.WriteString("### Generated Tools (Ouroboros)\n\n")
-			for _, tool := range ouroborosTools {
-				catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
-				if len(tool.Capabilities) > 0 {
-					catalog.WriteString(fmt.Sprintf("  Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
-				}
-				toolCount++
+		ouroborosToolCount := 0
+		for _, tool := range ouroborosTools {
+			if !e.isToolAllowed(tool.Name, cfg) {
+				continue
 			}
+			if ouroborosToolCount == 0 {
+				catalog.WriteString("### Generated Tools (Ouroboros)\n\n")
+			}
+			catalog.WriteString(fmt.Sprintf("**%s**: %s\n", tool.Name, tool.Description))
+			if len(tool.Capabilities) > 0 {
+				catalog.WriteString(fmt.Sprintf("  Capabilities: %s\n", strings.Join(tool.Capabilities, ", ")))
+			}
+			toolCount++
+			ouroborosToolCount++
+		}
+		if ouroborosToolCount > 0 {
 			catalog.WriteString("\n")
 		}
 	}
@@ -716,7 +734,7 @@ func (e *Executor) buildToolCatalogForPiggyback(cfg *config.EffectiveAgentRuntim
 	catalog.WriteString("```\n")
 
 	logging.Session("Built Piggyback++ tool catalog: %d tools (%d modular, %d ouroboros)",
-		toolCount, len(cfg.AllowedTools), toolCount-len(cfg.AllowedTools))
+		toolCount, modularToolCount, toolCount-modularToolCount)
 
 	return catalog.String()
 }

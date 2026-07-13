@@ -292,15 +292,6 @@ func (d *Dreamer) SimulateAction(ctx context.Context, req ActionRequest) DreamRe
 		return result
 	}
 
-	// Assert hypothetical fact for shadow_mode policy rules
-	hypotheticalDesc := fmt.Sprintf("%s:%s", req.Type, req.Target)
-	if assertErr := kernel.Assert(Fact{
-		Predicate: "hypothetical",
-		Args:      []any{hypotheticalDesc},
-	}); assertErr != nil {
-		logging.DreamDebug("Failed to assert hypothetical for %s: %v", actionID, assertErr)
-	}
-
 	// Build projected facts for this action
 	logging.DreamDebug("SimulateAction: projecting effects for action %s", actionID)
 	projected := d.projectEffects(kernel, actionID, req)
@@ -356,7 +347,13 @@ func (d *Dreamer) evaluateProjection(kernel *RealKernel, actionID string, projec
 	// Assert projected facts into the sandbox clone so panic_state rules can fire.
 	// Without this, the clone has no projected_action facts for rules to match against.
 	for _, fact := range projected {
-		clone.AssertWithoutEval(fact)
+		if err := clone.assertWithoutEvalChecked(fact); err != nil {
+			logging.Get(logging.CategoryDream).Error(
+				"evaluateProjection: failed to stage projected fact %s: %v",
+				fact.Predicate, err)
+			timer.Stop()
+			return true, fmt.Sprintf("dream projection rejected %s: %v", fact.Predicate, err)
+		}
 	}
 
 	logging.DreamDebug("evaluateProjection: evaluating sandbox kernel with %d projected facts", len(projected))
@@ -420,6 +417,13 @@ func (d *Dreamer) projectEffects(kernel *RealKernel, actionID string, req Action
 
 	path := strings.TrimSpace(req.Target)
 	projected := []Fact{
+		{
+			// Counterfactual inputs belong only to the sandbox clone. Asserting
+			// them into the live kernel would let a safety check mutate executive
+			// truth and leak state into later decisions.
+			Predicate: "hypothetical",
+			Args:      []any{fmt.Sprintf("%s:%s", req.Type, req.Target)},
+		},
 		{
 			Predicate: "projected_action",
 			Args: []any{

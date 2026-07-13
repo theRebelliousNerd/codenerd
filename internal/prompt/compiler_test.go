@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,12 +15,15 @@ import (
 
 // mockKernel implements KernelQuerier for testing.
 type mockKernel struct {
+	mu        sync.Mutex
 	facts     []any
 	queryErr  error
 	assertErr error
 }
 
 func (m *mockKernel) Query(predicate string) ([]Fact, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.queryErr != nil {
 		return nil, m.queryErr
 	}
@@ -34,6 +38,8 @@ func (m *mockKernel) Query(predicate string) ([]Fact, error) {
 }
 
 func (m *mockKernel) AssertBatch(facts []any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.assertErr != nil {
 		return m.assertErr
 	}

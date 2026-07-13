@@ -32,6 +32,8 @@ func TestAgentSynchronizerSyncAll(t *testing.T) {
 
 	yaml := `- id: agent-one-atom
   category: identity
+  priority: 100
+  is_mandatory: true
   content: "You are agent one."
 `
 	if err := os.WriteFile(filepath.Join(agentDir, "prompts.yaml"), []byte(yaml), 0644); err != nil {
@@ -86,9 +88,13 @@ func TestAgentSynchronizerSyncAll_PrunesRemovedAtoms(t *testing.T) {
 	promptsPath := filepath.Join(agentDir, "prompts.yaml")
 	initialYAML := `- id: agent-one-atom
   category: identity
+  priority: 100
+  is_mandatory: true
   content: "You are agent one."
 - id: stale-atom
   category: methodology
+  priority: 50
+  is_mandatory: false
   content: "This atom should be pruned."
 `
 	if err := os.WriteFile(promptsPath, []byte(initialYAML), 0644); err != nil {
@@ -103,6 +109,8 @@ func TestAgentSynchronizerSyncAll_PrunesRemovedAtoms(t *testing.T) {
 
 	updatedYAML := `- id: agent-one-atom
   category: identity
+  priority: 100
+  is_mandatory: true
   content: "You are agent one, updated."
 `
 	if err := os.WriteFile(promptsPath, []byte(updatedYAML), 0644); err != nil {
@@ -142,5 +150,50 @@ func TestAgentSynchronizerSyncAll_PrunesRemovedAtoms(t *testing.T) {
 	}
 	if staleCount != 0 {
 		t.Fatalf("expected stale atom to be pruned, got %d rows", staleCount)
+	}
+}
+
+func TestAgentSynchronizerSyncAll_FailsClosedOnInvalidAgentYAML(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, ".nerd", "agents", "BrokenAgent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("create agent dir: %v", err)
+	}
+	invalid := `- id: valid-prefix
+  category: identity
+  priority: 100
+  is_mandatory: true
+  content: valid
+- id: invalid-tail
+  category: identity
+  priority: 100
+  is_mandatory: true
+  unknown_field: rejected
+  content: invalid
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "prompts.yaml"), []byte(invalid), 0644); err != nil {
+		t.Fatalf("write invalid prompts: %v", err)
+	}
+
+	syncer := NewAgentSynchronizer(root, prompt.NewAtomLoader(nil))
+	if err := syncer.SyncAll(context.Background()); err == nil {
+		t.Fatal("invalid agent YAML was silently skipped")
+	}
+	if got := syncer.GetDiscoveredAgents(); len(got) != 0 {
+		t.Fatalf("invalid agent was registered: %+v", got)
+	}
+
+	dbPath := filepath.Join(root, ".nerd", "shards", "brokenagent_knowledge.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open agent db: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM prompt_atoms").Scan(&count); err != nil {
+		t.Fatalf("count prompt atoms: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("partial invalid document persisted %d atoms", count)
 	}
 }

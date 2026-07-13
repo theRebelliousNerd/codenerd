@@ -410,6 +410,15 @@ func (s *AtomSelector) SelectAtoms(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 ) ([]*ScoredAtom, error) {
+	return s.selectAtomsKernel(ctx, atoms, cc, s.kernel)
+}
+
+func (s *AtomSelector) selectAtomsKernel(
+	ctx context.Context,
+	atoms []*PromptAtom,
+	cc *CompilationContext,
+	kernel KernelQuerier,
+) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.SelectAtoms")
 	defer timer.Stop()
 
@@ -438,7 +447,8 @@ func (s *AtomSelector) SelectAtoms(
 	// =========================================================================
 	go func() {
 		defer wg.Done()
-		skeleton, skeletonErr = s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
+		defer recoverSelectionPanic("skeleton", &skeletonErr)
+		skeleton, skeletonErr = s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
 	}()
 
 	// =========================================================================
@@ -446,7 +456,8 @@ func (s *AtomSelector) SelectAtoms(
 	// =========================================================================
 	go func() {
 		defer wg.Done()
-		flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+		defer recoverSelectionPanic("flesh", &fleshErr)
+		flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
 	}()
 
 	wg.Wait()
@@ -494,6 +505,15 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	atoms []*PromptAtom,
 	cc *CompilationContext,
 ) ([]*ScoredAtom, int64, error) {
+	return s.selectAtomsWithTimingKernel(ctx, atoms, cc, s.kernel)
+}
+
+func (s *AtomSelector) selectAtomsWithTimingKernel(
+	ctx context.Context,
+	atoms []*PromptAtom,
+	cc *CompilationContext,
+	kernel KernelQuerier,
+) ([]*ScoredAtom, int64, error) {
 	timer := logging.StartTimer(logging.CategoryJIT, "AtomSelector.SelectAtomsWithTiming")
 	defer timer.Stop()
 
@@ -526,7 +546,8 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	// =========================================================================
 	go func() {
 		defer wg.Done()
-		skeleton, skeletonErr = s.loadSkeletonAtoms(ctx, atoms, cc, forcedMandatory)
+		defer recoverSelectionPanic("skeleton", &skeletonErr)
+		skeleton, skeletonErr = s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
 	}()
 
 	// =========================================================================
@@ -534,16 +555,17 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	// =========================================================================
 	go func() {
 		defer wg.Done()
+		defer recoverSelectionPanic("flesh", &fleshErr)
 		if s.vectorSearcher != nil && cc != nil && cc.SemanticQuery != "" {
 			vectorStart := time.Now()
-			flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+			flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
 			vectorMs = time.Since(vectorStart).Milliseconds()
 
 			logging.Get(logging.CategoryJIT).Debug(
 				"Vector-enabled flesh loading took %dms", vectorMs,
 			)
 		} else {
-			flesh, fleshErr = s.loadFleshAtoms(ctx, atoms, cc, forcedMandatory)
+			flesh, fleshErr = s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, kernel)
 		}
 	}()
 
@@ -579,6 +601,12 @@ func (s *AtomSelector) SelectAtomsWithTiming(
 	)
 
 	return merged, vectorMs, nil
+}
+
+func recoverSelectionPanic(phase string, errp *error) {
+	if recovered := recover(); recovered != nil {
+		*errp = fmt.Errorf("%s selector panic: %v", phase, recovered)
+	}
 }
 
 // getVectorScores retrieves semantic similarity scores for atoms.
@@ -627,17 +655,27 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	cc *CompilationContext,
 	forcedMandatory map[string]struct{},
 ) ([]*ScoredAtom, error) {
+	return s.loadSkeletonAtomsKernel(ctx, atoms, cc, forcedMandatory, s.kernel)
+}
+
+func (s *AtomSelector) loadSkeletonAtomsKernel(
+	ctx context.Context,
+	atoms []*PromptAtom,
+	cc *CompilationContext,
+	forcedMandatory map[string]struct{},
+	kernel KernelQuerier,
+) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadSkeletonAtoms")
 	defer timer.Stop()
 
-	if s.kernel == nil {
+	if kernel == nil {
 		return nil, fmt.Errorf("CRITICAL: Mangle kernel not configured for skeleton selection")
 	}
 
 	// Filter to skeleton atoms only
 	var skeletonAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if atom != nil && isSkeletonCategory(atom.Category) {
+		if atom != nil && isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) {
 			skeletonAtoms = append(skeletonAtoms, atom)
 		}
 	}
@@ -653,12 +691,12 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	}
 
 	// Assert facts to kernel
-	if err := s.kernel.AssertBatch(facts); err != nil {
+	if err := kernel.AssertBatch(facts); err != nil {
 		return nil, fmt.Errorf("CRITICAL: failed to assert skeleton facts: %w", err)
 	}
 
 	// Debug: Query blocked atoms to diagnose context matching issues
-	blockedResults, blockedErr := s.kernel.Query("blocked_by_context(Atom)")
+	blockedResults, blockedErr := kernel.Query("blocked_by_context(Atom)")
 	if blockedErr == nil && len(blockedResults) > 0 {
 		logging.Get(logging.CategoryJIT).Debug(
 			"JIT: %d atoms blocked by context constraints", len(blockedResults),
@@ -666,7 +704,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	}
 
 	// Debug: Query mandatory selection to see what passed
-	mandatoryResults, mandatoryErr := s.kernel.Query("mandatory_selection(Atom)")
+	mandatoryResults, mandatoryErr := kernel.Query("mandatory_selection(Atom)")
 	if mandatoryErr == nil {
 		logging.Get(logging.CategoryJIT).Debug(
 			"JIT: %d atoms passed mandatory_selection", len(mandatoryResults),
@@ -678,7 +716,7 @@ func (s *AtomSelector) loadSkeletonAtoms(
 	// - is_mandatory flag
 	// - Context matching (mode, phase, shard, etc.)
 	// - Category being skeleton category
-	results, err := s.kernel.Query("selected_result(Atom, Priority, Source)")
+	results, err := kernel.Query("selected_result(Atom, Priority, Source)")
 	if err != nil {
 		return nil, fmt.Errorf("CRITICAL: skeleton query failed: %w", err)
 	}
@@ -749,13 +787,23 @@ func (s *AtomSelector) loadFleshAtoms(
 	cc *CompilationContext,
 	forcedMandatory map[string]struct{},
 ) ([]*ScoredAtom, error) {
+	return s.loadFleshAtomsKernel(ctx, atoms, cc, forcedMandatory, s.kernel)
+}
+
+func (s *AtomSelector) loadFleshAtomsKernel(
+	ctx context.Context,
+	atoms []*PromptAtom,
+	cc *CompilationContext,
+	forcedMandatory map[string]struct{},
+	kernel KernelQuerier,
+) ([]*ScoredAtom, error) {
 	timer := logging.StartTimer(logging.CategoryContext, "AtomSelector.loadFleshAtoms")
 	defer timer.Stop()
 
 	// Filter to flesh atoms only
 	var fleshAtoms []*PromptAtom
 	for _, atom := range atoms {
-		if atom != nil && !isSkeletonCategory(atom.Category) {
+		if atom != nil && !isSkeletonCategory(atom.Category) && atomMatchesActiveWorldState(atom, cc) {
 			fleshAtoms = append(fleshAtoms, atom)
 		}
 	}
@@ -791,13 +839,13 @@ func (s *AtomSelector) loadFleshAtoms(
 	}
 
 	// Step 3: Query Mangle (if kernel available)
-	if s.kernel == nil {
+	if kernel == nil {
 		// No kernel - fall back to context matching only
 		logging.Get(logging.CategoryContext).Warn("No kernel for flesh selection, using context matching")
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
-	if err := s.kernel.AssertBatch(facts); err != nil {
+	if err := kernel.AssertBatch(facts); err != nil {
 		// Logged at Error: when the kernel rejects flesh facts (e.g. the
 		// prompt_atom arg-order bug or a poisoned-EDB type mismatch), the
 		// selector silently falls back to fallbackFleshSelection — a
@@ -808,7 +856,7 @@ func (s *AtomSelector) loadFleshAtoms(
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
 	}
 
-	results, err := s.kernel.Query("selected_result(Atom, Priority, Source)")
+	results, err := kernel.Query("selected_result(Atom, Priority, Source)")
 	if err != nil {
 		logging.Get(logging.CategoryContext).Warn("Flesh query failed: %v", err)
 		return s.fallbackFleshSelection(fleshAtoms, vectorScores, cc, forcedMandatory), nil
@@ -860,6 +908,21 @@ func (s *AtomSelector) loadFleshAtoms(
 	)
 
 	return selected, nil
+}
+
+func atomMatchesActiveWorldState(atom *PromptAtom, cc *CompilationContext) bool {
+	if atom == nil || len(atom.WorldStates) == 0 {
+		return true
+	}
+	if cc == nil {
+		return false
+	}
+	for _, state := range atom.WorldStates {
+		if hasWorldState(cc, normalizeTagValue(state)) {
+			return true
+		}
+	}
+	return false
 }
 
 // fallbackFleshSelection provides flesh selection when Mangle is unavailable.

@@ -3,7 +3,10 @@ package prompt
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 )
 
 func BenchmarkInjectAvailableSpecialists(b *testing.B) {
@@ -62,9 +65,9 @@ func TestInjectAvailableSpecialists_CacheInvalidation(t *testing.T) {
 	if len(cc.AvailableSpecialists) == 0 {
 		t.Error("AvailableSpecialists is empty")
 	}
-	// Basic check for agent1 presence (implementation dependent string)
-	// Just check if it ran without error for now, logic check is better done if we know the output format.
-	// The implementation formats it as markdown list.
+	if !strings.Contains(cc.AvailableSpecialists, "agent1") {
+		t.Fatalf("initial specialists omitted agent1: %q", cc.AvailableSpecialists)
+	}
 
 	// 3. Update file
 	agentsJSON2 := `{
@@ -78,22 +81,50 @@ func TestInjectAvailableSpecialists_CacheInvalidation(t *testing.T) {
 	if err := os.WriteFile(agentsPath, []byte(agentsJSON2), 0644); err != nil {
 		t.Fatal(err)
 	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(agentsPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	// Expire the cheap stat-avoidance TTL so the next call observes the new
+	// file timestamp without adding a multi-second sleep to the test suite.
+	specialistCacheMu.Lock()
+	entry := specialistCache[agentsPath]
+	entry.lastChecked = time.Now().Add(-specialistCacheTTL)
+	specialistCache[agentsPath] = entry
+	specialistCacheMu.Unlock()
 
 	// 4. Second call - should load agent2 (cache invalidation)
 	if err := InjectAvailableSpecialists(cc, tmpDir); err != nil {
 		t.Fatal(err)
 	}
 
-	// Check if the output reflects the change.
-	// Since we haven't implemented caching yet, this test will pass trivially (it always reloads).
-	// Once caching is implemented, this ensures we don't return stale data.
-	// We need to check content to be sure.
-	// Let's check for "agent2" in the string.
-	// Wait, the output format is: "- **name**: description"
-	// So we look for "agent2".
-	// But `InjectAvailableSpecialists` overwrites `cc.AvailableSpecialists`.
+	if !strings.Contains(cc.AvailableSpecialists, "agent2") || strings.Contains(cc.AvailableSpecialists, "agent1") {
+		t.Fatalf("specialist cache remained stale after registry update: %q", cc.AvailableSpecialists)
+	}
+}
 
-	// Check content
-	// We can't easily check content without parsing the string which is formatted.
-	// But we can check for substring.
+func TestFormatSpecialists_IsDeterministic(t *testing.T) {
+	registry := agentRegistry{}
+	registry.Agents = append(registry.Agents,
+		struct {
+			Name        string `json:"name"`
+			Type        string `json:"type"`
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			Topics      string `json:"topics"`
+		}{Name: "zeta", Type: "test", Status: "ready", Description: "Z"},
+		struct {
+			Name        string `json:"name"`
+			Type        string `json:"type"`
+			Status      string `json:"status"`
+			Description string `json:"description"`
+			Topics      string `json:"topics"`
+		}{Name: "alpha", Type: "test", Status: "ready", Description: "A"},
+	)
+
+	lines := strings.Split(formatSpecialists(registry), "\n")
+	if !sort.StringsAreSorted(lines) {
+		t.Fatalf("specialist output is not sorted: %v", lines)
+	}
 }

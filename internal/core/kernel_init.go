@@ -62,9 +62,6 @@ func NewRealKernel() (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Load the baked-in predicate corpus for validation
-	k.loadPredicateCorpus()
-
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
 	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
@@ -118,9 +115,6 @@ func NewRealKernelWithWorkspace(workspaceRoot string) (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Load the baked-in predicate corpus for validation
-	k.loadPredicateCorpus()
-
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
 	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
@@ -167,9 +161,6 @@ func NewRealKernelWithPath(manglePath string) (*RealKernel, error) {
 		return nil, fmt.Errorf("failed to load mangle files: %w", err)
 	}
 
-	// Load the baked-in predicate corpus for validation
-	k.loadPredicateCorpus()
-
 	// Inject any EDB facts extracted from hybrid .mg files before first evaluation.
 	// QUIESCENT BOOT: Filter ephemeral facts to prevent stale actions at boot.
 	if len(k.bootFacts) > 0 {
@@ -206,6 +197,20 @@ func (k *RealKernel) GetWorkspace() string {
 	return k.workspaceRoot
 }
 
+// defaultDerivedFactLimit is the kernel-wide fallback for every evaluation mode.
+// Keep full and differential evaluation on this single source of truth so an
+// unset limit cannot become path-dependent.
+const defaultDerivedFactLimit = 500_000
+
+// effectiveDerivedFactLimitLocked resolves the configured inference ceiling.
+// The caller must hold k.mu for reading unless the kernel is not yet shared.
+func (k *RealKernel) effectiveDerivedFactLimitLocked() int {
+	if k.derivedFactLimit <= 0 {
+		return defaultDerivedFactLimit
+	}
+	return k.derivedFactLimit
+}
+
 // SetDerivedFactLimit sets the maximum number of derived facts during evaluation.
 // Set to 0 or negative to use the default (500,000).
 func (k *RealKernel) SetDerivedFactLimit(limit int) {
@@ -218,10 +223,7 @@ func (k *RealKernel) SetDerivedFactLimit(limit int) {
 func (k *RealKernel) GetDerivedFactLimit() int {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	if k.derivedFactLimit <= 0 {
-		return 500000 // Default
-	}
-	return k.derivedFactLimit
+	return k.effectiveDerivedFactLimitLocked()
 }
 
 // defaultMaxFacts is the default limit for EDB facts in the kernel.
@@ -374,20 +376,7 @@ func (k *RealKernel) loadMangleFiles() error {
 	}
 
 	// Load other core modules into policy
-	coreModules := []string{
-		"doc_taxonomy.mg",
-		"topology_planner.mg",
-		"build_topology.mg",
-		"campaign_rules.mg",
-		"selection_policy.mg",
-		"taxonomy.mg",
-		"inference.mg",
-		"jit_compiler.mg", // JIT Prompt Compiler logic (context matching, selection)
-		"reviewer.mg",
-		"tester.mg",
-		"go_safety.mg",
-		"benchmarks.mg",
-	}
+	coreModules := DefaultCorePolicyModules()
 
 	loadedModules := 0
 	for _, mod := range coreModules {
@@ -529,7 +518,10 @@ func (k *RealKernel) loadMangleFiles() error {
 	return nil
 }
 
-// loadPredicateCorpus loads the baked-in predicate corpus for validation.
+// loadPredicateCorpus opens the baked-in predicate corpus for validation.
+// It is called through predicateCorpusOnce so ordinary kernel boot and clones do
+// not allocate a SQLite connection and temp file when no consumer needs corpus
+// metadata.
 func (k *RealKernel) loadPredicateCorpus() {
 	timer := logging.StartTimer(logging.CategoryKernel, "loadPredicateCorpus")
 	logging.Kernel("Loading baked-in predicate corpus...")
@@ -541,7 +533,9 @@ func (k *RealKernel) loadPredicateCorpus() {
 		return
 	}
 
+	k.mu.Lock()
 	k.predicateCorpus = corpus
+	k.mu.Unlock()
 	if stats, err := corpus.Stats(); err == nil {
 		logging.Kernel("Predicate corpus loaded: %d predicates, %d examples, %d error patterns",
 			stats["total_predicates"], stats["examples"], stats["error_patterns"])
@@ -553,6 +547,16 @@ func (k *RealKernel) loadPredicateCorpus() {
 
 // GetPredicateCorpus returns the baked-in predicate corpus (may be nil if not loaded).
 func (k *RealKernel) GetPredicateCorpus() *PredicateCorpus {
+	k.mu.RLock()
+	corpus := k.predicateCorpus
+	k.mu.RUnlock()
+	if corpus != nil {
+		return corpus
+	}
+
+	k.predicateCorpusOnce.Do(k.loadPredicateCorpus)
+	k.mu.RLock()
+	defer k.mu.RUnlock()
 	return k.predicateCorpus
 }
 

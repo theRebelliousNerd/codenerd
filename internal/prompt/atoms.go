@@ -400,6 +400,8 @@ func hasWorldState(cc *CompilationContext, state string) bool {
 		return cc.IsHighChurn
 	case "reflection_hits":
 		return cc.HasReflectionHits
+	case "no_tool_call_retry":
+		return cc.PreviousAttemptNoToolCall
 	}
 	return false
 }

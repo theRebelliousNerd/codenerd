@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -34,7 +35,7 @@ func (c *RuleCourt) RatifyRule(newRule string) error {
 // RatifyRule validates a rule using a sandboxed kernel.
 func RatifyRule(kernel *RealKernel, newRule string) error {
 	newRule = strings.TrimSpace(newRule)
-	if newRule == "" {
+	if newRule == "" || isEffectivelyBlankRule(newRule) {
 		return fmt.Errorf("empty rule")
 	}
 
@@ -107,4 +108,17 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	}
 
 	return nil
+}
+
+// isEffectivelyBlankRule treats Unicode whitespace and invisible formatting
+// code points as blank when they are the only content. strings.TrimSpace does
+// not remove zero-width spaces, and sending those through ratification needlessly
+// boots and evaluates a full sandbox for input that cannot express a rule.
+func isEffectivelyBlankRule(rule string) bool {
+	for _, r := range rule {
+		if !unicode.IsSpace(r) && !unicode.Is(unicode.Cf, r) {
+			return false
+		}
+	}
+	return true
 }

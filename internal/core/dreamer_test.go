@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,70 @@ func TestDreamer_SimulateAction_Safe(t *testing.T) {
 	}
 	if len(result.ProjectedFacts) == 0 {
 		t.Error("Expected projected facts, got none")
+	}
+}
+
+func TestDreamer_SimulateAction_DoesNotMutateLiveHypotheticals(t *testing.T) {
+	d, k := setupTestDreamer(t)
+
+	before, err := k.Query("hypothetical")
+	if err != nil {
+		t.Fatalf("query live hypotheticals before simulation: %v", err)
+	}
+
+	result := d.SimulateAction(context.Background(), ActionRequest{
+		Type:   ActionWriteFile,
+		Target: "scratch.txt",
+	})
+
+	after, err := k.Query("hypothetical")
+	if err != nil {
+		t.Fatalf("query live hypotheticals after simulation: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("simulation mutated live hypothetical facts: before=%d after=%d", len(before), len(after))
+	}
+
+	foundProjectedHypothetical := false
+	for _, fact := range result.ProjectedFacts {
+		if fact.Predicate == "hypothetical" {
+			foundProjectedHypothetical = true
+			break
+		}
+	}
+	if !foundProjectedHypothetical {
+		t.Fatal("sandbox projection omitted hypothetical fact")
+	}
+}
+
+func TestDreamer_EvaluateProjectionFailsClosedAtFactLimit(t *testing.T) {
+	d, k := setupTestDreamer(t)
+	k.SetMaxFacts(k.FactCount())
+
+	unsafe, reason := d.evaluateProjection(k, "dream:capacity", []Fact{{
+		Predicate: "projected_action",
+		Args:      []any{"dream:capacity", MangleAtom("/write_file"), "scratch.txt"},
+	}})
+	if !unsafe {
+		t.Fatal("projection rejected at the fact limit was treated as safe")
+	}
+	if !strings.Contains(reason, "fact limit") {
+		t.Fatalf("capacity rejection reason = %q, want fact limit evidence", reason)
+	}
+}
+
+func TestDreamer_EvaluateProjectionFailsClosedOnInvalidFact(t *testing.T) {
+	d, k := setupTestDreamer(t)
+
+	unsafe, reason := d.evaluateProjection(k, "dream:invalid", []Fact{{
+		Predicate: "projected_action",
+		Args:      []any{"dream:invalid", nil, "scratch.txt"},
+	}})
+	if !unsafe {
+		t.Fatal("projection with an unencodable fact was treated as safe")
+	}
+	if !strings.Contains(reason, "Mangle atom") {
+		t.Fatalf("encoding rejection reason = %q, want Mangle atom evidence", reason)
 	}
 }
 

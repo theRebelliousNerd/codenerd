@@ -8,20 +8,17 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"codenerd/internal/embedding"
 	"codenerd/internal/logging"
 	"codenerd/internal/sqlpragmas"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gopkg.in/yaml.v3"
 )
 
 var identifierRegexp = regexp.MustCompile("[^a-zA-Z0-9_]+")
@@ -65,8 +62,7 @@ func (l *AtomLoader) LoadFromYAML(ctx context.Context, yamlPath string, db *sql.
 	stored := 0
 	for _, atom := range atoms {
 		if err := l.StoreAtom(ctx, db, atom); err != nil {
-			logging.Get(logging.CategoryStore).Error("Failed to store atom %s: %v", atom.ID, err)
-			continue
+			return stored, fmt.Errorf("store atom %s from %s: %w", atom.ID, yamlPath, err)
 		}
 		stored++
 	}
@@ -82,36 +78,18 @@ func (l *AtomLoader) LoadFromDirectory(ctx context.Context, dirPath string, db *
 
 	logging.Get(logging.CategoryStore).Info("Loading prompt atoms from directory: %s", dirPath)
 
-	totalStored := 0
-	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories
-		if info.IsDir() {
-			return nil
-		}
-
-		// Only process YAML files
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
-
-		// Load this file
-		stored, loadErr := l.LoadFromYAML(ctx, path, db)
-		if loadErr != nil {
-			logging.Get(logging.CategoryStore).Warn("Failed to load %s: %v", path, loadErr)
-			return nil // Continue processing other files
-		}
-
-		totalStored += stored
-		return nil
-	})
-
+	parsed, migrations, err := ParsePromptAtomDirectory(dirPath)
 	if err != nil {
-		return totalStored, fmt.Errorf("failed to walk directory %s: %w", dirPath, err)
+		return 0, fmt.Errorf("parse atom directory %s: %w", dirPath, err)
+	}
+	logAtomMigrations(migrations)
+
+	totalStored := 0
+	for _, record := range parsed {
+		if err := l.StoreAtom(ctx, db, record.Atom); err != nil {
+			return totalStored, fmt.Errorf("store atom %s from %s: %w", record.Atom.ID, record.SourcePath, err)
+		}
+		totalStored++
 	}
 
 	logging.Get(logging.CategoryStore).Info("Loaded total of %d atoms from directory", totalStored)
@@ -223,167 +201,27 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 
 // ParseYAML parses a YAML file containing prompt atom definitions.
 func (l *AtomLoader) ParseYAML(path string) ([]*PromptAtom, error) {
-	file, err := os.Open(path)
+	parsed, migrations, err := ParsePromptAtomFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, err
 	}
-	defer file.Close()
-
-	decoder := yaml.NewDecoder(file)
-	var atoms []*PromptAtom
-
-	for {
-		var node yaml.Node
-		err := decoder.Decode(&node)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode YAML in %s: %w", path, err)
-		}
-
-		if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
-			contentNode := node.Content[0]
-			if contentNode.Kind == yaml.SequenceNode {
-				for _, itemNode := range contentNode.Content {
-					var raw yamlAtomDefinition
-					if err := itemNode.Decode(&raw); err != nil {
-						logging.Get(logging.CategoryStore).Error("Skipping invalid atom sequence item in %s: %v", path, err)
-						continue
-					}
-					atom, err := l.convertYAMLAtom(raw, path)
-					if err != nil {
-						logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
-						continue
-					}
-					atoms = append(atoms, atom)
-				}
-			} else if contentNode.Kind == yaml.MappingNode {
-				var raw yamlAtomDefinition
-				if err := contentNode.Decode(&raw); err != nil {
-					logging.Get(logging.CategoryStore).Error("Skipping invalid atom mapping in %s: %v", path, err)
-					continue
-				}
-				atom, err := l.convertYAMLAtom(raw, path)
-				if err != nil {
-					logging.Get(logging.CategoryStore).Error("Skipping invalid atom in %s: %v", path, err)
-					continue
-				}
-				atoms = append(atoms, atom)
-			} else {
-				return nil, fmt.Errorf("unexpected yaml node kind in %s: %v", path, contentNode.Kind)
-			}
-		}
+	logAtomMigrations(migrations)
+	atoms := make([]*PromptAtom, 0, len(parsed))
+	for _, record := range parsed {
+		atoms = append(atoms, record.Atom)
 	}
-
 	return atoms, nil
 }
 
-// yamlAtomDefinition matches the YAML structure used in internal/prompt/atoms/*.yaml
-// and .nerd/agents/*/prompts.yaml.
-type yamlAtomDefinition struct {
-	ID          string `yaml:"id"`
-	Category    string `yaml:"category"`
-	Subcategory string `yaml:"subcategory,omitempty"`
-
-	// Polymorphism / semantic embedding helpers
-	Description    string `yaml:"description,omitempty"`
-	ContentConcise string `yaml:"content_concise,omitempty"`
-	ContentMin     string `yaml:"content_min,omitempty"`
-
-	Priority      int      `yaml:"priority"`
-	IsMandatory   bool     `yaml:"is_mandatory"`
-	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
-	DependsOn     []string `yaml:"depends_on,omitempty"`
-	ConflictsWith []string `yaml:"conflicts_with,omitempty"`
-
-	OperationalModes []string `yaml:"operational_modes,omitempty"`
-	CampaignPhases   []string `yaml:"campaign_phases,omitempty"`
-	BuildLayers      []string `yaml:"build_layers,omitempty"`
-	InitPhases       []string `yaml:"init_phases,omitempty"`
-	NorthstarPhases  []string `yaml:"northstar_phases,omitempty"`
-	OuroborosStages  []string `yaml:"ouroboros_stages,omitempty"`
-	IntentVerbs      []string `yaml:"intent_verbs,omitempty"`
-	ShardTypes       []string `yaml:"shard_types,omitempty"`
-	Languages        []string `yaml:"languages,omitempty"`
-	Frameworks       []string `yaml:"frameworks,omitempty"`
-	WorldStates      []string `yaml:"world_states,omitempty"`
-
-	Content     string `yaml:"content,omitempty"`
-	ContentFile string `yaml:"content_file,omitempty"`
-}
-
-// convertYAMLAtom converts a YAML atom definition to a PromptAtom.
-func (l *AtomLoader) convertYAMLAtom(raw yamlAtomDefinition, sourcePath string) (*PromptAtom, error) {
-	if raw.ID == "" {
-		return nil, fmt.Errorf("atom missing ID")
+func logAtomMigrations(migrations []AtomSchemaMigration) {
+	for _, migration := range migrations {
+		logging.Get(logging.CategoryStore).Warn(
+			"Prompt atom %s used compatibility migration %s: %s",
+			migration.AtomID,
+			migration.Code,
+			migration.Message,
+		)
 	}
-
-	if raw.Category == "" {
-		return nil, fmt.Errorf("atom %s missing category", raw.ID)
-	}
-	// Normalize categories for backwards compatibility with older templates.
-	raw.Category = strings.ToLower(strings.TrimSpace(raw.Category))
-	switch raw.Category {
-	case "domain_knowledge":
-		raw.Category = string(CategoryDomain)
-	}
-
-	// Resolve content
-	content := raw.Content
-	if raw.ContentFile != "" && content == "" {
-		contentPath := filepath.Join(filepath.Dir(sourcePath), raw.ContentFile)
-		contentData, err := os.ReadFile(contentPath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read content file %s: %w", raw.ContentFile, err)
-		}
-		content = string(contentData)
-	}
-
-	if content == "" {
-		return nil, fmt.Errorf("atom %s has no content", raw.ID)
-	}
-
-	// Compute token count and hash
-	tokenCount := EstimateTokens(content)
-	contentHash := HashContent(content)
-
-	atom := &PromptAtom{
-		ID:               raw.ID,
-		Version:          1,
-		Category:         AtomCategory(raw.Category),
-		Subcategory:      raw.Subcategory,
-		Content:          content,
-		TokenCount:       tokenCount,
-		ContentHash:      contentHash,
-		Description:      raw.Description,
-		ContentConcise:   raw.ContentConcise,
-		ContentMin:       raw.ContentMin,
-		Priority:         raw.Priority,
-		IsMandatory:      raw.IsMandatory,
-		IsExclusive:      raw.IsExclusive,
-		DependsOn:        raw.DependsOn,
-		ConflictsWith:    raw.ConflictsWith,
-		OperationalModes: raw.OperationalModes,
-		CampaignPhases:   raw.CampaignPhases,
-		BuildLayers:      raw.BuildLayers,
-		InitPhases:       raw.InitPhases,
-		NorthstarPhases:  raw.NorthstarPhases,
-		OuroborosStages:  raw.OuroborosStages,
-		IntentVerbs:      raw.IntentVerbs,
-		ShardTypes:       raw.ShardTypes,
-		Languages:        raw.Languages,
-		Frameworks:       raw.Frameworks,
-		WorldStates:      raw.WorldStates,
-		CreatedAt:        time.Now(),
-	}
-
-	// Validate
-	if err := atom.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid atom: %w", err)
-	}
-
-	return atom, nil
 }
 
 // StoreAtom stores a prompt atom in the database with optional embedding.

@@ -116,18 +116,17 @@ func (m *tsfMockTransducer) SetPromptAssembler(pa perception.PromptAssembler) {}
 func (m *tsfMockTransducer) SetStrategicContext(ctx string)                   {}
 
 // =============================================================================
-// 1. Empty Config = All Tools Allowed (Documents Current Behavior)
+// 1. Empty Config = No Tools Allowed
 // =============================================================================
 
-// TestE2E_ToolSafety_EmptyConfig_AllToolsAllowed documents the current
-// behavior: when ConfigFactory returns an empty AgentConfig (no AllowedTools),
-// isToolAllowed returns true for ALL tools. This is a fail-open design.
-func TestE2E_ToolSafety_EmptyConfig_AllToolsAllowed(t *testing.T) {
+// TestE2E_ToolSafety_EmptyConfig_BlocksAllTools proves that a missing capability
+// envelope cannot grant ambient access, even when the constitutional safety gate
+// is disabled for this isolated capability test.
+func TestE2E_ToolSafety_EmptyConfig_BlocksAllTools(t *testing.T) {
 	// Empty config = no AllowedTools list
 	emptyCfg := &config.EffectiveAgentRuntimeConfig{}
 
-	// isToolAllowed(name, cfg) with empty AllowedTools returns true
-	// We verify this behavior through the Executor.
+	// Verify the effective capability boundary through the Executor.
 	llm := &tsfMockLLMClient{toolCallName: "dangerous_tool"}
 	vstore := &tsfMockVirtualStore{}
 	jit := &tsfMockJITCompiler{}
@@ -146,9 +145,9 @@ func TestE2E_ToolSafety_EmptyConfig_AllToolsAllowed(t *testing.T) {
 	t.Logf("Process result: %v err: %v", result, err)
 	t.Logf("Tools executed: %v", vstore.executedTools)
 
-	// Document the behavior
-	t.Log("NOTE: With empty EffectiveAgentRuntimeConfig.AllowedTools AND SafetyGate=false, " +
-		"ALL tool calls are allowed. This is the current fail-open design.")
+	if len(vstore.executedTools) != 0 {
+		t.Fatalf("empty capability config executed tools: %v", vstore.executedTools)
+	}
 }
 
 // =============================================================================
@@ -225,14 +224,12 @@ func TestE2E_ToolSafety_RestrictedConfig_BlocksUnlisted(t *testing.T) {
 }
 
 // =============================================================================
-// 4. Config Factory Failure = Open Question
+// 4. Config Factory Failure = No Ambient Capabilities
 // =============================================================================
 
-// TestE2E_ToolSafety_ConfigFactoryFails_BehaviorDocumented documents what
-// happens when the ConfigFactory returns an error. The executor should either
-// (a) block all tools (fail-closed) or (b) allow all tools (fail-open).
-// This test documents the current behavior.
-func TestE2E_ToolSafety_ConfigFactoryFails_BehaviorDocumented(t *testing.T) {
+// TestE2E_ToolSafety_ConfigFactoryFails_BlocksTools proves that compilation
+// fallback cannot turn a missing capability envelope into unrestricted access.
+func TestE2E_ToolSafety_ConfigFactoryFails_BlocksTools(t *testing.T) {
 	llm := &tsfMockLLMClient{toolCallName: "test_tool"}
 	vstore := &tsfMockVirtualStore{}
 	jit := &tsfMockJITCompiler{}
@@ -251,11 +248,7 @@ func TestE2E_ToolSafety_ConfigFactoryFails_BehaviorDocumented(t *testing.T) {
 	t.Logf("Process result: %v err: %v", result, err)
 	t.Logf("Tools executed after config factory failure: %v", vstore.executedTools)
 
-	if len(vstore.executedTools) > 0 {
-		t.Log("KNOWN ISSUE: ConfigFactory failure results in nil config, which means " +
-			"isToolAllowed(name, nil) returns true — all tools are allowed. " +
-			"This is fail-open behavior when the config factory crashes.")
-	} else {
-		t.Log("Tools were blocked after config factory failure — good (fail-closed)")
+	if len(vstore.executedTools) != 0 {
+		t.Fatalf("config factory failure executed tools: %v", vstore.executedTools)
 	}
 }

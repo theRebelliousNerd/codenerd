@@ -346,6 +346,10 @@ func resolveXAIAPIKey(pc *ProviderConfig) string {
 // NewClientFromConfig creates an LLM client from a provider config.
 // Subscription engines (claude-cli, codex-cli, xai-oauth) take precedence over API providers.
 func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
+	if config == nil {
+		return nil, fmt.Errorf("provider config is nil")
+	}
+
 	// Check for CLI/OAuth engine configuration first (takes precedence over API)
 	switch config.Engine {
 	case "claude-cli":

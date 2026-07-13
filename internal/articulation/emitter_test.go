@@ -3,7 +3,9 @@ package articulation
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestResponseProcessor_Process_JSON(t *testing.T) {
@@ -91,6 +93,47 @@ func TestResponseProcessor_Process_SurfaceTruncation(t *testing.T) {
 	}
 	if !strings.HasPrefix(res.Surface, "12345") || !strings.Contains(res.Surface, "[TRUNCATED]") {
 		t.Fatalf("Surface not truncated as expected: %q", res.Surface)
+	}
+}
+
+func TestResponseProcessor_Process_SurfaceTruncationPreservesUTF8(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.MaxSurfaceLength = 5
+
+	raw := `{"control_packet":{"intent_classification":{"category":"/query","verb":"/explain","target":"x","constraint":"none","confidence":1},"mangle_updates":[],"memory_operations":[]},"surface_response":"ééé"}`
+	res, err := rp.Process(raw)
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+	if !utf8.ValidString(res.Surface) {
+		t.Fatalf("Surface contains invalid UTF-8 after truncation: %q", res.Surface)
+	}
+	if !strings.HasPrefix(res.Surface, "éé") || !strings.Contains(res.Surface, "[TRUNCATED]") {
+		t.Fatalf("Surface not truncated at a UTF-8 boundary: %q", res.Surface)
+	}
+}
+
+func TestResponseProcessor_ConcurrentStats(t *testing.T) {
+	rp := NewResponseProcessor()
+	rp.LogFallbackAsError = false
+	const workers = 64
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := rp.Process("plain response"); err != nil {
+				t.Errorf("Process() error = %v", err)
+			}
+			_ = rp.GetStats()
+		}()
+	}
+	wg.Wait()
+
+	stats := rp.GetStats()
+	if stats.TotalProcessed != workers || stats.FallbackParses != workers {
+		t.Fatalf("stats = %+v; want total=%d fallback=%d", stats, workers, workers)
 	}
 }
 

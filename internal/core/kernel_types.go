@@ -64,15 +64,16 @@ type RealKernel struct {
 	// factsDirty is atomic so Query/QueryCallback/QueryAll can fast-path without
 	// holding the kernel mutex when no facts have changed since the last evaluate.
 	// Use ensureEvaluated() (kernel_eval.go) to drive lazy re-eval safely.
-	evalSingleflight  sync.Mutex             // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
-	userLearnedPath   string                 // Path to user learned.mg for self-healing persistence
-	predicateCorpus   *PredicateCorpus       // Baked-in predicate corpus for validation
-	repairInterceptor LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
-	virtualStore      *VirtualStore          // Virtual predicate source for query_* handlers
-	derivedFactLimit  int                    // Configurable limit for derived facts (0 = use default)
-	maxFacts          int                    // Hard limit for EDB facts (0 = use default 250000)
-	simulateCommitErr error                  // TEST ONLY: Simulates a transaction commit failure
-	eventBus          *FactEventBus          // Pub/sub for fact mutations — replaces polling in system shards
+	evalSingleflight    sync.Mutex             // serializes lazy evaluate() so only one goroutine evaluates per dirty epoch
+	userLearnedPath     string                 // Path to user learned.mg for self-healing persistence
+	predicateCorpus     *PredicateCorpus       // Baked-in predicate corpus for validation
+	predicateCorpusOnce sync.Once              // Lazily opens the embedded SQLite corpus on first consumer
+	repairInterceptor   LearnedRuleInterceptor // Optional interceptor for rule repair before persistence
+	virtualStore        *VirtualStore          // Virtual predicate source for query_* handlers
+	derivedFactLimit    int                    // Configurable limit for derived facts (0 = use default)
+	maxFacts            int                    // Hard limit for EDB facts (0 = use default 250000)
+	simulateCommitErr   error                  // TEST ONLY: Simulates a transaction commit failure
+	eventBus            *FactEventBus          // Pub/sub for fact mutations — replaces polling in system shards
 
 	// proofRecorder, when non-nil, captures derivation events during evaluate()
 	// so Explain() can answer "why was this fact derived?" via the Codeberg

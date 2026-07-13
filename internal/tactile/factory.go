@@ -46,7 +46,7 @@ func NewCompositeExecutorWithConfig(config ExecutorConfig) *CompositeExecutor {
 	ce.executors[SandboxNone] = direct
 
 	// Try to add Docker executor
-	docker := NewDockerExecutor()
+	docker := NewDockerExecutorWithConfig(config)
 	if docker.IsAvailable() {
 		logging.TactileDebug("Registering DockerExecutor for sandbox mode: docker")
 		ce.executors[SandboxDocker] = docker
@@ -161,8 +161,13 @@ func (ce *CompositeExecutor) selectExecutor(cmd Command) Executor {
 		return executor
 	}
 
-	// Fall back to default
-	return ce.defaultExecutor
+	// Only an omitted sandbox request may use the default executor. Explicit
+	// isolation is a security contract: if that backend is unavailable, fail
+	// closed instead of silently executing the command on the host.
+	if cmd.Sandbox == nil || cmd.Sandbox.Mode == "" || mode == SandboxNone {
+		return ce.defaultExecutor
+	}
+	return nil
 }
 
 // ExecutorFactory creates executors based on configuration and environment.
@@ -188,7 +193,7 @@ func (f *ExecutorFactory) CreateDirect() *DirectExecutor {
 // CreateDocker creates a Docker executor if available.
 func (f *ExecutorFactory) CreateDocker() (*DockerExecutor, error) {
 	logging.TactileDebug("Factory: creating DockerExecutor")
-	docker := NewDockerExecutor()
+	docker := NewDockerExecutorWithConfig(f.config)
 	if !docker.IsAvailable() {
 		logging.TactileWarn("Factory: Docker is not available on this system")
 		return nil, fmt.Errorf("Docker is not available on this system")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ identity_prompt: "You are a test agent."
 allowed_tools:
   - "read_file"
 policies:
-  - "policy/test.mg"
+  - "policy/validation.mg"
 `
 	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
 		t.Fatal(err)
@@ -70,4 +71,91 @@ policies:
 	if cfgFallback == nil {
 		t.Error("Expected non-nil config for fallback")
 	}
+}
+
+func TestLoadSpecialistConfigRejectsInvalidRuntimeConfig(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	tests := []struct {
+		name       string
+		configYAML string
+		wantField  string
+	}{
+		{
+			name: "blank-identity",
+			configYAML: `identity_prompt: "   "
+policies:
+  - "policy/constitution.mg"
+`,
+			wantField: "identity_prompt",
+		},
+		{
+			name: "missing-policies",
+			configYAML: `identity_prompt: "You are a bounded specialist."
+allowed_tools:
+  - "read_file"
+`,
+			wantField: "policy file",
+		},
+	}
+
+	spawner := &Spawner{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configDir := filepath.Join(".nerd", "agents", tt.name)
+			if err := os.MkdirAll(configDir, 0o755); err != nil {
+				t.Fatalf("create specialist config directory: %v", err)
+			}
+			configPath := filepath.Join(configDir, "config.yaml")
+			if err := os.WriteFile(configPath, []byte(tt.configYAML), 0o644); err != nil {
+				t.Fatalf("write specialist config: %v", err)
+			}
+
+			cfg, err := spawner.loadSpecialistConfig(context.Background(), tt.name)
+			if err == nil {
+				t.Fatalf("loadSpecialistConfig() cfg = %+v, want validation error", cfg)
+			}
+			if !strings.Contains(err.Error(), configPath) {
+				t.Errorf("error %q does not identify config path %q", err, configPath)
+			}
+			if !strings.Contains(err.Error(), tt.wantField) {
+				t.Errorf("error %q does not identify invalid field %q", err, tt.wantField)
+			}
+		})
+	}
+}
+
+func TestLoadSpecialistConfigPreservesBoundaryGates(t *testing.T) {
+	t.Chdir(t.TempDir())
+	spawner := &Spawner{}
+
+	t.Run("path-containment", func(t *testing.T) {
+		cfg, err := spawner.loadSpecialistConfig(context.Background(), "../escape")
+		if err == nil {
+			t.Fatalf("loadSpecialistConfig() cfg = %+v, want containment error", cfg)
+		}
+		if !strings.Contains(err.Error(), "path traversal") {
+			t.Fatalf("loadSpecialistConfig() error = %q, want path traversal context", err)
+		}
+	})
+
+	t.Run("one-megabyte-limit", func(t *testing.T) {
+		const name = "oversized-specialist"
+		configDir := filepath.Join(".nerd", "agents", name)
+		if err := os.MkdirAll(configDir, 0o755); err != nil {
+			t.Fatalf("create specialist config directory: %v", err)
+		}
+		configPath := filepath.Join(configDir, "config.yaml")
+		if err := os.WriteFile(configPath, []byte(strings.Repeat("x", maxSpecialistConfigSize+1)), 0o644); err != nil {
+			t.Fatalf("write oversized specialist config: %v", err)
+		}
+
+		cfg, err := spawner.loadSpecialistConfig(context.Background(), name)
+		if err == nil {
+			t.Fatalf("loadSpecialistConfig() cfg = %+v, want size error", cfg)
+		}
+		if !strings.Contains(err.Error(), "exceeds maximum size") {
+			t.Fatalf("loadSpecialistConfig() error = %q, want size context", err)
+		}
+	})
 }

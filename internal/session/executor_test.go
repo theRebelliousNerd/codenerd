@@ -89,6 +89,26 @@ func TestExecutor_CheckSafety_ConstitutionalGate(t *testing.T) {
 	}
 }
 
+func TestExecutor_CheckSafety_SafeActionWithoutPermittedDenies(t *testing.T) {
+	mockKernel := &MockKernel{facts: []types.Fact{{
+		Predicate: "safe_action",
+		Args:      []any{types.MangleAtom("/write_file")},
+	}}}
+	executor := &Executor{
+		kernel: mockKernel,
+		config: DefaultExecutorConfig(),
+	}
+
+	allowed := executor.checkSafety(ToolCall{
+		ID:   "safe-classification-only",
+		Name: "write_file",
+		Args: map[string]any{"path": "target.go", "content": "package target"},
+	})
+	if allowed {
+		t.Fatal("safe_action/1 classification authorized a request without exact permitted/3")
+	}
+}
+
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify empty ToolCall.Name rejects strictly instead of allowing through to Mangle as "/".
 // TestExecutor_EmptyToolCallName tests behavior when ToolCall.Name is empty
 func TestExecutor_EmptyToolCallName(t *testing.T) {

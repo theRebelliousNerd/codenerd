@@ -179,11 +179,10 @@ func (k *RealKernel) evaluate() error {
 	//   - feature flag off (CODENERD_DIFF_EVAL!=1)
 	//   - proofRecorder is set (provenance must observe every derivation)
 	//   - virtualStore registers external predicate callbacks (the diff
-	//     engine's per-stratum EvalStratifiedProgramWithStats call does NOT
-	//     forward WithExternalPredicates/WithCreatedFactLimit options, so
-	//     rules consuming external predicates would silently lose their
-	//     callbacks and gas limits. Until the differential.go API is
-	//     extended to forward eval options, fall back to the full path
+	//     engine does not forward WithExternalPredicates, so rules consuming
+	//     external predicates would silently lose their callbacks. Created-
+	//     fact limits are enforced by DifferentialEngine from its Config.
+	//     Until external-option parity lands, fall back to the full path
 	//     whenever externals are in play.)
 	//   - diff engine was invalidated by a retract/clear/policy change
 	if diffEvalEnabled() && k.proofRecorder == nil && !k.hasExternalPredicatesLocked() {
@@ -253,15 +252,12 @@ func (k *RealKernel) evaluateFullLocked() error {
 	// Evaluate to fixpoint using cached programInfo
 	// BUG #17 FIX: Add gas limits to prevent halting problem in learned rules
 	// Prevent fact explosions from recursive learned rules
-	derivedFactLimit := k.derivedFactLimit
-	if derivedFactLimit <= 0 {
-		derivedFactLimit = 500000 // Default: 500K derived facts
-	}
+	derivedFactLimit := k.effectiveDerivedFactLimitLocked()
 	logging.KernelDebug("evaluate: running fixpoint evaluation (derivedFactLimit=%d)", derivedFactLimit)
 
 	// Build eval options
 	evalOpts := []engine.EvalOption{
-		engine.WithCreatedFactLimit(derivedFactLimit), // Hard cap: max 500K derived facts
+		engine.WithCreatedFactLimit(derivedFactLimit),
 	}
 
 	// Optional provenance recording (Codeberg mangle-go DerivationRecorder).
@@ -444,13 +440,7 @@ func (k *RealKernel) evaluateDiffLocked() (bool, error) {
 // DifferentialEngine. The mangle.Engine's predicate index drives
 // factToAtomLocked inside ApplyDelta. Caller must hold k.mu.
 func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, error) {
-	cfg := manglepkg.DefaultConfig()
-	// The kernel enforces its own derived-fact limit on the full path; mirror
-	// it onto the diff engine so the two paths cannot diverge in safety.
-	if k.derivedFactLimit > 0 {
-		cfg.DerivedFactsLimit = k.derivedFactLimit
-	}
-	cfg.AutoEval = true
+	cfg := k.diffEngineConfigLocked()
 	eng, err := manglepkg.NewEngine(cfg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("diff: NewEngine: %w", err)
@@ -489,6 +479,17 @@ func (k *RealKernel) buildDiffEngineLocked() (*manglepkg.DifferentialEngine, err
 	}
 	k.diffMangleEngine = eng
 	return de, nil
+}
+
+// diffEngineConfigLocked builds the reusable-engine configuration used by the
+// kernel differential path. In particular, it overrides mangle.DefaultConfig's
+// package-level 100K ceiling with the kernel's effective ceiling (500K when
+// unset), matching evaluateFullLocked. Caller must hold k.mu.
+func (k *RealKernel) diffEngineConfigLocked() manglepkg.Config {
+	cfg := manglepkg.DefaultConfig()
+	cfg.DerivedFactsLimit = k.effectiveDerivedFactLimitLocked()
+	cfg.AutoEval = true
+	return cfg
 }
 
 // factsToAtomsLocked converts a fact slice to ast.Atoms using the kernel's
@@ -645,6 +646,7 @@ func (k *RealKernel) Clone() *RealKernel {
 		manglePath:        k.manglePath,
 		workspaceRoot:     k.workspaceRoot,
 		policyDirty:       k.policyDirty,
+		maxFacts:          k.maxFacts,
 		// factsDirty is atomic.Bool — cannot be copied by value; set on the clone below.
 		userLearnedPath:   k.userLearnedPath,
 		predicateCorpus:   k.predicateCorpus,   // Share corpus (read-only)

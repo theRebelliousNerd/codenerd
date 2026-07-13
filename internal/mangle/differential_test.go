@@ -6,7 +6,10 @@ package mangle
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"codeberg.org/TauCeti/mangle-go/ast"
 )
 
 // TestDifferentialEngine_Stratification validates that predicates are assigned to correct strata.
@@ -126,6 +129,72 @@ func TestDifferentialEngine_Incremental(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Expected a(foo) or a(/foo) to be derived, got %v", res.Bindings)
+	}
+}
+
+func TestDifferentialEngine_DerivedFactsLimit(t *testing.T) {
+	values := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
+	atoms := make([]ast.Atom, 0, len(values))
+	facts := make([]Fact, 0, len(values))
+	for _, value := range values {
+		atoms = append(atoms, ast.NewAtom("node", ast.String(value)))
+		facts = append(facts, Fact{Predicate: "node", Args: []any{value}})
+	}
+
+	tests := []struct {
+		name    string
+		unified bool
+		apply   func(*DifferentialEngine) error
+	}{
+		{
+			name:  "legacy atom delta",
+			apply: func(engine *DifferentialEngine) error { return engine.ApplyAtomDelta(atoms) },
+		},
+		{
+			name:  "legacy fact delta",
+			apply: func(engine *DifferentialEngine) error { return engine.ApplyDelta(facts) },
+		},
+		{
+			name:    "unified atom delta",
+			unified: true,
+			apply:   func(engine *DifferentialEngine) error { return engine.ApplyAtomDelta(atoms) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.DerivedFactsLimit = 5
+			baseEngine, err := NewEngine(cfg, nil)
+			if err != nil {
+				t.Fatalf("NewEngine() error = %v", err)
+			}
+			if err := baseEngine.LoadSchemaString(`
+				Decl node(X).
+				Decl pair(X, Y).
+				pair(X, Y) :- node(X), node(Y).
+			`); err != nil {
+				t.Fatalf("LoadSchemaString() error = %v", err)
+			}
+
+			diffEngine, err := NewDifferentialEngine(baseEngine)
+			if err != nil {
+				t.Fatalf("NewDifferentialEngine() error = %v", err)
+			}
+			if tt.unified {
+				if err := diffEngine.EnableUnifiedFastPath(); err != nil {
+					t.Fatalf("EnableUnifiedFastPath() error = %v", err)
+				}
+			}
+
+			err = tt.apply(diffEngine)
+			if err == nil {
+				t.Fatal("delta evaluation succeeded after exceeding DerivedFactsLimit")
+			}
+			if !strings.Contains(err.Error(), "fact size limit reached") {
+				t.Fatalf("delta evaluation error = %q, want created-fact limit error", err)
+			}
+		})
 	}
 }
 

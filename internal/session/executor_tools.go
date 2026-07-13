@@ -396,9 +396,11 @@ func truncateToolResult(s string) string {
 // 1. Modular tools (tools.Global()) - Go function handlers
 // 2. Ouroboros tools (core.ToolRegistry) - compiled binary tools
 func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *config.EffectiveAgentRuntimeConfig) (string, error) {
-	// Check if tool is allowed by config (for modular tools) or exists in Ouroboros
-	if !e.isToolAllowed(call.Name, cfg) && !e.isOuroborosTool(call.Name) {
-		return "", fmt.Errorf("tool %s not allowed by config and not in Ouroboros registry", call.Name)
+	// The effective JIT allowlist is authoritative for every execution backend.
+	// Registry membership only proves that a handler exists; it does not grant
+	// the current agent the capability to invoke that handler.
+	if !e.isToolAllowed(call.Name, cfg) {
+		return "", fmt.Errorf("tool %s not allowed by effective JIT config", call.Name)
 	}
 
 	// Safety check via Constitutional Gate
@@ -475,21 +477,12 @@ func (e *Executor) executeToolCall(ctx context.Context, call ToolCall, cfg *conf
 	return "", fmt.Errorf("tool %s not found in any registry", call.Name)
 }
 
-// isOuroborosTool checks if a tool exists in the Ouroboros registry.
-func (e *Executor) isOuroborosTool(toolName string) bool {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if e.ouroborosRegistry == nil {
-		return false
-	}
-	_, exists := e.ouroborosRegistry.GetTool(toolName)
-	return exists
-}
-
-// isToolAllowed checks if a tool is in the allowed list.
+// isToolAllowed checks if a tool is in the effective JIT allowlist. Missing or
+// empty configs fail closed: an absent capability envelope must never mean
+// unrestricted execution.
 func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRuntimeConfig) bool {
 	if cfg == nil || len(cfg.AllowedTools) == 0 {
-		return true // No restrictions
+		return false
 	}
 
 	return slices.Contains(cfg.AllowedTools, toolName)
@@ -615,41 +608,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		return true
 	}
 
-	// Fallback: exact payload match can fail when Mangle string-normalizes large
-	// write_file contents (escapes, truncation) even though the action is
-	// constitutionally safe_action. If pending_action was asserted and the
-	// action is on the safe list, allow — still fail-closed for unknown tools.
-	if e.isSafeActionVerb(wantAction) {
-		logging.Get(logging.CategorySession).Warn(
-			"Safety check: exact permitted payload match missed for safe_action %s (target=%s payload_len=%d); allowing via safe_action fallback",
-			wantAction, target, len(payload),
-		)
-		return true
-	}
-
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
-	return false
-}
-
-// isSafeActionVerb reports whether the kernel has a safe_action fact for verb
-// (e.g. "/write_file"). Used as a fail-open fallback for constitutionally safe
-// tools when permitted-payload exact match fails under large payloads.
-func (e *Executor) isSafeActionVerb(actionName string) bool {
-	if e.kernel == nil || actionName == "" {
-		return false
-	}
-	facts, err := e.kernel.Query("safe_action")
-	if err != nil {
-		return false
-	}
-	for _, f := range facts {
-		if len(f.Args) == 0 {
-			continue
-		}
-		if types.ExtractString(f.Args[0]) == actionName {
-			return true
-		}
-	}
 	return false
 }
 

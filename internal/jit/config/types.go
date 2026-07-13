@@ -1,6 +1,7 @@
 package config
 
 import (
+	"codenerd/internal/core"
 	"fmt"
 	"strings"
 )
@@ -41,9 +42,9 @@ type WorkspaceConfig struct {
 // A valid config MUST have:
 //   - A non-empty IdentityPrompt (after trimming whitespace). Without an
 //     identity prompt the runtime has no persona to ground the LLM.
-//   - At least one entry in Policies. Policies anchor the Mangle kernel's
-//     executive layer; an agent with zero policy files has no constitutional
-//     safety net and is rejected by the JIT compiler.
+//   - At least one canonical embedded entry in Policies. Policies anchor the
+//     Mangle kernel's executive layer; aliases, traversal, missing modules, and
+//     duplicates are rejected against core's live policy inventory.
 //
 // AllowedTools, Model, ToolLoop, Safety, and Workspace are intentionally
 // NOT validated here. They have safe zero values or are populated by
@@ -54,6 +55,16 @@ func (c EffectiveAgentRuntimeConfig) Validate() error {
 	}
 	if len(c.Policies) == 0 {
 		return fmt.Errorf("config validation failed: at least one policy file is required")
+	}
+	seenPolicies := make(map[string]struct{}, len(c.Policies))
+	for _, policy := range c.Policies {
+		if !core.IsDefaultPolicyFile(policy) {
+			return fmt.Errorf("config validation failed: policy %q is not a canonical embedded policy reference", policy)
+		}
+		if _, duplicate := seenPolicies[policy]; duplicate {
+			return fmt.Errorf("config validation failed: duplicate policy reference %q", policy)
+		}
+		seenPolicies[policy] = struct{}{}
 	}
 	return nil
 }

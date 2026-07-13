@@ -1,8 +1,47 @@
 package core
 
 import (
+	"sync"
 	"testing"
 )
+
+func TestRealKernelPredicateCorpusLoadsLazilyOnce(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel() error = %v", err)
+	}
+	if kernel.predicateCorpus != nil {
+		t.Fatal("kernel boot eagerly opened the predicate corpus")
+	}
+
+	const callers = 8
+	results := make(chan *PredicateCorpus, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- kernel.GetPredicateCorpus()
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var first *PredicateCorpus
+	for corpus := range results {
+		if corpus == nil {
+			t.Fatal("lazy predicate corpus load returned nil")
+		}
+		if first == nil {
+			first = corpus
+			continue
+		}
+		if corpus != first {
+			t.Fatal("concurrent callers received different predicate corpus instances")
+		}
+	}
+	t.Cleanup(func() { _ = first.Close() })
+}
 
 // TestNewPredicateCorpus tests corpus initialization.
 func TestNewPredicateCorpus(t *testing.T) {

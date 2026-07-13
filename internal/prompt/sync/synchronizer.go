@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,6 +65,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 
 	syncedCount := 0
 	skippedCount := 0
+	var syncErrors []error
 	s.discoveredAgents = make([]DiscoveredAgent, 0)
 
 	for _, entry := range entries {
@@ -83,6 +85,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 		skipped, err := s.syncAgent(ctx, agentID, yamlPath)
 		if err != nil {
 			logging.Get(logging.CategoryStore).Error("Failed to sync agent %s: %v", agentID, err)
+			syncErrors = append(syncErrors, fmt.Errorf("agent %s: %w", agentID, err))
 			continue
 		}
 
@@ -100,7 +103,7 @@ func (s *AgentSynchronizer) SyncAll(ctx context.Context) error {
 	}
 
 	logging.Get(logging.CategoryStore).Info("Agent sync: %d synced, %d skipped (unchanged)", syncedCount, skippedCount)
-	return nil
+	return errors.Join(syncErrors...)
 }
 
 // GetDiscoveredAgents returns all agents found during the last SyncAll call.

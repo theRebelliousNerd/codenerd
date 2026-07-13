@@ -131,6 +131,13 @@ func TestRuleCourt_WhitespaceOnly(t *testing.T) {
 	}
 }
 
+func TestRuleCourt_UnicodeBlankRejectedBeforeKernelRequirement(t *testing.T) {
+	err := RatifyRule(nil, "\u200b\u00a0\t")
+	if err == nil || err.Error() != "empty rule" {
+		t.Fatalf("RatifyRule(nil, Unicode blank) = %v, want empty rule", err)
+	}
+}
+
 // TestRuleCourt_NullBytes verifies that rules containing null bytes or
 // otherwise UTF-8-malformed sequences are rejected as syntax errors by the
 // sandbox compiler rather than crashing the Mangle parser or the Go

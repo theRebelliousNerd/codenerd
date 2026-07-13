@@ -141,6 +141,25 @@ func TestKernelDifferentialEval(t *testing.T) {
 	}
 }
 
+func TestKernelEval_ZeroConfigDerivedFactLimitParity(t *testing.T) {
+	k := &RealKernel{}
+
+	k.mu.Lock()
+	fullPathLimit := k.effectiveDerivedFactLimitLocked()
+	diffConfig := k.diffEngineConfigLocked()
+	k.mu.Unlock()
+
+	if fullPathLimit != defaultDerivedFactLimit {
+		t.Fatalf("full-path zero-config limit = %d, want kernel default %d", fullPathLimit, defaultDerivedFactLimit)
+	}
+	if diffConfig.DerivedFactsLimit != fullPathLimit {
+		t.Fatalf("diff zero-config limit = %d, want full-path limit %d", diffConfig.DerivedFactsLimit, fullPathLimit)
+	}
+	if !diffConfig.AutoEval {
+		t.Fatal("diff zero-config unexpectedly disabled AutoEval")
+	}
+}
+
 // BenchmarkKernelDifferentialEval times the diff-eval fast path on N=1000
 // sequential single-fact asserts, each followed by a Query, vs the same
 // workload with CODENERD_DIFF_EVAL=0. The fast path skips the

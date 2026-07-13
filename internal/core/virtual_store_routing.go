@@ -43,61 +43,55 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	// If unsafe, the action is blocked. Fail-closed: if dreamer itself fails, action is blocked.
 	if isDestructiveAction(req.Type) {
 		dreamer := v.getDreamer()
-		if dreamer != nil {
-			dreamResult := dreamer.SimulateAction(ctx, req)
-			if dreamResult.Unsafe {
-				logging.Get(logging.CategoryVirtualStore).Warn(
-					"Dreamer BLOCKED action: %s on %s (reason: %s)",
-					req.Type, req.Target, dreamResult.Reason)
-				v.injectFact(Fact{
-					Predicate: "security_violation",
-					Args:      []any{string(req.Type), req.Target, "dreamer: " + dreamResult.Reason},
-				})
-				v.injectFact(Fact{
-					Predicate: "dream_blocked_action",
-					Args:      []any{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
-				})
-				return "", fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
-			}
-			logging.VirtualStoreDebug("Dreamer approved action: %s on %s", req.Type, req.Target)
+		if dreamer == nil {
+			reason := "dreamer unavailable for destructive action"
+			logging.Get(logging.CategoryVirtualStore).Error(
+				"Dreamer unavailable; BLOCKED action: %s on %s", req.Type, req.Target)
+			v.injectFact(newSecurityViolationFact(req, reason))
+			return "", fmt.Errorf("action %s blocked: %s", req.Type, reason)
 		}
+
+		dreamResult := dreamer.SimulateAction(ctx, req)
+		if dreamResult.Unsafe {
+			logging.Get(logging.CategoryVirtualStore).Warn(
+				"Dreamer BLOCKED action: %s on %s (reason: %s)",
+				req.Type, req.Target, dreamResult.Reason)
+			v.injectFact(newSecurityViolationFact(req, "dreamer: "+dreamResult.Reason))
+			v.injectFact(Fact{
+				Predicate: "dream_blocked_action",
+				Args:      []any{dreamResult.ActionID, string(req.Type), req.Target, dreamResult.Reason},
+			})
+			return "", fmt.Errorf("action %s blocked by dreamer safety gate: %s", req.Type, dreamResult.Reason)
+		}
+		logging.VirtualStoreDebug("Dreamer approved action: %s on %s", req.Type, req.Target)
 	}
 
 	// Constitutional logic check (defense in depth)
 	if err := v.checkConstitution(req); err != nil {
 		logging.Get(logging.CategoryVirtualStore).Warn("Constitutional violation: %s on %s - %v", req.Type, req.Target, err)
-		v.injectFact(Fact{
-			Predicate: "security_violation",
-			Args:      []any{string(req.Type), req.Target, err.Error()},
-		})
+		v.injectFact(newSecurityViolationFact(req, err.Error()))
 		return "", err
 	}
 
 	// Kernel-level permission gate (default deny if kernel says not permitted)
-	if v.kernel != nil {
-
-		permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
-		if !permitted {
-			// Constitutional denial is the hardest class of failure to
-			// debug because the user only sees "action blocked." Surface
-			// the target and payload keys (not values — those can be
-			// sensitive) so triage can locate the offending request
-			// without reading source. Withholding values keeps the log
-			// safe to ship even when payloads contain secrets.
-			payloadKeys := make([]string, 0, len(req.Payload))
-			for k := range req.Payload {
-				payloadKeys = append(payloadKeys, k)
-			}
-			logging.Get(logging.CategoryVirtualStore).Warn(
-				"policy DENY action=%s target=%s payload_keys=%v",
-				req.Type, req.Target, payloadKeys)
-			err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
-			v.injectFact(Fact{
-				Predicate: "security_violation",
-				Args:      []any{string(req.Type), req.Target, err.Error()},
-			})
-			return "", err
+	permitted := v.CheckKernelPermitted(string(req.Type), req.Target, req.Payload)
+	if !permitted {
+		// Constitutional denial is the hardest class of failure to
+		// debug because the user only sees "action blocked." Surface
+		// the target and payload keys (not values — those can be
+		// sensitive) so triage can locate the offending request
+		// without reading source. Withholding values keeps the log
+		// safe to ship even when payloads contain secrets.
+		payloadKeys := make([]string, 0, len(req.Payload))
+		for k := range req.Payload {
+			payloadKeys = append(payloadKeys, k)
 		}
+		logging.Get(logging.CategoryVirtualStore).Warn(
+			"policy DENY action=%s target=%s payload_keys=%v",
+			req.Type, req.Target, payloadKeys)
+		err := fmt.Errorf("action %s not permitted by kernel policy", req.Type)
+		v.injectFact(newSecurityViolationFact(req, err.Error()))
+		return "", err
 	}
 
 	// Route to appropriate handler
@@ -110,15 +104,17 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 		logging.Get(logging.CategoryVirtualStore).Error("Action execution failed: %s - %v", req.Type, err)
 		v.injectFact(Fact{
 			Predicate: "execution_error",
-			Args:      []any{string(req.Type), req.Target, err.Error()},
+			Args:      []any{req.ActionID, err.Error()},
 		})
 		return "", err
 	}
 
 	// Post-action validation: verify the action actually succeeded
+	var validationErr error
 	if result.Success && v.validators != nil {
-		validationResults := v.validators.Validate(ctx, req, result)
-		v.processValidationResults(req, result, validationResults)
+		validationReq := v.requestForValidation(req)
+		validationResults := v.validators.Validate(ctx, validationReq, result)
+		v.processValidationResults(validationReq, result, validationResults)
 
 		// If validation failed with high confidence, update the result
 		if !ValidateAll(validationResults) {
@@ -129,6 +125,7 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 				// Mark result as failed due to validation
 				result.Success = false
 				result.Error = "validation failed: " + failure.Error
+				validationErr = fmt.Errorf("post-action validation failed: %s", failure.Error)
 			}
 		}
 	}
@@ -157,7 +154,30 @@ func (v *VirtualStore) RouteAction(ctx context.Context, action Fact) (string, er
 	// Glass Box routing event always updates the activity line.
 	v.emitToolAndRoutingEvents(req, result, actionDuration)
 
-	return result.Output, nil
+	return result.Output, validationErr
+}
+
+func (v *VirtualStore) requestForValidation(req ActionRequest) ActionRequest {
+	switch req.Type {
+	case ActionReadFile, ActionWriteFile, ActionEditFile, ActionDeleteFile,
+		ActionFSRead, ActionFSWrite, ActionEditLines, ActionInsertLines, ActionDeleteLines:
+		req.Target = v.resolvePath(req.Target)
+	}
+	return req
+}
+
+func newSecurityViolationFact(req ActionRequest, reason string) Fact {
+	actionType := string(req.Type)
+	if !strings.HasPrefix(actionType, "/") {
+		actionType = "/" + actionType
+	}
+	if req.Target != "" {
+		reason = fmt.Sprintf("target=%q: %s", req.Target, reason)
+	}
+	return Fact{
+		Predicate: "security_violation",
+		Args:      []any{MangleAtom(actionType), reason, time.Now().Unix()},
+	}
 }
 
 // emitToolAndRoutingEvents pushes a ToolEvent and a Glass Box

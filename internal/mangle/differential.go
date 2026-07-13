@@ -403,6 +403,19 @@ func (de *DifferentialEngine) UnifiedFastPathEnabled() bool {
 	return de.unifiedStore != nil
 }
 
+// evalOptions returns the safety options that every differential evaluator call
+// must enforce. A positive created-fact limit is fail-closed: storing it in the
+// wrapper configuration without forwarding it to mangle-go would silently make
+// differential evaluation less bounded than the full Engine path.
+func (de *DifferentialEngine) evalOptions() []mengine.EvalOption {
+	if de.config.DerivedFactsLimit <= 0 {
+		return nil
+	}
+	return []mengine.EvalOption{
+		mengine.WithCreatedFactLimit(de.config.DerivedFactsLimit),
+	}
+}
+
 // ApplyAtomDelta is a variant of ApplyDelta that accepts already-converted
 // ast.Atoms instead of high-level Fact records. Use this from callers that
 // have their own (kernel-specific) Fact→Atom conversion and need to preserve
@@ -439,6 +452,7 @@ func (de *DifferentialEngine) ApplyAtomDelta(atoms []ast.Atom) error {
 		}
 		if _, err := mengine.EvalStratifiedProgramWithStats(
 			de.programInfo, de.unifiedStrata, de.unifiedPredToStratum, de.unifiedStore,
+			de.evalOptions()...,
 		); err != nil {
 			return err
 		}
@@ -488,7 +502,9 @@ func (de *DifferentialEngine) ApplyAtomDelta(atoms []ast.Atom) error {
 		subsetInfo.Rules = rules
 		subStrata := []analysis.Nodeset{de.strataNodesets[s]}
 		subPredToStratum := de.strataPredMaps[s]
-		if _, err := mengine.EvalStratifiedProgramWithStats(&subsetInfo, subStrata, subPredToStratum, chain); err != nil {
+		if _, err := mengine.EvalStratifiedProgramWithStats(
+			&subsetInfo, subStrata, subPredToStratum, chain, de.evalOptions()...,
+		); err != nil {
 			return err
 		}
 	}
@@ -656,7 +672,9 @@ func (de *DifferentialEngine) ApplyDelta(facts []Fact) error {
 			subStrata := []analysis.Nodeset{de.strataNodesets[s]}
 			subPredToStratum := de.strataPredMaps[s]
 
-			_, err := mengine.EvalStratifiedProgramWithStats(&subsetInfo, subStrata, subPredToStratum, chain)
+			_, err := mengine.EvalStratifiedProgramWithStats(
+				&subsetInfo, subStrata, subPredToStratum, chain, de.evalOptions()...,
+			)
 			if err != nil {
 				return err
 			}

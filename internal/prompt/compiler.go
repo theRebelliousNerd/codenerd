@@ -42,6 +42,34 @@ type KernelRetracter interface {
 	Retract(predicate string) error
 }
 
+// KernelCompilationScope is an isolated kernel view used for one prompt
+// compilation. Closing the scope must discard every fact asserted through it.
+type KernelCompilationScope interface {
+	KernelQuerier
+	Close() error
+}
+
+// KernelScopeProvider creates per-compilation kernel views. Production kernel
+// adapters implement this using a snapshot/clone so parallel prompt compiles
+// never share selector facts.
+type KernelScopeProvider interface {
+	NewCompilationScope() (KernelCompilationScope, error)
+}
+
+var promptEphemeralPredicates = []string{
+	"compile_context",
+	"current_context",
+	"atom",
+	"prompt_atom",
+	"atom_category",
+	"atom_priority",
+	"atom_tag",
+	"is_mandatory",
+	"vector_hit",
+	"atom_requires",
+	"atom_conflicts",
+}
+
 // VectorSearcher defines the interface for semantic search.
 type VectorSearcher interface {
 	// Search performs semantic search and returns atom IDs with scores.
@@ -399,6 +427,16 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		return nil, fmt.Errorf("invalid compilation context: %w", err)
 	}
 
+	// Compile against a private snapshot. The assembler may enrich this copy
+	// (for example, by resolving available specialists), but caller-owned state
+	// and the cache identity remain stable and race-free.
+	cc = cc.Clone()
+	if strings.TrimSpace(cc.AvailableSpecialists) == "" {
+		if err := InjectAvailableSpecialists(cc, ""); err != nil {
+			logging.Get(logging.CategoryJIT).Debug("Failed to resolve specialists before cache lookup: %v", err)
+		}
+	}
+
 	// Bug #5 fix: Check cache before compilation
 	cacheKey := cc.Hash()
 	c.cacheMu.Lock()
@@ -416,6 +454,16 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 	v, err, shared := c.compileGroup.Do(cacheKey, func() (any, error) {
 		atomic.AddInt64(&c.cacheMiss, 1)
 
+		selectionKernel, releaseKernel, err := acquireCompilationKernel(c.kernel)
+		if err != nil {
+			return nil, fmt.Errorf("create isolated prompt compilation scope: %w", err)
+		}
+		defer releaseKernel()
+
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("prompt compilation canceled before selection: %w", err)
+		}
+
 		// Start comprehensive timing after validation
 		compileStart := time.Now()
 		stats := &CompilationStats{
@@ -430,23 +478,14 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		// Step 1: Assert context facts to kernel for Mangle-based selection
 		// We do this first so that context is available for kernel injection and Mangle-based selection.
 		// This enables policy.mg Section 45/46 rules to boost atoms matching current context.
-		if c.kernel != nil {
+		if selectionKernel != nil {
 			contextFacts := cc.ToContextFacts()
 			if len(contextFacts) > 0 {
-				if err := c.kernel.AssertBatch(contextFacts); err != nil {
+				if err := selectionKernel.AssertBatch(contextFacts); err != nil {
 					logging.Get(logging.CategoryJIT).Warn("Failed to assert context facts: %v", err)
 					// Non-fatal - continue without context-based boosting
 				} else {
 					logging.Get(logging.CategoryJIT).Debug("Asserted %d context facts to kernel", len(contextFacts))
-					// Defer retraction immediately — ensures cleanup even if later steps fail.
-					// This prevents stale compile_context facts from poisoning subsequent compilations.
-					if retracter, ok := c.kernel.(KernelRetracter); ok {
-						defer func() {
-							if retractErr := retracter.Retract("compile_context"); retractErr != nil {
-								logging.Get(logging.CategoryJIT).Warn("Failed to retract compile_context facts: %v", retractErr)
-							}
-						}()
-					}
 				}
 			}
 		}
@@ -498,6 +537,9 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		if err := g.Wait(); err != nil {
 			return nil, err
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("prompt compilation canceled while collecting atoms: %w", err)
+		}
 
 		// Merge concurrent results
 		if len(dynamicAtoms) > 0 {
@@ -530,9 +572,12 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 
 		// Step 2: Select atoms based on context (Mangle rules + vector search)
 		selectStart := time.Now()
-		scored, vectorMs, err := c.selector.SelectAtomsWithTiming(ctx, candidates, cc)
+		scored, vectorMs, err := c.selector.selectAtomsWithTimingKernel(ctx, candidates, cc, selectionKernel)
 		if err != nil {
 			return nil, fmt.Errorf("failed to select atoms: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("prompt compilation canceled during selection: %w", err)
 		}
 		stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 		stats.VectorQueryMs = vectorMs
@@ -665,6 +710,44 @@ func (c *JITPromptCompiler) Compile(ctx context.Context, cc *CompilationContext)
 		logging.Get(logging.CategoryJIT).Info("Prompt compilation joined via singleflight for hash=%s", cacheKey[:8])
 	}
 	return res, nil
+}
+
+func acquireCompilationKernel(base KernelQuerier) (KernelQuerier, func(), error) {
+	if base == nil {
+		return nil, func() {}, nil
+	}
+
+	if provider, ok := base.(KernelScopeProvider); ok {
+		scope, err := provider.NewCompilationScope()
+		if err != nil {
+			return nil, nil, err
+		}
+		if scope == nil {
+			return nil, nil, fmt.Errorf("kernel scope provider returned nil scope")
+		}
+		return scope, func() {
+			if err := scope.Close(); err != nil {
+				logging.Get(logging.CategoryJIT).Warn("Failed to close prompt compilation scope: %v", err)
+			}
+		}, nil
+	}
+
+	// Compatibility path for lightweight adapters. Production uses an isolated
+	// scope above; legacy kernels still get complete best-effort cleanup on
+	// success, error, cancellation, and panic via the caller's defer.
+	retracter, ok := base.(KernelRetracter)
+	if !ok {
+		return base, func() {}, nil
+	}
+	return base, func() {
+		for _, predicate := range promptEphemeralPredicates {
+			if err := retracter.Retract(predicate); err != nil {
+				logging.Get(logging.CategoryJIT).Warn(
+					"Failed to retract ephemeral prompt predicate %s: %v", predicate, err,
+				)
+			}
+		}
+	}, nil
 }
 
 // collectKernelInjectedAtoms queries runtime context predicates and turns them into ephemeral PromptAtoms.

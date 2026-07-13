@@ -682,6 +682,7 @@ func TestAllCategories(t *testing.T) {
 			CategoryEval,
 			CategoryKnowledge,
 			CategoryBuildLayer,
+			CategorySystem,
 			CategoryIntent,
 			CategoryWorldState,
 		}

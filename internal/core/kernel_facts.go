@@ -629,6 +629,36 @@ func (k *RealKernel) AssertWithoutEval(fact Fact) {
 	}
 }
 
+// assertWithoutEvalChecked adds a fact without evaluation while preserving the
+// reason a new fact could not be staged. It is intentionally private: most
+// batch callers tolerate duplicate/no-op inserts, while safety simulations must
+// distinguish a duplicate from capacity or encoding failure and fail closed.
+func (k *RealKernel) assertWithoutEvalChecked(fact Fact) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	fact = sanitizeFactForNumericPredicates(fact)
+	k.ensureFactIndexLocked()
+	if _, exists := k.factIndex[k.canonFact(fact)]; exists {
+		return nil
+	}
+
+	maxFacts := k.maxFacts
+	if maxFacts <= 0 {
+		maxFacts = defaultMaxFacts
+	}
+	if len(k.facts) >= maxFacts {
+		return fmt.Errorf("EDB fact limit reached (%d/%d)", len(k.facts), maxFacts)
+	}
+	if _, err := fact.ToAtom(); err != nil {
+		return fmt.Errorf("convert %s to Mangle atom: %w", fact.Predicate, err)
+	}
+	if !k.addFactIfNewLocked(fact) {
+		return fmt.Errorf("stage %s: insertion rejected", fact.Predicate)
+	}
+	return nil
+}
+
 // Evaluate forces re-evaluation of all rules. Call after AssertWithoutEval batch.
 func (k *RealKernel) Evaluate() error {
 	timer := logging.StartTimer(logging.CategoryKernel, "Evaluate")

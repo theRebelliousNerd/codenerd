@@ -10,56 +10,17 @@
 package main
 
 import (
-	"bytes"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"codenerd/internal/prompt"
-
-	"gopkg.in/yaml.v3"
 )
 
-type atomDefinition struct {
-	// Core identity
-	ID          string `yaml:"id"`
-	Category    string `yaml:"category"`
-	Subcategory string `yaml:"subcategory,omitempty"`
-
-	// Polymorphism / semantic embedding helpers
-	Description    string `yaml:"description,omitempty"`
-	ContentConcise string `yaml:"content_concise,omitempty"`
-	ContentMin     string `yaml:"content_min,omitempty"`
-
-	// Composition
-	Priority      *int     `yaml:"priority"`
-	IsMandatory   *bool    `yaml:"is_mandatory"`
-	IsExclusive   string   `yaml:"is_exclusive,omitempty"`
-	DependsOn     []string `yaml:"depends_on,omitempty"`
-	ConflictsWith []string `yaml:"conflicts_with,omitempty"`
-
-	// Contextual Selectors
-	OperationalModes []string `yaml:"operational_modes,omitempty"`
-	CampaignPhases   []string `yaml:"campaign_phases,omitempty"`
-	BuildLayers      []string `yaml:"build_layers,omitempty"`
-	InitPhases       []string `yaml:"init_phases,omitempty"`
-	NorthstarPhases  []string `yaml:"northstar_phases,omitempty"`
-	OuroborosStages  []string `yaml:"ouroboros_stages,omitempty"`
-	IntentVerbs      []string `yaml:"intent_verbs,omitempty"`
-	ShardTypes       []string `yaml:"shard_types,omitempty"`
-	Languages        []string `yaml:"languages,omitempty"`
-	Frameworks       []string `yaml:"frameworks,omitempty"`
-	WorldStates      []string `yaml:"world_states,omitempty"`
-
-	// Content (inline or file-backed)
-	Content     string `yaml:"content,omitempty"`
-	ContentFile string `yaml:"content_file,omitempty"`
-}
+type atomDefinition = prompt.AtomDefinition
 
 type issueSeverity string
 
@@ -135,8 +96,9 @@ func main() {
 }
 
 type validationStats struct {
-	Files int
-	Atoms int
+	Files   int
+	Atoms   int
+	AtomIDs []string
 }
 
 type atomRecord struct {
@@ -187,6 +149,7 @@ func validateAtomTree(root string, opts validationOptions) ([]issue, validationS
 		relPath, _ := filepath.Rel(root, path)
 		for _, def := range defs {
 			stats.Atoms++
+			stats.AtomIDs = append(stats.AtomIDs, def.ID)
 			issues = append(issues, validateAtomDef(path, relPath, def, validCategories, opts)...)
 			records = append(records, atomRecord{File: path, Atom: def})
 		}
@@ -250,48 +213,24 @@ func validateAtomTree(root string, opts validationOptions) ([]issue, validationS
 }
 
 func parseAtomYAMLFile(path string) ([]atomDefinition, []issue) {
-	data, err := os.ReadFile(path)
+	parsed, migrations, err := prompt.ParsePromptAtomFile(path)
 	if err != nil {
-		return nil, []issue{{Severity: severityError, File: path, Message: fmt.Sprintf("read failed: %v", err)}}
+		return nil, []issue{{Severity: severityError, File: path, Message: fmt.Sprintf("YAML parse failed: %v", err)}}
 	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, []issue{{Severity: severityWarning, File: path, Message: "empty YAML file"}}
+	definitions := make([]atomDefinition, 0, len(parsed))
+	for _, record := range parsed {
+		definitions = append(definitions, record.Definition)
 	}
-
-	// First try sequence form (most files).
-	var defs []atomDefinition
-	if err := decodeKnownFields(data, &defs); err == nil {
-		return defs, nil
+	issues := make([]issue, 0, len(migrations))
+	for _, migration := range migrations {
+		issues = append(issues, issue{
+			Severity: severityWarning,
+			File:     path,
+			AtomID:   migration.AtomID,
+			Message:  fmt.Sprintf("compatibility migration %s: %s", migration.Code, migration.Message),
+		})
 	}
-
-	// Then try single atom mapping.
-	var single atomDefinition
-	if err2 := decodeKnownFields(data, &single); err2 == nil {
-		return []atomDefinition{single}, nil
-	}
-
-	// Provide a single consolidated parse error.
-	return nil, []issue{{Severity: severityError, File: path, Message: "YAML parse failed (check unknown fields, types, or structure)"}}
-}
-
-func decodeKnownFields(data []byte, out any) error {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(out); err != nil {
-		// YAML library returns io.EOF when there is no document.
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		return err
-	}
-	// Disallow multiple YAML documents in a single file (hard to lint consistently).
-	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return fmt.Errorf("multiple YAML documents are not supported")
-	} else if !errors.Is(err, io.EOF) {
-		return fmt.Errorf("failed after first YAML document: %w", err)
-	}
-	return nil
+	return definitions, issues
 }
 
 func validateAtomDef(path, relPath string, def atomDefinition, validCategories map[string]struct{}, opts validationOptions) []issue {
@@ -428,14 +367,7 @@ func validateWorldStatesKnownSet(path, atomID string, values []string) []issue {
 	if len(values) == 0 {
 		return nil
 	}
-	known := map[string]struct{}{
-		"failing_tests":   {},
-		"diagnostics":     {},
-		"large_refactor":  {},
-		"security_issues": {},
-		"new_files":       {},
-		"high_churn":      {},
-	}
+	known := prompt.KnownWorldStates()
 	var issues []issue
 	for _, raw := range values {
 		v := strings.TrimPrefix(strings.TrimSpace(raw), "/")

@@ -7,7 +7,7 @@
   priority: 85
   is_mandatory: true
   campaign_phases: ["/planning", "/implementation", "/testing", "/review"]
-  agent_types: ["/coder", "/tester", "/reviewer", "/researcher"]
+  shard_types: ["/coder", "/tester", "/reviewer", "/researcher"]
   content: |
     ## NORTHSTAR VISION ALIGNMENT
 
@@ -33,7 +33,7 @@
   priority: 80
   is_mandatory: false
   campaign_phases: ["/implementation", "/testing"]
-  agent_types: ["/coder", "/reviewer"]
+  shard_types: ["/coder", "/reviewer"]
   depends_on: ["northstar/alignment/campaign_awareness"]
   content: |
     ## DRIFT DETECTION PROTOCOL
@@ -69,7 +69,7 @@
   priority: 75
   is_mandatory: true
   campaign_phases: ["/implementation", "/testing", "/review"]
-  agent_types: ["/coder", "/tester", "/reviewer"]
+  shard_types: ["/coder", "/tester", "/reviewer"]
   content: |
     ## TASK-LEVEL ALIGNMENT
 
@@ -91,7 +91,7 @@
   priority: 60
   is_mandatory: false
   campaign_phases: ["/implementation"]
-  agent_types: ["/coder"]
+  shard_types: ["/coder"]
   content: |
     ## PERIODIC ALIGNMENT REFLECTION
 
@@ -110,7 +110,7 @@
   subcategory: "alignment"
   priority: 90
   is_mandatory: true
-  agent_types: ["/coder"]
+  shard_types: ["/coder"]
   content: |
     ## HIGH-IMPACT CHANGE GATE
 

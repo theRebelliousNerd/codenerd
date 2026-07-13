@@ -239,8 +239,9 @@ func (s *stubShard) SetParentKernel(k types.Kernel)              {}
 func (s *stubShard) SetLLMClient(client types.LLMClient)         {}
 func (s *stubShard) SetSessionContext(ctx *types.SessionContext) {}
 
-// TestPermissionCacheOptimization verifies O(1) permission lookups via the cache.
-func TestPermissionCacheOptimization(t *testing.T) {
+// TestPermissionCacheIsClassificationOnly verifies that safe_action/1 never
+// substitutes for a request-specific permitted/3 proof.
+func TestPermissionCacheIsClassificationOnly(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
 
 	// Set up a kernel with multiple safe actions
@@ -263,17 +264,17 @@ func TestPermissionCacheOptimization(t *testing.T) {
 		t.Fatalf("Expected permission cache to be populated")
 	}
 
-	// Test O(1) lookups - both with and without leading slash
+	// Cache membership alone must deny.
 	testCases := []struct {
 		action   string
 		expected bool
 	}{
-		{"/read_file", true},
-		{"read_file", true},
-		{"/write_file", true},
-		{"write_file", true},
-		{"/review", true},
-		{"review", true},
+		{"/read_file", false},
+		{"read_file", false},
+		{"/write_file", false},
+		{"write_file", false},
+		{"/review", false},
+		{"review", false},
 		{"/exec_cmd", false},
 		{"exec_cmd", false},
 		{"/delete_all", false},
@@ -284,6 +285,21 @@ func TestPermissionCacheOptimization(t *testing.T) {
 		if result != tc.expected {
 			t.Errorf("CheckKernelPermitted(%q) = %v, expected %v", tc.action, result, tc.expected)
 		}
+	}
+
+	// The same action is allowed only after an exact permitted/3 result exists.
+	k.permitted = []Fact{{
+		Predicate: "permitted",
+		Args:      []any{MangleAtom("/read_file"), "test_target", "{}"},
+	}}
+	if !vs.CheckKernelPermitted("read_file", "test_target", map[string]any{}) {
+		t.Fatal("expected exact permitted/3 fact to authorize request")
+	}
+	if vs.CheckKernelPermitted("read_file", "other_target", map[string]any{}) {
+		t.Fatal("permitted/3 fact for another target must not authorize request")
+	}
+	if vs.CheckKernelPermitted("read_file", "test_target", map[string]any{"mode": "other"}) {
+		t.Fatal("permitted/3 fact for another payload must not authorize request")
 	}
 
 	t.Logf("Permission cache size: %d entries", len(cache))
@@ -308,6 +324,14 @@ func TestRouteActionReadFile_PersistsContentFacts(t *testing.T) {
 	vs := NewVirtualStoreWithConfig(nil, cfg)
 	vs.SetKernel(kernel)
 	vs.DisableBootGuard()
+	pending := Fact{
+		Predicate: "pending_action",
+		Args:      []any{"act_test", MangleAtom("/read_file"), filename, "{}", time.Now().Unix()},
+	}
+	if err := kernel.Assert(pending); err != nil {
+		t.Fatalf("assert pending_action: %v", err)
+	}
+	defer func() { _ = kernel.RetractFact(pending) }()
 
 	out, err := vs.RouteAction(context.Background(), Fact{
 		Predicate: "next_action",

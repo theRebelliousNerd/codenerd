@@ -41,3 +41,25 @@ func TestAtomLoader_ParseYAML_LoadsDescriptionAndVariants(t *testing.T) {
 	require.Equal(t, "concise content", atom.ContentConcise)
 	require.Equal(t, "min content", atom.ContentMin)
 }
+
+func TestAtomLoaderParseYAMLRejectsUnknownFieldWithoutPartialResult(t *testing.T) {
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "atoms.yaml")
+	yamlContent := `- id: test/good
+  category: knowledge
+  priority: 50
+  is_mandatory: false
+  content: good
+- id: test/bad
+  category: knowledge
+  priority: 50
+  is_mandatory: false
+  typo_field: rejected
+  content: bad
+`
+	require.NoError(t, os.WriteFile(yamlPath, []byte(yamlContent), 0644))
+
+	atoms, err := NewAtomLoader(nil).ParseYAML(yamlPath)
+	require.Error(t, err)
+	require.Empty(t, atoms, "a failed document must not leak a valid prefix")
+}

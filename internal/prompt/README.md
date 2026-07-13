@@ -76,8 +76,16 @@ Atoms are defined as YAML objects (or a YAML list) with fields like:
 - `category` (string): one of `identity|protocol|safety|methodology|...` (see `internal/prompt/atoms.go`)
 - `content` (string, markdown): the prompt text (or `content_file` for file-backed content)
 - Optional composition: `priority`, `is_mandatory`, `is_exclusive`, `depends_on`, `conflicts_with`
-- Optional selectors: `operational_modes`, `campaign_phases`, `build_layers`, `init_phases`, `northstar_phases`, `ouroboros_stages`, `intent_verbs`, `agent_types` (formerly `shard_types`), `languages`, `frameworks`, `world_states`
+- Optional selectors: `operational_modes`, `campaign_phases`, `build_layers`, `init_phases`, `northstar_phases`, `ouroboros_stages`, `intent_verbs`, `shard_types`, `languages`, `frameworks`, `world_states`
 - Optional polymorphism: `description`, `content_concise`, `content_min`
+
+`internal/prompt/atom_schema.go` is the only YAML definition and parser. The
+schema is strict and all-or-error: unknown keys or one invalid atom reject the
+whole document. `schema_version` may be omitted for version 1. The bounded v0
+adapter accepts `agent_types`, legacy metadata, and legacy `selectors` while
+emitting migration diagnostics; built-in atoms must use canonical fields and
+may not depend on compatibility migrations. Those aliases have a declared
+removal date of 2027-01-01 (`LegacyPromptAtomAliasesRemovalDate`).
 
 See any file under `internal/prompt/atoms/` for examples.
 

@@ -464,6 +464,9 @@ func (s *Spawner) loadSpecialistConfig(ctx context.Context, name string) (*confi
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse specialist config at %s: %w", configPath, err)
 		}
+		if err := cfg.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid specialist config at %s: %w", configPath, err)
+		}
 		logging.SessionDebug("Successfully loaded specialist config for %s", name)
 		return &cfg, nil
 	} else if !os.IsNotExist(err) {

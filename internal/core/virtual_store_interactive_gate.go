@@ -108,25 +108,25 @@ func extractStringArg(v any) string {
 // interactive tool call BEFORE it executes. It returns a non-nil error if the
 // action is unsafe and must be blocked.
 //
-// Fail-OPEN policy: if the Dreamer is unavailable, the tool is not destructive,
-// or the kernel is absent, this returns nil (allow). This intentionally
-// differs from RouteAction's fail-CLOSED stance — the interactive coding path
-// already runs behind checkSafety's permitted-allowlist gate, and hard-blocking
-// every edit on a Dreamer hiccup would be more harmful to a live coding session
-// than the residual risk. The choice is surfaced here so it is reviewable.
+// Fail-CLOSED policy: every mapped destructive tool requires a usable Dreamer.
+// Permission and speculative safety are independent gates; an allow decision
+// from checkSafety must never compensate for a missing simulation engine.
 func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionID, toolName string, args map[string]any) error {
 	at, ok := actionTypeForToolName(toolName)
 	if !ok || !isDestructiveAction(at) {
 		return nil // non-destructive or unmapped: nothing to simulate
 	}
 
+	req := buildInteractiveActionRequest(actionID, at, args)
 	dreamer := v.getDreamer()
 	if dreamer == nil {
-		logging.VirtualStoreDebug("PreflightDestructiveToolCall: no dreamer available for %s, allowing (fail-open)", toolName)
-		return nil
+		reason := "dreamer unavailable for destructive interactive tool"
+		logging.Get(logging.CategoryVirtualStore).Error(
+			"Dreamer unavailable; BLOCKED interactive tool: %s on %s", toolName, req.Target)
+		v.injectFact(newSecurityViolationFact(req, reason))
+		return &InteractiveGateError{Reason: reason}
 	}
 
-	req := buildInteractiveActionRequest(actionID, at, args)
 	dreamResult := dreamer.SimulateAction(ctx, req)
 	if dreamResult.Unsafe {
 		logging.Get(logging.CategoryVirtualStore).Warn(
@@ -136,6 +136,7 @@ func (v *VirtualStore) PreflightDestructiveToolCall(ctx context.Context, actionI
 			Predicate: "dream_blocked_action",
 			Args:      []any{dreamResult.ActionID, string(at), req.Target, dreamResult.Reason},
 		})
+		v.injectFact(newSecurityViolationFact(req, "dreamer: "+dreamResult.Reason))
 		return &InteractiveGateError{Reason: "dreamer safety gate: " + dreamResult.Reason}
 	}
 	logging.VirtualStoreDebug("Dreamer approved interactive tool: %s on %s", toolName, req.Target)
@@ -164,6 +165,7 @@ func (v *VirtualStore) ValidateInteractiveToolResult(ctx context.Context, action
 	}
 
 	req := buildInteractiveActionRequest(actionID, at, args)
+	req = v.requestForValidation(req)
 	res := ActionResult{
 		Success:  true,
 		Output:   output,

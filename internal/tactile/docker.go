@@ -29,6 +29,18 @@ type DockerExecutor struct {
 	auditCallback func(AuditEvent)
 }
 
+const dockerDetectionCacheTTL = 30 * time.Second
+
+var (
+	dockerLookPath       = exec.LookPath
+	dockerDetectionCache = struct {
+		sync.Mutex
+		checkedAt time.Time
+		path      string
+		available bool
+	}{}
+)
+
 // NewDockerExecutor creates a new Docker executor.
 func NewDockerExecutor() *DockerExecutor {
 	logging.TactileDebug("Creating new DockerExecutor with default config")
@@ -48,14 +60,30 @@ func NewDockerExecutorWithConfig(config ExecutorConfig) *DockerExecutor {
 // detectDocker checks if Docker is available.
 func (e *DockerExecutor) detectDocker() {
 	logging.TactileDebug("Detecting Docker availability")
+	dockerDetectionCache.Lock()
+	defer dockerDetectionCache.Unlock()
+
+	now := time.Now()
+	if elapsed := now.Sub(dockerDetectionCache.checkedAt); !dockerDetectionCache.checkedAt.IsZero() && elapsed >= 0 && elapsed < dockerDetectionCacheTTL {
+		e.dockerPath = dockerDetectionCache.path
+		e.available = dockerDetectionCache.available
+		logging.TactileDebug("Using cached Docker availability: available=%v", e.available)
+		return
+	}
+
+	dockerDetectionCache.checkedAt = now
+	dockerDetectionCache.path = ""
+	dockerDetectionCache.available = false
+
 	// Try to find docker binary
-	dockerPath, err := exec.LookPath("docker")
+	dockerPath, err := dockerLookPath("docker")
 	if err != nil {
 		logging.TactileDebug("Docker binary not found in PATH")
 		e.available = false
 		return
 	}
 	e.dockerPath = dockerPath
+	dockerDetectionCache.path = dockerPath
 	logging.TactileDebug("Docker binary found: %s", dockerPath)
 
 	// Verify docker is responsive
@@ -70,6 +98,7 @@ func (e *DockerExecutor) detectDocker() {
 	}
 
 	e.available = true
+	dockerDetectionCache.available = true
 	logging.Tactile("Docker executor available: %s", dockerPath)
 }
 

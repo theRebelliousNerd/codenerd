@@ -252,6 +252,7 @@ func (v *VirtualStore) handleEditElement(ctx context.Context, req ActionRequest)
 		Output:  fmt.Sprintf("Replaced element %s (%d lines affected)", ref, result.LinesAffected),
 		Metadata: map[string]any{
 			"ref":            ref,
+			"file":           elem.File,
 			"lines_affected": result.LinesAffected,
 			"new_line_count": result.LineCount,
 		},

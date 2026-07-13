@@ -21,17 +21,17 @@ func TestDebuggingAtoms(t *testing.T) {
 		{
 			filename:     "atoms/methodology/debugging_go.yaml",
 			expectedID:   "methodology/debugging/go",
-			expectedLang: []string{"/go", "/golang"},
+			expectedLang: []string{"go", "golang"},
 		},
 		{
 			filename:     "atoms/methodology/debugging_python.yaml",
 			expectedID:   "methodology/debugging/python",
-			expectedLang: []string{"/python"},
+			expectedLang: []string{"python"},
 		},
 		{
 			filename:     "atoms/methodology/debugging_typescript.yaml",
 			expectedID:   "methodology/debugging/typescript",
-			expectedLang: []string{"/typescript", "/javascript", "/node"},
+			expectedLang: []string{"typescript", "javascript", "node"},
 		},
 	}
 

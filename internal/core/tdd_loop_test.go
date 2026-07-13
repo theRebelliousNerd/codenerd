@@ -69,11 +69,11 @@ func (m *MockKernel) Query(predicate string) ([]Fact, error) {
 	// Default: if querying permitted, return everything permitted
 	if predicate == "permitted" {
 		return []Fact{
-			{Predicate: "permitted", Args: []any{"/run_tests", "_"}},
-			{Predicate: "permitted", Args: []any{"/read_file", "_"}},
-			{Predicate: "permitted", Args: []any{"/write_file", "_"}},
-			{Predicate: "permitted", Args: []any{"/exec_cmd", "_"}},
-			{Predicate: "permitted", Args: []any{"/escalate", "_"}},
+			// VirtualStore authorization is exact across action, target, and
+			// canonical payload. Keep this mock aligned with the default TDD
+			// command instead of teaching tests that wildcard classifications
+			// are permissions.
+			{Predicate: "permitted", Args: []any{"/run_tests", "go test ./...", "{}"}},
 		}, nil
 	}
 	// Return collected facts matching predicate

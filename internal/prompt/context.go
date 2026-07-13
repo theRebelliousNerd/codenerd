@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -462,7 +463,7 @@ func AllContextDimensions() []ContextDimension {
 		{
 			Name:        "world_state",
 			Description: "World model state indicators",
-			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits"},
+			Values:      []string{"failing_tests", "diagnostics", "large_refactor", "security_issues", "new_files", "high_churn", "reflection_hits", "no_tool_call_retry"},
 		},
 	}
 }
@@ -477,8 +478,9 @@ var hashBufferPool = sync.Pool{
 	},
 }
 
-// Hash generates a stable hash key for caching based on context fields.
-// Bug #5 fix: Enable prompt caching to prevent recompilation spam.
+// Hash generates a stable, versioned cache identity for every field that can
+// affect atom collection, selection, budgeting, or rendering. Set-like slices
+// are sorted and deduplicated without mutating the caller's context.
 func (cc *CompilationContext) Hash() string {
 	if cc == nil {
 		return "nil"
@@ -492,63 +494,88 @@ func (cc *CompilationContext) Hash() string {
 		hashBufferPool.Put(buf)
 	}()
 
-	// Helper to write string + separator
-	const sep = "|"
-	write := func(s string) {
-		buf.WriteString(s)
-		buf.WriteString(sep)
+	// Length-prefix each value so user-controlled strings cannot create
+	// delimiter collisions (for example, ["a,b", "c"] vs ["a", "b,c"]).
+	write := func(name, value string) {
+		buf.WriteString(name)
+		buf.WriteByte('=')
+		buf.WriteString(strconv.Itoa(len(value)))
+		buf.WriteByte(':')
+		buf.WriteString(value)
+		buf.WriteByte(';')
+	}
+	writeInt := func(name string, value int) {
+		write(name, strconv.Itoa(value))
+	}
+	writeBool := func(name string, value bool) {
+		write(name, strconv.FormatBool(value))
+	}
+	writeFloat := func(name string, value float64) {
+		write(name, strconv.FormatFloat(value, 'g', -1, 64))
+	}
+	writeSet := func(name string, values []string) {
+		canonical := canonicalStringSet(values)
+		writeInt(name+"_count", len(canonical))
+		for i, value := range canonical {
+			write(name+"_"+strconv.Itoa(i), value)
+		}
 	}
 
-	write(cc.OperationalMode)
-	write(cc.CampaignPhase)
-	write(cc.CampaignID)
-	write(cc.BuildLayer)
-	write(cc.ShardType)
-	write(cc.ShardID)
-	write(cc.Language)
+	write("schema", "compilation-context-v2")
+	write("operational_mode", cc.OperationalMode)
+	write("campaign_phase", cc.CampaignPhase)
+	write("campaign_id", cc.CampaignID)
+	write("campaign_name", cc.CampaignName)
+	write("build_layer", cc.BuildLayer)
+	write("init_phase", cc.InitPhase)
+	write("northstar_phase", cc.NorthstarPhase)
+	write("ouroboros_stage", cc.OuroborosStage)
+	write("intent_verb", cc.IntentVerb)
+	write("intent_target", cc.IntentTarget)
+	write("shard_type", cc.ShardType)
+	write("shard_id", cc.ShardID)
+	write("shard_instance_id", cc.ShardInstanceID)
+	write("shard_name", cc.ShardName)
+	write("language", cc.Language)
+	writeSet("framework", cc.Frameworks)
 
-	for _, fw := range cc.Frameworks {
-		buf.WriteString(fw)
-		buf.WriteString(",")
-	}
-	buf.WriteString(sep)
+	writeInt("failing_test_count", cc.FailingTestCount)
+	writeInt("diagnostic_count", cc.DiagnosticCount)
+	writeBool("large_refactor", cc.IsLargeRefactor)
+	writeBool("security_issues", cc.HasSecurityIssues)
+	writeBool("new_files", cc.HasNewFiles)
+	writeBool("high_churn", cc.IsHighChurn)
+	writeBool("reflection_hits", cc.HasReflectionHits)
+	writeBool("previous_attempt_no_tool_call", cc.PreviousAttemptNoToolCall)
 
-	write(cc.IntentVerb)
-	write(cc.IntentTarget)
-	write(cc.NorthstarPhase)
-	write(cc.InitPhase)
-	write(cc.OuroborosStage)
-	write(cc.SemanticQuery)
-
-	var scratch [64]byte
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.TokenBudget), 10))
-	buf.WriteString(sep)
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.FailingTestCount), 10))
-	buf.WriteString(sep)
-	buf.Write(strconv.AppendInt(scratch[:0], int64(cc.DiagnosticCount), 10))
-	buf.WriteString(sep)
-
-	if cc.IsLargeRefactor {
-		write("true")
-	} else {
-		write("false")
-	}
-
-	if cc.HasSecurityIssues {
-		write("true")
-	} else {
-		write("false")
-	}
-
-	if cc.HasReflectionHits {
-		write("true")
-	} else {
-		write("false")
-	}
+	writeInt("token_budget", cc.TokenBudget)
+	writeInt("reserved_tokens", cc.ReservedTokens)
+	writeInt("reserved_tokens_fallback_ratio", cc.ReservedTokensFallbackRatio)
+	write("semantic_query", cc.SemanticQuery)
+	writeInt("semantic_top_k", cc.SemanticTopK)
+	writeFloat("activation_threshold", cc.ActivationThreshold)
+	write("available_specialists", cc.AvailableSpecialists)
+	writeSet("available_tool", cc.AvailableTools)
 
 	// Hash the content
 	hash := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(hash[:])
+}
+
+func canonicalStringSet(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	canonical := append([]string(nil), values...)
+	sort.Strings(canonical)
+	result := canonical[:0]
+	for _, value := range canonical {
+		if len(result) == 0 || result[len(result)-1] != value {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // FactStyle defines the formatting strategy for context facts.
@@ -643,6 +670,9 @@ func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 	}
 	if cc.HasReflectionHits {
 		add("world_state", "state", "reflection_hits")
+	}
+	if cc.PreviousAttemptNoToolCall {
+		add("world_state", "state", "no_tool_call_retry")
 	}
 
 	return facts

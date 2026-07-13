@@ -10,7 +10,7 @@ import (
 
 // TestExecutor_CheckSafety_NilAgentConfigGracefulRejection verifies that when
 // AgentConfig is nil, buildToolDefinitions returns nil (gracefully) and
-// isToolAllowed returns true (no restrictions). The pipeline should not panic.
+// isToolAllowed fails closed. The pipeline should not panic.
 //
 // QA boundary item: "Add test for nil AgentConfig — graceful rejection"
 func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
@@ -25,9 +25,9 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 		t.Errorf("expected nil tool defs for nil cfg, got %d", len(defs))
 	}
 
-	// isToolAllowed must handle nil cfg without panic (returns true: no restrictions)
-	if !executor.isToolAllowed("any_tool", nil) {
-		t.Error("expected isToolAllowed to return true for nil cfg")
+	// isToolAllowed must handle nil cfg without panic and deny the capability.
+	if executor.isToolAllowed("any_tool", nil) {
+		t.Error("expected isToolAllowed to fail closed for nil cfg")
 	}
 
 	// And with an empty (but non-nil) config
@@ -35,6 +35,9 @@ func TestExecutor_CheckSafety_NilAgentConfigGracefulRejection(t *testing.T) {
 	defs = executor.buildToolDefinitions(emptyCfg)
 	if defs != nil {
 		t.Errorf("expected nil tool defs for empty cfg, got %d", len(defs))
+	}
+	if executor.isToolAllowed("any_tool", emptyCfg) {
+		t.Error("expected isToolAllowed to fail closed for empty cfg")
 	}
 }
 

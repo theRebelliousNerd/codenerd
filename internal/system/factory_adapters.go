@@ -47,12 +47,54 @@ type KernelAdapter struct {
 	kernel core.Kernel
 }
 
+var (
+	_ prompt.KernelScopeProvider = (*KernelAdapter)(nil)
+	_ prompt.KernelRetracter     = (*KernelAdapter)(nil)
+)
+
 // NewKernelAdapter creates a new KernelAdapter for the given kernel.
 // This adapter bridges core.Kernel to prompt.KernelQuerier interface,
 // enabling the JIT Prompt Compiler to query the Mangle kernel for
 // skeleton atom selection.
 func NewKernelAdapter(kernel core.Kernel) *KernelAdapter {
 	return &KernelAdapter{kernel: kernel}
+}
+
+type kernelCompilationScope struct {
+	*KernelAdapter
+}
+
+var _ prompt.KernelCompilationScope = (*kernelCompilationScope)(nil)
+
+func (s *kernelCompilationScope) Close() error {
+	// The scope owns an in-memory RealKernel clone. Dropping the final adapter
+	// reference discards every compile_context/selector fact in one operation.
+	s.KernelAdapter = nil
+	return nil
+}
+
+// NewCompilationScope snapshots the production kernel for one JIT prompt
+// compilation. Selector assertions and queries are therefore isolated across
+// concurrent compiles and never mutate the live executive kernel.
+func (ka *KernelAdapter) NewCompilationScope() (prompt.KernelCompilationScope, error) {
+	if ka == nil || ka.kernel == nil {
+		return nil, fmt.Errorf("cannot create prompt compilation scope from nil kernel")
+	}
+
+	var live *core.RealKernel
+	switch kernel := ka.kernel.(type) {
+	case *core.RealKernel:
+		live = kernel
+	case interface{ GetPrimaryRealKernel() *core.RealKernel }:
+		live = kernel.GetPrimaryRealKernel()
+	}
+	if live == nil {
+		return nil, fmt.Errorf("kernel type %T does not expose a snapshot-capable RealKernel", ka.kernel)
+	}
+
+	return &kernelCompilationScope{
+		KernelAdapter: NewKernelAdapter(live.Clone()),
+	}, nil
 }
 
 func (ka *KernelAdapter) Query(predicate string) ([]prompt.Fact, error) {
@@ -137,6 +179,16 @@ func (ka *KernelAdapter) AssertBatch(facts []any) error {
 		}
 	}
 	return ka.kernel.LoadFacts(coreFacts)
+}
+
+// Retract removes all facts for a predicate from this adapter's kernel. The
+// prompt compiler uses this on compatibility adapters; production compilation
+// scopes normally discard their private clone wholesale on Close.
+func (ka *KernelAdapter) Retract(predicate string) error {
+	if ka == nil || ka.kernel == nil {
+		return fmt.Errorf("cannot retract %q from nil kernel", predicate)
+	}
+	return ka.kernel.Retract(predicate)
 }
 
 // perceptionLLMAdapter adapts perception.LLMClient to mcp.LLMClient.

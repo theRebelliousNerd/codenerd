@@ -59,7 +59,7 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 
 	// For CodeDOM edits, target can be either a file path or a Ref
 	// We need to determine the file path
-	filePath := v.extractFilePath(req)
+	filePath := v.extractFilePath(req, result)
 	if filePath == "" {
 		return ValidationResult{
 			Verified:   true,
@@ -141,7 +141,13 @@ func (v *CodeDOMValidator) Validate(ctx context.Context, req ActionRequest, resu
 }
 
 // extractFilePath determines the file path from the action request.
-func (v *CodeDOMValidator) extractFilePath(req ActionRequest) string {
+func (v *CodeDOMValidator) extractFilePath(req ActionRequest, result ActionResult) string {
+	// Semantic element references do not necessarily encode a file path. The
+	// successful handler is authoritative for the concrete file it edited.
+	if path, ok := result.Metadata["file"].(string); ok && path != "" {
+		return path
+	}
+
 	// Target might be a direct file path
 	if req.Target != "" && !strings.Contains(req.Target, ":") {
 		return req.Target

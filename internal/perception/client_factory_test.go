@@ -1,12 +1,12 @@
 package perception
 
 import (
+	"strings"
 	"testing"
 
 	"codenerd/internal/config"
 )
 
-// TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for `NewClientFromConfig` receiving a `nil` config pointer.
 // TODO: TEST_GAP: [Null/Undefined/Empty] Missing tests for `providerKeyFieldName` when passing an empty string or undefined string.
 // TODO: TEST_GAP: [Type Coercion] Testing behavior when string inputs simulate invalid or partially formed integer configurations implicitly mapped by upstream config loaders.
 // TODO: TEST_GAP: [User Request Extremes] Testing massive strings for models or keys in `NewClientFromConfig` and massive strings in `providerKeyFieldName`.
@@ -14,6 +14,19 @@ import (
 // TODO: TEST_GAP: [Null/Undefined/Empty] Verify fallback behavior when APIKey is an empty string for providers that require authentication.
 // TODO: TEST_GAP: [Type Coercion] Verify handling of unexpected casing (e.g., "AnThroPic") or padding in the Provider string to ensure correct provider resolution.
 // TODO: TEST_GAP: [State Conflicts] Verify thread safety of NewClientFromConfig if invoked concurrently with shared ProviderConfig pointers that might be mutated elsewhere.
+
+func TestNewClientFromConfig_NilConfig(t *testing.T) {
+	client, err := NewClientFromConfig(nil)
+	if err == nil {
+		t.Fatal("NewClientFromConfig(nil) error = nil; want explicit configuration error")
+	}
+	if client != nil {
+		t.Fatalf("NewClientFromConfig(nil) client = %T; want nil", client)
+	}
+	if !strings.Contains(err.Error(), "provider config is nil") {
+		t.Fatalf("NewClientFromConfig(nil) error = %q; want actionable nil-config message", err)
+	}
+}
 
 func TestNewClientFromConfig_Engines(t *testing.T) {
 	// 1. Claude CLI

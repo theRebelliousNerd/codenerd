@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"codenerd/internal/logging"
 )
@@ -176,7 +178,8 @@ type ResponseProcessor struct {
 	LogFallbackAsError   bool
 
 	// Statistics for monitoring
-	stats ProcessorStats
+	statsMu sync.Mutex
+	stats   ProcessorStats
 }
 
 // ProcessorStats tracks parsing statistics for monitoring.
@@ -225,9 +228,11 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 	timer := logging.StartTimer(logging.CategoryArticulation, "Process")
 	defer timer.Stop()
 
-	rp.stats.TotalProcessed++
+	stats := rp.updateStats(func(stats *ProcessorStats) {
+		stats.TotalProcessed++
+	})
 	logging.Articulation("Processing LLM response (attempt #%d, length=%d bytes)",
-		rp.stats.TotalProcessed, len(rawResponse))
+		stats.TotalProcessed, len(rawResponse))
 	logging.ArticulationDebug("Raw response preview: %.200s...", rawResponse)
 
 	result := &ArticulationResult{
@@ -251,7 +256,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		result.Control = envelope.Control
 		result.ParseMethod = "json"
 		result.Confidence = 1.0
-		rp.stats.SuccessfulParses++
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.SuccessfulParses++
+		})
 
 		logging.Articulation("Direct JSON parse successful (confidence=1.0, surface_length=%d)",
 			len(result.Surface))
@@ -263,7 +270,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 
 		// Check for self-correction trigger
 		if envelope.Control.SelfCorrection != nil && envelope.Control.SelfCorrection.Triggered {
-			rp.stats.SelfCorrections++
+			rp.updateStats(func(stats *ProcessorStats) {
+				stats.SelfCorrections++
+			})
 			logging.Articulation("Self-correction triggered: %s", envelope.Control.SelfCorrection.Hypothesis)
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Self-correction triggered: %s", envelope.Control.SelfCorrection.Hypothesis))
@@ -287,7 +296,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 			result.Control = envelope.Control
 			result.ParseMethod = "json_markdown"
 			result.Confidence = 0.95
-			rp.stats.SuccessfulParses++
+			rp.updateStats(func(stats *ProcessorStats) {
+				stats.SuccessfulParses++
+			})
 			logging.Articulation("Markdown-wrapped JSON parse successful (confidence=0.95, surface_length=%d)",
 				len(result.Surface))
 			rp.applyCaps(result)
@@ -308,7 +319,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		result.Control = envelope.Control
 		result.ParseMethod = "json_extracted"
 		result.Confidence = 0.85
-		rp.stats.SuccessfulParses++
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.SuccessfulParses++
+		})
 		result.Warnings = append(result.Warnings, "JSON extracted from mixed content")
 		logging.Articulation("Embedded JSON extraction successful (confidence=0.85, surface_length=%d)",
 			len(result.Surface))
@@ -329,7 +342,9 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 		result.Control = ControlPacket{} // Empty control packet
 		result.ParseMethod = "fallback"
 		result.Confidence = 0.5
-		rp.stats.FallbackParses++
+		rp.updateStats(func(stats *ProcessorStats) {
+			stats.FallbackParses++
+		})
 
 		// Salvage path: if the raw text looks like a piggyback envelope
 		// (LLM started emitting JSON but never finished), we should not
@@ -381,10 +396,12 @@ func (rp *ResponseProcessor) Process(rawResponse string) (*ArticulationResult, e
 	}
 
 	// 5. Strict mode: fail if no valid JSON
-	rp.stats.ValidationFailures++
+	stats = rp.updateStats(func(stats *ProcessorStats) {
+		stats.ValidationFailures++
+	})
 	logging.Get(logging.CategoryArticulation).Error("Strict mode: failed to parse Piggyback JSON after all attempts")
 	logging.ArticulationDebug("Validation failure stats: total=%d, failures=%d",
-		rp.stats.TotalProcessed, rp.stats.ValidationFailures)
+		stats.TotalProcessed, stats.ValidationFailures)
 	if bestErr == nil {
 		bestErr = err
 	}
@@ -397,11 +414,12 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		return
 	}
 
-	// Surface length cap
+	// Surface length cap. The limit is bytes because it bounds model/network
+	// payload size, but the cut must preserve valid UTF-8 for the UI.
 	if rp.MaxSurfaceLength > 0 && len(result.Surface) > rp.MaxSurfaceLength {
-		result.Surface = result.Surface[:rp.MaxSurfaceLength] + "\n\n[TRUNCATED]"
+		result.Surface = truncateUTF8Bytes(result.Surface, rp.MaxSurfaceLength) + "\n\n[TRUNCATED]"
 		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("Surface response truncated to %d chars", rp.MaxSurfaceLength))
+			fmt.Sprintf("Surface response truncated to %d bytes", rp.MaxSurfaceLength))
 	}
 
 	// Control packet caps (defensive)
@@ -450,7 +468,7 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 	// Reasoning traces are useful for debugging but must be capped to avoid OOMs.
 	const maxReasoningTrace = 50_000 // 50KB
 	if len(result.Control.ReasoningTrace) > maxReasoningTrace {
-		result.Control.ReasoningTrace = result.Control.ReasoningTrace[:maxReasoningTrace] + "\n[TRUNCATED]"
+		result.Control.ReasoningTrace = truncateUTF8Bytes(result.Control.ReasoningTrace, maxReasoningTrace) + "\n[TRUNCATED]"
 		result.Warnings = append(result.Warnings, "Reasoning trace truncated")
 	}
 
@@ -466,6 +484,17 @@ func (rp *ResponseProcessor) applyCaps(result *ArticulationResult) {
 		result.Control.KnowledgeRequests = result.Control.KnowledgeRequests[:maxKnowledgeRequests]
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Knowledge requests truncated to %d items", maxKnowledgeRequests))
 	}
+}
+
+func truncateUTF8Bytes(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	end := maxBytes
+	for end > 0 && !utf8.ValidString(value[:end]) {
+		end--
+	}
+	return value[:end]
 }
 
 // schemaAllowedKeys defines the schema of allowed keys for PiggybackEnvelope recursive validation.
@@ -702,16 +731,28 @@ func (rp *ResponseProcessor) extractEmbeddedJSON(s string) (PiggybackEnvelope, e
 
 // GetStats returns current processing statistics.
 func (rp *ResponseProcessor) GetStats() ProcessorStats {
+	rp.statsMu.Lock()
+	stats := rp.stats
+	rp.statsMu.Unlock()
 	logging.ArticulationDebug("GetStats: total=%d, success=%d, fallback=%d, failures=%d, self_corrections=%d",
-		rp.stats.TotalProcessed, rp.stats.SuccessfulParses, rp.stats.FallbackParses,
-		rp.stats.ValidationFailures, rp.stats.SelfCorrections)
-	return rp.stats
+		stats.TotalProcessed, stats.SuccessfulParses, stats.FallbackParses,
+		stats.ValidationFailures, stats.SelfCorrections)
+	return stats
 }
 
 // ResetStats resets the processing statistics.
 func (rp *ResponseProcessor) ResetStats() {
 	logging.ArticulationDebug("ResetStats: clearing processor statistics")
+	rp.statsMu.Lock()
 	rp.stats = ProcessorStats{}
+	rp.statsMu.Unlock()
+}
+
+func (rp *ResponseProcessor) updateStats(update func(*ProcessorStats)) ProcessorStats {
+	rp.statsMu.Lock()
+	defer rp.statsMu.Unlock()
+	update(&rp.stats)
+	return rp.stats
 }
 
 // =============================================================================

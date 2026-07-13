@@ -4,10 +4,12 @@ package core_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"codenerd/internal/core"
 	"github.com/stretchr/testify/require"
@@ -28,6 +30,37 @@ func makeNextActionFact(req core.ActionRequest) core.Fact {
 			payload,
 		},
 	}
+}
+
+func routePermittedAction(
+	t *testing.T,
+	ctx context.Context,
+	vs *core.VirtualStore,
+	kernel *core.RealKernel,
+	req core.ActionRequest,
+) (string, error) {
+	t.Helper()
+	payload := req.Payload
+	if payload == nil {
+		payload = map[string]interface{}{}
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal permission payload: %v", err)
+	}
+	pending := core.Fact{
+		Predicate: "pending_action",
+		Args: []interface{}{
+			req.ActionID,
+			core.MangleAtom("/" + string(req.Type)),
+			req.Target,
+			string(payloadJSON),
+			time.Now().Unix(),
+		},
+	}
+	require.NoError(t, kernel.Assert(pending), "assert pending_action")
+	defer func() { require.NoError(t, kernel.RetractFact(pending), "retract pending_action") }()
+	return vs.RouteAction(ctx, makeNextActionFact(req))
 }
 
 func newTestVirtualStoreWithKernel(t *testing.T, workDir string) (*core.VirtualStore, *core.RealKernel) {
@@ -66,7 +99,7 @@ func TestVirtualStore_Integration_WriteReadDirectory_AndKernelFacts(t *testing.T
 			},
 		}
 
-		out, err := vs.RouteAction(ctx, makeNextActionFact(req))
+		out, err := routePermittedAction(t, ctx, vs, kernel, req)
 		require.NoError(t, err, "RouteAction(write_file) failed")
 		require.Contains(t, out, "Written")
 
@@ -94,7 +127,7 @@ func TestVirtualStore_Integration_WriteReadDirectory_AndKernelFacts(t *testing.T
 			Target:   fileName,
 		}
 
-		out, err := vs.RouteAction(ctx, makeNextActionFact(req))
+		out, err := routePermittedAction(t, ctx, vs, kernel, req)
 		require.NoError(t, err, "RouteAction(read_file) failed")
 		require.Equal(t, content, out)
 
@@ -118,7 +151,7 @@ func TestVirtualStore_Integration_WriteReadDirectory_AndKernelFacts(t *testing.T
 			Target:   ".",
 		}
 
-		out, err := vs.RouteAction(ctx, makeNextActionFact(req))
+		out, err := routePermittedAction(t, ctx, vs, kernel, req)
 		require.NoError(t, err, "RouteAction(read_directory) failed")
 
 		require.Contains(t, out, "Files:")
@@ -164,7 +197,7 @@ func TestVirtualStore_Integration_ExecCmd_EmitsAuditFacts(t *testing.T) {
 		},
 	}
 
-	out, err := vs.RouteAction(context.Background(), makeNextActionFact(req))
+	out, err := routePermittedAction(t, context.Background(), vs, kernel, req)
 	require.NoError(t, err, "RouteAction(exec_cmd) failed")
 	require.Contains(t, out, "integration exec")
 

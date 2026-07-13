@@ -41,13 +41,13 @@ func TestRefactoringAtoms(t *testing.T) {
 
 		foundGo := false
 		for _, lang := range atom.Languages {
-			if lang == "/go" || lang == "/golang" {
+			if lang == "go" || lang == "golang" {
 				foundGo = true
 				break
 			}
 		}
 		if !foundGo {
-			t.Errorf("Atom %s should have /go or /golang language", id)
+			t.Errorf("Atom %s should have normalized go or golang language", id)
 		}
 	}
 }

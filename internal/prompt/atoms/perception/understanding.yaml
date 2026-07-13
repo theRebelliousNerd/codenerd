@@ -1,8 +1,7 @@
 id: perception_understanding
 category: intent
-name: Intent Understanding
+subcategory: understanding
 description: Prompt for LLM-first intent classification
-version: 1.0.0
 
 # This prompt instructs the LLM to deeply understand user intent
 # and output a structured Understanding for harness routing.
@@ -348,7 +347,5 @@ content: |
   }
   ```
 
-selectors:
-  - always: true
-
 priority: 100
+is_mandatory: true
