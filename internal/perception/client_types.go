@@ -41,6 +41,7 @@ const (
 	ProviderGemini     Provider = "gemini"
 	ProviderXAI        Provider = "xai"
 	ProviderOpenRouter Provider = "openrouter"
+	ProviderOllama     Provider = "ollama" // local Ollama chat (OpenAI-compatible /v1)
 )
 
 // ZAIConfig holds configuration for ZAI client.

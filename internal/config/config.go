@@ -399,12 +399,12 @@ func (c *Config) GetSessionTTL() time.Duration {
 }
 
 // ValidProviders lists all supported LLM providers.
-var ValidProviders = []string{"zai", "anthropic", "openai", "gemini", "xai", "openrouter"}
+var ValidProviders = []string{"zai", "anthropic", "openai", "gemini", "xai", "openrouter", "ollama"}
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
-	if c.LLM.APIKey == "" {
-		return fmt.Errorf("LLM API key not configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or ZAI_API_KEY)")
+	if c.LLM.APIKey == "" && c.LLM.Provider != "ollama" {
+		return fmt.Errorf("LLM API key not configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, or ZAI_API_KEY; or use provider=ollama)")
 	}
 
 	validProvider := slices.Contains(ValidProviders, c.LLM.Provider)

@@ -4,7 +4,10 @@ package config
 // Each shard type (coder, tester, reviewer, researcher) can have custom settings.
 type ShardProfile struct {
 	// Model Configuration
-	Model       string  `yaml:"model" json:"model"`             // "claude-sonnet-4", "claude-opus-4", etc.
+	// Model is the model tag used by the worker/main LLM client for this shard
+	// (e.g. gemma4:12b on Ollama, or grok-4.5 on xAI). Prefer config.worker for
+	// provider selection; this field is the model name within that client.
+	Model       string  `yaml:"model" json:"model"`             // "gemma4:12b", "grok-4.5", etc.
 	Temperature float64 `yaml:"temperature" json:"temperature"` // 0.0-1.0
 	TopP        float64 `yaml:"top_p" json:"top_p"`             // 0.0-1.0
 

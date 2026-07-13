@@ -346,27 +346,43 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			})
 		}
 
-		// llmClient is used by non-shard components; wrap with scheduler to honor API concurrency.
-		// The interactive turn's clients register HIGH default slot priority: a
-		// user staring at a spinner must never be queued behind background
-		// learning/consolidation calls (the scheduler wakes waiters in priority
-		// order, FIFO within a priority).
+		// llmClient is used by the main TUI interactive agent (HIGH priority).
+		// shardLLMClient is used for spawn/create/shards — optional worker LLM
+		// (local Ollama gemma) so testing stays cheap while main stays on Grok.
 		var llmClient perception.LLMClient = core.NewScheduledLLMCallWithPriority("main", rawLLMClient, types.PriorityHigh)
-		var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("chat_shards", rawLLMClient)
+
+		shardRaw := rawLLMClient
+		if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr != nil {
+			logging.Boot("Worker LLM init failed: %v (shards share main client)", werr)
+		} else if worker != nil {
+			if localDB != nil {
+				traceStore := NewLocalStoreTraceAdapter(localDB)
+				shardRaw = perception.NewTracingLLMClient(worker, traceStore)
+			} else {
+				shardRaw = worker
+			}
+			if w := appCfg.GetWorkerLLMConfig(); w != nil {
+				initialMessages = append(initialMessages, Message{
+					Role:    "assistant",
+					Content: fmt.Sprintf("✓ Worker LLM for shards: %s (model: %s)", w.Provider, w.Model),
+					Time:    time.Now(),
+				})
+			}
+		}
+		var shardLLMClient perception.LLMClient = core.NewScheduledLLMCall("chat_shards", shardRaw)
 		shardMgr.SetLLMClient(shardLLMClient)
 		if perception.SharedTaxonomy != nil {
 			perception.SharedTaxonomy.SetClient(llmClient)
 		}
 
-		// Classification client (P2 model tiering): perception's intent
-		// classification runs on EVERY turn before anything else can happen, so
-		// it gets the provider's fast tier (Haiku / Flash-Lite / 4o-mini, or the
-		// user's classification_model). Falls back to the main client when the
-		// provider has no known fast tier. Previously the TUI never wired this,
-		// so every turn paid a full main-model call just to classify intent.
+		// Classification: prefer worker (cheap local) when configured; else
+		// provider fast tier (Haiku/Flash/4o-mini).
 		logStep("Configuring classification model tier...")
 		var classificationClient perception.LLMClient
-		if provCfg, provErr := perception.DetectProvider(); provErr == nil {
+		if worker, werr := perception.NewWorkerClientFromUserConfig(appCfg); werr == nil && worker != nil {
+			classificationClient = core.NewScheduledLLMCallWithPriority("classification", worker, types.PriorityHigh)
+			logging.Boot("Classification client: worker LLM (cheap tier)")
+		} else if provCfg, provErr := perception.DetectProvider(); provErr == nil {
 			if cc, ccErr := perception.NewClassificationClientFromConfig(provCfg); ccErr == nil && cc != nil {
 				classificationClient = core.NewScheduledLLMCallWithPriority("classification", cc, types.PriorityHigh)
 				logging.Boot("Classification client enabled (fast model tier for perception)")
@@ -698,7 +714,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			}
 			shard := shardsystem.NewPerceptionFirewallShardWithConfig(perceptionCfg)
 			shard.SetParentKernel(kernel)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			// Model tiering: classification runs on the fast tier when available
 			// (mirrors the transducer wiring above — the firewall is the primary
 			// perception path on interactive turns).
@@ -717,7 +733,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			shard := shardsystem.NewWorldModelIngestorShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -730,7 +746,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			}
 			shard := shardsystem.NewExecutivePolicyShardWithConfig(execCfg)
 			shard.SetParentKernel(kernel)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			if localDB != nil {
 				shard.SetLearningCandidateStore(localDB)
 			}
@@ -742,7 +758,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		shardMgr.RegisterShard("constitution_gate", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewConstitutionGateShard()
 			shard.SetParentKernel(kernel)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -751,7 +767,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		shardMgr.RegisterShard("mangle_repair", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewMangleRepairShard()
 			shard.SetParentKernel(kernel)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			// Wire the predicate corpus from kernel for schema validation
 			if corpus := kernel.GetPredicateCorpus(); corpus != nil {
 				shard.SetCorpus(corpus)
@@ -768,7 +784,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			shard := shardsystem.NewTactileRouterShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			shard.SetGlassBox(glassBoxEventBus) // Wire Glass Box for debug visibility
 			shard.SetToolEventBus(toolEventBus) // Wire Tool Event Bus for always-visible tool execution
 			shard.SetToolStore(toolStore)       // Wire Tool Store for full result persistence
@@ -783,7 +799,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		shardMgr.RegisterShard("session_planner", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shardsystem.NewSessionPlannerShard()
 			shard.SetParentKernel(kernel)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -798,7 +814,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 		// Register RequirementsInterrogator - Socratic clarification shard
 		shardMgr.RegisterShard("requirements_interrogator", func(id string, config types.ShardConfig) types.ShardAgent {
 			shard := shards.NewRequirementsInterrogatorShard()
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			shard.SetParentKernel(kernel)
 			return shard
 		})
@@ -816,7 +832,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			shard := shardsystem.NewLegislatorShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
 			}
@@ -828,7 +844,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			shard := shardsystem.NewCampaignRunnerShard()
 			shard.SetParentKernel(kernel)
 			shard.SetVirtualStore(virtualStore)
-			shard.SetLLMClient(llmClient)
+			shard.SetLLMClient(shardLLMClient)
 			shard.SetWorkspaceRoot(workspace)
 			if promptAssembler != nil {
 				shard.SetPromptAssembler(promptAssembler)
@@ -1034,7 +1050,7 @@ func performSystemBootLegacy(cfg *config.UserConfig, disableSystemShards []strin
 			if northstarStore, err := northstar.NewStore(nerdDir); err == nil {
 				guardianConfig := northstar.DefaultGuardianConfig()
 				guardian := northstar.NewGuardian(northstarStore, guardianConfig)
-				guardian.SetLLMClient(llmClient)
+				guardian.SetLLMClient(shardLLMClient)
 				if err := guardian.Initialize(); err == nil {
 					sessionID := resolveSessionID(loadedSession)
 					handler := northstar.NewBackgroundEventHandler(guardian, sessionID)

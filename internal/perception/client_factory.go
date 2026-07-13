@@ -6,6 +6,7 @@ import (
 	"codenerd/internal/perception/xaioauth"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // providerKeyFieldName returns the name of the API key config field/env var
@@ -25,6 +26,8 @@ func providerKeyFieldName(provider string) string {
 		return "zai_api_key (or ZAI_API_KEY)"
 	case "openrouter":
 		return "openrouter_api_key (or OPENROUTER_API_KEY)"
+	case "ollama":
+		return "ollama (local — no API key; set ollama.model / ollama.endpoint)"
 	default:
 		return provider + " api key"
 	}
@@ -50,6 +53,10 @@ type ProviderConfig struct {
 
 	// Provider-specific configurations
 	Gemini *config.GeminiProviderConfig // Gemini thinking mode and built-in tools
+	Ollama *config.OllamaLLMConfig      // Local Ollama chat endpoint + model
+
+	// Worker is optional secondary LLM (e.g. ollama gemma for shards).
+	Worker *config.WorkerLLMConfig
 }
 
 // LoadConfigJSON loads provider configuration from a JSON config file.
@@ -93,6 +100,7 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		context7Key = os.Getenv("CONTEXT7_API_KEY")
 	}
 
+	ollamaCfg := userCfg.GetOllamaLLMConfig()
 	return &ProviderConfig{
 		Engine:              "api",
 		Provider:            Provider(providerStr),
@@ -101,6 +109,8 @@ func LoadConfigJSON(path string) (*ProviderConfig, error) {
 		ClassificationModel: userCfg.ClassificationModel,
 		Context7APIKey:      context7Key,
 		Gemini:              userCfg.GetGeminiConfig(),
+		Ollama:              &ollamaCfg,
+		Worker:              userCfg.GetWorkerLLMConfig(),
 	}, nil
 }
 
@@ -336,7 +346,80 @@ func NewClientFromConfig(config *ProviderConfig) (LLMClient, error) {
 		}
 		return client, nil
 
+	case ProviderOllama:
+		ollamaCfg := DefaultOllamaLLMConfig()
+		if config.Ollama != nil {
+			if config.Ollama.Endpoint != "" {
+				ollamaCfg.Endpoint = config.Ollama.Endpoint
+			}
+			if config.Ollama.Model != "" {
+				ollamaCfg.Model = config.Ollama.Model
+			}
+		}
+		if config.Model != "" {
+			ollamaCfg.Model = config.Model
+		}
+		return NewOllamaClientWithConfig(ollamaCfg), nil
+
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", config.Provider)
+	}
+}
+
+// NewWorkerClientFromUserConfig builds the secondary worker LLM client used for
+// shards / spawn / create / cheap classification. Returns (nil, nil) when no
+// worker block is configured so callers can fall back to the main client.
+func NewWorkerClientFromUserConfig(userCfg *config.UserConfig) (LLMClient, error) {
+	if userCfg == nil {
+		return nil, nil
+	}
+	w := userCfg.GetWorkerLLMConfig()
+	if w == nil {
+		return nil, nil
+	}
+	switch strings.ToLower(w.Provider) {
+	case "ollama":
+		cfg := DefaultOllamaLLMConfig()
+		if w.Endpoint != "" {
+			cfg.Endpoint = w.Endpoint
+		} else {
+			ollama := userCfg.GetOllamaLLMConfig()
+			cfg.Endpoint = ollama.Endpoint
+		}
+		if w.Model != "" {
+			cfg.Model = w.Model
+		}
+		client := NewOllamaClientWithConfig(cfg)
+		logging.Perception("Worker LLM: ollama model=%s endpoint=%s", cfg.Model, cfg.Endpoint)
+		return client, nil
+	case "xai":
+		if userCfg.XAIAPIKey == "" {
+			return nil, fmt.Errorf("worker provider=xai but xai_api_key is empty")
+		}
+		client := NewXAIClient(userCfg.XAIAPIKey)
+		if w.Model != "" {
+			client.SetModel(w.Model)
+		}
+		return client, nil
+	case "openai":
+		if userCfg.OpenAIAPIKey == "" {
+			return nil, fmt.Errorf("worker provider=openai but openai_api_key is empty")
+		}
+		client := NewOpenAIClient(userCfg.OpenAIAPIKey)
+		if w.Model != "" {
+			client.SetModel(w.Model)
+		}
+		return client, nil
+	case "gemini":
+		if userCfg.GeminiAPIKey == "" {
+			return nil, fmt.Errorf("worker provider=gemini but gemini_api_key is empty")
+		}
+		gcfg := DefaultGeminiConfig(userCfg.GeminiAPIKey)
+		if w.Model != "" {
+			gcfg.Model = w.Model
+		}
+		return NewGeminiClientWithConfig(gcfg), nil
+	default:
+		return nil, fmt.Errorf("unsupported worker provider %q (use ollama, xai, openai, gemini)", w.Provider)
 	}
 }

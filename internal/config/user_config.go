@@ -21,12 +21,13 @@ import (
 //   - xai:         grok-2-latest (default), grok-2, grok-beta
 //   - zai:         GLM-4.6 (default)
 //   - openrouter:  anthropic/claude-3.5-sonnet, openai/gpt-4o, google/gemini-pro, etc.
+//   - ollama:      any local tag (e.g. gemma4:12b) — no API key required
 type UserConfig struct {
 	// =========================================================================
 	// LLM PROVIDER CONFIGURATION
 	// =========================================================================
 
-	// Provider selection (anthropic, openai, gemini, xai, zai, openrouter)
+	// Provider selection (anthropic, openai, gemini, xai, zai, openrouter, ollama)
 	Provider string `json:"provider,omitempty"`
 
 	// API keys for each provider
@@ -37,6 +38,7 @@ type UserConfig struct {
 	XAIAPIKey        string `json:"xai_api_key,omitempty"`        // xAI/Grok
 	ZAIAPIKey        string `json:"zai_api_key,omitempty"`        // Z.AI
 	OpenRouterAPIKey string `json:"openrouter_api_key,omitempty"` // OpenRouter (multi-provider)
+	// Ollama needs no API key; presence of provider=ollama or worker.provider=ollama is enough.
 
 	// Optional model override (see supported models above)
 	Model string `json:"model,omitempty"`
@@ -70,6 +72,15 @@ type UserConfig struct {
 
 	// XAIOAuth SuperGrok / X Premium+ OAuth configuration (used when Engine="xai-oauth")
 	XAIOAuth *XAIOAuthConfig `json:"xai_oauth,omitempty"`
+
+	// Ollama chat (not embedding) configuration when provider=ollama is the main client.
+	// Embeddings still use embedding.ollama_*; this block is for LLM chat completions.
+	Ollama *OllamaLLMConfig `json:"ollama,omitempty"`
+
+	// Worker is an optional secondary LLM used for shards / classification /
+	// background work while the main TUI agent stays on Provider/Model (e.g. Grok).
+	// Typical test setup: main provider=xai model=grok-4.5, worker=ollama gemma4:12b.
+	Worker *WorkerLLMConfig `json:"worker,omitempty"`
 
 	// =========================================================================
 	// UI SETTINGS
@@ -479,6 +490,75 @@ func (c *UserConfig) Save(path string) error {
 	return nil
 }
 
+// OllamaLLMConfig is chat configuration for local Ollama (separate from
+// EmbeddingConfig which drives embeddinggemma).
+type OllamaLLMConfig struct {
+	// Endpoint is the Ollama HTTP base (default http://127.0.0.1:11434).
+	// Chat uses {Endpoint}/v1/chat/completions.
+	Endpoint string `json:"endpoint,omitempty"`
+	// Model is the Ollama tag for chat (e.g. gemma4:12b).
+	Model string `json:"model,omitempty"`
+}
+
+// WorkerLLMConfig selects a secondary LLM for non-main work (shards, spawn,
+// create, classification). When nil, workers share the main provider client.
+type WorkerLLMConfig struct {
+	// Provider: typically "ollama" for local testing.
+	Provider string `json:"provider,omitempty"`
+	// Model: e.g. gemma4:12b
+	Model string `json:"model,omitempty"`
+	// Endpoint: optional override for ollama (defaults to ollama.endpoint or localhost).
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+// GetOllamaLLMConfig returns Ollama chat settings with defaults.
+func (c *UserConfig) GetOllamaLLMConfig() OllamaLLMConfig {
+	def := OllamaLLMConfig{
+		Endpoint: "http://127.0.0.1:11434",
+		Model:    "gemma4:12b",
+	}
+	if c == nil || c.Ollama == nil {
+		// Fall back to embedding endpoint if present so one Ollama host is shared.
+		if c != nil && c.Embedding != nil && c.Embedding.OllamaEndpoint != "" {
+			def.Endpoint = c.Embedding.OllamaEndpoint
+		}
+		return def
+	}
+	out := *c.Ollama
+	if out.Endpoint == "" {
+		if c.Embedding != nil && c.Embedding.OllamaEndpoint != "" {
+			out.Endpoint = c.Embedding.OllamaEndpoint
+		} else {
+			out.Endpoint = def.Endpoint
+		}
+	}
+	if out.Model == "" {
+		out.Model = def.Model
+	}
+	return out
+}
+
+// GetWorkerLLMConfig returns the secondary worker LLM config, or nil if unset.
+func (c *UserConfig) GetWorkerLLMConfig() *WorkerLLMConfig {
+	if c == nil || c.Worker == nil {
+		return nil
+	}
+	w := *c.Worker
+	if w.Provider == "" {
+		return nil
+	}
+	if w.Provider == "ollama" {
+		ollama := c.GetOllamaLLMConfig()
+		if w.Endpoint == "" {
+			w.Endpoint = ollama.Endpoint
+		}
+		if w.Model == "" {
+			w.Model = ollama.Model
+		}
+	}
+	return &w
+}
+
 // GetActiveProvider returns the provider and API key to use.
 //
 // Config is boss: if c.Provider is explicitly set, ONLY that provider's key is
@@ -487,6 +567,8 @@ func (c *UserConfig) Save(path string) error {
 // violate the user's explicit configuration.
 //
 // Priority when c.Provider is unset: first available key in priority order.
+// Ollama is keyless — GetActiveProvider returns ("ollama", "ollama") when
+// provider is explicitly set to ollama.
 func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 	// If provider is explicitly set, ONLY that provider's key is considered.
 	// No silent fallback to another provider — that would violate config-is-boss.
@@ -504,6 +586,10 @@ func (c *UserConfig) GetActiveProvider() (provider string, apiKey string) {
 			return "zai", c.ZAIAPIKey
 		case "openrouter":
 			return "openrouter", c.OpenRouterAPIKey
+		case "ollama":
+			// Local Ollama: no cloud key; non-empty sentinel satisfies callers
+			// that check apiKey != "" before NewClientFromConfig.
+			return "ollama", "ollama"
 		default:
 			return c.Provider, ""
 		}

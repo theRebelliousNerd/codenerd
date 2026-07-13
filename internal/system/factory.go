@@ -511,7 +511,24 @@ func initPerceptionLayer(bctx *bootContext) error {
 	bctx.localDB = localDB
 
 	bctx.llmClient = core.NewScheduledLLMCall("main", rawLLMClient)
-	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", rawLLMClient)
+
+	// Optional worker LLM (e.g. local Ollama gemma4:12b) for shards while main
+	// TUI agent stays on root provider (Grok). Falls back to main when unset.
+	shardRaw := rawLLMClient
+	if userCfg, uerr := config.LoadUserConfig(userCfgPath); uerr == nil && userCfg != nil {
+		if worker, werr := perception.NewWorkerClientFromUserConfig(userCfg); werr != nil {
+			logging.Get(logging.CategoryPerception).Warn("Worker LLM init failed: %v (shards use main client)", werr)
+		} else if worker != nil {
+			if localDB != nil {
+				traceStore := createTraceStoreAdapter(localDB)
+				shardRaw = perception.NewTracingLLMClient(worker, traceStore)
+			} else {
+				shardRaw = worker
+			}
+			logging.Get(logging.CategoryPerception).Info("Worker LLM enabled for shards/spawn/create")
+		}
+	}
+	bctx.shardLLMClient = core.NewScheduledLLMCall("shards", shardRaw)
 
 	if perception.SharedTaxonomy != nil {
 		perception.SharedTaxonomy.SetClient(bctx.llmClient)
@@ -877,9 +894,13 @@ func initShardManagement(bctx *bootContext) error {
 	bctx.shardManager.SetSpawnQueue(spawnQueue)
 	_ = spawnQueue.Start()
 
+	regLLM := bctx.llmClient
+	if bctx.shardLLMClient != nil {
+		regLLM = bctx.shardLLMClient
+	}
 	regCtx := shards.RegistryContext{
 		Kernel:       bctx.kernel,
-		LLMClient:    bctx.llmClient,
+		LLMClient:    regLLM,
 		VirtualStore: bctx.virtualStore,
 		Workspace:    bctx.workspace,
 		JITCompiler:  bctx.jitCompiler,
@@ -899,7 +920,7 @@ func initShardManagement(bctx *bootContext) error {
 		shard := system.NewTactileRouterShard()
 		shard.SetParentKernel(bctx.kernel)
 		shard.SetVirtualStore(bctx.virtualStore)
-		shard.SetLLMClient(bctx.llmClient)
+		shard.SetLLMClient(regLLM)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(bctx.jitCfg)
 		}
@@ -916,7 +937,7 @@ func initShardManagement(bctx *bootContext) error {
 		shard := system.NewCampaignRunnerShard()
 		shard.SetParentKernel(bctx.kernel)
 		shard.SetVirtualStore(bctx.virtualStore)
-		shard.SetLLMClient(bctx.llmClient)
+		shard.SetLLMClient(regLLM)
 		if setter, ok := any(shard).(interface{ SetJITConfig(config.JITConfig) }); ok {
 			setter.SetJITConfig(bctx.jitCfg)
 		}
@@ -952,7 +973,13 @@ func initFinalExecutors(bctx *bootContext) error {
 
 	sessionKernel := &sessionKernelAdapter{kernel: bctx.kernel}
 	sessionVS := &sessionVirtualStoreAdapter{vs: bctx.virtualStore}
-	sessionLLM := &sessionLLMAdapter{client: bctx.llmClient}
+	// CLI spawn/create/TaskExecutor use the worker LLM when configured
+	// (local Ollama), not the main TUI Grok client.
+	taskLLM := bctx.llmClient
+	if bctx.shardLLMClient != nil {
+		taskLLM = bctx.shardLLMClient
+	}
+	sessionLLM := &sessionLLMAdapter{client: taskLLM}
 
 	configFactory := prompt.NewDefaultConfigFactory()
 
