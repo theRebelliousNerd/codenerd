@@ -45,6 +45,8 @@ func (o *Orchestrator) handleTaskFailure(ctx context.Context, phase *Phase, task
 	logicEscalationReason := ""
 	reproTaskID := ""
 	reproTaskInserted := false
+	exceededMaxRetries := false
+	actualMaxRetries := 0
 
 	// Record attempt and update retry/backoff state
 taskSearch:
@@ -82,11 +84,8 @@ taskSearch:
 				markedFailed = true
 				newStatus = TaskFailed
 
-				// Record in kernel
-				_ = o.kernel.Assert(core.Fact{
-					Predicate: "task_error",
-					Args:      []any{task.ID, fmt.Sprintf("max_retries_%d", maxRetries), errStr},
-				})
+				exceededMaxRetries = true
+				actualMaxRetries = maxRetries
 			} else {
 				// Backoff before retrying to avoid tight failure loops.
 				backoff := o.computeRetryBackoff(errorType, attemptNum)
@@ -110,6 +109,14 @@ taskSearch:
 		}
 	}
 	o.mu.Unlock()
+
+	if exceededMaxRetries {
+		// Record in kernel
+		_ = o.kernel.Assert(core.Fact{
+			Predicate: "task_error",
+			Args:      []any{task.ID, fmt.Sprintf("max_retries_%d", actualMaxRetries), errStr},
+		})
+	}
 
 	// Update kernel-visible task status for retries.
 	o.updateTaskStatus(task, newStatus)
