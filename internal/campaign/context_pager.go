@@ -135,8 +135,19 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 
 	// 2. Boost activation for phase-specific facts
 	logging.CampaignDebug("Boosting %d focus patterns", len(profile.FocusPatterns))
+	var patternFacts []core.Fact
 	for _, pattern := range profile.FocusPatterns {
-		cp.boostPattern(pattern, 120)
+		patternFacts = append(patternFacts, core.Fact{
+			Predicate: "activation",
+			Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), 120},
+		})
+	}
+	if len(patternFacts) > 0 {
+		if err := cp.kernel.AssertBatch(patternFacts); err != nil {
+			for _, f := range patternFacts {
+				cp.kernel.Assert(f)
+			}
+		}
 	}
 
 	// 2b. Boost docs scoped for this phase via topology planner
@@ -184,10 +195,21 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		"vector_recall", // Memory (if not research phase)
 	}
 	suppressedCount := 0
+	var suppressFacts []core.Fact
 	for _, schema := range allSchemas {
 		if !contains(profile.RequiredSchemas, schema) {
-			cp.suppressSchema(schema)
+			suppressFacts = append(suppressFacts, core.Fact{
+				Predicate: "activation",
+				Args:      []any{schema, -100},
+			})
 			suppressedCount++
+		}
+	}
+	if len(suppressFacts) > 0 {
+		if err := cp.kernel.AssertBatch(suppressFacts); err != nil {
+			for _, f := range suppressFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
