@@ -471,7 +471,10 @@ func TestExecuteTask_Dispatch(t *testing.T) {
 		taskExecutor: &MockTaskExecutor{
 			ExecuteFunc: func(ctx context.Context, req session.TaskRequest) (string, error) {
 				called = req.IntentVerb
-				return "success", nil
+				// Return a substantive (non-trivial) result so the F-HOLLOW-2
+				// empty-result retry does not fire and re-route to /research;
+				// this test asserts the primary explicit-shard routing only.
+				return "This is a substantive analysis result describing real findings about the code under review.", nil
 			},
 		},
 	}
