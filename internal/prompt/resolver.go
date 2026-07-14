@@ -259,7 +259,7 @@ func (e DependencyError) Error() string {
 // DetectCycles finds dependency cycles in a set of atoms.
 // Returns the cycle path if found, or nil if no cycle exists.
 func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
-	// TODO: Reliability: Add a maximum recursion depth limit to the DFS cycle detection to prevent stack overflow panics from maliciously crafted or deeply nested dependency graphs.
+
 	// Build adjacency list
 	graph := make(map[string][]string, len(atoms))
 	atomSet := make(map[string]bool, len(atoms))
@@ -307,8 +307,8 @@ func (r *DependencyResolver) DetectCycles(atoms []*PromptAtom) []string {
 		for len(stack) > 0 {
 			// Depth limit check replaced by iterative heap structure, safe against stack overflow.
 			// Optional: We can still impose a limit on len(stack) if we want to guard against OOM in truly massive/malicious graphs.
-			if len(stack) > 100000 {
-				logging.Get(logging.CategoryContext).Warn("DetectCycles: max iteration depth (100000) exceeded at node %s", stack[len(stack)-1].node)
+			if len(stack) > 1000 {
+				logging.Get(logging.CategoryContext).Warn("DetectCycles: max iteration depth (1000) exceeded at node %s", stack[len(stack)-1].node)
 				break // Abort this path safely
 			}
 
