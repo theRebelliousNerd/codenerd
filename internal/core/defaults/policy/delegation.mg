@@ -117,6 +117,13 @@ action_mapping(/review, /delegate_reviewer).
 action_mapping(/review_enhance, /delegate_reviewer).
 action_mapping(/security, /delegate_reviewer).
 action_mapping(/analyze, /delegate_reviewer).
+# /audit is a workhorse_verb (routing_arbitration.mg) — the taxonomy maps
+# "analyze/audit X" to /audit — but it had no action_mapping, so the nerd-run
+# one-shot path derived no next_action and hard-failed ("no action derived from
+# policy"). It is an inspection verb like /review and /analyze; route it to the
+# reviewer. Non-side-effecting (a prose audit is a valid terminal answer), so it
+# stays out of side_effecting_action below, matching /analyze.
+action_mapping(/audit, /delegate_reviewer).
 
 # Code mutation actions (delegate to coder shard)
 action_mapping(/fix, /delegate_coder).
