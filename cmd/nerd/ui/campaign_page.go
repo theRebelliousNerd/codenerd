@@ -92,13 +92,19 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: Improve the empty state with more helpful instructions or a starting guide.
 // TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 // TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
-		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
+		var sb strings.Builder
+		sb.WriteString(" Campaign Dashboard \n\n")
+		sb.WriteString("No active campaign.\n\n")
+		sb.WriteString("Commands to get started:\n")
+		sb.WriteString("  • /campaign start <goal>  - Start a new campaign\n")
+		sb.WriteString("  • /campaign resume        - Resume paused campaign\n")
+		sb.WriteString("  • /campaign status        - Check current status\n")
+		return m.styles.Content.Render(sb.String())
 	}
 	return m.viewport.View()
 }
