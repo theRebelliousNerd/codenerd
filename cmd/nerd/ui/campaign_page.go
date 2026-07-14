@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
+
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +22,36 @@ const (
 	VirtualBufferSize = 5  // Extra phases to render above/below viewport
 	MaxVisiblePhases  = 50 // Maximum phases to render at once for performance
 )
+
+// CampaignKeyMap defines the key bindings for the campaign dashboard.
+type CampaignKeyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
+}
+
+// DefaultCampaignKeyMap returns the default key bindings.
+func DefaultCampaignKeyMap() CampaignKeyMap {
+	return CampaignKeyMap{
+		Up: key.NewBinding(
+			key.WithKeys("k", "up"),
+			key.WithHelp("↑/k", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("j", "down"),
+			key.WithHelp("↓/j", "down"),
+		),
+		PageUp: key.NewBinding(
+			key.WithKeys("pgup"),
+			key.WithHelp("pgup", "page up"),
+		),
+		PageDown: key.NewBinding(
+			key.WithKeys("pgdown"),
+			key.WithHelp("pgdown", "page down"),
+		),
+	}
+}
 
 // CampaignPageModel defines the state of the campaign dashboard.
 type CampaignPageModel struct {
@@ -41,6 +75,10 @@ type CampaignPageModel struct {
 
 	// Performance
 	renderCache *CachedRender
+
+	// Navigation
+	keys         CampaignKeyMap
+	lastKeyPress time.Time
 }
 
 // NewCampaignPageModel creates a new campaign page.
@@ -55,6 +93,7 @@ func NewCampaignPageModel() CampaignPageModel {
 		width:       80,
 		height:      20,
 		layout:      NewLayoutConfig(80, 20),
+		keys:        DefaultCampaignKeyMap(),
 		renderCache: NewCachedRender(nil), // Use default shared cache
 	}
 }
@@ -65,22 +104,25 @@ func (m CampaignPageModel) Init() tea.Cmd {
 }
 
 // Update handles messages.
-// TODO: IMPROVEMENT: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
-// TODO: IMPROVEMENT: Add debounce logic for rapid key presses if performance becomes an issue.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "k", "up":
+		if time.Since(m.lastKeyPress) < 15*time.Millisecond {
+			return m, nil
+		}
+		m.lastKeyPress = time.Now()
+
+		switch {
+		case key.Matches(msg, m.keys.Up):
 			m.viewport.LineUp(1)
-		case "j", "down":
+		case key.Matches(msg, m.keys.Down):
 			m.viewport.LineDown(1)
-		case "pgup":
+		case key.Matches(msg, m.keys.PageUp):
 			m.viewport.HalfViewUp()
-		case "pgdown":
+		case key.Matches(msg, m.keys.PageDown):
 			m.viewport.HalfViewDown()
 		}
 	}
