@@ -141,10 +141,10 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	// produces written findings for audit tasks (run 14 phase 0 researcher tasks
 	// each delivered 7-11KB). Skip file/test/tool tasks, which legitimately return
 	// only a short confirmation after writing their own durable output.
-	if isTrivialResult(result) && !isFileProducingType(task.Type) {
-		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned trivial result (%d bytes); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
-		retryInput := task.Description + "\n\nIMPORTANT: Produce a complete written findings report in your final response, with file+symbol anchors where possible. Do NOT return an empty response — if a probe failed, report what you did find."
-		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+	if needsAnalysisRetry(result) && !isFileProducingType(task.Type) {
+		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the audit NOW and report concrete findings in your final response, with file+symbol anchors where possible (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
 			result = retried
 			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
@@ -188,6 +188,40 @@ func isFileProducingType(t TaskType) bool {
 	return false
 }
 
+// intentStubPrefixes open a plan-only ("I will do X") response rather than actual
+// findings. Matched case-insensitively against the trimmed result prefix.
+var intentStubPrefixes = []string{
+	"i'll ", "i will ", "i am going to ", "i'm going to ", "let me ",
+	"i plan to ", "i intend to ", "i would ", "i'm planning", "i am planning",
+	"first, i", "here is my plan", "here's my plan", "my plan", "plan:",
+}
+
+// looksLikeIntentStub reports whether a result is a short plan-only preamble
+// ("I'll audit internal/world for ... Starting with ...") that clears the
+// emptiness floor but contains no findings (observed live, run 15 phases 2/3/4:
+// the checkpoint reviewer flagged artifacts as "only an intent stub"). Only short
+// results qualify: a long result that opens with a planning phrase has still done
+// the work, so the rune cap avoids false positives on real analysis.
+func looksLikeIntentStub(s string) bool {
+	t := strings.ToLower(strings.TrimSpace(s))
+	if len([]rune(t)) > 600 {
+		return false
+	}
+	for _, p := range intentStubPrefixes {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// needsAnalysisRetry reports whether an analysis-task result is not a real
+// deliverable — either trivially empty or a plan-only intent stub — and should
+// be retried with a stronger, execute-now instruction.
+func needsAnalysisRetry(result string) bool {
+	return isTrivialResult(result) || looksLikeIntentStub(result)
+}
+
 // analyticalVerifyKeywords mark a /verify task whose real objective is analytical
 // review (produce findings) rather than a build check (run go build).
 var analyticalVerifyKeywords = []string{
@@ -227,10 +261,10 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 	// nothing durable — the phase-checkpoint reviewer then correctly fails the
 	// phase for the missing artifact. Retry once, explicitly demanding the written
 	// findings, before accepting an empty deliverable.
-	if isTrivialResult(result) {
-		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned trivial/empty result (%d bytes); retrying once", task.ID, len(strings.TrimSpace(result)))
-		retryInput := task.Description + "\n\nIMPORTANT: Return your findings as a complete written report in your final response. Do NOT return an empty response — if a probe failed, report what you did find."
-		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+	if needsAnalysisRetry(result) {
+		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned a non-deliverable result (%d bytes, empty-or-intent-stub); retrying once", task.ID, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Do NOT describe what you WILL do and do NOT return a plan. Perform the work NOW and report concrete findings as a complete written report in your final response (or an explicit \"no issues found\" for a surface you checked). Do NOT return an empty response."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !needsAnalysisRetry(retried) {
 			result = retried
 			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
 		} else {
