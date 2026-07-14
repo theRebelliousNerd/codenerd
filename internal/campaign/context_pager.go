@@ -184,10 +184,21 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 		"vector_recall", // Memory (if not research phase)
 	}
 	suppressedCount := 0
+	suppressFacts := make([]core.Fact, 0, len(allSchemas))
 	for _, schema := range allSchemas {
 		if !contains(profile.RequiredSchemas, schema) {
-			cp.suppressSchema(schema)
+			suppressFacts = append(suppressFacts, core.Fact{
+				Predicate: "activation",
+				Args:      []any{schema, -100},
+			})
 			suppressedCount++
+		}
+	}
+	if len(suppressFacts) > 0 {
+		if err := cp.kernel.AssertBatch(suppressFacts); err != nil {
+			for _, f := range suppressFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
@@ -370,13 +381,21 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 
 	// Suppress irrelevant facts
 	suppressedCount := 0
+	suppressFacts := make([]core.Fact, 0, len(irrelevantPredicates))
 	for _, pred := range irrelevantPredicates {
 		if _, ok := allFacts[pred]; ok {
-			cp.kernel.Assert(core.Fact{
+			suppressFacts = append(suppressFacts, core.Fact{
 				Predicate: "activation",
 				Args:      []any{pred, -200}, // Heavy suppression
 			})
 			suppressedCount++
+		}
+	}
+	if len(suppressFacts) > 0 {
+		if err := cp.kernel.AssertBatch(suppressFacts); err != nil {
+			for _, f := range suppressFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 
