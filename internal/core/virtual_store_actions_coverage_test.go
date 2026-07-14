@@ -320,6 +320,49 @@ func TestHandleExecCmd(t *testing.T) {
 	}
 }
 
+// TestHandleExecCmd_NonZeroExitReportsFailure is the deterministic regression
+// for F-VS-2. tactile.DirectExecutor returns (result{Success:true, ExitCode:N≠0},
+// nil error) when a command RAN but exited non-zero. The legacy handleExecCmd
+// keyed success off err==nil alone, so it reported Success:true and asserted a
+// false cmd_succeeded fact into the kernel for a failed command. The fix
+// requires a zero exit code, mirroring handleExecCmdModern / handleGitOperation.
+func TestHandleExecCmd_NonZeroExitReportsFailure(t *testing.T) {
+	vs, _ := createActionsTestVS(t) // legacy path: useModernExecutor=false
+	vs.allowedBinaries = []string{"go", "git", "bash"}
+	ctx := context.Background()
+
+	mExec := vs.executor.(*mockActionsExecutor)
+	// Ran to completion, exited non-zero, nil error — DirectExecutor's contract.
+	mExec.executeFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		return &tactile.ExecutionResult{Success: true, ExitCode: 1, Stderr: "boom"}, nil
+	}
+
+	req := ActionRequest{ActionID: "a1", Target: "go test"}
+	res, err := vs.handleExecCmd(ctx, req)
+	if err != nil {
+		t.Fatalf("handleExecCmd returned err: %v", err)
+	}
+	if res.Success {
+		t.Errorf("expected Success=false for exit code 1, got %+v", res)
+	}
+	for _, f := range res.FactsToAdd {
+		if f.Predicate == "cmd_succeeded" {
+			t.Errorf("asserted cmd_succeeded for a command that exited non-zero: %+v", res.FactsToAdd)
+		}
+	}
+	// Sanity: exit-0 still succeeds (no behavior change on the correct path).
+	mExec.executeFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		return &tactile.ExecutionResult{Success: true, ExitCode: 0, Stdout: "ok"}, nil
+	}
+	res, err = vs.handleExecCmd(ctx, req)
+	if err != nil {
+		t.Fatalf("handleExecCmd (exit 0) returned err: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("expected Success=true for exit code 0, got %+v", res)
+	}
+}
+
 // TestHandleExecCmdModern tests the modern wrapper implementation
 func TestHandleExecCmdModern(t *testing.T) {
 	vs, _ := createActionsTestVS(t)
