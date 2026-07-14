@@ -617,12 +617,13 @@ func printElementSample(elements []core.CodeElement, limit int) {
 }
 
 func printPredicateCounts(kernel core.Kernel, predicates []string) {
+	allFacts, err := kernel.QueryAll()
+	if err != nil {
+		fmt.Printf("(query all error: %v)\n", err)
+		return
+	}
 	for _, p := range predicates {
-		facts, err := kernel.Query(p)
-		if err != nil {
-			fmt.Printf("%s: (query error: %v)\n", p, err)
-			continue
-		}
+		facts := allFacts[p]
 		fmt.Printf("%s: %d\n", p, len(facts))
 	}
 }
