@@ -36,6 +36,9 @@ type CampaignPageModel struct {
 	visibleEndIdx   int // Last visible phase index (exclusive)
 	totalPhases     int // Total number of phases
 
+	// View Mode
+	isSummaryView bool
+
 	// Styles
 	styles Styles
 
@@ -82,6 +85,13 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 			m.viewport.HalfViewUp()
 		case "pgdown":
 			m.viewport.HalfViewDown()
+		case "v":
+			m.isSummaryView = !m.isSummaryView
+			if m.renderCache != nil {
+				m.renderCache.Invalidate()
+			}
+			// Trigger re-render with new mode
+			m.UpdateContent(m.progressData, m.campaignData)
 		}
 	}
 
@@ -149,6 +159,7 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 		m.width,
 		m.height,
 		m.layout.IsCompact,
+		m.isSummaryView,
 	}
 
 	render := func() string {
@@ -160,11 +171,15 @@ func (m *CampaignPageModel) UpdateContent(prog *campaign.Progress, camp *campaig
 			sb.WriteString(m.progress.ViewAs(prog.OverallProgress) + "\n\n")
 		}
 
-		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back")
+		hints := m.styles.Muted.Render("Controls: [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [v] Toggle View  [Esc] Back")
 		sb.WriteString(hints + "\n\n")
 
 		sb.WriteString(m.renderMetrics(camp))
-		sb.WriteString(m.renderVirtualizedPhases(camp))
+		if m.isSummaryView {
+			sb.WriteString(m.renderSummary(camp, prog))
+		} else {
+			sb.WriteString(m.renderVirtualizedPhases(camp))
+		}
 		return sb.String()
 	}
 
@@ -348,4 +363,75 @@ func (m *CampaignPageModel) renderTask(t *campaign.Task) string {
 	}
 
 	return taskStyle.Render(taskLine) + "\n"
+}
+
+// renderSummary renders a high-level overview of the campaign
+func (m *CampaignPageModel) renderSummary(camp *campaign.Campaign, prog *campaign.Progress) string {
+	var sb strings.Builder
+
+	sb.WriteString(m.styles.Header.Render(" Campaign Summary ") + "\n\n")
+
+	// Goal
+	if camp.Goal != "" {
+		sb.WriteString(m.styles.Bold.Render("Goal:") + "\n")
+		// Simple word wrap for goal
+		words := strings.Fields(camp.Goal)
+		lineLen := 0
+		maxLen := m.layout.ContentWidth() - 4
+		if maxLen < 20 {
+			maxLen = 60
+		}
+		sb.WriteString("  ")
+		for _, w := range words {
+			if lineLen+len(w)+1 > maxLen {
+				sb.WriteString("\n  ")
+				lineLen = 0
+			}
+			sb.WriteString(w + " ")
+			lineLen += len(w) + 1
+		}
+		sb.WriteString("\n\n")
+	}
+
+	// Active Phase Details
+	if prog != nil && prog.CurrentPhase != "" {
+		sb.WriteString(m.styles.Bold.Render("Current Phase:") + "\n")
+		sb.WriteString(fmt.Sprintf("  %s (%d/%d)\n", prog.CurrentPhase, prog.CompletedPhases, prog.TotalPhases))
+
+		if prog.CurrentTask != "" {
+			sb.WriteString(m.styles.Bold.Render("Current Task:") + "\n")
+			sb.WriteString(fmt.Sprintf("  %s\n", prog.CurrentTask))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Stats Grid
+	sb.WriteString(m.styles.Bold.Render("Statistics:") + "\n")
+	stats := []string{
+		fmt.Sprintf("Phases:     %d/%d Completed", camp.CompletedPhases, camp.TotalPhases),
+		fmt.Sprintf("Tasks:      %d/%d Completed", camp.CompletedTasks, camp.TotalTasks),
+		fmt.Sprintf("Budget:     %.1f%% Utilized", camp.ContextUtilization*100),
+		fmt.Sprintf("Confidence: %.1f%%", camp.Confidence*100),
+	}
+	for _, stat := range stats {
+		sb.WriteString(fmt.Sprintf("  • %s\n", stat))
+	}
+	sb.WriteString("\n")
+
+	// Knowledge/Learnings
+	if len(camp.Learnings) > 0 {
+		sb.WriteString(m.styles.Bold.Render(fmt.Sprintf("Learnings (%d):", len(camp.Learnings))) + "\n")
+		limit := 3
+		if len(camp.Learnings) < limit {
+			limit = len(camp.Learnings)
+		}
+		for i := 0; i < limit; i++ {
+			sb.WriteString(fmt.Sprintf("  • %s\n", camp.Learnings[i].Type))
+		}
+		if len(camp.Learnings) > limit {
+			sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(camp.Learnings)-limit))
+		}
+	}
+
+	return sb.String()
 }
