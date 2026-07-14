@@ -875,12 +875,18 @@ func (d *Decomposer) linkRequirementsToTasks(requirements []Requirement, campaig
 	}
 
 	// Load requirement coverage facts
+	var coverageFacts []core.Fact
 	for _, req := range requirements {
 		for _, taskID := range req.CoveredBy {
-			d.kernel.Assert(core.Fact{
+			coverageFacts = append(coverageFacts, core.Fact{
 				Predicate: "requirement_coverage",
 				Args:      []any{req.ID, taskID},
 			})
+		}
+	}
+	if len(coverageFacts) > 0 {
+		if err := d.kernel.AssertBatch(coverageFacts); err != nil {
+			logging.CampaignDebug("Error asserting requirement_coverage batch: %v", err)
 		}
 	}
 
