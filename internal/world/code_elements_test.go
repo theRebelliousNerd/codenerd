@@ -440,3 +440,84 @@ func TestGetElementsInRange_Extensive(t *testing.T) {
 		})
 	}
 }
+
+func TestGetElementsInRange_New(t *testing.T) {
+	elements := []CodeElement{
+		{Ref: "1", StartLine: 1, EndLine: 5},
+		{Ref: "2", StartLine: 6, EndLine: 10},
+		{Ref: "3", StartLine: 11, EndLine: 15},
+		{Ref: "4", StartLine: 16, EndLine: 20},
+		{Ref: "5", StartLine: 5, EndLine: 15},
+	}
+
+	tests := []struct {
+		name      string
+		startLine int
+		endLine   int
+		wantRefs  []string
+	}{
+		{
+			name:      "exact match one element",
+			startLine: 6,
+			endLine:   10,
+			wantRefs:  []string{"2", "5"},
+		},
+		{
+			name:      "overlap start",
+			startLine: 4,
+			endLine:   8,
+			wantRefs:  []string{"1", "2", "5"},
+		},
+		{
+			name:      "overlap end",
+			startLine: 9,
+			endLine:   12,
+			wantRefs:  []string{"2", "3", "5"},
+		},
+		{
+			name:      "encompassing",
+			startLine: 1,
+			endLine:   20,
+			wantRefs:  []string{"1", "2", "3", "4", "5"},
+		},
+		{
+			name:      "completely outside before",
+			startLine: -5,
+			endLine:   0,
+			wantRefs:  nil,
+		},
+		{
+			name:      "completely outside after",
+			startLine: 21,
+			endLine:   30,
+			wantRefs:  nil,
+		},
+		{
+			name:      "empty slice",
+			startLine: 1,
+			endLine:   5,
+			wantRefs:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var input []CodeElement
+			if tt.name != "empty slice" {
+				input = elements
+			}
+
+			got := GetElementsInRange(input, tt.startLine, tt.endLine)
+
+			var gotRefs []string
+			for _, e := range got {
+				gotRefs = append(gotRefs, e.Ref)
+			}
+
+			if len(gotRefs) == 0 && len(tt.wantRefs) == 0 {
+				return
+			}
+			assert.ElementsMatch(t, tt.wantRefs, gotRefs)
+		})
+	}
+}
