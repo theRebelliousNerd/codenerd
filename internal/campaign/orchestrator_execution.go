@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"context"
 	"fmt"
 	"time"
@@ -211,14 +212,28 @@ func (o *Orchestrator) runHeartbeatLoop(ctx context.Context) {
 			}
 			o.mu.RUnlock()
 			if campaignID != "" && o.kernel != nil {
-				_ = o.kernel.RetractFact(core.Fact{
-					Predicate: "campaign_heartbeat",
-					Args:      []any{campaignID},
-				})
-				_ = o.kernel.Assert(core.Fact{
-					Predicate: "campaign_heartbeat",
-					Args:      []any{campaignID, time.Now().Unix()},
-				})
+				// Only use atomic transactions if the kernel supports it
+				if kt, ok := o.kernel.(types.KernelTransactor); ok {
+					tx := kt.Transaction()
+					tx.RetractFact(core.Fact{
+						Predicate: "campaign_heartbeat",
+						Args:      []any{campaignID},
+					})
+					tx.Assert(core.Fact{
+						Predicate: "campaign_heartbeat",
+						Args:      []any{campaignID, time.Now().Unix()},
+					})
+					_ = tx.Commit()
+				} else {
+					_ = o.kernel.RetractFact(core.Fact{
+						Predicate: "campaign_heartbeat",
+						Args:      []any{campaignID},
+					})
+					_ = o.kernel.Assert(core.Fact{
+						Predicate: "campaign_heartbeat",
+						Args:      []any{campaignID, time.Now().Unix()},
+					})
+				}
 			}
 		case <-autosaveTicker.C:
 			o.mu.Lock()
