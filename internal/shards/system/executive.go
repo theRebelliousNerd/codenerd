@@ -400,19 +400,23 @@ func (e *ExecutivePolicyShard) Execute(ctx context.Context, task string) (string
 			// Event-driven: a relevant fact was asserted — evaluate policy
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
-				_ = e.Kernel.Assert(types.Fact{
+				tx := types.NewKernelTx(e.Kernel)
+				tx.Assert(types.Fact{
 					Predicate: "executive_error",
 					Args:      []any{err.Error(), time.Now().Unix()},
 				})
+				_ = tx.Commit()
 			}
 		case <-fallbackCh:
 			// Polling fallback when no event bus available
 			if err := e.evaluatePolicy(ctx); err != nil {
 				logging.Get(logging.CategorySystemShards).Error("[ExecutivePolicy] Policy evaluation error: %v", err)
-				_ = e.Kernel.Assert(types.Fact{
+				tx := types.NewKernelTx(e.Kernel)
+				tx.Assert(types.Fact{
 					Predicate: "executive_error",
 					Args:      []any{err.Error(), time.Now().Unix()},
 				})
+				_ = tx.Commit()
 			}
 		case <-heartbeat.C:
 			// Heartbeat + periodic checks (runs every 5s regardless)
@@ -443,6 +447,8 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		return nil
 	}
 
+	tx := types.NewKernelTx(e.Kernel)
+
 	// 1. Query active strategies
 	strategies, err := e.queryActiveStrategies()
 	if err != nil {
@@ -461,7 +467,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		// Emit strategy change fact
 		for _, s := range strategies {
 			logging.SystemShardsDebug("[ExecutivePolicy] Strategy activated: %s", s.Name)
-			_ = e.Kernel.Assert(types.Fact{
+			tx.Assert(types.Fact{
 				Predicate: "strategy_activated",
 				Args:      []any{s.Name, time.Now().Unix()},
 			})
@@ -472,11 +478,11 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	blocked, blockReason := e.checkBarriers()
 	if blocked && e.config.StrictBarriers {
 		logging.SystemShardsDebug("[ExecutivePolicy] Execution blocked: %s", blockReason)
-		_ = e.Kernel.Assert(types.Fact{
+		tx.Assert(types.Fact{
 			Predicate: "executive_blocked",
 			Args:      []any{blockReason, time.Now().Unix()},
 		})
-		return nil // Don't derive actions when blocked
+		return tx.Commit() // Don\'t derive actions when blocked
 	}
 
 	// 3. Query next_action
@@ -539,13 +545,13 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 		}
 		actionCopy.Target = target
 		actionCopy.Payload = payload
-		_ = e.Kernel.Assert(types.Fact{
+		tx.Assert(types.Fact{
 			Predicate: "pending_action",
 			Args:      []any{action.ID, action.Action, target, encodeActionPayload(payload), time.Now().Unix()},
 		})
 		// Consume one-shot next_action facts asserted by shards.
 		// Derived next_action from policy are not in EDB, so this is a safe no-op for them.
-		_ = e.Kernel.RetractExactFact(action.RawFact)
+		tx.RetractExactFact(action.RawFact)
 
 		e.mu.Lock()
 		e.pendingActions = append(e.pendingActions, actionCopy)
@@ -559,7 +565,7 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 
 		// Emit debug trace if enabled
 		if e.config.DebugMode {
-			_ = e.Kernel.Assert(types.Fact{
+			tx.Assert(types.Fact{
 				Predicate: "executive_trace",
 				Args: []any{
 					action.Action,
@@ -572,13 +578,13 @@ func (e *ExecutivePolicyShard) evaluatePolicy(ctx context.Context) error {
 	}
 
 	if consumedCurrentIntent {
-		_ = e.Kernel.Assert(types.Fact{
+		tx.Assert(types.Fact{
 			Predicate: "executive_processed_intent",
 			Args:      []any{"/current_intent"},
 		})
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // GetActiveStrategies returns the currently active strategies.
