@@ -133,47 +133,38 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 			profile.ID, len(profile.RequiredSchemas), len(profile.RequiredTools), len(profile.FocusPatterns))
 	}
 
+	allFacts := make([]core.Fact, 0)
+
 	// 2. Boost activation for phase-specific facts
 	logging.CampaignDebug("Boosting %d focus patterns", len(profile.FocusPatterns))
 	for _, pattern := range profile.FocusPatterns {
-		cp.boostPattern(pattern, 120)
+		allFacts = append(allFacts, core.Fact{
+			Predicate: "activation",
+			Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), 120},
+		})
 	}
 
 	// 2b. Boost docs scoped for this phase via topology planner
 	if scoped := cp.scopedDocsForPhase(phase.Name); len(scoped) > 0 {
 		logging.CampaignDebug("Boosting %d scoped documents for phase", len(scoped))
-		facts := make([]core.Fact, 0, len(scoped))
 		for _, doc := range scoped {
-			facts = append(facts, core.Fact{
+			allFacts = append(allFacts, core.Fact{
 				Predicate: "phase_context_atom",
 				Args:      []any{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", doc), 120},
 			})
-		}
-		if err := cp.kernel.AssertBatch(facts); err != nil {
-			for _, f := range facts {
-				cp.kernel.Assert(f)
-			}
 		}
 	}
 
 	// 3. Load phase context atoms
 	artifactCount := 0
-	artifactFacts := make([]core.Fact, 0)
 	for _, task := range phase.Tasks {
 		// Boost task artifacts
 		for _, artifact := range task.Artifacts {
-			artifactFacts = append(artifactFacts, core.Fact{
+			allFacts = append(allFacts, core.Fact{
 				Predicate: "phase_context_atom",
 				Args:      []any{phase.ID, fmt.Sprintf("file_topology(%q, _, _, _, _)", artifact.Path), 100},
 			})
 			artifactCount++
-		}
-	}
-	if len(artifactFacts) > 0 {
-		if err := cp.kernel.AssertBatch(artifactFacts); err != nil {
-			for _, f := range artifactFacts {
-				cp.kernel.Assert(f)
-			}
 		}
 	}
 	logging.CampaignDebug("Loaded %d artifact context atoms", artifactCount)
@@ -186,11 +177,22 @@ func (cp *ContextPager) ActivatePhase(ctx context.Context, phase *Phase) error {
 	suppressedCount := 0
 	for _, schema := range allSchemas {
 		if !contains(profile.RequiredSchemas, schema) {
-			cp.suppressSchema(schema)
+			allFacts = append(allFacts, core.Fact{
+				Predicate: "activation",
+				Args:      []any{schema, -100},
+			})
 			suppressedCount++
 		}
 	}
 	logging.CampaignDebug("Suppressed %d irrelevant schemas", suppressedCount)
+
+	if len(allFacts) > 0 {
+		if err := cp.kernel.AssertBatch(allFacts); err != nil {
+			for _, f := range allFacts {
+				cp.kernel.Assert(f)
+			}
+		}
+	}
 
 	// 5. Update usage estimate
 	cp.mu.Lock()
@@ -370,13 +372,21 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 
 	// Suppress irrelevant facts
 	suppressedCount := 0
+	pruneFacts := make([]core.Fact, 0)
 	for _, pred := range irrelevantPredicates {
 		if _, ok := allFacts[pred]; ok {
-			cp.kernel.Assert(core.Fact{
+			pruneFacts = append(pruneFacts, core.Fact{
 				Predicate: "activation",
 				Args:      []any{pred, -200}, // Heavy suppression
 			})
 			suppressedCount++
+		}
+	}
+	if len(pruneFacts) > 0 {
+		if err := cp.kernel.AssertBatch(pruneFacts); err != nil {
+			for _, f := range pruneFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 
@@ -403,26 +413,6 @@ func (cp *ContextPager) getContextProfile(profileID string) (*ContextProfile, er
 	}
 
 	return nil, fmt.Errorf("context profile %s not found", profileID)
-}
-
-// boostPattern boosts activation for files matching a pattern.
-func (cp *ContextPager) boostPattern(pattern string, boost int) {
-	logging.CampaignDebug("Boosting pattern %q with activation=%d", pattern, boost)
-	// Assert activation boost for the pattern
-	// The actual file matching is done by the kernel's spreading activation
-	cp.kernel.Assert(core.Fact{
-		Predicate: "activation",
-		Args:      []any{fmt.Sprintf("file_pattern(%q)", pattern), boost},
-	})
-}
-
-// suppressSchema reduces activation for an entire schema.
-func (cp *ContextPager) suppressSchema(schema string) {
-	logging.CampaignDebug("Suppressing schema %q with activation=-100", schema)
-	cp.kernel.Assert(core.Fact{
-		Predicate: "activation",
-		Args:      []any{schema, -100},
-	})
 }
 
 // estimatePhaseTokens estimates token usage for a phase.
