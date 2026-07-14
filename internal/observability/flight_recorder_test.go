@@ -121,8 +121,6 @@ func TestDumpFlightRecord_EmptyNerdDir(t *testing.T) {
 	}
 }
 
-
-
 func TestStartFlightRecorder_StartError(t *testing.T) {
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })
@@ -161,7 +159,6 @@ func TestDumpFlightRecord_MkdirError(t *testing.T) {
 	}
 }
 
-
 func TestDumpFlightRecord_WriteError(t *testing.T) {
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })
@@ -197,15 +194,35 @@ func TestDumpFlightRecord_NotEnabled(t *testing.T) {
 		t.Fatalf("StartFlightRecorder: %v", err)
 	}
 
-    // Reach into the global state and disable it (for coverage of the defensive check)
-    flightMu.Lock()
-    fr := flight
-    flightMu.Unlock()
-    fr.Stop() // this makes fr.Enabled() false but leaves flight != nil
+	// Reach into the global state and disable it (for coverage of the defensive check)
+	flightMu.Lock()
+	fr := flight
+	flightMu.Unlock()
+	fr.Stop() // this makes fr.Enabled() false but leaves flight != nil
 
 	tmp := t.TempDir()
 	_, err := DumpFlightRecord(tmp)
 	if err == nil {
 		t.Fatal("expected error when dumping after recorder is stopped manually")
+	}
+}
+
+func TestStopFlightRecorder_Active(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(2<<20, 250*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("recorder should be enabled after Start")
+	}
+
+	if err := StopFlightRecorder(); err != nil {
+		t.Fatalf("StopFlightRecorder: %v", err)
+	}
+
+	if FlightRecorderEnabled() {
+		t.Fatal("recorder should not be enabled after Stop")
 	}
 }
