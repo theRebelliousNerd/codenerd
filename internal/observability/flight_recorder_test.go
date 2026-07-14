@@ -119,3 +119,23 @@ func TestDumpFlightRecord_EmptyNerdDir(t *testing.T) {
 		t.Fatal("expected error for empty nerdDir")
 	}
 }
+
+func TestStopFlightRecorder_Active(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(2<<20, 250*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+	if !FlightRecorderEnabled() {
+		t.Fatal("recorder should be enabled after Start")
+	}
+
+	if err := StopFlightRecorder(); err != nil {
+		t.Fatalf("StopFlightRecorder: %v", err)
+	}
+
+	if FlightRecorderEnabled() {
+		t.Fatal("recorder should not be enabled after Stop")
+	}
+}
