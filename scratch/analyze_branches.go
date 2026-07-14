@@ -63,15 +63,24 @@ func main() {
 		}
 
 		// Get changed files
-		diffCmd := exec.Command("git", "diff", "--name-only", "origin/main..."+b)
-		var diffOut bytes.Buffer
-		diffCmd.Stdout = &diffOut
-		if err := diffCmd.Run(); err == nil {
-			fileLines := strings.Split(diffOut.String(), "\n")
-			for _, fl := range fileLines {
-				fl = strings.TrimSpace(fl)
-				if fl != "" {
-					info.Files = append(info.Files, fl)
+		// Find the merge base first to avoid argument concatenation vulnerability
+		mbCmd := exec.Command("git", "merge-base", "origin/main", b)
+		var mbOut bytes.Buffer
+		mbCmd.Stdout = &mbOut
+		if err := mbCmd.Run(); err == nil {
+			mergeBase := strings.TrimSpace(mbOut.String())
+
+			// Use the merge base as a separate argument to avoid injection
+			diffCmd := exec.Command("git", "diff", "--name-only", mergeBase, b)
+			var diffOut bytes.Buffer
+			diffCmd.Stdout = &diffOut
+			if err := diffCmd.Run(); err == nil {
+				fileLines := strings.Split(diffOut.String(), "\n")
+				for _, fl := range fileLines {
+					fl = strings.TrimSpace(fl)
+					if fl != "" {
+						info.Files = append(info.Files, fl)
+					}
 				}
 			}
 		}
