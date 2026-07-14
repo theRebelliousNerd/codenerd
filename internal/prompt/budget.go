@@ -444,30 +444,9 @@ func (m *TokenBudgetManager) Fit(atoms []*OrderedAtom, totalBudget int) ([]*Orde
 	var usedTokens int64 = 0
 	var atomsIncluded int = 0
 
-	// Helper to get token count for a mode
-	getTokenCount := func(atom *PromptAtom, mode string) int {
-		var cnt int
-		switch mode {
-		case "concise":
-			if atom.ContentConcise != "" {
-				cnt = EstimateTokens(atom.ContentConcise)
-			} else {
-				cnt = atom.TokenCount
-			}
-		case "min":
-			if atom.ContentMin != "" {
-				cnt = EstimateTokens(atom.ContentMin)
-			} else {
-				cnt = atom.TokenCount
-			}
-		default:
-			cnt = atom.TokenCount
-		}
-		if cnt < 0 {
-			return 0
-		}
-		return cnt
-	}
+	// Helper to get token count for a mode. Shared with the assembler and the
+	// post-fit stats via tokenCountForMode so emitted text and accounting agree.
+	getTokenCount := tokenCountForMode
 
 	// Iterate through sorted atoms in contiguous category chunks
 	for i := 0; i < len(sortedAtoms); {
@@ -892,6 +871,53 @@ func (m *TokenBudgetManager) GenerateReport(atoms []*OrderedAtom, totalBudget in
 	}
 
 	return report
+}
+
+// contentForMode returns the atom text the assembler must emit for a given
+// render mode, mirroring tokenCountForMode's variant selection. Fit records the
+// chosen RenderMode and charges the corresponding token count; the assembler and
+// the post-hoc token stats must render/count the SAME variant, or the emitted
+// prompt silently exceeds the budget accounting. Empty variants fall back to the
+// standard Content so text and count stay consistent.
+func contentForMode(atom *PromptAtom, mode string) string {
+	switch mode {
+	case "concise":
+		if atom.ContentConcise != "" {
+			return atom.ContentConcise
+		}
+	case "min":
+		if atom.ContentMin != "" {
+			return atom.ContentMin
+		}
+	}
+	return atom.Content
+}
+
+// tokenCountForMode returns the token count for an atom rendered in the given
+// mode, falling back to the standard TokenCount when the requested variant is
+// empty. Mirrors contentForMode so accounting matches emitted text.
+func tokenCountForMode(atom *PromptAtom, mode string) int {
+	var cnt int
+	switch mode {
+	case "concise":
+		if atom.ContentConcise != "" {
+			cnt = EstimateTokens(atom.ContentConcise)
+		} else {
+			cnt = atom.TokenCount
+		}
+	case "min":
+		if atom.ContentMin != "" {
+			cnt = EstimateTokens(atom.ContentMin)
+		} else {
+			cnt = atom.TokenCount
+		}
+	default:
+		cnt = atom.TokenCount
+	}
+	if cnt < 0 {
+		return 0
+	}
+	return cnt
 }
 
 func truncateAtomToBudget(atom *PromptAtom, maxTokens int) {

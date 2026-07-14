@@ -242,7 +242,11 @@ func (a *FinalAssembler) assembleSectionWith(
 
 	// Add each atom's content
 	for _, oa := range atoms {
-		content := oa.Atom.Content
+		// Emit the render-mode variant the budget manager selected in Fit
+		// (concise/min under budget pressure). Emitting the full standard
+		// Content while Fit charged the smaller variant silently overflows the
+		// token budget and makes the flight-recorder manifest misreport.
+		content := contentForMode(oa.Atom, oa.RenderMode)
 
 		// Apply template processing to individual atoms
 		if cc != nil && strings.Contains(content, "{{") {
