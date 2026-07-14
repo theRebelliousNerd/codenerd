@@ -665,34 +665,22 @@ func (o *Orchestrator) executeToolCreateTask(ctx context.Context, task *Task) (a
 			}, nil
 		case <-ticker.C:
 			// Check if tool is now registered
-			facts, err := o.kernel.Query("tool_registered")
-			if err == nil {
-				for _, fact := range facts {
-					if len(fact.Args) > 0 {
-						if toolName, ok := fact.Args[0].(string); ok && toolName == capability {
-							return map[string]any{
-								"status":     "complete",
-								"capability": capability,
-								"tool_name":  toolName,
-							}, nil
-						}
-					}
-				}
+			facts, err := o.kernel.Query(fmt.Sprintf(`tool_registered("%s")`, capability))
+			if err == nil && len(facts) > 0 {
+				return map[string]any{
+					"status":     "complete",
+					"capability": capability,
+					"tool_name":  capability,
+				}, nil
 			}
 
 			// Also check has_capability
-			capFacts, capErr := o.kernel.Query("has_capability")
-			if capErr == nil {
-				for _, fact := range capFacts {
-					if len(fact.Args) > 0 {
-						if cap, ok := fact.Args[0].(string); ok && cap == capability {
-							return map[string]any{
-								"status":     "complete",
-								"capability": capability,
-							}, nil
-						}
-					}
-				}
+			capFacts, capErr := o.kernel.Query(fmt.Sprintf(`has_capability("%s")`, capability))
+			if capErr == nil && len(capFacts) > 0 {
+				return map[string]any{
+					"status":     "complete",
+					"capability": capability,
+				}, nil
 			}
 		}
 	}
