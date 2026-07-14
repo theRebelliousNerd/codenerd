@@ -77,16 +77,17 @@ func (g *TipGenerator) ShouldShowTip() bool {
 	}
 
 	// Random chance (30% for beginners, 15% for others)
-	threshold := 0.15
+	threshold := int64(15)
 	if g.journeyState == ux.StateNew || g.experienceLevel == config.ExperienceBeginner {
-		threshold = 0.30
+		threshold = 30
 	}
 
 	n, err := rand.Int(rand.Reader, big.NewInt(100))
 	if err != nil {
 		return false
 	}
-	return float64(n.Int64())/100.0 < threshold
+	// threshold is percent (15 or 30); n is in [0,100).
+	return n.Int64() < threshold
 }
 
 // GenerateTip generates a contextual tip based on the current context.
