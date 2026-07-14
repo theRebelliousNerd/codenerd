@@ -392,14 +392,14 @@ func (w *WorldModelIngestorShard) performFullScan(ctx context.Context) error {
 		// Batch all facts for a single evaluation pass.
 		batchFacts = append(batchFacts, facts...)
 
-		// Persist to knowledge.db if available
-		w.persistToKnowledge(facts)
-
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+
+	// Persist all facts to knowledge.db in one batch after the scan
+	w.persistToKnowledge(batchFacts)
 
 	if len(batchFacts) > 0 {
 		return w.Kernel.AssertBatch(batchFacts)
@@ -479,9 +479,6 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 		facts = append(facts, ft, mod)
 		batchFacts = append(batchFacts, facts...)
 
-		// Persist updated facts to knowledge.db
-		w.persistToKnowledge(facts)
-
 		return nil
 	})
 
@@ -492,6 +489,9 @@ func (w *WorldModelIngestorShard) performIncrementalScan(ctx context.Context) er
 	if err != nil {
 		return err
 	}
+
+	// Persist all facts to knowledge.db in one batch after the scan
+	w.persistToKnowledge(batchFacts)
 
 	if len(batchFacts) > 0 {
 		return w.Kernel.AssertBatch(batchFacts)
