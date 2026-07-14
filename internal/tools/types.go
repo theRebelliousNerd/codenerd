@@ -15,6 +15,16 @@ import (
 
 // ToolCategory classifies tools for intent-based filtering.
 // Categories align with intent routing in internal/mangle/intent_routing.mg.
+
+// contextKey is a distinct type for context values to avoid collisions.
+type contextKey string
+
+const (
+	// CtxKeyWorkspaceRoot is the context key for passing the workspace root path
+	// to tools so they do not have to rely on process-global environment variables.
+	CtxKeyWorkspaceRoot contextKey = "workspace_root"
+)
+
 type ToolCategory string
 
 const (

@@ -1,11 +1,14 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"codenerd/internal/tools"
 )
 
 // ErrPathOutsideWorkspace is returned when a tool is asked to operate on a
@@ -19,7 +22,17 @@ var ErrPathOutsideWorkspace = errors.New("path escapes workspace root")
 //
 // TODO: thread the workspace root through the tool registry context so
 // tools no longer rely on process-global state.
-func workspaceRoot() (string, error) {
+func workspaceRoot(ctx context.Context) (string, error) {
+	if ctx != nil {
+		if val, ok := ctx.Value(tools.CtxKeyWorkspaceRoot).(string); ok && val != "" {
+			abs, err := filepath.Abs(val)
+			if err != nil {
+				return "", fmt.Errorf("workspace root %q from context is not a valid path: %w", val, err)
+			}
+			return abs, nil
+		}
+	}
+
 	if root := strings.TrimSpace(os.Getenv("CODENERD_WORKSPACE_ROOT")); root != "" {
 		abs, err := filepath.Abs(root)
 		if err != nil {
@@ -38,13 +51,13 @@ func workspaceRoot() (string, error) {
 // root. If p references a path that does not yet exist (typical for writes),
 // the closest existing parent is symlink-resolved instead. Returns the
 // absolute, cleaned path on success.
-func resolveWorkspacePath(root, p string) (string, error) {
+func resolveWorkspacePath(ctx context.Context, root, p string) (string, error) {
 	if p == "" {
 		return "", fmt.Errorf("path is required")
 	}
 	if root == "" {
 		var err error
-		root, err = workspaceRoot()
+		root, err = workspaceRoot(ctx)
 		if err != nil {
 			return "", err
 		}
