@@ -550,7 +550,7 @@ func (e *Environment) ApplyPatch(ctx context.Context, patch string) error {
 
 	// Write patch to temp file
 	patchPath := "/tmp/model.patch"
-	writeResult, err := e.Exec(ctx, "sh", []string{"-c", fmt.Sprintf("cat > %s << 'PATCH_EOF'\n%s\nPATCH_EOF", patchPath, patch)})
+	writeResult, err := e.Exec(ctx, "sh", []string{"-c", "printf \"%s\" \"$1\" > \"$0\"", patchPath, patch})
 	if err != nil {
 		e.setError(fmt.Errorf("failed to write patch file: %w", err))
 		return e.lastError
