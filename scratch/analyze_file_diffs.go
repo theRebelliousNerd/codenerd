@@ -62,7 +62,7 @@ func main() {
 			}
 
 			// Show content hash of this file on this branch
-			cmd := exec.Command("git", "show", b.Name+":"+file)
+			cmd := exec.Command("git", "show", b.Hash+":"+file)
 			var out bytes.Buffer
 			cmd.Stdout = &out
 			if err := cmd.Run(); err == nil {
