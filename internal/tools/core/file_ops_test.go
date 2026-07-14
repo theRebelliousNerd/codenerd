@@ -258,6 +258,150 @@ func TestEditFileTool_Execute_NoMatch(t *testing.T) {
 	}
 }
 
+// TestEditFileTool_Execute_NonUniqueAnchorRejected: with replace_all unset
+// (false), a non-unique old_text must be refused rather than silently editing
+// only the first match — a first-match edit can corrupt the wrong site while
+// reporting success. The file must be left untouched.
+func TestEditFileTool_Execute_NonUniqueAnchorRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	original := "foo = 1\nbar = 2\nfoo = 3\n"
+	os.WriteFile(tmpFile, []byte(original), 0644)
+
+	_, err := executeEditFile(context.Background(), map[string]any{
+		"path":     tmpFile,
+		"old_text": "foo",
+		"new_text": "baz",
+	})
+	if err == nil {
+		t.Fatal("expected error for non-unique old_text without replace_all")
+	}
+	if !strings.Contains(err.Error(), "not unique") {
+		t.Errorf("error should explain non-uniqueness, got: %v", err)
+	}
+	// The ambiguous edit must NOT have been applied.
+	after, _ := os.ReadFile(tmpFile)
+	if string(after) != original {
+		t.Errorf("file must be unchanged after a rejected edit, got: %q", string(after))
+	}
+}
+
+// TestEditFileTool_Execute_NonUniqueAnchorReplaceAllOK: opting into replace_all
+// is the supported way to edit every occurrence of a repeated anchor.
+func TestEditFileTool_Execute_NonUniqueAnchorReplaceAllOK(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(tmpFile, []byte("foo\nfoo\n"), 0644)
+
+	result, err := executeEditFile(context.Background(), map[string]any{
+		"path":        tmpFile,
+		"old_text":    "foo",
+		"new_text":    "baz",
+		"replace_all": true,
+	})
+	if err != nil {
+		t.Fatalf("replace_all on repeated anchor should succeed, got: %v", err)
+	}
+	if !strings.Contains(result, "2 occurrence") {
+		t.Errorf("expected 2 replacements, got: %s", result)
+	}
+}
+
+// TestEditFileTool_Execute_UniqueAnchorOK: the common case — a unique anchor
+// with replace_all unset still edits cleanly (the guard must not over-reject).
+func TestEditFileTool_Execute_UniqueAnchorOK(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(tmpFile, []byte("alpha\nbeta\ngamma\n"), 0644)
+
+	result, err := executeEditFile(context.Background(), map[string]any{
+		"path":     tmpFile,
+		"old_text": "beta",
+		"new_text": "BETA",
+	})
+	if err != nil {
+		t.Fatalf("unique anchor should edit cleanly, got: %v", err)
+	}
+	if !strings.Contains(result, "1 occurrence") {
+		t.Errorf("expected 1 replacement, got: %s", result)
+	}
+	after, _ := os.ReadFile(tmpFile)
+	if string(after) != "alpha\nBETA\ngamma\n" {
+		t.Errorf("unexpected content: %q", string(after))
+	}
+}
+
+// TestEditFileTool_Execute_NonStringNewTextRejected: a non-string new_text (e.g.
+// the model emits a number or null) must be rejected, not coerced to "" — which
+// would silently turn the edit into a deletion of old_text. Mirrors write_file.
+func TestEditFileTool_Execute_NonStringNewTextRejected(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	original := "keep this OLD line\n"
+	os.WriteFile(tmpFile, []byte(original), 0644)
+
+	_, err := executeEditFile(context.Background(), map[string]any{
+		"path":     tmpFile,
+		"old_text": "OLD",
+		"new_text": float64(42), // JSON numbers decode to float64
+	})
+	if err == nil {
+		t.Fatal("expected error for non-string new_text")
+	}
+	if !strings.Contains(err.Error(), "must be a string") {
+		t.Errorf("error should explain the type requirement, got: %v", err)
+	}
+	// old_text must NOT have been deleted.
+	after, _ := os.ReadFile(tmpFile)
+	if string(after) != original {
+		t.Errorf("file must be unchanged after a rejected edit, got: %q", string(after))
+	}
+}
+
+// TestEditFileTool_Execute_EmptyStringNewTextDeletes: an explicit empty string
+// is a legitimate deletion and must still work (the type guard rejects only
+// non-strings, not the empty string).
+func TestEditFileTool_Execute_EmptyStringNewTextDeletes(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(tmpFile, []byte("prefix REMOVE suffix"), 0644)
+
+	_, err := executeEditFile(context.Background(), map[string]any{
+		"path":     tmpFile,
+		"old_text": "REMOVE ",
+		"new_text": "",
+	})
+	if err != nil {
+		t.Fatalf("empty-string new_text is a valid deletion, got: %v", err)
+	}
+	after, _ := os.ReadFile(tmpFile)
+	if string(after) != "prefix suffix" {
+		t.Errorf("expected deletion, got: %q", string(after))
+	}
+}
+
+// TestEditFileTool_Execute_MissingNewText: an absent new_text is an error, not
+// an implicit deletion (mirrors write_file's "content is required").
+func TestEditFileTool_Execute_MissingNewText(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("CODENERD_WORKSPACE_ROOT", tmpDir)
+	tmpFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(tmpFile, []byte("has OLD text"), 0644)
+
+	_, err := executeEditFile(context.Background(), map[string]any{
+		"path":     tmpFile,
+		"old_text": "OLD",
+	})
+	if err == nil {
+		t.Error("expected error for missing new_text")
+	}
+}
+
 // =============================================================================
 // DELETE FILE TOOL TESTS
 // =============================================================================

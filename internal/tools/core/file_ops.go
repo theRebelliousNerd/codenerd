@@ -240,7 +240,18 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("old_text is required")
 	}
 
-	newText, _ := args["new_text"].(string)
+	// Reject a non-string (or absent) new_text rather than silently coercing
+	// it to "" — that would turn the edit into a deletion of old_text without
+	// any error. Mirrors write_file's content type check. An explicit empty
+	// string is still a valid deletion and passes.
+	rawNewText, ok := args["new_text"]
+	if !ok {
+		return "", fmt.Errorf("new_text is required")
+	}
+	newText, ok := rawNewText.(string)
+	if !ok {
+		return "", fmt.Errorf("new_text must be a string, got %T", rawNewText)
+	}
 
 	replaceAll := false
 	if ra, ok := args["replace_all"].(bool); ok {
@@ -275,6 +286,13 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		count = strings.Count(contentStr, oldText)
 		newContent = strings.ReplaceAll(contentStr, oldText, newText)
 	} else {
+		// Refuse an ambiguous edit: replacing only the first of several
+		// matches silently can corrupt the wrong site (the caller believes it
+		// targeted a specific location). Require disambiguation with more
+		// surrounding context, or an explicit replace_all opt-in.
+		if n := strings.Count(contentStr, oldText); n > 1 {
+			return "", fmt.Errorf("old_text is not unique: found %d occurrences; add surrounding context to make it unique or set replace_all=true", n)
+		}
 		count = 1
 		newContent = strings.Replace(contentStr, oldText, newText, 1)
 	}
