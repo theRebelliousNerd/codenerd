@@ -23,6 +23,22 @@ const (
 	FilterModeFailed
 )
 
+// ShardColumnDef defines a dynamic column for the shard table.
+type ShardColumnDef struct {
+	Title string
+	Width int
+	Value func(types.ShardAgent) string
+}
+
+// DefaultShardColumns returns the default columns for the shard table.
+func DefaultShardColumns() []ShardColumnDef {
+	return []ShardColumnDef{
+		{Title: "ID", Width: 30, Value: func(s types.ShardAgent) string { return s.GetID() }},
+		{Title: "Type", Width: 15, Value: func(s types.ShardAgent) string { return string(s.GetConfig().Type) }},
+		{Title: "Status", Width: 15, Value: func(s types.ShardAgent) string { return string(s.GetState()) }},
+	}
+}
+
 // ShardPageModel defines the state of the Shard Console.
 type ShardPageModel struct {
 	width           int
@@ -40,20 +56,26 @@ type ShardPageModel struct {
 	filterMode     ShardFilterMode
 	filterFocused  bool // Whether filter input is focused
 	detailsFocused bool // Whether details viewport is focused
+	columns        []ShardColumnDef
 
 	// Styles
 	styles Styles
 }
 
 // NewShardPageModel creates a new shard console.
-// TODO: Allow dynamic column configuration
-func NewShardPageModel() ShardPageModel {
+func NewShardPageModel(columns ...ShardColumnDef) ShardPageModel {
+	cols := columns
+	if len(cols) == 0 {
+		cols = DefaultShardColumns()
+	}
+
+	tableCols := make([]table.Column, len(cols))
+	for i, c := range cols {
+		tableCols[i] = table.Column{Title: c.Title, Width: c.Width}
+	}
+
 	t := table.New(
-		table.WithColumns([]table.Column{
-			{Title: "ID", Width: 30},
-			{Title: "Type", Width: 15},
-			{Title: "Status", Width: 15},
-		}),
+		table.WithColumns(tableCols),
 		table.WithFocused(true),
 		table.WithHeight(15),
 	)
@@ -76,6 +98,7 @@ func NewShardPageModel() ShardPageModel {
 		filterFocused:   false,
 		filteredShards:  make([]types.ShardAgent, 0),
 		styles:          DefaultStyles(),
+		columns:         cols,
 	}
 }
 
@@ -206,15 +229,11 @@ func (m *ShardPageModel) applyFilter() {
 func (m *ShardPageModel) updateTableRows() {
 	var rows []table.Row
 	for _, s := range m.filteredShards {
-		cfg := s.GetConfig()
-		state := s.GetState()
-		id := s.GetID()
-
-		rows = append(rows, table.Row{
-			id,
-			string(cfg.Type),
-			string(state),
-		})
+		row := make(table.Row, len(m.columns))
+		for i, col := range m.columns {
+			row[i] = col.Value(s)
+		}
+		rows = append(rows, row)
 	}
 	m.table.SetRows(rows)
 	m.updateDetails()

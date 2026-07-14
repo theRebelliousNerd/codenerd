@@ -246,3 +246,46 @@ func TestAutopoiesisPageModelJSONRendering(t *testing.T) {
 		t.Errorf("expected plain text in view")
 	}
 }
+
+func TestShardPageModelDynamicColumns(t *testing.T) {
+	customColumns := []ShardColumnDef{
+		{
+			Title: "CustomID",
+			Width: 40,
+			Value: func(s types.ShardAgent) string { return "CUST-" + s.GetID() },
+		},
+		{
+			Title: "Status",
+			Width: 10,
+			Value: func(s types.ShardAgent) string { return string(s.GetState()) },
+		},
+	}
+	model := NewShardPageModel(customColumns...)
+	model.SetSize(80, 20)
+
+	cfg := types.ShardConfig{
+		Name: "tester",
+		Type: types.ShardTypeEphemeral,
+	}
+	agent := coreshards.NewBaseShardAgent("shard-xyz", cfg)
+	agent.SetState(types.ShardStateRunning)
+
+	model.UpdateContent([]types.ShardAgent{agent}, nil)
+
+	// Table should only have 2 columns
+	rows := model.table.Rows()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if len(rows[0]) != 2 {
+		t.Fatalf("expected 2 columns in row, got %d", len(rows[0]))
+	}
+
+	// Verify custom values were rendered
+	if rows[0][0] != "CUST-shard-xyz" {
+		t.Fatalf("expected custom ID column, got %s", rows[0][0])
+	}
+	if rows[0][1] != string(types.ShardStateRunning) {
+		t.Fatalf("expected state running, got %s", rows[0][1])
+	}
+}
