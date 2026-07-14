@@ -844,7 +844,7 @@ func (e *PersistentDockerExecutor) CopyToContainer(ctx context.Context, containe
 
 	logging.TactileDebug("Copying %s to container %s:%s", srcPath, containerID[:12], dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", srcPath, fmt.Sprintf("%s:%s", containerID, dstPath))
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", srcPath, fmt.Sprintf("%s:%s", containerID, dstPath))
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -863,7 +863,7 @@ func (e *PersistentDockerExecutor) CopyFromContainer(ctx context.Context, contai
 
 	logging.TactileDebug("Copying container %s:%s to %s", containerID[:12], srcPath, dstPath)
 
-	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", fmt.Sprintf("%s:%s", containerID, srcPath), dstPath)
+	cmd := exec.CommandContext(ctx, e.dockerPath, "cp", "--", fmt.Sprintf("%s:%s", containerID, srcPath), dstPath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
