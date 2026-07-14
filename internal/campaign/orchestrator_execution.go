@@ -94,6 +94,23 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		default:
 		}
 
+		// Terminal-failure guard (F-STALL-1): once a phase hard-block marks the
+		// campaign failed, stop immediately. Without this the loop falls through
+		// to startNextPhase, which spins "no eligible phases" forever because the
+		// campaign_blocked derivation is transient and no longer fires after the
+		// blocking phase leaves current_phase.
+		o.mu.RLock()
+		terminalFailed := o.campaign != nil && o.campaign.Status == StatusFailed
+		lastErr := o.lastError
+		o.mu.RUnlock()
+		if terminalFailed {
+			logging.Campaign("Campaign in failed state; ending execution loop")
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("campaign failed")
+		}
+
 		// Check if paused — block on pauseCh instead of busy-waiting.
 		o.mu.RLock()
 		paused := o.isPaused

@@ -46,6 +46,14 @@ safe_action(/glob_files).
 safe_action(/glob).
 safe_action(/list_files).
 safe_action(/find_files).
+# /grep and /search_code are safe, read-only, in-process search tools
+# (internal/tools/core/search.go uses filepath.Walk + regexp — no shell). They were
+# absent from this allowlist, so the gate denied them and shards fell back to shelling
+# out to findstr/rg (findstr mangles '/'-paths, rg not installed) and every audit
+# search failed. /grep grants strictly LESS than /read_file (already permitted below):
+# it returns matching lines, not whole files. Same bug class as the /glob alias above.
+safe_action(/grep).
+safe_action(/search_code).
 safe_action(/analyze_code).
 
 # Code analysis operations

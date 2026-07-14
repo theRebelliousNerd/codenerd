@@ -184,15 +184,28 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
 	logging.CampaignDebug("Executing file task fallback for %s via direct LLM", task.ID)
 
-	// If no target path, try to extract from task description or fail
+	// If no target path, try to extract from task description.
 	if targetPath == "" {
-		// Try to extract path from description (look for common patterns)
 		targetPath = extractPathFromDescription(task.Description)
-		if targetPath == "" {
+		if targetPath != "" {
+			logging.CampaignDebug("Extracted target path from description: %s", targetPath)
+		}
+	}
+	// F-TASK-1: the decomposer frequently emits artifact-producing tasks
+	// (/document, /file_create) with no target path/artifact. Failing them
+	// permanently deadlocks the phase (a failed task blocks phase completion).
+	// Write to a deterministic campaign artifact path instead so the work
+	// product is preserved and the phase can proceed. Tasks that mutate a
+	// specific existing file (/file_modify, /refactor, /integrate) still require
+	// an explicit path — defaulting one would be meaningless.
+	if targetPath == "" {
+		if task.Type == TaskTypeDocument || task.Type == TaskTypeFileCreate {
+			targetPath = o.defaultTaskArtifactPath(task)
+			logging.Campaign("No target path for %s task %s; defaulting to campaign artifact %s", task.Type, task.ID, targetPath)
+		} else {
 			logging.Get(logging.CategoryCampaign).Error("No target path for file task %s and could not extract from description", task.ID)
 			return nil, fmt.Errorf("no target path specified for file task %s", task.ID)
 		}
-		logging.CampaignDebug("Extracted target path from description: %s", targetPath)
 	}
 
 	// Path traversal guard
@@ -693,6 +706,23 @@ var descriptionPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)internal/\S+\.\w+`),    // internal/... paths
 	regexp.MustCompile(`(?i)cmd/\S+\.\w+`),         // cmd/... paths
 	regexp.MustCompile(`(?i)pkg/\S+\.\w+`),         // pkg/... paths
+}
+
+// defaultTaskArtifactPath returns a deterministic, workspace-relative artifact
+// path for an artifact-producing task that the decomposer left without a target
+// path. Documents land under the campaign's own artifact directory (which is
+// inside .nerd/, already excluded from world scans), so they never pollute the
+// audited source tree and are stable across retries.
+func (o *Orchestrator) defaultTaskArtifactPath(task *Task) string {
+	id := strings.ReplaceAll(strings.TrimPrefix(task.ID, "/"), "/", "_")
+	if id == "" {
+		id = "task"
+	}
+	campID := "campaign"
+	if o.campaign != nil {
+		campID = campaignSlug(o.campaign.ID)
+	}
+	return filepath.ToSlash(filepath.Join(".nerd", "campaigns", campID, "artifacts", id+".md"))
 }
 
 // extractPathFromDescription attempts to extract a file path from a task description.

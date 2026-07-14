@@ -213,6 +213,12 @@ type Phase struct {
 	// Checkpoints
 	Checkpoints []Checkpoint `json:"checkpoints,omitzero"`
 
+	// CheckpointFailures counts how many times this phase's verification
+	// checkpoint has failed. Bounds the failure→replan→re-checkpoint loop so a
+	// persistently-failing checkpoint (e.g. tool error, non-replan-fixable review)
+	// cannot spin the phase forever (F-CKPT-2).
+	CheckpointFailures int `json:"checkpoint_failures,omitempty"`
+
 	// Compression (after completion)
 	CompressedSummary string    `json:"compressed_summary,omitzero"`
 	OriginalAtomCount int       `json:"original_atom_count,omitzero"`
