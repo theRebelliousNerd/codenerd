@@ -216,6 +216,28 @@ func TestFromContext_WhenNoTracker_ShouldReturnNil(t *testing.T) {
 	}
 }
 
+func TestFromContext_WhenTrackerExists_ShouldReturnTracker(t *testing.T) {
+	t.Parallel()
+
+	// Setup a minimal tracker
+	tracker, err := NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	// Create context with tracker
+	ctx := NewContext(context.Background(), tracker)
+
+	// Retrieve and verify
+	retrieved := FromContext(ctx)
+	if retrieved == nil {
+		t.Fatal("expected to retrieve tracker from context, got nil")
+	}
+	if retrieved != tracker {
+		t.Errorf("retrieved tracker pointer %p does not match original %p", retrieved, tracker)
+	}
+}
+
 func TestWithShardContext_ShouldSetAllKeys(t *testing.T) {
 	t.Parallel()
 	ctx := WithShardContext(context.Background(), "coder-1", "coder", "sess-123")
