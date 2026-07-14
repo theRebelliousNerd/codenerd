@@ -69,13 +69,26 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 ### 🔄 Perception — `internal/perception` (EXERCISED, no perception-layer defect)
 - **Exercise:** `nerd run "Analyze internal/perception ..."` (run b6k65xprn) classified correctly — verb `/audit`, target `internal/perception`, confidence 0.95. Perception worked; the failure was downstream in policy routing → surfaced F-ROUTE-2. No perception-layer bug found in this exercise.
 
+### ✅ VirtualStore — `internal/core/virtual_store_actions.go`
+- **Exercise:** the action router dispatches every kernel-derived `next_action`; `handleGitOperation` is on the git commit/add path that F-TOOL-3's live run exercised. Sibling handlers `handleRunTests`/`handleBuildProject` already keyed success off the exit code — `handleGitOperation` did not.
+- **Upgrade:** **F-VS-1** (788e664d, branch `fix/vs-git-exit-code`) — `handleGitOperation` set `success = err == nil`, so a git command that ran to completion but exited non-zero (e.g. `commit` with nothing staged, a failed `push`) was reported as a **success** in both `ActionResult.Success` and the `git_result` fact the kernel reads back. Changed to `success = err == nil && result.ExitCode == 0`, mirroring `handleRunTests` (line 297) / `handleBuildProject` (line 346). Test `TestHandleGitOperation_NonZeroExitIsFailure` drives a mock executor returning `{ExitCode:1, err:nil}` and asserts `!res.Success`.
+- **Flagged (not fixed):** legacy `handleExecCmd:160-167` has the same err-only success signal on a non-default (`useModernExecutor=false`) path — low blast radius, noted for a later pass.
+
+### ✅ Memory / context — `internal/context/activation.go`
+- **Exercise:** the context compressor's `compressor_metrics.go:455` selects which scored atoms survive within the token budget on every context assembly. Kernel priority scores land at ≤100.
+- **Upgrade:** **F-CTX-1** (368a64ab, branch `fix/ctx-prefiltered-budget`) — `SelectWithinBudget` unconditionally runs `FilterByThreshold` (default `ActivationThreshold=105`) before the budget greedy loop, so kernel-scored atoms (all ≤100) were pruned to nothing → the budget path silently dropped every kernel candidate. Added `SelectWithinBudgetPreFiltered(scored, budget)` (budget-only greedy loop, no threshold refilter) and switched the already-filtered call site to it. Test `TestSelectWithinBudgetPreFiltered` proves ≤-threshold atoms survive on budget alone.
+
+### ✅ Research tools — `internal/tools/research`
+- **Exercise:** the researcher shard's `context7_fetch` / `web_fetch` / `web_search` tools each read an integer cap (`max_docs` / `max_length` / `max_results`) from LLM-supplied JSON args. JSON numbers decode to `float64`, never `int`.
+- **Upgrade:** **F-RESEARCH-1** (ac104f50, branch `fix/research-numeric-args`) — every tool used `args["max_*"].(int)`, which **always fails** on the production JSON path (`float64`), silently discarding the caller's cap and falling back to the default. Added `argInt(args, key) (int, bool)` (handles `int`/`int64`/`float64`/`json.Number`) and routed all three tools through it. Table test `TestArgInt` includes the `float64` production case. Mirrors the documented `factArgAsInt`/`coerceInt`/`payloadInt` helper family. Ouroboros has the same `tool_version` int64 pattern — flagged as a follow-up (low blast radius, no live consumer), not fixed here.
+
+### 🔄 Autopoiesis / Ouroboros — tool generation (EXERCISED via scout, safety paths sound)
+- **Exercise:** scouted the accept/reject decision paths of the tool generator. Safety-critical gates (forbidden imports, dangerous operations) **fail closed** — a generated tool that trips a safety check is rejected, verified sound. No safety defect found.
+- **Note:** only a low-blast-radius `tool_version` int64 counter coercion (no live consumer) was surfaced; flagged as a follow-up rather than fixed, per "build on it, don't sweep."
+
 ### ⬜ Not yet exercised / fully swept
-- Kernel core — `internal/core` (fact flow, derivation). Routing layer upgraded via F-ROUTE-2 (policy) + F-TOOL-3 (constitution).
+- Kernel core — `internal/core` (fact flow, derivation). Exercised every run; routing layer upgraded via F-ROUTE-2 (policy) + F-TOOL-3 (constitution). Deeper derivation-chain sweep open.
 - Mangle policy corpus — `internal/mangle`, `internal/core/defaults/policy/` (F-TOOL-1/F-TOOL-3/F-ROUTE-2 landed; corpus not exhaustively swept).
-- VirtualStore — `internal/core/virtual_store.go` (router test green; no defect swept yet).
-- Research tools — `internal/tools/research` (context7; needs network).
-- Autopoiesis / Ouroboros — tool generation (needs LLM).
-- Memory / context — `internal/context` (reflection config done via F-CONFIG-1; paging/compression not swept).
 
 ## Run journal (self-audit campaigns)
 
@@ -90,6 +103,9 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 | 16 | internal/world | +F-STUB-1 (58bea9e1) | verified: F-STUB-1 caught 172B/146B intent-stubs live | intent-stub retry works under contention (only 2/18 recovered — LLM backend degraded) |
 | bqe14s3v5 | internal/features (`nerd run`, edit intent) | +F-TOOL-3 | exit 0, **zero safety-gate blocks**; reviewer confirmed fix + repaired test file | F-TOOL-3 verified: edit_file passes the constitutional gate; component #2 (nerd-run OODA path) + Features done |
 | b6k65xprn | internal/perception (`nerd run`, audit intent) | +F-TOOL-3/F-FEATURES-1 | **exit 1 "no action derived from policy"** — LIVE dogfood find | perception classified `/audit` correctly (0.95); `/audit` had no action_mapping → **F-ROUTE-2** |
+| (scout+code) | internal/core VirtualStore git path | +F-VS-1 | `handleGitOperation` reported non-zero git exit as success | exit-code success signal; deterministic mock-executor test |
+| (scout+code) | internal/context activation budget | +F-CTX-1 | kernel-scored atoms (≤100) pruned by threshold refilter | pre-filtered budget selector; deterministic test |
+| (scout+code) | internal/tools/research numeric args | +F-RESEARCH-1 | `.(int)` always fails on JSON `float64` → caps silently dropped | `argInt` coercion helper; table test incl. float64 path |
 
 ## Campaign orchestrator: A+ reached (run 15)
 
