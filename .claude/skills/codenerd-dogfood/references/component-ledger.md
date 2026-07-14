@@ -42,6 +42,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 ### ✅ Session executor + `nerd run` OODA path — `internal/session`, `cmd/nerd/cmd_instruction.go`
 - **Exercise:** run 12 self-audit (4/4 phases); one-shot `nerd run "<edit intent>"` on `internal/features` (run bqe14s3v5).
 - **Upgrade:** **F-TOOL-3** (498d0484) — permit `/edit_file` + `/fs_edit` as `safe_action` in constitution.mg. The safety gate (`checkSafety`, executor_tools.go:510) mapped every edit_file call to `/edit_file`, which was absent from the allowlist though `/write_file` (strictly more powerful) was permitted → `permitted(...)` default-denied every edit ("tool call blocked by safety gate: edit_file"). edit_file ⊆ write_file, so no new capability; paranoid validation still applies. **Live-verified run bqe14s3v5 (exit 0, zero gate blocks).**
+- **Upgrade 2:** **F-ROUTE-2** (cf0116c0, branch `fix/audit-action-mapping`) — LIVE dogfood find: `nerd run "Analyze internal/perception ..."` classified the intent as verb `/audit` (conf 0.95) but the one-shot path hard-failed with "no action derived from policy" (exit 1). `/audit` is a `workhorse_verb` (routing_arbitration.mg:47) with no `action_mapping` in delegation.mg → the bridge rule `next_action(A) :- user_intent(_,_,Verb,_,_), action_mapping(Verb,A)` derived nothing. Added `action_mapping(/audit, /delegate_reviewer)`, mirroring `/analyze`/`/security` (both action_mapping-only, no delegate_task, rely on the next_action handoff at cmd_instruction.go:223). Deterministic kernel test (NewRealKernel → assert user_intent(/audit) → next_action(/delegate_reviewer)). Broader gap (7 more unmapped workhorse verbs) flagged as spawn_task task_b83c7ed2.
 - **Flagged (not yet fixed):** F-ROUTE-1 (`/research` invalid action fact "got 2").
 
 ### ✅ Features — `internal/features`
@@ -60,17 +61,21 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - **Exercise:** the JIT compiler runs on every prompt build (every live run/campaign exercises it). Budget-degradation defect proven at the assembler/stats layer with deterministic tests.
 - **Upgrade:** **F-JIT-1** (7c1ad5ad) — `Fit` degrades over-budget atoms to their `concise`/`min` variant, records `OrderedAtom.RenderMode`, and charges the SMALLER token count, but the assembler emitted the full standard `Content` regardless and the stats/manifest summed the standard `TokenCount`. Net: silent budget overflow, dead concise/min variants, misreporting manifest. Extracted `contentForMode`/`tokenCountForMode` (empty→standard fallback), used in assembler (emit) + compiler stats/manifest (count); `Fit`'s closure delegates to the shared helper so charge/emit/report agree. `render_mode_test.go`; full `internal/prompt` package green.
 
-### ⬜ Articulation — `internal/articulation`
-- **Note:** the empty-response symptom (`Fallback parse: empty response ... EOF`) surfaces here; root cause was upstream (empty subagent response). Worth a dedicated exercise: does articulation degrade gracefully on empty/truncated model output?
+### ✅ Articulation — `internal/articulation`
+- **Exercise:** the StreamParser runs on every streamed chat turn; the re-emit defect proven at the parser layer with deterministic chunk-boundary tests (no stubs).
+- **Upgrade:** **F-ART-1** (215eb810, branch `fix/stream-parser-terminal-state`) — `StreamParser.ProcessChunk` had no terminal state. After the closing `"` of `surface_response`, a trailing chunk (the `}` arriving split from the quote — a common token boundary) re-entered the key-detection block, re-found `surface_response` in the retained buffer, reset `lastEmittedIndex` to the opening quote, and re-streamed the whole surface → duplicated TUI output (`HiHi`). Added a `completed` terminal flag (set at the closing quote; short-circuits after buffering so `GetFullBuffer` stays complete). 2 regression tests; full `internal/articulation` package green.
+- **Note:** the empty-response symptom (`Fallback parse: empty response ... EOF`) is a separate upstream (empty subagent) issue — not yet exercised.
 
-### ⬜ Not yet exercised through the CLI
-- Kernel — `internal/core` (fact flow, derivation, `next_action`).
-- Mangle policy — `internal/mangle`, `internal/core/defaults/policy/`.
-- Perception — `internal/perception` (intent classification).
-- VirtualStore — `internal/core/virtual_store.go` (action routing).
-- Research tools — `internal/tools/research` (context7).
-- Autopoiesis / Ouroboros — tool generation.
-- Memory / context / reflection — `internal/context`, reflection config.
+### 🔄 Perception — `internal/perception` (EXERCISED, no perception-layer defect)
+- **Exercise:** `nerd run "Analyze internal/perception ..."` (run b6k65xprn) classified correctly — verb `/audit`, target `internal/perception`, confidence 0.95. Perception worked; the failure was downstream in policy routing → surfaced F-ROUTE-2. No perception-layer bug found in this exercise.
+
+### ⬜ Not yet exercised / fully swept
+- Kernel core — `internal/core` (fact flow, derivation). Routing layer upgraded via F-ROUTE-2 (policy) + F-TOOL-3 (constitution).
+- Mangle policy corpus — `internal/mangle`, `internal/core/defaults/policy/` (F-TOOL-1/F-TOOL-3/F-ROUTE-2 landed; corpus not exhaustively swept).
+- VirtualStore — `internal/core/virtual_store.go` (router test green; no defect swept yet).
+- Research tools — `internal/tools/research` (context7; needs network).
+- Autopoiesis / Ouroboros — tool generation (needs LLM).
+- Memory / context — `internal/context` (reflection config done via F-CONFIG-1; paging/compression not swept).
 
 ## Run journal (self-audit campaigns)
 
@@ -84,6 +89,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 | 15 | internal/world | +all five fixes | **completed 5/5, 23/23, no pause; phases 0+1 PASS on merit** | all 10 contracts A+; exposed F-STUB-1 (intent-stubs on deep phases 2/3/4) |
 | 16 | internal/world | +F-STUB-1 (58bea9e1) | verified: F-STUB-1 caught 172B/146B intent-stubs live | intent-stub retry works under contention (only 2/18 recovered — LLM backend degraded) |
 | bqe14s3v5 | internal/features (`nerd run`, edit intent) | +F-TOOL-3 | exit 0, **zero safety-gate blocks**; reviewer confirmed fix + repaired test file | F-TOOL-3 verified: edit_file passes the constitutional gate; component #2 (nerd-run OODA path) + Features done |
+| b6k65xprn | internal/perception (`nerd run`, audit intent) | +F-TOOL-3/F-FEATURES-1 | **exit 1 "no action derived from policy"** — LIVE dogfood find | perception classified `/audit` correctly (0.95); `/audit` had no action_mapping → **F-ROUTE-2** |
 
 ## Campaign orchestrator: A+ reached (run 15)
 
