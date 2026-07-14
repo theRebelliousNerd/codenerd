@@ -4,10 +4,11 @@
 package logging
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sync"
@@ -144,7 +145,6 @@ func Initialize(ws string) error {
 func initializeInternal(ws string) error {
 	workspace = ws
 	logsDir = filepath.Join(workspace, ".nerd", "logs")
-	rand.Seed(time.Now().UnixNano())
 
 	// Load config first to check if debug mode is enabled
 	if err := loadConfig(); err != nil {
@@ -608,7 +608,7 @@ func logPerformance(category Category, operation string, elapsed time.Duration, 
 	isSlow := thresholdMs > 0 && elapsedMs > thresholdMs
 	if !isSlow {
 		sampleRate := performanceSamplingRate()
-		if sampleRate < 1 && rand.Float64() > sampleRate {
+		if sampleRate < 1 && secureFloat64() > sampleRate {
 			return
 		}
 	}
@@ -677,4 +677,11 @@ func (t *Timer) StopWithThreshold(threshold time.Duration) time.Duration {
 		logPerformance(t.category, t.op, elapsed, &threshold)
 	}
 	return elapsed
+}
+
+// secureFloat64 returns a random float64 in [0.0, 1.0) using crypto/rand.
+func secureFloat64() float64 {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return float64(binary.LittleEndian.Uint64(b[:])&(1<<53-1)) / (1 << 53)
 }
