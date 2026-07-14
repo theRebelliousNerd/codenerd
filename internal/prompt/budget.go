@@ -705,23 +705,22 @@ func (m *TokenBudgetManager) calculateAllocations(
 
 	switch m.strategy {
 	case StrategyProportional:
-		var errAcc float64
+		var remainder float64
 		for _, cat := range orderedCats {
 			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
-			exact := float64(totalBudget)*budget.BasePercent + errAcc
+			exact := float64(totalBudget)*budget.BasePercent + remainder
 			allocation := int(math.Round(exact))
-			errAcc = exact - float64(allocation)
-
-			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-			allocations[cat] = allocation
+			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+			remainder = exact - float64(clampedAlloc)
+			allocations[cat] = clampedAlloc
 		}
 
 	case StrategyPriorityFirst:
 		remaining := totalBudget
-		var errAcc float64
+		var remainder float64
 
 		// Helper to allocate for a priority level
 		allocateForPriority := func(p BudgetPriority) {
@@ -734,26 +733,30 @@ func (m *TokenBudgetManager) calculateAllocations(
 					continue
 				}
 
-				var allocation int
-				// Use totalBudget for Mandatory to ensure they get their share?
-				// Existing logic used totalBudget for Mandatory.
 				if p == PriorityMandatory {
-					exact := float64(totalBudget)*budget.BasePercent + errAcc
-					allocation = int(math.Round(exact))
-					errAcc = exact - float64(allocation)
+					exact := float64(totalBudget)*budget.BasePercent + remainder
+					allocation := int(math.Round(exact))
+					clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+					remainder = exact - float64(clampedAlloc)
+					allocations[cat] = clampedAlloc
+					remaining -= clampedAlloc
 				} else {
 					if remaining <= 0 {
-						allocation = 0
+						allocations[cat] = 0
 					} else {
-						exact := float64(remaining)*budget.BasePercent + errAcc
-						allocation = int(math.Round(exact))
-						errAcc = exact - float64(allocation)
+						exact := float64(remaining)*budget.BasePercent + remainder
+						allocation := int(math.Round(exact))
+						clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+
+						if clampedAlloc > remaining {
+							clampedAlloc = remaining
+						}
+
+						remainder = exact - float64(clampedAlloc)
+						allocations[cat] = clampedAlloc
+						remaining -= clampedAlloc
 					}
 				}
-
-				allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-				allocations[cat] = allocation
-				remaining -= allocation
 			}
 		}
 
@@ -774,13 +777,18 @@ func (m *TokenBudgetManager) calculateAllocations(
 				allocations[cat] = 0
 				continue
 			}
-			exact := float64(remaining)*budget.BasePercent + errAcc
-			allocation := int(math.Round(exact))
-			errAcc = exact - float64(allocation)
 
-			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
-			allocations[cat] = allocation
-			remaining -= allocation
+			exact := float64(remaining)*budget.BasePercent + remainder
+			allocation := int(math.Round(exact))
+			clampedAlloc := clamp(allocation, budget.MinTokens, budget.MaxTokens)
+
+			if clampedAlloc > remaining {
+				clampedAlloc = remaining
+			}
+
+			remainder = exact - float64(clampedAlloc)
+			allocations[cat] = clampedAlloc
+			remaining -= clampedAlloc
 		}
 
 	case StrategyBalanced:
@@ -796,16 +804,22 @@ func (m *TokenBudgetManager) calculateAllocations(
 		}
 
 		// Distribute remaining proportionally
-		var errAcc float64
+		var remainder float64
 		for _, cat := range orderedCats {
 			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
-			exact := float64(remaining)*budget.BasePercent + errAcc
+			exact := float64(remaining)*budget.BasePercent + remainder
 			extra := int(math.Round(exact))
-			errAcc = exact - float64(extra)
-			allocations[cat] = clamp(allocations[cat]+extra, budget.MinTokens, budget.MaxTokens)
+
+			alloc := allocations[cat] + extra
+			clamped := clamp(alloc, budget.MinTokens, budget.MaxTokens)
+
+			actualExtra := clamped - allocations[cat]
+			remainder = exact - float64(actualExtra)
+
+			allocations[cat] = clamped
 		}
 	}
 

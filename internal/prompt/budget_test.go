@@ -738,3 +738,86 @@ func TestTokenBudgetManager_Fit_InvalidData(t *testing.T) {
 	assert.Len(t, fitted, 1)
 	assert.Equal(t, 0, fitted[0].Atom.TokenCount)
 }
+
+func TestTokenBudgetManager_calculateAllocations(t *testing.T) {
+	t.Run("proportional exact distribution", func(t *testing.T) {
+		m := &TokenBudgetManager{
+			strategy: StrategyProportional,
+			budgets: map[AtomCategory]CategoryBudget{
+				CategoryInit:      {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100},
+				CategoryContext:   {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100},
+				CategoryNorthstar: {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100},
+			},
+		}
+
+		totalBudget := 100
+		presentCategories := map[AtomCategory]bool{
+			CategoryInit:      true,
+			CategoryContext:   true,
+			CategoryNorthstar: true,
+		}
+
+		allocs := m.calculateAllocations(totalBudget, presentCategories)
+
+		totalAllocated := 0
+		for _, v := range allocs {
+			totalAllocated += v
+		}
+
+		assert.Equal(t, 100, totalAllocated)
+	})
+
+	t.Run("priority first handles remaining correctly", func(t *testing.T) {
+		m := &TokenBudgetManager{
+			strategy: StrategyPriorityFirst,
+			budgets: map[AtomCategory]CategoryBudget{
+				CategoryInit:      {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100, Priority: PriorityHigh},
+				CategoryContext:   {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100, Priority: PriorityHigh},
+				CategoryNorthstar: {BasePercent: 0.333333, MinTokens: 0, MaxTokens: 100, Priority: PriorityHigh},
+			},
+		}
+
+		totalBudget := 100
+		presentCategories := map[AtomCategory]bool{
+			CategoryInit:      true,
+			CategoryContext:   true,
+			CategoryNorthstar: true,
+		}
+
+		allocs := m.calculateAllocations(totalBudget, presentCategories)
+
+		totalAllocated := 0
+		for _, v := range allocs {
+			totalAllocated += v
+		}
+
+		assert.Equal(t, 70, totalAllocated) // 33 from 100 (rem=67), 23 from 67 (rem=44), 14 from 44. Since it uses "remaining" base.
+	})
+
+	t.Run("balanced exact distribution", func(t *testing.T) {
+		m := &TokenBudgetManager{
+			strategy: StrategyBalanced,
+			budgets: map[AtomCategory]CategoryBudget{
+				CategoryInit:      {BasePercent: 0.333333, MinTokens: 10, MaxTokens: 100},
+				CategoryContext:   {BasePercent: 0.333333, MinTokens: 10, MaxTokens: 100},
+				CategoryNorthstar: {BasePercent: 0.333333, MinTokens: 10, MaxTokens: 100},
+			},
+		}
+
+		totalBudget := 100
+		presentCategories := map[AtomCategory]bool{
+			CategoryInit:      true,
+			CategoryContext:   true,
+			CategoryNorthstar: true,
+		}
+
+		allocs := m.calculateAllocations(totalBudget, presentCategories)
+
+		totalAllocated := 0
+		for _, v := range allocs {
+			totalAllocated += v
+		}
+
+		assert.Equal(t, 100, totalAllocated)
+	})
+}
