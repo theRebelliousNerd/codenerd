@@ -1,0 +1,99 @@
+package core
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+// REMEDIATED: TEST_GAP: [Type Coercion] Verify RatifyRule rejects rules that reference undeclared schemas or types, propagating the error from sandbox.Evaluate().
+func TestRuleCourt_UndeclaredSchemas(t *testing.T) {
+	k := setupMockKernel(t)
+	court := NewRuleCourt(k)
+
+	// 'undeclared_pred' does not exist in schema.
+	err := court.RatifyRule(`undeclared_pred(X) :- other(X).`)
+	if err == nil {
+		t.Fatal("Expected error for undeclared schema rule, got nil")
+	}
+	if !strings.Contains(err.Error(), "rule rejected by sandbox compiler") {
+		t.Errorf("Expected sandbox compiler rejection error, got: %v", err)
+	}
+}
+
+// REMEDIATED: TEST_GAP: [Type Coercion] String vs Atom mismatch (Atom/String Dissonance)
+func TestRuleCourt_AtomStringDissonance(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy(`Decl expects_atom(Name.Type<Atom>).`)
+
+	court := NewRuleCourt(k)
+
+	// Attempt to pass a String ("bad") to an Atom slot
+	// Since Mangle strictly types this, it should fail evaluation safely
+	err := court.RatifyRule(`expects_atom("bad").`)
+	if err == nil {
+		t.Fatal("Expected error for Type Coercion (String -> Atom), got nil")
+	}
+}
+
+// REMEDIATED: TEST_GAP: [User Request Extremes] Verify RatifyRule correctly handles an enormous rule string (e.g., 10MB) without OOMing or hanging indefinitely.
+func TestRuleCourt_EnormousRuleSize(t *testing.T) {
+	k := setupMockKernel(t)
+	court := NewRuleCourt(k)
+
+	// Generate a 15MB rule string (5 million 'a's -> length 15M bytes)
+	// We want to verify it rejects it gracefully, ideally via length check
+	hugeRule := `test_allowed("` + strings.Repeat("a", 15*1024*1024) + `").`
+
+	err := court.RatifyRule(hugeRule)
+	if err == nil {
+		t.Fatal("Expected error for enormous rule, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum allowed length") {
+		t.Errorf("Expected length rejection error, got: %v", err)
+	}
+}
+
+// REMEDIATED: TEST_GAP: [User Request Extremes] Verify sandbox.Evaluate() enforces a strict context timeout to prevent infinite derivation loops in recursive logic.
+func TestRuleCourt_RunawayRecursionTimeout(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy(`
+		Decl counter(Num.Type<Number>).
+		counter(0).
+	`)
+
+	court := NewRuleCourt(k)
+
+	// Infinite recursion logic: counter(N+1) :- counter(N).
+	recursiveRule := `counter(fn:plus(N, 1)) :- counter(N).`
+
+	// Temporarily shorten the ratifyEvalTimeout to ensure the test finishes quickly
+	originalTimeout := ratifyEvalTimeout
+	ratifyEvalTimeout = 100 * time.Millisecond
+	defer func() { ratifyEvalTimeout = originalTimeout }()
+
+	err := court.RatifyRule(recursiveRule)
+	if err == nil {
+		t.Fatal("Expected timeout error for infinite recursion, got nil")
+	}
+	if !strings.Contains(err.Error(), "VETO: sandbox evaluation timed out") {
+		t.Errorf("Expected timeout veto, got: %v", err)
+	}
+}
+
+// REMEDIATED: TEST_GAP: [State Conflicts] Verify the "ask_user" safety hatch isn't triggered as a false positive for safe logic (e.g., a rule containing the substring "ask_user_id").
+func TestRuleCourt_AskUserFalsePositive(t *testing.T) {
+	k := setupMockKernel(t)
+	k.AppendPolicy(`Decl user_data(ID).`)
+
+	court := NewRuleCourt(k)
+
+	// This is a perfectly safe rule, but contains 'ask_user' as a substring inside 'ask_user_id'.
+	// It should NOT be vetoed.
+	safeRule := `user_data("ask_user_id").`
+
+	err := court.RatifyRule(safeRule)
+	if err != nil {
+		t.Fatalf("Safe rule falsely vetoed due to substring match: %v", err)
+	}
+}

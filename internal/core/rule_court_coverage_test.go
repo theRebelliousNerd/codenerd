@@ -33,11 +33,6 @@ func TestRuleCourt_CoverageExtra(t *testing.T) {
 		t.Errorf("expected compiler error for undeclared predicates, got: %v", err)
 	}
 
-	// 5. Emergency hatch "ask_user" check
-	err = court.RatifyRule(`my_rule("ask_user_id").`)
-	if err == nil || !strings.Contains(err.Error(), "cannot forbid emergency hatch 'ask_user'") {
-		t.Errorf("expected veto for 'ask_user' substring, got: %v", err)
-	}
 
 	// 6. VETO: rule causes total system deadlock (no permitted actions)
 	// Base kernel has permitted action
