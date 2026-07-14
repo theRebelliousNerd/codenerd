@@ -41,22 +41,40 @@ type ShardPageModel struct {
 	filterFocused  bool // Whether filter input is focused
 	detailsFocused bool // Whether details viewport is focused
 
+	// Custom table mapping
+	rowBuilder func(types.ShardAgent) table.Row
+
 	// Styles
 	styles Styles
 }
 
 // NewShardPageModel creates a new shard console.
-// TODO: Allow dynamic column configuration
-func NewShardPageModel() ShardPageModel {
+func NewShardPageModel(opts ...[]table.Column) ShardPageModel {
+	cols := []table.Column{
+		{Title: "ID", Width: 30},
+		{Title: "Type", Width: 15},
+		{Title: "Status", Width: 15},
+	}
+	if len(opts) > 0 && len(opts[0]) > 0 {
+		cols = opts[0]
+	}
+
 	t := table.New(
-		table.WithColumns([]table.Column{
-			{Title: "ID", Width: 30},
-			{Title: "Type", Width: 15},
-			{Title: "Status", Width: 15},
-		}),
+		table.WithColumns(cols),
 		table.WithFocused(true),
 		table.WithHeight(15),
 	)
+
+	// Default row builder mapping to default columns
+	defaultRowBuilder := func(s types.ShardAgent) table.Row {
+		cfg := s.GetConfig()
+		state := s.GetState()
+		return table.Row{
+			s.GetID(),
+			string(cfg.Type),
+			string(state),
+		}
+	}
 
 	// Initialize filter input
 	fi := textinput.New()
@@ -75,8 +93,16 @@ func NewShardPageModel() ShardPageModel {
 		filterMode:      FilterModeAll,
 		filterFocused:   false,
 		filteredShards:  make([]types.ShardAgent, 0),
+		rowBuilder:      defaultRowBuilder,
 		styles:          DefaultStyles(),
 	}
+}
+
+// SetColumnsAndBuilder updates the table columns and the row builder dynamically.
+func (m *ShardPageModel) SetColumnsAndBuilder(cols []table.Column, builder func(types.ShardAgent) table.Row) {
+	m.table.SetColumns(cols)
+	m.rowBuilder = builder
+	m.updateTableRows()
 }
 
 // Init initializes the model.
@@ -206,15 +232,7 @@ func (m *ShardPageModel) applyFilter() {
 func (m *ShardPageModel) updateTableRows() {
 	var rows []table.Row
 	for _, s := range m.filteredShards {
-		cfg := s.GetConfig()
-		state := s.GetState()
-		id := s.GetID()
-
-		rows = append(rows, table.Row{
-			id,
-			string(cfg.Type),
-			string(state),
-		})
+		rows = append(rows, m.rowBuilder(s))
 	}
 	m.table.SetRows(rows)
 	m.updateDetails()
