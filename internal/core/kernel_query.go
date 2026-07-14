@@ -518,6 +518,31 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	if workspaceRoot == "" {
 		return "", fmt.Errorf("workspace root is empty")
 	}
+
+	if len(args) == 0 {
+		return "", fmt.Errorf("no git subcommand provided")
+	}
+
+	// Validate subcommand
+	validSubcommands := map[string]bool{
+		"rev-parse": true,
+		"status":    true,
+		"log":       true,
+	}
+	if !validSubcommands[args[0]] {
+		return "", fmt.Errorf("unauthorized git subcommand: %s", args[0])
+	}
+
+	// Defensive check against argument injection for dangerous flags
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--exec-path") ||
+		   strings.HasPrefix(arg, "-c") ||
+		   strings.HasPrefix(arg, "--upload-pack") ||
+		   strings.HasPrefix(arg, "--receive-pack") {
+			return "", fmt.Errorf("unauthorized git argument: %s", arg)
+		}
+	}
+
 	cmd := exec.Command("git", append([]string{"-C", workspaceRoot}, args...)...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
