@@ -611,14 +611,14 @@ func recoverSelectionPanic(phase string, errp *error) {
 
 // getVectorScores retrieves semantic similarity scores for atoms.
 // Uses a configurable sub-timeout to prevent blocking JIT compilation.
-// TODO: Reliability: Ensure callers gracefully degrade (continue with 0 vector scores) if getVectorScores returns an error or times out, rather than failing the entire JIT compilation.
+// Gracefully degrades (returns nil vector scores) if vector search returns an error or times out.
 func (s *AtomSelector) getVectorScores(
 	ctx context.Context,
 	query string,
 	topK int,
-) (map[string]float64, error) {
+) map[string]float64 {
 	if s.vectorSearcher == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Use a sub-deadline to prevent vector search from blocking the entire compilation.
@@ -630,8 +630,10 @@ func (s *AtomSelector) getVectorScores(
 	if err != nil {
 		if searchCtx.Err() != nil {
 			logging.Get(logging.CategoryJIT).Warn("Vector search timed out (%v limit)", s.vectorSearchTimeout)
+		} else {
+			logging.Get(logging.CategoryJIT).Warn("Vector search failed: %v", err)
 		}
-		return nil, err
+		return nil
 	}
 
 	scores := make(map[string]float64, len(results))
@@ -639,7 +641,7 @@ func (s *AtomSelector) getVectorScores(
 		scores[r.AtomID] = r.Score
 	}
 
-	return scores, nil
+	return scores
 }
 
 // =========================================================================
@@ -816,11 +818,7 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 	// Step 1: Vector search (if enabled and query provided)
 	vectorScores := make(map[string]float64)
 	if s.vectorSearcher != nil && cc.SemanticQuery != "" {
-		scores, err := s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK)
-		if err != nil {
-			// Vector search failure is acceptable for flesh
-			logging.Get(logging.CategoryContext).Warn("Flesh vector search failed: %v", err)
-		} else {
+		if scores := s.getVectorScores(ctx, cc.SemanticQuery, cc.SemanticTopK); scores != nil {
 			vectorScores = scores
 		}
 	}
