@@ -348,8 +348,12 @@ func insertContextTagsBatch(ctx context.Context, tx *sql.Tx, atoms []*PromptAtom
 	return nil
 }
 
-// sanitizeIdentifier ensures column names only contain safe characters
+// isValidIdentifier ensures column names only contain safe characters
 // to prevent SQL injection in DDL statements where parameterized queries cannot be used.
-func sanitizeIdentifier(s string) string {
-	return identifierRegexp.ReplaceAllString(s, "")
+func isValidIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	return !identifierRegexp.MatchString(s)
+
 }

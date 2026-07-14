@@ -578,44 +578,49 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
-func TestSanitizeIdentifier(t *testing.T) {
+func TestIsValidIdentifier(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected string
+		expected bool
 	}{
 		{
 			name:     "clean alphanumeric",
 			input:    "description",
-			expected: "description",
+			expected: true,
 		},
 		{
 			name:     "with underscores",
 			input:    "content_concise",
-			expected: "content_concise",
+			expected: true,
 		},
 		{
 			name:     "with SQL injection attempt",
 			input:    "content_min\"; DROP TABLE prompt_atoms; --",
-			expected: "content_minDROPTABLEprompt_atoms",
+			expected: false,
 		},
 		{
 			name:     "with spaces",
 			input:    "col name",
-			expected: "colname",
+			expected: false,
 		},
 		{
 			name:     "with special chars",
 			input:    "col@name#123",
-			expected: "colname123",
+			expected: false,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sanitizeIdentifier(tt.input)
+			result := isValidIdentifier(tt.input)
 			if result != tt.expected {
-				t.Errorf("sanitizeIdentifier(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("isValidIdentifier(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
 	}
