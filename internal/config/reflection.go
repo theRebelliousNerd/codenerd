@@ -17,14 +17,19 @@ type ReflectionConfig struct {
 	// BacklogWatermark controls when the embedder prioritizes failures (default: 300)
 	BacklogWatermark int `yaml:"backlog_watermark" json:"backlog_watermark"`
 
-	enabledSet bool
+	enabledSet  bool
+	minScoreSet bool
 }
 
-// UnmarshalJSON tracks which boolean fields were explicitly set so defaults apply.
+// UnmarshalJSON tracks which fields were explicitly set so a legitimate zero
+// value (Enabled=false, MinScore=0) is not mistaken for "unset" and overwritten
+// by the default. MinScore=0 means "no similarity floor — recall everything",
+// which is a valid choice distinct from the 0.70 default.
 func (c *ReflectionConfig) UnmarshalJSON(data []byte) error {
 	type alias ReflectionConfig
 	aux := struct {
-		Enabled *bool `json:"enabled"`
+		Enabled  *bool    `json:"enabled"`
+		MinScore *float64 `json:"min_score"`
 		*alias
 	}{
 		alias: (*alias)(c),
@@ -35,6 +40,10 @@ func (c *ReflectionConfig) UnmarshalJSON(data []byte) error {
 	if aux.Enabled != nil {
 		c.Enabled = *aux.Enabled
 		c.enabledSet = true
+	}
+	if aux.MinScore != nil {
+		c.MinScore = *aux.MinScore
+		c.minScoreSet = true
 	}
 	return nil
 }
