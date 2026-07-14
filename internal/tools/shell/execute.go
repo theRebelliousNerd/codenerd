@@ -133,6 +133,20 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("empty command after parsing")
 	}
 
+	// Cross-platform builtin fallback (F-CMD-2 / contract #4): if the requested
+	// binary is not on PATH — common on Windows for unix coreutils like rg/ls/wc
+	// that campaign checkpoint reviewers and shards habitually reach for — serve
+	// a read-only Go implementation instead of hard-failing with
+	// "exec: <cmd>: executable file not found". Only triggers when the real
+	// binary is absent, so an installed tool always wins and behavior is
+	// unchanged on systems that have the command.
+	if _, lookErr := execLookPath(parsedArgs[0]); lookErr != nil {
+		if out, handled := runBuiltinFallback(parsedArgs, workingDir); handled {
+			logging.VirtualStore("run_command builtin fallback served: %s", parsedArgs[0])
+			return out, nil
+		}
+	}
+
 	// Build the timeout context BEFORE constructing the command so the
 	// process is actually bound to the deadline (was previously built twice).
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
