@@ -246,3 +246,87 @@ func TestAutopoiesisPageModelJSONRendering(t *testing.T) {
 		t.Errorf("expected plain text in view")
 	}
 }
+
+func TestCampaignPageModelSummaryToggle(t *testing.T) {
+	model := NewCampaignPageModel()
+	model.SetSize(80, 50)
+
+	camp := &campaign.Campaign{
+		Title:              "Test Campaign Summary",
+		Goal:               "Test goal text",
+		Status:             campaign.StatusActive,
+		ContextUtilization: 0.75,
+		Confidence:         0.9,
+		CompletedPhases:    1,
+		TotalPhases:        3,
+		CompletedTasks:     5,
+		TotalTasks:         10,
+		Phases: []campaign.Phase{
+			{
+				Name:   "Phase 1",
+				Status: campaign.PhaseCompleted,
+			},
+			{
+				Name:   "Phase 2",
+				Status: campaign.PhaseInProgress,
+				Tasks: []campaign.Task{
+					{
+						Description: "Task 1",
+						Type:        campaign.TaskTypeTestWrite,
+						Status:      campaign.TaskInProgress,
+					},
+				},
+			},
+			{
+				Name:   "Phase 3",
+				Status: campaign.PhasePending,
+			},
+		},
+	}
+	prog := &campaign.Progress{
+		OverallProgress: 0.5,
+		CurrentPhase:    "Phase 2",
+		CompletedPhases: 1,
+		TotalPhases:     3,
+		CurrentTask:     "Task 1",
+	}
+
+	model.UpdateContent(prog, camp)
+
+	// Verify default view
+	view := model.View()
+	if !strings.Contains(view, "Phase 2") {
+		t.Fatalf("expected phase name in default view")
+	}
+
+
+	// Toggle view
+	newModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	view = newModel.View()
+
+	// Assert summary dashboard metrics are present
+	if !strings.Contains(view, "Campaign Summary") {
+		t.Fatalf("expected summary title in view")
+	}
+	if !strings.Contains(view, "Test goal text") {
+		t.Fatalf("expected goal text in view")
+	}
+	if !strings.Contains(view, "Phase 2") { // loose check
+		t.Fatalf("expected active phase details in view")
+	}
+	if !strings.Contains(view, "Task 1") {
+		t.Fatalf("expected active task in view")
+	}
+	if !strings.Contains(view, "Phases:") {
+		t.Fatalf("expected phases stats in view, got: %v", view)
+	}
+	if !strings.Contains(view, "Tasks:") { // loose check
+		t.Fatalf("expected tasks stats in view")
+	}
+	if !strings.Contains(view, "Budget:") { // loose check
+		t.Fatalf("expected budget stat in view")
+	}
+	if !strings.Contains(view, "Confidence: 90.0%") {
+		t.Fatalf("expected confidence stat in view")
+	}
+}
