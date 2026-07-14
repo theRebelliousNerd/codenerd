@@ -17,6 +17,87 @@ func TestNewScanner(t *testing.T) {
 	}
 }
 
+// TestScanWorkspace_FileDirGroupsByPackage verifies the file_dir companion fact
+// (the Cartesian-explosion fix for mock_file): every file gets exactly one
+// file_dir fact whose Path matches its file_topology identity, and files in the
+// same directory share a Dir while files in different directories do not. This
+// is the join key that bounds mock_file to per-package pairs.
+func TestScanWorkspace_FileDirGroupsByPackage(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "world_filedir_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	files := map[string]string{
+		filepath.Join("pkga", "foo.go"):      "package pkga\nfunc Foo() {}",
+		filepath.Join("pkga", "foo_test.go"): "package pkga\nfunc TestFoo(t *testing.T) {}",
+		filepath.Join("pkgb", "bar.go"):      "package pkgb\nfunc Bar() {}",
+	}
+	for rel, content := range files {
+		full := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	facts, err := NewScanner().ScanWorkspace(tmpDir)
+	if err != nil {
+		t.Fatalf("ScanWorkspace() error = %v", err)
+	}
+
+	fileDir := map[string]string{}   // path -> dir
+	topoPaths := map[string]bool{}   // file_topology paths
+	for _, f := range facts {
+		switch f.Predicate {
+		case "file_dir":
+			if len(f.Args) != 2 {
+				t.Fatalf("file_dir expected 2 args, got %d", len(f.Args))
+			}
+			p, _ := f.Args[0].(string)
+			d, _ := f.Args[1].(string)
+			fileDir[p] = d
+		case "file_topology":
+			if p, ok := f.Args[0].(string); ok {
+				topoPaths[p] = true
+			}
+		}
+	}
+
+	// Every scanned file has a file_dir fact and it references a real file_topology path.
+	if len(fileDir) != 3 {
+		t.Errorf("expected 3 file_dir facts, got %d (%v)", len(fileDir), fileDir)
+	}
+	for p := range fileDir {
+		if !topoPaths[p] {
+			t.Errorf("file_dir path %q has no matching file_topology fact", p)
+		}
+	}
+
+	// Same-directory files share a Dir; cross-directory files do not.
+	dirFor := func(suffix string) string {
+		for p, d := range fileDir {
+			if strings.HasSuffix(filepath.ToSlash(p), suffix) {
+				return d
+			}
+		}
+		t.Fatalf("no file_dir for %q", suffix)
+		return ""
+	}
+	foo := dirFor("pkga/foo.go")
+	fooTest := dirFor("pkga/foo_test.go")
+	bar := dirFor("pkgb/bar.go")
+	if foo != fooTest {
+		t.Errorf("foo.go (%q) and foo_test.go (%q) should share a directory", foo, fooTest)
+	}
+	if foo == bar {
+		t.Errorf("pkga and pkgb files should have different directories, both %q", foo)
+	}
+}
+
 func TestScanWorkspace(t *testing.T) {
 	// Create a temp directory with test files
 	tmpDir, err := os.MkdirTemp("", "world_test")
