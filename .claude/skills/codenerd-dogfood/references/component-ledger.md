@@ -52,16 +52,22 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - **Exercise:** `edit_file` driven live end-to-end by the reviewer shard in run bqe14s3v5 (happy path); edge cases proven at the production tool-code layer with real-file-IO tests (no stubs). Adversarial-CLI exercise of the new guard rides the next live run transitively.
 - **Upgrade:** **F-TOOLS-CORE-1** (058c45a6) — `edit_file` had two silent-corruption paths `write_file` did not. (1) Non-unique `old_text` with `replace_all` unset replaced only the FIRST match and reported "Replaced 1 occurrence(s)" → could corrupt the wrong site; now refuses when `old_text` occurs >1 time (asks for more context or `replace_all`). (2) Non-string `new_text` (model emits number/null) failed `.(string)` and coerced to `""`, silently turning the edit into a deletion; now rejects non-string/absent `new_text` with an explicit type error mirroring `write_file` — explicit `""` stays a valid deletion. 6 real-IO tests; full `internal/tools/core` package green. Same asymmetry class as F-TOOL-3 (write_file hardened, edit_file left loose).
 
+### ✅ Config — `internal/config`
+- **Exercise:** config loads on every boot (`GetReflectionConfig` runs during chat setup). The min_score:0 regime isn't in the live config, so the real-struct/real-UnmarshalJSON deterministic tests are the proof (documented limitation, not simulated by mutating `.nerd/config.json`).
+- **Upgrade:** **F-CONFIG-1** (70f3eb12) — `GetReflectionConfig` treated an explicit `min_score:0` (= "no similarity floor, recall everything") as "unset" and clobbered it to the 0.70 default; the consumer (chat/reflection.go:279,298) uses it as a hard filter with no downstream defense → silently dropped most System-2 recalls. Mirrored the existing `enabledSet` zero-value-ambiguity pattern with `minScoreSet` in `UnmarshalJSON`. 5 tests; full `internal/config` package green.
+
+### ✅ Prompt compiler / JIT — `internal/prompt`
+- **Exercise:** the JIT compiler runs on every prompt build (every live run/campaign exercises it). Budget-degradation defect proven at the assembler/stats layer with deterministic tests.
+- **Upgrade:** **F-JIT-1** (7c1ad5ad) — `Fit` degrades over-budget atoms to their `concise`/`min` variant, records `OrderedAtom.RenderMode`, and charges the SMALLER token count, but the assembler emitted the full standard `Content` regardless and the stats/manifest summed the standard `TokenCount`. Net: silent budget overflow, dead concise/min variants, misreporting manifest. Extracted `contentForMode`/`tokenCountForMode` (empty→standard fallback), used in assembler (emit) + compiler stats/manifest (count); `Fit`'s closure delegates to the shared helper so charge/emit/report agree. `render_mode_test.go`; full `internal/prompt` package green.
+
 ### ⬜ Articulation — `internal/articulation`
 - **Note:** the empty-response symptom (`Fallback parse: empty response ... EOF`) surfaces here; root cause was upstream (empty subagent response). Worth a dedicated exercise: does articulation degrade gracefully on empty/truncated model output?
 
 ### ⬜ Not yet exercised through the CLI
 - Kernel — `internal/core` (fact flow, derivation, `next_action`).
 - Mangle policy — `internal/mangle`, `internal/core/defaults/policy/`.
-- Prompt compiler / JIT — `internal/prompt` (atom selection, budget).
 - Perception — `internal/perception` (intent classification).
 - VirtualStore — `internal/core/virtual_store.go` (action routing).
-- Config — `internal/config`.
 - Research tools — `internal/tools/research` (context7).
 - Autopoiesis / Ouroboros — tool generation.
 - Memory / context / reflection — `internal/context`, reflection config.
