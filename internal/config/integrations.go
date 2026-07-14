@@ -85,3 +85,19 @@ func (c *IntegrationsConfig) IsServerEnabled(serverID string) bool {
 	server := c.GetServer(serverID)
 	return server != nil && server.Enabled
 }
+
+// DefaultIntegrationsConfig returns an IntegrationsConfig with sensible defaults.
+func DefaultIntegrationsConfig() *IntegrationsConfig {
+	return &IntegrationsConfig{
+		Servers: map[string]MCPServerIntegration{
+			"my_mcp_server": {
+				Enabled:           false,
+				Protocol:          "http",
+				BaseURL:           "http://localhost:8000",
+				Timeout:           "30s",
+				AutoConnect:       true,
+				AutoDiscoverTools: true,
+			},
+		},
+	}
+}

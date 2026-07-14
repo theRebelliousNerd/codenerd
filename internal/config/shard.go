@@ -54,3 +54,68 @@ func applyShardDefaults(p ShardProfile) ShardProfile {
 	}
 	return p
 }
+
+// DefaultShardProfile returns a ShardProfile with sensible defaults.
+func DefaultShardProfile() *ShardProfile {
+	return &ShardProfile{
+		Model:                 "glm-4.7",
+		Temperature:           0.7,
+		TopP:                  0.9,
+		MaxContextTokens:      20000,
+		MaxOutputTokens:       4000,
+		MaxExecutionTimeSec:   300,
+		MaxRetries:            3,
+		MaxFactsInShardKernel: 20000,
+		EnableLearning:        true,
+	}
+}
+
+// DefaultShardProfiles returns a map of default ShardProfiles.
+func DefaultShardProfiles() map[string]ShardProfile {
+	return map[string]ShardProfile{
+		"coder": {
+			Model:                 "glm-4.7",
+			Temperature:           0.7,
+			TopP:                  0.9,
+			MaxContextTokens:      30000,
+			MaxOutputTokens:       6000,
+			MaxExecutionTimeSec:   600,
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 30000,
+			EnableLearning:        true,
+		},
+		"tester": {
+			Model:                 "glm-4.7",
+			Temperature:           0.5,
+			TopP:                  0.9,
+			MaxContextTokens:      20000,
+			MaxOutputTokens:       4000,
+			MaxExecutionTimeSec:   300,
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 20000,
+			EnableLearning:        true,
+		},
+		"reviewer": {
+			Model:                 "glm-4.7",
+			Temperature:           0.3,
+			TopP:                  0.9,
+			MaxContextTokens:      40000,
+			MaxOutputTokens:       8000,
+			MaxExecutionTimeSec:   900,
+			MaxRetries:            2,
+			MaxFactsInShardKernel: 30000,
+			EnableLearning:        false,
+		},
+		"researcher": {
+			Model:                 "glm-4.7",
+			Temperature:           0.6,
+			TopP:                  0.95,
+			MaxContextTokens:      25000,
+			MaxOutputTokens:       5000,
+			MaxExecutionTimeSec:   600,
+			MaxRetries:            3,
+			MaxFactsInShardKernel: 25000,
+			EnableLearning:        true,
+		},
+	}
+}

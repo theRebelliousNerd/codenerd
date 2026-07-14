@@ -64,10 +64,10 @@ type EffectiveAPISchedulerPolicy struct {
 
 // Default subscription-engine spacing / adaptive knobs.
 const (
-	DefaultSubscriptionMinCallSpacingMs      = 150
-	DefaultAdaptiveFloor                     = 1
-	DefaultAdaptiveRecoverAfterSec           = 30
-	DefaultSlotAcquireTimeoutSec             = 300
+	DefaultSubscriptionMinCallSpacingMs = 150
+	DefaultAdaptiveFloor                = 1
+	DefaultAdaptiveRecoverAfterSec      = 30
+	DefaultSlotAcquireTimeoutSec        = 300
 )
 
 // ValidateCoreLimits checks that core limits are within acceptable ranges.
@@ -96,5 +96,17 @@ func (c *Config) EnforceCoreLimits() map[string]int {
 		"max_shards":       c.CoreLimits.MaxConcurrentShards,
 		"max_memory_mb":    c.CoreLimits.MaxTotalMemoryMB,
 		"session_duration": c.CoreLimits.MaxSessionDurationMin,
+	}
+}
+
+// DefaultCoreLimits returns a CoreLimits with sensible defaults.
+func DefaultCoreLimits() *CoreLimits {
+	return &CoreLimits{
+		MaxTotalMemoryMB:      12288,
+		MaxConcurrentShards:   12,
+		MaxConcurrentAPICalls: 5,
+		MaxSessionDurationMin: 120,
+		MaxFactsInKernel:      250000,
+		MaxDerivedFactsLimit:  100000,
 	}
 }
