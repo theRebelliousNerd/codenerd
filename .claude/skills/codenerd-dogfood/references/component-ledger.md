@@ -86,9 +86,14 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - **Exercise:** scouted the accept/reject decision paths of the tool generator. Safety-critical gates (forbidden imports, dangerous operations) **fail closed** — a generated tool that trips a safety check is rejected, verified sound. No safety defect found.
 - **Note:** only a low-blast-radius `tool_version` int64 counter coercion (no live consumer) was surfaced; flagged as a follow-up rather than fixed, per "build on it, don't sweep."
 
+### ✅ Mangle policy corpus / intent routing — `internal/core/defaults/policy/`
+- **Exercise:** the `action_mapping(Verb, Action)` → `next_action(Action)` derivation (delegation.mg:242-245) fires on every `nerd run`; scouted the FULL perception verb taxonomy (taxonomy.go) against the `action_mapping` facts to find verbs that classify correctly but derive no action.
+- **Upgrade:** **F-ROUTE-3** (branch `fix/route-optimize-verb`, 276bceda + 6dbefd53) — the four `/mutation`→`/coder` verbs `/optimize` (taxonomy.go:760), `/migrate` (755), `/format` (795), `/scaffold` (785) had **no `action_mapping`**, so `nerd run "optimize/migrate/format/scaffold ..."` derived no `next_action` and died with "no action derived from policy" (exit 1) — the identical F-ROUTE-2 gap `/audit` had. Added `action_mapping(/<verb>, /delegate_coder).` for all four (the complete unmapped `/mutation`→`/coder` set; `/document` is intentionally `/delegate_researcher`). Each routes to the coder via the `next_action` handoff (cmd_instruction.go:223-237) and, because `/delegate_coder` is `side_effecting_action`, makes `intent_requires_tool_call` true (anti-hollow). Table test `TestPolicyDerivesNextAction_MutationVerbsRouteToCoder` over all four; **proven red** (each derives `[]` without its mapping) **and green**.
+- **Residual (tracked, task_dc40000b):** `/lint`→reviewer, `/benchmark`/`/profile`→tester still unmapped. `/lint` is a trivial `/audit` analog; the tester verbs raise a real design question (should `/delegate_tester` be `side_effecting`?), so they're deliberately handed off rather than swept.
+- **Prior routing upgrades in this corpus:** F-TOOL-1 (permit `/grep`+`/search_code`), F-TOOL-3 (`safe_action(/edit_file)`/`/fs_edit`), F-ROUTE-2 (`/audit`→`/delegate_reviewer`).
+
 ### ⬜ Not yet exercised / fully swept
-- Kernel core — `internal/core` (fact flow, derivation). Exercised every run; routing layer upgraded via F-ROUTE-2 (policy) + F-TOOL-3 (constitution). Deeper derivation-chain sweep open.
-- Mangle policy corpus — `internal/mangle`, `internal/core/defaults/policy/` (F-TOOL-1/F-TOOL-3/F-ROUTE-2 landed; corpus not exhaustively swept).
+- Kernel core — `internal/core` (fact flow, derivation). Exercised every run; routing layer well-swept (F-ROUTE-2/-3, F-TOOL-1/-3). Deeper derivation-chain sweep (rule liveness, virtual-predicate perf) remains open-ended.
 
 ## Run journal (self-audit campaigns)
 
@@ -106,6 +111,7 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 | (scout+code) | internal/core VirtualStore git path | +F-VS-1 | `handleGitOperation` reported non-zero git exit as success | exit-code success signal; deterministic mock-executor test |
 | (scout+code) | internal/context activation budget | +F-CTX-1 | kernel-scored atoms (≤100) pruned by threshold refilter | pre-filtered budget selector; deterministic test |
 | (scout+code) | internal/tools/research numeric args | +F-RESEARCH-1 | `.(int)` always fails on JSON `float64` → caps silently dropped | `argInt` coercion helper; table test incl. float64 path |
+| (scout+code) | policy corpus verb-taxonomy vs action_mapping | +F-ROUTE-3 | 4 `/mutation`→`/coder` verbs (`/optimize` etc.) derived no `next_action` → exit 1 | full-taxonomy sweep found the F-ROUTE-2 gap class; table test red→green; residual 3 verbs → task_dc40000b |
 
 ## Campaign orchestrator: A+ reached (run 15)
 
