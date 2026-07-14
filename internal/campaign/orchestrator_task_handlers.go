@@ -133,6 +133,13 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
+	// F-DURABLE-1: an explicit-shard task that produces analysis (research,
+	// audit, review, discovery) rather than a file returns its result only in
+	// memory. Persist it as a durable artifact so the findings survive and the
+	// phase-checkpoint reviewer can verify a real output. No-op for file/test/
+	// tool tasks and when a durable output already exists (see helper).
+	o.persistTaskOutputArtifact(task, result)
+
 	return map[string]any{
 		"shard":  shardType,
 		"result": result,
@@ -149,7 +156,64 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, err
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
+	// F-DURABLE-1: research/audit tasks previously returned their findings only
+	// in memory, leaving nothing on disk. The phase-checkpoint reviewer then
+	// correctly reported "no durable discovery outputs" and failed the phase even
+	// though the work was done (observed live, run 12 phases 0/1). Persist the
+	// findings so they survive the campaign and the reviewer has a real output.
+	o.persistTaskOutputArtifact(task, result)
 	return map[string]any{"research_result": result}, nil
+}
+
+// persistTaskOutputArtifact writes an analysis/research/audit task's textual
+// result to a durable campaign artifact and registers it on the task. Such tasks
+// return their findings only as an in-memory map, so without this the work leaves
+// no durable trace: an audit campaign's findings evaporate when the run ends, and
+// the phase-checkpoint reviewer reports "no durable discovery outputs" and fails
+// the phase on merit. Persisting the result as a /doc artifact makes the findings
+// durable and gives the reviewer something real to verify.
+//
+// It is a no-op for tasks that produce their own durable output (file/test/tool)
+// and for tasks that already carry a durable output artifact on disk. Input
+// artifacts (/source_file, /knowledge_base) are the material being audited, not
+// outputs, so their presence does not suppress persistence.
+func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
+	if task == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(result)
+	if len(trimmed) < 40 {
+		return // nothing substantial worth persisting
+	}
+	switch task.Type {
+	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,
+		TaskTypeTestRun, TaskTypeToolCreate, TaskTypeRefactor:
+		return // these produce their own durable file/test/tool output
+	}
+	for _, a := range task.Artifacts {
+		switch a.Type {
+		case "/doc", "/test_file", "/config", "/file":
+			if a.Path != "" {
+				if _, err := os.Stat(filepath.Join(o.workspace, a.Path)); err == nil {
+					return // a durable output already exists; don't duplicate it
+				}
+			}
+		}
+	}
+	relPath := o.defaultTaskArtifactPath(task)
+	fullPath := filepath.Join(o.workspace, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to create artifact dir for task %s: %v", task.ID, err)
+		return
+	}
+	header := fmt.Sprintf("# %s\n\n_Durable output for task %s (%s)._\n\n", task.Description, task.ID, task.Type)
+	if err := os.WriteFile(fullPath, []byte(header+trimmed+"\n"), 0o644); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to persist output artifact for task %s: %v", task.ID, err)
+		return
+	}
+	task.Artifacts = append(task.Artifacts, TaskArtifact{Type: "/doc", Path: relPath})
+	logging.Campaign("Persisted durable output artifact for task %s: %s (%d bytes)", task.ID, relPath, len(trimmed))
+	o.emitEvent("artifact_persisted", task.PhaseID, task.ID, relPath, nil)
 }
 
 // executeFileTask creates or modifies a file using the Coder shard.
