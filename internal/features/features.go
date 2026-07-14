@@ -95,11 +95,13 @@ type FeaturesConfig struct {
 // kernel constructions, and the very first boot before config is read.
 //
 // The choice is intentionally conservative: features that change the
-// evaluation path (DiffEval) or allocate per-derivation buffers
-// (Provenance) default OFF here so unit tests against the kernel see
-// the canonical evaluation behaviour. The user's `.nerd/config.json`
-// (written by the boot wizard) opts INTO the modern paths explicitly
-// — see FullyEnabledFeaturesConfig and the seed config.json.
+// evaluation path (DiffEval), allocate per-derivation buffers
+// (Provenance), or drive the execution tracer and can OOM the process
+// under load (FlightRecorder) default OFF here so unit tests against the
+// kernel see the canonical evaluation behaviour and no debug tracer runs
+// unless explicitly requested. The user's `.nerd/config.json` (written by
+// the boot wizard) opts INTO the modern paths explicitly — see
+// FullyEnabledFeaturesConfig and the seed config.json.
 //
 // To "turn it all on by default for everyone", flip the file rather
 // than this function; tests that need the modern paths should call
@@ -108,7 +110,7 @@ func DefaultFeaturesConfig() FeaturesConfig {
 	t, f := true, false
 	return FeaturesConfig{
 		DiffEval:       &f, // off in tests; .nerd/config.json sets true in production
-		FlightRecorder: &t, // cheap ring buffer, safe to default on
+		FlightRecorder: &f, // drives the execution tracer; can OOM under heavy load — opt-in only
 		Provenance:     &f, // per-derivation buffers — off until /explain
 		SystemShards:   &t,
 		PerShardFacts:  &f,
@@ -232,11 +234,19 @@ func IsDiffEvalEnabled() bool {
 }
 
 // IsFlightRecorderEnabled gates the runtime/trace ring buffer in main.go.
-// Default ON; the recorder is cheap (≈64 MiB / 30 s window) and pays for
-// itself the first time a panic dump is needed.
+// Default OFF (opt-in). The recorder drives the Go execution tracer for
+// the whole process lifetime; under heavy, long-running load (e.g. a
+// campaign spawning many subprocesses) the tracer's region allocator can
+// grow until the runtime aborts the process with the unrecoverable fatal
+// error `throw("traceRegion: out of memory")`. A debug/observability
+// feature must never be able to crash production by default, so it ships
+// off and is opted into via NERD_FLIGHTREC=1 or features.flight_recorder.
+// When enabled, StartFlightRecorder runs a memory watchdog that stops the
+// recorder before that OOM point, so an explicit opt-in degrades
+// gracefully rather than crashing.
 func IsFlightRecorderEnabled() bool {
 	return resolveBool("NERD_FLIGHTREC",
-		func(f *FeaturesConfig) *bool { return f.FlightRecorder }, true)
+		func(f *FeaturesConfig) *bool { return f.FlightRecorder }, false)
 }
 
 // IsProvenanceEnabled gates Mangle's DerivationRecorder. Defaults OFF
