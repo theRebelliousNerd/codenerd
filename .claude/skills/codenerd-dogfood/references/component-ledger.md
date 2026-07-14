@@ -39,9 +39,14 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - **Exercise:** `/shard_validation` checkpoints during any campaign.
 - **Upgrade:** `tool_steering.yaml` (3364305b) — steer the reviewer to dedicated tools (search_code/read_file/list_files) over fragile shell, and always emit a complete verdict. Produced the first-ever `/shard_validation` merit pass (run 12).
 
-### 🔄 Session executor — `internal/session`
-- **Exercise:** run 12 self-audit (completed clean, 4/4 phases).
-- **Flagged (not yet fixed):** F-TOOL-3 (edit_file blocked by safety gate in `nerd run` path); F-ROUTE-1 (`/research` invalid action fact "got 2").
+### ✅ Session executor + `nerd run` OODA path — `internal/session`, `cmd/nerd/cmd_instruction.go`
+- **Exercise:** run 12 self-audit (4/4 phases); one-shot `nerd run "<edit intent>"` on `internal/features` (run bqe14s3v5).
+- **Upgrade:** **F-TOOL-3** (498d0484) — permit `/edit_file` + `/fs_edit` as `safe_action` in constitution.mg. The safety gate (`checkSafety`, executor_tools.go:510) mapped every edit_file call to `/edit_file`, which was absent from the allowlist though `/write_file` (strictly more powerful) was permitted → `permitted(...)` default-denied every edit ("tool call blocked by safety gate: edit_file"). edit_file ⊆ write_file, so no new capability; paranoid validation still applies. **Live-verified run bqe14s3v5 (exit 0, zero gate blocks).**
+- **Flagged (not yet fixed):** F-ROUTE-1 (`/research` invalid action fact "got 2").
+
+### ✅ Features — `internal/features`
+- **Exercise:** `nerd run "review Summary() ... render *bool as true/false/unset ... use edit_file ..."` (run bqe14s3v5). codeNERD's reviewer shard independently confirmed the fix + repaired a compile-blocking test-file string.
+- **Upgrade:** **F-FEATURES-1** (879ce8ec) — `Summary()` applied `%v` to eight `*bool` fields → boot log printed pointer addresses (`diff_eval=0x3e37…`). Added nil-safe `boolPtrString` (nil→`unset`, else `true`/`false`), switched to `%s`, kept the two `%d` args, documented the rationale. Tests: `TestSummaryRendersBoolPointersAsValues` (exact-string + `0x`-leak guard + nil→unset) + `TestBoolPtrString`. `go build`+`go test ./internal/features` green (independently verified, `ok 0.081s`).
 
 ### ⬜ Articulation — `internal/articulation`
 - **Note:** the empty-response symptom (`Fallback parse: empty response ... EOF`) surfaces here; root cause was upstream (empty subagent response). Worth a dedicated exercise: does articulation degrade gracefully on empty/truncated model output?
@@ -52,9 +57,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - Prompt compiler / JIT — `internal/prompt` (atom selection, budget).
 - Perception — `internal/perception` (intent classification).
 - VirtualStore — `internal/core/virtual_store.go` (action routing).
-- Tools/core — `internal/tools/core` (file_ops: edit_file uniqueness guard; non-string `new_text` coercion — see dogfood plan backup targets).
+- Tools/core — `internal/tools/core` (file_ops: edit_file uniqueness guard; non-string `new_text` coercion — see dogfood plan backup targets). **Next target** — now that F-TOOL-3 lets edit_file run, exercise it via `nerd run` on a non-unique-anchor edit.
 - Config — `internal/config`.
-- Features — `internal/features` (`Summary()` prints `*bool` addresses under `%v` — `features.go:175-188`; logged at `user_config.go:477`. Unprotected + untested — ideal `nerd run` self-improvement target).
 - Research tools — `internal/tools/research` (context7).
 - Autopoiesis / Ouroboros — tool generation.
 - Memory / context / reflection — `internal/context`, reflection config.
@@ -69,7 +73,8 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 | 13 | internal/world | +F-DURABLE-1 (pre-hollow/verify) | phases 0/1/2 fail, phase 3 passes | reviewer now reads artifacts; exposed F-HOLLOW-1 + F-VERIFY-1 |
 | 14 | internal/world | +DURABLE-1/HOLLOW-1/VERIFY-1 | **phase 0 PASSED (first ever)**; phase 1 fail; **paused** at phase 2 | exposed F-HOLLOW-2 (empty explicit-shard) + F-GREP-1 (grep hard-fail → pause) |
 | 15 | internal/world | +all five fixes | **completed 5/5, 23/23, no pause; phases 0+1 PASS on merit** | all 10 contracts A+; exposed F-STUB-1 (intent-stubs on deep phases 2/3/4) |
-| 16 | internal/world | +F-STUB-1 (58bea9e1) | _pending live verify_ | blocked: concurrent branch-churn on main tree; F-STUB-1 committed+pushed on `fix/campaign-intent-stub-guard-wt` |
+| 16 | internal/world | +F-STUB-1 (58bea9e1) | verified: F-STUB-1 caught 172B/146B intent-stubs live | intent-stub retry works under contention (only 2/18 recovered — LLM backend degraded) |
+| bqe14s3v5 | internal/features (`nerd run`, edit intent) | +F-TOOL-3 | exit 0, **zero safety-gate blocks**; reviewer confirmed fix + repaired test file | F-TOOL-3 verified: edit_file passes the constitutional gate; component #2 (nerd-run OODA path) + Features done |
 
 ## Campaign orchestrator: A+ reached (run 15)
 
