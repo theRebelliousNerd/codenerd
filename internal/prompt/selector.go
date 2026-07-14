@@ -76,6 +76,134 @@ func (b *factBuilder) WriteInt(n int) {
 }
 
 // WriteQuotedString writes a Mangle-quoted string directly to the builder.
+
+func (fb *factBuilder) writeAtom(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+
+	needsPrefix := !strings.HasPrefix(s, "/")
+
+	if strings.ContainsAny(s, " '\"\t\n\r") {
+		fb.WriteByte('\'')
+		if needsPrefix {
+			fb.WriteByte('/')
+		}
+		for i := 0; i < len(s); i++ {
+			if s[i] == '\'' {
+				fb.WriteString("\\'")
+			} else {
+				fb.WriteByte(s[i])
+			}
+		}
+		fb.WriteByte('\'')
+		return true
+	}
+
+	var hasWritten bool
+	start := 0
+	if !needsPrefix {
+		start = 1
+	}
+
+	for i := start; i <= len(s); i++ {
+		if i == len(s) || s[i] == '/' {
+			part := s[start:i]
+			start = i + 1
+			if len(part) == 0 {
+				continue
+			}
+
+			first := -1
+			last := -1
+			for j := 0; j < len(part); j++ {
+				c := part[j]
+				if c >= 'A' && c <= 'Z' {
+					c += 32
+				}
+				isValid := false
+				switch {
+				case c >= 'a' && c <= 'z':
+					isValid = true
+				case c >= '0' && c <= '9':
+					isValid = true
+				case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
+					isValid = true
+				}
+
+				if !isValid {
+					c = '_'
+				}
+
+				if c != '_' {
+					if first == -1 {
+						first = j
+					}
+					last = j
+				}
+			}
+
+			if first != -1 {
+				if !hasWritten {
+					fb.WriteByte('/')
+					hasWritten = true
+				} else {
+					fb.WriteByte('/')
+				}
+
+				for j := first; j <= last; j++ {
+					c := part[j]
+					if c >= 'A' && c <= 'Z' {
+						c += 32
+					}
+					switch {
+					case c >= 'a' && c <= 'z':
+						fb.WriteByte(c)
+					case c >= '0' && c <= '9':
+						fb.WriteByte(c)
+					case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
+						fb.WriteByte(c)
+					default:
+						fb.WriteByte('_')
+					}
+				}
+			}
+		}
+	}
+
+	return hasWritten
+}
+
+func (fb *factBuilder) writeStringLiteral(s string) {
+	fb.WriteByte('"')
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			fb.WriteString(`\"`)
+		case '\\':
+			fb.WriteString(`\\`)
+		case '\n':
+			fb.WriteString(`\n`)
+		case '\r':
+			fb.WriteString(`\r`)
+		case '\t':
+			fb.WriteString(`\t`)
+		default:
+			fb.WriteByte(s[i])
+		}
+	}
+	fb.WriteByte('"')
+}
+
+// mangleNormalizeNameConst is kept for backwards compatibility but implemented via factBuilder
+func mangleNormalizeNameConst(s string) string {
+	var fb factBuilder
+	if fb.writeAtom(s) {
+		return fb.String()
+	}
+	return ""
+}
 func (b *factBuilder) WriteQuotedString(s string) {
 	const hex = "0123456789abcdef"
 	if s == "" {
