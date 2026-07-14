@@ -228,3 +228,71 @@ func TestGetElementsByType(t *testing.T) {
 		})
 	}
 }
+
+// The function GetMethodsOfStruct is already tested in internal/world/code_elements_extra_test.go
+
+func TestGetMethodsOfStruct_Extended(t *testing.T) {
+	elements := []CodeElement{
+		{Ref: "fn:main", Type: ElementFunction, File: "a.go", StartLine: 1, EndLine: 5},
+		{Ref: "struct:Foo", Type: ElementStruct, File: "a.go", StartLine: 7, EndLine: 10},
+		{Ref: "method:Foo.Bar", Type: ElementMethod, Parent: "struct:Foo", File: "a.go", StartLine: 12, EndLine: 15},
+		{Ref: "method:Foo.Baz", Type: ElementMethod, Parent: "struct:Foo", File: "a.go", StartLine: 17, EndLine: 20},
+		{Ref: "method:Bar.Qux", Type: ElementMethod, Parent: "struct:Bar", File: "b.go", StartLine: 22, EndLine: 25},
+		{Ref: "const:MaxConn", Type: ElementConst, File: "b.go", StartLine: 2, EndLine: 2},
+	}
+
+	tests := []struct {
+		name      string
+		elements  []CodeElement
+		structRef string
+		wantRefs  []string
+	}{
+		{
+			name:      "get multiple methods for struct",
+			elements:  elements,
+			structRef: "struct:Foo",
+			wantRefs:  []string{"method:Foo.Bar", "method:Foo.Baz"},
+		},
+		{
+			name:      "get single method for struct",
+			elements:  elements,
+			structRef: "struct:Bar",
+			wantRefs:  []string{"method:Bar.Qux"},
+		},
+		{
+			name:      "get methods for non-existent struct",
+			elements:  elements,
+			structRef: "struct:Unknown",
+			wantRefs:  nil,
+		},
+		{
+			name:      "empty elements list",
+			elements:  []CodeElement{},
+			structRef: "struct:Foo",
+			wantRefs:  nil,
+		},
+		{
+			name:      "nil elements list",
+			elements:  nil,
+			structRef: "struct:Foo",
+			wantRefs:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetMethodsOfStruct(tt.elements, tt.structRef)
+
+			var gotRefs []string
+			if got != nil {
+				for _, e := range got {
+					gotRefs = append(gotRefs, e.Ref)
+				}
+			}
+
+			if !reflect.DeepEqual(gotRefs, tt.wantRefs) {
+				t.Errorf("GetMethodsOfStruct() = %v, want %v", gotRefs, tt.wantRefs)
+			}
+		})
+	}
+}
