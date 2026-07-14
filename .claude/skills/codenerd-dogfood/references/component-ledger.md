@@ -67,4 +67,27 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 | 11 | shell/core tooling | +F-CMD-2 | failed (reviewer `Get-ChildItem` infra) | reviewer needs tool steering |
 | 12 | internal/session | +reviewer steering | 4/4 clean; **first `/shard_validation` merit pass** (phase 2) | phases 0/1 failed: no durable outputs |
 | 13 | internal/world | +F-DURABLE-1 (pre-hollow/verify) | phases 0/1/2 fail, phase 3 passes | reviewer now reads artifacts; exposed F-HOLLOW-1 + F-VERIFY-1 |
-| 14 | internal/world | +all three fixes | _pending_ | verify phases pass on merit |
+| 14 | internal/world | +DURABLE-1/HOLLOW-1/VERIFY-1 | **phase 0 PASSED (first ever)**; phase 1 fail; **paused** at phase 2 | exposed F-HOLLOW-2 (empty explicit-shard) + F-GREP-1 (grep hard-fail → pause) |
+| 15 | internal/world | +all five fixes | **completed 5/5, 23/23, no pause; phases 0+1 PASS on merit** | all 10 contracts A+; exposed F-STUB-1 (intent-stubs on deep phases 2/3/4) |
+| 16 | internal/world | +F-STUB-1 (58bea9e1) | _pending live verify_ | blocked: concurrent branch-churn on main tree; F-STUB-1 committed+pushed on `fix/campaign-intent-stub-guard-wt` |
+
+## Campaign orchestrator: A+ reached (run 15)
+
+All 10 contracts satisfied. Fixes F-DURABLE-1, F-HOLLOW-1, F-VERIFY-1, F-HOLLOW-2,
+F-GREP-1 on `main`; F-STUB-1 pushed on `fix/campaign-intent-stub-guard-wt`. The
+checkpoint now verifies at high fidelity: passes good work on merit (phases 0-1),
+fails hollow work on merit (2-4 intent-stubs), advances gracefully (no deadlock,
+no pause). F-STUB-1 retries intent-stubs; its live verification (run 16) is the
+next step.
+
+## Operational hazard — concurrent working-tree churn (2026-07-14)
+
+A concurrent automation (jules-* / thunderdome QA agents + a merge bot) actively
+`git checkout`s branches, merges QA work, and resets the shell cwd on the SHARED
+`C:\CodeProjects\codeNERD` working tree every few minutes. It silently wiped an
+in-progress (uncommitted) fix mid-edit by switching the tree to `main`. **How to
+apply:** commit + push early and often; for any multi-edit fix, work in an
+isolated `git worktree add ../codeNERD-<slug>` (immune to the main tree's branch
+switches) and push the branch. Note: a fresh worktree lacks the gitignored
+`.nerd/config.json`, so live `nerd` runs must use the main tree (once stable) or a
+copied-in config — never Write the original config.
