@@ -621,6 +621,8 @@ func (h *HolographicProvider) extractLineRange(content string, startLine, endLin
 // FormatWithPriorities formats the holographic context with priority annotations.
 // This produces a markdown-formatted string optimized for LLM injection.
 func (hc *HolographicContext) FormatWithPriorities() string {
+	// TODO: Test `FormatWithPriorities` behavior when `hc.PrioritizedCallers` is entirely empty
+	// (or initialized to an empty slice) rather than nil.
 	if hc == nil {
 		return ""
 	}
