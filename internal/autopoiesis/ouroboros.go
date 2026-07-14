@@ -896,9 +896,11 @@ func (o *OuroborosLoop) hotReload(toolName string) {
 			}
 		}
 	}
-	// Version is declared /string; the old code wrote an int, which silently
-	// failed that decl (the AddFact error was discarded), so no fact ever
-	// persisted. Write a string so the fact stores and the next read sees it.
+	// Write the version as a string to match the /string decl. The old code
+	// wrote an int, which still persisted — but as a NUMBER term, a type
+	// inconsistency with the decl (not the cause of the stuck counter; that was
+	// the unbound read above). versionFromBinding tolerates either form, so the
+	// increment is robust to any legacy number-typed facts already in the store.
 	_ = o.engine.AddFact("tool_version", toolName, strconv.Itoa(version))
 	logging.AutopoiesisDebug("Tool %s hot-reloaded to version %d", toolName, version)
 }
