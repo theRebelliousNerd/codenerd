@@ -32,3 +32,22 @@ func TestTracker_Track_WhenNonStringContextValues_ShouldNotPanic(t *testing.T) {
 		t.Errorf("non-string session_id should fall back to 'unknown', got %+v", stats.BySession)
 	}
 }
+
+func TestFromContext(t *testing.T) {
+	// Test empty context
+	ctx := context.Background()
+	if got := FromContext(ctx); got != nil {
+		t.Errorf("FromContext(empty ctx) = %v, want nil", got)
+	}
+
+	// Test populated context
+	tracker, err := NewTracker(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	ctx = NewContext(ctx, tracker)
+	if got := FromContext(ctx); got != tracker {
+		t.Errorf("FromContext(populated ctx) = %v, want %v", got, tracker)
+	}
+}
