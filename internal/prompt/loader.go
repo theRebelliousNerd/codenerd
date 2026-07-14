@@ -175,9 +175,12 @@ func (l *AtomLoader) EnsureSchema(ctx context.Context, db *sql.DB) error {
 
 		if !exists {
 			// Column missing, add it safely
-			// Sanitize the column name to prevent SQL injection in DDL statement
-			safeCol := sanitizeIdentifier(col)
-			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN \"%s\" TEXT", safeCol)); err != nil {
+			// Validate the column name to prevent SQL injection in DDL statement
+			if !isValidIdentifier(col) {
+				logging.Get(logging.CategoryStore).Warn("Invalid column name %s, skipping", col)
+				continue
+			}
+			if _, err := db.Exec(fmt.Sprintf("ALTER TABLE prompt_atoms ADD COLUMN \"%s\" TEXT", col)); err != nil {
 				logging.Get(logging.CategoryStore).Warn("Failed to add column %s: %v", col, err)
 			} else {
 				logging.Get(logging.CategoryStore).Info("Added missing column %s to prompt_atoms", col)
