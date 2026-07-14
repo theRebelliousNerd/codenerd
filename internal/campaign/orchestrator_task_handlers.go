@@ -147,6 +147,37 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	}, nil
 }
 
+// isTrivialResult reports whether a shard result carries no substantive content
+// and is therefore not worth persisting or counting as a real deliverable. The
+// 40-rune floor rejects empty responses and one-line acknowledgements while
+// admitting even a terse but real finding.
+func isTrivialResult(s string) bool {
+	return len([]rune(strings.TrimSpace(s))) < 40
+}
+
+// analyticalVerifyKeywords mark a /verify task whose real objective is analytical
+// review (produce findings) rather than a build check (run go build).
+var analyticalVerifyKeywords = []string{
+	"inspect", "audit", "review", "identify", "analyze", "analyse", "assess",
+	"examine", "evaluate", "defect", "vulnerab", "contract drift", "api contract",
+	"error-handling", "error handling", "code smell", "anti-pattern", "antipattern",
+	"race condition", "lifecycle", "ownership", "invariant", "risk", "finding",
+}
+
+// isAnalyticalVerifyDescription reports whether a /verify task's description asks
+// for analytical review (which must produce durable findings) rather than a plain
+// build/compile check (which the go-build path handles). Build-verification tasks
+// stay on the build path for backward compatibility.
+func isAnalyticalVerifyDescription(desc string) bool {
+	d := strings.ToLower(desc)
+	for _, k := range analyticalVerifyKeywords {
+		if strings.Contains(d, k) {
+			return true
+		}
+	}
+	return false
+}
+
 // executeResearchTask spawns a researcher shard.
 func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any, error) {
 	logging.CampaignDebug("Spawning researcher shard for task %s", task.ID)
@@ -156,6 +187,25 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, err
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
+
+	// F-HOLLOW-1: a research subagent can return an empty final response (observed
+	// live, run 13 task 0_2: "Fallback parse: empty response ... EOF") yet be
+	// marked "completed successfully", producing a hollow success that delivers
+	// nothing durable — the phase-checkpoint reviewer then correctly fails the
+	// phase for the missing artifact. Retry once, explicitly demanding the written
+	// findings, before accepting an empty deliverable.
+	if isTrivialResult(result) {
+		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned trivial/empty result (%d bytes); retrying once", task.ID, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Return your findings as a complete written report in your final response. Do NOT return an empty response — if a probe failed, report what you did find."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+			result = retried
+			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Research task %s still returned no substantive output after retry", task.ID)
+			o.emitEvent("research_empty", task.PhaseID, task.ID, "research task returned no substantive output after retry", nil)
+		}
+	}
+
 	// F-DURABLE-1: research/audit tasks previously returned their findings only
 	// in memory, leaving nothing on disk. The phase-checkpoint reviewer then
 	// correctly reported "no durable discovery outputs" and failed the phase even
@@ -425,6 +475,20 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 
 // executeVerifyTask runs verification (build, lint, etc.).
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
+	// F-VERIFY-1: /verify historically meant "go build ./...". But decomposers of
+	// audit/remediation campaigns emit the phase's actual analytical work (inspect
+	// logic defects, error-handling mistakes, API-contract drift) as /verify tasks.
+	// Running only a build ignores the task description, produces no findings, and
+	// leaves the phase's real deliverable missing — the checkpoint reviewer then
+	// correctly fails the phase (observed live, run 13 phase 1: /verify tasks 1_1,
+	// 1_2, 1_5, 1_6 delivered nothing). Route analytical verify tasks to the
+	// research+persist path (which retries on empty and writes a durable artifact);
+	// keep the build path for genuine build-verification tasks.
+	if isAnalyticalVerifyDescription(task.Description) {
+		logging.Campaign("Verify task %s is analytical (audit/review); routing to research+persist instead of go build", task.ID)
+		return o.executeResearchTask(ctx, task)
+	}
+
 	logging.CampaignDebug("Executing verify task %s: go build ./...", task.ID)
 	// Run build verification for this task
 	cmd := tactile.Command{

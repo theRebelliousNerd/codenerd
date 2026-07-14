@@ -108,6 +108,50 @@ func TestPersistTaskOutputArtifact_SkipsTrivialResult(t *testing.T) {
 	}
 }
 
+func TestIsTrivialResult(t *testing.T) {
+	trivial := []string{"", "   ", "ok", "done", "No output.", strings.Repeat("x", 39)}
+	for _, s := range trivial {
+		if !isTrivialResult(s) {
+			t.Errorf("expected %q to be trivial", s)
+		}
+	}
+	substantial := []string{
+		strings.Repeat("x", 40),
+		substantialFindings,
+		"The scanner owns a worker pool and a FileCache that must be Closed on shutdown.",
+	}
+	for _, s := range substantial {
+		if isTrivialResult(s) {
+			t.Errorf("expected %q (len=%d) to be substantial", s, len(strings.TrimSpace(s)))
+		}
+	}
+}
+
+func TestIsAnalyticalVerifyDescription(t *testing.T) {
+	analytical := []string{
+		"Inspect logic defects and invariant violations in internal/world.",
+		"Assess error-handling mistakes across the scanner.",
+		"Audit API contract drift between emitters and predicate sets.",
+		"Review the resource ownership and lifecycle of the LSP manager.",
+		"Identify race conditions in the worker pool.",
+	}
+	for _, d := range analytical {
+		if !isAnalyticalVerifyDescription(d) {
+			t.Errorf("expected analytical routing for %q", d)
+		}
+	}
+	buildOnly := []string{
+		"Verify the package compiles with go build ./...",
+		"Confirm the tree builds after the change.",
+		"Run go build and report the exit status.",
+	}
+	for _, d := range buildOnly {
+		if isAnalyticalVerifyDescription(d) {
+			t.Errorf("expected build path (not analytical) for %q", d)
+		}
+	}
+}
+
 func TestPersistTaskOutputArtifact_SkipsWhenDurableOutputExists(t *testing.T) {
 	o := newArtifactTestOrchestrator(t)
 	// Simulate a task that already wrote a durable /doc output.
