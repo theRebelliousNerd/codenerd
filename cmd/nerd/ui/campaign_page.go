@@ -92,15 +92,41 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: Improve the empty state with more helpful instructions or a starting guide.
 // TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 // TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
-		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
+		return m.renderEmptyState()
 	}
 	return m.viewport.View()
+}
+
+// renderEmptyState renders a helpful starting guide when no campaign is active.
+func (m CampaignPageModel) renderEmptyState() string {
+	var sb strings.Builder
+
+	title := m.styles.Title.Render("codeNERD Campaign Manager")
+	sb.WriteString(title + "\n\n")
+
+	sb.WriteString(m.styles.Warning.Render("No active campaign.") + "\n\n")
+
+	sb.WriteString(m.styles.Bold.Render("Getting Started:") + "\n")
+	sb.WriteString("  1. Use " + m.styles.InlineCode.Render("/campaign start <goal>") + " to initiate a new multi-phase campaign.\n")
+	sb.WriteString("  2. The orchestrator will decompose your goal into actionable phases.\n")
+	sb.WriteString("  3. Progress and metrics will be tracked here in real-time.\n\n")
+
+	sb.WriteString(m.styles.Bold.Render("Examples:") + "\n")
+	sb.WriteString("  • " + m.styles.InlineCode.Render("/campaign start \"Build a REST API\"") + "\n")
+	sb.WriteString("  • " + m.styles.InlineCode.Render("/campaign start \"Refactor authentication\"") + "\n")
+
+	// Center the content both horizontally and vertically
+	emptyStyle := lipgloss.NewStyle().
+		Width(ViewportWidth(m.width)).
+		Height(ViewportHeight(m.height)).
+		Align(lipgloss.Center, lipgloss.Center)
+
+	return emptyStyle.Render(sb.String())
 }
 
 // SetSize updates the size of the viewport.
