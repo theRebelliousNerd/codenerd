@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -194,7 +195,7 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	}
 
 	// On Windows, use taskkill to kill process tree
-	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid))
+	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", strconv.Itoa(cmd.Process.Pid))
 	killCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 
 	if err := killCmd.Run(); err != nil {
