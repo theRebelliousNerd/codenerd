@@ -70,6 +70,13 @@ func (a *coreLearningStoreAdapter) Save(shardType, factPredicate string, factArg
 	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
 }
 
+func (a *coreLearningStoreAdapter) SaveBatch(shardID string, learnings []types.ShardLearning, source string) error {
+	if a.store == nil {
+		return nil
+	}
+	return a.store.SaveBatch(shardID, learnings, source)
+}
+
 func (a *coreLearningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
 	if a.store == nil {
 		return nil, nil

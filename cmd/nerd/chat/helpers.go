@@ -108,6 +108,10 @@ func (a *learningStoreAdapter) Save(shardType, factPredicate string, factArgs []
 	return a.store.Save(shardType, factPredicate, factArgs, sourceCampaign)
 }
 
+func (a *learningStoreAdapter) SaveBatch(shardID string, learnings []types.ShardLearning, source string) error {
+	return a.store.SaveBatch(shardID, learnings, source)
+}
+
 func (a *learningStoreAdapter) Load(shardType string) ([]types.ShardLearning, error) {
 	learnings, err := a.store.Load(shardType)
 	if err != nil {

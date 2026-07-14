@@ -127,7 +127,7 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 			m.viewport.HalfViewUp()
 		case key.Matches(msg, m.keys.PageDown):
 			m.viewport.HalfViewDown()
-		case "v":
+		case msg.String() == "v":
 			m.isSummaryView = !m.isSummaryView
 			if m.renderCache != nil {
 				m.renderCache.Invalidate()
