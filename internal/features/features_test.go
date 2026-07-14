@@ -1,6 +1,7 @@
 package features
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -151,3 +152,85 @@ func TestNumericAccessors(t *testing.T) {
 		t.Fatalf("env should win; want 32 got %d", got)
 	}
 }
+
+// TestSummaryRendersBoolPointersAsValues proves the boot log line
+// shows true/false/unset rather than raw *bool pointer addresses.
+// FeaturesConfig fields are pointers so a missing JSON key (nil) can
+// be distinguished from an explicit false; Summary must dereference
+// them safely for human-readable triage logs.
+func TestSummaryRendersBoolPointersAsValues(t *testing.T) {
+	t.Cleanup(func() { SetActive(nil) })
+
+	t.Run("nil active reports defaults", func(t *testing.T) {
+		SetActive(nil)
+		got := Summary()
+		if got != "features: defaults active" {
+			t.Fatalf("nil active: got %q", got)
+		}
+	})
+
+	t.Run("explicit true and false", func(t *testing.T) {
+		tr, fa := true, false
+		SetActive(&FeaturesConfig{
+			DiffEval:       &tr,
+			FlightRecorder: &fa,
+			Provenance:     &tr,
+			SystemShards:   &fa,
+			PerShardFacts:  &tr,
+			DarkMode:       &fa,
+			SkipOnboarding: &tr,
+			TaxonomyFast:   &fa,
+			FastScanWorkers: 4,
+			FastASTMaxBytes: 2048,
+		})
+		got := Summary()
+		// Must not contain pointer-looking hex addresses.
+		if strings.Contains(got, "0x") {
+			t.Fatalf("Summary leaked pointer address: %q", got)
+		}
+		want := "features: diff_eval=true flight_recorder=false provenance=true " +
+			"system_shards=false per_shard_facts=true dark_mode=false skip_onboarding=true " +
+			"taxonomy_fast=false fast_scan_workers=4 fast_ast_max_bytes=2048"
+		if got != want {
+			t.Fatalf("Summary mismatch\n got: %q\nwant: %q", got, want)
+		}
+	})
+
+	t.Run("nil bool fields render as unset", func(t *testing.T) {
+		// Zero-value FeaturesConfig has all *bool fields nil.
+		SetActive(&FeaturesConfig{})
+		got := Summary()
+		if strings.Contains(got, "0x") {
+			t.Fatalf("Summary leaked pointer address for nil fields: %q", got)
+		}
+		for _, key := range []string{
+			"diff_eval=unset",
+			"flight_recorder=unset",
+			"provenance=unset",
+			"system_shards=unset",
+			"per_shard_facts=unset",
+			"dark_mode=unset",
+			"skip_onboarding=unset",
+			"taxonomy_fast=unset",
+		} {
+			if !strings.Contains(got, key) {
+				t.Errorf("Summary missing %q in %q", key, got)
+			}
+		}
+	})
+}
+
+// TestBoolPtrString covers the helper used by Summary.
+func TestBoolPtrString(t *testing.T) {
+	if got := boolPtrString(nil); got != "unset" {
+		t.Errorf("nil → unset, got %q", got)
+	}
+	tr, fa := true, false
+	if got := boolPtrString(&tr); got != "true" {
+		t.Errorf("true → true, got %q", got)
+	}
+	if got := boolPtrString(&fa); got != "false" {
+		t.Errorf("false → false, got %q", got)
+	}
+}
+
