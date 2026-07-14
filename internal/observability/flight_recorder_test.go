@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/trace"
 	"sync"
 	"testing"
 	"time"
@@ -117,5 +118,94 @@ func TestDumpFlightRecord_EmptyNerdDir(t *testing.T) {
 	}
 	if _, err := DumpFlightRecord(""); err == nil {
 		t.Fatal("expected error for empty nerdDir")
+	}
+}
+
+
+
+func TestStartFlightRecorder_StartError(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	// Start a conflicting flight recorder to make our start fail
+	fr := trace.NewFlightRecorder(trace.FlightRecorderConfig{})
+	if err := fr.Start(); err != nil {
+		t.Fatalf("fr.Start: %v", err)
+	}
+	defer fr.Stop()
+
+	err := StartFlightRecorder(0, 0)
+	if err == nil {
+		t.Fatal("expected error starting flight recorder when another is already running")
+	}
+}
+
+func TestDumpFlightRecord_MkdirError(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(1<<20, 100*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+
+	tmp := t.TempDir()
+	// Create a file named .nerd where the directory should be
+	nerdFile := filepath.Join(tmp, ".nerd")
+	if err := os.WriteFile(nerdFile, []byte("not a dir"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := DumpFlightRecord(tmp)
+	if err == nil {
+		t.Fatal("expected error when .nerd is a file instead of a directory")
+	}
+}
+
+
+func TestDumpFlightRecord_WriteError(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(1<<20, 100*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+
+	tmp := t.TempDir()
+	tracesDir := filepath.Join(tmp, ".nerd", "traces")
+	if err := os.MkdirAll(tracesDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Ensure it's not writable.
+	if err := os.Chmod(tracesDir, 0500); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	_, err := DumpFlightRecord(tmp)
+	if err == nil {
+		t.Fatal("expected error when traces directory is not writable")
+	}
+
+	// Restore permissions so t.TempDir() cleanup doesn't fail
+	_ = os.Chmod(tracesDir, 0755)
+}
+
+func TestDumpFlightRecord_NotEnabled(t *testing.T) {
+	resetFlightRecorder(t)
+	t.Cleanup(func() { _ = StopFlightRecorder() })
+
+	if err := StartFlightRecorder(1<<20, 100*time.Millisecond); err != nil {
+		t.Fatalf("StartFlightRecorder: %v", err)
+	}
+
+    // Reach into the global state and disable it (for coverage of the defensive check)
+    flightMu.Lock()
+    fr := flight
+    flightMu.Unlock()
+    fr.Stop() // this makes fr.Enabled() false but leaves flight != nil
+
+	tmp := t.TempDir()
+	_, err := DumpFlightRecord(tmp)
+	if err == nil {
+		t.Fatal("expected error when dumping after recorder is stopped manually")
 	}
 }
