@@ -16,6 +16,7 @@ import (
 // KernelClient provides an interface for asserting facts into the Mangle kernel.
 type KernelClient interface {
 	Assert(fact types.Fact) error
+	AssertBatch(facts []types.Fact) error
 	Retract(predicate string) error
 }
 
@@ -123,10 +124,8 @@ func (g *Guardian) refreshKernelFacts() {
 	}
 
 	// Assert new facts
-	for _, fact := range vision.ToFacts() {
-		if err := kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategoryNorthstar).Debug("Failed to assert northstar fact %s: %v", fact.Predicate, err)
-		}
+	if err := kernel.AssertBatch(vision.ToFacts()); err != nil {
+		logging.Get(logging.CategoryNorthstar).Debug("Failed to assert batch of northstar facts: %v", err)
 	}
 }
 
