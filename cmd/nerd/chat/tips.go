@@ -1,8 +1,9 @@
 package chat
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strings"
 	"time"
 
@@ -81,7 +82,11 @@ func (g *TipGenerator) ShouldShowTip() bool {
 		threshold = 0.30
 	}
 
-	return rand.Float64() < threshold
+	n, err := rand.Int(rand.Reader, big.NewInt(100))
+	if err != nil {
+		return false
+	}
+	return float64(n.Int64())/100.0 < threshold
 }
 
 // GenerateTip generates a contextual tip based on the current context.
@@ -319,5 +324,9 @@ func GetRandomGenericTip(level config.ExperienceLevel) string {
 	if len(tips) == 0 {
 		return ""
 	}
-	return tips[rand.Intn(len(tips))]
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(len(tips))))
+	if err != nil {
+		return tips[0]
+	}
+	return tips[n.Int64()]
 }
