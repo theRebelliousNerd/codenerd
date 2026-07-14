@@ -143,3 +143,31 @@ func TestHoneypotDetection(t *testing.T) {
 		})
 	}
 }
+
+func TestNewHoneypotDetector(t *testing.T) {
+	t.Run("with valid engine", func(t *testing.T) {
+		cfg := mangle.DefaultConfig()
+		engine, err := mangle.NewEngine(cfg, nil)
+		if err != nil {
+			t.Fatalf("Failed to create engine: %v", err)
+		}
+
+		detector := NewHoneypotDetector(engine)
+		if detector == nil {
+			t.Fatalf("Expected non-nil detector")
+		}
+		if detector.engine != engine {
+			t.Errorf("Expected detector.engine to be %v, got %v", engine, detector.engine)
+		}
+	})
+
+	t.Run("with nil engine", func(t *testing.T) {
+		detector := NewHoneypotDetector(nil)
+		if detector == nil {
+			t.Fatalf("Expected non-nil detector")
+		}
+		if detector.engine != nil {
+			t.Errorf("Expected detector.engine to be nil, got %v", detector.engine)
+		}
+	})
+}
