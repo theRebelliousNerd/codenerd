@@ -3,6 +3,7 @@ package campaign
 import (
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -142,6 +143,7 @@ func (o *Orchestrator) resetInProgress() {
 	logging.Campaign("Resetting in-progress states after restart")
 	resetCount := 0
 
+	tx := types.NewKernelTx(o.kernel)
 	for pi := range o.campaign.Phases {
 		phase := &o.campaign.Phases[pi]
 		if phase.Status == PhaseInProgress {
@@ -156,11 +158,11 @@ func (o *Orchestrator) resetInProgress() {
 				task.Status = TaskPending
 				resetCount++
 				// Update kernel fact for the task
-				_ = o.kernel.RetractFact(core.Fact{
+				tx.RetractFact(core.Fact{
 					Predicate: "campaign_task",
 					Args:      []any{task.ID},
 				})
-				_ = o.kernel.Assert(core.Fact{
+				tx.Assert(core.Fact{
 					Predicate: "campaign_task",
 					Args:      []any{task.ID, task.PhaseID, task.Description, string(TaskPending), string(task.Type)},
 				})
@@ -168,6 +170,7 @@ func (o *Orchestrator) resetInProgress() {
 		}
 	}
 
+	_ = tx.Commit()
 	logging.Campaign("Reset %d in-progress items", resetCount)
 	_ = o.saveCampaign()
 }
