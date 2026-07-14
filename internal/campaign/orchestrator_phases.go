@@ -250,7 +250,12 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 	// Find and update phase
 	o.mu.Lock()
-	defer o.mu.Unlock()
+
+	var phaseName string
+	var phaseOrder int
+	var phaseContextProfile string
+	var found bool
+	var campaignID string
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phaseID {
@@ -260,38 +265,49 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 
 			o.campaign.Phases[i].Status = PhaseInProgress
 
-			// Update kernel
-			_ = o.kernel.RetractFact(core.Fact{
-				Predicate: "campaign_phase",
-				Args:      []any{phaseID},
-			})
-			o.kernel.Assert(core.Fact{
-				Predicate: "campaign_phase",
-				Args: []any{
-					phaseID,
-					o.campaign.ID,
-					o.campaign.Phases[i].Name,
-					o.campaign.Phases[i].Order,
-					"/in_progress",
-					o.campaign.Phases[i].ContextProfile,
-				},
-			})
-
-			// Northstar alignment check at phase transition
-			if o.northstarObserver != nil {
-				check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, o.campaign.Phases[i].Name)
-				if err != nil {
-					logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
-					return fmt.Errorf("northstar alignment failed: %w", err)
-				}
-				if check != nil {
-					logging.Campaign("Northstar phase check: %s score=%.2f", check.Result, check.Score)
-				}
-			}
-
-			o.emitEvent("phase_started", phaseID, "", o.campaign.Phases[i].Name, nil)
-			return nil
+			phaseName = o.campaign.Phases[i].Name
+			phaseOrder = o.campaign.Phases[i].Order
+			phaseContextProfile = o.campaign.Phases[i].ContextProfile
+			campaignID = o.campaign.ID
+			found = true
+			break
 		}
+	}
+
+	o.mu.Unlock()
+
+	if found {
+		// Update kernel
+		_ = o.kernel.RetractFact(core.Fact{
+			Predicate: "campaign_phase",
+			Args:      []any{phaseID},
+		})
+		o.kernel.Assert(core.Fact{
+			Predicate: "campaign_phase",
+			Args: []any{
+				phaseID,
+				campaignID,
+				phaseName,
+				phaseOrder,
+				"/in_progress",
+				phaseContextProfile,
+			},
+		})
+
+		// Northstar alignment check at phase transition
+		if o.northstarObserver != nil {
+			check, err := o.northstarObserver.OnPhaseStart(ctx, phaseID, phaseName)
+			if err != nil {
+				logging.Campaign("Northstar blocked phase %s: %v", phaseID, err)
+				return fmt.Errorf("northstar alignment failed: %w", err)
+			}
+			if check != nil {
+				logging.Campaign("Northstar phase check: %s score=%.2f", check.Result, check.Score)
+			}
+		}
+
+		o.emitEvent("phase_started", phaseID, "", phaseName, nil)
+		return nil
 	}
 
 	logging.Get(logging.CategoryCampaign).Error("Phase not found: %s", phaseID)
@@ -301,19 +317,24 @@ func (o *Orchestrator) startNextPhase(ctx context.Context) error {
 // completePhase marks a phase as complete.
 func (o *Orchestrator) completePhase(phase *Phase) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
+
+	var completedTasks int
+	var totalTasks int
+	var found bool
+	var phaseStatus PhaseStatus
+	var campaignID string
 
 	for i := range o.campaign.Phases {
 		if o.campaign.Phases[i].ID == phase.ID {
 			logging.Campaign("=== Phase Completed: %s (%s) ===", phase.Name, phase.ID)
 
-			completedTasks := 0
 			for _, t := range o.campaign.Phases[i].Tasks {
 				if t.Status == TaskCompleted {
 					completedTasks++
 				}
 			}
-			logging.CampaignDebug("Phase stats: completed tasks=%d/%d", completedTasks, len(o.campaign.Phases[i].Tasks))
+			totalTasks = len(o.campaign.Phases[i].Tasks)
+			logging.CampaignDebug("Phase stats: completed tasks=%d/%d", completedTasks, totalTasks)
 
 			o.campaign.Phases[i].Status = PhaseCompleted
 			o.campaign.CompletedPhases++
@@ -321,33 +342,44 @@ func (o *Orchestrator) completePhase(phase *Phase) {
 			logging.Campaign("Campaign progress: phases=%d/%d",
 				o.campaign.CompletedPhases, o.campaign.TotalPhases)
 
-			// Update kernel
-			_ = o.kernel.RetractFact(core.Fact{
-				Predicate: "campaign_phase",
-				Args:      []any{phase.ID},
-			})
-			o.kernel.Assert(core.Fact{
-				Predicate: "campaign_phase",
-				Args: []any{
-					phase.ID,
-					o.campaign.ID,
-					phase.Name,
-					phase.Order,
-					"/completed",
-					phase.ContextProfile,
-				},
-			})
-
-			// Northstar observation on phase completion
-			if o.northstarObserver != nil {
-				success := o.campaign.Phases[i].Status == PhaseCompleted
-				summary := fmt.Sprintf("Completed %d/%d tasks", completedTasks, len(o.campaign.Phases[i].Tasks))
-				_ = o.northstarObserver.OnPhaseComplete(context.Background(), phase.ID, success, summary)
-			}
-
-			o.emitEvent("phase_completed", phase.ID, "", phase.Name, nil)
-			_ = o.saveCampaign()
+			phaseStatus = o.campaign.Phases[i].Status
+			campaignID = o.campaign.ID
+			found = true
 			break
 		}
+	}
+
+	o.mu.Unlock()
+
+	if found {
+		// Update kernel
+		_ = o.kernel.RetractFact(core.Fact{
+			Predicate: "campaign_phase",
+			Args:      []any{phase.ID},
+		})
+		o.kernel.Assert(core.Fact{
+			Predicate: "campaign_phase",
+			Args: []any{
+				phase.ID,
+				campaignID,
+				phase.Name,
+				phase.Order,
+				"/completed",
+				phase.ContextProfile,
+			},
+		})
+
+		// Northstar observation on phase completion
+		if o.northstarObserver != nil {
+			success := phaseStatus == PhaseCompleted
+			summary := fmt.Sprintf("Completed %d/%d tasks", completedTasks, totalTasks)
+			_ = o.northstarObserver.OnPhaseComplete(context.Background(), phase.ID, success, summary)
+		}
+
+		o.emitEvent("phase_completed", phase.ID, "", phase.Name, nil)
+
+		o.mu.Lock()
+		_ = o.saveCampaign()
+		o.mu.Unlock()
 	}
 }
