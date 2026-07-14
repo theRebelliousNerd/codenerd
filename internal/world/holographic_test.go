@@ -657,6 +657,11 @@ func TestExtractLineRange(t *testing.T) {
 			endLine:   5,
 			wantErr:   true,
 		},
+		// TODO: Gap - Empty content string (Z-01) - Test content: "", startLine: 1, endLine: 1
+		// TODO: Gap - Start line < 0 (B-02) - Test startLine: -5
+		// TODO: Gap - Start line == 0 (B-01) - Test startLine: 0
+		// TODO: Gap - End line beyond string length (B-03) - Test endLine: 999999
+		// TODO: Gap - Missing trailing newline vs present trailing newline - Test edge cases on truncation limits and exact returns
 	}
 
 	for _, tt := range tests {
