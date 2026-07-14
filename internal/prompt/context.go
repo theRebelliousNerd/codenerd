@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -413,8 +412,6 @@ func (cc *CompilationContext) String() string {
 // ToContextFacts generates Mangle facts representing this context.
 // These facts are formatted for the compile_context(Dimension, Value) schema
 // as declared in schemas.mg Section 45 and used by policy.mg for atom selection.
-// TODO: Performance: Re-implement using a streaming FactBuilder to reduce slice allocations.
-// TODO: Reliability: Enforce strict type checking and escaping for all context values to prevent injection.
 
 func (cc *CompilationContext) ToContextFacts() []any {
 	return cc.GenerateFacts(FactStyle{
@@ -609,10 +606,11 @@ type FactStyle struct {
 	AddDot     bool
 }
 
-// GenerateFacts generates Mangle facts representing this context according to the specified style.
 func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 	capacity := 9 + len(cc.Frameworks) + 7
 	facts := make([]any, 0, capacity)
+
+	var fb factBuilder
 
 	add := func(longDim, shortDim, val string) {
 		if val == "" {
@@ -624,39 +622,38 @@ func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 			dim = shortDim
 		}
 
+		fb.Reset()
+
+		fb.WriteString(style.Predicate)
+		fb.WriteByte('(')
+
 		// Dimension is always an atom
-		if !strings.HasPrefix(dim, "/") {
-			dim = "/" + dim
-		}
-		dim = mangleNormalizeNameConst(dim)
-		if dim == "" {
+		if !fb.writeAtom(dim) {
 			return
 		}
 
-		var formattedVal string
+		fb.WriteString(", ")
+
 		if style.ForceAtoms {
-			if !strings.HasPrefix(val, "/") {
-				val = "/" + val
+			if !fb.writeAtom(val) {
+				return
 			}
-			formattedVal = mangleNormalizeNameConst(val)
 		} else {
 			if len(val) > 0 && val[0] == '/' {
-				formattedVal = mangleNormalizeNameConst(val)
+				if !fb.writeAtom(val) {
+					return
+				}
 			} else {
 				// Quote as string
-				formattedVal = fmt.Sprintf("%q", val)
+				fb.writeStringLiteral(val)
 			}
 		}
 
-		if formattedVal == "" {
-			return
-		}
-
-		factStr := fmt.Sprintf("%s(%s, %s)", style.Predicate, dim, formattedVal)
+		fb.WriteByte(')')
 		if style.AddDot {
-			factStr += "."
+			fb.WriteByte('.')
 		}
-		facts = append(facts, factStr)
+		facts = append(facts, fb.String())
 	}
 
 	add("operational_mode", "mode", cc.OperationalMode)
@@ -699,56 +696,4 @@ func (cc *CompilationContext) GenerateFacts(style FactStyle) []any {
 	}
 
 	return facts
-}
-
-func mangleNormalizeNameConst(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	if !strings.HasPrefix(s, "/") {
-		s = "/" + s
-	}
-
-	// If it contains spaces or single quotes, we MUST single-quote the entire atom to be safe
-	// e.g., `/coder shard` -> `'/coder shard'`
-	// We also need to escape single quotes inside if any.
-	if strings.ContainsAny(s, " '\"\t\n\r") {
-		escaped := strings.ReplaceAll(s, "'", "\\'")
-		return "'" + escaped + "'"
-	}
-
-	s = strings.ToLower(s)
-	// Normal parsing for valid unquoted atoms
-	parts := strings.Split(s, "/")
-	var cleaned []string
-	for _, p := range parts {
-		if p == "" {
-			continue
-		}
-		var b strings.Builder
-		b.Grow(len(p))
-		for i := 0; i < len(p); i++ {
-			c := p[i]
-			switch {
-			case c >= 'a' && c <= 'z':
-				b.WriteByte(c)
-			case c >= '0' && c <= '9':
-				b.WriteByte(c)
-			case c == '.' || c == '-' || c == '_' || c == '~' || c == '%':
-				b.WriteByte(c)
-			default:
-				b.WriteByte('_')
-			}
-		}
-		seg := strings.Trim(b.String(), "_")
-		if seg == "" {
-			continue
-		}
-		cleaned = append(cleaned, seg)
-	}
-	if len(cleaned) == 0 {
-		return ""
-	}
-	return "/" + strings.Join(cleaned, "/")
 }
