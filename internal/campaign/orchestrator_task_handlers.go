@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -112,6 +113,20 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	// Spawn the shard via unified spawnTask
 	result, err := o.spawnTask(ctx, shardType, input)
 	if err != nil {
+		// F-DOC-1: /document tasks are the campaign's deliverables (reports,
+		// rubrics). The decomposer often routes them to the coder shard, which
+		// explores without ever writing (tripping the hollow-success guard) and
+		// permanently fails the task — deadlocking the phase. Fall back to direct
+		// document generation so the deliverable is still produced and the phase
+		// can complete. Non-document tasks keep the hard failure.
+		if task.Type == TaskTypeDocument {
+			logging.Get(logging.CategoryCampaign).Warn("Shard %s failed for document task %s: %v; falling back to direct document generation", shardType, task.ID, err)
+			var targetPath string
+			if len(task.Artifacts) > 0 {
+				targetPath = task.Artifacts[0].Path
+			}
+			return o.executeFileTaskFallback(ctx, task, targetPath)
+		}
 		logging.Get(logging.CategoryCampaign).Error("Shard %s failed for task %s: %v", shardType, task.ID, err)
 		return nil, fmt.Errorf("shard %s failed: %w", shardType, err)
 	}
@@ -231,6 +246,29 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 	lang := getLangFromPath(targetPath)
 	content = extractCodeBlock(content, lang)
 	logging.CampaignDebug("Extracted code block for %s (lang=%s, %d bytes)", targetPath, lang, len(content))
+
+	// F-DOC-2: guard against pathological model repetition loops (observed live:
+	// Grok emitting "1. End. 2. Finish." x1500 as a 19KB artifact). Without this
+	// the degenerate output passes the non-empty check and is counted as task
+	// success. Retry once with an explicit anti-repetition instruction; if the
+	// model still degenerates, persist an honest placeholder rather than garbage.
+	if isDegenerateGeneration(content) {
+		logging.Get(logging.CategoryCampaign).Warn("Fallback generation for %s is degenerate (%d bytes); retrying with anti-repetition guard", task.ID, len(content))
+		retryPrompt := prompt + "\n\nIMPORTANT: Produce a concise, non-repetitive document. Do NOT repeat words, phrases, or numbered lines. Stop as soon as the content is complete."
+		if retried, rerr := o.llmClient.Complete(ctx, retryPrompt); rerr == nil {
+			if rc := extractCodeBlock(retried, lang); rc != "" && !isDegenerateGeneration(rc) {
+				content = rc
+				logging.Campaign("Anti-repetition retry recovered a coherent document for %s (%d bytes)", task.ID, len(content))
+			} else {
+				content = degradedGenerationPlaceholder(task, targetPath)
+				logging.Get(logging.CategoryCampaign).Warn("Retry still degenerate for %s; writing honest degraded placeholder", task.ID)
+			}
+		} else {
+			content = degradedGenerationPlaceholder(task, targetPath)
+			logging.Get(logging.CategoryCampaign).Warn("Anti-repetition retry failed for %s (%v); writing honest degraded placeholder", task.ID, rerr)
+		}
+		o.emitEvent("generation_degraded", "", task.ID, "fallback document generation was degenerate", nil)
+	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
 	logging.CampaignDebug("Writing generated file: %s (%d bytes)", fullPath, len(content))
@@ -670,6 +708,73 @@ func extractCodeBlock(text, lang string) string {
 
 	// If no code block found, return the whole text (might be raw code)
 	return strings.TrimSpace(text)
+}
+
+// isDegenerateGeneration reports whether text looks like a pathological model
+// repetition loop rather than a real deliverable — e.g. Grok emitting
+// "1. End. 2. Finish. 3. Complete. 4. Done." hundreds of times (observed live in
+// campaign_e6f9b0eb, a 19KB artifact of near-zero information). Such output
+// otherwise passes the non-empty write check in the fallback path and is silently
+// counted as task success, defeating the hollow-success guard. The heuristic is
+// deliberately conservative (only fires on extreme, unambiguous degeneracy) so it
+// never rejects a legitimately terse or identifier-dense document.
+func isDegenerateGeneration(text string) bool {
+	const minTokens = 200 // short outputs are never flagged
+	fields := strings.Fields(text)
+	if len(fields) < minTokens {
+		return false
+	}
+	// Normalize each token to its letters-only lowercase form so the numeric
+	// counters ("1." "2." ...) collapse to empty and the cycling words
+	// ("end" "finish" ...) collapse together.
+	vocab := make(map[string]int, len(fields))
+	words := 0
+	for _, f := range fields {
+		norm := strings.ToLower(strings.TrimFunc(f, func(r rune) bool {
+			return !unicode.IsLetter(r)
+		}))
+		if norm == "" {
+			continue // pure counter/punctuation token
+		}
+		vocab[norm]++
+		words++
+	}
+	if words == 0 {
+		return true // nothing but counters/punctuation
+	}
+	// Vocabulary ratio: distinct words / total words. Real prose sits well above
+	// 0.1; a handful of words cycling thousands of times sits near zero.
+	ratio := float64(len(vocab)) / float64(words)
+	if ratio < 0.03 {
+		return true
+	}
+	// Absolute floor: a very long output built from a tiny vocabulary is
+	// degenerate even if the ratio math is skewed by a long non-repeating prefix.
+	if words > 400 && len(vocab) < 25 {
+		return true
+	}
+	return false
+}
+
+// degradedGenerationPlaceholder returns a short, honest Markdown note recording
+// that the model failed to produce a coherent deliverable for this task. Writing
+// this instead of the raw degenerate output keeps the phase progressing (a hard
+// task failure would deadlock phase completion — the trap F-TASK-1/F-DOC-1 fixed)
+// while refusing to launder model garbage into a silent "success": a downstream
+// checkpoint or human reader sees the truth.
+func degradedGenerationPlaceholder(task *Task, targetPath string) string {
+	return fmt.Sprintf(`# Generation Degraded
+
+The document generation for task %s did not produce a coherent result: the
+model returned degenerate, repetitive output that was rejected by the campaign
+fallback's quality guard. This placeholder is written so the deliverable path
+(%s) exists and the phase can proceed, but the task did NOT genuinely succeed.
+
+## Original task
+%s
+
+_Regenerate this artifact with a healthier model/config before relying on it._
+`, task.ID, targetPath, strings.TrimSpace(task.Description))
 }
 
 // getLangFromPath returns the language identifier for a file path.
