@@ -121,15 +121,21 @@ action_mapping(/analyze, /delegate_reviewer).
 # Code mutation actions (delegate to coder shard)
 action_mapping(/fix, /delegate_coder).
 action_mapping(/refactor, /delegate_coder).
-# /optimize is a first-class /mutation coder verb (taxonomy.go:760,
-# ShardType /coder) emitted by perception for "optimize / speed up / make
-# faster". It had no action_mapping, so `nerd run "optimize ..."` derived no
-# next_action and died with "no action derived from policy" (exit 1) — the
-# same F-ROUTE gap /audit had. Routes to the coder via the next_action handoff
-# (cmd_instruction.go:223-237) and makes intent_requires_tool_call(/optimize)
-# true (side_effecting_action(/delegate_coder)), so the coder must emit a
-# tool_call rather than prose-only (anti-hollow).
+# F-ROUTE-3: /optimize, /migrate, /format, /scaffold are the /mutation verbs
+# perception routes to the coder (taxonomy.go: /migrate:755, /optimize:760,
+# /scaffold:785, /format:795 — all Category /mutation, ShardType /coder), yet
+# none had an action_mapping. So `nerd run "optimize/migrate/format/scaffold
+# ..."` derived no next_action and died with "no action derived from policy"
+# (exit 1) — the same F-ROUTE gap /audit had. (/document is /mutation /coder
+# too but is intentionally mapped to /delegate_researcher above.) Each routes
+# to the coder via the next_action handoff (cmd_instruction.go:223-237) and,
+# because /delegate_coder is a side_effecting_action, makes
+# intent_requires_tool_call true so the coder must emit a tool_call rather than
+# prose-only (anti-hollow).
 action_mapping(/optimize, /delegate_coder).
+action_mapping(/migrate, /delegate_coder).
+action_mapping(/format, /delegate_coder).
+action_mapping(/scaffold, /delegate_coder).
 action_mapping(/create, /delegate_coder).
 action_mapping(/delete, /delegate_coder).
 action_mapping(/write, /fs_write).
