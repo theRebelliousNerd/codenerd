@@ -98,7 +98,34 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
-		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
+		var sb strings.Builder
+
+		sb.WriteString(m.styles.Title.Render("No Active Campaign"))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.styles.Body.Render("Campaigns allow you to orchestrate multi-phase goals and complex tasks."))
+		sb.WriteString("\n\n")
+		sb.WriteString(m.styles.Subtitle.Render("Getting Started"))
+		sb.WriteString("\n")
+		sb.WriteString(m.styles.Muted.Render(" • "))
+		sb.WriteString(m.styles.Info.Render("/campaign start <goal>"))
+		sb.WriteString(m.styles.Muted.Render(" - Start a new campaign"))
+		sb.WriteString("\n")
+		sb.WriteString(m.styles.Muted.Render(" • "))
+		sb.WriteString(m.styles.Info.Render("/campaign assault <subsystem>"))
+		sb.WriteString(m.styles.Muted.Render(" - Launch an adversarial assault"))
+		sb.WriteString("\n")
+		sb.WriteString(m.styles.Muted.Render(" • "))
+		sb.WriteString(m.styles.Info.Render("/campaign list"))
+		sb.WriteString(m.styles.Muted.Render(" - View previous campaigns"))
+		sb.WriteString("\n\n")
+
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(m.styles.Theme.Outline).
+			Padding(1, 2).
+			Render(sb.String())
+
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	return m.viewport.View()
 }
