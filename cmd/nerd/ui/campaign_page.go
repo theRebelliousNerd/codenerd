@@ -4,7 +4,9 @@ import (
 	"codenerd/internal/campaign"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +20,24 @@ const (
 	VirtualBufferSize = 5  // Extra phases to render above/below viewport
 	MaxVisiblePhases  = 50 // Maximum phases to render at once for performance
 )
+
+// CampaignKeyMap defines the keybindings for the campaign page.
+type CampaignKeyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	PageUp   key.Binding
+	PageDown key.Binding
+}
+
+// DefaultCampaignKeyMap returns the default keybindings.
+func DefaultCampaignKeyMap() CampaignKeyMap {
+	return CampaignKeyMap{
+		Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "Up")),
+		Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "Down")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "Page Up")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "Page Down")),
+	}
+}
 
 // CampaignPageModel defines the state of the campaign dashboard.
 type CampaignPageModel struct {
@@ -41,6 +61,8 @@ type CampaignPageModel struct {
 
 	// Performance
 	renderCache *CachedRender
+	keys        CampaignKeyMap
+	lastScroll  time.Time
 }
 
 // NewCampaignPageModel creates a new campaign page.
@@ -56,6 +78,7 @@ func NewCampaignPageModel() CampaignPageModel {
 		height:      20,
 		layout:      NewLayoutConfig(80, 20),
 		renderCache: NewCachedRender(nil), // Use default shared cache
+		keys:        DefaultCampaignKeyMap(),
 	}
 }
 
@@ -65,23 +88,32 @@ func (m CampaignPageModel) Init() tea.Cmd {
 }
 
 // Update handles messages.
-// TODO: IMPROVEMENT: Implement customizable key bindings using `bubbles/key` instead of hardcoded strings.
-// TODO: IMPROVEMENT: Add debounce logic for rapid key presses if performance becomes an issue.
 func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "k", "up":
+		// Debounce rapid key presses for scrolling to improve performance
+		if time.Since(m.lastScroll) < 30*time.Millisecond {
+			if key.Matches(msg, m.keys.Up, m.keys.Down, m.keys.PageUp, m.keys.PageDown) {
+				return m, nil
+			}
+		}
+
+		switch {
+		case key.Matches(msg, m.keys.Up):
 			m.viewport.LineUp(1)
-		case "j", "down":
+			m.lastScroll = time.Now()
+		case key.Matches(msg, m.keys.Down):
 			m.viewport.LineDown(1)
-		case "pgup":
+			m.lastScroll = time.Now()
+		case key.Matches(msg, m.keys.PageUp):
 			m.viewport.HalfViewUp()
-		case "pgdown":
+			m.lastScroll = time.Now()
+		case key.Matches(msg, m.keys.PageDown):
 			m.viewport.HalfViewDown()
+			m.lastScroll = time.Now()
 		}
 	}
 
