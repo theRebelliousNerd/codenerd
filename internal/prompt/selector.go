@@ -404,7 +404,7 @@ func (s *AtomSelector) SetVectorSearchTimeout(timeout time.Duration) {
 //	  - Skeleton atoms take precedence
 //	  - Deduplication by atom ID
 //
-// TODO: Feature: Allow configuring vector vs logic weight per-request via CompilationContext.
+
 func (s *AtomSelector) SelectAtoms(
 	ctx context.Context,
 	atoms []*PromptAtom,
@@ -891,7 +891,11 @@ func (s *AtomSelector) loadFleshAtomsKernel(
 		// Calculate combined score
 		vScore := vectorScores[atomID]
 		logicScore := 1.0
-		combined := (1.0-s.vectorWeight)*logicScore + s.vectorWeight*vScore
+		weight := s.vectorWeight
+		if cc != nil && cc.HasVectorWeight {
+			weight = cc.VectorWeight
+		}
+		combined := (1.0-weight)*logicScore + weight*vScore
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,
@@ -944,7 +948,11 @@ func (s *AtomSelector) fallbackFleshSelection(
 
 		// Calculate score
 		vScore := vectorScores[atom.ID]
-		combined := 0.5 + 0.5*vScore // Base 0.5 for context match, plus vector boost
+		weight := s.vectorWeight
+		if cc != nil && cc.HasVectorWeight {
+			weight = cc.VectorWeight
+		}
+		combined := (1.0-weight) + weight*vScore // Base logic score is implicitly 1.0 for the multiplier before vector weight
 
 		selected = append(selected, &ScoredAtom{
 			Atom:            atom,

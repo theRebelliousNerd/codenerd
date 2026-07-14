@@ -162,6 +162,13 @@ type CompilationContext struct {
 	// SemanticTopK is the number of semantic results to consider
 	SemanticTopK int
 
+	// VectorWeight is the weight of vector scores in combined calculation (0.0-1.0)
+	// If HasVectorWeight is true, this overrides the AtomSelector's default vector weight.
+	VectorWeight float64
+
+	// HasVectorWeight indicates if VectorWeight is explicitly set for this context
+	HasVectorWeight bool
+
 	// =========================================================================
 	// External References (opaque to avoid circular imports)
 	// =========================================================================
@@ -328,6 +335,19 @@ func (cc *CompilationContext) WithIntent(verb, target string) *CompilationContex
 func (cc *CompilationContext) WithTokenBudget(budget, reserved int) *CompilationContext {
 	cc.TokenBudget = budget
 	cc.ReservedTokens = reserved
+	return cc
+}
+
+// WithVectorWeight sets the vector weight and returns the context.
+func (cc *CompilationContext) WithVectorWeight(weight float64) *CompilationContext {
+	if weight < 0 {
+		weight = 0
+	}
+	if weight > 1 {
+		weight = 1
+	}
+	cc.VectorWeight = weight
+	cc.HasVectorWeight = true
 	return cc
 }
 
@@ -553,6 +573,9 @@ func (cc *CompilationContext) Hash() string {
 	writeInt("reserved_tokens_fallback_ratio", cc.ReservedTokensFallbackRatio)
 	write("semantic_query", cc.SemanticQuery)
 	writeInt("semantic_top_k", cc.SemanticTopK)
+	if cc.HasVectorWeight {
+		writeFloat("vector_weight", cc.VectorWeight)
+	}
 	writeFloat("activation_threshold", cc.ActivationThreshold)
 	write("available_specialists", cc.AvailableSpecialists)
 	writeSet("available_tool", cc.AvailableTools)
