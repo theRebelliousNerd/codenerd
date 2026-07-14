@@ -48,6 +48,10 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - **Exercise:** `nerd run "review Summary() ... render *bool as true/false/unset ... use edit_file ..."` (run bqe14s3v5). codeNERD's reviewer shard independently confirmed the fix + repaired a compile-blocking test-file string.
 - **Upgrade:** **F-FEATURES-1** (879ce8ec) — `Summary()` applied `%v` to eight `*bool` fields → boot log printed pointer addresses (`diff_eval=0x3e37…`). Added nil-safe `boolPtrString` (nil→`unset`, else `true`/`false`), switched to `%s`, kept the two `%d` args, documented the rationale. Tests: `TestSummaryRendersBoolPointersAsValues` (exact-string + `0x`-leak guard + nil→unset) + `TestBoolPtrString`. `go build`+`go test ./internal/features` green (independently verified, `ok 0.081s`).
 
+### ✅ Tools/core file_ops — `internal/tools/core`
+- **Exercise:** `edit_file` driven live end-to-end by the reviewer shard in run bqe14s3v5 (happy path); edge cases proven at the production tool-code layer with real-file-IO tests (no stubs). Adversarial-CLI exercise of the new guard rides the next live run transitively.
+- **Upgrade:** **F-TOOLS-CORE-1** (058c45a6) — `edit_file` had two silent-corruption paths `write_file` did not. (1) Non-unique `old_text` with `replace_all` unset replaced only the FIRST match and reported "Replaced 1 occurrence(s)" → could corrupt the wrong site; now refuses when `old_text` occurs >1 time (asks for more context or `replace_all`). (2) Non-string `new_text` (model emits number/null) failed `.(string)` and coerced to `""`, silently turning the edit into a deletion; now rejects non-string/absent `new_text` with an explicit type error mirroring `write_file` — explicit `""` stays a valid deletion. 6 real-IO tests; full `internal/tools/core` package green. Same asymmetry class as F-TOOL-3 (write_file hardened, edit_file left loose).
+
 ### ⬜ Articulation — `internal/articulation`
 - **Note:** the empty-response symptom (`Fallback parse: empty response ... EOF`) surfaces here; root cause was upstream (empty subagent response). Worth a dedicated exercise: does articulation degrade gracefully on empty/truncated model output?
 
@@ -57,7 +61,6 @@ Legend: ✅ done · 🔄 in progress · ⬜ not yet exercised
 - Prompt compiler / JIT — `internal/prompt` (atom selection, budget).
 - Perception — `internal/perception` (intent classification).
 - VirtualStore — `internal/core/virtual_store.go` (action routing).
-- Tools/core — `internal/tools/core` (file_ops: edit_file uniqueness guard; non-string `new_text` coercion — see dogfood plan backup targets). **Next target** — now that F-TOOL-3 lets edit_file run, exercise it via `nerd run` on a non-unique-anchor edit.
 - Config — `internal/config`.
 - Research tools — `internal/tools/research` (context7).
 - Autopoiesis / Ouroboros — tool generation.
