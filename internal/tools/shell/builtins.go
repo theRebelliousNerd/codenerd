@@ -11,6 +11,62 @@ import (
 	"strings"
 )
 
+// psVerbs is the set of PowerShell approved-verb prefixes we recognize, used to
+// decide whether a not-found "Verb-Noun" command is a PowerShell cmdlet worth
+// re-routing through PowerShell (rather than a hyphenated unix binary).
+var psVerbs = map[string]bool{
+	"get": true, "set": true, "new": true, "remove": true, "select": true,
+	"where": true, "foreach": true, "sort": true, "measure": true, "test": true,
+	"resolve": true, "format": true, "out": true, "write": true, "add": true,
+	"clear": true, "copy": true, "move": true, "rename": true, "invoke": true,
+	"start": true, "stop": true, "import": true, "export": true, "join": true,
+	"split": true, "compare": true, "group": true, "convertto": true,
+	"convertfrom": true, "read": true, "show": true,
+}
+
+// commonPSAliases are bare PowerShell command names (not Verb-Noun) the model
+// commonly emits that are not standalone binaries.
+var commonPSAliases = map[string]bool{
+	"get-childitem": true, "select-string": true, "get-content": true,
+	"measure-object": true, "where-object": true, "select-object": true,
+	"foreach-object": true, "sort-object": true, "get-item": true,
+	"test-path": true, "resolve-path": true, "get-location": true,
+	"write-output": true, "write-host": true, "format-table": true,
+	"format-list": true, "out-string": true, "get-childitems": true,
+}
+
+// isLikelyPowerShell reports whether cmd looks like a PowerShell cmdlet, so a
+// not-found command can be re-routed through PowerShell on Windows instead of
+// failing with "executable file not found". Matches the known alias set plus the
+// Verb-Noun cmdlet shape gated on an approved PowerShell verb (so a hyphenated
+// unix binary that merely isn't installed is not misrouted).
+func isLikelyPowerShell(cmd string) bool {
+	lc := strings.ToLower(strings.TrimSuffix(cmd, ".exe"))
+	if commonPSAliases[lc] {
+		return true
+	}
+	i := strings.IndexByte(lc, '-')
+	if i <= 0 || i >= len(lc)-1 {
+		return false
+	}
+	verb, noun := lc[:i], lc[i+1:]
+	return psVerbs[verb] && isAlphaWord(verb) && isAlphaWord(noun)
+}
+
+// isAlphaWord reports whether s is non-empty and all ASCII letters.
+func isAlphaWord(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return false
+		}
+	}
+	return true
+}
+
 // runBuiltinFallback serves a small set of ubiquitous, read-only shell commands
 // with cross-platform Go implementations. It is invoked by executeRunCommand
 // ONLY when the requested binary is not found on PATH — so a real installed tool

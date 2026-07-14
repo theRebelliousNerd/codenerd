@@ -145,6 +145,21 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 			logging.VirtualStore("run_command builtin fallback served: %s", parsedArgs[0])
 			return out, nil
 		}
+		// On Windows the model frequently emits PowerShell cmdlets
+		// (Get-ChildItem, Select-String, Measure-Object, ...) which are not
+		// standalone binaries, so exec fails with "executable file not found".
+		// The unix builtins above cover tools PowerShell lacks (rg, wc); for
+		// everything else, re-route the whole command through PowerShell so the
+		// cmdlet actually runs with its native argument syntax. Only when the
+		// requested command was NOT found (installed binaries still win) and
+		// PowerShell is present. The command already passed the upstream
+		// permission gate, so this changes how it runs, not whether it may.
+		if runtime.GOOS == "windows" && isLikelyPowerShell(parsedArgs[0]) {
+			if psPath, err := execLookPath("powershell"); err == nil {
+				parsedArgs = []string{psPath, "-NoProfile", "-NonInteractive", "-Command", command}
+				logging.VirtualStore("run_command routing via PowerShell: %s", command)
+			}
+		}
 	}
 
 	// Build the timeout context BEFORE constructing the command so the

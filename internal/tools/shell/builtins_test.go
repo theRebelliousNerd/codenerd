@@ -101,6 +101,23 @@ func TestBuiltin_GrepFilesOnly(t *testing.T) {
 	}
 }
 
+func TestIsLikelyPowerShell(t *testing.T) {
+	yes := []string{"Get-ChildItem", "Select-String", "get-content", "Measure-Object",
+		"Where-Object", "Test-Path", "Resolve-Path.exe", "New-Item", "Remove-Item"}
+	for _, c := range yes {
+		if !isLikelyPowerShell(c) {
+			t.Errorf("expected %q to be detected as PowerShell", c)
+		}
+	}
+	no := []string{"rg", "wc", "ls", "cat", "grep", "go", "git",
+		"some-tool", "clang-format", "docker-compose"} // hyphenated non-PS binaries
+	for _, c := range no {
+		if isLikelyPowerShell(c) {
+			t.Errorf("expected %q NOT to be detected as PowerShell", c)
+		}
+	}
+}
+
 func TestBuiltin_Unhandled(t *testing.T) {
 	if _, handled := runBuiltinFallback([]string{"somefancytool", "--x"}, ""); handled {
 		t.Fatal("unknown command must fall through (handled=false)")
