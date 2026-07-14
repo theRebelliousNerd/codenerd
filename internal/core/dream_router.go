@@ -8,6 +8,8 @@ package core
 
 import (
 	"codenerd/internal/logging"
+
+	"codenerd/internal/types"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ type DreamRouter struct {
 // LearningStoreSaver is the interface for persisting per-shard learnings.
 type LearningStoreSaver interface {
 	Save(shardType, factPredicate string, factArgs []any, sourceCampaign string) error
+	SaveBatch(shardType string, learnings []types.ShardLearning, sourceCampaign string) error
 }
 
 // ColdStoreSaver is the interface for persisting long-term facts.

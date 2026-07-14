@@ -174,6 +174,63 @@ func (ls *LearningStore) Save(shardType string, factPredicate string, factArgs [
 	return nil
 }
 
+// SaveBatch persists multiple learnings to the store efficiently using a single transaction.
+func (ls *LearningStore) SaveBatch(shardType string, learnings []types.ShardLearning, sourceCampaign string) error {
+	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.SaveBatch")
+	defer timer.Stop()
+
+	if len(learnings) == 0 {
+		return nil
+	}
+
+	db, err := ls.getDB(shardType)
+	if err != nil {
+		return err
+	}
+
+	logging.StoreDebug("Saving batch of %d learnings for shard=%s campaign=%s", len(learnings), shardType, sourceCampaign)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO learnings (shard_type, fact_predicate, fact_args, source_campaign, confidence)
+		VALUES (?, ?, ?, ?, 1.0)
+		ON CONFLICT(fact_predicate, fact_args) DO UPDATE SET
+			confidence = MIN(1.0, confidence + 0.1),
+			learned_at = CURRENT_TIMESTAMP,
+			source_campaign = excluded.source_campaign
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, learning := range learnings {
+		argsJSON, err := json.Marshal(learning.FactArgs)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to marshal fact args for batch save: %v", err)
+			return fmt.Errorf("failed to marshal fact args: %w", err)
+		}
+
+		_, err = stmt.Exec(shardType, learning.FactPredicate, string(argsJSON), sourceCampaign)
+		if err != nil {
+			logging.Get(logging.CategoryStore).Error("Failed to save learning in batch %s: %v", learning.FactPredicate, err)
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit learning batch: %w", err)
+	}
+
+	logging.StoreDebug("Successfully saved batch of %d learnings for shard=%s", len(learnings), shardType)
+	return nil
+}
+
 // Load retrieves all learnings for a shard type.
 func (ls *LearningStore) Load(shardType string) ([]types.ShardLearning, error) {
 	timer := logging.StartTimer(logging.CategoryStore, "LearningStore.Load")

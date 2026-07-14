@@ -693,28 +693,39 @@ func (b *BaseSystemShard) persistLearning() error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	var batch []types.ShardLearning
+
 	// Persist all patterns above threshold
 	for pattern, count := range b.patternSuccess {
 		if count >= 3 {
-			if err := b.learningStore.Save(b.ID, "success_pattern", []any{pattern}, ""); err != nil {
-				return err
-			}
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "success_pattern",
+				FactArgs:      []any{pattern},
+			})
 		}
 	}
 
 	for pattern, count := range b.patternFailure {
 		if count >= 2 {
-			if err := b.learningStore.Save(b.ID, "failure_pattern", []any{pattern}, ""); err != nil {
-				return err
-			}
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "failure_pattern",
+				FactArgs:      []any{pattern},
+			})
 		}
 	}
 
 	for pattern, count := range b.corrections {
 		if count >= 2 {
-			if err := b.learningStore.Save(b.ID, "correction_pattern", []any{pattern}, ""); err != nil {
-				return err
-			}
+			batch = append(batch, types.ShardLearning{
+				FactPredicate: "correction_pattern",
+				FactArgs:      []any{pattern},
+			})
+		}
+	}
+
+	if len(batch) > 0 {
+		if err := b.learningStore.SaveBatch(b.ID, batch, ""); err != nil {
+			return err
 		}
 	}
 
