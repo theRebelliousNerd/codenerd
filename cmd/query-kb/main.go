@@ -105,7 +105,7 @@ func queryDB(dbPath string, limit int, w io.Writer) {
 	schemaRows.Close()
 
 	// Query all columns
-	rows, err = db.Query(fmt.Sprintf(`SELECT * FROM knowledge_atoms LIMIT %d`, limit))
+	rows, err = db.Query("SELECT * FROM knowledge_atoms LIMIT ?", limit)
 	if err != nil {
 		fmt.Fprintf(w, "Error querying knowledge: %v\n", err)
 		return
