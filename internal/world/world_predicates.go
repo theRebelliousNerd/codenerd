@@ -5,6 +5,7 @@ package world
 var WorldPredicates = []string{
 	"file_topology",
 	"directory",
+	"file_dir",
 	"symbol_graph",
 	"dependency_link",
 	// Holographic / deep predicates

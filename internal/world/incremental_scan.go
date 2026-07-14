@@ -297,6 +297,18 @@ func (s *Scanner) ScanWorkspaceIncremental(ctx context.Context, root string, db 
 			}
 
 			additional := make([]core.Fact, 0)
+
+			// file_dir companion fact (mirrors the full scan in fs.go): keyed to the
+			// same path as file_topology above so mock_file and other rules can join
+			// files within one package directory instead of Cartesian-joining the
+			// whole repo. Emitted here too so incrementally re-scanned files keep
+			// their directory key.
+			if dir := filepath.ToSlash(filepath.Dir(path)); dir != "" {
+				additional = append(additional, core.Fact{
+					Predicate: "file_dir",
+					Args:      []any{path, dir},
+				})
+			}
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
 				parser := s.parserPool.Get().(*TreeSitterParser)
 				defer s.parserPool.Put(parser)

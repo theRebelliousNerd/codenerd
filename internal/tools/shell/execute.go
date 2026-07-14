@@ -133,6 +133,35 @@ func executeRunCommand(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("empty command after parsing")
 	}
 
+	// Cross-platform builtin fallback (F-CMD-2 / contract #4): if the requested
+	// binary is not on PATH — common on Windows for unix coreutils like rg/ls/wc
+	// that campaign checkpoint reviewers and shards habitually reach for — serve
+	// a read-only Go implementation instead of hard-failing with
+	// "exec: <cmd>: executable file not found". Only triggers when the real
+	// binary is absent, so an installed tool always wins and behavior is
+	// unchanged on systems that have the command.
+	if _, lookErr := execLookPath(parsedArgs[0]); lookErr != nil {
+		if out, handled := runBuiltinFallback(parsedArgs, workingDir); handled {
+			logging.VirtualStore("run_command builtin fallback served: %s", parsedArgs[0])
+			return out, nil
+		}
+		// On Windows the model frequently emits PowerShell cmdlets
+		// (Get-ChildItem, Select-String, Measure-Object, ...) which are not
+		// standalone binaries, so exec fails with "executable file not found".
+		// The unix builtins above cover tools PowerShell lacks (rg, wc); for
+		// everything else, re-route the whole command through PowerShell so the
+		// cmdlet actually runs with its native argument syntax. Only when the
+		// requested command was NOT found (installed binaries still win) and
+		// PowerShell is present. The command already passed the upstream
+		// permission gate, so this changes how it runs, not whether it may.
+		if runtime.GOOS == "windows" && isLikelyPowerShell(parsedArgs[0]) {
+			if psPath, err := execLookPath("powershell"); err == nil {
+				parsedArgs = []string{psPath, "-NoProfile", "-NonInteractive", "-Command", command}
+				logging.VirtualStore("run_command routing via PowerShell: %s", command)
+			}
+		}
+	}
+
 	// Build the timeout context BEFORE constructing the command so the
 	// process is actually bound to the deadline (was previously built twice).
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)

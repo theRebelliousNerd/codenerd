@@ -11,6 +11,28 @@ import (
 	"time"
 )
 
+// maxPhaseCheckpointAttempts bounds how many times a phase's verification
+// checkpoint may fail before the phase is force-advanced with an unverified
+// checkpoint, preventing the F-CKPT-2 failure→replan→re-checkpoint infinite loop.
+const maxPhaseCheckpointAttempts = 3
+
+// incrementCheckpointFailures bumps and returns the failure counter for the phase
+// with the given ID in the live campaign.
+func (o *Orchestrator) incrementCheckpointFailures(phaseID string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.campaign == nil {
+		return 0
+	}
+	for i := range o.campaign.Phases {
+		if o.campaign.Phases[i].ID == phaseID {
+			o.campaign.Phases[i].CheckpointFailures++
+			return o.campaign.Phases[i].CheckpointFailures
+		}
+	}
+	return 0
+}
+
 // runPhase executes all tasks in a phase with bounded parallelism, checkpoints,
 // and rolling-wave refinement of the next phase once complete.
 func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
@@ -27,6 +49,19 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 	results := make(chan taskResult, o.maxParallelTasks*2)
 
 	for {
+		// Re-bind to the live phase each iteration. A concurrent task rollback
+		// (assault), replan, or rolling-wave can swap o.campaign.Phases to a
+		// freshly cloned backing array, orphaning this cached pointer; reading a
+		// stale phase makes already-completed tasks look perpetually pending and
+		// drives the F-SCHED-2 infinite completion→re-dispatch loop. If the phase
+		// was removed entirely, hand control back to the main Run loop.
+		if live := o.livePhaseByID(phase.ID); live != nil {
+			phase = live
+		} else {
+			logging.Campaign("Phase %s no longer present in campaign; returning to main loop", phase.ID)
+			return nil
+		}
+
 		// Respect cancellation
 		select {
 		case <-ctx.Done():
@@ -76,8 +111,26 @@ func (o *Orchestrator) runPhase(ctx context.Context, phase *Phase) error {
 
 			// If any verification failed, trigger a replan and keep the phase open.
 			if !allPassed {
-				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failures: %s", phase.ID, failedSummary)
+				attempts := o.incrementCheckpointFailures(phase.ID)
+				logging.Get(logging.CategoryCampaign).Warn("Phase %s checkpoint failure %d/%d: %s", phase.ID, attempts, maxPhaseCheckpointAttempts, failedSummary)
 				o.emitEvent("checkpoint_failed", phase.ID, "", failedSummary, nil)
+
+				// Bounded retry (F-CKPT-2): a checkpoint that keeps failing — a tool
+				// error, or a review that a replan cannot fix — must not spin the
+				// phase in an endless failure→replan→re-checkpoint loop (each attempt
+				// is a full LLM checkpoint call). After the cap, record the phase as
+				// completed-with-UNVERIFIED-checkpoint and advance so the campaign
+				// still reaches a coherent terminal state and produces its output.
+				if attempts >= maxPhaseCheckpointAttempts {
+					logging.Get(logging.CategoryCampaign).Warn("Phase %s exhausted %d checkpoint attempts; advancing with UNVERIFIED checkpoint", phase.ID, maxPhaseCheckpointAttempts)
+					o.emitEvent("checkpoint_exhausted", phase.ID, "", failedSummary, map[string]any{
+						"attempts": attempts,
+						"max":      maxPhaseCheckpointAttempts,
+					})
+					o.completePhase(phase)
+					o.triggerRollingWave(ctx, phase)
+					return nil
+				}
 
 				// Seed a replan trigger so Replanner has a hard signal.
 				if err := o.kernel.Assert(core.Fact{

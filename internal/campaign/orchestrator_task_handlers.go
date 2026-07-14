@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
@@ -112,17 +113,102 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 	// Spawn the shard via unified spawnTask
 	result, err := o.spawnTask(ctx, shardType, input)
 	if err != nil {
+		// F-DOC-1: /document tasks are the campaign's deliverables (reports,
+		// rubrics). The decomposer often routes them to the coder shard, which
+		// explores without ever writing (tripping the hollow-success guard) and
+		// permanently fails the task — deadlocking the phase. Fall back to direct
+		// document generation so the deliverable is still produced and the phase
+		// can complete. Non-document tasks keep the hard failure.
+		if task.Type == TaskTypeDocument {
+			logging.Get(logging.CategoryCampaign).Warn("Shard %s failed for document task %s: %v; falling back to direct document generation", shardType, task.ID, err)
+			var targetPath string
+			if len(task.Artifacts) > 0 {
+				targetPath = task.Artifacts[0].Path
+			}
+			return o.executeFileTaskFallback(ctx, task, targetPath)
+		}
 		logging.Get(logging.CategoryCampaign).Error("Shard %s failed for task %s: %v", shardType, task.ID, err)
 		return nil, fmt.Errorf("shard %s failed: %w", shardType, err)
 	}
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
+	// F-HOLLOW-2: an explicit analysis shard can return an empty/near-empty result
+	// on a package-audit task (observed live, run 14 phase 1: shard=reviewer
+	// returned "result":"" for invariant/error-contract audits; shard=testarchitect
+	// returned a 367-byte stub). The checkpoint reviewer then correctly fails the
+	// phase for missing findings. Retry once via the research path, which reliably
+	// produces written findings for audit tasks (run 14 phase 0 researcher tasks
+	// each delivered 7-11KB). Skip file/test/tool tasks, which legitimately return
+	// only a short confirmation after writing their own durable output.
+	if isTrivialResult(result) && !isFileProducingType(task.Type) {
+		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned trivial result (%d bytes); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Produce a complete written findings report in your final response, with file+symbol anchors where possible. Do NOT return an empty response — if a probe failed, report what you did find."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+			result = retried
+			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s still returned no substantive output after research-path retry", task.ID)
+			o.emitEvent("shard_result_empty", task.PhaseID, task.ID, fmt.Sprintf("shard %s returned no substantive output after retry", shardType), nil)
+		}
+	}
+
+	// F-DURABLE-1: an explicit-shard task that produces analysis (research,
+	// audit, review, discovery) rather than a file returns its result only in
+	// memory. Persist it as a durable artifact so the findings survive and the
+	// phase-checkpoint reviewer can verify a real output. No-op for file/test/
+	// tool tasks and when a durable output already exists (see helper).
+	o.persistTaskOutputArtifact(task, result)
+
 	return map[string]any{
 		"shard":  shardType,
 		"result": result,
 		"task":   task.ID,
 	}, nil
+}
+
+// isTrivialResult reports whether a shard result carries no substantive content
+// and is therefore not worth persisting or counting as a real deliverable. The
+// 40-rune floor rejects empty responses and one-line acknowledgements while
+// admitting even a terse but real finding.
+func isTrivialResult(s string) bool {
+	return len([]rune(strings.TrimSpace(s))) < 40
+}
+
+// isFileProducingType reports whether a task type writes its own durable output
+// (a file, test, or generated tool). Such tasks legitimately return only a short
+// confirmation string, so they are exempt from the empty-result retry and from
+// analysis-artifact persistence.
+func isFileProducingType(t TaskType) bool {
+	switch t {
+	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,
+		TaskTypeTestRun, TaskTypeToolCreate, TaskTypeRefactor:
+		return true
+	}
+	return false
+}
+
+// analyticalVerifyKeywords mark a /verify task whose real objective is analytical
+// review (produce findings) rather than a build check (run go build).
+var analyticalVerifyKeywords = []string{
+	"inspect", "audit", "review", "identify", "analyze", "analyse", "assess",
+	"examine", "evaluate", "defect", "vulnerab", "contract drift", "api contract",
+	"error-handling", "error handling", "code smell", "anti-pattern", "antipattern",
+	"race condition", "lifecycle", "ownership", "invariant", "risk", "finding",
+}
+
+// isAnalyticalVerifyDescription reports whether a /verify task's description asks
+// for analytical review (which must produce durable findings) rather than a plain
+// build/compile check (which the go-build path handles). Build-verification tasks
+// stay on the build path for backward compatibility.
+func isAnalyticalVerifyDescription(desc string) bool {
+	d := strings.ToLower(desc)
+	for _, k := range analyticalVerifyKeywords {
+		if strings.Contains(d, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // executeResearchTask spawns a researcher shard.
@@ -134,7 +220,81 @@ func (o *Orchestrator) executeResearchTask(ctx context.Context, task *Task) (any
 		return nil, err
 	}
 	logging.CampaignDebug("Researcher shard completed for task %s", task.ID)
+
+	// F-HOLLOW-1: a research subagent can return an empty final response (observed
+	// live, run 13 task 0_2: "Fallback parse: empty response ... EOF") yet be
+	// marked "completed successfully", producing a hollow success that delivers
+	// nothing durable — the phase-checkpoint reviewer then correctly fails the
+	// phase for the missing artifact. Retry once, explicitly demanding the written
+	// findings, before accepting an empty deliverable.
+	if isTrivialResult(result) {
+		logging.Get(logging.CategoryCampaign).Warn("Research task %s returned trivial/empty result (%d bytes); retrying once", task.ID, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Return your findings as a complete written report in your final response. Do NOT return an empty response — if a probe failed, report what you did find."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+			result = retried
+			logging.Campaign("Research retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Research task %s still returned no substantive output after retry", task.ID)
+			o.emitEvent("research_empty", task.PhaseID, task.ID, "research task returned no substantive output after retry", nil)
+		}
+	}
+
+	// F-DURABLE-1: research/audit tasks previously returned their findings only
+	// in memory, leaving nothing on disk. The phase-checkpoint reviewer then
+	// correctly reported "no durable discovery outputs" and failed the phase even
+	// though the work was done (observed live, run 12 phases 0/1). Persist the
+	// findings so they survive the campaign and the reviewer has a real output.
+	o.persistTaskOutputArtifact(task, result)
 	return map[string]any{"research_result": result}, nil
+}
+
+// persistTaskOutputArtifact writes an analysis/research/audit task's textual
+// result to a durable campaign artifact and registers it on the task. Such tasks
+// return their findings only as an in-memory map, so without this the work leaves
+// no durable trace: an audit campaign's findings evaporate when the run ends, and
+// the phase-checkpoint reviewer reports "no durable discovery outputs" and fails
+// the phase on merit. Persisting the result as a /doc artifact makes the findings
+// durable and gives the reviewer something real to verify.
+//
+// It is a no-op for tasks that produce their own durable output (file/test/tool)
+// and for tasks that already carry a durable output artifact on disk. Input
+// artifacts (/source_file, /knowledge_base) are the material being audited, not
+// outputs, so their presence does not suppress persistence.
+func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
+	if task == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(result)
+	if isTrivialResult(trimmed) {
+		return // nothing substantial worth persisting
+	}
+	if isFileProducingType(task.Type) {
+		return // these produce their own durable file/test/tool output
+	}
+	for _, a := range task.Artifacts {
+		switch a.Type {
+		case "/doc", "/test_file", "/config", "/file":
+			if a.Path != "" {
+				if _, err := os.Stat(filepath.Join(o.workspace, a.Path)); err == nil {
+					return // a durable output already exists; don't duplicate it
+				}
+			}
+		}
+	}
+	relPath := o.defaultTaskArtifactPath(task)
+	fullPath := filepath.Join(o.workspace, relPath)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to create artifact dir for task %s: %v", task.ID, err)
+		return
+	}
+	header := fmt.Sprintf("# %s\n\n_Durable output for task %s (%s)._\n\n", task.Description, task.ID, task.Type)
+	if err := os.WriteFile(fullPath, []byte(header+trimmed+"\n"), 0o644); err != nil {
+		logging.Get(logging.CategoryCampaign).Warn("Failed to persist output artifact for task %s: %v", task.ID, err)
+		return
+	}
+	task.Artifacts = append(task.Artifacts, TaskArtifact{Type: "/doc", Path: relPath})
+	logging.Campaign("Persisted durable output artifact for task %s: %s (%d bytes)", task.ID, relPath, len(trimmed))
+	o.emitEvent("artifact_persisted", task.PhaseID, task.ID, relPath, nil)
 }
 
 // executeFileTask creates or modifies a file using the Coder shard.
@@ -184,15 +344,28 @@ func (o *Orchestrator) executeFileTask(ctx context.Context, task *Task) (any, er
 func (o *Orchestrator) executeFileTaskFallback(ctx context.Context, task *Task, targetPath string) (any, error) {
 	logging.CampaignDebug("Executing file task fallback for %s via direct LLM", task.ID)
 
-	// If no target path, try to extract from task description or fail
+	// If no target path, try to extract from task description.
 	if targetPath == "" {
-		// Try to extract path from description (look for common patterns)
 		targetPath = extractPathFromDescription(task.Description)
-		if targetPath == "" {
+		if targetPath != "" {
+			logging.CampaignDebug("Extracted target path from description: %s", targetPath)
+		}
+	}
+	// F-TASK-1: the decomposer frequently emits artifact-producing tasks
+	// (/document, /file_create) with no target path/artifact. Failing them
+	// permanently deadlocks the phase (a failed task blocks phase completion).
+	// Write to a deterministic campaign artifact path instead so the work
+	// product is preserved and the phase can proceed. Tasks that mutate a
+	// specific existing file (/file_modify, /refactor, /integrate) still require
+	// an explicit path — defaulting one would be meaningless.
+	if targetPath == "" {
+		if task.Type == TaskTypeDocument || task.Type == TaskTypeFileCreate {
+			targetPath = o.defaultTaskArtifactPath(task)
+			logging.Campaign("No target path for %s task %s; defaulting to campaign artifact %s", task.Type, task.ID, targetPath)
+		} else {
 			logging.Get(logging.CategoryCampaign).Error("No target path for file task %s and could not extract from description", task.ID)
 			return nil, fmt.Errorf("no target path specified for file task %s", task.ID)
 		}
-		logging.CampaignDebug("Extracted target path from description: %s", targetPath)
 	}
 
 	// Path traversal guard
@@ -218,6 +391,29 @@ Output ONLY the file content, no explanation or markdown fences:`, task.Descript
 	lang := getLangFromPath(targetPath)
 	content = extractCodeBlock(content, lang)
 	logging.CampaignDebug("Extracted code block for %s (lang=%s, %d bytes)", targetPath, lang, len(content))
+
+	// F-DOC-2: guard against pathological model repetition loops (observed live:
+	// Grok emitting "1. End. 2. Finish." x1500 as a 19KB artifact). Without this
+	// the degenerate output passes the non-empty check and is counted as task
+	// success. Retry once with an explicit anti-repetition instruction; if the
+	// model still degenerates, persist an honest placeholder rather than garbage.
+	if isDegenerateGeneration(content) {
+		logging.Get(logging.CategoryCampaign).Warn("Fallback generation for %s is degenerate (%d bytes); retrying with anti-repetition guard", task.ID, len(content))
+		retryPrompt := prompt + "\n\nIMPORTANT: Produce a concise, non-repetitive document. Do NOT repeat words, phrases, or numbered lines. Stop as soon as the content is complete."
+		if retried, rerr := o.llmClient.Complete(ctx, retryPrompt); rerr == nil {
+			if rc := extractCodeBlock(retried, lang); rc != "" && !isDegenerateGeneration(rc) {
+				content = rc
+				logging.Campaign("Anti-repetition retry recovered a coherent document for %s (%d bytes)", task.ID, len(content))
+			} else {
+				content = degradedGenerationPlaceholder(task, targetPath)
+				logging.Get(logging.CategoryCampaign).Warn("Retry still degenerate for %s; writing honest degraded placeholder", task.ID)
+			}
+		} else {
+			content = degradedGenerationPlaceholder(task, targetPath)
+			logging.Get(logging.CategoryCampaign).Warn("Anti-repetition retry failed for %s (%v); writing honest degraded placeholder", task.ID, rerr)
+		}
+		o.emitEvent("generation_degraded", "", task.ID, "fallback document generation was degenerate", nil)
+	}
 
 	fullPath := filepath.Join(o.workspace, targetPath)
 	logging.CampaignDebug("Writing generated file: %s (%d bytes)", fullPath, len(content))
@@ -310,6 +506,20 @@ func (o *Orchestrator) executeTestRunTask(ctx context.Context, task *Task) (any,
 
 // executeVerifyTask runs verification (build, lint, etc.).
 func (o *Orchestrator) executeVerifyTask(ctx context.Context, task *Task) (any, error) {
+	// F-VERIFY-1: /verify historically meant "go build ./...". But decomposers of
+	// audit/remediation campaigns emit the phase's actual analytical work (inspect
+	// logic defects, error-handling mistakes, API-contract drift) as /verify tasks.
+	// Running only a build ignores the task description, produces no findings, and
+	// leaves the phase's real deliverable missing — the checkpoint reviewer then
+	// correctly fails the phase (observed live, run 13 phase 1: /verify tasks 1_1,
+	// 1_2, 1_5, 1_6 delivered nothing). Route analytical verify tasks to the
+	// research+persist path (which retries on empty and writes a durable artifact);
+	// keep the build path for genuine build-verification tasks.
+	if isAnalyticalVerifyDescription(task.Description) {
+		logging.Campaign("Verify task %s is analytical (audit/review); routing to research+persist instead of go build", task.ID)
+		return o.executeResearchTask(ctx, task)
+	}
+
 	logging.CampaignDebug("Executing verify task %s: go build ./...", task.ID)
 	// Run build verification for this task
 	cmd := tactile.Command{
@@ -659,6 +869,73 @@ func extractCodeBlock(text, lang string) string {
 	return strings.TrimSpace(text)
 }
 
+// isDegenerateGeneration reports whether text looks like a pathological model
+// repetition loop rather than a real deliverable — e.g. Grok emitting
+// "1. End. 2. Finish. 3. Complete. 4. Done." hundreds of times (observed live in
+// campaign_e6f9b0eb, a 19KB artifact of near-zero information). Such output
+// otherwise passes the non-empty write check in the fallback path and is silently
+// counted as task success, defeating the hollow-success guard. The heuristic is
+// deliberately conservative (only fires on extreme, unambiguous degeneracy) so it
+// never rejects a legitimately terse or identifier-dense document.
+func isDegenerateGeneration(text string) bool {
+	const minTokens = 200 // short outputs are never flagged
+	fields := strings.Fields(text)
+	if len(fields) < minTokens {
+		return false
+	}
+	// Normalize each token to its letters-only lowercase form so the numeric
+	// counters ("1." "2." ...) collapse to empty and the cycling words
+	// ("end" "finish" ...) collapse together.
+	vocab := make(map[string]int, len(fields))
+	words := 0
+	for _, f := range fields {
+		norm := strings.ToLower(strings.TrimFunc(f, func(r rune) bool {
+			return !unicode.IsLetter(r)
+		}))
+		if norm == "" {
+			continue // pure counter/punctuation token
+		}
+		vocab[norm]++
+		words++
+	}
+	if words == 0 {
+		return true // nothing but counters/punctuation
+	}
+	// Vocabulary ratio: distinct words / total words. Real prose sits well above
+	// 0.1; a handful of words cycling thousands of times sits near zero.
+	ratio := float64(len(vocab)) / float64(words)
+	if ratio < 0.03 {
+		return true
+	}
+	// Absolute floor: a very long output built from a tiny vocabulary is
+	// degenerate even if the ratio math is skewed by a long non-repeating prefix.
+	if words > 400 && len(vocab) < 25 {
+		return true
+	}
+	return false
+}
+
+// degradedGenerationPlaceholder returns a short, honest Markdown note recording
+// that the model failed to produce a coherent deliverable for this task. Writing
+// this instead of the raw degenerate output keeps the phase progressing (a hard
+// task failure would deadlock phase completion — the trap F-TASK-1/F-DOC-1 fixed)
+// while refusing to launder model garbage into a silent "success": a downstream
+// checkpoint or human reader sees the truth.
+func degradedGenerationPlaceholder(task *Task, targetPath string) string {
+	return fmt.Sprintf(`# Generation Degraded
+
+The document generation for task %s did not produce a coherent result: the
+model returned degenerate, repetitive output that was rejected by the campaign
+fallback's quality guard. This placeholder is written so the deliverable path
+(%s) exists and the phase can proceed, but the task did NOT genuinely succeed.
+
+## Original task
+%s
+
+_Regenerate this artifact with a healthier model/config before relying on it._
+`, task.ID, targetPath, strings.TrimSpace(task.Description))
+}
+
 // getLangFromPath returns the language identifier for a file path.
 func getLangFromPath(path string) string {
 	ext := strings.TrimPrefix(filepath.Ext(path), ".")
@@ -693,6 +970,23 @@ var descriptionPathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)internal/\S+\.\w+`),    // internal/... paths
 	regexp.MustCompile(`(?i)cmd/\S+\.\w+`),         // cmd/... paths
 	regexp.MustCompile(`(?i)pkg/\S+\.\w+`),         // pkg/... paths
+}
+
+// defaultTaskArtifactPath returns a deterministic, workspace-relative artifact
+// path for an artifact-producing task that the decomposer left without a target
+// path. Documents land under the campaign's own artifact directory (which is
+// inside .nerd/, already excluded from world scans), so they never pollute the
+// audited source tree and are stable across retries.
+func (o *Orchestrator) defaultTaskArtifactPath(task *Task) string {
+	id := strings.ReplaceAll(strings.TrimPrefix(task.ID, "/"), "/", "_")
+	if id == "" {
+		id = "task"
+	}
+	campID := "campaign"
+	if o.campaign != nil {
+		campID = campaignSlug(o.campaign.ID)
+	}
+	return filepath.ToSlash(filepath.Join(".nerd", "campaigns", campID, "artifacts", id+".md"))
 }
 
 // extractPathFromDescription attempts to extract a file path from a task description.

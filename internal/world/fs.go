@@ -329,10 +329,11 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			// schemas_world.mg declares the slot bound /number, which Mangle
 			// treats as any int64; the value is not compared to thresholds in
 			// any policy rule, so widening the magnitude is safe.
+			canonical := canonicalScanPath(root, path)
 			fact := core.Fact{
 				Predicate: "file_topology",
 				Args: []any{
-					canonicalScanPath(root, path),
+					canonical,
 					hash,
 					core.MangleAtom("/" + lang),
 					info.ModTime().UnixNano(),
@@ -341,6 +342,22 @@ func (s *Scanner) ScanDirectory(ctx context.Context, root string) (*ScanResult, 
 			}
 
 			var additionalFacts []core.Fact
+
+			// file_dir(Path, Dir): the file's package directory, emitted as a
+			// companion to file_topology so relational rules (notably mock_file)
+			// can join a _test.go to the source files in its OWN package instead
+			// of forming a repo-wide Cartesian product (every test file x every
+			// source file), which overflowed the kernel fact limit on large
+			// repos. Uses the same canonical (workspace-relative) path as the
+			// join key so the values match file_topology exactly.
+			dir := filepath.ToSlash(filepath.Dir(canonical))
+			if dir == "" {
+				dir = "."
+			}
+			additionalFacts = append(additionalFacts, core.Fact{
+				Predicate: "file_dir",
+				Args:      []any{canonical, dir},
+			})
 			// If not a test file and supported language, extract symbols
 			if !isTest && (s.config.MaxASTFileBytes <= 0 || info.Size() <= s.config.MaxASTFileBytes) {
 				// Borrow a parser from the pool

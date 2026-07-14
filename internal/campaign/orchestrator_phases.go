@@ -35,6 +35,25 @@ func (o *Orchestrator) getCurrentPhase() *Phase {
 	return nil
 }
 
+// livePhaseByID returns the current pointer to the phase with the given ID within
+// o.campaign. Callers that cache a *Phase across scheduling iterations must
+// re-resolve it through this helper, because a concurrent rollback/replan/
+// rolling-wave can swap o.campaign.Phases to a new backing array and orphan the
+// cached pointer (see F-SCHED-2). Returns nil if the phase is no longer present.
+func (o *Orchestrator) livePhaseByID(phaseID string) *Phase {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.campaign == nil {
+		return nil
+	}
+	for i := range o.campaign.Phases {
+		if o.campaign.Phases[i].ID == phaseID {
+			return &o.campaign.Phases[i]
+		}
+	}
+	return nil
+}
+
 // getEligibleTasks returns all runnable tasks for the current phase.
 func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 	if phase == nil {

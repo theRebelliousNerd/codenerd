@@ -19,6 +19,11 @@ Decl file_topology(Path, Hash, Language, LastModified, IsTestFile) bound [/strin
 # directory(Path, Name)
 Decl directory(Path, Name) bound [/string, /string].
 
+# file_dir(Path, Dir) - a file's package directory (companion to file_topology).
+# Emitted by the world scanner so relational rules can join files within the
+# same package/directory instead of forming repo-wide Cartesian products.
+Decl file_dir(Path, Dir) bound [/string, /string].
+
 # file_exists(Path) - Derived from file_topology
 # Checks if a file exists in the workspace
 Decl file_exists(Path) bound [/string].

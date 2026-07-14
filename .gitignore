@@ -52,6 +52,11 @@
 !.claude/skills/codenerd-builder/references/
 .claude/skills/codenerd-builder/references/*
 !.claude/skills/codenerd-builder/references/skill-registry.md
+!.claude/skills/codenerd-dogfood/
+.claude/skills/codenerd-dogfood/*
+!.claude/skills/codenerd-dogfood/SKILL.md
+!.claude/skills/codenerd-dogfood/references/
+!.claude/skills/codenerd-dogfood/references/**
 !.codex/
 .codex/*
 !.codex/skills/

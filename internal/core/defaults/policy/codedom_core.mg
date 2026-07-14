@@ -52,12 +52,17 @@ interface_impl(StructRef, InterfaceRef) :-
     element_parent(MethodRef, StructRef),
     code_element(MethodRef, /method, _, _, _).
 
-# Test file mocks source file if it's a _test.go in same package
-# BUG-002 FIX: Constrained to prevent Cartesian explosion (was 592^2 = 349K facts)
-# Now: only pairs (test file, source file) - much smaller set
+# Test file mocks source file if it's a _test.go in the SAME package directory.
+# Cartesian-explosion fix: the previous rule paired every test file with every
+# non-test .go file across the whole repo (T x S ~ 500K facts on this codebase,
+# overflowing the kernel fact limit). A Go _test.go only exercises source in its
+# own package, so we now join on file_dir (the file's directory), bounding the
+# derivation to the small per-directory product instead of the repo-wide one.
 mock_file(TestFile, SourceFile) :-
-    file_topology(TestFile, _, /go, _, /true),   # TestFile must be a test file
+    file_topology(TestFile, _, /go, _, /true),    # TestFile must be a test file
     file_topology(SourceFile, _, /go, _, /false), # SourceFile must NOT be a test file
+    file_dir(TestFile, Dir),                      # both in the...
+    file_dir(SourceFile, Dir),                    # ...same package directory
     TestFile != SourceFile.
 
 # Suggest updating mocks when source function signature changes

@@ -316,6 +316,25 @@ func init() {
 	)
 }
 
+// isCampaignInvocation reports whether nerd was launched as a `campaign`
+// subcommand. Campaigns spawn thousands of short-lived subprocess goroutines,
+// each with a unique stack; the runtime execution tracer's stack table
+// (runtime.traceRegionAlloc) grows unbounded under that churn and eventually
+// throws "fatal error: traceRegion: out of memory", killing the whole process
+// (F-TRACE-1, observed live 2026-07-13 during a self-audit campaign). The
+// FlightRecorder is a post-mortem debug aid, not worth crashing a long campaign
+// for, so we skip starting it for campaign runs even when the feature flag is
+// enabled. Other commands (chat, one-shot) keep the recorder.
+func isCampaignInvocation() bool {
+	for _, a := range os.Args[1:] {
+		if len(a) > 0 && a[0] == '-' {
+			continue // skip global flags to reach the subcommand token
+		}
+		return a == "campaign" // first positional arg is the cobra subcommand
+	}
+	return false
+}
+
 func main() {
 	// Ensure file-based logging is up before we emit startup metrics so
 	// the boot category captures the snapshot. Initialize is idempotent
@@ -343,7 +362,7 @@ func main() {
 	// key or the NERD_FLIGHTREC env var (env wins) controls boot. Defaults
 	// to 64 MiB / 30 s window. The runtime stops the recorder automatically
 	// at process exit, so callers do not need to invoke Stop() for correctness.
-	if features.IsFlightRecorderEnabled() {
+	if features.IsFlightRecorderEnabled() && !isCampaignInvocation() {
 		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
 		} else {

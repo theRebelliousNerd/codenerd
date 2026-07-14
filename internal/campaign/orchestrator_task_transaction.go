@@ -19,11 +19,23 @@ type fileMutationSnapshot struct {
 }
 
 // taskExecutionSnapshot captures mutable orchestrator state that must be rolled back.
+//
+// There are two rollback scopes:
+//   - Structural (assault) tasks capture the whole campaign + task-result cache so a
+//     partial plan edit can be fully reverted (campaign != nil).
+//   - Non-structural mutating tasks capture only the failing task's own status, so a
+//     failure rolls back files + that task's status WITHOUT swapping o.campaign or
+//     clobbering concurrently-running sibling tasks (campaign == nil). This is the
+//     fix for the F-SCHED-2 infinite re-dispatch loop.
 type taskExecutionSnapshot struct {
 	campaign        *Campaign
 	taskResults     map[string]string
 	taskResultOrder []string
 	fileMutations   []fileMutationSnapshot
+
+	// Scoped (non-structural) rollback state.
+	scopedTask   *Task
+	scopedStatus TaskStatus
 }
 
 // executeTaskWithRollback wraps mutating task execution in a scoped snapshot.
@@ -100,22 +112,32 @@ func requiresTaskMutationSnapshot(task *Task) bool {
 func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSnapshot, error) {
 	var snapshot taskExecutionSnapshot
 
-	o.mu.RLock()
-	if o.campaign == nil {
+	if requiresCampaignStructuralSnapshot(task) {
+		// Structural (assault) task: full-campaign transactional rollback.
+		o.mu.RLock()
+		if o.campaign == nil {
+			o.mu.RUnlock()
+			return snapshot, fmt.Errorf("no campaign loaded")
+		}
+		clonedCampaign, err := cloneCampaign(o.campaign)
 		o.mu.RUnlock()
-		return snapshot, fmt.Errorf("no campaign loaded")
-	}
-	clonedCampaign, err := cloneCampaign(o.campaign)
-	o.mu.RUnlock()
-	if err != nil {
-		return snapshot, fmt.Errorf("clone campaign: %w", err)
-	}
-	snapshot.campaign = clonedCampaign
+		if err != nil {
+			return snapshot, fmt.Errorf("clone campaign: %w", err)
+		}
+		snapshot.campaign = clonedCampaign
 
-	o.resultsMu.RLock()
-	snapshot.taskResults = cloneStringMap(o.taskResults)
-	snapshot.taskResultOrder = append([]string(nil), o.taskResultOrder...)
-	o.resultsMu.RUnlock()
+		o.resultsMu.RLock()
+		snapshot.taskResults = cloneStringMap(o.taskResults)
+		snapshot.taskResultOrder = append([]string(nil), o.taskResultOrder...)
+		o.resultsMu.RUnlock()
+	} else if task != nil {
+		// Non-structural mutating task: scope rollback to this task's own status
+		// (looked up in the live campaign) plus its file mutations. Never snapshot
+		// the whole campaign — doing so reverts concurrent siblings' completions and
+		// orphans runPhase's phase pointer (F-SCHED-2).
+		snapshot.scopedTask = task
+		snapshot.scopedStatus = o.currentTaskStatus(task.ID)
+	}
 
 	if task == nil {
 		return snapshot, nil
@@ -152,10 +174,7 @@ func (o *Orchestrator) captureTaskExecutionSnapshot(task *Task) (taskExecutionSn
 }
 
 func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnapshot) error {
-	if snapshot.campaign == nil {
-		return fmt.Errorf("snapshot campaign is nil")
-	}
-
+	// File mutations are always reverted, for both structural and scoped snapshots.
 	for _, fs := range snapshot.fileMutations {
 		if fs.Exists {
 			if err := os.MkdirAll(filepath.Dir(fs.Path), 0755); err != nil {
@@ -171,6 +190,19 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 		}
 	}
 
+	// Scoped (non-structural) rollback: restore only the failing task's own status
+	// in place. This keeps o.campaign's identity and all sibling task state intact,
+	// so concurrent completions survive and runPhase's phase pointer is never
+	// orphaned. The failed task's terminal status is subsequently owned by
+	// handleTaskFailure; this restore just undoes the in-progress transition.
+	if snapshot.campaign == nil {
+		if snapshot.scopedTask != nil {
+			o.updateTaskStatus(snapshot.scopedTask, snapshot.scopedStatus)
+		}
+		return nil
+	}
+
+	// Structural (assault) rollback: full-campaign transactional restore.
 	o.mu.Lock()
 	currentCampaign := o.campaign
 	o.campaign = snapshot.campaign
@@ -191,6 +223,24 @@ func (o *Orchestrator) rollbackTaskExecutionSnapshot(snapshot taskExecutionSnaps
 	}
 
 	return nil
+}
+
+// currentTaskStatus returns the status of a task (by ID) from the live campaign,
+// or TaskPending if the task cannot be found.
+func (o *Orchestrator) currentTaskStatus(taskID string) TaskStatus {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.campaign == nil {
+		return TaskPending
+	}
+	for i := range o.campaign.Phases {
+		for j := range o.campaign.Phases[i].Tasks {
+			if o.campaign.Phases[i].Tasks[j].ID == taskID {
+				return o.campaign.Phases[i].Tasks[j].Status
+			}
+		}
+	}
+	return TaskPending
 }
 
 func (o *Orchestrator) rollbackCampaignFacts(currentCampaign, restoredCampaign *Campaign) error {
