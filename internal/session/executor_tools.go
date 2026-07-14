@@ -488,6 +488,19 @@ func (e *Executor) isToolAllowed(toolName string, cfg *config.EffectiveAgentRunt
 	return slices.Contains(cfg.AllowedTools, toolName)
 }
 
+// assertSecurityViolation asserts a security_violation fact into the kernel to provide
+// context to the agent about why an action was blocked.
+func (e *Executor) assertSecurityViolation(actionAtom types.MangleAtom, reason string) {
+	if e.kernel == nil {
+		return
+	}
+	fact := types.Fact{
+		Predicate: "security_violation",
+		Args:      []any{actionAtom, reason, time.Now().Unix()},
+	}
+	_ = e.kernel.Assert(fact)
+}
+
 // maxPayloadBytes caps the JSON-serialized tool args we'll push into the
 // Mangle kernel. Large blobs (file dumps, base64 images) bloat the fact store
 // and the permitted/pending_action comparison would never match anyway.
@@ -499,6 +512,9 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	// action atom, which is meaningless and bypasses meaningful policy match.
 	if strings.TrimSpace(call.Name) == "" {
 		logging.Get(logging.CategorySession).Warn("Safety check denied: empty tool call name")
+		if e.kernel != nil {
+			e.assertSecurityViolation(types.MangleAtom("/unknown"), "empty tool call name")
+		}
 		return false
 	}
 
@@ -532,6 +548,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	payloadBytes, err := json.Marshal(call.Args)
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: cannot marshal args: %v", err)
+		e.assertSecurityViolation(actionAtom, "cannot marshal args")
 		return false
 	}
 	// Reject oversized payloads outright. Truncating would silently break the
@@ -541,6 +558,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 		logging.Get(logging.CategorySession).Error(
 			"Safety check denied: payload too large for kernel (%d bytes > %d)",
 			len(payloadBytes), maxPayloadBytes)
+		e.assertSecurityViolation(actionAtom, fmt.Sprintf("payload too large: %d > %d", len(payloadBytes), maxPayloadBytes))
 		return false
 	}
 	payload := string(payloadBytes)
@@ -561,6 +579,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 
 	if err := e.kernel.Assert(pendingFact); err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: assertion error: %v", err)
+		e.assertSecurityViolation(actionAtom, "failed to assert pending_action")
 		return false
 	}
 
@@ -577,6 +596,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	facts, err := e.kernel.Query("permitted")
 	if err != nil {
 		logging.Get(logging.CategorySession).Error("Safety check failed: query error: %v", err)
+		e.assertSecurityViolation(actionAtom, "failed to query permitted facts")
 		return false
 	}
 
@@ -609,6 +629,7 @@ func (e *Executor) checkSafety(call ToolCall) bool {
 	}
 
 	logging.Get(logging.CategorySession).Warn("Safety check denied action: %s (target: %s)", actionName, target)
+	e.assertSecurityViolation(actionAtom, fmt.Sprintf("action not permitted: target=%s", target))
 	return false
 }
 
