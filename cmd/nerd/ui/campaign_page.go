@@ -92,13 +92,23 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 }
 
 // View renders the page.
-// TODO: Improve the empty state with more helpful instructions or a starting guide.
 // TODO: Add accessibility considerations (ARIA roles/attributes) if supported by the target TUI environment.
 // TODO: IMPROVEMENT: Add a summary/dashboard view mode for high-level metrics.
 // TODO: Add timeline view of campaign phases.
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
-		return m.styles.Content.Render("No active campaign. Use '/campaign start' to begin.")
+		var sb strings.Builder
+
+		sb.WriteString(m.styles.Header.Render(" No Active Campaign ") + "\n\n")
+		sb.WriteString(m.styles.Body.Render("Campaigns allow you to orchestrate multi-phase goals and automated tasks.") + "\n\n")
+		sb.WriteString(m.styles.Bold.Render("Getting Started:") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign start <goal>") + m.styles.Muted.Render("   Begin a new multi-phase campaign") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign assault <target>") + m.styles.Muted.Render(" Run an adversarial soak/stress test") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign resume") + m.styles.Muted.Render("           Resume a paused campaign") + "\n\n")
+		sb.WriteString(m.styles.Bold.Render("Available Controls:") + "\n")
+		sb.WriteString(m.styles.Muted.Render("  [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back"))
+
+		return m.styles.Content.Render(sb.String())
 	}
 	return m.viewport.View()
 }
