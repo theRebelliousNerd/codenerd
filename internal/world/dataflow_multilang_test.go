@@ -13,15 +13,35 @@ func TestMultiLangDataFlowExtractor_DetectLanguage(t *testing.T) {
 		path string
 		want string
 	}{
+		// Happy paths - lowercase
 		{"foo.go", "go"},
 		{"bar.py", "python"},
 		{"baz.js", "javascript"},
 		{"qux.jsx", "javascript"},
+		{"script.mjs", "javascript"},
+		{"script.cjs", "javascript"},
 		{"quux.ts", "typescript"},
 		{"corge.tsx", "typescript"},
 		{"grault.rs", "rust"},
+		// Uppercase / Mixed case extensions
+		{"FOO.GO", "go"},
+		{"BAR.Py", "python"},
+		{"BAZ.JS", "javascript"},
+		{"QUUX.Ts", "typescript"},
+		// Unknown extensions
 		{"garply.txt", ""},
 		{"waldo.md", ""},
+		// No extension
+		{"Makefile", ""},
+		{"Dockerfile", ""},
+		// Hidden files with extension
+		{".gitignore", ""},
+		{".bashrc", ""},
+		// Hidden files with known extension
+		{".hidden.go", "go"},
+		// Multiple dots
+		{"archive.tar.gz", ""},
+		{"main.test.go", "go"},
 	}
 
 	for _, tt := range tests {
