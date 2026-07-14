@@ -45,11 +45,11 @@ func executeReadFile(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	root, err := workspaceRoot()
+	root, err := workspaceRoot(ctx)
 	if err != nil {
 		return "", err
 	}
-	path, err := resolveWorkspacePath(root, rawPath)
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
 	if err != nil {
 		return "", err
 	}
@@ -169,11 +169,11 @@ func executeWriteFile(ctx context.Context, args map[string]any) (string, error) 
 		createDirs = cd
 	}
 
-	root, err := workspaceRoot()
+	root, err := workspaceRoot(ctx)
 	if err != nil {
 		return "", err
 	}
-	path, err := resolveWorkspacePath(root, rawPath)
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
 	if err != nil {
 		return "", err
 	}
@@ -247,11 +247,11 @@ func executeEditFile(ctx context.Context, args map[string]any) (string, error) {
 		replaceAll = ra
 	}
 
-	root, err := workspaceRoot()
+	root, err := workspaceRoot(ctx)
 	if err != nil {
 		return "", err
 	}
-	path, err := resolveWorkspacePath(root, rawPath)
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
 	if err != nil {
 		return "", err
 	}
@@ -313,11 +313,11 @@ func executeDeleteFile(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("path is required")
 	}
 
-	root, err := workspaceRoot()
+	root, err := workspaceRoot(ctx)
 	if err != nil {
 		return "", err
 	}
-	path, err := resolveWorkspacePath(root, rawPath)
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
 	if err != nil {
 		return "", err
 	}
@@ -388,11 +388,11 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 		includeHidden = ih
 	}
 
-	root, err := workspaceRoot()
+	root, err := workspaceRoot(ctx)
 	if err != nil {
 		return "", err
 	}
-	path, err := resolveWorkspacePath(root, rawPath)
+	path, err := resolveWorkspacePath(ctx, root, rawPath)
 	if err != nil {
 		return "", err
 	}
@@ -417,7 +417,7 @@ func executeListFiles(ctx context.Context, args map[string]any) (string, error) 
 
 			// Defensive containment: skip anything that resolves outside the
 			// workspace root (e.g. a symlink pointing out of tree).
-			if _, guardErr := resolveWorkspacePath(root, p); guardErr != nil {
+			if _, guardErr := resolveWorkspacePath(ctx, root, p); guardErr != nil {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}

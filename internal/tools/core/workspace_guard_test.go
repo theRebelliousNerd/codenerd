@@ -1,11 +1,14 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codenerd/internal/tools"
 )
 
 func TestResolveWorkspacePath(t *testing.T) {
@@ -51,7 +54,7 @@ func TestResolveWorkspacePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveWorkspacePath(root, tt.input)
+			got, err := resolveWorkspacePath(context.Background(), root, tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got resolved path %q", got)
@@ -95,7 +98,7 @@ func TestWorkspaceRoot_PrefersCodenerdEnv(t *testing.T) {
 	}
 	t.Setenv("CODENERD_WORKSPACE_ROOT", root)
 
-	got, err := workspaceRoot()
+	got, err := workspaceRoot(context.Background())
 	if err != nil {
 		t.Fatalf("workspaceRoot: %v", err)
 	}
@@ -116,7 +119,7 @@ func TestWorkspaceRoot_PrefersCodenerdEnv(t *testing.T) {
 
 func TestWorkspaceRoot_FallsBackToCwd(t *testing.T) {
 	t.Setenv("CODENERD_WORKSPACE_ROOT", "")
-	got, err := workspaceRoot()
+	got, err := workspaceRoot(context.Background())
 	if err != nil {
 		t.Fatalf("workspaceRoot: %v", err)
 	}
@@ -134,7 +137,7 @@ func TestResolveWorkspacePath_UsesEnvWhenRootEmpty(t *testing.T) {
 	t.Setenv("CODENERD_WORKSPACE_ROOT", root)
 	inside := filepath.Join(root, "new_write.txt")
 
-	got, err := resolveWorkspacePath("", inside)
+	got, err := resolveWorkspacePath(context.Background(), "", inside)
 	if err != nil {
 		t.Fatalf("resolveWorkspacePath: %v", err)
 	}
@@ -152,5 +155,24 @@ func TestResolveWorkspacePath_UsesEnvWhenRootEmpty(t *testing.T) {
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Fatalf("resolved outside root: got=%q root=%q", got, root)
+	}
+}
+
+func TestWorkspaceRoot_PrefersContext(t *testing.T) {
+	want := "/from/context/root"
+	ctx := context.WithValue(context.Background(), tools.CtxKeyWorkspaceRoot, want)
+
+	// Ensure CODENERD_WORKSPACE_ROOT is set to something else to prove context takes precedence.
+	oldEnv := os.Getenv("CODENERD_WORKSPACE_ROOT")
+	os.Setenv("CODENERD_WORKSPACE_ROOT", "/from/env/root")
+	defer os.Setenv("CODENERD_WORKSPACE_ROOT", oldEnv)
+
+	got, err := workspaceRoot(ctx)
+	if err != nil {
+		t.Fatalf("workspaceRoot: %v", err)
+	}
+
+	if filepath.Base(got) != "root" {
+		t.Errorf("expected root path %q, got %q", want, got)
 	}
 }
