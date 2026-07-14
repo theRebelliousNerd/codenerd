@@ -1,4 +1,4 @@
-## 2024-12-27 - Prompt Compiler ╬ô├Ñ├╢ LLM Client Boundary
+## 2024-12-27 - Prompt Compiler Γò¼├┤Γö£├æΓö£Γòó LLM Client Boundary
 **Learning:** The `TokenBudgetManager` acts as the critical throttle between the JIT-assembled atoms and the LLM's physical context window limit. An oversight here (such as truncating a string halfway through a UTF-8 character or misallocating resources in concurrent calls) directly causes the downstream `LLMClient` to panic or receive a `400 Bad Request`.
 **Action:** Enforce strict UTF-8 validity checks and bounds truncation at the very edge of the prompt assembler, treating the TokenBudgetManager as a defensive firewall rather than a simple string trimmer.
 
@@ -30,11 +30,11 @@
 **Learning:** When the Dreamer blocks an action, the VirtualStore unconditionally injects `security_violation` and `dream_blocked_action` facts. It assumes the underlying kernel will accept these without issues. If the kernel's schema is strict or state is corrupted, this injection could fail silently or panic, breaking the feedback loop for the learning subsystems.
 **Action:** Integration tests must verify that the facts are not just "sent" but are actually retrievable from the kernel after a blocked action.
 
-## 2026-06-23 - APIScheduler ╬ô├Ñ├╢ ScheduledLLMCall Context Fallback Contract
+## 2026-06-23 - APIScheduler Γò¼├┤Γö£├æΓö£Γòó ScheduledLLMCall Context Fallback Contract
 **Learning:** In `core/api_scheduler.go`, the `AcquireAPISlot` method implements a defensive fallback to catch TOCTOU (Time-Of-Check to Time-Of-Use) race conditions when context cancellation perfectly overlaps with slot acquisition. If the `select` statement arbitrarily chooses the `<-waitCtx.Done()` path, the system could leak a slot because the releaser already incremented `currentlyExecuting`. The secondary nested `select { case <-w: ... }` forces the system to acknowledge the acquired slot and ignore the cancellation.
 **Action:** When testing cross-boundary cancellation, you must simulate this exact microsecond overlap. Standard `context.Cancel()` testing will completely miss this because the Go scheduler won't reliably hit the race. You must use mock blockers (channels) to guarantee the releaser and the canceller fire simultaneously to prove the fallback prevents permanent API slot starvation.
 
-## 2024-12-27 - Prompt Compiler Γåö LLM Client Boundary
+## 2024-12-27 - Prompt Compiler ╬ô├Ñ├╢ LLM Client Boundary
 **Learning:** The `TokenBudgetManager` acts as the critical throttle between the JIT-assembled atoms and the LLM's physical context window limit. An oversight here (such as truncating a string halfway through a UTF-8 character or misallocating resources in concurrent calls) directly causes the downstream `LLMClient` to panic or receive a `400 Bad Request`.
 **Action:** Enforce strict UTF-8 validity checks and bounds truncation at the very edge of the prompt assembler, treating the TokenBudgetManager as a defensive firewall rather than a simple string trimmer.
 
@@ -45,3 +45,7 @@
 ## 2024-12-28 - TDDLoop Thread Safety and Resets
 **Learning:** The session orchestrator might `Reset()` the `TDDLoop` asynchronously (e.g., if a user aborts via chat). If `RunToCompletion()` is modifying slice states (like `patches` or `diagnostics`) without holding `t.mu`, it will data race and crash the engine.
 **Action:** Always test `Reset()` concurrently with `RunToCompletion()` in E2E tests, verifying that internal mutexes hold and prevent state corruption.
+
+## 2024-07-05 - VirtualStore Interactive Gate vs Dreamer Cache Collision
+**Learning:** The Dreamer's cache implementation in `internal/core/dreamer.go` uses `string(req.Type) + ":" + req.Target` as the cache key. This completely ignores the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
+**Action:** When testing the VirtualStore Γåö Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
