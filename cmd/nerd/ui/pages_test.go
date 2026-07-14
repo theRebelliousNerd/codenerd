@@ -52,8 +52,8 @@ func TestAutopoiesisPageModelUpdateAndTab(t *testing.T) {
 
 func TestCampaignPageModelViewAndUpdate(t *testing.T) {
 	model := NewCampaignPageModel()
-	if !strings.Contains(model.View(), "No active campaign") {
-		t.Fatalf("expected empty campaign view")
+	if !strings.Contains(model.View(), "Campaign Dashboard") {
+		t.Fatalf("expected empty campaign view with dashboard title")
 	}
 
 	camp := &campaign.Campaign{
