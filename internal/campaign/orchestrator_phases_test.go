@@ -7,6 +7,8 @@ import (
 )
 
 func TestOrchestrator_GetCurrentPhase(t *testing.T) {
+	// TODO: TestOrchestrator_GetCurrentPhase_MalformedFact
+	// TODO: TestOrchestrator_GetCurrentPhase_EmptyStringFact
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -55,6 +57,8 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 }
 
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
+	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeScaling
+	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeBackoff
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -114,6 +118,7 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 }
 
 func TestOrchestrator_GetNextTask(t *testing.T) {
+	// TODO: TestOrchestrator_GetNextTask_TypeCoercion
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -161,6 +166,7 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 }
 
 func TestOrchestrator_IsCampaignComplete(t *testing.T) {
+	// TODO: TestOrchestrator_IsCampaignComplete_EmptyCampaign
 	// Case 1: All completed or skipped
 	c1 := &Campaign{
 		Phases: []Phase{
@@ -199,6 +205,7 @@ func TestOrchestrator_IsCampaignComplete(t *testing.T) {
 }
 
 func TestOrchestrator_IsPhaseComplete(t *testing.T) {
+	// TODO: TestOrchestrator_IsPhaseComplete_NilPhase
 	// Case 1: All tasks completed or skipped
 	p1 := &Phase{
 		Tasks: []Task{
@@ -236,6 +243,13 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
+	// TODO: TestOrchestrator_StartNextPhase_NilContext
+	// TODO: TestOrchestrator_StartNextPhase_RaceCondition
+	// TODO: TestOrchestrator_StartNextPhase_DoubleInvocation
+	// TODO: TestOrchestrator_CompletePhase_NilPhase
+	// TODO: TestOrchestrator_CompletePhase_KernelAssertFailure
+	// TODO: TestOrchestrator_Concurrency_ReadWritePhases
+
 	mockKernel := &MockKernel{}
 	orch := &Orchestrator{kernel: mockKernel}
 
