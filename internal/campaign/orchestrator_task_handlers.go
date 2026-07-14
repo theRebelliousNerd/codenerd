@@ -133,6 +133,26 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 
 	logging.CampaignDebug("Shard %s completed for task %s, result_len=%d", shardType, task.ID, len(result))
 
+	// F-HOLLOW-2: an explicit analysis shard can return an empty/near-empty result
+	// on a package-audit task (observed live, run 14 phase 1: shard=reviewer
+	// returned "result":"" for invariant/error-contract audits; shard=testarchitect
+	// returned a 367-byte stub). The checkpoint reviewer then correctly fails the
+	// phase for missing findings. Retry once via the research path, which reliably
+	// produces written findings for audit tasks (run 14 phase 0 researcher tasks
+	// each delivered 7-11KB). Skip file/test/tool tasks, which legitimately return
+	// only a short confirmation after writing their own durable output.
+	if isTrivialResult(result) && !isFileProducingType(task.Type) {
+		logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s (shard=%s) returned trivial result (%d bytes); retrying via research path", task.ID, shardType, len(strings.TrimSpace(result)))
+		retryInput := task.Description + "\n\nIMPORTANT: Produce a complete written findings report in your final response, with file+symbol anchors where possible. Do NOT return an empty response — if a probe failed, report what you did find."
+		if retried, rerr := o.spawnTask(ctx, "/research", retryInput); rerr == nil && !isTrivialResult(retried) {
+			result = retried
+			logging.Campaign("Research-path retry recovered a substantive result for %s (%d bytes)", task.ID, len(result))
+		} else {
+			logging.Get(logging.CategoryCampaign).Warn("Explicit-shard task %s still returned no substantive output after research-path retry", task.ID)
+			o.emitEvent("shard_result_empty", task.PhaseID, task.ID, fmt.Sprintf("shard %s returned no substantive output after retry", shardType), nil)
+		}
+	}
+
 	// F-DURABLE-1: an explicit-shard task that produces analysis (research,
 	// audit, review, discovery) rather than a file returns its result only in
 	// memory. Persist it as a durable artifact so the findings survive and the
@@ -153,6 +173,19 @@ func (o *Orchestrator) executeWithExplicitShard(ctx context.Context, task *Task)
 // admitting even a terse but real finding.
 func isTrivialResult(s string) bool {
 	return len([]rune(strings.TrimSpace(s))) < 40
+}
+
+// isFileProducingType reports whether a task type writes its own durable output
+// (a file, test, or generated tool). Such tasks legitimately return only a short
+// confirmation string, so they are exempt from the empty-result retry and from
+// analysis-artifact persistence.
+func isFileProducingType(t TaskType) bool {
+	switch t {
+	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,
+		TaskTypeTestRun, TaskTypeToolCreate, TaskTypeRefactor:
+		return true
+	}
+	return false
 }
 
 // analyticalVerifyKeywords mark a /verify task whose real objective is analytical
@@ -232,12 +265,10 @@ func (o *Orchestrator) persistTaskOutputArtifact(task *Task, result string) {
 		return
 	}
 	trimmed := strings.TrimSpace(result)
-	if len(trimmed) < 40 {
+	if isTrivialResult(trimmed) {
 		return // nothing substantial worth persisting
 	}
-	switch task.Type {
-	case TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,
-		TaskTypeTestRun, TaskTypeToolCreate, TaskTypeRefactor:
+	if isFileProducingType(task.Type) {
 		return // these produce their own durable file/test/tool output
 	}
 	for _, a := range task.Artifacts {

@@ -127,6 +127,26 @@ func TestIsTrivialResult(t *testing.T) {
 	}
 }
 
+func TestIsFileProducingType(t *testing.T) {
+	fileTypes := []TaskType{
+		TaskTypeFileCreate, TaskTypeFileModify, TaskTypeTestWrite,
+		TaskTypeTestRun, TaskTypeToolCreate, TaskTypeRefactor,
+	}
+	for _, tt := range fileTypes {
+		if !isFileProducingType(tt) {
+			t.Errorf("expected %s to be file-producing (exempt from retry/persist)", tt)
+		}
+	}
+	analysisTypes := []TaskType{
+		TaskTypeResearch, TaskTypeVerify, TaskTypeDocument, TaskTypeIntegrate,
+	}
+	for _, tt := range analysisTypes {
+		if isFileProducingType(tt) {
+			t.Errorf("expected %s to be analysis (eligible for retry/persist)", tt)
+		}
+	}
+}
+
 func TestIsAnalyticalVerifyDescription(t *testing.T) {
 	analytical := []string{
 		"Inspect logic defects and invariant violations in internal/world.",
