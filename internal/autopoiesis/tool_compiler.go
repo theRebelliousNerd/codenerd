@@ -99,7 +99,11 @@ func (tc *ToolCompiler) Compile(ctx context.Context, tool *GeneratedTool) (*Comp
 		mainModulePath = os.Getenv("CODE_NERD_WORKSPACE_ROOT")
 	}
 	if mainModulePath != "" {
-		editCmd := exec.CommandContext(ctx, "go", "mod", "edit", fmt.Sprintf("-replace=codenerd=%s", mainModulePath))
+		if strings.ContainsAny(mainModulePath, "\n\r") {
+			return result, fmt.Errorf("security violation: workspace root path contains invalid characters")
+		}
+		/* #nosec G204 */
+		editCmd := exec.CommandContext(ctx, "go", "mod", "edit", "-replace", fmt.Sprintf("codenerd=%s", mainModulePath))
 		editCmd.Dir = tmpDir
 		_ = editCmd.Run()
 	}
