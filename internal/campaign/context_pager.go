@@ -370,13 +370,21 @@ func (cp *ContextPager) PruneIrrelevant(profile *ContextProfile) error {
 
 	// Suppress irrelevant facts
 	suppressedCount := 0
+	var suppressFacts []core.Fact
 	for _, pred := range irrelevantPredicates {
 		if _, ok := allFacts[pred]; ok {
-			cp.kernel.Assert(core.Fact{
+			suppressFacts = append(suppressFacts, core.Fact{
 				Predicate: "activation",
 				Args:      []any{pred, -200}, // Heavy suppression
 			})
 			suppressedCount++
+		}
+	}
+	if len(suppressFacts) > 0 {
+		if err := cp.kernel.AssertBatch(suppressFacts); err != nil {
+			for _, f := range suppressFacts {
+				cp.kernel.Assert(f)
+			}
 		}
 	}
 
