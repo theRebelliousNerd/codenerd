@@ -882,18 +882,48 @@ func (o *OuroborosLoop) hotReload(toolName string) {
 	// Record the hot-load event in Mangle
 	_ = o.engine.AddFact("tool_hot_loaded", toolName, time.Now().Unix())
 
-	// Query current version to increment
-	result, err := o.engine.Query(context.Background(),
-		fmt.Sprintf("?tool_version(%q, V)", toolName))
-
+	// Read the current version via a direct EDB fact scan. The old code queried
+	// ?tool_version(Tool, V) with V unbound, which VIOLATES the schema mode decl
+	// (tool_version ... bound [/string, /string], schemas_state.mg) and returns
+	// nothing — so the read always fell through to 1. QueryFacts scans the fact
+	// store directly (no query engine, no mode check) and works with AutoEval
+	// disabled, matching the tool by its (bound) name. Take the max version + 1.
 	version := 1
-	if err == nil && result != nil && len(result.Bindings) > 0 {
-		if v, ok := result.Bindings[0]["V"].(int); ok {
-			version = v + 1
+	for _, f := range o.engine.QueryFacts("tool_version", toolName) {
+		if len(f.Args) >= 2 {
+			if v := versionFromBinding(f.Args[1]); v >= version {
+				version = v + 1
+			}
 		}
 	}
-	_ = o.engine.AddFact("tool_version", toolName, version)
+	// Version is declared /string; the old code wrote an int, which silently
+	// failed that decl (the AddFact error was discarded), so no fact ever
+	// persisted. Write a string so the fact stores and the next read sees it.
+	_ = o.engine.AddFact("tool_version", toolName, strconv.Itoa(version))
 	logging.AutopoiesisDebug("Tool %s hot-reloaded to version %d", toolName, version)
+}
+
+// versionFromBinding coerces a tool_version(_, V) query binding to an int. The
+// schema declares Version as /string so V materializes as a string; numeric
+// forms are handled defensively for robustness. Returns 0 for an unrecognized
+// or absent value so the caller starts numbering at 1.
+func versionFromBinding(v any) int {
+	switch x := v.(type) {
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(x))
+		if err != nil {
+			return 0
+		}
+		return n
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	default:
+		return 0
+	}
 }
 
 // ExecuteTool runs a registered tool with the given input
