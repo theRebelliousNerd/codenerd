@@ -705,18 +705,23 @@ func (m *TokenBudgetManager) calculateAllocations(
 
 	switch m.strategy {
 	case StrategyProportional:
+		var errAcc float64
 		for _, cat := range orderedCats {
 			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
-			allocation := int(float64(totalBudget) * budget.BasePercent)
+			exact := float64(totalBudget)*budget.BasePercent + errAcc
+			allocation := int(math.Round(exact))
+			errAcc = exact - float64(allocation)
+
 			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
 			allocations[cat] = allocation
 		}
 
 	case StrategyPriorityFirst:
 		remaining := totalBudget
+		var errAcc float64
 
 		// Helper to allocate for a priority level
 		allocateForPriority := func(p BudgetPriority) {
@@ -733,12 +738,16 @@ func (m *TokenBudgetManager) calculateAllocations(
 				// Use totalBudget for Mandatory to ensure they get their share?
 				// Existing logic used totalBudget for Mandatory.
 				if p == PriorityMandatory {
-					allocation = int(float64(totalBudget) * budget.BasePercent)
+					exact := float64(totalBudget)*budget.BasePercent + errAcc
+					allocation = int(math.Round(exact))
+					errAcc = exact - float64(allocation)
 				} else {
 					if remaining <= 0 {
 						allocation = 0
 					} else {
-						allocation = int(float64(remaining) * budget.BasePercent)
+						exact := float64(remaining)*budget.BasePercent + errAcc
+						allocation = int(math.Round(exact))
+						errAcc = exact - float64(allocation)
 					}
 				}
 
@@ -765,7 +774,10 @@ func (m *TokenBudgetManager) calculateAllocations(
 				allocations[cat] = 0
 				continue
 			}
-			allocation := int(float64(remaining) * budget.BasePercent)
+			exact := float64(remaining)*budget.BasePercent + errAcc
+			allocation := int(math.Round(exact))
+			errAcc = exact - float64(allocation)
+
 			allocation = clamp(allocation, budget.MinTokens, budget.MaxTokens)
 			allocations[cat] = allocation
 			remaining -= allocation
@@ -784,12 +796,15 @@ func (m *TokenBudgetManager) calculateAllocations(
 		}
 
 		// Distribute remaining proportionally
+		var errAcc float64
 		for _, cat := range orderedCats {
 			budget := m.budgets[cat]
 			if !presentCategories[cat] {
 				continue
 			}
-			extra := int(float64(remaining) * budget.BasePercent)
+			exact := float64(remaining)*budget.BasePercent + errAcc
+			extra := int(math.Round(exact))
+			errAcc = exact - float64(extra)
 			allocations[cat] = clamp(allocations[cat]+extra, budget.MinTokens, budget.MaxTokens)
 		}
 	}
@@ -894,4 +909,3 @@ func truncateUTF8Safe(content string, maxChars int) string {
 	}
 	return slice
 }
-
