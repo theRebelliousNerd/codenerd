@@ -450,3 +450,9 @@ func TestCartographer_IsLanguageSupported(t *testing.T) {
 		})
 	}
 }
+func TestNewMultiLangDataFlowExtractor(t *testing.T) {
+	extractor := NewMultiLangDataFlowExtractor()
+	if extractor == nil {
+		t.Fatal("NewMultiLangDataFlowExtractor returned nil")
+	}
+}
