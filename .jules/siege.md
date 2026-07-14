@@ -20,3 +20,12 @@
 ## 2023-10-27 - [Session to Kernel Fact Isolation]
 **Learning:** The new architecture removes Shard-specific kernels and relies on a shared `core.Kernel`. Concurrent SubAgents using the same Kernel must use session-isolated facts or transient scopes, otherwise `user_intent` from one request can bleed into the routing of another request.
 **Action:** Always write tests that run concurrent Executors asserting conflicting facts to verify cross-talk doesn't occur.
+
+## 2024-07-02 - Implicit Fail-Closed Contract in Dreamer
+**Learning:** The VirtualStore relies on the Dreamer's fail-closed behavior (returning `Unsafe: true` on bad inputs like nil context or oversized targets) to prevent execution. If `SimulateAction` were to panic or hang instead of returning a valid `DreamResult`, `RouteAction` might fail to block the action gracefully, potentially crashing the entire action routing pipeline.
+**Action:** Always test the extreme boundary cases (nil contexts, massive strings) in `SimulateAction` to ensure the fail-closed contract holds and doesn't cascade into a panic.
+
+## 2024-07-02 - Fact Injection Assumption
+**Learning:** When the Dreamer blocks an action, the VirtualStore unconditionally injects `security_violation` and `dream_blocked_action` facts. It assumes the underlying kernel will accept these without issues. If the kernel's schema is strict or state is corrupted, this injection could fail silently or panic, breaking the feedback loop for the learning subsystems.
+**Action:** Integration tests must verify that the facts are not just "sent" but are actually retrievable from the kernel after a blocked action.
+
