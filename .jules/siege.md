@@ -1,4 +1,4 @@
-## 2024-12-27 - Prompt Compiler ↔ LLM Client Boundary
+## 2024-12-27 - Prompt Compiler Γåö LLM Client Boundary
 **Learning:** The `TokenBudgetManager` acts as the critical throttle between the JIT-assembled atoms and the LLM's physical context window limit. An oversight here (such as truncating a string halfway through a UTF-8 character or misallocating resources in concurrent calls) directly causes the downstream `LLMClient` to panic or receive a `400 Bad Request`.
 **Action:** Enforce strict UTF-8 validity checks and bounds truncation at the very edge of the prompt assembler, treating the TokenBudgetManager as a defensive firewall rather than a simple string trimmer.
 
@@ -17,6 +17,7 @@
 ## 2026-06-15 - Prompt Compiler and LLM Client Integration
 **Learning:** The boundary between the Prompt Compiler and the LLM Client hides a critical structural constraint: token budget enforcement dictates not just cost, but protocol survival. If the prompt compiler estimates tokens incorrectly or over-allocates to the prompt, the LLM client might abruptly truncate the piggyback JSON structure. This results in the articulation system receiving fragmented control packets, leading to a cascading failure where the entire pipeline crashes out because the intended `next_action` state was lost in truncation.
 **Action:** Always allocate distinct overhead tokens for protocol metadata (like Piggyback packets) separate from the general output budget. Tests should deliberately push the total token count exactly to the threshold limit to ensure the truncating logic inside `TokenBudgetManager` prioritizes essential system instructions and JSON structure over variable length context.
+
 ## 2023-10-27 - [Session to Kernel Fact Isolation]
 **Learning:** The new architecture removes Shard-specific kernels and relies on a shared `core.Kernel`. Concurrent SubAgents using the same Kernel must use session-isolated facts or transient scopes, otherwise `user_intent` from one request can bleed into the routing of another request.
 **Action:** Always write tests that run concurrent Executors asserting conflicting facts to verify cross-talk doesn't occur.
@@ -29,3 +30,6 @@
 **Learning:** When the Dreamer blocks an action, the VirtualStore unconditionally injects `security_violation` and `dream_blocked_action` facts. It assumes the underlying kernel will accept these without issues. If the kernel's schema is strict or state is corrupted, this injection could fail silently or panic, breaking the feedback loop for the learning subsystems.
 **Action:** Integration tests must verify that the facts are not just "sent" but are actually retrievable from the kernel after a blocked action.
 
+## 2026-06-23 - APIScheduler Γåö ScheduledLLMCall Context Fallback Contract
+**Learning:** In `core/api_scheduler.go`, the `AcquireAPISlot` method implements a defensive fallback to catch TOCTOU (Time-Of-Check to Time-Of-Use) race conditions when context cancellation perfectly overlaps with slot acquisition. If the `select` statement arbitrarily chooses the `<-waitCtx.Done()` path, the system could leak a slot because the releaser already incremented `currentlyExecuting`. The secondary nested `select { case <-w: ... }` forces the system to acknowledge the acquired slot and ignore the cancellation.
+**Action:** When testing cross-boundary cancellation, you must simulate this exact microsecond overlap. Standard `context.Cancel()` testing will completely miss this because the Go scheduler won't reliably hit the race. You must use mock blockers (channels) to guarantee the releaser and the canceller fire simultaneously to prove the fallback prevents permanent API slot starvation.
