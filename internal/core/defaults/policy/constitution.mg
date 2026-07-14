@@ -36,6 +36,17 @@ safe_action(/read_file).
 safe_action(/fs_read).
 safe_action(/write_file).
 safe_action(/fs_write).
+# /edit_file is a targeted search/replace mutation — strictly LESS powerful than
+# /write_file (wholesale overwrite), which is already safe above. It was absent
+# from this allowlist while being treated identically to /write_file everywhere
+# else (requires_paranoid_validation, interactive_side_effect_type,
+# specialist_allowed_tools), so the constitutional gate silently denied every
+# edit the agent tried and failed the task ("tool call blocked by safety gate:
+# edit_file"). Confirmed live: `nerd run` on a mutation intent reaches
+# /delegate_coder, then the coder's edit_file is gated. Same bug class as the
+# /glob alias and /grep additions above; paranoid validation still applies.
+safe_action(/edit_file).
+safe_action(/fs_edit).
 safe_action(/search_files).
 safe_action(/glob_files).
 # Aliases for tool-registry names that the LLM actually emits
