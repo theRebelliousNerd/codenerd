@@ -44,6 +44,9 @@ func TestDreamPlanManager_New(t *testing.T) {
 	}
 }
 
+// TODO: Add missing test for TestDreamPlanManagerGap_StorePlan_NilPlan (Vector 2.1)
+// TODO: Add missing test for TestDreamPlanManagerGap_StorePlan_DoubleSlash (Vector 3.1)
+// TODO: Add missing test for TestDreamPlanManagerGap_ExtremeSubtaskCount (Vector 4.1)
 func TestDreamPlanManager_StorePlan(t *testing.T) {
 	k := &mockDreamPlanKernel{}
 	mgr := NewDreamPlanManager(k)
@@ -179,6 +182,7 @@ func TestDreamPlanManager_StartExecution(t *testing.T) {
 	}
 }
 
+// TODO: Add missing test for CancelPlan Inconsistency (Vector 5.2)
 func TestDreamPlanManager_CancelPlan(t *testing.T) {
 	mgr := NewDreamPlanManager(nil)
 
@@ -212,6 +216,7 @@ func TestDreamPlanManager_CancelPlan(t *testing.T) {
 	}
 }
 
+// TODO: Add missing test for Thread-Safety on Subtask Access (Vector 5.3)
 func TestDreamPlanManager_GetNextSubtask(t *testing.T) {
 	mgr := NewDreamPlanManager(nil)
 	if mgr.GetNextSubtask() != nil {
@@ -242,6 +247,8 @@ func TestDreamPlanManager_MarkSubtaskRunning(t *testing.T) {
 	}
 }
 
+// TODO: Add missing test for TestDreamPlanManagerGap_MarkSubtaskComplete_Unicode (Vector 3.2)
+// TODO: Add missing test for TestDreamPlanManagerGap_DoubleComplete (Vector 5.1)
 func TestDreamPlanManager_MarkSubtaskComplete(t *testing.T) {
 	k := &mockDreamPlanKernel{}
 	mgr := NewDreamPlanManager(k)
