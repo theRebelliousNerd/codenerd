@@ -113,7 +113,7 @@ func TestEnsureDeepFacts_GoFileWithDB_Caching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewLocalStore failed: %v", err)
 	}
-	// We might need to call db.Close() but let's assume NewLocalStore handles setup correctly for testing.
+	t.Cleanup(func() { _ = db.Close() })
 
 	goFile := filepath.Join(tmpDir, "test.go")
 	content := []byte(`package main

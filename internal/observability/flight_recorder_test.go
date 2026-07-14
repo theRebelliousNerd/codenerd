@@ -160,6 +160,11 @@ func TestDumpFlightRecord_MkdirError(t *testing.T) {
 }
 
 func TestDumpFlightRecord_WriteError(t *testing.T) {
+	// Windows ACLs do not honor Unix-style chmod 0500 for write denial reliably.
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based write denial is not reliable on Windows")
+	}
+
 	resetFlightRecorder(t)
 	t.Cleanup(func() { _ = StopFlightRecorder() })
 
