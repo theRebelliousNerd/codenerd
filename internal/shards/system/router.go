@@ -242,6 +242,7 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 		fallbackCh = fallbackTicker.C
 	}
 
+	var lastErr string
 	for {
 		select {
 		case <-ctx.Done():
@@ -252,19 +253,27 @@ func (r *TactileRouterShard) Execute(ctx context.Context, task string) (string, 
 			// Event-driven: a permitted_action fact was just asserted
 			if err := r.processPermittedActions(ctx); err != nil {
 				// Log error but continue
-				_ = r.Kernel.Assert(types.Fact{
-					Predicate: "routing_error",
-					Args:      []any{"internal_error", err.Error(), time.Now().Unix()},
-				})
+				errStr := err.Error()
+				if errStr != lastErr {
+					_ = r.Kernel.Assert(types.Fact{
+						Predicate: "routing_error",
+						Args:      []any{"internal_error", errStr, time.Now().Unix()},
+					})
+					lastErr = errStr
+				}
 			}
 		case <-fallbackCh:
 			// Polling fallback: same work as event-driven case
 			if err := r.processPermittedActions(ctx); err != nil {
 				// Log error but continue
-				_ = r.Kernel.Assert(types.Fact{
-					Predicate: "routing_error",
-					Args:      []any{"internal_error", err.Error(), time.Now().Unix()},
-				})
+				errStr := err.Error()
+				if errStr != lastErr {
+					_ = r.Kernel.Assert(types.Fact{
+						Predicate: "routing_error",
+						Args:      []any{"internal_error", errStr, time.Now().Unix()},
+					})
+					lastErr = errStr
+				}
 			}
 		case <-heartbeat.C:
 			// Check idle timeout
