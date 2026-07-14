@@ -13,6 +13,20 @@ import (
 	"codenerd/internal/types"
 )
 
+var northstarPredicatesMap = map[string]struct{}{
+	"northstar_mission": {}, "northstar_problem": {}, "northstar_vision": {},
+	"northstar_persona": {}, "northstar_pain_point": {}, "northstar_need": {},
+	"northstar_capability": {}, "northstar_risk": {}, "northstar_mitigation": {},
+	"northstar_requirement": {}, "northstar_constraint": {}, "northstar_defined": {},
+}
+
+var northstarPredicatesList = []string{
+	"northstar_mission", "northstar_problem", "northstar_vision",
+	"northstar_persona", "northstar_pain_point", "northstar_need",
+	"northstar_capability", "northstar_risk", "northstar_mitigation",
+	"northstar_requirement", "northstar_constraint", "northstar_defined",
+}
+
 // KernelClient provides an interface for asserting facts into the Mangle kernel.
 type KernelClient interface {
 	Assert(fact types.Fact) error
@@ -107,15 +121,16 @@ func (g *Guardian) refreshKernelFacts() {
 	}
 
 	// Retract all existing northstar facts
-	predicates := []string{
-		"northstar_mission", "northstar_problem", "northstar_vision",
-		"northstar_persona", "northstar_pain_point", "northstar_need",
-		"northstar_capability", "northstar_risk", "northstar_mitigation",
-		"northstar_requirement", "northstar_constraint", "northstar_defined",
+	type BatchRetractor interface {
+		RemoveFactsByPredicateSet(predicates map[string]struct{}) error
 	}
 
-	for _, p := range predicates {
-		_ = kernel.Retract(p)
+	if br, ok := kernel.(BatchRetractor); ok {
+		_ = br.RemoveFactsByPredicateSet(northstarPredicatesMap)
+	} else {
+		for _, p := range northstarPredicatesList {
+			_ = kernel.Retract(p)
+		}
 	}
 
 	if vision == nil {
@@ -123,9 +138,20 @@ func (g *Guardian) refreshKernelFacts() {
 	}
 
 	// Assert new facts
-	for _, fact := range vision.ToFacts() {
-		if err := kernel.Assert(fact); err != nil {
-			logging.Get(logging.CategoryNorthstar).Debug("Failed to assert northstar fact %s: %v", fact.Predicate, err)
+	type BatchAsserter interface {
+		AssertBatch(facts []types.Fact) error
+	}
+
+	facts := vision.ToFacts()
+	if ba, ok := kernel.(BatchAsserter); ok {
+		if err := ba.AssertBatch(facts); err != nil {
+			logging.Get(logging.CategoryNorthstar).Debug("Failed to assert batch northstar facts: %v", err)
+		}
+	} else {
+		for _, fact := range facts {
+			if err := kernel.Assert(fact); err != nil {
+				logging.Get(logging.CategoryNorthstar).Debug("Failed to assert northstar fact %s: %v", fact.Predicate, err)
+			}
 		}
 	}
 }
