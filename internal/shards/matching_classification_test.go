@@ -56,3 +56,29 @@ func TestShouldIncludeGenericShard_UnknownVerbDefaultsTrue(t *testing.T) {
 		t.Error("an unconfigured verb should default to including the generic shard")
 	}
 }
+
+func TestGetSpecialistClassification(t *testing.T) {
+	tests := []struct {
+		name       string
+		nameInput  string
+		expected   SpecialistClassification
+		expectedOk bool
+	}{
+		{"existing specialist lowercase", "goexpert", DefaultSpecialistClassifications["goexpert"], true},
+		{"existing specialist mixed case", " GoExpert ", DefaultSpecialistClassifications["goexpert"], true},
+		{"unknown specialist", "unknown", SpecialistClassification{}, false},
+		{"empty string", "", SpecialistClassification{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := GetSpecialistClassification(tt.nameInput)
+			if ok != tt.expectedOk {
+				t.Errorf("GetSpecialistClassification(%q) ok = %v, want %v", tt.nameInput, ok, tt.expectedOk)
+			}
+			if ok && got.CanExecute != tt.expected.CanExecute {
+				t.Errorf("GetSpecialistClassification(%q) got CanExecute = %v, want CanExecute %v", tt.nameInput, got.CanExecute, tt.expected.CanExecute)
+			}
+		})
+	}
+}
