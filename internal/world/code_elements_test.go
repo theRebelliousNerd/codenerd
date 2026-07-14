@@ -368,3 +368,75 @@ func TestGetElement(t *testing.T) {
 		})
 	}
 }
+
+func TestGetElementsInRange_Extensive(t *testing.T) {
+	elements := []CodeElement{
+		{Ref: "fn:before", StartLine: 1, EndLine: 5},
+		{Ref: "fn:overlap_start", StartLine: 4, EndLine: 10},
+		{Ref: "fn:within", StartLine: 12, EndLine: 18},
+		{Ref: "fn:encompassing", StartLine: 5, EndLine: 25},
+		{Ref: "fn:overlap_end", StartLine: 15, EndLine: 22},
+		{Ref: "fn:after", StartLine: 25, EndLine: 30},
+		{Ref: "fn:exact_match", StartLine: 10, EndLine: 20},
+	}
+
+	tests := []struct {
+		name      string
+		elements  []CodeElement
+		startLine int
+		endLine   int
+		wantRefs  []string
+	}{
+		{
+			name:      "range 10 to 20",
+			elements:  elements,
+			startLine: 10,
+			endLine:   20,
+			wantRefs: []string{
+				"fn:overlap_start", // 4-10 overlaps with 10-20
+				"fn:within",        // 12-18 is within 10-20
+				"fn:encompassing",  // 5-25 encompasses 10-20
+				"fn:overlap_end",   // 15-22 overlaps with 10-20
+				"fn:exact_match",   // 10-20 exactly matches 10-20
+			},
+		},
+		{
+			name:      "range 50 to 60 (no match)",
+			elements:  elements,
+			startLine: 50,
+			endLine:   60,
+			wantRefs:  nil,
+		},
+		{
+			name:      "empty elements",
+			elements:  []CodeElement{},
+			startLine: 10,
+			endLine:   20,
+			wantRefs:  nil,
+		},
+		{
+			name:      "nil elements",
+			elements:  nil,
+			startLine: 10,
+			endLine:   20,
+			wantRefs:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetElementsInRange(tt.elements, tt.startLine, tt.endLine)
+
+			var gotRefs []string
+			if got != nil {
+				for _, e := range got {
+					gotRefs = append(gotRefs, e.Ref)
+				}
+			}
+
+			if !reflect.DeepEqual(gotRefs, tt.wantRefs) {
+				t.Errorf("GetElementsInRange() = %v, want %v", gotRefs, tt.wantRefs)
+			}
+		})
+	}
+}
