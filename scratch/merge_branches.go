@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -20,6 +21,15 @@ type BranchInfo struct {
 	Mergeable   bool     `json:"mergeable"`
 	ConflictErr string   `json:"conflict_err,omitempty"`
 	Files       []string `json:"files"`
+}
+
+var branchNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\./]+$`)
+
+func isValidBranchName(name string) bool {
+	if strings.HasPrefix(name, "-") {
+		return false
+	}
+	return branchNameRegex.MatchString(name)
 }
 
 func getUnmergedFiles() ([]string, error) {
@@ -112,6 +122,13 @@ func main() {
 	if err := json.Unmarshal(data, &mergeSet); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
+	}
+
+	for _, b := range mergeSet {
+		if !isValidBranchName(b.Name) {
+			fmt.Printf("Error: invalid branch name %q\n", b.Name)
+			return
+		}
 	}
 
 	// Find the current merge state starting from index 0
