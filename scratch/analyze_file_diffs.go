@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type BranchInfo struct {
@@ -58,6 +59,13 @@ func main() {
 				}
 			}
 			if !hasFile {
+				continue
+			}
+
+			// Security validation to prevent argument injection
+			// Reject branch names that start with "-" to prevent git from interpreting them as flags
+			if strings.HasPrefix(b.Name, "-") {
+				fmt.Printf("Skipping branch with invalid name (possible arg injection): %s\n", b.Name)
 				continue
 			}
 
