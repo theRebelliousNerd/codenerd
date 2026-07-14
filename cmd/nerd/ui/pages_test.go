@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"context"
 	"strings"
 	"testing"
@@ -16,7 +17,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// TODO: IMPROVEMENT: Add test coverage for edge cases and error states (e.g., empty data, rapid tab switching).
 func TestAutopoiesisPageModelUpdateAndTab(t *testing.T) {
 	model := NewAutopoiesisPageModel()
 	model.SetSize(80, 20)
@@ -47,6 +47,25 @@ func TestAutopoiesisPageModelUpdateAndTab(t *testing.T) {
 	view = model.View()
 	if !strings.Contains(view, "tool-1") {
 		t.Fatalf("expected tool learning to be rendered after tab switch")
+	}
+
+	// Test empty data
+	model.UpdateContent(nil, nil)
+	view = model.View()
+	if !strings.Contains(view, "No items") {
+		t.Fatalf("expected empty state message for learnings tab")
+	}
+
+	// Test rapid tab switching
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab}) // Back to patterns
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab}) // Back to learnings
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab}) // Back to patterns
+
+	if model.activeTabIndex != 0 {
+		t.Fatalf("expected active tab to be 0 after 3 switches from 1, got %d", model.activeTabIndex)
+	}
+	if !strings.Contains(model.View(), "No items") {
+		t.Fatalf("expected empty state message for patterns tab")
 	}
 }
 
@@ -91,7 +110,6 @@ func TestCampaignPageModelViewAndUpdate(t *testing.T) {
 	}
 }
 
-// TODO: IMPROVEMENT: Add test coverage for large datasets to verify list performance.
 func TestJITPageModelUpdateAndRender(t *testing.T) {
 	model := NewJITPageModel()
 	atoms := []*prompt.PromptAtom{
@@ -132,6 +150,30 @@ func TestJITPageModelUpdateAndRender(t *testing.T) {
 	}
 	if !strings.Contains(content, "MANDATORY") {
 		t.Fatalf("expected mandatory label in atom content")
+	}
+
+	// Test large dataset performance
+	largeAtoms := make([]*prompt.PromptAtom, 1000)
+	for i := 0; i < 1000; i++ {
+		largeAtoms[i] = &prompt.PromptAtom{
+			ID:          fmt.Sprintf("atom-%d", i),
+			Category:    prompt.CategoryContext,
+			Priority:    1,
+			TokenCount:  10,
+			IsMandatory: false,
+			Content:     fmt.Sprintf("content %d", i),
+		}
+	}
+	largeResult := &prompt.CompilationResult{
+		IncludedAtoms: largeAtoms,
+		TotalTokens:   10000,
+		BudgetUsed:    0.8,
+	}
+
+	model.UpdateContent(largeResult)
+	view := model.View()
+	if !strings.Contains(view, "1000 items") {
+		t.Fatalf("expected view to indicate 1000 items")
 	}
 }
 
