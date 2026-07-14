@@ -220,3 +220,28 @@ func DefaultGeminiProviderConfig() *GeminiProviderConfig {
 		EnableURLContext:   true,
 	}
 }
+
+// DefaultClaudeCLIConfig returns a ClaudeCLIConfig with sensible defaults.
+func DefaultClaudeCLIConfig() *ClaudeCLIConfig {
+	return &ClaudeCLIConfig{
+		Model:    "sonnet",
+		Timeout:  300,
+		MaxTurns: 1,
+	}
+}
+
+// DefaultCodexCLIConfig returns a CodexCLIConfig with sensible defaults.
+func DefaultCodexCLIConfig() *CodexCLIConfig {
+	t := true
+	return &CodexCLIConfig{
+		Model:              "gpt-5.4",
+		Sandbox:            "read-only",
+		Timeout:            300,
+		SkillEnabled:       &t,
+		SkillName:          DefaultCodexExecSkillName,
+		MaxConcurrentCalls: DefaultCodexMaxConcurrentCalls,
+		DisableShellTool:   &t,
+		EnableOutputSchema: &t,
+		ConfigOverrides:    make(map[string]string),
+	}
+}

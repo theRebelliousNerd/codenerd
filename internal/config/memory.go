@@ -128,3 +128,15 @@ func DefaultContextWindowConfig() ContextWindowConfig {
 		ActivationThreshold:    30.0,
 	}
 }
+
+// DefaultEmbeddingConfig returns an EmbeddingConfig with sensible defaults.
+func DefaultEmbeddingConfig() *EmbeddingConfig {
+	return &EmbeddingConfig{
+		Provider:       "ollama",
+		OllamaEndpoint: "http://localhost:11434",
+		OllamaModel:    "embeddinggemma:300m",
+		GenAIAPIKey:    "",
+		GenAIModel:     "gemini-embedding-001",
+		TaskType:       "SEMANTIC_SIMILARITY",
+	}
+}

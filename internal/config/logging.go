@@ -30,3 +30,24 @@ func (c *LoggingConfig) IsCategoryEnabled(category string) bool {
 	}
 	return enabled
 }
+
+// DefaultLoggingConfig returns a LoggingConfig with sensible defaults.
+func DefaultLoggingConfig() *LoggingConfig {
+	return &LoggingConfig{
+		Level:      "info",
+		Format:     "text",
+		File:       "codenerd.log",
+		DebugMode:  false,
+		TraceLLMIO: false,
+		Categories: map[string]bool{
+			"boot":    true,
+			"kernel":  true,
+			"session": true,
+		},
+		PerformanceSampling: 1.0,
+		PerformanceThresholdsMs: map[string]int64{
+			"kernel_eval": 100,
+			"llm_call":    1000,
+		},
+	}
+}

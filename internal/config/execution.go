@@ -14,3 +14,20 @@ type ExecutionConfig struct {
 	// Environment variables to pass
 	AllowedEnvVars []string `yaml:"allowed_env_vars" json:"allowed_env_vars,omitempty"`
 }
+
+// DefaultExecutionConfig returns an ExecutionConfig with sensible defaults.
+func DefaultExecutionConfig() *ExecutionConfig {
+	return &ExecutionConfig{
+		AllowedBinaries: []string{
+			"go", "git", "grep", "ls", "mkdir", "cp", "mv",
+			"npm", "npx", "node", "python", "python3", "pip",
+			"cargo", "rustc", "make", "cmake",
+		},
+		DefaultTimeout:   "30s",
+		WorkingDirectory: ".",
+		AllowedEnvVars: []string{
+			"PATH", "HOME", "GOPATH", "GOROOT",
+			"TEMP", "TMP", "GOCACHE", "LOCALAPPDATA",
+		},
+	}
+}
