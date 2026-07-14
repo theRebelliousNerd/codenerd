@@ -1,6 +1,7 @@
 package perception
 
 import (
+	"codenerd/internal/mangle"
 	"context"
 	"testing"
 )
@@ -266,4 +267,39 @@ func TestNewMangleRoutingKernel(t *testing.T) {
 		}()
 		m.ValidateField(context.Background(), "mode", "test")
 	}()
+}
+
+func TestMangleRoutingKernel_ValidateField(t *testing.T) {
+	cfg := mangle.DefaultConfig()
+	eng, err := mangle.NewEngine(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	m := NewMangleRoutingKernel(eng)
+
+	tests := []struct {
+		field string
+		value string
+	}{
+		{"semantic_type", "test"},
+		{"action_type", "test"},
+		{"domain", "test"},
+		{"scope_level", "test"},
+		{"mode", "test"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			// Engine is empty, so Query will return 0 bindings, returning false.
+			valid := m.ValidateField(context.Background(), tt.field, tt.value)
+			if valid {
+				t.Errorf("expected false for empty engine %s, got true", tt.field)
+			}
+		})
+	}
+
+	// Test unknown field
+	if m.ValidateField(context.Background(), "unknown_field", "test") != true {
+		t.Errorf("expected true for unknown field")
+	}
 }
