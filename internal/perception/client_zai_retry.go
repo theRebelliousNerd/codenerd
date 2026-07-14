@@ -3,6 +3,8 @@ package perception
 import (
 	"codenerd/internal/logging"
 	"context"
+	crand "crypto/rand"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,9 +29,13 @@ func (c *ZAIClient) jitterDuration(d time.Duration) time.Duration {
 	if d <= 0 {
 		return 0
 	}
-	c.randMu.Lock()
-	factor := 0.5 + c.rng.Float64()
-	c.randMu.Unlock()
+	n, err := crand.Int(crand.Reader, big.NewInt(1000))
+	var factor float64
+	if err != nil {
+		factor = 0.5
+	} else {
+		factor = 0.5 + (float64(n.Int64()) / 1000.0)
+	}
 	return time.Duration(float64(d) * factor)
 }
 

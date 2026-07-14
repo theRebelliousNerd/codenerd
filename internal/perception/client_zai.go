@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	mathrand "math/rand"
 	"net/http"
 	"net/http/httptrace"
 	"strings"
@@ -68,8 +67,6 @@ type ZAIClient struct {
 	maxRetries       int
 	streamingTimeout time.Duration
 	cooldownUntil    time.Time
-	randMu           sync.Mutex
-	rng              *mathrand.Rand
 }
 
 // DefaultZAIConfig returns sensible defaults.
@@ -160,7 +157,6 @@ func NewZAIClientWithConfig(config ZAIConfig) *ZAIClient {
 		retryBackoffMax:  config.RetryBackoffMax,
 		maxRetries:       config.MaxRetries,
 		streamingTimeout: config.StreamingTimeout,
-		rng:              mathrand.New(mathrand.NewSource(time.Now().UnixNano())),
 	}
 	// Only create semaphore if not disabled (external scheduler handles concurrency)
 	if !config.DisableSemaphore {
