@@ -145,14 +145,19 @@ func TestGrepTool_Execute_MissingPattern(t *testing.T) {
 func TestGrepTool_Execute_MissingPath(t *testing.T) {
 	t.Parallel()
 
-	// grep path is optional with default ".", so this will work if in valid directory
-	// This test verifies the function works with just a pattern
-	_, err := executeGrep(context.Background(), map[string]any{
+	// F-GREP-1: a nonexistent search path yields zero matches, not a hard error.
+	// A hard error propagates as a shard/task failure and can cascade to a
+	// campaign "too many failures -> replan -> pause"; the tool must degrade
+	// gracefully so the agent recovers and retargets.
+	result, err := executeGrep(context.Background(), map[string]any{
 		"pattern": "test",
 		"path":    "/nonexistent/path/that/does/not/exist",
 	})
-	if err == nil {
-		t.Error("expected error for nonexistent path")
+	if err != nil {
+		t.Fatalf("nonexistent path should not error, got: %v", err)
+	}
+	if !strings.Contains(result, "No matches found") {
+		t.Errorf("expected a no-matches result for nonexistent path, got: %q", result)
 	}
 }
 

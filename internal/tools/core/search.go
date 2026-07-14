@@ -236,6 +236,16 @@ func executeGrep(ctx context.Context, args map[string]any) (string, error) {
 	var files []string
 	info, err := os.Stat(path)
 	if err != nil {
+		// F-GREP-1: a search over a path that does not exist yields zero matches,
+		// not a hard failure. Returning an error here propagates as a shard/task
+		// failure and can cascade to "too many failures -> replan -> pause"
+		// (observed live, run 14 phase 2: a reviewer grepped
+		// vendor/github.com/smacker/go-tree-sitter, which the module-based build
+		// does not vendor). Report no matches so the agent recovers and retargets.
+		if os.IsNotExist(err) {
+			logging.VirtualStore("grep: path does not exist: %s (0 matches)", path)
+			return fmt.Sprintf("No matches found for pattern: %s (path does not exist: %s)", pattern, path), nil
+		}
 		return "", fmt.Errorf("path not found: %w", err)
 	}
 
