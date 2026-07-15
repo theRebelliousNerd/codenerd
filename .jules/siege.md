@@ -49,3 +49,7 @@
 ## 2024-07-05 - VirtualStore Interactive Gate vs Dreamer Cache Collision
 **Learning:** The Dreamer's cache implementation in `internal/core/dreamer.go` uses `string(req.Type) + ":" + req.Target` as the cache key. This completely ignores the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
 **Action:** When testing the VirtualStore Γåö Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
+
+## 2024-07-06 - Campaign Phase Boundary Context Paging Overflow
+**Learning:** If a SubAgent spawned for a task generates a massive output (e.g., a huge log or data dump), and the Orchestrator passes that output forward as context to the next phase without bounded semantic compression or truncation, the resulting combined state will overflow the TokenBudgetManager for the next phase. This causes the downstream LLM context compilation to panic or fail unexpectedly.
+**Action:** When orchestrating multi-phase execution, the pipeline must strictly bound the phase output context state before transitioning and passing it forward as input, never assuming arbitrary text fits.
