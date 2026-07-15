@@ -157,6 +157,29 @@ func (v *VirtualStore) handleExecCmd(ctx context.Context, req ActionRequest) (Ac
 		}, nil // Return nil error but unsuccessful result
 	}
 
+	// A nil error does NOT mean the command succeeded: the executor contract
+	// (tactile.DirectExecutor.Execute) returns (result{Success:true,
+	// ExitCode:N≠0}, nil) when a command RAN but exited non-zero. Keying success
+	// off err==nil alone (F-VS-2) reported a failed command as Success:true and
+	// asserted a false cmd_succeeded fact into the kernel EDB. Mirror the modern
+	// path (handleExecCmdModern) and the sibling handlers handleGitOperation
+	// (F-VS-1) / handleRunTests: success requires a zero exit code too.
+	if !result.Success || result.ExitCode != 0 {
+		errMsg := result.Error
+		if result.IsNonZeroExit() {
+			errMsg = fmt.Sprintf("exit code %d", result.ExitCode)
+		}
+		logging.Get(logging.CategoryVirtualStore).Warn("Shell command exit_code=%d: %s", result.ExitCode, binary)
+		return ActionResult{
+			Success: false,
+			Output:  result.Output(),
+			Error:   errMsg,
+			FactsToAdd: []Fact{
+				{Predicate: "cmd_failed", Args: []any{binary, errMsg}},
+			},
+		}, nil
+	}
+
 	logging.VirtualStoreDebug("Shell command succeeded: output_len=%d", len(result.Output()))
 	return ActionResult{
 		Success: true,
