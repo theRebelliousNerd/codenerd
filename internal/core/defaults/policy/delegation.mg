@@ -124,6 +124,12 @@ action_mapping(/analyze, /delegate_reviewer).
 # reviewer. Non-side-effecting (a prose audit is a valid terminal answer), so it
 # stays out of side_effecting_action below, matching /analyze.
 action_mapping(/audit, /delegate_reviewer).
+# F-ROUTE-3 (residual): /lint (taxonomy.go:790, Category /query, ShardType
+# /reviewer) is the exact analog of /audit — static analysis whose findings
+# are a valid prose terminal response. Without this it derived no next_action
+# ("no action derived from policy", exit 1). /delegate_reviewer is intentionally
+# NOT side_effecting, so a prose lint report needs no tool_call (same as /review).
+action_mapping(/lint, /delegate_reviewer).
 
 # Code mutation actions (delegate to coder shard)
 action_mapping(/fix, /delegate_coder).
@@ -162,6 +168,17 @@ action_mapping(/debug, /delegate_coder).
 # Git actions (delegate to coder shard for safe git operations)
 action_mapping(/git, /delegate_coder).
 
+# Test/measurement actions (delegate to tester shard). F-ROUTE-3 (residual):
+# /benchmark (taxonomy.go:770) and /profile (775) are Category /query,
+# ShardType /tester. They had no action_mapping, so `nerd run "benchmark ..."`
+# derived no next_action and died "no action derived from policy" (exit 1).
+# nextActionToShardType maps /delegate_tester -> "tester" (cmd_instruction.go).
+# Unlike /test (which uses /run_tests directly), these route through the tester
+# shard; /delegate_tester is marked side_effecting below because benchmarking
+# and profiling must EXECUTE measurement, not answer in prose.
+action_mapping(/benchmark, /delegate_tester).
+action_mapping(/profile, /delegate_tester).
+
 # Research actions (delegate to researcher shard)
 action_mapping(/research, /delegate_researcher).
 action_mapping(/explore, /delegate_researcher).
@@ -182,11 +199,14 @@ action_mapping(/diff, /show_diff).
 # narrative-only first turn is acceptable. Delegation actions are included
 # because the delegated shard's purpose is to mutate state — the orchestrating
 # turn must still emit a tool_call (write_file / edit_file / run_command /
-# delegate_*). Pure analysis verbs (/explain, /analyze, /research) intentionally
-# omitted: a prose answer there is a valid terminal response.
+# delegate_*). The tester EXECUTES (runs tests/benchmarks/profiles), so
+# /delegate_tester is included. /delegate_reviewer is the deliberate exception:
+# the reviewer ANALYZES and a prose verdict (/review, /analyze, /audit, /lint)
+# is a valid terminal response — so it stays out of this set.
 side_effecting_action(/delegate_coder).
 side_effecting_action(/delegate_researcher).
 side_effecting_action(/delegate_tool_generator).
+side_effecting_action(/delegate_tester).
 side_effecting_action(/fs_write).
 side_effecting_action(/exec_cmd).
 side_effecting_action(/run_tests).
