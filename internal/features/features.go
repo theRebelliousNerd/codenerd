@@ -172,19 +172,35 @@ func SetActive(cfg *FeaturesConfig) {
 // Summary returns a short single-line description of the currently
 // active FeaturesConfig (or "defaults" if none is installed). Suitable
 // for boot-time logging by the caller of SetActive.
+//
+// Boolean pointer fields are rendered as "true"/"false"/"unset" rather
+// than raw pointer addresses: FeaturesConfig uses *bool so that a
+// missing JSON key (nil) can be distinguished from an explicit false.
 func Summary() string {
 	c := active.Load()
 	if c == nil {
 		return "features: defaults active"
 	}
 	return fmt.Sprintf(
-		"features: diff_eval=%v flight_recorder=%v provenance=%v "+
-			"system_shards=%v per_shard_facts=%v dark_mode=%v skip_onboarding=%v "+
-			"taxonomy_fast=%v fast_scan_workers=%d fast_ast_max_bytes=%d",
-		c.DiffEval, c.FlightRecorder, c.Provenance,
-		c.SystemShards, c.PerShardFacts, c.DarkMode, c.SkipOnboarding,
-		c.TaxonomyFast, c.FastScanWorkers, c.FastASTMaxBytes,
+		"features: diff_eval=%s flight_recorder=%s provenance=%s "+
+			"system_shards=%s per_shard_facts=%s dark_mode=%s skip_onboarding=%s "+
+			"taxonomy_fast=%s fast_scan_workers=%d fast_ast_max_bytes=%d",
+		boolPtrString(c.DiffEval), boolPtrString(c.FlightRecorder), boolPtrString(c.Provenance),
+		boolPtrString(c.SystemShards), boolPtrString(c.PerShardFacts), boolPtrString(c.DarkMode), boolPtrString(c.SkipOnboarding),
+		boolPtrString(c.TaxonomyFast), c.FastScanWorkers, c.FastASTMaxBytes,
 	)
+}
+
+// boolPtrString renders a *bool for human-readable logs.
+// nil → "unset", otherwise "true"/"false".
+func boolPtrString(p *bool) string {
+	if p == nil {
+		return "unset"
+	}
+	if *p {
+		return "true"
+	}
+	return "false"
 }
 
 // Active returns the currently-installed FeaturesConfig or nil if
