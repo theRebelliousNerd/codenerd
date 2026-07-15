@@ -128,6 +128,7 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.PageDown):
 			m.viewport.HalfViewDown()
 		case msg.String() == "v":
+			// Toggle summary/detail view (key.Matches switch uses bool cases).
 			m.isSummaryView = !m.isSummaryView
 			if m.renderCache != nil {
 				m.renderCache.Invalidate()
@@ -150,14 +151,14 @@ func (m CampaignPageModel) Update(msg tea.Msg) (CampaignPageModel, tea.Cmd) {
 func (m CampaignPageModel) View() string {
 	if m.campaignData == nil {
 		var sb strings.Builder
-	sb.WriteString(m.styles.Header.Render(" No Active Campaign ") + "\n\n")
-	sb.WriteString(m.styles.Body.Render("Campaigns allow you to orchestrate multi-phase goals and automated tasks.") + "\n\n")
-	sb.WriteString(m.styles.Bold.Render("Getting Started:") + "\n")
-	sb.WriteString("  " + m.styles.InlineCode.Render("/campaign start <goal>") + m.styles.Muted.Render("   Begin a new multi-phase campaign") + "\n")
-	sb.WriteString("  " + m.styles.InlineCode.Render("/campaign assault <target>") + m.styles.Muted.Render(" Run an adversarial soak/stress test") + "\n")
-	sb.WriteString("  " + m.styles.InlineCode.Render("/campaign resume") + m.styles.Muted.Render("           Resume a paused campaign") + "\n\n")
-	sb.WriteString(m.styles.Bold.Render("Available Controls:") + "\n")
-	sb.WriteString(m.styles.Muted.Render("  [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back"))
+		sb.WriteString(m.styles.Header.Render(" No Active Campaign ") + "\n\n")
+		sb.WriteString(m.styles.Body.Render("Campaigns allow you to orchestrate multi-phase goals and automated tasks.") + "\n\n")
+		sb.WriteString(m.styles.Bold.Render("Getting Started:") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign start <goal>") + m.styles.Muted.Render("   Begin a new multi-phase campaign") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign assault <target>") + m.styles.Muted.Render(" Run an adversarial soak/stress test") + "\n")
+		sb.WriteString("  " + m.styles.InlineCode.Render("/campaign resume") + m.styles.Muted.Render("           Resume a paused campaign") + "\n\n")
+		sb.WriteString(m.styles.Bold.Render("Available Controls:") + "\n")
+		sb.WriteString(m.styles.Muted.Render("  [Space] Pause/Resume  [r] Replan  [c] Checkpoint  [Esc] Back"))
 		return m.styles.Content.Render(sb.String())
 	}
 	return m.viewport.View()
