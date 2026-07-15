@@ -55,7 +55,7 @@ func executeWebSearch(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	maxResults := 10
-	if mr, ok := args["max_results"].(int); ok && mr > 0 {
+	if mr, ok := argInt(args, "max_results"); ok && mr > 0 {
 		maxResults = mr
 	}
 	if maxResults > 30 {

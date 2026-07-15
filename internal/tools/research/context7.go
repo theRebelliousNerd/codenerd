@@ -51,7 +51,7 @@ func executeContext7(ctx context.Context, args map[string]any) (string, error) {
 
 	repo, _ := args["repo"].(string)
 	maxDocs := 10
-	if md, ok := args["max_docs"].(int); ok && md > 0 {
+	if md, ok := argInt(args, "max_docs"); ok && md > 0 {
 		maxDocs = md
 	}
 

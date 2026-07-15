@@ -58,7 +58,7 @@ func executeWebFetch(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	maxLength := 50000
-	if ml, ok := args["max_length"].(int); ok && ml > 0 {
+	if ml, ok := argInt(args, "max_length"); ok && ml > 0 {
 		maxLength = ml
 	}
 
