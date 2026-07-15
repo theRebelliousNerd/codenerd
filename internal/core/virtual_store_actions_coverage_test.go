@@ -866,6 +866,50 @@ func TestHandleGitOperation(t *testing.T) {
 	}
 }
 
+// TestHandleGitOperation_NonZeroExitIsFailure is the F-VS-1 regression. The
+// tactile executor returns err==nil when a git command RUNS but exits non-zero
+// (a command failure, not an infrastructure failure). handleGitOperation must
+// not report success in that case, mirroring handleRunTests/handleBuildProject —
+// otherwise a rejected push / failed `git apply` / "nothing to commit" is
+// recorded as git_result(op, true, ...) and the kernel proceeds on a false
+// premise.
+func TestHandleGitOperation_NonZeroExitIsFailure(t *testing.T) {
+	vs, _ := createActionsTestVS(t)
+	ctx := context.Background()
+
+	req := ActionRequest{ActionID: "g_fail", Target: "apply"}
+
+	mExec := vs.executor.(*mockActionsExecutor)
+	mExec.executeFunc = func(ctx context.Context, cmd tactile.Command) (*tactile.ExecutionResult, error) {
+		// Command ran to completion but git rejected it: exit 1, err==nil.
+		return &tactile.ExecutionResult{Success: false, ExitCode: 1, Stderr: "error: patch failed"}, nil
+	}
+
+	res, err := vs.handleGitOperation(ctx, req)
+	if err != nil {
+		t.Fatalf("handleGitOperation returned an infrastructure error: %v", err)
+	}
+	if res.Success {
+		t.Errorf("git exited non-zero (ExitCode=1) but result reported success: %+v", res)
+	}
+	// The injected git_result fact must also report failure.
+	sawGitResult := false
+	for _, f := range res.FactsToAdd {
+		if f.Predicate != "git_result" {
+			continue
+		}
+		sawGitResult = true
+		if len(f.Args) >= 2 {
+			if ok, _ := f.Args[1].(bool); ok {
+				t.Errorf("git_result fact reported success on a non-zero exit: %+v", f.Args)
+			}
+		}
+	}
+	if !sawGitResult {
+		t.Errorf("expected a git_result fact, got: %+v", res.FactsToAdd)
+	}
+}
+
 // TestHandleShowDiff tests diff logic wrapper
 func TestHandleShowDiff(t *testing.T) {
 	vs, _ := createActionsTestVS(t)
