@@ -360,8 +360,15 @@ func main() {
 	// G1: optional process-lifetime trace ring buffer. Resolved via
 	// internal/features so .nerd/config.json's `features.flight_recorder`
 	// key or the NERD_FLIGHTREC env var (env wins) controls boot. Defaults
-	// to 64 MiB / 30 s window. The runtime stops the recorder automatically
-	// at process exit, so callers do not need to invoke Stop() for correctness.
+	// OFF: it drives the execution tracer, which can OOM-crash the process
+	// under heavy/long runs (e.g. campaigns), so it is opt-in. When enabled
+	// it uses a 64 MiB / 30 s window and StartFlightRecorder installs a
+	// memory watchdog that stops the recorder before the tracer exhausts
+	// process memory. Campaigns additionally skip the recorder entirely
+	// (F-TRACE-1): they are the known worst case for tracer goroutine churn,
+	// so not starting it there is cheaper than relying on the watchdog.
+	// The runtime also stops the recorder automatically at process exit,
+	// so callers do not need to invoke Stop() for correctness.
 	if features.IsFlightRecorderEnabled() && !isCampaignInvocation() {
 		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)

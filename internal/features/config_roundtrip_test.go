@@ -81,12 +81,12 @@ func TestLoadUserConfig_InstallsFeaturesIntoRegistry(t *testing.T) {
 		require.NoError(t, err)
 
 		// Defaults as declared in features.go's IsXxxEnabled accessors:
-		//   DiffEval=false, FlightRecorder=true, Provenance=false,
+		//   DiffEval=false, FlightRecorder=false, Provenance=false,
 		//   TaxonomyFast=true. We re-read the same accessors the kernel
 		//   does so we're testing the actual contract, not a hardcoded
 		//   table.
 		require.False(t, features.IsDiffEvalEnabled(), "DiffEval default")
-		require.True(t, features.IsFlightRecorderEnabled(), "FlightRecorder default")
+		require.False(t, features.IsFlightRecorderEnabled(), "FlightRecorder default (opt-in; off)")
 		require.False(t, features.IsProvenanceEnabled(), "Provenance default")
 		require.True(t, features.IsTaxonomyFastEnabled(), "TaxonomyFast default")
 	})

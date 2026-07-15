@@ -22,7 +22,7 @@
 | Path | ≈Lines | Responsibility |
 |------|-------:|----------------|
 | [`internal/observability/runtime_metrics.go`](../../../internal/observability/runtime_metrics.go) | 188 | Package doc; `LogStartupMetrics`; metric path list; field key / short name / sample formatting; Green Tea detection |
-| [`internal/observability/flight_recorder.go`](../../../internal/observability/flight_recorder.go) | 138 | Singleton flight recorder Start/Stop/Enabled/Dump |
+| [`internal/observability/flight_recorder.go`](../../../internal/observability/flight_recorder.go) | 278 | Singleton flight recorder Start/Stop/Enabled/Dump; memory watchdog (`flightMemWatchdog`) that auto-stops the recorder before the tracer's region allocator OOM-crashes the process (see FM13) |
 
 ### 2.2 Tests
 
@@ -30,6 +30,7 @@
 |------|-------:|-------|
 | [`flight_recorder_lifecycle_test.go`](../../../internal/observability/flight_recorder_lifecycle_test.go) | 147 | Panic capture lifecycle; double dump keeps recorder; Go trace magic |
 | [`flight_recorder_test.go`](../../../internal/observability/flight_recorder_test.go) | 121 | Start/stop; non-empty dump; dump without start; stop idempotent; empty nerdDir |
+| [`flight_recorder_watchdog_test.go`](../../../internal/observability/flight_recorder_watchdog_test.go) | 100 | Memory watchdog: auto-stop on growth past cap; no false-trip below cap; clean generation handoff after external Stop |
 | [`runtime_metrics_test.go`](../../../internal/observability/runtime_metrics_test.go) | 101 | No-panic LogStartupMetrics; all metric paths supported; GOMAXPROCS; formatSample; metricFieldKey; shortMetric; greenTeaStatus |
 
 ## 3. Behavioral inventory
