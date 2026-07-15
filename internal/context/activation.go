@@ -431,6 +431,31 @@ func (ae *ActivationEngine) SelectWithinBudget(scored []ScoredFact, budget int) 
 	return selected
 }
 
+// SelectWithinBudgetPreFiltered selects facts within the token budget WITHOUT
+// applying the activation threshold. Use ONLY when the caller has already
+// performed authoritative relevance filtering — specifically kernel-derived
+// context, where the Mangle `should_include_context` gate is the final
+// inclusion decision and the Score values are kernel priorities (bounded roughly
+// 60–100) on a different scale than ActivationThreshold (calibrated for the
+// 100–250 Go heuristic). Routing kernel scores through SelectWithinBudget's
+// threshold gate silently dropped them: the shipped default threshold (105.0)
+// prunes every kernel-priority score (≤100), emptying the ACTIVE CONTEXT block.
+func (ae *ActivationEngine) SelectWithinBudgetPreFiltered(scored []ScoredFact, budget int) []ScoredFact {
+	counter := NewTokenCounter()
+	selected := make([]ScoredFact, 0, len(scored))
+	usedTokens := 0
+	for _, sf := range scored {
+		tokens := counter.CountFact(sf.Fact)
+		if usedTokens+tokens <= budget {
+			selected = append(selected, sf)
+			usedTokens += tokens
+		}
+	}
+	logging.ContextDebug("SelectWithinBudgetPreFiltered: %d input → %d selected (%d/%d tokens, no threshold)",
+		len(scored), len(selected), usedTokens, budget)
+	return selected
+}
+
 // UpdateFocusedPaths updates the focused paths from focus_resolution facts.
 func (ae *ActivationEngine) UpdateFocusedPaths(facts []core.Fact) {
 	ae.mu.Lock()

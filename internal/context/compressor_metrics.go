@@ -451,8 +451,12 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		return nil
 	}
 
-	// Apply budget-limited selection using the existing SelectWithinBudget mechanism.
-	return c.activation.SelectWithinBudget(scored, c.config.AtomReserve)
+	// Kernel-derived facts already passed the authoritative should_include_context
+	// gate, so select within budget WITHOUT re-applying the activation threshold.
+	// The threshold is calibrated for the Go heuristic scale (100–250); kernel
+	// priorities top out at 100, so SelectWithinBudget's threshold filter (default
+	// 105) would silently prune every kernel fact and ship an empty context.
+	return c.activation.SelectWithinBudgetPreFiltered(scored, c.config.AtomReserve)
 }
 
 // assertTurnAgeCategories asserts turn_age_category(TurnID, Category) facts into the kernel

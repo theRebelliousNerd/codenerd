@@ -116,6 +116,35 @@ func TestSelectWithinBudget(t *testing.T) {
 	}
 }
 
+// TestSelectWithinBudgetPreFiltered is the F-CTX-1 regression: kernel-derived
+// facts (already relevance-filtered by should_include_context) must NOT be
+// re-pruned by the activation threshold. With the shipped default threshold
+// (105.0), SelectWithinBudget drops every kernel-priority score (≤100), which
+// silently emptied the ACTIVE CONTEXT block. SelectWithinBudgetPreFiltered must
+// keep them (budget permitting).
+func TestSelectWithinBudgetPreFiltered(t *testing.T) {
+	config := DefaultConfig() // ActivationThreshold defaults to 105.0
+	engine := NewActivationEngine(config)
+
+	scored := []ScoredFact{
+		{Fact: core.Fact{Predicate: "modified", Args: []any{"main.go"}}, Score: 100.0},
+		{Fact: core.Fact{Predicate: "dependency_link", Args: []any{"a.go", "b.go"}}, Score: 70.0},
+		{Fact: core.Fact{Predicate: "focus", Args: []any{"auth.go"}}, Score: 60.0},
+	}
+
+	// Precondition (the F-CTX-1 bug): with the default threshold the ordinary
+	// path prunes every kernel-priority fact, even with unlimited budget.
+	if pruned := engine.SelectWithinBudget(scored, 1_000_000); len(pruned) != 0 {
+		t.Fatalf("precondition: default-threshold path should prune all kernel scores, got %d", len(pruned))
+	}
+
+	// The pre-filtered path (used by buildKernelDerivedContext) keeps them.
+	selected := engine.SelectWithinBudgetPreFiltered(scored, 1_000_000)
+	if len(selected) != 3 {
+		t.Fatalf("kernel-derived facts must survive without the threshold gate; got %d of 3", len(selected))
+	}
+}
+
 func TestUpdateFocusedPaths(t *testing.T) {
 	config := DefaultConfig()
 	engine := NewActivationEngine(config)
