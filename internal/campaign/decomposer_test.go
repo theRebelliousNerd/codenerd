@@ -684,6 +684,7 @@ func TestRefinePlan_TxCommitFail(t *testing.T) {
 	}
 }
 
+// TODO: Add test for 0-byte files and files with only whitespace in SourcePaths
 func TestDecompose_EmptySourcePaths(t *testing.T) {
 	// Empty/whitespace-only SourcePaths entries are rejected up front to
 	// prevent ingesting the workspace root or current working directory.
@@ -809,6 +810,7 @@ func TestDecompose_NilIntelligence(t *testing.T) {
 	}
 }
 
+// TODO: Expand JSON coercion tests to cover nested field type mismatches, especially stringified booleans and integers
 func TestDecompose_JSONTypeCoercion(t *testing.T) {
 	client := &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -829,6 +831,7 @@ func TestDecompose_JSONTypeCoercion(t *testing.T) {
 	}
 }
 
+// TODO: Test adversarial strings in Goal, file names, and UserHints that contain Mangle logic programming syntax (e.g., "), malicious_fact(X). %")
 func TestDecompose_MangleFactSanitization(t *testing.T) {
 	mockKernel := &MockKernel{}
 	d := NewDecomposer(mockKernel, &mockLLMClient{
@@ -861,6 +864,8 @@ func TestDecompose_MangleFactSanitization(t *testing.T) {
 	}
 }
 
+// TODO: Add a performance/stress test generating a massive DAG of tasks and ensure validatePlan completes without OOM or timeouts
+// TODO: Add tests for extreme MaxPhases (e.g., negative, math.MaxInt32)
 func TestDecompose_MassiveGoal(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -989,6 +994,7 @@ func TestDecompose_ContextCancelledDuringLLM(t *testing.T) {
 	}
 }
 
+// TODO: Test race condition where source file is deleted halfway through pipeline (e.g., right before ingestIntoKnowledgeStore)
 func TestDecompose_FileDeletedDuringIngest(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -1028,6 +1034,8 @@ func TestDecompose_SpecialInfiniteFiles(t *testing.T) {
 	}
 }
 
+// TODO: Test forced collision of campaignID to verify knowledge store/kernel state integrity
+// TODO: Add test verifying UserHints: nil and empty slice behaves gracefully without prompt injection issues
 func TestDecompose_ConcurrentDecompose(t *testing.T) {
 	d := NewDecomposer(&MockKernel{}, &mockLLMClient{
 		completeWithSystemFunc: func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
