@@ -49,3 +49,7 @@
 ## 2024-07-05 - VirtualStore Interactive Gate vs Dreamer Cache Collision
 **Learning:** The Dreamer's cache implementation in `internal/core/dreamer.go` uses `string(req.Type) + ":" + req.Target` as the cache key. This completely ignores the `req.Payload`. Two concurrent interactive tool calls (e.g. `write_file`) modifying the same file with different content will collide, potentially allowing a malicious payload to bypass safety checks by reusing the cache entry of a benign payload.
 **Action:** When testing the VirtualStore Γåö Dreamer boundary, always construct concurrent races that exploit cache key collisions (same type + target, different payload).
+
+## 2025-07-19 - VirtualStore Synchronous Mangle Block
+**Learning:** The `VirtualStore` boundary explicitly discards the execution `context.Context` when querying the World Model via `query_graph/3`. Mangle evaluations (which are CPU-bound and synchronous) rely on this virtual predicate. If the underlying SQLite graph blocks on a write lock, the entire Mangle derivation loop hangs indefinitely, causing a thread starvation cascade in the Session Executor that cannot be cancelled by the user.
+**Action:** When mocking virtual predicates or adding external integrations to Mangle, always require an explicit context parameter to prevent execution deadlocks.
