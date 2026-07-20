@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -395,3 +396,111 @@ func TestOrchestratorFailure_StateConflicts_Concurrency(t *testing.T) {
 // TODO: Gap - Type Coercion / Adversarial: Test handleTaskFailure where err contains unescaped Mangle syntax or adversarial payload strings to ensure they don't break kernel fact parsing.
 // TODO: Gap - State Conflicts: Pass an already canceled context.Context to handleTaskFailure and verify if o.saveCampaign() blocks or correctly handles the cancellation.
 // TODO: Gap - User Request Extremes (Performance): Test shouldEscalateLogicFailure and handleTaskFailure with a task that has 100,000 previous attempts to ensure lock contention and memory pressure are manageable.
+
+func TestOrchestratorFailure_EmptyTaskID(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	// Intentionally set an empty task ID
+	task.ID = ""
+
+	err := errors.New("some error")
+
+	// Verify that it doesn't panic when task ID is empty
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleTaskFailure panicked with empty task.ID: %v", r)
+		}
+	}()
+
+	orch.handleTaskFailure(context.Background(), phase, task, err)
+}
+
+func TestOrchestratorFailure_RetryBackoff_Overflow(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+
+	// Cause overflow
+	orch.config.RetryBackoffBase = time.Duration(math.MaxInt64)
+	orch.config.RetryBackoffMax = time.Duration(math.MaxInt64)
+
+	backoff := orch.computeRetryBackoff("task_mutate_1", 10)
+
+	if backoff < 0 {
+		t.Fatalf("computeRetryBackoff caused integer overflow and returned negative time: %v", backoff)
+	}
+}
+
+func TestOrchestratorFailure_MaxRetriesZero(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	orch.config.MaxRetries = 0 // Explicitly set to 0 to bypass default 3 in NewOrchestrator
+
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	err := errors.New("fail fast")
+
+	orch.handleTaskFailure(context.Background(), phase, task, err)
+
+	// Task should be failed immediately
+	if task.Status != TaskFailed {
+		t.Fatalf("expected task to be TaskFailed when MaxRetries is 0, got %s", task.Status)
+	}
+}
+
+func TestOrchestratorFailure_AdversarialErrorString(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	adversarialStr := "this is a test error \") :- fail(). p(\""
+	err := errors.New(adversarialStr)
+
+	// Should not panic, or break kernel assertions
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleTaskFailure panicked on adversarial error string: %v", r)
+		}
+	}()
+
+	orch.handleTaskFailure(context.Background(), phase, task, err)
+}
+
+func TestOrchestratorFailure_CanceledContext(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Already canceled
+
+	err := errors.New("some error")
+
+	// Verify that saveCampaign and handleTaskFailure handle canceled context correctly.
+	orch.handleTaskFailure(ctx, phase, task, err)
+}
+
+func TestOrchestratorFailure_MassiveAttempts(t *testing.T) {
+	orch, _, _ := newFailureTestOrchestrator(t, 5)
+	phase := &orch.campaign.Phases[0]
+	task := &orch.campaign.Phases[0].Tasks[0]
+
+	// Populate 100,000 attempts
+	for i := 0; i < 100000; i++ {
+		task.Attempts = append(task.Attempts, TaskAttempt{
+			Timestamp: time.Now(),
+			Error:     "test failure",
+		})
+	}
+
+	err := errors.New("some error")
+
+	start := time.Now()
+	// Should not hang
+	orch.handleTaskFailure(context.Background(), phase, task, err)
+	duration := time.Since(start)
+
+	if duration > 5*time.Second {
+		t.Fatalf("handleTaskFailure took too long with 100k attempts: %v", duration)
+	}
+}

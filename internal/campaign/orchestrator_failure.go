@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -73,11 +74,13 @@ taskSearch:
 			phaseID = o.campaign.Phases[i].ID
 
 			maxRetries := o.config.MaxRetries
-			if maxRetries <= 0 {
-				maxRetries = 3
+			if maxRetries < 0 {
+				maxRetries = 3 // -1 could mean default, but 0 means no retries allowed (i.e. fail on attempt 1)
 			}
 
-			if attemptNum >= maxRetries {
+			// If maxRetries is 0, attemptNum (1) > maxRetries (0) is true -> fails.
+			// If maxRetries is 3, attemptNum (4) > maxRetries (3) is true -> fails.
+			if attemptNum > maxRetries {
 				logging.Get(logging.CategoryCampaign).Error("Task %s exceeded max retries (%d), marking as failed", task.ID, maxRetries)
 				o.campaign.Phases[i].Tasks[j].Status = TaskFailed
 				o.campaign.Phases[i].Tasks[j].NextRetryAt = time.Time{}
@@ -428,7 +431,21 @@ func (o *Orchestrator) computeRetryBackoff(errorType string, attemptNum int) tim
 	}
 
 	shift := min(max(attemptNum-1, 0), 10)
-	backoff := base * time.Duration(1<<shift)
+
+	// Prevent overflow: check if multiplication will exceed max int64
+	multiplier := time.Duration(1<<shift)
+	var backoff time.Duration
+	if base > 0 && multiplier > 0 && base > math.MaxInt64/multiplier {
+		// Overflow would occur, cap at max
+		backoff = maxBackoff
+	} else {
+		backoff = base * multiplier
+	}
+
+	if backoff < 0 {
+		// Just in case, if it somehow overflowed to negative, cap it
+		backoff = maxBackoff
+	}
 
 	// Logic errors often benefit from faster replans; cap their backoff lower.
 	if errorType == "/logic" && backoff > 30*time.Second {
