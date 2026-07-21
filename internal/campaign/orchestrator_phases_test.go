@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// TODO: [Null/Undefined/Empty] Test getCurrentPhase when 'current_phase' fact has no arguments or nil arguments.
+// TODO: [Null/Undefined/Empty] Test getCurrentPhase when "current_phase" fact has no arguments or nil arguments.
 // TODO: [Type Coercion] Test getCurrentPhase when Mangle fact arguments (phase ID) are returned as unexpected types (int, float, boolean) instead of string.
 // TODO: [User Request Extremes] Test getCurrentPhase with phase IDs that are extremely long strings (1MB+) to check for memory exhaustion in the linear search array.
 // TODO: [User Request Extremes] Test getCurrentPhase when the campaign has 10,000+ phases, testing the performance of the O(N) array search.
 // TODO: [State Conflicts] Test startNextPhase deadlocks when holding o.mu.Lock() while calling external northstarObserver.OnPhaseStart which may block.
 // TODO: [State Conflicts] Test completePhase deadlocks when holding o.mu.Lock() while calling external northstarObserver.OnPhaseComplete which may block.
-// TODO: [State Conflicts] Test completePhase 'ghost facts' when RetractFact("campaign_phase") fails but the function returns normally without rolling back status.
+// TODO: [State Conflicts] Test completePhase "ghost facts" when RetractFact("campaign_phase") fails but the function returns normally without rolling back status.
 func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	// TODO: TestOrchestrator_GetCurrentPhase_MalformedFact
 	// TODO: TestOrchestrator_GetCurrentPhase_EmptyStringFact
@@ -64,8 +64,8 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 }
 
 // TODO: [Null/Undefined/Empty] Test getEligibleTasks with a nil Phase argument.
-// TODO: [Null/Undefined/Empty] Test getEligibleTasks when 'eligible_task' fact returns missing or empty string arguments.
-// TODO: [Type Coercion] Test getEligibleTasks when 'eligible_task' fact argument is coerced from non-string Atom/types.
+// TODO: [Null/Undefined/Empty] Test getEligibleTasks when "eligible_task" fact returns missing or empty string arguments.
+// TODO: [Type Coercion] Test getEligibleTasks when "eligible_task" fact argument is coerced from non-string Atom/types.
 // TODO: [State Conflicts] Test getEligibleTasks with concurrent modifications to Phase.Tasks.
 // TODO: [User Request Extremes] Test getEligibleTasks with 10,000+ eligible task facts, testing the O(N*M) nested loop performance.
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
@@ -130,7 +130,7 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 }
 
 // TODO: [Null/Undefined/Empty] Test getNextTask with a nil Phase argument.
-// TODO: [Type Coercion] Test getNextTask when 'next_campaign_task' fact argument is not a string.
+// TODO: [Type Coercion] Test getNextTask when "next_campaign_task" fact argument is not a string.
 // TODO: [State Conflicts] Test getNextTask when concurrent tasks are modifying the Phase structure.
 func TestOrchestrator_GetNextTask(t *testing.T) {
 	// TODO: TestOrchestrator_GetNextTask_TypeCoercion
@@ -260,7 +260,7 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 	}
 }
 
-// TODO: [Null/Undefined/Empty] Test getCampaignBlockReason when 'campaign_blocked' has < 2 arguments.
+// TODO: [Null/Undefined/Empty] Test getCampaignBlockReason when "campaign_blocked" has < 2 arguments.
 // TODO: [Type Coercion] Test getCampaignBlockReason when the reason argument is not a string (e.g. integer or boolean).
 // Additional test for getCampaignBlockReason
 func TestOrchestrator_GetCampaignBlockReason(t *testing.T) {
