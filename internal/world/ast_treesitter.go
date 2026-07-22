@@ -689,10 +689,16 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				name := getText(nameNode)
 				id := fmt.Sprintf("func:%s", name)
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("function %s", name)
+				var sb strings.Builder
+				sb.Grow(9 + len(name))
+				sb.WriteString("function ")
+				sb.WriteString(name)
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					paramsText := getText(paramsNode)
+					sb.Grow(len(paramsText))
+					sb.WriteString(paramsText)
 				}
+				signature := sb.String()
 				visibility := "private"
 				if hasExport(n) {
 					visibility = "public"
