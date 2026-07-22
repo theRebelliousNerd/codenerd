@@ -21,6 +21,11 @@ func (o *Orchestrator) getCurrentPhase() *Phase {
 		return nil
 	}
 
+	if len(facts[0].Args) == 0 {
+		logging.CampaignDebug("current_phase fact is malformed: no arguments")
+		return nil
+	}
+
 	phaseID := types.ExtractString(facts[0].Args[0])
 	logging.CampaignDebug("Current phase from kernel: %s", phaseID)
 

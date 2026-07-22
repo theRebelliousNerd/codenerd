@@ -15,7 +15,6 @@ import (
 // TODO: [State Conflicts] Test completePhase deadlocks when holding o.mu.Lock() while calling external northstarObserver.OnPhaseComplete which may block.
 // TODO: [State Conflicts] Test completePhase 'ghost facts' when RetractFact("campaign_phase") fails but the function returns normally without rolling back status.
 func TestOrchestrator_GetCurrentPhase(t *testing.T) {
-	// TODO: TestOrchestrator_GetCurrentPhase_MalformedFact
 	// TODO: TestOrchestrator_GetCurrentPhase_EmptyStringFact
 	mockKernel := &MockKernel{}
 	c := &Campaign{
@@ -54,6 +53,17 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	phase = orch.getCurrentPhase()
 	if phase != nil {
 		t.Errorf("Expected nil for non-existent phase, got %s", phase.ID)
+	}
+
+	// 4. Malformed fact (no arguments)
+	mockKernel.Facts = nil
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "current_phase",
+		Args:      []any{}, // No arguments
+	})
+	phase = orch.getCurrentPhase()
+	if phase != nil {
+		t.Errorf("Expected nil when fact has no arguments, got %s", phase.ID)
 	}
 
 	// 3. No fact
