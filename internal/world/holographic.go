@@ -591,8 +591,6 @@ func (h *HolographicProvider) buildBasicContext(ctx *HolographicContext, filePat
 
 // buildBasicContextWithContext provides minimal context with cancellation support.
 func (h *HolographicProvider) buildBasicContextWithContext(ctx context.Context, hc *HolographicContext, filePath string) {
-	// TODO: Add test verifying buildBasicContext properly handles binary files
-	// and doesn't load them directly into memory.
 
 	// Just set up basic file info
 	dir := filepath.Dir(filePath)
