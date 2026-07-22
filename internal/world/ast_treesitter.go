@@ -469,7 +469,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "function", visibility, path, sigBuilder.String()},
+					Args:      []any{id, "function", visibility, path, signature},
 				})
 			}
 		case "struct_item":
