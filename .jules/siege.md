@@ -1,3 +1,7 @@
+## 2024-12-28 - VirtualStore Dreamer Cache Collision
+**Learning:** The `DreamCache` key design uses only `ActionType + Target` (e.g., `write_file:config.json`), completely ignoring the `Payload`. This creates a catastrophic semantic bypass where a benign write caches a 'Safe' verdict, allowing a subsequent malicious write to the same target to bypass the kernel safety gate entirely.
+**Action:** Always include a hash of the payload in the cache key for stateful safety gates, or explicitly separate caching mechanisms from semantic policy evaluations.
+
 ## 2024-12-27 - Prompt Compiler Γò¼├┤Γö£├æΓö£Γòó LLM Client Boundary
 **Learning:** The `TokenBudgetManager` acts as the critical throttle between the JIT-assembled atoms and the LLM's physical context window limit. An oversight here (such as truncating a string halfway through a UTF-8 character or misallocating resources in concurrent calls) directly causes the downstream `LLMClient` to panic or receive a `400 Bad Request`.
 **Action:** Enforce strict UTF-8 validity checks and bounds truncation at the very edge of the prompt assembler, treating the TokenBudgetManager as a defensive firewall rather than a simple string trimmer.
