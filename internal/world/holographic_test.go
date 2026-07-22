@@ -628,10 +628,11 @@ func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 func TestExtractLineRange(t *testing.T) {
 	h := &HolographicProvider{}
 
-	content := "line1\nline2\nline3\nline4\nline5"
+	testContent := "line1\nline2\nline3\nline4\nline5"
 
 	tests := []struct {
 		name      string
+		content   string
 		startLine int
 		endLine   int
 		wantErr   bool
@@ -639,6 +640,7 @@ func TestExtractLineRange(t *testing.T) {
 	}{
 		{
 			name:      "full_range",
+			content:   testContent,
 			startLine: 1,
 			endLine:   5,
 			wantErr:   false,
@@ -646,6 +648,7 @@ func TestExtractLineRange(t *testing.T) {
 		},
 		{
 			name:      "partial_range",
+			content:   testContent,
 			startLine: 2,
 			endLine:   4,
 			wantErr:   false,
@@ -653,20 +656,64 @@ func TestExtractLineRange(t *testing.T) {
 		},
 		{
 			name:      "invalid_range",
+			content:   testContent,
 			startLine: 10,
 			endLine:   5,
 			wantErr:   true,
 		},
-		// TODO: Gap - Empty content string (Z-01) - Test content: "", startLine: 1, endLine: 1
-		// TODO: Gap - Start line < 0 (B-02) - Test startLine: -5
-		// TODO: Gap - Start line == 0 (B-01) - Test startLine: 0
-		// TODO: Gap - End line beyond string length (B-03) - Test endLine: 999999
-		// TODO: Gap - Missing trailing newline vs present trailing newline - Test edge cases on truncation limits and exact returns
+		{
+			name:      "empty_content_string",
+			content:   "",
+			startLine: 1,
+			endLine:   1,
+			wantErr:   false,
+			want:      "",
+		},
+		{
+			name:      "start_line_lt_0",
+			content:   testContent,
+			startLine: -5,
+			endLine:   3,
+			wantErr:   false,
+			want:      "line1\nline2\nline3",
+		},
+		{
+			name:      "start_line_eq_0",
+			content:   testContent,
+			startLine: 0,
+			endLine:   3,
+			wantErr:   false,
+			want:      "line1\nline2\nline3",
+		},
+		{
+			name:      "end_line_beyond_string_length",
+			content:   testContent,
+			startLine: 1,
+			endLine:   999999,
+			wantErr:   false,
+			want:      "line1\nline2\nline3\nline4\nline5",
+		},
+		{
+			name:      "truncation_missing_trailing",
+			content:   strings.Repeat("line\n", 60) + "line61",
+			startLine: 1,
+			endLine:   62,
+			wantErr:   false,
+			want:      strings.Join(strings.Split(strings.Repeat("line\n", 60)+"line61", "\n")[:50], "\n") + "\n// ... (truncated)",
+		},
+		{
+			name:      "truncation_present_trailing",
+			content:   strings.Repeat("line\n", 60),
+			startLine: 1,
+			endLine:   61,
+			wantErr:   false,
+			want:      strings.Join(strings.Split(strings.Repeat("line\n", 60), "\n")[:50], "\n") + "\n// ... (truncated)",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := h.extractLineRange(content, tt.startLine, tt.endLine)
+			got, err := h.extractLineRange(tt.content, tt.startLine, tt.endLine)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("extractLineRange() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -679,7 +726,6 @@ func TestExtractLineRange(t *testing.T) {
 		})
 	}
 }
-
 func TestFindFunctionEnd(t *testing.T) {
 
 	h := &HolographicProvider{}
