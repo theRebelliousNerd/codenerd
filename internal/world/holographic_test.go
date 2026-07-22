@@ -628,10 +628,11 @@ func TestBuildWithImpactPrioritiesNoKernel(t *testing.T) {
 func TestExtractLineRange(t *testing.T) {
 	h := &HolographicProvider{}
 
-	content := "line1\nline2\nline3\nline4\nline5"
+	defaultContent := "line1\nline2\nline3\nline4\nline5"
 
 	tests := []struct {
 		name      string
+		content   string
 		startLine int
 		endLine   int
 		wantErr   bool
@@ -639,6 +640,7 @@ func TestExtractLineRange(t *testing.T) {
 	}{
 		{
 			name:      "full_range",
+			content:   defaultContent,
 			startLine: 1,
 			endLine:   5,
 			wantErr:   false,
@@ -646,6 +648,7 @@ func TestExtractLineRange(t *testing.T) {
 		},
 		{
 			name:      "partial_range",
+			content:   defaultContent,
 			startLine: 2,
 			endLine:   4,
 			wantErr:   false,
@@ -653,20 +656,72 @@ func TestExtractLineRange(t *testing.T) {
 		},
 		{
 			name:      "invalid_range",
+			content:   defaultContent,
 			startLine: 10,
 			endLine:   5,
 			wantErr:   true,
 		},
-		// TODO: Gap - Empty content string (Z-01) - Test content: "", startLine: 1, endLine: 1
-		// TODO: Gap - Start line < 0 (B-02) - Test startLine: -5
-		// TODO: Gap - Start line == 0 (B-01) - Test startLine: 0
-		// TODO: Gap - End line beyond string length (B-03) - Test endLine: 999999
-		// TODO: Gap - Missing trailing newline vs present trailing newline - Test edge cases on truncation limits and exact returns
+		{
+			name:      "empty_content_string_Z-01",
+			content:   "",
+			startLine: 1,
+			endLine:   1,
+			wantErr:   false,
+			want:      "",
+		},
+		{
+			name:      "start_line_less_than_zero_B-02",
+			content:   defaultContent,
+			startLine: -5,
+			endLine:   1,
+			wantErr:   false,
+			want:      "line1",
+		},
+		{
+			name:      "start_line_zero_B-01",
+			content:   defaultContent,
+			startLine: 0,
+			endLine:   1,
+			wantErr:   false,
+			want:      "line1",
+		},
+		{
+			name:      "end_line_beyond_string_length_B-03",
+			content:   defaultContent,
+			startLine: 1,
+			endLine:   999999,
+			wantErr:   false,
+			want:      "line1\nline2\nline3\nline4\nline5",
+		},
+		{
+			name:      "missing_trailing_newline",
+			content:   "line1\nline2",
+			startLine: 1,
+			endLine:   2,
+			wantErr:   false,
+			want:      "line1\nline2",
+		},
+		{
+			name:      "present_trailing_newline",
+			content:   "line1\nline2\n",
+			startLine: 1,
+			endLine:   2,
+			wantErr:   false,
+			want:      "line1\nline2",
+		},
+		{
+			name:      "truncation_limit",
+			content:   strings.Repeat("a\n", 60),
+			startLine: 1,
+			endLine:   60,
+			wantErr:   false,
+			want:      strings.Repeat("a\n", 49) + "a\n// ... (truncated)",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := h.extractLineRange(content, tt.startLine, tt.endLine)
+			got, err := h.extractLineRange(tt.content, tt.startLine, tt.endLine)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("extractLineRange() error = %v, wantErr %v", err, tt.wantErr)
 				return
