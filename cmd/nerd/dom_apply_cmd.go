@@ -88,7 +88,7 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = os.Chdir(origWD) }()
 
-	_, vs, scope, err := newDOMHarness(ws, domDemoDeepWorker)
+	kernel, vs, scope, err := newDOMHarness(ws, domDemoDeepWorker)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Workspace: %s\n", ws)
 	fmt.Printf("Opening:   %s\n", absTarget)
 
-	if _, err := vs.RouteAction(ctx, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
+	if _, err := routePermittedAction(ctx, vs, kernel, core.Fact{Predicate: "next_action", Args: []any{"dom-open", "/open_file", absTarget}}); err != nil {
 		return fmt.Errorf("open_file failed: %w", err)
 	}
 
@@ -152,9 +152,10 @@ func runDomApply(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Applying:  edit_elements\n")
-	out, err := vs.RouteAction(ctx, core.Fact{
+	out, err := routePermittedAction(ctx, vs, kernel, core.Fact{
 		Predicate: "next_action",
 		Args: []any{
+			"dom-apply",
 			"/edit_elements",
 			"",
 			map[string]any{

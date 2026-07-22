@@ -237,16 +237,14 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				}
 			} else if cortex.VirtualStore != nil {
 				// Non-delegate actions: route through VirtualStore.
+				// routePermittedAction files the constitutional permission
+				// request first (constitution.mg default-deny derives
+				// permitted/3 only from a matching pending_action/5; the
+				// one-shot path has no executive shard to file it), routes,
+				// and retracts. The kernel still decides — safe_action and
+				// !dangerous_content gates apply unchanged.
 				fact := nextActionFact(action, userInput)
-				// File the constitutional permission request first: the kernel
-				// only derives permitted/3 from a matching pending_action/5
-				// (constitution.mg default-deny), and the one-shot path has no
-				// executive shard to file it. The kernel still decides —
-				// safe_action and !dangerous_content gates apply unchanged.
-				if err := assertPendingAction(cortex.Kernel, fact); err != nil {
-					logger.Warn("Failed to file pending_action; RouteAction will be denied", zap.Error(err))
-				}
-				vsResult, vsErr := cortex.VirtualStore.RouteAction(ctx, fact)
+				vsResult, vsErr := routePermittedAction(ctx, cortex.VirtualStore, cortex.Kernel, fact)
 				if vsErr != nil {
 					actionErr = vsErr
 					output = fmt.Sprintf("RouteAction(%s) failed: %v", action, vsErr)
@@ -313,25 +311,6 @@ func nextActionFact(action, target string) core.Fact {
 			target,
 		},
 	}
-}
-
-// assertPendingAction files the constitutional permission request for a
-// CLI-routed next_action fact. constitution.mg derives permitted/3 only from
-// safe_action + a matching pending_action/5 whose Target and Payload exactly
-// equal what VirtualStore.CheckKernelPermitted recomputes from the parsed
-// request — "{}" is the canonical JSON of the empty payload a bare 3-arg fact
-// parses to, so this shape must stay in sync with nextActionFact.
-func assertPendingAction(kernel core.Kernel, fact core.Fact) error {
-	if kernel == nil {
-		return fmt.Errorf("cannot file pending_action: no kernel")
-	}
-	if len(fact.Args) != 3 {
-		return fmt.Errorf("cannot file pending_action: want 3-arg next_action fact, got %d args", len(fact.Args))
-	}
-	return kernel.Assert(core.Fact{
-		Predicate: "pending_action",
-		Args:      []any{fact.Args[0], fact.Args[1], fact.Args[2], "{}", time.Now().Unix()},
-	})
 }
 
 // nextActionToShardType maps policy next_action atoms onto domain shard types
