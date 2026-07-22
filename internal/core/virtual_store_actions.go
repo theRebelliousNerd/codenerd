@@ -421,23 +421,33 @@ func (v *VirtualStore) handleGitOperation(ctx context.Context, req ActionRequest
 	}
 
 	result, err := v.executor.Execute(ctx, cmd)
-	output := ""
+	var output string
+	var success bool
 	if result != nil {
 		output = result.Output()
+		// A git command that RUNS but exits non-zero (patch didn't apply, push
+		// rejected, nothing to commit, missing branch) returns err==nil from the
+		// executor — err signals only infrastructure failure. Keying success off
+		// err alone reported those failures as success and injected
+		// git_result(op, true, ...), so the kernel proceeded on a false premise.
+		// Check the exit code too, mirroring handleRunTests/handleBuildProject.
+		success = err == nil && result.ExitCode == 0
+	} else if err != nil {
+		output = err.Error()
 	}
 
-	if err != nil {
-		logging.Get(logging.CategoryVirtualStore).Warn("Git %s failed: %v", operation, err)
+	if !success {
+		logging.Get(logging.CategoryVirtualStore).Warn("Git %s failed (err=%v): %s", operation, err, output)
 	} else {
 		logging.VirtualStoreDebug("Git %s succeeded", operation)
 	}
 
 	return ActionResult{
-		Success: err == nil,
+		Success: success,
 		Output:  output,
 		Error:   errString(err),
 		FactsToAdd: []Fact{
-			{Predicate: "git_result", Args: []any{operation, err == nil, output}},
+			{Predicate: "git_result", Args: []any{operation, success, output}},
 		},
 	}, nil
 }
