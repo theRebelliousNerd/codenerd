@@ -726,20 +726,61 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 		}
 	}
 
-	// Insert predicate examples
-	exampleStmt, err := tx.Prepare(`
-		INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare example statement: %w", err)
-	}
-	defer exampleStmt.Close()
+	// Insert predicate examples (Batched)
+	if len(examples) > 0 {
+		batchSize := 500
 
-	for _, ex := range examples {
-		_, err := exampleStmt.Exec(ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
+		var fullBatchQuery strings.Builder
+		fullBatchQuery.Grow(150 + batchSize*20)
+		fullBatchQuery.WriteString("INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source) VALUES ")
+		for j := 0; j < batchSize; j++ {
+			if j > 0 {
+				fullBatchQuery.WriteString(", ")
+			}
+			fullBatchQuery.WriteString("(?, ?, ?, ?, ?, ?)")
+		}
+
+		fullBatchStmt, err := tx.Prepare(fullBatchQuery.String())
 		if err != nil {
-			return fmt.Errorf("failed to insert example for %s: %w", ex.PredicateName, err)
+			return fmt.Errorf("failed to prepare full batch statement: %w", err)
+		}
+		defer fullBatchStmt.Close()
+
+		for k := 0; k < len(examples); k += batchSize {
+			end := k + batchSize
+			if end <= len(examples) {
+				// Full batch
+				batch := examples[k:end]
+				vals := make([]interface{}, 0, len(batch)*6)
+				for _, ex := range batch {
+					vals = append(vals, ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
+				}
+				_, err = fullBatchStmt.Exec(vals...)
+				if err != nil {
+					return fmt.Errorf("failed to batch insert examples: %w", err)
+				}
+			} else {
+				// Partial batch (the last one)
+				end = len(examples)
+				batch := examples[k:end]
+
+				var partialQuery strings.Builder
+				partialQuery.Grow(150 + len(batch)*20)
+				partialQuery.WriteString("INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source) VALUES ")
+
+				vals := make([]interface{}, 0, len(batch)*6)
+				for j, ex := range batch {
+					if j > 0 {
+						partialQuery.WriteString(", ")
+					}
+					partialQuery.WriteString("(?, ?, ?, ?, ?, ?)")
+					vals = append(vals, ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
+				}
+				_, err = tx.Exec(partialQuery.String(), vals...)
+				if err != nil {
+					return fmt.Errorf("failed to insert partial batch of examples: %w", err)
+				}
+			}
 		}
 	}
 
