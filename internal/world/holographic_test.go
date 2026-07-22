@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -960,5 +961,44 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestExtractTypeDefinition_Empty(t *testing.T) {
+	src := `package main
+type EmptyStruct struct{}
+type EmptyInterface interface{}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	h := &HolographicProvider{}
+
+	for _, decl := range f.Decls {
+		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					def := h.extractTypeDefinition(fset, typeSpec, genDecl, "test.go")
+					if def.Name == "EmptyStruct" {
+						if def.Kind != "struct" {
+							t.Errorf("Expected kind struct, got %s", def.Kind)
+						}
+						if def.Fields != nil {
+							t.Errorf("Expected nil fields for EmptyStruct, got %v", def.Fields)
+						}
+					} else if def.Name == "EmptyInterface" {
+						if def.Kind != "interface" {
+							t.Errorf("Expected kind interface, got %s", def.Kind)
+						}
+						if def.Methods != nil {
+							t.Errorf("Expected nil methods for EmptyInterface, got %v", def.Methods)
+						}
+					}
+				}
+			}
+		}
 	}
 }
