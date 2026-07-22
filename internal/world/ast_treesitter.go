@@ -432,11 +432,13 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 			nameNode := n.ChildByFieldName("name")
 			if nameNode != nil {
 				name := getText(nameNode)
-				id := fmt.Sprintf("fn:%s", name)
+				id := "fn:" + name
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("fn %s", name)
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("fn ")
+				sigBuilder.WriteString(name)
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					sigBuilder.WriteString(getText(paramsNode))
 				}
 
 				visibility := "private"
@@ -446,7 +448,7 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 
 				facts = append(facts, Fact{
 					Predicate: "symbol_graph",
-					Args:      []any{id, "function", visibility, path, signature},
+					Args:      []any{id, "function", visibility, path, sigBuilder.String()},
 				})
 			}
 		case "struct_item":
