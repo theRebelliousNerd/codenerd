@@ -1,6 +1,6 @@
 # 12 — Failure Modes: observability
 
-> Last verified against codebase: 2026-07-13  
+> Last verified against codebase: 2026-07-14  
 > Package: `internal/observability/`
 
 ## FM1 — Flight recorder fails to start
@@ -102,7 +102,7 @@
 | **Symptoms** | Higher RSS; constrained VMs OOM edge |
 | **Causes** | Production MaxBytes 64 MiB always reserved behavior per runtime |
 | **Impact** | Host stress |
-| **Mitigation** | `NERD_FLIGHTREC=0` or future smaller config; prefer disable over deleting package |
+| **Mitigation** | `NERD_FLIGHTREC=0` or future smaller config; prefer disable over deleting package. Distinct from the *fatal* runaway in FM13 — this row is steady-state RSS, not the tracer's unbounded region growth. |
 
 ## FM12 — Naming confusion with prompt “Flight Recorder”
 
@@ -112,6 +112,17 @@
 | **Causes** | Shared metaphor in docs/comments |
 | **Impact** | Wasted triage time |
 | **Mitigation** | This corpus; distinguish execution-trace vs PromptManifest |
+
+## FM13 — Fatal `traceRegion: out of memory` under heavy/long load
+
+| | |
+|--|--|
+| **Symptoms** | Whole `nerd` process dies with `fatal error: traceRegion: out of memory` (exit 2). Stack is entirely in the Go runtime tracer: `runtime.(*traceRegionAlloc).alloc` → `runtime.(*traceMap).put` → `runtime.traceStack`. First seen on a heavy `campaign start … --type audit` run (2026-07-13). |
+| **Causes** | The execution tracer keeps interning tables (stacks/strings) and generation buffers for the life of the trace. A long run with massive subprocess spawning + goroutine churn (many deep unique stacks) grows the tracer's region allocator until `sysAlloc` fails and the runtime aborts. It is a `fatal error`, **not** a panic — `defer`/`recover` cannot catch it, so the panic-dump defer in `main.go` never runs. |
+| **Impact** | Total loss of the workload (contract-#9 no-crash violation). Because a *debug/observability* feature caused it, the blast radius is the entire agent run. |
+| **Mitigation** | Two layers: (1) the compile-time default is now **off** — `IsFlightRecorderEnabled()` and `DefaultFeaturesConfig().FlightRecorder` default `false`; the recorder is opt-in via `NERD_FLIGHTREC=1` / `features.flight_recorder: true`. (2) When enabled, `StartFlightRecorder` runs a **memory watchdog** (`flightMemWatchdog`) that samples `/memory/classes/other:bytes` every `flightWatchdogInterval` (2 s) and, once trace-attributed growth passes the cap (`max(256 MiB, 4× ring)`), stops the recorder and logs a boot WARN. The recorder degrades to *off* instead of crashing the host; it stays stopped for the rest of the run. |
+| **Detection** | Boot WARN `flight recorder auto-stopped: trace memory grew N bytes (> M guard)`; `FlightRecorderEnabled()` flips to `false` mid-run. If the recorder is on for a known-heavy campaign, prefer disabling it up front (`NERD_FLIGHTREC=0`) rather than relying on the watchdog. |
+| **Tests** | `flight_recorder_watchdog_test.go`: `TestFlightWatchdog_StopsRecorderOnMemoryGrowth` (cap 0 → trips on first growth), `TestFlightWatchdog_NoTripUnderCap` (no false-fire), `TestFlightWatchdog_ExternalStopExitsWatchdog` (clean generation handoff). |
 
 ## Incident quick checklist
 
