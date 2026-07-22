@@ -45,12 +45,13 @@ code_contains(Ancestor, Descendant) :-
 
 # --- Mock & Interface Rules ---
 
-# Struct implements interface if it has methods matching interface methods
-interface_impl(StructRef, InterfaceRef) :-
-    code_element(StructRef, /struct, File, _, _),
-    code_element(InterfaceRef, /interface, File, _, _),
-    element_parent(MethodRef, StructRef),
-    code_element(MethodRef, /method, _, _, _).
+# interface_impl (Decl in schemas_codedom.mg) intentionally has NO derivation
+# rule. The previous rule paired every struct having >=1 method with every
+# interface in the same file — no method-set matching at all — materializing
+# a per-file struct x interface product of FALSE facts. Nothing consumed it,
+# so it was pure cost plus misinformation for ad-hoc `nerd logic` queries.
+# Real interface satisfaction needs method-set comparison, which belongs in
+# the Go analyzer (assert code_implements facts from go/types), not Mangle.
 
 # Test file mocks source file if it's a _test.go in the SAME package directory.
 # Cartesian-explosion fix: the previous rule paired every test file with every
@@ -70,13 +71,13 @@ suggest_update_mocks(Ref) :-
     code_element(Ref, /function, File, _, _),
     element_visibility(Ref, /public),
     element_modified(Ref, _, _),
-    mock_file(TestFile, File).
+    mock_file(_, File).
 
 suggest_update_mocks(Ref) :-
     code_element(Ref, /method, File, _, _),
     element_visibility(Ref, /public),
     element_modified(Ref, _, _),
-    mock_file(TestFile, File).
+    mock_file(_, File).
 
 # --- Scope Staleness Detection ---
 
@@ -85,8 +86,10 @@ file_modified_externally(Path) :-
     file_hash_mismatch(Path, _, _).
 
 # Scope needs refresh when any in-scope file was modified
+# active_file(_) is an existence guard (is any file open?), not a join — the
+# zero-arg head dedupes the product to a single fact.
 needs_scope_refresh() :-
-    active_file(ActiveFile),
+    active_file(_),
     in_scope(File),
     modified(File).
 

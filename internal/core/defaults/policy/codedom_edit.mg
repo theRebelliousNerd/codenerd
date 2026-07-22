@@ -149,12 +149,24 @@ successful_edit(Ref, EditType) :-
 failed_edit(Ref, EditType) :-
     code_edit_outcome(Ref, EditType, /false, _).
 
-# Proven safe: edit pattern has succeeded multiple times (3+)
+# Count distinct successfully-edited refs per edit type. Uses aggregation
+# over the successful_edit projection instead of the previous O(N³) three-way
+# self-join on code_edit_outcome — that join's cost grows cubically as edit
+# history accumulates during long campaigns (same explosion class as the old
+# repo-wide mock_file rule). successful_edit dedupes (Ref, EditType), so the
+# count is over distinct refs, preserving the original "3+ distinct edits"
+# semantics exactly.
+Decl edit_success_count(EditType, Count).
+edit_success_count(EditType, N) :-
+    successful_edit(Ref, EditType) |>
+    do fn:group_by(EditType),
+    let N = fn:count().
+
+# Proven safe: edit pattern has succeeded on 3+ distinct elements
 proven_safe_edit(Ref, EditType) :-
-    code_edit_outcome(Ref, EditType, /true, _),
-    code_edit_outcome(Ref2, EditType, /true, _),
-    code_edit_outcome(Ref3, EditType, /true, _),
-    Ref != Ref2, Ref2 != Ref3, Ref != Ref3.
+    successful_edit(Ref, EditType),
+    edit_success_count(EditType, N),
+    N >= 3.
 
 # Promote to long-term memory when edit pattern is proven
 promote_to_long_term(/edit_pattern, EditType) :-

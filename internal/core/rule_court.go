@@ -78,9 +78,22 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 
 	// Hydrate with current facts for liveness checks
 	// Use memory-efficient sequence iterator to avoid allocating huge Fact arrays
-	if kernel.FactCount() > 0 {
+	factCount := kernel.FactCount()
+	if factCount > 0 {
 		_ = sandbox.LoadFactsSeq(kernel.GetFactsSnapshotSeq())
 	}
+
+	// Derivation-bomb ceiling: a legitimate candidate rule derives facts
+	// roughly proportional to the existing fact base (the corpus rules are
+	// linear joins). A rule whose fixpoint wants more than a small multiple
+	// of the base is a Cartesian/recursive explosion and gets vetoed by the
+	// engine's created-fact limit — deterministically, and usually faster
+	// than the wall-clock timeout below. This ceiling is also what bounds
+	// the lifetime of a timed-out evaluation goroutine: engine evaluation
+	// cannot be cancelled (no context support), so without it a vetoed
+	// runaway rule would keep burning CPU until the much larger default
+	// kernel ceiling.
+	sandbox.SetDerivedFactLimit(factCount*4 + 10_000)
 
 	// Bounded sandbox.Evaluate() — runaway derivation (e.g., cyclic recursive
 	// rules) is treated as a VETO so a hallucinated rule cannot hang the
@@ -96,6 +109,9 @@ func RatifyRule(kernel *RealKernel, newRule string) error {
 	select {
 	case err := <-evalDone:
 		if err != nil {
+			if strings.Contains(err.Error(), "fact size limit reached") {
+				return fmt.Errorf("VETO: derivation bomb — rule exceeds the sandbox fact ceiling (%d derived facts on a %d-fact base): %w", factCount*4+10_000, factCount, err)
+			}
 			return fmt.Errorf("rule rejected by sandbox compiler: %w", err)
 		}
 	case <-evalCtx.Done():

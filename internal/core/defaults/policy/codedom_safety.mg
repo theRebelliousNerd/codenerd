@@ -43,13 +43,14 @@ deny_edit(Ref, /goroutine_leak_risk) :-
 # SECTION 3: PYTHON SAFETY RULES
 # =============================================================================
 
-# Python: Auth decorator removal detection
-# Block removal of authentication decorators
-deny_edit(Ref, /auth_removed) :-
-    code_element(Ref, _, _, _, _),
-    !has_auth_guard(Ref),
-    has_auth_guard(Ref),
-    element_modified(Ref, _, _).
+# Python: Auth decorator removal detection.
+# NO RULE: the previous rule required `!has_auth_guard(Ref), has_auth_guard(Ref)`
+# — a contradiction that can never fire, so the guard was silently dead.
+# Detecting "had an auth decorator before the edit, lacks it after" needs
+# before/after snapshot facts (e.g. has_auth_guard_pre(Ref)) that no producer
+# asserts today. Reintroduce the rule when the perception layer emits them:
+#   deny_edit(Ref, /auth_removed) :-
+#       has_auth_guard_pre(Ref), !has_auth_guard(Ref), element_modified(Ref, _, _).
 
 # Python: Type annotation removal
 # Warn when removing type hints from previously typed functions
