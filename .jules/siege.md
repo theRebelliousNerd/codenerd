@@ -1,3 +1,7 @@
+## 2025-07-19 - VirtualStore Synchronous Mangle Block
+**Learning:** The `VirtualStore` boundary explicitly discards the execution `context.Context` when querying the World Model via `query_graph/3`. Mangle evaluations (which are CPU-bound and synchronous) rely on this virtual predicate. If the underlying SQLite graph blocks on a write lock, the entire Mangle derivation loop hangs indefinitely, causing a thread starvation cascade in the Session Executor that cannot be cancelled by the user.
+**Action:** When mocking virtual predicates or adding external integrations to Mangle, always require an explicit context parameter to prevent execution deadlocks.
+
 ## 2024-12-28 - VirtualStore Dreamer Cache Collision
 **Learning:** The `DreamCache` key design uses only `ActionType + Target` (e.g., `write_file:config.json`), completely ignoring the `Payload`. This creates a catastrophic semantic bypass where a benign write caches a 'Safe' verdict, allowing a subsequent malicious write to the same target to bypass the kernel safety gate entirely.
 **Action:** Always include a hash of the payload in the cache key for stateful safety gates, or explicitly separate caching mechanisms from semantic policy evaluations.
