@@ -658,88 +658,142 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	}
 	defer tx.Rollback()
 
-	// Insert predicates
-	predStmt, err := tx.Prepare(`
-		INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file, activation_priority, serialization_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare predicate statement: %w", err)
-	}
-	defer predStmt.Close()
+	// Helper function for batching
+	generateBatchQuery := func(baseQuery string, numRows int, placeholdersPerRow int) string {
+		var sb strings.Builder
+		sb.WriteString(baseQuery)
+		sb.WriteString(" VALUES ")
 
-	argStmt, err := tx.Prepare(`
-		INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare args statement: %w", err)
+		rowPlaceholders := "(" + strings.Repeat("?, ", placeholdersPerRow-1) + "?)"
+		for i := 0; i < numRows; i++ {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(rowPlaceholders)
+		}
+		return sb.String()
 	}
-	defer argStmt.Close()
 
-	domainStmt, err := tx.Prepare(`
-		INSERT INTO predicate_domains (predicate_id, domain, relevance_score)
-		VALUES (?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare domain statement: %w", err)
-	}
-	defer domainStmt.Close()
+	batchSize := 100
 
-	for _, p := range predicates {
-		result, err := predStmt.Exec(p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
-		if err != nil {
-			return fmt.Errorf("failed to insert predicate %s: %w", p.Name, err)
+	// 1. Insert predicates in batches
+	for i := 0; i < len(predicates); i += batchSize {
+		end := i + batchSize
+		if end > len(predicates) {
+			end = len(predicates)
+		}
+		batch := predicates[i:end]
+
+		if len(batch) == 0 {
+			continue
 		}
 
-		predID, _ := result.LastInsertId()
+		baseQuery := "INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file, activation_priority, serialization_order)"
+		query := generateBatchQuery(baseQuery, len(batch), 11) + " RETURNING id"
 
-		// Insert arguments
-		for _, arg := range p.ArgumentDefs {
-			_, err := argStmt.Exec(predID, arg.Position, arg.Name, arg.Type, arg.IsBoundRequired)
-			if err != nil {
-				return fmt.Errorf("failed to insert arg for %s: %w", p.Name, err)
+		var vals []interface{}
+		for _, p := range batch {
+			vals = append(vals, p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
+		}
+
+		rows, err := tx.Query(query, vals...)
+		if err != nil {
+			return fmt.Errorf("failed to insert predicates batch: %w", err)
+		}
+
+		var predIDs []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to scan predicate id: %w", err)
+			}
+			predIDs = append(predIDs, id)
+		}
+		rows.Close()
+
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating returning ids: %w", err)
+		}
+
+		// Prepare arguments and domains for batch insert
+		var argVals []interface{}
+		var domVals []interface{}
+
+		for j, p := range batch {
+			predID := predIDs[j]
+			for _, arg := range p.ArgumentDefs {
+				argVals = append(argVals, predID, arg.Position, arg.Name, arg.Type, arg.IsBoundRequired)
+			}
+			domVals = append(domVals, predID, p.Domain, 1.0)
+		}
+
+		if len(argVals) > 0 {
+			numArgs := len(argVals) / 5
+			argBase := "INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required)"
+			argQuery := generateBatchQuery(argBase, numArgs, 5)
+			if _, err := tx.Exec(argQuery, argVals...); err != nil {
+				return fmt.Errorf("failed to insert args batch: %w", err)
 			}
 		}
 
-		// Insert domain mapping
-		_, err = domainStmt.Exec(predID, p.Domain, 1.0)
-		if err != nil {
-			return fmt.Errorf("failed to insert domain for %s: %w", p.Name, err)
+		if len(domVals) > 0 {
+			numDoms := len(domVals) / 3
+			domBase := "INSERT INTO predicate_domains (predicate_id, domain, relevance_score)"
+			domQuery := generateBatchQuery(domBase, numDoms, 3)
+			if _, err := tx.Exec(domQuery, domVals...); err != nil {
+				return fmt.Errorf("failed to insert domains batch: %w", err)
+			}
 		}
 	}
 
-	// Insert error patterns
-	errorStmt, err := tx.Prepare(`
-		INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare error pattern statement: %w", err)
-	}
-	defer errorStmt.Close()
+	// 2. Insert error patterns in batches
+	for i := 0; i < len(errorPatterns); i += batchSize {
+		end := i + batchSize
+		if end > len(errorPatterns) {
+			end = len(errorPatterns)
+		}
+		batch := errorPatterns[i:end]
 
-	for _, ep := range errorPatterns {
-		_, err := errorStmt.Exec(ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
-		if err != nil {
-			return fmt.Errorf("failed to insert error pattern %s: %w", ep.Name, err)
+		if len(batch) == 0 {
+			continue
+		}
+
+		baseQuery := "INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)"
+		query := generateBatchQuery(baseQuery, len(batch), 5)
+
+		var vals []interface{}
+		for _, ep := range batch {
+			vals = append(vals, ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
+		}
+
+		if _, err := tx.Exec(query, vals...); err != nil {
+			return fmt.Errorf("failed to insert error patterns batch: %w", err)
 		}
 	}
 
-	// Insert predicate examples
-	exampleStmt, err := tx.Prepare(`
-		INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare example statement: %w", err)
-	}
-	defer exampleStmt.Close()
+	// 3. Insert predicate examples in batches
+	for i := 0; i < len(examples); i += batchSize {
+		end := i + batchSize
+		if end > len(examples) {
+			end = len(examples)
+		}
+		batch := examples[i:end]
 
-	for _, ex := range examples {
-		_, err := exampleStmt.Exec(ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
-		if err != nil {
-			return fmt.Errorf("failed to insert example for %s: %w", ex.PredicateName, err)
+		if len(batch) == 0 {
+			continue
+		}
+
+		baseQuery := "INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source)"
+		query := generateBatchQuery(baseQuery, len(batch), 6)
+
+		var vals []interface{}
+		for _, ex := range batch {
+			vals = append(vals, ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
+		}
+
+		if _, err := tx.Exec(query, vals...); err != nil {
+			return fmt.Errorf("failed to insert examples batch: %w", err)
 		}
 	}
 
