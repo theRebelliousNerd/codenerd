@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"runtime"
 )
 
 func TestOrchestratorJournal_Gaps(t *testing.T) {
@@ -57,9 +58,83 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 			t.Errorf("Recovered journal missing the large event")
 		}
 	})
-	// TODO: TEST_GAP: FUSE/NFS syncDirIfSupported Error. Verify that the system handles Sync() returning an unsupported operation error gracefully without breaking campaign flow.
 	// TODO: TEST_GAP: Missing/Nil Payload Hash Verification. Verify checksumJournalEvent deterministic hashing when ev.Payload is exactly nil vs []byte("").
 	// REMEDIATED: TEST_GAP: Sequence Mismatch Truncation Test. Verify that if line N is corrupt, recovery correctly preserves 0..N-1 and safely overwrites the corrupt line.
+}
+
+func TestOrchestratorJournal_UnsupportedSyncError_Integration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("syncDirIfSupported returns nil on windows, skipping test")
+	}
+
+	origOsSyncFile := osSyncFile
+	defer func() {
+		osSyncFile = origOsSyncFile
+	}()
+
+	errFuse := &os.PathError{Op: "sync", Path: "/tmp/fuse", Err: syscall.EINVAL}
+	osSyncFile = func(f *os.File) error {
+		return errFuse
+	}
+
+	tmpDir := t.TempDir()
+	o := &Orchestrator{
+		nerdDir: tmpDir,
+		campaign: &Campaign{
+			ID: "test-campaign-sync",
+		},
+	}
+
+	err := o.appendJournalEventLocked("test_event", nil, "")
+	if err != nil {
+		t.Errorf("expected appendJournalEventLocked to succeed with FUSE/NFS sync error, got %v", err)
+	}
+}
+
+func TestOrchestratorJournal_UnsupportedSyncError_FUSENFS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("syncDirIfSupported returns nil on windows, skipping test")
+	}
+
+	origOsSyncFile := osSyncFile
+	defer func() {
+		osSyncFile = origOsSyncFile
+	}()
+
+	errFuse := &os.PathError{Op: "sync", Path: "/tmp/fuse", Err: syscall.EINVAL}
+	osSyncFile = func(f *os.File) error {
+		return errFuse
+	}
+
+	tmpDirFuse := t.TempDir()
+	err := syncDirIfSupported(tmpDirFuse)
+	if err != nil {
+		t.Errorf("expected syncDirIfSupported to ignore EINVAL error, got %v", err)
+	}
+
+	errNfs := &os.PathError{Op: "sync", Path: "/tmp/nfs", Err: fmt.Errorf("operation not supported")}
+	osSyncFile = func(f *os.File) error {
+		return errNfs
+	}
+
+	tmpDirNfs := t.TempDir()
+	err = syncDirIfSupported(tmpDirNfs)
+	if err != nil {
+		t.Errorf("expected syncDirIfSupported to ignore operation not supported error, got %v", err)
+	}
+
+	errPerm := &os.PathError{Op: "sync", Path: "/tmp/bad", Err: os.ErrPermission}
+	osSyncFile = func(f *os.File) error {
+		return errPerm
+	}
+
+	tmpDirBad := t.TempDir()
+	err = syncDirIfSupported(tmpDirBad)
+	if err == nil {
+		t.Errorf("expected syncDirIfSupported to return permission error, got nil")
+	} else if err != errPerm {
+		t.Errorf("expected syncDirIfSupported to return exact permission error, got %v", err)
+	}
 }
 
 func TestOrchestratorJournal_UnsupportedSyncError(t *testing.T) {
