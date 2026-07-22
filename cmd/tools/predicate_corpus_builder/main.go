@@ -668,15 +668,14 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	}
 	defer predStmt.Close()
 
-	argStmt, err := tx.Prepare(`
-		INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare args statement: %w", err)
+	type accumulatedArg struct {
+		predID          int64
+		position        int
+		name            string
+		argType         string
+		isBoundRequired bool
 	}
-	defer argStmt.Close()
-
+	var allArgs []accumulatedArg
 	domainStmt, err := tx.Prepare(`
 		INSERT INTO predicate_domains (predicate_id, domain, relevance_score)
 		VALUES (?, ?, ?)
@@ -696,16 +695,46 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 
 		// Insert arguments
 		for _, arg := range p.ArgumentDefs {
-			_, err := argStmt.Exec(predID, arg.Position, arg.Name, arg.Type, arg.IsBoundRequired)
-			if err != nil {
-				return fmt.Errorf("failed to insert arg for %s: %w", p.Name, err)
-			}
+			allArgs = append(allArgs, accumulatedArg{
+				predID:          predID,
+				position:        arg.Position,
+				name:            arg.Name,
+				argType:         arg.Type,
+				isBoundRequired: arg.IsBoundRequired,
+			})
 		}
 
 		// Insert domain mapping
 		_, err = domainStmt.Exec(predID, p.Domain, 1.0)
 		if err != nil {
 			return fmt.Errorf("failed to insert domain for %s: %w", p.Name, err)
+		}
+	}
+
+	// Bulk insert arguments
+	if len(allArgs) > 0 {
+		chunkSize := 100
+		for i := 0; i < len(allArgs); i += chunkSize {
+			end := i + chunkSize
+			if end > len(allArgs) {
+				end = len(allArgs)
+			}
+			chunk := allArgs[i:end]
+
+			query := "INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required) VALUES "
+			var vals []interface{}
+			for j, a := range chunk {
+				if j > 0 {
+					query += ", "
+				}
+				query += "(?, ?, ?, ?, ?)"
+				vals = append(vals, a.predID, a.position, a.name, a.argType, a.isBoundRequired)
+			}
+
+			_, err := tx.Exec(query, vals...)
+			if err != nil {
+				return fmt.Errorf("failed to bulk insert arguments: %w", err)
+			}
 		}
 	}
 
