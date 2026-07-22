@@ -272,7 +272,11 @@ func syncDirIfSupported(dir string) error {
 		return err
 	}
 	defer d.Close()
-	return ignoreUnsupportedSyncError(d.Sync())
+	return ignoreUnsupportedSyncError(osSyncFile(d))
+}
+
+var osSyncFile = func(f *os.File) error {
+	return f.Sync()
 }
 
 func ignoreUnsupportedSyncError(err error) error {
