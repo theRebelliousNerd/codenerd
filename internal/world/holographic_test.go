@@ -38,7 +38,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
-// TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 
@@ -960,5 +959,45 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestHolographicContext_BinaryFileFallback(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+
+	// Write a dummy binary file
+	filePath := filepath.Join(tempDir, "test.bin")
+	err := os.WriteFile(filePath, []byte{0x00, 0x01, 0x02, 0x03}, 0644)
+	if err != nil {
+		t.Fatalf("Failed to create dummy binary file: %v", err)
+	}
+
+	// Write a sibling binary file
+	siblingPath := filepath.Join(tempDir, "sibling.bin")
+	err = os.WriteFile(siblingPath, []byte{0x04, 0x05, 0x06, 0x07}, 0644)
+	if err != nil {
+		t.Fatalf("Failed to create sibling binary file: %v", err)
+	}
+
+	// Instantiate a HolographicProvider
+	h := NewHolographicProvider(nil, ".")
+
+
+	// Create a new HolographicContext
+	hc := &HolographicContext{
+		TargetFile:     filePath,
+		PackageImports: make(map[string][]string),
+	}
+
+	// Call buildBasicContextWithContext
+	ctx := context.Background()
+	h.buildBasicContextWithContext(ctx, hc, filePath)
+
+	// Verify the context was built successfully
+	if len(hc.PackageSiblings) != 1 {
+		t.Errorf("Expected 1 package sibling, got %d", len(hc.PackageSiblings))
+	} else if hc.PackageSiblings[0] != siblingPath {
+		t.Errorf("Expected sibling path %s, got %s", siblingPath, hc.PackageSiblings[0])
 	}
 }
