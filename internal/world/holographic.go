@@ -277,7 +277,6 @@ func (h *HolographicProvider) buildGoContextWithContext(ctx context.Context, hc 
 
 // extractGoSignatures parses a Go file and extracts function/type/const signatures.
 func (h *HolographicProvider) extractGoSignatures(ctx *HolographicContext, fset *token.FileSet, filePath string) error {
-	// TODO: Test handling of entirely empty .go files (0 bytes and whitespace only)
 	node, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
 	if err != nil {
 		return err

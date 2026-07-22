@@ -962,3 +962,46 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestGetContext_WhitespaceFileContent(t *testing.T) {
+	dir := t.TempDir()
+	wsFile := filepath.Join(dir, "ws.go")
+	os.WriteFile(wsFile, []byte("   \n\t  "), 0644)
+	h := NewHolographicProvider(nil, dir)
+	ctx, err := h.GetContext(wsFile)
+	if err != nil {
+		t.Errorf("GetContext on whitespace file failed: %v", err)
+	}
+	if ctx == nil {
+		t.Error("Expected context, got nil")
+	}
+}
+
+func TestExtractGoSignatures_EmptyAndWhitespaceFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Test Empty File
+	emptyFile := filepath.Join(dir, "empty.go")
+	os.WriteFile(emptyFile, []byte(""), 0644)
+
+	h := NewHolographicProvider(nil, dir)
+	ctx := &HolographicContext{
+		PackageImports:    make(map[string][]string),
+		PackageSignatures: make([]SymbolSignature, 0),
+	}
+	fset := token.NewFileSet()
+
+	err := h.extractGoSignatures(ctx, fset, emptyFile)
+	if err == nil {
+		t.Error("Expected parsing error for empty file, got nil")
+	}
+
+	// Test Whitespace File
+	wsFile := filepath.Join(dir, "ws.go")
+	os.WriteFile(wsFile, []byte("   \n\t  "), 0644)
+
+	err = h.extractGoSignatures(ctx, fset, wsFile)
+	if err == nil {
+		t.Error("Expected parsing error for whitespace file, got nil")
+	}
+}
