@@ -58,7 +58,6 @@ func TestOrchestratorJournal_Gaps(t *testing.T) {
 		}
 	})
 	// TODO: TEST_GAP: FUSE/NFS syncDirIfSupported Error. Verify that the system handles Sync() returning an unsupported operation error gracefully without breaking campaign flow.
-	// TODO: TEST_GAP: Missing/Nil Payload Hash Verification. Verify checksumJournalEvent deterministic hashing when ev.Payload is exactly nil vs []byte("").
 	// TODO: TEST_GAP: Sequence Mismatch Truncation Test. Verify that if line N is corrupt, recovery correctly preserves 0..N-1 and safely overwrites the corrupt line.
 }
 
@@ -94,30 +93,6 @@ func TestOrchestratorJournal_UnsupportedSyncError(t *testing.T) {
 	}
 }
 
-func TestOrchestratorJournal_ChecksumNilPayload(t *testing.T) {
-	ev1 := campaignJournalEvent{
-		Seq:           1,
-		TimestampUnix: 1678886400,
-		EventType:     "test_event",
-		CampaignID:    "test_camp_1",
-		Payload:       nil,
-	}
-
-	ev2 := campaignJournalEvent{
-		Seq:           1,
-		TimestampUnix: 1678886400,
-		EventType:     "test_event",
-		CampaignID:    "test_camp_1",
-		Payload:       []byte(""),
-	}
-
-	hash1 := checksumJournalEvent(ev1)
-	hash2 := checksumJournalEvent(ev2)
-
-	if hash1 != hash2 {
-		t.Errorf("expected hash for nil payload and empty byte slice payload to be exactly the same, got %s and %s", hash1, hash2)
-	}
-}
 
 func TestOrchestratorJournal_SequenceMismatchTruncation(t *testing.T) {
 	// Setup orchestrator with a temporary workspace
@@ -200,5 +175,29 @@ func TestOrchestratorJournal_SequenceMismatchTruncation(t *testing.T) {
 		if ev.Seq != uint64(i+1) {
 			t.Errorf("expected sequence %d at line %d, got %d", i+1, i+1, ev.Seq)
 		}
+	}
+}
+
+func TestOrchestratorJournal_ChecksumNilPayloadVerification(t *testing.T) {
+	evNil := campaignJournalEvent{
+		Seq:           1,
+		TimestampUnix: 1000000,
+		EventType:     "test",
+		CampaignID:    "camp1",
+		Payload:       nil,
+	}
+	evEmpty := campaignJournalEvent{
+		Seq:           1,
+		TimestampUnix: 1000000,
+		EventType:     "test",
+		CampaignID:    "camp1",
+		Payload:       []byte(""),
+	}
+
+	hashNil := checksumJournalEvent(evNil)
+	hashEmpty := checksumJournalEvent(evEmpty)
+
+	if hashNil != hashEmpty {
+		t.Errorf("Deterministic hash mismatch: nil payload hash %q != empty payload hash %q", hashNil, hashEmpty)
 	}
 }
