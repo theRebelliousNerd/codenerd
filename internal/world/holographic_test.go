@@ -3,7 +3,9 @@ package world
 import (
 	"context"
 	"fmt"
+
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -960,5 +962,51 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestExtractTypeDefinition_Empty(t *testing.T) {
+	src := `
+package testpkg
+
+type EmptyStruct struct{}
+
+type EmptyInterface interface{}
+
+type NonEmptyStruct struct{
+	A int
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := &HolographicProvider{}
+	for _, d := range f.Decls {
+		if gd, ok := d.(*ast.GenDecl); ok {
+			for _, spec := range gd.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok {
+					def := h.extractTypeDefinition(fset, ts, gd, "test.go")
+
+					// Validate nil vs empty slice behavior for Fields/Methods
+					switch def.Name {
+					case "EmptyStruct":
+						if def.Fields != nil {
+							t.Errorf("Expected Fields to be nil for EmptyStruct, got %v", def.Fields)
+						}
+					case "EmptyInterface":
+						if def.Methods != nil {
+							t.Errorf("Expected Methods to be nil for EmptyInterface, got %v", def.Methods)
+						}
+					case "NonEmptyStruct":
+						if def.Fields == nil {
+							t.Errorf("Expected Fields to not be nil for NonEmptyStruct")
+						}
+					}
+				}
+			}
+		}
 	}
 }
