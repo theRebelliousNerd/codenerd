@@ -56,9 +56,11 @@ func TestLimitedExecutorWindows_Execute_WhenNoLimits_ShouldDelegateToParent(t *t
 	config := DefaultExecutorConfig()
 	exec := NewLimitedExecutorWindows(config)
 
+	// secureValidateCommand forbids direct shell execution (cmd/powershell/...),
+	// so exercise the delegate-to-parent path with a real allowed binary.
 	cmd := Command{
-		Binary:    "cmd",
-		Arguments: []string{"/c", "echo", "hello"},
+		Binary:    "go",
+		Arguments: []string{"version"},
 	}
 
 	result, err := exec.Execute(context.Background(), cmd)
@@ -77,9 +79,11 @@ func TestLimitedExecutorWindows_Execute_WhenWithLimits_ShouldUseJobObjects(t *te
 	config := DefaultExecutorConfig()
 	exec := NewLimitedExecutorWindows(config)
 
+	// Shell binaries are forbidden by secureValidateCommand; a real binary
+	// still drives the job-object limits path.
 	cmd := Command{
-		Binary:    "cmd",
-		Arguments: []string{"/c", "echo", "limited"},
+		Binary:    "go",
+		Arguments: []string{"version"},
 		Limits: &ResourceLimits{
 			TimeoutMs:      5000,
 			MaxMemoryBytes: 256 * 1024 * 1024,
