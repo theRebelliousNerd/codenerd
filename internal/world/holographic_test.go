@@ -38,7 +38,33 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
-// TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
+func TestHolographicContext_BinaryFileFallback(t *testing.T) {
+	tempDir := t.TempDir()
+
+	binFile := filepath.Join(tempDir, "test.bin")
+	binContent := []byte{0x00, 0x01, 0x02, 0x03, 0x04}
+	if err := os.WriteFile(binFile, binContent, 0644); err != nil {
+		t.Fatalf("Failed to write binary file: %v", err)
+	}
+
+	binFile2 := filepath.Join(tempDir, "test2.bin")
+	if err := os.WriteFile(binFile2, []byte{0x05, 0x06}, 0644); err != nil {
+		t.Fatalf("Failed to write second binary file: %v", err)
+	}
+
+	prov := NewHolographicProvider(nil, tempDir)
+
+	hc := &HolographicContext{TargetFile: binFile}
+
+	prov.buildBasicContextWithContext(context.Background(), hc, binFile)
+
+	if len(hc.PackageSiblings) != 1 {
+		t.Errorf("Expected 1 package sibling, got %d", len(hc.PackageSiblings))
+	} else if hc.PackageSiblings[0] != binFile2 {
+		t.Errorf("Expected sibling %s, got %s", binFile2, hc.PackageSiblings[0])
+	}
+}
+
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 

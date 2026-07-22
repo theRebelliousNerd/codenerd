@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
 )
 
 // setupGitRepo creates a temporary git repository for testing.
