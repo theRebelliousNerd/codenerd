@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"codenerd/internal/core"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -67,9 +68,7 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 // TODO: [Null/Undefined/Empty] Test getEligibleTasks when 'eligible_task' fact returns missing or empty string arguments.
 // TODO: [Type Coercion] Test getEligibleTasks when 'eligible_task' fact argument is coerced from non-string Atom/types.
 // TODO: [State Conflicts] Test getEligibleTasks with concurrent modifications to Phase.Tasks.
-// TODO: [User Request Extremes] Test getEligibleTasks with 10,000+ eligible task facts, testing the O(N*M) nested loop performance.
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
-	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeScaling
 	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeBackoff
 	mockKernel := &MockKernel{}
 	c := &Campaign{
@@ -126,6 +125,54 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 	}
 	if !found4 {
 		t.Error("Expected /task_4 to be eligible (backoff expired)")
+	}
+}
+
+func TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T) {
+	mockKernel := &MockKernel{}
+	numTasks := 10000
+
+	tasks := make([]Task, numTasks)
+	for i := 0; i < numTasks; i++ {
+		tasks[i] = Task{ID: fmt.Sprintf("/task_%d", i)}
+	}
+
+	c := &Campaign{
+		ID: "/campaign_scaling",
+		Phases: []Phase{
+			{
+				ID:    "/phase_1",
+				Tasks: tasks,
+			},
+		},
+	}
+
+	facts := make([]core.Fact, numTasks)
+	for i := 0; i < numTasks; i++ {
+		facts[i] = core.Fact{Predicate: "eligible_task", Args: []any{fmt.Sprintf("/task_%d", i)}}
+	}
+
+	// Directly set mockKernel.Facts instead of AssertBatch or looped Asserts
+	// since it's just a MockKernel for unit tests.
+	mockKernel.Facts = facts
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: c,
+	}
+
+	phase := &c.Phases[0]
+
+	start := time.Now()
+	eligibleTasks := orch.getEligibleTasks(phase)
+	duration := time.Since(start)
+
+	if len(eligibleTasks) != numTasks {
+		t.Fatalf("Expected %d tasks, got %d", numTasks, len(eligibleTasks))
+	}
+
+	if duration > 100*time.Millisecond {
+		t.Errorf("Performance test failed: O(N*M) nested loop took %v, expected < 100ms", duration)
 	}
 }
 
