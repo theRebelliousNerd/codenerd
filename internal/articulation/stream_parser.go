@@ -9,6 +9,7 @@ import (
 type StreamParser struct {
 	buffer           strings.Builder
 	inSurface        bool
+	completed        bool
 	surfaceBuffer    strings.Builder
 	escapeNext       bool
 	lastEmittedIndex int
@@ -27,6 +28,16 @@ func (p *StreamParser) ProcessChunk(chunk string) string {
 	}
 
 	p.buffer.WriteString(chunk)
+
+	// Once the closing quote of surface_response has been consumed, the parser
+	// is terminal. Keep buffering (GetFullBuffer must stay complete) but never
+	// re-detect the key or re-emit — otherwise a trailing chunk (e.g. the
+	// closing '}' arriving split from the quote) re-enters the detection block
+	// below, re-finds "surface_response", resets lastEmittedIndex back to the
+	// opening quote, and streams the entire surface a second time.
+	if p.completed {
+		return ""
+	}
 
 	if !p.inSurface {
 		// Look for the start of the surface response
@@ -89,6 +100,7 @@ func (p *StreamParser) ProcessChunk(chunk string) string {
 			// End of string reached
 			if c == '"' {
 				p.inSurface = false
+				p.completed = true
 				// We don't advance lastEmittedIndex past the quote because
 				// we don't care about the rest of the JSON padding
 				break

@@ -1,6 +1,7 @@
 package articulation
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -44,3 +45,45 @@ func TestStreamParser(t *testing.T) {
 // TODO: TEST_GAP: [State Conflicts] Verify data race safety if ProcessChunk is called concurrently from multiple goroutines on the same StreamParser instance.
 // TODO: TEST_GAP: [State Conflicts] Verify state consistency if ProcessChunk is called after the surface response string has already been successfully parsed and closed.
 // TODO: TEST_GAP: [State Conflicts] Verify the parser's internal buffer behavior when encountering multiple occurrences of "surface_response" in the stream.
+
+// TestStreamParser_NoReEmitAfterClose fills the "[State Conflicts] called after
+// the surface response has already been parsed and closed" gap. Once the closing
+// quote is consumed, trailing chunks (a '}' arriving split from the quote, a
+// newline, whitespace padding) must NOT re-detect the key and re-stream the whole
+// surface. Before the terminal-state fix these produced duplicated output
+// (e.g. "HiHi").
+func TestStreamParser_NoReEmitAfterClose(t *testing.T) {
+	p := NewStreamParser()
+
+	var out string
+	out += p.ProcessChunk(`{"control_packet":{},"surface_response":"Hi`)
+	out += p.ProcessChunk(`"`) // closing quote arrives split from the brace
+	out += p.ProcessChunk(`}`) // trailing chunk must NOT re-emit
+	out += p.ProcessChunk("\n")
+	out += p.ProcessChunk(`   `)
+
+	if out != "Hi" {
+		t.Fatalf("surface must stream exactly once; expected %q, got %q", "Hi", out)
+	}
+	// The full buffer must still retain the trailing padding for GetFullBuffer.
+	if got := p.GetFullBuffer(); !strings.Contains(got, "}") {
+		t.Errorf("GetFullBuffer should retain trailing chunks, got %q", got)
+	}
+}
+
+// TestStreamParser_MultilineNoReEmitAfterClose exercises the same terminal-state
+// guarantee with a multi-line surface and an escaped quote before the close,
+// plus trailing JSON that itself contains quoted strings.
+func TestStreamParser_MultilineNoReEmitAfterClose(t *testing.T) {
+	p := NewStreamParser()
+
+	var out string
+	out += p.ProcessChunk(`{"surface_response":"Line1\nsay \"hi\"`)
+	out += p.ProcessChunk(`"`)
+	out += p.ProcessChunk(`,"trailing":"junk"}`)
+
+	expected := "Line1\nsay \"hi\""
+	if out != expected {
+		t.Fatalf("expected %q emitted once, got %q", expected, out)
+	}
+}
