@@ -209,6 +209,9 @@ func (o *Orchestrator) getCampaignBlockReason() string {
 
 // isPhaseComplete checks if all tasks in a phase are complete.
 func (o *Orchestrator) isPhaseComplete(phase *Phase) bool {
+	if phase == nil {
+		return false
+	}
 	completedCount := 0
 	skippedCount := 0
 	for _, task := range phase.Tasks {

@@ -224,7 +224,25 @@ func TestOrchestrator_IsCampaignComplete(t *testing.T) {
 
 // TODO: [Null/Undefined/Empty] Test isPhaseComplete when phase argument is nil or phase.Tasks is nil/empty.
 func TestOrchestrator_IsPhaseComplete(t *testing.T) {
-	// TODO: TestOrchestrator_IsPhaseComplete_NilPhase
+	orch := &Orchestrator{}
+
+	// Case: Nil Phase
+	if orch.isPhaseComplete(nil) {
+		t.Error("Phase should not be complete when phase is nil")
+	}
+
+	// Case: Nil Tasks
+	pNilTasks := &Phase{Tasks: nil}
+	if !orch.isPhaseComplete(pNilTasks) {
+		t.Error("Phase should be complete when Tasks is nil")
+	}
+
+	// Case: Empty Tasks
+	pEmptyTasks := &Phase{Tasks: []Task{}}
+	if !orch.isPhaseComplete(pEmptyTasks) {
+		t.Error("Phase should be complete when Tasks is empty")
+	}
+
 	// Case 1: All tasks completed or skipped
 	p1 := &Phase{
 		Tasks: []Task{
@@ -232,7 +250,6 @@ func TestOrchestrator_IsPhaseComplete(t *testing.T) {
 			{ID: "t2", Status: TaskSkipped},
 		},
 	}
-	orch := &Orchestrator{}
 	if !orch.isPhaseComplete(p1) {
 		t.Error("Phase should be complete")
 	}
