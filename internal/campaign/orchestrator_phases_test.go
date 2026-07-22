@@ -54,7 +54,7 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 		t.Errorf("Expected nil for non-existent phase, got %s", phase.ID)
 	}
 
-	// 4. Malformed fact (no arguments)
+	// 3. Malformed fact (no arguments)
 	mockKernel.Facts = nil
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "current_phase",
@@ -65,14 +65,14 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 		t.Errorf("Expected nil when fact has no arguments, got %s", phase.ID)
 	}
 
-	// 3. No fact
+	// 4. No fact
 	mockKernel.Facts = nil
 	phase = orch.getCurrentPhase()
 	if phase != nil {
 		t.Errorf("Expected nil when no fact exists, got %s", phase.ID)
 	}
 
-	// 4. Empty string argument
+	// 5. Empty string argument
 	mockKernel.Facts = nil
 	_ = mockKernel.Assert(core.Fact{
 		Predicate: "current_phase",
@@ -81,17 +81,6 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 	phase = orch.getCurrentPhase()
 	if phase != nil {
 		t.Errorf("Expected nil when fact has empty string argument, got %s", phase.ID)
-	}
-
-	// 5. No arguments
-	mockKernel.Facts = nil
-	_ = mockKernel.Assert(core.Fact{
-		Predicate: "current_phase",
-		Args:      []any{},
-	})
-	phase = orch.getCurrentPhase()
-	if phase != nil {
-		t.Errorf("Expected nil when fact has no arguments, got %s", phase.ID)
 	}
 
 	// 6. Nil argument
