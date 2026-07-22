@@ -133,7 +133,6 @@ func TestOrchestrator_GetEligibleTasks(t *testing.T) {
 // TODO: [Type Coercion] Test getNextTask when 'next_campaign_task' fact argument is not a string.
 // TODO: [State Conflicts] Test getNextTask when concurrent tasks are modifying the Phase structure.
 func TestOrchestrator_GetNextTask(t *testing.T) {
-	// TODO: TestOrchestrator_GetNextTask_TypeCoercion
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -178,6 +177,18 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 	if task != nil {
 		t.Errorf("Expected nil for task not in phase, got %s", task.ID)
 	}
+
+	// 3. Type Coercion (Argument is not a string but something that gets coerced safely)
+	mockKernel.Facts = nil
+	_ = mockKernel.Assert(core.Fact{
+		Predicate: "next_campaign_task",
+		Args:      []any{123}, // Coerced to "123", which doesn't match any task ID
+	})
+	task = orch.getNextTask(phase)
+	if task != nil {
+		t.Errorf("Expected nil when coerced ID doesn't match, got %s", task.ID)
+	}
+
 }
 
 // TODO: [Null/Undefined/Empty] Test isCampaignComplete when o.campaign is nil or o.campaign.Phases is empty/nil.
