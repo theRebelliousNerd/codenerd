@@ -69,13 +69,15 @@ func (o *Orchestrator) getEligibleTasks(phase *Phase) []*Task {
 	}
 	if len(facts) > 0 {
 		logging.CampaignDebug("Found %d eligible_task facts from kernel", len(facts))
+		eligibleMap := make(map[string]bool, len(facts))
+		for _, fact := range facts {
+			if len(fact.Args) > 0 {
+				eligibleMap[types.ExtractString(fact.Args[0])] = true
+			}
+		}
 		for i := range phase.Tasks {
-			for _, fact := range facts {
-				taskID := types.ExtractString(fact.Args[0])
-				if phase.Tasks[i].ID == taskID {
-					tasks = append(tasks, &phase.Tasks[i])
-					break
-				}
+			if eligibleMap[phase.Tasks[i].ID] {
+				tasks = append(tasks, &phase.Tasks[i])
 			}
 		}
 	}
