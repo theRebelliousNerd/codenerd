@@ -710,19 +710,28 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	}
 
 	// Insert error patterns
-	errorStmt, err := tx.Prepare(`
-		INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare error pattern statement: %w", err)
-	}
-	defer errorStmt.Close()
+	if len(errorPatterns) > 0 {
+		batchSize := 100
+		for i := 0; i < len(errorPatterns); i += batchSize {
+			end := i + batchSize
+			if end > len(errorPatterns) {
+				end = len(errorPatterns)
+			}
 
-	for _, ep := range errorPatterns {
-		_, err := errorStmt.Exec(ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
-		if err != nil {
-			return fmt.Errorf("failed to insert error pattern %s: %w", ep.Name, err)
+			batch := errorPatterns[i:end]
+			var valueStrings []string
+			var valueArgs []interface{}
+
+			for _, ep := range batch {
+				valueStrings = append(valueStrings, "(?, ?, ?, ?, ?)")
+				valueArgs = append(valueArgs, ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
+			}
+
+			stmt := fmt.Sprintf("INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity) VALUES %s", strings.Join(valueStrings, ","))
+			_, err := tx.Exec(stmt, valueArgs...)
+			if err != nil {
+				return fmt.Errorf("failed to insert error patterns batch: %w", err)
+			}
 		}
 	}
 
