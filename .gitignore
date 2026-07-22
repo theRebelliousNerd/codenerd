@@ -20,6 +20,9 @@
 .*
 !.gitignore
 !.nerd/
+# Runtime debris written by campaign tests running inside the package dir —
+# never repo content (the un-ignore above is for the real workspace .nerd/).
+internal/campaign/.nerd/
 !.agents/
 .agents/*
 !.agents/skills/
