@@ -658,88 +658,116 @@ func populateDatabase(db *sql.DB, predicates []PredicateEntry, errorPatterns []E
 	}
 	defer tx.Rollback()
 
-	// Insert predicates
-	predStmt, err := tx.Prepare(`
-		INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file, activation_priority, serialization_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare predicate statement: %w", err)
-	}
-	defer predStmt.Close()
+	// Batch processing for predicates
+	batchSize := 500
 
-	argStmt, err := tx.Prepare(`
-		INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare args statement: %w", err)
-	}
-	defer argStmt.Close()
-
-	domainStmt, err := tx.Prepare(`
-		INSERT INTO predicate_domains (predicate_id, domain, relevance_score)
-		VALUES (?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare domain statement: %w", err)
-	}
-	defer domainStmt.Close()
-
-	for _, p := range predicates {
-		result, err := predStmt.Exec(p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
-		if err != nil {
-			return fmt.Errorf("failed to insert predicate %s: %w", p.Name, err)
+	for i := 0; i < len(predicates); i += batchSize {
+		end := i + batchSize
+		if end > len(predicates) {
+			end = len(predicates)
 		}
 
-		predID, _ := result.LastInsertId()
+		batch := predicates[i:end]
 
-		// Insert arguments
-		for _, arg := range p.ArgumentDefs {
-			_, err := argStmt.Exec(predID, arg.Position, arg.Name, arg.Type, arg.IsBoundRequired)
-			if err != nil {
-				return fmt.Errorf("failed to insert arg for %s: %w", p.Name, err)
+		var valueStrings []string
+		var valueArgs []interface{}
+
+		for _, p := range batch {
+			valueStrings = append(valueStrings, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+			valueArgs = append(valueArgs, p.Name, p.Arity, p.Type, p.Category, p.Description, p.SafetyLevel, p.Domain, p.Section, p.SourceFile, p.ActivationPriority, p.SerializationOrder)
+		}
+
+		stmt := fmt.Sprintf(`
+			INSERT INTO predicates (name, arity, type, category, description, safety_level, domain, section, source_file, activation_priority, serialization_order)
+			VALUES %s RETURNING id
+		`, strings.Join(valueStrings, ","))
+
+		rows, err := tx.Query(stmt, valueArgs...)
+		if err != nil {
+			return fmt.Errorf("failed to insert batch of predicates: %w", err)
+		}
+
+		var predIDs []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to get predicate ID: %w", err)
+			}
+			predIDs = append(predIDs, id)
+		}
+		rows.Close()
+
+		// Batch args and domains
+		var argValueStrings []string
+		var argValueArgs []interface{}
+		var domainValueStrings []string
+		var domainValueArgs []interface{}
+
+		for idx, p := range batch {
+			predID := predIDs[idx]
+
+			for _, arg := range p.ArgumentDefs {
+				argValueStrings = append(argValueStrings, "(?, ?, ?, ?, ?)")
+				argValueArgs = append(argValueArgs, predID, arg.Position, arg.Name, arg.Type, arg.IsBoundRequired)
+			}
+
+			domainValueStrings = append(domainValueStrings, "(?, ?, ?)")
+			domainValueArgs = append(domainValueArgs, predID, p.Domain, 1.0)
+		}
+
+		if len(argValueStrings) > 0 {
+			argStmt := fmt.Sprintf(`
+				INSERT INTO predicate_args (predicate_id, arg_position, arg_name, arg_type, is_bound_required)
+				VALUES %s
+			`, strings.Join(argValueStrings, ","))
+			if _, err := tx.Exec(argStmt, argValueArgs...); err != nil {
+				return fmt.Errorf("failed to insert batch of args: %w", err)
 			}
 		}
 
-		// Insert domain mapping
-		_, err = domainStmt.Exec(predID, p.Domain, 1.0)
-		if err != nil {
-			return fmt.Errorf("failed to insert domain for %s: %w", p.Name, err)
+		if len(domainValueStrings) > 0 {
+			domainStmt := fmt.Sprintf(`
+				INSERT INTO predicate_domains (predicate_id, domain, relevance_score)
+				VALUES %s
+			`, strings.Join(domainValueStrings, ","))
+			if _, err := tx.Exec(domainStmt, domainValueArgs...); err != nil {
+				return fmt.Errorf("failed to insert batch of domains: %w", err)
+			}
 		}
 	}
 
 	// Insert error patterns
-	errorStmt, err := tx.Prepare(`
-		INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)
-		VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare error pattern statement: %w", err)
-	}
-	defer errorStmt.Close()
-
-	for _, ep := range errorPatterns {
-		_, err := errorStmt.Exec(ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
-		if err != nil {
-			return fmt.Errorf("failed to insert error pattern %s: %w", ep.Name, err)
+	if len(errorPatterns) > 0 {
+		var epValueStrings []string
+		var epValueArgs []interface{}
+		for _, ep := range errorPatterns {
+			epValueStrings = append(epValueStrings, "(?, ?, ?, ?, ?)")
+			epValueArgs = append(epValueArgs, ep.Name, ep.ErrorRegex, ep.CauseDescription, ep.FixTemplate, ep.Severity)
+		}
+		epStmt := fmt.Sprintf(`
+			INSERT INTO error_patterns (pattern_name, error_regex, cause_description, fix_template, severity)
+			VALUES %s
+		`, strings.Join(epValueStrings, ","))
+		if _, err := tx.Exec(epStmt, epValueArgs...); err != nil {
+			return fmt.Errorf("failed to insert error patterns: %w", err)
 		}
 	}
 
 	// Insert predicate examples
-	exampleStmt, err := tx.Prepare(`
-		INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare example statement: %w", err)
-	}
-	defer exampleStmt.Close()
-
-	for _, ex := range examples {
-		_, err := exampleStmt.Exec(ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
-		if err != nil {
-			return fmt.Errorf("failed to insert example for %s: %w", ex.PredicateName, err)
+	if len(examples) > 0 {
+		var exValueStrings []string
+		var exValueArgs []interface{}
+		for _, ex := range examples {
+			exValueStrings = append(exValueStrings, "(?, ?, ?, ?, ?, ?)")
+			exValueArgs = append(exValueArgs, ex.PredicateName, ex.ExampleCode, ex.Explanation, ex.IsCorrect, ex.ErrorType, ex.Source)
+		}
+		exStmt := fmt.Sprintf(`
+			INSERT INTO predicate_examples (predicate_name, example_code, explanation, is_correct, error_type, source)
+			VALUES %s
+		`, strings.Join(exValueStrings, ","))
+		if _, err := tx.Exec(exStmt, exValueArgs...); err != nil {
+			return fmt.Errorf("failed to insert examples: %w", err)
 		}
 	}
 
