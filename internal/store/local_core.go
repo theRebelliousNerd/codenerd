@@ -657,18 +657,15 @@ func (s *LocalStore) GetStats() (map[string]int64, error) {
 }
 
 func (s *LocalStore) dedupePredicateVectors() (int64, error) {
-	pattern := `%"kind":"predicate"%`
 	result, err := s.db.Exec(`
 		DELETE FROM vectors
-		WHERE metadata LIKE ?
+		WHERE json_extract(metadata, '$.kind') = 'predicate'
 		  AND id NOT IN (
 			SELECT MAX(id)
 			FROM vectors
-			WHERE metadata LIKE ?
+			WHERE json_extract(metadata, '$.kind') = 'predicate'
 			GROUP BY content
 		  );`,
-		pattern,
-		pattern,
 	)
 	if err != nil {
 		return 0, err
@@ -683,7 +680,7 @@ func (s *LocalStore) dedupePredicateVectors() (int64, error) {
 func (s *LocalStore) ensurePredicateVectorUniqueIndex() error {
 	_, err := s.db.Exec(
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_vectors_predicate_content_unique ON vectors(content)
-		 WHERE metadata LIKE '%"kind":"predicate"%';`,
+		 WHERE json_extract(metadata, '$.kind') = 'predicate';`,
 	)
 	return err
 }
