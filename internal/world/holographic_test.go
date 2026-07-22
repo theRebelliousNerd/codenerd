@@ -962,3 +962,31 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestExtractGoSignatures_EmptyFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	zeroByteFile := filepath.Join(dir, "zero.go")
+	os.WriteFile(zeroByteFile, []byte(""), 0644)
+
+	whitespaceFile := filepath.Join(dir, "whitespace.go")
+	os.WriteFile(whitespaceFile, []byte("   \n\n\t "), 0644)
+
+	h := NewHolographicProvider(nil, dir)
+	ctx := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+	fset := token.NewFileSet()
+
+	// Test zero byte file
+	err := h.extractGoSignatures(ctx, fset, zeroByteFile)
+	if err == nil {
+		t.Error("Expected error for 0-byte file, got nil")
+	}
+
+	// Test whitespace-only file
+	err = h.extractGoSignatures(ctx, fset, whitespaceFile)
+	if err == nil {
+		t.Error("Expected error for whitespace-only file, got nil")
+	}
+}
