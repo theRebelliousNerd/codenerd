@@ -536,9 +536,9 @@ func gitCmd(workspaceRoot string, args ...string) (string, error) {
 	// Defensive check against argument injection for dangerous flags
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--exec-path") ||
-		   strings.HasPrefix(arg, "-c") ||
-		   strings.HasPrefix(arg, "--upload-pack") ||
-		   strings.HasPrefix(arg, "--receive-pack") {
+			strings.HasPrefix(arg, "-c") ||
+			strings.HasPrefix(arg, "--upload-pack") ||
+			strings.HasPrefix(arg, "--receive-pack") {
 			return "", fmt.Errorf("unauthorized git argument: %s", arg)
 		}
 	}

@@ -399,6 +399,7 @@ var (
 func buildVerbPatterns() map[string]*regexp.Regexp {
 	return globalVerbPatterns
 }
+
 // Execute runs the Perception Firewall's continuous parsing loop.
 func (p *PerceptionFirewallShard) Execute(ctx context.Context, task string) (string, error) {
 	logging.SystemShards("[PerceptionFirewall] Starting continuous parsing loop")

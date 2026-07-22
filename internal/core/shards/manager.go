@@ -40,8 +40,8 @@ type ShardManager struct {
 	spawnCounter int64
 
 	// Core dependencies to inject into shards
-	kernel       types.Kernel
-	llmClient    types.LLMClient // default worker/main client for most shards
+	kernel    types.Kernel
+	llmClient types.LLMClient // default worker/main client for most shards
 	// imageLLMClient is Gemini Nano Banana 2 for image_generator shards only.
 	// Never the Ollama worker — image models are Gemini-only.
 	imageLLMClient types.LLMClient
