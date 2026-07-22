@@ -123,6 +123,13 @@ action_mapping(/analyze, /delegate_reviewer).
 # ("no action derived from policy", exit 1). /delegate_reviewer is intentionally
 # NOT side_effecting, so a prose lint report needs no tool_call (same as /review).
 action_mapping(/lint, /delegate_reviewer).
+# /audit is a workhorse_verb (routing_arbitration.mg) — the taxonomy maps
+# "analyze/audit X" to /audit — but it had no action_mapping, so the nerd-run
+# one-shot path derived no next_action and hard-failed ("no action derived from
+# policy"). It is an inspection verb like /review and /analyze; route it to the
+# reviewer. Non-side-effecting (a prose audit is a valid terminal answer), so it
+# stays out of side_effecting_action below, matching /analyze.
+action_mapping(/audit, /delegate_reviewer).
 
 # Code mutation actions (delegate to coder shard)
 action_mapping(/fix, /delegate_coder).
