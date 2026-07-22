@@ -962,3 +962,50 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestBuildGoContext_InvalidGoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid Go file
+	validPath := filepath.Join(dir, "valid.go")
+	validContent := `package main
+func ValidFunction() {}
+`
+	if err := os.WriteFile(validPath, []byte(validContent), 0644); err != nil {
+		t.Fatalf("Failed to write valid.go: %v", err)
+	}
+
+	// Invalid Go file
+	invalidPath := filepath.Join(dir, "invalid.go")
+	invalidContent := `package main
+func InvalidFunction() {
+	this is a syntax error
+}
+`
+	if err := os.WriteFile(invalidPath, []byte(invalidContent), 0644); err != nil {
+		t.Fatalf("Failed to write invalid.go: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+
+	// buildGoContextWithContext should parse valid.go and skip invalid.go without returning an error
+	err := h.buildGoContextWithContext(context.Background(), hc, validPath)
+	if err != nil {
+		t.Fatalf("buildGoContext failed unexpectedly: %v", err)
+	}
+
+	// Verify the signature of ValidFunction was extracted
+	found := false
+	for _, sig := range hc.PackageSignatures {
+		if sig.Name == "ValidFunction" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected to find signature for ValidFunction, got %v", hc.PackageSignatures)
+	}
+}
