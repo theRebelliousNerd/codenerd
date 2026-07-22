@@ -432,12 +432,15 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 			nameNode := n.ChildByFieldName("name")
 			if nameNode != nil {
 				name := getText(nameNode)
-				id := fmt.Sprintf("fn:%s", name)
+				id := "fn:" + name
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("fn %s", name)
+				var sigBuilder strings.Builder
+				sigBuilder.WriteString("fn ")
+				sigBuilder.WriteString(name)
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					sigBuilder.WriteString(getText(paramsNode))
 				}
+				signature := sigBuilder.String()
 
 				visibility := "private"
 				if hasPubVisibility(n) {
@@ -453,8 +456,8 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 			nameNode := n.ChildByFieldName("name")
 			if nameNode != nil {
 				name := getText(nameNode)
-				id := fmt.Sprintf("struct:%s", name)
-				signature := fmt.Sprintf("struct %s", name)
+				id := "struct:" + name
+				signature := "struct " + name
 				visibility := "private"
 				if hasPubVisibility(n) {
 					visibility = "public"
@@ -469,8 +472,8 @@ func (p *TreeSitterParser) extractRustSymbols(node *sitter.Node, path, content s
 			nameNode := n.ChildByFieldName("name")
 			if nameNode != nil {
 				name := getText(nameNode)
-				id := fmt.Sprintf("enum:%s", name)
-				signature := fmt.Sprintf("enum %s", name)
+				id := "enum:" + name
+				signature := "enum " + name
 				visibility := "private"
 				if hasPubVisibility(n) {
 					visibility = "public"
