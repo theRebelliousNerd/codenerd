@@ -111,7 +111,6 @@ func TestOrchestrator_GetCurrentPhase(t *testing.T) {
 // TODO: [Type Coercion] Test getEligibleTasks when 'eligible_task' fact argument is coerced from non-string Atom/types.
 // TODO: [State Conflicts] Test getEligibleTasks with concurrent modifications to Phase.Tasks.
 func TestOrchestrator_GetEligibleTasks(t *testing.T) {
-	// TODO: TestOrchestrator_GetEligibleTasks_ExtremeBackoff
 	mockKernel := &MockKernel{}
 	c := &Campaign{
 		ID: "/campaign_1",
@@ -221,6 +220,58 @@ func TestOrchestrator_GetEligibleTasks_ExtremeScaling(t *testing.T) {
 // TODO: [Null/Undefined/Empty] Test getNextTask with a nil Phase argument.
 // TODO: [Type Coercion] Test getNextTask when 'next_campaign_task' fact argument is not a string.
 // TODO: [State Conflicts] Test getNextTask when concurrent tasks are modifying the Phase structure.
+func TestOrchestrator_GetEligibleTasks_ExtremeBackoff(t *testing.T) {
+	mockKernel := &MockKernel{}
+	c := &Campaign{
+		ID: "/campaign_1",
+		Phases: []Phase{
+			{
+				ID: "/phase_1",
+				Tasks: []Task{
+					{ID: "/task_far_future", NextRetryAt: time.Now().Add(100 * 365 * 24 * time.Hour)}, // 100 years in future
+					{ID: "/task_far_past", NextRetryAt: time.Now().Add(-100 * 365 * 24 * time.Hour)}, // 100 years in past
+					{ID: "/task_zero_time", NextRetryAt: time.Time{}}, // zero time
+				},
+			},
+		},
+	}
+
+	// Inject eligible_task facts
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_far_future"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_far_past"}})
+	_ = mockKernel.Assert(core.Fact{Predicate: "eligible_task", Args: []any{"/task_zero_time"}})
+
+	orch := &Orchestrator{
+		kernel:   mockKernel,
+		campaign: c,
+	}
+
+	phase := &c.Phases[0]
+	tasks := orch.getEligibleTasks(phase)
+
+	if len(tasks) != 2 {
+		t.Fatalf("Expected 2 tasks, got %d", len(tasks))
+	}
+
+	foundPast := false
+	foundZero := false
+	for _, task := range tasks {
+		if task.ID == "/task_far_past" {
+			foundPast = true
+		}
+		if task.ID == "/task_zero_time" {
+			foundZero = true
+		}
+	}
+
+	if !foundPast {
+		t.Errorf("Expected /task_far_past to be included")
+	}
+	if !foundZero {
+		t.Errorf("Expected /task_zero_time to be included")
+	}
+}
+
 func TestOrchestrator_GetNextTask(t *testing.T) {
 	mockKernel := &MockKernel{}
 	c := &Campaign{
