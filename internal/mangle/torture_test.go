@@ -1326,6 +1326,14 @@ func TestTorture_TypeSystem_Infinity(t *testing.T) {
 	}
 }
 
+
+
+
+
+// TODO: Add tests for extreme arity (e.g., passing 1000 arguments to a fact).
+// TODO: Add tests for extreme length strings (e.g., passing a 10MB string as an argument).
+// TODO: Add tests for excessively large AssertBatch operations to verify memory limits.
+// TODO: Add tests for deeply nested cyclic rules to verify termination limits during analysis.
 func TestTorture_TypeSystem_MaxInt64(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = false
@@ -1385,6 +1393,17 @@ func TestTorture_TypeSystem_BoolValues(t *testing.T) {
 	}
 }
 
+
+
+
+
+
+
+// TODO: Add tests for explicit nil interface values passed as positional arguments.
+// TODO: Add tests for passing empty slices ([]any{}) where arity > 0 is expected.
+// TODO: Add tests for passing nil schema strings to LoadSchemaString.
+// TODO: Add tests to verify strict rejection of mismatched types (e.g., passing a struct/pointer to AddFact).
+// TODO: Add tests for Atom vs String dissonance (asserting a string where an atom is expected and vice versa).
 func TestTorture_TypeSystem_IntCoercion(t *testing.T) {
 	// Go int (not int64) should be handled via value conversion
 	cfg := DefaultConfig()
@@ -2595,6 +2614,13 @@ Decl gamma(X, Y, Z).
 // 14. ADDITIONAL CONCURRENCY TORTURE
 // =============================================================================
 
+
+
+
+
+// TODO: Add tests for asserting and retracting the exact same fact simultaneously across many goroutines.
+// TODO: Add tests querying the engine while Clear() or Close() is actively executing.
+// TODO: Add tests for retracting a fact that does not exist to verify it is handled gracefully as a no-op.
 func TestTorture_Concurrency_ConcurrentQueryAndRecompute(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AutoEval = true

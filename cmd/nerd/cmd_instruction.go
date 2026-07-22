@@ -237,10 +237,7 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 				}
 			} else if cortex.VirtualStore != nil {
 				// Non-delegate actions: route through VirtualStore.
-				vsResult, vsErr := cortex.VirtualStore.RouteAction(ctx, core.Fact{
-					Predicate: "next_action",
-					Args:      []any{types.MangleAtom(action), userInput},
-				})
+				vsResult, vsErr := cortex.VirtualStore.RouteAction(ctx, nextActionFact(action, userInput))
 				if vsErr != nil {
 					actionErr = vsErr
 					output = fmt.Sprintf("RouteAction(%s) failed: %v", action, vsErr)
@@ -290,6 +287,23 @@ func runInstruction(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("hollow success blocked: no side-effecting action executed for %q", userInput)
 	}
 	return nil
+}
+
+// nextActionFact builds the VirtualStore-routable fact for a policy-derived
+// non-delegate next_action. VirtualStore.parseActionFact requires exactly
+// (ActionID, Type, Target); the previous 2-arg {action, input} shape failed
+// parsing for EVERY non-delegate verb (F-ROUTE-1: "invalid action fact:
+// requires at least 3 arguments"), so /explain → /analyze_code never executed.
+// Mirrors the tdd_loop.go action-fact pattern.
+func nextActionFact(action, target string) core.Fact {
+	return core.Fact{
+		Predicate: "next_action",
+		Args: []any{
+			fmt.Sprintf("cli-%d", time.Now().UnixNano()),
+			types.MangleAtom(action),
+			target,
+		},
+	}
 }
 
 // nextActionToShardType maps policy next_action atoms onto domain shard types

@@ -364,10 +364,11 @@ func main() {
 	// under heavy/long runs (e.g. campaigns), so it is opt-in. When enabled
 	// it uses a 64 MiB / 30 s window and StartFlightRecorder installs a
 	// memory watchdog that stops the recorder before the tracer exhausts
-	// process memory. Campaign invocations additionally never start it,
-	// belt-and-suspenders with the watchdog. The runtime also stops the
-	// recorder automatically at process exit, so callers do not need to
-	// invoke Stop() for correctness.
+	// process memory. Campaigns additionally skip the recorder entirely
+	// (F-TRACE-1): they are the known worst case for tracer goroutine churn,
+	// so not starting it there is cheaper than relying on the watchdog.
+	// The runtime also stops the recorder automatically at process exit,
+	// so callers do not need to invoke Stop() for correctness.
 	if features.IsFlightRecorderEnabled() && !isCampaignInvocation() {
 		if err := observability.StartFlightRecorder(64<<20, 30*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: flight recorder failed to start: %v\n", err)
