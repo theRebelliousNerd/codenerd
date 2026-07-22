@@ -962,3 +962,39 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestBuildGoContext_InvalidGoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	validFile := filepath.Join(dir, "valid.go")
+	os.WriteFile(validFile, []byte("package testpkg\n\nfunc ValidFunc() {}\n"), 0644)
+
+	invalidFile := filepath.Join(dir, "invalid.go")
+	os.WriteFile(invalidFile, []byte("package testpkg\n\nfunc InvalidFunc( {\n"), 0644) // Missing closing parenthesis
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+
+	err := h.buildGoContextWithContext(context.Background(), hc, validFile)
+	if err != nil {
+		t.Fatalf("buildGoContextWithContext failed: %v", err)
+	}
+
+	if hc.TargetPkg != "testpkg" {
+		t.Errorf("Expected TargetPkg to be 'testpkg', got '%s'", hc.TargetPkg)
+	}
+
+	foundValid := false
+	for _, sig := range hc.PackageSignatures {
+		if strings.Contains(sig.Name, "ValidFunc") {
+			foundValid = true
+			break
+		}
+	}
+
+	if !foundValid {
+		t.Errorf("Expected ValidFunc to be found in the package signatures despite invalid file. Found: %v", hc.PackageSignatures)
+	}
+}
