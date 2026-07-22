@@ -2,8 +2,10 @@ package world
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -39,7 +41,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
-// TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 
 func TestHolographicContextWithPrioritizedCallers(t *testing.T) {
@@ -960,5 +961,55 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestHolographicContext_EmptyTypeDefinitions(t *testing.T) {
+	h := &HolographicProvider{}
+	fset := token.NewFileSet()
+	src := `
+package test
+type EmptyStruct struct{}
+type EmptyInterface interface{}
+`
+	f, err := parser.ParseFile(fset, "test.go", src, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test file: %v", err)
+	}
+
+	for _, decl := range f.Decls {
+		if genDecl, ok := decl.(*ast.GenDecl); ok {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					typeDef := h.extractTypeDefinition(fset, typeSpec, genDecl, "test.go")
+
+					if typeDef.Kind == "struct" {
+						if len(typeDef.Fields) != 0 {
+							t.Errorf("Expected 0 fields for EmptyStruct, got %d", len(typeDef.Fields))
+						}
+					} else if typeDef.Kind == "interface" {
+						if len(typeDef.Methods) != 0 {
+							t.Errorf("Expected 0 methods for EmptyInterface, got %d", len(typeDef.Methods))
+						}
+					} else {
+						t.Errorf("Unexpected kind: %s", typeDef.Kind)
+					}
+
+					// Verify JSON serialization omits empty fields/methods
+					bytes, err := json.Marshal(typeDef)
+					if err != nil {
+						t.Fatalf("Failed to marshal TypeDefinition to JSON: %v", err)
+					}
+					jsonStr := string(bytes)
+
+					if strings.Contains(jsonStr, "\"fields\":") {
+						t.Errorf("JSON output for %s contains \"fields\" but shouldn't due to omitempty: %s", typeDef.Name, jsonStr)
+					}
+					if strings.Contains(jsonStr, "\"methods\":") {
+						t.Errorf("JSON output for %s contains \"methods\" but shouldn't due to omitempty: %s", typeDef.Name, jsonStr)
+					}
+				}
+			}
+		}
 	}
 }
