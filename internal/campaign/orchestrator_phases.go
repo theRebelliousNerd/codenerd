@@ -171,6 +171,9 @@ func (o *Orchestrator) getNextTask(phase *Phase) *Task {
 
 // isCampaignComplete checks if all phases are complete.
 func (o *Orchestrator) isCampaignComplete() bool {
+	if o.campaign == nil || len(o.campaign.Phases) == 0 {
+		return true
+	}
 	completedCount := 0
 	skippedCount := 0
 	for _, phase := range o.campaign.Phases {

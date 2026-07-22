@@ -184,7 +184,18 @@ func TestOrchestrator_GetNextTask(t *testing.T) {
 // TODO: [User Request Extremes] Test isCampaignComplete with 10,000+ phases to measure iterator overhead.
 // TODO: [State Conflicts] Test isCampaignComplete when another goroutine is modifying Phase.Status concurrently.
 func TestOrchestrator_IsCampaignComplete(t *testing.T) {
-	// TODO: TestOrchestrator_IsCampaignComplete_EmptyCampaign
+	// Case: Nil campaign
+	orchNil := &Orchestrator{campaign: nil}
+	if !orchNil.isCampaignComplete() {
+		t.Error("Nil campaign should be complete")
+	}
+
+	// Case: Empty phases
+	cEmpty := &Campaign{Phases: []Phase{}}
+	orchEmpty := &Orchestrator{campaign: cEmpty}
+	if !orchEmpty.isCampaignComplete() {
+		t.Error("Empty campaign should be complete")
+	}
 	// Case 1: All completed or skipped
 	c1 := &Campaign{
 		Phases: []Phase{
