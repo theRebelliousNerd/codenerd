@@ -38,7 +38,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_EmptyFile - Test context generation on entirely empty (0 bytes) or whitespace-only files to ensure nil vs empty slice consistency.
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
-// TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
 // TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 
@@ -960,5 +959,37 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestHolographicContext_BinaryFileFallback(t *testing.T) {
+	tempDir := t.TempDir()
+
+	targetFile := filepath.Join(tempDir, "target.bin")
+	if err := os.WriteFile(targetFile, []byte{0x00, 0x01, 0x02, 0x03}, 0644); err != nil {
+		t.Fatalf("Failed to create target file: %v", err)
+	}
+
+	siblingFile := filepath.Join(tempDir, "sibling.bin")
+	if err := os.WriteFile(siblingFile, []byte{0x04, 0x05, 0x06, 0x07}, 0644); err != nil {
+		t.Fatalf("Failed to create sibling file: %v", err)
+	}
+
+	subDir := filepath.Join(tempDir, "subdir")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	hc := &HolographicContext{}
+	hp := &HolographicProvider{}
+
+	hp.buildBasicContextWithContext(context.Background(), hc, targetFile)
+
+	if len(hc.PackageSiblings) != 1 {
+		t.Fatalf("Expected 1 sibling, got %d", len(hc.PackageSiblings))
+	}
+
+	if hc.PackageSiblings[0] != siblingFile {
+		t.Errorf("Expected sibling to be %s, got %s", siblingFile, hc.PackageSiblings[0])
 	}
 }
