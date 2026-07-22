@@ -576,10 +576,20 @@ func (p *TreeSitterParser) extractJSSymbols(node *sitter.Node, path, content str
 				name := getText(nameNode)
 				id := fmt.Sprintf("func:%s", name)
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("function %s", name)
+				var sb strings.Builder
+				expectedSize := 9 + len(name)
+				var paramText string
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					paramText = getText(paramsNode)
+					expectedSize += len(paramText)
 				}
+				sb.Grow(expectedSize)
+				sb.WriteString("function ")
+				sb.WriteString(name)
+				if paramsNode != nil {
+					sb.WriteString(paramText)
+				}
+				signature := sb.String()
 				visibility := "private"
 				if hasExport(n) {
 					visibility = "public"
@@ -689,10 +699,20 @@ func (p *TreeSitterParser) extractTSSymbols(node *sitter.Node, path, content str
 				name := getText(nameNode)
 				id := fmt.Sprintf("func:%s", name)
 				paramsNode := n.ChildByFieldName("parameters")
-				signature := fmt.Sprintf("function %s", name)
+				var sb strings.Builder
+				expectedSize := 9 + len(name)
+				var paramText string
 				if paramsNode != nil {
-					signature += getText(paramsNode)
+					paramText = getText(paramsNode)
+					expectedSize += len(paramText)
 				}
+				sb.Grow(expectedSize)
+				sb.WriteString("function ")
+				sb.WriteString(name)
+				if paramsNode != nil {
+					sb.WriteString(paramText)
+				}
+				signature := sb.String()
 				visibility := "private"
 				if hasExport(n) {
 					visibility = "public"
