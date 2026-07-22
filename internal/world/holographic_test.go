@@ -962,3 +962,34 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
 	}
 }
+
+func TestBuildGoContext_InvalidGoFile(t *testing.T) {
+	dir := t.TempDir()
+
+	validFile := filepath.Join(dir, "valid.go")
+	invalidFile := filepath.Join(dir, "invalid.go")
+
+	err := os.WriteFile(validFile, []byte("package main\n\nfunc ValidFunc() {}\n"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write valid file: %v", err)
+	}
+
+	err = os.WriteFile(invalidFile, []byte("package main\n\nfunc BrokenFunc() { this is not valid go code\n"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write invalid file: %v", err)
+	}
+
+	h := NewHolographicProvider(nil, dir)
+	hc := &HolographicContext{
+		PackageImports: make(map[string][]string),
+	}
+
+	err = h.buildGoContextWithContext(context.Background(), hc, validFile)
+	if err != nil {
+		t.Fatalf("buildGoContextWithContext failed due to an invalid sibling file: %v", err)
+	}
+
+	if hc.TargetPkg != "main" {
+		t.Errorf("Expected TargetPkg to be 'main', got '%s'", hc.TargetPkg)
+	}
+}
