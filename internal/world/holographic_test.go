@@ -1,6 +1,7 @@
 package world
 
 import (
+	"encoding/json"
 	"context"
 	"fmt"
 	"go/ast"
@@ -39,7 +40,6 @@ func TestPrioritizedCallerStruct(t *testing.T) {
 // TODO: Add TestHolographicContext_ConcurrentReadWrite - Test concurrent reads/writes to verify sync.RWMutex behavior (especially on regexCache) and prevent data races under heavy parallel access.
 // TODO: Add TestHolographicContext_DeletedFileMidFlight - Simulate file deletion between os.ReadDir and parser.ParseFile to ensure we log a warning instead of failing out completely.
 // TODO: Add TestHolographicContext_BinaryFileFallback - Verify buildBasicContext fallback cleanly handles binary/non-text file extensions without massive memory allocation.
-// TODO: Add TestHolographicContext_EmptyTypeDefinitions - Test extraction for structs with no fields or interfaces with no methods to confirm `Fields` and `Methods` serialization handling.
 // TODO: Add TestHolographicContext_FormatWithEmptyCallers - Test `FormatWithPriorities` behavior when `PrioritizedCallers` is explicitly initialized as an empty slice (not nil).
 
 func TestHolographicContextWithPrioritizedCallers(t *testing.T) {
@@ -960,5 +960,95 @@ func TestBuildGoContext_SiblingFilesCap(t *testing.T) {
 	// Verify it successfully collected the siblings up to cap
 	if len(hc.PackageSiblings) < 100 {
 		t.Errorf("Expected at least 100 PackageSiblings logged, got %d", len(hc.PackageSiblings))
+	}
+}
+
+func TestHolographicContext_EmptyTypeDefinitions(t *testing.T) {
+	h := &HolographicProvider{}
+	fset := token.NewFileSet()
+
+	tests := []struct {
+		name     string
+		typeSpec *ast.TypeSpec
+		wantKind string
+	}{
+		{
+			name: "Empty Struct (Fields not nil)",
+			typeSpec: &ast.TypeSpec{
+				Name: &ast.Ident{Name: "EmptyStruct"},
+				Type: &ast.StructType{
+					Fields: &ast.FieldList{},
+				},
+			},
+			wantKind: "struct",
+		},
+		{
+			name: "Empty Struct (Fields nil)",
+			typeSpec: &ast.TypeSpec{
+				Name: &ast.Ident{Name: "NilStruct"},
+				Type: &ast.StructType{
+					Fields: nil,
+				},
+			},
+			wantKind: "struct",
+		},
+		{
+			name: "Empty Interface (Methods not nil)",
+			typeSpec: &ast.TypeSpec{
+				Name: &ast.Ident{Name: "EmptyInterface"},
+				Type: &ast.InterfaceType{
+					Methods: &ast.FieldList{},
+				},
+			},
+			wantKind: "interface",
+		},
+		{
+			name: "Empty Interface (Methods nil)",
+			typeSpec: &ast.TypeSpec{
+				Name: &ast.Ident{Name: "NilInterface"},
+				Type: &ast.InterfaceType{
+					Methods: nil,
+				},
+			},
+			wantKind: "interface",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			typeDef := h.extractTypeDefinition(fset, tt.typeSpec, nil, "test.go")
+
+			if typeDef.Name != tt.typeSpec.Name.Name {
+				t.Errorf("Expected Name %s, got %s", tt.typeSpec.Name.Name, typeDef.Name)
+			}
+			if typeDef.Kind != tt.wantKind {
+				t.Errorf("Expected Kind %s, got %s", tt.wantKind, typeDef.Kind)
+			}
+
+			// Verify that Fields and Methods are correctly extracted as nil (or empty)
+			if len(typeDef.Fields) > 0 {
+				t.Errorf("Expected 0 Fields, got %d", len(typeDef.Fields))
+			}
+			if len(typeDef.Methods) > 0 {
+				t.Errorf("Expected 0 Methods, got %d", len(typeDef.Methods))
+			}
+
+			// Verify serialization behavior explicitly: omitempty means nil slices are omitted
+			b, err := json.Marshal(typeDef)
+			if err != nil {
+				t.Fatalf("Failed to marshal TypeDefinition: %v", err)
+			}
+			var result map[string]interface{}
+			if err := json.Unmarshal(b, &result); err != nil {
+				t.Fatalf("Failed to unmarshal JSON: %v", err)
+			}
+
+			if _, ok := result["fields"]; ok {
+				t.Errorf("Expected 'fields' to be omitted from JSON due to omitempty tag")
+			}
+			if _, ok := result["methods"]; ok {
+				t.Errorf("Expected 'methods' to be omitted from JSON due to omitempty tag")
+			}
+		})
 	}
 }
