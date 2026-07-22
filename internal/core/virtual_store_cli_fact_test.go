@@ -39,3 +39,39 @@ func TestRouteAction_CLINextActionShape_PassesParsing(t *testing.T) {
 		t.Fatalf("legacy 2-arg fact should be rejected at parse, got: %v", err)
 	}
 }
+
+// TestCheckKernelPermitted_PendingActionOpensGate is the second half of the
+// F-ROUTE-1 regression. constitution.mg only derives permitted/3 from
+// safe_action(Action) + a matching pending_action/5, so a caller that routes
+// without filing pending_action is default-denied ("action analyze_code not
+// permitted by kernel policy" — observed live). The CLI now files the request
+// (cmd/nerd assertPendingAction) with Target and the canonical empty-payload
+// "{}" exactly as CheckKernelPermitted recomputes them from a bare 3-arg fact.
+func TestCheckKernelPermitted_PendingActionOpensGate(t *testing.T) {
+	kernel, err := NewRealKernel()
+	if err != nil {
+		t.Fatalf("NewRealKernel: %v", err)
+	}
+
+	vs := NewVirtualStoreWithConfig(nil, DefaultVirtualStoreConfig())
+	vs.SetKernel(kernel)
+
+	target := "explain what the OODA loop does in this codebase"
+
+	// Red half: no pending_action filed → default deny.
+	if vs.CheckKernelPermitted("analyze_code", target, map[string]any{}) {
+		t.Fatal("gate should default-deny before pending_action is filed")
+	}
+
+	// Green half: file the request exactly as the CLI does.
+	if err := kernel.Assert(Fact{
+		Predicate: "pending_action",
+		Args:      []any{"cli-1", types.MangleAtom("/analyze_code"), target, "{}", int64(1)},
+	}); err != nil {
+		t.Fatalf("Assert pending_action: %v", err)
+	}
+
+	if !vs.CheckKernelPermitted("analyze_code", target, map[string]any{}) {
+		t.Fatal("gate should open: safe_action(/analyze_code) + matching pending_action filed")
+	}
+}
