@@ -969,15 +969,19 @@ func (c *JITPromptCompiler) buildResultWithStats(
 
 	for _, oa := range fitted {
 		result.IncludedAtoms = append(result.IncludedAtoms, oa.Atom)
-		result.TotalTokens += oa.Atom.TokenCount
-		result.CategoryTokens[oa.Atom.Category] += oa.Atom.TokenCount
+		// Count the render-mode variant actually emitted (see contentForMode),
+		// not the standard TokenCount — otherwise degraded (concise/min) atoms
+		// over-report their token usage in the result stats.
+		atomTokens := tokenCountForMode(oa.Atom, oa.RenderMode)
+		result.TotalTokens += atomTokens
+		result.CategoryTokens[oa.Atom.Category] += atomTokens
 
 		if oa.Atom.IsMandatory {
 			result.MandatoryCount++
-			skeletonTokens += oa.Atom.TokenCount
+			skeletonTokens += atomTokens
 		} else {
 			result.OptionalCount++
-			fleshTokens += oa.Atom.TokenCount
+			fleshTokens += atomTokens
 		}
 
 		// Track render mode distribution
@@ -1036,9 +1040,11 @@ func (c *JITPromptCompiler) buildManifest(
 		Dropped:     make([]DroppedAtomEntry, 0),
 	}
 
-	// Calculate total tokens
+	// Calculate total tokens using the render-mode variant actually emitted, so
+	// the manifest matches contentForMode's output rather than over-reporting
+	// the standard size of degraded (concise/min) atoms.
 	for _, oa := range fitted {
-		manifest.TokenUsage += oa.Atom.TokenCount
+		manifest.TokenUsage += tokenCountForMode(oa.Atom, oa.RenderMode)
 	}
 
 	// Lookup map for scores
