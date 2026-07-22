@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // TestSaveSessionStateCmd_NilWhenIncomplete pins the contract that the
@@ -55,18 +57,28 @@ func TestSaveSessionStateCmd_DoesNotBlock(t *testing.T) {
 	m.workspace = t.TempDir()
 	m.sessionID = "sess-test"
 
-	start := time.Now()
-	cmd := m.saveSessionStateCmd()
-	elapsed := time.Since(start)
+	// Obtaining the Cmd must be effectively instant — the regression this
+	// guards was ~360ms of synchronous work inside Update(). A single
+	// wall-clock sample under a fully loaded parallel test run flakes on
+	// scheduler noise alone, so take the minimum of three constructions:
+	// noise delays one sample, but only genuinely inline work delays all
+	// three. The 100ms bound keeps a >3x margin below the 360ms regression.
+	var cmd tea.Cmd
+	minElapsed := time.Duration(1<<63 - 1)
+	for i := 0; i < 3; i++ {
+		start := time.Now()
+		cmd = m.saveSessionStateCmd()
+		if elapsed := time.Since(start); elapsed < minElapsed {
+			minElapsed = elapsed
+		}
+	}
 
 	if cmd == nil {
 		t.Fatal("expected non-nil Cmd when workspace and sessionID are set")
 	}
 
-	// Obtaining the Cmd must be effectively instant (<50ms even on a slow
-	// CI runner). The original synchronous call took ~360ms.
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("saveSessionStateCmd() blocked for %v; expected <50ms (work should be deferred)", elapsed)
+	if minElapsed > 100*time.Millisecond {
+		t.Errorf("saveSessionStateCmd() blocked for %v (min of 3); expected <100ms (work should be deferred)", minElapsed)
 	}
 
 	// Executing the Cmd must produce the no-op signal message. Run it on
